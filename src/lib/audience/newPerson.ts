@@ -22,8 +22,8 @@ export function consentWayLabel(how: string): string {
   return CONSENT_WAYS.find((w) => w.how === how)?.label ?? "Another way";
 }
 
-/** Where the form was opened: the People list or ⌘K. Vizzy's draft (group 11) adds its own. */
-export const NEW_PERSON_VIA = ["form", "palette"] as const;
+/** Where the form was opened: the People list, ⌘K, or a draft Vizzy filled in (AUDIENCE_VIZZY_ADD_PERSON_ENABLED). */
+export const NEW_PERSON_VIA = ["form", "palette", "vizzy"] as const;
 export type NewPersonVia = (typeof NEW_PERSON_VIA)[number];
 
 /** An address as the sign-up form checks one. */
@@ -50,6 +50,8 @@ const Body = z
     /** Field values (AUDIENCE_FIELDS_ENABLED), set through the one writer once they are added. */
     fields: z.record(z.string().max(64), z.unknown()).optional(),
     via: z.enum(NEW_PERSON_VIA).optional(),
+    /** The Vizzy draft the form was filled in from: closed, with its details cleared, once they are added. */
+    draftId: z.string().max(64).optional(),
   })
   .strict();
 
@@ -62,6 +64,8 @@ export interface NewPerson {
   agreed: { how: ConsentWay; note: string | null } | null;
   fields: Record<string, unknown>;
   via: NewPersonVia;
+  /** The Vizzy draft it came from, if any. */
+  draftId: string | null;
 }
 
 export type NewPersonError = "email_or_phone" | "invalid_email" | "invalid_phone" | "note_needed" | "invalid_input";
@@ -80,6 +84,8 @@ export function parseNewPerson(raw: unknown): { ok: true; value: NewPerson } | {
   const parsed = Body.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "invalid_input" };
   const b = parsed.data;
+  // Opened from Vizzy's draft only with that draft.
+  if (b.via === "vizzy" && !b.draftId) return { ok: false, error: "invalid_input" };
   const email = b.email || null;
   const phone = b.phone || null;
   if (!email && !phone) return { ok: false, error: "email_or_phone" };
@@ -101,6 +107,7 @@ export function parseNewPerson(raw: unknown): { ok: true; value: NewPerson } | {
       agreed,
       fields: b.fields ?? {},
       via: b.via ?? "form",
+      draftId: b.draftId || null,
     },
   };
 }
@@ -128,6 +135,7 @@ export const NEW_PERSON_MESSAGES = {
   invalid_value: "One of the field values doesn't fit its field. Check it and try again.",
   failed: "That didn't save. Try again.",
   fields_not_saved: "They were added, but their field values didn't save. Set them on their page.",
+  draft_gone: "This form from Vizzy is no longer there: someone added them, dismissed it, or it was more than 7 days old.",
 } as const;
 export type NewPersonMessage = keyof typeof NEW_PERSON_MESSAGES;
 
@@ -144,6 +152,7 @@ export const NEW_PERSON_NOTES = {
   agreeHint: 'Saved with your name and the time. "Other" needs a short note. Joining a list never counts as agreeing.',
   nothingSent: "Nothing is sent to people added by hand yet. Recording that they agreed means they can be emailed once lists reach them.",
   existing: "If this email is already in People, you'll go to that person instead of adding a second one.",
+  fromVizzy: "Vizzy filled this in from your chat. Check it, and say how they agreed yourself: Vizzy never records that.",
 } as const;
 
 /**

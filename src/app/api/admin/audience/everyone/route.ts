@@ -3,6 +3,7 @@ import { isRateLimited } from "@/lib/tenant";
 import { addPersonAdmin } from "@/lib/audience/admin";
 import { addPerson, newPersonInfo } from "@/lib/audience/addPerson";
 import { parseNewPerson } from "@/lib/audience/newPerson";
+import { closeNewPersonDraft } from "@/lib/audience/personDrafts";
 import { isFieldsEnabled } from "@/lib/audience/peopleFlags";
 
 export const runtime = "nodejs";
@@ -16,7 +17,8 @@ const ADD_LIMIT = { prefix: "audience_add_person", burstLimit: 30, hourlyLimit: 
  * New person (AUDIENCE_ADD_PERSON_ENABLED), admins only. GET is what the form shows first: the
  * plan's people (it warns, never blocks) and, with `?email=`, the company the address matches.
  * POST adds someone by hand: 201 `{ personId }`, or 200 `{ existing: true, personId }` when their
- * address or phone is already held, writing nothing.
+ * address or phone is already held, writing nothing. With `draftId` (the form Vizzy filled in), the
+ * draft is then closed with only the person's id kept, its details cleared.
  */
 export async function GET(req: Request) {
   const gate = await addPersonAdmin(req);
@@ -34,6 +36,8 @@ export async function POST(req: Request) {
   const parsed = parseNewPerson(await req.json().catch(() => null));
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400, headers: noStore });
   const r = await addPerson(gate.ctx, parsed.value, { fields: isFieldsEnabled() });
+  // The draft Vizzy filled in has done its job: keep only who was added, clear what was typed.
+  if (parsed.value.draftId && r.outcome !== "rejected") await closeNewPersonDraft(gate.ctx, parsed.value.draftId, r.personId).catch(() => false);
   if (r.outcome === "existing") return NextResponse.json({ existing: true, personId: r.personId }, { headers: noStore });
   if (r.outcome === "rejected") {
     if (r.error === "no_user") return NextResponse.json({ error: "forbidden" }, { status: 403, headers: noStore });

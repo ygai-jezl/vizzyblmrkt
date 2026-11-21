@@ -39,6 +39,7 @@ export function CrmClient({
   initialGroup = null,
   canAddPerson = false,
   newPerson = false,
+  newPersonDraft = null,
 }: {
   isAdmin: boolean;
   initialContacts: Contact[];
@@ -68,6 +69,8 @@ export function CrmClient({
   canAddPerson?: boolean;
   /** The page arrived from ⌘K's New person (?new=person). */
   newPerson?: boolean;
+  /** The page arrived from a form Vizzy filled in (?draft=), by the draft's id. */
+  newPersonDraft?: string | null;
 }) {
   /** AUDIENCE_ONE_VIEW_ENABLED: one People tab in place of Signups and Product users. */
   const oneView = Boolean(audience?.oneView);
@@ -124,6 +127,7 @@ export function CrmClient({
           canAddPerson={canAddPerson}
           fields={fields}
           newPerson={newPerson}
+          newPersonDraft={newPersonDraft}
         />
       ) : tab === "contacts" ? (
         <ContactsView

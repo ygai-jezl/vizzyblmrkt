@@ -63,6 +63,7 @@ export function AudienceList({
   canAddPerson = false,
   fields = false,
   newPerson = false,
+  newPersonDraft = null,
 }: {
   /** A search the page arrived with (?q=, from ⌘K). */
   initialQuery?: string;
@@ -78,6 +79,8 @@ export function AudienceList({
   fields?: boolean;
   /** The page arrived from ⌘K's New person (?new=person): open the form. */
   newPerson?: boolean;
+  /** The page arrived from a form Vizzy filled in (?draft=, AUDIENCE_VIZZY_ADD_PERSON_ENABLED): open it filled in. */
+  newPersonDraft?: string | null;
 }) {
   const router = useRouter();
   const [filters, setFilters] = useState<PeopleFilters | null>(null);
@@ -95,16 +98,17 @@ export function AudienceList({
   const [error, setError] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   /** New person is open, and from where. */
-  const [adding, setAdding] = useState<NewPersonVia | null>(canAddPerson && newPerson ? "palette" : null);
+  const [adding, setAdding] = useState<NewPersonVia | null>(canAddPerson && newPersonDraft ? "vizzy" : canAddPerson && newPerson ? "palette" : null);
 
-  // ⌘K's New person while the list is already open.
+  // ⌘K's New person, or a form Vizzy filled in, while the list is already open.
   useEffect(() => {
-    if (canAddPerson && newPerson) setAdding("palette");
-  }, [canAddPerson, newPerson]);
+    if (canAddPerson && newPersonDraft) setAdding("vizzy");
+    else if (canAddPerson && newPerson) setAdding("palette");
+  }, [canAddPerson, newPerson, newPersonDraft]);
 
   const closeNewPerson = () => {
-    // Drop ?new=person, so ⌘K can open the form again.
-    if (adding === "palette") router.replace("/admin/crm");
+    // Drop ?new=person or ?draft=, so ⌘K or the card can open the form again.
+    if (adding === "palette" || adding === "vizzy") router.replace("/admin/crm");
     setAdding(null);
   };
 
@@ -162,7 +166,16 @@ export function AudienceList({
     filtered && filteredField
       ? { [filtered.fieldId]: filteredField.type === "checkbox" ? true : filteredField.type === "multi_select" ? [filtered.value] : filtered.value }
       : {};
-  const newPersonDialog = adding ? <NewPersonDialog via={adding} fields={fields} prefill={prefill} onClose={closeNewPerson} /> : null;
+  const newPersonDialog = adding ? (
+    <NewPersonDialog
+      key={adding === "vizzy" ? `draft-${newPersonDraft}` : adding}
+      via={adding}
+      fields={fields}
+      prefill={adding === "vizzy" ? {} : prefill}
+      draftId={adding === "vizzy" ? newPersonDraft : null}
+      onClose={closeNewPerson}
+    />
+  ) : null;
   const newPersonButton = canAddPerson ? (
     <button
       type="button"

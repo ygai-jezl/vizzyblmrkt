@@ -26,6 +26,10 @@ import { loadFieldLists, type Team } from "./fieldsApi";
  * ⌘K. An email or a phone, a name, two of the brand's fields (more on request) and how they agreed
  * to marketing email. A known address or phone opens that person instead. Near or over the plan's
  * people it says so and still adds them.
+ *
+ * With `draftId` (AUDIENCE_VIZZY_ADD_PERSON_ENABLED) it opens filled in from what Vizzy saved: the
+ * details and field values, never how they agreed, which the admin says. Adding them closes the
+ * draft; Dismiss clears it.
  */
 
 /** Fields shown before "More of your fields". */
@@ -38,6 +42,7 @@ export function NewPersonDialog({
   via,
   fields: fieldsOn,
   prefill = {},
+  draftId = null,
   onClose,
 }: {
   via: NewPersonVia;
@@ -45,6 +50,8 @@ export function NewPersonDialog({
   fields: boolean;
   /** Field values to start with, such as the value the list is filtered by. */
   prefill?: Record<string, FieldValue>;
+  /** The New person form Vizzy filled in, by its id: the form opens with what it holds. */
+  draftId?: string | null;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -63,6 +70,35 @@ export function NewPersonDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [addedWithout, setAddedWithout] = useState<string | null>(null);
+  /** Vizzy's draft: loading, open (with the values it filled in), or gone. */
+  const [draft, setDraft] = useState<"none" | "loading" | "open" | "gone">(draftId ? "loading" : "none");
+  const [start, setStart] = useState<Record<string, FieldValue>>(prefill);
+
+  useEffect(() => {
+    if (!draftId) return;
+    void api<{ draft: { email: string | null; phone: string | null; firstName: string | null; lastName: string | null; fields: Record<string, FieldValue> } }>(
+      `/api/admin/audience/everyone/drafts/${encodeURIComponent(draftId)}`,
+    ).then((r) => {
+      if (!r.ok) return setDraft("gone");
+      const d = r.data.draft;
+      setEmail(d.email ?? "");
+      setPhone(d.phone ?? "");
+      setFirstName(d.firstName ?? "");
+      setLastName(d.lastName ?? "");
+      setStart((cur) => ({ ...cur, ...d.fields }));
+      setValues((cur) => ({ ...cur, ...d.fields }));
+      if (Object.keys(d.fields).length) setAllFields(true);
+      setDraft("open");
+    });
+  }, [draftId]);
+
+  async function dismissDraft() {
+    if (!draftId) return;
+    setBusy(true);
+    await api(`/api/admin/audience/everyone/drafts/${encodeURIComponent(draftId)}`, { method: "DELETE" });
+    setBusy(false);
+    onClose();
+  }
 
   useEffect(() => {
     void api<NewPersonInfo>("/api/admin/audience/everyone").then((r) => r.ok && setInfo(r.data));
@@ -99,6 +135,7 @@ export function NewPersonDialog({
         agreed: agreed ? { how, ...(note.trim() ? { note: note.trim() } : {}) } : null,
         ...(fieldsOn && Object.keys(set).length ? { fields: set } : {}),
         via,
+        ...(draftId && draft === "open" ? { draftId } : {}),
       }),
     });
     setBusy(false);
@@ -120,8 +157,12 @@ export function NewPersonDialog({
             Open their page
           </Link>
         </div>
+      ) : draft === "loading" ? (
+        <p className="text-sm text-neutral-500">Loading…</p>
       ) : (
         <form onSubmit={(e) => void submit(e)} className="space-y-4 text-sm" aria-label="New person" noValidate>
+          {draft === "open" ? <Banner tone="info">{NEW_PERSON_NOTES.fromVizzy}</Banner> : null}
+          {draft === "gone" ? <Banner tone="err">{NEW_PERSON_MESSAGES.draft_gone}</Banner> : null}
           <div className="space-y-1">
             <label className={label} htmlFor="np-email">
               Email
@@ -164,7 +205,7 @@ export function NewPersonDialog({
               {shownFields.map((f) => (
                 <div key={f.key} className="space-y-1">
                   {f.type === "checkbox" ? null : <span className={label}>{f.label}</span>}
-                  <FieldInput field={f} value={prefill[f.key]} team={team} onChange={(v) => setValues((cur) => ({ ...cur, [f.key]: v }))} />
+                  <FieldInput field={f} value={start[f.key]} team={team} onChange={(v) => setValues((cur) => ({ ...cur, [f.key]: v }))} />
                 </div>
               ))}
             </div>
@@ -222,6 +263,11 @@ export function NewPersonDialog({
               {busy ? "Adding…" : "Add person"}
             </Button>
             <Button onClick={onClose}>Cancel</Button>
+            {draft === "open" ? (
+              <Button tone="danger" disabled={busy} onClick={() => void dismissDraft()} className="ml-auto">
+                Dismiss Vizzy&rsquo;s draft
+              </Button>
+            ) : null}
           </div>
           <span className={hint}>{NEW_PERSON_NOTES.existing}</span>
         </form>

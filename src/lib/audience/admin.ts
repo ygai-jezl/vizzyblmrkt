@@ -2,7 +2,7 @@ import { lifecycleAdmin, type AdminGate } from "@/lib/connect/admin";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { isOneViewEnabled, isPersonViewEnabled } from "./flags";
-import { isAddPersonEnabled, isFieldsEnabled, isTimelineEnabled, isVizzyFieldsEnabled } from "./peopleFlags";
+import { isAddPersonEnabled, isFieldsEnabled, isTimelineEnabled, isVizzyAddPersonEnabled, isVizzyFieldsEnabled } from "./peopleFlags";
 
 /**
  * Gate for the person view's admin APIs: its flag (off = these routes don't exist),
@@ -73,4 +73,9 @@ export async function timelineAdmin(req: Request): Promise<AdminGate> {
  */
 export async function vizzyFieldsAdmin(req: Request, opts: { mutate: boolean }): Promise<AdminGate> {
   return switchedAdmin(isVizzyFieldsEnabled(), req, opts);
+}
+
+/** Gate for opening and dismissing Vizzy's New person drafts (AUDIENCE_VIZZY_ADD_PERSON_ENABLED): admins only, as New person is. */
+export async function vizzyAddPersonAdmin(req: Request): Promise<AdminGate> {
+  return switchedAdmin(isVizzyAddPersonEnabled(), req, { mutate: true });
 }

@@ -27,8 +27,9 @@ import { brandCanUse } from "@/lib/plans/brandAccess";
 import type { Competitor, CompetitorChange } from "@/lib/types/competitor";
 import type { AgentAction } from "@/lib/types/agentAction";
 import { agentActionReviewItem, listOpenAgentActions } from "@/lib/ontology/agentActions";
-import { isVizzyFieldsEnabled } from "@/lib/audience/peopleFlags";
+import { isVizzyAddPersonEnabled, isVizzyFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { PERSON_FIELDS_ACTION } from "@/lib/audience/fieldSuggestions";
+import { NEW_PERSON_ACTION } from "@/lib/audience/personDrafts";
 import { readFieldList } from "@/lib/audience/fieldList";
 
 /**
@@ -354,6 +355,14 @@ export function connectionItem(
  * names, by the field list as it is now.
  */
 export function personSuggestionItem(a: AgentAction, labels: ReadonlyMap<string, string>): ReviewItem | null {
+  // A New person form Vizzy filled in (AUDIENCE_VIZZY_ADD_PERSON_ENABLED): who it is stays in the form.
+  if (a.action === NEW_PERSON_ACTION) {
+    return agentActionReviewItem(a, {
+      title: "Vizzy filled in New person for you",
+      detail: "Check it, say how they agreed, and add them, or dismiss it. It goes after 7 days.",
+      action: "Open",
+    });
+  }
   if (a.action !== PERSON_FIELDS_ACTION) return null;
   const names = a.fieldIds.map((id) => labels.get(id)).filter((l): l is string => !!l);
   const title =
@@ -365,13 +374,17 @@ export function personSuggestionItem(a: AgentAction, labels: ReadonlyMap<string,
   });
 }
 
-/** Open field suggestions, newest first, labelled by the People field list (index: action, state, createdAt desc). */
-async function personSuggestionItems(ctx: TenantContext, db?: FirestoreLike): Promise<ReviewItem[]> {
-  const open = await listOpenAgentActions(ctx, { action: PERSON_FIELDS_ACTION, limit: 50, db });
-  if (!open.length) return [];
-  const list = await readFieldList(ctx, "person", db);
-  const labels = new Map(list.items.map((f) => [f.key, f.label]));
-  return open.map((a) => personSuggestionItem(a, labels)).filter((i): i is ReviewItem => !!i);
+/**
+ * Open field suggestions and New person drafts, each switch's own, newest first within each, field
+ * suggestions labelled by the People field list (index: action, state, createdAt desc).
+ */
+async function personSuggestionItems(ctx: TenantContext, opts: { fields: boolean; drafts: boolean }, db?: FirestoreLike): Promise<ReviewItem[]> {
+  const [drafts, open] = await Promise.all([
+    opts.drafts ? listOpenAgentActions(ctx, { action: NEW_PERSON_ACTION, limit: 50, db }) : ([] as AgentAction[]),
+    opts.fields ? listOpenAgentActions(ctx, { action: PERSON_FIELDS_ACTION, limit: 50, db }) : ([] as AgentAction[]),
+  ]);
+  const labels = open.length ? new Map((await readFieldList(ctx, "person", db)).items.map((f) => [f.key, f.label])) : new Map<string, string>();
+  return [...drafts, ...open].map((a) => personSuggestionItem(a, labels)).filter((i): i is ReviewItem => !!i);
 }
 
 // ---------------------------------------------------------------------------
@@ -521,7 +534,8 @@ export async function loadReview(
   ]);
 
   const autopilotRuns = isAutopilotEnabled() ? await soft("autopilot runs", recentRuns(ctx, 60, { db }), [] as AutopilotRun[]) : [];
-  const personSuggestions = isVizzyFieldsEnabled() ? await soft("person suggestions", personSuggestionItems(ctx, db), [] as ReviewItem[]) : [];
+  const people = { fields: isVizzyFieldsEnabled(), drafts: isVizzyAddPersonEnabled() };
+  const personSuggestions = people.fields || people.drafts ? await soft("person suggestions", personSuggestionItems(ctx, people, db), [] as ReviewItem[]) : [];
   const liveConnections = connections.filter((c) => c.kind === "custom" && c.status !== "revoked");
   const latestRuns = await Promise.all(
     liveConnections.map((c) => soft("repo analyses", listRepoAnalyses(ctx, c.id, db), [] as RepoAnalysis[])),

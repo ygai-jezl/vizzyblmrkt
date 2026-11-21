@@ -7,7 +7,7 @@ describe("parseNewPerson", () => {
   it("takes an email, a phone or both, with names, and leaves empty boxes out", () => {
     expect(parseNewPerson({ email: " Sam@Example.com ", firstName: " Sam ", lastName: "", phone: "" })).toEqual({
       ok: true,
-      value: { email: "Sam@Example.com", phone: null, firstName: "Sam", lastName: null, agreed: null, fields: {}, via: "form" },
+      value: { email: "Sam@Example.com", phone: null, firstName: "Sam", lastName: null, agreed: null, fields: {}, via: "form", draftId: null },
     });
     expect(parseNewPerson({ phone: " +44 7700 900123 ", via: "palette" })).toMatchObject({ ok: true, value: { email: null, phone: "+44 7700 900123", via: "palette" } });
   });
@@ -33,7 +33,9 @@ describe("parseNewPerson", () => {
 
   it("refuses anything the form doesn't send", () => {
     expect(parseNewPerson({ email: "sam@example.com", tenantId: "ten_B" })).toEqual({ ok: false, error: "invalid_input" });
+    // From Vizzy's draft only with the draft (AUDIENCE_VIZZY_ADD_PERSON_ENABLED).
     expect(parseNewPerson({ email: "sam@example.com", via: "vizzy" })).toEqual({ ok: false, error: "invalid_input" });
+    expect(parseNewPerson({ email: "sam@example.com", via: "vizzy", draftId: "aa_1" })).toMatchObject({ ok: true, value: { via: "vizzy", draftId: "aa_1" } });
     expect(parseNewPerson("sam@example.com")).toEqual({ ok: false, error: "invalid_input" });
   });
 });

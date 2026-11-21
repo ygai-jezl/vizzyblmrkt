@@ -361,3 +361,30 @@ describe("Vizzy's suggestions about people", () => {
     expect((await loadReview(ctx, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
   });
 });
+
+describe("New person forms Vizzy filled in", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("are listed with their switch on, linking to the form by id, with nothing about the person", async () => {
+    const { draftNewPerson } = await import("@/lib/audience/personDrafts");
+    const db = new FakeFirestore();
+    for (const k of ["AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_ADD_PERSON_ENABLED", "AUDIENCE_VIZZY_ADD_PERSON_ENABLED"]) vi.stubEnv(k, "true");
+    const vizzy: TenantContext = { tenantId: "ten_A", region: "us", source: "agent", userId: "u_admin", role: "admin" };
+    const d = await draftNewPerson(vizzy, { email: "noor.haddad@example.com", firstName: "Noor" }, { db });
+    if (!d.ok || d.outcome === "existing") throw new Error("not drafted");
+    const r = await loadReview(ctx, { lifecycle: false, includeContent: false }, db);
+    expect(r.items).toEqual([
+      {
+        id: `aa:${d.action.id}`,
+        kind: "person_suggestion",
+        title: "Vizzy filled in New person for you",
+        detail: "Check it, say how they agreed, and add them, or dismiss it. It goes after 7 days.",
+        href: `/admin/crm?draft=${d.action.id}`,
+        action: "Open",
+      },
+    ]);
+    expect(JSON.stringify(r.items)).not.toMatch(/Noor|noor|example\.com/);
+    vi.stubEnv("AUDIENCE_VIZZY_ADD_PERSON_ENABLED", "false");
+    expect((await loadReview(ctx, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
+  });
+});

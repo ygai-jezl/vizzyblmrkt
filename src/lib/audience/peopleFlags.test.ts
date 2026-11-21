@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled, isTimelineEnabled, isVizzyFieldsEnabled, isPersonInContextEnabled } from "./peopleFlags";
+import { isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled, isTimelineEnabled, isVizzyFieldsEnabled, isPersonInContextEnabled, isVizzyAddPersonEnabled } from "./peopleFlags";
 
 beforeEach(() => {
   vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
@@ -94,5 +94,17 @@ describe("isPersonInContextEnabled", () => {
     vi.stubEnv("AUDIENCE_VIZZY_FIELDS_ENABLED", "false");
     for (const on of ["LIFECYCLE_ENABLED", "AUDIENCE_PERSON_VIEW", "LIFECYCLE_PERSON_BRIEF", "LIFECYCLE_CHAT_AUTHORING_ENABLED"]) vi.stubEnv(on, "true");
     expect(isPersonInContextEnabled()).toBe(true);
+  });
+});
+
+describe("isVizzyAddPersonEnabled", () => {
+  it("needs New person and its own switch, read as the exact string true, and not Vizzy's fields", () => {
+    vi.stubEnv("AUDIENCE_VIZZY_ADD_PERSON_ENABLED", "true");
+    expect(isVizzyAddPersonEnabled()).toBe(false);
+    vi.stubEnv("AUDIENCE_ADD_PERSON_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_FIELDS_ENABLED", "false");
+    expect(isVizzyAddPersonEnabled()).toBe(true);
+    vi.stubEnv("AUDIENCE_VIZZY_ADD_PERSON_ENABLED", "1");
+    expect(isVizzyAddPersonEnabled()).toBe(false);
   });
 });

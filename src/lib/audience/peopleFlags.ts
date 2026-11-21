@@ -71,3 +71,16 @@ export function isVizzyFieldsEnabled(): boolean {
 export function isPersonInContextEnabled(): boolean {
   return isPersonBriefEnabled() || isVizzyFieldsEnabled();
 }
+
+/**
+ * Vizzy fills in the New person form (AUDIENCE_VIZZY_ADD_PERSON_ENABLED, needs New person): asked to
+ * add someone, Vizzy saves what the user typed (name, email or phone, and values of the field types
+ * it may read) as a draft an admin opens, checks and confirms, recording how they agreed
+ * themselves. Vizzy never records consent. The draft is kept until it is confirmed or dismissed,
+ * or for at most 7 days. Off: no new drafts and the links to them are hidden; the tick still
+ * clears open ones when they expire, and erase finds them, whatever this says. Off in production
+ * until the DPA line.
+ */
+export function isVizzyAddPersonEnabled(): boolean {
+  return isAddPersonEnabled() && process.env.AUDIENCE_VIZZY_ADD_PERSON_ENABLED === "true";
+}

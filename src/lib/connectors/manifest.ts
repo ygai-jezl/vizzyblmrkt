@@ -236,6 +236,8 @@ export const ConnectorManifestSchema = z
         if (new Set(keys).size !== keys.length) ctx.addIssue({ code: "custom", message: "a field is listed twice" });
         const account = c.fields.find((f) => f.key === c.account);
         if (!account || account.secret) ctx.addIssue({ code: "custom", message: "account must name a field that is not secret" });
+        // A connection stores its account and its sealed secrets, nothing else a person typed.
+        for (const f of c.fields) if (!f.secret && f.key !== c.account) ctx.addIssue({ code: "custom", message: `${f.key} is neither the account nor a secret` });
         const auth = c.fields.find((f) => f.key === c.auth.field);
         if (!auth || !auth.secret) ctx.addIssue({ code: "custom", message: "auth.field must name a secret field" });
         for (const p of c.permissions) if (!needs.has(p)) ctx.addIssue({ code: "custom", message: `the permission "${p}" has no shares line` });

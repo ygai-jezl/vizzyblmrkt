@@ -83,6 +83,8 @@ describe("connector manifests", () => {
     const method = m.connect[0] as Extract<ConnectorManifestInput["connect"][number], { method: "token_fields" }>;
     expect(issues({ ...m, connect: [{ ...method, account: "token" }] }).join()).toContain("account must name");
     expect(issues({ ...m, connect: [{ ...method, auth: { field: "zoneId", scheme: "Bearer" } }] }).join()).toContain("auth.field");
+    const extra = { key: "note", label: "Note", secret: false, pattern: "^.+$", minLength: 1, maxLength: 20 };
+    expect(issues({ ...m, connect: [{ ...method, fields: [...method.fields, extra] }] }).join()).toContain("neither the account nor a secret");
     expect(issues({ ...m, connect: [{ ...method, fields: method.fields.map((f) => ({ ...f, pattern: "[a-z]+" })) }] }).length).toBeGreaterThan(0);
   });
 

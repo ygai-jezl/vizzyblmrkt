@@ -1820,6 +1820,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     states: ["connected", "disconnected"],
     erase: {
       paths: [
+        brandPath("disconnect", "src/lib/connectors/service.ts", "an admin's Disconnect removes the sealed secrets; the record stays, marked disconnected"),
         brandPath("purgeDataConnection", "src/lib/tenant/dataConnections.ts", "an operator purge removes the secrets, the recent list and the activity"),
         retention("ACTIVITY_KEEP_DAYS", "src/lib/tenant/dataConnections.ts", "activity rows go 90 days on, through the TTL on ttlAt"),
       ],

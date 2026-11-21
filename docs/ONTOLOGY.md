@@ -302,6 +302,7 @@ A brand's link to an outside source of numbers, such as a Cloudflare zone: which
 - Links: `brand` through tenantId; `member` through ownerUid, and by on each activity row; `connector_manifest` through connectorId
 - States: `connected`, `disconnected`
 - Erase:
+  - `disconnect` in `src/lib/connectors/service.ts`, on removing the record (an admin's Disconnect removes the sealed secrets; the record stays, marked disconnected)
   - `purgeDataConnection` in `src/lib/tenant/dataConnections.ts`, on removing the record (an operator purge removes the secrets, the recent list and the activity)
   - `ACTIVITY_KEEP_DAYS` in `src/lib/tenant/dataConnections.ts`, on retention (activity rows go 90 days on, through the TTL on ttlAt)
   - Gap: a team member's user id in ownerUid and in by stays after they leave the brand, as settings history does

@@ -53,6 +53,16 @@ describe("a field", () => {
     expect(RecordFieldSchema.safeParse(field({ type: "select", options: [opt(1), opt(1)] })).success).toBe(false);
   });
 
+  it("lets Vizzy read only a People text field, and stores the mark only as true", () => {
+    expect(RecordFieldSchema.safeParse(field({ type: "text", vizzyReads: true })).success).toBe(true);
+    expect(RecordFieldSchema.safeParse(field({ type: "text", object: "company", vizzyReads: true })).success).toBe(false);
+    for (const type of ["email", "phone", "link", "team_member", "number"] as const) {
+      expect(RecordFieldSchema.safeParse(field({ type, vizzyReads: true })).success, type).toBe(false);
+    }
+    expect(RecordFieldSchema.safeParse({ ...field({ type: "text" }), vizzyReads: false }).success).toBe(false);
+    expect(RecordFieldSchema.parse(field({ type: "text" }))).not.toHaveProperty("vizzyReads");
+  });
+
   it("has an id that fits a dotted path, a label up to 60 characters and user ids only", () => {
     expect(RecordFieldSchema.safeParse(field({ key: "fld_ABC" })).success).toBe(false);
     expect(RecordFieldSchema.safeParse(field({ key: "fields.x" })).success).toBe(false);

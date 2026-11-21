@@ -9,6 +9,7 @@ import {
   FIELD_LIST_SUBJECT,
   FIELD_TYPE_LABEL,
   FIELD_TYPES,
+  canVizzyReadText,
   fieldListProblems,
   FieldListSchema,
   hasOptions,
@@ -31,10 +32,12 @@ import {
  *   changing it makes a new field with the same label and archives the old one with `replacedBy`.
  *   Values under an archived field stay on each record and come back with a restore.
  * - A list that would break a cap answers `field_list_full` (400).
+ * - "Vizzy can read this field" (`vizzyReads`) is only for a People text field in use, set by an
+ *   admin with the `vizzy_reads` change or when adding one. A restore can turn it off, never on.
  */
 
 export type FieldListChange =
-  | { op: "add"; label: string; type: FieldType; options?: string[]; currency?: string }
+  | { op: "add"; label: string; type: FieldType; options?: string[]; currency?: string; vizzyReads?: boolean }
   | { op: "rename"; key: string; label: string }
   | { op: "reorder"; keys: string[] }
   | { op: "add_option"; key: string; label: string }
@@ -43,7 +46,8 @@ export type FieldListChange =
   | { op: "restore_option"; key: string; optionId: string }
   | { op: "archive"; key: string }
   | { op: "restore"; key: string }
-  | { op: "change_type"; key: string; type: FieldType; options?: string[]; currency?: string };
+  | { op: "change_type"; key: string; type: FieldType; options?: string[]; currency?: string }
+  | { op: "vizzy_reads"; key: string; on: boolean };
 
 export type FieldListError = "fields_changed" | "field_list_full" | "field_not_found" | "option_not_found" | "invalid_field";
 
@@ -99,12 +103,15 @@ function optionsFrom(labels: string[] | undefined, makeId: () => string): FieldO
   return out;
 }
 
-/** A new field of a type, with its options or currency, or null when they don't fit it. */
+/**
+ * A new field of a type, with its options or currency, or null when they don't fit it. `vizzyReads`
+ * is left out unless it is asked for, and only a People text field can have it.
+ */
 function makeField(
   object: RecordFieldObject,
   label: string,
   type: FieldType,
-  extra: { options?: string[]; currency?: string },
+  extra: { options?: string[]; currency?: string; vizzyReads?: boolean },
   opts: ApplyOptions,
 ): RecordField | null {
   if (!(FIELD_TYPES as readonly string[]).includes(type)) return null;
@@ -112,6 +119,7 @@ function makeField(
   if (options === null) return null;
   const currency = type === "currency" ? (extra.currency ?? "").trim().toUpperCase() : undefined;
   if (currency !== undefined && !CURRENCY_CODE.test(currency)) return null;
+  if (extra.vizzyReads === true && !canVizzyReadText({ type, object })) return null;
   const field: RecordField = {
     key: (opts.newFieldId ?? newFieldId)(),
     label,
@@ -122,6 +130,7 @@ function makeField(
     archivedAt: null,
     archivedBy: null,
     replacedBy: null,
+    ...(extra.vizzyReads === true ? { vizzyReads: true as const } : {}),
     createdAt: opts.nowIso,
     createdBy: opts.userId,
   };
@@ -145,7 +154,7 @@ export function applyFieldListChange(object: RecordFieldObject, items: readonly 
       if (!label) return { ok: false, error: "invalid_field" };
       const field = makeField(object, label, change.type, change, opts);
       if (!field) return { ok: false, error: "invalid_field" };
-      return done([...items, field], `Added ‘${label}’`);
+      return done([...items, field], field.vizzyReads ? `Added ‘${label}’ and let Vizzy read it` : `Added ‘${label}’`);
     }
     case "rename": {
       const i = find(change.key);
@@ -204,7 +213,8 @@ export function applyFieldListChange(object: RecordFieldObject, items: readonly 
       const i = find(change.key);
       if (i < 0) return { ok: false, error: "field_not_found" };
       const f = items[i]!;
-      return done(replace(i, { ...f, archivedAt: null, archivedBy: null, replacedBy: null }), `Restored ‘${f.label}’`);
+      // Bring back never turns reading on: an admin ticks it again if Vizzy should read it.
+      return done(replace(i, keepReading(f, { ...f, archivedAt: null, archivedBy: null, replacedBy: null })), `Restored ‘${f.label}’`);
     }
     case "change_type": {
       const i = find(change.key);
@@ -218,7 +228,41 @@ export function applyFieldListChange(object: RecordFieldObject, items: readonly 
       const next = [...items.slice(0, i), field, archived, ...items.slice(i + 1)];
       return done(next, `Changed ‘${old.label}’ to ${FIELD_TYPE_LABEL[field.type]}`);
     }
+    case "vizzy_reads": {
+      const i = find(change.key);
+      if (i < 0) return { ok: false, error: "field_not_found" };
+      const f = items[i]!;
+      if (f.archivedAt || !canVizzyReadText(f) || typeof change.on !== "boolean") return { ok: false, error: "invalid_field" };
+      const message = change.on ? `Let Vizzy read ‘${f.label}’` : `Stopped Vizzy reading ‘${f.label}’`;
+      // Already so: nothing changes, and no version is written.
+      if ((f.vizzyReads === true) === change.on) return done([...items], message);
+      const rest = withoutReading(f);
+      return done(replace(i, change.on ? { ...rest, vizzyReads: true } : rest), message);
+    }
   }
+}
+
+/** Whether Vizzy reads a field as it stands: a text field in use that an admin let it read. */
+function reading(f: Pick<RecordField, "archivedAt"> & { vizzyReads?: unknown }): boolean {
+  return !f.archivedAt && f.vizzyReads === true;
+}
+
+/** A field with "Vizzy can read this field" left out. */
+function withoutReading(f: RecordField): RecordField {
+  const { vizzyReads: _off, ...rest } = f;
+  return rest;
+}
+
+/**
+ * A field after a restore or Bring back, `next`, with "Vizzy can read this field" kept only where
+ * it doesn't turn reading on: Vizzy reads `next` only if it read `now` already, and an archived
+ * field keeps the mark only if `now` had it. An older version or Bring back can turn reading off,
+ * never on.
+ */
+function keepReading(now: RecordField | undefined, next: RecordField): RecordField {
+  if (next.vizzyReads === undefined) return next;
+  if (now?.vizzyReads === true && (reading(now) || !!next.archivedAt)) return next;
+  return withoutReading(next);
 }
 
 export type FieldListSave =
@@ -291,7 +335,12 @@ export async function restoreFieldListVersion(
   // Fields the restore archives say who archived them, as an archive from the editor does.
   const archivedBy = input.by.type === "member" ? input.by.id : null;
   const archived = new Set(plan.archived.map((f) => f.key));
-  const items = plan.items.map((f) => (archived.has(f.key) ? { ...f, archivedBy } : f));
+  const now = new Map(current.items.map((f) => [f.key, f]));
+  const items = plan.items.map((f) => {
+    const next = archived.has(f.key) ? { ...f, archivedBy } : f;
+    // A restore never turns reading on; an item the list doesn't hold now comes back without it.
+    return keepReading(now.get(f.key), next);
+  });
   if (fieldListProblems(items, object).length) return { ok: false, error: "field_list_full" };
   if (!FieldListSchema.safeParse({ items }).success) return { ok: false, error: "invalid_field" };
   const message = `Restored version ${input.rev}`;
@@ -325,7 +374,7 @@ const CurrencyIn = z.string().max(3).optional();
 
 /** One change as a request carries it: checked for shape here, and against the list when applied. */
 export const FieldListChangeSchema: z.ZodType<FieldListChange> = z.discriminatedUnion("op", [
-  z.object({ op: z.literal("add"), label: LabelIn, type: TypeIn, options: OptionLabels, currency: CurrencyIn }).strict(),
+  z.object({ op: z.literal("add"), label: LabelIn, type: TypeIn, options: OptionLabels, currency: CurrencyIn, vizzyReads: z.boolean().optional() }).strict(),
   z.object({ op: z.literal("rename"), key: KeyIn, label: LabelIn }).strict(),
   z.object({ op: z.literal("reorder"), keys: z.array(KeyIn).max(FIELD_LIMITS.totalFields) }).strict(),
   z.object({ op: z.literal("add_option"), key: KeyIn, label: LabelIn }).strict(),
@@ -335,6 +384,7 @@ export const FieldListChangeSchema: z.ZodType<FieldListChange> = z.discriminated
   z.object({ op: z.literal("archive"), key: KeyIn }).strict(),
   z.object({ op: z.literal("restore"), key: KeyIn }).strict(),
   z.object({ op: z.literal("change_type"), key: KeyIn, type: TypeIn, options: OptionLabels, currency: CurrencyIn }).strict(),
+  z.object({ op: z.literal("vizzy_reads"), key: KeyIn, on: z.boolean() }).strict(),
 ]);
 
 /** Each error's HTTP status: a stale rev is a conflict, a missing field or option is not found, the rest are bad requests. */

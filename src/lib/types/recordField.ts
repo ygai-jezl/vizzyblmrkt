@@ -84,6 +84,14 @@ export function isVizzyFieldType(type: FieldType): boolean {
   return (VIZZY_FIELD_TYPES as readonly string[]).includes(type);
 }
 
+/**
+ * Whether a field can carry "Vizzy can read this field": a text field on People. Email, phone,
+ * link and team member fields never can, whatever is set, and nor can a company's fields.
+ */
+export function canVizzyReadText(field: { type?: unknown; object?: unknown }): boolean {
+  return field.type === "text" && field.object === "person";
+}
+
 export const FIELD_LIMITS = {
   /** Fields in use on one object. */
   liveFields: 100,
@@ -135,6 +143,8 @@ export type FieldOption = z.infer<typeof FieldOptionSchema>;
 /**
  * One field. `key` is its id (the settings log calls an item's id its key). Options are for
  * select, multi select and status, in the order they show (a status's order is its steps).
+ * `vizzyReads` is set only on a People text field an admin let Vizzy read; it is left out
+ * otherwise, never stored as false.
  */
 export const RecordFieldSchema = z
   .object({
@@ -147,6 +157,7 @@ export const RecordFieldSchema = z
     archivedAt: Instant.nullable().optional(),
     archivedBy: UserId.nullable().optional(),
     replacedBy: z.string().regex(FIELD_ID).nullable().optional(),
+    vizzyReads: z.literal(true).optional(),
     createdAt: Instant,
     createdBy: UserId.nullable(),
   })
@@ -162,6 +173,7 @@ export const RecordFieldSchema = z
       c.addIssue({ code: "custom", path: ["options"], message: "options_only_on_select_multi_select_or_status" });
     }
     if ((f.type === "currency") !== (f.currency !== undefined)) c.addIssue({ code: "custom", path: ["currency"], message: "currency_only_and_always_on_currency" });
+    if (f.vizzyReads !== undefined && !canVizzyReadText(f)) c.addIssue({ code: "custom", path: ["vizzyReads"], message: "vizzy_reads_only_on_a_person_text_field" });
   });
 export type RecordField = z.infer<typeof RecordFieldSchema>;
 

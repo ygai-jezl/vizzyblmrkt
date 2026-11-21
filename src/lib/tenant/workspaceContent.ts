@@ -386,6 +386,28 @@ export async function listContentPlans(
   return rows;
 }
 
+/**
+ * A workspace's newest plans, newest first: ordered by when they were made before the limit is
+ * taken (listContentPlans takes the limit first), on the one field, so no composite index.
+ */
+export async function listRecentContentPlans(
+  ctx: TenantContext,
+  workspaceId: string,
+  limit = 100,
+  db?: FirestoreLike,
+): Promise<ContentPlan[]> {
+  const snap = await contentPlans(ctx, workspaceId, db)
+    .orderBy("createdAt", "desc")
+    .limit(Math.min(Math.max(limit, 1), 500))
+    .get();
+  const rows: ContentPlan[] = [];
+  for (const d of snap.docs) {
+    const parsed = ContentPlanSchema.safeParse(d.data());
+    if (parsed.success && parsed.data.tenantId === ctx.tenantId && parsed.data.workspaceId === workspaceId) rows.push(parsed.data);
+  }
+  return rows;
+}
+
 export async function getContentPlan(
   ctx: TenantContext,
   workspaceId: string,

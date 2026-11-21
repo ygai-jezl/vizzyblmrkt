@@ -73,6 +73,16 @@ export function isFilterType(type: FieldType): boolean {
   return (FILTER_TYPES as readonly string[]).includes(type);
 }
 
+/**
+ * The types Vizzy may read and suggest (AUDIENCE_VIZZY_FIELDS_ENABLED, answer 7 of 20 Nov): values
+ * that pick from the brand's own options, a box, a number, an amount or a day. Never text, email,
+ * phone, link or team member values, which can hold who someone is.
+ */
+export const VIZZY_FIELD_TYPES = ["select", "multi_select", "status", "checkbox", "number", "currency", "date"] as const satisfies readonly FieldType[];
+export function isVizzyFieldType(type: FieldType): boolean {
+  return (VIZZY_FIELD_TYPES as readonly string[]).includes(type);
+}
+
 export const FIELD_LIMITS = {
   /** Fields in use on one object. */
   liveFields: 100,

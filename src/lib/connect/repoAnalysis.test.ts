@@ -10,7 +10,7 @@ import { ANALYSES_PER_DAY, acceptProductMap, listRepoAnalyses, parseRepoUrl, sta
 import { patchConnection } from "./adminApi";
 import { listCatalogRevisions } from "./catalogHistory";
 
-const ctx: TenantContext = { tenantId: "ten_A", region: "eu", source: "idtoken", email: "jez@acme.test", role: "admin" };
+const ctx: TenantContext = { tenantId: "ten_A", region: "eu", source: "idtoken", email: "jez@acme.test", role: "admin", userId: "usr_jez" };
 const NOW = Date.parse("2026-09-23T10:00:00Z");
 
 beforeAll(() => {
@@ -257,8 +257,9 @@ describe("accepting a product map", () => {
     expect(saved?.catalogRev).toBe(1);
     const stale = await patchConnection(ctx, connection.id, { catalog: SANDBOX_CATALOG, catalogRev: 0 }, db);
     expect(stale).toMatchObject({ status: 409, body: { error: "catalog_changed", catalogRev: 1 } });
-    const [version] = await listCatalogRevisions(ctx, connection.id, db);
-    expect(version).toMatchObject({ rev: 1, source: "learn", savedBy: "jez@acme.test", changes: ["Added step ‘Invite your team’"] });
+    const { versions: [version] } = await listCatalogRevisions(ctx, connection.id, {}, db);
+    // Who saved it is a user id, never an address.
+    expect(version).toMatchObject({ rev: 1, source: "learn", savedBy: "usr_jez", changes: ["Added step ‘Invite your team’"] });
   });
 
   it("adds to the catalog as it is at that moment, keeping a save that lands meanwhile", async () => {

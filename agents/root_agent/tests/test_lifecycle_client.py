@@ -143,7 +143,7 @@ def test_get_repo_analysis_reads_the_summary(monkeypatch):
 
 # ---- One person (LIFECYCLE_PERSON_BRIEF) ------------------------------------------------
 
-BRIEF = {"personId": "pu_3f9a", "product": "Fernlight app", "stage": {"summary": "Onboarding, 2 of 5 steps done"}, "journeys": []}
+BRIEF = {"productUserId": "pu_3f9a", "personId": "pu_3f9a", "product": "Fernlight app", "stage": {"summary": "Onboarding, 2 of 5 steps done"}, "journeys": []}
 
 
 def test_a_person_brief_reads_the_person_in_view(monkeypatch):
@@ -167,6 +167,8 @@ def test_a_person_brief_needs_a_person_in_view(monkeypatch):
     for state in (STATE, {**STATE, "personId": ""}, {**STATE, "personId": None}):
         out = lc.get_person(dict(state), "")
         assert out["status"] == "needs_person" and "person's page" in out["message"]
+        # The People rename can't reach Vizzy, so its words fit both names of the area.
+        assert "Audience" not in out["message"]
     assert calls == []
     assert lc.get_person({"personId": "pu_3f9a"}, "")["status"] == "unavailable"  # no chat token
 
@@ -224,7 +226,7 @@ def test_person_plan_payload_shape():
     assert p == {
         "kind": "person_plan",
         "action": "save_draft",
-        "scope": {"personId": "pu_3f9a"},
+        "scope": {"productUserId": "pu_3f9a", "personId": "pu_3f9a"},
         "goal": "Connect their site",
         "angle": "One short email.",
         "next": ["Send R3", "Review"],
@@ -243,17 +245,17 @@ def test_a_plan_is_saved_as_a_draft_for_the_person_in_view(monkeypatch):
     assert out["status"] == "success" and out["planStatus"] == "draft" and out["card"] == card
     assert out["message"].startswith("Saved as a draft plan")
     assert calls[0]["method"] == "POST" and calls[0]["url"].endswith("/api/agent/canvas") and calls[0]["token"] == "tok"
-    assert calls[0]["payload"]["scope"] == {"personId": "pu_3f9a"} and calls[0]["payload"]["kind"] == "person_plan"
+    assert calls[0]["payload"]["scope"] == {"productUserId": "pu_3f9a", "personId": "pu_3f9a"} and calls[0]["payload"]["kind"] == "person_plan"
 
 
 def test_on_a_whole_persons_page_the_plan_goes_to_the_product_user_their_brief_is_about(monkeypatch):
     state = {**STATE, "personId": "ct_9b2e"}
     assert lc.save_person_plan(dict(state), "g", "a", None, None)["status"] == "needs_person"
-    _capture(monkeypatch, 200, {"brief": {"personId": "pu_3f9a", "stage": {}}, "plans": True})
+    _capture(monkeypatch, 200, {"brief": {"productUserId": "pu_3f9a", "personId": "pu_3f9a", "stage": {}}, "plans": True})
     assert lc.get_person(state, "")["status"] == "success"
     calls = _capture(monkeypatch, 200, {"ok": True, "id": "pp_pu_3f9a", "status": "draft"})
     assert lc.save_person_plan(state, "Connect their site", "One short email.", None, None)["status"] == "success"
-    assert calls[0]["payload"]["scope"] == {"personId": "pu_3f9a"}
+    assert calls[0]["payload"]["scope"] == {"productUserId": "pu_3f9a", "personId": "pu_3f9a"}
     # Another person's page: the brief read on the first page never stands in for them.
     state["personId"] = "ct_77aa"
     assert lc.save_person_plan(state, "g", "a", None, None)["status"] == "needs_person"
@@ -267,7 +269,8 @@ def test_a_brief_for_someone_who_only_joined_launches_says_so(monkeypatch):
 
 def test_a_plan_needs_a_person_and_its_two_parts(monkeypatch):
     calls = _capture(monkeypatch)
-    assert lc.save_person_plan(dict(STATE), "g", "a", None, None)["status"] == "needs_person"
+    out = lc.save_person_plan(dict(STATE), "g", "a", None, None)
+    assert out["status"] == "needs_person" and "Audience" not in out["message"]
     state = {**STATE, "personId": "pu_3f9a"}
     assert lc.save_person_plan(state, " ", "a", None, None)["status"] == "needs_plan"
     assert lc.save_person_plan(state, "g", "", None, None)["status"] == "needs_plan"
@@ -288,3 +291,21 @@ def test_a_plan_that_cannot_be_saved_says_why(monkeypatch):
         _capture(monkeypatch, status, body)
         out = lc.save_person_plan(dict(state), "g", "a", None, None)
         assert out["status"] == "error" and out["code"] == body["error"] and words in out["message"]
+
+
+def test_either_side_can_deploy_first_with_the_product_user_id(monkeypatch):
+    # An app not yet updated names the brief's product user only as personId; an updated one as both.
+    for brief in ({"personId": "pu_old", "stage": {}}, {"productUserId": "pu_new", "stage": {}}):
+        state = {**STATE, "personId": "ct_9b2e"}
+        _capture(monkeypatch, 200, {"brief": brief, "plans": True})
+        assert lc.get_person(state, "")["status"] == "success"
+        calls = _capture(monkeypatch, 200, {"ok": True, "id": "pp", "status": "draft"})
+        assert lc.save_person_plan(state, "g", "a", None, None)["status"] == "success"
+        expected = brief.get("productUserId") or brief.get("personId")
+        # Vizzy sends both names, so an app not yet updated finds personId.
+        assert calls[0]["payload"]["scope"] == {"productUserId": expected, "personId": expected}
+    # A session that read the brief before this change kept it under the old key.
+    state = {**STATE, "personId": "ct_9b2e", "briefPersonIds": {"ct_9b2e": "pu_kept"}}
+    calls = _capture(monkeypatch, 200, {"ok": True, "id": "pp", "status": "draft"})
+    assert lc.save_person_plan(state, "g", "a", None, None)["status"] == "success"
+    assert calls[0]["payload"]["scope"]["productUserId"] == "pu_kept"

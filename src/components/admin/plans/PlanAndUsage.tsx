@@ -2,6 +2,7 @@ import { FEATURE_LABELS, allowanceText, planById, type Allowance, type Plan } fr
 import type { LimitedFeature } from "@/lib/plans/limits";
 import type { AllowanceRow, FeatureRow, MonthlyRow, UsageBrandRow, UsageSummary } from "@/lib/plans/usage";
 import type { Region } from "@/lib/types/tenant";
+import { peopleArea } from "@/lib/nav/terms";
 
 /**
  * Settings › Plan and usage (PLANS_ENABLED and NEXT_PUBLIC_PLANS_ENABLED), from organisationUsage
@@ -34,9 +35,12 @@ export const PLAN_AND_USAGE_COPY = {
 
 /**
  * What every plan includes, shown before the plan's own features, so Free (which adds none) never
- * reads as a plan with nothing in it. The names the navigation uses.
+ * reads as a plan with nothing in it. The names the navigation uses: `people` is
+ * isPeopleNameEnabled(), so the last one is People or Audience as the sidebar says.
  */
-export const EVERY_PLAN_INCLUDES = ["Launches and waitlists", "Journeys", "Posts", "Audience"] as const;
+export function everyPlanIncludes(people: boolean): string[] {
+  return ["Launches and waitlists", "Journeys", "Posts", peopleArea(people)];
+}
 
 const CARD = "rounded-lg border border-neutral-200 p-4 dark:border-neutral-800";
 const HINT = "text-xs text-neutral-500 dark:text-neutral-400";
@@ -153,7 +157,7 @@ export function PlanAndUsageFailed() {
   return <p className="max-w-2xl text-sm text-neutral-600 dark:text-neutral-300">{PLAN_AND_USAGE_COPY.failed}</p>;
 }
 
-export function PlanAndUsage({ summary }: { summary: UsageSummary }) {
+export function PlanAndUsage({ summary, people = false }: { summary: UsageSummary; people?: boolean }) {
   const plan = planById(summary.plan);
   const org = summary.organisation;
   const orgView = org?.view === "organisation";
@@ -203,7 +207,7 @@ export function PlanAndUsage({ summary }: { summary: UsageSummary }) {
           <div className="space-y-1.5">
             <h3 className={LABEL}>{plan ? "What your plan includes" : "What this brand can use"}</h3>
             <ul className="flex flex-wrap gap-1.5">
-              {EVERY_PLAN_INCLUDES.map((name) => (
+              {everyPlanIncludes(people).map((name) => (
                 <li key={name} className={PILL}>
                   {name}
                 </li>

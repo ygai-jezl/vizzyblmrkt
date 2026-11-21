@@ -53,6 +53,15 @@ export function deterministicAgentActionId(tenantId: string, dedupeKey: string):
 }
 
 /**
+ * A setting's id from (tenant, subject), such as the brand's People field list: the live
+ * setting's document id, and the stem of its versions' ids (src/lib/settings/history.ts). Case
+ * kept: subjects are codes.
+ */
+export function deterministicSettingsSubjectId(tenantId: string, subject: string): string {
+  return `ss_${hash(`${tenantId}\n${subject}`)}`;
+}
+
+/**
  * The CANONICAL registrable domain (eTLD+1, ASCII/punycode-normalised) of a host.
  *
  * registrableDomain() collapses subdomains (mail.acme.com → acme.com) but leaves

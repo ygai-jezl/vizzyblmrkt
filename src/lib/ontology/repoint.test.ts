@@ -5,10 +5,14 @@ import type { TenantContext } from "@/lib/tenant/types";
 import type { EmailJob } from "@/lib/types/emailJob";
 import { personIdOf } from "@/lib/audience/personSync";
 import { personIdForAddress } from "./personRef";
-import { HISTORY_STORES, processPersonRepointJob, REPOINT_STORES } from "./repoint";
+import { HISTORY_STORES, MAX_VALUE_TRIES, processPersonRepointJob, REPOINT_STORES } from "./repoint";
 import { fieldChangedEvent } from "./eventBuilders";
 import type { ContactPersonId } from "./person";
 import { agentDedupeKey } from "@/lib/types/agentAction";
+import { saveFieldListChange, type FieldListChange } from "@/lib/audience/fieldList";
+
+// The external audience is out of scope for the erase checks below.
+vi.mock("@/lib/mailchimp", () => ({ removeSignupFromAudience: vi.fn(async () => ({ ok: true })) }));
 
 const ctx: TenantContext = { tenantId: "ten_demo", region: "us", source: "system" };
 const T = Date.parse("2026-11-20T10:00:00Z");
@@ -257,5 +261,188 @@ describe("processPersonRepointJob and the history stores", () => {
     // It started at the agent actions filed under the pu: person, so the five stores were not walked again.
     expect(w.db.collectionCalls("product_events")).toBe(eventsBefore);
     expect(w.db.dump("agent_actions").filter((a) => a.tenantId === "ten_demo").every((a) => a.personId === ADA)).toBe(true);
+  });
+});
+
+describe("processPersonRepointJob and the team's field values", () => {
+  beforeEach(() => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  const BY = { type: "member" as const, id: "uid_1" };
+  const AT = "2026-11-20T09:00:00.000Z";
+  const PLAN = "fld_000000000001";
+  const SEATS = "fld_000000000002";
+  const FORMER = personIdForAddress("ten_demo", "ada@old.example.com")!;
+
+  /**
+   * pu_1 moved to `to` (its product user now has that address) from `from`, a record left behind
+   * holding the team's values; `to` holds `theirs`. The field list has Plan and Seats.
+   */
+  async function valuesWorld(a: { kind: "record.merged" | "record.repointed"; from: ContactPersonId; fromKey: string; to: ContactPersonId; toKey: string; theirs?: Record<string, unknown> }) {
+    const db = new FakeFirestore();
+    db.seed("product_connections", "pcn_1", { tenantId: "ten_demo", kind: "custom", status: "active" });
+    db.seed("product_users", "pu_1", { tenantId: "ten_demo", connectionId: "pcn_1", status: "active", emailNormalized: a.toKey });
+    let o = 0;
+    const changes: FieldListChange[] = [
+      { op: "add", label: "Plan", type: "select", options: ["Starter", "Pro"] },
+      { op: "add", label: "Seats", type: "number" },
+    ];
+    let f = 0;
+    for (const [i, change] of changes.entries()) {
+      const r = await saveFieldListChange(ctx, "person", { baseRev: i, change, by: BY, nowIso: AT, newFieldId: () => `fld_${String((f += 1)).padStart(12, "0")}`, newOptionId: () => `opt_${String((o += 1)).padStart(8, "0")}` }, db);
+      if (!r.ok) throw new Error(r.error);
+    }
+    db.seed("contacts", a.to, { tenantId: "ten_demo", contactKey: a.toKey, email: a.toKey, consentStatus: "none", campaigns: [], memberOf: ["all", "product:any", "product:pcn_1"], fields: a.theirs ?? {} });
+    db.seed("contacts", a.from, { tenantId: "ten_demo", contactKey: a.fromKey, consentStatus: "none", campaigns: [], memberOf: [], fields: { [PLAN]: "opt_00000002", [SEATS]: 5 } });
+    // Who set the old record's values, filed under it.
+    await appendEvents(ctx, [fieldChangedEvent({ subject: { type: "person", id: a.from }, personId: a.from, fieldId: SEATS, object: "person", before: null, after: 5, source: "editor", actor: BY, at: AT, nonce: () => "set" })], { db });
+    db.seed("person_moves", "mv_1", { tenantId: "ten_demo", productUserId: "pu_1", personId: a.to, fromPersonId: a.from, repoint: "pending", kind: a.kind, createdAt: new Date(T).toISOString() });
+    db.seed("email_jobs", "pr_1", { tenantId: "ten_demo", type: "person_repoint", status: "processing", payload: { productUserId: "pu_1" } });
+    const job = async () => (await forTenant(ctx, db).emailJobs.getById("pr_1")) as EmailJob;
+    const fields = (id: string) => (db.raw("contacts", id) as { fields?: Record<string, unknown> } | undefined)?.fields;
+    const fieldEvents = () => db.dump("ontology_events").filter((e) => e.kind === "record.field_changed" && e.tenantId === "ten_demo");
+    return { db, job, fields, fieldEvents };
+  }
+
+  it("moves them on an address change, and the emptied record goes with its history", async () => {
+    const w = await valuesWorld({ kind: "record.repointed", from: FORMER, fromKey: "ada@old.example.com", to: NEW, toKey: "ada@new.example.com" });
+    expect(await processPersonRepointJob(ctx, await w.job(), w.db, { now: () => T })).toBe("drop");
+    expect(w.fields(NEW)).toEqual({ [PLAN]: "opt_00000002", [SEATS]: 5 });
+    expect((w.db.raw("contacts", NEW) as { memberOf: string[] }).memberOf).toContain(`field:${PLAN}:opt_00000002`);
+    // Nothing kept the old record but its values, so it went, and what was filed under it followed.
+    expect(w.db.raw("contacts", FORMER)).toBeUndefined();
+    expect(w.fieldEvents().every((e) => e.personId === NEW)).toBe(true);
+    const moved = w.fieldEvents().filter((e) => (e.properties as { source: string }).source === "sync" && (e.properties as { before: unknown }).before === null);
+    expect(moved.map((e) => e.fieldId).sort()).toEqual([PLAN, SEATS]);
+    expect(w.db.raw("person_moves", "mv_1")?.repoint).toBe("done");
+  });
+
+  it("moves them when a pu: record merges into an address", async () => {
+    const w = await valuesWorld({ kind: "record.merged", from: OLD as ContactPersonId, fromKey: "pu:pu_1", to: ADA, toKey: "ada@example.com" });
+    expect(await processPersonRepointJob(ctx, await w.job(), w.db, { now: () => T })).toBe("drop");
+    expect(w.fields(ADA)).toEqual({ [PLAN]: "opt_00000002", [SEATS]: 5 });
+    expect(w.db.raw("contacts", OLD)).toBeUndefined();
+    expect(w.fieldEvents().filter((e) => e.personId === OLD)).toHaveLength(0);
+  });
+
+  it("keeps the new record's own value, and the old record stays holding the other", async () => {
+    const w = await valuesWorld({ kind: "record.repointed", from: FORMER, fromKey: "ada@old.example.com", to: NEW, toKey: "ada@new.example.com", theirs: { [PLAN]: "opt_00000001" } });
+    expect(await processPersonRepointJob(ctx, await w.job(), w.db, { now: () => T })).toBe("drop");
+    expect(w.fields(NEW)).toEqual({ [PLAN]: "opt_00000001", [SEATS]: 5 });
+    expect(w.fields(FORMER)).toEqual({ [PLAN]: "opt_00000002" });
+    // The old record stays, so its own history stays with it.
+    expect(w.fieldEvents().some((e) => e.personId === FORMER && (e.properties as { source: string }).source === "editor")).toBe(true);
+  });
+
+  it("moves nothing twice when the job is retried or put back in the queue", async () => {
+    const w = await valuesWorld({ kind: "record.repointed", from: FORMER, fromKey: "ada@old.example.com", to: NEW, toKey: "ada@new.example.com", theirs: { [PLAN]: "opt_00000001" } });
+    let clock = T;
+    // A slice that ends at once: the values move before the walk, then it asks to go again.
+    expect(await processPersonRepointJob(ctx, await w.job(), w.db, { now: () => (clock += 30_000), sliceMs: 1 })).toBe("again");
+    const once = { events: w.fieldEvents().length, now: w.fields(NEW), then: w.fields(FORMER) };
+    expect(once.now).toEqual({ [PLAN]: "opt_00000001", [SEATS]: 5 });
+    expect(await processPersonRepointJob(ctx, await w.job(), w.db, { now: () => T })).toBe("drop");
+    expect(w.fieldEvents()).toHaveLength(once.events);
+    expect(w.fields(NEW)).toEqual(once.now);
+    expect(w.fields(FORMER)).toEqual(once.then);
+  });
+
+  /** The next transaction fails, as Firestore's do under contention or past a deadline. */
+  function failNextTransaction(db: FakeFirestore) {
+    const real = db.runTransaction.bind(db);
+    db.runTransaction = (async () => {
+      db.runTransaction = real;
+      throw Object.assign(new Error("ABORTED: transaction contention"), { code: 10 });
+    }) as FakeFirestore["runTransaction"];
+  }
+
+  it("goes again with its moves pending when moving the values fails, and a later run moves them", async () => {
+    const w = await valuesWorld({ kind: "record.merged", from: OLD as ContactPersonId, fromKey: "pu:pu_1", to: ADA, toKey: "ada@example.com" });
+    failNextTransaction(w.db);
+    expect(await processPersonRepointJob(ctx, await w.job(), w.db, { now: () => T })).toBe("again");
+    expect(w.fields(OLD)).toEqual({ [PLAN]: "opt_00000002", [SEATS]: 5 });
+    expect(w.fields(ADA)).toEqual({});
+    expect(w.db.raw("person_moves", "mv_1")?.repoint).toBe("pending");
+    // The pu: record's history stays with the values it still holds.
+    expect(w.fieldEvents().filter((e) => e.personId === OLD)).toHaveLength(1);
+    // It picks up from the history stores: the five are done for this person.
+    expect((await w.job()).payload).toMatchObject({ valueTries: 1, cursor: { store: HISTORY_STORES[0], after: null, target: ADA } });
+
+    expect(await processPersonRepointJob(ctx, await w.job(), w.db, { now: () => T + 60_000 })).toBe("drop");
+    expect(w.fields(ADA)).toEqual({ [PLAN]: "opt_00000002", [SEATS]: 5 });
+    expect(w.db.raw("contacts", OLD)).toBeUndefined();
+    expect(w.fieldEvents().filter((e) => e.personId === OLD)).toHaveLength(0);
+    expect(w.db.raw("person_moves", "mv_1")?.repoint).toBe("done");
+  });
+
+  it("makes the sync a product write couldn't, so a record left behind that still looks like someone in People gives up its values", async () => {
+    const w = await valuesWorld({ kind: "record.repointed", from: FORMER, fromKey: "ada@old.example.com", to: NEW, toKey: "ada@new.example.com" });
+    // The write's sync failed: the old record is still in Everyone, flagged for the sweep.
+    w.db.seed("contacts", FORMER, { ...w.db.raw("contacts", FORMER)!, memberOf: ["all", "product:any", "product:pcn_1"], needsSync: true });
+    expect(await processPersonRepointJob(ctx, await w.job(), w.db, { now: () => T })).toBe("drop");
+    expect(w.fields(NEW)).toEqual({ [PLAN]: "opt_00000002", [SEATS]: 5 });
+    expect(w.db.raw("contacts", FORMER)).toBeUndefined();
+    expect(w.db.raw("person_moves", "mv_1")?.repoint).toBe("done");
+  });
+
+  it("makes the sync a product write couldn't, so values reach a new record that wasn't there yet", async () => {
+    const w = await valuesWorld({ kind: "record.repointed", from: FORMER, fromKey: "ada@old.example.com", to: NEW, toKey: "ada@new.example.com" });
+    w.db.cols.get("contacts")!.delete(NEW);
+    // Enough of the product for a sync to build their link.
+    w.db.seed("product_connections", "pcn_1", { ...w.db.raw("product_connections", "pcn_1")!, catalog: { onboardingSteps: [], events: [], facts: [], entityKinds: [] }, consentPolicy: { marketingBases: ["consent"] } });
+    w.db.seed("product_users", "pu_1", { ...w.db.raw("product_users", "pu_1")!, email: "ada@new.example.com", firstSeenAt: AT });
+    expect(await processPersonRepointJob(ctx, await w.job(), w.db, { now: () => T })).toBe("drop");
+    expect(w.fields(NEW)).toEqual({ [PLAN]: "opt_00000002", [SEATS]: 5 });
+    expect((w.db.raw("contacts", NEW) as { memberOf: string[] }).memberOf).toContain("all");
+    expect(w.db.raw("person_moves", "mv_1")?.repoint).toBe("done");
+  });
+
+  it("leaves the values with a record that is still someone in People, and settles its moves", async () => {
+    const w = await valuesWorld({ kind: "record.repointed", from: FORMER, fromKey: "ada@old.example.com", to: NEW, toKey: "ada@new.example.com" });
+    w.db.seed("contacts", FORMER, { ...w.db.raw("contacts", FORMER)!, memberOf: ["all", "launch:any"] });
+    expect(await processPersonRepointJob(ctx, await w.job(), w.db, { now: () => T })).toBe("drop");
+    expect(w.fields(FORMER)).toEqual({ [PLAN]: "opt_00000002", [SEATS]: 5 });
+    expect(w.fields(NEW)).toEqual({});
+    expect(w.db.raw("person_moves", "mv_1")?.repoint).toBe("done");
+  });
+
+  it("settles its moves after its last try, leaving the values behind, so it never loops", async () => {
+    const w = await valuesWorld({ kind: "record.repointed", from: FORMER, fromKey: "ada@old.example.com", to: NEW, toKey: "ada@new.example.com" });
+    await forTenant(ctx, w.db).emailJobs.update("pr_1", { payload: { productUserId: "pu_1", valueTries: MAX_VALUE_TRIES - 1 } });
+    failNextTransaction(w.db);
+    expect(await processPersonRepointJob(ctx, await w.job(), w.db, { now: () => T })).toBe("drop");
+    expect(w.fields(FORMER)).toEqual({ [PLAN]: "opt_00000002", [SEATS]: 5 });
+    expect(w.db.raw("person_moves", "mv_1")?.repoint).toBe("done");
+  });
+
+  it("never touches another brand's records", async () => {
+    const w = await valuesWorld({ kind: "record.repointed", from: FORMER, fromKey: "ada@old.example.com", to: NEW, toKey: "ada@new.example.com" });
+    const theirs = personIdForAddress("ten_other", "ada@old.example.com")!;
+    w.db.seed("contacts", theirs, { tenantId: "ten_other", contactKey: "ada@old.example.com", memberOf: [], fields: { [SEATS]: 9 } });
+    expect(await processPersonRepointJob(ctx, await w.job(), w.db, { now: () => T })).toBe("drop");
+    expect(w.fields(theirs)).toEqual({ [SEATS]: 9 });
+    expect(w.db.dump("ontology_events").filter((e) => e.tenantId === "ten_other")).toHaveLength(0);
+  });
+
+  it("leaves nothing an erase can't reach: erasing the person takes every value and event", async () => {
+    const { processContactEraseJob } = await import("@/lib/crm/eraseWorker");
+    const w = await valuesWorld({ kind: "record.repointed", from: FORMER, fromKey: "ada@old.example.com", to: NEW, toKey: "ada@new.example.com" });
+    await processPersonRepointJob(ctx, await w.job(), w.db, { now: () => T });
+    expect(await processContactEraseJob(ctx, { id: "erase_ada", payload: { contactId: NEW } } as unknown as EmailJob, w.db)).toBe("done");
+    expect(w.db.dump("contacts").filter((c) => c.tenantId === "ten_demo" && c.fields && Object.keys(c.fields as object).length)).toHaveLength(0);
+    expect(w.db.dump("ontology_events").filter((e) => e.tenantId === "ten_demo" && (e.personId === NEW || e.personId === FORMER))).toHaveLength(0);
+  });
+
+  it("leaves nothing an erase can't reach when the old record stays: the product user's erase takes it", async () => {
+    const { eraseProductUser } = await import("@/lib/connect/erase");
+    const w = await valuesWorld({ kind: "record.repointed", from: FORMER, fromKey: "ada@old.example.com", to: NEW, toKey: "ada@new.example.com", theirs: { [PLAN]: "opt_00000001" } });
+    await processPersonRepointJob(ctx, await w.job(), w.db, { now: () => T });
+    expect(w.fields(FORMER)).toEqual({ [PLAN]: "opt_00000002" });
+    await eraseProductUser(ctx, "pcn_1", "pu_1", w.db, T);
+    expect(w.db.raw("contacts", FORMER)).toBeUndefined();
+    expect(w.db.dump("ontology_events").filter((e) => e.tenantId === "ten_demo" && e.personId === FORMER)).toHaveLength(0);
   });
 });

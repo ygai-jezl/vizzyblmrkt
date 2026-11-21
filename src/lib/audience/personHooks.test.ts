@@ -154,3 +154,32 @@ describe("with the person links on", () => {
     expect(person(db, "ada@customer.test")!.needsSync).toBe(true);
   });
 });
+
+describe("moves on the timeline from the write paths", () => {
+  beforeEach(() => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_ONE_VIEW_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_TIMELINE_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+  const moves = (db: FakeFirestore, key: string) =>
+    (db.dump("ontology_events") as Array<{ fieldId: string | null; personId: string; productUserId: string | null }>).filter(
+      (e) => e.personId === personIdOf(TENANT_ID, key) && e.fieldId?.startsWith("sys."),
+    );
+
+  it("records a sign-up's and a product write's moves, and none on an erase, so nothing outlives the erased product user", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    await recordSignupContact(ctx, {} as Campaign, signupDoc(db, "sig_1", { status: "verified_active", verified: true }), db);
+    expect(moves(db, "ada@customer.test").map((e) => e.fieldId)).toEqual(["sys.launch.camp1"]);
+    await patchUser(ctx, connectionOf(db), "ada", { email: "ada@customer.test" }, { db, nowMs: T0 });
+    expect(moves(db, "ada@customer.test").map((e) => e.fieldId)).toEqual(["sys.launch.camp1", `sys.product.${CONNECTION_ID}`, `sys.stage.${CONNECTION_ID}`]);
+
+    const ada = productUserDocId(CONNECTION_ID, "ada");
+    await eraseProductUser(ctx, CONNECTION_ID, ada, db, T0 + 1000);
+    expect(person(db, "ada@customer.test")).toMatchObject({ products: [] });
+    expect(moves(db, "ada@customer.test").map((e) => e.fieldId)).toEqual(["sys.launch.camp1"]);
+    expect((db.dump("ontology_events") as Array<{ productUserId: string | null }>).some((e) => e.productUserId === ada)).toBe(false);
+  });
+});

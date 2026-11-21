@@ -224,3 +224,131 @@ describe("event history and agent actions in an export, with every switch off", 
     expect(whole).toMatchObject({ complete: false, truncated: { events: expect.any(String), agentActions: expect.any(String) } });
   });
 });
+
+describe("field values in an export, with every switch off", () => {
+  it("lists each value with its field's label, archived ones marked, beside their field changes", async () => {
+    const { saveFieldListChange } = await import("./fieldList");
+    const { setRecordFieldValues } = await import("@/lib/tenant");
+    const db = new FakeFirestore();
+    seedWorld(db);
+    seedUser(db, "ada", { email: "ada@customer.test", emailNormalized: "ada@customer.test" });
+    await syncPerson(ctx, "ada@customer.test", { db, nowMs: T0 });
+    const id = personIdOf(TENANT_ID, "ada@customer.test");
+    const by = { type: "member", id: "u_admin" } as const;
+    const at = new Date(T0).toISOString();
+    await saveFieldListChange(ctx, "person", { baseRev: 0, change: { op: "add", label: "Plan", type: "select", options: ["Pro"] }, by, nowIso: at, newFieldId: () => "fld_000000000001", newOptionId: () => "opt_00000001" }, db);
+    await saveFieldListChange(ctx, "person", { baseRev: 1, change: { op: "add", label: "Old segment", type: "text" }, by, nowIso: at, newFieldId: () => "fld_000000000002" }, db);
+    await setRecordFieldValues(ctx, { object: "person", recordId: id, changes: { fld_000000000001: "opt_00000001", fld_000000000002: "B2B" }, by, source: "editor", nowIso: at }, { db });
+    await saveFieldListChange(ctx, "person", { baseRev: 2, change: { op: "archive", key: "fld_000000000002" }, by, nowIso: at }, db);
+
+    const r = await exportWholePerson(ctx, id, { db, nowMs: T0 });
+    const doc = (r as { document: Record<string, unknown> }).document;
+    expect(doc.fields).toEqual([
+      { fieldId: "fld_000000000001", label: "Plan", type: "select", typeLabel: "select", archived: false, value: "opt_00000001", text: "Pro" },
+      { fieldId: "fld_000000000002", label: "Old segment", type: "text", typeLabel: "text", archived: true, value: "B2B", text: "B2B" },
+    ]);
+    expect((doc.events as Array<{ kind: string }>).filter((e) => e.kind === "record.field_changed")).toHaveLength(2);
+  });
+
+  it("has no field values for someone without any", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    seedUser(db, "ada", { email: "ada@customer.test", emailNormalized: "ada@customer.test" });
+    await syncPerson(ctx, "ada@customer.test", { db, nowMs: T0 });
+    const r = await exportWholePerson(ctx, personIdOf(TENANT_ID, "ada@customer.test"), { db, nowMs: T0 });
+    expect((r as { document: Record<string, unknown> }).document.fields).toEqual([]);
+  });
+});
+
+describe("someone added by hand in an export, with every switch off", () => {
+  it("holds who added them, how they agreed and both events, and no address in the events", async () => {
+    const { addPerson } = await import("./addPerson");
+    const { parseNewPerson } = await import("./newPerson");
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const sam = parseNewPerson({ email: "sam@labs.test", firstName: "Sam", agreed: { how: "signed_form" } });
+    if (!sam.ok) throw new Error(sam.error);
+    const at = new Date(T0).toISOString();
+    await addPerson(ctx, sam.value, { db, nowIso: at });
+    const r = await exportWholePerson(ctx, personIdOf(TENANT_ID, "sam@labs.test"), { db, nowMs: T0 });
+    const doc = (r as { document: Record<string, unknown> }).document;
+    expect(doc.person).toMatchObject({
+      email: "sam@labs.test",
+      addedBy: { kind: "member", id: "usr_1", at, via: "form" },
+      consent: { marketing_email: { state: "granted", how: "signed_form", recordedBy: "usr_1", at } },
+    });
+    const kinds = (doc.events as Array<{ kind: string }>).map((e) => e.kind).sort();
+    expect(kinds).toEqual(["consent.recorded", "record.created"]);
+    expect(JSON.stringify(doc.events)).not.toContain("sam@labs.test");
+  });
+
+  it("holds a withdrawal: the record says withdrawn, and both consent events are there", async () => {
+    const { addPerson, withdrawHandConsent } = await import("./addPerson");
+    const { parseNewPerson } = await import("./newPerson");
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const sam = parseNewPerson({ email: "sam@labs.test", agreed: { how: "in_person" } });
+    if (!sam.ok) throw new Error(sam.error);
+    await addPerson(ctx, sam.value, { db, nowIso: new Date(T0).toISOString() });
+    const id = personIdOf(TENANT_ID, "sam@labs.test");
+    const later = new Date(T0 + 60_000).toISOString();
+    await withdrawHandConsent(ctx, id, { note: "Asked us to stop" }, { db, nowIso: later });
+    const r = await exportWholePerson(ctx, id, { db, nowMs: T0 + 60_000 });
+    const doc = (r as { document: Record<string, unknown> }).document;
+    expect(doc.person).toMatchObject({ consent: { marketing_email: { state: "withdrawn", note: "Asked us to stop", recordedBy: "usr_1", at: later } } });
+    const states = (doc.events as Array<{ kind: string; properties: { state?: string } }>).filter((e) => e.kind === "consent.recorded").map((e) => e.properties.state).sort();
+    expect(states).toEqual(["granted", "withdrawn"]);
+  });
+});
+
+describe("timeline moves in an export, with the timeline switched off again", () => {
+  it("are in the export: a product's in that product's part, with its product user", async () => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_ONE_VIEW_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_TIMELINE_ENABLED", "true");
+    try {
+      const db = new FakeFirestore();
+      seedWorld(db);
+      seedUser(db, "ada", { email: "ada@customer.test", emailNormalized: "ada@customer.test" });
+      await syncPerson(ctx, "ada@customer.test", { db, nowMs: T0 });
+      vi.unstubAllEnvs();
+      const r = await exportWholePerson(ctx, personIdOf(TENANT_ID, "ada@customer.test"), { db, nowMs: T0 });
+      const doc = (r as unknown as { document: { events: Array<{ fieldId: string | null }>; products: Array<{ events: Array<{ fieldId: string | null }> }> } }).document;
+      const inProducts = doc.products.flatMap((x) => x.events).map((e) => e.fieldId);
+      expect(inProducts.filter((f) => f?.startsWith("sys.")).sort()).toEqual(["sys.product.pcn_life", "sys.stage.pcn_life"]);
+      expect(doc.events.filter((e) => e.fieldId?.startsWith("sys."))).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe("Vizzy's field suggestions in an export, with its switch off", () => {
+  it("holds each suggestion about them with its values, and its trail", async () => {
+    vi.stubEnv("AUDIENCE_VIZZY_FIELDS_ENABLED", "false");
+    try {
+      const { saveFieldListChange } = await import("./fieldList");
+      const { decideFieldSuggestion, suggestFieldChanges } = await import("./fieldSuggestions");
+      const db = new FakeFirestore();
+      seedWorld(db);
+      seedUser(db, "ada", { email: "ada@customer.test", emailNormalized: "ada@customer.test" });
+      await syncPerson(ctx, "ada@customer.test", { db, nowMs: T0 });
+      const id = personIdOf(TENANT_ID, "ada@customer.test");
+      const admin = { ...ctx, userId: "usr_1", role: "admin" as const };
+      await saveFieldListChange(admin, "person", { baseRev: 0, change: { op: "add", label: "Seats", type: "number" }, by: { type: "member", id: "usr_1" }, newFieldId: () => "fld_000000000001" }, db);
+      const s = await suggestFieldChanges({ ...admin, source: "agent" }, { personId: id, changes: { fld_000000000001: 9 }, why: "Nine people use it." }, { db, nowMs: T0 });
+      if (!s.ok) throw new Error(s.error);
+      expect(await decideFieldSuggestion(admin, id, { id: s.action.id, rev: s.action.rev, decision: "confirm" }, { db, nowMs: T0 + 1000 })).toMatchObject({ ok: true });
+
+      const doc = ((await exportWholePerson(ctx, id, { db, nowMs: T0 + 2000 })) as { document: Record<string, unknown> }).document;
+      expect(doc.agentActions).toEqual([
+        expect.objectContaining({ id: s.action.id, action: "person_fields.suggest", state: "acted", result: { fields: { fld_000000000001: 9 } }, undo: { before: { fld_000000000001: null } } }),
+      ]);
+      const kinds = (doc.events as Array<{ kind: string }>).map((e) => e.kind).filter((k) => k.startsWith("agent.") || k === "record.field_changed").sort();
+      expect(kinds).toEqual(["agent.acted", "agent.approved", "agent.proposed", "record.field_changed"]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});

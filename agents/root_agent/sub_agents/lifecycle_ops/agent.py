@@ -10,7 +10,8 @@ the account's products/catalogs (aggregates only — never people), read a journ
 draft, and save drafts through the canvas endpoint, including a journey's own look
 (its draft's Email style, with the root's tools for it). Where it is switched on, it
 can also read ONE person's situation — the person whose page the operator is on —
-with no name, address or product id in it. Publishing, delivery mode and AI-line
+with no name, address or product id in it, and that person's own fields of the
+safe types, suggesting changes that someone on the team confirms. Publishing, delivery mode and AI-line
 approvals stay human-only, so no tool confirmation is needed here.
 """
 
@@ -26,6 +27,9 @@ from .tools.lifecycle_tools import (
     get_person_brief,
     get_repo_analysis,
     learn_product_from_repo,
+    people_fields_list,
+    person_fields_propose,
+    person_fields_read,
     save_lifecycle_graph,
     save_person_plan,
 )
@@ -40,7 +44,9 @@ lifecycle_ops_agent = LlmAgent(
         "CONNECTED PRODUCT users — post-signup onboarding sequences that nudge people "
         "who haven't finished onboarding and educate people who have — and saves them "
         "as drafts for human review. Delegate here for anything about product users, "
-        "onboarding progress, lifecycle email or a journey page under Lifecycle."
+        "onboarding progress, lifecycle email or a journey page under Lifecycle, and for "
+        "anything about one person's fields (their plan, seats, status and the like), "
+        "including suggesting changes for the team to confirm."
     ),
     instruction=build_lifecycle_ops_instruction,
     tools=[
@@ -54,6 +60,11 @@ lifecycle_ops_agent = LlmAgent(
         # plan for them that staff approve.
         get_person_brief,
         save_person_plan,
+        # The brand's own fields on a person, of the types Vizzy may read, and suggested
+        # changes the team confirms (with or without lifecycle).
+        people_fields_list,
+        person_fields_read,
+        person_fields_propose,
         # One journey's own look (header and button colours), in its draft.
         get_journey_email_style,
         set_journey_email_style,

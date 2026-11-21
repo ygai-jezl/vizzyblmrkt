@@ -4,7 +4,7 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import { eraseProductUser } from "@/lib/connect/erase";
 import { productUserDocId } from "@/lib/connect/profile";
-import { patchUser } from "@/lib/connect/v2/users";
+import { deleteUser, patchUser } from "@/lib/connect/v2/users";
 import { recordSignupContact } from "@/lib/crm/contactService";
 import { personIdOf, syncPerson } from "@/lib/audience/personSync";
 import { CONNECTION_ID, T0, TENANT_ID, ctx, seedWorld } from "@/lib/lifecycle/testing/fixtures";
@@ -108,6 +108,36 @@ describe("forgetGonePersonHistory", () => {
     expect(held(db, TENANT_ID, kept)).toBe(3);
     expect(await forgetGonePersonHistory(ctx, null, { db })).toBeNull();
     expect(held(db, "ten_other", gone)).toBe(3);
+  });
+
+  it("keeps the history of someone added by hand when their last product user goes", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const added = person("sam@customer.test");
+    const productOnly = person("bea@customer.test");
+    const record = (key: string, extra: Record<string, unknown> = {}) => ({
+      tenantId: TENANT_ID,
+      contactKey: key,
+      email: key,
+      status: "active",
+      consentStatus: "none",
+      campaigns: [],
+      campaignIds: [],
+      enrichment: { status: "none" },
+      products: [],
+      memberOf: ["all"],
+      ...extra,
+    });
+    db.seed("contacts", added, record("sam@customer.test", { addedBy: { kind: "member", id: "usr_1", at: AT, via: "form" }, memberOf: ["added:hand", "all"] }));
+    db.seed("contacts", productOnly, record("bea@customer.test"));
+    await rowsAbout(db, ctx, added, "s1");
+    await rowsAbout(db, ctx, productOnly, "b1");
+
+    // Neither has a product user any more: only being added by hand keeps Sam a person.
+    expect(await forgetGonePersonHistory(ctx, "sam@customer.test", { db })).toEqual({ events: 0, agentActions: 0 });
+    expect(held(db, TENANT_ID, added)).toBe(3);
+    expect(await forgetGonePersonHistory(ctx, "bea@customer.test", { db })).toEqual({ events: 2, agentActions: 1 });
+    expect(held(db, TENANT_ID, productOnly)).toBe(0);
   });
 });
 
@@ -257,5 +287,62 @@ describe("eraseProductUser", () => {
 
     expect(await eraseProductUser(ctx, CONNECTION_ID, puId, db, T0 + 2000)).toBe(true);
     expect(held(db, TENANT_ID, puPerson)).toBe(0);
+  });
+});
+
+describe("people a product user left behind, kept for their field values", () => {
+  /** Person links, the one view and the person ids on, as fields need. */
+  function fieldsOn() {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_ONE_VIEW_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+  }
+  const withValue = (db: FakeFirestore, id: string) => db.seed("contacts", id, { ...db.raw("contacts", id), fields: { fld_000000000001: "opt_00000001" } });
+
+  it("go with their history when the product user is erased: their pu: person after a merge", async () => {
+    fieldsOn();
+    const db = new FakeFirestore();
+    seedWorld(db);
+    await patchUser(ctx, connectionOf(db), "anon", {}, { db, nowMs: T0 });
+    const puId = productUserDocId(CONNECTION_ID, "anon");
+    const puPerson = productUserPersonId(TENANT_ID, puId);
+    withValue(db, puPerson);
+    await patchUser(ctx, connectionOf(db), "anon", { email: "dee@customer.test" }, { db, nowMs: T0 + 1000 });
+    // Kept for the value the team set, out of Everyone.
+    expect(db.raw("contacts", puPerson)).toMatchObject({ status: "deleted", memberOf: [] });
+    expect(await eraseProductUser(ctx, CONNECTION_ID, puId, db, T0 + 2000)).toBe(true);
+    expect(db.raw("contacts", puPerson)).toBeUndefined();
+    expect(db.raw("contacts", person("dee@customer.test"))).toBeUndefined();
+  });
+
+  it("go when the product's own erase arrives: the person for an address they had before", async () => {
+    fieldsOn();
+    const db = new FakeFirestore();
+    seedWorld(db);
+    await patchUser(ctx, connectionOf(db), "eve", { email: "eve@customer.test" }, { db, nowMs: T0 });
+    const before = person("eve@customer.test");
+    withValue(db, before);
+    await rowsAbout(db, ctx, before, "about_eve");
+    await patchUser(ctx, connectionOf(db), "eve", { email: "eve.new@customer.test" }, { db, nowMs: T0 + 1000 });
+    expect(db.raw("contacts", before)).toMatchObject({ status: "deleted", memberOf: [] });
+    expect(db.dump("person_moves").filter((m) => m.fromPersonId === before)).toHaveLength(1);
+    await deleteUser(ctx, connectionOf(db), "eve", { db, nowMs: T0 + 2000 });
+    expect(db.raw("contacts", before)).toBeUndefined();
+    expect(held(db, TENANT_ID, before)).toBe(0);
+  });
+
+  it("stay while something else keeps them: an earlier address with its own sign-up", async () => {
+    fieldsOn();
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const signup = { tenantId: TENANT_ID, campaignId: "camp1", email: "fay@customer.test", status: "verified_active", verified: true, createdAt: AT } as unknown as Signup;
+    db.seed("signups", "sig_fay", signup);
+    await recordSignupContact(ctx, {} as Campaign, { ...signup, id: "sig_fay" }, db);
+    await patchUser(ctx, connectionOf(db), "fay", { email: "fay@customer.test" }, { db, nowMs: T0 });
+    const before = person("fay@customer.test");
+    withValue(db, before);
+    await patchUser(ctx, connectionOf(db), "fay", { email: "fay.new@customer.test" }, { db, nowMs: T0 + 1000 });
+    expect(await eraseProductUser(ctx, CONNECTION_ID, productUserDocId(CONNECTION_ID, "fay"), db, T0 + 2000)).toBe(true);
+    expect(db.raw("contacts", before)).toMatchObject({ memberOf: expect.arrayContaining(["all"]), fields: { fld_000000000001: "opt_00000001" } });
   });
 });

@@ -29,6 +29,7 @@ from root_agent_pkg.tools.audience_counts import get_audience_counts  # noqa: E4
 from root_agent_pkg.tools.journey_style import get_journey_email_style, set_journey_email_style  # noqa: E402
 from root_agent_pkg.tools.retrieve_knowledge import retrieve_knowledge  # noqa: E402
 from root_agent_pkg.tools.setup_help import get_setup_status, read_help_page  # noqa: E402
+from root_agent_pkg.tools.new_person import new_person_propose  # noqa: E402
 
 TOOLS = [
     retrieve_knowledge,
@@ -52,6 +53,7 @@ TOOLS = [
     get_next_up,
     get_setup_status,
     read_help_page,
+    new_person_propose,
 ]
 
 
@@ -169,7 +171,7 @@ def test_lifecycle_ops_can_read_the_person_in_view():
     assert inspect.signature(get_person_brief).parameters["tool_context"].annotation is ToolContext
     props, required = _params(FunctionTool(get_person_brief)._get_declaration())
     # No way to ask by name or address: only the person in view, or an id a brief gave.
-    assert set(props) == {"person_id"} and not required
+    assert set(props) == {"product_user_id"} and not required
 
 
 @pytest.mark.filterwarnings("ignore::UserWarning")
@@ -180,6 +182,37 @@ def test_lifecycle_ops_can_draft_a_plan_for_the_person_in_view():
     assert save_person_plan in lifecycle_ops_agent.tools
     assert inspect.signature(save_person_plan).parameters["tool_context"].annotation is ToolContext
     props, required = _params(FunctionTool(save_person_plan)._get_declaration())
-    assert set(props) == {"goal", "angle", "next_steps", "review_in_days", "person_id"}
+    assert set(props) == {"goal", "angle", "next_steps", "review_in_days", "product_user_id"}
     assert sorted(required) == ["angle", "goal"]
 
+
+
+@pytest.mark.filterwarnings("ignore::UserWarning")
+def test_lifecycle_ops_can_read_and_suggest_a_persons_fields():
+    from root_agent_pkg.sub_agents.lifecycle_ops.agent import lifecycle_ops_agent
+    from root_agent_pkg.sub_agents.lifecycle_ops.tools.lifecycle_tools import (
+        people_fields_list,
+        person_fields_propose,
+        person_fields_read,
+    )
+
+    for fn in (people_fields_list, person_fields_read, person_fields_propose):
+        assert fn in lifecycle_ops_agent.tools
+        assert inspect.signature(fn).parameters["tool_context"].annotation is ToolContext
+    props, required = _params(FunctionTool(people_fields_list)._get_declaration())
+    assert not props and not required
+    # Only the person in view, or our id for one: never a name or an address.
+    props, required = _params(FunctionTool(person_fields_read)._get_declaration())
+    assert set(props) == {"person_id"} and not required
+    props, required = _params(FunctionTool(person_fields_propose)._get_declaration())
+    assert set(props) == {"changes", "why", "person_id"}
+    assert sorted(required) == ["changes", "why"]
+
+
+@pytest.mark.filterwarnings("ignore::UserWarning")
+def test_the_root_agent_fills_in_new_person_with_no_place_for_consent():
+    from root_agent_pkg.agent import root_agent
+
+    assert new_person_propose in root_agent.tools
+    props, required = _params(FunctionTool(new_person_propose)._get_declaration())
+    assert set(props) == {"email", "phone", "first_name", "last_name", "fields"} and not required

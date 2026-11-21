@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { CONNECTION_ID, T0, TENANT_ID, ctx, seedUser, seedWorld } from "@/lib/lifecycle/testing/fixtures";
 import type { Contact } from "@/lib/types/contact";
@@ -40,6 +40,29 @@ describe("sweepPeople", () => {
     expect((await sweepPeople(ctx, { db, ...at(later + 60_000) })).checked).toBe(0);
   });
 
+  it("keeps someone added by hand after their product user goes, with New person's switch off", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const dee = seedUser(db, "dee");
+    await syncPerson(ctx, "dee@customer.test", { db, nowMs: T0 });
+    // Added by hand too (New person opens a known address, so this mark stands in for a record made by hand first).
+    const id = personIdOf(TENANT_ID, "dee@customer.test");
+    db.seed("contacts", id, {
+      ...db.raw("contacts", id),
+      firstName: "Dee",
+      addedBy: { kind: "member", id: "usr_1", at: new Date(T0).toISOString(), via: "form" },
+    });
+    db.seed("product_users", dee.id, { ...db.raw("product_users", dee.id), status: "deleted" });
+    await markNeedsSync(ctx, "dee@customer.test", db);
+    vi.stubEnv("AUDIENCE_ADD_PERSON_ENABLED", "false");
+    try {
+      expect(await sweepPeople(ctx, { db, ...at(T0 + 3 * DAY) })).toMatchObject({ synced: 1, failed: 0 });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(person(db, "dee@customer.test")).toMatchObject({ firstName: "Dee", status: "active", products: [], memberOf: ["added:hand", "all"] });
+  });
+
   it("finds a product user the write path missed", async () => {
     const db = new FakeFirestore();
     seedWorld(db);
@@ -73,5 +96,37 @@ describe("sweepPeople", () => {
     await syncPerson(ctx, "ivy@customer.test", { db, nowMs: T0 });
     expect((await syncPerson(ctx, "ivy@customer.test", { db, nowMs: T0, dryRun: true })).outcome).toBe("unchanged");
     expect((await syncPerson(ctx, "ivy@customer.test", { db, nowMs: T0 + 3 * DAY, dryRun: true })).outcome).toBe("updated");
+  });
+});
+
+describe("sweepPeople and the timeline", () => {
+  it("records the stage moves the daily check finds, inside its deadline", async () => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_ONE_VIEW_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_TIMELINE_ENABLED", "true");
+    try {
+      const db = new FakeFirestore();
+      seedWorld(db);
+      const bea = seedUser(db, "bea");
+      await syncPerson(ctx, "bea@customer.test", { db, nowMs: T0 });
+      const later = T0 + 20 * DAY;
+      const r = await sweepPeople(ctx, { db, ...at(later) });
+      expect(r).toMatchObject({ checked: 1, failed: 0 });
+      const rows = (db.dump("ontology_events") as Array<{ fieldId: string; productUserId: string; properties: { before: unknown; after: unknown }; at: string }>).filter(
+        (e) => e.at === new Date(later).toISOString(),
+      );
+      expect(rows.map((e) => [e.fieldId, e.properties.before, e.properties.after, e.productUserId])).toEqual([[`sys.stage.${CONNECTION_ID}`, "new", "stuck", bea.id]]);
+      expect(person(db, "bea@customer.test")!.memberOf).toContain(`stage:${CONNECTION_ID}:stuck`);
+      // Past its deadline the check reads nobody, and records nothing.
+      const count = db.dump("ontology_events").length;
+      seedUser(db, "cal");
+      await syncPerson(ctx, "cal@customer.test", { db, nowMs: T0 });
+      const late = T0 + 40 * DAY;
+      expect(await sweepPeople(ctx, { db, now: () => late, deadlineMs: late - 1 })).toEqual({ synced: 0, checked: 0, failed: 0 });
+      expect(db.dump("ontology_events")).toHaveLength(count + 2);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

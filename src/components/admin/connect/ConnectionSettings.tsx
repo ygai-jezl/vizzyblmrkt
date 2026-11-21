@@ -256,7 +256,7 @@ export function ConnectionSettings({
       {showClocks ? (
         <Section
           title="How we read stages"
-          description="Audience puts each of this product's users in a stage with these clocks. Change them to fit how quickly people move through your product."
+          description="We put each of this product's users in a stage with these clocks. Change them to fit how quickly people move through your product."
         >
           <div className="grid gap-3 sm:grid-cols-3">
             {(

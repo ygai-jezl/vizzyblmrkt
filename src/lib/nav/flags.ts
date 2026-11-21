@@ -47,3 +47,14 @@ export function isNavV2Phase4Enabled(): boolean {
 export function isInsightsHubEnabled(): boolean {
   return isNavV2Phase4Enabled() && process.env.NEXT_PUBLIC_INSIGHTS_HUB_ENABLED === "true";
 }
+
+/**
+ * Audience is called People in the words people read: the sidebar, ⌘K, the crumbs (also what
+ * Vizzy is told about the page), page titles and help. Needs phase 3, and takes effect only
+ * where the one People list is on too (AUDIENCE_ONE_VIEW_ENABLED, a server switch), which
+ * isPeopleNameEnabled() in src/lib/audience/flags.ts checks. The nav key, routes, APIs and
+ * data keep "audience"; only the words change.
+ */
+export function isNavPeopleEnabled(): boolean {
+  return isNavV2Phase3Enabled() && process.env.NEXT_PUBLIC_NAV_PEOPLE_ENABLED === "true";
+}

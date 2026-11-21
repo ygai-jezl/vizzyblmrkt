@@ -48,6 +48,12 @@ export interface NavFlags {
    * and Insights.
    */
   phase3?: boolean;
+  /**
+   * The Audience item reads People (NEXT_PUBLIC_NAV_PEOPLE_ENABLED with the one People list:
+   * isPeopleNameEnabled(), worked out on the server). Its key and route stay "audience" and
+   * /admin/crm.
+   */
+  people?: boolean;
 }
 
 export function buildNav(flags: NavFlags): NavSection[] {
@@ -86,7 +92,7 @@ export function buildNav(flags: NavFlags): NavSection[] {
       key: "understand",
       title: "Understand",
       items: [
-        { key: "audience", href: "/admin/crm", label: "Audience", match: ["/admin/crm"] },
+        { key: "audience", href: "/admin/crm", label: flags.people ? "People" : "Audience", match: ["/admin/crm"] },
         {
           key: "insights",
           href: "/admin/analytics",
@@ -228,7 +234,7 @@ const ACCOUNT_TABS: Record<string, string> = {
   billing: "Billing",
 };
 
-/** Single-page areas: the crumb is just the page's name. */
+/** Single-page areas: the crumb is just the page's name. People renames crm (opts.people). */
 const PAGES: Record<string, string> = {
   approvals: "Review",
   crm: "Audience",
@@ -273,7 +279,7 @@ const PLANS_TAB = "Plan and usage";
 export function breadcrumbsFor(
   pathname: string,
   names: CrumbNames,
-  opts: { phase3?: boolean; insights?: boolean; plans?: boolean } = {},
+  opts: { phase3?: boolean; insights?: boolean; plans?: boolean; people?: boolean } = {},
 ): Crumb[] {
   const segments = pathname.split("/").filter(Boolean);
   if (segments[0] !== "admin") return [];
@@ -358,15 +364,21 @@ export function breadcrumbsFor(
     }
     case "lifecycle":
       return id ? [{ label: "Journeys", href: "/admin/lifecycle" }, { label: "Journey" }] : [{ label: "Journeys" }];
-    case "crm":
+    case "crm": {
       // A person's page: a whole person (ct_, AUDIENCE_ONE_VIEW_ENABLED) or a product user
       // (AUDIENCE_PERSON_VIEW). Never their name: these labels are also what Vizzy is told
-      // about the page in view.
+      // about the page in view. With People on, the area is People, so a whole person is
+      // People › Person and a product user People › Product users › Person.
+      const area = opts.people ? "People" : PAGES.crm!;
       if (id === "people" && rest[0]) {
-        const list = rest[0].startsWith("ct_") ? { label: "People", href: "/admin/crm" } : { label: "Product users", href: "/admin/crm?tab=product" };
-        return [{ label: PAGES.crm!, href: "/admin/crm" }, list, { label: "Person" }];
+        const root: Crumb = { label: area, href: "/admin/crm" };
+        if (rest[0].startsWith("ct_")) {
+          return opts.people ? [root, { label: "Person" }] : [root, { label: "People", href: "/admin/crm" }, { label: "Person" }];
+        }
+        return [root, { label: "Product users", href: "/admin/crm?tab=product" }, { label: "Person" }];
       }
-      return [{ label: PAGES.crm! }];
+      return [{ label: area }];
+    }
     case "products":
       return id ? [{ label: "Products", href: "/admin/products" }, { label: "Product" }] : [{ label: "Products" }];
     case "brands":

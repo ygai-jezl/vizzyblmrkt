@@ -194,6 +194,13 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Audience is called People in the words people read (needs phase 3). It shows only where
+  # AUDIENCE_ONE_VIEW_ENABLED is on too, which the code checks.
+  - variable: NEXT_PUBLIC_NAV_PEOPLE_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
   # Setup steps that must happen in order stop and say so.
   - variable: ORDER_GUARDS_ENABLED
     value: "false"
@@ -368,6 +375,44 @@ env:
       - RUNTIME
   # The person on every event, send, enrolment and plan, found when it is written. Needs AUDIENCE_PERSON_LINKS_ENABLED.
   - variable: ONTOLOGY_PERSON_IDS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Fields on people and companies, managed in Settings › Data model with every change kept.
+  # Needs AUDIENCE_ONE_VIEW_ENABLED and ONTOLOGY_PERSON_IDS_ENABLED.
+  - variable: AUDIENCE_FIELDS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Filter People by select, multi select, status and checkbox fields, and by product group (needs
+  # AUDIENCE_FIELDS_ENABLED).
+  - variable: AUDIENCE_FIELD_FILTERS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # New person: admins add someone by hand, with how they agreed to marketing email. Needs
+  # AUDIENCE_ONE_VIEW_ENABLED and ONTOLOGY_PERSON_IDS_ENABLED. People added by hand are kept
+  # whatever this says.
+  - variable: AUDIENCE_ADD_PERSON_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # The timeline on a person's page, and recording their stage and launch moves after each sync
+  # (needs AUDIENCE_ONE_VIEW_ENABLED and ONTOLOGY_PERSON_IDS_ENABLED). Nothing is recorded while off.
+  - variable: AUDIENCE_TIMELINE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Vizzy reads a person's select, multi select, status, checkbox, number, currency and date fields
+  # and suggests changes that an admin confirms (needs AUDIENCE_FIELDS_ENABLED). Off in production
+  # until the DPA.
+  - variable: AUDIENCE_VIZZY_FIELDS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Vizzy fills in the New person form for an admin to confirm; consent is always recorded by a
+  # person (needs AUDIENCE_ADD_PERSON_ENABLED). Drafts are kept 7 days at most. Off in production until the DPA.
+  - variable: AUDIENCE_VIZZY_ADD_PERSON_ENABLED
     value: "false"
     availability:
       - RUNTIME

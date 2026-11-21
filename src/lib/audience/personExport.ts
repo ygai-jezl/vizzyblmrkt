@@ -3,6 +3,8 @@ import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { productUserPersonId } from "@/lib/ontology/erase";
 import { isPersonId } from "./paths";
 import { personIdOf, personKeyOf, PRODUCT_USER_KEY_PREFIX } from "./personSync";
+import { readFieldList } from "./fieldList";
+import { labelledValues } from "./fields";
 
 /**
  * Everything YouGrow holds about one product user, as the stored documents — for
@@ -65,14 +67,15 @@ async function historyBy(
   };
 }
 
+/** Everything held about one product user (by their product user id, not a `ct_` person id). */
 export async function exportPerson(
   ctx: TenantContext,
-  personId: string,
+  productUserId: string,
   deps: { db?: FirestoreLike; nowMs?: number; limits?: Limits } = {},
 ): Promise<{ found: false } | { found: true; document: Record<string, unknown> }> {
-  if (!isPersonId(personId)) return { found: false };
+  if (!isPersonId(productUserId)) return { found: false };
   const repo = forTenant(ctx, deps.db);
-  const user = await repo.productUsers.getById(personId);
+  const user = await repo.productUsers.getById(productUserId);
   if (!user || user.status !== "active") return { found: false };
   const limit = (section: Section) => deps.limits?.[section] ?? EXPORT_LIMITS[section];
   const mine = { where: [["productUserId", "==", user.id]] as WhereClause[] };
@@ -141,7 +144,8 @@ const SIGNUP_SECRET = new Set(["verificationToken"]);
  * person record, their sign-ups on every launch with each one's emails, invite and
  * waitlist journey progress, their opt-outs, and each product user's own export (the
  * ones the record links and any with their address), and their event history and agent actions
- * (each row once: one already in a product's section is not repeated). What "Erase everywhere"
+ * (each row once: one already in a product's section is not repeated), and their field values
+ * with each field's label, archived ones marked. What "Erase everywhere"
  * deletes (src/lib/crm/eraseWorker.ts): a store added to one belongs in the other.
  */
 export async function exportWholePerson(
@@ -179,9 +183,11 @@ export async function exportWholePerson(
   const moves = new Map([...movesTo, ...movesFrom].map((m) => [m.id, m]));
   const productUserIds = new Set([...(contact.products ?? []).map((p) => p.productUserId), ...sameAddress.filter((u) => u.status === "active").map((u) => u.id)]);
   const limit = (section: Section) => deps.limits?.[section] ?? EXPORT_LIMITS[section];
-  const [products, history] = await Promise.all([
+  const [products, history, fieldList] = await Promise.all([
     Promise.all([...productUserIds].map((id) => exportPerson(ctx, id, deps))),
     historyBy(repo, [["personId", contact.id]], limit),
+    // Their field values with each field's label, archived ones marked, whatever AUDIENCE_FIELDS_ENABLED says.
+    contact.fields && Object.keys(contact.fields).length ? readFieldList(ctx, "person", deps.db) : Promise.resolve(null),
   ]);
   const productDocs = products.flatMap((r) => (r.found ? [r.document] : []));
   // Each row once: one already in a product's section stays there.
@@ -207,6 +213,7 @@ export async function exportWholePerson(
       complete,
       ...(full.length ? { truncated: Object.fromEntries(full.map((name) => [name, "this section reached its limit: there may be more"])) } : {}),
       person,
+      fields: fieldList ? labelledValues(fieldList.items, contact.fields) : [],
       signups: [...signups.values()].map((s) => Object.fromEntries(Object.entries(plain(s)).filter(([k]) => !SIGNUP_SECRET.has(k)))),
       launchEmails: launchEmails.map(plain),
       launchEmailSends: launchEmailSends.map(plain),

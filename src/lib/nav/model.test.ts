@@ -249,3 +249,52 @@ describe("a person's page", () => {
     ]);
   });
 });
+
+describe("People in place of Audience", () => {
+  const names = { launches: {}, workspaces: {} };
+  const crumbs = (path: string, people: boolean) => breadcrumbsFor(path, names, { phase3: true, people });
+  const CRM_PATHS = ["/admin/crm", "/admin/crm/people", "/admin/crm/people/ct_9b2e", "/admin/crm/people/pu_3f9a"];
+
+  it("names the sidebar item People only with the switch, keeping its key and route", () => {
+    const on = allItems({ ...ALL_ON, phase3: true, people: true }).find((i) => i.key === "audience")!;
+    expect(on).toMatchObject({ label: "People", href: "/admin/crm", match: ["/admin/crm"] });
+    const off = allItems({ ...ALL_ON, phase3: true }).find((i) => i.key === "audience")!;
+    expect(off.label).toBe("Audience");
+    expect(activeNavKey("/admin/crm/people/ct_9b2e", allItems({ ...ALL_ON, people: true }))).toBe("audience");
+  });
+
+  it("reads People › Person for a whole person and People › Product users › Person for a product user", () => {
+    expect(crumbs("/admin/crm", true)).toEqual([{ label: "People" }]);
+    expect(crumbs("/admin/crm/people", true)).toEqual([{ label: "People" }]);
+    expect(crumbs("/admin/crm/people/ct_9b2e", true)).toEqual([{ label: "People", href: "/admin/crm" }, { label: "Person" }]);
+    expect(crumbs("/admin/crm/people/pu_3f9a", true)).toEqual([
+      { label: "People", href: "/admin/crm" },
+      { label: "Product users", href: "/admin/crm?tab=product" },
+      { label: "Person" },
+    ]);
+  });
+
+  it("keeps every Audience crumb as it was with the switch off", () => {
+    expect(crumbs("/admin/crm", false)).toEqual([{ label: "Audience" }]);
+    expect(crumbs("/admin/crm/people/ct_9b2e", false)).toEqual([
+      { label: "Audience", href: "/admin/crm" },
+      { label: "People", href: "/admin/crm" },
+      { label: "Person" },
+    ]);
+    expect(crumbs("/admin/crm/people/pu_3f9a", false)[0]).toEqual({ label: "Audience", href: "/admin/crm" });
+  });
+
+  it("has no Audience in any label or crumb for the People area while on", () => {
+    const labels = allItems({ ...ALL_ON, phase3: true, people: true }).map((i) => i.label);
+    expect(labels.join(" ")).not.toMatch(/Audience/);
+    for (const path of CRM_PATHS) {
+      expect(crumbs(path, true).map((c) => c.label).join(" › "), path).not.toMatch(/Audience/);
+    }
+  });
+
+  it("changes nothing outside the People area", () => {
+    for (const path of ["/admin", "/admin/launches/c1/signups", "/admin/account/billing", "/admin/analytics"]) {
+      expect(crumbs(path, true), path).toEqual(crumbs(path, false));
+    }
+  });
+});

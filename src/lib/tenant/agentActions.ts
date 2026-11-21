@@ -328,8 +328,9 @@ export const EXPIRE_PAGE = { default: 100, max: 300 } as const;
 
 /**
  * Decline every proposed action past its expiry, whatever its agent, with reason "expired", by
- * the system. A row that moved meanwhile counts as changed. Not wired here: each proposing
- * consumer calls it from the lifecycle tick behind its own switch (two calls are harmless).
+ * the system. A row that moved meanwhile counts as changed. The lifecycle tick calls it through
+ * expireDueAgentActions (src/lib/ontology/agentActions.ts) whenever person links are on, not
+ * behind any Vizzy switch, so typed details always expire (piece B, group 11).
  */
 export async function expireAgentActions(
   ctx: TenantContext,

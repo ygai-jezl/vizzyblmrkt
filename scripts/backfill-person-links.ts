@@ -97,7 +97,8 @@ async function main() {
       if (done.has(key)) return;
       done.add(key);
       try {
-        const r = await syncPerson(ctx, key, { connections, dryRun: !APPLY });
+        // A rebuild never records moves, so it can't flood anyone's timeline.
+        const r = await syncPerson(ctx, key, { connections, dryRun: !APPLY, moves: "skip" });
         counts[r.outcome] += 1;
       } catch (err) {
         counts.failed += 1;

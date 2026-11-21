@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import type { AllowanceRow, FeatureRow, UsageSummary } from "@/lib/plans/usage";
-import { EVERY_PLAN_INCLUDES, PLAN_AND_USAGE_COPY, PlanAndUsage, PlanAndUsageFailed, PlansOff, needsText } from "./PlanAndUsage";
+import { PLAN_AND_USAGE_COPY, PlanAndUsage, PlanAndUsageFailed, PlansOff, everyPlanIncludes, needsText } from "./PlanAndUsage";
 
 /** Text as a reader sees it: tags dropped, entities read back. */
 const textOf = (html: string) =>
@@ -97,6 +97,10 @@ describe("Plan and usage", () => {
     const text = render(proOwner());
     expect(text).toContain("What your plan includes Launches and waitlists Journeys Posts Audience Vizzy in Edit mode");
     expect(text).toContain("Vizzy in Edit mode");
+    // With People on, the area is named as the sidebar names it.
+    const people = textOf(renderToStaticMarkup(createElement(PlanAndUsage, { summary: proOwner(), people: true })));
+    expect(people).toContain("What your plan includes Launches and waitlists Journeys Posts People Vizzy in Edit mode");
+    expect(people).not.toMatch(/\bAudience\b/);
     expect(text).toContain(`Competitors · ${PLAN_AND_USAGE_COPY.granted}`);
     expect(text).toContain(`Brand search · ${PLAN_AND_USAGE_COPY.heldBack}`);
     expect(text).toContain(`${PLAN_AND_USAGE_COPY.notIncluded} Next up`);
@@ -216,7 +220,7 @@ describe("Plan and usage", () => {
   });
 
   it("keeps to the writing rules", () => {
-    for (const text of [...Object.values(PLAN_AND_USAGE_COPY), ...EVERY_PLAN_INCLUDES]) {
+    for (const text of [...Object.values(PLAN_AND_USAGE_COPY), ...everyPlanIncludes(false), ...everyPlanIncludes(true)]) {
       expect(dashesIn(text), text).toEqual([]);
       expect(aiTellsIn(text), text).toEqual([]);
     }

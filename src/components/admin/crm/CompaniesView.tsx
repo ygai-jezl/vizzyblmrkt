@@ -16,10 +16,13 @@ export function CompaniesView({
   isAdmin,
   initialRows,
   initialCursor,
+  fields = false,
 }: {
   isAdmin: boolean;
   initialRows: Company[];
   initialCursor: string | null;
+  /** Company fields are on (AUDIENCE_FIELDS_ENABLED). */
+  fields?: boolean;
 }) {
   const [rows, setRows] = useState<Company[]>(initialRows);
   const [cursor, setCursor] = useState<string | null>(initialCursor);
@@ -114,7 +117,7 @@ export function CompaniesView({
       ) : null}
 
       {selected ? (
-        <CompanyDetail companyId={selected} isAdmin={isAdmin} onClose={() => setSelected(null)} />
+        <CompanyDetail companyId={selected} isAdmin={isAdmin} fields={fields} onClose={() => setSelected(null)} />
       ) : null}
     </div>
   );

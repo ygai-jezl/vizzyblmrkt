@@ -3,8 +3,12 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { suppressEmail } from "@/lib/email/suppression";
 import { CONNECTION_ID, T0, TENANT_ID, ctx, seedUser, seedWorld, system } from "@/lib/lifecycle/testing/fixtures";
 import { listContacts } from "@/lib/admin/crm";
-import { isPeopleTag, listPeople, peopleFilters, PEOPLE_PAGE } from "./peopleList";
-import { syncPerson } from "./personSync";
+import { setRecordFieldValues } from "@/lib/tenant";
+import { fieldOptionCounts, groupLabel, isFilterTag, isPeopleTag, listPeople, parseGroupTag, peopleFilters, PEOPLE_PAGE } from "./peopleList";
+import { personIdOf, syncPerson } from "./personSync";
+import { saveFieldListChange, type FieldListChange } from "./fieldList";
+import { addPerson, withdrawHandConsent } from "./addPerson";
+import { parseNewPerson } from "./newPerson";
 
 /** Made-up people at .test, synced into person records the way the write paths do it. */
 
@@ -51,6 +55,29 @@ describe("listPeople", () => {
     const ada = people.find((p) => p.email === "ada@customer.test")!;
     expect(ada.launches).toEqual([{ id: "camp1", name: "Beta waitlist", status: "verified_active", via: "form" }]);
     expect(ada.products).toEqual([expect.objectContaining({ id: CONNECTION_ID, name: "Sandbox", stage: "new" })]);
+  });
+
+  it("marks someone added by hand, who is in Everyone with no pill of their own", async () => {
+    const db = await world();
+    const sam = parseNewPerson({ email: "sam@labs.test", firstName: "Sam" });
+    if (!sam.ok) throw new Error(sam.error);
+    await addPerson(ctx, sam.value, { db, nowIso: ISO(T0 + 7_200_000) });
+    const { people, total } = await listPeople(ctx, q(), db);
+    expect(total).toBe(4);
+    expect(people[0]).toMatchObject({ name: "Sam", email: "sam@labs.test", launches: [], products: [], reach: "no", addedByHand: true, consentWithdrawn: false });
+    expect(people.filter((p) => p.addedByHand)).toHaveLength(1);
+    expect(isPeopleTag("added:hand")).toBe(false);
+  });
+
+  it("marks someone whose recorded agreement the team withdrew", async () => {
+    const db = await world();
+    const sam = parseNewPerson({ email: "sam@labs.test", firstName: "Sam", agreed: { how: "in_person" } });
+    if (!sam.ok) throw new Error(sam.error);
+    await addPerson(ctx, sam.value, { db, nowIso: ISO(T0 + 7_200_000) });
+    await withdrawHandConsent(ctx, personIdOf(TENANT_ID, "sam@labs.test"), { note: null }, { db, nowIso: ISO(T0 + 7_260_000) });
+    const { people } = await listPeople(ctx, q(), db);
+    expect(people.find((p) => p.email === "sam@labs.test")).toMatchObject({ reach: "no", addedByHand: true, consentWithdrawn: true });
+    expect(people.filter((p) => p.consentWithdrawn)).toHaveLength(1);
   });
 
   it("shows one group at a time: a launch, the brand's own site, a product, a stage", async () => {
@@ -118,5 +145,94 @@ describe("the Signups tab with person records on", () => {
     // A search can't take the tag filter too: it leaves them out itself.
     expect((await listContacts(ctx, { q: "cal", launchesOnly: true }, db)).items).toEqual([]);
     expect((await listContacts(ctx, { q: "cal" }, db)).items).toHaveLength(1);
+  });
+});
+
+describe("field and group filters", () => {
+  const by = { type: "member", id: "u_admin" } as const;
+  const AT = ISO(T0);
+  const PLAN = "fld_000000000001";
+  const TOPICS = "fld_000000000002";
+  const DONE = "fld_000000000003";
+  const NOTES = "fld_000000000004";
+
+  async function withFields() {
+    const db = await world();
+    let f = 0;
+    let o = 0;
+    const fld = () => `fld_${String((f += 1)).padStart(12, "0")}`;
+    const opt = () => `opt_${String((o += 1)).padStart(8, "0")}`;
+    const adds: FieldListChange[] = [
+      { op: "add", label: "Plan", type: "select", options: ["Free", "Pro"] },
+      { op: "add", label: "Interests", type: "multi_select", options: ["Analytics", "Exports"] },
+      { op: "add", label: "Onboarded", type: "checkbox" },
+      { op: "add", label: "Notes", type: "text" },
+    ];
+    for (const [i, change] of adds.entries()) await saveFieldListChange(ctx, "person", { baseRev: i, change, by, nowIso: AT, newFieldId: fld, newOptionId: opt }, db);
+    const set = (email: string, changes: Record<string, unknown>) =>
+      setRecordFieldValues(ctx, { object: "person", recordId: personIdOf(TENANT_ID, email), changes, by, source: "editor", nowIso: AT }, { db });
+    await set("ada@customer.test", { [PLAN]: "opt_00000002", [TOPICS]: ["opt_00000003", "opt_00000004"], [DONE]: true, [NOTES]: "likes exports" });
+    await set("bea@customer.test", { [PLAN]: "opt_00000002", [TOPICS]: ["opt_00000004"] });
+    await set("cal@customer.test", { [PLAN]: "opt_00000001", [DONE]: false });
+    return db;
+  }
+  const emails = async (db: FakeFirestore, tag: string, canEmail = false) => (await listPeople(ctx, q({ tag, canEmail }), db)).people.map((p) => p.email).sort();
+
+  it("shows everyone with a select, multi select or checkbox value, through the tags", async () => {
+    const db = await withFields();
+    expect(await emails(db, `field:${PLAN}:opt_00000002`)).toEqual(["ada@customer.test", "bea@customer.test"]);
+    expect(await emails(db, `field:${TOPICS}:opt_00000004`)).toEqual(["ada@customer.test", "bea@customer.test"]);
+    expect(await emails(db, `field:${TOPICS}:opt_00000003`)).toEqual(["ada@customer.test"]);
+    expect(await emails(db, `field:${DONE}:yes`)).toEqual(["ada@customer.test"]);
+    expect(await emails(db, `field:${PLAN}:opt_00000001`, true)).toEqual(["cal@customer.test"]);
+  });
+
+  it("keeps the tags through a sync, and rows carry only the filterable values asked for", async () => {
+    const db = await withFields();
+    await syncPerson(ctx, "ada@customer.test", { db, nowMs: T0 + 7_200_000 });
+    const { people } = await listPeople(ctx, q({ tag: `field:${DONE}:yes` }), db, { fieldIds: new Set([PLAN, DONE]) });
+    expect(people.map((p) => p.fields)).toEqual([{ [PLAN]: "opt_00000002", [DONE]: true }]);
+    expect((await listPeople(ctx, q(), db)).people[0]!.fields).toBeUndefined();
+  });
+
+  it("lists the filterable fields without counts, and counts one field's options on demand", async () => {
+    const db = await withFields();
+    const f = await peopleFilters(ctx, db, { fields: true });
+    expect(f.fields).toEqual([
+      { id: PLAN, label: "Plan", type: "select", options: [{ id: "opt_00000001", label: "Free" }, { id: "opt_00000002", label: "Pro" }] },
+      { id: TOPICS, label: "Interests", type: "multi_select", options: [{ id: "opt_00000003", label: "Analytics" }, { id: "opt_00000004", label: "Exports" }] },
+      { id: DONE, label: "Onboarded", type: "checkbox", options: [{ id: "yes", label: "Yes" }] },
+    ]);
+    expect((await peopleFilters(ctx, db)).fields).toBeUndefined();
+    expect(await fieldOptionCounts(ctx, PLAN, db)).toEqual({ opt_00000001: 1, opt_00000002: 2 });
+    expect(await fieldOptionCounts(ctx, DONE, db)).toEqual({ yes: 1 });
+    expect(await fieldOptionCounts(ctx, NOTES, db)).toBeNull();
+  });
+
+  it("hides an archived option's pill, keeps its tags, and a restore brings it back with nothing to run", async () => {
+    const db = await withFields();
+    await saveFieldListChange(ctx, "person", { baseRev: 4, change: { op: "archive_option", key: PLAN, optionId: "opt_00000001" }, by, nowIso: AT }, db);
+    expect((await peopleFilters(ctx, db, { fields: true })).fields![0]!.options.map((o) => o.label)).toEqual(["Pro"]);
+    expect(await emails(db, `field:${PLAN}:opt_00000001`)).toEqual(["cal@customer.test"]);
+    await saveFieldListChange(ctx, "person", { baseRev: 5, change: { op: "restore_option", key: PLAN, optionId: "opt_00000001" }, by, nowIso: AT }, db);
+    expect(await fieldOptionCounts(ctx, PLAN, db)).toEqual({ opt_00000001: 1, opt_00000002: 2 });
+  });
+
+  it("shows a product group, whose ids may hold . and :", async () => {
+    const db = await world();
+    seedUser(db, "ada", { email: "ada@customer.test", emailNormalized: "ada@customer.test", entities: { "org.acme:team-1": { kind: "workspace", name: "Acme Labs", parentId: null, role: "owner", steps: {}, facts: {}, activeAt: null, firstSeenAt: ISO(T0), updatedAt: ISO(T0) } } });
+    await syncPerson(ctx, "ada@customer.test", { db, nowMs: T0 + 3_600_000 });
+    expect(await emails(db, `group:${CONNECTION_ID}:org.acme:team-1`)).toEqual(["ada@customer.test"]);
+    expect(await groupLabel(ctx, `group:${CONNECTION_ID}:org.acme:team-1`, db)).toBe("Acme Labs");
+    expect(await groupLabel(ctx, `group:${CONNECTION_ID}:nobody`, db)).toBeNull();
+    expect(await groupLabel({ ...ctx, tenantId: "ten_other" }, `group:${CONNECTION_ID}:org.acme:team-1`, db)).toBeNull();
+  });
+
+  it("accepts field and group tags as filters, and nothing like them", () => {
+    for (const ok of [`field:${PLAN}:opt_00000001`, `field:${DONE}:yes`, "group:pcn_1:ws", "group:pcn_1:org.acme:team-1"]) expect(isFilterTag(ok), ok).toBe(true);
+    for (const bad of ["field:plan:opt_00000001", `field:${PLAN}:maybe`, "group:pcn_1:", "group:pcn_1:-x", "group:pcn 1:ws", "group:pcn_1:a/b", "launch:camp1"]) {
+      expect(isFilterTag(bad), bad).toBe(false);
+    }
+    expect(parseGroupTag("group:pcn_1:org.acme:team-1")).toEqual({ connectionId: "pcn_1", entityId: "org.acme:team-1" });
   });
 });

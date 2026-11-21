@@ -63,6 +63,9 @@ def test_a_persons_page_hands_this_person_to_lifecycle_ops():
     assert out.endswith(PERSON_IN_VIEW_BLOCK)
     assert "lifecycle_ops_agent" in PERSON_IN_VIEW_BLOCK
     assert "don't ask for a name or an email address" in PERSON_IN_VIEW_BLOCK
+    # Any person, not only a product user, and their fields go the same way.
+    assert "one person's" in PERSON_IN_VIEW_BLOCK and "product user" not in PERSON_IN_VIEW_BLOCK
+    assert "their fields" in PERSON_IN_VIEW_BLOCK and "a change to suggest" in PERSON_IN_VIEW_BLOCK
     # Our id for them is the tools' business, not the prompt's.
     assert "pu_3f9a" not in out
     # No person in view (the app sends "" off their page): nothing added.

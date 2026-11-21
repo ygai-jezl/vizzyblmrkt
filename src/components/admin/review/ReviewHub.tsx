@@ -45,8 +45,8 @@ export async function ReviewHub() {
 
       {total === 0 ? (
         <p className="rounded-xl border border-dashed border-shell-line p-8 text-center text-sm text-shell-muted">
-          Nothing needs you right now. AI lines, Vizzy&rsquo;s drafts, failed posts, repo results, connection problems and
-          what your competitors changed land here.
+          Nothing needs you right now. AI lines, Vizzy&rsquo;s drafts and suggestions, failed posts, repo results, connection
+          problems and what your competitors changed land here.
         </p>
       ) : null}
 

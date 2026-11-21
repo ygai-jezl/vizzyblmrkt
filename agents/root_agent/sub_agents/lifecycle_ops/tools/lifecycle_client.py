@@ -215,13 +215,19 @@ _PERSON_ERRORS = {
 }
 
 
-def get_person(state: "dict | None", person_id: str) -> dict:
+def _brief_product_user(brief: dict) -> "str | None":
+    """The product user a brief is about: `productUserId`, or `personId` from an app not yet updated."""
+    value = brief.get("productUserId") or brief.get("personId")
+    return value if isinstance(value, str) and value else None
+
+
+def get_person(state: "dict | None", product_user_id: str) -> dict:
     """One person's situation (no name, address or product id): the person asked for, else the one in view."""
-    resolved = (person_id or "").strip() or (state or {}).get("personId")
+    resolved = (product_user_id or "").strip() or (state or {}).get("personId")
     if not resolved:
         return {
             "status": "needs_person",
-            "message": "Open the person's page (Audience, then their row) and ask me there. I can only look at the person in view.",
+            "message": "Open the person's page from your list of people and ask me there. I can only look at the person in view.",
         }
     got = _base_and_token(state)
     if isinstance(got, dict):
@@ -236,8 +242,9 @@ def get_person(state: "dict | None", person_id: str) -> dict:
         state["personPlansEnabled"] = bool(body.get("plans"))
         # On a whole person's page (ct_) the brief is about one of their product users, and a
         # plan is theirs: remember which, for that page only.
-        if str(resolved).startswith("ct_") and isinstance(body["brief"].get("personId"), str):
-            state["briefPersonIds"] = {**(state.get("briefPersonIds") or {}), str(resolved): body["brief"]["personId"]}
+        about = _brief_product_user(body["brief"])
+        if str(resolved).startswith("ct_") and about:
+            state["briefProductUserIds"] = {**(state.get("briefProductUserIds") or {}), str(resolved): about}
         return {"status": "success", "brief": body["brief"]}
     code = body.get("error") or f"http_{status_code}"
     if code in _PERSON_ERRORS:
@@ -385,7 +392,7 @@ _PLAN_ERRORS = {
 
 
 def build_person_plan_payload(
-    person_id: str,
+    product_user_id: str,
     goal: str,
     angle: str,
     next_steps: "list | None",
@@ -394,7 +401,8 @@ def build_person_plan_payload(
     payload: dict = {
         "kind": "person_plan",
         "action": "save_draft",
-        "scope": {"personId": person_id},
+        # Both names until every app takes productUserId: an app not yet updated reads personId.
+        "scope": {"productUserId": product_user_id, "personId": product_user_id},
         "goal": (goal or "").strip(),
         "angle": (angle or "").strip(),
         "next": [str(s).strip() for s in (next_steps or []) if str(s).strip()][:6],
@@ -410,18 +418,20 @@ def save_person_plan(
     angle: str,
     next_steps: "list | None",
     review_in_days: "int | None",
-    person_id: str = "",
+    product_user_id: str = "",
 ) -> dict:
     """Save a DRAFT plan for the person asked for, else the one in view. Staff approve it on their page."""
-    resolved = (person_id or "").strip() or (state or {}).get("personId")
+    resolved = (product_user_id or "").strip() or (state or {}).get("personId")
     if not resolved:
         return {
             "status": "needs_person",
-            "message": "Open the person's page (Audience, then their row) and ask me there. I can only plan for the person in view.",
+            "message": "Open the person's page from your list of people and ask me there. I can only plan for the person in view.",
         }
     if str(resolved).startswith("ct_"):
-        # A whole person (the one view): the plan belongs to the product user their brief is about.
-        resolved = ((state or {}).get("briefPersonIds") or {}).get(str(resolved)) or ""
+        # A whole person (the one view): the plan belongs to the product user their brief is about
+        # (kept under its old key by a session that read the brief before this change).
+        known = {**((state or {}).get("briefPersonIds") or {}), **((state or {}).get("briefProductUserIds") or {})}
+        resolved = known.get(str(resolved)) or ""
         if not resolved:
             return {"status": "needs_person", "message": "Let me read this person first (get_person_brief), then I can save their plan."}
     if not (goal or "").strip() or not (angle or "").strip():

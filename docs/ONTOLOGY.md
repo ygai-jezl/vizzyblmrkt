@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts`. Don't edit this file: change the 
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one.
 
-90 types: 65 built and 25 planned.
+90 types: 67 built and 23 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -326,18 +326,16 @@ A product connected to the brand: its keys, endpoints, catalog and what has arri
 
 ### Catalog (`catalog`)
 
-What a product says about its users: traits, facts, steps and event names. The live catalog sits on the connection, and earlier versions are kept for undo.
+What a product says about its users: traits, facts, steps and event names. The live catalog sits on the connection, and every earlier version is kept whole for undo, with who saved it as a user id.
 
 - Status: built
 - Home: the brand's region
-- Personal: no
+- Personal: the brand's own team
 - Stores:
-  - `catalog_revisions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
-- Links: `product` through connectionId
-- Erase:
-  - `HISTORY_KEEP` in `src/lib/connect/catalogHistory.ts`, on retention (only the last 20 versions of each catalog are kept)
-  - Gap: keeping 20 versions goes against the owner's rule that settings history has no limit (piece O)
-- Export: none. The brand's own settings.
+  - `catalog_revisions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Every version is kept; `savedBy` is the saver's user id, never an address, shown by name only while they are on the team.
+- Links: `product` through connectionId; `member` through savedBy
+- Erase: gap. No path removes a team member's user id in `savedBy` when they leave the team; it stays an id and shows as Former team member.
+- Export: gap. Team member ids in `savedBy` stay as ids, with no export by team member.
 - Search: none. Read by Vizzy through the connection, not searched.
 - Numbers: none. No numbers an agent reads.
 
@@ -444,9 +442,13 @@ One human, once per brand: every sign-up, product user and address they came thr
 - Stores:
   - `contacts`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
 - Links: `signup` through campaigns[].signupId (many); `product_user` through products[].productUserId (many); `company` through companyId
-- Events: `record.merged`, `record.repointed`
+- Events: `record.merged`, `record.repointed`, `record.created`, `consent.recorded`, `record.field_changed`
 - Erase:
   - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export
+  - `eraseProductUser` in `src/lib/connect/erase.ts`, on a product user's erase or export (a record that only came from products goes with its last product user, field values and all)
+  - `forgetLeftBehindPeople` in `src/lib/ontology/erase.ts`, on a product user's erase or export (a person the product user left behind on a move (their pu: person, an earlier address), kept while it held field values, goes with its history when nothing else keeps it)
+  - Gap: a record that only came from products is kept when it holds field values its person can't take: its product was revoked, or, after a new address or a join to an address, the new record had its own value for that field or no room for it, or moving them failed on every one of the job's tries; it stays out of Everyone until the team erases it or the product user's erase takes it
+  - Gap: a person left behind on an address change while ONTOLOGY_PERSON_IDS_ENABLED was off has no move for the product user's erase to find; fields need that switch, so values are only left behind while it is on
 - Export:
   - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on)
 - Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
@@ -454,18 +456,20 @@ One human, once per brand: every sign-up, product user and address they came thr
 
 ### Company (`company`)
 
-A business people work at, by its web address, with how many of the brand's people are there.
+A business people work at, by its web address, with how many of the brand's people are there, and the brand's own company fields (`fields.<fieldId>`), which can hold what the team knows about the people there.
 
 - Status: built
 - Home: the brand's region
-- Personal: no
+- Personal: yes, the brand's people
 - Stores:
   - `companies`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
 - Links: `person` through contacts.companyId (many)
+- Events: `record.field_changed`
 - Erase:
-  - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (the company goes when its last person is erased)
-- Export: none. A business by its web address, not a person.
-- Search: none. Found on the Companies tab; joins brand search with people (piece B).
+  - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (the company, its field values and its history go when its last person is erased)
+  - Gap: erasing one person keeps their company's field values while others still work there
+- Export: gap. A person's export leaves out their company's own field values.
+- Search: none. Found on the Companies tab; joins brand search with people once the data processing agreement covers it.
 - Numbers: none. No numbers an agent reads.
 
 ### Opt out (`email_suppression`)
@@ -592,7 +596,7 @@ A plan for one product user, in the team's words, drafted by Vizzy and approved 
 
 ### Person move (`person_move`)
 
-A product user who moved to another person: merged when one known only by their own record gave an address, repointed when their address changed or went. Their rows follow, moved by the person_repoint job. Ids only.
+A product user who moved to another person: merged when one known only by their own record gave an address, repointed when their address changed or went. Their rows follow, moved by the person_repoint job, and so do the team's field values on a record the move left behind (the new record's own values win). Ids only.
 
 - Status: built
 - Home: the brand's region
@@ -629,6 +633,7 @@ One row per thing that happened to a person, company, idea or agent action and h
   - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (a company's rows, when the company has no contacts left)
   - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export (by the product user, and by their pu: person's id)
   - `forgetGonePersonHistory` in `src/lib/ontology/erase.ts`, on a product user's erase or export (the person goes with their last product user, whether their record goes then or at a later sweep)
+  - `forgetLeftBehindPeople` in `src/lib/ontology/erase.ts`, on a product user's erase or export (a person the product user left behind on a move (their pu: person, an earlier address), kept while it held field values, goes with its history when nothing else keeps it)
   - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch (an idea's rows, and the agent actions about it)
   - Gap: team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does
   - Gap: rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen
@@ -642,16 +647,18 @@ One row per thing that happened to a person, company, idea or agent action and h
 
 ### Field (`custom_field`)
 
-A field the brand adds to people or companies, or one that comes from sign-up questions, the catalog or enrichment.
+A field the brand adds to people or companies, of one of twelve types, managed in Settings › Data model. One list per object is a setting kept in the settings log, so every change is a version; a field is archived, never deleted, and its type is fixed once made. Values sit on the person or company under `fields.<fieldId>`, written only by `src/lib/tenant/recordFieldWrites.ts`, each change a record.field_changed event. Fields from sign-up questions, the catalog and enrichment are shown beside them, read only and never stored.
 
-- Status: planned, in B
+- Status: built
 - Home: the brand's region
-- Personal: no
-- Links: `ontology_event` through fieldId, one row per change of a value (many)
-- Erase: none. Planned: piece B decides it with the store.
-- Export: none. Planned: piece B decides it with the store.
+- Personal: the brand's own team
+- Stores:
+  - `record_field_lists`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One document per brand and object (subjects fields:person and fields:company) with its `rev`, written only with its settings version (`src/lib/tenant/settingsLog.ts`); `createdBy` and `archivedBy` hold user ids, never an address; under 200 KB.
+- Links: `settings_version` through its subject, one version per change of the list (many); `person` through contacts.fields.<fieldId> (many); `company` through companies.fields.<fieldId> (many); `ontology_event` through fieldId, one row per change of a value (many)
+- Erase: gap. A field is archived, never deleted, and a team member's user id in createdBy or archivedBy stays an id when they leave; erasing archived values comes with piece O part 2.
+- Export: gap. Team member ids stay as ids, with no export by team member; a person's export names each field of theirs with its label.
 - Search: none. A field's values are found with its person.
-- Numbers: none. Planned: piece B decides it with the store.
+- Numbers: none. A value belongs to one record and is not a brand metric.
 
 ### Consent purpose (`consent_purpose`)
 
@@ -667,7 +674,7 @@ What a person can agree to. The starting purposes are marketing email, product e
 
 ### Consent record (`consent_record`)
 
-One person's consent for one purpose. The current state stays on the person record; each change is a consent.recorded event in the event history, shaped by `src/lib/ontology/consent.ts`. Every send checks it.
+One person's consent for one purpose. The current state stays on the person record; each change is a consent.recorded event in the event history, shaped by `src/lib/ontology/consent.ts`. Every send checks it. Piece B records agreement and its withdrawal for people added by hand, each as easy as the other; this type brings consent for every channel (piece F).
 
 - Status: planned, in F
 - Home: the brand's region
@@ -692,7 +699,7 @@ A saved filter, sort and set of columns over people or another record, shared or
 
 ### List (`list`)
 
-Records in a process with their own fields and stages, such as investors or beta testers. Joining one never adds consent.
+Records in a process with their own fields and stages, such as investors or beta testers. Joining one never adds consent. People added by hand can be emailed only while their recorded agreement stands; withdrawing it is in piece B.
 
 - Status: planned, in E
 - Home: the brand's region
@@ -1253,7 +1260,7 @@ What the brand asked a partner to set up, which fields were sent (names only, va
 
 ### Agent action (`agent_action`)
 
-One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days. Its trail is the agent kinds of event in the event history. Today's drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.
+One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B). Other drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.
 
 - Status: built
 - Home: the brand's region
@@ -1269,6 +1276,7 @@ One record per suggestion an agent makes for the brand: what it proposes and on 
   - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (a company's rows, when the company has no contacts left)
   - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export (by the product user, and by their pu: person's id)
   - `forgetGonePersonHistory` in `src/lib/ontology/erase.ts`, on a product user's erase or export (the person goes with their last product user, whether their record goes then or at a later sweep)
+  - `forgetLeftBehindPeople` in `src/lib/ontology/erase.ts`, on a product user's erase or export (a person the product user left behind on a move (their pu: person, an earlier address), kept while it held field values, goes with its history when nothing else keeps it)
   - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch (an idea's rows, and the agent actions about it)
   - Gap: team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does
   - Gap: rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen
@@ -1495,16 +1503,18 @@ The organisation's paid plan with YouGrow, from checkout, trial and renewals. Ca
 
 ### Settings version (`settings_version`)
 
-Every change to how a brand or organisation works, with who, what and why. A restore makes a new version and never deletes data.
+Every change to how a brand works, with who, what and why: the items that changed and the whole setting after it. A restore makes a new version on top, and a version is never changed, pruned or deleted. Kept per brand in its region, with no organisation id: piece O reads an organisation's history through its brands. Piece B's People and Company field lists are the first settings it records.
 
-- Status: planned, in O part 1
-- Home: the control plane
+- Status: built
+- Home: the brand's region
 - Personal: the brand's own team
-- Links: `organisation` through organisationId
-- Erase: none. Planned: piece O decides it with the store.
-- Export: none. Planned: piece O decides it with the store.
-- Search: none. Found on the History page.
-- Numbers: none. Planned: piece O decides it with the store.
+- Stores:
+  - `settings_versions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Written only through `src/lib/tenant/settingsLog.ts`, in one transaction with its setting; ids are `ss_<hash of brand and subject>_r<rev>`; `by` holds ids only, never a name or an address.
+- Links: `member` through by.id, when a team member saved it
+- Erase: gap. No path removes a team member's user id in `by` when they leave the team; it stays an id and shows as Former team member.
+- Export: gap. Team member ids in `by` stay as ids, with no export by team member.
+- Search: none. Found on a setting's history.
+- Numbers: none. No numbers an agent reads.
 
 ### Team (`team`)
 
@@ -1571,7 +1581,8 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 - Product (`product`):
   - Numbers: people counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`)
 - Catalog (`catalog`):
-  - Erase: keeping 20 versions goes against the owner's rule that settings history has no limit (piece O)
+  - Erase: no path removes a team member's user id in `savedBy` when they leave the team; it stays an id and shows as Former team member
+  - Export: team member ids in `savedBy` stay as ids, with no export by team member
 - Product user (`product_user`):
   - Numbers: people counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`)
 - Product event (`product_event`):
@@ -1581,7 +1592,12 @@ What the registry records as missing, by type. Each is a known gap, not a promis
   - Erase: a product user's erase leaves webhooks still waiting to go; each expires after its retries
   - Export: not in a person's export: a webhook only carries a change on its way to the product
 - Person (`person`):
+  - Erase: a record that only came from products is kept when it holds field values its person can't take: its product was revoked, or, after a new address or a join to an address, the new record had its own value for that field or no room for it, or moving them failed on every one of the job's tries; it stays out of Everyone until the team erases it or the product user's erase takes it
+  - Erase: a person left behind on an address change while ONTOLOGY_PERSON_IDS_ENABLED was off has no move for the product user's erase to find; fields need that switch, so values are only left behind while it is on
   - Numbers: people counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`)
+- Company (`company`):
+  - Erase: erasing one person keeps their company's field values while others still work there
+  - Export: a person's export leaves out their company's own field values
 - Engaged social profile (`social_profile`):
   - Erase: a person's erase does not reach engaged social profiles (`social_engaged`)
   - Export: a person's export does not include engaged social profiles (`social_engaged`)
@@ -1626,6 +1642,12 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 - Mandrill message log (`mandrill_message`):
   - Erase: no erase reaches Mandrill's message log; it keeps it for its own retention period
   - Export: a person's export does not include Mandrill's message log
+- Settings version (`settings_version`):
+  - Erase: no path removes a team member's user id in `by` when they leave the team; it stays an id and shows as Former team member
+  - Export: team member ids in `by` stay as ids, with no export by team member
+- Field (`custom_field`):
+  - Erase: a field is archived, never deleted, and a team member's user id in createdBy or archivedBy stays an id when they leave; erasing archived values comes with piece O part 2
+  - Export: team member ids stay as ids, with no export by team member; a person's export names each field of theirs with its label
 - Consent record (`consent_record`):
   - Erase: planned: piece F erases and exports it with the person
   - Export: planned: piece F erases and exports it with the person

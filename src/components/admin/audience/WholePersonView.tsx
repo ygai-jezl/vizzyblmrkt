@@ -4,14 +4,18 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Download, Sparkles, Trash2 } from "lucide-react";
 import type { WholePerson } from "@/lib/audience/wholePerson";
+import { CONSENT_WAYS, NEW_PERSON_MESSAGES, NEW_PERSON_NOTES, newPersonErrorText, type ConsentWay } from "@/lib/audience/newPerson";
 import { INVITE_STAGE_LABEL } from "@/lib/invites/inviteStage";
 import { api, errorText } from "../connect/api";
-import { Banner, Button, Section } from "../connect/ui";
+import { Banner, Button, inputClass, Section } from "../connect/ui";
 import { Chip } from "../people/Chip";
 import { PersonView } from "../people/PersonView";
 import { EmailHistoryList } from "../crm/EmailHistoryList";
 import { useShell } from "../nav/ShellProvider";
 import { ago, day } from "../people/format";
+import { FieldsPanel } from "./FieldsPanel";
+import { PersonTimeline } from "./PersonTimeline";
+import { VizzySuggestions } from "./VizzySuggestions";
 
 /**
  * One person, whole (AUDIENCE_ONE_VIEW_ENABLED): everything a brand knows about one
@@ -37,6 +41,11 @@ export function WholePersonView({
   canEdit,
   vizzy = false,
   productView = false,
+  fields = false,
+  fieldFilters = false,
+  addPerson = false,
+  timeline = false,
+  vizzyFields = false,
 }: {
   personId: string;
   canEdit: boolean;
@@ -44,9 +53,21 @@ export function WholePersonView({
   vizzy?: boolean;
   /** Each product user's own view is on (AUDIENCE_PERSON_VIEW): show it for each product. */
   productView?: boolean;
+  /** Fields are on (AUDIENCE_FIELDS_ENABLED): the Fields panel, with fields from elsewhere and voice chats. */
+  fields?: boolean;
+  /** Field filters are on (AUDIENCE_FIELD_FILTERS_ENABLED): each product group links to everyone in it. */
+  fieldFilters?: boolean;
+  /** New person is on (AUDIENCE_ADD_PERSON_ENABLED): an admin can record how someone added by hand agreed. */
+  addPerson?: boolean;
+  /** The timeline is on (AUDIENCE_TIMELINE_ENABLED): it sits beside the rest, above consent. */
+  timeline?: boolean;
+  /** Vizzy reads their fields and suggests changes (AUDIENCE_VIZZY_FIELDS_ENABLED): "Vizzy suggests". */
+  vizzyFields?: boolean;
 }) {
   const shell = useShell();
   const [state, setState] = useState<State>({ status: "loading" });
+  // Bumped when a suggestion changed their fields, so the Fields panel and the timeline read them again.
+  const [version, setVersion] = useState(0);
   const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
   const [erasing, setErasing] = useState<"no" | "busy" | "queued">("no");
 
@@ -109,59 +130,27 @@ export function WholePersonView({
         ? { tone: "amber" as const, chip: "Some emails only" }
         : { tone: "red" as const, chip: "Can't email" };
 
-  return (
-    <div className="max-w-5xl space-y-5">
-      {back}
+  const changed = () => {
+    void load().then(() => setVersion((v) => v + 1));
+  };
+  // Vizzy's suggestions: at the top of the side column beside the timeline, else under the fields.
+  const suggestions = vizzyFields ? <VizzySuggestions personId={p.id} canEdit={canEdit} onChanged={changed} /> : null;
 
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1.5">
-          <h1 className="text-lg font-semibold">{p.name ?? p.email ?? p.phone ?? "Unnamed person"}</h1>
-          <p className="break-words text-sm text-neutral-500">
-            {[p.name ? (p.email ?? p.phone) : null, `Known since ${day(p.firstSeenAt)}`, p.activeAt ? `last active ${ago(p.activeAt)}` : null].filter(Boolean).join(" · ")}
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            <Chip tone={reach.tone} title={p.blocked ? BLOCKED[p.blocked] : undefined}>
-              {reach.chip}
-            </Chip>
-            {p.launches.map((l) => (
-              <Chip key={l.campaignId}>{l.name}</Chip>
-            ))}
-            {p.products.map((x) => (
-              <Chip key={x.productUserId} tone="blue">
-                {x.name}
-              </Chip>
-            ))}
-          </div>
-          {sources.length ? (
-            <p className="text-xs text-neutral-500">
-              Built from {sources.join(" and ")}
-              {p.email ? " with the same email" : ""}.
-            </p>
-          ) : null}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {vizzy && shell ? (
-            <Button tone="primary" onClick={() => shell.setVizzyOpen(true)} title="Vizzy sees their situation, never their name or address">
-              <Sparkles size={14} /> Ask Vizzy
-            </Button>
-          ) : null}
-          {canEdit ? (
-            <>
-              <a
-                href={`/api/admin/audience/everyone/${encodeURIComponent(p.id)}/export`}
-                className="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-800 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-200 dark:hover:bg-neutral-900"
-              >
-                <Download size={14} /> Export their data
-              </a>
-              <Button tone="danger" disabled={erasing !== "no"} onClick={() => void eraseEverywhere()}>
-                <Trash2 size={14} /> {erasing === "busy" ? "Erasing…" : erasing === "queued" ? "Erasing" : "Erase everywhere"}
-              </Button>
-            </>
-          ) : null}
-        </div>
-      </header>
-
-      {msg ? <Banner tone={msg.tone}>{msg.text}</Banner> : null}
+  // Their parts, and consent: beside the timeline when it is on, in one column otherwise.
+  const main = (
+    <>
+      {fields && p.fields ? (
+        <FieldsPanel
+          key={`fields-${version}`}
+          object="person"
+          recordId={p.id}
+          initialValues={p.fields.values}
+          readOnly={p.fields.readOnly}
+          voiceChats={p.fields.voiceChats}
+          canEdit={canEdit}
+        />
+      ) : null}
+      {suggestions && !timeline ? suggestions : null}
 
       {p.launches.length ? (
         <Section title="Launches">
@@ -203,32 +192,252 @@ export function WholePersonView({
         ),
       )}
 
+      {fieldFilters && p.products.some((x) => x.groups?.length) ? (
+        <Section title="Product groups">
+          <ul className="divide-y divide-neutral-100 text-sm dark:divide-neutral-900">
+            {p.products.flatMap((x) =>
+              (x.groups ?? []).map((g) => (
+                <li key={`${x.connectionId}:${g.id}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+                  <span>
+                    <span className="text-neutral-500">In {x.name}:</span>{" "}
+                    {g.kind ? `${g.kind.charAt(0).toUpperCase()}${g.kind.slice(1)}: ` : ""}
+                    {g.name ?? g.id}
+                  </span>
+                  <Link href={`/admin/crm?group=${encodeURIComponent(`${x.connectionId}:${g.id}`)}`} className="text-xs underline underline-offset-2">
+                    Everyone in this group
+                  </Link>
+                </li>
+              )),
+            )}
+          </ul>
+        </Section>
+      ) : null}
+
       {p.launches.length ? (
         <Section title={`Emails from your launches${p.launchEmails.length ? ` (${p.launchEmails.length})` : ""}`}>
           <EmailHistoryList emails={p.launchEmails} />
         </Section>
       ) : null}
+    </>
+  );
+  const consent = (
+    <Section title="Consent, in one place">
+      <dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
+        <dt className="text-neutral-500">Can email</dt>
+        <dd>
+          {p.reach === "yes"
+            ? "Yes"
+            : p.blocked
+              ? BLOCKED[p.blocked]
+              : p.reach === "limited"
+                ? "Some emails only: service emails, a confirmation, or not every kind"
+                : "No"}
+        </dd>
+        {p.launches.map((l) => (
+          <FragmentPair key={l.campaignId} label={l.name} value={l.status === "verified_active" ? "Confirmed their sign-up" : LAUNCH_STATUS[l.status] ?? l.status} />
+        ))}
+        {p.optedOutOf.length ? <FragmentPair label="Opted out of" value={p.optedOutOf.join(", ")} /> : null}
+        {p.added ? (
+          <FragmentPair
+            label="Marketing emails"
+            value={
+              p.added.consent
+                ? `They agreed: ${p.added.consent.howLabel}${p.added.consent.note ? ` (${p.added.consent.note})` : ""}. Recorded by ${p.added.consent.by} on ${day(p.added.consent.at)}.`
+                : p.added.withdrawn
+                  ? `Withdrawn${p.added.withdrawn.note ? ` (${p.added.withdrawn.note})` : ""}. Recorded by ${p.added.withdrawn.by} on ${day(p.added.withdrawn.at)}.`
+                  : "Not yet"
+            }
+          />
+        ) : null}
+      </dl>
+      {p.added ? (
+        <>
+          {!p.added.consent && canEdit && addPerson ? <RecordConsent personId={p.id} onRecorded={() => void load()} /> : null}
+          {p.added.consent && canEdit && addPerson ? (
+            <WithdrawConsent personId={p.id} elsewhere={p.launches.length > 0 || p.products.length > 0} onWithdrawn={() => void load()} />
+          ) : null}
+          <p className="text-xs text-neutral-500">{NEW_PERSON_NOTES.nothingSent}</p>
+        </>
+      ) : null}
+      <p className="text-xs text-neutral-500">Unsubscribing from any email stops all of your marketing email to this address. Each product&rsquo;s own consent is in its part above.</p>
+    </Section>
+  );
 
-      <Section title="Consent, in one place">
-        <dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
-          <dt className="text-neutral-500">Can email</dt>
-          <dd>
-            {p.reach === "yes"
-              ? "Yes"
-              : p.blocked
-                ? BLOCKED[p.blocked]
-                : p.reach === "limited"
-                  ? "Some emails only: service emails, a confirmation, or not every kind"
-                  : "No"}
-          </dd>
-          {p.launches.map((l) => (
-            <FragmentPair key={l.campaignId} label={l.name} value={l.status === "verified_active" ? "Confirmed their sign-up" : LAUNCH_STATUS[l.status] ?? l.status} />
-          ))}
-          {p.optedOutOf.length ? <FragmentPair label="Opted out of" value={p.optedOutOf.join(", ")} /> : null}
-        </dl>
-        <p className="text-xs text-neutral-500">Unsubscribing from any email stops all of your marketing email to this address. Each product&rsquo;s own consent is in its part above.</p>
-      </Section>
+  return (
+    <div className={`${timeline ? "max-w-6xl" : "max-w-5xl"} space-y-5`}>
+      {back}
+
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 space-y-1.5">
+          <h1 className="text-lg font-semibold">{p.name ?? p.email ?? p.phone ?? "Unnamed person"}</h1>
+          <p className="break-words text-sm text-neutral-500">
+            {[p.name ? (p.email ?? p.phone) : null, `Known since ${day(p.firstSeenAt)}`, p.activeAt ? `last active ${ago(p.activeAt)}` : null].filter(Boolean).join(" · ")}
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            <Chip tone={reach.tone} title={p.blocked ? BLOCKED[p.blocked] : undefined}>
+              {reach.chip}
+            </Chip>
+            {p.launches.map((l) => (
+              <Chip key={l.campaignId}>{l.name}</Chip>
+            ))}
+            {p.products.map((x) => (
+              <Chip key={x.productUserId} tone="blue">
+                {x.name}
+              </Chip>
+            ))}
+          </div>
+          {sources.length ? (
+            <p className="text-xs text-neutral-500">
+              Built from {sources.join(" and ")}
+              {p.email ? " with the same email" : ""}.
+            </p>
+          ) : null}
+          {p.added ? (
+            <p className="text-xs text-neutral-500">
+              Added by hand by {p.added.by} on {day(p.added.at)}
+              {p.added.via === "palette" ? ", from ⌘K" : ""}.
+            </p>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {(vizzy || vizzyFields) && shell ? (
+            <Button
+              tone="primary"
+              onClick={() => shell.setVizzyOpen(true)}
+              title={vizzy ? "Vizzy sees their situation, never their name or address" : "Vizzy sees some of their fields, never their name or address"}
+            >
+              <Sparkles size={14} /> Ask Vizzy
+            </Button>
+          ) : null}
+          {canEdit ? (
+            <>
+              <a
+                href={`/api/admin/audience/everyone/${encodeURIComponent(p.id)}/export`}
+                className="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-800 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-200 dark:hover:bg-neutral-900"
+              >
+                <Download size={14} /> Export their data
+              </a>
+              <Button tone="danger" disabled={erasing !== "no"} onClick={() => void eraseEverywhere()}>
+                <Trash2 size={14} /> {erasing === "busy" ? "Erasing…" : erasing === "queued" ? "Erasing" : "Erase everywhere"}
+              </Button>
+            </>
+          ) : null}
+        </div>
+      </header>
+
+      {msg ? <Banner tone={msg.tone}>{msg.text}</Banner> : null}
+
+      {timeline ? (
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+          <div className="min-w-0 space-y-5">{main}</div>
+          <div className="min-w-0 space-y-5">
+            {suggestions}
+            <PersonTimeline key={`timeline-${version}`} personId={p.id} canEdit={canEdit} />
+            {consent}
+          </div>
+        </div>
+      ) : (
+        <>
+          {main}
+          {consent}
+        </>
+      )}
     </div>
+  );
+}
+
+/** Record how someone added by hand agreed to marketing email, after they were added. Admins only. */
+function RecordConsent({ personId, onRecorded }: { personId: string; onRecorded: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [how, setHow] = useState<ConsentWay>("in_person");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!open) {
+    return (
+      <Button onClick={() => setOpen(true)} className="text-xs">
+        Record that they agreed
+      </Button>
+    );
+  }
+  const save = async () => {
+    if (how === "other" && !note.trim()) return setError(NEW_PERSON_MESSAGES.note_needed);
+    setBusy(true);
+    setError(null);
+    const r = await api(`/api/admin/audience/everyone/${encodeURIComponent(personId)}/consent`, {
+      method: "PATCH",
+      body: JSON.stringify({ how, ...(note.trim() ? { note: note.trim() } : {}) }),
+    });
+    setBusy(false);
+    if (!r.ok) return setError(newPersonErrorText(r.data));
+    onRecorded();
+  };
+  return (
+    <fieldset className="space-y-2 rounded-md border border-neutral-200 p-3 text-sm dark:border-neutral-800">
+      <legend className="px-1 text-xs font-medium text-neutral-600 dark:text-neutral-400">How did they agree?</legend>
+      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+        {CONSENT_WAYS.map((w) => (
+          <label key={w.how} className="flex items-center gap-1.5">
+            <input type="radio" name={`agree-${personId}`} checked={how === w.how} onChange={() => setHow(w.how)} /> {w.label}
+          </label>
+        ))}
+      </div>
+      {how === "other" ? (
+        <input type="text" aria-label="How they agreed" placeholder="A short note" maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} className={inputClass} />
+      ) : null}
+      <p className="text-xs text-neutral-500">{NEW_PERSON_NOTES.agreeHint}</p>
+      {error ? <Banner tone="err">{error}</Banner> : null}
+      <div className="flex gap-2">
+        <Button tone="primary" disabled={busy} onClick={() => void save()}>
+          {busy ? "Saving…" : "Save"}
+        </Button>
+        <Button onClick={() => setOpen(false)}>Cancel</Button>
+      </div>
+    </fieldset>
+  );
+}
+
+/**
+ * Withdraw the agreement the team recorded for someone added by hand, after a short confirm. Admins
+ * only. `elsewhere`: they also came from a launch or a product, whose consent this leaves alone.
+ */
+function WithdrawConsent({ personId, elsewhere, onWithdrawn }: { personId: string; elsewhere: boolean; onWithdrawn: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!open) {
+    return (
+      <Button onClick={() => setOpen(true)} className="text-xs">
+        Withdraw
+      </Button>
+    );
+  }
+  const withdraw = async () => {
+    setBusy(true);
+    setError(null);
+    const r = await api(`/api/admin/audience/everyone/${encodeURIComponent(personId)}/consent/withdraw`, {
+      method: "POST",
+      body: JSON.stringify(note.trim() ? { note: note.trim() } : {}),
+    });
+    setBusy(false);
+    if (!r.ok) return setError(r.status === 403 ? NEW_PERSON_MESSAGES.withdraw_forbidden : newPersonErrorText(r.data));
+    onWithdrawn();
+  };
+  return (
+    <fieldset className="space-y-2 rounded-md border border-neutral-200 p-3 text-sm dark:border-neutral-800">
+      <legend className="px-1 text-xs font-medium text-neutral-600 dark:text-neutral-400">{NEW_PERSON_NOTES.withdrawAsk}</legend>
+      <input type="text" aria-label="Note" placeholder="A short note, if you like" maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} className={inputClass} />
+      <p className="text-xs text-neutral-500">{NEW_PERSON_NOTES.withdrawHint}</p>
+      {elsewhere ? <p className="text-xs text-neutral-500">{NEW_PERSON_NOTES.withdrawElsewhere}</p> : null}
+      {error ? <Banner tone="err">{error}</Banner> : null}
+      <div className="flex gap-2">
+        <Button tone="danger" disabled={busy} onClick={() => void withdraw()}>
+          {busy ? "Withdrawing…" : "Withdraw"}
+        </Button>
+        <Button onClick={() => setOpen(false)}>Cancel</Button>
+      </div>
+    </fieldset>
   );
 }
 

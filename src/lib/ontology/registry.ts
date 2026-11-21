@@ -59,6 +59,12 @@ const SCRUB = (trigger: "person" | "product_user"): PathRef => ({
   when: "blanks the address; the row stays so the opt out keeps holding",
 });
 const LAUNCH_DELETE: PathRef = { fn: "deleteLaunch", file: "src/lib/tenant/launchDeletion.ts", trigger: "launch" };
+const LEFT_BEHIND: PathRef = {
+  fn: "forgetLeftBehindPeople",
+  file: "src/lib/ontology/erase.ts",
+  trigger: "product_user",
+  when: "a person the product user left behind on a move (their pu: person, an earlier address), kept while it held field values, goes with its history when nothing else keeps it",
+};
 const EXPORT_PU: PathRef = { fn: "exportPerson", file: "src/lib/audience/personExport.ts", trigger: "product_user" };
 const EXPORT_PERSON: PathRef = { fn: "exportWholePerson", file: "src/lib/audience/personExport.ts", trigger: "person", when: ONE_VIEW };
 const brandPath = (fn: string, file: string, when?: string): PathRef => ({ fn, file, trigger: "brand", ...(when ? { when } : {}) });
@@ -82,6 +88,7 @@ const HISTORY_ERASE: PathDecision = {
     { ...CONTACT_ERASE, when: "a company's rows, when the company has no contacts left" },
     { ...PU_HISTORY, when: "by the product user, and by their pu: person's id" },
     { fn: "forgetGonePersonHistory", file: "src/lib/ontology/erase.ts", trigger: "product_user", when: "the person goes with their last product user, whether their record goes then or at a later sweep" },
+    LEFT_BEHIND,
     { ...LAUNCH_DELETE, when: "an idea's rows, and the agent actions about it" },
   ],
   gaps: [
@@ -476,19 +483,20 @@ export const ONTOLOGY: readonly OntologyType[] = [
   {
     id: "catalog",
     name: "Catalog",
-    description: "What a product says about its users: traits, facts, steps and event names. The live catalog sits on the connection, and earlier versions are kept for undo.",
+    description:
+      "What a product says about its users: traits, facts, steps and event names. The live catalog sits on the connection, and every earlier version is kept whole for undo, with who saved it as a user id.",
     place: "product",
     status: "built",
     home: "brand",
-    personal: "none",
-    stores: [regional("catalog_revisions")],
-    links: [{ to: "product", via: "connectionId", many: false }],
+    personal: "team",
+    stores: [regional("catalog_revisions", "every version is kept; `savedBy` is the saver's user id, never an address, shown by name only while they are on the team")],
+    links: [
+      { to: "product", via: "connectionId", many: false },
+      { to: "member", via: "savedBy", many: false },
+    ],
     events: [],
-    erase: {
-      paths: [retention("HISTORY_KEEP", "src/lib/connect/catalogHistory.ts", "only the last 20 versions of each catalog are kept")],
-      gaps: ["keeping 20 versions goes against the owner's rule that settings history has no limit (piece O)"],
-    },
-    export: { none: "the brand's own settings" },
+    erase: { gap: "no path removes a team member's user id in `savedBy` when they leave the team; it stays an id and shows as Former team member" },
+    export: { gap: "team member ids in `savedBy` stay as ids, with no export by team member" },
     search: { none: "read by Vizzy through the connection, not searched" },
     numbers: { none: NO_NUMBERS },
   },
@@ -588,8 +596,18 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { to: "product_user", via: "products[].productUserId", many: true },
       { to: "company", via: "companyId", many: false },
     ],
-    events: ["record.merged", "record.repointed"],
-    erase: { paths: [CONTACT_ERASE] },
+    events: ["record.merged", "record.repointed", "record.created", "consent.recorded", "record.field_changed"],
+    erase: {
+      paths: [
+        CONTACT_ERASE,
+        { ...PU_ERASE, when: "a record that only came from products goes with its last product user, field values and all" },
+        LEFT_BEHIND,
+      ],
+      gaps: [
+        "a record that only came from products is kept when it holds field values its person can't take: its product was revoked, or, after a new address or a join to an address, the new record had its own value for that field or no room for it, or moving them failed on every one of the job's tries; it stays out of Everyone until the team erases it or the product user's erase takes it",
+        "a person left behind on an address change while ONTOLOGY_PERSON_IDS_ENABLED was off has no move for the product user's erase to find; fields need that switch, so values are only left behind while it is on",
+      ],
+    },
     export: { paths: [EXPORT_PERSON] },
     search: { none: PEOPLE_WORDS },
     numbers: { gap: COUNTS_GAP },
@@ -597,17 +615,21 @@ export const ONTOLOGY: readonly OntologyType[] = [
   {
     id: "company",
     name: "Company",
-    description: "A business people work at, by its web address, with how many of the brand's people are there.",
+    description:
+      "A business people work at, by its web address, with how many of the brand's people are there, and the brand's own company fields (`fields.<fieldId>`), which can hold what the team knows about the people there.",
     place: "customers",
     status: "built",
     home: "brand",
-    personal: "none",
+    personal: "people",
     stores: [regional("companies")],
     links: [{ to: "person", via: "contacts.companyId", many: true }],
-    events: [],
-    erase: { paths: [{ ...CONTACT_ERASE, when: "the company goes when its last person is erased" }] },
-    export: { none: "a business by its web address, not a person" },
-    search: { none: "found on the Companies tab; joins brand search with people (piece B)" },
+    events: ["record.field_changed"],
+    erase: {
+      paths: [{ ...CONTACT_ERASE, when: "the company, its field values and its history go when its last person is erased" }],
+      gaps: ["erasing one person keeps their company's field values while others still work there"],
+    },
+    export: { gap: "a person's export leaves out their company's own field values" },
+    search: { none: "found on the Companies tab; joins brand search with people once the data processing agreement covers it" },
     numbers: { none: NO_NUMBERS },
   },
   {
@@ -733,7 +755,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "person_move",
     name: "Person move",
     description:
-      "A product user who moved to another person: merged when one known only by their own record gave an address, repointed when their address changed or went. Their rows follow, moved by the person_repoint job. Ids only.",
+      "A product user who moved to another person: merged when one known only by their own record gave an address, repointed when their address changed or went. Their rows follow, moved by the person_repoint job, and so do the team's field values on a record the move left behind (the new record's own values win). Ids only.",
     place: "customers",
     status: "built",
     home: "brand",
@@ -1501,36 +1523,51 @@ export const ONTOLOGY: readonly OntologyType[] = [
   {
     id: "settings_version",
     name: "Settings version",
-    description: "Every change to how a brand or organisation works, with who, what and why. A restore makes a new version and never deletes data.",
+    description:
+      "Every change to how a brand works, with who, what and why: the items that changed and the whole setting after it. A restore makes a new version on top, and a version is never changed, pruned or deleted. Kept per brand in its region, with no organisation id: piece O reads an organisation's history through its brands. Piece B's People and Company field lists are the first settings it records.",
     place: "platform",
-    status: "planned",
-    plannedIn: "O part 1",
-    home: "control",
+    status: "built",
+    home: "brand",
     personal: "team",
-    stores: [],
-    links: [{ to: "organisation", via: "organisationId", many: false }],
+    stores: [
+      regional(
+        "settings_versions",
+        "written only through `src/lib/tenant/settingsLog.ts`, in one transaction with its setting; ids are `ss_<hash of brand and subject>_r<rev>`; `by` holds ids only, never a name or an address",
+      ),
+    ],
+    links: [{ to: "member", via: "by.id, when a team member saved it", many: false }],
     events: [],
-    erase: { none: planned("piece O") },
-    export: { none: planned("piece O") },
-    search: { none: "found on the History page" },
-    numbers: { none: planned("piece O") },
+    erase: { gap: "no path removes a team member's user id in `by` when they leave the team; it stays an id and shows as Former team member" },
+    export: { gap: "team member ids in `by` stay as ids, with no export by team member" },
+    search: { none: "found on a setting's history" },
+    numbers: { none: NO_NUMBERS },
   },
   {
     id: "custom_field",
     name: "Field",
-    description: "A field the brand adds to people or companies, or one that comes from sign-up questions, the catalog or enrichment.",
+    description:
+      "A field the brand adds to people or companies, of one of twelve types, managed in Settings › Data model. One list per object is a setting kept in the settings log, so every change is a version; a field is archived, never deleted, and its type is fixed once made. Values sit on the person or company under `fields.<fieldId>`, written only by `src/lib/tenant/recordFieldWrites.ts`, each change a record.field_changed event. Fields from sign-up questions, the catalog and enrichment are shown beside them, read only and never stored.",
     place: "customers",
-    status: "planned",
-    plannedIn: "B",
+    status: "built",
     home: "brand",
-    personal: "none",
-    stores: [],
-    links: [{ to: "ontology_event", via: "fieldId, one row per change of a value", many: true }],
+    personal: "team",
+    stores: [
+      regional(
+        "record_field_lists",
+        "one document per brand and object (subjects fields:person and fields:company) with its `rev`, written only with its settings version (`src/lib/tenant/settingsLog.ts`); `createdBy` and `archivedBy` hold user ids, never an address; under 200 KB",
+      ),
+    ],
+    links: [
+      { to: "settings_version", via: "its subject, one version per change of the list", many: true },
+      { to: "person", via: "contacts.fields.<fieldId>", many: true },
+      { to: "company", via: "companies.fields.<fieldId>", many: true },
+      { to: "ontology_event", via: "fieldId, one row per change of a value", many: true },
+    ],
     events: [],
-    erase: { none: planned("piece B") },
-    export: { none: planned("piece B") },
+    erase: { gap: "a field is archived, never deleted, and a team member's user id in createdBy or archivedBy stays an id when they leave; erasing archived values comes with piece O part 2" },
+    export: { gap: "team member ids stay as ids, with no export by team member; a person's export names each field of theirs with its label" },
     search: { none: "a field's values are found with its person" },
-    numbers: { none: planned("piece B") },
+    numbers: { none: "a value belongs to one record and is not a brand metric" },
   },
   {
     id: "consent_purpose",
@@ -1554,7 +1591,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "consent_record",
     name: "Consent record",
     description:
-      "One person's consent for one purpose. The current state stays on the person record; each change is a consent.recorded event in the event history, shaped by `src/lib/ontology/consent.ts`. Every send checks it.",
+      "One person's consent for one purpose. The current state stays on the person record; each change is a consent.recorded event in the event history, shaped by `src/lib/ontology/consent.ts`. Every send checks it. Piece B records agreement and its withdrawal for people added by hand, each as easy as the other; this type brings consent for every channel (piece F).",
     place: "customers",
     status: "planned",
     plannedIn: "F",
@@ -1592,7 +1629,8 @@ export const ONTOLOGY: readonly OntologyType[] = [
   {
     id: "list",
     name: "List",
-    description: "Records in a process with their own fields and stages, such as investors or beta testers. Joining one never adds consent.",
+    description:
+      "Records in a process with their own fields and stages, such as investors or beta testers. Joining one never adds consent. People added by hand can be emailed only while their recorded agreement stands; withdrawing it is in piece B.",
     place: "customers",
     status: "planned",
     plannedIn: "E",
@@ -1865,7 +1903,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "agent_action",
     name: "Agent action",
     description:
-      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days. Its trail is the agent kinds of event in the event history. Today's drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.",
+      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B). Other drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.",
     place: "partner_agent",
     status: "built",
     home: "brand",

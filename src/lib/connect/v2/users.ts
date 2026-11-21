@@ -38,7 +38,7 @@ import { personAfterProductErase, personAfterProductWrites, previousPersonKey } 
 import { dateFactIds } from "../dateFacts";
 import { personIdForProductUser, personStamp } from "@/lib/ontology/personRef";
 import { ontologyAfterProductWrites } from "@/lib/ontology/moves";
-import { forgetGonePersonHistory } from "@/lib/ontology/erase";
+import { forgetGonePersonHistory, forgetLeftBehindPeople, leftBehindPersonKeys } from "@/lib/ontology/erase";
 
 /**
  * API v2 operations — what the routes do once the caller is authenticated.
@@ -406,6 +406,8 @@ export async function deleteUser(
   const repo = forTenant(ctx, deps.db);
   const id = productUserDocId(connection.id, userId);
   const user = await repo.productUsers.getById(id);
+  // The people they left behind on a move, read before their moves are erased with their history.
+  const leftBehind = await leftBehindPersonKeys(ctx, id, previousPersonKey(user), { db: deps.db });
   if (!user) {
     await repo.productUsers.create(id, newTombstone(connection, nowMs)).catch((err) => {
       if (!(err instanceof TenantIsolationError)) throw err; // created meanwhile: fine
@@ -418,6 +420,8 @@ export async function deleteUser(
   await personAfterProductErase(ctx, previousPersonKey(user), { db: deps.db, nowMs });
   // Their person's event history and agent actions, when the person record went with them.
   await forgetGonePersonHistory(ctx, previousPersonKey(user), { db: deps.db });
+  // A person they left behind, kept while it held field values, goes too when nothing else keeps it.
+  await forgetLeftBehindPeople(ctx, leftBehind, { db: deps.db, nowMs });
   // The Events tab shows that an erasure arrived — without the user id.
   const messageId = `v2:erase:${randomUUID()}`;
   const now = new Date(nowMs).toISOString();

@@ -273,3 +273,167 @@ describe("event history and agent actions on an erase, with every switch off", (
     expect(companyRows(shared, "co_team")).toBe(1);
   });
 });
+
+describe("field values on an erase, with every switch off", () => {
+  const demo: TenantContext = { tenantId: "ten_demo", region: "us", source: "system" };
+  const ADA = deterministicContactId("ten_demo", "ada@example.test");
+  const BOB = deterministicContactId("ten_demo", "bob@example.test");
+  const AT = "2026-11-01T10:00:00.000Z";
+  const by = { type: "member" as const, id: "uid_1" };
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("go with the person and their company, with every field change", async () => {
+    vi.stubEnv("AUDIENCE_FIELDS_ENABLED", "false");
+    const { saveFieldListChange } = await import("@/lib/audience/fieldList");
+    const { setRecordFieldValues } = await import("@/lib/tenant");
+    const db = new FakeFirestore();
+    db.seed("contacts", ADA, { tenantId: "ten_demo", email: "ada@example.test", companyId: "co_solo", campaigns: [] });
+    db.seed("contacts", BOB, { tenantId: "ten_demo", email: "bob@example.test", companyId: null, campaigns: [] });
+    db.seed("companies", "co_solo", { tenantId: "ten_demo", domain: "solo.test", contactCount: 1 });
+    await saveFieldListChange(demo, "person", { baseRev: 0, change: { op: "add", label: "Seats", type: "number" }, by, nowIso: AT, newFieldId: () => "fld_000000000001" }, db);
+    await saveFieldListChange(demo, "company", { baseRev: 0, change: { op: "add", label: "Region", type: "text" }, by, nowIso: AT, newFieldId: () => "fld_000000000002" }, db);
+    for (const id of [ADA, BOB]) await setRecordFieldValues(demo, { object: "person", recordId: id, changes: { fld_000000000001: 3 }, by, source: "editor", nowIso: AT }, { db });
+    await setRecordFieldValues(demo, { object: "company", recordId: "co_solo", changes: { fld_000000000002: "Europe" }, by, source: "editor", nowIso: AT }, { db });
+
+    const eraseAda = { id: "erase_ada", payload: { contactId: ADA } } as unknown as EmailJob;
+    expect(await processContactEraseJob(demo, eraseAda, db)).toBe("done");
+    expect(db.raw("contacts", ADA)).toBeUndefined();
+    expect(db.raw("companies", "co_solo")).toBeUndefined();
+    const left = db.dump("ontology_events").filter((r) => r.kind === "record.field_changed");
+    expect(left.map((r) => r.personId)).toEqual([BOB]);
+    expect((db.raw("contacts", BOB) as { fields?: unknown }).fields).toEqual({ fld_000000000001: 3 });
+  });
+});
+
+describe("someone added by hand on an erase, with every switch off", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("goes in full: the record, who added them, their consent and both events", async () => {
+    vi.stubEnv("AUDIENCE_ADD_PERSON_ENABLED", "false");
+    const { addPerson } = await import("@/lib/audience/addPerson");
+    const { parseNewPerson } = await import("@/lib/audience/newPerson");
+    const admin: TenantContext = { tenantId: "ten_demo", region: "us", source: "idtoken", role: "admin", userId: "uid_1" };
+    const demo: TenantContext = { tenantId: "ten_demo", region: "us", source: "system" };
+    const db = new FakeFirestore();
+    for (const email of ["sam@labs.test", "kim@labs.test"]) {
+      const p = parseNewPerson({ email, agreed: { how: "in_person" } });
+      if (!p.ok) throw new Error(p.error);
+      await addPerson(admin, p.value, { db, nowIso: "2026-11-01T10:00:00.000Z" });
+    }
+    const SAM = deterministicContactId("ten_demo", "sam@labs.test");
+    const KIM = deterministicContactId("ten_demo", "kim@labs.test");
+    expect(db.dump("ontology_events")).toHaveLength(4);
+
+    expect(await processContactEraseJob(demo, { id: "erase_sam", payload: { contactId: SAM } } as unknown as EmailJob, db)).toBe("done");
+    expect(db.raw("contacts", SAM)).toBeUndefined();
+    expect(db.dump("ontology_events").map((r) => r.personId)).toEqual([KIM, KIM]);
+    expect(JSON.stringify(db.dump("ontology_events"))).not.toContain("sam@labs.test");
+    expect(db.raw("contacts", KIM)).toMatchObject({ addedBy: { id: "uid_1" } });
+  });
+
+  it("takes a withdrawal with them, and leaves everyone else's", async () => {
+    vi.stubEnv("AUDIENCE_ADD_PERSON_ENABLED", "false");
+    const { addPerson, withdrawHandConsent } = await import("@/lib/audience/addPerson");
+    const { parseNewPerson } = await import("@/lib/audience/newPerson");
+    const admin: TenantContext = { tenantId: "ten_demo", region: "us", source: "idtoken", role: "admin", userId: "uid_1" };
+    const demo: TenantContext = { tenantId: "ten_demo", region: "us", source: "system" };
+    const db = new FakeFirestore();
+    for (const email of ["sam@labs.test", "kim@labs.test"]) {
+      const p = parseNewPerson({ email, agreed: { how: "in_person" } });
+      if (!p.ok) throw new Error(p.error);
+      await addPerson(admin, p.value, { db, nowIso: "2026-11-01T10:00:00.000Z" });
+    }
+    const SAM = deterministicContactId("ten_demo", "sam@labs.test");
+    const KIM = deterministicContactId("ten_demo", "kim@labs.test");
+    for (const id of [SAM, KIM]) await withdrawHandConsent(admin, id, { note: "Asked us to stop" }, { db, nowIso: "2026-11-02T10:00:00.000Z" });
+    expect(db.dump("ontology_events")).toHaveLength(6);
+
+    expect(await processContactEraseJob(demo, { id: "erase_sam", payload: { contactId: SAM } } as unknown as EmailJob, db)).toBe("done");
+    expect(db.raw("contacts", SAM)).toBeUndefined();
+    expect(db.dump("ontology_events").map((r) => r.personId)).toEqual([KIM, KIM, KIM]);
+    expect(db.raw("contacts", KIM)).toMatchObject({ consent: { marketing_email: { state: "withdrawn" } } });
+  });
+});
+
+describe("timeline moves on an erase, with the timeline switched off again", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("go with the person, and a product's go with its erased product user", async () => {
+    const { syncPerson } = await import("@/lib/audience/personSync");
+    const { seedUser, seedWorld, ctx: lifeCtx, TENANT_ID, CONNECTION_ID } = await import("@/lib/lifecycle/testing/fixtures");
+    for (const name of ["AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_TIMELINE_ENABLED"]) vi.stubEnv(name, "true");
+    const db = new FakeFirestore();
+    seedWorld(db);
+    db.seed("signups", "sig_ada", { tenantId: TENANT_ID, campaignId: "camp1", email: "ada@customer.test", status: "verified_active", createdAt: "2026-09-21T07:00:00.000Z" });
+    const ada = seedUser(db, "ada", { email: "ada@customer.test", emailNormalized: "ada@customer.test" });
+    seedUser(db, "bob", { email: "bob@customer.test", emailNormalized: "bob@customer.test" });
+    for (const key of ["ada@customer.test", "bob@customer.test"]) await syncPerson(lifeCtx, key, { db, nowMs: Date.parse("2026-09-21T08:00:00Z") });
+    const ADA = deterministicContactId(TENANT_ID, "ada@customer.test");
+    const BOB = deterministicContactId(TENANT_ID, "bob@customer.test");
+    const sys = () => db.dump("ontology_events").filter((r) => String(r.fieldId ?? "").startsWith("sys."));
+    expect(sys().filter((r) => r.personId === ADA).map((r) => r.fieldId).sort()).toEqual(["sys.launch.camp1", `sys.product.${CONNECTION_ID}`, `sys.stage.${CONNECTION_ID}`]);
+    vi.stubEnv("AUDIENCE_TIMELINE_ENABLED", "false");
+
+    // Erased in the product only: its moves go, the launch's stays.
+    await eraseProductUser(lifeCtx, CONNECTION_ID, ada.id, db, Date.parse("2026-09-22T08:00:00Z"));
+    expect(sys().filter((r) => r.personId === ADA).map((r) => r.fieldId)).toEqual(["sys.launch.camp1"]);
+
+    // Erased everywhere: nothing of theirs is left; Bob's stay.
+    const system: TenantContext = { tenantId: TENANT_ID, region: "eu", source: "system" };
+    expect(await processContactEraseJob(system, { id: "erase_ada", payload: { contactId: ADA } } as unknown as EmailJob, db)).toBe("done");
+    expect(sys().filter((r) => r.personId === ADA)).toEqual([]);
+    expect(sys().filter((r) => r.personId === BOB)).toHaveLength(2);
+  });
+});
+
+describe("Vizzy's field suggestions on an erase, with its switch off", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("go with the person: the suggestion with its values, its trail and the change it made", async () => {
+    vi.stubEnv("AUDIENCE_VIZZY_FIELDS_ENABLED", "false");
+    const { saveFieldListChange } = await import("@/lib/audience/fieldList");
+    const { decideFieldSuggestion, suggestFieldChanges } = await import("@/lib/audience/fieldSuggestions");
+    const admin: TenantContext = { tenantId: "ten_demo", region: "us", source: "idtoken", role: "admin", userId: "uid_1" };
+    const demo: TenantContext = { tenantId: "ten_demo", region: "us", source: "system" };
+    const ADA = deterministicContactId("ten_demo", "ada@example.test");
+    const BOB = deterministicContactId("ten_demo", "bob@example.test");
+    const db = new FakeFirestore();
+    for (const [id, email] of [[ADA, "ada@example.test"], [BOB, "bob@example.test"]] as const) {
+      db.seed("contacts", id, { tenantId: "ten_demo", email, companyId: null, campaigns: [], fields: { fld_000000000001: 2 } });
+    }
+    await saveFieldListChange(admin, "person", { baseRev: 0, change: { op: "add", label: "Seats", type: "number" }, by: { type: "member", id: "uid_1" }, newFieldId: () => "fld_000000000001" }, db);
+    for (const id of [ADA, BOB]) {
+      const s = await suggestFieldChanges({ ...admin, source: "agent" }, { personId: id, changes: { fld_000000000001: 5 } }, { db });
+      if (!s.ok) throw new Error(s.error);
+      if (id === ADA) await decideFieldSuggestion(admin, id, { id: s.action.id, rev: s.action.rev, decision: "confirm" }, { db });
+    }
+    expect(await processContactEraseJob(demo, { id: "erase_ada", payload: { contactId: ADA } } as unknown as EmailJob, db)).toBe("done");
+    expect(db.dump("agent_actions").map((r) => r.personId)).toEqual([BOB]);
+    expect(new Set(db.dump("ontology_events").map((r) => r.personId))).toEqual(new Set([BOB]));
+  });
+});
+
+describe("Vizzy's New person drafts on an erase, with its switch off", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("an open draft for the same address goes with the person, and another's stays", async () => {
+    vi.stubEnv("AUDIENCE_VIZZY_ADD_PERSON_ENABLED", "false");
+    const { draftNewPerson } = await import("@/lib/audience/personDrafts");
+    const vizzy: TenantContext = { tenantId: "ten_demo", region: "us", source: "agent", role: "admin", userId: "uid_1" };
+    const demo: TenantContext = { tenantId: "ten_demo", region: "us", source: "system" };
+    const ADA = deterministicContactId("ten_demo", "ada@example.test");
+    const db = new FakeFirestore();
+    // Drafted before Ada signed up on her own; the draft's person is the one her address gives.
+    for (const email of ["Ada@Example.test", "bob@example.test"]) {
+      const d = await draftNewPerson(vizzy, { email, firstName: "A" }, { db });
+      if (!d.ok) throw new Error(d.error);
+    }
+    db.seed("contacts", ADA, { tenantId: "ten_demo", email: "ada@example.test", contactKey: "ada@example.test", companyId: null, campaigns: [] });
+    expect(await processContactEraseJob(demo, { id: "erase_ada", payload: { contactId: ADA } } as unknown as EmailJob, db)).toBe("done");
+    const left = db.dump("agent_actions");
+    expect(left).toHaveLength(1);
+    expect(JSON.stringify(left)).not.toContain("ada@example.test");
+    expect(left[0]).toMatchObject({ personId: deterministicContactId("ten_demo", "bob@example.test") });
+  });
+});

@@ -27,7 +27,7 @@ import { brandCanUse } from "@/lib/plans/brandAccess";
 import type { Competitor, CompetitorChange } from "@/lib/types/competitor";
 import type { AgentAction } from "@/lib/types/agentAction";
 import { agentActionReviewItem, listOpenAgentActions } from "@/lib/ontology/agentActions";
-import { isVizzyAddPersonEnabled, isVizzyFieldsEnabled } from "@/lib/audience/peopleFlags";
+import { canAddPeople, isVizzyAddPersonEnabled, isVizzyFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { PERSON_FIELDS_ACTION } from "@/lib/audience/fieldSuggestions";
 import { NEW_PERSON_ACTION } from "@/lib/audience/personDrafts";
 import { readFieldList } from "@/lib/audience/fieldList";
@@ -534,9 +534,10 @@ export async function loadReview(
   ]);
 
   const autopilotRuns = isAutopilotEnabled() ? await soft("autopilot runs", recentRuns(ctx, 60, { db }), [] as AutopilotRun[]) : [];
-  // New person drafts are for admins, who alone can add someone (decision 28); field suggestions show
-  // to everyone, since the person's page tells a member that an admin confirms.
-  const people = { fields: isVizzyFieldsEnabled(), drafts: isVizzyAddPersonEnabled() && ctx.role === "admin" };
+  // New person drafts only where this user can open the form: admins, who alone add someone
+  // (decision 28), with the People list on screen. Field suggestions show to everyone, since the
+  // person's page tells a member that an admin confirms.
+  const people = { fields: isVizzyFieldsEnabled(), drafts: isVizzyAddPersonEnabled() && canAddPeople(ctx.role) };
   const personSuggestions = people.fields || people.drafts ? await soft("person suggestions", personSuggestionItems(ctx, people, db), [] as ReviewItem[]) : [];
   const liveConnections = connections.filter((c) => c.kind === "custom" && c.status !== "revoked");
   const latestRuns = await Promise.all(

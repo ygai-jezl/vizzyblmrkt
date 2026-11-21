@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled, isTimelineEnabled, isVizzyFieldsEnabled, isPersonInContextEnabled, isVizzyAddPersonEnabled } from "./peopleFlags";
+import { canAddPeople, isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled, isTimelineEnabled, isVizzyFieldsEnabled, isPersonInContextEnabled, isVizzyAddPersonEnabled } from "./peopleFlags";
 
 beforeEach(() => {
   vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
@@ -54,6 +54,21 @@ describe("isAddPersonEnabled", () => {
     vi.stubEnv("AUDIENCE_FIELDS_ENABLED", "false");
     vi.stubEnv("AUDIENCE_ADD_PERSON_ENABLED", "true");
     expect(isAddPersonEnabled()).toBe(true);
+  });
+});
+
+describe("canAddPeople", () => {
+  it("needs New person, the People screen (nav phase 3) and an admin", () => {
+    for (const k of ["NEXT_PUBLIC_NAV_V2_ENABLED", "NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED", "NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED", "AUDIENCE_ADD_PERSON_ENABLED"]) vi.stubEnv(k, "true");
+    expect(canAddPeople("admin")).toBe(true);
+    expect(canAddPeople("member")).toBe(false);
+    expect(canAddPeople(undefined)).toBe(false);
+    // Phase 2 alone shows ⌘K, but the form lives on the phase 3 People list.
+    vi.stubEnv("NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED", "false");
+    expect(canAddPeople("admin")).toBe(false);
+    vi.stubEnv("NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_ADD_PERSON_ENABLED", "false");
+    expect(canAddPeople("admin")).toBe(false);
   });
 });
 

@@ -1,5 +1,6 @@
 import { isOneViewEnabled, isPersonBriefEnabled } from "./flags";
 import { isOntologyPersonIdsEnabled } from "@/lib/ontology/flags";
+import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 
 /**
  * Switches for piece B's People features that write person rows. Each needs the one People
@@ -37,6 +38,16 @@ export function isFieldFiltersEnabled(): boolean {
  */
 export function isAddPersonEnabled(): boolean {
   return isOneViewEnabled() && isOntologyPersonIdsEnabled() && process.env.AUDIENCE_ADD_PERSON_ENABLED === "true";
+}
+
+/**
+ * Whether someone with this role can add a person by hand here: New person is on, the People list
+ * that holds its form is on screen (nav phase 3), and they are an admin (decision 28). Every way in
+ * (the People button, the empty list, ⌘K and Review's New person drafts) reads this, so none of
+ * them leads to a page with no form.
+ */
+export function canAddPeople(role: string | null | undefined): boolean {
+  return isNavV2Phase3Enabled() && isAddPersonEnabled() && role === "admin";
 }
 
 /**

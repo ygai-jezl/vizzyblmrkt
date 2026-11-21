@@ -5,7 +5,7 @@ import { CrmClient } from "@/components/admin/crm/CrmClient";
 import { isNavV2Enabled, isNavV2Phase2Enabled, isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { isOneViewEnabled, isPeopleNameEnabled, isPersonLinksEnabled, isPersonViewEnabled } from "@/lib/audience/flags";
-import { isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled, isVizzyAddPersonEnabled } from "@/lib/audience/peopleFlags";
+import { canAddPeople, isFieldFiltersEnabled, isFieldsEnabled, isVizzyAddPersonEnabled } from "@/lib/audience/peopleFlags";
 import { groupLabel, parseGroupTag } from "@/lib/audience/peopleList";
 import { peopleArea } from "@/lib/nav/terms";
 import { forTenant } from "@/lib/tenant";
@@ -60,7 +60,7 @@ export default async function CrmPage({
   const groupTag = fieldFilters && !q && sp.group ? `group:${sp.group.slice(0, 300)}` : null;
   const group = groupTag && parseGroupTag(groupTag) ? { tag: groupTag, label: (await groupLabel(ctx, groupTag).catch(() => null)) ?? "this group" } : null;
   // New person, for admins: the button on People, and the form open when ⌘K sends ?new=person.
-  const canAddPerson = oneView && ctx.role === "admin" && isAddPersonEnabled();
+  const canAddPerson = oneView && canAddPeople(ctx.role);
   // A New person form Vizzy filled in (?draft=, only its id): the form opens with what it holds.
   const newPersonDraft = canAddPerson && isVizzyAddPersonEnabled() && sp.draft ? sp.draft.slice(0, 64) : null;
   // With person records on, people who only use a product aren't sign-ups: the Signups tab leaves them out.

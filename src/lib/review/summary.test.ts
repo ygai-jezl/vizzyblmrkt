@@ -371,7 +371,17 @@ describe("New person forms Vizzy filled in", () => {
   async function drafted() {
     const { draftNewPerson } = await import("@/lib/audience/personDrafts");
     const db = new FakeFirestore();
-    for (const k of ["AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_ADD_PERSON_ENABLED", "AUDIENCE_VIZZY_ADD_PERSON_ENABLED"]) vi.stubEnv(k, "true");
+    for (const k of [
+      "NEXT_PUBLIC_NAV_V2_ENABLED",
+      "NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED",
+      "NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED",
+      "AUDIENCE_PERSON_LINKS_ENABLED",
+      "AUDIENCE_ONE_VIEW_ENABLED",
+      "ONTOLOGY_PERSON_IDS_ENABLED",
+      "AUDIENCE_ADD_PERSON_ENABLED",
+      "AUDIENCE_VIZZY_ADD_PERSON_ENABLED",
+    ])
+      vi.stubEnv(k, "true");
     const vizzy: TenantContext = { tenantId: "ten_A", region: "us", source: "agent", userId: "u_admin", role: "admin" };
     const d = await draftNewPerson(vizzy, { email: "noor.haddad@example.com", firstName: "Noor" }, { db });
     if (!d.ok || d.outcome === "existing") throw new Error("not drafted");
@@ -400,6 +410,10 @@ describe("New person forms Vizzy filled in", () => {
     const { db } = await drafted();
     expect((await loadReview(member, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
     expect((await loadReview(ctx, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
+    // Without the People screen (nav phase 3) the link would open no form.
+    vi.stubEnv("NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED", "false");
+    expect((await loadReview(admin, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
+    vi.stubEnv("NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED", "true");
     resetReviewCountCache();
     expect(await countReview(admin, { lifecycle: false, now: 1_000 }, db)).toBe(1);
     // The admin's cached count never answers for a member.

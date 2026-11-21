@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled } from "./peopleFlags";
+import { isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled, isTimelineEnabled } from "./peopleFlags";
 
 beforeEach(() => {
   vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
@@ -54,5 +54,18 @@ describe("isAddPersonEnabled", () => {
     vi.stubEnv("AUDIENCE_FIELDS_ENABLED", "false");
     vi.stubEnv("AUDIENCE_ADD_PERSON_ENABLED", "true");
     expect(isAddPersonEnabled()).toBe(true);
+  });
+});
+
+describe("isTimelineEnabled", () => {
+  it("needs the one view, the person ids and its own switch, and nothing else", () => {
+    vi.stubEnv("AUDIENCE_TIMELINE_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_FIELDS_ENABLED", "false");
+    expect(isTimelineEnabled()).toBe(true);
+    for (const off of ["AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_TIMELINE_ENABLED"]) {
+      vi.stubEnv(off, "false");
+      expect(isTimelineEnabled(), off).toBe(false);
+      vi.stubEnv(off, "true");
+    }
   });
 });

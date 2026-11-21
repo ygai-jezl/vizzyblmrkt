@@ -38,3 +38,14 @@ export function isFieldFiltersEnabled(): boolean {
 export function isAddPersonEnabled(): boolean {
   return isOneViewEnabled() && isOntologyPersonIdsEnabled() && process.env.AUDIENCE_ADD_PERSON_ENABLED === "true";
 }
+
+/**
+ * The timeline on a person's page (AUDIENCE_TIMELINE_ENABLED): their stage, product, launch and
+ * quiet moves, recorded as record.field_changed on `sys.` ids after each sync, beside field
+ * changes, consent, sign-ups, launch emails and voice chats. It gates the recording too, so
+ * nothing is written until it is on and history starts that day. Off: no moves are recorded and
+ * the section is hidden; stored events stay, and export and erase cover them whatever this says.
+ */
+export function isTimelineEnabled(): boolean {
+  return isOneViewEnabled() && isOntologyPersonIdsEnabled() && process.env.AUDIENCE_TIMELINE_ENABLED === "true";
+}

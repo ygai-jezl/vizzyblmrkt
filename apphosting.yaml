@@ -397,6 +397,12 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # The timeline on a person's page, and recording their stage and launch moves after each sync
+  # (needs AUDIENCE_ONE_VIEW_ENABLED and ONTOLOGY_PERSON_IDS_ENABLED). Nothing is recorded while off.
+  - variable: AUDIENCE_TIMELINE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Email style ==
   # A logo, name and colours on branded emails, then header options, themes, web fonts

@@ -134,7 +134,8 @@ export function NewPersonDialog({
         lastName: lastName.trim() || undefined,
         agreed: agreed ? { how, ...(note.trim() ? { note: note.trim() } : {}) } : null,
         ...(fieldsOn && Object.keys(set).length ? { fields: set } : {}),
-        via,
+        // A draft that's gone leaves a form typed by hand: it is sent as one.
+        via: via === "vizzy" && draft !== "open" ? "form" : via,
         ...(draftId && draft === "open" ? { draftId } : {}),
       }),
     });

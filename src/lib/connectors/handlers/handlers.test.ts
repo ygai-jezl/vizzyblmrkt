@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { parseManifest } from "../manifest";
 import { cloudflareManifest } from "../manifests/cloudflare";
 import { allConnectors } from "../registry";
-import { classifyErrors, zoneDaily, zoneProbe } from "./cloudflare";
+import { classifyErrors, VISITS_NOTE, zoneDaily, zoneProbe } from "./cloudflare";
 import { LIVE_HOOKS, VERIFY_HOOKS } from "./index";
 
 // Cloudflare is never called: the transport is a stub that answers like its GraphQL API.
@@ -93,7 +93,7 @@ describe("Cloudflare zoneDaily", () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.rows.map((x) => x.cfVisits)).toEqual([null, null]);
-    expect(r.notes).toEqual(["Visits aren't available for these days: Cloudflare keeps them for about a month.", "Today's numbers are still coming in."]);
+    expect(r.notes).toEqual([VISITS_NOTE, "Today's numbers are still coming in."]);
   });
 
   it("fails when the totals fail, and refuses a stream or grouping it doesn't know", async () => {

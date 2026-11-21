@@ -58,7 +58,8 @@ describe("connect", () => {
 
   it("refuses bad fields by name only, a member, an unknown connector and a second copy of an account", async () => {
     const bad = await connect(A, admin, "cloudflare", { fields: { zoneId: "nope", token: TOKEN, extra: "x" } }, deps());
-    expect(bad).toEqual({ ok: false, status: 400, error: "invalid_fields", message: "Check extra, zoneId." });
+    expect(bad).toEqual({ ok: false, status: 400, error: "invalid_fields", message: "Check Zone ID, and the fields sent: one isn't asked for here." });
+    expect(JSON.stringify(bad)).not.toContain("extra");
     expect(JSON.stringify(bad)).not.toContain(TOKEN);
     expect(await connect(A, member, "cloudflare", { fields: { zoneId: ZONE, token: TOKEN } }, deps())).toMatchObject({ status: 403 });
     expect(await connect(A, admin, "github", { fields: {} }, deps())).toMatchObject({ status: 404 });

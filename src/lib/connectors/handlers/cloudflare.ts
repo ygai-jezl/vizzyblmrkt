@@ -45,6 +45,9 @@ const daily = (limit: number) => `query ZoneDaily($zoneTag: string, $from: Date,
   }
 }`;
 
+/** When only the sampled visits part fails: it keeps about a month, and some plans give fewer days at once. */
+export const VISITS_NOTE = "Visits aren't available for these days: Cloudflare keeps them for about a month, and some plans give only a few days at a time.";
+
 interface GraphQLError {
   message?: unknown;
   path?: unknown;
@@ -165,7 +168,7 @@ export const zoneDaily: LiveHook = async (input, deps) => {
   }
 
   const notes: string[] = [];
-  if (visitsFailed || !Array.isArray(zone.visits)) notes.push("Visits aren't available for these days: Cloudflare keeps them for about a month.");
+  if (visitsFailed || !Array.isArray(zone.visits)) notes.push(VISITS_NOTE);
   if (query.to >= input.today) notes.push("Today's numbers are still coming in.");
   const rows = [...byDay.values()].filter((r) => (r.day as string) >= query.from && (r.day as string) <= query.to).sort((a, b) => String(a.day).localeCompare(String(b.day)));
   return { ok: true, rows: rows.slice(0, limit), notes };

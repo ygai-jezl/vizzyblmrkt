@@ -31,6 +31,8 @@ export interface ServiceDeps extends ConnectorFetchDeps {
 export type ServiceResult<T> = { ok: true; status: 200 | 201; value: T } | { ok: false; status: 400 | 403 | 404 | 409 | 429 | 502 | 503; error: string; message?: string };
 
 const BASE32 = "abcdefghijklmnopqrstuvwxyz234567";
+/** The most connections a list reads for one brand. */
+const LIST_LIMIT = 200;
 
 /** `dcn_` and 20 random base32 characters. */
 export function newDataConnectionId(): string {
@@ -156,7 +158,7 @@ export function viewOf(conn: DataConnection, actor: ConnectorActor, now: Date): 
 /** Browse and the brand's connections, newest first, as this actor may see them. */
 export async function listForActor(ctx: TenantContext, actor: ConnectorActor, deps: ServiceDeps = {}): Promise<ServiceResult<{ connectors: ConnectorListing[]; connections: ConnectionView[] }>> {
   const now = nowOf(deps);
-  const rows = await forTenant(ctx, deps.db).dataConnections.find();
+  const rows = await forTenant(ctx, deps.db).dataConnections.find({ limit: LIST_LIMIT });
   const connections = rows
     .filter((c) => can(actor, "see", c.grants))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -179,23 +181,27 @@ export async function getForActor(ctx: TenantContext, actor: ConnectorActor, id:
 
 export const ConnectBodySchema = z
   .object({
-    fields: z.record(z.string(), z.string().max(4096)),
+    fields: z.record(z.string().max(64), z.string().max(4096)).refine((f) => Object.keys(f).length <= 10, "too many fields"),
     label: z.string().trim().min(1).max(60).optional(),
   })
   .strict();
 
-/** The typed fields, checked against the manifest. Returns the bad field keys, never values. */
-export function checkFields(m: ConnectorManifest, raw: Record<string, string>): { ok: true; values: Record<string, string> } | { ok: false; fields: string[] } {
+/**
+ * The typed fields, checked against the manifest. A refusal names the manifest's own labels for
+ * the fields that failed, never a value, and never echoes a key the manifest doesn't have.
+ */
+export function checkFields(m: ConnectorManifest, raw: Record<string, string>): { ok: true; values: Record<string, string> } | { ok: false; labels: string[] } {
   const method = tokenMethod(m);
-  if (!method) return { ok: false, fields: [] };
-  const bad = new Set<string>(Object.keys(raw).filter((k) => !method.fields.some((f) => f.key === k)));
+  if (!method) return { ok: false, labels: [] };
+  const labels: string[] = [];
   const values: Record<string, string> = {};
   for (const f of method.fields) {
     const v = (raw[f.key] ?? "").trim();
-    if (v.length < f.minLength || v.length > f.maxLength || !new RegExp(f.pattern).test(v)) bad.add(f.key);
+    if (v.length < f.minLength || v.length > f.maxLength || !new RegExp(f.pattern).test(v)) labels.push(f.label);
     else values[f.key] = v;
   }
-  return bad.size ? { ok: false, fields: [...bad].sort() } : { ok: true, values };
+  if (Object.keys(raw).some((k) => !method.fields.some((f) => f.key === k))) labels.push("the fields sent: one isn't asked for here");
+  return labels.length ? { ok: false, labels } : { ok: true, values };
 }
 
 function cleanLabel(label: string | undefined, fallback: string): string {
@@ -217,7 +223,7 @@ export async function connect(ctx: TenantContext, actor: ConnectorActor, connect
   const parsed = ConnectBodySchema.safeParse(body);
   if (!parsed.success) return refuse(400, "invalid_input");
   const fields = checkFields(m, parsed.data.fields);
-  if (!fields.ok) return { ok: false, status: 400, error: "invalid_fields", message: `Check ${fields.fields.join(", ")}.` };
+  if (!fields.ok) return { ok: false, status: 400, error: "invalid_fields", message: `Check ${fields.labels.join(", and ")}.` };
   if (!isVaultConfigured()) return providerRefusal("vault_unconfigured");
 
   const account = fields.values[method.account]!;

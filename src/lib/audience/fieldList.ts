@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { commitSettingsChange, readSetting, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { EventActor } from "@/lib/ontology/events";
@@ -307,3 +308,35 @@ export async function restoreFieldListVersion(
   if (!r.ok) return { ok: false, error: "fields_changed", list: { object, items: r.current?.value.items ?? [], rev: r.current?.rev ?? 0, updatedAt: r.current?.updatedAt ?? null } };
   return { ok: true, list: { object, items: plan.items, rev: r.rev, updatedAt: nowIso }, message };
 }
+
+// --- Requests ----------------------------------------------------------------------------------
+
+const KeyIn = z.string().regex(/^fld_[a-z0-9]{12}$/);
+const OptionIn = z.string().regex(/^opt_[a-z0-9]{8}$/);
+const LabelIn = z.string().max(200);
+const OptionLabels = z.array(LabelIn).max(FIELD_LIMITS.options).optional();
+const TypeIn = z.enum(FIELD_TYPES);
+const CurrencyIn = z.string().max(3).optional();
+
+/** One change as a request carries it: checked for shape here, and against the list when applied. */
+export const FieldListChangeSchema: z.ZodType<FieldListChange> = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("add"), label: LabelIn, type: TypeIn, options: OptionLabels, currency: CurrencyIn }).strict(),
+  z.object({ op: z.literal("rename"), key: KeyIn, label: LabelIn }).strict(),
+  z.object({ op: z.literal("reorder"), keys: z.array(KeyIn).max(FIELD_LIMITS.totalFields) }).strict(),
+  z.object({ op: z.literal("add_option"), key: KeyIn, label: LabelIn }).strict(),
+  z.object({ op: z.literal("rename_option"), key: KeyIn, optionId: OptionIn, label: LabelIn }).strict(),
+  z.object({ op: z.literal("archive_option"), key: KeyIn, optionId: OptionIn }).strict(),
+  z.object({ op: z.literal("restore_option"), key: KeyIn, optionId: OptionIn }).strict(),
+  z.object({ op: z.literal("archive"), key: KeyIn }).strict(),
+  z.object({ op: z.literal("restore"), key: KeyIn }).strict(),
+  z.object({ op: z.literal("change_type"), key: KeyIn, type: TypeIn, options: OptionLabels, currency: CurrencyIn }).strict(),
+]);
+
+/** Each error's HTTP status: a stale rev is a conflict, a missing field or option is not found, the rest are bad requests. */
+export const FIELD_LIST_STATUS: Record<FieldListError, number> = {
+  fields_changed: 409,
+  field_list_full: 400,
+  invalid_field: 400,
+  field_not_found: 404,
+  option_not_found: 404,
+};

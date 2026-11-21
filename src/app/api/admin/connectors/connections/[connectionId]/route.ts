@@ -20,7 +20,8 @@ export async function GET(req: Request, { params }: Params) {
 
 /**
  * Disconnect: delete the stored secrets and mark the connection disconnected. Admins only. A
- * pasted token can't be cancelled from here, so the answer says what to do at the provider.
+ * pasted token can't be cancelled from here, so the answer says what to do at the provider. A
+ * Google sign in is revoked at Google only with CONNECTOR_GOOGLE_REVOKE_ENABLED on.
  */
 export async function DELETE(req: Request, { params }: Params) {
   if (!isConnectorsEnabled()) return connectorsOff();

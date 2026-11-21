@@ -3,7 +3,7 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { createDataConnection, forTenant, type TenantContext } from "@/lib/tenant";
 import type { ConnectorActor } from "./grants";
 import { healthyAt } from "./health";
-import { check, getForActor, listAccounts, listForActor, pickAccount, readLiveFor } from "./service";
+import { check, disconnect, getForActor, listAccounts, listForActor, pickAccount, readLiveFor, REVOKED_MESSAGE } from "./service";
 import { ACCESS_SLOT, REFRESH_SLOT } from "./tokenKeeper";
 import { openConnectorSecret, sealConnectorSecret } from "./vault";
 
@@ -19,6 +19,7 @@ const NOW = new Date("2026-11-21T10:00:00.000Z");
 const inMs = (ms: number) => new Date(NOW.getTime() + ms).toISOString();
 const SITES_URL = "https://searchconsole.googleapis.com/webmasters/v3/sites";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
+const REVOKE_URL = "https://oauth2.googleapis.com/revoke";
 
 const answer = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const SITES = {
@@ -32,6 +33,7 @@ const ROWS = { rows: [{ keys: ["2026-11-10"], clicks: 5, impressions: 100, ctr: 
 let db: FakeFirestore;
 let transport: ReturnType<typeof vi.fn>;
 let tokenAnswer: () => Response;
+let revokeAnswer: () => Response;
 const deps = () => ({ db, transport, limit: async () => false, log: () => {}, now: NOW, sleep: async () => {} });
 const calls = () => transport.mock.calls.map((c) => String(c[0]));
 const authOf = (i: number) => ((transport.mock.calls[i]![1] as RequestInit).headers as Record<string, string>).authorization;
@@ -73,8 +75,10 @@ async function seed(over: { id?: string; account?: string; expiresAt?: string } 
 beforeEach(() => {
   db = new FakeFirestore();
   tokenAnswer = () => answer({ access_token: "made-up-new-access", expires_in: 3599, scope: "https://www.googleapis.com/auth/webmasters.readonly", token_type: "Bearer" });
+  revokeAnswer = () => new Response(null, { status: 200 });
   transport = vi.fn(async (url: string) => {
     if (url === TOKEN_URL) return tokenAnswer();
+    if (url === REVOKE_URL) return revokeAnswer();
     if (url === SITES_URL) return answer(SITES);
     if (url.endsWith("/searchAnalytics/query")) return answer(ROWS);
     return answer({}, 404);
@@ -179,5 +183,36 @@ describe("a signed in connection's token", () => {
     vi.stubEnv("CONNECTOR_GOOGLE_CLIENT_ID", "");
     expect(await readLiveFor(A, admin, ID, { stream: "search_performance", from: "2026-11-01", to: "2026-11-10" }, deps())).toMatchObject({ ok: false, status: 404, error: "connector_off" });
     expect(transport).not.toHaveBeenCalled();
+  });
+});
+
+describe("disconnecting a signed in connection", () => {
+  it("deletes the tokens and leaves the grant at Google while the revoke switch is off", async () => {
+    await seed({ account: "sc-domain:example.com" });
+    const r = await disconnect(A, admin, ID, deps());
+    expect(r).toMatchObject({ ok: true, value: { revoked: false, message: expect.stringContaining("third party connections"), connection: { status: "disconnected" } } });
+    expect(transport).not.toHaveBeenCalled();
+    expect((await load()).secrets).toEqual({});
+  });
+
+  it("revokes the refresh token at Google after saving, with the switch on, and says what that ends", async () => {
+    await seed({ account: "sc-domain:example.com" });
+    vi.stubEnv("CONNECTOR_GOOGLE_REVOKE_ENABLED", "true");
+    const r = await disconnect(A, admin, ID, deps());
+    expect(r).toMatchObject({ ok: true, value: { revoked: true, message: REVOKED_MESSAGE } });
+    expect(calls()).toEqual([REVOKE_URL]);
+    expect(String((transport.mock.calls[0]![1] as RequestInit).body)).toBe("token=made-up-refresh");
+    expect((await load()).secrets).toEqual({});
+    expect(activity()).toEqual(["connected", "disconnected"]);
+  });
+
+  it("still disconnects when Google's revoke fails, and never revokes twice or for a member", async () => {
+    await seed({ account: "sc-domain:example.com" });
+    vi.stubEnv("CONNECTOR_GOOGLE_REVOKE_ENABLED", "true");
+    revokeAnswer = () => answer({ error: "invalid_token" }, 400);
+    expect(await disconnect(A, member, ID, deps())).toMatchObject({ ok: false, status: 403 });
+    expect(await disconnect(A, admin, ID, deps())).toMatchObject({ ok: true, value: { revoked: false, connection: { status: "disconnected" } } });
+    expect(await disconnect(A, admin, ID, deps())).toMatchObject({ ok: true, value: { revoked: false } });
+    expect(calls()).toEqual([REVOKE_URL]);
   });
 });

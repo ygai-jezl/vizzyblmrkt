@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { changeDataConnection, createDataConnection, type NewDataConnection, type TenantContext } from "@/lib/tenant";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { purgeActor, purgeConnections, purgeLines } from "./purge";
+import { sealConnectorSecret } from "./vault";
 
 // Runs with every connector switch off: the purge must work whatever they say.
 const A: TenantContext = { tenantId: "ten_a", region: "us", source: "system" };
@@ -41,6 +42,8 @@ beforeEach(async () => {
   }
 });
 
+afterEach(() => vi.unstubAllEnvs());
+
 const activityOf = (tenantId: string, id: string) => db.dump("data_connection_activity").filter((a) => a.tenantId === tenantId && a.connectionId === id).map((a) => a.kind);
 
 describe("purgeConnections", () => {
@@ -57,7 +60,7 @@ describe("purgeConnections", () => {
 
   it("touches only the named connection of the named brand", async () => {
     const r = await purgeConnections(A, { connectionId: ONE, apply: true, by: "ops", now: new Date(T1), db });
-    expect(r.removed).toEqual([{ connectionId: ONE, found: true, activityDeleted: 2, secretsDeleted: 1, recentDeleted: 2 }]);
+    expect(r.removed).toEqual([{ connectionId: ONE, found: true, activityDeleted: 2, secretsDeleted: 1, recentDeleted: 2, revoked: false }]);
     expect(db.raw("data_connections", ONE)).toMatchObject({ secrets: {}, status: "disconnected", disconnectedAt: T1, recent: [{ kind: "purged", by: "purge:ops", at: T1, code: null }] });
     expect(activityOf("ten_a", ONE)).toEqual(["purged"]);
     // The brand's other connection and another brand's are left alone.
@@ -81,5 +84,49 @@ describe("purgeConnections", () => {
     await expect(purgeConnections(A, { apply: true, db })).rejects.toThrow("--by takes a short label");
     expect(() => purgeActor("someone@example.com")).toThrow();
     expect(purgeActor("ops_1")).toBe("purge:ops_1");
+  });
+});
+
+describe("purging a Google sign in", () => {
+  const SIGNED = "dcn_dddddddddddddddddddd";
+  const signedIn = async () => {
+    vi.stubEnv("CONNECTORS_VAULT_KEY", "purge-test-vault-root-0123456789abcdef01");
+    await createDataConnection(
+      A,
+      {
+        ...conn(SIGNED),
+        connectorId: "search-console",
+        method: "oauth_pkce",
+        account: "sc-domain:example.com",
+        secrets: { access: sealConnectorSecret("ten_a", SIGNED, "access", "made-up-access"), refresh: sealConnectorSecret("ten_a", SIGNED, "refresh", "made-up-refresh") },
+        tokenExpiresAt: T1,
+        refresh: { leaseId: null, leaseUntil: null },
+      },
+      [{ kind: "connected", by: "usr_admin", at: T0 }],
+      db,
+    );
+  };
+
+  it("revokes it at Google only with the revoke switch on, after the purge", async () => {
+    await signedIn();
+    const transport = vi.fn(async () => new Response(null, { status: 200 }));
+    const off = await purgeConnections(A, { connectionId: SIGNED, apply: true, by: "ops", now: new Date(T1), db, transport, log: () => {} });
+    expect(off.removed[0]).toMatchObject({ connectionId: SIGNED, secretsDeleted: 2, revoked: false });
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it("says so in its lines when it revoked", async () => {
+    await signedIn();
+    vi.stubEnv("CONNECTOR_GOOGLE_REVOKE_ENABLED", "true");
+    const transport = vi.fn(async (_url: string, _init: RequestInit) => new Response(null, { status: 200 }));
+    const r = await purgeConnections(A, { connectionId: SIGNED, apply: true, by: "ops", now: new Date(T1), db, transport, log: () => {} });
+    expect(r.removed[0]).toMatchObject({ revoked: true });
+    expect(transport.mock.calls[0]![0]).toBe("https://oauth2.googleapis.com/revoke");
+    expect(String(transport.mock.calls[0]![1].body)).toBe("token=made-up-refresh");
+    expect(purgeLines(r).join("\n")).toContain("sign in revoked at Google");
+    expect(db.raw("data_connections", SIGNED)).toMatchObject({ secrets: {}, status: "disconnected" });
+    const dry = await purgeConnections(A, { apply: false, db, transport, log: () => {} });
+    expect(dry.removed).toEqual([]);
+    expect(transport).toHaveBeenCalledTimes(1);
   });
 });

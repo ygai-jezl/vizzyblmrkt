@@ -4,8 +4,9 @@
  *
  * For one connection (--connection) or every connection of the brand, it deletes the sealed
  * secrets, the recent list and the activity rows, marks each connection disconnected and leaves
- * one "purged" activity row as the trace. It never calls a provider: delete a pasted token at the
- * provider too.
+ * one "purged" activity row as the trace. Delete a pasted token at the provider too. It calls a
+ * provider only to revoke a Google sign in, and only with CONNECTOR_GOOGLE_REVOKE_ENABLED on and
+ * CONNECTORS_VAULT_KEY set: Google's revoke ends every grant of that Google account, for every brand.
  *
  * DRY RUN by default: it prints ids and counts, never a secret. Pass --apply --by <label> to write.
  *

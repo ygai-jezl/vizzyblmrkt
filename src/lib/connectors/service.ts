@@ -13,7 +13,9 @@ import { tokenMethod, type ConnectMethodName, type ConnectorManifest } from "./m
 import { connectorMessage, type ConnectorErrorCode } from "./messages";
 import { getConnector, knownConnector, listConnectors, readyMethods } from "./registry";
 import type { ConnectorFetchDeps } from "./safeFetch";
-import { freshAccessToken, type KeeperDeps } from "./tokenKeeper";
+import { isGoogleRevokeEnabled } from "./flags";
+import { revokeGoogleToken } from "./google";
+import { freshAccessToken, REFRESH_SLOT, type KeeperDeps } from "./tokenKeeper";
 import { isVaultConfigured, openConnectorSecret, sealConnectorSecret, VaultOpenError, type SealedSecret } from "./vault";
 
 /**
@@ -520,28 +522,49 @@ export interface DisconnectOutcome {
   connection: ConnectionView;
   /** Whether access was cancelled at the provider. Never for a pasted token. */
   revoked: boolean;
-  /** What to do at the provider, from the manifest. */
+  /** What to do at the provider, from the manifest, or what revoking did. */
   message: string;
 }
 
+/** What Disconnect says after Google revoked the sign in: every grant of that account ends. */
+export const REVOKED_MESSAGE =
+  "Disconnected, and YouGrow's access was removed at Google too. Any other connection signed in with the same Google account has to sign in again.";
+
 /**
  * Disconnect: delete the sealed secrets, mark it disconnected and record it. The record stays, so
- * its activity can still be read. A pasted token can't be cancelled from here, so the answer says
- * what to do at the provider. Admins only.
+ * its activity can still be read. Admins only.
+ *
+ * A pasted token can't be cancelled from here, so the answer says what to do at the provider. A
+ * Google sign in is revoked at Google only with CONNECTOR_GOOGLE_REVOKE_ENABLED on, after the
+ * disconnect is saved and best effort, because Google's revoke ends every grant that Google
+ * account gave this app, for every brand (decision 2 of the Connectors 1 plan). Off, the answer
+ * says how to remove access in the Google account.
  */
 export async function disconnect(ctx: TenantContext, actor: ConnectorActor, id: string, deps: ServiceDeps = {}): Promise<ServiceResult<DisconnectOutcome>> {
+  let signIn: SealedSecret | null = null;
   const r = await manage(
     ctx,
     actor,
     id,
     "disconnect",
-    (cur, at) =>
-      cur.status === "disconnected"
-        ? null
-        : { patch: { secrets: {}, status: "disconnected", disconnectedAt: at, pausedAt: null, pausedBy: null }, activity: [{ kind: "disconnected", by: byOf(actor), at }] },
+    (cur, at) => {
+      signIn = null;
+      if (cur.status === "disconnected") return null;
+      signIn = cur.method === "oauth_pkce" ? (cur.secrets[REFRESH_SLOT] ?? null) : null;
+      return { patch: { secrets: {}, status: "disconnected", disconnectedAt: at, pausedAt: null, pausedBy: null }, activity: [{ kind: "disconnected", by: byOf(actor), at }] };
+    },
     deps,
   );
   if (!r.ok) return r;
+  let revoked = false;
+  const sealed = signIn as SealedSecret | null;
+  if (sealed && isGoogleRevokeEnabled()) {
+    try {
+      revoked = await revokeGoogleToken(openConnectorSecret(ctx.tenantId, id, REFRESH_SLOT, sealed), deps);
+    } catch (err) {
+      if (!(err instanceof VaultOpenError)) throw err;
+    }
+  }
   const m = knownConnector(r.value.connectorId);
-  return { ok: true, status: 200, value: { connection: r.value, revoked: false, message: m?.disconnect ?? "Disconnected." } };
+  return { ok: true, status: 200, value: { connection: r.value, revoked, message: revoked ? REVOKED_MESSAGE : (m?.disconnect ?? "Disconnected.") } };
 }

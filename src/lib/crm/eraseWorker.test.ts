@@ -363,3 +363,30 @@ describe("timeline moves on an erase, with the timeline switched off again", () 
     expect(sys().filter((r) => r.personId === BOB)).toHaveLength(2);
   });
 });
+
+describe("Vizzy's field suggestions on an erase, with its switch off", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("go with the person: the suggestion with its values, its trail and the change it made", async () => {
+    vi.stubEnv("AUDIENCE_VIZZY_FIELDS_ENABLED", "false");
+    const { saveFieldListChange } = await import("@/lib/audience/fieldList");
+    const { decideFieldSuggestion, suggestFieldChanges } = await import("@/lib/audience/fieldSuggestions");
+    const admin: TenantContext = { tenantId: "ten_demo", region: "us", source: "idtoken", role: "admin", userId: "uid_1" };
+    const demo: TenantContext = { tenantId: "ten_demo", region: "us", source: "system" };
+    const ADA = deterministicContactId("ten_demo", "ada@example.test");
+    const BOB = deterministicContactId("ten_demo", "bob@example.test");
+    const db = new FakeFirestore();
+    for (const [id, email] of [[ADA, "ada@example.test"], [BOB, "bob@example.test"]] as const) {
+      db.seed("contacts", id, { tenantId: "ten_demo", email, companyId: null, campaigns: [], fields: { fld_000000000001: 2 } });
+    }
+    await saveFieldListChange(admin, "person", { baseRev: 0, change: { op: "add", label: "Seats", type: "number" }, by: { type: "member", id: "uid_1" }, newFieldId: () => "fld_000000000001" }, db);
+    for (const id of [ADA, BOB]) {
+      const s = await suggestFieldChanges({ ...admin, source: "agent" }, { personId: id, changes: { fld_000000000001: 5 } }, { db });
+      if (!s.ok) throw new Error(s.error);
+      if (id === ADA) await decideFieldSuggestion(admin, id, { id: s.action.id, rev: s.action.rev, decision: "confirm" }, { db });
+    }
+    expect(await processContactEraseJob(demo, { id: "erase_ada", payload: { contactId: ADA } } as unknown as EmailJob, db)).toBe("done");
+    expect(db.dump("agent_actions").map((r) => r.personId)).toEqual([BOB]);
+    expect(new Set(db.dump("ontology_events").map((r) => r.personId))).toEqual(new Set([BOB]));
+  });
+});

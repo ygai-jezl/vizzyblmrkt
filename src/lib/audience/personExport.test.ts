@@ -305,3 +305,32 @@ describe("timeline moves in an export, with the timeline switched off again", ()
     }
   });
 });
+
+describe("Vizzy's field suggestions in an export, with its switch off", () => {
+  it("holds each suggestion about them with its values, and its trail", async () => {
+    vi.stubEnv("AUDIENCE_VIZZY_FIELDS_ENABLED", "false");
+    try {
+      const { saveFieldListChange } = await import("./fieldList");
+      const { decideFieldSuggestion, suggestFieldChanges } = await import("./fieldSuggestions");
+      const db = new FakeFirestore();
+      seedWorld(db);
+      seedUser(db, "ada", { email: "ada@customer.test", emailNormalized: "ada@customer.test" });
+      await syncPerson(ctx, "ada@customer.test", { db, nowMs: T0 });
+      const id = personIdOf(TENANT_ID, "ada@customer.test");
+      const admin = { ...ctx, userId: "usr_1", role: "admin" as const };
+      await saveFieldListChange(admin, "person", { baseRev: 0, change: { op: "add", label: "Seats", type: "number" }, by: { type: "member", id: "usr_1" }, newFieldId: () => "fld_000000000001" }, db);
+      const s = await suggestFieldChanges({ ...admin, source: "agent" }, { personId: id, changes: { fld_000000000001: 9 }, why: "Nine people use it." }, { db, nowMs: T0 });
+      if (!s.ok) throw new Error(s.error);
+      expect(await decideFieldSuggestion(admin, id, { id: s.action.id, rev: s.action.rev, decision: "confirm" }, { db, nowMs: T0 + 1000 })).toMatchObject({ ok: true });
+
+      const doc = ((await exportWholePerson(ctx, id, { db, nowMs: T0 + 2000 })) as { document: Record<string, unknown> }).document;
+      expect(doc.agentActions).toEqual([
+        expect.objectContaining({ id: s.action.id, action: "person_fields.suggest", state: "acted", result: { fields: { fld_000000000001: 9 } }, undo: { before: { fld_000000000001: null } } }),
+      ]);
+      const kinds = (doc.events as Array<{ kind: string }>).map((e) => e.kind).filter((k) => k.startsWith("agent.") || k === "record.field_changed").sort();
+      expect(kinds).toEqual(["agent.acted", "agent.approved", "agent.proposed", "record.field_changed"]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});

@@ -12,7 +12,7 @@ import {
 } from "@/lib/audience/peopleFlags";
 import { SUGGESTION_MESSAGES, SUGGESTION_NOTES } from "@/lib/audience/suggestionWords";
 import { TIMELINE_EMPTY } from "@/lib/audience/timelineWords";
-import { FIELD_MESSAGES } from "@/components/admin/audience/fieldsApi";
+import { FIELD_MESSAGES, VIZZY_READS_HINT } from "@/components/admin/audience/fieldsApi";
 import { CONSENT_WAYS, NEW_PERSON_MESSAGES, NEW_PERSON_NOTES } from "@/lib/audience/newPerson";
 import type { HelpBodyProps } from "@/lib/help/pages";
 import { peopleArea } from "@/lib/nav/terms";
@@ -276,8 +276,8 @@ export default function YourAudienceHelp({
             <P>
               For a text field on People, such as a job title, an admin can tick <strong>Vizzy can read this field</strong> in{" "}
               <strong>Add field</strong> or under <strong>Edit</strong>, so <Open href="/help/your-audience#vizzy">Vizzy</Open> reads
-              it and can suggest values. It starts unticked. Tick it only for fields that don&apos;t say who someone is or how to
-              reach them. The <strong>Vizzy reads</strong> column shows every field Vizzy can read. Bring back and restoring an older
+              it and can suggest values. It starts unticked, and beside it Data model says: &quot;{VIZZY_READS_HINT}&quot; The{" "}
+              <strong>Vizzy reads</strong> column shows every field Vizzy can read. Bring back and restoring an older
               list never tick it again; an admin ticks it again if it should be.
             </P>
           ) : null}

@@ -14,6 +14,7 @@ import { helpLlmsTxt, helpPageMarkdown } from "./agentFiles";
 import { HELP_PAGES, helpPage, shownHelpPages } from "./pages";
 import { HELP_PLACES, helpFor, parseHelpPath } from "./places";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
+import { VIZZY_READS_HINT } from "@/components/admin/audience/fieldsApi";
 
 
 /**
@@ -417,7 +418,8 @@ describe("the Vizzy and their fields section", () => {
     expect(text).toContain("never sees other text fields, or email, phone, link or team member fields, whatever is ticked");
     expect(text).toContain("at most 500 characters");
     expect(text).toContain("It starts unticked");
-    expect(text).toContain("don't say who someone is or how to reach them");
+    // The hint Data model shows beside the tick, word for word.
+    expect(text).toContain(`"${VIZZY_READS_HINT}"`);
     expect(text).toContain("The **Vizzy reads** column");
     expect(text).toContain("never tick it again");
     expect(text).toContain("since Vizzy made it, or an admin unticked Vizzy can read this field for one of them, confirming sets");

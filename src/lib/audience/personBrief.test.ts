@@ -152,6 +152,8 @@ describe("loadPersonBrief for a whole person (the one view)", () => {
     const r = await loadPersonBrief(ctx, personIdOf(ctx.tenantId, "ada@customer.test"), { db, nowMs: T0 });
     expect(r.found).toBe(true);
     const brief = (r as unknown as { brief: Record<string, unknown> }).brief;
+    expect(brief.productUserId).toBe(user.id);
+    // The old name, the same id, until every Vizzy reads productUserId.
     expect(brief.personId).toBe(user.id);
     expect(brief.launches).toEqual([expect.objectContaining({ status: "confirmed", via: "form", referrals: 2 })]);
     expect(JSON.stringify(brief)).not.toContain("Byron");

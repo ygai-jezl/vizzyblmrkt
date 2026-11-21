@@ -27,7 +27,9 @@ import { loadWholePerson } from "./wholePerson";
  */
 
 export interface PersonBrief {
-  /** Our id for the person: what the person tools take. Not the product's id for them. */
+  /** Our id for their product user: what the person tools take. Not the product's own id for them. */
+  productUserId: string;
+  /** The same id under its old name, sent until every Vizzy reads `productUserId` (piece B). */
   personId: string;
   product: string;
   /** A Sandbox's test user: made-up data. */
@@ -138,7 +140,7 @@ function pathOf(url: string | null): string | null {
 }
 
 /** Fields that are ours alone: ids we made, dates, and fixed words the agent's prompt names. */
-const OURS = new Set(["personId", "journeyId", "today", "signedUp", "lastActive", "timezone", "kind", "status", "mode", "wording", "on", "entered", "ended", "doneOn", "reviewOn", "can", "writtenBy", "joined", "via", "invite"]);
+const OURS = new Set(["productUserId", "personId", "journeyId", "today", "signedUp", "lastActive", "timezone", "kind", "status", "mode", "wording", "on", "entered", "ended", "doneOn", "reviewOn", "can", "writtenBy", "joined", "via", "invite"]);
 
 /** Every other string in the brief goes through the scrubber, whoever wrote it: nothing relies on a field being "safe". */
 function scrubAll<T>(value: T, scrub: (s: string) => string, key = ""): T {
@@ -153,6 +155,7 @@ export function personBrief(p: PersonRecord, nowMs: number): PersonBrief {
   const reach = reachText(p.reach, p.categoryLabels);
   const date = daysIn(p.timezone);
   const brief: PersonBrief = {
+    productUserId: p.id,
     personId: p.id,
     product: p.product,
     testUser: p.sandbox,

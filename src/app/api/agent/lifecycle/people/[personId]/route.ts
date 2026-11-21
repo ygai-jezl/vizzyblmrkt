@@ -15,6 +15,10 @@ const BRIEF_LIMIT = { prefix: "person_brief", burstLimit: 20, hourlyLimit: 200 }
  * — stage, journeys, emails — with no name, no address and none of the product's
  * ids (src/lib/audience/personBrief.ts). Auth: the signed canvas capability token
  * in `X-Canvas-Context`, so only for the brand the operator is signed in to.
+ *
+ * The segment keeps its name because, like the person page's, it takes either kind of id: a
+ * whole person's `ct_` id or a product user's id. The brief names the product user it is about
+ * as `productUserId`, and as `personId` too until every Vizzy reads the new name (piece B).
  */
 export async function GET(req: Request, { params }: { params: Promise<{ personId: string }> }) {
   const gate = agentGate(req);

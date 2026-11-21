@@ -1,4 +1,4 @@
-import { writeRecordWithEvents, type TenantContext } from "@/lib/tenant";
+import { forTenant, writeRecordWithEvents, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { Contact, ContactAddedBy, ContactConsentEntry } from "@/lib/types/contact";
 import type { EventWrite } from "@/lib/types/ontologyEvent";
@@ -10,11 +10,12 @@ import { buildSearchTokens } from "@/lib/crm/searchTokens";
 import { actorOf } from "@/lib/ontology/events";
 import { consentRecordedEvent, recordCreatedEvent } from "@/lib/ontology/eventBuilders";
 import { isContactPersonId, type ContactPersonId } from "@/lib/ontology/person";
+import { checkAllowance, type UsageDeps } from "@/lib/plans/usage";
 import { readFieldList } from "./fieldList";
 import { setFieldValues } from "./fields";
 import { handAddedOf, optOutsOf, summarize, withCarriedTags } from "./personLinks";
 import { optOutRowsFor, personIdOf, sortKeyOf, syncPersonSafe } from "./personSync";
-import type { ConsentWay, NewPerson } from "./newPerson";
+import { EMAIL_RE, type ConsentWay, type NewPerson } from "./newPerson";
 
 /**
  * Adding someone by hand (AUDIENCE_ADD_PERSON_ENABLED; the routes check the switch). The person is
@@ -211,4 +212,27 @@ export async function recordHandConsent(
   if (written.outcome === "unchanged" && seen.entry) return { outcome: "unchanged", consent: seen.entry };
   if (written.outcome !== "created" && written.outcome !== "updated") throw new Error("record consent: nothing written");
   return { outcome: "recorded", consent: written.doc.consent!.marketing_email! };
+}
+
+/** What the form shows before anything is added: the plan's people, and the company an address matches. */
+export interface NewPersonInfo {
+  /** The plan's people allowance, when plans count it; null: no limit to speak of. */
+  allowance: { used: number; limit: number } | null;
+  /** The company a work address matches: its name once known, else its web address. Null for a personal address. */
+  company: { name: string | null; domain: string } | null;
+}
+
+/** The allowance through piece A's checkAllowance (which never locks), and the company for `email`. */
+export async function newPersonInfo(ctx: TenantContext, email: string | null, deps: { db?: FirestoreLike; usage?: UsageDeps } = {}): Promise<NewPersonInfo> {
+  const address = email && EMAIL_RE.test(email.trim()) ? normalizeEmail(email) : null;
+  const domain = address ? domainFromEmail(address) : null;
+  const corporate = !!address && !!domain && !isPublicEmailProvider(address);
+  const [use, company] = await Promise.all([
+    checkAllowance(ctx, "people", 1, deps.usage).catch(() => null),
+    corporate && domain ? forTenant(ctx, deps.db).companies.getById(deterministicCompanyId(ctx.tenantId, domain)).catch(() => null) : Promise.resolve(null),
+  ]);
+  return {
+    allowance: use && use.used !== null && use.limit !== null ? { used: use.used, limit: use.limit } : null,
+    company: corporate && domain ? { name: company?.name ?? null, domain } : null,
+  };
 }

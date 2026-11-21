@@ -26,7 +26,8 @@ export function consentWayLabel(how: string): string {
 export const NEW_PERSON_VIA = ["form", "palette"] as const;
 export type NewPersonVia = (typeof NEW_PERSON_VIA)[number];
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** An address as the sign-up form checks one. */
+export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /** Digits with the usual marks; trimmed only, exactly as a sign-up's phone is, so the two match. */
 const PHONE_RE = /^\+?[0-9][0-9 ().-]{1,38}$/;
 export const NAME_MAX = 100;

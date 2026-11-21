@@ -2,7 +2,7 @@ import { lifecycleAdmin, type AdminGate } from "@/lib/connect/admin";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { isOneViewEnabled, isPersonViewEnabled } from "./flags";
-import { isFieldsEnabled } from "./peopleFlags";
+import { isAddPersonEnabled, isFieldsEnabled } from "./peopleFlags";
 
 /**
  * Gate for the person view's admin APIs: its flag (off = these routes don't exist),
@@ -33,18 +33,31 @@ export async function oneViewAdmin(req: Request, opts: { mutate: boolean }): Pro
   return { ok: true, ctx };
 }
 
-/**
- * Gate for the fields APIs (AUDIENCE_FIELDS_ENABLED), in oneViewAdmin's order: the switch (off =
- * they don't exist), same origin, a session, and the admin role for any change. Members can read
- * the field lists and values.
- */
-export async function fieldsAdmin(req: Request, opts: { mutate: boolean }): Promise<AdminGate> {
+/** oneViewAdmin's order for a piece B switch: the switch (off = the route doesn't exist), same origin, a session, then the admin role for a change. */
+async function switchedAdmin(on: boolean, req: Request, opts: { mutate: boolean }): Promise<AdminGate> {
   const json = (status: number, body: unknown) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
-  if (!isFieldsEnabled()) return { ok: false, response: json(404, { error: "not_found" }) };
+  if (!on) return { ok: false, response: json(404, { error: "not_found" }) };
   const blocked = sameOriginGuard(req);
   if (blocked) return { ok: false, response: blocked };
   const ctx = await getAdminContext();
   if (!ctx) return { ok: false, response: json(401, { error: "unauthorized" }) };
   if (opts.mutate && ctx.role !== "admin") return { ok: false, response: json(403, { error: "forbidden" }) };
   return { ok: true, ctx };
+}
+
+/**
+ * Gate for the fields APIs (AUDIENCE_FIELDS_ENABLED), in oneViewAdmin's order: the switch (off =
+ * they don't exist), same origin, a session, and the admin role for any change. Members can read
+ * the field lists and values.
+ */
+export async function fieldsAdmin(req: Request, opts: { mutate: boolean }): Promise<AdminGate> {
+  return switchedAdmin(isFieldsEnabled(), req, opts);
+}
+
+/**
+ * Gate for New person and recording consent (AUDIENCE_ADD_PERSON_ENABLED): admins only, in
+ * oneViewAdmin's order (decision 28).
+ */
+export async function addPersonAdmin(req: Request): Promise<AdminGate> {
+  return switchedAdmin(isAddPersonEnabled(), req, { mutate: true });
 }

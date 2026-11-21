@@ -37,6 +37,8 @@ export interface HelpBodyProps {
   people?: boolean;
   /** Fields on people and companies are on (isFieldsEnabled()). */
   fields?: boolean;
+  /** People can be filtered by fields and product groups (isFieldFiltersEnabled()). */
+  fieldFilters?: boolean;
 }
 
 /** Navigation headings, matching Home's stages. */

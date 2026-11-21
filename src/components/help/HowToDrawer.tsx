@@ -34,6 +34,7 @@ export function HowToDrawer() {
   // The drawer renders in the browser, where server switches read off: it says what the shell says.
   const people = useShell()?.people ?? false;
   const fields = useShell()?.fields ?? false;
+  const fieldFilters = useShell()?.fieldFilters ?? false;
   const [steps, setSteps] = useState<GuideStep[] | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -184,7 +185,7 @@ export function HowToDrawer() {
         ) : null}
         {Body ? (
           <div className="text-sm [&_h1]:text-xl [&_h2]:mt-8 [&_h2]:text-base">
-            <Body people={people} fields={fields} />
+            <Body people={people} fields={fields} fieldFilters={fieldFilters} />
           </div>
         ) : (
           <p className="text-sm text-shell-muted">Loading…</p>

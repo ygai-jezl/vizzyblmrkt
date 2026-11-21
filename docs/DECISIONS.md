@@ -10,7 +10,7 @@ Context: piece B of the CRM and tiers plan turns Audience into People and adds w
 needs on top of the person record: fields, filters, adding someone by hand, a timeline and
 Vizzy's suggestions. It also starts the settings log (piece O part 1) and stops catalog
 history being pruned. It ships as one pull request in commit groups; this record covers
-groups 1 to 5 and grows with the rest. The only Firestore changes are the two composite
+groups 1 to 6 and grows with the rest. The only Firestore changes are the two composite
 indexes and the two field exemptions below. No dependency, rules or infra change.
 
 Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
@@ -124,12 +124,30 @@ Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
     `loadWholePerson` and is served only by `GET .../everyone/[personId]/conversation`, behind
     `oneViewAdmin` with `mutate`, as export is. Analysing it (a server summary, suggested values,
     themes, brand search) is the later "Voice chat insights" card, after the DPA.
+- **Filters (group 6, answer 4).** `AUDIENCE_FIELD_FILTERS_ENABLED` (RUNTIME, `"false"`, needs
+  fields) gives the People list a menu for each select, multi select, status and checkbox field,
+  and "Everyone in this group" on a person's page (`?group=<connectionId>:<entity id>`). Field
+  pills and the group filter share the switch.
+  - Each value is a `memberOf` tag the field writer keeps in step: `field:<fieldId>:<optionId>`
+    for a select or status and for each option of a multi select, `field:<fieldId>:yes` for a
+    ticked checkbox, at most 50 a person. `isFilterTag` accepts them and `group:` tags, whose
+    entity ids may hold `.` and `:`. They use the existing (tenantId, memberOf, sortKey) and
+    (tenantId, reach, memberOf, sortKey) indexes: one filter at a time, as before. No new index.
+  - Counts: the filters route lists the fields without counts and counts one field's options
+    with `?field=` when its menu opens, so a page load never runs a count per option.
+  - Archived fields and options keep their tags with their values; their pills are hidden, and a
+    restore brings them back with nothing to run. No "Added by hand" pill: `added:hand` stays
+    internal (owner, 20 Nov). Companies have no filters in B.
+  - The tags are written whatever the filters switch says (they are derived and harmless), and
+    the sync's keep-field-tags rule has no switch. `scripts/backfill-field-tags.ts` rebuilds them
+    from stored values (dry run, then `--apply`), for values written without them.
 
 Rollback: turning `NEXT_PUBLIC_NAV_PEOPLE_ENABLED` off (a rebuild) changes only words. The
 settings log has no switch and nothing calls it until the fields. Never revert group 3 once
 anyone has been added by hand: without the `addedBy` rule the next sync would delete them. Once
 field values exist, turn `AUDIENCE_FIELDS_ENABLED` off rather than reverting: the values stay on
-the records, and export and erase still cover them.
+the records, and export and erase still cover them. Turning the filters off hides the pills; the
+tags stay. If the field writer were reverted, rerun the backfill once it is back.
 
 ---
 

@@ -27,6 +27,8 @@ interface Shell {
   people: boolean;
   /** Fields on people and companies are on (isFieldsEnabled(), from the server), so the How to drawer shows their help. */
   fields: boolean;
+  /** People can be filtered by fields (isFieldFiltersEnabled(), from the server), for the How to drawer. */
+  fieldFilters: boolean;
   /**
    * Hear about each draft Vizzy saves in this chat (returns the unsubscribe), so a page whose
    * data isn't the server's render (the journey editor, a person's page) can reload it. Null
@@ -65,6 +67,7 @@ export function ShellProvider({
   personInContext = false,
   people = false,
   fields = false,
+  fieldFilters = false,
   children,
 }: {
   names: CrumbNames;
@@ -75,6 +78,8 @@ export function ShellProvider({
   people?: boolean;
   /** Fields are on (isFieldsEnabled(), from the server): the How to drawer shows their help sections. */
   fields?: boolean;
+  /** Field filters are on (isFieldFiltersEnabled(), from the server): the How to drawer shows their help. */
+  fieldFilters?: boolean;
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? "/admin";
@@ -139,9 +144,10 @@ export function ShellProvider({
       personInContext,
       people,
       fields,
+      fieldFilters,
       onCanvasSaved: journeyInContext || personInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, people, fields, saved],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, people, fields, fieldFilters, saved],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

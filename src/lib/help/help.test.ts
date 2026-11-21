@@ -36,6 +36,7 @@ vi.hoisted(() => {
   process.env.AUDIENCE_ONE_VIEW_ENABLED = "true";
   process.env.ONTOLOGY_PERSON_IDS_ENABLED = "true";
   process.env.AUDIENCE_FIELDS_ENABLED = "true";
+  process.env.AUDIENCE_FIELD_FILTERS_ENABLED = "true";
   process.env.NEXT_PUBLIC_EDIT_MODE_ENABLED = "true";
   process.env.NEXT_PUBLIC_EDIT_MODE_EMAILS_ENABLED = "true";
   process.env.NEXT_PUBLIC_NEWSLETTER_MARKDOWN_EMAIL_ENABLED = "true";
@@ -286,7 +287,7 @@ describe("links into the help", () => {
 });
 
 describe("the fields sections", () => {
-  const md = (fields: boolean) => docToMarkdown(HELP_BODIES["your-audience"]!({ people: true, fields }), "https://app.example.com");
+  const md = (fields: boolean, fieldFilters = fields) => docToMarkdown(HELP_BODIES["your-audience"]!({ people: true, fields, fieldFilters }), "https://app.example.com");
 
   it("show while fields are on, and How to on Data model opens them", () => {
     expect(md(true)).toContain("## Your own fields");
@@ -297,5 +298,12 @@ describe("the fields sections", () => {
   it("stay hidden while fields are off", () => {
     expect(md(false)).not.toContain("Data model");
     expect(md(false)).not.toContain("Company fields");
+  });
+
+  it("explain filters only while field filters are on", () => {
+    expect(md(true, true)).toContain("## Filter by a field or a group");
+    expect(md(true, true)).toContain("Everyone in this group");
+    expect(md(true, false)).not.toContain("Filter by a field");
+    expect(md(true, false)).toContain("Tick **Only people we can email**");
   });
 });

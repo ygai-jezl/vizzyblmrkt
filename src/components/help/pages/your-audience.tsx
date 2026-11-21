@@ -1,7 +1,7 @@
 import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
-import { isFieldsEnabled } from "@/lib/audience/peopleFlags";
+import { isFieldFiltersEnabled, isFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { FIELD_MESSAGES } from "@/components/admin/audience/fieldsApi";
 import type { HelpBodyProps } from "@/lib/help/pages";
 import { peopleArea } from "@/lib/nav/terms";
@@ -9,9 +9,14 @@ import { peopleArea } from "@/lib/nav/terms";
 /**
  * Shown only while AUDIENCE_ONE_VIEW_ENABLED is on (src/lib/help/pages.ts). With People on
  * (NEXT_PUBLIC_NAV_PEOPLE_ENABLED) the area is People, as the sidebar says; the slug stays. The
- * fields sections show while AUDIENCE_FIELDS_ENABLED is on.
+ * fields sections show while AUDIENCE_FIELDS_ENABLED is on, and the filters section while
+ * AUDIENCE_FIELD_FILTERS_ENABLED is too.
  */
-export default function YourAudienceHelp({ people = isPeopleNameEnabled(), fields = isFieldsEnabled() }: HelpBodyProps = {}) {
+export default function YourAudienceHelp({
+  people = isPeopleNameEnabled(),
+  fields = isFieldsEnabled(),
+  fieldFilters = isFieldFiltersEnabled(),
+}: HelpBodyProps = {}) {
   const area = peopleArea(people);
   return (
     <article>
@@ -53,14 +58,23 @@ export default function YourAudienceHelp({ people = isPeopleNameEnabled(), field
           Open <Open href="/admin/crm">{area}</Open>. {people ? "Its" : "The"} <strong>People</strong> tab lists everyone,
           most recently active first, with the total at the bottom.
         </li>
+        {fieldFilters ? (
+          <li>
+            Pick who to show at the top: <strong>Everyone</strong>, or one launch, product or stage from the{" "}
+            <strong>Launch</strong>, <strong>Product</strong> and <strong>Stage</strong> menus. Stages are{" "}
+            <strong>New</strong>, <strong>Onboarding</strong>, <strong>Stuck</strong>, <strong>Activated</strong> and{" "}
+            <strong>Quiet</strong>.
+          </li>
+        ) : (
+          <li>
+            Pick a group at the top: <strong>Everyone</strong>, one of your launches, <strong>From your site</strong>, or one
+            of your products. A product also shows its stages: <strong>New</strong>, <strong>Onboarding</strong>,{" "}
+            <strong>Stuck</strong>, <strong>Activated</strong> and <strong>Quiet</strong>.
+          </li>
+        )}
         <li>
-          Pick a group at the top: <strong>Everyone</strong>, one of your launches, <strong>From your site</strong>, or one
-          of your products. A product also shows its stages: <strong>New</strong>, <strong>Onboarding</strong>,{" "}
-          <strong>Stuck</strong>, <strong>Activated</strong> and <strong>Quiet</strong>.
-        </li>
-        <li>
-          Tick <strong>Only people we can email</strong> to leave out anyone who unsubscribed, bounced or never gave
-          consent.
+          {fieldFilters ? "Press" : "Tick"} <strong>Only people we can email</strong> to leave out anyone who unsubscribed,
+          bounced or never gave consent.
         </li>
         <li>Or search everyone by name, email or domain.</li>
       </Steps>
@@ -69,6 +83,30 @@ export default function YourAudienceHelp({ people = isPeopleNameEnabled(), field
         is one row. Someone who only gave a phone number is a person of their own. A sign-up from your own site joins the
         list once they confirm their email.
       </P>
+
+      {fieldFilters ? (
+        <>
+          <H2 id="filters">Filter by a field or a group</H2>
+          <Steps>
+            <li>
+              On the People list, open the menu named after one of <Open href="/help/your-audience#fields">your fields</Open>.
+              Select, multi select, status and checkbox fields each have one, and its counts load when it opens.
+            </li>
+            <li>
+              Pick a value. The list shows everyone with it, and the line above says how many. A multi select finds everyone who
+              has that option among theirs; a checkbox finds everyone ticked.
+            </li>
+            <li>Press the filter to clear it. One filter applies at a time, with or without Only people we can email.</li>
+          </Steps>
+          <P>
+            To see everyone in one of your product&apos;s groups, such as a workspace, open someone in it and press{" "}
+            <strong>Everyone in this group</strong> under <strong>Product groups</strong>.
+          </P>
+          <P>
+            An archived field or option leaves the menus, and the people who had it keep it: bring it back and its filter returns.
+          </P>
+        </>
+      ) : null}
 
       <H2 id="person">One person&apos;s page</H2>
       <P>Click a row to open everything about them:</P>

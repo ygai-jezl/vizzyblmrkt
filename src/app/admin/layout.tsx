@@ -25,6 +25,7 @@ import { isNavV2Enabled, isNavV2Phase2Enabled, isThemeSwitchEnabled } from "@/li
 import { isOneViewEnabled, isPeopleNameEnabled, isPersonBriefEnabled } from "@/lib/audience/flags";
 import { canAddPeople, isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled, isTimelineEnabled, isPersonInContextEnabled, isVizzyAddPersonEnabled, isVizzyFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { parseThemePreference, THEME_COOKIE } from "@/lib/theme";
+import { isCatalogHistoryEnabled } from "@/lib/connect/v2/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -176,6 +177,7 @@ export default async function AdminLayout({
             timeline={isTimelineEnabled()}
             vizzyFields={isVizzyFieldsEnabled()}
             vizzyAddPerson={isVizzyAddPersonEnabled()}
+            catalogHistory={isCatalogHistoryEnabled()}
           >
             {shell}
           </ShellProvider>

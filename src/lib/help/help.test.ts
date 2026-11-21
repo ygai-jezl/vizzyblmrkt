@@ -290,6 +290,15 @@ describe("links into the help", () => {
   });
 });
 
+describe("catalog history on Connect your product", () => {
+  const md = (catalogHistory: boolean) => docToMarkdown(HELP_BODIES["connect-your-product"]!({ catalogHistory }), "https://app.example.com");
+
+  it("follows what it is told, so the How to drawer can pass the server's switch", () => {
+    expect(md(true)).toContain("Every save of the catalog is kept under **History**");
+    expect(md(false)).not.toContain("Every save of the catalog");
+  });
+});
+
 describe("the fields sections", () => {
   const md = (fields: boolean, fieldFilters = fields) => docToMarkdown(HELP_BODIES["your-audience"]!({ people: true, fields, fieldFilters }), "https://app.example.com");
 

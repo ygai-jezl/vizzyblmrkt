@@ -6,7 +6,7 @@ import { isCatalogHistoryEnabled } from "@/lib/connect/v2/flags";
 import type { HelpBodyProps } from "@/lib/help/pages";
 import { peopleArea } from "@/lib/nav/terms";
 
-export default function ConnectYourProductHelp({ people = isPeopleNameEnabled() }: HelpBodyProps = {}) {
+export default function ConnectYourProductHelp({ people = isPeopleNameEnabled(), catalogHistory = isCatalogHistoryEnabled() }: HelpBodyProps = {}) {
   return (
     <article>
       <H1>Connect your product</H1>
@@ -113,7 +113,7 @@ export default function ConnectYourProductHelp({ people = isPeopleNameEnabled() 
         <strong>Catalog</strong> tab. In a company&apos;s GitHub organisation, an owner may need to approve the app first. See{" "}
         <Open href="/developers/connect-your-code">how connecting works</Open>.
       </P>
-      {isCatalogHistoryEnabled() ? (
+      {catalogHistory ? (
         <P>
           Every save of the catalog is kept under <strong>History</strong> on the <strong>Catalog</strong> tab, with what
           changed, who saved it and when. Someone no longer on your team shows as <strong>Former team member</strong>.{" "}

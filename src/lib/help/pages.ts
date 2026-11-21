@@ -48,6 +48,8 @@ export interface HelpBodyProps {
   vizzyFields?: boolean;
   /** Vizzy fills in the New person form (isVizzyAddPersonEnabled()). */
   vizzyAddPerson?: boolean;
+  /** Every catalog save is kept as history (isCatalogHistoryEnabled()). */
+  catalogHistory?: boolean;
 }
 
 /** Navigation headings, matching Home's stages. */

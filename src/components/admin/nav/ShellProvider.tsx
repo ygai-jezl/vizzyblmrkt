@@ -39,6 +39,8 @@ interface Shell {
   vizzyFields: boolean;
   /** Vizzy fills in the New person form (isVizzyAddPersonEnabled(), from the server), for the How to drawer. */
   vizzyAddPerson: boolean;
+  /** Every catalog save is kept as history (isCatalogHistoryEnabled(), from the server), for the How to drawer. */
+  catalogHistory: boolean;
   /**
    * Hear about each draft Vizzy saves in this chat (returns the unsubscribe), so a page whose
    * data isn't the server's render (the journey editor, a person's page) can reload it. Null
@@ -83,6 +85,7 @@ export function ShellProvider({
   timeline = false,
   vizzyFields = false,
   vizzyAddPerson = false,
+  catalogHistory = false,
   children,
 }: {
   names: CrumbNames;
@@ -108,6 +111,8 @@ export function ShellProvider({
   vizzyFields?: boolean;
   /** Vizzy's New person drafts are on (isVizzyAddPersonEnabled(), from the server): the How to drawer shows their help. */
   vizzyAddPerson?: boolean;
+  /** Catalog history is on (isCatalogHistoryEnabled(), from the server): the How to drawer shows its help. */
+  catalogHistory?: boolean;
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? "/admin";
@@ -178,9 +183,10 @@ export function ShellProvider({
       timeline,
       vizzyFields,
       vizzyAddPerson,
+      catalogHistory,
       onCanvasSaved: journeyInContext || personInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyAddPerson, saved],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyAddPerson, catalogHistory, saved],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

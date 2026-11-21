@@ -1,5 +1,5 @@
 import { forTenant, moveRecordFieldValues, repointHistoryPage, type HistoryStore } from "@/lib/tenant";
-import { syncPersonSafe } from "@/lib/audience/personSync";
+import { personIdOf, personKeyOf, syncPersonSafe } from "@/lib/audience/personSync";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { EmailJob } from "@/lib/types/emailJob";
 import { isOntologyPersonIdsEnabled } from "./flags";
@@ -29,6 +29,12 @@ import { personIdForProductUser } from "./personRef";
  * behind onto the person they are now, through the one field writer (moveRecordFieldValues), and
  * a record that leaves empty is synced again, so one nothing else keeps goes as it would have
  * without values and its history follows in the walk. Running it again moves nothing twice.
+ *
+ * A sync a product write couldn't make is made here first: the record left behind still looks
+ * like someone in People while it owes one, and the new record may not exist yet. Values that
+ * still didn't move (a failed write, or a sync that failed again) keep their record's history
+ * with them, and the job answers "again" with its moves still pending, up to MAX_VALUE_TRIES runs
+ * in all; after that it settles them and logs that values were left behind.
  */
 
 /** The stores a product user's person is written on, in the order the job walks them. */
@@ -67,6 +73,14 @@ export interface RepointDeps {
 
 const DEFAULT_SLICE_MS = 20_000;
 const DEFAULT_PAGE = 300;
+/** The runs one job tries to move field values that didn't move, before it settles its moves anyway. */
+export const MAX_VALUE_TRIES = 5;
+
+/** The runs so far that left field values behind, saved on the job. */
+function valueTriesOf(payload: Record<string, unknown>): number {
+  const n = payload.valueTries;
+  return typeof n === "number" && Number.isInteger(n) && n > 0 ? n : 0;
+}
 
 function cursorOf(payload: Record<string, unknown>): RepointCursor | null {
   const c = payload.cursor as Partial<RepointCursor> | undefined;
@@ -129,6 +143,8 @@ export async function processPersonRepointJob(
   };
   let target = personIdForProductUser(ctx.tenantId, user0, connection);
   if (!target) return settleMoves("dropped");
+  /** The people whose field values didn't leave in this run's walk: tried again on the next run. */
+  let unsettled = new Set<ContactPersonId>();
 
   /**
    * The walk for a target: the five stores, the history stores by the product user, then the
@@ -148,32 +164,64 @@ export async function processPersonRepointJob(
       limit: 100,
     });
     // Their field values first: a record they leave empty may go, and then its history follows below.
-    await moveFieldValues(pending, to);
+    unsettled = await moveFieldValues(pending, to);
     const froms = new Set<ContactPersonId>();
     for (const m of pending) {
       if (!isContactPersonId(m.fromPersonId) || m.fromPersonId === to || froms.has(m.fromPersonId)) continue;
+      // Values that didn't move keep their record's history with them until they do.
+      if (unsettled.has(m.fromPersonId)) continue;
       if (m.kind === "record.merged" || !(await repo.contacts.getById(m.fromPersonId))) froms.add(m.fromPersonId);
     }
     for (const from of [...froms].sort()) for (const store of HISTORY_STORES) steps.push({ kind: "history", store, from });
     return steps;
   };
 
-  /** Field values from each person their pending moves left behind, onto `to`. Never throws. */
-  async function moveFieldValues(pending: ReadonlyArray<{ fromPersonId: string }>, to: ContactPersonId): Promise<void> {
+  /**
+   * Field values from each person their pending moves left behind, onto `to`. Never throws: it
+   * answers the people whose values didn't move and should have.
+   */
+  async function moveFieldValues(pending: ReadonlyArray<{ fromPersonId: string }>, to: ContactPersonId): Promise<Set<ContactPersonId>> {
     const froms = [...new Set(pending.map((m) => m.fromPersonId))].filter((f): f is ContactPersonId => isContactPersonId(f) && f !== to).sort();
     // The run's start, so the slice clock isn't spent here.
     const at = new Date(started).toISOString();
+    const left = new Set<ContactPersonId>();
     for (const from of froms) {
       try {
-        const r = await moveRecordFieldValues(ctx, { from, to, nowIso: at }, { db });
-        // Codes and counts only: never a value, an address or an id.
-        if (r.tooLarge.length) console.warn(`[ontology] move_field_values_too_large tenant=${ctx.tenantId} count=${r.tooLarge.length}`);
-        if (r.outcome === "skipped" && r.reason === "no_target") console.warn(`[ontology] move_field_values_no_target tenant=${ctx.tenantId}`);
-        if (r.outcome === "moved" && r.emptied) await syncPersonSafe(ctx, r.fromKey, { db, nowMs: started });
+        if (!(await moveFieldValuesFrom(from, to, at))) left.add(from);
       } catch (err) {
+        left.add(from);
         console.warn(`[ontology] moving field values failed tenant=${ctx.tenantId}:`, err instanceof Error ? err.message.slice(0, 120) : "error");
       }
     }
+    return left;
+  }
+
+  /**
+   * One person's values onto `to`. True once they are settled: moved, nothing to move, or kept by
+   * design (the new record's own value, too large, or a record that is still someone in People).
+   */
+  async function moveFieldValuesFrom(from: ContactPersonId, to: ContactPersonId, at: string): Promise<boolean> {
+    let r = await moveRecordFieldValues(ctx, { from, to, nowIso: at }, { db });
+    if (r.outcome === "skipped" && (r.reason === "no_target" || r.owesSync)) {
+      // A sync a product write couldn't make: make it now, then try once more.
+      const key = r.reason === "no_target" ? await keyOfTarget(to) : r.fromKey;
+      if (key) await syncPersonSafe(ctx, key, { db, nowMs: started });
+      r = await moveRecordFieldValues(ctx, { from, to, nowIso: at }, { db });
+    }
+    // Codes and counts only: never a value, an address or an id.
+    if (r.tooLarge.length) console.warn(`[ontology] move_field_values_too_large tenant=${ctx.tenantId} count=${r.tooLarge.length}`);
+    if (r.outcome === "moved" && r.emptied) await syncPersonSafe(ctx, r.fromKey, { db, nowMs: started });
+    if (r.outcome !== "skipped" || (r.reason === "still_a_person" && !r.owesSync)) return true;
+    console.warn(`[ontology] move_field_values_${r.reason === "no_target" ? "no_target" : "sync_owed"} tenant=${ctx.tenantId}`);
+    return false;
+  }
+
+  /** The person key behind `to` while it is still the product user's person, so its record can be synced. */
+  async function keyOfTarget(to: ContactPersonId): Promise<string | null> {
+    const user = await repo.productUsers.getById(productUserId);
+    if (!user) return null;
+    const key = personKeyOf(user);
+    return personIdOf(ctx.tenantId, key) === to ? key : null;
   }
 
   let steps = await stepsFor(target);
@@ -199,6 +247,17 @@ export async function processPersonRepointJob(
         index = 0;
         after = null;
         continue;
+      }
+      if (unsettled.size) {
+        // Field values that should have moved didn't: go again, from the history stores (the five are
+        // done for this person), with the moves still pending, a bounded number of times.
+        const tries = valueTriesOf(job.payload) + 1;
+        if (tries < MAX_VALUE_TRIES) {
+          const cursor: RepointCursor = { store: HISTORY_STORES[0], after: null, target };
+          await repo.emailJobs.update(job.id, { payload: { ...job.payload, cursor, valueTries: tries } });
+          return "again";
+        }
+        console.warn(`[ontology] move_field_values_left_behind tenant=${ctx.tenantId} count=${unsettled.size}`);
       }
       // Every pending move of theirs is now carried out.
       return settleMoves("done");

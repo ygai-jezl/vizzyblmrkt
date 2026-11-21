@@ -112,7 +112,13 @@ Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
     one nothing else keeps goes as it would have without values, and its history follows in the
     walk; one still holding a value stays, and the product user's erase still reaches it. A record
     still in Everyone (a sign-up, another product user, added by hand) is still someone in People
-    and keeps its values. The timeline shows each value that came with them ("Came with them from
+    and keeps its values. A sync a product write couldn't make is made by the job first (a record
+    left behind still in Everyone while it owes one, `needsSync`, or a new record not there yet),
+    then the move is tried once more. Values that still didn't move (a failed transaction, or that
+    sync failing again) keep their record's history with them, and the job answers "again" with
+    its moves still pending, from the history stores, counting runs on the job (`valueTries`); at
+    `MAX_VALUE_TRIES` (5) it settles the moves and logs `move_field_values_left_behind` with a
+    count, and the values stay as with a value that won't fit. The timeline shows each value that came with them ("Came with them from
     their earlier record") and not its clearing. No switch of its own: values exist only once
     fields were on, and the job runs only with `ONTOLOGY_PERSON_IDS_ENABLED`.
 

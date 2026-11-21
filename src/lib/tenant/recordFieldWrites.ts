@@ -245,6 +245,11 @@ export interface MoveFieldValuesResult {
   outcome: "moved" | "unchanged" | "skipped";
   /** Why nothing was written: the old record is still someone in People, or the new one is missing. */
   reason?: "still_a_person" | "no_target";
+  /**
+   * With still_a_person: the old record owes a full sync (`needsSync`, a write couldn't make it),
+   * so it may only look like someone in People until that sync is made.
+   */
+  owesSync?: boolean;
   /** Field ids copied to the new record and cleared from the old one. */
   moved: string[];
   /** Field ids the new record already held with the same value: cleared from the old one only. */
@@ -311,7 +316,7 @@ export async function moveRecordFieldValues(
       const fromKey = typeof old.contactKey === "string" ? old.contactKey : null;
       if (!ids.length) return nothing({ emptied: true, fromKey });
       const oldTags = Array.isArray(old.memberOf) ? (old.memberOf as string[]) : [];
-      if (isInEveryone(oldTags)) return nothing({ outcome: "skipped", reason: "still_a_person", fromKey });
+      if (isInEveryone(oldTags)) return nothing({ outcome: "skipped", reason: "still_a_person", fromKey, owesSync: old.needsSync === true });
       if (!toSnap.exists) return nothing({ outcome: "skipped", reason: "no_target", fromKey });
       const record = toSnap.data() ?? {};
       if (record[TENANT_FIELD] !== ctx.tenantId) throw new TenantIsolationError(`contacts/${input.to} belongs to another tenant`);

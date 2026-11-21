@@ -447,7 +447,7 @@ One human, once per brand: every sign-up, product user and address they came thr
   - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export
   - `eraseProductUser` in `src/lib/connect/erase.ts`, on a product user's erase or export (a record that only came from products goes with its last product user, field values and all)
   - `forgetLeftBehindPeople` in `src/lib/ontology/erase.ts`, on a product user's erase or export (a person the product user left behind on a move (their pu: person, an earlier address), kept while it held field values, goes with its history when nothing else keeps it)
-  - Gap: a record that only came from products is kept when it holds field values its person can't take: its product was revoked, or, after a new address or a join to an address, the new record had its own value for that field or no room for it; it stays out of Everyone until the team erases it or the product user's erase takes it
+  - Gap: a record that only came from products is kept when it holds field values its person can't take: its product was revoked, or, after a new address or a join to an address, the new record had its own value for that field or no room for it, or moving them failed on every one of the job's tries; it stays out of Everyone until the team erases it or the product user's erase takes it
   - Gap: a person left behind on an address change while ONTOLOGY_PERSON_IDS_ENABLED was off has no move for the product user's erase to find; fields need that switch, so values are only left behind while it is on
 - Export:
   - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on)
@@ -1592,7 +1592,7 @@ What the registry records as missing, by type. Each is a known gap, not a promis
   - Erase: a product user's erase leaves webhooks still waiting to go; each expires after its retries
   - Export: not in a person's export: a webhook only carries a change on its way to the product
 - Person (`person`):
-  - Erase: a record that only came from products is kept when it holds field values its person can't take: its product was revoked, or, after a new address or a join to an address, the new record had its own value for that field or no room for it; it stays out of Everyone until the team erases it or the product user's erase takes it
+  - Erase: a record that only came from products is kept when it holds field values its person can't take: its product was revoked, or, after a new address or a join to an address, the new record had its own value for that field or no room for it, or moving them failed on every one of the job's tries; it stays out of Everyone until the team erases it or the product user's erase takes it
   - Erase: a person left behind on an address change while ONTOLOGY_PERSON_IDS_ENABLED was off has no move for the product user's erase to find; fields need that switch, so values are only left behind while it is on
   - Numbers: people counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`)
 - Company (`company`):

@@ -5,7 +5,7 @@ import type { TenantContext } from "@/lib/tenant/types";
 import type { EmailJob } from "@/lib/types/emailJob";
 import { personIdOf } from "@/lib/audience/personSync";
 import { personIdForAddress } from "./personRef";
-import { HISTORY_STORES, processPersonRepointJob, REPOINT_STORES } from "./repoint";
+import { HISTORY_STORES, MAX_VALUE_TRIES, processPersonRepointJob, REPOINT_STORES } from "./repoint";
 import { fieldChangedEvent } from "./eventBuilders";
 import type { ContactPersonId } from "./person";
 import { agentDedupeKey } from "@/lib/types/agentAction";
@@ -348,6 +348,74 @@ describe("processPersonRepointJob and the team's field values", () => {
     expect(w.fieldEvents()).toHaveLength(once.events);
     expect(w.fields(NEW)).toEqual(once.now);
     expect(w.fields(FORMER)).toEqual(once.then);
+  });
+
+  /** The next transaction fails, as Firestore's do under contention or past a deadline. */
+  function failNextTransaction(db: FakeFirestore) {
+    const real = db.runTransaction.bind(db);
+    db.runTransaction = (async () => {
+      db.runTransaction = real;
+      throw Object.assign(new Error("ABORTED: transaction contention"), { code: 10 });
+    }) as FakeFirestore["runTransaction"];
+  }
+
+  it("goes again with its moves pending when moving the values fails, and a later run moves them", async () => {
+    const w = await valuesWorld({ kind: "record.merged", from: OLD as ContactPersonId, fromKey: "pu:pu_1", to: ADA, toKey: "ada@example.com" });
+    failNextTransaction(w.db);
+    expect(await processPersonRepointJob(ctx, await w.job(), w.db, { now: () => T })).toBe("again");
+    expect(w.fields(OLD)).toEqual({ [PLAN]: "opt_00000002", [SEATS]: 5 });
+    expect(w.fields(ADA)).toEqual({});
+    expect(w.db.raw("person_moves", "mv_1")?.repoint).toBe("pending");
+    // The pu: record's history stays with the values it still holds.
+    expect(w.fieldEvents().filter((e) => e.personId === OLD)).toHaveLength(1);
+    // It picks up from the history stores: the five are done for this person.
+    expect((await w.job()).payload).toMatchObject({ valueTries: 1, cursor: { store: HISTORY_STORES[0], after: null, target: ADA } });
+
+    expect(await processPersonRepointJob(ctx, await w.job(), w.db, { now: () => T + 60_000 })).toBe("drop");
+    expect(w.fields(ADA)).toEqual({ [PLAN]: "opt_00000002", [SEATS]: 5 });
+    expect(w.db.raw("contacts", OLD)).toBeUndefined();
+    expect(w.fieldEvents().filter((e) => e.personId === OLD)).toHaveLength(0);
+    expect(w.db.raw("person_moves", "mv_1")?.repoint).toBe("done");
+  });
+
+  it("makes the sync a product write couldn't, so a record left behind that still looks like someone in People gives up its values", async () => {
+    const w = await valuesWorld({ kind: "record.repointed", from: FORMER, fromKey: "ada@old.example.com", to: NEW, toKey: "ada@new.example.com" });
+    // The write's sync failed: the old record is still in Everyone, flagged for the sweep.
+    w.db.seed("contacts", FORMER, { ...w.db.raw("contacts", FORMER)!, memberOf: ["all", "product:any", "product:pcn_1"], needsSync: true });
+    expect(await processPersonRepointJob(ctx, await w.job(), w.db, { now: () => T })).toBe("drop");
+    expect(w.fields(NEW)).toEqual({ [PLAN]: "opt_00000002", [SEATS]: 5 });
+    expect(w.db.raw("contacts", FORMER)).toBeUndefined();
+    expect(w.db.raw("person_moves", "mv_1")?.repoint).toBe("done");
+  });
+
+  it("makes the sync a product write couldn't, so values reach a new record that wasn't there yet", async () => {
+    const w = await valuesWorld({ kind: "record.repointed", from: FORMER, fromKey: "ada@old.example.com", to: NEW, toKey: "ada@new.example.com" });
+    w.db.cols.get("contacts")!.delete(NEW);
+    // Enough of the product for a sync to build their link.
+    w.db.seed("product_connections", "pcn_1", { ...w.db.raw("product_connections", "pcn_1")!, catalog: { onboardingSteps: [], events: [], facts: [], entityKinds: [] }, consentPolicy: { marketingBases: ["consent"] } });
+    w.db.seed("product_users", "pu_1", { ...w.db.raw("product_users", "pu_1")!, email: "ada@new.example.com", firstSeenAt: AT });
+    expect(await processPersonRepointJob(ctx, await w.job(), w.db, { now: () => T })).toBe("drop");
+    expect(w.fields(NEW)).toEqual({ [PLAN]: "opt_00000002", [SEATS]: 5 });
+    expect((w.db.raw("contacts", NEW) as { memberOf: string[] }).memberOf).toContain("all");
+    expect(w.db.raw("person_moves", "mv_1")?.repoint).toBe("done");
+  });
+
+  it("leaves the values with a record that is still someone in People, and settles its moves", async () => {
+    const w = await valuesWorld({ kind: "record.repointed", from: FORMER, fromKey: "ada@old.example.com", to: NEW, toKey: "ada@new.example.com" });
+    w.db.seed("contacts", FORMER, { ...w.db.raw("contacts", FORMER)!, memberOf: ["all", "launch:any"] });
+    expect(await processPersonRepointJob(ctx, await w.job(), w.db, { now: () => T })).toBe("drop");
+    expect(w.fields(FORMER)).toEqual({ [PLAN]: "opt_00000002", [SEATS]: 5 });
+    expect(w.fields(NEW)).toEqual({});
+    expect(w.db.raw("person_moves", "mv_1")?.repoint).toBe("done");
+  });
+
+  it("settles its moves after its last try, leaving the values behind, so it never loops", async () => {
+    const w = await valuesWorld({ kind: "record.repointed", from: FORMER, fromKey: "ada@old.example.com", to: NEW, toKey: "ada@new.example.com" });
+    await forTenant(ctx, w.db).emailJobs.update("pr_1", { payload: { productUserId: "pu_1", valueTries: MAX_VALUE_TRIES - 1 } });
+    failNextTransaction(w.db);
+    expect(await processPersonRepointJob(ctx, await w.job(), w.db, { now: () => T })).toBe("drop");
+    expect(w.fields(FORMER)).toEqual({ [PLAN]: "opt_00000002", [SEATS]: 5 });
+    expect(w.db.raw("person_moves", "mv_1")?.repoint).toBe("done");
   });
 
   it("never touches another brand's records", async () => {

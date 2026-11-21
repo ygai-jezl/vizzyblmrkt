@@ -604,7 +604,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
         LEFT_BEHIND,
       ],
       gaps: [
-        "a record that only came from products is kept when it holds field values its person can't take: its product was revoked, or, after a new address or a join to an address, the new record had its own value for that field or no room for it; it stays out of Everyone until the team erases it or the product user's erase takes it",
+        "a record that only came from products is kept when it holds field values its person can't take: its product was revoked, or, after a new address or a join to an address, the new record had its own value for that field or no room for it, or moving them failed on every one of the job's tries; it stays out of Everyone until the team erases it or the product user's erase takes it",
         "a person left behind on an address change while ONTOLOGY_PERSON_IDS_ENABLED was off has no move for the product user's erase to find; fields need that switch, so values are only left behind while it is on",
       ],
     },

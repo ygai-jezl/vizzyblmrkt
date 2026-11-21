@@ -319,8 +319,11 @@ describe("moveRecordFieldValues", () => {
   it("leaves the values of a record that is still someone in People, or with nowhere to go", async () => {
     const db = new FakeFirestore();
     await moved(db, { [SEATS]: 3 }, { memberOf: ["all", "launch:any"] });
-    expect(await moveRecordFieldValues(ctx, { from: FORMER, to: PERSON, nowIso: T2 }, { db })).toMatchObject({ outcome: "skipped", reason: "still_a_person" });
-    await db.collection("contacts").doc(FORMER).update({ memberOf: [] });
+    expect(await moveRecordFieldValues(ctx, { from: FORMER, to: PERSON, nowIso: T2 }, { db })).toMatchObject({ outcome: "skipped", reason: "still_a_person", owesSync: false });
+    // A write couldn't sync it: it may only look like someone in People, and the answer says so.
+    await db.collection("contacts").doc(FORMER).update({ needsSync: true });
+    expect(await moveRecordFieldValues(ctx, { from: FORMER, to: PERSON, nowIso: T2 }, { db })).toMatchObject({ outcome: "skipped", reason: "still_a_person", owesSync: true });
+    await db.collection("contacts").doc(FORMER).update({ memberOf: [], needsSync: false });
     expect(await moveRecordFieldValues(ctx, { from: FORMER, to: deterministicContactId("ten_A", "nobody@example.com"), nowIso: T2 }, { db })).toMatchObject({ outcome: "skipped", reason: "no_target" });
     expect(contact(db, FORMER)?.fields).toEqual({ [SEATS]: 3 });
     expect(fieldEvents(db)).toHaveLength(0);

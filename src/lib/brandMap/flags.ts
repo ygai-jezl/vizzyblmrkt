@@ -37,6 +37,15 @@ export function isBrandMapPagesEnabled(): boolean {
 }
 
 /**
+ * Found live: the live check matches on the page's text (not only its title), checks saved
+ * addresses on its own, finds articles on the brand's sitemap, and approves an article found
+ * live. Off = "Check it's live" compares titles and runs only when a person presses it.
+ */
+export function isBlogLiveWatchEnabled(): boolean {
+  return isBrandMapPagesEnabled() && process.env.BLOG_LIVE_WATCH_ENABLED === "true";
+}
+
+/**
  * The map at any size: subjects and their questions move out of the one record into their
  * own (once per brand, on its first write), in groups, with no fixed count; the Subjects and
  * Who you are tabs, the content map by levels, coverage by subject, and articles reading only

@@ -637,6 +637,12 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Found live: the live check reads the page's text, checks saved addresses on its own, finds
+  # articles on the brand's sitemap and approves one found live (needs BRAND_MAP_PAGES_ENABLED).
+  - variable: BLOG_LIVE_WATCH_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   - variable: BRAND_MAP_CHAT_ENABLED
     value: "false"
     availability:

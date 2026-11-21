@@ -190,6 +190,46 @@ so turn it on by hand once you have read this.
   (a dry run), then add `--apply --by <label>`. Turning the switch off keeps the data sealed and
   unused; the purge is how it goes.
 
+**Connect Google data on your own copy.** `CONNECTOR_SEARCH_CONSOLE_ENABLED` lets an admin connect
+Google Search Console by signing in with Google. It needs a Google sign in client of your own, kept
+in a Google Cloud project used only for it, so your app project's own admin sign in never goes
+through Google's app checks. `npm run selfhost` keeps the switch off. Pick a neutral project id:
+the people who sign in see your app's name and support email on Google's screen.
+
+1. Make the project and turn on the Search Console API (these change only the new project):
+   `gcloud projects create <identities-project-id>`, then
+   `gcloud services enable searchconsole.googleapis.com --project <identities-project-id>`.
+2. In the Google Cloud console, open **Google Auth Platform** for that project.
+   - **Branding:** your app's name and a support email.
+   - **Audience:** External. While it says Testing, add the Google accounts that will sign in;
+     Google ends their sign ins after 7 days until you publish it.
+   - **Data Access:** add `https://www.googleapis.com/auth/webmasters.readonly`. Google classes it
+     as non sensitive, so publishing needs only Google's brand check, which takes a few days.
+   - **Clients:** create a Web application client with the redirect address
+     `https://<your app address>/api/admin/connectors/callback`. Add
+     `http://localhost:3002/api/admin/connectors/callback` too if you will try it locally.
+3. Store the client's secret on your app project (the command asks for it in your terminal) and
+   give the backend access:
+   `firebase apphosting:secrets:set connector-google-client-secret --project <your-project-id>`, then
+   `firebase apphosting:secrets:grantaccess connector-google-client-secret --backend <backend> --project <your-project-id>`.
+4. In `apphosting.live.yaml`, set `CONNECTOR_GOOGLE_CLIENT_ID` to the client id (not a secret),
+   `CONNECTORS_OAUTH_ORIGIN` to `https://<your app address>` (the redirect's origin: without it a
+   production server refuses to start a sign in, rather than trust the request's host), and
+   `CONNECTOR_GOOGLE_CLIENT_SECRET` by name, `secret: connector-google-client-secret`. Then set
+   `CONNECTORS_ENABLED` and `CONNECTOR_SEARCH_CONSOLE_ENABLED` to `"true"` and roll out.
+5. Publish the consent screen (Audience, Publish app) before people rely on it, or every
+   connection asks to reconnect each week.
+
+- Sign in states last 10 minutes and are removed by the time to live that
+  `bash infra/lifecycle/setup.sh ttl <your-project-id>` sets, with the activity's.
+- Google keeps at most 100 sign ins for one Google account with your client; the 101st quietly ends
+  the oldest. The help page says so.
+- `CONNECTOR_GOOGLE_REVOKE_ENABLED` stays off: on, Disconnect also revokes the sign in at Google,
+  which ends every grant that Google account gave your app, for every brand. Off, Disconnect deletes
+  the tokens YouGrow keeps and the help page says how to remove access in a Google account.
+- A local run (`npm run local`) needs no origin: it uses `http://localhost:3002`. Add
+  `CONNECTOR_GOOGLE_CLIENT_ID` and `CONNECTOR_GOOGLE_CLIENT_SECRET` to `.env.local` yourself.
+
 **Plans stay off.** `PLANS_ENABLED` and `NEXT_PUBLIC_PLANS_ENABLED` are the hosted service's plans
 (Free, Pro, Ultra and Enterprise). Leave both `"false"`; `npm run selfhost` keeps them off. Every brand
 may then use every feature its switch turns on, and `GRANTED_ONLY_FEATURES` with
@@ -233,8 +273,9 @@ the `envfile` step asks for.
   ([configure App Hosting](https://firebase.google.com/docs/app-hosting/configure)).
 - **A custom domain:** add it to the backend
   ([custom domains](https://firebase.google.com/docs/app-hosting/custom-domain)), then set
-  `NEXT_PUBLIC_PLATFORM_ORIGIN`, `EMAIL_LINK_ORIGIN` and `CONNECT_ISSUER` to it, add it to
-  the authorised domains, re-point the scheduled jobs with `--app-url https://<domain>
+  `NEXT_PUBLIC_PLATFORM_ORIGIN`, `EMAIL_LINK_ORIGIN` and `CONNECT_ISSUER` to it (and
+  `CONNECTORS_OAUTH_ORIGIN`, with the new redirect address on your Google client, if you use
+  Sign in with Google for connected data), add it to the authorised domains, re-point the scheduled jobs with `--app-url https://<domain>
   --apply scheduler`, and roll out.
 
 Re-running `--apply envfile` only adds entries that are missing. It never changes one you set.
@@ -259,6 +300,10 @@ the key, the `backend` step gives the backend access to every secret added since
 and the `envfile` step adds `CONNECTORS_VAULT_KEY` to your settings file by name. Then run
 `bash infra/lifecycle/setup.sh ttl <id>` once for its time to live (see Connected data above),
 and roll out.
+
+**Upgrading to Sign in with Google for connected data.** Nothing changes until you follow Connect
+Google data on your own copy above. Run `bash infra/lifecycle/setup.sh ttl <id>` once more, for the
+sign in states' time to live; it is safe to run again.
 
 ### Enterprise features
 

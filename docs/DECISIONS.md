@@ -111,6 +111,76 @@ Decisions:
   failed the next rollout with `Error resolving secret version`. `docs/self-host.md` has Connected
   data and the upgrade note: existing copies run `--apply core`, then `setup.sh ttl` once.
 
+### Group 2: Sign in with Google and Search Console
+
+Switches, `"false"` in the Connectors group, empty in `.env.example` and kept off by
+`npm run selfhost`: `CONNECTOR_SEARCH_CONSOLE_ENABLED` (needs `CONNECTORS_ENABLED` and a Google
+client) and `CONNECTOR_GOOGLE_REVOKE_ENABLED`. Settings, by name only in the public repo:
+`CONNECTOR_GOOGLE_CLIENT_ID`, `CONNECTORS_OAUTH_ORIGIN` and the secret `CONNECTOR_GOOGLE_CLIENT_SECRET`.
+The screens (Listing, Connected, the site picker) wait for the mockups; everything they call is
+built. Grounded in Google's "Using OAuth 2.0 for Web Server Applications" and the Search Console
+API reference, read through the Developer Knowledge MCP.
+
+- **The client lives in an identities project of its own**, never the app project, so the app's own
+  admin sign in (Firebase Auth) is never put through Google's app verification or limited to test
+  users. While that project's consent screen is in testing, Google ends each sign in after 7 days,
+  so dev connections need reconnecting weekly until it is published. `webmasters.readonly` is non
+  sensitive (checked in the console on 21 Nov), so Search Console's Sign in can go on in prod after
+  Google's brand check alone.
+- **The flow:** authorization code with `access_type=offline` and `prompt=consent` (a refresh token
+  on every sign in), one scope per connection, no `include_granted_scopes`, PKCE S256 (documented by
+  Google for installed apps; the dev check confirms the web client accepts it, and the bindings
+  below hold without it).
+- **Four bindings, all checked before a code is swapped:** a state signed with the vault's own state
+  key (`connector-state-v1`) naming brand, connector, admin and a nonce, 10 minutes; this attempt's
+  httpOnly cookie, its name from the nonce so two tabs never clash, holding the nonce and the PKCE
+  verifier, SameSite=Lax (Strict would drop it on Google's redirect back) and path scoped to
+  `/api/admin/connectors/callback`; a single use record in the new regional
+  `data_connection_states` (id the nonce's SHA-256, `usedAt` set in a transaction, then deleted,
+  `ttlAt` a Date for the TTL that `setup.sh ttl` turns on); and PKCE. The X and LinkedIn flows never
+  consume their state; this one does. Another brand's state, another admin's, another browser's
+  cookie, an expired or replayed state are each refused and tested.
+- **Routes.** `POST /api/admin/connectors/[connectorId]/start` is a same-origin admin request
+  (`integrationsAdmin`) answering Google's address and setting the cookie. `GET
+  /api/admin/connectors/callback` has no origin check because Google's redirect is cross-site; it
+  uses `integrationsHopAdmin` (admins only), and sends people back by path only, never built from the
+  request's host, to the connector's Listing page with `status` and `reason`, with no code or token.
+  `CONNECTORS_OAUTH_ORIGIN` pins the redirect address; a production server without it refuses to
+  start (fail closed), and a local run uses the request's origin.
+- **After the swap** the granted scope must be exactly the one asked for (one missing or one extra
+  is refused), a refresh token must have come, and the connector's verify request must pass, before
+  anything is saved. Every refusal has plain words (`SIGNIN_REASONS`).
+- **A site is picked after signing in.** A sign in reaches every site the Google account sees, so a
+  new connection is saved with no account and reads nothing until an admin picks one from
+  `sites.list` (unverified sites left out, at most 200), through `GET` and `PUT
+  .../connections/[id]/accounts`. The pick is checked against what the sign in sees then, refused
+  when another of the brand's connections reads that site, and recorded as `account_picked`.
+  Signing in again for a connection (`start` with its id) keeps its site, grants and history.
+- **The token keeper** (`src/lib/connectors/tokenKeeper.ts`), modelled on GitLab's refresh: refresh
+  5 minutes early, only under a 30 second lease on the record (as `claimSignal`); compare-and-set on
+  the sealed access token; keep the refresh token when Google sends none; on `invalid_grant`, read
+  the record again inside the write and mark it broken (`signin_refused`) only if nobody saved a new
+  token meanwhile; a 5xx, 429, timeout or network error is soft and the current token is used while
+  it works; `invalid_client` is this copy's setup and marks nothing.
+- **Disconnect deletes the tokens; revoking at Google sits behind
+  `CONNECTOR_GOOGLE_REVOKE_ENABLED`, off** (owner, decision 2): Google's revoke ends every grant that
+  Google account gave the app, so it can cut off another brand, the problem ADR-0006 found with X.
+  The purge revokes behind the same switch. The help words say how to remove access in a Google
+  account.
+- **Search Console.** Hosts `searchconsole.googleapis.com` and `oauth2.googleapis.com` only. Google's
+  reference writes the paths under `www.googleapis.com/webmasters/v3`; the same paths answer on the
+  API's own host, which the dev check confirms. Live reads: `searchAnalytics.query`, web results,
+  finalized data, by date, page or query, at most 93 days and 100 rows; pages cut to their paths and
+  rows for one path added together. Lag 3 days, Pacific time dates. Meanings `searchClicks`,
+  `searchImpressions`, `searchCtr` and `searchPosition`, claimed by `data_connection`. Google's error
+  reasons tell this copy's setup (API not on), a quota and a site the account can't read apart.
+- **Help.** Generated words now cover signing in: which account, the unverified warning, the 7 day
+  testing limit, Google's limit of 100 sign ins per Google account for one app (the 101st quietly
+  ends the oldest), reconnecting, removing access, and every reason a sign in didn't finish.
+- **No index change**: states and connections are read by id or equality (shape tests). Self-hosted
+  copies follow "Connect Google data on your own copy" in `docs/self-host.md`; there is no selfhost
+  step for the identities project yet.
+
 ---
 
 ## ADR-0010 · People (piece B) (2026-11-21)

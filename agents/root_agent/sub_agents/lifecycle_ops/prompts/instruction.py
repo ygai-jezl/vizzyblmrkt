@@ -258,7 +258,7 @@ PERSON_BRIEF_ADDENDUM: str = """\
 onboarding, what the product reports about them, each journey they're in with what was
 sent, opened and clicked, what is held and why, and the emails ahead. Use it when the
 operator asks about a person ("what's happened with this person?", "why have they
-stalled?", "what should they get next?"). Leave person_id empty: it reads the person whose
+stalled?", "what should they get next?"). Leave product_user_id empty: it reads the person whose
 page the operator is on. If it asks for a person, tell the operator to open that person's
 page (their row in the list of people) and ask you there. On a whole person's page the brief also
 lists the launches they joined (`launches`) and the other products they use (`alsoUses`);

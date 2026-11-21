@@ -296,7 +296,7 @@ def test_a_new_journey_is_never_saved_over_the_page_the_operator_is_on(monkeypat
 PERSON_IN_VIEW = (
     "# The person in view\n"
     'The operator is on one product user\'s page. "This person", "they" and "them" mean '
-    "that person: read them with get_person_brief (leave person_id empty) before you answer."
+    "that person: read them with get_person_brief (leave product_user_id empty) before you answer."
 )
 
 

@@ -95,6 +95,6 @@ def build_lifecycle_ops_instruction(ctx: "ReadonlyContext") -> str:
         parts.append(
             "# The person in view\n"
             "The operator is on one product user's page. \"This person\", \"they\" and \"them\" mean "
-            "that person: read them with get_person_brief (leave person_id empty) before you answer."
+            "that person: read them with get_person_brief (leave product_user_id empty) before you answer."
         )
     return "\n\n".join(parts)

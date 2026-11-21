@@ -161,7 +161,7 @@ def get_repo_analysis(tool_context: ToolContext, connection_id: str = "") -> dic
     return client.get_repo_analysis(_state(tool_context), connection_id)
 
 
-def get_person_brief(tool_context: ToolContext, person_id: str = "") -> dict:
+def get_person_brief(tool_context: ToolContext, product_user_id: str = "") -> dict:
     """Read ONE product user's situation, to explain what happened or plan what they get next.
 
     Returns a brief of that person: the stage they're at (onboarding steps done, the
@@ -176,10 +176,10 @@ def get_person_brief(tool_context: ToolContext, person_id: str = "") -> dict:
     and you must not ask for any of those. Call them "this person" or "they".
 
     Args:
-        person_id: Leave empty for the person whose page the operator is on. Only
-            pass the `personId` a brief gave you earlier.
+        product_user_id: Leave empty for the person whose page the operator is on. Only
+            pass the `productUserId` a brief gave you earlier.
     """
-    return client.get_person(_state(tool_context), person_id)
+    return client.get_person(_state(tool_context), product_user_id)
 
 
 def save_person_plan(
@@ -188,7 +188,7 @@ def save_person_plan(
     tool_context: ToolContext,
     next_steps: Optional[list] = None,
     review_in_days: Optional[int] = None,
-    person_id: str = "",
+    product_user_id: str = "",
 ) -> dict:
     """Save a DRAFT plan for ONE product user: what to help them do next, and how to put it.
 
@@ -208,10 +208,10 @@ def save_person_plan(
         next_steps: Up to 6 short steps for the team, in order (e.g. "Send the next
             reminder with this angle", "If still stuck in a week, add them to <journey>").
         review_in_days: When to look at them again, in days from today (1-90).
-        person_id: Leave empty for the person whose page the operator is on.
+        product_user_id: Leave empty for the person whose page the operator is on.
 
     Returns:
         A status dict to relay (with a card the chat shows, linking to their page).
     """
-    return client.save_person_plan(_state(tool_context), goal, angle, next_steps, review_in_days, person_id)
+    return client.save_person_plan(_state(tool_context), goal, angle, next_steps, review_in_days, product_user_id)
 

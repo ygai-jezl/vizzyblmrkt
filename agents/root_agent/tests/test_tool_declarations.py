@@ -169,7 +169,7 @@ def test_lifecycle_ops_can_read_the_person_in_view():
     assert inspect.signature(get_person_brief).parameters["tool_context"].annotation is ToolContext
     props, required = _params(FunctionTool(get_person_brief)._get_declaration())
     # No way to ask by name or address: only the person in view, or an id a brief gave.
-    assert set(props) == {"person_id"} and not required
+    assert set(props) == {"product_user_id"} and not required
 
 
 @pytest.mark.filterwarnings("ignore::UserWarning")
@@ -180,6 +180,6 @@ def test_lifecycle_ops_can_draft_a_plan_for_the_person_in_view():
     assert save_person_plan in lifecycle_ops_agent.tools
     assert inspect.signature(save_person_plan).parameters["tool_context"].annotation is ToolContext
     props, required = _params(FunctionTool(save_person_plan)._get_declaration())
-    assert set(props) == {"goal", "angle", "next_steps", "review_in_days", "person_id"}
+    assert set(props) == {"goal", "angle", "next_steps", "review_in_days", "product_user_id"}
     assert sorted(required) == ["angle", "goal"]
 

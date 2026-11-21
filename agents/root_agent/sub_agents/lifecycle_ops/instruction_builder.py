@@ -13,7 +13,9 @@ to build a journey that starts when a date passes (`dateStartEnabled`). Where on
 situation can be read (`personBriefEnabled`, written by the same reads, or a `personId` in the
 session: the app only names the person in view while it can), it adds how to read them and
 the rules for it; and where a plan can be drafted for that person (`personPlansEnabled`,
-written by the same reads and by each brief), how to write one. Pure / ADK-free — ReadonlyContext stays under TYPE_CHECKING — so
+written by the same reads and by each brief), how to write one. Where that person's own fields
+can be read (a `personId` in the session, or `personFieldsEnabled` from a fields read, unless a
+read said they are off), how to read and suggest them. Pure / ADK-free — ReadonlyContext stays under TYPE_CHECKING — so
 it remains unit-testable without ADK.
 """
 
@@ -32,6 +34,7 @@ from .prompts.instruction import (
     JOURNEY_STYLE_ADDENDUM,
     LIFECYCLE_OPS_INSTRUCTION,
     PERSON_BRIEF_ADDENDUM,
+    PERSON_FIELDS_ADDENDUM,
     PERSON_PLANS_ADDENDUM,
 )
 
@@ -91,10 +94,20 @@ def build_lifecycle_ops_instruction(ctx: "ReadonlyContext") -> str:
         parts.append(PERSON_BRIEF_ADDENDUM)
     if state and state.get("personPlansEnabled"):
         parts.append(PERSON_PLANS_ADDENDUM)
+    # Their fields: on a person's page (the app names one while their fields can be read) or after
+    # a fields read worked, unless a read said fields are switched off.
+    fields_state = state.get("personFieldsEnabled") if state else None
+    fields_rules = fields_state is not False and bool(person_id or fields_state)
+    if fields_rules:
+        parts.append(PERSON_FIELDS_ADDENDUM)
     if person_id:
+        reads = "read them with get_person_brief (leave product_user_id empty)"
+        if fields_rules:
+            reads += " and, for their fields, person_fields_read (leave person_id empty)"
+        either = " If one says it is unavailable, answer from the other." if fields_rules else ""
         parts.append(
             "# The person in view\n"
-            "The operator is on one product user's page. \"This person\", \"they\" and \"them\" mean "
-            "that person: read them with get_person_brief (leave product_user_id empty) before you answer."
+            "The operator is on one person's page. \"This person\", \"they\" and \"them\" mean "
+            f"that person: {reads} before you answer.{either}"
         )
     return "\n\n".join(parts)

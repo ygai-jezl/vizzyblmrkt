@@ -183,3 +183,25 @@ def test_lifecycle_ops_can_draft_a_plan_for_the_person_in_view():
     assert set(props) == {"goal", "angle", "next_steps", "review_in_days", "product_user_id"}
     assert sorted(required) == ["angle", "goal"]
 
+
+
+@pytest.mark.filterwarnings("ignore::UserWarning")
+def test_lifecycle_ops_can_read_and_suggest_a_persons_fields():
+    from root_agent_pkg.sub_agents.lifecycle_ops.agent import lifecycle_ops_agent
+    from root_agent_pkg.sub_agents.lifecycle_ops.tools.lifecycle_tools import (
+        people_fields_list,
+        person_fields_propose,
+        person_fields_read,
+    )
+
+    for fn in (people_fields_list, person_fields_read, person_fields_propose):
+        assert fn in lifecycle_ops_agent.tools
+        assert inspect.signature(fn).parameters["tool_context"].annotation is ToolContext
+    props, required = _params(FunctionTool(people_fields_list)._get_declaration())
+    assert not props and not required
+    # Only the person in view, or our id for one: never a name or an address.
+    props, required = _params(FunctionTool(person_fields_read)._get_declaration())
+    assert set(props) == {"person_id"} and not required
+    props, required = _params(FunctionTool(person_fields_propose)._get_declaration())
+    assert set(props) == {"changes", "why", "person_id"}
+    assert sorted(required) == ["changes", "why"]

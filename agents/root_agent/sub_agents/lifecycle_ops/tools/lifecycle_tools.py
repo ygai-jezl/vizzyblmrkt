@@ -12,6 +12,7 @@ from typing import Optional
 from google.adk.tools import ToolContext
 
 from . import lifecycle_client as client
+from . import people_fields_client as fields_client
 
 
 def _state(tool_context: ToolContext) -> dict:
@@ -215,3 +216,49 @@ def save_person_plan(
     """
     return client.save_person_plan(_state(tool_context), goal, angle, next_steps, review_in_days, product_user_id)
 
+
+
+def people_fields_list(tool_context: ToolContext) -> dict:
+    """List the brand's own People fields you can read and suggest, with their options.
+
+    Only select, multi select, status, checkbox, number, currency and date fields, the
+    ones in use: never text, email, phone, link or team member fields. No values. Each
+    has an id, a label, a type, its options (each with an id) and, for currency, its
+    code. The note says how each type's value is written.
+    """
+    return fields_client.list_fields(_state(tool_context))
+
+
+def person_fields_read(tool_context: ToolContext, person_id: str = "") -> dict:
+    """Read ONE person's values of the fields you can see, to answer about them or suggest a change.
+
+    Returns each field with its value (null when unset) and the value in words, and
+    `waiting`: the fields that already have a suggestion for someone to confirm. It
+    never holds their name, their email address or a text, email, phone, link or team
+    member value. Works for anyone in the list of people, including people who only
+    joined a launch or were added by hand.
+
+    Args:
+        person_id: Leave empty for the person whose page the operator is on.
+    """
+    return fields_client.read_person(_state(tool_context), person_id)
+
+
+def person_fields_propose(changes: dict, why: str, tool_context: ToolContext, person_id: str = "") -> dict:
+    """Suggest changes to ONE person's fields, for someone on the operator's team to confirm.
+
+    Call person_fields_read first. Nothing changes until an admin confirms it on the
+    person's page or in Review. A suggestion for a field that already has one waiting
+    replaces it. Never use it to record consent.
+
+    Args:
+        changes: Field id to the suggested value, written as the fields read says
+            (an option id, a list of option ids, true or false, a number, whole minor
+            units for currency, or a day as YYYY-MM-DD). null clears a value.
+        why: One sentence on what you saw that supports it. No name or email address.
+        person_id: Leave empty for the person whose page the operator is on.
+
+    Returns:
+        A status dict to relay (with a card the chat shows, linking to their page).
+    """
+    return fields_client.propose(_state(tool_context), changes, why, person_id)

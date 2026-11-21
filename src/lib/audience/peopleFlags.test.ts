@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { isFieldFiltersEnabled, isFieldsEnabled } from "./peopleFlags";
+import { isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled } from "./peopleFlags";
 
 beforeEach(() => {
   vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
@@ -34,5 +34,25 @@ describe("isFieldFiltersEnabled", () => {
     vi.stubEnv("AUDIENCE_FIELDS_ENABLED", "true");
     vi.stubEnv("AUDIENCE_FIELD_FILTERS_ENABLED", "false");
     expect(isFieldFiltersEnabled()).toBe(false);
+  });
+});
+
+describe("isAddPersonEnabled", () => {
+  it("needs the one view, the person ids and its own switch, read as the exact string true", () => {
+    vi.stubEnv("AUDIENCE_ADD_PERSON_ENABLED", "true");
+    expect(isAddPersonEnabled()).toBe(true);
+    for (const off of ["AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_PERSON_LINKS_ENABLED"]) {
+      vi.stubEnv(off, "false");
+      expect(isAddPersonEnabled(), off).toBe(false);
+      vi.stubEnv(off, "true");
+    }
+    vi.stubEnv("AUDIENCE_ADD_PERSON_ENABLED", "yes");
+    expect(isAddPersonEnabled()).toBe(false);
+  });
+
+  it("doesn't need fields", () => {
+    vi.stubEnv("AUDIENCE_FIELDS_ENABLED", "false");
+    vi.stubEnv("AUDIENCE_ADD_PERSON_ENABLED", "true");
+    expect(isAddPersonEnabled()).toBe(true);
   });
 });

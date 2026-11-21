@@ -28,3 +28,13 @@ export function isFieldsEnabled(): boolean {
 export function isFieldFiltersEnabled(): boolean {
   return isFieldsEnabled() && process.env.AUDIENCE_FIELD_FILTERS_ENABLED === "true";
 }
+
+/**
+ * New person (AUDIENCE_ADD_PERSON_ENABLED): an admin adds someone by hand from the People list or
+ * ⌘K, with how they agreed to marketing email. Off: the form, the ⌘K entry and the routes don't
+ * exist. Never a reason to drop anyone: the rule that keeps people added by hand keys on their
+ * `addedBy` and has no switch, and export and erase cover them whatever this says.
+ */
+export function isAddPersonEnabled(): boolean {
+  return isOneViewEnabled() && isOntologyPersonIdsEnabled() && process.env.AUDIENCE_ADD_PERSON_ENABLED === "true";
+}

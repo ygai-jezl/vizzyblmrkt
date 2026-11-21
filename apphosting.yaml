@@ -390,6 +390,13 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # New person: admins add someone by hand, with how they agreed to marketing email. Needs
+  # AUDIENCE_ONE_VIEW_ENABLED and ONTOLOGY_PERSON_IDS_ENABLED. People added by hand are kept
+  # whatever this says.
+  - variable: AUDIENCE_ADD_PERSON_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Email style ==
   # A logo, name and colours on branded emails, then header options, themes, web fonts

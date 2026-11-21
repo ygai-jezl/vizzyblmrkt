@@ -115,6 +115,20 @@ describe("the help pages", () => {
     expect(Object.keys(HELP_BODIES).sort()).toEqual(HELP_PAGES.map((p) => p.slug).sort());
   });
 
+  it("never hand a body that takes props to Next.js as the page itself", () => {
+    // Next.js checks a page's props against its own PageProps, so `export default SomeHelp` breaks
+    // the build once SomeHelp takes HelpBodyProps. Such a body is wrapped in a Page of its own.
+    for (const p of HELP_PAGES) {
+      const route = readFileSync(join(SRC, "app", p.path, "page.tsx"), "utf8");
+      const direct = route.match(/^export default ([A-Za-z0-9_]+);/m)?.[1];
+      if (!direct) continue;
+      const from = route.match(new RegExp(`import ${direct} from "@/(components/help/pages/[^"]+)"`))?.[1];
+      expect(from, `${p.path}: ${direct} is not a help body`).toBeDefined();
+      const body = readFileSync(join(SRC, `${from}.tsx`), "utf8");
+      expect(body.includes("HelpBodyProps"), `${p.path}: wrap ${direct} in export default function Page()`).toBe(false);
+    }
+  });
+
   it("render as Markdown, one heading first, and are listed in llms.txt", () => {
     const index = helpLlmsTxt("https://app.example.com");
     for (const p of HELP_PAGES) {

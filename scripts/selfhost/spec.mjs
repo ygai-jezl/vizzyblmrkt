@@ -59,6 +59,7 @@ export const CORE_SECRETS = [
   { name: "unsubscribe-signing-key", env: "UNSUBSCRIBE_SIGNING_KEY", encoding: "base64" },
   { name: "invite-link-signing-key", env: "INVITE_LINK_SIGNING_KEY", encoding: "base64" },
   { name: "canvas-context-signing-key", env: "CANVAS_CONTEXT_SIGNING_KEY", encoding: "base64" },
+  { name: "connectors-vault-key", env: "CONNECTORS_VAULT_KEY", encoding: "base64" },
 ];
 
 /**
@@ -133,6 +134,9 @@ export const KEPT_OFF = {
   SEARCH_RERANK_ENABLED: { addon: null, why: "reorders US brands' results with Google's Ranking API; needs the Discovery Engine API and discoveryengine.rankingConfigs.rank for the runtime service account" },
   NEXT_PUBLIC_SEARCH_ENABLED: { addon: "search", why: "needs the search databases (Firestore Enterprise)" },
   VIZZY_SEARCH_ENABLED: { addon: "search", why: "Vizzy searching the brand needs the search databases and the agent" },
+  CONNECTORS_ENABLED: { addon: null, why: "connected data is new: turn it on by hand" },
+  NEXT_PUBLIC_CONNECTORS_ENABLED: { addon: null, why: "connected data is new: turn it on by hand" },
+  CONNECTOR_CLOUDFLARE_ENABLED: { addon: null, why: "connected data is new: turn it on by hand" },
   ANALYTICS_BQ_ENABLED: { addon: "bigquery", why: "needs the BigQuery datasets and export extensions" },
   NEXT_PUBLIC_ANALYTICS_BQ_ENABLED: { addon: "bigquery", why: "needs the BigQuery datasets and export extensions" },
 };

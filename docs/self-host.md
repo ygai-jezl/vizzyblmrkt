@@ -169,6 +169,27 @@ per brand; add `competitor_articles` to `GRANTED_ONLY_FEATURES` to keep it for s
 `COMPETITOR_ARTICLES_PLANNING_ENABLED` then feeds what they wrote into the brand map, Suggest an angle,
 blog research and the writer.
 
+**Connected data.** `CONNECTORS_ENABLED`, `NEXT_PUBLIC_CONNECTORS_ENABLED` and
+`CONNECTOR_CLOUDFLARE_ENABLED` let a brand's admins connect outside sources and read their numbers
+live, each number with its meaning. `npm run selfhost` keeps all three off: connected data is new,
+so turn it on by hand once you have read this.
+
+- Tokens are sealed with `CONNECTORS_VAULT_KEY`, a core secret the `secrets` step makes as
+  `connectors-vault-key`. Without it, connecting is refused.
+- Each change to a connection is kept 90 days. The time to live that deletes older rows is set by
+  `bash infra/lifecycle/setup.sh ttl <your-project-id>`, which the `connect` step runs on a new
+  copy. A copy set up before connected data runs it once by hand; it is safe to run again.
+- Cloudflare needs nothing else on your side: an admin pastes a read only token (Zone, Analytics,
+  Read) and the site's Zone ID.
+- To change the vault key: add a new version of `connectors-vault-key`, set the old value as
+  `CONNECTORS_VAULT_KEY_PREVIOUS` (a secret too), roll out, then run
+  `npx tsx scripts/reseal-connector-secrets.ts` as a dry run and again with `--apply`. Remove
+  `CONNECTORS_VAULT_KEY_PREVIOUS` only when the dry run counts 0 off the current key. The script's
+  first lines say how to pass both keys.
+- To remove a brand's connected data, run `npx tsx scripts/connectors-purge.ts --tenant <id>`
+  (a dry run), then add `--apply --by <label>`. Turning the switch off keeps the data sealed and
+  unused; the purge is how it goes.
+
 **Plans stay off.** `PLANS_ENABLED` and `NEXT_PUBLIC_PLANS_ENABLED` are the hosted service's plans
 (Free, Pro, Ultra and Enterprise). Leave both `"false"`; `npm run selfhost` keeps them off. Every brand
 may then use every feature its switch turns on, and `GRANTED_ONLY_FEATURES` with
@@ -230,6 +251,14 @@ Merges don't clash with your settings: they live in `apphosting.live.yaml`, a fi
 upstream repo never has. New features arrive as switches set to `"false"` in
 `apphosting.yaml`, so nothing changes until you turn them on. After a merge, run the plan:
 it shows anything new to set up (a new secret, say). Then push, or `--apply rollout`.
+
+**Upgrading to connected data.** It adds a core secret, `connectors-vault-key`. On a copy set up
+before it, `npm run doctor -- --cloud` reports it missing. Run
+`npm run selfhost -- --project <id> --apply core` before you roll out: the `secrets` step makes
+the key, the `backend` step gives the backend access to every secret added since it last ran,
+and the `envfile` step adds `CONNECTORS_VAULT_KEY` to your settings file by name. Then run
+`bash infra/lifecycle/setup.sh ttl <id>` once for its time to live (see Connected data above),
+and roll out.
 
 ### Enterprise features
 

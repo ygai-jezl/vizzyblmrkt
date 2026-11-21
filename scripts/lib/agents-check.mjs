@@ -289,6 +289,7 @@ export const ENV_NOT_SETTINGS = {
   SELFHOST_IDENTITY_TOOLKIT_URL: "tests only: a fake Identity Toolkit API",
   SELFHOST_FIREBASE_URL: "tests only: a fake Firebase Management API",
   SELFHOST_APPHOSTING_URL: "tests only: a fake App Hosting API",
+  SELFHOST_SECRETMANAGER_URL: "tests only: a fake Secret Manager API",
   SELFHOST_WORKSPACE_TOOL: "tests only: a stub for the workspace tool",
   SELFHOST_HEALTH_WAIT_MS: "tests only: a shorter wait between health checks",
   // Code samples on the developer pages and in the setup prompt: a connected product reads these.

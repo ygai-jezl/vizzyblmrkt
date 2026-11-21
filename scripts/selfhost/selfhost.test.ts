@@ -60,6 +60,7 @@ function run(script: string, args: string[], input = ""): Promise<{ code: number
         SELFHOST_APPHOSTING_URL: `http://127.0.0.1:${port}`,
         SELFHOST_IDENTITY_TOOLKIT_URL: `http://127.0.0.1:${port}`,
         SELFHOST_FIREBASE_URL: `http://127.0.0.1:${port}`,
+        SELFHOST_SECRETMANAGER_URL: `http://127.0.0.1:${port}`,
         SELFHOST_HEALTH_WAIT_MS: "1",
         GOOGLE_APPLICATION_CREDENTIALS: join(dir, "adc.json"),
         FIRESTORE_EMULATOR_HOST: "",
@@ -119,7 +120,14 @@ beforeEach(async () => {
     let body = "";
     req.on("data", (d) => (body += d));
     req.on("end", () => {
-      const state = readState() as State & { backends?: { id: string; environment: string }[]; firebase?: boolean; googleSignIn?: boolean; authorizedDomains?: string[] };
+      const state = readState() as State & {
+        backends?: { id: string; environment: string }[];
+        firebase?: boolean;
+        googleSignIn?: boolean;
+        authorizedDomains?: string[];
+        secrets?: string[];
+        granted?: string[];
+      };
       const url = req.url ?? "";
       const send = (status: number, data: unknown) => {
         res.writeHead(status, { "content-type": "application/json" });
@@ -130,6 +138,14 @@ beforeEach(async () => {
         state.backends = (state.backends ?? []).map((b) => (b.id === id ? { ...b, environment: JSON.parse(body).environment } : b));
         writeState(state);
         return send(200, { name: "operations/fake" });
+      }
+      // Secret Manager: who may read a secret, as apphosting:secrets:grantaccess leaves it.
+      const policy = new RegExp(`^/v1/projects/${PROJECT}/secrets/([^/:]+):getIamPolicy$`).exec(url);
+      if (req.method === "GET" && policy) {
+        const name = decodeURIComponent(policy[1]!);
+        if (!(state.secrets ?? []).includes(name)) return send(404, { error: { message: `Secret [${name}] not found` } });
+        const members = (state.granted ?? []).includes(name) ? [`serviceAccount:firebase-app-hosting-compute@${PROJECT}.iam.gserviceaccount.com`] : [];
+        return send(200, members.length ? { bindings: [{ role: "roles/secretmanager.secretAccessor", members }] } : {});
       }
       if (req.method === "GET" && url === `/v1beta1/projects/${PROJECT}`) return state.firebase ? send(200, { projectId: PROJECT }) : send(404, { error: { message: "not found" } });
       if (url.endsWith("/defaultSupportedIdpConfigs/google.com")) return state.googleSignIn ? send(200, { enabled: true }) : send(404, { error: { message: "CONFIGURATION_NOT_FOUND" } });
@@ -290,6 +306,35 @@ describe("npm run selfhost --apply", { timeout: SLOW }, () => {
     for (const v of values) expect(printed).not.toContain(v);
   });
 
+  it("on a copy set up before a core secret was added, makes it and gives the backend access to it", async () => {
+    const before = CORE_SECRETS.map((x) => x.name).filter((n) => n !== "connectors-vault-key");
+    writeState({
+      apis: REQUIRED_APIS.map((a) => a.id),
+      firebase: true,
+      webApps: [{ appId: "1:1:web:x", displayName: "YouGrow" }],
+      databases: { "(default)": "nam5" },
+      secrets: [...before, "firebase-web-api-key"],
+      granted: [...before, "firebase-web-api-key"],
+      backends: [{ id: PROJECT, region: "us-central1", environment: "live" }],
+    });
+    const stateOf = async (id: string) =>
+      (JSON.parse((await selfhost(["--json", "--app-url", appUrl()])).out).steps as { id: string; state: string; detail: string }[]).find((s) => s.id === id)!;
+    expect(await stateOf("secrets")).toMatchObject({ state: "todo", detail: expect.stringContaining("connectors-vault-key") });
+    expect((await stateOf("backend")).state).toBe("done");
+
+    expect((await selfhost(["--apply", "secrets", "--yes"])).code).toBe(0);
+    // The secret exists now, but the backend can't read it: a rollout would fail.
+    const backend = await stateOf("backend");
+    expect(backend).toMatchObject({ state: "todo", detail: expect.stringContaining("can't read 1 of the app's secrets yet: connectors-vault-key") });
+
+    const r = await selfhost(["--apply", "backend", "--yes", "--app-url", appUrl()]);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("including 1 added since it was set up: connectors-vault-key");
+    expect(readState().granted).toContain("connectors-vault-key");
+    expect((await stateOf("backend")).state).toBe("done");
+    for (const v of secretValues()) expect(r.out).not.toContain(v);
+  });
+
   it("stops at Google sign-in with the console steps when it isn't turned on", async () => {
     writeState({ backends: [{ id: PROJECT, region: "us-central1", environment: "live" }] });
     const r = await selfhost(["--apply", "signin", "--app-url", appUrl()]);
@@ -368,7 +413,8 @@ describe("npm run doctor -- --cloud", { timeout: SLOW }, () => {
     expect(r.out).toContain("ok    Billing is on");
     expect(r.out).toMatch(/fail +\d+ required APIs are off/);
     expect(r.out).toContain(`fix: npm run selfhost -- --project ${PROJECT} --apply apis`);
-    expect(r.out).toMatch(/fail +10 core secrets are missing/);
+    expect(r.out).toMatch(/fail +11 core secrets are missing/);
+    expect(r.out).toContain("connectors-vault-key");
     expect(r.out).toContain(`No App Hosting backend "${PROJECT}"`);
     expect(r.out).toContain("No apphosting.live.yaml in this folder.");
     expect(r.code).toBe(1);

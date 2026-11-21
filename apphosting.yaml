@@ -100,6 +100,7 @@ env:
   #     CONNECTOR_GOOGLE_CLIENT_ID                                  your connectors Google client id
   #     CONNECTOR_GOOGLE_CLIENT_SECRET                              secret, that client's secret
   #     CONNECTORS_OAUTH_ORIGIN                                     https://app.example.com
+  #     CONNECTORS_IDENTITIES_PROJECT                               your identities project, for share access
   #   Analytics and the voice chat
   #     NEXT_PUBLIC_GA_MEASUREMENT_ID                               with NEXT_PUBLIC_GA_ENABLED
   #     GEMINI_LIVE_API_KEY                                         secret, for the voice chat

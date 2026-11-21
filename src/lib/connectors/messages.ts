@@ -24,6 +24,13 @@ export const CONNECTOR_ERRORS = {
   signin_refused: "Google asked YouGrow to sign in again, often because access was removed in the Google account or the sign in ran out. Reconnect to sign in again.",
   signin_unconfigured: "This copy of YouGrow has no working Google sign in yet (CONNECTOR_GOOGLE_CLIENT_ID and its secret). Ask whoever runs it to set one up.",
   account_needed: "Pick which site or property this connection reads first.",
+  share_not_visible:
+    "We can't see your property yet. Check that you added the address exactly as shown, with the role shown, then press Check access again. A new address can take a few minutes to start working.",
+  share_pending: "Google is still setting up this connection's address. Wait a minute, then press Check access again.",
+  share_unconfigured:
+    "This copy of YouGrow can't use shared access right now (CONNECTORS_IDENTITIES_PROJECT, or an API or permission in that project). Ask whoever runs it to check, or sign in with Google instead.",
+  share_quota:
+    "YouGrow can't make a new address for shared access right now, because its Google project holds as many as Google allows. Sign in with Google instead, or try again later.",
 } as const;
 
 export type ConnectorErrorCode = keyof typeof CONNECTOR_ERRORS;

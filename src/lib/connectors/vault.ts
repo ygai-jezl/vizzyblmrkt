@@ -53,6 +53,20 @@ export class VaultOpenError extends Error {
   }
 }
 
+/**
+ * Sign a sign in's state (Connectors 1b) with the vault's own state key, connector-state-v1, so
+ * it shares nothing with the git or social signers. Throws VAULT_UNCONFIGURED when unset.
+ */
+export function signConnectorState(payload: Record<string, unknown>): string {
+  if (!current.isConfigured()) throw new Error(VAULT_UNCONFIGURED);
+  return current.signState(payload);
+}
+
+/** The payload of a state this vault signed, or null (never throws, including after a rotation). */
+export function verifyConnectorState(token: string): Record<string, unknown> | null {
+  return current.verifyState(token);
+}
+
 /** True when the current root key is set, so a secret can be saved. */
 export function isVaultConfigured(): boolean {
   return current.isConfigured();

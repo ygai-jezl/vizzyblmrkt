@@ -682,12 +682,15 @@ export function ContentCanvas({
       if (!res.ok || !data.node) return { ok: false, error: data.error ?? (res.status === 429 ? "rate_limited" : "failed") };
       // Only the live mark comes back into the canvas: an edit not saved yet stays as it is.
       // (The server keeps its own mark whatever a save sends, so nothing here can undo it.)
+      // Found live approves the article: the canvas takes that too, unless its text was changed here since.
       const live = data.node.blog?.live ?? null;
+      const approved = data.node.status === "approved";
       applyNodes((nds) =>
         nds.map((n) => {
           if (n.id !== id) return n;
           const cur = (n.data as ContentNodeData).cn;
-          return { ...n, data: { ...n.data, cn: { ...cur, blog: { ...(cur.blog ?? BlogArticleMetaSchema.parse({})), live } } } };
+          const status = approved && cur.body === data.node!.body ? "approved" : cur.status;
+          return { ...n, data: { ...n.data, cn: { ...cur, status, blog: { ...(cur.blog ?? BlogArticleMetaSchema.parse({})), live } } } };
         }),
       );
       return { ok: true, check: data.check ?? null };

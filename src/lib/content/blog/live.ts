@@ -1,11 +1,10 @@
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { BlogArticleMetaSchema, type BlogArticleLive, type ContentNode, type ContentPlan } from "@/lib/types/contentPlan";
-import { updateContentPlanNode } from "@/lib/tenant/workspaceContent";
 import { articleAddressProblem } from "./address";
 import { normalizeUrl } from "./brief";
 import { outlineArticle } from "./outline";
 import { fetchSourcePage } from "./research";
-import { syncPlanPageSoftly } from "./pageActions";
+import { writeLiveMark } from "./foundLive";
 import { isBlogHeroEnabled } from "@/lib/content/imageStyle/flags";
 import { isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
 import { markdownToText } from "@/lib/search/text";
@@ -197,41 +196,53 @@ export async function setArticleLive(
     // A match is live; anything else leaves it as it was, and says why.
     if (!check.matched) return { ok: true, node, check };
   }
-  // Seen live at this address before: it keeps the day it was first seen ("newer" and "older" go by it).
-  const sameAddress = (stored: BlogArticleLive | null) => (stored && normalizeUrl(stored.url) === normalizeUrl(url) ? stored : null);
-  const setLive = (stored: BlogArticleLive | null): BlogArticleLive | null => {
-    const before = sameAddress(stored);
-    if (args.action === "clear") return null;
-    if (args.action === "check") {
-      return {
-        url,
-        at: before?.at ?? at,
-        by: "check",
-        titleMatched: check?.heading ?? true,
-        checkedAt: at,
-        ...(check?.shareImage !== undefined ? { shareImage: check.shareImage } : {}),
-        ...(check?.textShare !== undefined ? { textShare: check.textShare, found: "address" as const } : {}),
-      };
-    }
-    return {
-      url,
-      at: before?.at ?? at,
-      by: "operator",
-      titleMatched: before?.titleMatched ?? false,
-      ...(before?.checkedAt ? { checkedAt: before.checkedAt } : {}),
-      ...(before?.shareImage !== undefined ? { shareImage: before.shareImage } : {}),
-    };
-  };
+  const by = args.action === "check" ? "check" : "operator";
+  const mark = (stored: BlogArticleLive | null) => (args.action === "clear" ? null : nextLiveMark(stored, { url, at, by, check }));
 
-  let updated: ContentNode | null;
+  let written: Awaited<ReturnType<typeof writeLiveMark>>;
   try {
-    // Only the live mark is written, in the node's own transaction: the rest of its meta is
-    // whatever is stored then, never this request's copy of it.
-    updated = await updateContentPlanNode(ctx, args.workspaceId, plan.id, node.id, {}, deps.db, { setLive });
+    // Only the live mark is written (and, Found live on, the approval it brings), in the node's own
+    // transaction: the rest of its meta is whatever is stored then, never this request's copy of it.
+    written = await writeLiveMark(ctx, { workspaceId: args.workspaceId, plan, nodeId: node.id, mark, approve: isBlogLiveWatchEnabled() && args.action !== "clear" }, { db: deps.db });
   } catch {
     return { ok: false, status: 422, error: "invalid_node" };
   }
-  if (!updated) return { ok: false, status: 404, error: "node_not_found" };
-  await syncPlanPageSoftly(ctx, { workspaceId: args.workspaceId, planId: plan.id }, { db: deps.db });
-  return { ok: true, node: updated, check };
+  if (!written) return { ok: false, status: 404, error: "node_not_found" };
+  return { ok: true, node: written.node, check };
+}
+
+/**
+ * The live mark a check, or a person's word, leaves at an address, from the one stored. Seen live
+ * at this address before, it keeps the day it was first seen ("newer" and "older" go by it) and an
+ * approval it made.
+ */
+export function nextLiveMark(
+  stored: BlogArticleLive | null,
+  args: { url: string; at: string; by: "check" | "operator"; check?: LiveCheck | null; found?: "address" | "sitemap"; auto?: boolean },
+): BlogArticleLive {
+  const { url, at, check } = args;
+  const before = stored && normalizeUrl(stored.url) === normalizeUrl(url) ? stored : null;
+  const kept = before?.approvedOnLive ? { approvedOnLive: true } : {};
+  if (args.by === "check") {
+    return {
+      url,
+      at: before?.at ?? at,
+      by: "check",
+      titleMatched: check?.heading ?? true,
+      checkedAt: at,
+      ...(check?.shareImage !== undefined ? { shareImage: check.shareImage } : {}),
+      ...(check?.textShare !== undefined ? { textShare: check.textShare, found: args.found ?? before?.found ?? "address" } : {}),
+      ...(args.auto ? { auto: true } : {}),
+      ...kept,
+    };
+  }
+  return {
+    url,
+    at: before?.at ?? at,
+    by: "operator",
+    titleMatched: before?.titleMatched ?? false,
+    ...(before?.checkedAt ? { checkedAt: before.checkedAt } : {}),
+    ...(before?.shareImage !== undefined ? { shareImage: before.shareImage } : {}),
+    ...kept,
+  };
 }

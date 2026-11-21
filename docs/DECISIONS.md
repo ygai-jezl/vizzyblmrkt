@@ -10,7 +10,7 @@ Context: piece B of the CRM and tiers plan turns Audience into People and adds w
 needs on top of the person record: fields, filters, adding someone by hand, a timeline and
 Vizzy's suggestions. It also starts the settings log (piece O part 1) and stops catalog
 history being pruned. It ships as one pull request in commit groups; this record covers
-groups 1 to 8 and grows with the rest. The only Firestore changes are the two composite
+groups 1 to 9 and grows with the rest. The only Firestore changes are the two composite
 indexes and the two field exemptions below. No dependency, rules or infra change.
 
 Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
@@ -202,6 +202,21 @@ Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
   - Export and erase cover the moves whatever the switch says, with no code change: piece 0's
     history erase and export find them by person and by product user. No new index.
 
+- **`productUserId` where `personId` meant a product user (group 9, decision 13 of piece 0).**
+  `personPlans.ts` (its parameters and the plan's id), `exportPerson` and the admin folder
+  `api/admin/audience/people/[personId]` (now `[productUserId]`; the URLs are unchanged) say
+  `productUserId`. The person page route keeps its name, because it serves both kinds of id.
+  - **Both names work for a while,** so either side can deploy first: the `person_plan` canvas
+    scope takes `productUserId` or `personId` (given both, they must match), and the brief names
+    its product user as `productUserId` and as `personId`. Vizzy's tools take
+    `product_user_id`; its client reads `productUserId` or `personId` and sends both in the
+    plan's scope. Once Vizzy has been redeployed everywhere, a later change drops `personId`
+    from the scope and the brief.
+  - **Deviation:** the agent route `api/agent/lifecycle/people/[personId]` keeps its segment
+    name. Like the person page, it takes a whole person's `ct_` id as well as a product user's,
+    so `productUserId` would be wrong for half its callers; the rename reaches what it returns.
+  - The chat's `personId` state key stays: it names the person in view, of either kind.
+
 Rollback: turning `NEXT_PUBLIC_NAV_PEOPLE_ENABLED` off (a rebuild) changes only words. The
 settings log has no switch and nothing calls it until the fields. Never revert group 3 once
 anyone has been added by hand: without the `addedBy` rule the next sync would delete them. Once
@@ -210,6 +225,8 @@ the records, and export and erase still cover them. Turning the filters off hide
 tags stay. If the field writer were reverted, rerun the backfill once it is back. Turning
 `AUDIENCE_ADD_PERSON_ENABLED` off hides the form and its routes; everyone added stays. Turning
 the timeline off stops recording and hides it; the rows stay and are exported and erased.
+Reverting group 9 is safe only while Vizzy still sends `personId` too; after a Vizzy that sends
+only `productUserId`, keep the app's scope taking both.
 
 ---
 

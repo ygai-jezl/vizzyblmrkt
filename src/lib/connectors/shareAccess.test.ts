@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   __resetShareTokens,
   brandTag,
+  copyTag,
   createShareAccount,
   deleteShareAccount,
   forgetShareTokens,
@@ -106,14 +107,22 @@ describe("account ids and descriptions", () => {
     expect(seen.size).toBe(200);
   });
 
-  it("names the connection and a one way brand tag in the description, and reads them back", () => {
+  it("names the connection, a one way brand tag and a one way copy tag in the description, and reads them back", () => {
+    vi.stubEnv("GOOGLE_CLOUD_PROJECT", "made-up-app-project");
     const d = shareDescription(TENANT, CONN);
     expect(d).not.toContain(TENANT);
+    expect(d).not.toContain("made-up-app-project");
     expect(brandTag(TENANT)).toMatch(/^[0-9a-f]{16}$/);
     expect(brandTag("ten_other")).not.toBe(brandTag(TENANT));
-    expect(parseShareDescription(d)).toEqual({ connectionId: CONN, brand: brandTag(TENANT) });
+    expect(copyTag()).toMatch(/^[0-9a-f]{16}$/);
+    expect(copyTag()).toBe(copyTag("made-up-app-project"));
+    expect(copyTag("made-up-other-copy")).not.toBe(copyTag());
+    expect(parseShareDescription(d)).toEqual({ connectionId: CONN, brand: brandTag(TENANT), copy: copyTag() });
+    // One made before copies were tagged reads back with no copy.
+    expect(parseShareDescription(`YouGrow connected data. connection=${CONN} brand=${brandTag(TENANT)}`)).toEqual({ connectionId: CONN, brand: brandTag(TENANT), copy: null });
     expect(parseShareDescription("someone else's account")).toBeNull();
     expect(parseShareDescription(undefined)).toBeNull();
+    expect(d.length).toBeLessThanOrEqual(256);
   });
 });
 
@@ -155,7 +164,7 @@ describe("making, listing and deleting addresses", () => {
     if (!made.ok) throw new Error("not made");
     iam.accounts.set("999", { email: `someone@${PROJECT}.iam.gserviceaccount.com`, uniqueId: "999", description: "" });
     const listed = await listShareAccounts(PROJECT, iam.deps);
-    expect(listed).toEqual({ ok: true, complete: true, accounts: [{ ...made.account, owner: { connectionId: CONN, brand: brandTag(TENANT) } }] });
+    expect(listed).toEqual({ ok: true, complete: true, accounts: [{ ...made.account, owner: { connectionId: CONN, brand: brandTag(TENANT), copy: copyTag() } }] });
     expect(await deleteShareAccount(PROJECT, made.account.uniqueId, iam.deps)).toEqual({ ok: true, gone: false });
     expect(iam.calls.at(-1)!.url).toBe(`https://iam.googleapis.com/v1/projects/${PROJECT}/serviceAccounts/${made.account.uniqueId}`);
     expect(await deleteShareAccount(PROJECT, made.account.uniqueId, iam.deps)).toEqual({ ok: true, gone: true });

@@ -15,8 +15,10 @@ import { codeForThrow, defaultTransport, retryAfter, type Transport } from "./sa
  *   is hidden, which is how a self-hosted copy without one behaves; Sign in with Google still works.
  * - The account id is `ygc-` and 20 random characters: 24 characters, inside Google's rule of 6 to
  *   30 matching [a-z]([-a-z0-9]*[a-z0-9]). It never holds the brand or the connection, because the
- *   brand's admin pastes the address into their property. The description names the connection and
- *   a hash of the brand, so the operator purge can find a brand's leftover accounts.
+ *   brand's admin pastes the address into their property. The description names the connection, a
+ *   hash of the brand and a hash of this copy (its GOOGLE_CLOUD_PROJECT), so the operator purge can
+ *   find a brand's leftover accounts and never takes another copy's for leftovers. Each copy should
+ *   still have an identities project of its own: the service account quota is per project.
  * - Calls are the app's own, to fixed Google hosts (iam.googleapis.com and
  *   iamcredentials.googleapis.com), with the app's own token from google-auth-library. The app's
  *   runtime account holds three roles on the identities project only: Create Service Accounts,
@@ -57,7 +59,7 @@ const BASE32 = "abcdefghijklmnopqrstuvwxyz234567";
 const PROJECT_RE = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/;
 const UNIQUE_ID_RE = /^\d{1,30}$/;
 const CONNECTION_RE = /^dcn_[a-z2-7]{20}$/;
-const DESCRIPTION_RE = /\bconnection=(dcn_[a-z2-7]{20}) brand=([0-9a-f]{16})\b/;
+const DESCRIPTION_RE = /\bconnection=(dcn_[a-z2-7]{20}) brand=([0-9a-f]{16})(?: copy=([0-9a-f]{16}))?\b/;
 
 export interface ShareDeps {
   transport?: Transport;
@@ -98,16 +100,28 @@ export function brandTag(tenantId: string): string {
   return createHash("sha256").update(`yougrow-connector-brand:${tenantId}`).digest("hex").slice(0, 16);
 }
 
-/** The description an account carries: the connection and the brand's tag, no names. */
-export function shareDescription(tenantId: string, connectionId: string): string {
-  return `YouGrow connected data. connection=${connectionId} brand=${brandTag(tenantId)}`;
+/**
+ * A short, one way tag for this copy of YouGrow: its Firestore project (GOOGLE_CLOUD_PROJECT, which
+ * the purge script needs too). Two copies sharing one identities project (staging and production,
+ * say) then never take each other's addresses for leftovers, even for the same tenant ids.
+ */
+export function copyTag(project: string = process.env.GOOGLE_CLOUD_PROJECT ?? ""): string {
+  return createHash("sha256").update(`yougrow-connector-copy:${project.trim()}`).digest("hex").slice(0, 16);
 }
 
-/** The connection and brand tag an account's description names, or null for one YouGrow didn't make. */
-export function parseShareDescription(description: unknown): { connectionId: string; brand: string } | null {
+/** The description an account carries: the connection, the brand's tag and this copy's tag, no names. */
+export function shareDescription(tenantId: string, connectionId: string, copy: string = copyTag()): string {
+  return `YouGrow connected data. connection=${connectionId} brand=${brandTag(tenantId)} copy=${copy}`;
+}
+
+/**
+ * The connection, brand tag and copy tag an account's description names, or null for one YouGrow
+ * didn't make. copy is null for a description without one.
+ */
+export function parseShareDescription(description: unknown): { connectionId: string; brand: string; copy: string | null } | null {
   if (typeof description !== "string") return null;
   const m = DESCRIPTION_RE.exec(description);
-  return m ? { connectionId: m[1]!, brand: m[2]! } : null;
+  return m ? { connectionId: m[1]!, brand: m[2]!, copy: m[3] ?? null } : null;
 }
 
 let _auth: GoogleAuth | null = null;
@@ -259,8 +273,8 @@ export async function deleteShareAccount(project: string, uniqueId: string, deps
 }
 
 export interface ListedShareAccount extends ShareAccount {
-  /** The connection and brand tag its description names, or null. */
-  owner: { connectionId: string; brand: string } | null;
+  /** The connection, brand tag and copy tag its description names, or null. */
+  owner: { connectionId: string; brand: string; copy: string | null } | null;
 }
 
 /**

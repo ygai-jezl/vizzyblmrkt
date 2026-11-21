@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { changeDataConnection, createDataConnection, type NewDataConnection, type TenantContext } from "@/lib/tenant";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { purgeActor, purgeConnections, purgeLines } from "./purge";
-import { shareDescription } from "./shareAccess";
+import { brandTag, copyTag, shareDescription } from "./shareAccess";
 import { sealConnectorSecret } from "./vault";
 
 // Runs with every connector switch off: the purge must work whatever they say.
@@ -141,7 +141,8 @@ describe("purging shared connections and leftover Google addresses", () => {
   /** A fake IAM holding the addresses, each tagged for a brand and a connection. */
   function fakeIam(failDeletes = false) {
     const accounts = new Map<string, { email: string; uniqueId: string; description: string }>();
-    const add = (uniqueId: string, email: string, tenantId: string, connectionId: string) => accounts.set(uniqueId, { email, uniqueId, description: shareDescription(tenantId, connectionId) });
+    const add = (uniqueId: string, email: string, tenantId: string, connectionId: string, description = shareDescription(tenantId, connectionId)) =>
+      accounts.set(uniqueId, { email, uniqueId, description });
     const transport = vi.fn(async (url: string, init: RequestInit) => {
       const u = new URL(url);
       if (init.method === "GET") return new Response(JSON.stringify({ accounts: [...accounts.values()] }), { status: 200 });
@@ -199,6 +200,19 @@ describe("purging shared connections and leftover Google addresses", () => {
     expect(r.orphans).toEqual([{ email: emailOf("b"), connectionId: "dcn_gggggggggggggggggggg", deleted: true }]);
     expect([...iam.accounts.keys()]).toEqual(["103"]);
     expect(db.raw("data_connections", SHARED)).toMatchObject({ status: "disconnected", serviceAccount: { deletedAt: T1 } });
+  });
+
+  it("never takes another copy's addresses for this brand's leftovers, even for the same tenant id", async () => {
+    // Staging and production sharing one identities project, with the same tenant ids.
+    vi.stubEnv("GOOGLE_CLOUD_PROJECT", "made-up-app-staging");
+    const iam = fakeIam();
+    iam.add("102", emailOf("b"), "ten_a", "dcn_gggggggggggggggggggg");
+    iam.add("105", emailOf("e"), "ten_a", "dcn_jjjjjjjjjjjjjjjjjjjj", shareDescription("ten_a", "dcn_jjjjjjjjjjjjjjjjjjjj", copyTag("made-up-app-prod")));
+    // Made before copies were tagged: no copy, so not this copy's to delete.
+    iam.add("106", emailOf("k"), "ten_a", "dcn_kkkkkkkkkkkkkkkkkkkk", `YouGrow connected data. connection=dcn_kkkkkkkkkkkkkkkkkkkk brand=${brandTag("ten_a")}`);
+    const r = await purgeConnections(A, { apply: true, by: "ops", now: new Date(T1), db, ...iam.deps });
+    expect(r.orphans).toEqual([{ email: emailOf("b"), connectionId: "dcn_gggggggggggggggggggg", deleted: true }]);
+    expect([...iam.accounts.keys()].sort()).toEqual(["105", "106"]);
   });
 
   it("retries a failed delete with addresses only, leaving every record's history alone", async () => {

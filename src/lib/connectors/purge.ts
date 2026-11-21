@@ -4,7 +4,7 @@ import type { DataConnection } from "@/lib/types/dataConnection";
 import { isGoogleRevokeEnabled } from "./flags";
 import { revokeGoogleToken, type GoogleDeps } from "./google";
 import { deleteConnectionAddress } from "./service";
-import { brandTag, deleteShareAccount, identitiesProject, listShareAccounts, type ShareDeps } from "./shareAccess";
+import { brandTag, copyTag, deleteShareAccount, identitiesProject, listShareAccounts, type ShareDeps } from "./shareAccess";
 import { REFRESH_SLOT } from "./tokenKeeper";
 import { openConnectorSecret, VaultOpenError } from "./vault";
 
@@ -19,10 +19,11 @@ import { openConnectorSecret, VaultOpenError } from "./vault";
  *
  * Share access (Connectors 1c): each connection's Google address is deleted at Google after its
  * purge, and a failed delete is recorded as cleanup_failed for the next run. With the identities
- * project set it also reconciles: it lists YouGrow's addresses there and deletes this brand's that
- * no live connection owns (left by a crash between making an address and saving its connection,
- * or by a delete that failed). `addressesOnly` does only that and the disconnected connections'
- * leftover addresses, leaving every record and its history alone.
+ * project set it also reconciles: it lists YouGrow's addresses there and deletes this brand's (on
+ * this copy, by GOOGLE_CLOUD_PROJECT) that no live connection owns (left by a crash between making
+ * an address and saving its connection, or by a delete that failed). `addressesOnly` does only
+ * that and the disconnected connections' leftover addresses, leaving every record and its history
+ * alone.
  *
  * Turning CONNECTORS_ENABLED off is the rollback; this is how the data goes. The dry run counts
  * and writes nothing.
@@ -84,8 +85,10 @@ function keptAddress(c: DataConnection) {
 
 /**
  * This brand's addresses in the identities project that no live connection owns: tagged for this
- * brand, and naming a connection the brand doesn't have, or one whose address is another or is
- * marked deleted. With a connection named, only addresses naming it.
+ * brand and this copy, and naming a connection the brand doesn't have, or one whose address is
+ * another or is marked deleted. With a connection named, only addresses naming it. An address
+ * tagged for another copy, or for no copy, is never this copy's to delete: another copy sharing the
+ * identities project has records this one can't see.
  */
 async function findOrphans(
   ctx: TenantContext,
@@ -98,9 +101,10 @@ async function findOrphans(
   const listed = await listShareAccounts(project, deps);
   if (!listed.ok) return { skipped: `listing the identities project failed (${listed.code})` };
   const tag = brandTag(ctx.tenantId);
+  const copy = copyTag();
   const orphans: Array<{ email: string; uniqueId: string; connectionId: string }> = [];
   for (const a of listed.accounts) {
-    if (!a.owner || a.owner.brand !== tag) continue;
+    if (!a.owner || a.owner.brand !== tag || a.owner.copy !== copy) continue;
     if (connectionId && a.owner.connectionId !== connectionId) continue;
     const owner = conns.find((c) => c.id === a.owner!.connectionId);
     const owns = owner?.serviceAccount && owner.serviceAccount.uniqueId === a.uniqueId && !owner.serviceAccount.deletedAt;

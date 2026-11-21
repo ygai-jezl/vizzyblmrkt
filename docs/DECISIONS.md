@@ -198,8 +198,11 @@ Developer Knowledge MCP.
   never touches another's, and Disconnect can delete it outright. Its account id is `ygc-` and 20
   random characters (Google's rule: 6 to 30 characters, `[a-z]([-a-z0-9]*[a-z0-9])`); it never holds
   the brand, because the admin pastes the address into their property. The description names the
-  connection and a one way brand tag (a SHA-256 prefix), so the operator purge can find a brand's
-  leftovers; only the identities project's operators can read it.
+  connection, a one way brand tag and a one way copy tag (SHA-256 prefixes of the tenant id and of
+  `GOOGLE_CLOUD_PROJECT`), so the operator purge can find a brand's leftovers and never takes
+  another copy's addresses for them when two copies share an identities project; an address with no
+  copy tag is never deleted as a leftover. Only the identities project's operators can read it.
+  Each copy should still have an identities project of its own, because the quota is per project.
 - **Least privilege.** The app's runtime account holds three roles on the identities project only:
   Create Service Accounts (`iam.serviceAccounts.create`, `get`, `list`), Delete Service Accounts and
   a custom role with only `iam.serviceAccounts.getAccessToken`; not Service Account Admin or Token

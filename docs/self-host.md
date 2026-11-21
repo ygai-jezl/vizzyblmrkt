@@ -252,6 +252,11 @@ needs the identities project above, and `npm run selfhost` keeps the switch off.
 3. In `apphosting.live.yaml`, set `CONNECTORS_IDENTITIES_PROJECT` to the identities project's id (not
    a secret), and set `CONNECTOR_GA4_ENABLED` to `"true"` if you want Google Analytics. Roll out.
 
+- Give each copy (staging and production, say) an identities project of its own. Copies sharing
+  one share its service account quota. Each address is tagged with a hash of the copy's
+  `GOOGLE_CLOUD_PROJECT`, so the purge never deletes another copy's addresses, but only for
+  addresses made since that tag; the purge leaves untagged ones alone.
+
 - Each connection's address lives in the identities project and its tokens last 5 minutes; YouGrow
   stores none. Disconnect deletes the address. Its entry stays in the property's users, harmless.
 - A project holds a limited number of service accounts (100 unless Google raises it; deleted ones

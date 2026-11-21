@@ -6,6 +6,8 @@ vi.mock("@/lib/auth/session", () => session);
 const list = vi.hoisted(() => ({
   listPeople: vi.fn(async () => ({ people: [], nextCursor: null, total: 0 })),
   peopleFilters: vi.fn(async () => ({ everyone: 0, canEmail: 0, via: { form: 0, site: 0 }, launches: [], products: [] })),
+  filterFieldIds: vi.fn(async () => new Set(["fld_000000000001"])),
+  fieldOptionCounts: vi.fn(async (): Promise<Record<string, number> | null> => ({ opt_00000001: 4 })),
 }));
 vi.mock("@/lib/audience/peopleList", async (actual) => ({ ...(await actual<typeof import("@/lib/audience/peopleList")>()), ...list }));
 
@@ -54,14 +56,54 @@ describe("GET /api/admin/audience/list", () => {
     const cursor = "2026-10-01T00:00:00.000Z|ct_1";
     const res = await GET(req(`?show=stage:pcn_1:stuck&email=1&q=ada&cursor=${encodeURIComponent(cursor)}`));
     expect(res.status).toBe(200);
-    expect(list.listPeople).toHaveBeenCalledWith(admin, { tag: "stage:pcn_1:stuck", canEmail: true, q: "ada", cursor });
+    expect(list.listPeople).toHaveBeenCalledWith(admin, { tag: "stage:pcn_1:stuck", canEmail: true, q: "ada", cursor }, undefined, {});
     await GET(req());
-    expect(list.listPeople).toHaveBeenLastCalledWith(admin, { tag: "all", canEmail: false, q: "", cursor: null });
+    expect(list.listPeople).toHaveBeenLastCalledWith(admin, { tag: "all", canEmail: false, q: "", cursor: null }, undefined, {});
   });
 
   it("gives the brand's groups with their counts", async () => {
     const res = await filters(req());
     expect(res.status).toBe(200);
-    expect(list.peopleFilters).toHaveBeenCalledWith(admin);
+    expect(list.peopleFilters).toHaveBeenCalledWith(admin, undefined, { fields: false });
+  });
+});
+
+describe("field and group filters (AUDIENCE_FIELD_FILTERS_ENABLED)", () => {
+  const on = () => {
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_FIELDS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_FIELD_FILTERS_ENABLED", "true");
+  };
+  const FIELD = "field:fld_000000000001:opt_00000001";
+  const GROUP = "group:pcn_1:org.acme:team-1";
+
+  it("refuses field and group tags while the switch is off", async () => {
+    expect((await GET(req(`?show=${encodeURIComponent(FIELD)}`))).status).toBe(400);
+    expect((await GET(req(`?show=${encodeURIComponent(GROUP)}`))).status).toBe(400);
+    expect((await filters(req("?field=fld_000000000001"))).status).toBe(400);
+    expect(list.listPeople).not.toHaveBeenCalled();
+  });
+
+  it("accepts them while it is on, with each row's filterable values", async () => {
+    on();
+    for (const tag of [FIELD, "field:fld_000000000001:yes", GROUP]) {
+      expect((await GET(req(`?show=${encodeURIComponent(tag)}&email=1`))).status).toBe(200);
+      expect(list.listPeople).toHaveBeenLastCalledWith(admin, { tag, canEmail: true, q: "", cursor: null }, undefined, { fieldIds: new Set(["fld_000000000001"]) });
+    }
+    for (const bad of ["field:fld_000000000001:no", "field:plan:opt_00000001", "group:pcn_1:", "group:pcn 1:x", "group:pcn_1:a/b"]) {
+      expect((await GET(req(`?show=${encodeURIComponent(bad)}`))).status, bad).toBe(400);
+    }
+  });
+
+  it("lists the fields with the groups, and counts one field's options when asked", async () => {
+    on();
+    await filters(req());
+    expect(list.peopleFilters).toHaveBeenLastCalledWith(admin, undefined, { fields: true });
+    const res = await filters(req("?field=fld_000000000001"));
+    expect(await res.json()).toEqual({ counts: { opt_00000001: 4 } });
+    expect(list.fieldOptionCounts).toHaveBeenCalledWith(admin, "fld_000000000001");
+    expect((await filters(req("?field=plan"))).status).toBe(400);
+    list.fieldOptionCounts.mockResolvedValueOnce(null);
+    expect((await filters(req("?field=fld_000000000009"))).status).toBe(404);
   });
 });

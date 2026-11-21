@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { suppressEmail } from "@/lib/email/suppression";
-import { upsertContactFromSignup } from "@/lib/crm/contactService";
+import { recordSignupContactStatus, upsertContactFromSignup } from "@/lib/crm/contactService";
 import { CONNECTION_ID, T0, TENANT_ID, ctx, seedUser, seedWorld, system } from "@/lib/lifecycle/testing/fixtures";
 import type { Campaign } from "@/lib/types/campaign";
 import type { Contact } from "@/lib/types/contact";
@@ -255,5 +255,146 @@ describe("syncProductLink", () => {
     const user = seedUser(db, "eli");
     expect(await syncProductLink(ctx, { ...(await connection(db)), kind: "sandbox" }, user, { db, nowMs: NOW })).toBeNull();
     expect(person(db, "eli@customer.test")).toBeUndefined();
+  });
+});
+
+/** Someone added by hand, as New person writes them: the tags summarize gives, and addedBy. */
+const ADDED_AT = new Date(T0 - DAY).toISOString();
+function seedHandAdded(db: FakeFirestore, key: string, over: Partial<Contact> = {}) {
+  const id = personIdOf(TENANT_ID, key);
+  const isEmail = key.includes("@");
+  db.seed("contacts", id, {
+    tenantId: TENANT_ID,
+    contactKey: key,
+    email: isEmail ? key : null,
+    phone: isEmail ? null : key,
+    firstName: "Sam",
+    lastName: "Rivera",
+    status: "active",
+    verified: false,
+    consentStatus: "none",
+    emailDomain: isEmail ? "customer.test" : null,
+    isCorporateDomain: false,
+    companyId: null,
+    campaigns: [],
+    campaignIds: [],
+    totalReferred: 0,
+    enrichment: { status: "none" },
+    searchTokens: ["rivera", "sam", key],
+    retentionUntil: null,
+    addedBy: { kind: "member", id: "usr_1", at: ADDED_AT, via: "form" },
+    products: [],
+    memberOf: ["added:hand", "all"],
+    reach: "no",
+    activeAt: ADDED_AT,
+    sortKey: `${ADDED_AT}|${id}`,
+    needsSync: false,
+    firstSeenAt: ADDED_AT,
+    createdAt: ADDED_AT,
+    updatedAt: ADDED_AT,
+    ...over,
+  });
+}
+
+const GRANTED = { marketing_email: { state: "granted" as const, how: "verbal", note: null, recordedBy: "usr_1", at: ADDED_AT, agreedAt: null } };
+
+describe("someone added by hand", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("survives a sync and the sweep's rebuild with no other source, whatever New person's switch says", async () => {
+    for (const add of ["false", "true"]) {
+      vi.stubEnv("AUDIENCE_ADD_PERSON_ENABLED", add);
+      const db = new FakeFirestore();
+      seedWorld(db);
+      seedHandAdded(db, "sam@customer.test");
+      seedHandAdded(db, "+447700900456");
+      for (const key of ["sam@customer.test", "+447700900456"]) {
+        expect((await syncPerson(ctx, key, { db, nowMs: NOW })).outcome).not.toBe("deleted");
+        await markNeedsSync(ctx, key, db);
+        expect((await syncPerson(ctx, key, { db, nowMs: NOW })).outcome).toBe("updated");
+        expect(person(db, key)).toMatchObject({ status: "active", memberOf: ["added:hand", "all"], reach: "no", firstName: "Sam", needsSync: false });
+      }
+      // The backfill's dry run says the same.
+      expect((await syncPerson(ctx, "sam@customer.test", { db, nowMs: NOW, dryRun: true })).outcome).toBe("unchanged");
+    }
+  });
+
+  it("keeps the name, address and search words that were typed when the same address arrives from a product", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    seedHandAdded(db, "sam@customer.test");
+    seedUser(db, "sam", { firstName: "Samuel", lastName: "Product", email: "Sam@Customer.test" });
+    expect((await syncPerson(ctx, "sam@customer.test", { db, nowMs: NOW })).outcome).toBe("updated");
+    const p = person(db, "sam@customer.test")!;
+    expect(p).toMatchObject({ firstName: "Sam", lastName: "Rivera", email: "sam@customer.test", searchTokens: ["rivera", "sam", "sam@customer.test"] });
+    expect(p.products?.map((l) => l.connectionId)).toEqual([CONNECTION_ID]);
+    expect(p.memberOf).toEqual(expect.arrayContaining(["added:hand", "all", "product:any", `product:${CONNECTION_ID}`]));
+  });
+
+  it("keeps their record when their product user is erased", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    seedHandAdded(db, "sam@customer.test");
+    const sam = seedUser(db, "sam");
+    await syncPerson(ctx, "sam@customer.test", { db, nowMs: NOW });
+    db.seed("product_users", sam.id, { ...db.raw("product_users", sam.id), status: "deleted" });
+    const res = await syncPerson(ctx, "sam@customer.test", { db, nowMs: NOW });
+    expect(res.outcome).toBe("updated");
+    expect(person(db, "sam@customer.test")).toMatchObject({ status: "active", products: [], memberOf: ["added:hand", "all"], firstName: "Sam" });
+  });
+
+  it("can be emailed only with recorded consent and no brand-wide opt-out", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    seedHandAdded(db, "sam@customer.test", { consent: GRANTED });
+    seedHandAdded(db, "kim@customer.test");
+    await syncPerson(ctx, "sam@customer.test", { db, nowMs: NOW });
+    await syncPerson(ctx, "kim@customer.test", { db, nowMs: NOW });
+    expect(person(db, "sam@customer.test")!.reach).toBe("yes");
+    expect(person(db, "kim@customer.test")!.reach).toBe("no");
+    await suppressEmail(system, { email: "sam@customer.test", reason: "unsubscribe", source: "footer" }, db);
+    await syncPerson(ctx, "sam@customer.test", { db, nowMs: NOW });
+    expect(person(db, "sam@customer.test")).toMatchObject({ reach: "no", memberOf: ["added:hand", "all"] });
+  });
+
+  it("keeps added:hand and their consent's reach on the fast path for product writes", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    seedHandAdded(db, "sam@customer.test", { consent: GRANTED });
+    const sam = seedUser(db, "sam", { consent: { basis: "none", assertedBasis: "none", source: "signup", at: new Date(T0).toISOString() } as never });
+    const c = await connection(db);
+    await syncPerson(ctx, "sam@customer.test", { db, nowMs: NOW });
+    const later = await syncProductLink(ctx, c, sam, { db, nowMs: T0 + 3 * DAY });
+    expect(later?.outcome).toBe("updated");
+    expect(later?.removed).not.toContain("added:hand");
+    expect(person(db, "sam@customer.test")).toMatchObject({ reach: "yes", firstName: "Sam" });
+    expect(person(db, "sam@customer.test")!.memberOf).toEqual(expect.arrayContaining(["added:hand", `stage:${CONNECTION_ID}:onboarding`]));
+  });
+
+  it("is never renamed by a later sign-up, nor marked deleted when that sign-up goes", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    seedHandAdded(db, "sam@customer.test");
+    const s = seedSignup(db, "sig_sam", { email: "sam@customer.test", firstName: "Samantha", lastName: "Signup" });
+    await upsertContactFromSignup(ctx, {} as Campaign, s, { db, now: ISO0 });
+    expect(person(db, "sam@customer.test")).toMatchObject({ firstName: "Sam", lastName: "Rivera", campaignIds: ["camp1"], status: "active" });
+    await syncPerson(ctx, "sam@customer.test", { db, nowMs: NOW });
+    expect(person(db, "sam@customer.test")!.memberOf).toEqual(expect.arrayContaining(["added:hand", "launch:camp1"]));
+
+    const deleted = { ...s, status: "deleted" as const };
+    db.seed("signups", s.id, { ...db.raw("signups", s.id), status: "deleted" });
+    await recordSignupContactStatus(ctx, deleted, { db, now: ISO0 });
+    expect(person(db, "sam@customer.test")!.status).toBe("active");
+    await syncPerson(ctx, "sam@customer.test", { db, nowMs: NOW });
+    expect(person(db, "sam@customer.test")).toMatchObject({ status: "active", firstName: "Sam", memberOf: ["added:hand", "all"] });
+  });
+
+  it("takes a sign-up's name only when none was typed", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    seedHandAdded(db, "+447700900456", { firstName: null, lastName: null });
+    const s = seedSignup(db, "sig_p", { email: null, phone: "+447700900456", firstName: "Pat", lastName: "Phone" });
+    await upsertContactFromSignup(ctx, {} as Campaign, s, { db, now: ISO0 });
+    expect(person(db, "+447700900456")).toMatchObject({ firstName: "Pat", lastName: "Phone" });
   });
 });

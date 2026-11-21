@@ -109,6 +109,36 @@ describe("forgetGonePersonHistory", () => {
     expect(await forgetGonePersonHistory(ctx, null, { db })).toBeNull();
     expect(held(db, "ten_other", gone)).toBe(3);
   });
+
+  it("keeps the history of someone added by hand when their last product user goes", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const added = person("sam@customer.test");
+    const productOnly = person("bea@customer.test");
+    const record = (key: string, extra: Record<string, unknown> = {}) => ({
+      tenantId: TENANT_ID,
+      contactKey: key,
+      email: key,
+      status: "active",
+      consentStatus: "none",
+      campaigns: [],
+      campaignIds: [],
+      enrichment: { status: "none" },
+      products: [],
+      memberOf: ["all"],
+      ...extra,
+    });
+    db.seed("contacts", added, record("sam@customer.test", { addedBy: { kind: "member", id: "usr_1", at: AT, via: "form" }, memberOf: ["added:hand", "all"] }));
+    db.seed("contacts", productOnly, record("bea@customer.test"));
+    await rowsAbout(db, ctx, added, "s1");
+    await rowsAbout(db, ctx, productOnly, "b1");
+
+    // Neither has a product user any more: only being added by hand keeps Sam a person.
+    expect(await forgetGonePersonHistory(ctx, "sam@customer.test", { db })).toEqual({ events: 0, agentActions: 0 });
+    expect(held(db, TENANT_ID, added)).toBe(3);
+    expect(await forgetGonePersonHistory(ctx, "bea@customer.test", { db })).toEqual({ events: 2, agentActions: 1 });
+    expect(held(db, TENANT_ID, productOnly)).toBe(0);
+  });
 });
 
 describe("eraseHistory by record", () => {

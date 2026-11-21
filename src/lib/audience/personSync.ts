@@ -10,12 +10,14 @@ import { deterministicContactId, domainFromEmail } from "@/lib/crm/identifiers";
 import { buildSearchTokens } from "@/lib/crm/searchTokens";
 import { contactFieldsFromSignup, linkFromSignup, recomputeContactStatus } from "@/lib/crm/contactService";
 import {
+  handAddedOf,
   linkFromProductUser,
   optOutsOf,
   sameDay,
   sameProductLink,
   summarize,
   tagChanges,
+  type HandAdded,
   type PersonSummary,
 } from "./personLinks";
 
@@ -30,6 +32,9 @@ import {
  * `syncProductLink` is the fast path for product writes: it swaps one product's link
  * using the user record already in hand. Both are safe to repeat; the sweep and the
  * backfill script call them too.
+ *
+ * Someone added by hand (`addedBy` on their record, piece B) is a source of their own, with no
+ * switch: no path deletes them, renames them from a product or marks them deleted.
  */
 
 /** The key prefix for a product user with no email address: they're their own person until one arrives. */
@@ -99,6 +104,19 @@ interface Derived {
   products: PersonProductLink[];
   summary: PersonSummary;
   optOuts: Contact["optOuts"];
+  /** Added by hand: a source of its own. */
+  hand: HandAdded | null;
+}
+
+/** The derived fields for a record as it is now: its hand-added source read from the record itself. */
+function derive(
+  record: Pick<Contact, "addedBy" | "consent"> | null | undefined,
+  campaigns: ContactCampaignLink[],
+  products: PersonProductLink[],
+  optOuts: Contact["optOuts"],
+): Derived {
+  const hand = handAddedOf(record);
+  return { campaigns, products, optOuts, hand, summary: summarize(campaigns, products, optOuts, hand) };
 }
 
 function sameCampaigns(a: readonly ContactCampaignLink[], b: readonly ContactCampaignLink[]): boolean {
@@ -115,9 +133,9 @@ function sameProducts(a: readonly PersonProductLink[], b: readonly PersonProduct
   return a.length === b.length && a.every((link, i) => sameProductLink(link, b[i]!));
 }
 
-/** The status the contact has always shown, with a product user counting as live. */
-function statusOf(campaigns: readonly ContactCampaignLink[], products: readonly PersonProductLink[]): Contact["status"] {
-  return products.length ? "active" : recomputeContactStatus(campaigns);
+/** The status the contact has always shown, with a product user, or being added by hand, counting as live. */
+function statusOf(campaigns: readonly ContactCampaignLink[], products: readonly PersonProductLink[], hand: HandAdded | null): Contact["status"] {
+  return products.length || hand ? "active" : recomputeContactStatus(campaigns);
 }
 
 /** The list's order for a person: unique, newest activity first when sorted descending. */
@@ -127,8 +145,9 @@ export function sortKeyOf(activeAt: string, personId: string): string {
 
 /** The patch that brings `current` in line with `next`, or null when it already is. */
 function patchFor(personId: string, current: Contact, next: Derived, nowIso: string): Partial<Contact> | null {
-  const { campaigns, products, summary, optOuts } = next;
-  const tagsChanged = (current.memberOf ?? []).join("\n") !== summary.memberOf.join("\n");
+  const { campaigns, products, summary, optOuts, hand } = next;
+  const memberOf = summary.memberOf;
+  const tagsChanged = (current.memberOf ?? []).join("\n") !== memberOf.join("\n");
   const productsChanged = !sameProducts(current.products ?? [], products);
   const reachChanged = current.reach !== summary.reach;
   const campaignsChanged = !sameCampaigns(current.campaigns ?? [], campaigns);
@@ -141,9 +160,9 @@ function patchFor(personId: string, current: Contact, next: Derived, nowIso: str
     campaigns,
     campaignIds: [...new Set(campaigns.map((c) => c.campaignId))],
     totalReferred: campaigns.reduce((s, c) => s + (c.amountReferred ?? 0), 0),
-    status: statusOf(campaigns, products),
+    status: statusOf(campaigns, products, hand),
     products,
-    memberOf: summary.memberOf,
+    memberOf,
     reach: summary.reach,
     optOuts,
     ...(summary.activeAt ? { activeAt: summary.activeAt, sortKey: sortKeyOf(summary.activeAt, personId) } : {}),
@@ -202,14 +221,15 @@ export async function syncPerson(ctx: TenantContext, rawKey: string, deps: SyncD
     .filter((u) => u.status === "active" && connections.has(u.connectionId))
     .sort((a, b) => a.connectionId.localeCompare(b.connectionId) || a.id.localeCompare(b.id));
   const products = users.map((u) => linkFromProductUser(u, connections.get(u.connectionId)!, optOuts, nowMs));
-  const summary = summarize(campaigns, products, optOuts);
-  const next: Derived = { campaigns, products, summary, optOuts };
+  const next = derive(existing, campaigns, products, optOuts);
+  const { summary } = next;
 
   if (!summary.live) {
     if (!existing) return { personId, outcome: "none", added: [], removed: [] };
     // A record that only ever came from products goes with its last product user. One with
     // sign-up history stays, marked deleted, as contacts always have (erase is the way to remove it).
-    if (existing.consentStatus === "none" && !(existing.campaigns ?? []).length) {
+    // Someone added by hand is live, so never reaches here; addedBy spares them all the same.
+    if (existing.consentStatus === "none" && !(existing.campaigns ?? []).length && !existing.addedBy) {
       if (!deps.dryRun) await repo.contacts.delete(personId);
       return { personId, outcome: "deleted", added: [], removed: existing.memberOf ?? [] };
     }
@@ -243,14 +263,17 @@ export async function syncPerson(ctx: TenantContext, rawKey: string, deps: SyncD
     before = current.memberOf ?? [];
     // A person who only uses products is named as their product names them, kept in step. A
     // contact from a sign-up keeps its own name and address: none is copied in from a product,
-    // so erasing them in the product leaves nothing of theirs behind here.
-    const productOnly = current.consentStatus === "none" && !(current.campaigns ?? []).length && campaigns.length === 0;
+    // so erasing them in the product leaves nothing of theirs behind here. Nor does someone added
+    // by hand: they keep the name, address and search words that were typed.
+    const productOnly =
+      current.consentStatus === "none" && !(current.campaigns ?? []).length && campaigns.length === 0 && !current.addedBy;
     const who = productOnly && users.length ? productOnlyFields(key, users, firstUser, nowIso) : null;
     const renamed =
       who && (who.firstName !== (current.firstName ?? null) || who.lastName !== (current.lastName ?? null) || who.email !== (current.email ?? null))
         ? { firstName: who.firstName, lastName: who.lastName, email: who.email, emailDomain: who.emailDomain, searchTokens: who.searchTokens }
         : null;
-    const patch = patchFor(personId, current, next, nowIso);
+    // The record as it is inside this transaction says whether it was added by hand.
+    const patch = patchFor(personId, current, derive(current, campaigns, products, optOuts), nowIso);
     patched = !!(patch || renamed);
     if (!patch && !renamed) return null;
     return { ...(patch ?? { updatedAt: nowIso }), ...(renamed ?? {}) } as never;
@@ -321,7 +344,7 @@ export async function syncProductLink(
     const link = linkFromProductUser(user, connection, fresh.optOuts, deps.nowMs ?? Date.now());
     const products = (fresh.products ?? []).map((p) => (p.productUserId === user.id ? link : p));
     before = fresh.memberOf ?? [];
-    return patchFor(personId, fresh, { campaigns: fresh.campaigns ?? [], products, summary: summarize(fresh.campaigns ?? [], products, fresh.optOuts), optOuts: fresh.optOuts }, nowIso) as never;
+    return patchFor(personId, fresh, derive(fresh, fresh.campaigns ?? [], products, fresh.optOuts), nowIso) as never;
   });
   if (owed) return syncPerson(ctx, key, deps);
   if (!updated) return { personId, outcome: "unchanged", added: [], removed: [] };

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled, isTimelineEnabled } from "./peopleFlags";
+import { isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled, isTimelineEnabled, isVizzyFieldsEnabled } from "./peopleFlags";
 
 beforeEach(() => {
   vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
@@ -67,5 +67,21 @@ describe("isTimelineEnabled", () => {
       expect(isTimelineEnabled(), off).toBe(false);
       vi.stubEnv(off, "true");
     }
+  });
+});
+
+describe("isVizzyFieldsEnabled", () => {
+  it("needs fields and its own switch, read as the exact string true, and not the lifecycle person brief", () => {
+    vi.stubEnv("AUDIENCE_VIZZY_FIELDS_ENABLED", "true");
+    vi.stubEnv("LIFECYCLE_ENABLED", "false");
+    vi.stubEnv("LIFECYCLE_PERSON_BRIEF", "false");
+    expect(isVizzyFieldsEnabled()).toBe(true);
+    for (const off of ["AUDIENCE_FIELDS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_PERSON_LINKS_ENABLED"]) {
+      vi.stubEnv(off, "false");
+      expect(isVizzyFieldsEnabled(), off).toBe(false);
+      vi.stubEnv(off, "true");
+    }
+    vi.stubEnv("AUDIENCE_VIZZY_FIELDS_ENABLED", "TRUE");
+    expect(isVizzyFieldsEnabled()).toBe(false);
   });
 });

@@ -403,6 +403,12 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Vizzy reads a person's select, status, checkbox, number, currency and date fields and suggests
+  # changes that an admin confirms (needs AUDIENCE_FIELDS_ENABLED). Off in production until the DPA.
+  - variable: AUDIENCE_VIZZY_FIELDS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Email style ==
   # A logo, name and colours on branded emails, then header options, themes, web fonts

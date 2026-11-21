@@ -534,7 +534,9 @@ export async function loadReview(
   ]);
 
   const autopilotRuns = isAutopilotEnabled() ? await soft("autopilot runs", recentRuns(ctx, 60, { db }), [] as AutopilotRun[]) : [];
-  const people = { fields: isVizzyFieldsEnabled(), drafts: isVizzyAddPersonEnabled() };
+  // New person drafts are for admins, who alone can add someone (decision 28); field suggestions show
+  // to everyone, since the person's page tells a member that an admin confirms.
+  const people = { fields: isVizzyFieldsEnabled(), drafts: isVizzyAddPersonEnabled() && ctx.role === "admin" };
   const personSuggestions = people.fields || people.drafts ? await soft("person suggestions", personSuggestionItems(ctx, people, db), [] as ReviewItem[]) : [];
   const liveConnections = connections.filter((c) => c.kind === "custom" && c.status !== "revoked");
   const latestRuns = await Promise.all(
@@ -568,23 +570,30 @@ export async function loadReview(
 const COUNT_TTL_MS = 2 * 60 * 1000;
 const countCache = new Map<string, { at: number; total: number }>();
 
+/** The count's cache key: per brand, and per role, since some items are for admins only. */
+function countKey(tenantId: string, role: TenantContext["role"]): string {
+  return `${tenantId}|${role === "admin" ? "admin" : "member"}`;
+}
+
 export async function countReview(
   ctx: TenantContext,
   opts: { lifecycle: boolean; now?: number },
   db?: FirestoreLike,
 ): Promise<number> {
   const now = opts.now ?? Date.now();
-  const hit = countCache.get(ctx.tenantId);
+  const key = countKey(ctx.tenantId, ctx.role);
+  const hit = countCache.get(key);
   if (hit && now - hit.at < COUNT_TTL_MS) return hit.total;
   const review = await loadReview(ctx, { lifecycle: opts.lifecycle, includeContent: !db }, db);
   const total = review.aiLines + review.items.length;
-  countCache.set(ctx.tenantId, { at: now, total });
+  countCache.set(key, { at: now, total });
   return total;
 }
 
 /** Forget one brand's cached count, after something that changes it (a change marked seen). */
 export function forgetReviewCount(tenantId: string): void {
-  countCache.delete(tenantId);
+  countCache.delete(countKey(tenantId, "admin"));
+  countCache.delete(countKey(tenantId, "member"));
 }
 
 /** Test hook: forget cached counts. */

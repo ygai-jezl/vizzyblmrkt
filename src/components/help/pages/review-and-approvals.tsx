@@ -56,12 +56,12 @@ export default function ReviewAndApprovalsHelp({ vizzyFields = isVizzyFieldsEnab
           <li>
             <strong>Suggestions about people</strong>: changes to someone&apos;s fields that Vizzy suggested. Each opens their page,
             where an admin confirms or dismisses it (<Open href="/help/your-audience#vizzy">Vizzy and their fields</Open>).
-            {vizzyAddPerson ? " It also lists New person forms Vizzy filled in, which open the form to check and add them." : ""}
+            {vizzyAddPerson ? " Admins also see New person forms Vizzy filled in, which open the form to check and add them." : ""}
           </li>
         ) : vizzyAddPerson ? (
           <li>
-            <strong>Suggestions about people</strong>: New person forms Vizzy filled in. Each opens the form, where an admin checks it,
-            says how they agreed and adds them (<Open href="/help/your-audience#add">Add someone by hand</Open>).
+            <strong>Suggestions about people</strong>: New person forms Vizzy filled in, listed for admins only. Each opens the form,
+            where an admin checks it, says how they agreed and adds them (<Open href="/help/your-audience#add">Add someone by hand</Open>).
           </li>
         ) : null}
         <li>

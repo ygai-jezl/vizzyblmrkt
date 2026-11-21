@@ -365,14 +365,22 @@ describe("Vizzy's suggestions about people", () => {
 describe("New person forms Vizzy filled in", () => {
   afterEach(() => vi.unstubAllEnvs());
 
-  it("are listed with their switch on, linking to the form by id, with nothing about the person", async () => {
+  const admin: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u_admin", role: "admin" };
+  const member: TenantContext = { ...admin, userId: "u_member", role: "member" };
+
+  async function drafted() {
     const { draftNewPerson } = await import("@/lib/audience/personDrafts");
     const db = new FakeFirestore();
     for (const k of ["AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_ADD_PERSON_ENABLED", "AUDIENCE_VIZZY_ADD_PERSON_ENABLED"]) vi.stubEnv(k, "true");
     const vizzy: TenantContext = { tenantId: "ten_A", region: "us", source: "agent", userId: "u_admin", role: "admin" };
     const d = await draftNewPerson(vizzy, { email: "noor.haddad@example.com", firstName: "Noor" }, { db });
     if (!d.ok || d.outcome === "existing") throw new Error("not drafted");
-    const r = await loadReview(ctx, { lifecycle: false, includeContent: false }, db);
+    return { db, d };
+  }
+
+  it("are listed with their switch on, linking to the form by id, with nothing about the person", async () => {
+    const { db, d } = await drafted();
+    const r = await loadReview(admin, { lifecycle: false, includeContent: false }, db);
     expect(r.items).toEqual([
       {
         id: `aa:${d.action.id}`,
@@ -385,6 +393,19 @@ describe("New person forms Vizzy filled in", () => {
     ]);
     expect(JSON.stringify(r.items)).not.toMatch(/Noor|noor|example\.com/);
     vi.stubEnv("AUDIENCE_VIZZY_ADD_PERSON_ENABLED", "false");
+    expect((await loadReview(admin, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
+  });
+
+  it("are for admins only, in the list and the count, since only admins add people", async () => {
+    const { db } = await drafted();
+    expect((await loadReview(member, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
     expect((await loadReview(ctx, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
+    resetReviewCountCache();
+    expect(await countReview(admin, { lifecycle: false, now: 1_000 }, db)).toBe(1);
+    // The admin's cached count never answers for a member.
+    expect(await countReview(member, { lifecycle: false, now: 2_000 }, db)).toBe(0);
+    forgetReviewCount("ten_A");
+    vi.stubEnv("AUDIENCE_VIZZY_ADD_PERSON_ENABLED", "false");
+    expect(await countReview(admin, { lifecycle: false, now: 3_000 }, db)).toBe(0);
   });
 });

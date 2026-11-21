@@ -281,6 +281,24 @@ describe("someone added by hand in an export, with every switch off", () => {
     expect(kinds).toEqual(["consent.recorded", "record.created"]);
     expect(JSON.stringify(doc.events)).not.toContain("sam@labs.test");
   });
+
+  it("holds a withdrawal: the record says withdrawn, and both consent events are there", async () => {
+    const { addPerson, withdrawHandConsent } = await import("./addPerson");
+    const { parseNewPerson } = await import("./newPerson");
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const sam = parseNewPerson({ email: "sam@labs.test", agreed: { how: "in_person" } });
+    if (!sam.ok) throw new Error(sam.error);
+    await addPerson(ctx, sam.value, { db, nowIso: new Date(T0).toISOString() });
+    const id = personIdOf(TENANT_ID, "sam@labs.test");
+    const later = new Date(T0 + 60_000).toISOString();
+    await withdrawHandConsent(ctx, id, { note: "Asked us to stop" }, { db, nowIso: later });
+    const r = await exportWholePerson(ctx, id, { db, nowMs: T0 + 60_000 });
+    const doc = (r as { document: Record<string, unknown> }).document;
+    expect(doc.person).toMatchObject({ consent: { marketing_email: { state: "withdrawn", note: "Asked us to stop", recordedBy: "usr_1", at: later } } });
+    const states = (doc.events as Array<{ kind: string; properties: { state?: string } }>).filter((e) => e.kind === "consent.recorded").map((e) => e.properties.state).sort();
+    expect(states).toEqual(["granted", "withdrawn"]);
+  });
 });
 
 describe("timeline moves in an export, with the timeline switched off again", () => {

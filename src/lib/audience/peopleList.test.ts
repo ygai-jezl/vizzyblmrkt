@@ -7,7 +7,7 @@ import { setRecordFieldValues } from "@/lib/tenant";
 import { fieldOptionCounts, groupLabel, isFilterTag, isPeopleTag, listPeople, parseGroupTag, peopleFilters, PEOPLE_PAGE } from "./peopleList";
 import { personIdOf, syncPerson } from "./personSync";
 import { saveFieldListChange, type FieldListChange } from "./fieldList";
-import { addPerson } from "./addPerson";
+import { addPerson, withdrawHandConsent } from "./addPerson";
 import { parseNewPerson } from "./newPerson";
 
 /** Made-up people at .test, synced into person records the way the write paths do it. */
@@ -64,9 +64,20 @@ describe("listPeople", () => {
     await addPerson(ctx, sam.value, { db, nowIso: ISO(T0 + 7_200_000) });
     const { people, total } = await listPeople(ctx, q(), db);
     expect(total).toBe(4);
-    expect(people[0]).toMatchObject({ name: "Sam", email: "sam@labs.test", launches: [], products: [], reach: "no", addedByHand: true });
+    expect(people[0]).toMatchObject({ name: "Sam", email: "sam@labs.test", launches: [], products: [], reach: "no", addedByHand: true, consentWithdrawn: false });
     expect(people.filter((p) => p.addedByHand)).toHaveLength(1);
     expect(isPeopleTag("added:hand")).toBe(false);
+  });
+
+  it("marks someone whose recorded agreement the team withdrew", async () => {
+    const db = await world();
+    const sam = parseNewPerson({ email: "sam@labs.test", firstName: "Sam", agreed: { how: "in_person" } });
+    if (!sam.ok) throw new Error(sam.error);
+    await addPerson(ctx, sam.value, { db, nowIso: ISO(T0 + 7_200_000) });
+    await withdrawHandConsent(ctx, personIdOf(TENANT_ID, "sam@labs.test"), { note: null }, { db, nowIso: ISO(T0 + 7_260_000) });
+    const { people } = await listPeople(ctx, q(), db);
+    expect(people.find((p) => p.email === "sam@labs.test")).toMatchObject({ reach: "no", addedByHand: true, consentWithdrawn: true });
+    expect(people.filter((p) => p.consentWithdrawn)).toHaveLength(1);
   });
 
   it("shows one group at a time: a launch, the brand's own site, a product, a stage", async () => {

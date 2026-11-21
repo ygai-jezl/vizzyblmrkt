@@ -5,7 +5,7 @@ import { inviteDocId } from "@/lib/invites/ids";
 import { waitlistEnrolmentId, waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
 import { personIdOf, syncPerson } from "./personSync";
 import { loadWholePerson } from "./wholePerson";
-import { addPerson } from "./addPerson";
+import { addPerson, withdrawHandConsent } from "./addPerson";
 import { parseNewPerson } from "./newPerson";
 
 /** One whole person, from made-up people at .test. */
@@ -120,7 +120,7 @@ describe("loadWholePerson for someone added by hand", () => {
     await addPerson(ctx, sam.value, { db, nowIso: at });
     const lookup = async (uids: string[]) => uids.map((uid) => ({ uid, displayName: "Alex Morgan" }));
     const p = (await loadWholePerson(ctx, personIdOf(TENANT_ID, "sam@labs.test"), db, { lookup }))!;
-    expect(p.added).toEqual({ by: "Alex Morgan", at, via: "form", consent: { how: "other", howLabel: "Other", note: "At our stand", by: "Alex Morgan", at } });
+    expect(p.added).toEqual({ by: "Alex Morgan", at, via: "form", consent: { how: "other", howLabel: "Other", note: "At our stand", by: "Alex Morgan", at }, withdrawn: null });
     expect(p.reach).toBe("yes");
 
     // Once they leave the team, the record names nobody.
@@ -131,5 +131,20 @@ describe("loadWholePerson for someone added by hand", () => {
     seedUser(db, "ada", { email: "ada@customer.test", emailNormalized: "ada@customer.test" });
     await syncPerson(ctx, "ada@customer.test", { db, nowMs: T0 });
     expect((await loadWholePerson(ctx, personIdOf(TENANT_ID, "ada@customer.test"), db))!.added).toBeNull();
+  });
+
+  it("says when the team withdrew the agreement, and they can't be emailed", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    db.seed("tenant_users", "m1", { tenantId: TENANT_ID, userId: "usr_1", role: "admin" });
+    const sam = parseNewPerson({ email: "sam@labs.test", agreed: { how: "in_person" } });
+    if (!sam.ok) throw new Error(sam.error);
+    await addPerson(ctx, sam.value, { db, nowIso: new Date(T0).toISOString() });
+    const later = new Date(T0 + 60_000).toISOString();
+    await withdrawHandConsent(ctx, personIdOf(TENANT_ID, "sam@labs.test"), { note: null }, { db, nowIso: later });
+    const lookup = async (uids: string[]) => uids.map((uid) => ({ uid, displayName: "Alex Morgan" }));
+    const p = (await loadWholePerson(ctx, personIdOf(TENANT_ID, "sam@labs.test"), db, { lookup }))!;
+    expect(p.added).toMatchObject({ consent: null, withdrawn: { note: null, by: "Alex Morgan", at: later } });
+    expect(p.reach).toBe("no");
   });
 });

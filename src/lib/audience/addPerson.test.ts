@@ -6,8 +6,8 @@ import { CONNECTION_ID, T0, TENANT_ID, ctx, seedUser, seedWorld, system } from "
 import type { Contact } from "@/lib/types/contact";
 import type { StoredEvent } from "@/lib/types/ontologyEvent";
 import { saveFieldListChange } from "./fieldList";
-import { addPerson, newPersonKey, recordHandConsent } from "./addPerson";
-import { parseNewPerson, type NewPerson } from "./newPerson";
+import { addPerson, newPersonKey, recordHandConsent, withdrawHandConsent } from "./addPerson";
+import { parseNewPerson, WITHDRAWN_HOW, type NewPerson } from "./newPerson";
 import { personIdOf, signupPersonKey, syncPerson } from "./personSync";
 
 /** Made-up people at .test addresses, and a phone from Ofcom's drama range. */
@@ -185,5 +185,79 @@ describe("recordHandConsent", () => {
       error: "not_found",
     });
     expect(events(db)).toHaveLength(0);
+  });
+});
+
+describe("withdrawHandConsent", () => {
+  const later = new Date(T0 + 60_000).toISOString();
+  const after = new Date(T0 + 120_000).toISOString();
+
+  async function agreed(db: FakeFirestore) {
+    seedWorld(db);
+    const added = await addPerson(ctx, input({ email: "sam@labs.test", agreed: { how: "signed_form" } }), { db, nowIso: NOW });
+    if (added.outcome !== "created") throw new Error(added.outcome);
+    return added.personId;
+  }
+
+  it("withdraws what the team recorded, with who, when and a note, so they can't be emailed, once", async () => {
+    const db = new FakeFirestore();
+    const id = await agreed(db);
+    expect(contact(db, "sam@labs.test")).toMatchObject({ reach: "yes" });
+    const r = await withdrawHandConsent(ctx, id, { note: "Asked us by phone" }, { db, nowIso: later });
+    expect(r).toEqual({
+      outcome: "withdrawn",
+      consent: { state: "withdrawn", how: WITHDRAWN_HOW, note: "Asked us by phone", recordedBy: "usr_1", at: later, agreedAt: null },
+    });
+    expect(contact(db, "sam@labs.test")).toMatchObject({ reach: "no", changedAt: later, memberOf: ["added:hand", "all"], consent: { marketing_email: { state: "withdrawn" } } });
+    const consent = events(db).filter((e) => e.kind === "consent.recorded");
+    expect(consent.map((e) => (e.properties as { state: string }).state).sort()).toEqual(["granted", "withdrawn"]);
+    expect(consent.find((e) => (e.properties as { state: string }).state === "withdrawn")).toMatchObject({
+      personId: id,
+      actor: { type: "member", id: "usr_1" },
+      properties: { purpose: "marketing_email", state: "withdrawn", how: WITHDRAWN_HOW, note: "Asked us by phone", recordedBy: "usr_1", agreedAt: null },
+    });
+    expect(JSON.stringify(consent)).not.toContain("sam@labs.test");
+
+    // Withdrawn already: nothing more is written.
+    expect(await withdrawHandConsent(ctx, id, { note: null }, { db, nowIso: after })).toMatchObject({ outcome: "unchanged", consent: { note: "Asked us by phone", at: later } });
+    expect(events(db).filter((e) => e.kind === "consent.recorded")).toHaveLength(2);
+  });
+
+  it("stays withdrawn through every later sync, and agreeing again works as the first time", async () => {
+    const db = new FakeFirestore();
+    const id = await agreed(db);
+    await withdrawHandConsent(ctx, id, { note: null }, { db, nowIso: later });
+    await syncPerson(system, "sam@labs.test", { db, nowMs: T0 + 90_000 });
+    expect(contact(db, "sam@labs.test")).toMatchObject({ reach: "no", consent: { marketing_email: { state: "withdrawn" } }, memberOf: ["added:hand", "all"] });
+
+    expect(await recordHandConsent(ctx, id, { how: "email_reply", note: null }, { db, nowIso: after })).toMatchObject({ outcome: "recorded", consent: { state: "granted", how: "email_reply", at: after } });
+    expect(contact(db, "sam@labs.test")).toMatchObject({ reach: "yes", changedAt: after });
+    await syncPerson(system, "sam@labs.test", { db, nowMs: T0 + 180_000 });
+    expect(contact(db, "sam@labs.test")).toMatchObject({ reach: "yes" });
+    expect(events(db).filter((e) => e.kind === "consent.recorded").map((e) => (e.properties as { state: string }).state)).toHaveLength(3);
+  });
+
+  it("has nothing to withdraw before anyone recorded agreement, and leaves everyone else's consent alone", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const added = await addPerson(ctx, input({ email: "kim@labs.test" }), { db, nowIso: NOW });
+    const kim = added.outcome === "created" ? added.personId : "";
+    expect(await withdrawHandConsent(ctx, kim, { note: null }, { db, nowIso: later })).toEqual({ outcome: "rejected", error: "nothing_to_withdraw" });
+    const ada = personIdOf(TENANT_ID, "ada@customer.test");
+    db.seed("contacts", ada, { tenantId: TENANT_ID, contactKey: "ada@customer.test", campaigns: [], memberOf: ["all"] });
+    expect(await withdrawHandConsent(ctx, ada, { note: null }, { db, nowIso: later })).toEqual({ outcome: "rejected", error: "consent_elsewhere" });
+    expect(await withdrawHandConsent(ctx, personIdOf(TENANT_ID, "nobody@customer.test"), { note: null }, { db })).toEqual({ outcome: "rejected", error: "not_found" });
+    expect(await withdrawHandConsent({ ...ctx, userId: undefined }, kim, { note: null }, { db })).toEqual({ outcome: "rejected", error: "no_user" });
+    expect(events(db).filter((e) => e.kind === "consent.recorded")).toHaveLength(0);
+  });
+
+  it("never reaches another brand's person", async () => {
+    const db = new FakeFirestore();
+    const id = await agreed(db);
+    const other = { ...ctx, tenantId: "ten_other" };
+    // The tenant layer refuses another brand's record outright.
+    await expect(withdrawHandConsent(other, id, { note: null }, { db, nowIso: later })).rejects.toThrow(/another tenant/);
+    expect(contact(db, "sam@labs.test")).toMatchObject({ reach: "yes", consent: { marketing_email: { state: "granted" } } });
+    expect(events(db).filter((e) => e.kind === "consent.recorded")).toHaveLength(1);
   });
 });

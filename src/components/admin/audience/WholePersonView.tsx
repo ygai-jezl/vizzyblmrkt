@@ -243,7 +243,9 @@ export function WholePersonView({
             value={
               p.added.consent
                 ? `They agreed: ${p.added.consent.howLabel}${p.added.consent.note ? ` (${p.added.consent.note})` : ""}. Recorded by ${p.added.consent.by} on ${day(p.added.consent.at)}.`
-                : "Not yet"
+                : p.added.withdrawn
+                  ? `Withdrawn${p.added.withdrawn.note ? ` (${p.added.withdrawn.note})` : ""}. Recorded by ${p.added.withdrawn.by} on ${day(p.added.withdrawn.at)}.`
+                  : "Not yet"
             }
           />
         ) : null}
@@ -251,6 +253,7 @@ export function WholePersonView({
       {p.added ? (
         <>
           {!p.added.consent && canEdit && addPerson ? <RecordConsent personId={p.id} onRecorded={() => void load()} /> : null}
+          {p.added.consent && canEdit && addPerson ? <WithdrawConsent personId={p.id} onWithdrawn={() => void load()} /> : null}
           <p className="text-xs text-neutral-500">{NEW_PERSON_NOTES.nothingSent}</p>
         </>
       ) : null}
@@ -385,6 +388,46 @@ function RecordConsent({ personId, onRecorded }: { personId: string; onRecorded:
       <div className="flex gap-2">
         <Button tone="primary" disabled={busy} onClick={() => void save()}>
           {busy ? "Saving…" : "Save"}
+        </Button>
+        <Button onClick={() => setOpen(false)}>Cancel</Button>
+      </div>
+    </fieldset>
+  );
+}
+
+/** Withdraw the agreement the team recorded for someone added by hand, after a short confirm. Admins only. */
+function WithdrawConsent({ personId, onWithdrawn }: { personId: string; onWithdrawn: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!open) {
+    return (
+      <Button onClick={() => setOpen(true)} className="text-xs">
+        Withdraw
+      </Button>
+    );
+  }
+  const withdraw = async () => {
+    setBusy(true);
+    setError(null);
+    const r = await api(`/api/admin/audience/everyone/${encodeURIComponent(personId)}/consent/withdraw`, {
+      method: "POST",
+      body: JSON.stringify(note.trim() ? { note: note.trim() } : {}),
+    });
+    setBusy(false);
+    if (!r.ok) return setError(r.status === 403 ? NEW_PERSON_MESSAGES.withdraw_forbidden : newPersonErrorText(r.data));
+    onWithdrawn();
+  };
+  return (
+    <fieldset className="space-y-2 rounded-md border border-neutral-200 p-3 text-sm dark:border-neutral-800">
+      <legend className="px-1 text-xs font-medium text-neutral-600 dark:text-neutral-400">{NEW_PERSON_NOTES.withdrawAsk}</legend>
+      <input type="text" aria-label="Note" placeholder="A short note, if you like" maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} className={inputClass} />
+      <p className="text-xs text-neutral-500">{NEW_PERSON_NOTES.withdrawHint}</p>
+      {error ? <Banner tone="err">{error}</Banner> : null}
+      <div className="flex gap-2">
+        <Button tone="danger" disabled={busy} onClick={() => void withdraw()}>
+          {busy ? "Withdrawing…" : "Withdraw"}
         </Button>
         <Button onClick={() => setOpen(false)}>Cancel</Button>
       </div>

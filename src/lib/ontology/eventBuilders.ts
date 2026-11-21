@@ -1,6 +1,6 @@
 import { EventWriteSchema, type EventWrite } from "@/lib/types/ontologyEvent";
 import type { AgentActionId } from "@/lib/types/agentAction";
-import type { ConsentPurpose } from "./consent";
+import type { ConsentPurpose, ConsentState } from "./consent";
 import { subjectKey, type EventActor, type EventSubject, type FieldChangeSource, type FieldObject } from "./events";
 import type { ContactPersonId } from "./person";
 
@@ -122,20 +122,27 @@ export interface ConsentRecordedArgs {
   agreedAt: string | null;
   at: string;
   actor: EventActor;
+  /** Granted unless said: B withdraws only what the team recorded for someone added by hand. */
+  state?: ConsentState;
   key?: string;
 }
 
-/** A person's consent to one purpose, granted. Withdrawal is piece F's. */
+/**
+ * A person's consent to one purpose, granted or withdrawn. B records both for people added by
+ * hand; piece F owns consent for every channel.
+ */
 export function consentRecordedEvent(a: ConsentRecordedArgs): EventWrite {
   const at = canonical(a.at);
+  const state = a.state ?? "granted";
   return checked({
-    key: a.key ?? `consent|${a.personId}|${a.purpose}|${at}`,
+    // A grant keeps the key it always had; a withdrawal at the same moment has its own.
+    key: a.key ?? (state === "granted" ? `consent|${a.personId}|${a.purpose}|${at}` : `consent|${a.personId}|${a.purpose}|${state}|${at}`),
     kind: "consent.recorded",
     at,
     subject: { type: "person", id: a.personId },
     personId: a.personId,
     source: { system: "app" },
     actor: a.actor,
-    properties: { purpose: a.purpose, state: "granted", how: a.how, note: a.note, recordedBy: a.recordedBy, agreedAt: a.agreedAt },
+    properties: { purpose: a.purpose, state, how: a.how, note: a.note, recordedBy: a.recordedBy, agreedAt: a.agreedAt },
   });
 }

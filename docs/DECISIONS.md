@@ -199,11 +199,19 @@ Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
   - **Can email** on someone added by hand means the team recorded that they agreed. No send
     path reads them yet: journeys and broadcasts reach people added by hand with lists (piece
     E). The form, the list ("Yes, recorded", "Not yet") and the person's page say so.
-  - **Withdrawing is a named gap.** B records agreement only (piece 0 left withdrawal to piece
-    F), so nothing in the app withdraws or corrects a recorded agreement yet: someone who asks to
-    stop is unsubscribed brand-wide or erased. Withdrawing must be as easy as agreeing, so no
-    send may read a hand-added person's reach until it exists; the registry's `consent_record`
-    and `list` entries say so for pieces E and F.
+  - **Withdrawing is in B (approved 2026-11-21); piece F still owns consent for every
+    channel.** `POST .../everyone/[personId]/consent/withdraw` (`{ note? }`, admins only, behind
+    `AUDIENCE_ADD_PERSON_ENABLED` with the person ids, in New person's gate order) withdraws what
+    the team recorded for someone added by hand: in one `writeRecordWithEvents` transaction the
+    entry becomes withdrawn (`how` "withdrawn", who by user id, when, the note) with a
+    `consent.recorded` event of state "withdrawn", and reach is worked out again through
+    summarize's hand-added input, so they no longer count as can email and every later sync keeps
+    it. Withdrawn already writes nothing; nothing recorded answers 409 `nothing_to_withdraw`,
+    anyone not added by hand 409 `consent_elsewhere`, another brand's person 404. Recording
+    agreement again is the same PATCH as the first time. The person page's Consent card has
+    **Withdraw** for admins (members see the state), the list says "Withdrawn", the timeline
+    shows it, and export and erase cover the entry and its event. Consent from a launch or a
+    product is untouched: that stays piece F's.
   - **The plan's people:** the form reads piece A's `checkAllowance` and says when under 1% of
     the limit is left or it is passed. It never blocks (gates guide, never lock).
   - Rate limited per admin; export and erase cover `addedBy`, the consent and both events

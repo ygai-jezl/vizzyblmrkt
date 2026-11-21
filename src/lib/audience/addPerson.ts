@@ -15,7 +15,7 @@ import { readFieldList } from "./fieldList";
 import { setFieldValues } from "./fields";
 import { handAddedOf, optOutsOf, summarize, withCarriedTags } from "./personLinks";
 import { optOutRowsFor, personIdOf, sortKeyOf, syncPersonSafe } from "./personSync";
-import { EMAIL_RE, type ConsentWay, type NewPerson, type NewPersonInfo } from "./newPerson";
+import { EMAIL_RE, WITHDRAWN_HOW, type ConsentWay, type NewPerson, type NewPersonInfo } from "./newPerson";
 
 /**
  * Adding someone by hand (AUDIENCE_ADD_PERSON_ENABLED; the routes check the switch). The person is
@@ -212,6 +212,73 @@ export async function recordHandConsent(
   if (written.outcome === "unchanged" && seen.entry) return { outcome: "unchanged", consent: seen.entry };
   if (written.outcome !== "created" && written.outcome !== "updated") throw new Error("record consent: nothing written");
   return { outcome: "recorded", consent: written.doc.consent!.marketing_email! };
+}
+
+export type WithdrawConsentResult =
+  | { outcome: "withdrawn" | "unchanged"; consent: ContactConsentEntry }
+  | { outcome: "rejected"; error: "not_found" | "consent_elsewhere" | "nothing_to_withdraw" | "no_user" };
+
+/**
+ * Withdraw the marketing email agreement the team recorded for someone added by hand: the entry
+ * becomes withdrawn (who by user id, when, an optional note), their reach is worked out again
+ * through summarize's hand-added input, so they no longer count as can email and every later
+ * sync keeps it, and a consent.recorded event with state "withdrawn" is the proof. One
+ * transaction. Withdrawn already: nothing is written. Recording agreement again afterwards is
+ * recordHandConsent, as the first time. Consent from a launch or a product stays theirs (piece F
+ * owns consent for every channel).
+ */
+export async function withdrawHandConsent(
+  ctx: TenantContext,
+  personId: string,
+  input: { note: string | null },
+  deps: { db?: FirestoreLike; nowIso?: string } = {},
+): Promise<WithdrawConsentResult> {
+  const userId = ctx.userId;
+  if (!userId || userId.includes("@")) return { outcome: "rejected", error: "no_user" };
+  if (!isContactPersonId(personId)) return { outcome: "rejected", error: "not_found" };
+  const nowIso = deps.nowIso ?? new Date().toISOString();
+  const actor = actorOf(ctx);
+  const seen: { entry: ContactConsentEntry | null } = { entry: null };
+  const written = await writeRecordWithEvents(
+    ctx,
+    "contacts",
+    personId,
+    (current) => {
+      if (!current) return { reject: "not_found" };
+      if (!current.addedBy) return { reject: "consent_elsewhere" };
+      const was = current.consent?.marketing_email;
+      if (!was) return { reject: "nothing_to_withdraw" };
+      if (was.state === "withdrawn") {
+        seen.entry = was;
+        return null;
+      }
+      const entry: ContactConsentEntry = { state: "withdrawn", how: WITHDRAWN_HOW, note: input.note, recordedBy: userId, at: nowIso, agreedAt: null };
+      const next = { ...current, consent: { ...(current.consent ?? {}), marketing_email: entry } };
+      const summary = summarize(current.campaigns ?? [], current.products ?? [], current.optOuts, handAddedOf(next));
+      const reachChanged = summary.reach !== current.reach;
+      return {
+        patch: { consent: next.consent, reach: summary.reach, ...(reachChanged ? { changedAt: nowIso } : {}), updatedAt: nowIso },
+        events: [
+          consentRecordedEvent({
+            personId,
+            purpose: "marketing_email",
+            state: "withdrawn",
+            how: WITHDRAWN_HOW,
+            note: input.note,
+            recordedBy: userId,
+            agreedAt: null,
+            at: nowIso,
+            actor,
+          }),
+        ],
+      };
+    },
+    { db: deps.db, nowIso },
+  );
+  if (written.outcome === "rejected") return { outcome: "rejected", error: written.reason as "not_found" | "consent_elsewhere" | "nothing_to_withdraw" };
+  if (written.outcome === "unchanged" && seen.entry) return { outcome: "unchanged", consent: seen.entry };
+  if (written.outcome !== "updated") throw new Error("withdraw consent: nothing written");
+  return { outcome: "withdrawn", consent: written.doc.consent!.marketing_email! };
 }
 
 /** The allowance through piece A's checkAllowance (which never locks), and the company for `email`. */

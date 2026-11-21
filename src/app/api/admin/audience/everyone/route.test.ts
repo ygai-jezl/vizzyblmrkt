@@ -16,6 +16,7 @@ vi.mock("@/lib/plans/usage", async (importOriginal) => ({ ...(await importOrigin
 
 const route = await import("./route");
 const consent = await import("./[personId]/consent/route");
+const withdrawRoute = await import("./[personId]/consent/withdraw/route");
 const { deterministicCompanyId, deterministicContactId } = await import("@/lib/crm/identifiers");
 const { saveFieldListChange } = await import("@/lib/audience/fieldList");
 
@@ -30,6 +31,12 @@ const get = (q = "") => route.GET(new Request(`http://localhost/api/admin/audien
 const agree = (personId: string, body: unknown) =>
   consent.PATCH(new Request("http://localhost/x", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }), { params: Promise.resolve({ personId }) });
 
+const withdraw = (personId: string, body: unknown, origin?: string) =>
+  withdrawRoute.POST(
+    new Request("http://localhost/x", { method: "POST", headers: { "content-type": "application/json", ...(origin ? { origin } : {}) }, body: typeof body === "string" ? body : JSON.stringify(body) }),
+    { params: Promise.resolve({ personId }) },
+  );
+
 let db: FakeFirestore;
 beforeEach(() => {
   vi.clearAllMocks();
@@ -42,7 +49,10 @@ beforeEach(() => {
   session.getAdminContext.mockResolvedValue(admin);
   usage.checkAllowance.mockResolvedValue({ allowed: true, used: null, limit: null, organisationId: null });
 });
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.useRealTimers();
+});
 
 describe("POST a new person", () => {
   it("doesn't exist while the switch is off", async () => {
@@ -143,5 +153,85 @@ describe("PATCH how someone added by hand agreed", () => {
     expect(await other.json()).toEqual({ error: "consent_elsewhere" });
     expect((await agree(deterministicContactId("ten_A", "nobody@example.com"), { how: "in_person" })).status).toBe(404);
     expect((await agree("ct_..%2F", { how: "in_person" })).status).toBe(404);
+  });
+});
+
+describe("POST a withdrawal of what the team recorded", () => {
+  const consentOf = () => (db.raw("contacts", SAM) as { consent?: { marketing_email?: { state: string } }; reach?: string }) ?? {};
+  const consentEvents = () => db.dump("ontology_events").filter((e) => e.kind === "consent.recorded");
+
+  it("doesn't exist while the switch, or the person ids it needs, are off", async () => {
+    await post({ email: "sam@labs.example.com", agreed: { how: "in_person" } });
+    vi.stubEnv("AUDIENCE_ADD_PERSON_ENABLED", "false");
+    expect((await withdraw(SAM, {})).status).toBe(404);
+    vi.stubEnv("AUDIENCE_ADD_PERSON_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "false");
+    expect((await withdraw(SAM, {})).status).toBe(404);
+    expect(consentOf()).toMatchObject({ reach: "yes", consent: { marketing_email: { state: "granted" } } });
+  });
+
+  it("needs the same origin, a session and an admin, in that order, then good input", async () => {
+    await post({ email: "sam@labs.example.com", agreed: { how: "in_person" } });
+    expect((await withdraw(SAM, {}, "https://evil.example.com")).status).toBe(403);
+    session.getAdminContext.mockResolvedValue(null);
+    expect((await withdraw(SAM, {})).status).toBe(401);
+    session.getAdminContext.mockResolvedValue(member);
+    const forbidden = await withdraw(SAM, {});
+    expect(forbidden.status).toBe(403);
+    expect(await forbidden.json()).toEqual({ error: "forbidden" });
+    session.getAdminContext.mockResolvedValue(admin);
+    for (const bad of [{ note: 42 }, { how: "in_person" }, { note: "x".repeat(501) }]) {
+      const res = await withdraw(SAM, bad);
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "invalid_input" });
+    }
+    expect((await withdraw("ct_..%2F", {})).status).toBe(404);
+    expect(consentOf()).toMatchObject({ reach: "yes", consent: { marketing_email: { state: "granted" } } });
+    expect(consentEvents()).toHaveLength(1);
+  });
+
+  it("withdraws it with a note, so they can't be emailed, then agreeing again works as before", async () => {
+    // Each step a minute apart: a consent event is keyed by its moment.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse("2026-11-21T10:00:00.000Z"));
+    await post({ email: "sam@labs.example.com", agreed: { how: "in_person" } });
+    vi.setSystemTime(Date.parse("2026-11-21T10:01:00.000Z"));
+    const res = await withdraw(SAM, { note: "Asked us to stop" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ withdrawn: true, consent: { state: "withdrawn", note: "Asked us to stop", recordedBy: "u_admin" } });
+    expect(consentOf()).toMatchObject({ reach: "no", consent: { marketing_email: { state: "withdrawn" } } });
+    const again = await withdraw(SAM, {});
+    expect(again.status).toBe(200);
+    expect(await again.json()).toMatchObject({ withdrawn: false });
+    expect(consentEvents()).toHaveLength(2);
+
+    vi.setSystemTime(Date.parse("2026-11-21T10:02:00.000Z"));
+    expect((await agree(SAM, { how: "email_reply" })).status).toBe(200);
+    vi.useRealTimers();
+    expect(consentOf()).toMatchObject({ reach: "yes", consent: { marketing_email: { state: "granted" } } });
+    expect(consentEvents()).toHaveLength(3);
+  });
+
+  it("answers 409 with nothing recorded or for anyone not added by hand", async () => {
+    await post({ email: "sam@labs.example.com" });
+    const none = await withdraw(SAM, {});
+    expect(none.status).toBe(409);
+    expect(await none.json()).toEqual({ error: "nothing_to_withdraw" });
+    const ada = deterministicContactId("ten_A", "ada@example.com");
+    db.seed("contacts", ada, { tenantId: "ten_A", contactKey: "ada@example.com", memberOf: ["all"] });
+    const other = await withdraw(ada, {});
+    expect(other.status).toBe(409);
+    expect(await other.json()).toEqual({ error: "consent_elsewhere" });
+    expect((await withdraw(deterministicContactId("ten_A", "nobody@example.com"), {})).status).toBe(404);
+  });
+
+  it("never touches another brand's person", async () => {
+    await post({ email: "sam@labs.example.com", agreed: { how: "in_person" } });
+    session.getAdminContext.mockResolvedValue({ ...admin, tenantId: "ten_B" });
+    const res = await withdraw(SAM, {});
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "not_found" });
+    expect(consentOf()).toMatchObject({ reach: "yes", consent: { marketing_email: { state: "granted" } } });
+    expect(consentEvents()).toHaveLength(1);
   });
 });

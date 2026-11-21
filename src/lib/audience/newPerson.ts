@@ -70,6 +70,18 @@ export interface NewPerson {
 
 export type NewPersonError = "email_or_phone" | "invalid_email" | "invalid_phone" | "note_needed" | "invalid_input";
 
+/** The `how` a withdrawal is recorded with, on the record and its consent.recorded event. */
+export const WITHDRAWN_HOW = "withdrawn";
+
+const WithdrawSchema = z.object({ note: z.string().trim().max(CONSENT_NOTE_MAX).optional() }).strict();
+
+/** A withdrawal from a person's page: an optional note, nothing else. */
+export function parseWithdraw(raw: unknown): { ok: true; value: { note: string | null } } | { ok: false; error: "invalid_input" } {
+  const parsed = WithdrawSchema.safeParse(raw ?? {});
+  if (!parsed.success) return { ok: false, error: "invalid_input" };
+  return { ok: true, value: { note: parsed.data.note || null } };
+}
+
 /** Agreement as recorded later, from a person's page: a way, and a note that "Other" needs. */
 export function parseAgreed(raw: unknown): { ok: true; value: { how: ConsentWay; note: string | null } } | { ok: false; error: "note_needed" | "invalid_input" } {
   const parsed = AgreedSchema.safeParse(raw);
@@ -136,6 +148,8 @@ export const NEW_PERSON_MESSAGES = {
   failed: "That didn't save. Try again.",
   fields_not_saved: "They were added, but their field values didn't save. Set them on their page.",
   draft_gone: "This form from Vizzy is no longer there: someone added them, dismissed it, or it was more than 7 days old.",
+  nothing_to_withdraw: "There's no recorded agreement to withdraw. Reload the page to see where it stands.",
+  withdraw_forbidden: "Only admins can withdraw an agreement.",
 } as const;
 export type NewPersonMessage = keyof typeof NEW_PERSON_MESSAGES;
 
@@ -154,6 +168,8 @@ export const NEW_PERSON_NOTES = {
   nothingSent: "Nothing is sent to people added by hand yet. Recording that they agreed means they can be emailed once lists reach them.",
   existing: "If this email is already in People, you'll go to that person instead of adding a second one.",
   fromVizzy: "Vizzy filled this in from your chat. Check it, and say how they agreed yourself: Vizzy never records that.",
+  withdrawAsk: "They no longer agree to marketing emails?",
+  withdrawHint: "Saved with your name and the time. They can't be emailed from here until someone records that they agreed again.",
 } as const;
 
 /**

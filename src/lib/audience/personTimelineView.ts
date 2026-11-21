@@ -185,7 +185,13 @@ function fromEvent(e: StoredEvent, names: Names, launchesJoined: ReadonlySet<str
     }
     case "consent.recorded": {
       const p = e.properties as { how?: string; note?: string | null; recordedBy?: string; state?: string };
-      if (p.state !== "granted") return { ...base, kind: "consent", text: "Withdrew from marketing emails", detail: null };
+      if (p.state !== "granted")
+        return {
+          ...base,
+          kind: "consent",
+          text: "Withdrew from marketing emails",
+          detail: `${p.note ? `${p.note}. ` : ""}Recorded by ${memberLabel(p.recordedBy, names.people)}`,
+        };
       return {
         ...base,
         kind: "consent",

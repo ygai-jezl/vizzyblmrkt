@@ -157,6 +157,13 @@ export default function YourAudienceHelp({
             there, not from here.
           </P>
           <P>
+            If they change their mind, an admin presses <strong>Withdraw</strong> there, adds a note if they like, and presses{" "}
+            <strong>Withdraw</strong> again. It is saved with their name and the time, the person can no longer be emailed from what your
+            team recorded, and Marketing emails says Withdrawn. To record that they agreed again later, press{" "}
+            <strong>Record that they agreed</strong>, as the first time. Everyone else on your team sees where it stands but can&apos;t
+            change it.
+          </P>
+          <P>
             For someone added by hand, can email means your team recorded that they agreed. Nothing is sent to them yet: journeys and
             broadcasts reach people added by hand once lists come. They stay in People whatever happens to their launches or products,
             keep the name you typed, and are exported and erased like anyone else.
@@ -215,7 +222,7 @@ export default function YourAudienceHelp({
             <li>starting to use one of your products, moving from one stage to another in it, going quiet and coming back;</li>
             <li>the emails your launches sent them, and what they did with them;</li>
             <li>a voice chat on a sign-up page, which an admin can read;</li>
-            {addPerson ? <li>being added by hand, and agreeing to marketing emails;</li> : null}
+            {addPerson ? <li>being added by hand, agreeing to marketing emails, and withdrawing;</li> : null}
             {fields ? <li>each change to your own fields, with who made it and the values before and after;</li> : null}
             {vizzyFields || vizzyAdds ? <li>what Vizzy suggested, and what came of it.</li> : null}
           </UL>
@@ -382,6 +389,7 @@ export default function YourAudienceHelp({
                 [NEW_PERSON_MESSAGES.note_needed, "With Other picked, say in a few words how they agreed."],
                 [NEW_PERSON_MESSAGES.consent_elsewhere, "Nothing to fix. Their consent shows under Consent, in one place, from their launch or product."],
                 [NEW_PERSON_MESSAGES.fields_not_saved, "Open their page and set the values in Fields."],
+                [NEW_PERSON_MESSAGES.nothing_to_withdraw, "Nothing to fix. Someone may have withdrawn it already; reload the page."],
                 [NEW_PERSON_NOTES.nothingSent, "Nothing to fix. People added by hand get emails once lists reach them."],
                 ...(vizzyAdds
                   ? ([

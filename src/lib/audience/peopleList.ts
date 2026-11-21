@@ -78,6 +78,8 @@ export interface PeopleRow {
   activeAt: string | null;
   /** Someone on the team added them by hand (New person). */
   addedByHand: boolean;
+  /** Added by hand, and the team withdrew the agreement it recorded. */
+  consentWithdrawn: boolean;
   /** With field filters on: their values for the fields the list can filter by. */
   fields?: Record<string, FieldValue>;
 }
@@ -116,6 +118,7 @@ function rowOf(c: Contact, names: Awaited<ReturnType<typeof sourceNames>>, field
     blocked: c.optOuts?.blocked ?? null,
     activeAt: c.activeAt ?? null,
     addedByHand: !!c.addedBy,
+    consentWithdrawn: !!c.addedBy && c.consent?.marketing_email?.state === "withdrawn",
     ...(fieldIds ? { fields: Object.fromEntries(Object.entries(c.fields ?? {}).filter(([id]) => fieldIds.has(id))) } : {}),
   };
 }

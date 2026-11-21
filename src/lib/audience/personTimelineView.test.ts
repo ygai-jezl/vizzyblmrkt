@@ -4,7 +4,7 @@ import { setRecordFieldValues } from "@/lib/tenant";
 import { InvalidCursorError } from "@/lib/ontology/timeline";
 import { CONNECTION_ID, T0, TENANT_ID, ctx, seedUser, seedWorld } from "@/lib/lifecycle/testing/fixtures";
 import { saveFieldListChange } from "./fieldList";
-import { addPerson } from "./addPerson";
+import { addPerson, withdrawHandConsent } from "./addPerson";
 import { decideFieldSuggestion, suggestFieldChanges } from "./fieldSuggestions";
 import { parseNewPerson } from "./newPerson";
 import { personIdOf, syncPerson, syncProductLink } from "./personSync";
@@ -138,6 +138,21 @@ describe("loadPersonTimeline", () => {
       ["Agreed to marketing emails", "Told me in person. Recorded by Alex Morgan"],
     ]);
     expect(await loadPersonTimeline({ ...ctx, tenantId: "ten_other" }, personIdOf(TENANT_ID, "sam@labs.test"), { db })).toBeNull();
+  });
+
+  it("shows a withdrawal, with who recorded it and their note", async () => {
+    const { db } = await world();
+    const sam = parseNewPerson({ email: "sam@labs.test", agreed: { how: "in_person" } });
+    if (!sam.ok) throw new Error(sam.error);
+    await addPerson(ctx, sam.value, { db, nowIso: iso(T0 + 6 * DAY) });
+    const id = personIdOf(TENANT_ID, "sam@labs.test");
+    await withdrawHandConsent(ctx, id, { note: "Asked us to stop" }, { db, nowIso: iso(T0 + 7 * DAY) });
+    const page = (await loadPersonTimeline(ctx, id, { db, lookup }))!;
+    expect(page.entries.map((e) => [e.text, e.detail])).toEqual([
+      ["Withdrew from marketing emails", "Asked us to stop. Recorded by Alex Morgan"],
+      ["Added by hand", "By Alex Morgan"],
+      ["Agreed to marketing emails", "Told me in person. Recorded by Alex Morgan"],
+    ]);
   });
 
   it("says who confirmed Vizzy's suggestion and who undid it", async () => {

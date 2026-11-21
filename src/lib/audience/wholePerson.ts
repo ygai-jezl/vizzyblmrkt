@@ -71,6 +71,8 @@ export interface WholePerson {
     at: string;
     via: "form" | "palette" | "vizzy";
     consent: { how: string; howLabel: string; note: string | null; by: string; at: string } | null;
+    /** The team withdrew the agreement it recorded: who, when and their note. Null unless withdrawn. */
+    withdrawn: { note: string | null; by: string; at: string } | null;
   } | null;
 }
 
@@ -140,12 +142,14 @@ export async function loadWholePerson(
   let added: WholePerson["added"] = null;
   if (contact.addedBy) {
     const consent = contact.consent?.marketing_email?.state === "granted" ? contact.consent.marketing_email : null;
-    const names = await teamMemberNames(ctx, [contact.addedBy.kind === "member" ? contact.addedBy.id : null, consent?.recordedBy], { db, lookup: opts.lookup });
+    const withdrawn = contact.consent?.marketing_email?.state === "withdrawn" ? contact.consent.marketing_email : null;
+    const names = await teamMemberNames(ctx, [contact.addedBy.kind === "member" ? contact.addedBy.id : null, consent?.recordedBy, withdrawn?.recordedBy], { db, lookup: opts.lookup });
     added = {
       by: contact.addedBy.kind === "agent" ? "Vizzy, confirmed by your team" : memberLabel(contact.addedBy.id, names),
       at: contact.addedBy.at,
       via: contact.addedBy.via,
       consent: consent ? { how: consent.how, howLabel: consentWayLabel(consent.how), note: consent.note, by: memberLabel(consent.recordedBy, names), at: consent.at } : null,
+      withdrawn: withdrawn ? { note: withdrawn.note, by: memberLabel(withdrawn.recordedBy, names), at: withdrawn.at } : null,
     };
   }
   return {

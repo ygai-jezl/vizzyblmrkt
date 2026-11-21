@@ -374,7 +374,13 @@ export function AudienceList({
                           <Chip tone="green">Yes</Chip>
                         )
                       ) : p.addedByHand && !p.blocked && !p.launches.length && !p.products.length ? (
-                        <Chip tone="neutral">Not yet</Chip>
+                        p.consentWithdrawn ? (
+                          <Chip tone="neutral" title="Your team recorded that they withdrew their agreement.">
+                            Withdrawn
+                          </Chip>
+                        ) : (
+                          <Chip tone="neutral">Not yet</Chip>
+                        )
                       ) : p.reach === "limited" ? (
                         <Chip tone="amber" title="Some emails only: service emails, the confirmation, or not every category">
                           Some

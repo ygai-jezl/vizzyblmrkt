@@ -1591,7 +1591,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "consent_record",
     name: "Consent record",
     description:
-      "One person's consent for one purpose. The current state stays on the person record; each change is a consent.recorded event in the event history, shaped by `src/lib/ontology/consent.ts`. Every send checks it. Piece B records agreement only, for people added by hand, with no way in the app to withdraw or correct it; withdrawing, as easy as agreeing, comes with this type, before any send reads their reach (piece E).",
+      "One person's consent for one purpose. The current state stays on the person record; each change is a consent.recorded event in the event history, shaped by `src/lib/ontology/consent.ts`. Every send checks it. Piece B records agreement and its withdrawal for people added by hand, each as easy as the other; this type brings consent for every channel (piece F).",
     place: "customers",
     status: "planned",
     plannedIn: "F",
@@ -1630,7 +1630,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "list",
     name: "List",
     description:
-      "Records in a process with their own fields and stages, such as investors or beta testers. Joining one never adds consent. Sending to people added by hand waits for withdrawing their recorded consent (consent_record, piece F).",
+      "Records in a process with their own fields and stages, such as investors or beta testers. Joining one never adds consent. People added by hand can be emailed only while their recorded agreement stands; withdrawing it is in piece B.",
     place: "customers",
     status: "planned",
     plannedIn: "E",

@@ -45,7 +45,8 @@ export type ReviewKind =
   | "failed_post"
   | "connection"
   | "competitor_news"
-  | "next_article";
+  | "next_article"
+  | "person_suggestion";
 
 export interface ReviewItem {
   id: string;
@@ -96,10 +97,14 @@ export const REVIEW_SECTIONS: Record<ReviewKind, { title: string; description: s
     title: "Your next article",
     description: "What the article autopilot found and sorted, the questions it asks your team, and runs that couldn't finish.",
   },
+  person_suggestion: {
+    title: "Suggestions about people",
+    description: "Changes to people's fields, and people to add, that Vizzy suggested. Nothing changes until someone on your team confirms.",
+  },
 };
 
 /** Order of sections on the page (AI lines are time-bound, so they come first). */
-export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "next_article", "agent_draft", "repo_results", "brand_map", "competitor_news", "content_hub"];
+export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "next_article", "agent_draft", "person_suggestion", "repo_results", "brand_map", "competitor_news", "content_hub"];
 
 // ---------------------------------------------------------------------------
 // Per-source rules (pure)

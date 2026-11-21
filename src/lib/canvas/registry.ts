@@ -8,6 +8,7 @@ import { journeyStyleCanvasKind } from "./kinds/journeyStyle";
 import { personPlanCanvasKind } from "./kinds/personPlan";
 import { brandMapCanvasKind } from "./kinds/brandMap";
 import { imageStyleCanvasKind } from "./kinds/imageStyle";
+import { personFieldsCanvasKind } from "./kinds/personFields";
 
 /**
  * The registry of agent-authorable canvas kinds. To add another canvas:
@@ -24,6 +25,7 @@ const KINDS: Record<string, CanvasKind> = {
   [personPlanCanvasKind.kind]: personPlanCanvasKind,
   [brandMapCanvasKind.kind]: brandMapCanvasKind,
   [imageStyleCanvasKind.kind]: imageStyleCanvasKind,
+  [personFieldsCanvasKind.kind]: personFieldsCanvasKind,
 };
 
 export function getCanvasKind(kind: string): CanvasKind | null {

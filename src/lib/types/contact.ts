@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CONSENT_HOW, CONSENT_NOTE_MAX, CONSENT_STATES } from "@/lib/ontology/consent";
+import { FieldValuesSchema } from "./recordField";
 import { UtmSchema } from "./signup";
 
 /**
@@ -191,6 +192,13 @@ export const ContactSchema = z.object({
   addedBy: ContactAddedBySchema.optional(),
   /** Consent the team recorded for someone added by hand. Reach is yes only with marketing email granted here. */
   consent: ContactConsentSchema.optional(),
+
+  /**
+   * The brand's own fields (AUDIENCE_FIELDS_ENABLED), by field id: written only by
+   * src/lib/tenant/recordFieldWrites.ts, never by a sync. Archived fields keep their values here.
+   * Exempt from automatic indexing (firestore.indexes.json), like products and optOuts.
+   */
+  fields: FieldValuesSchema.optional(),
 
   // ---- The person record (AUDIENCE_PERSON_LINKS_ENABLED). Derived from the person's
   // sign-ups, product users and opt-outs by src/lib/audience/personSync.ts, and safe

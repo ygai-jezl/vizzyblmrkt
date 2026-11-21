@@ -43,6 +43,11 @@ import {
  * other writers own (`field:` tags and `added:hand`) are kept as they are on every write, field
  * tags while the person is in Everyone (and rebuilt from their values when they come back).
  *
+ * A record holding the team's field values is never deleted by a sync, whoever it came from: one
+ * that only came from products stays when its last product user goes (revoked, moved to another
+ * address, or joined to an address), out of Everyone like a sign-up contact whose launches went,
+ * until the team erases it. Only the erase path (`erase: true`) removes it with its values.
+ *
  * With AUDIENCE_TIMELINE_ENABLED, both functions record the person's moves (launch, product,
  * stage and quiet, src/lib/audience/personMoves.ts) after their commit, so every caller is
  * covered. Best effort, keyed so a retry writes nothing twice; never on a dry run, a person who
@@ -107,6 +112,12 @@ export interface SyncDeps {
    * the backfill, so a rebuild never floods timelines. Default "record".
    */
   moves?: "record" | "skip";
+  /**
+   * The product user's erase (personAfterProductErase, and the dry run that decides whether to
+   * erase the history): a record that only came from products goes with its last product user even
+   * when it holds field values, which would otherwise keep it.
+   */
+  erase?: boolean;
 }
 
 export type SyncOutcome = "created" | "updated" | "unchanged" | "deleted" | "none";
@@ -289,9 +300,10 @@ export async function syncPerson(ctx: TenantContext, rawKey: string, deps: SyncD
   if (!summary.live) {
     if (!existing) return { personId, outcome: "none", added: [], removed: [], changedAt: null };
     // A record that only ever came from products goes with its last product user. One with
-    // sign-up history stays, marked deleted, as contacts always have (erase is the way to remove it).
+    // sign-up history stays, marked deleted, as contacts always have (erase is the way to remove it),
+    // and so does one holding the team's field values, except on a product user's erase.
     // Someone added by hand is live, so never reaches here; addedBy spares them all the same.
-    if (existing.consentStatus === "none" && !(existing.campaigns ?? []).length && !existing.addedBy) {
+    if (existing.consentStatus === "none" && !(existing.campaigns ?? []).length && !existing.addedBy && (deps.erase || !holdsFieldValues(existing))) {
       if (!deps.dryRun) await repo.contacts.delete(personId);
       return { personId, outcome: "deleted", added: [], removed: existing.memberOf ?? [], changedAt: deps.dryRun ? null : nowIso };
     }

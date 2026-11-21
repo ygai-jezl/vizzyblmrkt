@@ -84,11 +84,12 @@ export function previousPersonKey(before: ProductUser | null | undefined): strin
 }
 
 /**
- * After a product user is erased: their person loses the link, and goes if nothing else is left.
- * No moves are recorded: the product user's history was just erased, and a row written now would
- * outlive it.
+ * After a product user is erased: their person loses the link, and goes if nothing else is left
+ * (no sign-up, no other product user, not added by hand), field values and all: the erase path is
+ * the one sync that removes a record holding them. No moves are recorded: the product user's
+ * history was just erased, and a row written now would outlive it.
  */
 export async function personAfterProductErase(ctx: TenantContext, key: string | null, deps: HookDeps = {}): Promise<void> {
   if (!isPersonLinksEnabled() || !key) return;
-  await syncPersonSafe(ctx, key, { ...deps, moves: "skip" });
+  await syncPersonSafe(ctx, key, { ...deps, moves: "skip", erase: true });
 }

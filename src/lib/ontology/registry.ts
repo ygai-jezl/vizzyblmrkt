@@ -59,6 +59,12 @@ const SCRUB = (trigger: "person" | "product_user"): PathRef => ({
   when: "blanks the address; the row stays so the opt out keeps holding",
 });
 const LAUNCH_DELETE: PathRef = { fn: "deleteLaunch", file: "src/lib/tenant/launchDeletion.ts", trigger: "launch" };
+const LEFT_BEHIND: PathRef = {
+  fn: "forgetLeftBehindPeople",
+  file: "src/lib/ontology/erase.ts",
+  trigger: "product_user",
+  when: "a person the product user left behind on a move (their pu: person, an earlier address), kept while it held field values, goes with its history when nothing else keeps it",
+};
 const EXPORT_PU: PathRef = { fn: "exportPerson", file: "src/lib/audience/personExport.ts", trigger: "product_user" };
 const EXPORT_PERSON: PathRef = { fn: "exportWholePerson", file: "src/lib/audience/personExport.ts", trigger: "person", when: ONE_VIEW };
 const brandPath = (fn: string, file: string, when?: string): PathRef => ({ fn, file, trigger: "brand", ...(when ? { when } : {}) });
@@ -82,6 +88,7 @@ const HISTORY_ERASE: PathDecision = {
     { ...CONTACT_ERASE, when: "a company's rows, when the company has no contacts left" },
     { ...PU_HISTORY, when: "by the product user, and by their pu: person's id" },
     { fn: "forgetGonePersonHistory", file: "src/lib/ontology/erase.ts", trigger: "product_user", when: "the person goes with their last product user, whether their record goes then or at a later sweep" },
+    LEFT_BEHIND,
     { ...LAUNCH_DELETE, when: "an idea's rows, and the agent actions about it" },
   ],
   gaps: [
@@ -590,7 +597,17 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { to: "company", via: "companyId", many: false },
     ],
     events: ["record.merged", "record.repointed", "record.created", "consent.recorded", "record.field_changed"],
-    erase: { paths: [CONTACT_ERASE] },
+    erase: {
+      paths: [
+        CONTACT_ERASE,
+        { ...PU_ERASE, when: "a record that only came from products goes with its last product user, field values and all" },
+        LEFT_BEHIND,
+      ],
+      gaps: [
+        "a record that only came from products is kept when it holds field values and its last product user goes another way (revoked, a new address, or joined to an address), out of Everyone until the team erases it; whether its values should follow the person is an open decision",
+        "a person left behind on an address change while ONTOLOGY_PERSON_IDS_ENABLED was off has no move for the product user's erase to find; fields need that switch, so values are only left behind while it is on",
+      ],
+    },
     export: { paths: [EXPORT_PERSON] },
     search: { none: PEOPLE_WORDS },
     numbers: { gap: COUNTS_GAP },

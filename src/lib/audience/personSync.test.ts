@@ -8,6 +8,7 @@ import type { Contact } from "@/lib/types/contact";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import type { Signup } from "@/lib/types/signup";
 import { markNeedsSync, personIdOf, syncPerson, syncProductLink } from "./personSync";
+import { personAfterProductErase } from "./personHooks";
 import { saveFieldListChange } from "./fieldList";
 import { setRecordFieldValues } from "@/lib/tenant";
 
@@ -456,7 +457,7 @@ describe("field values", () => {
   });
 });
 
-describe("field tags of someone out of Everyone", () => {
+describe("a record holding the team's field values", () => {
   afterEach(() => vi.unstubAllEnvs());
   const PLAN = "fld_000000000001";
   const FREE = "opt_00000001";
@@ -468,6 +469,57 @@ describe("field tags of someone out of Everyone", () => {
     const r = await setRecordFieldValues(ctx, { object: "person", recordId: personIdOf(TENANT_ID, key), changes: { [PLAN]: FREE }, by, source: "editor" }, { db });
     if (!r.ok) throw new Error(r.error);
   }
+
+  it("is kept, out of Everyone, when a product is revoked, and its values and history stay", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    seedUser(db, "bea");
+    await syncPerson(ctx, "bea@customer.test", { db, nowMs: NOW });
+    await withPlan(db, "bea@customer.test");
+    expect(person(db, "bea@customer.test")!.memberOf).toContain(`field:${PLAN}:${FREE}`);
+    db.seed("product_connections", CONNECTION_ID, { ...db.raw("product_connections", CONNECTION_ID), status: "revoked" });
+    const res = await syncPerson(ctx, "bea@customer.test", { db, nowMs: NOW + 60_000 });
+    expect(res.outcome).toBe("updated");
+    // Out of Everyone and every filter, field ones included, with the values kept.
+    expect(person(db, "bea@customer.test")).toMatchObject({ status: "deleted", products: [], memberOf: [], fields: { [PLAN]: FREE } });
+    expect((db.dump("ontology_events") as Array<{ kind: string }>).filter((e) => e.kind === "record.field_changed")).toHaveLength(1);
+  });
+
+  it("is kept when its product user moves to a new address, and when one with no address gives one", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const cal = seedUser(db, "cal");
+    await syncProductLink(ctx, await connection(db), cal, { db, nowMs: NOW });
+    await withPlan(db, "cal@customer.test");
+    const moved = { ...cal, email: "cal.new@customer.test", emailNormalized: "cal.new@customer.test" };
+    db.seed("product_users", cal.id, { ...db.raw("product_users", cal.id), email: moved.email, emailNormalized: moved.emailNormalized });
+    await syncProductLink(ctx, await connection(db), moved, { db, nowMs: NOW, previousKey: "cal@customer.test" });
+    expect(person(db, "cal@customer.test")).toMatchObject({ status: "deleted", memberOf: [], fields: { [PLAN]: FREE } });
+    expect(person(db, "cal.new@customer.test")!.products).toHaveLength(1);
+
+    const anon = seedUser(db, "anon", { email: null, emailNormalized: null });
+    await syncProductLink(ctx, await connection(db), anon, { db, nowMs: NOW });
+    const r = await setRecordFieldValues(ctx, { object: "person", recordId: personIdOf(TENANT_ID, `pu:${anon.id}`), changes: { [PLAN]: FREE }, by, source: "editor" }, { db });
+    expect(r.ok).toBe(true);
+    const named = { ...anon, email: "ann@customer.test", emailNormalized: "ann@customer.test" };
+    db.seed("product_users", anon.id, { ...db.raw("product_users", anon.id), email: named.email, emailNormalized: named.emailNormalized });
+    await syncProductLink(ctx, await connection(db), named, { db, nowMs: NOW, previousKey: `pu:${anon.id}` });
+    expect(person(db, `pu:${anon.id}`)).toMatchObject({ status: "deleted", memberOf: [], fields: { [PLAN]: FREE } });
+    expect(person(db, "ann@customer.test")!.products?.map((p) => p.productUserId)).toEqual([anon.id]);
+  });
+
+  it("goes with its values when its last product user is erased", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    const bea = seedUser(db, "bea");
+    await syncPerson(ctx, "bea@customer.test", { db, nowMs: NOW });
+    await withPlan(db, "bea@customer.test");
+    db.seed("product_users", bea.id, { ...db.raw("product_users", bea.id), status: "deleted" });
+    expect((await syncPerson(ctx, "bea@customer.test", { db, nowMs: NOW, dryRun: true, erase: true })).outcome).toBe("deleted");
+    await personAfterProductErase(ctx, "bea@customer.test", { db, nowMs: NOW });
+    expect(person(db, "bea@customer.test")).toBeUndefined();
+  });
 
   it("gets its field tags back from its values when it comes back into Everyone", async () => {
     const db = new FakeFirestore();

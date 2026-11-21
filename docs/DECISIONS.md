@@ -87,6 +87,15 @@ Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
     filter is always part of Everyone, and the sync that brings them back rebuilds the tags
     from their values (`repairFieldTags`). The field writer makes none for someone out of
     Everyone.
+  - A record holding the team's field values is never deleted by a sync. One that only came
+    from products stays, out of Everyone, when its last product user goes another way (the
+    product is revoked, the user moves to a new address, or a `pu:` person joins an address),
+    as a sign-up contact whose launches went does. Only a product user's erase removes it
+    with its values (`erase: true` on `personAfterProductErase` and on the dry run that
+    decides whether to erase the history), and that erase also reaches the people the user
+    left behind on a move (`forgetLeftBehindPeople`: their `pu:` person, and earlier
+    addresses from `person_moves`). Whether the values should follow the person to the new
+    key is left open for the owner.
 
 - **Fields: data and the one writer (group 4, decisions 28 and 30, answer 2).**
   `AUDIENCE_FIELDS_ENABLED` (RUNTIME, `"false"`) is read in `src/lib/audience/peopleFlags.ts`

@@ -445,6 +445,10 @@ One human, once per brand: every sign-up, product user and address they came thr
 - Events: `record.merged`, `record.repointed`, `record.created`, `consent.recorded`, `record.field_changed`
 - Erase:
   - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export
+  - `eraseProductUser` in `src/lib/connect/erase.ts`, on a product user's erase or export (a record that only came from products goes with its last product user, field values and all)
+  - `forgetLeftBehindPeople` in `src/lib/ontology/erase.ts`, on a product user's erase or export (a person the product user left behind on a move (their pu: person, an earlier address), kept while it held field values, goes with its history when nothing else keeps it)
+  - Gap: a record that only came from products is kept when it holds field values and its last product user goes another way (revoked, a new address, or joined to an address), out of Everyone until the team erases it; whether its values should follow the person is an open decision
+  - Gap: a person left behind on an address change while ONTOLOGY_PERSON_IDS_ENABLED was off has no move for the product user's erase to find; fields need that switch, so values are only left behind while it is on
 - Export:
   - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on)
 - Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
@@ -629,6 +633,7 @@ One row per thing that happened to a person, company, idea or agent action and h
   - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (a company's rows, when the company has no contacts left)
   - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export (by the product user, and by their pu: person's id)
   - `forgetGonePersonHistory` in `src/lib/ontology/erase.ts`, on a product user's erase or export (the person goes with their last product user, whether their record goes then or at a later sweep)
+  - `forgetLeftBehindPeople` in `src/lib/ontology/erase.ts`, on a product user's erase or export (a person the product user left behind on a move (their pu: person, an earlier address), kept while it held field values, goes with its history when nothing else keeps it)
   - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch (an idea's rows, and the agent actions about it)
   - Gap: team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does
   - Gap: rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen
@@ -1271,6 +1276,7 @@ One record per suggestion an agent makes for the brand: what it proposes and on 
   - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (a company's rows, when the company has no contacts left)
   - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export (by the product user, and by their pu: person's id)
   - `forgetGonePersonHistory` in `src/lib/ontology/erase.ts`, on a product user's erase or export (the person goes with their last product user, whether their record goes then or at a later sweep)
+  - `forgetLeftBehindPeople` in `src/lib/ontology/erase.ts`, on a product user's erase or export (a person the product user left behind on a move (their pu: person, an earlier address), kept while it held field values, goes with its history when nothing else keeps it)
   - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch (an idea's rows, and the agent actions about it)
   - Gap: team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does
   - Gap: rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen
@@ -1586,6 +1592,8 @@ What the registry records as missing, by type. Each is a known gap, not a promis
   - Erase: a product user's erase leaves webhooks still waiting to go; each expires after its retries
   - Export: not in a person's export: a webhook only carries a change on its way to the product
 - Person (`person`):
+  - Erase: a record that only came from products is kept when it holds field values and its last product user goes another way (revoked, a new address, or joined to an address), out of Everyone until the team erases it; whether its values should follow the person is an open decision
+  - Erase: a person left behind on an address change while ONTOLOGY_PERSON_IDS_ENABLED was off has no move for the product user's erase to find; fields need that switch, so values are only left behind while it is on
   - Numbers: people counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`)
 - Company (`company`):
   - Erase: erasing one person keeps their company's field values while others still work there

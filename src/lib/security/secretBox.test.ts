@@ -84,6 +84,17 @@ describe("createSecretBox", () => {
     expect(other.verifyState(box.signState({ t: 1 }))).toBeNull();
   });
 
+  it("gives each root key a short id that names it without revealing it", () => {
+    const id = box.keyId("test-key-id");
+    expect(id).toMatch(/^[0-9a-f]{16}$/);
+    expect(box.keyId("test-key-id")).toBe(id);
+    expect(box.keyId("another-label")).not.toBe(id);
+    process.env[ENV] = "a-different-root-key-for-rotation";
+    expect(box.keyId("test-key-id")).not.toBe(id);
+    delete process.env[ENV];
+    expect(() => box.keyId("test-key-id")).toThrow("test_key_unconfigured");
+  });
+
   it("fails closed when the root key is unset", () => {
     const token = box.signState({ t: 1 });
     delete process.env[ENV];

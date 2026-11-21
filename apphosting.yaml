@@ -95,6 +95,8 @@ env:
   #     GIT_TOKEN_ENC_KEY, SOCIAL_TOKEN_ENC_KEY                     secrets
   #     X_OAUTH_*, LINKEDIN_OAUTH_*, LINKEDIN_CM_*                  secrets
   #     MAILCHIMP_*                                                 secrets and settings
+  #     CONNECTORS_VAULT_KEY                                        secret, seals connected data tokens
+  #     CONNECTORS_VAULT_KEY_PREVIOUS                               secret, only while rotating it
   #   Analytics and the voice chat
   #     NEXT_PUBLIC_GA_MEASUREMENT_ID                               with NEXT_PUBLIC_GA_ENABLED
   #     GEMINI_LIVE_API_KEY                                         secret, for the voice chat

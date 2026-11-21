@@ -41,6 +41,17 @@ export const SealedSecretSchema = z.object({
   sealedAt: z.string(),
 });
 
+/**
+ * Who is refreshing a signed in connection's access token right now (src/lib/connectors/
+ * tokenKeeper.ts). A caller takes the lease for about 30 seconds before it spends the refresh
+ * token, so two callers never refresh at once; a lease whose holder died runs out by itself.
+ */
+export const RefreshLeaseSchema = z.object({
+  leaseId: z.string().nullable(),
+  leaseUntil: z.string().nullable(),
+});
+export type RefreshLease = z.infer<typeof RefreshLeaseSchema>;
+
 export const ConnectionHealthSchema = z.object({
   state: z.enum(HEALTH_STATES),
   lastOkAt: z.string().nullable(),
@@ -70,13 +81,23 @@ export const DataConnectionSchema = z.object({
   connectorId: z.string(),
   method: z.enum(DATA_CONNECTION_METHODS),
   label: z.string(),
-  /** What was connected, not secret: a zone id, a site. */
+  /**
+   * What was connected, not secret: a zone id, a site. Empty after a sign in until an admin picks
+   * which site or property it reads; nothing is read until then.
+   */
   account: z.string(),
   /** The admin who connected. Kept for the record; gives no extra rights. */
   ownerUid: z.string(),
   grants: z.array(ConnectionGrantSchema),
-  /** Sealed secrets by slot ("token"). Emptied on disconnect and purge. */
+  /**
+   * Sealed secrets by slot: "token" for a pasted token, "access" and "refresh" for a sign in.
+   * Emptied on disconnect and purge.
+   */
   secrets: z.record(z.string(), SealedSecretSchema),
+  /** A sign in's access token expiry (canonical ISO). Unset for a pasted token. */
+  tokenExpiresAt: z.string().nullable().optional(),
+  /** A sign in's refresh lease. Unset for a pasted token. */
+  refresh: RefreshLeaseSchema.optional(),
   health: ConnectionHealthSchema,
   /** Set while an admin has paused it. */
   pausedAt: z.string().nullable(),

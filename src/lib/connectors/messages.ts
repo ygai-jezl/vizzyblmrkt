@@ -21,6 +21,9 @@ export const CONNECTOR_ERRORS = {
   vault_unconfigured: "This copy of YouGrow has no key to seal tokens yet (CONNECTORS_VAULT_KEY). Ask whoever runs it to set one.",
   secret_unopenable: "YouGrow can't open this connection's saved token any more. Connect it again.",
   disconnected: "This connection was disconnected. Connect again to read its numbers.",
+  signin_refused: "Google asked YouGrow to sign in again, often because access was removed in the Google account or the sign in ran out. Reconnect to sign in again.",
+  signin_unconfigured: "This copy of YouGrow has no working Google sign in yet (CONNECTOR_GOOGLE_CLIENT_ID and its secret). Ask whoever runs it to set one up.",
+  account_needed: "Pick which site or property this connection reads first.",
 } as const;
 
 export type ConnectorErrorCode = keyof typeof CONNECTOR_ERRORS;

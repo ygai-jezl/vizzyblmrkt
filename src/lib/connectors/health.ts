@@ -6,12 +6,13 @@ import type { ConnectorErrorCode } from "./messages";
  *
  * - A call that works sets ok and clears any failure count and pause.
  * - The provider turning the connection down (a refused token, an account it can't read, a token
- *   YouGrow can't open) sets broken: it needs connecting again.
+ *   YouGrow can't open, Google ending a sign in) sets broken: it needs connecting again.
  * - A provider's rate limit pauses calls for its Retry-After (15 minutes when it gives none,
  *   between 1 and 60 minutes), and FAILURES_BEFORE_PAUSE failures in a row pause them for an hour.
  *   isRateLimited fails open (src/lib/tenant/rateLimit.ts), so this pause is the hard stop.
  * - Anything else that may pass (the provider down or slow) sets check.
- * - YouGrow's own refusals (busy, paused, an undeclared host, no vault key) change nothing.
+ * - YouGrow's own refusals (busy, paused, an undeclared host, no vault key, no Google client, no
+ *   site picked yet) change nothing.
  */
 
 export const FAILURES_BEFORE_PAUSE = 5;
@@ -19,8 +20,8 @@ const MIN = 60_000;
 const RATE_PAUSE_MS = 15 * MIN;
 const FAILURE_PAUSE_MS = 60 * MIN;
 
-const BROKEN: ReadonlySet<ConnectorErrorCode> = new Set(["token_refused", "account_refused", "secret_unopenable"]);
-const OURS: ReadonlySet<ConnectorErrorCode> = new Set(["busy", "paused", "host_not_allowed", "vault_unconfigured", "disconnected"]);
+const BROKEN: ReadonlySet<ConnectorErrorCode> = new Set(["token_refused", "account_refused", "secret_unopenable", "signin_refused"]);
+const OURS: ReadonlySet<ConnectorErrorCode> = new Set(["busy", "paused", "host_not_allowed", "vault_unconfigured", "disconnected", "signin_unconfigured", "account_needed"]);
 
 /** A new connection's health, after the check that let it be saved. */
 export function healthyAt(now: Date): ConnectionHealth {

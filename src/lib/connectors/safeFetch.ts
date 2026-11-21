@@ -37,7 +37,8 @@ export type ConnectorResponse =
   | { ok: true; status: number; body: unknown }
   | { ok: false; code: ConnectorErrorCode; status: number | null; body: unknown; retryAfterSec: number | null };
 
-type Transport = (url: string, init: RequestInit, opts: { maxRedirects: number; allowedPorts: number[]; timeoutMs: number }) => Promise<Response>;
+/** How a request goes out: src/lib/security/ssrf.ts safeFetch, or a stub in tests. */
+export type Transport = (url: string, init: RequestInit, opts: { maxRedirects: number; allowedPorts: number[]; timeoutMs: number }) => Promise<Response>;
 
 export interface ConnectorFetchDeps {
   transport?: Transport;
@@ -59,7 +60,8 @@ export function declaredUrl(raw: string, hosts: readonly string[]): URL | null {
   return hosts.includes(url.hostname) ? url : null;
 }
 
-function retryAfter(res: Response): number | null {
+/** A 429's Retry-After in seconds, capped at an hour, or null. */
+export function retryAfter(res: Response): number | null {
   const raw = res.headers.get("retry-after");
   if (!raw) return null;
   const n = Number(raw);
@@ -76,7 +78,8 @@ function codeForStatus(status: number): ConnectorErrorCode {
   return "query_refused";
 }
 
-function codeForThrow(err: unknown): ConnectorErrorCode {
+/** The code for a request that threw: a refused address, a redirect, a timeout or the network. */
+export function codeForThrow(err: unknown): ConnectorErrorCode {
   const name = err instanceof Error ? err.name : "";
   const message = err instanceof Error ? err.message : "";
   if (message === "too_many_redirects") return "redirect_refused";
@@ -85,7 +88,7 @@ function codeForThrow(err: unknown): ConnectorErrorCode {
   return "network";
 }
 
-const defaultTransport: Transport = (url, init, opts) => ssrfSafeFetch(url, init, opts);
+export const defaultTransport: Transport = (url, init, opts) => ssrfSafeFetch(url, init, opts);
 
 /** Make one connector API call. Never throws; a refusal or failure comes back as a code. */
 export async function connectorFetch(call: ConnectorCall, deps: ConnectorFetchDeps = {}): Promise<ConnectorResponse> {

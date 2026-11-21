@@ -122,6 +122,7 @@ export function ContentCanvas({
   footerBrand = null,
   brandMap = null,
   pagesOn = false,
+  liveWatchOn = false,
   editorialOn = false,
   seenOn = false,
   seenQuestionsOn = false,
@@ -143,6 +144,8 @@ export function ContentCanvas({
   brandMap?: ArticleMap | null;
   /** The brand map's pages switch (BRAND_MAP_PAGES_ENABLED): the article's address can be set here. */
   pagesOn?: boolean;
+  /** Found live (BLOG_LIVE_WATCH_ENABLED): the check reads the page's text, and YouGrow checks on its own. */
+  liveWatchOn?: boolean;
   /** Blog articles are written in the editorial shape (CREATE_BLOG_EDITORIAL_ENABLED). */
   editorialOn?: boolean;
   /** Articles draw on the brand's notes (BRAND_NOTES_ENABLED with the editorial writer). */
@@ -682,12 +685,15 @@ export function ContentCanvas({
       if (!res.ok || !data.node) return { ok: false, error: data.error ?? (res.status === 429 ? "rate_limited" : "failed") };
       // Only the live mark comes back into the canvas: an edit not saved yet stays as it is.
       // (The server keeps its own mark whatever a save sends, so nothing here can undo it.)
+      // Found live approves the article: the canvas takes that too, unless its text was changed here since.
       const live = data.node.blog?.live ?? null;
+      const approved = data.node.status === "approved";
       applyNodes((nds) =>
         nds.map((n) => {
           if (n.id !== id) return n;
           const cur = (n.data as ContentNodeData).cn;
-          return { ...n, data: { ...n.data, cn: { ...cur, blog: { ...(cur.blog ?? BlogArticleMetaSchema.parse({})), live } } } };
+          const status = approved && cur.body === data.node!.body ? "approved" : cur.status;
+          return { ...n, data: { ...n.data, cn: { ...cur, status, blog: { ...(cur.blog ?? BlogArticleMetaSchema.parse({})), live } } } };
         }),
       );
       return { ok: true, check: data.check ?? null };
@@ -1002,7 +1008,7 @@ export function ContentCanvas({
           logoUrl: primaryLogoUrl ?? null,
           ...(isCiteSourcesUiEnabled() ? { onKeepSource: keepSource } : {}),
           ...(brandMap ? { map: brandMap } : {}),
-          ...(pagesOn ? { onSetAddress: saveAddress, onLive: setLive } : {}),
+          ...(pagesOn ? { onSetAddress: saveAddress, onLive: setLive, ...(liveWatchOn ? { liveWatch: true } : {}) } : {}),
           ...(editorialOn ? { editorial: true } : {}),
           ...(seenOn ? { onFindSeen: () => void onBlogFindSeen() } : {}),
           ...(seenOn && seenQuestionsOn ? { answers: { save: answers.save, done: answers.done, state: answers.state } } : {}),

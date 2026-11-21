@@ -53,6 +53,9 @@ vi.hoisted(() => {
   process.env.SIGNALS_DATAFORSEO_ENABLED = "true";
   process.env.BRAND_MAP_NEXT_UP_ENABLED = "true";
   process.env.CREATE_ARTICLE_AUTOPILOT_ENABLED = "true";
+  process.env.BRAND_MAP_ENABLED = "true";
+  process.env.BRAND_MAP_PAGES_ENABLED = "true";
+  process.env.BLOG_LIVE_WATCH_ENABLED = "true";
   process.env.NEXT_PUBLIC_PLANS_ENABLED = "true";
 });
 

@@ -55,6 +55,7 @@ import type { SiteKey } from "@/lib/types/siteKey";
 import type { Competitor, CompetitorArticle, CompetitorChange, CompetitorPagesChunk, CompetitorPost } from "@/lib/types/competitor";
 import type { BrandSignal } from "@/lib/types/brandSignal";
 import type { AutopilotRun, LearnedEntry, NextUpDoc } from "@/lib/types/autopilot";
+import type { LiveWatchDoc, LiveWatchSeen } from "@/lib/types/liveWatch";
 import type { StoredEvent } from "@/lib/types/ontologyEvent";
 import type { AgentAction } from "@/lib/types/agentAction";
 import type { SettingsVersion } from "@/lib/types/settingsVersion";
@@ -545,6 +546,10 @@ export interface TenantRepositories {
   nextUp: TenantCollection<NextUpDoc>;
   /** Autopilot runs: one question found, sorted and (Draft mode) written (src/lib/autopilot/runs.ts). */
   autopilotRuns: TenantCollection<AutopilotRun>;
+  /** Found live: when to look next and which addresses it checks (src/lib/content/blog/liveWatch.ts). */
+  liveWatch: TenantCollection<LiveWatchDoc>;
+  /** Found live: the brand's pages it already opened, hashed (src/lib/content/blog/liveWatch.ts). */
+  liveWatchSeen: TenantCollection<LiveWatchSeen>;
   /**
    * The event history: one row per thing that happened to a person, company, idea or agent
    * action. Append only: written only through ./ontologyEvents.ts and ./agentActions.ts.
@@ -701,6 +706,9 @@ export function forTenant(
     autopilotLearned: new TenantCollection<LearnedEntry>(regionalDb, "autopilot_learned", t),
     nextUp: new TenantCollection<NextUpDoc>(regionalDb, "next_up", t),
     autopilotRuns: new TenantCollection<AutopilotRun>(regionalDb, "autopilot_runs", t),
+    // Found live's working state about the brand's own site and articles: regional, beside them.
+    liveWatch: new TenantCollection<LiveWatchDoc>(regionalDb, "live_watch", t),
+    liveWatchSeen: new TenantCollection<LiveWatchSeen>(regionalDb, "live_watch_seen", t),
     // A person's history and agents' suggestions are personal: regional, beside the person.
     ontologyEvents: new TenantCollection<StoredEvent>(regionalDb, "ontology_events", t),
     agentActions: new TenantCollection<AgentAction>(regionalDb, "agent_actions", t),

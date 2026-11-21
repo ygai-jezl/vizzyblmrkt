@@ -3,6 +3,7 @@ import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant } from "@/lib/tenant";
 import { createContentPlan, listContentPlans } from "@/lib/tenant/workspaceContent";
+import { wakeLiveWatch } from "@/lib/content/blog/liveWatchWake";
 import { IntakeSchema, planFromIntake } from "@/lib/content/create/intake";
 import { syncPlanPageSoftly } from "@/lib/content/blog/pageActions";
 import { reconcileWithSavedMap } from "@/lib/content/blog/mapActions";
@@ -31,6 +32,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ workspa
   // A subject and question named by id are checked against the saved map before they're kept.
   if (fields.blog) fields.blog = await reconcileWithSavedMap(ctx, fields.blog);
   const plan = await createContentPlan(ctx, workspaceId, fields);
+  // A plan made with its article's address: Found live checks it at its next look.
+  if (plan.strategy.hubUrl) await wakeLiveWatch(ctx);
   // A new blog article is a planned page on the brand map (its pages switch on).
   await syncPlanPageSoftly(ctx, { workspaceId, planId: plan.id, plan });
   return NextResponse.json({ plan });

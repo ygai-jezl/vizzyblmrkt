@@ -1,6 +1,6 @@
 import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
-import { isBrandMapSituationAskUiEnabled } from "@/lib/brandMap/flags";
+import { isBlogLiveWatchEnabled, isBrandMapSituationAskUiEnabled } from "@/lib/brandMap/flags";
 import { isCompetitorsUiEnabled } from "@/lib/competitors/flags";
 import { isAutopilotEnabled, isNextUpEnabled } from "@/lib/autopilot/flags";
 
@@ -184,8 +184,15 @@ export default function BrandMapHelp() {
             month&apos;s Google lookups and drafts against the brand&apos;s limits. Once the month&apos;s drafts are used up, runs find
             and sort the article for you to write instead. Each question is picked once: a run never takes one another run
             had in the last 30 days. A draft&apos;s notes from What we&apos;ve seen count
-            as used only once you approve it, and its questions for your team show in Review. When everyone has answered and
-            nobody has changed the article, it is rewritten with the answers.
+            as used only once you approve it, and its questions for your team show in Review until it is approved. When
+            everyone has answered and nobody has changed the article, it is rewritten with the answers.
+            {isBlogLiveWatchEnabled() ? (
+              <>
+                {" "}
+                Once you publish the article on your site, YouGrow finds it there, approves it and closes its rows in Review (
+                <Open href="/help/write-and-schedule#live">Check it&apos;s live</Open>).
+              </>
+            ) : null}
           </P>
         </>
       ) : null}

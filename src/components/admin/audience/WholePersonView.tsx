@@ -14,6 +14,7 @@ import { EmailHistoryList } from "../crm/EmailHistoryList";
 import { useShell } from "../nav/ShellProvider";
 import { ago, day } from "../people/format";
 import { FieldsPanel } from "./FieldsPanel";
+import { PersonTimeline } from "./PersonTimeline";
 
 /**
  * One person, whole (AUDIENCE_ONE_VIEW_ENABLED): everything a brand knows about one
@@ -42,6 +43,7 @@ export function WholePersonView({
   fields = false,
   fieldFilters = false,
   addPerson = false,
+  timeline = false,
 }: {
   personId: string;
   canEdit: boolean;
@@ -55,6 +57,8 @@ export function WholePersonView({
   fieldFilters?: boolean;
   /** New person is on (AUDIENCE_ADD_PERSON_ENABLED): an admin can record how someone added by hand agreed. */
   addPerson?: boolean;
+  /** The timeline is on (AUDIENCE_TIMELINE_ENABLED): it sits beside the rest, above consent. */
+  timeline?: boolean;
 }) {
   const shell = useShell();
   const [state, setState] = useState<State>({ status: "loading" });
@@ -120,66 +124,9 @@ export function WholePersonView({
         ? { tone: "amber" as const, chip: "Some emails only" }
         : { tone: "red" as const, chip: "Can't email" };
 
-  return (
-    <div className="max-w-5xl space-y-5">
-      {back}
-
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1.5">
-          <h1 className="text-lg font-semibold">{p.name ?? p.email ?? p.phone ?? "Unnamed person"}</h1>
-          <p className="break-words text-sm text-neutral-500">
-            {[p.name ? (p.email ?? p.phone) : null, `Known since ${day(p.firstSeenAt)}`, p.activeAt ? `last active ${ago(p.activeAt)}` : null].filter(Boolean).join(" · ")}
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            <Chip tone={reach.tone} title={p.blocked ? BLOCKED[p.blocked] : undefined}>
-              {reach.chip}
-            </Chip>
-            {p.launches.map((l) => (
-              <Chip key={l.campaignId}>{l.name}</Chip>
-            ))}
-            {p.products.map((x) => (
-              <Chip key={x.productUserId} tone="blue">
-                {x.name}
-              </Chip>
-            ))}
-          </div>
-          {sources.length ? (
-            <p className="text-xs text-neutral-500">
-              Built from {sources.join(" and ")}
-              {p.email ? " with the same email" : ""}.
-            </p>
-          ) : null}
-          {p.added ? (
-            <p className="text-xs text-neutral-500">
-              Added by hand by {p.added.by} on {day(p.added.at)}
-              {p.added.via === "palette" ? ", from ⌘K" : ""}.
-            </p>
-          ) : null}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {vizzy && shell ? (
-            <Button tone="primary" onClick={() => shell.setVizzyOpen(true)} title="Vizzy sees their situation, never their name or address">
-              <Sparkles size={14} /> Ask Vizzy
-            </Button>
-          ) : null}
-          {canEdit ? (
-            <>
-              <a
-                href={`/api/admin/audience/everyone/${encodeURIComponent(p.id)}/export`}
-                className="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-800 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-200 dark:hover:bg-neutral-900"
-              >
-                <Download size={14} /> Export their data
-              </a>
-              <Button tone="danger" disabled={erasing !== "no"} onClick={() => void eraseEverywhere()}>
-                <Trash2 size={14} /> {erasing === "busy" ? "Erasing…" : erasing === "queued" ? "Erasing" : "Erase everywhere"}
-              </Button>
-            </>
-          ) : null}
-        </div>
-      </header>
-
-      {msg ? <Banner tone={msg.tone}>{msg.text}</Banner> : null}
-
+  // Their parts, and consent: beside the timeline when it is on, in one column otherwise.
+  const main = (
+    <>
       {fields && p.fields ? (
         <FieldsPanel object="person" recordId={p.id} initialValues={p.fields.values} readOnly={p.fields.readOnly} voiceChats={p.fields.voiceChats} canEdit={canEdit} />
       ) : null}
@@ -250,42 +197,120 @@ export function WholePersonView({
           <EmailHistoryList emails={p.launchEmails} />
         </Section>
       ) : null}
-
-      <Section title="Consent, in one place">
-        <dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
-          <dt className="text-neutral-500">Can email</dt>
-          <dd>
-            {p.reach === "yes"
-              ? "Yes"
-              : p.blocked
-                ? BLOCKED[p.blocked]
-                : p.reach === "limited"
-                  ? "Some emails only: service emails, a confirmation, or not every kind"
-                  : "No"}
-          </dd>
-          {p.launches.map((l) => (
-            <FragmentPair key={l.campaignId} label={l.name} value={l.status === "verified_active" ? "Confirmed their sign-up" : LAUNCH_STATUS[l.status] ?? l.status} />
-          ))}
-          {p.optedOutOf.length ? <FragmentPair label="Opted out of" value={p.optedOutOf.join(", ")} /> : null}
-          {p.added ? (
-            <FragmentPair
-              label="Marketing emails"
-              value={
-                p.added.consent
-                  ? `They agreed: ${p.added.consent.howLabel}${p.added.consent.note ? ` (${p.added.consent.note})` : ""}. Recorded by ${p.added.consent.by} on ${day(p.added.consent.at)}.`
-                  : "Not yet"
-              }
-            />
-          ) : null}
-        </dl>
+    </>
+  );
+  const consent = (
+    <Section title="Consent, in one place">
+      <dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
+        <dt className="text-neutral-500">Can email</dt>
+        <dd>
+          {p.reach === "yes"
+            ? "Yes"
+            : p.blocked
+              ? BLOCKED[p.blocked]
+              : p.reach === "limited"
+                ? "Some emails only: service emails, a confirmation, or not every kind"
+                : "No"}
+        </dd>
+        {p.launches.map((l) => (
+          <FragmentPair key={l.campaignId} label={l.name} value={l.status === "verified_active" ? "Confirmed their sign-up" : LAUNCH_STATUS[l.status] ?? l.status} />
+        ))}
+        {p.optedOutOf.length ? <FragmentPair label="Opted out of" value={p.optedOutOf.join(", ")} /> : null}
         {p.added ? (
-          <>
-            {!p.added.consent && canEdit && addPerson ? <RecordConsent personId={p.id} onRecorded={() => void load()} /> : null}
-            <p className="text-xs text-neutral-500">{NEW_PERSON_NOTES.nothingSent}</p>
-          </>
+          <FragmentPair
+            label="Marketing emails"
+            value={
+              p.added.consent
+                ? `They agreed: ${p.added.consent.howLabel}${p.added.consent.note ? ` (${p.added.consent.note})` : ""}. Recorded by ${p.added.consent.by} on ${day(p.added.consent.at)}.`
+                : "Not yet"
+            }
+          />
         ) : null}
-        <p className="text-xs text-neutral-500">Unsubscribing from any email stops all of your marketing email to this address. Each product&rsquo;s own consent is in its part above.</p>
-      </Section>
+      </dl>
+      {p.added ? (
+        <>
+          {!p.added.consent && canEdit && addPerson ? <RecordConsent personId={p.id} onRecorded={() => void load()} /> : null}
+          <p className="text-xs text-neutral-500">{NEW_PERSON_NOTES.nothingSent}</p>
+        </>
+      ) : null}
+      <p className="text-xs text-neutral-500">Unsubscribing from any email stops all of your marketing email to this address. Each product&rsquo;s own consent is in its part above.</p>
+    </Section>
+  );
+
+  return (
+    <div className={`${timeline ? "max-w-6xl" : "max-w-5xl"} space-y-5`}>
+      {back}
+
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 space-y-1.5">
+          <h1 className="text-lg font-semibold">{p.name ?? p.email ?? p.phone ?? "Unnamed person"}</h1>
+          <p className="break-words text-sm text-neutral-500">
+            {[p.name ? (p.email ?? p.phone) : null, `Known since ${day(p.firstSeenAt)}`, p.activeAt ? `last active ${ago(p.activeAt)}` : null].filter(Boolean).join(" · ")}
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            <Chip tone={reach.tone} title={p.blocked ? BLOCKED[p.blocked] : undefined}>
+              {reach.chip}
+            </Chip>
+            {p.launches.map((l) => (
+              <Chip key={l.campaignId}>{l.name}</Chip>
+            ))}
+            {p.products.map((x) => (
+              <Chip key={x.productUserId} tone="blue">
+                {x.name}
+              </Chip>
+            ))}
+          </div>
+          {sources.length ? (
+            <p className="text-xs text-neutral-500">
+              Built from {sources.join(" and ")}
+              {p.email ? " with the same email" : ""}.
+            </p>
+          ) : null}
+          {p.added ? (
+            <p className="text-xs text-neutral-500">
+              Added by hand by {p.added.by} on {day(p.added.at)}
+              {p.added.via === "palette" ? ", from ⌘K" : ""}.
+            </p>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {vizzy && shell ? (
+            <Button tone="primary" onClick={() => shell.setVizzyOpen(true)} title="Vizzy sees their situation, never their name or address">
+              <Sparkles size={14} /> Ask Vizzy
+            </Button>
+          ) : null}
+          {canEdit ? (
+            <>
+              <a
+                href={`/api/admin/audience/everyone/${encodeURIComponent(p.id)}/export`}
+                className="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-800 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-200 dark:hover:bg-neutral-900"
+              >
+                <Download size={14} /> Export their data
+              </a>
+              <Button tone="danger" disabled={erasing !== "no"} onClick={() => void eraseEverywhere()}>
+                <Trash2 size={14} /> {erasing === "busy" ? "Erasing…" : erasing === "queued" ? "Erasing" : "Erase everywhere"}
+              </Button>
+            </>
+          ) : null}
+        </div>
+      </header>
+
+      {msg ? <Banner tone={msg.tone}>{msg.text}</Banner> : null}
+
+      {timeline ? (
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+          <div className="min-w-0 space-y-5">{main}</div>
+          <div className="min-w-0 space-y-5">
+            <PersonTimeline personId={p.id} canEdit={canEdit} />
+            {consent}
+          </div>
+        </div>
+      ) : (
+        <>
+          {main}
+          {consent}
+        </>
+      )}
     </div>
   );
 }

@@ -7,6 +7,8 @@ import { setRecordFieldValues } from "@/lib/tenant";
 import { fieldOptionCounts, groupLabel, isFilterTag, isPeopleTag, listPeople, parseGroupTag, peopleFilters, PEOPLE_PAGE } from "./peopleList";
 import { personIdOf, syncPerson } from "./personSync";
 import { saveFieldListChange, type FieldListChange } from "./fieldList";
+import { addPerson } from "./addPerson";
+import { parseNewPerson } from "./newPerson";
 
 /** Made-up people at .test, synced into person records the way the write paths do it. */
 
@@ -53,6 +55,18 @@ describe("listPeople", () => {
     const ada = people.find((p) => p.email === "ada@customer.test")!;
     expect(ada.launches).toEqual([{ id: "camp1", name: "Beta waitlist", status: "verified_active", via: "form" }]);
     expect(ada.products).toEqual([expect.objectContaining({ id: CONNECTION_ID, name: "Sandbox", stage: "new" })]);
+  });
+
+  it("marks someone added by hand, who is in Everyone with no pill of their own", async () => {
+    const db = await world();
+    const sam = parseNewPerson({ email: "sam@labs.test", firstName: "Sam" });
+    if (!sam.ok) throw new Error(sam.error);
+    await addPerson(ctx, sam.value, { db, nowIso: ISO(T0 + 7_200_000) });
+    const { people, total } = await listPeople(ctx, q(), db);
+    expect(total).toBe(4);
+    expect(people[0]).toMatchObject({ name: "Sam", email: "sam@labs.test", launches: [], products: [], reach: "no", addedByHand: true });
+    expect(people.filter((p) => p.addedByHand)).toHaveLength(1);
+    expect(isPeopleTag("added:hand")).toBe(false);
   });
 
   it("shows one group at a time: a launch, the brand's own site, a product, a stage", async () => {

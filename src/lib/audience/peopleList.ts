@@ -76,6 +76,8 @@ export interface PeopleRow {
   /** A brand-wide opt-out: why nothing can be sent. */
   blocked: "unsubscribe" | "spam" | "hard_bounce" | null;
   activeAt: string | null;
+  /** Someone on the team added them by hand (New person). */
+  addedByHand: boolean;
   /** With field filters on: their values for the fields the list can filter by. */
   fields?: Record<string, FieldValue>;
 }
@@ -113,6 +115,7 @@ function rowOf(c: Contact, names: Awaited<ReturnType<typeof sourceNames>>, field
     reach: c.reach ?? "no",
     blocked: c.optOuts?.blocked ?? null,
     activeAt: c.activeAt ?? null,
+    addedByHand: !!c.addedBy,
     ...(fieldIds ? { fields: Object.fromEntries(Object.entries(c.fields ?? {}).filter(([id]) => fieldIds.has(id))) } : {}),
   };
 }

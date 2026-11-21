@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { ReadOnlyValue, VoiceChatSummary } from "@/lib/audience/readOnlyFields";
 import { FORMER_TEAM_MEMBER } from "@/lib/team/former";
@@ -159,7 +159,7 @@ export function FieldsPanel({
   );
 }
 
-/** One value's editor, by its field's type. */
+/** One value's editor, by its field's type: the input, then Save and Cancel. */
 function ValueEditor({
   field,
   value,
@@ -173,6 +173,36 @@ function ValueEditor({
   onSave: (value: unknown) => void;
   onCancel: () => void;
 }) {
+  const [current, setCurrent] = useState<unknown>(value ?? null);
+  const unchanged = sameFieldValue((value ?? null) as FieldValue | null, current as FieldValue | null);
+  return (
+    <span className="flex flex-col gap-2">
+      <FieldInput field={field} value={value} team={team} onChange={setCurrent} />
+      <span className="flex gap-2">
+        <Button tone="primary" disabled={unchanged} onClick={() => onSave(current)}>
+          Save
+        </Button>
+        <Button onClick={onCancel}>Cancel</Button>
+      </span>
+    </span>
+  );
+}
+
+/**
+ * One field's input, by its type, reporting the value as the writer takes it (null for none) on
+ * every change. The Fields panel and the New person form share it.
+ */
+export function FieldInput({
+  field,
+  value,
+  team,
+  onChange,
+}: {
+  field: RecordField;
+  value: FieldValue | undefined;
+  team: Team;
+  onChange: (value: unknown) => void;
+}) {
   const initial = (): string => {
     if (value === undefined || value === null) return "";
     if (field.type === "currency" && typeof value === "number") return (value / 100).toFixed(2);
@@ -182,35 +212,48 @@ function ValueEditor({
   const [picked, setPicked] = useState<string[]>(Array.isArray(value) ? value : []);
   const [checked, setChecked] = useState(value === true);
 
-  const out = (): unknown => {
+  const out = (next: { text?: string; picked?: string[]; checked?: boolean }): unknown => {
+    const t = next.text ?? text;
     switch (field.type) {
       case "checkbox":
-        return checked;
-      case "multi_select":
-        return picked.length ? picked : null;
+        return next.checked ?? checked;
+      case "multi_select": {
+        const p = next.picked ?? picked;
+        return p.length ? p : null;
+      }
       case "number":
-        return text.trim() === "" ? null : Number(text);
+        return t.trim() === "" ? null : Number(t);
       case "currency":
-        return text.trim() === "" ? null : Math.round(Number(text) * 100);
+        return t.trim() === "" ? null : Math.round(Number(t) * 100);
       default:
-        return text.trim() === "" ? null : text;
+        return t.trim() === "" ? null : t;
     }
   };
-  const unchanged = sameFieldValue((value ?? null) as FieldValue | null, out() as FieldValue | null);
+  const typed = (t: string) => {
+    setText(t);
+    onChange(out({ text: t }));
+  };
+  const ticked = (c: boolean) => {
+    setChecked(c);
+    onChange(out({ checked: c }));
+  };
+  const toggled = (id: string, on: boolean) => {
+    const p = on ? [...picked, id] : picked.filter((x) => x !== id);
+    setPicked(p);
+    onChange(out({ picked: p }));
+  };
 
-  let input: ReactNode;
   switch (field.type) {
     case "checkbox":
-      input = (
+      return (
         <label className="flex items-center gap-1.5">
-          <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} /> {field.label}
+          <input type="checkbox" checked={checked} onChange={(e) => ticked(e.target.checked)} /> {field.label}
         </label>
       );
-      break;
     case "select":
     case "status":
-      input = (
-        <select value={text} onChange={(e) => setText(e.target.value)} className={inputClass} aria-label={field.label}>
+      return (
+        <select value={text} onChange={(e) => typed(e.target.value)} className={inputClass} aria-label={field.label}>
           <option value="">None</option>
           {liveOptions(field).map((o) => (
             <option key={o.id} value={o.id}>
@@ -219,26 +262,20 @@ function ValueEditor({
           ))}
         </select>
       );
-      break;
     case "multi_select":
-      input = (
+      return (
         <span className="flex flex-wrap gap-2" role="group" aria-label={field.label}>
           {liveOptions(field).map((o) => (
             <label key={o.id} className="flex items-center gap-1">
-              <input
-                type="checkbox"
-                checked={picked.includes(o.id)}
-                onChange={(e) => setPicked((cur) => (e.target.checked ? [...cur, o.id] : cur.filter((x) => x !== o.id)))}
-              />
+              <input type="checkbox" checked={picked.includes(o.id)} onChange={(e) => toggled(o.id, e.target.checked)} />
               {o.label}
             </label>
           ))}
         </span>
       );
-      break;
     case "team_member":
-      input = (
-        <select value={text} onChange={(e) => setText(e.target.value)} className={inputClass} aria-label={field.label}>
+      return (
+        <select value={text} onChange={(e) => typed(e.target.value)} className={inputClass} aria-label={field.label}>
           <option value="">Nobody</option>
           {team.map((m) => (
             <option key={m.id} value={m.id}>
@@ -248,19 +285,17 @@ function ValueEditor({
           {text && !team.some((m) => m.id === text) ? <option value={text}>{FORMER_TEAM_MEMBER}</option> : null}
         </select>
       );
-      break;
     case "text":
-      input = <textarea value={text} rows={2} maxLength={2000} onChange={(e) => setText(e.target.value)} className={inputClass} aria-label={field.label} />;
-      break;
+      return <textarea value={text} rows={2} maxLength={2000} onChange={(e) => typed(e.target.value)} className={inputClass} aria-label={field.label} />;
     default: {
       const type = { number: "number", currency: "number", date: "date", email: "email", phone: "tel", link: "url" }[field.type as string] ?? "text";
-      input = (
+      return (
         <span className="flex items-center gap-1.5">
           <input
             type={type}
             step={field.type === "currency" ? "0.01" : field.type === "number" ? "any" : undefined}
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => typed(e.target.value)}
             className={inputClass}
             aria-label={field.label}
           />
@@ -269,16 +304,4 @@ function ValueEditor({
       );
     }
   }
-
-  return (
-    <span className="flex flex-col gap-2">
-      {input}
-      <span className="flex gap-2">
-        <Button tone="primary" disabled={unchanged} onClick={() => onSave(out())}>
-          Save
-        </Button>
-        <Button onClick={onCancel}>Cancel</Button>
-      </span>
-    </span>
-  );
 }

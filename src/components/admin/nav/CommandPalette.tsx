@@ -20,6 +20,7 @@ import {
   Settings,
   Sparkles,
   SwatchBook,
+  UserPlus,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -93,12 +94,15 @@ export function CommandPalette({
   archivedLaunches,
   workspaces,
   people = false,
+  canAddPerson = false,
 }: {
   launches: LaunchRef[];
   archivedLaunches: LaunchRef[];
   workspaces: LaunchRef[];
   /** Audience is called People (isPeopleNameEnabled(), worked out by the layout on the server). */
   people?: boolean;
+  /** An admin with New person on (AUDIENCE_ADD_PERSON_ENABLED, worked out by the layout): Create offers New person. */
+  canAddPerson?: boolean;
 }) {
   const shell = useShell();
   const nav = useMemo(() => navItems(people), [people]);
@@ -329,6 +333,12 @@ export function CommandPalette({
             <Plus size={16} aria-hidden className="shrink-0 text-shell-muted" />
             {PHASE3 ? "New programme" : "New content workspace"}
           </Command.Item>
+          {canAddPerson ? (
+            <Command.Item value="create new person add someone by hand contact" onSelect={() => go("/admin/crm?new=person")} className={ITEM}>
+              <UserPlus size={16} aria-hidden className="shrink-0 text-shell-muted" />
+              New person
+            </Command.Item>
+          ) : null}
           {lifecycle ? (
             <Command.Item value="create new journey" onSelect={() => go("/admin/lifecycle")} className={ITEM}>
               <Plus size={16} aria-hidden className="shrink-0 text-shell-muted" />

@@ -3,19 +3,25 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { UserPlus } from "lucide-react";
 import { personHref } from "@/lib/audience/paths";
 import type { PeopleFilters, PeopleRow } from "@/lib/audience/peopleList";
+import type { NewPersonVia } from "@/lib/audience/newPerson";
+import { parseFieldTag } from "@/lib/audience/fieldTags";
+import type { FieldValue } from "@/lib/types/recordField";
 import { api } from "../connect/api";
 import { inputClass } from "../connect/ui";
 import { Chip, type ChipTone } from "../people/Chip";
 import { ago, day } from "../people/format";
 import { cellText, filterLabel, PeopleFilterBar, type ActiveGroup } from "./PeopleFilterBar";
+import { NewPersonDialog } from "./NewPersonDialog";
 
 /**
  * Audience → People (AUDIENCE_ONE_VIEW_ENABLED): one row per person, whatever brought
  * them: a launch's form, the brand's own site, a connected product, or several. Shows
  * one group at a time, built from the brand's own launches and products; picking a
- * product shows its stages. Every row opens the person.
+ * product shows its stages. Every row opens the person. With AUDIENCE_ADD_PERSON_ENABLED an admin
+ * can add someone by hand (New person), here or from ⌘K (`?new=person`).
  */
 
 const STAGE_LABEL = { new: "New", onboarding: "Onboarding", stuck: "Stuck", activated: "Activated", member: "Member", quiet: "Quiet" } as const;
@@ -49,7 +55,15 @@ const pill = (active: boolean) =>
       : "border-neutral-300 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
   }`;
 
-export function AudienceList({ initialQuery = "", initialLaunch = null, fieldFilters = false, initialGroup = null }: {
+export function AudienceList({
+  initialQuery = "",
+  initialLaunch = null,
+  fieldFilters = false,
+  initialGroup = null,
+  canAddPerson = false,
+  fields = false,
+  newPerson = false,
+}: {
   /** A search the page arrived with (?q=, from ⌘K). */
   initialQuery?: string;
   /** A launch the page arrived with (?launch=, from a launch's Signups page). */
@@ -58,6 +72,12 @@ export function AudienceList({ initialQuery = "", initialLaunch = null, fieldFil
   fieldFilters?: boolean;
   /** A product group the page arrived with (?group=, from "Everyone in this group" on a person's page). */
   initialGroup?: ActiveGroup | null;
+  /** An admin with New person on (AUDIENCE_ADD_PERSON_ENABLED): the New person button. */
+  canAddPerson?: boolean;
+  /** Fields are on (AUDIENCE_FIELDS_ENABLED): New person offers the brand's fields. */
+  fields?: boolean;
+  /** The page arrived from ⌘K's New person (?new=person): open the form. */
+  newPerson?: boolean;
 }) {
   const router = useRouter();
   const [filters, setFilters] = useState<PeopleFilters | null>(null);
@@ -74,6 +94,19 @@ export function AudienceList({ initialQuery = "", initialLaunch = null, fieldFil
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  /** New person is open, and from where. */
+  const [adding, setAdding] = useState<NewPersonVia | null>(canAddPerson && newPerson ? "palette" : null);
+
+  // ⌘K's New person while the list is already open.
+  useEffect(() => {
+    if (canAddPerson && newPerson) setAdding("palette");
+  }, [canAddPerson, newPerson]);
+
+  const closeNewPerson = () => {
+    // Drop ?new=person, so ⌘K can open the form again.
+    if (adding === "palette") router.replace("/admin/crm");
+    setAdding(null);
+  };
 
   useEffect(() => {
     void api<PeopleFilters>("/api/admin/audience/list/filters").then((r) => (r.ok ? setFilters(r.data) : setError(true)));
@@ -122,20 +155,42 @@ export function AudienceList({ initialQuery = "", initialLaunch = null, fieldFil
     setSearch("");
   };
 
+  // Filtered by a field value: New person starts with it filled in.
+  const filtered = !search ? parseFieldTag(show) : null;
+  const filteredField = filtered ? filters?.fields?.find((f) => f.id === filtered.fieldId) : null;
+  const prefill: Record<string, FieldValue> =
+    filtered && filteredField
+      ? { [filtered.fieldId]: filteredField.type === "checkbox" ? true : filteredField.type === "multi_select" ? [filtered.value] : filtered.value }
+      : {};
+  const newPersonDialog = adding ? <NewPersonDialog via={adding} fields={fields} prefill={prefill} onClose={closeNewPerson} /> : null;
+  const newPersonButton = canAddPerson ? (
+    <button
+      type="button"
+      onClick={() => setAdding("form")}
+      className="inline-flex items-center gap-1.5 rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
+    >
+      <UserPlus size={14} aria-hidden /> New person
+    </button>
+  ) : null;
+
   if (error) return <p className="text-sm text-red-700 dark:text-red-400">Couldn&rsquo;t load the list. Reload the page to try again.</p>;
   if (filters && filters.everyone === 0) {
     return (
-      <p className="rounded-md border border-dashed border-neutral-300 p-8 text-center text-sm text-neutral-500 dark:border-neutral-700">
-        Nobody yet. People appear here when they sign up to a{" "}
-        <Link href="/admin/launches" className="underline underline-offset-2">
-          launch
-        </Link>{" "}
-        or a{" "}
-        <Link href="/admin/products" className="underline underline-offset-2">
-          connected product
-        </Link>{" "}
-        sends them.
-      </p>
+      <div className="space-y-3 rounded-md border border-dashed border-neutral-300 p-8 text-center text-sm text-neutral-500 dark:border-neutral-700">
+        <p>
+          Nobody yet. People appear here when they sign up to a{" "}
+          <Link href="/admin/launches" className="underline underline-offset-2">
+            launch
+          </Link>{" "}
+          or a{" "}
+          <Link href="/admin/products" className="underline underline-offset-2">
+            connected product
+          </Link>{" "}
+          sends them{canAddPerson ? ", or when your team adds them by hand." : "."}
+        </p>
+        {newPersonButton}
+        {newPersonDialog}
+      </div>
     );
   }
 
@@ -195,6 +250,7 @@ export function AudienceList({ initialQuery = "", initialLaunch = null, fieldFil
         </div>
       ) : null}
 
+      {newPersonDialog}
       <div className="flex flex-wrap items-center gap-3">
         <input
           value={q}
@@ -210,6 +266,7 @@ export function AudienceList({ initialQuery = "", initialLaunch = null, fieldFil
             {filters ? <span className="tabular-nums text-neutral-500">({filters.canEmail} in all)</span> : null}
           </label>
         )}
+        {newPersonButton ? <span className="ml-auto">{newPersonButton}</span> : null}
       </div>
 
       {shownLabel && rows && total !== null ? (
@@ -265,6 +322,7 @@ export function AudienceList({ initialQuery = "", initialLaunch = null, fieldFil
                             {x.name}
                           </Chip>
                         ))}
+                        {p.addedByHand ? <Chip tone="neutral">Added by hand</Chip> : null}
                       </span>
                     </td>
                     <td className="px-3 py-2">
@@ -295,7 +353,15 @@ export function AudienceList({ initialQuery = "", initialLaunch = null, fieldFil
                     ))}
                     <td className="whitespace-nowrap px-3 py-2">
                       {p.reach === "yes" ? (
-                        <Chip tone="green">Yes</Chip>
+                        p.addedByHand && !p.launches.length && !p.products.length ? (
+                          <Chip tone="green" title="Your team recorded that they agreed. Nothing is sent to people added by hand yet.">
+                            Yes, recorded
+                          </Chip>
+                        ) : (
+                          <Chip tone="green">Yes</Chip>
+                        )
+                      ) : p.addedByHand && !p.blocked && !p.launches.length && !p.products.length ? (
+                        <Chip tone="neutral">Not yet</Chip>
                       ) : p.reach === "limited" ? (
                         <Chip tone="amber" title="Some emails only: service emails, the confirmation, or not every category">
                           Some

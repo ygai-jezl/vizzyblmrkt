@@ -105,6 +105,14 @@ export function parseNewPerson(raw: unknown): { ok: true; value: NewPerson } | {
   };
 }
 
+/** What the form shows before anything is added: the plan's people, and the company an address matches. */
+export interface NewPersonInfo {
+  /** The plan's people allowance, when plans count it; null: no limit to speak of. */
+  allowance: { used: number; limit: number } | null;
+  /** The company a work address matches: its name once known, else its web address. Null for a personal address. */
+  company: { name: string | null; domain: string } | null;
+}
+
 /** What the form and the person's page say. The help page (your-audience, #add) quotes them. */
 export const NEW_PERSON_MESSAGES = {
   email_or_phone: "Add an email address or a phone number.",

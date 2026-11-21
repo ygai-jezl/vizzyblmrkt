@@ -37,6 +37,8 @@ export function CrmClient({
   fields = false,
   fieldFilters = false,
   initialGroup = null,
+  canAddPerson = false,
+  newPerson = false,
 }: {
   isAdmin: boolean;
   initialContacts: Contact[];
@@ -62,6 +64,10 @@ export function CrmClient({
   fieldFilters?: boolean;
   /** A product group the page arrived with (?group=), with its name. */
   initialGroup?: { tag: string; label: string } | null;
+  /** An admin with New person on (AUDIENCE_ADD_PERSON_ENABLED): People has a New person button. */
+  canAddPerson?: boolean;
+  /** The page arrived from ⌘K's New person (?new=person). */
+  newPerson?: boolean;
 }) {
   /** AUDIENCE_ONE_VIEW_ENABLED: one People tab in place of Signups and Product users. */
   const oneView = Boolean(audience?.oneView);
@@ -109,7 +115,16 @@ export function CrmClient({
         </button>
       </div>
       {tab === "people" ? (
-        <AudienceList key={initialGroup?.tag ?? "list"} initialQuery={initialQuery} initialLaunch={initialLaunch} fieldFilters={fieldFilters} initialGroup={initialGroup} />
+        <AudienceList
+          key={initialGroup?.tag ?? "list"}
+          initialQuery={initialQuery}
+          initialLaunch={initialLaunch}
+          fieldFilters={fieldFilters}
+          initialGroup={initialGroup}
+          canAddPerson={canAddPerson}
+          fields={fields}
+          newPerson={newPerson}
+        />
       ) : tab === "contacts" ? (
         <ContactsView
           isAdmin={isAdmin}

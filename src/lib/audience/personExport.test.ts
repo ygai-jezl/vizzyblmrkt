@@ -282,3 +282,26 @@ describe("someone added by hand in an export, with every switch off", () => {
     expect(JSON.stringify(doc.events)).not.toContain("sam@labs.test");
   });
 });
+
+describe("timeline moves in an export, with the timeline switched off again", () => {
+  it("are in the export: a product's in that product's part, with its product user", async () => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_ONE_VIEW_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_TIMELINE_ENABLED", "true");
+    try {
+      const db = new FakeFirestore();
+      seedWorld(db);
+      seedUser(db, "ada", { email: "ada@customer.test", emailNormalized: "ada@customer.test" });
+      await syncPerson(ctx, "ada@customer.test", { db, nowMs: T0 });
+      vi.unstubAllEnvs();
+      const r = await exportWholePerson(ctx, personIdOf(TENANT_ID, "ada@customer.test"), { db, nowMs: T0 });
+      const doc = (r as unknown as { document: { events: Array<{ fieldId: string | null }>; products: Array<{ events: Array<{ fieldId: string | null }> }> } }).document;
+      const inProducts = doc.products.flatMap((x) => x.events).map((e) => e.fieldId);
+      expect(inProducts.filter((f) => f?.startsWith("sys.")).sort()).toEqual(["sys.product.pcn_life", "sys.stage.pcn_life"]);
+      expect(doc.events.filter((e) => e.fieldId?.startsWith("sys."))).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});

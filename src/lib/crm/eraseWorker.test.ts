@@ -332,3 +332,34 @@ describe("someone added by hand on an erase, with every switch off", () => {
     expect(db.raw("contacts", KIM)).toMatchObject({ addedBy: { id: "uid_1" } });
   });
 });
+
+describe("timeline moves on an erase, with the timeline switched off again", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("go with the person, and a product's go with its erased product user", async () => {
+    const { syncPerson } = await import("@/lib/audience/personSync");
+    const { seedUser, seedWorld, ctx: lifeCtx, TENANT_ID, CONNECTION_ID } = await import("@/lib/lifecycle/testing/fixtures");
+    for (const name of ["AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_TIMELINE_ENABLED"]) vi.stubEnv(name, "true");
+    const db = new FakeFirestore();
+    seedWorld(db);
+    db.seed("signups", "sig_ada", { tenantId: TENANT_ID, campaignId: "camp1", email: "ada@customer.test", status: "verified_active", createdAt: "2026-09-21T07:00:00.000Z" });
+    const ada = seedUser(db, "ada", { email: "ada@customer.test", emailNormalized: "ada@customer.test" });
+    seedUser(db, "bob", { email: "bob@customer.test", emailNormalized: "bob@customer.test" });
+    for (const key of ["ada@customer.test", "bob@customer.test"]) await syncPerson(lifeCtx, key, { db, nowMs: Date.parse("2026-09-21T08:00:00Z") });
+    const ADA = deterministicContactId(TENANT_ID, "ada@customer.test");
+    const BOB = deterministicContactId(TENANT_ID, "bob@customer.test");
+    const sys = () => db.dump("ontology_events").filter((r) => String(r.fieldId ?? "").startsWith("sys."));
+    expect(sys().filter((r) => r.personId === ADA).map((r) => r.fieldId).sort()).toEqual(["sys.launch.camp1", `sys.product.${CONNECTION_ID}`, `sys.stage.${CONNECTION_ID}`]);
+    vi.stubEnv("AUDIENCE_TIMELINE_ENABLED", "false");
+
+    // Erased in the product only: its moves go, the launch's stays.
+    await eraseProductUser(lifeCtx, CONNECTION_ID, ada.id, db, Date.parse("2026-09-22T08:00:00Z"));
+    expect(sys().filter((r) => r.personId === ADA).map((r) => r.fieldId)).toEqual(["sys.launch.camp1"]);
+
+    // Erased everywhere: nothing of theirs is left; Bob's stay.
+    const system: TenantContext = { tenantId: TENANT_ID, region: "eu", source: "system" };
+    expect(await processContactEraseJob(system, { id: "erase_ada", payload: { contactId: ADA } } as unknown as EmailJob, db)).toBe("done");
+    expect(sys().filter((r) => r.personId === ADA)).toEqual([]);
+    expect(sys().filter((r) => r.personId === BOB)).toHaveLength(2);
+  });
+});

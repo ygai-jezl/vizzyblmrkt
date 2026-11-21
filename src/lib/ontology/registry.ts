@@ -1802,7 +1802,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "data_connection",
     name: "Data connection",
     description:
-      "A brand's link to an outside source of numbers, such as a Cloudflare zone or a Search Console site: which connector, how it signs in, its health, who may read it live, and its secrets (a pasted token, or a Google sign in's access and refresh tokens), sealed with the brand, connection and slot bound in. Each change goes into an activity log kept 90 days.",
+      "A brand's link to an outside source of numbers, such as a Cloudflare zone, a Search Console site or a Google Analytics property: which connector, how it signs in, its health, who may read it live, and its secrets (a pasted token, or a Google sign in's access and refresh tokens), sealed with the brand, connection and slot bound in. A shared connection keeps no secret, only the Google address made for it. Each change goes into an activity log kept 90 days.",
     place: "signals",
     status: "built",
     home: "brand",
@@ -1824,6 +1824,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     erase: {
       paths: [
         brandPath("disconnect", "src/lib/connectors/service.ts", "an admin's Disconnect removes the sealed secrets; the record stays, marked disconnected"),
+        brandPath("deleteConnectionAddress", "src/lib/connectors/service.ts", "a shared connection's Google address is deleted at Google on Disconnect and on the purge, which retries a failed delete"),
         brandPath("purgeDataConnection", "src/lib/tenant/dataConnections.ts", "an operator purge removes the secrets, the recent list and the activity"),
         retention("ACTIVITY_KEEP_DAYS", "src/lib/tenant/dataConnections.ts", "activity rows go 90 days on, through the TTL on ttlAt"),
         retention("consumeConnectionState", "src/lib/tenant/dataConnectionStates.ts", "a sign in state is deleted once used, and by the TTL on ttlAt 10 minutes after it was made"),
@@ -1832,7 +1833,10 @@ export const ONTOLOGY: readonly OntologyType[] = [
     },
     export: { none: "a sealed secret and its settings, never exported" },
     search: { none: "credentials and settings, never searched" },
-    numbers: { meanings: ["cfRequests", "cfPageViews", "cfVisits", "searchClicks", "searchImpressions", "searchCtr", "searchPosition"], tool: "readLive" },
+    numbers: {
+      meanings: ["cfRequests", "cfPageViews", "cfVisits", "searchClicks", "searchImpressions", "searchCtr", "searchPosition", "ga4Sessions", "ga4ActiveUsers", "ga4Views", "ga4KeyEvents"],
+      tool: "readLive",
+    },
   },
   {
     id: "connector_stream",

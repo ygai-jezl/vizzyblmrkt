@@ -1035,10 +1035,17 @@ env:
     value: "false"
     availability:
       - RUNTIME
-  # Google Search Console by signing in with Google (needs CONNECTORS_ENABLED, plus
-  # CONNECTOR_GOOGLE_CLIENT_ID and the secret CONNECTOR_GOOGLE_CLIENT_SECRET in your
-  # environment file: a Google client in its own project, docs/self-host.md).
+  # Google Search Console by signing in with Google or by sharing access (needs
+  # CONNECTORS_ENABLED, plus CONNECTOR_GOOGLE_CLIENT_ID and the secret
+  # CONNECTOR_GOOGLE_CLIENT_SECRET, or CONNECTORS_IDENTITIES_PROJECT, in your environment file:
+  # a Google project of its own, docs/self-host.md).
   - variable: CONNECTOR_SEARCH_CONSOLE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Google Analytics 4, by signing in with Google or by sharing access (needs CONNECTORS_ENABLED,
+  # plus the Google client above or CONNECTORS_IDENTITIES_PROJECT in your environment file).
+  - variable: CONNECTOR_GA4_ENABLED
     value: "false"
     availability:
       - RUNTIME

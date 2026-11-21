@@ -1,8 +1,9 @@
-import { isCloudflareConnectorEnabled, isSearchConsoleConnectorEnabled } from "./flags";
+import { isCloudflareConnectorEnabled, isGa4ConnectorEnabled, isSearchConsoleConnectorEnabled } from "./flags";
 import { isGoogleSignInConfigured } from "./google";
 import { isShareAccessConfigured } from "./shareAccess";
 import { parseManifest, type ConnectMethod, type ConnectMethodName, type ConnectorManifest } from "./manifest";
 import { cloudflareManifest } from "./manifests/cloudflare";
+import { ga4Manifest } from "./manifests/ga4";
 import { searchConsoleManifest } from "./manifests/searchConsole";
 
 /**
@@ -21,7 +22,7 @@ import { searchConsoleManifest } from "./manifests/searchConsole";
  */
 
 /** Every manifest in the repo, as written. */
-export const MANIFESTS: readonly unknown[] = [cloudflareManifest, searchConsoleManifest];
+export const MANIFESTS: readonly unknown[] = [cloudflareManifest, searchConsoleManifest, ga4Manifest];
 
 /** The sign-in methods built so far. */
 export const BUILT_METHODS: readonly ConnectMethodName[] = ["token_fields", "oauth_pkce", "share_access"];
@@ -33,6 +34,7 @@ export const PERSONAL_STREAMS_ALLOWED = false;
 export const CONNECTOR_SWITCHES: Readonly<Record<string, () => boolean>> = {
   CONNECTOR_CLOUDFLARE_ENABLED: isCloudflareConnectorEnabled,
   CONNECTOR_SEARCH_CONSOLE_ENABLED: isSearchConsoleConnectorEnabled,
+  CONNECTOR_GA4_ENABLED: isGa4ConnectorEnabled,
 };
 
 /**

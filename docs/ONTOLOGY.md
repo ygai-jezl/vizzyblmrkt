@@ -291,7 +291,7 @@ A competitor the brand watches: their sitemap's pages, their news posts, monthly
 
 ### Data connection (`data_connection`)
 
-A brand's link to an outside source of numbers, such as a Cloudflare zone or a Search Console site: which connector, how it signs in, its health, who may read it live, and its secrets (a pasted token, or a Google sign in's access and refresh tokens), sealed with the brand, connection and slot bound in. Each change goes into an activity log kept 90 days.
+A brand's link to an outside source of numbers, such as a Cloudflare zone, a Search Console site or a Google Analytics property: which connector, how it signs in, its health, who may read it live, and its secrets (a pasted token, or a Google sign in's access and refresh tokens), sealed with the brand, connection and slot bound in. A shared connection keeps no secret, only the Google address made for it. Each change goes into an activity log kept 90 days.
 
 - Status: built
 - Home: the brand's region
@@ -304,13 +304,14 @@ A brand's link to an outside source of numbers, such as a Cloudflare zone or a S
 - States: `connected`, `disconnected`
 - Erase:
   - `disconnect` in `src/lib/connectors/service.ts`, on removing the record (an admin's Disconnect removes the sealed secrets; the record stays, marked disconnected)
+  - `deleteConnectionAddress` in `src/lib/connectors/service.ts`, on removing the record (a shared connection's Google address is deleted at Google on Disconnect and on the purge, which retries a failed delete)
   - `purgeDataConnection` in `src/lib/tenant/dataConnections.ts`, on removing the record (an operator purge removes the secrets, the recent list and the activity)
   - `ACTIVITY_KEEP_DAYS` in `src/lib/tenant/dataConnections.ts`, on retention (activity rows go 90 days on, through the TTL on ttlAt)
   - `consumeConnectionState` in `src/lib/tenant/dataConnectionStates.ts`, on retention (a sign in state is deleted once used, and by the TTL on ttlAt 10 minutes after it was made)
   - Gap: a team member's user id in ownerUid and in by stays after they leave the brand, as settings history does
 - Export: none. A sealed secret and its settings, never exported.
 - Search: none. Credentials and settings, never searched.
-- Numbers: `cfRequests`, `cfPageViews`, `cfVisits`, `searchClicks`, `searchImpressions`, `searchCtr`, `searchPosition`, through `readLive`
+- Numbers: `cfRequests`, `cfPageViews`, `cfVisits`, `searchClicks`, `searchImpressions`, `searchCtr`, `searchPosition`, `ga4Sessions`, `ga4ActiveUsers`, `ga4Views`, `ga4KeyEvents`, through `readLive`
 
 ### Connector stream (`connector_stream`)
 

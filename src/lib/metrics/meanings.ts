@@ -241,6 +241,39 @@ export const MEANINGS = {
     source: "Google Search Console, web search results",
     caveat: "An average over every search that showed the site, so it moves with which searches showed it, not only with rank.",
   },
+  // Google Analytics 4's own numbers for one property, read live through its Data API.
+  ga4Sessions: {
+    name: "Analytics sessions",
+    definition: "Visits that began on the site or app, as Google Analytics counts them (its session_start event).",
+    grain: "one Google Analytics property on one day (the property's time zone), or one page over the days asked",
+    unit: "count",
+    source: "Google Analytics 4, Data API",
+    caveat: "By page, a visit counts on every page it reached, so pages add up to more than the site's sessions.",
+  },
+  ga4ActiveUsers: {
+    name: "Analytics active users",
+    definition: "Different people who were active on the site or app, as Google Analytics tells them apart (by browser or device).",
+    grain: "one Google Analytics property on one day (the property's time zone), or one page over the days asked",
+    unit: "count",
+    source: "Google Analytics 4, Data API",
+    caveat: "An estimate, and one person on two devices counts twice. Users of different days or pages can't be added up.",
+  },
+  ga4Views: {
+    name: "Analytics views",
+    definition: "Web pages and app screens viewed, each repeat view counted.",
+    grain: "one Google Analytics property on one day (the property's time zone), or one page over the days asked",
+    unit: "count",
+    source: "Google Analytics 4, Data API",
+    caveat: "Counts only what the Analytics tag saw, so it runs below Cloudflare page views, which include bots and visitors who block the tag.",
+  },
+  ga4KeyEvents: {
+    name: "Analytics key events",
+    definition: "Times something the property marks as a key event happened, such as a sign up or a purchase.",
+    grain: "one Google Analytics property on one day (the property's time zone), or one page over the days asked",
+    unit: "count",
+    source: "Google Analytics 4, Data API",
+    caveat: "Which events count is set in the property, and marking a new one counts only from then on.",
+  },
 } as const satisfies Record<string, Meaning>;
 
 export type MeaningKey = keyof typeof MEANINGS;

@@ -63,6 +63,20 @@ describe("the connector registry", () => {
     expect(getConnector("search-console")).toBeNull();
   });
 
+  it("offers Google Analytics only with its switch, the core and one way to connect", () => {
+    vi.stubEnv("CONNECTORS_ENABLED", "true");
+    vi.stubEnv("CONNECTOR_GA4_ENABLED", "true");
+    expect(getConnector("google-analytics")).toBeNull();
+    vi.stubEnv("CONNECTORS_IDENTITIES_PROJECT", "made-up-identities");
+    expect(readyMethods(knownConnector("google-analytics")!)).toEqual(["share_access"]);
+    vi.stubEnv("CONNECTOR_GOOGLE_CLIENT_ID", "made-up-client.example.test");
+    vi.stubEnv("CONNECTOR_GOOGLE_CLIENT_SECRET", "made-up-client-secret");
+    expect(readyMethods(knownConnector("google-analytics")!)).toEqual(["oauth_pkce", "share_access"]);
+    expect(getConnector("google-analytics")?.name).toBe("Google Analytics");
+    vi.stubEnv("CONNECTOR_GA4_ENABLED", "1");
+    expect(getConnector("google-analytics")).toBeNull();
+  });
+
   it("refuses a personal stream while the data processing agreement is closed, and an unknown switch", () => {
     const m = cf();
     expect(refusals({ ...m, produces: [{ ...m.produces[0]!, personal: true }] })).toEqual([

@@ -31,6 +31,14 @@ export function isSearchConsoleConnectorEnabled(): boolean {
 }
 
 /**
+ * Google Analytics 4 in the catalogue (Connectors 1c). Needs CONNECTORS_ENABLED, and a Google sign
+ * in client or the identities project (CONNECTORS_IDENTITIES_PROJECT) for one way to connect.
+ */
+export function isGa4ConnectorEnabled(): boolean {
+  return isConnectorsEnabled() && process.env.CONNECTOR_GA4_ENABLED === "true";
+}
+
+/**
  * Disconnect, and the operator purge, also revoke a Google sign in at Google. Off: they delete the
  * tokens YouGrow keeps and leave the grant at Google. Its own switch because Google's revoke ends
  * every grant that Google account gave this copy's app, so it can cut off another brand that the

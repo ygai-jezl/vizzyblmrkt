@@ -98,7 +98,7 @@ describe("catalog history", () => {
 
     const r = await restoreCatalogVersion(ctx, id, 1, { catalogRev: 2 }, db);
     expect(r).toMatchObject({ status: 200, body: { connection: { catalogRev: 3, catalog: C0 } } });
-    const [latest] = ((await getCatalogHistory(ctx, id, db)).body as Versions).versions;
+    const [latest] = ((await getCatalogHistory(ctx, id, db, { lookup })).body as Versions).versions;
     expect(latest).toMatchObject({ rev: 3, source: "restore", restoredFrom: 1, changes: ["Renamed step ‘Add a brand’ to ‘Add your brand’"] });
   });
 

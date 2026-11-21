@@ -21,8 +21,10 @@ interface Shell {
   setPaletteOpen: (open: boolean) => void;
   /** Ask Vizzy from anywhere (⌘K, suggestions): opens the panel, or uses Home's chat. */
   ask: (text: string) => void;
-  /** Vizzy can read the product user whose page is in view (LIFECYCLE_PERSON_BRIEF). */
+  /** Vizzy is told whose page is in view: it can read their situation or their fields (from the server). */
   personInContext: boolean;
+  /** Vizzy can read the situation of the person in view (LIFECYCLE_PERSON_BRIEF); without it, only their fields. */
+  personBrief: boolean;
   /** Audience is called People (isPeopleNameEnabled(), from the server), so the How to drawer says what the sidebar says. */
   people: boolean;
   /** Fields on people and companies are on (isFieldsEnabled(), from the server), so the How to drawer shows their help. */
@@ -69,6 +71,7 @@ export function ShellProvider({
   names,
   journeyInContext = false,
   personInContext = false,
+  personBrief = false,
   people = false,
   fields = false,
   fieldFilters = false,
@@ -78,8 +81,13 @@ export function ShellProvider({
 }: {
   names: CrumbNames;
   journeyInContext?: boolean;
-  /** Vizzy can read one person (LIFECYCLE_PERSON_BRIEF, from the server): the chat names the person in view. */
+  /**
+   * Vizzy can read one person's situation (LIFECYCLE_PERSON_BRIEF) or their fields
+   * (AUDIENCE_VIZZY_FIELDS_ENABLED), from the server: the chat names the person in view.
+   */
   personInContext?: boolean;
+  /** The brief is on (isPersonBriefEnabled(), from the server): the panel offers the situation's starters. */
+  personBrief?: boolean;
   /** Audience is called People (isPeopleNameEnabled(), from the server): the page label Vizzy gets follows the crumbs. */
   people?: boolean;
   /** Fields are on (isFieldsEnabled(), from the server): the How to drawer shows their help sections. */
@@ -152,6 +160,7 @@ export function ShellProvider({
       setPaletteOpen,
       ask,
       personInContext,
+      personBrief,
       people,
       fields,
       fieldFilters,
@@ -159,7 +168,7 @@ export function ShellProvider({
       timeline,
       onCanvasSaved: journeyInContext || personInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, people, fields, fieldFilters, addPerson, timeline, saved],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, saved],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

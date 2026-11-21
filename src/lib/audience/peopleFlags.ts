@@ -1,4 +1,4 @@
-import { isOneViewEnabled } from "./flags";
+import { isOneViewEnabled, isPersonBriefEnabled } from "./flags";
 import { isOntologyPersonIdsEnabled } from "@/lib/ontology/flags";
 
 /**
@@ -61,4 +61,13 @@ export function isTimelineEnabled(): boolean {
  */
 export function isVizzyFieldsEnabled(): boolean {
   return isFieldsEnabled() && process.env.AUDIENCE_VIZZY_FIELDS_ENABLED === "true";
+}
+
+/**
+ * Whether Vizzy is told which person is open: while it can read their situation (the lifecycle
+ * person brief) or their fields (AUDIENCE_VIZZY_FIELDS_ENABLED). The admin layout passes it to the
+ * shell and the chat route checks it again, so the id never leaves the app otherwise.
+ */
+export function isPersonInContextEnabled(): boolean {
+  return isPersonBriefEnabled() || isVizzyFieldsEnabled();
 }

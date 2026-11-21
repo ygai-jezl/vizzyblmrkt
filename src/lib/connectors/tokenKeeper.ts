@@ -28,6 +28,11 @@ import { openConnectorSecret, sealConnectorSecret, VaultOpenError } from "./vaul
  * - A refresh token that won't open, or a missing client, never touches Google.
  *
  * Never throws for a provider or vault failure; a database error still throws.
+ *
+ * Share access (Connectors 1c) needs no keeper: its tokens are minted for 300 seconds by
+ * src/lib/connectors/shareAccess.ts shareAccessToken, held only in the server's memory and never
+ * sealed or stored, so there is nothing to refresh or lease. The connector service picks the one
+ * that fits each connection's method.
  */
 
 export const ACCESS_SLOT = "access";

@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
+import { shapeRecordingFirestore } from "@/lib/tenant/testing/queryShape";
 import { forTenant, type TenantContext } from "@/lib/tenant";
 import type { ConnectorActor } from "./grants";
 import { getConnector, readyMethods, knownConnector } from "./registry";
-import { ADDRESS_DELETED_MESSAGE, ADDRESS_KEPT_MESSAGE, check, checkAccess, disconnect, listForActor, pickAccount, readLiveFor, shareConnect } from "./service";
+import { agentConnections, agentLiveRead } from "./agentApi";
+import { purgeConnections } from "./purge";
+import { ADDRESS_DELETED_MESSAGE, ADDRESS_KEPT_MESSAGE, check, checkAccess, disconnect, listForActor, pickAccount, readLiveFor, setGrants, shareConnect } from "./service";
 import { __resetShareTokens, brandTag } from "./shareAccess";
 
 // Search Console by share access, through the service: a Google address made per connection,
@@ -220,5 +223,26 @@ describe("disconnecting a shared connection", () => {
     expect(conn.serviceAccount?.deletedAt).toBeNull();
     expect(activity()).toEqual(["shared", "disconnected", "cleanup_failed:provider_error"]);
     expect(accounts.size).toBe(1);
+  });
+});
+
+describe("query shape", () => {
+  it("reads only by id or equality, with no sort or range, so no composite index is needed", async () => {
+    const ops: string[] = [];
+    db = shapeRecordingFirestore(new FakeFirestore(), ops);
+    const made = await shareConnect(A, admin, "search-console", {}, deps());
+    if (!made.ok) throw new Error("not shared");
+    const id = made.value.connection.id;
+    await shareConnect(A, admin, "search-console", {}, deps());
+    await checkAccess(A, admin, id, deps());
+    await pickAccount(A, admin, id, { account: "sc-domain:example.com" }, deps());
+    await setGrants(A, admin, id, { grants: [{ to: "agent:vizzy", can: "read" }] }, deps());
+    const vizzy = { kind: "agent", agent: "vizzy", forRole: "admin" } as const;
+    await agentConnections(A, vizzy, deps());
+    await agentLiveRead(A, vizzy, { connectionId: id, stream: "search_performance", from: "2026-11-10", to: "2026-11-10" }, deps());
+    await disconnect(A, admin, id, deps());
+    await purgeConnections(A, { apply: true, by: "ops", addressesOnly: true, db, transport, appToken: async () => "made-up-app-token", log: () => {} });
+    expect(ops.length).toBeGreaterThan(0);
+    for (const op of ops) expect(op, op).toMatch(/^where \w+ ==$/);
   });
 });

@@ -311,7 +311,7 @@ A brand's link to an outside source of numbers, such as a Cloudflare zone, a Sea
   - Gap: a team member's user id in ownerUid and in by stays after they leave the brand, as settings history does
 - Export: none. A sealed secret and its settings, never exported.
 - Search: none. Credentials and settings, never searched.
-- Numbers: `cfRequests`, `cfPageViews`, `cfVisits`, `searchClicks`, `searchImpressions`, `searchCtr`, `searchPosition`, `ga4Sessions`, `ga4ActiveUsers`, `ga4Views`, `ga4KeyEvents`, through `readLive`
+- Numbers: `cfRequests`, `cfPageViews`, `cfVisits`, `searchClicks`, `searchImpressions`, `searchCtr`, `searchPosition`, `ga4Sessions`, `ga4ActiveUsers`, `ga4Views`, `ga4KeyEvents`, through `read_connected_live`
 
 ### Connector stream (`connector_stream`)
 

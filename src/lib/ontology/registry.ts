@@ -1835,7 +1835,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     search: { none: "credentials and settings, never searched" },
     numbers: {
       meanings: ["cfRequests", "cfPageViews", "cfVisits", "searchClicks", "searchImpressions", "searchCtr", "searchPosition", "ga4Sessions", "ga4ActiveUsers", "ga4Views", "ga4KeyEvents"],
-      tool: "readLive",
+      tool: "read_connected_live",
     },
   },
   {

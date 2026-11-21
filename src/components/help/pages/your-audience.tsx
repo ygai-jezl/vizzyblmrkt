@@ -271,6 +271,11 @@ export default function YourAudienceHelp({
             each field&apos;s name, archived ones marked, and erasing them removes their values and every change. A list holds up to 100
             fields in use, 300 in all, and 50 options a field.
           </P>
+          <P>
+            Values stay when someone leaves every launch and product: they drop out of Everyone and your filters, search still finds
+            them, and their filters come back if they return. Erasing them, or erasing them from the only product they came from,
+            removes the values too.
+          </P>
 
           <H2 id="company-fields">Company fields</H2>
           <P>

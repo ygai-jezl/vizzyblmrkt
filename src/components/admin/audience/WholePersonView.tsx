@@ -4,9 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Download, Sparkles, Trash2 } from "lucide-react";
 import type { WholePerson } from "@/lib/audience/wholePerson";
+import { CONSENT_WAYS, NEW_PERSON_MESSAGES, NEW_PERSON_NOTES, newPersonErrorText, type ConsentWay } from "@/lib/audience/newPerson";
 import { INVITE_STAGE_LABEL } from "@/lib/invites/inviteStage";
 import { api, errorText } from "../connect/api";
-import { Banner, Button, Section } from "../connect/ui";
+import { Banner, Button, inputClass, Section } from "../connect/ui";
 import { Chip } from "../people/Chip";
 import { PersonView } from "../people/PersonView";
 import { EmailHistoryList } from "../crm/EmailHistoryList";
@@ -40,6 +41,7 @@ export function WholePersonView({
   productView = false,
   fields = false,
   fieldFilters = false,
+  addPerson = false,
 }: {
   personId: string;
   canEdit: boolean;
@@ -51,6 +53,8 @@ export function WholePersonView({
   fields?: boolean;
   /** Field filters are on (AUDIENCE_FIELD_FILTERS_ENABLED): each product group links to everyone in it. */
   fieldFilters?: boolean;
+  /** New person is on (AUDIENCE_ADD_PERSON_ENABLED): an admin can record how someone added by hand agreed. */
+  addPerson?: boolean;
 }) {
   const shell = useShell();
   const [state, setState] = useState<State>({ status: "loading" });
@@ -143,6 +147,12 @@ export function WholePersonView({
             <p className="text-xs text-neutral-500">
               Built from {sources.join(" and ")}
               {p.email ? " with the same email" : ""}.
+            </p>
+          ) : null}
+          {p.added ? (
+            <p className="text-xs text-neutral-500">
+              Added by hand by {p.added.by} on {day(p.added.at)}
+              {p.added.via === "palette" ? ", from ⌘K" : ""}.
             </p>
           ) : null}
         </div>
@@ -257,10 +267,77 @@ export function WholePersonView({
             <FragmentPair key={l.campaignId} label={l.name} value={l.status === "verified_active" ? "Confirmed their sign-up" : LAUNCH_STATUS[l.status] ?? l.status} />
           ))}
           {p.optedOutOf.length ? <FragmentPair label="Opted out of" value={p.optedOutOf.join(", ")} /> : null}
+          {p.added ? (
+            <FragmentPair
+              label="Marketing emails"
+              value={
+                p.added.consent
+                  ? `They agreed: ${p.added.consent.howLabel}${p.added.consent.note ? ` (${p.added.consent.note})` : ""}. Recorded by ${p.added.consent.by} on ${day(p.added.consent.at)}.`
+                  : "Not yet"
+              }
+            />
+          ) : null}
         </dl>
+        {p.added ? (
+          <>
+            {!p.added.consent && canEdit && addPerson ? <RecordConsent personId={p.id} onRecorded={() => void load()} /> : null}
+            <p className="text-xs text-neutral-500">{NEW_PERSON_NOTES.nothingSent}</p>
+          </>
+        ) : null}
         <p className="text-xs text-neutral-500">Unsubscribing from any email stops all of your marketing email to this address. Each product&rsquo;s own consent is in its part above.</p>
       </Section>
     </div>
+  );
+}
+
+/** Record how someone added by hand agreed to marketing email, after they were added. Admins only. */
+function RecordConsent({ personId, onRecorded }: { personId: string; onRecorded: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [how, setHow] = useState<ConsentWay>("in_person");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!open) {
+    return (
+      <Button onClick={() => setOpen(true)} className="text-xs">
+        Record that they agreed
+      </Button>
+    );
+  }
+  const save = async () => {
+    if (how === "other" && !note.trim()) return setError(NEW_PERSON_MESSAGES.note_needed);
+    setBusy(true);
+    setError(null);
+    const r = await api(`/api/admin/audience/everyone/${encodeURIComponent(personId)}/consent`, {
+      method: "PATCH",
+      body: JSON.stringify({ how, ...(note.trim() ? { note: note.trim() } : {}) }),
+    });
+    setBusy(false);
+    if (!r.ok) return setError(newPersonErrorText(r.data));
+    onRecorded();
+  };
+  return (
+    <fieldset className="space-y-2 rounded-md border border-neutral-200 p-3 text-sm dark:border-neutral-800">
+      <legend className="px-1 text-xs font-medium text-neutral-600 dark:text-neutral-400">How did they agree?</legend>
+      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+        {CONSENT_WAYS.map((w) => (
+          <label key={w.how} className="flex items-center gap-1.5">
+            <input type="radio" name={`agree-${personId}`} checked={how === w.how} onChange={() => setHow(w.how)} /> {w.label}
+          </label>
+        ))}
+      </div>
+      {how === "other" ? (
+        <input type="text" aria-label="How they agreed" placeholder="A short note" maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} className={inputClass} />
+      ) : null}
+      <p className="text-xs text-neutral-500">{NEW_PERSON_NOTES.agreeHint}</p>
+      {error ? <Banner tone="err">{error}</Banner> : null}
+      <div className="flex gap-2">
+        <Button tone="primary" disabled={busy} onClick={() => void save()}>
+          {busy ? "Saving…" : "Save"}
+        </Button>
+        <Button onClick={() => setOpen(false)}>Cancel</Button>
+      </div>
+    </fieldset>
   );
 }
 

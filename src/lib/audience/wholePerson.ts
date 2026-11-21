@@ -7,7 +7,9 @@ import type { InviteStage } from "@/lib/invites/inviteStage";
 import { waitlistEnrolmentId, waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
 import { ENVIRONMENT_LABEL, environmentOf, productNameOf } from "@/lib/connect/environments";
 import type { FieldValues } from "@/lib/types/recordField";
+import { memberLabel, teamMemberNames, type UserLookup } from "@/lib/team/names";
 import { readFieldList } from "./fieldList";
+import { consentWayLabel } from "./newPerson";
 import { personReadOnly, type ReadOnlyValue, type VoiceChatSummary } from "./readOnlyFields";
 
 /**
@@ -59,6 +61,17 @@ export interface WholePerson {
    * elsewhere, and their voice chats without what was said. Null while fields are off.
    */
   fields: { values: FieldValues; readOnly: ReadOnlyValue[]; voiceChats: VoiceChatSummary[] } | null;
+  /**
+   * Someone on the team added them by hand (New person): who, when and from where, and how they
+   * agreed to marketing email, if they did. Names are looked up now; anyone who has left shows as
+   * "Former team member". Shown whatever AUDIENCE_ADD_PERSON_ENABLED says. Null for everyone else.
+   */
+  added: {
+    by: string;
+    at: string;
+    via: "form" | "palette" | "vizzy";
+    consent: { how: string; howLabel: string; note: string | null; by: string; at: string } | null;
+  } | null;
 }
 
 function inviteStageOf(inv: { invited: boolean; signedUp: boolean; activated: boolean } | null): InviteStage | null {
@@ -74,7 +87,7 @@ export async function loadWholePerson(
   ctx: TenantContext,
   personId: string,
   db?: FirestoreLike,
-  opts: { fields?: boolean; groups?: boolean } = {},
+  opts: { fields?: boolean; groups?: boolean; lookup?: UserLookup } = {},
 ): Promise<WholePerson | null> {
   const repo = forTenant(ctx, db);
   const contact = await repo.contacts.getById(personId);
@@ -122,6 +135,17 @@ export async function loadWholePerson(
       values: Object.fromEntries(Object.entries(contact.fields ?? {}).filter(([id]) => live.has(id))),
       readOnly: extra.values,
       voiceChats: extra.voiceChats,
+    };
+  }
+  let added: WholePerson["added"] = null;
+  if (contact.addedBy) {
+    const consent = contact.consent?.marketing_email?.state === "granted" ? contact.consent.marketing_email : null;
+    const names = await teamMemberNames(ctx, [contact.addedBy.kind === "member" ? contact.addedBy.id : null, consent?.recordedBy], { db, lookup: opts.lookup });
+    added = {
+      by: contact.addedBy.kind === "agent" ? "Vizzy, confirmed by your team" : memberLabel(contact.addedBy.id, names),
+      at: contact.addedBy.at,
+      via: contact.addedBy.via,
+      consent: consent ? { how: consent.how, howLabel: consentWayLabel(consent.how), note: consent.note, by: memberLabel(consent.recordedBy, names), at: consent.at } : null,
     };
   }
   return {
@@ -174,5 +198,6 @@ export async function loadWholePerson(
     }),
     launchEmails,
     fields,
+    added,
   };
 }

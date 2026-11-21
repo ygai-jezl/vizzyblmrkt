@@ -5,6 +5,8 @@ import { inviteDocId } from "@/lib/invites/ids";
 import { waitlistEnrolmentId, waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
 import { personIdOf, syncPerson } from "./personSync";
 import { loadWholePerson } from "./wholePerson";
+import { addPerson } from "./addPerson";
+import { parseNewPerson } from "./newPerson";
 
 /** One whole person, from made-up people at .test. */
 
@@ -104,5 +106,30 @@ describe("loadWholePerson with groups", () => {
     const id = personIdOf(TENANT_ID, "ada@customer.test");
     expect((await loadWholePerson(ctx, id, db))!.products[0]!.groups).toBeUndefined();
     expect((await loadWholePerson(ctx, id, db, { groups: true }))!.products[0]!.groups).toEqual([{ id: "org.acme:team-1", name: "Acme Labs", kind: "workspace" }]);
+  });
+});
+
+describe("loadWholePerson for someone added by hand", () => {
+  it("says who added them and how they agreed, with names looked up now, and null for everyone else", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    db.seed("tenant_users", "m1", { tenantId: TENANT_ID, userId: "usr_1", role: "admin" });
+    const sam = parseNewPerson({ email: "sam@labs.test", firstName: "Sam", agreed: { how: "other", note: "At our stand" } });
+    if (!sam.ok) throw new Error(sam.error);
+    const at = new Date(T0).toISOString();
+    await addPerson(ctx, sam.value, { db, nowIso: at });
+    const lookup = async (uids: string[]) => uids.map((uid) => ({ uid, displayName: "Alex Morgan" }));
+    const p = (await loadWholePerson(ctx, personIdOf(TENANT_ID, "sam@labs.test"), db, { lookup }))!;
+    expect(p.added).toEqual({ by: "Alex Morgan", at, via: "form", consent: { how: "other", howLabel: "Other", note: "At our stand", by: "Alex Morgan", at } });
+    expect(p.reach).toBe("yes");
+
+    // Once they leave the team, the record names nobody.
+    db.seed("tenant_users", "m1", { tenantId: "ten_other", userId: "usr_1", role: "admin" });
+    const later = (await loadWholePerson(ctx, personIdOf(TENANT_ID, "sam@labs.test"), db, { lookup }))!;
+    expect(later.added).toMatchObject({ by: "Former team member", consent: { by: "Former team member" } });
+
+    seedUser(db, "ada", { email: "ada@customer.test", emailNormalized: "ada@customer.test" });
+    await syncPerson(ctx, "ada@customer.test", { db, nowMs: T0 });
+    expect((await loadWholePerson(ctx, personIdOf(TENANT_ID, "ada@customer.test"), db))!.added).toBeNull();
   });
 });

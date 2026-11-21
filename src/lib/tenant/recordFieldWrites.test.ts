@@ -122,6 +122,19 @@ describe("setRecordFieldValues", () => {
     });
   });
 
+  it("refuses with stale, writing nothing, when a changed field fails allowField as read in the transaction", async () => {
+    const db = new FakeFirestore();
+    await world(db);
+    const seen: string[] = [];
+    const notNotes = (f: { key: string }) => (seen.push(f.key), f.key !== NOTES);
+    expect(await set(db, { [SEATS]: 4, [NOTES]: "hello" }, { allowField: notNotes })).toEqual({ ok: false, error: "stale", fieldId: NOTES });
+    expect((await forTenant(ctx, db).contacts.getById(PERSON))?.fields).toBeUndefined();
+    expect(await forTenant(ctx, db).ontologyEvents.find({ where: [["personId", "==", PERSON]] })).toEqual([]);
+    // It is asked about each changed field, with the field as the list holds it.
+    expect(seen).toEqual([SEATS, NOTES]);
+    expect(await set(db, { [SEATS]: 4 }, { allowField: notNotes })).toMatchObject({ ok: true, changed: [SEATS] });
+  });
+
   it("lets a value keep an option archived since, so it can still be edited, but never pick one again", async () => {
     const db = new FakeFirestore();
     await world(db);

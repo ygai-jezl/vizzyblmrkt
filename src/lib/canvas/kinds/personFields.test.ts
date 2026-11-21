@@ -167,6 +167,20 @@ describe("the person_fields kind", () => {
     expect(db.raw("contacts", PRIYA)?.fields).toMatchObject({ [TITLE]: "Head of Partnerships" });
   });
 
+  it("sets aside a text suggestion when Vizzy is stopped reading the field while the confirm is being written", async () => {
+    textFieldsOn();
+    const r = await suggest({ [TITLE]: "Head of Sales" });
+    if (!r.ok) throw new Error(r.error);
+    // The untick lands between the confirm's reads and its commit: the write runs again and sees it.
+    db.onBeforeCommit = async () => {
+      await add(TITLE, { op: "vizzy_reads", key: TITLE, on: false });
+    };
+    expect(await decideFieldSuggestion(admin, PRIYA, { id: r.id, rev: 1, decision: "confirm" }, { db, nowMs: T0 + 1000 })).toEqual({ ok: false, error: "stale", fieldId: TITLE });
+    expect(db.onBeforeCommit).toBeUndefined();
+    expect(await getAgentAction(admin, r.id as AgentActionId, { db })).toMatchObject({ state: "declined", declined: { reason: "stale" } });
+    expect(db.raw("contacts", PRIYA)?.fields).toEqual({ [SEATS]: 12, [PLAN]: "opt_cccccc01" });
+  });
+
   it("takes their name and address out of the reason", async () => {
     const r = await suggest({ [SEATS]: 20 }, { why: "Priya Shah (priya.shah@example.com) said the team grew to 20." });
     if (!r.ok) throw new Error("not saved");

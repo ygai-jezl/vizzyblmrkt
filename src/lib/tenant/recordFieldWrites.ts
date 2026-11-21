@@ -64,6 +64,12 @@ export interface SetFieldValuesInput {
    */
   expect?: Record<string, unknown>;
   /**
+   * Refuse with `stale`, writing nothing, when a changed field fails this as read in the
+   * transaction. Vizzy's confirm passes "Vizzy may still read it" (vizzyReadsField), so a field an
+   * admin stopped Vizzy reading a moment ago never gets its suggestion.
+   */
+  allowField?: (field: RecordField) => boolean;
+  /**
    * The changes put back values this record held before (an undo): the options they name count as
    * held, so one archived since can come back. Otherwise only options the record holds now may
    * stay archived, and a newly chosen option must be live.
@@ -115,8 +121,8 @@ function applied(current: Record<string, unknown>, values: FieldValues, patch: R
  * Set some of a record's field values, with their events and tags, in one transaction. Refuses
  * the whole write for an unknown or archived field, a value its type doesn't allow (an archived
  * option counts only while the record already holds it), a team member
- * who isn't on the team, a field that no longer holds what `expect` says, or a record that would
- * outgrow the budget. With `agentAction`, a move
+ * who isn't on the team, a field that no longer holds what `expect` says or fails `allowField`, or
+ * a record that would outgrow the budget. With `agentAction`, a move
  * that can't happen refuses with `agent_action_<error>`, and a decision with no value to change is
  * still recorded.
  */
@@ -169,6 +175,7 @@ export async function setRecordFieldValues(ctx: TenantContext, input: SetFieldVa
         const field = byId.get(fieldId);
         if (!field) return { ok: false, error: "unknown_field", fieldId };
         if (field.archivedAt) return { ok: false, error: "archived_field", fieldId };
+        if (input.allowField && !input.allowField(field)) return { ok: false, error: "stale", fieldId };
         // Options the value holds now (or held before, for an undo) may stay though archived since.
         const held = hasOptions(field.type) ? new Set([...optionIdsOf(before[fieldId]), ...(input.restoring ? optionIdsOf(raw) : [])]) : undefined;
         const check = checkFieldValue(field, raw, held);

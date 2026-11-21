@@ -321,17 +321,7 @@ export async function decideFieldSuggestion(
     }
     const proposed = fieldsUnder(action.proposal);
     const basis = fieldsUnder(action.basis);
-    // A field Vizzy may no longer read is never written from its suggestion.
-    const list = await readFieldList(ctx, "person", deps.db);
     const textFields = isVizzyTextFieldsEnabled();
-    const unread = Object.keys(proposed).find((id) => {
-      const field = list.items.find((f) => f.key === id);
-      return field && !vizzyReadsField(field, textFields);
-    });
-    if (unread) {
-      await setAside("stale");
-      return { ok: false, error: "stale", fieldId: unread };
-    }
     const r = await setFieldValues(
       ctx,
       {
@@ -339,6 +329,9 @@ export async function decideFieldSuggestion(
         recordId: personId,
         changes: proposed,
         expect: basis,
+        // A field Vizzy may no longer read is never written from its suggestion: checked against
+        // the list as read in the write's own transaction, so an untick a moment ago counts.
+        allowField: (f) => vizzyReadsField(f, textFields),
         by,
         source: "agent",
         nowIso: at,

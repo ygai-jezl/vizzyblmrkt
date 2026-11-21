@@ -55,10 +55,37 @@ export function changeType<I extends SettingsItem>(items: readonly I[], key: str
   ];
 }
 
-/** Refuse a save where an item disappears instead of being archived. */
+/** An option that carries an id (a field's), as items may hold under `options`. */
+export interface ItemOption {
+  id: string;
+  archivedAt?: string | null;
+}
+
+/** An item's options that carry an id (none yet is an empty list), or null when it has no such options (options as plain words count as none). */
+export function idOptionsOf(item: SettingsItem): ItemOption[] | null {
+  const options = (item as { options?: unknown }).options;
+  if (!Array.isArray(options)) return null;
+  const withIds = options.filter((o): o is ItemOption => !!o && typeof o === "object" && typeof (o as { id?: unknown }).id === "string");
+  return withIds.length === options.length ? withIds : null;
+}
+
+/**
+ * Refuse a save where an item disappears instead of being archived, or an item's option does (an
+ * option with an id, such as a field's: values and filters point at it, so it is archived too).
+ * Names the lost keys, an option as `<item key>/<option id>`.
+ */
 export function assertNoRemoval(before: readonly SettingsItem[], after: readonly SettingsItem[]): void {
-  const kept = new Set(after.map((it) => it.key));
-  const lost = before.filter((it) => !kept.has(it.key)).map((it) => it.key);
+  const next = new Map(after.map((it) => [it.key, it]));
+  const lost: string[] = [];
+  for (const it of before) {
+    const now = next.get(it.key);
+    if (!now) {
+      lost.push(it.key);
+      continue;
+    }
+    const kept = new Set((idOptionsOf(now) ?? []).map((o) => o.id));
+    for (const o of idOptionsOf(it) ?? []) if (!kept.has(o.id)) lost.push(`${it.key}/${o.id}`);
+  }
   if (lost.length) throw new SettingsRemovalError(lost);
 }
 

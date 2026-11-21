@@ -271,9 +271,10 @@ export async function saveFieldListChange(
 }
 
 /**
- * Bring back an earlier version of a list as a new one, from the rev the page shows. Fields the
- * earlier version didn't have are archived, never removed. Answers `field_not_found` when there
- * is no such version, and `field_list_full` when the result would break a cap.
+ * Bring back an earlier version of a list as a new one, from the rev the page shows. Fields and
+ * options the earlier version didn't have are archived, never removed, so values and filters that
+ * name them keep their label. Answers `field_not_found` when there is no such version, and
+ * `field_list_full` when the result would break a cap.
  */
 export async function restoreFieldListVersion(
   ctx: TenantContext,
@@ -287,26 +288,30 @@ export async function restoreFieldListVersion(
   if (current.rev !== input.baseRev) return { ok: false, error: "fields_changed", list: current };
   if (!target) return { ok: false, error: "field_not_found" };
   const plan = planRestore(current.items, target.snapshot.items as unknown as RecordField[], nowIso);
-  if (fieldListProblems(plan.items, object).length) return { ok: false, error: "field_list_full" };
-  if (!FieldListSchema.safeParse({ items: plan.items }).success) return { ok: false, error: "invalid_field" };
+  // Fields the restore archives say who archived them, as an archive from the editor does.
+  const archivedBy = input.by.type === "member" ? input.by.id : null;
+  const archived = new Set(plan.archived.map((f) => f.key));
+  const items = plan.items.map((f) => (archived.has(f.key) ? { ...f, archivedBy } : f));
+  if (fieldListProblems(items, object).length) return { ok: false, error: "field_list_full" };
+  if (!FieldListSchema.safeParse({ items }).success) return { ok: false, error: "invalid_field" };
   const message = `Restored version ${input.rev}`;
   const r = await commitSettingsChange<FieldList>(
     ctx,
     {
       subject,
       baseRev: input.baseRev,
-      value: { items: plan.items },
+      value: { items },
       by: input.by,
       source: "restore",
       restoredFrom: input.rev,
       message,
-      items: describeItemChanges(current.items, plan.items),
+      items: describeItemChanges(current.items, items),
       nowIso,
     },
     db,
   );
   if (!r.ok) return { ok: false, error: "fields_changed", list: { object, items: r.current?.value.items ?? [], rev: r.current?.rev ?? 0, updatedAt: r.current?.updatedAt ?? null } };
-  return { ok: true, list: { object, items: plan.items, rev: r.rev, updatedAt: nowIso }, message };
+  return { ok: true, list: { object, items, rev: r.rev, updatedAt: nowIso }, message };
 }
 
 // --- Requests ----------------------------------------------------------------------------------

@@ -135,14 +135,27 @@ describe("the field list", () => {
     const r = await restoreFieldListVersion(ctx, "person", { rev: 1, baseRev: 3, by, nowIso: T2 }, db);
     expect(r).toMatchObject({ ok: true, message: "Restored version 1", list: { rev: 4 } });
     const list = await readFieldList(ctx, "person", db);
-    expect(list.items.map((f) => [f.label, f.archivedAt ?? null])).toEqual([
-      ["Plan", null],
-      ["Role", T2],
+    expect(list.items.map((f) => [f.label, f.archivedAt ?? null, f.archivedBy ?? null])).toEqual([
+      ["Plan", null, null],
+      ["Role", T2, "u_admin"],
     ]);
     const [latest] = (await listSettingsVersions(ctx, "fields:person", {}, db)).versions;
     expect(latest).toMatchObject({ source: "restore", restoredFrom: 1 });
     expect(await restoreFieldListVersion(ctx, "person", { rev: 1, baseRev: 1, by }, db)).toMatchObject({ ok: false, error: "fields_changed" });
     expect(await restoreFieldListVersion(ctx, "person", { rev: 99, baseRev: 4, by }, db)).toEqual({ ok: false, error: "field_not_found" });
+  });
+
+  it("archives an option added after the version it restores, never dropping it", async () => {
+    const db = new FakeFirestore();
+    const opt = ids("opt");
+    await save(db, { op: "add", label: "Plan", type: "select", options: ["Free"] }, { fld: () => "fld_000000000001", opt });
+    await save(db, { op: "add_option", key: "fld_000000000001", label: "Pro" }, { opt });
+    const r = await restoreFieldListVersion(ctx, "person", { rev: 1, baseRev: 2, by, nowIso: T2 }, db);
+    expect(r).toMatchObject({ ok: true, list: { rev: 3 } });
+    expect((await readFieldList(ctx, "person", db)).items[0]!.options).toEqual([
+      { id: "opt_00000001", label: "Free" },
+      { id: "opt_00000002", label: "Pro", archivedAt: T2 },
+    ]);
   });
 
   it("keeps two brands' lists, and People and Companies, apart", async () => {

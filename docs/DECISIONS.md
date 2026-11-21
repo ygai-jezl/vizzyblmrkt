@@ -96,7 +96,9 @@ Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
     `commitSettingsChange`, so every change is a settings version. Field ids are `fld_` and 12
     characters, option ids `opt_` and 8. A field is archived, never deleted, and its type is
     fixed once made: a type change makes a new field and archives the old one with `replacedBy`;
-    old values stay under the archived field. Caps: 100 fields in use, 300 in all, 50 options,
+    old values stay under the archived field. Options are archived, never removed, too: a restore
+    brings back the older version's options as they were and archives any added since, and the
+    settings log refuses a save that drops an option, as it does a field. Caps: 100 fields in use, 300 in all, 50 options,
     and the whole list under 200 KB, which keeps it under the document limit and the settings
     snapshot whatever the counts.
   - One writer, `src/lib/tenant/recordFieldWrites.ts`: in one regional transaction it reads

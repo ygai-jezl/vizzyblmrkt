@@ -31,6 +31,25 @@ describe("archive, never delete", () => {
     expect(() => assertNoRemoval([plan, role], archiveItem([plan, role], "fld_role", NOW))).not.toThrow();
   });
 
+  it("refuses a save that drops an option with an id, naming the item and the option", () => {
+    type Picked = SettingsItem & { options: Array<{ id: string; label: string; archivedAt?: string }> };
+    const field: Picked = { key: "fld_plan", label: "Plan", options: [{ id: "opt_free", label: "Free" }, { id: "opt_pro", label: "Pro" }] };
+    const dropped: Picked = { ...field, options: [{ id: "opt_free", label: "Free" }] };
+    try {
+      assertNoRemoval([field], [dropped]);
+      expect.unreachable();
+    } catch (err) {
+      expect((err as SettingsRemovalError).keys).toEqual(["fld_plan/opt_pro"]);
+    }
+    const more: Picked = { ...field, options: [...field.options, { id: "opt_team", label: "Team" }] };
+    const archived: Picked = { ...field, options: [field.options[0]!, { ...field.options[1]!, archivedAt: NOW }] };
+    expect(() => assertNoRemoval([field], [more])).not.toThrow();
+    expect(() => assertNoRemoval([field], [archived])).not.toThrow();
+    // Options as plain words have no ids to keep.
+    const fewer: Field = { ...plan, options: ["Free"] };
+    expect(() => assertNoRemoval([plan], [fewer])).not.toThrow();
+  });
+
   it("archives and restores an item, keeping it in the list", () => {
     const archived = archiveItem([plan, role], "fld_role", NOW);
     expect(archived).toHaveLength(2);

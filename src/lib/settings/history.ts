@@ -3,7 +3,7 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import type { EventActor } from "@/lib/ontology/events";
 import type { SettingsItem, SettingsList, SettingsSubject, SettingsVersion } from "@/lib/types/settingsVersion";
 import { FORMER_TEAM_MEMBER, memberLabel } from "@/lib/team/names";
-import { describeItemChanges, isArchived, sameItem } from "./archive";
+import { describeItemChanges, idOptionsOf, isArchived, sameItem } from "./archive";
 
 /**
  * Reading and restoring the settings log (piece O part 1). Every version is kept: nothing is
@@ -59,9 +59,24 @@ export interface RestorePlan<I extends SettingsItem> {
 }
 
 /**
+ * An item's options after a restore, for options with ids (a field's): the older version's, in its
+ * order with its names and archive marks, then each option it didn't have (one added since),
+ * archived, never dropped. The item as it is when either has no such options.
+ */
+function withRestoredOptions<I extends SettingsItem>(was: I, now: I, nowIso: string): I {
+  const old = idOptionsOf(was);
+  const current = idOptionsOf(now);
+  if (!old || !current) return was;
+  const inOld = new Set(old.map((o) => o.id));
+  const added = current.filter((o) => !inOld.has(o.id)).map((o) => (o.archivedAt ? o : { ...o, archivedAt: nowIso }));
+  return { ...was, options: [...old.map((o) => ({ ...o })), ...added] };
+}
+
+/**
  * What restoring `target` (an older version's items) over `current` does, without saving: each
  * item the older version has takes its details from it, and each item it doesn't have is
- * archived, never removed. Pure.
+ * archived, never removed. Options with ids (a field's) are kept the same way: the older
+ * version's come back as they were, and any added since is archived. Pure.
  */
 export function planRestore<I extends SettingsItem>(current: readonly I[], target: readonly I[], nowIso: string): RestorePlan<I> {
   const old = new Map(target.map((it) => [it.key, it]));
@@ -69,7 +84,7 @@ export function planRestore<I extends SettingsItem>(current: readonly I[], targe
   for (const now of current) {
     const was = old.get(now.key);
     old.delete(now.key);
-    const next: I = was ? { ...was } : isArchived(now) ? now : { ...now, archivedAt: nowIso };
+    const next: I = was ? withRestoredOptions({ ...was }, now, nowIso) : isArchived(now) ? now : { ...now, archivedAt: nowIso };
     plan.items.push(next);
     if (isArchived(now) && !isArchived(next)) plan.back.push(next);
     else if (!isArchived(now) && isArchived(next)) plan.archived.push(next);

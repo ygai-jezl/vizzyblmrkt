@@ -105,6 +105,32 @@ describe("planRestore", () => {
     expect(planRestore(target, target, LATER)).toMatchObject({ back: [], archived: [], changed: [], unchanged: target });
   });
 
+  it("brings back the older version's options as they were, and archives an option added since", () => {
+    type Opt = { id: string; label: string; archivedAt?: string | null };
+    type Picked = SettingsItem & { options: Opt[] };
+    const then: Picked = { key: "fld_tier", label: "Tier", options: [{ id: "opt_free", label: "Free" }, { id: "opt_old", label: "Old", archivedAt: NOW }] };
+    const now: Picked = {
+      key: "fld_tier",
+      label: "Tier",
+      options: [
+        { id: "opt_free", label: "Free plan" },
+        { id: "opt_old", label: "Old", archivedAt: null },
+        { id: "opt_pro", label: "Pro" },
+        { id: "opt_gone", label: "Gone", archivedAt: NOW },
+      ],
+    };
+    const p = planRestore([now], [then], LATER);
+    expect(p.items[0]!.options).toEqual([
+      { id: "opt_free", label: "Free" },
+      { id: "opt_old", label: "Old", archivedAt: NOW },
+      { id: "opt_pro", label: "Pro", archivedAt: LATER },
+      { id: "opt_gone", label: "Gone", archivedAt: NOW },
+    ]);
+    expect(p.changed.map((f) => f.key)).toEqual(["fld_tier"]);
+    // Options added to a field that had none yet are kept too.
+    expect(planRestore([now], [{ ...then, options: [] }], LATER).items[0]!.options.map((o) => o.id)).toEqual(["opt_free", "opt_old", "opt_pro", "opt_gone"]);
+  });
+
   it("brings back a field whose type was changed, and archives its replacement", () => {
     const changed = changeType([plan, role], "fld_role", { key: "fld_role_2", label: "Role", type: "select" }, NOW);
     const p = planRestore(changed, [plan, role], LATER);

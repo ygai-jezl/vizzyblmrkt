@@ -221,8 +221,8 @@ export type WithdrawConsentResult =
 /**
  * Withdraw the marketing email agreement the team recorded for someone added by hand: the entry
  * becomes withdrawn (who by user id, when, an optional note), their reach is worked out again
- * through summarize's hand-added input, so they no longer count as can email and every later
- * sync keeps it, and a consent.recorded event with state "withdrawn" is the proof. One
+ * through summarize's hand-added input, so what the team recorded no longer counts towards can
+ * email (a launch or product of theirs still can) and every later sync keeps it, and a consent.recorded event with state "withdrawn" is the proof. One
  * transaction. Withdrawn already: nothing is written. Recording agreement again afterwards is
  * recordHandConsent, as the first time. Consent from a launch or a product stays theirs (piece F
  * owns consent for every channel).

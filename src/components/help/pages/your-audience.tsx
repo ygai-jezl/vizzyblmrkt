@@ -159,7 +159,8 @@ export default function YourAudienceHelp({
           <P>
             If they change their mind, an admin presses <strong>Withdraw</strong> there, adds a note if they like, and presses{" "}
             <strong>Withdraw</strong> again. It is saved with their name and the time, the person can no longer be emailed from what your
-            team recorded, and Marketing emails says Withdrawn. To record that they agreed again later, press{" "}
+            team recorded, and Marketing emails says Withdrawn. If they also joined a launch or use your product, whatever they agreed
+            to there still stands, so they may still get emails from there. To record that they agreed again later, press{" "}
             <strong>Record that they agreed</strong>, as the first time. Everyone else on your team sees where it stands but can&apos;t
             change it.
           </P>
@@ -395,6 +396,7 @@ export default function YourAudienceHelp({
                 [NEW_PERSON_MESSAGES.consent_elsewhere, "Nothing to fix. Their consent shows under Consent, in one place, from their launch or product."],
                 [NEW_PERSON_MESSAGES.fields_not_saved, "Open their page and set the values in Fields."],
                 [NEW_PERSON_MESSAGES.nothing_to_withdraw, "Nothing to fix. Someone may have withdrawn it already; reload the page."],
+                [NEW_PERSON_NOTES.withdrawElsewhere, "To stop those too, they unsubscribe from any email: that stops all of your marketing email to their address."],
                 [NEW_PERSON_NOTES.nothingSent, "Nothing to fix. People added by hand get emails once lists reach them."],
                 ...(vizzyAdds
                   ? ([

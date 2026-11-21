@@ -169,7 +169,8 @@ export const NEW_PERSON_NOTES = {
   existing: "If this email is already in People, you'll go to that person instead of adding a second one.",
   fromVizzy: "Vizzy filled this in from your chat. Check it, and say how they agreed yourself: Vizzy never records that.",
   withdrawAsk: "They no longer agree to marketing emails?",
-  withdrawHint: "Saved with your name and the time. They can't be emailed from here until someone records that they agreed again.",
+  withdrawHint: "Saved with your name and the time. What your team recorded no longer lets them be emailed, until someone records that they agreed again.",
+  withdrawElsewhere: "They also joined a launch or use your product. Whatever they agreed to there still stands, so they may still get emails from there.",
 } as const;
 
 /**

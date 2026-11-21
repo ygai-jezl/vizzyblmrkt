@@ -226,13 +226,14 @@ Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
     the team recorded for someone added by hand: in one `writeRecordWithEvents` transaction the
     entry becomes withdrawn (`how` "withdrawn", who by user id, when, the note) with a
     `consent.recorded` event of state "withdrawn", and reach is worked out again through
-    summarize's hand-added input, so they no longer count as can email and every later sync keeps
-    it. Withdrawn already writes nothing; nothing recorded answers 409 `nothing_to_withdraw`,
+    summarize's hand-added input, so what the team recorded no longer counts towards can email
+    (a launch or product of theirs still can) and every later sync keeps it. Withdrawn already writes nothing; nothing recorded answers 409 `nothing_to_withdraw`,
     anyone not added by hand 409 `consent_elsewhere`, another brand's person 404. Recording
     agreement again is the same PATCH as the first time. The person page's Consent card has
     **Withdraw** for admins (members see the state), the list says "Withdrawn", the timeline
     shows it, and export and erase cover the entry and its event. Consent from a launch or a
-    product is untouched: that stays piece F's.
+    product is untouched: that stays piece F's, and for someone who also joined a launch or uses
+    a product the confirm says that agreement still stands (`withdrawElsewhere`).
   - **The plan's people:** the form reads piece A's `checkAllowance` and says when under 1% of
     the limit is left or it is passed. It never blocks (gates guide, never lock).
   - Rate limited per admin; export and erase cover `addedBy`, the consent and both events

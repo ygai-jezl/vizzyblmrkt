@@ -253,7 +253,9 @@ export function WholePersonView({
       {p.added ? (
         <>
           {!p.added.consent && canEdit && addPerson ? <RecordConsent personId={p.id} onRecorded={() => void load()} /> : null}
-          {p.added.consent && canEdit && addPerson ? <WithdrawConsent personId={p.id} onWithdrawn={() => void load()} /> : null}
+          {p.added.consent && canEdit && addPerson ? (
+            <WithdrawConsent personId={p.id} elsewhere={p.launches.length > 0 || p.products.length > 0} onWithdrawn={() => void load()} />
+          ) : null}
           <p className="text-xs text-neutral-500">{NEW_PERSON_NOTES.nothingSent}</p>
         </>
       ) : null}
@@ -395,8 +397,11 @@ function RecordConsent({ personId, onRecorded }: { personId: string; onRecorded:
   );
 }
 
-/** Withdraw the agreement the team recorded for someone added by hand, after a short confirm. Admins only. */
-function WithdrawConsent({ personId, onWithdrawn }: { personId: string; onWithdrawn: () => void }) {
+/**
+ * Withdraw the agreement the team recorded for someone added by hand, after a short confirm. Admins
+ * only. `elsewhere`: they also came from a launch or a product, whose consent this leaves alone.
+ */
+function WithdrawConsent({ personId, elsewhere, onWithdrawn }: { personId: string; elsewhere: boolean; onWithdrawn: () => void }) {
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -424,6 +429,7 @@ function WithdrawConsent({ personId, onWithdrawn }: { personId: string; onWithdr
       <legend className="px-1 text-xs font-medium text-neutral-600 dark:text-neutral-400">{NEW_PERSON_NOTES.withdrawAsk}</legend>
       <input type="text" aria-label="Note" placeholder="A short note, if you like" maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} className={inputClass} />
       <p className="text-xs text-neutral-500">{NEW_PERSON_NOTES.withdrawHint}</p>
+      {elsewhere ? <p className="text-xs text-neutral-500">{NEW_PERSON_NOTES.withdrawElsewhere}</p> : null}
       {error ? <Banner tone="err">{error}</Banner> : null}
       <div className="flex gap-2">
         <Button tone="danger" disabled={busy} onClick={() => void withdraw()}>

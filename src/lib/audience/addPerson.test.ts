@@ -237,6 +237,37 @@ describe("withdrawHandConsent", () => {
     expect(events(db).filter((e) => e.kind === "consent.recorded").map((e) => (e.properties as { state: string }).state)).toHaveLength(3);
   });
 
+  it("leaves the agreement from a launch standing: someone added by hand who signed up can still be emailed", async () => {
+    const db = new FakeFirestore();
+    const id = await agreed(db);
+    // Sam, added by hand, later confirmed a sign-up on one of the brand's launches.
+    db.seed("signups", "sig_sam", {
+      tenantId: TENANT_ID,
+      campaignId: "camp1",
+      email: "sam@labs.test",
+      phone: null,
+      firstName: "Sam",
+      lastName: "Rivera",
+      verified: true,
+      captchaValid: true,
+      isSpam: false,
+      status: "verified_active",
+      amountReferred: 0,
+      referralToken: "ref_sam",
+      referralLink: "https://example.test/r/sam",
+      score: 0,
+      createdAt: NOW,
+    });
+    await syncPerson(system, "sam@labs.test", { db, nowMs: T0 + 30_000 });
+    expect(contact(db, "sam@labs.test")?.memberOf).toContain("launch:camp1");
+
+    expect(await withdrawHandConsent(ctx, id, { note: "Asked us to stop" }, { db, nowIso: later })).toMatchObject({ outcome: "withdrawn" });
+    // What the team recorded is withdrawn; the launch's own agreement still reaches them.
+    expect(contact(db, "sam@labs.test")).toMatchObject({ reach: "yes", consent: { marketing_email: { state: "withdrawn" } } });
+    await syncPerson(system, "sam@labs.test", { db, nowMs: T0 + 90_000 });
+    expect(contact(db, "sam@labs.test")).toMatchObject({ reach: "yes", consent: { marketing_email: { state: "withdrawn" } } });
+  });
+
   it("has nothing to withdraw before anyone recorded agreement, and leaves everyone else's consent alone", async () => {
     const db = new FakeFirestore();
     seedWorld(db);

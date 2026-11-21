@@ -5,7 +5,7 @@ import { prepareEventsTx, regionalStoreFor, retryOnceOnExists, stageEvent } from
 import { planAgentTransition, readAgentActionTx, stageAgentTransition, type AgentTransition, type AgentTransitionOk, type TransitionError } from "./agentActions";
 import { RECORD_FIELD_LISTS, settingsDocId } from "./settingsLog";
 import type { FirestoreLike, TenantContext } from "./types";
-import { fieldTagsFor, sameFieldTags, withFieldTags } from "@/lib/audience/fieldTags";
+import { fieldTagRepair, fieldTagsFor, sameFieldTags, withFieldTags } from "@/lib/audience/fieldTags";
 import { fieldChangedEvent } from "@/lib/ontology/eventBuilders";
 import { isCanonicalInstant, jsonBytes, type EventActor, type FieldChangeSource } from "@/lib/ontology/events";
 import { isContactPersonId } from "@/lib/ontology/person";
@@ -216,4 +216,36 @@ export async function setRecordFieldValues(ctx: TenantContext, input: SetFieldVa
       };
     }),
   );
+}
+
+/**
+ * Rebuild one person's field tags from their stored values, for values written before the tags
+ * existed (scripts/backfill-field-tags.ts). Every other tag stays. Reads the list and the person
+ * in one transaction; a dry run writes nothing. Safe to run again.
+ */
+export async function repairFieldTags(
+  ctx: TenantContext,
+  personId: string,
+  opts: { dryRun?: boolean; db?: FirestoreLike } = {},
+): Promise<"updated" | "unchanged" | "missing"> {
+  const store = regionalStoreFor(ctx, opts.db);
+  const listRef = store.collection(RECORD_FIELD_LISTS).doc(settingsDocId(ctx.tenantId, FIELD_LIST_SUBJECT.person));
+  const recordRef = store.collection("contacts").doc(personId);
+  return store.runTransaction(async (txn) => {
+    const listSnap = await txn.get(listRef);
+    const recordSnap = await txn.get(recordRef);
+    if (!recordSnap.exists) return "missing";
+    const record = recordSnap.data() ?? {};
+    if (record[TENANT_FIELD] !== ctx.tenantId) throw new TenantIsolationError(`contacts/${personId} belongs to another tenant`);
+    const list = listSnap.exists ? (listSnap.data() ?? {}) : {};
+    if (listSnap.exists && list[TENANT_FIELD] !== ctx.tenantId) throw new TenantIsolationError(`${RECORD_FIELD_LISTS}/${listRef.id} belongs to another tenant`);
+    const plan = fieldTagRepair(
+      Array.isArray(list.items) ? (list.items as RecordField[]) : [],
+      record.fields as FieldValues | undefined,
+      Array.isArray(record.memberOf) ? (record.memberOf as string[]) : [],
+    );
+    if (!plan) return "unchanged";
+    if (!opts.dryRun) txn.update(recordRef, { memberOf: plan.memberOf });
+    return "updated";
+  });
 }

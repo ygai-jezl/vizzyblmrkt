@@ -53,3 +53,16 @@ describe("field tags", () => {
     expect(parseFieldTag("launch:any")).toBeNull();
   });
 });
+
+describe("the backfill's plan", () => {
+  it("rebuilds field tags from stored values, keeps every other tag, and is safe to run again", async () => {
+    const { fieldTagRepair } = await import("./fieldTags");
+    const fields = [f(PLAN, "select"), f(DONE, "checkbox")];
+    const values = { [PLAN]: "opt_00000001", [DONE]: true };
+    const first = fieldTagRepair(fields, values, ["all", "launch:any", `field:${PLAN}:opt_00000009`]);
+    expect(first).toEqual({ memberOf: ["all", `field:${DONE}:yes`, `field:${PLAN}:opt_00000001`, "launch:any"].sort(), dropped: 0 });
+    expect(fieldTagRepair(fields, values, first!.memberOf)).toBeNull();
+    expect(fieldTagRepair(fields, {}, ["all"])).toBeNull();
+    expect(fieldTagRepair(fields, {}, ["all", `field:${PLAN}:opt_00000001`])).toEqual({ memberOf: ["all"], dropped: 0 });
+  });
+});

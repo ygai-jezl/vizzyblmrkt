@@ -72,3 +72,17 @@ export function sameFieldTags(a: readonly string[], b: readonly string[]): boole
   const y = new Set(b.filter(isFieldTag));
   return x.size === y.size && [...x].every((t) => y.has(t));
 }
+
+/**
+ * The tags a record should have for its values, when they differ from what it has: the backfill's
+ * plan (scripts/backfill-field-tags.ts). Null when the record's field tags are already right.
+ */
+export function fieldTagRepair(
+  fields: readonly Pick<RecordField, "key" | "type">[],
+  values: FieldValues | null | undefined,
+  memberOf: readonly string[] | null | undefined,
+): { memberOf: string[]; dropped: number } | null {
+  const want = fieldTagsFor(fields, values);
+  if (sameFieldTags(memberOf ?? [], want.tags)) return null;
+  return { memberOf: withFieldTags(memberOf, want.tags), dropped: want.dropped };
+}

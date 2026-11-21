@@ -191,3 +191,20 @@ describe("setRecordFieldValues", () => {
     });
   });
 });
+
+describe("repairFieldTags", () => {
+  it("rebuilds a person's field tags from their values, writes nothing on a dry run, and is safe to repeat", async () => {
+    const { repairFieldTags } = await import("./recordFieldWrites");
+    const db = new FakeFirestore();
+    await world(db);
+    // Values from before the tags existed.
+    await db.collection("contacts").doc(PERSON).update({ fields: { [PLAN]: "opt_00000002", [DONE]: true }, memberOf: ["all", "launch:any"] });
+    expect(await repairFieldTags(ctx, PERSON, { db, dryRun: true })).toBe("updated");
+    expect((await forTenant(ctx, db).contacts.getById(PERSON))?.memberOf).toEqual(["all", "launch:any"]);
+    expect(await repairFieldTags(ctx, PERSON, { db })).toBe("updated");
+    expect((await forTenant(ctx, db).contacts.getById(PERSON))?.memberOf).toEqual(["all", `field:${DONE}:yes`, `field:${PLAN}:opt_00000002`, "launch:any"].sort());
+    expect(await repairFieldTags(ctx, PERSON, { db })).toBe("unchanged");
+    expect(await repairFieldTags(ctx, deterministicContactId("ten_A", "nobody@example.com"), { db })).toBe("missing");
+    await expect(repairFieldTags(other, PERSON, { db })).rejects.toThrow(/another tenant/);
+  });
+});

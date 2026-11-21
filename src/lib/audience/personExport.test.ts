@@ -259,3 +259,26 @@ describe("field values in an export, with every switch off", () => {
     expect((r as { document: Record<string, unknown> }).document.fields).toEqual([]);
   });
 });
+
+describe("someone added by hand in an export, with every switch off", () => {
+  it("holds who added them, how they agreed and both events, and no address in the events", async () => {
+    const { addPerson } = await import("./addPerson");
+    const { parseNewPerson } = await import("./newPerson");
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const sam = parseNewPerson({ email: "sam@labs.test", firstName: "Sam", agreed: { how: "signed_form" } });
+    if (!sam.ok) throw new Error(sam.error);
+    const at = new Date(T0).toISOString();
+    await addPerson(ctx, sam.value, { db, nowIso: at });
+    const r = await exportWholePerson(ctx, personIdOf(TENANT_ID, "sam@labs.test"), { db, nowMs: T0 });
+    const doc = (r as { document: Record<string, unknown> }).document;
+    expect(doc.person).toMatchObject({
+      email: "sam@labs.test",
+      addedBy: { kind: "member", id: "usr_1", at, via: "form" },
+      consent: { marketing_email: { state: "granted", how: "signed_form", recordedBy: "usr_1", at } },
+    });
+    const kinds = (doc.events as Array<{ kind: string }>).map((e) => e.kind).sort();
+    expect(kinds).toEqual(["consent.recorded", "record.created"]);
+    expect(JSON.stringify(doc.events)).not.toContain("sam@labs.test");
+  });
+});

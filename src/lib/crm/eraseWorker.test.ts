@@ -305,3 +305,30 @@ describe("field values on an erase, with every switch off", () => {
     expect((db.raw("contacts", BOB) as { fields?: unknown }).fields).toEqual({ fld_000000000001: 3 });
   });
 });
+
+describe("someone added by hand on an erase, with every switch off", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("goes in full: the record, who added them, their consent and both events", async () => {
+    vi.stubEnv("AUDIENCE_ADD_PERSON_ENABLED", "false");
+    const { addPerson } = await import("@/lib/audience/addPerson");
+    const { parseNewPerson } = await import("@/lib/audience/newPerson");
+    const admin: TenantContext = { tenantId: "ten_demo", region: "us", source: "idtoken", role: "admin", userId: "uid_1" };
+    const demo: TenantContext = { tenantId: "ten_demo", region: "us", source: "system" };
+    const db = new FakeFirestore();
+    for (const email of ["sam@labs.test", "kim@labs.test"]) {
+      const p = parseNewPerson({ email, agreed: { how: "in_person" } });
+      if (!p.ok) throw new Error(p.error);
+      await addPerson(admin, p.value, { db, nowIso: "2026-11-01T10:00:00.000Z" });
+    }
+    const SAM = deterministicContactId("ten_demo", "sam@labs.test");
+    const KIM = deterministicContactId("ten_demo", "kim@labs.test");
+    expect(db.dump("ontology_events")).toHaveLength(4);
+
+    expect(await processContactEraseJob(demo, { id: "erase_sam", payload: { contactId: SAM } } as unknown as EmailJob, db)).toBe("done");
+    expect(db.raw("contacts", SAM)).toBeUndefined();
+    expect(db.dump("ontology_events").map((r) => r.personId)).toEqual([KIM, KIM]);
+    expect(JSON.stringify(db.dump("ontology_events"))).not.toContain("sam@labs.test");
+    expect(db.raw("contacts", KIM)).toMatchObject({ addedBy: { id: "uid_1" } });
+  });
+});

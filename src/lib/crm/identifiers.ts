@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { domainToASCII } from "node:url";
 import { registrableDomain } from "@/lib/domains/registrableDomain";
+import type { EventId } from "@/lib/types/ontologyEvent";
+import type { AgentActionId } from "@/lib/types/agentAction";
 
 /**
  * Deterministic, tenant-scoped document ids for the CRM collections.
@@ -35,6 +37,19 @@ export function deterministicMessageId(
   recipientKey: string,
 ): string {
   return `em_${hash(`${tenantId}\n${provider}\n${providerId}\n${recipientKey.trim().toLowerCase()}`)}`;
+}
+
+/**
+ * A stored event's id (ontology_events) from (tenant, key). The key's case is kept: keys are ids
+ * and codes, never addresses, so "A" and "a" are two keys.
+ */
+export function deterministicEventId(tenantId: string, key: string): EventId {
+  return `ev_${hash(`${tenantId}\n${key}`)}`;
+}
+
+/** An agent action's id (agent_actions) from (tenant, dedupe key): one record per suggestion. Case kept. */
+export function deterministicAgentActionId(tenantId: string, dedupeKey: string): AgentActionId {
+  return `aa_${hash(`${tenantId}\n${dedupeKey}`)}`;
 }
 
 /**

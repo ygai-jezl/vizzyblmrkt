@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { brandRoot, resultId, searchChunkId, searchManifestId } from "./searchIndex";
+import { readSearchKind, SEARCH_KIND_ALIASES, storedKindsFor } from "@/lib/search/types";
+import { brandRoot, manifestFrom, rankedFrom, resultId, searchChunkId, searchManifestId } from "./searchIndex";
 import { SEARCH_DATABASE_IDS, searchDatabaseIdForRegion } from "./region";
 
 describe("brand search paths", () => {
@@ -37,3 +38,36 @@ describe("resultId", () => {
   });
 });
 
+
+describe("kinds stored under an alias", () => {
+  // An Idea Board item as written before the rename, and while SEARCH_KIND_IDEA_BOARD_ENABLED is off.
+  const manifest = { tenantId: "ten_A", sourceKey: "idea:i1", kind: "idea", ref: "i1", hash: "h", chunks: 2, embedded: true, indexedAt: "2026-11-20T10:00:00.000Z" };
+  const chunk = { tenantId: "ten_A", sourceKey: "idea:i1", kind: "idea", ref: "i1", chunk: 0, title: "Repot", text: "Repot in spring", url: "/admin/x" };
+
+  it("reads a stored idea as idea_board and keeps the stored sourceKey", () => {
+    expect(SEARCH_KIND_ALIASES).toEqual({ idea: "idea_board" });
+    expect(manifestFrom(manifest)).toMatchObject({ kind: "idea_board", sourceKey: "idea:i1", chunks: 2 });
+    expect(rankedFrom("c_1", chunk, "ten_A")).toMatchObject({ kind: "idea_board", sourceKey: "idea:i1", ref: "i1" });
+  });
+
+  it("reads a stored idea_board as itself", () => {
+    const renamed = { sourceKey: "idea_board:i1", kind: "idea_board" };
+    expect(manifestFrom({ ...manifest, ...renamed })).toMatchObject({ kind: "idea_board", sourceKey: "idea_board:i1" });
+    expect(rankedFrom("c_1", { ...chunk, ...renamed }, "ten_A")).toMatchObject({ kind: "idea_board", sourceKey: "idea_board:i1" });
+  });
+
+  it("asks for both names when filtering by a kind that has an alias", () => {
+    expect(storedKindsFor(["idea_board"])).toEqual(["idea_board", "idea"]);
+    expect(storedKindsFor(["article", "idea_board"])).toEqual(["article", "idea_board", "idea"]);
+    expect(storedKindsFor(["article"])).toEqual(["article"]);
+  });
+
+  it("still drops unknown kinds and other brands' chunks", () => {
+    expect(readSearchKind("people")).toBeNull();
+    expect(readSearchKind("constructor")).toBeNull();
+    expect(manifestFrom({ ...manifest, kind: "people" })).toBeNull();
+    expect(rankedFrom("c_1", { ...chunk, kind: "people" }, "ten_A")).toBeNull();
+    expect(rankedFrom("c_1", chunk, "ten_B")).toBeNull();
+    expect(manifestFrom(undefined)).toBeNull();
+  });
+});

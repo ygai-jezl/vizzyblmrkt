@@ -7,6 +7,8 @@ export type {
   TenantRepositories,
   FindOptions,
   WhereClause,
+  UpdatePatch,
+  UpdateWhereResult,
 } from "./repository";
 export {
   resolveTenantFromOrigin,
@@ -89,6 +91,26 @@ export {
 } from "./control";
 export type { DomainGrantAudit, SocialSubscription } from "./control";
 export {
+  ORGANISATIONS,
+  ORGANISATION_CHANGES,
+  organisationIdFor,
+  getOrganisation,
+  listOrganisations,
+  ensureBrandOrganisation,
+  attachBrandToOrganisation,
+  moveBrandToNewOrganisation,
+  setOrganisationPlan,
+  setOrganisationName,
+  setOrganisationOwners,
+  organisationUserIds,
+  OPERATOR_LABEL,
+  scriptActor,
+  organisationDrift,
+  hasDrift,
+} from "./organisations";
+export type { DriftBrand, EnsureOrganisationOptions, EnsureOrganisationResult, OrganisationDrift, SetPlanResult } from "./organisations";
+export { countLiveLaunches } from "./liveLaunches";
+export {
   appendPatternVersion,
   listPatternVersions,
   getPatternVersion,
@@ -137,5 +159,35 @@ export { applyProductMessage } from "./productIngest";
 export type { ApplyOutcome, ApplyMessageArgs } from "./productIngest";
 export { isRateLimited } from "./rateLimit";
 export { claimLifecycleSend } from "./lifecycleSend";
+// The event history: context-level writers only. The raw transaction helpers stay in src/lib/tenant.
+export {
+  appendEvents,
+  writeRecordWithEvents,
+  blankFieldEvents,
+  countFieldEvents,
+  eraseHistory,
+  repointHistoryPage,
+} from "./ontologyEvents";
+export type {
+  RecordCollection,
+  RecordOf,
+  RecordPlan,
+  RecordWriteResult,
+  BlankOptions,
+  BlankResult,
+  HistoryStore,
+  HistoryKey,
+  RepointResult,
+} from "./ontologyEvents";
+// Agent actions: one record per suggestion and its agent.* trail. The transaction helpers stay in src/lib/tenant.
+export {
+  proposeAgentAction,
+  transitionAgentAction,
+  clearAgentActionDetails,
+  expireAgentActions,
+  blankFieldInAgentActions,
+  countFieldAgentActions,
+} from "./agentActions";
+export type { AgentProposal, AgentTransition, TransitionError } from "./agentActions";
 export type { SendClaimArgs, SendClaimOutcome } from "./lifecycleSend";
 export type { RateLimitConfig } from "./rateLimit";

@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { EmailEventType } from "@/lib/types/emailEvent";
+import type { ContactPersonId } from "@/lib/ontology/person";
 
 /**
  * Mandrill webhook plumbing: signature verification + payload parsing. Mandrill
@@ -105,6 +106,11 @@ export interface EventMetadata {
   connectionId?: string;
   /** A product journey's email that named its enrolment (LIFECYCLE_SEND_TRACKING; see `enrolmentSendMetadata`). */
   enrolmentId?: string;
+  /**
+   * The person (a `ct_` id), from the send record or the enrolment. Internal only: never sent
+   * to Mandrill or read from its metadata (readEventMetadata and readEnrolmentSendRef leave it out).
+   */
+  personId?: ContactPersonId;
 }
 
 /**

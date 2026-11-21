@@ -1,14 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { forTenant } from "@/lib/tenant";
 import type { ProductUser } from "@/lib/types/productUser";
+import { personIdForProductUser } from "@/lib/ontology/personRef";
 import { enrolmentDocId, enrolOnSignup } from "./enrol";
 import { updateLifecycleDelivery } from "./service";
 import { CONNECTION_ID, T0, ctx, publishOnboarding, seedUser, seedWorld, system } from "./testing/fixtures";
 
 const HOUR = 3600_000;
 const iso = (ms: number) => new Date(ms).toISOString();
-const connection = { id: CONNECTION_ID, status: "active" as const };
+const connection = { id: CONNECTION_ID, status: "active" as const, kind: "custom" as const };
 
 async function setup(mode: "live" | "test" = "live", signedUpAt = iso(T0)) {
   const db = new FakeFirestore();
@@ -101,5 +102,28 @@ describe("consent-only journeys (LIFECYCLE_CONSENT_AT_SEND)", () => {
     delete process.env.LIFECYCLE_CONSENT_AT_SEND;
     const { db, user } = await consentOnly("none");
     expect(await enrolOnSignup(system, connection, [user], { db, nowMs: T0 + HOUR })).toEqual({ enrolled: 1 });
+  });
+});
+
+describe("the person on a sign-up enrolment (ONTOLOGY_PERSON_IDS_ENABLED)", () => {
+  beforeEach(() => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("writes the person from the connection it was handed, with no read of it", async () => {
+    const { db, user, enrolment } = await setup();
+    const before = db.collectionCalls("product_connections");
+    expect(await enrolOnSignup(system, connection, [user], { db, nowMs: T0 + HOUR })).toEqual({ enrolled: 1 });
+    expect(db.collectionCalls("product_connections")).toBe(before);
+    expect((await enrolment())?.personId).toBe(personIdForProductUser(system.tenantId, user, connection));
+  });
+
+  it("writes none for a sandbox's user", async () => {
+    const { db, user, enrolment } = await setup();
+    await enrolOnSignup(system, { ...connection, kind: "sandbox" }, [user], { db, nowMs: T0 + HOUR });
+    expect(await enrolment()).toMatchObject({ status: "active" });
+    expect((await enrolment())?.personId).toBeUndefined();
   });
 });

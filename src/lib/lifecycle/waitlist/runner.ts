@@ -41,6 +41,7 @@ import {
 } from "../enrolmentRun";
 import { isWaitlistEngineEnabled } from "./flags";
 import { pickWaitlistItem } from "./pick";
+import { personIdForSignup } from "@/lib/ontology/personRef";
 
 /**
  * The runner for WAITLIST journeys on the lifecycle engine (engine move D2): a
@@ -305,6 +306,8 @@ async function deliver(s: Scope, d: SendDecision): Promise<DeliverResult> {
   if (claim === "declined") return { kind: "skipped", reason: "declined" };
 
   const shadow = mode === "shadow";
+  // The person (ONTOLOGY_PERSON_IDS_ENABLED): on the send record and the send row, never in the metadata. Shadow mail is nobody's.
+  const personId = shadow ? null : personIdForSignup(ctx.tenantId, signup);
   const result = await (deps.send ?? sendEmail)({
     to,
     subject: email.subject,
@@ -333,6 +336,7 @@ async function deliver(s: Scope, d: SendDecision): Promise<DeliverResult> {
               recipientKind: "signup",
             },
             "waitlist_v2",
+            { db: deps.db, personId },
           ),
         }),
   }).catch(
@@ -356,6 +360,7 @@ async function deliver(s: Scope, d: SendDecision): Promise<DeliverResult> {
           type: "send",
           ts: iso(atMs),
           mandrillMessageId: result.id ?? null,
+          personId,
         },
         deps.db,
       ).catch(() => {});

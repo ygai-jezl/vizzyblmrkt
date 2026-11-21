@@ -77,20 +77,26 @@ export async function createTenant(
 /**
  * Patch mutable fields on an existing tenant document (control-plane). The
  * identity/immutable fields (`id`, `region`, `createdAt`) are stripped from any
- * patch — a tenant can never be re-homed to another region. Stamps `updatedAt`.
- * Used by admin settings, e.g. the per-tenant MailChimp / email-provider config.
+ * patch — a tenant can never be re-homed to another region. So are the
+ * organisation link and the plan copy (`organisationId`, `orgPlan`): only
+ * src/lib/tenant/organisations.ts writes them, in the organisation's
+ * transaction. Stamps `updatedAt`. Used by admin settings, e.g. the per-tenant
+ * MailChimp / email-provider config.
  */
 export async function updateTenantConfig(
   id: string,
-  patch: Partial<Omit<Tenant, "id" | "region" | "createdAt">>,
+  patch: Partial<Omit<Tenant, "id" | "region" | "createdAt" | "organisationId" | "orgPlan">>,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
 ): Promise<void> {
   const {
     id: _i,
     region: _r,
     createdAt: _c,
+    organisationId: _o,
+    orgPlan: _p,
     ...rest
   } = patch as Record<string, unknown>;
-  await getDb()
+  await db
     .collection("tenants")
     .doc(id)
     .update({ ...rest, updatedAt: new Date().toISOString() });

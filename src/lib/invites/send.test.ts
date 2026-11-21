@@ -15,6 +15,8 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { inviteDocId } from "./ids";
 import { createWaveDraft, sendInviteWave } from "./waves";
 import { ctx, seedConnection, seedLaunch, seedSignup } from "./testing/fixtures";
+import { personIdForSignup } from "@/lib/ontology/personRef";
+import { metadataBytes, METADATA_LIMIT_BYTES } from "@/lib/email/mandrillWebhook";
 
 const send = sendEmail as unknown as ReturnType<typeof vi.fn>;
 const noKick = async () => undefined;
@@ -118,5 +120,33 @@ describe("sending an invite", () => {
     expect(html).toContain('bgcolor="#0b1f3a"');
     expect(html).toContain(">Fernlight Co</span>");
     expect(html).toContain("background:#1d4ed8;color:#ffffff;");
+  });
+});
+
+describe("the person on an invite's send (ONTOLOGY_PERSON_IDS_ENABLED)", () => {
+  beforeEach(() => {
+    vi.stubEnv("EMAIL_SEND_RECORDS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+  });
+
+  it("is on the send record and the send row, never in the metadata", async () => {
+    const { db } = await queuedWave();
+    await processEmailJobs(ctx, 25, db);
+    const person = personIdForSignup(ctx.tenantId, { email: "s1@example.test", phone: null });
+    const msg = send.mock.calls[0]![0];
+    expect(Object.keys(msg.metadata)).toEqual(["t", "s"]);
+    expect(JSON.stringify(msg.metadata)).not.toContain("ct_");
+    expect(metadataBytes(msg.metadata)).toBeLessThanOrEqual(METADATA_LIMIT_BYTES);
+    expect(db.raw("email_sends", msg.metadata.s)).toMatchObject({ engine: "invite", signupId: "s1", personId: person });
+    expect(db.dump("email_events")).toEqual([expect.objectContaining({ type: "send", personId: person })]);
+  });
+
+  it("is not written while the switch is off", async () => {
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "false");
+    const { db } = await queuedWave();
+    await processEmailJobs(ctx, 25, db);
+    expect(db.dump("email_sends")[0]).not.toHaveProperty("personId");
+    expect(db.dump("email_events")[0]).not.toHaveProperty("personId");
   });
 });

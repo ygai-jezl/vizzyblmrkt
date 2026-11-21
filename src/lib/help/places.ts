@@ -1,13 +1,22 @@
+import { isPlansUiEnabled } from "@/lib/plans/flags";
+
 /**
  * Which help page explains the admin page you're on, for the header's How to
  * button. Most specific first; anything else gets Get set up. Pure and
  * client-safe. help.test.ts checks every target is a real page and section.
  */
 
+/**
+ * /help/plan-and-usage is served only with NEXT_PUBLIC_PLANS_ENABLED (fixed at build time), so
+ * its rules exist only then and the How to button never opens a page that is switched off.
+ */
+const PLANS = isPlansUiEnabled();
+
 const RULES: Array<[RegExp, string]> = [
   [/^\/admin\/?$/, "/help"],
   [/^\/admin\/approvals/, "/help/review-and-approvals"],
-  [/^\/admin\/brands\/new/, "/help#brand"],
+  [/^\/admin\/brands\/new/, PLANS ? "/help/plan-and-usage#brands" : "/help#brand"],
+  ...(PLANS ? [[/^\/admin\/account\/billing/, "/help/plan-and-usage"] as [RegExp, string]] : []),
   [/^\/admin\/launches\/new/, "/help/launch-and-waitlist#create"],
   [/^\/admin\/launches\/[^/]+\/invites/, "/help/invite-your-waitlist"],
   [/^\/admin\/launches\/[^/]+\/(journey|emails|broadcasts)/, "/help/launch-and-waitlist#welcome"],

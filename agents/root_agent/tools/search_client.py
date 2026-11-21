@@ -21,11 +21,19 @@ PATH = "/api/agent/search"
 _TIMEOUT_SECONDS = 30
 MAX_QUERY_CHARS = 500
 
+# The app's kinds (SEARCH_KINDS in src/lib/search/types.ts), then the older names it still takes
+# (SEARCH_KIND_ALIASES). src/lib/search/vizzyKinds.test.ts keeps the two lists in step.
 KINDS = (
-    "article", "newsletter", "ebook", "post", "idea", "template", "journey_email", "broadcast",
+    "article", "newsletter", "ebook", "post", "idea_board", "template", "journey_email", "broadcast",
     "brand_kit", "subject", "situation", "question", "note", "research", "knowledge", "competitor",
-    "repo_map", "image",
+    "repo_map", "image", "learned",
+    "idea",
 )
+
+# Kinds sent under an older name that every version of the app takes: one older than piece 0a
+# knows only "idea", and 0a or later takes both names. A later change sends "idea_board" itself,
+# once every environment runs 0a or later.
+_SEND_AS = {"idea_board": "idea"}
 
 _OFF = "Search isn't switched on in this environment yet."
 _NO_LINK = "I can't reach the app from this chat yet. Please send that again."
@@ -77,7 +85,11 @@ def search_brand(state: "dict | None", query: str, kinds: "list[str] | None" = N
     if not q:
         return {"status": "error", "code": "invalid_input", "message": _ERRORS["invalid_input"]}
     body: dict = {"query": q}
-    wanted = [k for k in (kinds or []) if k in KINDS]
+    wanted: list = []
+    for k in kinds or []:
+        sent = _SEND_AS.get(k, k) if k in KINDS else None
+        if sent and sent not in wanted:
+            wanted.append(sent)
     if wanted:
         body["kinds"] = wanted
     status_code, body_text = _request("POST", base + PATH, token, body)

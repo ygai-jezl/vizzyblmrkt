@@ -1,3 +1,5 @@
+import type { ContactPersonId } from "@/lib/ontology/person";
+
 /**
  * One email sent to one person (`email_sends`, the brand's regional database): who and what it
  * was, so Mandrill's events come back to it from a short id, and (EMAIL_ENGAGEMENT_DETAIL_ENABLED)
@@ -35,6 +37,8 @@ export interface EmailSend extends EmailEngagement {
   recipientKind?: "signup" | "product_user";
   connectionId?: string;
   enrolmentId?: string;
+  /** The person (a `ct_` id), written with the record (ONTOLOGY_PERSON_IDS_ENABLED). Never sent to Mandrill. */
+  personId?: ContactPersonId;
   /** Mandrill's id for the message, from the first event that names it. */
   mandrillMessageId?: string | null;
   createdAt: string;

@@ -1,6 +1,7 @@
 import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
 import { isOneViewEnabled } from "@/lib/audience/flags";
 import { isSearchUiEnabled } from "@/lib/search/flags";
+import { isPlansUiEnabled } from "@/lib/plans/flags";
 
 /**
  * The /help pages, in reading order: one list for the help navigation, the
@@ -23,7 +24,7 @@ export interface HelpPage {
    * A page about a switched-off feature: listed and served only while its switch is on.
    * The switches are read on the server, so client lists (⌘K) leave these pages out.
    */
-  onlyWhen?: "site_signups" | "audience_one_view" | "search";
+  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans";
 }
 
 /** Navigation headings, matching Home's stages. */
@@ -48,6 +49,13 @@ const page = (slug: string, label: string, group: HelpGroup, summary: string, on
 
 export const HELP_PAGES: HelpPage[] = [
   page("", "Get set up", "start", "The five setup stages in order, what each one unlocks, and where the order matters."),
+  page(
+    "plan-and-usage",
+    "Plan and usage",
+    "start",
+    "See your plan, the brands on it and what is counted, and what happens at a limit.",
+    "plans",
+  ),
   page("email-sending", "Email sending", "ready", "Verify the domain you send from, then add your From address, privacy policy link and postal address."),
   page("your-brand", "Your brand", "ready", "Add your logo, colours and fonts, and write your brand voice so everything Vizzy writes sounds like you."),
   page("email-style", "Email style", "ready", "Give every email your logo, colours and fonts."),
@@ -84,6 +92,7 @@ export function isHelpPageShown(p: Pick<HelpPage, "onlyWhen">): boolean {
   if (p.onlyWhen === "site_signups") return isSiteSignupsEnabled();
   if (p.onlyWhen === "audience_one_view") return isOneViewEnabled();
   if (p.onlyWhen === "search") return isSearchUiEnabled();
+  if (p.onlyWhen === "plans") return isPlansUiEnabled();
   return true;
 }
 

@@ -87,6 +87,7 @@ env:
   #     VIZZY_MEMORY_BANK_ID                                        infra/agent/setup.sh memory prints it
   #     GRANTED_ONLY_FEATURES                                       features only for brands granted them
   #     FEATURE_MONTHLY_LIMITS                                      next_up=100,competitor_articles=200
+  #     PLANS_NEW_ORGANISATION_PLAN                                 free (unset: self_hosted, everything open)
   #     DATAFORSEO_USERNAME, DATAFORSEO_PASSWORD                    secrets, with SIGNALS_DATAFORSEO_ENABLED
   #   Connections
   #     GITHUB_APP_ID, GITHUB_APP_SLUG, GITHUB_APP_CLIENT_ID        your read only GitHub App
@@ -197,6 +198,20 @@ env:
   - variable: ORDER_GUARDS_ENABLED
     value: "false"
     availability:
+      - RUNTIME
+
+  # == Organisations and plans ==
+  # Organisations and plans (src/lib/plans): an organisation above brands with a plan. Off, a
+  # copy is self-hosted: every brand may use every feature its switch turns on, as today.
+  - variable: PLANS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Settings, Plan and usage, and its help page.
+  - variable: NEXT_PUBLIC_PLANS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
       - RUNTIME
 
   # == Waitlists and invites ==
@@ -348,6 +363,11 @@ env:
     availability:
       - RUNTIME
   - variable: AUDIENCE_ONE_VIEW_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # The person on every event, send, enrolment and plan, found when it is written. Needs AUDIENCE_PERSON_LINKS_ENABLED.
+  - variable: ONTOLOGY_PERSON_IDS_ENABLED
     value: "false"
     availability:
       - RUNTIME
@@ -692,6 +712,13 @@ env:
       - RUNTIME
   # Vizzy's search_brand tool (needs SEARCH_ENABLED and a redeployed agent).
   - variable: VIZZY_SEARCH_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Write Idea Board items to the index as idea_board, not idea (needs SEARCH_INDEX_ENABLED).
+  # Reads take both names. Before any revert: turn it off, then move every brand back with
+  # scripts/search-backfill.ts --apply and wait for it to end with no failures (ADR-0008).
+  - variable: SEARCH_KIND_IDEA_BOARD_ENABLED
     value: "false"
     availability:
       - RUNTIME

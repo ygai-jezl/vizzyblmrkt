@@ -41,6 +41,7 @@ import {
   lifecycleModeCeiling,
 } from "./flags";
 import { continueToNextJourneys, followersOf, type Follower } from "./chain";
+import { personIdForProductUser } from "@/lib/ontology/personRef";
 import { sweepGoLive } from "./goLive";
 import { sweepDateStarts } from "./dateStart";
 import { COUNTER_TTL_MS, counterDocId, utcDayKey } from "./enrol";
@@ -52,6 +53,7 @@ import { prepareDraft, prepareDueDrafts, type PrepareDeps, type PrepareResult } 
 import { runWaitlistTick } from "./waitlist/tick";
 import { isPersonLinksEnabled } from "@/lib/audience/flags";
 import { sweepPeople } from "@/lib/audience/personSweep";
+import { repairPendingMoves } from "@/lib/ontology/moves";
 import { isWaitlistEngineEnabled } from "./waitlist/flags";
 import { isEntitiesEnabled } from "@/lib/connect/v2/flags";
 import { dateStartOf, JOURNEY_ABOUT_DEFAULT } from "@/lib/types/lifecycle";
@@ -395,6 +397,7 @@ export async function processEnrolment(
                   entityId: leased.entityId ?? null,
                   consentPolicy: connection.consentPolicy,
                   followers: await cache.followersOf(journey),
+                  connection,
                 },
                 { db: deps.db, nowMs: clock() },
               );
@@ -629,6 +632,8 @@ async function deliver(
   const version: "standard" | "ai" | "fallback" = !isAi ? "standard" : useAi ? "ai" : "fallback";
   const fallbackNote = v?.version === "fallback" ? v.reason : null;
   const insightId = v?.version === "ai" ? v.insightId : standard.insightUsed ? (standardInsight?.id ?? null) : null;
+  // The person as they are now (ONTOLOGY_PERSON_IDS_ENABLED): on the send record and the send row, never in the metadata.
+  const personId = personIdForProductUser(ctx.tenantId, user, connection);
 
   const result = await (deps.send ?? sendEmail)({
     to,
@@ -662,6 +667,7 @@ async function deliver(
                   connectionId: connection.id,
                 },
                 "lifecycle",
+                { db: deps.db, personId },
               ),
         }),
     ...(links.apiUrl ? { listUnsubscribe: { url: links.apiUrl, oneClick: true } } : {}),
@@ -696,6 +702,7 @@ async function deliver(
           type: "send",
           ts: iso(atMs),
           mandrillMessageId: result.id ?? null,
+          personId,
         },
         deps.db,
       ).catch(() => {});
@@ -922,6 +929,8 @@ export async function runLifecycleTick(
         total.people.synced += p.synced;
         total.people.checked += p.checked;
         total.people.failed += p.failed;
+        // Person moves whose repoint job was lost go back in the queue (ONTOLOGY_PERSON_IDS_ENABLED).
+        await repairPendingMoves(ctx, { db: deps.db, now: clock() });
       } catch (err) {
         console.warn(`[lifecycle] tenant ${t.id} (${t.region}) person sweep failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
       }

@@ -36,6 +36,9 @@ import {
 import { isDateFactsEnabled, isEntitiesEnabled, isQuietUnchangedWritesEnabled } from "./flags";
 import { personAfterProductErase, personAfterProductWrites, previousPersonKey } from "@/lib/audience/personHooks";
 import { dateFactIds } from "../dateFacts";
+import { personIdForProductUser, personStamp } from "@/lib/ontology/personRef";
+import { ontologyAfterProductWrites } from "@/lib/ontology/moves";
+import { forgetGonePersonHistory } from "@/lib/ontology/erase";
 
 /**
  * API v2 operations — what the routes do once the caller is authenticated.
@@ -62,8 +65,17 @@ type WriteOutcome =
    * `quiet`: the write changed nothing and left no Events row.
    * `newEntities`: entities this write added (they fire `entity.created`).
    * `previousKey`: the person they belonged to before the write (their address may have changed).
+   * `messageId`: the write's own id, which names its person move when there is one.
    */
-  | { kind: "applied"; user: ProductUser; consentGranted: boolean; quiet: boolean; newEntities: Array<{ id: string; kind: string }>; previousKey: string | null }
+  | {
+      kind: "applied";
+      user: ProductUser;
+      consentGranted: boolean;
+      quiet: boolean;
+      newEntities: Array<{ id: string; kind: string }>;
+      previousKey: string | null;
+      messageId: string;
+    }
   | { kind: "skipped"; reason: "stale_write" | "deleted_later"; storedUpdatedAt: string | null; user: ProductUser | null }
   | { kind: "invalid"; fields: Array<{ path: string; message: string }> };
 
@@ -129,13 +141,18 @@ async function writeUser(
         // A re-sync resending the same state leaves no row (the tab counts those),
         // unless fields were left as they were: that's worth seeing.
         if (wasApplied && unchanged && ignoredFields.length === 0 && isQuietUnchangedWritesEnabled()) return null;
-        const skipped = result && "skipped" in result ? result.skipped : null;
+        const r = result as PatchResult | null;
+        const skipped = r && "skipped" in r ? r.skipped : null;
         // After an erasure, a late write keeps no user id or data, only that it came.
         const erased = skipped === "deleted_later";
+        // The person, from the state the write left (or found), with no extra read. None after an erasure.
+        const state = (r && "next" in r ? r.next : null) ?? (seen as ProductUser | null);
+        const person = erased ? null : personIdForProductUser(ctx.tenantId, { id: userDocId, emailNormalized: state?.emailNormalized ?? null }, connection);
         return {
           connectionId: connection.id,
           productUserId: erased ? "" : userDocId,
           externalUserId: erased ? "" : userId,
+          ...personStamp(person),
           messageId,
           type: "identify",
           event: null,
@@ -167,14 +184,22 @@ async function writeUser(
   const newEntities = Object.entries(applied.user.entities ?? {})
     .filter(([id]) => !had[id])
     .map(([id, e]) => ({ id, kind: e.kind }));
-  return { kind: "applied", user: applied.user, consentGranted, quiet, newEntities, previousKey: previousPersonKey(before) };
+  return { kind: "applied", user: applied.user, consentGranted, quiet, newEntities, previousKey: previousPersonKey(before), messageId };
 }
 
 /** Enrolment, invites, diagnostics and health for the writes that applied. Never throws. */
 async function afterWrites(
   ctx: TenantContext,
   connection: ProductConnection,
-  writes: Array<{ user: ProductUser; patch: UserPatch; consentGranted?: boolean; quiet?: boolean; newEntities?: Array<{ id: string; kind: string }>; previousKey?: string | null }>,
+  writes: Array<{
+    user: ProductUser;
+    patch: UserPatch;
+    consentGranted?: boolean;
+    quiet?: boolean;
+    newEntities?: Array<{ id: string; kind: string }>;
+    previousKey?: string | null;
+    messageId?: string;
+  }>,
   rejected: IngestSummary["rejected"],
   nowMs: number,
   db?: FirestoreLike,
@@ -225,6 +250,8 @@ async function afterWrites(
   }
   // Their person record: the product's link, and the move when their address changed.
   await personAfterProductWrites(ctx, connection, writes, { db, nowMs });
+  // Their rows follow them to the new person (ONTOLOGY_PERSON_IDS_ENABLED): the move, and the job that does it.
+  await ontologyAfterProductWrites(ctx, connection, writes, { db, nowMs });
   const observedTraits = new Map<string, string>();
   for (const w of writes) {
     for (const [k, v] of Object.entries(w.patch.traits ?? {})) observedTraits.set(k, v === null ? "null" : typeof v);
@@ -258,7 +285,14 @@ export async function patchUser(
     const live = w.user && w.user.status === "active" ? userStateOf(w.user) : undefined;
     return { applied: false, reason: w.reason, storedUpdatedAt: w.storedUpdatedAt, ...(live ? { user: live } : {}) };
   }
-  await afterWrites(ctx, connection, [{ user: w.user, patch, consentGranted: w.consentGranted, quiet: w.quiet, newEntities: w.newEntities, previousKey: w.previousKey }], [], nowMs, deps.db);
+  await afterWrites(
+    ctx,
+    connection,
+    [{ user: w.user, patch, consentGranted: w.consentGranted, quiet: w.quiet, newEntities: w.newEntities, previousKey: w.previousKey, messageId: w.messageId }],
+    [],
+    nowMs,
+    deps.db,
+  );
   return { applied: true, user: userStateOf(w.user) };
 }
 
@@ -271,7 +305,15 @@ export async function patchBatch(
 ): Promise<BatchResponse> {
   const nowMs = deps.nowMs ?? Date.now();
   const out: BatchResponse = { applied: 0, ignored: 0, failed: 0, results: [] };
-  const writes: Array<{ user: ProductUser; patch: UserPatch; consentGranted: boolean; quiet: boolean; newEntities: Array<{ id: string; kind: string }>; previousKey: string | null }> = [];
+  const writes: Array<{
+    user: ProductUser;
+    patch: UserPatch;
+    consentGranted: boolean;
+    quiet: boolean;
+    newEntities: Array<{ id: string; kind: string }>;
+    previousKey: string | null;
+    messageId: string;
+  }> = [];
   const rejected: IngestSummary["rejected"] = [];
   const dateFacts = isDateFactsEnabled() ? dateFactIds(connection.catalog) : undefined;
   for (const [index, raw] of items.slice(0, V2_LIMITS.maxBatch).entries()) {
@@ -296,7 +338,15 @@ export async function patchBatch(
       const w = await writeUser(ctx, connection, userId, parsed.patch, nowMs, deps.db, parsed.ignoredFields.map((f) => f.path));
       if (w.kind === "applied") {
         out.applied += 1;
-        writes.push({ user: w.user, patch: parsed.patch, consentGranted: w.consentGranted, quiet: w.quiet, newEntities: w.newEntities, previousKey: w.previousKey });
+        writes.push({
+          user: w.user,
+          patch: parsed.patch,
+          consentGranted: w.consentGranted,
+          quiet: w.quiet,
+          newEntities: w.newEntities,
+          previousKey: w.previousKey,
+          messageId: w.messageId,
+        });
         if (parsed.ignoredFields.length) out.results.push({ index, userId, status: "applied", reason: "fields_ignored", fields: parsed.ignoredFields });
       } else if (w.kind === "skipped") {
         out.ignored += 1;
@@ -366,6 +416,8 @@ export async function deleteUser(
   await eraseProductUserHistory(ctx, id, deps.db);
   if (user?.status === "active" && user.emailNormalized) await scrubSuppressionEmails(ctx, user.emailNormalized, deps.db);
   await personAfterProductErase(ctx, previousPersonKey(user), { db: deps.db, nowMs });
+  // Their person's event history and agent actions, when the person record went with them.
+  await forgetGonePersonHistory(ctx, previousPersonKey(user), { db: deps.db });
   // The Events tab shows that an erasure arrived — without the user id.
   const messageId = `v2:erase:${randomUUID()}`;
   const now = new Date(nowMs).toISOString();
@@ -419,17 +471,24 @@ export async function recordUserEvent(
   const msg = { type: "track" as const, messageId, userId, timestamp, event: body.event, properties: body.properties ?? {} };
   const entityId = isEntitiesEnabled() ? (body.entityId ?? null) : null;
   const userDocId = productUserDocId(connection.id, userId);
+  let held: ProductUser | null = null;
   const result = await applyProductMessage(
     ctx,
     {
       eventId: productEventDocId(connection.id, messageId),
       userDocId,
-      mutate: (current) =>
-        !current || current.status !== "active" ? { reject: "not_found" } : applyMessage(current, msg, { connection, nowMs }),
+      mutate: (current) => {
+        held = current;
+        return !current || current.status !== "active" ? { reject: "not_found" } : applyMessage(current, msg, { connection, nowMs });
+      },
       buildEvent: (applied) => ({
         connectionId: connection.id,
         productUserId: userDocId,
         externalUserId: userId,
+        // The person, from the user the write found: a milestone never changes their address.
+        ...personStamp(
+          personIdForProductUser(ctx.tenantId, { id: userDocId, emailNormalized: (held as ProductUser | null)?.emailNormalized ?? null }, connection),
+        ),
         messageId,
         type: "track",
         event: body.event,

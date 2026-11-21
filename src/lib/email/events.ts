@@ -1,6 +1,8 @@
 import { forTenant, TenantIsolationError } from "@/lib/tenant";
 import type { TenantContext, FirestoreLike } from "@/lib/tenant/types";
 import type { EmailEventType } from "@/lib/types/emailEvent";
+import type { ContactPersonId } from "@/lib/ontology/person";
+import { personStamp } from "@/lib/ontology/personRef";
 
 /**
  * Record one email engagement event (tenant-scoped `email_events`). Idempotent +
@@ -24,6 +26,8 @@ export interface RecordEventInput {
   ts: string;
   mandrillMessageId?: string | null;
   url?: string | null;
+  /** The person (a `ct_` id), written on the row while ONTOLOGY_PERSON_IDS_ENABLED is on. Not part of the id. */
+  personId?: ContactPersonId | null;
 }
 
 /** What every event of one email shares: the event id without its type (and the send record's key). */
@@ -64,6 +68,7 @@ export async function recordEmailEvent(
       mandrillMessageId: input.mandrillMessageId ?? null,
       ts: input.ts,
       url: input.url ?? null,
+      ...personStamp(input.personId),
       createdAt: now,
     });
     return "recorded";

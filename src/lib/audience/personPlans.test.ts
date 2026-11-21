@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { forTenant } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
@@ -17,6 +17,7 @@ import { loadPersonBrief } from "./personBrief";
 import { personScrubber } from "./identityScrubber";
 import { approvePlan, dropPlan, getPersonPlan, personPlanDocId, planGuidance, savePlanDraft } from "./personPlans";
 import { loadPersonRecord } from "./personRecord";
+import { personIdForProductUser } from "@/lib/ontology/personRef";
 
 const MIN = 60_000;
 const HOUR = 3600_000;
@@ -240,5 +241,49 @@ describe("an approved plan steers the person's AI line", () => {
     // With plans off the prompt is, to the letter, the one written with no plan at all.
     expect(off.prompts[0]).toBe(none.prompts[0]);
     expect(off.draft.planAt ?? null).toBeNull();
+  });
+});
+
+describe("the person on a plan (ONTOLOGY_PERSON_IDS_ENABLED)", () => {
+  beforeEach(() => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  async function person(db: FakeFirestore, user: { id: string; emailNormalized?: string | null }) {
+    const connection = await forTenant(system, db).productConnections.getById(CONNECTION_ID);
+    return personIdForProductUser(system.tenantId, user, connection);
+  }
+
+  it("is written on a new plan drafted by a team member", async () => {
+    const { db, user } = world();
+    const saved = await savePlanDraft(ctx, user.id, PLAN, { db, nowMs: T0, by: "human" });
+    expect(saved.ok && saved.value.personId).toBe(await person(db, user));
+    expect((await getPersonPlan(ctx, user.id, db))?.personId).toMatch(/^ct_/);
+  });
+
+  it("is written on a new plan Vizzy drafts", async () => {
+    const { db, user } = world();
+    await savePlanDraft(agent, user.id, PLAN, { db, nowMs: T0, by: "agent" });
+    expect((await getPersonPlan(ctx, user.id, db))?.personId).toBe(await person(db, user));
+  });
+
+  it("is not changed by a later draft: a move is the repoint job's", async () => {
+    const { db, user } = world();
+    await savePlanDraft(ctx, user.id, PLAN, { db, nowMs: T0, by: "human" });
+    const first = (await getPersonPlan(ctx, user.id, db))?.personId;
+    await forTenant(system, db).productUsers.update(user.id, { emailNormalized: "priya@elsewhere.test", email: "priya@elsewhere.test" });
+    await savePlanDraft(ctx, user.id, { ...PLAN, goal: "Run their first report" }, { db, nowMs: T0 + MIN, by: "human" });
+    expect((await getPersonPlan(ctx, user.id, db))?.personId).toBe(first);
+  });
+
+  it("is not written, and the connection not read for a team member, while the switch is off", async () => {
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "false");
+    const { db, user } = world();
+    const before = db.collectionCalls("product_connections");
+    await savePlanDraft(ctx, user.id, PLAN, { db, nowMs: T0, by: "human" });
+    expect(db.collectionCalls("product_connections")).toBe(before);
+    expect(await getPersonPlan(ctx, user.id, db)).not.toHaveProperty("personId");
   });
 });

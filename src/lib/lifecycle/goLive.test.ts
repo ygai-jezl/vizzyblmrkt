@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { forTenant } from "@/lib/tenant";
 import type { DeliveryMode, LifecycleSettings } from "@/lib/types/lifecycle";
+import { personIdForProductUser } from "@/lib/ontology/personRef";
 import { enrolmentDocId, enrolUser } from "./enrol";
 import { sweepGoLive } from "./goLive";
 import { updateLifecycleDelivery } from "./service";
@@ -107,5 +108,37 @@ describe("the go-live sweep (LIFECYCLE_GO_LIVE_SWEEP)", () => {
     expect(await w.sweep(T0 + HOUR)).toEqual({ journeys: 0, enrolled: 0 });
     expect(await w.enrolled(w.recent)).toBe(false);
     expect(await w.marker()).toMatchObject({ status: "done" });
+  });
+});
+
+describe("the person on a go-live enrolment (ONTOLOGY_PERSON_IDS_ENABLED)", () => {
+  beforeEach(() => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("reads the connection once per journey swept, and writes the person on every enrolment", async () => {
+    const w = await setup("test");
+    const more = [signUp(w.db, "second", T0 + 60_000), signUp(w.db, "third", T0 + 120_000)];
+    expect((await w.setMode("live", T0 + 2 * HOUR)).ok).toBe(true);
+    const connection = await w.repo.productConnections.getById(w.journey.connectionId);
+    const before = w.db.collectionCalls("product_connections");
+    expect(await w.sweep(T0 + 3 * HOUR)).toEqual({ journeys: 1, enrolled: 3 });
+    expect(w.db.collectionCalls("product_connections")).toBe(before + 1);
+    for (const u of [w.recent, ...more]) {
+      const e = await w.repo.lifecycleEnrolments.getById(enrolmentDocId(w.journey.id, u.id));
+      expect(e?.personId).toBe(personIdForProductUser(system.tenantId, u, connection));
+    }
+  });
+
+  it("reads no connection while the switch is off", async () => {
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "false");
+    const w = await setup("test");
+    expect((await w.setMode("live", T0 + 2 * HOUR)).ok).toBe(true);
+    const before = w.db.collectionCalls("product_connections");
+    await w.sweep(T0 + 3 * HOUR);
+    expect(w.db.collectionCalls("product_connections")).toBe(before);
+    expect(await w.repo.lifecycleEnrolments.getById(enrolmentDocId(w.journey.id, w.recent.id))).not.toHaveProperty("personId");
   });
 });

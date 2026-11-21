@@ -3,6 +3,7 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { METADATA_LIMIT_BYTES, fitMetadata, metadataBytes, type MandrillEvent } from "./mandrillWebhook";
 import { attributionOfSend, readSendRef, readTenantTag, sendIdOf, sendMetadata, transactionalTag } from "./sends";
+import { personIdForAddress } from "@/lib/ontology/personRef";
 
 // Made-up brand and people. The longest ids the app makes: tenant `ten_` + 40, launch slugs of 60,
 // canvas node `email_<uuid>`, signup/enrolment/product user `xxx_` + 40.
@@ -87,6 +88,55 @@ describe("sendMetadata", () => {
   it("falls back to the long form when the record can't be written", async () => {
     const broken = { collection: () => ({ doc: () => ({}) }), runTransaction: async () => Promise.reject(new Error("down")) } as unknown as FirestoreLike;
     expect(await sendMetadata(ctx, longWaitlist, "waitlist_v2", { db: broken })).toBe(longWaitlist);
+  });
+});
+
+describe("the person on a send record (ONTOLOGY_PERSON_IDS_ENABLED)", () => {
+  const PERSON = personIdForAddress(LONGEST_TENANT, "ada@example.com")!;
+  beforeEach(() => {
+    vi.stubEnv("EMAIL_SEND_RECORDS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("is kept on the record, never in the metadata Mandrill gets, which stays under its limit", async () => {
+    const fake = new FakeFirestore();
+    const db = fake as unknown as FirestoreLike;
+    for (const [long, engine] of [
+      [longWaitlist, "waitlist_v2"],
+      [longLifecycle, "lifecycle"],
+    ] as const) {
+      const meta = await sendMetadata(ctx, long as Record<string, string>, engine, { db, personId: PERSON });
+      expect(Object.keys(meta)).toEqual(["t", "s"]);
+      expect(JSON.stringify(meta)).not.toContain(PERSON);
+      expect(metadataBytes(meta)).toBeLessThanOrEqual(METADATA_LIMIT_BYTES);
+      expect(fake.raw("email_sends", meta.s!)?.personId).toBe(PERSON);
+      expect((await attributionOfSend({ ...ctx, source: "system" }, meta.s!, { db }))?.personId).toBe(PERSON);
+    }
+  });
+
+  it("is never written into the long form either, when the record can't be written", async () => {
+    vi.stubEnv("EMAIL_SEND_RECORDS_ENABLED", "false");
+    const meta = await sendMetadata(ctx, longWaitlist, "waitlist_v2", { db: new FakeFirestore() as unknown as FirestoreLike, personId: PERSON });
+    expect(meta).toBe(longWaitlist);
+    expect(JSON.stringify(meta)).not.toContain("ct_");
+  });
+
+  it("is only written on a new record: a record already there keeps what it has", async () => {
+    const fake = new FakeFirestore();
+    const db = fake as unknown as FirestoreLike;
+    const first = await sendMetadata(ctx, longLifecycle, "lifecycle", { db });
+    await sendMetadata(ctx, longLifecycle, "lifecycle", { db, personId: PERSON });
+    expect(fake.raw("email_sends", first.s!)).not.toHaveProperty("personId");
+  });
+
+  it("is not written while the switch is off", async () => {
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "false");
+    const fake = new FakeFirestore();
+    const meta = await sendMetadata(ctx, longLifecycle, "lifecycle", { db: fake as unknown as FirestoreLike, personId: PERSON });
+    expect(fake.raw("email_sends", meta.s!)).not.toHaveProperty("personId");
+    expect((await attributionOfSend({ ...ctx, source: "system" }, meta.s!, { db: fake as unknown as FirestoreLike }))).not.toHaveProperty("personId");
   });
 });
 

@@ -1,0 +1,1666 @@
+# The YouGrow ontology
+
+Generated from `src/lib/ontology/registry.ts`. Don't edit this file: change the registry, then run `npm run ontology:doc`.
+
+Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one.
+
+90 types: 65 built and 25 planned.
+
+On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
+
+## Idea
+
+Spine step 1. A hypothesis, its site and its waitlist.
+
+### Idea (`idea`)
+
+A business idea being tested: a hypothesis with its waitlist, its questions and its emails. Called a launch in the app today; piece D renames it, and the data stays in `campaigns`.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `campaigns`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `signup` through signups.campaignId (many); `site_key` through launch_site_keys, by launch id; `launch_journey` through journeys.campaignId; `broadcast` through broadcasts.campaignId (many); `invite` through invites.campaignId (many); `knowledge` through campaigns/{campaignId}/knowledge_bases (many)
+- States: `active`, `archived`
+- Erase:
+  - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch
+- Export: none. The brand's own settings, with no one's personal data.
+- Search: none. Found by name on the Launches screen; what it sends is searched as broadcasts and journey emails.
+- Numbers: gap. People counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`).
+
+### Site key (`site_key`)
+
+The key a brand's own site uses to send sign-ups to one launch, sealed, with its lookup in the control plane.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `launch_site_keys`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `launch_keys`, control plane Firestore, in `src/lib/tenant/launchKeys.ts`. The lookup from key id to brand, no secret.
+- Links: `idea` through the launch id
+- Erase:
+  - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch
+  - `deleteLaunchKey` in `src/lib/tenant/launchKeys.ts`, on removing the record
+- Export: none. A sealed secret, never exported.
+- Search: none. A secret, never searched.
+- Numbers: none. No numbers an agent reads.
+
+### Sign-up (`signup`)
+
+One person joining one launch's waitlist: their address or phone, answers, referral and consent. An identity of a person.
+
+- Status: built
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Stores:
+  - `signups`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `signups`, BigQuery, in `extensions/fsbq-signups-us.env`. Dataset waitlist_us, mirrored from Firestore by the firestore-bigquery-export extension.
+  - `signups`, BigQuery, in `extensions/fsbq-signups-eu.env`. Dataset waitlist_eu, mirrored from Firestore by the firestore-bigquery-export extension.
+  - `signups`, BigQuery, in `extensions/fsbq-signups-asia.env`. Dataset waitlist_asia, mirrored from Firestore by the firestore-bigquery-export extension.
+- Links: `idea` through campaignId; `person` through contacts.campaigns[].signupId
+- Events: `signup.joined`, `signup.confirmed`, `signup.referred`, `signup.left`
+- States: `unverified`, `verified_active`, `offboarded`, `deleted`
+- Erase:
+  - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export
+  - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch
+  - Gap: the BigQuery changelog mirror keeps a row's values after the row is erased in Firestore
+- Export:
+  - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on)
+- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
+- Numbers: gap. People counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`).
+
+### Invite (`invite`)
+
+An invite from a launch's waitlist into the product: one per person per launch, holding a hash of the address, never the address.
+
+- Status: built
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Stores:
+  - `invites`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `signup` through signupId; `product_user` through productUserId; `invite_wave` through waveId
+- Events: `signup.invited`
+- Erase:
+  - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export
+  - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export (keeps the invite and drops its link to the product user)
+  - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch
+- Export:
+  - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on)
+- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
+- Numbers: none. Invite counts show on the launch's Invite screen; no agent reads them yet.
+
+### Invite wave (`invite_wave`)
+
+A batch of invites a launch sends together.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `invite_waves`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `idea` through campaignId
+- Erase:
+  - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch
+  - `removeWave` in `src/lib/invites/adminApi.ts`, on removing the record
+- Export: none. The brand's own work, with no one's personal data.
+- Search: none. A batch setting, not text.
+- Numbers: none. No numbers an agent reads.
+
+### Launch email journey (`launch_journey`)
+
+The older email sequence a launch sends its sign-ups, one per launch, drawn on the Journey Canvas.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `journeys`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `idea` through campaignId
+- Erase:
+  - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch
+- Export: none. The brand's own work, with no one's personal data.
+- Search: none. The older launch sequences are not read into search; journeys on the lifecycle engine are.
+- Numbers: none. Its emails are counted as email sends.
+
+## Signals
+
+Spine step 2. What happened, credited to an idea where there is one.
+
+### Email send (`email_send`)
+
+One email sent to one person, and everything that happened to it: delivery, opens, clicks, bounces, complaints and unsubscribes.
+
+- Status: built
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Stores:
+  - `email_sends`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `signup` through signupId (a sign-up id, or a product user id for product journeys); `idea` through campaignId; `enrolment` through enrolmentId
+- Events: `email.sent`, `email.delivered`, `email.opened`, `email.clicked`, `email.bounced`, `email.soft_bounced`, `email.complained`, `email.rejected`, `email.unsubscribed`
+- Person fields: `signupId` (written with the row), `personId` (written with the row)
+- Erase:
+  - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export
+  - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export
+  - Gap: deleting a launch removes its sign-ups but leaves their rows here
+  - Gap: while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)
+- Export:
+  - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on)
+  - `exportPerson` in `src/lib/audience/personExport.ts`, on a product user's erase or export
+- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
+- Numbers: `sends`, `delivered`, `people`, `deliveryRate`, `uniqueOpens`, `uniqueClicks`, `openRate`, `clickRate`, `totalOpens`, `totalClicks`, `hardBounces`, `softBounces`, `deferrals`, `complaints`, `unsubscribes`, through `get_email_results`
+
+### Email event (`email_event`)
+
+One kind of thing that happened to an email for one person (sent, opened, clicked, bounced and so on), counted once, from the email provider's webhooks.
+
+- Status: built
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Stores:
+  - `email_events`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `email_events`, BigQuery, in `extensions/fsbq-email-events-us.env`. Dataset waitlist_us, mirrored from Firestore by the firestore-bigquery-export extension.
+  - `email_events`, BigQuery, in `extensions/fsbq-email-events-eu.env`. Dataset waitlist_eu, mirrored from Firestore by the firestore-bigquery-export extension.
+  - `email_events`, BigQuery, in `extensions/fsbq-email-events-asia.env`. Dataset waitlist_asia, mirrored from Firestore by the firestore-bigquery-export extension.
+- Links: `email_send` through the same journey, step, person and arm; `idea` through campaignId
+- Events: `email.sent`, `email.opened`, `email.clicked`, `email.bounced`, `email.soft_bounced`, `email.complained`, `email.rejected`, `email.unsubscribed`
+- Person fields: `signupId` (written with the row), `personId` (written with the row)
+- Erase:
+  - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export
+  - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export
+  - Gap: deleting a launch removes its sign-ups but leaves their rows here
+  - Gap: the BigQuery changelog mirror keeps a row's values after the row is erased in Firestore
+  - Gap: while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)
+- Export:
+  - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on)
+  - `exportPerson` in `src/lib/audience/personExport.ts`, on a product user's erase or export
+- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
+- Numbers: `sends`, `uniqueOpens`, `uniqueClicks`, `openRate`, `clickRate`, `hardBounces`, `softBounces`, `complaints`, `unsubscribes`, through `get_email_results`
+
+### Form view (`widget_view`)
+
+Views of a launch's sign-up form: counts per launch per day, and one row per view in BigQuery with the referrer and campaign tags, never a person.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `widget_view_days`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `widget_views`, BigQuery, in `src/lib/analytics/bigquery.ts`. One table per region's dataset.
+- Links: `idea` through campaignId
+- Erase: none. Counts and page views with no person.
+- Export: none. Counts and page views with no person.
+- Search: none. Numbers, not text.
+- Numbers: gap. Form view counts have no meanings yet (connectors 2).
+
+### Product event count (`product_event_day`)
+
+Accepted product events per connection per day by name, kept after the events themselves expire.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `product_event_days`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `product` through connectionId
+- Erase: none. Counts by event name with no person.
+- Export: none. Counts by event name with no person.
+- Search: none. Numbers, not text.
+- Numbers: gap. Product event counts have no meanings yet (connectors 2).
+
+### Brand signal (`brand_signal`)
+
+Outside numbers about the brand: Google's results for each of its questions, read through DataForSEO.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `brand_signals`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `brand_question` through the question it was searched for
+- Erase: none. Public search results.
+- Export: none. Public search results.
+- Search: `research`
+- Numbers: `googlePosition`, `peopleAlsoAsk`, `aiOverviewSources`, through `get_brand_context`
+
+### Social engagement (`social_event`)
+
+A reply, mention, like or message on one of the brand's social accounts, from the person who made it.
+
+- Status: built
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Stores:
+  - `social_events`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `social_profile` through platform and userId
+- Events: `social.engaged`
+- Erase: gap. A person's erase does not reach social engagement rows (`social_events`).
+- Export: gap. A person's export does not include social engagement rows (`social_events`).
+- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
+- Numbers: none. Not counted for agents yet.
+
+### Post results (`post_result`)
+
+How each published post did: impressions, reactions, comments, shares and clicks, read from the social platform over its first days.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `post_performance`, the brand's regional Firestore, in `src/lib/tenant/postPerformance.ts`
+- Links: `scheduled_post` through the post it measures
+- Erase: none. The brand's own post statistics.
+- Export: none. The brand's own post statistics.
+- Search: none. Numbers; the post's text is searched as a post.
+- Numbers: `impressions`, `likes`, `comments`, `shares`, `reposts`, `quotes`, `bookmarks`, `clicks`, `engagementRate`, `linkedinEngagement`, `publishedAt`, `posts`, through `get_post_results`
+
+### Trending topics (`trending_topic`)
+
+What is being talked about in the brand's area, found with Google Search grounding: one latest set per brand.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `trending_topics`, the brand's regional Firestore, in `src/lib/tenant/trendingTopics.ts`
+- Erase: none. Public topics, overwritten each time.
+- Export: none. Public topics.
+- Search: none. Refreshed often and read by the writer directly.
+- Numbers: none. No numbers an agent reads.
+
+### Competitor (`competitor`)
+
+A competitor the brand watches: their sitemap's pages, their news posts, monthly changes and the findings from articles read in full.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `competitors`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `competitor_pages`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `competitor_posts`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `competitor_changes`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `competitor_articles`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Findings and short quotes, never the article's text.
+- Erase:
+  - `removeCompetitor` in `src/lib/competitors/store.ts`, on removing the record
+  - `removeArticles` in `src/lib/competitors/articles.ts`, on removing the record
+- Export: none. Public pages about another business.
+- Search: `competitor`
+- Numbers: none. No numbers an agent reads.
+
+### Connector stream (`connector_stream`)
+
+Data collected from a connected source on a schedule, as its manifest describes it. Whether a stream holds people's data depends on the source.
+
+- Status: planned, in connectors 2
+- Home: the brand's region
+- Personal: undecided
+- Links: `connector_manifest` through the manifest
+- Erase: none. Decided with its personal flag in connectors 2.
+- Export: none. Decided with its personal flag in connectors 2.
+- Search: none. Planned: connectors 2 decides it with the store.
+- Numbers: none. Its numbers become metric snapshots.
+
+## Product
+
+Spine step 3, and optional: the idea built and connected. Its users are identities of people.
+
+### Product (`product`)
+
+A product connected to the brand: its keys, endpoints, catalog and what has arrived from it so far.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `product_connections`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `connection_keys`, control plane Firestore, in `src/lib/tenant/connectionKeys.ts`. The lookup from key id to brand, no secret.
+  - `connection_diagnostics`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Event names, trait keys and recent rejections.
+- Links: `product_user` through connectionId (many); `catalog` through the connection's catalog; `repo_map` through connectionId (many)
+- Erase:
+  - `deleteConnectionKey` in `src/lib/tenant/connectionKeys.ts`, on removing the record (when the connection's key is replaced or removed)
+- Export: none. The brand's own settings.
+- Search: none. Found on the Connections screen; its product map is searched as repo_map.
+- Numbers: gap. People counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`).
+
+### Catalog (`catalog`)
+
+What a product says about its users: traits, facts, steps and event names. The live catalog sits on the connection, and earlier versions are kept for undo.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `catalog_revisions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `product` through connectionId
+- Erase:
+  - `HISTORY_KEEP` in `src/lib/connect/catalogHistory.ts`, on retention (only the last 20 versions of each catalog are kept)
+  - Gap: keeping 20 versions goes against the owner's rule that settings history has no limit (piece O)
+- Export: none. The brand's own settings.
+- Search: none. Read by Vizzy through the connection, not searched.
+- Numbers: none. No numbers an agent reads.
+
+### Product map (`repo_map`)
+
+What Vizzy learned from a product's code, read only: its screens, entities and steps, proposed as a catalog.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `repo_analyses`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `repo_analyses`, the brand's regional Firestore, in `workers/knowledge-scraper/src/productMap/run.ts`. Written by the knowledge scraper job.
+- Links: `product` through connectionId
+- Erase: none. The brand's own product, described from its code.
+- Export: none. The brand's own work, with no one's personal data.
+- Search: `repo_map`
+- Numbers: none. No numbers an agent reads.
+
+### Product user (`product_user`)
+
+One user of a connected product, built from what the product sends: their address, traits, facts and stage. An identity of a person.
+
+- Status: built
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Stores:
+  - `product_users`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `product` through connectionId; `person` through contacts.products[].productUserId
+- Events: `product.identified`, `product.erased`
+- States: `active`, `deleted`
+- Erase:
+  - `eraseProductUser` in `src/lib/connect/erase.ts`, on a product user's erase or export
+  - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on: their user in every product is erased too)
+  - `TOMBSTONE_TTL_MS` in `src/lib/connect/profile.ts`, on retention (the erased user's tombstone goes 30 days later)
+- Export:
+  - `exportPerson` in `src/lib/audience/personExport.ts`, on a product user's erase or export
+  - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on)
+- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
+- Numbers: gap. People counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`).
+
+### Product event (`product_event`)
+
+One identify or track message a product sent about one of its users, kept 90 days for the debugger and journeys.
+
+- Status: built
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Stores:
+  - `product_events`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `product_user` through productUserId; `product` through connectionId
+- Events: `product.identified`, `product.tracked`, `product.erased`
+- Person fields: `productUserId` (written with the row), `personId` (written with the row)
+- Erase:
+  - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export
+  - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on: their user in every product is erased too)
+  - `EVENT_TTL_MS` in `src/lib/connect/ingest.ts`, on retention (each event goes 90 days after it arrives)
+  - Gap: while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)
+- Export:
+  - `exportPerson` in `src/lib/audience/personExport.ts`, on a product user's erase or export
+  - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on)
+- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
+- Numbers: gap. Product event counts have no meanings yet (connectors 2).
+
+### Product webhook (`product_webhook`)
+
+A signed message waiting to go to a product, such as a user's email preference change or a suppression, retried until it expires.
+
+- Status: built
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Stores:
+  - `lifecycle_webhooks`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Carries the product's own user id, never an address.
+- Links: `product` through connectionId
+- Erase: gap. A product user's erase leaves webhooks still waiting to go; each expires after its retries.
+- Export: gap. Not in a person's export: a webhook only carries a change on its way to the product.
+- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
+- Numbers: none. No numbers an agent reads.
+
+### Group (`group`)
+
+A workspace, team or household inside a product, as a shared record with members and fields.
+
+- Status: planned, in G
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Links: `person` through members (many)
+- Erase: gap. Planned: piece G erases and exports a person's memberships with them.
+- Export: gap. Planned: piece G erases and exports a person's memberships with them.
+- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
+- Numbers: none. Planned: piece G decides it with the store.
+
+## Customers
+
+Spine step 4. The people the brand grows with, and how it reaches them.
+
+### Person (`person`)
+
+One human, once per brand: every sign-up, product user and address they came through, joined on one record. Its id is the `ct_` id a row's `personId` means.
+
+- Status: built
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Stores:
+  - `contacts`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `signup` through campaigns[].signupId (many); `product_user` through products[].productUserId (many); `company` through companyId
+- Events: `record.merged`, `record.repointed`
+- Erase:
+  - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export
+- Export:
+  - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on)
+- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
+- Numbers: gap. People counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`).
+
+### Company (`company`)
+
+A business people work at, by its web address, with how many of the brand's people are there.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `companies`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `person` through contacts.companyId (many)
+- Erase:
+  - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (the company goes when its last person is erased)
+- Export: none. A business by its web address, not a person.
+- Search: none. Found on the Companies tab; joins brand search with people (piece B).
+- Numbers: none. No numbers an agent reads.
+
+### Opt out (`email_suppression`)
+
+An unsubscribe, spam complaint or hard bounce that stops every send to an address, across the brand.
+
+- Status: built
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Stores:
+  - `email_suppressions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `person` through the address, hashed in the id
+- Events: `email.unsubscribed`, `email.complained`, `email.bounced`
+- Erase:
+  - `scrubSuppressionEmails` in `src/lib/connect/erase.ts`, on a person's erase or export (blanks the address; the row stays so the opt out keeps holding)
+  - `scrubSuppressionEmails` in `src/lib/connect/erase.ts`, on a product user's erase or export (blanks the address; the row stays so the opt out keeps holding)
+- Export:
+  - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on)
+  - `exportPerson` in `src/lib/audience/personExport.ts`, on a product user's erase or export
+- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
+- Numbers: none. Counted from email events.
+
+### Engaged social profile (`social_profile`)
+
+A social profile that engaged with the brand's posts: handle, name, bio and how often, on the Engaged tab.
+
+- Status: built
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Stores:
+  - `social_engaged`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `social_event` through platform and userId (many)
+- Events: `social.engaged`
+- Erase: gap. A person's erase does not reach engaged social profiles (`social_engaged`).
+- Export: gap. A person's export does not include engaged social profiles (`social_engaged`).
+- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
+- Numbers: none. Not counted for agents yet.
+
+### Journey (`lifecycle_journey`)
+
+An email journey on the lifecycle engine, for a product's users or a launch's waitlist: the draft, its published versions and its daily send counters.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `lifecycle_journeys`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `lifecycle_versions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Published versions never change.
+  - `lifecycle_counters`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `enrolment` through journeyId (many); `product` through connectionId; `idea` through campaignId, for a waitlist journey
+- Erase:
+  - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch (a launch's waitlist journey goes with it)
+  - `COUNTER_TTL_MS` in `src/lib/lifecycle/enrol.ts`, on retention (daily counters go after 40 days)
+- Export: none. The brand's own work, with no one's personal data.
+- Search: `journey_email`
+- Numbers: `sends`, `delivered`, `people`, `deliveryRate`, `uniqueOpens`, `uniqueClicks`, `openRate`, `clickRate`, `totalOpens`, `totalClicks`, `hardBounces`, `softBounces`, `deferrals`, `complaints`, `unsubscribes`, through `get_email_results`
+
+### Journey enrolment (`enrolment`)
+
+One person's way through one journey: where they are, what they were sent and when they left.
+
+- Status: built
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Stores:
+  - `lifecycle_enrolments`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Product journeys, and the runner's queue.
+  - `waitlist_enrolments`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Waitlist journeys on the lifecycle engine.
+- Links: `lifecycle_journey` through journeyId; `product_user` through productUserId; `signup` through signupId
+- Events: `journey.entered`, `journey.completed`, `journey.exited`
+- States: `active`, `completed`, `exited`
+- Person fields: `productUserId` (written with the row), `signupId` (written with the row), `personId` (written with the row)
+- Erase:
+  - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export
+  - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export
+  - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch
+  - Gap: while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)
+- Export:
+  - `exportPerson` in `src/lib/audience/personExport.ts`, on a product user's erase or export
+  - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on)
+- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
+- Numbers: none. Journey numbers are counted from email sends.
+
+### AI line (`ai_line`)
+
+A line Vizzy wrote for one person's email from their facts, waiting for (or past) a team member's approval.
+
+- Status: built
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Stores:
+  - `lifecycle_drafts`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Holds the person's facts and a preview of the email.
+- Links: `product_user` through productUserId
+- Erase:
+  - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export
+  - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on: their user in every product is erased too)
+  - `DRAFT_TTL_MS` in `src/lib/lifecycle/drafts.ts`, on retention (each line goes 90 days after its send)
+- Export:
+  - `exportPerson` in `src/lib/audience/personExport.ts`, on a product user's erase or export
+  - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on)
+- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
+- Numbers: none. No numbers an agent reads.
+
+### Person plan (`person_plan`)
+
+A plan for one product user, in the team's words, drafted by Vizzy and approved by a team member.
+
+- Status: built
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Stores:
+  - `person_plans`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `product_user` through productUserId
+- Events: `person_plan.drafted`, `person_plan.approved`
+- Person fields: `productUserId` (written with the row), `personId` (written with the row)
+- Erase:
+  - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export
+  - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on: their user in every product is erased too)
+  - Gap: while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)
+- Export:
+  - `exportPerson` in `src/lib/audience/personExport.ts`, on a product user's erase or export
+  - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on)
+- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
+- Numbers: none. No numbers an agent reads.
+
+### Person move (`person_move`)
+
+A product user who moved to another person: merged when one known only by their own record gave an address, repointed when their address changed or went. Their rows follow, moved by the person_repoint job. Ids only.
+
+- Status: built
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Stores:
+  - `person_moves`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Pending until the job has moved their rows, then done, or dropped when the product user can no longer be a person (erased, or their product revoked); the event fields never change.
+- Links: `product_user` through productUserId; `person` through personId and fromPersonId; `product` through connectionId
+- Events: `record.merged`, `record.repointed`
+- States: `pending`, `done`, `dropped`
+- Person fields: `personId` (written with the row), `fromPersonId` (written with the row), `productUserId` (written with the row)
+- Erase:
+  - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export
+  - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (moves to or from the person, by personId and fromPersonId)
+- Export:
+  - `exportPerson` in `src/lib/audience/personExport.ts`, on a product user's erase or export
+  - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on)
+- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
+- Numbers: none. No numbers an agent reads.
+
+### Event history (`ontology_event`)
+
+One row per thing that happened to a person, company, idea or agent action and has no other home: a record created, a field changed with its values before and after, consent recorded, and each step of an agent action. A person's timeline is every row carrying their personId. Append only: a row changes only when its person is repointed or an erased field's values are blanked, and goes when its subject is erased. Email, product, journey and sign-up moments stay in their own stores and are read beside it. Kept until erased, with no time to live.
+
+- Status: built
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Stores:
+  - `ontology_events`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Written only through `src/lib/tenant/ontologyEvents.ts` and `src/lib/tenant/agentActions.ts`; field changes hold personal values.
+- Links: `person` through personId, and the subject when it is a person; `company` through the subject, when it is a company; `idea` through the subject, when it is an idea; `agent_action` through agentActionId
+- Events: `record.created`, `record.field_changed`, `consent.recorded`, `agent.proposed`, `agent.approved`, `agent.acted`, `agent.undone`, `agent.declined`
+- Person fields: `personId` (written with the row)
+- Erase:
+  - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (by their person id, and the pu: person id of each product user they link, whatever the one view says)
+  - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (a company's rows, when the company has no contacts left)
+  - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export (by the product user, and by their pu: person's id)
+  - `forgetGonePersonHistory` in `src/lib/ontology/erase.ts`, on a product user's erase or export (the person goes with their last product user, whether their record goes then or at a later sweep)
+  - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch (an idea's rows, and the agent actions about it)
+  - Gap: team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does
+  - Gap: rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen
+- Export:
+  - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on; each row once, in its product's section when it is there)
+  - `exportPerson` in `src/lib/audience/personExport.ts`, on a product user's erase or export (by the product user, their pu: person, and a removed product-only person)
+  - Gap: an open new person suggestion for someone not yet in People has no export path; erase finds it by personId once they are added, and its details clear on confirm, dismiss or expiry within 7 days
+  - Gap: team member ids stay as ids, with no export by team member
+- Search: none. Personal data, kept out of brand search until the data processing agreement covers it.
+- Numbers: none. A history of changes, not a brand number.
+
+### Field (`custom_field`)
+
+A field the brand adds to people or companies, or one that comes from sign-up questions, the catalog or enrichment.
+
+- Status: planned, in B
+- Home: the brand's region
+- Personal: no
+- Links: `ontology_event` through fieldId, one row per change of a value (many)
+- Erase: none. Planned: piece B decides it with the store.
+- Export: none. Planned: piece B decides it with the store.
+- Search: none. A field's values are found with its person.
+- Numbers: none. Planned: piece B decides it with the store.
+
+### Consent purpose (`consent_purpose`)
+
+What a person can agree to. The starting purposes are marketing email, product email and transactional, in CONSENT_PURPOSES (`src/lib/ontology/consent.ts`); support replies count as transactional. Piece F adds the settings.
+
+- Status: planned, in F
+- Home: the brand's region
+- Personal: no
+- Erase: none. Planned: piece F decides it with the store.
+- Export: none. Planned: piece F decides it with the store.
+- Search: none. A short fixed list.
+- Numbers: none. Planned: piece F decides it with the store.
+
+### Consent record (`consent_record`)
+
+One person's consent for one purpose. The current state stays on the person record; each change is a consent.recorded event in the event history, shaped by `src/lib/ontology/consent.ts`. Every send checks it.
+
+- Status: planned, in F
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Links: `person` through personId; `consent_purpose` through purpose; `ontology_event` through its consent.recorded events (many)
+- Erase: gap. Planned: piece F erases and exports it with the person.
+- Export: gap. Planned: piece F erases and exports it with the person.
+- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
+- Numbers: none. Planned: piece F decides it with the store.
+
+### View (`view`)
+
+A saved filter, sort and set of columns over people or another record, shared or personal.
+
+- Status: planned, in C
+- Home: the brand's region
+- Personal: no
+- Erase: none. Planned: piece C decides it with the store.
+- Export: none. Planned: piece C decides it with the store.
+- Search: none. A saved query, found by name.
+- Numbers: none. Planned: piece C decides it with the store.
+
+### List (`list`)
+
+Records in a process with their own fields and stages, such as investors or beta testers. Joining one never adds consent.
+
+- Status: planned, in E
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Links: `person` through list entries (many)
+- Erase: gap. Planned: piece E erases and exports list entries with the person.
+- Export: gap. Planned: piece E erases and exports list entries with the person.
+- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
+- Numbers: none. Planned: piece E decides it with the store.
+
+### Own object (`own_object`)
+
+A kind of record the brand makes itself, such as deals or partners, registered like a core type.
+
+- Status: planned, in I
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Erase: gap. Planned: piece I erases and exports records that point at a person.
+- Export: gap. Planned: piece I erases and exports records that point at a person.
+- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
+- Numbers: none. Planned: piece I decides it with the store.
+
+### Workflow (`workflow`)
+
+A rule that starts a journey or a step when a field changes, a view gains someone or an idea's status moves.
+
+- Status: planned, in L
+- Home: the brand's region
+- Personal: no
+- Erase: none. Planned: piece L decides it with the store.
+- Export: none. Planned: piece L decides it with the store.
+- Search: none. Found by name on its own screen.
+- Numbers: none. Planned: piece L decides it with the store.
+
+### Import (`import`)
+
+A file of records brought into an object or list, matched on email or domain, where a blank never overwrites.
+
+- Status: planned, in J
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Links: `person` through the people it added or changed (many)
+- Erase: gap. Planned: piece J decides how an import's rows are erased with the person.
+- Export: gap. Planned: piece J decides how an import's rows are exported with the person.
+- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
+- Numbers: none. Planned: piece J decides it with the store.
+
+## Support
+
+Spine step 5. Help after the sale.
+
+### Knowledge (`knowledge`)
+
+Sites, files and repos the brand chose to read, in chunks with embeddings, plus a record of each page and each run.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `ingestion_tickets`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One per run.
+  - `knowledge_bases` at `campaigns/{campaignId}/knowledge_bases`, the brand's regional Firestore, in `src/lib/tenant/knowledge.ts`
+  - `knowledge_bases` at `workspaces/{workspaceId}/knowledge_bases`, the brand's regional Firestore, in `src/lib/tenant/knowledge.ts`
+  - `knowledge_pages` at `campaigns/{campaignId}/knowledge_pages`, the brand's regional Firestore, in `src/lib/tenant/knowledge.ts`
+  - `knowledge_pages` at `workspaces/{workspaceId}/knowledge_pages`, the brand's regional Firestore, in `src/lib/tenant/knowledge.ts`
+  - `knowledge_bases`, the brand's regional Firestore, in `workers/knowledge-scraper/src/pipeline.ts`. The chunks, written by the knowledge scraper job.
+  - `knowledge_pages`, the brand's regional Firestore, in `workers/knowledge-scraper/src/pipeline.ts`. The page records, written by the knowledge scraper job.
+  - `ingestion_tickets`, the brand's regional Firestore, in `workers/knowledge-scraper/src/ticket.ts`. The job's progress.
+- Links: `idea` through campaigns/{campaignId}; `workspace` through workspaces/{workspaceId}
+- Erase:
+  - `deleteOwnerKnowledge` in `src/lib/tenant/knowledge.ts`, on removing the record
+  - `deleteWorkspace` in `src/lib/admin/workspaces.ts`, on removing the record
+  - Gap: deleting a launch leaves its knowledge under `campaigns/{campaignId}`
+- Export: none. Pages the brand chose to read, not anyone's personal data.
+- Search: `knowledge`
+- Numbers: none. No numbers an agent reads.
+
+### Support conversation (`support_conversation`)
+
+A thread from email or an in app chat, linked to the person, group and product, with help from the brand's knowledge.
+
+- Status: planned, in support after the DPA line
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Links: `person` through personId; `knowledge` through the help it drew on (many)
+- Erase: gap. Planned: support erases and exports conversations with the person, after the data processing agreement.
+- Export: gap. Planned: support erases and exports conversations with the person, after the data processing agreement.
+- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
+- Numbers: none. Planned: support decides it with the store.
+
+## Content
+
+A rail beside the spine: the brand's own writing and assets.
+
+### Programme (`workspace`)
+
+A programme of content (a blog, a newsletter, an ebook), holding its plans, clippings, templates and knowledge.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `workspaces`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `content_plan` through workspaces/{workspaceId}/content_plans (many); `content_idea` through workspaces/{workspaceId}/idea_items (many); `template` through workspaces/{workspaceId}/templates (many)
+- Erase:
+  - `deleteWorkspace` in `src/lib/admin/workspaces.ts`, on removing the record
+  - Gap: deleting a programme leaves its plans, clippings and templates in their subcollections
+- Export: none. The brand's own work, with no one's personal data.
+- Search: none. Its plans, clippings and templates are searched one by one.
+- Numbers: none. No numbers an agent reads.
+
+### Content (`content_plan`)
+
+An article, newsletter, ebook, post or journey email: its plan, drafts and the final text.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `content_plans` at `workspaces/{workspaceId}/content_plans`, the brand's regional Firestore, in `src/lib/tenant/workspaceContent.ts`
+- Links: `workspace` through workspaceId
+- Erase:
+  - `deleteContentPlan` in `src/lib/tenant/workspaceContent.ts`, on removing the record
+  - `removePlanPage` in `src/lib/content/blog/pageActions.ts`, on removing the record
+- Export: none. The brand's own work, with no one's personal data.
+- Search: `article`, `newsletter`, `ebook`, `post`, `journey_email`
+- Numbers: none. A post's numbers are post results.
+
+### Idea Board item (`content_idea`)
+
+Something the team clipped to write about later: a link, a note or a screenshot. Not a business idea, which is `idea`.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `idea_items` at `workspaces/{workspaceId}/idea_items`, the brand's regional Firestore, in `src/lib/tenant/workspaceContent.ts`
+  - `workspace/{tenantId}/{workspaceId}/{file}`, Cloud Storage, in `src/lib/workspace/assetStore.ts`. The screenshots, private; residency gap: one EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
+- Links: `workspace` through workspaceId
+- Erase:
+  - `deleteIdeaItem` in `src/lib/tenant/workspaceContent.ts`, on removing the record
+- Export: none. The brand's own work, with no one's personal data.
+- Search: `idea_board`
+- Numbers: none. No numbers an agent reads.
+
+### Template (`template`)
+
+A reusable shape for content.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `templates` at `workspaces/{workspaceId}/templates`, the brand's regional Firestore, in `src/lib/tenant/workspaceContent.ts`
+- Links: `workspace` through workspaceId
+- Erase:
+  - `deleteTemplate` in `src/lib/tenant/workspaceContent.ts`, on removing the record
+- Export: none. The brand's own work, with no one's personal data.
+- Search: `template`
+- Numbers: none. No numbers an agent reads.
+
+### Email template (`email_template`)
+
+A saved email layout a programme reuses.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `email_templates` at `workspaces/{workspaceId}/email_templates`, the brand's regional Firestore, in `src/lib/tenant/workspaceContent.ts`
+- Links: `workspace` through workspaceId
+- Erase:
+  - `deleteEmailTemplate` in `src/lib/tenant/workspaceContent.ts`, on removing the record
+- Export: none. The brand's own work, with no one's personal data.
+- Search: none. A layout; the emails made with it are searched.
+- Numbers: none. No numbers an agent reads.
+
+### Broadcast (`broadcast`)
+
+A one off email to a launch's waitlist.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `broadcasts`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `idea` through campaignId
+- Erase:
+  - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch
+- Export: none. The brand's own work, with no one's personal data.
+- Search: `broadcast`
+- Numbers: none. Its sends are counted as email sends.
+
+### Scheduled post (`scheduled_post`)
+
+A social post waiting to go out on one of the brand's accounts, and what happened when it did.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `campaign_scheduled_posts`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `content_plan` through the plan it came from; `post_result` through its results
+- Erase: none. Kept as the record of what the brand published.
+- Export: none. The brand's own work, with no one's personal data.
+- Search: none. Its text is searched from its content plan as a post.
+- Numbers: none. Its numbers are post results.
+
+### What posts taught (`post_learning`)
+
+What the brand's best posts have in common, for the writer: the top posts, each post's vector for finding near repeats, and the versions of the patterns learned.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `performance_exemplars`, the brand's regional Firestore, in `src/lib/tenant/exemplars.ts`
+  - `post_perf_vectors`, the brand's regional Firestore, in `src/lib/tenant/postVectors.ts`
+  - `learned_pattern_versions`, the brand's regional Firestore, in `src/lib/tenant/patternVersions.ts`. Append only, the source of a revert.
+- Links: `post_result` through the posts it learned from (many)
+- Erase: none. The brand's own content statistics.
+- Export: none. The brand's own work, with no one's personal data.
+- Search: none. Vectors and versions for the writer, not text to find.
+- Numbers: none. Its numbers are post results.
+
+### Generated image (`image_asset`)
+
+An image made for the brand's content, with its prompt and where it is used.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `image_assets`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `{tenantId}/{campaignId}/{file}`, Cloud Storage, in `src/lib/agents/imageStore.ts`. The image files, served through the email asset proxy; residency gap: one EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
+- Links: `content_plan` through where it is used (many)
+- Erase:
+  - `deleteImageAsset` in `src/lib/admin/brandKit.ts`, on removing the record
+- Export: none. The brand's own work, with no one's personal data.
+- Search: `image`
+- Numbers: none. No numbers an agent reads.
+
+### Brand kit (`brand_kit`)
+
+How the brand looks and sounds: voice, colours and email style on the brand record, plus its logos, fonts, icons, graphics and guideline files.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `brand_logos`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `brand_fonts`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `brand_assets`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `brand/{tenantId}/logos/{file}`, Cloud Storage, in `src/lib/tenant/brandLogo.ts`. Logo files; residency gap: one EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
+  - `brand/{tenantId}/fonts/{file}`, Cloud Storage, in `src/lib/tenant/brandFontStore.ts`. Font files; residency gap: one EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
+  - `brand/{tenantId}/{category}/{file}`, Cloud Storage, in `src/lib/tenant/brandAssetStore.ts`. Icons and graphics; residency gap: one EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
+  - `brand/{tenantId}/{file}`, Cloud Storage, in `src/lib/tenant/brandAsset.ts`. Brand guideline files, read only on the server; residency gap: one EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
+- Links: `brand` through brandKit and brandVoice on the brand record
+- Erase:
+  - `deleteLogo` in `src/lib/admin/brandLogos.ts`, on removing the record
+  - `deleteBrandFont` in `src/lib/admin/brandFonts.ts`, on removing the record
+  - `deleteBrandAsset` in `src/lib/admin/brandAssets.ts`, on removing the record
+- Export: none. The brand's own work, with no one's personal data.
+- Search: `brand_kit`
+- Numbers: none. No numbers an agent reads.
+
+### Author (`brand_author`)
+
+A name the brand's articles are written under, with a role, a short bio and a profile page.
+
+- Status: built
+- Home: the brand's region
+- Personal: the brand's own team
+- Stores:
+  - `brand_authors`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `content_plan` through the articles written under the name (many)
+- Erase: gap. No path removes an author when the person leaves the team.
+- Export: none. Shown publicly on the brand's articles by choice.
+- Search: `brand_kit`
+- Numbers: none. No numbers an agent reads.
+
+### Brand map (`brand_map`)
+
+The brand's names and subjects, groups and buying situations that every article is written from, with its pages, runs and embeddings.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `brand_maps`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `brand_map_pages`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `brand_map_pages`, the brand's regional Firestore, in `src/lib/tenant/brandMapPages.ts`
+  - `brand_map_groups`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `brand_map_subjects`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `brand_map_situations`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `brand_map_runs`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `brand_map_groups`, the brand's regional Firestore, in `src/lib/tenant/brandMapRecords.ts`. Paged reads of every record kind.
+  - `brand_map_vectors`, the brand's regional Firestore, in `src/lib/tenant/brandMapVectors.ts`
+- Links: `brand_question` through subject and situation ids (many); `content_plan` through brand_map_pages (many)
+- Erase:
+  - `removeSubject` in `src/lib/brandMap/records.ts`, on removing the record
+  - `removeGroup` in `src/lib/brandMap/records.ts`, on removing the record
+  - `removeSituation` in `src/lib/brandMap/situations.ts`, on removing the record
+- Export: none. The brand's own work, with no one's personal data.
+- Search: `subject`, `situation`
+- Numbers: none. No numbers an agent reads.
+
+### Question (`brand_question`)
+
+A question the brand's buyers ask, on the brand map, decided or still open.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `brand_map_questions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `brand_map` through subject and situation ids
+- Erase:
+  - `removeQuestion` in `src/lib/brandMap/records.ts`, on removing the record
+- Export: none. The brand's own work, with no one's personal data.
+- Search: `question`
+- Numbers: none. Its outside numbers are brand signals.
+
+### Research import (`research_import`)
+
+A research file the brand brought in, read into findings for the brand map.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `brand_map_imports`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `brand_map` through what it found
+- Erase:
+  - `removeImport` in `src/lib/brandMap/imports.ts`, on removing the record
+- Export: none. The brand's own work, with no one's personal data.
+- Search: `research`
+- Numbers: none. No numbers an agent reads.
+
+### What we've seen note (`brand_note`)
+
+A first hand note from the brand's team about what they have seen, or an open question asked of the team. A note may name a customer.
+
+- Status: built
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Stores:
+  - `brand_notes`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `content_plan` through the articles it informed (many)
+- Erase:
+  - `removeNote` in `src/lib/brandNotes/store.ts`, on removing the record
+  - Gap: a person's erase does not find notes that name them: notes are free text
+- Export: gap. A person's export does not include notes that name them.
+- Search: `note`, `question`
+- Numbers: none. No numbers an agent reads.
+
+### What the autopilot learned (`learned`)
+
+What the brand's team kept, skipped and moved while planning, so the autopilot plans the way they do.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `autopilot_learned`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Erase:
+  - `removeLearned` in `src/lib/autopilot/learned.ts`, on removing the record
+- Export: none. The brand's own work, with no one's personal data.
+- Search: `learned`
+- Numbers: none. No numbers an agent reads.
+
+### Next up (`next_up`)
+
+The brand's three best next articles, one record per brand, worked out again as things change.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `next_up`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `brand_question` through the questions it picked (many)
+- Erase: none. Worked out again each time.
+- Export: none. The brand's own work, with no one's personal data.
+- Search: none. A short list read by Vizzy through get_next_up.
+- Numbers: none. No numbers an agent reads.
+
+### Autopilot run (`autopilot_run`)
+
+One autopilot run: the question it found, how it sorted it and, in Draft mode, what it wrote.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `autopilot_runs`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `content_plan` through the draft it wrote
+- Erase: none. Kept as the record of what the autopilot did.
+- Export: none. The brand's own work, with no one's personal data.
+- Search: none. A record of runs; what they wrote is searched as content.
+- Numbers: none. No numbers an agent reads.
+
+## Company
+
+A rail beside the spine: the company itself, on the organisation.
+
+### Legal entity (`legal_entity`)
+
+A company the founders formed, added whenever it exists, under its registered name. Brands point at it.
+
+- Status: planned, in company rail
+- Home: the control plane
+- Personal: no
+- Links: `organisation` through organisationId
+- Erase: none. Planned: the company rail decides it with the store.
+- Export: none. Planned: the company rail decides it with the store.
+- Search: none. Planned: the company rail decides it with the store.
+- Numbers: none. Planned: the company rail decides it with the store.
+
+### Founder profile (`founder_profile`)
+
+A founder's role, country, tax residence, ownership and funding plans, to pick partners and fill in forms. No identity documents. It lives on the organisation, in the control plane: one database for every region, a residency question for founders outside it.
+
+- Status: planned, in company rail
+- Home: the control plane
+- Personal: the brand's own team
+- Links: `organisation` through organisationId; `member` through the founder's user id
+- Erase: none. Planned: the company rail decides it with the store.
+- Export: none. Planned: the company rail decides it with the store.
+- Search: none. Personal to the founder, never searched.
+- Numbers: none. Planned: the company rail decides it with the store.
+
+### Metric snapshot (`metric_snapshot`)
+
+A metric's value for a period, read from a connected source or typed in, kept in the brand's region.
+
+- Status: planned, in connectors 2
+- Home: the brand's region
+- Personal: no
+- Links: `connector_stream` through the stream it was read from
+- Erase: none. Planned: connectors 2 decides it with the store.
+- Export: none. Planned: connectors 2 decides it with the store.
+- Search: none. Numbers stay exact in number tools.
+- Numbers: none. Planned: connectors 2 decides it with the store.
+
+### Gate (`gate`)
+
+A readiness check over metrics, such as LTV to CAC above 3. It guides and never locks; a founder can open it early.
+
+- Status: planned, in company rail
+- Home: undecided
+- Personal: undecided
+- Links: `metric_snapshot` through the metrics it checks (many)
+- Erase: none. Decided with its home.
+- Export: none. Decided with its home.
+- Search: none. Planned: the company rail decides it with the store.
+- Numbers: none. Planned: the company rail decides it with the store.
+
+### Data share (`data_share`)
+
+One of four levels of the company's numbers, picked for one recipient until an end date. Totals only, never people.
+
+- Status: planned, in company rail
+- Home: undecided
+- Personal: undecided
+- Links: `metric_snapshot` through the metrics it shows (many)
+- Erase: none. Decided with its home.
+- Export: none. Decided with its home.
+- Search: none. Planned: the company rail decides it with the store.
+- Numbers: none. Planned: the company rail decides it with the store.
+
+## Partners and agents
+
+A rail beside the spine: who acts for the brand.
+
+### Vizzy editing memory (`vizzy_memory`)
+
+What Vizzy learned about how each team member edits, kept per brand and member.
+
+- Status: built
+- Home: the control plane
+- Personal: the brand's own team
+- Stores:
+  - `edit memories`, Memory Bank, in `src/lib/agents/memoryBank.ts`. Scope {tenant_id, user_id}; residency gap: one agent location (ROOT_AGENT_LOCATION) serves every region.
+- Links: `member` through the user id in its scope
+- Erase:
+  - `forgetAllEditMemories` in `src/lib/agents/memoryBank.ts`, on the team member themselves
+  - `forgetEditMemory` in `src/lib/agents/memoryBank.ts`, on the team member themselves
+- Export:
+  - `listEditMemories` in `src/lib/agents/memoryBank.ts`, on the team member themselves (the member sees them in Edit mode)
+- Search: none. Read by Vizzy for the member it belongs to.
+- Numbers: none. No numbers an agent reads.
+
+### Vizzy chat (`vizzy_chat`)
+
+A team member's chats with Vizzy, kept by Agent Engine as sessions.
+
+- Status: built
+- Home: the control plane
+- Personal: the brand's own team
+- Stores:
+  - `sessions`, Agent Engine sessions, in `src/lib/agents/agentRuntime.ts`. One user id per brand and member; residency gap: one agent location (ROOT_AGENT_LOCATION) serves every region.
+- Links: `member` through the composite user id
+- Erase: gap. No path deletes a member's chats with Vizzy.
+- Export: gap. No path exports a member's chats with Vizzy.
+- Search: none. Members' own conversations.
+- Numbers: none. No numbers an agent reads.
+
+### MCP client (`mcp_client`)
+
+An outside agent connected to the brand's MCP server, and what it may read and ask to write.
+
+- Status: planned, in K
+- Home: the brand's region
+- Personal: no
+- Links: `api_key` through its key
+- Erase: none. Planned: piece K decides it with the store.
+- Export: none. Planned: piece K decides it with the store.
+- Search: none. Found on its own screen.
+- Numbers: none. Planned: piece K decides it with the store.
+
+### Connector manifest (`connector_manifest`)
+
+What a connector says it produces: each stream's shape, its keys, the meaning of every number and the shared keys it joins on.
+
+- Status: planned, in connectors 1
+- Home: the brand's region
+- Personal: no
+- Links: `connector_stream` through its streams (many)
+- Erase: none. Planned: connectors 1 decides it with the store.
+- Export: none. Planned: connectors 1 decides it with the store.
+- Search: none. Found on Connections.
+- Numbers: none. Planned: connectors 1 decides it with the store.
+
+### Partner (`partner`)
+
+A provider and what it can do, from the manifest it publishes.
+
+- Status: planned, in partner rail
+- Home: undecided
+- Personal: undecided
+- Links: `provision` through what it carries out (many)
+- Erase: none. Decided with its home.
+- Export: none. Decided with its home.
+- Search: none. Planned: the partner rail decides it with the store.
+- Numbers: none. Planned: the partner rail decides it with the store.
+
+### Provision (`provision`)
+
+What the brand asked a partner to set up, which fields were sent (names only, values not kept) and how it went.
+
+- Status: planned, in partner rail
+- Home: undecided
+- Personal: undecided
+- Links: `partner` through the partner
+- Erase: none. Decided with its home.
+- Export: none. Decided with its home.
+- Search: none. Planned: the partner rail decides it with the store.
+- Numbers: none. Planned: the partner rail decides it with the store.
+
+### Agent action (`agent_action`)
+
+One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days. Its trail is the agent kinds of event in the event history. Today's drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.
+
+- Status: built
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Stores:
+  - `agent_actions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per suggestion, written only through `src/lib/tenant/agentActions.ts`; its proposal, basis, result and undo may hold personal values.
+- Links: `person` through personId, and the target when it is a person; `company` through the target, when it is a company; `idea` through the target, when it is an idea; `ontology_event` through agentActionId, its agent kinds of event (many)
+- Events: `agent.proposed`, `agent.approved`, `agent.acted`, `agent.undone`, `agent.declined`
+- States: `proposed`, `approved`, `acted`, `undone`, `declined`
+- Person fields: `personId` (written with the row)
+- Erase:
+  - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (by their person id, and the pu: person id of each product user they link, whatever the one view says)
+  - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (a company's rows, when the company has no contacts left)
+  - `eraseProductUserHistory` in `src/lib/connect/erase.ts`, on a product user's erase or export (by the product user, and by their pu: person's id)
+  - `forgetGonePersonHistory` in `src/lib/ontology/erase.ts`, on a product user's erase or export (the person goes with their last product user, whether their record goes then or at a later sweep)
+  - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch (an idea's rows, and the agent actions about it)
+  - Gap: team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does
+  - Gap: rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen
+- Export:
+  - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on; each row once, in its product's section when it is there)
+  - `exportPerson` in `src/lib/audience/personExport.ts`, on a product user's erase or export (by the product user, their pu: person, and a removed product-only person)
+  - Gap: an open new person suggestion for someone not yet in People has no export path; erase finds it by personId once they are added, and its details clear on confirm, dismiss or expiry within 7 days
+  - Gap: team member ids stay as ids, with no export by team member
+- Search: none. Found on Review; personal data, kept out of brand search until the data processing agreement covers it.
+- Numbers: none. No numbers an agent reads.
+
+## Platform
+
+A rail beside the spine: the brand record, members, organisations and their plans, queues, limits, audit, search and outside providers.
+
+### Brand (`brand`)
+
+The tenant: the face people see (name, voice, domains, sender) and the data wall (region, consent, keys, connections). Every record carries its id.
+
+- Status: built
+- Home: the control plane
+- Personal: the brand's own team
+- Stores:
+  - `tenants`, control plane Firestore, in `src/lib/tenant/control.ts`. `billingTier` is still written for new brands, so a rollback to a build from before plans can list them, but nothing reads it.
+  - `tenants`, control plane Firestore, in `src/lib/tenant/registry.ts`. The lookups by id, host and member.
+  - `tenants`, control plane Firestore, in `workers/knowledge-scraper/src/gitToken.ts`. The scraper reads the brand's repo connection.
+  - `tenants`, control plane Firestore, in `src/lib/tenant/organisations.ts`. The only writer of `organisationId` and `orgPlan`, a copy of the organisation's plan, both written in one transaction with the organisation.
+- Links: `member` through tenant_users.tenantId (many); `brand_kit` through brandKit and brandVoice; `organisation` through organisationId, with a copy of its plan in orgPlan
+- Erase: gap. No path deletes a whole brand and everything it holds.
+- Export: none. The brand's own settings, read on its settings screens.
+- Search: none. Its voice and kit are searched as brand_kit.
+- Numbers: none. No numbers an agent reads.
+
+### Member (`member`)
+
+A team member's access to a brand, with their role.
+
+- Status: built
+- Home: the control plane
+- Personal: the brand's own team
+- Stores:
+  - `tenant_users`, control plane Firestore, in `src/lib/tenant/repository.ts`
+  - `tenant_users`, control plane Firestore, in `src/lib/tenant/control.ts`
+  - `tenant_users`, control plane Firestore, in `src/lib/tenant/registry.ts`. The brands a user belongs to.
+  - `tenant_users`, control plane Firestore, in `src/lib/tenant/organisations.ts`. Counts an organisation's users once across its brands (organisationUserIds).
+- Links: `brand` through tenantId
+- Erase: gap. No path removes a member or their data when they leave the team.
+- Export: none. A member sees their own access on the Team screen.
+- Search: none. Found on the Team screen.
+- Numbers: none. No numbers an agent reads.
+
+### Organisation (`organisation`)
+
+The account above brands: its plan (self_hosted, free, pro, ultra or enterprise, from `src/lib/plans/catalog.ts`), the brands it lists, its users counted once across them, and the owners who see its totals on Plan and usage. Its id is `org_<tenantId>` for the brand it started with, or `org_<tenantId>_<6 characters>` when a brand split back out finds that id taken. Written only through `src/lib/tenant/organisations.ts`, in one transaction with its brands and its change log. Never deleted, even when a move leaves it empty. Never a brand's people.
+
+- Status: built
+- Home: the control plane
+- Personal: the brand's own team
+- Stores:
+  - `organisations`, control plane Firestore, in `src/lib/tenant/organisations.ts`. `ownerIds` and `createdBy` hold Firebase user ids; `createdBy` is instead backfill, selfhost, seed or `script:<label>` when no member made it.
+- Links: `brand` through brandIds, each brand pointing back with organisationId and keeping a copy of the plan in orgPlan (many); `member` through ownerIds and createdBy, as user ids; its users are the members of its brands, counted once (many); `organisation_change` through organisation_changes.organisationId (many)
+- Erase:
+  - `setOrganisationOwners` in `src/lib/tenant/organisations.ts`, on the team member themselves (an operator takes their user id out of `ownerIds` with `scripts/set-plan.ts --remove-owner`, on their erase request)
+  - Gap: leaving a brand's team does not take a member's user id out of `ownerIds`; it stays until an operator removes it
+  - Gap: `createdBy` keeps the user id of the member who made it (the brand's creator, or whoever took up an empty one again), with no path to clear it
+  - Gap: no path deletes an organisation, even one a move leaves empty, so the user ids it holds are kept for its life
+- Export: gap. Team member ids in `ownerIds` and `createdBy` stay as ids, with no export by team member; owners see the plan, brands and totals on Plan and usage.
+- Search: none. A control plane record with no brand content or people, found on Plan and usage.
+- Numbers: none. Its allowances and use show on Plan and usage; no agent reads them.
+
+### Organisation change (`organisation_change`)
+
+One row per change to an organisation, written in the same transaction as the change: organisation.created, plan.changed, brand.joined, brand.left, organisation.renamed and owners.changed, with the values before and after and who made it. Append only: a row is only ever added, never changed or deleted, and is kept with no time to live. Its id is `<organisationId>_<tenantId, or org>_<time>_<kind>_<8 random characters>`. Piece O may fold it into the settings history, or the event envelope may carry it later.
+
+- Status: built
+- Home: the control plane
+- Personal: the brand's own team
+- Stores:
+  - `organisation_changes`, control plane Firestore, in `src/lib/tenant/organisations.ts`. Append only, written only through this file; `actor` is a Firebase user id or an operator label (`script:<label>`, `backfill:<label>`, seed or selfhost), and an owners.changed row lists owners' user ids in `from` and `to`.
+- Links: `organisation` through organisationId; `brand` through tenantId, on brand.joined and brand.left; `member` through actor when it is a user id, and the owners an owners.changed row lists (many)
+- Erase: gap. No path removes or rewrites a member's user id in `actor`, or in the `from` and `to` of an owners.changed row; ADR-0009 has an operator rewrite `actor` to "erased" by hand until piece O brings an erase path, which leaves `from` and `to`, including on the row that removing the owner writes.
+- Export: gap. Team member ids in `actor`, `from` and `to` stay as ids, with no export by team member.
+- Search: none. A control plane change log with no brand content or people.
+- Numbers: none. No numbers an agent reads.
+
+### Social account link (`social_connection`)
+
+Which brand a connected social account's engagement goes to: one brand per account.
+
+- Status: built
+- Home: the control plane
+- Personal: the brand's own team
+- Stores:
+  - `social_subscriptions`, control plane Firestore, in `src/lib/tenant/control.ts`. The account's id and handle, no tokens.
+- Links: `brand` through tenantId
+- Erase:
+  - `deleteSocialSubscription` in `src/lib/tenant/control.ts`, on removing the record (when the account is disconnected)
+- Export: none. The brand's own account, shown on Connections.
+- Search: none. A routing record.
+- Numbers: none. No numbers an agent reads.
+
+### Domain grant (`domain_grant`)
+
+The record of each domain a brand was allowed or refused, with how and by whom.
+
+- Status: built
+- Home: the control plane
+- Personal: the brand's own team
+- Stores:
+  - `domain_grants`, control plane Firestore, in `src/lib/tenant/control.ts`. The acting member's user id, never an address.
+- Links: `brand` through tenantId
+- Erase: none. Kept on purpose as the audit trail of who allowed a domain.
+- Export: none. An audit trail.
+- Search: none. An audit trail.
+- Numbers: none. No numbers an agent reads.
+
+### Audit record (`audit_record`)
+
+What was deleted, by whom and how much, written before and after a destructive action, also to a bucket that cannot be changed.
+
+- Status: built
+- Home: the control plane
+- Personal: the brand's own team
+- Stores:
+  - `audit_events`, control plane Firestore, in `src/lib/tenant/audit.ts`. Counts only, never the erased data.
+  - `audit objects`, write once audit bucket, in `src/lib/tenant/auditSink.ts`. AUDIT_LOG_BUCKET, with a locked retention policy.
+- Links: `brand` through tenantId
+- Erase: none. Kept on purpose: the trail that proves what was deleted.
+- Export: none. An audit trail with counts only.
+- Search: none. An audit trail.
+- Numbers: none. No numbers an agent reads.
+
+### Rate limit counter (`rate_limit`)
+
+Short lived counters that keep each brand and caller within its limits, keyed by a hash.
+
+- Status: built
+- Home: the control plane
+- Personal: no
+- Stores:
+  - `rate_limits`, control plane Firestore, in `src/lib/tenant/rateLimit.ts`. A time to live policy removes each counter after two hours.
+- Erase: none. Hashed keys, removed after two hours.
+- Export: none. Hashed keys with no person.
+- Search: none. Counters.
+- Numbers: none. No numbers an agent reads.
+
+### Email job (`email_job`)
+
+The queue behind every email: a send, a step, a contact erase, a sync or a person repoint (a product user's rows following them to another person) waiting to run, with retries.
+
+- Status: built
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Stores:
+  - `email_jobs`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. A job's payload can name a person; a person_repoint job holds a product user id and goes when it is done.
+- Links: `idea` through campaignId
+- Erase:
+  - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch
+  - Gap: a person's erase leaves their queued jobs; a queued send for a deleted sign-up drops when it runs
+- Export: gap. Queued jobs are not in a person's export; what they sent is in email sends.
+- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
+- Numbers: none. No numbers an agent reads.
+
+### Brand search index (`search_index`)
+
+The brand's own index of what it wrote, by words and meaning, in its region's search database.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `search_docs` at `brands/{tenantId}/search_docs`, the brand's regional search database, in `src/lib/tenant/searchIndex.ts`
+  - `search_sources` at `brands/{tenantId}/search_sources`, the brand's regional search database, in `src/lib/tenant/searchIndex.ts`
+- Erase:
+  - `removeFromIndex` in `src/lib/search/indexer.ts`, on removing the record (when its record is removed)
+  - `sweepBrand` in `src/lib/search/sweep.ts`, on removing the record (the scheduled check drops records that are gone)
+- Export: none. Copies of the brand's own writing.
+- Search: none. It is the index.
+- Numbers: none. No numbers an agent reads.
+
+### Mailchimp audience (`mailchimp_audience`)
+
+A copy of a launch's sign-ups in the brand's own Mailchimp audience, when the brand connects one.
+
+- Status: built
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Stores:
+  - `audience members`, an outside provider, in `src/lib/mailchimp/sync.ts`. Held by Mailchimp; residency gap: Mailchimp keeps it where Mailchimp runs.
+- Links: `signup` through the address
+- Erase:
+  - `removeSignupFromAudience` in `src/lib/mailchimp/sync.ts`, on a person's erase or export (the contact erase job calls it)
+- Export: gap. A person's export does not include what Mailchimp holds.
+- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
+- Numbers: none. No numbers an agent reads.
+
+### Mandrill message log (`mandrill_message`)
+
+Mandrill's own record of each email it sent for the brand, with the address and short metadata.
+
+- Status: built
+- Home: the brand's region
+- Personal: yes, the brand's people
+- Stores:
+  - `messages`, an outside provider, in `src/lib/email/index.ts`. Held by Mandrill; residency gap: Mandrill keeps it where Mandrill runs.
+- Links: `email_send` through mandrillMessageId
+- Erase: gap. No erase reaches Mandrill's message log; it keeps it for its own retention period.
+- Export: gap. A person's export does not include Mandrill's message log.
+- Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
+- Numbers: none. Its events arrive as email events.
+
+### Subscription (`subscription`)
+
+The organisation's paid plan with YouGrow, from checkout, trial and renewals. Card details stay with the payment provider.
+
+- Status: planned, in H
+- Home: the control plane
+- Personal: no
+- Links: `organisation` through organisationId
+- Erase: none. Planned: piece H decides it with the store.
+- Export: none. Planned: piece H decides it with the store.
+- Search: none. Billing records are not searched.
+- Numbers: none. Planned: piece H decides it with the store.
+
+### Settings version (`settings_version`)
+
+Every change to how a brand or organisation works, with who, what and why. A restore makes a new version and never deletes data.
+
+- Status: planned, in O part 1
+- Home: the control plane
+- Personal: the brand's own team
+- Links: `organisation` through organisationId
+- Erase: none. Planned: piece O decides it with the store.
+- Export: none. Planned: piece O decides it with the store.
+- Search: none. Found on the History page.
+- Numbers: none. Planned: piece O decides it with the store.
+
+### Team (`team`)
+
+Roles beyond admin and member, and which objects, fields and lists each role may see.
+
+- Status: planned, in M
+- Home: the control plane
+- Personal: the brand's own team
+- Links: `member` through role (many)
+- Erase: none. Planned: piece M decides it with the store.
+- Export: none. Planned: piece M decides it with the store.
+- Search: none. Found on the Team screen.
+- Numbers: none. Planned: piece M decides it with the store.
+
+### SSO identity (`sso_identity`)
+
+How a team member signs in through their company's identity provider.
+
+- Status: planned, in M
+- Home: the control plane
+- Personal: the brand's own team
+- Links: `member` through the user id
+- Erase: none. Planned: piece M decides it with the store.
+- Export: none. Planned: piece M decides it with the store.
+- Search: none. Never searched.
+- Numbers: none. Planned: piece M decides it with the store.
+
+### API key (`api_key`)
+
+A key for the records API or the MCP server, one per brand, read only unless a team member allows more.
+
+- Status: planned, in K
+- Home: the brand's region
+- Personal: no
+- Links: `brand` through tenantId
+- Erase: none. Planned: piece K decides it with the store.
+- Export: none. A secret, never exported.
+- Search: none. A secret, never searched.
+- Numbers: none. Planned: piece K decides it with the store.
+
+## Gaps
+
+What the registry records as missing, by type. Each is a known gap, not a promise.
+
+- Idea (`idea`):
+  - Numbers: people counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`)
+- Sign-up (`signup`):
+  - Erase: the BigQuery changelog mirror keeps a row's values after the row is erased in Firestore
+  - Numbers: people counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`)
+- Email send (`email_send`):
+  - Erase: deleting a launch removes its sign-ups but leaves their rows here
+  - Erase: while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)
+- Email event (`email_event`):
+  - Erase: deleting a launch removes its sign-ups but leaves their rows here
+  - Erase: the BigQuery changelog mirror keeps a row's values after the row is erased in Firestore
+  - Erase: while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)
+- Form view (`widget_view`):
+  - Numbers: form view counts have no meanings yet (connectors 2)
+- Product event count (`product_event_day`):
+  - Numbers: product event counts have no meanings yet (connectors 2)
+- Social engagement (`social_event`):
+  - Erase: a person's erase does not reach social engagement rows (`social_events`)
+  - Export: a person's export does not include social engagement rows (`social_events`)
+- Product (`product`):
+  - Numbers: people counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`)
+- Catalog (`catalog`):
+  - Erase: keeping 20 versions goes against the owner's rule that settings history has no limit (piece O)
+- Product user (`product_user`):
+  - Numbers: people counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`)
+- Product event (`product_event`):
+  - Erase: while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)
+  - Numbers: product event counts have no meanings yet (connectors 2)
+- Product webhook (`product_webhook`):
+  - Erase: a product user's erase leaves webhooks still waiting to go; each expires after its retries
+  - Export: not in a person's export: a webhook only carries a change on its way to the product
+- Person (`person`):
+  - Numbers: people counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`)
+- Engaged social profile (`social_profile`):
+  - Erase: a person's erase does not reach engaged social profiles (`social_engaged`)
+  - Export: a person's export does not include engaged social profiles (`social_engaged`)
+- Journey enrolment (`enrolment`):
+  - Erase: while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)
+- Person plan (`person_plan`):
+  - Erase: while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)
+- Event history (`ontology_event`):
+  - Erase: team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does
+  - Erase: rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen
+  - Export: an open new person suggestion for someone not yet in People has no export path; erase finds it by personId once they are added, and its details clear on confirm, dismiss or expiry within 7 days
+  - Export: team member ids stay as ids, with no export by team member
+- Knowledge (`knowledge`):
+  - Erase: deleting a launch leaves its knowledge under `campaigns/{campaignId}`
+- Programme (`workspace`):
+  - Erase: deleting a programme leaves its plans, clippings and templates in their subcollections
+- Author (`brand_author`):
+  - Erase: no path removes an author when the person leaves the team
+- What we've seen note (`brand_note`):
+  - Erase: a person's erase does not find notes that name them: notes are free text
+  - Export: a person's export does not include notes that name them
+- Vizzy chat (`vizzy_chat`):
+  - Erase: no path deletes a member's chats with Vizzy
+  - Export: no path exports a member's chats with Vizzy
+- Brand (`brand`):
+  - Erase: no path deletes a whole brand and everything it holds
+- Member (`member`):
+  - Erase: no path removes a member or their data when they leave the team
+- Organisation (`organisation`):
+  - Erase: leaving a brand's team does not take a member's user id out of `ownerIds`; it stays until an operator removes it
+  - Erase: `createdBy` keeps the user id of the member who made it (the brand's creator, or whoever took up an empty one again), with no path to clear it
+  - Erase: no path deletes an organisation, even one a move leaves empty, so the user ids it holds are kept for its life
+  - Export: team member ids in `ownerIds` and `createdBy` stay as ids, with no export by team member; owners see the plan, brands and totals on Plan and usage
+- Organisation change (`organisation_change`):
+  - Erase: no path removes or rewrites a member's user id in `actor`, or in the `from` and `to` of an owners.changed row; ADR-0009 has an operator rewrite `actor` to "erased" by hand until piece O brings an erase path, which leaves `from` and `to`, including on the row that removing the owner writes
+  - Export: team member ids in `actor`, `from` and `to` stay as ids, with no export by team member
+- Email job (`email_job`):
+  - Erase: a person's erase leaves their queued jobs; a queued send for a deleted sign-up drops when it runs
+  - Export: queued jobs are not in a person's export; what they sent is in email sends
+- Mailchimp audience (`mailchimp_audience`):
+  - Export: a person's export does not include what Mailchimp holds
+- Mandrill message log (`mandrill_message`):
+  - Erase: no erase reaches Mandrill's message log; it keeps it for its own retention period
+  - Export: a person's export does not include Mandrill's message log
+- Consent record (`consent_record`):
+  - Erase: planned: piece F erases and exports it with the person
+  - Export: planned: piece F erases and exports it with the person
+- List (`list`):
+  - Erase: planned: piece E erases and exports list entries with the person
+  - Export: planned: piece E erases and exports list entries with the person
+- Group (`group`):
+  - Erase: planned: piece G erases and exports a person's memberships with them
+  - Export: planned: piece G erases and exports a person's memberships with them
+- Own object (`own_object`):
+  - Erase: planned: piece I erases and exports records that point at a person
+  - Export: planned: piece I erases and exports records that point at a person
+- Import (`import`):
+  - Erase: planned: piece J decides how an import's rows are erased with the person
+  - Export: planned: piece J decides how an import's rows are exported with the person
+- Agent action (`agent_action`):
+  - Erase: team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does
+  - Erase: rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen
+  - Export: an open new person suggestion for someone not yet in People has no export path; erase finds it by personId once they are added, and its details clear on confirm, dismiss or expiry within 7 days
+  - Export: team member ids stay as ids, with no export by team member
+- Support conversation (`support_conversation`):
+  - Erase: planned: support erases and exports conversations with the person, after the data processing agreement
+  - Export: planned: support erases and exports conversations with the person, after the data processing agreement
+
+## Residency gaps
+
+Stores that don't keep to the brand's region.
+
+- Idea Board item: `workspace/{tenantId}/{workspaceId}/{file}` in `src/lib/workspace/assetStore.ts`. One EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
+- Generated image: `{tenantId}/{campaignId}/{file}` in `src/lib/agents/imageStore.ts`. One EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
+- Brand kit: `brand/{tenantId}/logos/{file}` in `src/lib/tenant/brandLogo.ts`. One EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
+- Brand kit: `brand/{tenantId}/fonts/{file}` in `src/lib/tenant/brandFontStore.ts`. One EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
+- Brand kit: `brand/{tenantId}/{category}/{file}` in `src/lib/tenant/brandAssetStore.ts`. One EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
+- Brand kit: `brand/{tenantId}/{file}` in `src/lib/tenant/brandAsset.ts`. One EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
+- Vizzy editing memory: `edit memories` in `src/lib/agents/memoryBank.ts`. One agent location (ROOT_AGENT_LOCATION) serves every region.
+- Vizzy chat: `sessions` in `src/lib/agents/agentRuntime.ts`. One agent location (ROOT_AGENT_LOCATION) serves every region.
+- Mailchimp audience: `audience members` in `src/lib/mailchimp/sync.ts`. Mailchimp keeps it where Mailchimp runs.
+- Mandrill message log: `messages` in `src/lib/email/index.ts`. Mandrill keeps it where Mandrill runs.

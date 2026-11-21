@@ -41,6 +41,7 @@ import {
   isLifecycleSendTrackingEnabled,
 } from "./flags";
 import { isPersonViewEnabled } from "@/lib/audience/flags";
+import { isOntologyPersonIdsEnabled } from "@/lib/ontology/flags";
 import { checkDatesNow, enrolOnDateByHand } from "./dateStart";
 import { runEnrolmentNow, type RunnerDeps } from "./runner";
 import { architectAfter, architectLifecycleDraft } from "./architect";
@@ -431,9 +432,13 @@ export async function enrolByHand(
     repo.productUsers.getById(userDocId),
   ]);
   if (!version) return fail(409, "version_missing");
+  // The journey's connection, read at most once: for a Sandbox user, a date start and the person on the enrolment.
+  let connection: ProductConnection | null | undefined;
+  const loadConnection = async () =>
+    connection === undefined ? (connection = await repo.productConnections.getById(journey.connectionId)) : connection;
   let user = found;
   if (!user) {
-    const conn = await repo.productConnections.getById(journey.connectionId);
+    const conn = await loadConnection();
     const isSandboxUser = conn?.kind === "sandbox" && conn.sandbox?.users.some((u) => u.userId === parsed.data.userId);
     if (!conn || !isSandboxUser) return fail(404, "user_not_found");
     // The Sandbox sends the test user's state first, through the real API v2 write path.
@@ -444,12 +449,14 @@ export async function enrolByHand(
   }
   // A journey that starts when a date passes keeps the date they have now, so it stops when it moves on.
   const start = isLifecycleDateStartEnabled() ? dateStartOf(version.settings) : null;
-  const catalog = start ? (await repo.productConnections.getById(journey.connectionId))?.catalog : null;
+  const catalog = start ? (await loadConnection())?.catalog : null;
+  // The person on the enrolment comes from the connection (ONTOLOGY_PERSON_IDS_ENABLED).
+  const held = isOntologyPersonIdsEnabled() ? await loadConnection() : connection;
   // A journey about each of their entities enrols them once per entity.
   const rs =
     start && catalog
-      ? await enrolOnDateByHand(ctx, { journey, version, user, catalog, start }, { db, nowMs })
-      : await enrolPerson(ctx, { journey, version, user, source: "manual", anchorAt: new Date(nowMs).toISOString() }, { db, nowMs });
+      ? await enrolOnDateByHand(ctx, { journey, version, user, catalog, start, connection: held }, { db, nowMs })
+      : await enrolPerson(ctx, { journey, version, user, source: "manual", anchorAt: new Date(nowMs).toISOString(), connection: held }, { db, nowMs });
   const enrolledOne = rs.find((r) => r.outcome === "enrolled");
   if (enrolledOne && enrolledOne.outcome === "enrolled") return ok({ enrolmentId: enrolledOne.enrolmentId }, 201);
   const r = rs[0];

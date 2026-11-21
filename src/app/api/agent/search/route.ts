@@ -4,14 +4,15 @@ import { isCanvasAuthConfigured, tenantContextFromCanvasToken, verifyCanvasConte
 import { brandCanUse } from "@/lib/plans/brandAccess";
 import { isVizzySearchEnabled } from "@/lib/search/flags";
 import { MAX_QUERY_CHARS, searchBrand } from "@/lib/search/query";
-import { SEARCH_KINDS } from "@/lib/search/types";
+import { dedupeKinds, SEARCH_KIND_ALIAS_COUNT, SEARCH_KINDS, SearchKindInput } from "@/lib/search/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const Body = z.object({
   query: z.string().trim().min(1).max(MAX_QUERY_CHARS),
-  kinds: z.array(z.enum(SEARCH_KINDS)).max(SEARCH_KINDS.length).optional(),
+  // Today's kinds, or an alias read as one (SEARCH_KIND_ALIASES), each once.
+  kinds: z.array(SearchKindInput).max(SEARCH_KINDS.length + SEARCH_KIND_ALIAS_COUNT).transform(dedupeKinds).optional(),
   limit: z.number().int().min(1).max(15).optional(),
 });
 

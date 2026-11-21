@@ -31,6 +31,7 @@ import { isInvitesUiEnabled } from "@/lib/invites/flags";
 import { isLifecycleUiEnabled } from "@/lib/lifecycle/flags";
 import { isInsightsHubEnabled, isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { buildNav, type LaunchRef, type NavKey } from "@/lib/nav/model";
+import { isPlansUiEnabled } from "@/lib/plans/flags";
 import { isSearchUiEnabled } from "@/lib/search/flags";
 import { BrandSearchResults, paletteFilter } from "@/components/admin/search/BrandSearchResults";
 import { useThemePortalContainer } from "./AdminThemeRoot";
@@ -61,7 +62,8 @@ const KEYWORDS: Partial<Record<NavKey, string[]>> = {
     ? ["analytics", "metrics", "reports", "funnel", "attribution", "sources"]
     : ["analytics", "metrics"],
   brand: ["voice", "logo", "colours", "brand kit"],
-  settings: ["account", "domains", "integrations", "billing"],
+  // With NEXT_PUBLIC_PLANS_ENABLED, Settings › Plan and usage.
+  settings: isPlansUiEnabled() ? ["account", "domains", "integrations", "billing", "plan", "usage"] : ["account", "domains", "integrations", "billing"],
 };
 
 const lifecycle = isLifecycleUiEnabled();

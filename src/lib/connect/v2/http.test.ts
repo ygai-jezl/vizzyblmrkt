@@ -1,7 +1,7 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { __resetRateLimitState } from "@/lib/tenant/rateLimit";
-import { forTenant } from "@/lib/tenant";
+import { appendEvents, forTenant, proposeAgentAction } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import { enrolmentDocId } from "@/lib/lifecycle/enrol";
 import { ctx as lifecycleCtx, publishOnboarding, seedWorld, T0 } from "@/lib/lifecycle/testing/fixtures";
@@ -12,6 +12,14 @@ import { SANDBOX_CATALOG } from "../sandbox";
 import { isSuppressedFor, suppressEmail } from "@/lib/email/suppression";
 import { handleBatch, handleDeleteUser, handleGetUser, handleMe, handlePatchUser, handleUserEvent, type V2HttpDeps } from "./http";
 import { createSiteKey } from "@/lib/waitlist/siteKeys";
+import { personIdForAddress, personIdForProductUser } from "@/lib/ontology/personRef";
+import { repointJobKey } from "@/lib/ontology/moves";
+import { personIdOf } from "@/lib/audience/personSync";
+import { processEmailJobs } from "@/lib/email/delivery";
+import { fieldChangedEvent } from "@/lib/ontology/eventBuilders";
+import { productUserPersonId } from "@/lib/ontology/erase";
+import type { ContactPersonId } from "@/lib/ontology/person";
+import { agentDedupeKey } from "@/lib/types/agentAction";
 
 const ctxA: TenantContext = { tenantId: "ten_A", region: "eu", source: "system" };
 const ctxB: TenantContext = { tenantId: "ten_B", region: "us", source: "system" };
@@ -642,5 +650,240 @@ describe("erasure cascade", () => {
     const rows = await repo.emailSuppressions.find({ where: [["reason", "==", "unsubscribe"]], limit: 5 });
     expect(rows.map((r) => [r.email, r.normalizedEmail])).toEqual([["", ""]]);
     expect(await isSuppressedFor(ctxA, "alex@example.com", "onboarding", w.db)).toBe(true); // still honoured
+  });
+});
+
+describe("the person on product events (ONTOLOGY_PERSON_IDS_ENABLED)", () => {
+  beforeEach(() => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  const rowsOf = (db: FakeFirestore) => db.dump("product_events") as Array<Record<string, unknown>>;
+
+  it("writes the person on identify and track rows: their address, or their own pu: person before one", async () => {
+    const w = await setup();
+    const id = productUserDocId(w.connection.id, "u_1");
+    await w.patch("u_1", { firstName: "Alex" });
+    const noAddress = personIdForProductUser(ctxA.tenantId, { id, emailNormalized: null }, w.connection);
+    expect(rowsOf(w.db).map((r) => r.personId)).toEqual([noAddress]);
+
+    await w.patch("u_1", { email: "Alex@Example.com" });
+    await handleUserEvent(request("POST", w.auth, { event: "report.exported" }), "u_1", w.deps);
+    const withAddress = personIdForAddress(ctxA.tenantId, "alex@example.com");
+    const rows = rowsOf(w.db);
+    expect(rows).toHaveLength(3);
+    expect(rows.slice(1).map((r) => [r.type, r.personId])).toEqual([
+      ["identify", withAddress],
+      ["track", withAddress],
+    ]);
+    expect(withAddress).not.toBe(noAddress);
+  });
+
+  it("writes it on batch rows too", async () => {
+    const w = await setup();
+    await handleBatch(request("POST", w.auth, { users: [{ userId: "u_1", email: "one@example.com" }, { userId: "u_2", email: "two@example.com" }] }), w.deps);
+    expect(rowsOf(w.db).map((r) => r.personId).sort()).toEqual(
+      [personIdForAddress(ctxA.tenantId, "one@example.com"), personIdForAddress(ctxA.tenantId, "two@example.com")].sort(),
+    );
+  });
+
+  it("writes none on the erase row, or a late write after it", async () => {
+    const w = await setup();
+    await w.patch("u_1", { email: "alex@example.com" });
+    await w.del("u_1");
+    await w.patch("u_1", { firstName: "Ghost", updatedAt: "2026-09-25T11:00:00Z" });
+    const rows = rowsOf(w.db);
+    const erase = rows.find((r) => r.type === "erase");
+    expect(erase).toBeDefined();
+    expect(erase).not.toHaveProperty("personId");
+    const late = rows.find((r) => r.skipped === "deleted_later");
+    expect(late).toBeDefined();
+    expect(late).not.toHaveProperty("personId");
+  });
+
+  it("writes none for a sandbox's users", async () => {
+    const db = new FakeFirestore();
+    const { connection, secret } = await createConnection(
+      ctxA,
+      {
+        name: "Sandbox",
+        kind: "sandbox",
+        catalog: SANDBOX_CATALOG,
+        sandboxUsers: [{ userId: "sandbox_alex", email: "alex@example.com", firstName: "Alex", timezone: "Europe/London", steps: {}, facts: [], insights: [] }],
+      },
+      db,
+    );
+    const res = await handlePatchUser(request("PATCH", { keyId: connection.keyId, secret }, { email: "alex@example.com" }), "sandbox_alex", { db, nowMs: () => NOW });
+    expect(res.status).toBe(200);
+    expect(rowsOf(db)).toHaveLength(1);
+    expect(rowsOf(db)[0]).not.toHaveProperty("personId");
+  });
+
+  it("writes none while the switch is off, or the person links are", async () => {
+    for (const [links, ids] of [["true", "false"], ["false", "true"]] as const) {
+      vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", links);
+      vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", ids);
+      const w = await setup();
+      await w.patch("u_1", { email: "alex@example.com" });
+      await handleUserEvent(request("POST", w.auth, { event: "report.exported" }), "u_1", w.deps);
+      expect(rowsOf(w.db)).toHaveLength(2);
+      for (const r of rowsOf(w.db)) expect(r).not.toHaveProperty("personId");
+    }
+  });
+});
+
+describe("person moves after a product write (ONTOLOGY_PERSON_IDS_ENABLED)", () => {
+  beforeEach(() => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  const moves = (db: FakeFirestore) => db.dump("person_moves") as Array<Record<string, unknown>>;
+
+  it("a user saved with no address, then with one, is merged: a pending move and a queued repoint job", async () => {
+    const w = await setup();
+    const id = productUserDocId(w.connection.id, "u_1");
+    await w.patch("u_1", { firstName: "Alex" });
+    expect(moves(w.db)).toHaveLength(0);
+    await w.patch("u_1", { email: "alex@example.com" });
+    const ada = personIdForAddress(ctxA.tenantId, "alex@example.com")!;
+    expect(moves(w.db)).toEqual([
+      expect.objectContaining({
+        kind: "record.merged",
+        fromPersonId: personIdOf(ctxA.tenantId, `pu:${id}`),
+        personId: ada,
+        productUserId: id,
+        connectionId: w.connection.id,
+        repoint: "pending",
+      }),
+    ]);
+    expect(w.db.raw("email_jobs", repointJobKey(ctxA.tenantId, id, ada))).toMatchObject({ type: "person_repoint", status: "pending", payload: { productUserId: id } });
+    expect(JSON.stringify(moves(w.db))).not.toContain("alex@example.com");
+  });
+
+  it("the queued job brings their earlier rows along, then goes, and the move says done", async () => {
+    const w = await setup();
+    await w.patch("u_1", { firstName: "Alex" });
+    await w.patch("u_1", { email: "alex@example.com" });
+    // The scheduled drain (it has a deadline): inline drains leave person repoints to it.
+    await processEmailJobs(ctxA, 25, w.db, { deadlineAt: Date.now() + 60_000 });
+    const ada = personIdForAddress(ctxA.tenantId, "alex@example.com");
+    expect((w.db.dump("product_events") as Array<Record<string, unknown>>).map((r) => r.personId)).toEqual([ada, ada]);
+    expect(w.db.dump("email_jobs").filter((j) => j.type === "person_repoint")).toHaveLength(0);
+    expect(moves(w.db)).toEqual([expect.objectContaining({ repoint: "done" })]);
+  });
+
+  it("a later address change is repointed, and so is an address that goes", async () => {
+    const w = await setup();
+    await w.patch("u_1", { email: "alex@example.com" });
+    w.setNow(NOW + 1000);
+    await w.patch("u_1", { email: "alex@new.example.com", updatedAt: new Date(NOW + 1000).toISOString() });
+    w.setNow(NOW + 2000);
+    await w.patch("u_1", { email: null, updatedAt: new Date(NOW + 2000).toISOString() });
+    expect(moves(w.db).map((m) => [m.kind, m.fromPersonId, m.personId])).toEqual([
+      ["record.repointed", personIdForAddress(ctxA.tenantId, "alex@example.com"), personIdForAddress(ctxA.tenantId, "alex@new.example.com")],
+      ["record.repointed", personIdForAddress(ctxA.tenantId, "alex@new.example.com"), personIdOf(ctxA.tenantId, `pu:${productUserDocId(w.connection.id, "u_1")}`)],
+    ]);
+  });
+
+  it("a batch with two writes for the same user at one time leaves two moves", async () => {
+    const w = await setup();
+    await w.patch("u_1", { firstName: "Alex" });
+    await handleBatch(
+      request("POST", w.auth, { users: [{ userId: "u_1", email: "one@example.com" }, { userId: "u_1", email: "two@example.com" }] }),
+      w.deps,
+    );
+    const rows = moves(w.db);
+    expect(rows.map((m) => m.kind)).toEqual(["record.merged", "record.repointed"]);
+    expect(new Set(w.db.cols.get("person_moves")!.keys()).size).toBe(2);
+  });
+
+  it("leaves no move or job while the switch is off", async () => {
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "false");
+    const w = await setup();
+    await w.patch("u_1", { firstName: "Alex" });
+    await w.patch("u_1", { email: "alex@example.com" });
+    expect(moves(w.db)).toHaveLength(0);
+    expect(w.db.dump("email_jobs").filter((j) => j.type === "person_repoint")).toHaveLength(0);
+  });
+});
+
+describe("event history and agent actions on DELETE /api/v2/users/{userId}", () => {
+  const demo: TenantContext = { tenantId: "ten_demo", region: "us", source: "system" };
+  const MEMBER = { type: "member" as const, id: "uid_1" };
+  const AT = "2026-09-25T10:00:00.000Z";
+  afterEach(() => vi.unstubAllEnvs());
+
+  /** A field change about a person (naming the product user when given) and an open suggestion about them. */
+  async function rowsAbout(db: FakeFirestore, personId: ContactPersonId, key: string, productUserId?: string) {
+    await appendEvents(
+      demo,
+      [fieldChangedEvent({ subject: { type: "person", id: personId }, personId, productUserId: productUserId ?? null, fieldId: "plan", object: "person", before: null, after: "pro", source: "sync", actor: MEMBER, at: AT, nonce: () => key })],
+      { db },
+    );
+    await proposeAgentAction(
+      demo,
+      {
+        dedupeKey: agentDedupeKey("person_fields.suggest", key),
+        agent: "vizzy",
+        action: "person_fields.suggest",
+        target: { type: "person", id: personId },
+        personId,
+        proposal: null,
+        basis: null,
+        signals: [],
+        review: null,
+        requestedBy: MEMBER,
+        expiresAt: "2026-10-25T10:00:00.000Z",
+        at: AT,
+      },
+      { db },
+    );
+  }
+  const held = (db: FakeFirestore, field: "personId" | "productUserId", value: string) =>
+    [...db.dump("ontology_events"), ...db.dump("agent_actions")].filter((r) => r.tenantId === "ten_demo" && r[field] === value).length;
+
+  it("removes rows naming the user and rows under their pu: person, with every switch off", async () => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "false");
+    vi.stubEnv("AUDIENCE_ONE_VIEW_ENABLED", "false");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "false");
+    const w = await setup(demo);
+    await w.patch("u_1", { email: "alex@example.com" });
+    await w.patch("u_2", { email: "sam@example.com" });
+    const id = productUserDocId(w.connection.id, "u_1");
+    const other = productUserDocId(w.connection.id, "u_2");
+    const alex = personIdForAddress("ten_demo", "alex@example.com")!;
+    await rowsAbout(w.db, alex, "named", id);
+    await rowsAbout(w.db, productUserPersonId("ten_demo", id), "pu");
+    await rowsAbout(w.db, productUserPersonId("ten_demo", other), "pu_other");
+    expect((await w.del("u_1")).status).toBe(204);
+    expect(held(w.db, "productUserId", id)).toBe(0);
+    expect(held(w.db, "personId", productUserPersonId("ten_demo", id))).toBe(0);
+    expect(held(w.db, "personId", productUserPersonId("ten_demo", other))).toBe(3);
+  });
+
+  it("after the user gained an address with ONTOLOGY_PERSON_IDS_ENABLED off, removes the pu: rows and the person's whose record went with them", async () => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_ONE_VIEW_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "false");
+    const w = await setup(demo);
+    await w.patch("u_1", { firstName: "Alex" });
+    const id = productUserDocId(w.connection.id, "u_1");
+    const puPerson = productUserPersonId("ten_demo", id);
+    expect(w.db.raw("contacts", puPerson)).toBeDefined();
+    await rowsAbout(w.db, puPerson, "before_address");
+    await w.patch("u_1", { email: "alex@example.com" });
+    expect(w.db.raw("contacts", puPerson)).toBeUndefined();
+    const alex = personIdForAddress("ten_demo", "alex@example.com")!;
+    expect(w.db.raw("contacts", alex)).toBeDefined();
+    await rowsAbout(w.db, alex, "after_address");
+
+    expect((await w.del("u_1")).status).toBe(204);
+    expect(w.db.raw("contacts", alex)).toBeUndefined();
+    expect(held(w.db, "personId", puPerson)).toBe(0);
+    expect(held(w.db, "personId", alex)).toBe(0);
   });
 });

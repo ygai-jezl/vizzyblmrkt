@@ -10,6 +10,7 @@ import {
 import { gcsAuditSink, type AuditObjectSink } from "./auditSink";
 import { TenantIsolationError } from "./errors";
 import { deleteLaunchKey } from "./launchKeys";
+import { eraseHistory } from "./ontologyEvents";
 import { waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
 import { isPersonLinksEnabled } from "@/lib/audience/flags";
 import type { FirestoreLike, TenantContext } from "./types";
@@ -140,6 +141,10 @@ export async function deleteLaunch(
       deleted.waitlistJourneys = 1;
     }
     if (waitlistEnrolments) deleted.waitlistEnrolments = waitlistEnrolments;
+    // The idea's event history and the agent actions about it, before the launch itself goes.
+    const history = await eraseHistory(ctx, { recordKey: `idea:${campaignId}` }, { db });
+    if (history.events) deleted.events = history.events;
+    if (history.agentActions) deleted.agentActions = history.agentActions;
     await repo.campaigns.delete(campaignId);
     deleted.campaigns = 1;
   } catch (err) {

@@ -1,4 +1,4 @@
-import { getDb, isAlreadyExists } from "./firestore";
+import { getDb, isAlreadyExists, isNotFound } from "./firestore";
 import { databaseIdForRegion } from "./region";
 import { TenantIsolationError, TenantValidationError } from "./errors";
 import type {
@@ -45,6 +45,7 @@ import type {
 } from "@/lib/types/lifecycle";
 import type { Invite, InviteWave } from "@/lib/types/invite";
 import type { PersonPlan } from "@/lib/types/personPlan";
+import type { PersonMove } from "@/lib/types/personMove";
 import type { BrandMapRecord } from "@/lib/types/brandMap";
 import type { BrandMapPage } from "@/lib/types/brandMapPage";
 import type { BrandMapStoredRecord } from "@/lib/types/brandMapRecords";
@@ -54,6 +55,8 @@ import type { SiteKey } from "@/lib/types/siteKey";
 import type { Competitor, CompetitorArticle, CompetitorChange, CompetitorPagesChunk, CompetitorPost } from "@/lib/types/competitor";
 import type { BrandSignal } from "@/lib/types/brandSignal";
 import type { AutopilotRun, LearnedEntry, NextUpDoc } from "@/lib/types/autopilot";
+import type { StoredEvent } from "@/lib/types/ontologyEvent";
+import type { AgentAction } from "@/lib/types/agentAction";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -321,7 +324,95 @@ export class TenantCollection<T extends TenantScoped> {
     }
     return total;
   }
+
+  /**
+   * Update ONE page of this tenant's documents matching `where`, ordered by document id: each row
+   * goes through `plan(row)`, and a returned patch is written to that row (null leaves it alone).
+   * Pass the result's `last` back as `startAfter` for the next page while `more` is true. Safe to
+   * stop between pages and resume later from a stored `last`.
+   *
+   * SECURITY: the tenant predicate is always applied and any tenantId clause in `where` is
+   * dropped, as in find(). Rows are written by id with no second read, because the query already
+   * proved tenant ownership (the deleteWhere precedent); each row's tenantId is still checked
+   * from the data the query returned. tenantId, id and createdAt are stripped from every patch,
+   * as update() does. A row deleted between the read and the write (a time to live, an erase) is
+   * counted as gone and never created again: update() refuses a missing document.
+   *
+   * Not a transaction or a batch: one row that expired would fail the whole write. With `dryRun`
+   * it plans and counts, writing nothing.
+   */
+  async updateWhere(
+    where: WhereClause[],
+    plan: (row: T) => UpdatePatch<T> | null | Promise<UpdatePatch<T> | null>,
+    opts: { startAfter?: string | null; limit: number; dryRun?: boolean },
+  ): Promise<UpdateWhereResult> {
+    let q = this.applyWhere(this.base(), where).orderBy("__name__", "asc");
+    if (opts.startAfter) q = q.startAfter(opts.startAfter);
+    const snap = await q.limit(opts.limit).get();
+    const writes: Array<[id: string, patch: Record<string, unknown>]> = [];
+    let unchanged = 0;
+    for (const d of snap.docs) {
+      const data = d.data() ?? {};
+      if (data[TENANT_FIELD] !== this.tenantId) continue; // defence in depth
+      const patch = await plan({ id: d.id, ...data } as T);
+      const {
+        tenantId: _t,
+        id: _i,
+        createdAt: _c,
+        ...rest
+      } = (patch ?? {}) as Record<string, unknown>;
+      if (!patch || Object.keys(rest).length === 0) unchanged += 1;
+      else writes.push([d.id, rest]);
+    }
+    let gone = 0;
+    if (!opts.dryRun) {
+      const results = await Promise.allSettled(
+        writes.map(([id, rest]) => this.db.collection(this.name).doc(id).update(rest)),
+      );
+      for (const r of results) {
+        if (r.status === "fulfilled") continue;
+        if (isNotFound(r.reason)) gone += 1;
+        else throw r.reason;
+      }
+    }
+    const docs = snap.docs;
+    return {
+      scanned: docs.length,
+      updated: writes.length - gone,
+      unchanged,
+      gone,
+      last: docs.length ? docs[docs.length - 1]!.id : (opts.startAfter ?? null),
+      more: docs.length === opts.limit,
+    };
+  }
 }
+
+/** A patch updateWhere may write. Identity fields are stripped whatever the plan returns. */
+export type UpdatePatch<T extends TenantScoped> = Partial<CreateInput<T>>;
+
+/** What one updateWhere page did. In a dry run, `updated` counts the rows it would write. */
+export interface UpdateWhereResult {
+  /** Rows the query returned. */
+  scanned: number;
+  updated: number;
+  /** Rows the plan left alone. */
+  unchanged: number;
+  /** Rows deleted between the read and the write: counted, never created again. */
+  gone: number;
+  /** The last row's id, the next page's startAfter (the given one when the page was empty). */
+  last: string | null;
+  /** True when the page was full, so there may be more. */
+  more: boolean;
+}
+
+/**
+ * The event history's and agent actions' view through forTenant: reads, and the erase's paged
+ * delete. No create, update, upsert, claim or single delete, so a write that skips their writers
+ * (./ontologyEvents.ts and ./agentActions.ts, which write inside transactions) fails typecheck,
+ * however the store is reached. src/lib/ontology/appendOnly.test.ts keeps deleteWhere to the
+ * writers.
+ */
+export type HistoryCollection<T extends TenantScoped> = Pick<TenantCollection<T>, "find" | "getById" | "count" | "deleteWhere">;
 
 /** The set of tenant-scoped repositories available within a request context. */
 export interface TenantRepositories {
@@ -407,6 +498,8 @@ export interface TenantRepositories {
   inviteWaves: TenantCollection<InviteWave>;
   /** The person view: one plan per product user, drafted by Vizzy and approved by staff. */
   personPlans: TenantCollection<PersonPlan>;
+  /** A product user who moved to another person (ONTOLOGY_PERSON_IDS_ENABLED), and whether their rows have followed. */
+  personMoves: TenantCollection<PersonMove>;
   /** The brand map: one document per brand (`bm_<tenantId>`), parsed by src/lib/brandMap/store.ts. */
   brandMaps: TenantCollection<BrandMapRecord>;
   /** The brand map's pages: a row per article written here, and per page already on the site. */
@@ -443,6 +536,13 @@ export interface TenantRepositories {
   nextUp: TenantCollection<NextUpDoc>;
   /** Autopilot runs: one question found, sorted and (Draft mode) written (src/lib/autopilot/runs.ts). */
   autopilotRuns: TenantCollection<AutopilotRun>;
+  /**
+   * The event history: one row per thing that happened to a person, company, idea or agent
+   * action. Append only: written only through ./ontologyEvents.ts and ./agentActions.ts.
+   */
+  ontologyEvents: HistoryCollection<StoredEvent>;
+  /** Agents' suggestions, one record each, with their agent.* trail in ontologyEvents (./agentActions.ts writes them). */
+  agentActions: HistoryCollection<AgentAction>;
 }
 
 /**
@@ -553,6 +653,8 @@ export function forTenant(
     inviteWaves: new TenantCollection<InviteWave>(regionalDb, "invite_waves", t),
     // A plan is about one end user (their situation, in staff's words) → regional DB, with the person.
     personPlans: new TenantCollection<PersonPlan>(regionalDb, "person_plans", t),
+    // A move names a product user and two people (ids only, no address): end-user data → regional DB, with them.
+    personMoves: new TenantCollection<PersonMove>(regionalDb, "person_moves", t),
     // The brand map sits with the content it steers (programmes and their plans) → regional DB.
     brandMaps: new TenantCollection<BrandMapRecord>(regionalDb, "brand_maps", t),
     brandMapPages: new TenantCollection<BrandMapPage>(regionalDb, "brand_map_pages", t),
@@ -583,5 +685,8 @@ export function forTenant(
     autopilotLearned: new TenantCollection<LearnedEntry>(regionalDb, "autopilot_learned", t),
     nextUp: new TenantCollection<NextUpDoc>(regionalDb, "next_up", t),
     autopilotRuns: new TenantCollection<AutopilotRun>(regionalDb, "autopilot_runs", t),
+    // A person's history and agents' suggestions are personal: regional, beside the person.
+    ontologyEvents: new TenantCollection<StoredEvent>(regionalDb, "ontology_events", t),
+    agentActions: new TenantCollection<AgentAction>(regionalDb, "agent_actions", t),
   };
 }

@@ -7,6 +7,7 @@ import type { ProductUser } from "@/lib/types/productUser";
 import { checkJourneyDates, enrolByHand, journeyAnalytics } from "./adminApi";
 import { checkDatesNow, decideEntry, mayEnter, storedDateMs, sweepDateStarts } from "./dateStart";
 import { enrolmentDocId, enrolOnEvents } from "./enrol";
+import { personIdForProductUser } from "@/lib/ontology/personRef";
 import { processEnrolment, runLifecycleTick } from "./runner";
 import { createLifecycleJourney, publishLifecycleJourney, saveLifecycleDraft } from "./service";
 import { CONNECTION_ID, STEPS, T0, TENANT_ID, contextStub, ctx, productContext, publishOnboarding, seedUser, seedWorld, sendStub, system } from "./testing/fixtures";
@@ -222,7 +223,7 @@ describe("the daily check (LIFECYCLE_DATE_START)", () => {
   it("a product can't start it with an event of the same name", async () => {
     const w = await setup();
     const user = quiet(w.db, "quiet_15", 15);
-    const r = await enrolOnEvents(system, { id: CONNECTION_ID, status: "active" }, [{ user, event: DATE_PASSED_EVENT, timestamp: iso(NOW) }], { db: w.db, nowMs: NOW });
+    const r = await enrolOnEvents(system, { id: CONNECTION_ID, status: "active", kind: "custom" }, [{ user, event: DATE_PASSED_EVENT, timestamp: iso(NOW) }], { db: w.db, nowMs: NOW });
     expect(r).toEqual({ enrolled: 0 });
   });
 
@@ -277,6 +278,45 @@ describe("Check now and enrolling by hand", () => {
     const byUser = Object.fromEntries(rows.map((e) => [e.externalUserId, e]));
     expect(byUser.active_yesterday).toMatchObject({ source: "manual", dateAt: iso(NOW - DAY) });
     expect(byUser.no_date!.dateAt ?? null).toBeNull();
+  });
+});
+
+describe("the person on a date start's enrolment (ONTOLOGY_PERSON_IDS_ENABLED)", () => {
+  beforeEach(() => {
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  /** One daily check, and how many times it opened the connections. */
+  async function check(on: boolean) {
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", on ? "true" : "false");
+    const w = await setup();
+    const user = quiet(w.db, "quiet_14", 14);
+    const before = w.db.collectionCalls("product_connections");
+    await w.sweep();
+    const [e] = await w.repo.lifecycleEnrolments.find({ where: [["externalUserId", "==", "quiet_14"]], limit: 1 });
+    return { w, user, e, reads: w.db.collectionCalls("product_connections") - before };
+  }
+
+  it("the daily check writes the person from the connection it already holds, with no more reads", async () => {
+    const on = await check(true);
+    const off = await check(false);
+    const connection = await on.w.repo.productConnections.getById(CONNECTION_ID);
+    expect(on.e?.personId).toBe(personIdForProductUser(system.tenantId, on.user, connection));
+    expect(off.e).not.toHaveProperty("personId");
+    expect(on.reads).toBe(off.reads);
+  });
+
+  it("enrolling by hand reads the connection once and writes the person", async () => {
+    const w = await setup();
+    const user = quiet(w.db, "active_yesterday", 1);
+    const connection = await w.repo.productConnections.getById(CONNECTION_ID);
+    const before = w.db.collectionCalls("product_connections");
+    expect((await enrolByHand(ctx, w.journey.id, { userId: "active_yesterday" }, w.db, NOW)).status).toBe(201);
+    expect(w.db.collectionCalls("product_connections")).toBe(before + 1);
+    const [e] = await w.repo.lifecycleEnrolments.find({ where: [["externalUserId", "==", "active_yesterday"]], limit: 1 });
+    expect(e?.personId).toBe(personIdForProductUser(system.tenantId, user, connection));
   });
 });
 

@@ -1,8 +1,15 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { EmailJob } from "@/lib/types/emailJob";
 import { processContactEraseJob } from "./eraseWorker";
+import { eraseProductUser } from "@/lib/connect/erase";
+import { appendEvents, proposeAgentAction } from "@/lib/tenant";
+import { deterministicContactId } from "./identifiers";
+import { fieldChangedEvent } from "@/lib/ontology/eventBuilders";
+import { productUserPersonId } from "@/lib/ontology/erase";
+import type { ContactPersonId } from "@/lib/ontology/person";
+import { agentDedupeKey } from "@/lib/types/agentAction";
 
 // The external audience is out of scope here (and reads the tenant registry directly).
 vi.mock("@/lib/mailchimp", () => ({ removeSignupFromAudience: vi.fn(async () => ({ ok: true })) }));
@@ -121,5 +128,148 @@ describe("processContactEraseJob", () => {
       expect(await processContactEraseJob(ctx, job, db)).toBe("done");
       expect(db.raw("product_users", "pu_linked")).toMatchObject({ status: "active" });
     });
+  });
+});
+
+describe("person moves on an erase", () => {
+  const move = (over: Record<string, unknown>) => ({
+    tenantId: "ten_A",
+    kind: "record.repointed",
+    productUserId: "pu_x",
+    connectionId: "pcn_1",
+    repoint: "done",
+    at: "2026-11-01T00:00:00.000Z",
+    createdAt: "2026-11-01T00:00:00.000Z",
+    ...over,
+  });
+
+  it("go with the person: moves to them and moves from them, and nobody else's", async () => {
+    const db = new FakeFirestore();
+    db.seed("contacts", "ct_1", { tenantId: "ten_A", email: "ada@example.test", companyId: null, campaigns: [] });
+    db.seed("person_moves", "mv_to", move({ personId: "ct_1", fromPersonId: "ct_9" }));
+    db.seed("person_moves", "mv_from", move({ personId: "ct_9", fromPersonId: "ct_1" }));
+    db.seed("person_moves", "mv_other", move({ personId: "ct_8", fromPersonId: "ct_9" }));
+    db.seed("person_moves", "mv_theirs", move({ tenantId: "ten_B", personId: "ct_1", fromPersonId: "ct_9" }));
+    expect(await processContactEraseJob(ctx, job, db)).toBe("done");
+    expect(db.raw("person_moves", "mv_to")).toBeUndefined();
+    expect(db.raw("person_moves", "mv_from")).toBeUndefined();
+    expect(db.raw("person_moves", "mv_other")).toBeDefined();
+    expect(db.raw("person_moves", "mv_theirs")).toBeDefined();
+  });
+
+  it("go with the person on a retry, when the contact is already gone", async () => {
+    const db = new FakeFirestore();
+    db.seed("person_moves", "mv_to", move({ personId: "ct_1", fromPersonId: "ct_9" }));
+    db.seed("person_moves", "mv_from", move({ personId: "ct_9", fromPersonId: "ct_1" }));
+    db.seed("person_moves", "mv_other", move({ personId: "ct_8", fromPersonId: "ct_9" }));
+    expect(await processContactEraseJob(ctx, job, db)).toBe("done");
+    expect(db.raw("person_moves", "mv_to")).toBeUndefined();
+    expect(db.raw("person_moves", "mv_from")).toBeUndefined();
+    expect(db.raw("person_moves", "mv_other")).toBeDefined();
+  });
+
+  it("go with the product user", async () => {
+    const db = new FakeFirestore();
+    db.seed("product_users", "pu_x", { tenantId: "ten_A", connectionId: "pcn_1", email: "ada@example.test", emailNormalized: "ada@example.test", status: "active" });
+    db.seed("person_moves", "mv_1", move({ personId: "ct_1", fromPersonId: "ct_9" }));
+    db.seed("person_moves", "mv_2", move({ productUserId: "pu_y", personId: "ct_1", fromPersonId: "ct_9" }));
+    expect(await eraseProductUser(ctx, "pcn_1", "pu_x", db)).toBe(true);
+    expect(db.raw("person_moves", "mv_1")).toBeUndefined();
+    expect(db.raw("person_moves", "mv_2")).toBeDefined();
+  });
+});
+
+describe("event history and agent actions on an erase, with every switch off", () => {
+  const demo: TenantContext = { tenantId: "ten_demo", region: "us", source: "system" };
+  const other: TenantContext = { tenantId: "ten_other", region: "us", source: "system" };
+  const ADA = deterministicContactId("ten_demo", "ada@example.test") as ContactPersonId;
+  const BOB = deterministicContactId("ten_demo", "bob@example.test") as ContactPersonId;
+  const AT = "2026-11-01T10:00:00.000Z";
+  const MEMBER = { type: "member" as const, id: "uid_1" };
+  const eraseAda = { id: "erase_ada", payload: { contactId: ADA } } as unknown as EmailJob;
+
+  beforeEach(() => {
+    vi.stubEnv("AUDIENCE_ONE_VIEW_ENABLED", "false");
+    vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "false");
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "false");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  /** A field change and an open suggestion about a person (three rows: the change, the action, its proposed row). */
+  async function rowsAbout(db: FakeFirestore, c: TenantContext, personId: ContactPersonId, key: string) {
+    await appendEvents(c, [fieldChangedEvent({ subject: { type: "person", id: personId }, personId, fieldId: "plan", object: "person", before: null, after: "pro", source: "editor", actor: MEMBER, at: AT, nonce: () => key })], { db });
+    await proposeAgentAction(
+      c,
+      {
+        dedupeKey: agentDedupeKey("person_fields.suggest", key),
+        agent: "vizzy",
+        action: "person_fields.suggest",
+        target: { type: "person", id: personId },
+        personId,
+        proposal: null,
+        basis: null,
+        signals: [],
+        review: null,
+        requestedBy: MEMBER,
+        expiresAt: "2026-12-01T10:00:00.000Z",
+        at: AT,
+      },
+      { db },
+    );
+  }
+  const held = (db: FakeFirestore, tenantId: string, personId: string) =>
+    [...db.dump("ontology_events"), ...db.dump("agent_actions")].filter((r) => r.tenantId === tenantId && r.personId === personId).length;
+  const companyRows = (db: FakeFirestore, companyId: string) => db.dump("ontology_events").filter((r) => r.subjectKey === `company:${companyId}`).length;
+  async function companyChange(db: FakeFirestore, companyId: string) {
+    await appendEvents(demo, [fieldChangedEvent({ subject: { type: "company", id: companyId }, personId: null, fieldId: "size", object: "company", before: 1, after: 2, source: "editor", actor: MEMBER, at: AT, nonce: () => companyId })], { db });
+  }
+
+  it("deletes the person's rows, and keeps another person's and another brand's", async () => {
+    const db = new FakeFirestore();
+    db.seed("contacts", ADA, { tenantId: "ten_demo", email: "ada@example.test", companyId: null, campaigns: [] });
+    await rowsAbout(db, demo, ADA, "ada");
+    await rowsAbout(db, demo, BOB, "bob");
+    await rowsAbout(db, other, ADA, "theirs");
+    expect(await processContactEraseJob(demo, eraseAda, db)).toBe("done");
+    expect(held(db, "ten_demo", ADA)).toBe(0);
+    expect(held(db, "ten_demo", BOB)).toBe(3);
+    expect(held(db, "ten_other", ADA)).toBe(3);
+  });
+
+  it("deletes rows under the pu: person of a product user they link, and keeps the product user", async () => {
+    const db = new FakeFirestore();
+    db.seed("contacts", ADA, { tenantId: "ten_demo", email: "ada@example.test", companyId: null, campaigns: [], products: [{ connectionId: "pcn_1", productUserId: "pu_ada" }] });
+    db.seed("product_users", "pu_ada", { tenantId: "ten_demo", connectionId: "pcn_1", email: "ada@example.test", emailNormalized: "ada@example.test", status: "active" });
+    const puPerson = productUserPersonId("ten_demo", "pu_ada");
+    await rowsAbout(db, demo, puPerson, "before_merge");
+    expect(await processContactEraseJob(demo, eraseAda, db)).toBe("done");
+    expect(held(db, "ten_demo", puPerson)).toBe(0);
+    expect(db.raw("product_users", "pu_ada")).toMatchObject({ status: "active" });
+  });
+
+  it("still deletes leftover rows when the contact is already gone", async () => {
+    const db = new FakeFirestore();
+    await rowsAbout(db, demo, ADA, "left");
+    expect(await processContactEraseJob(demo, eraseAda, db)).toBe("done");
+    expect(held(db, "ten_demo", ADA)).toBe(0);
+  });
+
+  it("deletes the company's rows when it goes, and keeps them while it has people", async () => {
+    const db = new FakeFirestore();
+    db.seed("contacts", ADA, { tenantId: "ten_demo", email: "ada@example.test", companyId: "co_solo", campaigns: [] });
+    db.seed("companies", "co_solo", { tenantId: "ten_demo", domain: "solo.test", contactCount: 1 });
+    await companyChange(db, "co_solo");
+    expect(await processContactEraseJob(demo, eraseAda, db)).toBe("done");
+    expect(db.raw("companies", "co_solo")).toBeUndefined();
+    expect(companyRows(db, "co_solo")).toBe(0);
+
+    const shared = new FakeFirestore();
+    shared.seed("contacts", ADA, { tenantId: "ten_demo", email: "ada@example.test", companyId: "co_team", campaigns: [] });
+    shared.seed("contacts", BOB, { tenantId: "ten_demo", email: "bob@example.test", companyId: "co_team", campaigns: [] });
+    shared.seed("companies", "co_team", { tenantId: "ten_demo", domain: "team.test", contactCount: 2 });
+    await companyChange(shared, "co_team");
+    expect(await processContactEraseJob(demo, eraseAda, shared)).toBe("done");
+    expect(shared.raw("companies", "co_team")).toBeDefined();
+    expect(companyRows(shared, "co_team")).toBe(1);
   });
 });

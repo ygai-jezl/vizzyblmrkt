@@ -6,9 +6,8 @@ import type { Tenant } from "@/lib/types/tenant";
 import type { embedForSearch } from "@/lib/agents/embeddings";
 import { readBrandStubs, type BrandStubs } from "./feeders";
 import { isSearchIndexEnabled } from "./flags";
-import { indexSource } from "./indexer";
+import { indexSource, storedSourceKey } from "./indexer";
 import type { SearchKind, SearchStore } from "./types";
-import { sourceKeyOf } from "./types";
 
 /**
  * The scheduled check: compares what a brand has with what its index holds, indexes what is new
@@ -51,11 +50,13 @@ export async function sweepBrand(
   const counts: SweepCounts = { records: stubs.length, changed: 0, indexed: 0, unchanged: 0, removed: 0, failed: 0, partial: false, byKind: {} };
   for (const st of stubs) counts.byKind[st.kind] = (counts.byKind[st.kind] ?? 0) + 1;
 
-  const present = new Set(stubs.map((st) => sourceKeyOf(st.kind, st.ref)));
+  // Keys under the name each kind is written as now: an entry stored under another name is gone,
+  // so a renamed kind moves over in one check (and back, if its switch is turned off).
+  const present = new Set(stubs.map((st) => storedSourceKey(st.kind, st.ref)));
   const gone = [...manifests.values()].filter((m) => !present.has(m.sourceKey) && complete.has(m.kind));
   const now = clock();
   const changed = stubs.filter((st) => {
-    const m = manifests.get(sourceKeyOf(st.kind, st.ref));
+    const m = manifests.get(storedSourceKey(st.kind, st.ref));
     if (!m || m.version !== st.version) return true;
     // Text kept without vectors (embedding failed or isn't set up): try again now and then, not every check.
     return !m.embedded && now - (Date.parse(m.indexedAt) || 0) >= RETRY_UNEMBEDDED_MS;
@@ -79,7 +80,7 @@ export async function sweepBrand(
       counts.partial = true;
       break;
     }
-    const key = sourceKeyOf(st.kind, st.ref);
+    const key = storedSourceKey(st.kind, st.ref);
     const prev = manifests.get(key) ?? null;
     let source;
     try {

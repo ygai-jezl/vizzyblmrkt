@@ -5,6 +5,8 @@ import type { EmailSend, EmailSendEngine } from "@/lib/types/emailSend";
 import { emailEventKeyBase } from "./events";
 import { isEmailSendRecordsEnabled, isTransactionalTenantTagEnabled } from "./flags";
 import type { EventMetadata, MandrillEvent } from "./mandrillWebhook";
+import type { ContactPersonId } from "@/lib/ontology/person";
+import { personStamp } from "@/lib/ontology/personRef";
 
 /**
  * A record per email sent (EMAIL_SEND_RECORDS_ENABLED): the email carries only its brand and the
@@ -36,12 +38,15 @@ function attributionOf(long: Record<string, string>): Omit<EventMetadata, "tenan
  * The metadata for an attributed email. Switch off: the long form, exactly as the engine built it.
  * Switch on: writes (or finds) the email's send record and returns {t, s}. If the record can't be
  * written, the long form goes out, so nothing is worse than before.
+ *
+ * `personId` (ONTOLOGY_PERSON_IDS_ENABLED) goes on a new record only: never into the metadata,
+ * which Mandrill drops whole past 250 bytes, and never onto a record that was already there.
  */
 export async function sendMetadata(
   ctx: Pick<TenantContext, "tenantId" | "region">,
   long: Record<string, string>,
   engine: EmailSendEngine,
-  deps: { db?: FirestoreLike; now?: () => Date } = {},
+  deps: { db?: FirestoreLike; now?: () => Date; personId?: ContactPersonId | null } = {},
 ): Promise<Record<string, string>> {
   if (!isEmailSendRecordsEnabled()) return long;
   const a = attributionOf(long);
@@ -51,7 +56,7 @@ export async function sendMetadata(
   try {
     await forTenant({ ...ctx, source: "system" }, deps.db).emailSends.upsert(
       id,
-      () => ({ engine, ...a, mandrillMessageId: null, createdAt: now, updatedAt: now }) as never,
+      () => ({ engine, ...a, ...personStamp(deps.personId), mandrillMessageId: null, createdAt: now, updatedAt: now }) as never,
       () => null,
     );
     return { t: ctx.tenantId, s: id };
@@ -104,6 +109,7 @@ export async function attributionOfSend(
         ...(s.recipientKind ? { recipientKind: s.recipientKind } : {}),
         ...(s.connectionId ? { connectionId: s.connectionId } : {}),
         ...(s.enrolmentId ? { enrolmentId: s.enrolmentId } : {}),
+        ...(s.personId ? { personId: s.personId } : {}),
       }
     : null;
   opts.cache?.set(sendId, meta);

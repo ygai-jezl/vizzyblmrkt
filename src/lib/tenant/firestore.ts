@@ -59,6 +59,13 @@ export function getDb(databaseId: string = DEFAULT_DATABASE_ID): Firestore {
   return db;
 }
 
+/** Detects a Firestore NOT_FOUND error (gRPC code 5) across admin + fake: an update of a document that is gone. */
+export function isNotFound(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const code = (err as { code?: unknown }).code;
+  return code === 5 || code === "not-found" || code === "NOT_FOUND";
+}
+
 /** Detects a Firestore ALREADY_EXISTS error (gRPC code 6) across admin + fake. */
 export function isAlreadyExists(err: unknown): boolean {
   if (typeof err !== "object" || err === null) return false;

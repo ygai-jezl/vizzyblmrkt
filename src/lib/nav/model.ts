@@ -267,10 +267,13 @@ const INSIGHTS_TABS: Record<string, string> = {
   market: "Market",
 };
 
+/** With plans on (NEXT_PUBLIC_PLANS_ENABLED) the billing tab is Plan and usage. */
+const PLANS_TAB = "Plan and usage";
+
 export function breadcrumbsFor(
   pathname: string,
   names: CrumbNames,
-  opts: { phase3?: boolean; insights?: boolean } = {},
+  opts: { phase3?: boolean; insights?: boolean; plans?: boolean } = {},
 ): Crumb[] {
   const segments = pathname.split("/").filter(Boolean);
   if (segments[0] !== "admin") return [];
@@ -339,18 +342,20 @@ export function breadcrumbsFor(
       return id
         ? [{ label: "Brand", href: "/admin/brand-kit" }, { label: BRAND_KIT_PAGES[id] ?? titleCase(id) }]
         : [{ label: "Brand" }];
-    case "account":
+    case "account": {
+      const plansTab = opts.plans && id === "billing" ? PLANS_TAB : null;
       if (p3) {
         if (id === "brand") return [{ label: "Brand", href: "/admin/brand-kit" }, { label: "Guidelines" }];
         return [
           { label: "Settings", href: "/admin/account/settings" },
-          { label: id ? (ACCOUNT_TABS_V3[id] ?? titleCase(id)) : "Sending" },
+          { label: plansTab ?? (id ? (ACCOUNT_TABS_V3[id] ?? titleCase(id)) : "Sending") },
         ];
       }
       return [
         { label: "Settings", href: "/admin/account" },
-        { label: id ? (ACCOUNT_TABS[id] ?? titleCase(id)) : "Domains" },
+        { label: plansTab ?? (id ? (ACCOUNT_TABS[id] ?? titleCase(id)) : "Domains") },
       ];
+    }
     case "lifecycle":
       return id ? [{ label: "Journeys", href: "/admin/lifecycle" }, { label: "Journey" }] : [{ label: "Journeys" }];
     case "crm":

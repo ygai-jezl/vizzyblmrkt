@@ -4,6 +4,84 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0010 · People (piece B) (2026-11-21)
+
+Context: piece B of the CRM and tiers plan turns Audience into People and adds what a CRM
+needs on top of the person record: fields, filters, adding someone by hand, a timeline and
+Vizzy's suggestions. It also starts the settings log (piece O part 1) and stops catalog
+history being pruned. It ships as one pull request in commit groups; this record covers
+groups 1 to 3 and grows with the rest. The only Firestore change is the two composite
+indexes below. No dependency, rules or infra change.
+
+Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
+
+- **People in the words people read (group 1, decision 27).** `NEXT_PUBLIC_NAV_PEOPLE_ENABLED`
+  (BUILD and RUNTIME, `"false"`) renames Audience to People in the sidebar, ⌘K, the header
+  crumbs (also the page label Vizzy is told), page titles, the How to button and help. The
+  nav key `audience`, the `/admin/crm` route, the `/api/admin/audience` paths,
+  `src/lib/audience`, the contacts collection and the `/help/your-audience` slug keep their
+  names, as `programmeWord()` did for programmes.
+  - It needs nav phase 3 and the one People list. The list is a server switch, so
+    `isPeopleNameEnabled()` is worked out in the admin layout and passed down as a `people`
+    prop to the sidebar, ⌘K, the header and `ShellProvider`. People never sits over the
+    old Signups and Product users tabs.
+  - Help bodies take an optional `people` prop. The `/help` routes, Markdown copies and
+    llms-full.txt work it out on the server; the How to drawer renders in the browser,
+    where server switches read off, so it passes the shell's answer.
+  - Vizzy's Python can't read the switch, so its prompts and relayed messages use words that
+    fit both names ("from your list of people"). Any redeploy is safe.
+- **The settings log (group 2, decisions 30 and the answer on who changed it).**
+  - One version per change in the brand's regional `settings_versions`, with no
+    organisation id: piece O reads an organisation's history through its brands.
+  - `commitSettingsChange` (`src/lib/tenant/settingsLog.ts`) is the only writer. The setting
+    and its version are written in one regional transaction. The setting keeps its `rev`
+    and versions have fixed ids (`ss_<hash of brand and subject>_r<rev>`), so a write reads
+    two documents by id and needs no index, and a retry never writes a second version. A
+    stale rev returns `settings_changed`. Versions are created, never updated or deleted:
+    `forTenant` gives them read only.
+  - Who saved a version is piece 0's event actor, ids only. Names are looked up when shown
+    (`teamMemberNames`, `src/lib/team/names.ts`), and anyone no longer on the team shows as
+    "Former team member".
+  - Items are archived, never removed: every save goes through `assertNoRemoval`, and a
+    type change makes a new item and archives the old one with `replacedBy`. A restore is a
+    new version on top.
+  - The People and Company field lists (subjects `fields:person` and `fields:company`) live
+    in the regional `record_field_lists`, one document per brand and subject. The registry
+    lists that store under `settings_version` until the fields are built (group 4), which
+    gives it to `custom_field`. The version shape keeps a draft state for piece O; only live
+    versions are written.
+- **Catalog history kept whole (group 2, decision 30).** No more pruning: every version is
+  kept. A new version stores the saver's user id, never their address. The list reads by
+  (tenantId, connectionId, rev DESC) with a cursor, and falls back to the old query while
+  that index builds. `scripts/scrub-catalog-savers.ts` replaces the addresses already
+  stored with user ids, or null (dry run, then `--apply`). Until it runs, an old address
+  shows as it is. The version is still written just after the save, best effort, as
+  before.
+- **Indexes (asks approved with the plan).** `settings_versions (tenantId, subject, rev
+  DESC)` and `catalog_revisions (tenantId, connectionId, rev DESC)`.
+  `src/lib/settings/indexes.test.ts` checks each new query shape has its index.
+- **People added by hand are kept (group 3).** A contact may carry `addedBy` (a team
+  member's user id or an agent action's id, when, and from the form, ⌘K or Vizzy) and
+  `consent.marketing_email` (state, how, note, who recorded it, when). The kinds are
+  `member` and `agent`, matching piece 0's event actors.
+  - Being added by hand is a source of its own, keyed on `addedBy`, with no switch:
+    turning New person off never lets a sync delete or hide anyone. `summarize` takes it as
+    an input: the person is live, tagged `all` and `added:hand`, and active from when they
+    were added, and their reach is yes only with marketing email granted and no brand-wide
+    opt-out. `added:hand` stays internal: the People list has no pill for it (owner, 20 Nov).
+  - Every path keeps them: `syncPerson` and the fast path read it from the record inside
+    the transaction; the delete branch and the product-only rename skip them; their status
+    stays active when a sign-up goes; a later sign-up never replaces a typed name.
+  - Tags other writers own (the field writer's `field:` tags and `added:hand`) are carried
+    over by every sync and compared with the rest, so a sync never wipes them and never
+    writes when only they differ.
+
+Rollback: turning `NEXT_PUBLIC_NAV_PEOPLE_ENABLED` off (a rebuild) changes only words. The
+settings log has no switch and nothing calls it until the fields. Never revert group 3 once
+anyone has been added by hand: without the `addedBy` rule the next sync would delete them.
+
+---
+
 ## ADR-0009 · Organisations and plans (2026-11-20)
 
 Context: piece A of the CRM and tiers plan puts an organisation above brands and gives it

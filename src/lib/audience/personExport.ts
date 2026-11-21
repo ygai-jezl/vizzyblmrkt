@@ -67,14 +67,15 @@ async function historyBy(
   };
 }
 
+/** Everything held about one product user (by their product user id, not a `ct_` person id). */
 export async function exportPerson(
   ctx: TenantContext,
-  personId: string,
+  productUserId: string,
   deps: { db?: FirestoreLike; nowMs?: number; limits?: Limits } = {},
 ): Promise<{ found: false } | { found: true; document: Record<string, unknown> }> {
-  if (!isPersonId(personId)) return { found: false };
+  if (!isPersonId(productUserId)) return { found: false };
   const repo = forTenant(ctx, deps.db);
-  const user = await repo.productUsers.getById(personId);
+  const user = await repo.productUsers.getById(productUserId);
   if (!user || user.status !== "active") return { found: false };
   const limit = (section: Section) => deps.limits?.[section] ?? EXPORT_LIMITS[section];
   const mine = { where: [["productUserId", "==", user.id]] as WhereClause[] };

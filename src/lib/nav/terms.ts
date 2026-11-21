@@ -20,3 +20,14 @@ export function programmeWord(): { one: string; One: string; many: string } {
 export function peopleArea(on: boolean): "People" | "Audience" {
   return on ? "People" : "Audience";
 }
+
+/**
+ * The line under the Audience or People title. With the one People list it says who is on it, and
+ * names people the team added only while New person is on (`addedByTeam`). Before nav phase 3,
+ * the old Unified CRM line.
+ */
+export function peopleSubtitle(opts: { phase3: boolean; oneView: boolean; addedByTeam: boolean }): string {
+  if (!opts.phase3) return "Every contact across all launches, with company intelligence and email history.";
+  if (!opts.oneView) return "Everyone you reach: your launches' signups, your product's users, and the companies and people engaging with your content.";
+  return opts.addedByTeam ? "Everyone who signed up, uses your product or was added by your team." : "Everyone who signed up or uses your product.";
+}

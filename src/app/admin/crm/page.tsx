@@ -5,9 +5,9 @@ import { CrmClient } from "@/components/admin/crm/CrmClient";
 import { isNavV2Enabled, isNavV2Phase2Enabled, isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { isOneViewEnabled, isPeopleNameEnabled, isPersonLinksEnabled, isPersonViewEnabled } from "@/lib/audience/flags";
-import { canAddPeople, isFieldFiltersEnabled, isFieldsEnabled, isVizzyAddPersonEnabled } from "@/lib/audience/peopleFlags";
+import { canAddPeople, isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled, isVizzyAddPersonEnabled } from "@/lib/audience/peopleFlags";
 import { groupLabel, parseGroupTag } from "@/lib/audience/peopleList";
-import { peopleArea } from "@/lib/nav/terms";
+import { peopleArea, peopleSubtitle } from "@/lib/nav/terms";
 import { forTenant } from "@/lib/tenant";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
 import { withInviteStages } from "@/lib/invites/audience";
@@ -81,9 +81,7 @@ export default async function CrmPage({
       <div>
         <h1 className="text-lg font-semibold">{isNavV2Enabled() ? peopleArea(isPeopleNameEnabled()) : "Unified CRM"}</h1>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          {phase3
-            ? "Everyone you reach: your launches' signups, your product's users, and the companies and people engaging with your content."
-            : "Every contact across all launches, with company intelligence and email history."}
+          {peopleSubtitle({ phase3, oneView, addedByTeam: oneView && isAddPersonEnabled() })}
         </p>
       </div>
       {funnel ? (

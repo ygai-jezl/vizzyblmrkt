@@ -1,12 +1,24 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
 import { isNavPeopleEnabled } from "./flags";
-import { peopleArea } from "./terms";
+import { peopleArea, peopleSubtitle } from "./terms";
 
 describe("peopleArea", () => {
   it("names the area People only when told the switch is on", () => {
     expect(peopleArea(true)).toBe("People");
     expect(peopleArea(false)).toBe("Audience");
+  });
+});
+
+describe("peopleSubtitle", () => {
+  it("says who is on the one People list, naming people the team added only with New person on", () => {
+    expect(peopleSubtitle({ phase3: true, oneView: true, addedByTeam: true })).toBe("Everyone who signed up, uses your product or was added by your team.");
+    expect(peopleSubtitle({ phase3: true, oneView: true, addedByTeam: false })).toBe("Everyone who signed up or uses your product.");
+  });
+
+  it("keeps the earlier lines without the one People list", () => {
+    expect(peopleSubtitle({ phase3: true, oneView: false, addedByTeam: true })).toMatch(/^Everyone you reach: /);
+    expect(peopleSubtitle({ phase3: false, oneView: false, addedByTeam: false })).toBe("Every contact across all launches, with company intelligence and email history.");
   });
 });
 

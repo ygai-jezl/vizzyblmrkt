@@ -398,3 +398,40 @@ describe("someone added by hand", () => {
     expect(person(db, "+447700900456")).toMatchObject({ firstName: "Pat", lastName: "Phone" });
   });
 });
+
+describe("tags other writers own", () => {
+  it("are kept by a sync, which writes nothing when only they differ", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    seedSignup(db, "sig_1");
+    await syncPerson(ctx, "ada@customer.test", { db, nowMs: NOW });
+    const id = personIdOf(TENANT_ID, "ada@customer.test");
+    const synced = person(db, "ada@customer.test")!;
+    // The field writer adds its tags in its own transaction.
+    const withFields = [...synced.memberOf!, "field:fld_plan:opt_pro", "field:fld_ok:yes"].sort();
+    db.seed("contacts", id, { ...db.raw("contacts", id), memberOf: withFields });
+    expect((await syncPerson(ctx, "ada@customer.test", { db, nowMs: NOW + 60_000 })).outcome).toBe("unchanged");
+    expect(person(db, "ada@customer.test")).toMatchObject({ memberOf: withFields, updatedAt: synced.updatedAt });
+  });
+
+  it("are kept when a launch goes and when the fast path moves a stage", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    seedSignup(db, "sig_1");
+    const ada = seedUser(db, "ada", { email: "ada@customer.test", emailNormalized: "ada@customer.test" });
+    await syncPerson(ctx, "ada@customer.test", { db, nowMs: NOW });
+    const id = personIdOf(TENANT_ID, "ada@customer.test");
+    db.seed("contacts", id, { ...db.raw("contacts", id), memberOf: [...person(db, "ada@customer.test")!.memberOf!, "field:fld_plan:opt_pro"].sort() });
+
+    const moved = await syncProductLink(ctx, await connection(db), ada, { db, nowMs: T0 + 3 * DAY });
+    expect(moved).toMatchObject({ outcome: "updated", removed: [`stage:${CONNECTION_ID}:new`] });
+    expect(person(db, "ada@customer.test")!.memberOf).toContain("field:fld_plan:opt_pro");
+
+    db.seed("signups", "sig_1", { ...db.raw("signups", "sig_1"), status: "deleted" });
+    const res = await syncPerson(ctx, "ada@customer.test", { db, nowMs: T0 + 3 * DAY });
+    expect(res.removed).toEqual(expect.arrayContaining(["launch:camp1", "launch:any"]));
+    expect(res.removed).not.toContain("field:fld_plan:opt_pro");
+    expect(person(db, "ada@customer.test")!.memberOf).toContain("field:fld_plan:opt_pro");
+  });
+});
+

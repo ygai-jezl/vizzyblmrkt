@@ -17,6 +17,7 @@ import {
   sameProductLink,
   summarize,
   tagChanges,
+  withCarriedTags,
   type HandAdded,
   type PersonSummary,
 } from "./personLinks";
@@ -34,7 +35,8 @@ import {
  * backfill script call them too.
  *
  * Someone added by hand (`addedBy` on their record, piece B) is a source of their own, with no
- * switch: no path deletes them, renames them from a product or marks them deleted.
+ * switch: no path deletes them, renames them from a product or marks them deleted. The tags
+ * other writers own (`field:` tags and `added:hand`) are kept as they are on every write.
  */
 
 /** The key prefix for a product user with no email address: they're their own person until one arrives. */
@@ -143,10 +145,14 @@ export function sortKeyOf(activeAt: string, personId: string): string {
   return `${activeAt}|${personId}`;
 }
 
-/** The patch that brings `current` in line with `next`, or null when it already is. */
+/**
+ * The patch that brings `current` in line with `next`, or null when it already is. The tags other
+ * writers own are carried over from `current` and compared with the rest, so a sync never wipes
+ * or rewrites them, and never writes when only they differ.
+ */
 function patchFor(personId: string, current: Contact, next: Derived, nowIso: string): Partial<Contact> | null {
   const { campaigns, products, summary, optOuts, hand } = next;
-  const memberOf = summary.memberOf;
+  const memberOf = withCarriedTags(summary.memberOf, current.memberOf);
   const tagsChanged = (current.memberOf ?? []).join("\n") !== memberOf.join("\n");
   const productsChanged = !sameProducts(current.products ?? [], products);
   const reachChanged = current.reach !== summary.reach;

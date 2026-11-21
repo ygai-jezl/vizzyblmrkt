@@ -192,6 +192,9 @@ export type { AgentProposal, AgentTransition, TransitionError } from "./agentAct
 // The settings log: a setting and its version in one transaction (read the versions through forTenant).
 export { commitSettingsChange, readSetting, settingsDocId, settingsVersionId } from "./settingsLog";
 export type { SettingsChange, SettingsCommit, StoredSetting } from "./settingsLog";
+// Field values: the one writer, with their events, tags and an agent action's decision in one transaction.
+export { setRecordFieldValues, RECORD_BYTE_BUDGET } from "./recordFieldWrites";
+export type { SetFieldValuesInput, SetFieldValuesResult, SetFieldValuesError } from "./recordFieldWrites";
 export type { VersionCollection } from "./repository";
 export type { SendClaimArgs, SendClaimOutcome } from "./lifecycleSend";
 export type { RateLimitConfig } from "./rateLimit";

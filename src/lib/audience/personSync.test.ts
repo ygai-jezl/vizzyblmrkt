@@ -435,3 +435,21 @@ describe("tags other writers own", () => {
   });
 });
 
+
+describe("field values", () => {
+  it("are never written by a sync or the fast path", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    seedSignup(db, "sig_1");
+    const ada = seedUser(db, "ada", { email: "ada@customer.test", emailNormalized: "ada@customer.test" });
+    await syncPerson(ctx, "ada@customer.test", { db, nowMs: NOW });
+    const id = personIdOf(TENANT_ID, "ada@customer.test");
+    // The field writer's values, as it stores them.
+    const fields = { fld_000000000001: "opt_00000001", fld_000000000002: 12, fld_000000000003: ["opt_00000002"] };
+    db.seed("contacts", id, { ...db.raw("contacts", id), fields });
+    await syncProductLink(ctx, await connection(db), ada, { db, nowMs: T0 + 3 * DAY });
+    db.seed("signups", "sig_1", { ...db.raw("signups", "sig_1"), status: "deleted" });
+    await syncPerson(ctx, "ada@customer.test", { db, nowMs: T0 + 4 * DAY });
+    expect(person(db, "ada@customer.test")!.fields).toEqual(fields);
+  });
+});

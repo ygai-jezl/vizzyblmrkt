@@ -34,6 +34,9 @@ import {
 
 export const SETTINGS_VERSIONS = "settings_versions";
 
+/** The People and Company field lists' collection (src/lib/tenant/recordFieldWrites.ts reads it in its transaction). */
+export const RECORD_FIELD_LISTS = "record_field_lists";
+
 /** Where each subject's live setting is kept: one document per brand and subject, id settingsDocId. */
 export const SETTINGS_HOMES = {
   "fields:person": "record_field_lists",

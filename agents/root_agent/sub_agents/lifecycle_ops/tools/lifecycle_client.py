@@ -221,7 +221,7 @@ def get_person(state: "dict | None", person_id: str) -> dict:
     if not resolved:
         return {
             "status": "needs_person",
-            "message": "Open the person's page (Audience, then their row) and ask me there. I can only look at the person in view.",
+            "message": "Open the person's page from your list of people and ask me there. I can only look at the person in view.",
         }
     got = _base_and_token(state)
     if isinstance(got, dict):
@@ -417,7 +417,7 @@ def save_person_plan(
     if not resolved:
         return {
             "status": "needs_person",
-            "message": "Open the person's page (Audience, then their row) and ask me there. I can only plan for the person in view.",
+            "message": "Open the person's page from your list of people and ask me there. I can only plan for the person in view.",
         }
     if str(resolved).startswith("ct_"):
         # A whole person (the one view): the plan belongs to the product user their brief is about.

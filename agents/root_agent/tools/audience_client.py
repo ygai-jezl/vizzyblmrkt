@@ -19,7 +19,7 @@ _TIMEOUT_SECONDS = 30
 
 _ERRORS = {
     "unavailable": "The one People list isn't switched on in this environment yet.",
-    "canvas_auth_unconfigured": "Audience counts from chat aren't enabled in this environment yet.",
+    "canvas_auth_unconfigured": "Counting people from chat isn't enabled in this environment yet.",
     "unauthorized": "My session to the app expired. Please send your message again.",
     "rate_limited": "I've counted several times just now. Please try again in a few minutes.",
 }
@@ -59,9 +59,9 @@ def get_counts(state: "dict | None") -> dict:
     """Fetch the audience counts for the session's tenant. Never raises."""
     token = (state or {}).get("ctxToken")
     if not token:
-        return {"status": "unavailable", "message": "Audience counts aren't available in this session yet."}
+        return {"status": "unavailable", "message": "Counting people isn't available in this session yet."}
     base = os.environ.get("CANVAS_CALLBACK_URL", "").rstrip("/")
     if not base:
-        return {"status": "unavailable", "message": "Audience counts aren't configured (no callback URL)."}
+        return {"status": "unavailable", "message": "Counting people isn't configured (no callback URL)."}
     status_code, body_text = _get(base + COUNTS_PATH, token)
     return parse_counts_response(status_code, body_text)

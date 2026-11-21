@@ -167,6 +167,8 @@ def test_a_person_brief_needs_a_person_in_view(monkeypatch):
     for state in (STATE, {**STATE, "personId": ""}, {**STATE, "personId": None}):
         out = lc.get_person(dict(state), "")
         assert out["status"] == "needs_person" and "person's page" in out["message"]
+        # The People rename can't reach Vizzy, so its words fit both names of the area.
+        assert "Audience" not in out["message"]
     assert calls == []
     assert lc.get_person({"personId": "pu_3f9a"}, "")["status"] == "unavailable"  # no chat token
 
@@ -267,7 +269,8 @@ def test_a_brief_for_someone_who_only_joined_launches_says_so(monkeypatch):
 
 def test_a_plan_needs_a_person_and_its_two_parts(monkeypatch):
     calls = _capture(monkeypatch)
-    assert lc.save_person_plan(dict(STATE), "g", "a", None, None)["status"] == "needs_person"
+    out = lc.save_person_plan(dict(STATE), "g", "a", None, None)
+    assert out["status"] == "needs_person" and "Audience" not in out["message"]
     state = {**STATE, "personId": "pu_3f9a"}
     assert lc.save_person_plan(state, " ", "a", None, None)["status"] == "needs_plan"
     assert lc.save_person_plan(state, "g", "", None, None)["status"] == "needs_plan"

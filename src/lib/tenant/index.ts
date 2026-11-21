@@ -206,5 +206,8 @@ export {
   RECENT_LIMIT,
 } from "./dataConnections";
 export type { ActivityWrite, NewDataConnection, DataConnectionPatch, ChangePlan, ChangeResult, PurgeCounts } from "./dataConnections";
+// Connected data sign in states: made at Sign in, claimed once by the callback, then deleted.
+export { createConnectionState, consumeConnectionState, STATE_VALID_MS } from "./dataConnectionStates";
+export type { NewConnectionState, StoredConnectionState, ConsumeOutcome } from "./dataConnectionStates";
 export type { SendClaimArgs, SendClaimOutcome } from "./lifecycleSend";
 export type { RateLimitConfig } from "./rateLimit";

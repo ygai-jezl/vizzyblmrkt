@@ -97,6 +97,9 @@ env:
   #     MAILCHIMP_*                                                 secrets and settings
   #     CONNECTORS_VAULT_KEY                                        secret, seals connected data tokens
   #     CONNECTORS_VAULT_KEY_PREVIOUS                               secret, only while rotating it
+  #     CONNECTOR_GOOGLE_CLIENT_ID                                  your connectors Google client id
+  #     CONNECTOR_GOOGLE_CLIENT_SECRET                              secret, that client's secret
+  #     CONNECTORS_OAUTH_ORIGIN                                     https://app.example.com
   #   Analytics and the voice chat
   #     NEXT_PUBLIC_GA_MEASUREMENT_ID                               with NEXT_PUBLIC_GA_ENABLED
   #     GEMINI_LIVE_API_KEY                                         secret, for the voice chat
@@ -1028,6 +1031,19 @@ env:
       - RUNTIME
   # Cloudflare with an API token (needs CONNECTORS_ENABLED).
   - variable: CONNECTOR_CLOUDFLARE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Google Search Console by signing in with Google (needs CONNECTORS_ENABLED, plus
+  # CONNECTOR_GOOGLE_CLIENT_ID and the secret CONNECTOR_GOOGLE_CLIENT_SECRET in your
+  # environment file: a Google client in its own project, docs/self-host.md).
+  - variable: CONNECTOR_SEARCH_CONSOLE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Disconnect also revokes a Google sign in at Google. Leave it off unless you know no Google
+  # account signs in for two brands: Google's revoke ends every grant that account gave the app.
+  - variable: CONNECTOR_GOOGLE_REVOKE_ENABLED
     value: "false"
     availability:
       - RUNTIME

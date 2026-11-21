@@ -299,12 +299,14 @@ A brand's link to an outside source of numbers, such as a Cloudflare zone: which
 - Stores:
   - `data_connections`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per connection, written only through `src/lib/tenant/dataConnections.ts`; its secrets are sealed and never leave the server.
   - `data_connection_activity`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Each change to a connection and who made it, by user id; written with its change, never queried, deleted 90 days on by a time to live on ttlAt.
+  - `data_connection_states`, the brand's regional Firestore, in `src/lib/tenant/dataConnectionStates.ts`. A sign in with Google under way: the brand, the admin's user id and the connector, read by id, valid 10 minutes, claimed once and deleted, and removed by a time to live on ttlAt.
 - Links: `brand` through tenantId; `member` through ownerUid, and by on each activity row; `connector_manifest` through connectorId
 - States: `connected`, `disconnected`
 - Erase:
   - `disconnect` in `src/lib/connectors/service.ts`, on removing the record (an admin's Disconnect removes the sealed secrets; the record stays, marked disconnected)
   - `purgeDataConnection` in `src/lib/tenant/dataConnections.ts`, on removing the record (an operator purge removes the secrets, the recent list and the activity)
   - `ACTIVITY_KEEP_DAYS` in `src/lib/tenant/dataConnections.ts`, on retention (activity rows go 90 days on, through the TTL on ttlAt)
+  - `consumeConnectionState` in `src/lib/tenant/dataConnectionStates.ts`, on retention (a sign in state is deleted once used, and by the TTL on ttlAt 10 minutes after it was made)
   - Gap: a team member's user id in ownerUid and in by stays after they leave the brand, as settings history does
 - Export: none. A sealed secret and its settings, never exported.
 - Search: none. Credentials and settings, never searched.

@@ -99,3 +99,26 @@ export interface DataConnectionActivity extends ActivityEntry {
   /** The time to live: a Date, so Firestore's TTL policy deletes the row. */
   ttlAt: Date;
 }
+
+/** A sign in state's id: the SHA-256, in hex, of the nonce kept in the browser's cookie. */
+export const DATA_CONNECTION_STATE_ID_RE = /^[0-9a-f]{64}$/;
+
+/**
+ * A sign in with Google under way (Connectors 1b), one per attempt, in the brand's regional
+ * `data_connection_states`, written only through src/lib/tenant/dataConnectionStates.ts. Valid
+ * for 10 minutes, claimed once (usedAt set in a transaction), then deleted. `ttlAt` is a Date so
+ * Firestore's TTL policy removes any record an abandoned sign in leaves behind.
+ */
+export interface DataConnectionState {
+  id: string;
+  tenantId: string;
+  connectorId: string;
+  /** The admin who started it: only they can finish it. */
+  uid: string;
+  /** The connection being signed in again, or null for a new one. */
+  connectionId: string | null;
+  createdAt: string;
+  expiresAt: string;
+  usedAt: string | null;
+  ttlAt: Date;
+}

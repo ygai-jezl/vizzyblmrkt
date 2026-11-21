@@ -21,3 +21,21 @@ export function isConnectorsScreenEnabled(): boolean {
 export function isCloudflareConnectorEnabled(): boolean {
   return isConnectorsEnabled() && process.env.CONNECTOR_CLOUDFLARE_ENABLED === "true";
 }
+
+/**
+ * Google Search Console in the catalogue (Connectors 1b). Needs CONNECTORS_ENABLED, and a Google
+ * sign in client (CONNECTOR_GOOGLE_CLIENT_ID and its secret) before Sign in with Google is offered.
+ */
+export function isSearchConsoleConnectorEnabled(): boolean {
+  return isConnectorsEnabled() && process.env.CONNECTOR_SEARCH_CONSOLE_ENABLED === "true";
+}
+
+/**
+ * Disconnect, and the operator purge, also revoke a Google sign in at Google. Off: they delete the
+ * tokens YouGrow keeps and leave the grant at Google. Its own switch because Google's revoke ends
+ * every grant that Google account gave this copy's app, so it can cut off another brand that the
+ * same Google account connected (the problem ADR-0006 found with X).
+ */
+export function isGoogleRevokeEnabled(): boolean {
+  return process.env.CONNECTOR_GOOGLE_REVOKE_ENABLED === "true";
+}

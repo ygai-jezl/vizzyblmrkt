@@ -1810,6 +1810,9 @@ export const ONTOLOGY: readonly OntologyType[] = [
     stores: [
       regional("data_connections", "one record per connection, written only through `src/lib/tenant/dataConnections.ts`; its secrets are sealed and never leave the server"),
       regional("data_connection_activity", "each change to a connection and who made it, by user id; written with its change, never queried, deleted 90 days on by a time to live on ttlAt"),
+      side("data_connection_states", "src/lib/tenant/dataConnectionStates.ts", {
+        note: "a sign in with Google under way: the brand, the admin's user id and the connector, read by id, valid 10 minutes, claimed once and deleted, and removed by a time to live on ttlAt",
+      }),
     ],
     links: [
       { to: "brand", via: "tenantId", many: false },
@@ -1823,6 +1826,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
         brandPath("disconnect", "src/lib/connectors/service.ts", "an admin's Disconnect removes the sealed secrets; the record stays, marked disconnected"),
         brandPath("purgeDataConnection", "src/lib/tenant/dataConnections.ts", "an operator purge removes the secrets, the recent list and the activity"),
         retention("ACTIVITY_KEEP_DAYS", "src/lib/tenant/dataConnections.ts", "activity rows go 90 days on, through the TTL on ttlAt"),
+        retention("consumeConnectionState", "src/lib/tenant/dataConnectionStates.ts", "a sign in state is deleted once used, and by the TTL on ttlAt 10 minutes after it was made"),
       ],
       gaps: ["a team member's user id in ownerUid and in by stays after they leave the brand, as settings history does"],
     },

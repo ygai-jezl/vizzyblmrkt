@@ -23,22 +23,24 @@ const TITLE = "fld_ccccccccccc5";
 const T0 = Date.parse("2026-11-21T10:00:00.000Z");
 
 let db: FakeFirestore;
-/** Whether text fields an admin let Vizzy read are on. */
-let textFields = false;
+/** Turns on text fields an admin let Vizzy read (AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED, which needs Vizzy's fields). */
+function textFieldsOn(on = true) {
+  for (const k of ["AUDIENCE_FIELDS_ENABLED", "AUDIENCE_VIZZY_FIELDS_ENABLED"]) vi.stubEnv(k, "true");
+  vi.stubEnv("AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED", on ? "true" : "false");
+}
 async function add(id: string, change: FieldListChange, options: string[] = []) {
   const { rev } = await readFieldList(admin, "person", db);
   let n = 0;
   const r = await saveFieldListChange(admin, "person", { baseRev: rev, change, by, newFieldId: () => id, newOptionId: () => options[n++]! }, db);
   if (!r.ok) throw new Error(r.error);
 }
-const author = (input: Record<string, unknown>, ctx: TenantContext = admin, nowMs = T0) => authorPersonFields({ ctx, input, brief: "" }, { db, nowMs, textFields });
+const author = (input: Record<string, unknown>, ctx: TenantContext = admin, nowMs = T0) => authorPersonFields({ ctx, input, brief: "" }, { db, nowMs });
 const suggest = (changes: Record<string, unknown>, extra: Record<string, unknown> = {}) => author({ kind: "person_fields", action: "save_draft", scope: { personId: PRIYA }, changes, ...extra });
 
 beforeEach(async () => {
   __resetRateLimitState();
   for (const k of ["AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_FIELDS_ENABLED", "AUDIENCE_VIZZY_FIELDS_ENABLED"]) vi.stubEnv(k, "true");
   db = new FakeFirestore();
-  textFields = false;
   await add(SEATS, { op: "add", label: "Seats", type: "number" });
   await add(PLAN, { op: "add", label: "Plan", type: "select", options: ["Starter", "Pro"] }, ["opt_cccccc01", "opt_cccccc02"]);
   await add(NOTES, { op: "add", label: "Notes", type: "text" });
@@ -107,9 +109,9 @@ describe("the person_fields kind", () => {
     expect(await author({ scope: { personId: PRIYA }, changes: { [SEATS]: 1 } }, { ...admin, tenantId: "ten_B" })).toMatchObject({ ok: false, status: 404 });
   });
 
-  it("suggests a text field an admin let Vizzy read, only while text fields are on", async () => {
+  it("suggests a text field an admin let Vizzy read, only while its switch is on", async () => {
     expect(await suggest({ [TITLE]: "Head of Sales" })).toMatchObject({ ok: false, status: 400, error: "field_not_allowed" });
-    textFields = true;
+    textFieldsOn();
     const r = await suggest({ [TITLE]: " Head of Sales " });
     if (!r.ok) throw new Error(r.error);
     const action = await getAgentAction(admin, r.id as AgentActionId, { db });
@@ -119,7 +121,7 @@ describe("the person_fields kind", () => {
   });
 
   it("refuses text over 500 characters, or holding a mark the scrubber leaves, so a scrubbed value never goes back over the real one", async () => {
-    textFields = true;
+    textFieldsOn();
     expect(await suggest({ [TITLE]: "x".repeat(500) })).toMatchObject({ ok: true });
     expect(await suggest({ [TITLE]: "y".repeat(501) })).toMatchObject({ ok: false, status: 400, error: "invalid_value", issues: [TITLE] });
     for (const marked of ["Head of Sales, reports to [name]", "Write to [email]", "Account [ID] owner"]) {
@@ -128,7 +130,7 @@ describe("the person_fields kind", () => {
   });
 
   it("answers too_large for a suggestion too big to save, and leaves the one waiting in place", async () => {
-    textFields = true;
+    textFieldsOn();
     // Six text fields Vizzy may read, each holding 2000 characters that take 6 bytes each as JSON.
     const big = ["fld_ccccccccccd1", "fld_ccccccccccd2", "fld_ccccccccccd3", "fld_ccccccccccd4", "fld_ccccccccccd5", "fld_ccccccccccd6"];
     for (const [i, id] of big.entries()) await add(id, { op: "add", label: `Long ${i}`, type: "text", vizzyReads: true });
@@ -141,8 +143,8 @@ describe("the person_fields kind", () => {
   });
 
   it("sets aside a text suggestion once an admin stops Vizzy reading the field, or text fields are off, and never applies it", async () => {
-    textFields = true;
-    const decide = (id: string, rev: number, on = true) => decideFieldSuggestion(admin, PRIYA, { id, rev, decision: "confirm" }, { db, nowMs: T0 + 1000, textFields: on });
+    textFieldsOn();
+    const decide = (id: string, rev: number) => decideFieldSuggestion(admin, PRIYA, { id, rev, decision: "confirm" }, { db, nowMs: T0 + 1000 });
     const first = await suggest({ [TITLE]: "Head of Sales" });
     if (!first.ok) throw new Error(first.error);
     await add(TITLE, { op: "vizzy_reads", key: TITLE, on: false });
@@ -153,8 +155,10 @@ describe("the person_fields kind", () => {
     await add(TITLE, { op: "vizzy_reads", key: TITLE, on: true });
     const second = await suggest({ [TITLE]: "Head of Sales" });
     if (!second.ok) throw new Error(second.error);
-    expect(await decide(second.id, 1, false)).toEqual({ ok: false, error: "stale", fieldId: TITLE });
+    textFieldsOn(false);
+    expect(await decide(second.id, 1)).toEqual({ ok: false, error: "stale", fieldId: TITLE });
     expect(db.raw("contacts", PRIYA)?.fields).not.toHaveProperty(TITLE);
+    textFieldsOn();
 
     // Still read and switched on: it is confirmed.
     const third = await suggest({ [TITLE]: "Head of Partnerships" });

@@ -75,6 +75,19 @@ export function isVizzyFieldsEnabled(): boolean {
 }
 
 /**
+ * Vizzy reads text fields an admin let it read (AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED, needs Vizzy's
+ * fields): a People text field ticked "Vizzy can read this field" in Settings › Data model is read
+ * and suggested like the seven types, scrubbed of the person's name and address and cut to 500
+ * characters. A kill switch for free text alone. Off: the tick can't be changed, the checkbox and
+ * the "Vizzy reads" column are hidden, every text field stays hidden from Vizzy whatever is stored,
+ * and a waiting text suggestion is set aside when someone confirms it. Email, phone, link and team
+ * member fields stay hidden either way. Off in production until the DPA line.
+ */
+export function isVizzyTextFieldsEnabled(): boolean {
+  return isVizzyFieldsEnabled() && process.env.AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED === "true";
+}
+
+/**
  * Whether Vizzy is told which person is open: while it can read their situation (the lifecycle
  * person brief) or their fields (AUDIENCE_VIZZY_FIELDS_ENABLED). The admin layout passes it to the
  * shell and the chat route checks it again, so the id never leaves the app otherwise.

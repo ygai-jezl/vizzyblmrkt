@@ -23,7 +23,17 @@ import { isDevelopersDocsEnabled } from "@/lib/developers/flags";
 import { isEmailJourneyStyleEnabled, isEmailStyleEnabled } from "@/lib/email/flags";
 import { isNavV2Enabled, isNavV2Phase2Enabled, isThemeSwitchEnabled } from "@/lib/nav/flags";
 import { isOneViewEnabled, isPeopleNameEnabled, isPersonBriefEnabled } from "@/lib/audience/flags";
-import { canAddPeople, isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled, isTimelineEnabled, isPersonInContextEnabled, isVizzyAddPersonEnabled, isVizzyFieldsEnabled } from "@/lib/audience/peopleFlags";
+import {
+  canAddPeople,
+  isAddPersonEnabled,
+  isFieldFiltersEnabled,
+  isFieldsEnabled,
+  isTimelineEnabled,
+  isPersonInContextEnabled,
+  isVizzyAddPersonEnabled,
+  isVizzyFieldsEnabled,
+  isVizzyTextFieldsEnabled,
+} from "@/lib/audience/peopleFlags";
 import { parseThemePreference, THEME_COOKIE } from "@/lib/theme";
 import { isCatalogHistoryEnabled } from "@/lib/connect/v2/flags";
 
@@ -176,6 +186,7 @@ export default async function AdminLayout({
             addPerson={isAddPersonEnabled()}
             timeline={isTimelineEnabled()}
             vizzyFields={isVizzyFieldsEnabled()}
+            vizzyTextFields={isVizzyTextFieldsEnabled()}
             vizzyAddPerson={isVizzyAddPersonEnabled()}
             catalogHistory={isCatalogHistoryEnabled()}
           >

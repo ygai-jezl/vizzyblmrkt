@@ -46,6 +46,8 @@ export interface HelpBodyProps {
   timeline?: boolean;
   /** Vizzy reads people's fields and suggests changes (isVizzyFieldsEnabled()). */
   vizzyFields?: boolean;
+  /** Vizzy also reads text fields an admin let it read (isVizzyTextFieldsEnabled()). */
+  vizzyTextFields?: boolean;
   /** Vizzy fills in the New person form (isVizzyAddPersonEnabled()). */
   vizzyAddPerson?: boolean;
   /** Every catalog save is kept as history (isCatalogHistoryEnabled()). */

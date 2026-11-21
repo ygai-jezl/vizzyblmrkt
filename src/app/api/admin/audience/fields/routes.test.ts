@@ -105,3 +105,55 @@ describe("the fields routes", () => {
     expect((await history.POST(req("/h", "POST", { object: "person", rev: 0, baseRev: 3 }))).status).toBe(400);
   });
 });
+
+describe("letting Vizzy read a text field", () => {
+  const patch = (baseRev: number, change: Record<string, unknown>, object = "person") => fields.PATCH(listReq("PATCH", { object, baseRev, change }));
+  const textOn = () => {
+    vi.stubEnv("AUDIENCE_VIZZY_FIELDS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED", "true");
+  };
+
+  it("isn't there while the text switch or Vizzy's fields are off, and nothing changes", async () => {
+    const { list } = await (await add({ change: { op: "add", label: "Job Title", type: "text" } })).json();
+    const key = list.items[0].key;
+    const off = await patch(1, { op: "vizzy_reads", key, on: true });
+    expect(off.status).toBe(404);
+    expect(await off.json()).toEqual({ error: "not_found" });
+    expect((await add({ baseRev: 1, change: { op: "add", label: "Team", type: "text", vizzyReads: true } })).status).toBe(404);
+    vi.stubEnv("AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED", "true");
+    expect((await patch(1, { op: "vizzy_reads", key, on: true })).status).toBe(404);
+    const got = await (await fields.GET(listReq("GET"))).json();
+    expect(got.lists.person.rev).toBe(1);
+    expect(got.lists.person.items[0]).not.toHaveProperty("vizzyReads");
+    // Adding a field without the tick works as before.
+    expect((await add({ baseRev: 1, change: { op: "add", label: "Team", type: "text", vizzyReads: false } })).status).toBe(200);
+  });
+
+  it("is for admins, with the switch on", async () => {
+    textOn();
+    const { list } = await (await add({ change: { op: "add", label: "Job Title", type: "text" } })).json();
+    session.getAdminContext.mockResolvedValue(member);
+    expect((await patch(1, { op: "vizzy_reads", key: list.items[0].key, on: true })).status).toBe(403);
+    session.getAdminContext.mockResolvedValue(admin);
+    const res = await patch(1, { op: "vizzy_reads", key: list.items[0].key, on: true });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ message: "Let Vizzy read ‘Job Title’", list: { rev: 2, items: [{ label: "Job Title", vizzyReads: true }] } });
+    const added = await add({ baseRev: 2, change: { op: "add", label: "Team", type: "text", vizzyReads: true } });
+    expect(await added.json()).toMatchObject({ message: "Added ‘Team’ and let Vizzy read it", list: { rev: 3 } });
+  });
+
+  it("answers 400 for a bad request or a field that can't have it, and 404 for a missing field", async () => {
+    textOn();
+    const { list } = await (await add({ change: { op: "add", label: "Work email", type: "email" } })).json();
+    const key = list.items[0].key;
+    expect((await patch(1, { op: "vizzy_reads", key, on: "yes" })).status).toBe(400);
+    expect((await patch(1, { op: "vizzy_reads", key })).status).toBe(400);
+    expect((await patch(1, { op: "vizzy_reads", key, on: true, extra: 1 })).status).toBe(400);
+    const email = await patch(1, { op: "vizzy_reads", key, on: true });
+    expect(email.status).toBe(400);
+    expect(await email.json()).toEqual({ error: "invalid_field" });
+    expect((await add({ baseRev: 1, change: { op: "add", label: "Mobile", type: "phone", vizzyReads: true } })).status).toBe(400);
+    expect((await fields.POST(listReq("POST", { object: "company", baseRev: 0, change: { op: "add", label: "Sector", type: "text", vizzyReads: true } }))).status).toBe(400);
+    expect((await patch(1, { op: "vizzy_reads", key: "fld_999999999999", on: true })).status).toBe(404);
+  });
+});

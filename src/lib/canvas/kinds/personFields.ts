@@ -37,7 +37,7 @@ const STATUS: Record<SuggestError, number> = {
   already_decided: 409,
 };
 
-export async function authorPersonFields({ ctx, input }: CanvasAuthorArgs, deps: { db?: FirestoreLike; nowMs?: number; textFields?: boolean } = {}): Promise<CanvasAuthorOutcome> {
+export async function authorPersonFields({ ctx, input }: CanvasAuthorArgs, deps: { db?: FirestoreLike; nowMs?: number } = {}): Promise<CanvasAuthorOutcome> {
   if (!isVizzyFieldsEnabled()) return { ok: false, status: 503, error: "unavailable" };
   // Changing a value is admin-only on the person's page, so suggesting one through Vizzy is too.
   if (ctx.role !== "admin") return { ok: false, status: 403, error: "forbidden" };

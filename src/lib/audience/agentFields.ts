@@ -7,7 +7,7 @@ import { readFieldList } from "./fieldList";
 import { valueText } from "./fields";
 import { openFieldSuggestions } from "./fieldSuggestions";
 import { identityScrubber, type IdentityScrubber } from "./identityScrubber";
-import { isVizzyFieldsEnabled } from "./peopleFlags";
+import { isVizzyFieldsEnabled, isVizzyTextFieldsEnabled } from "./peopleFlags";
 
 /**
  * What Vizzy may read about fields (AUDIENCE_VIZZY_FIELDS_ENABLED): the brand's People fields of
@@ -42,13 +42,11 @@ export function vizzyFieldsAgentGate(req: Request): { ok: true; ctx: TenantConte
   return { ok: true, ctx: tenantContextFromCanvasToken(verified.claims) };
 }
 
-/** Whether text fields an admin let Vizzy read are on. Off until their switch is added. */
-export interface VizzyTextOptions {
-  textFields?: boolean;
-}
-
-/** The People fields Vizzy may see: in use, of the seven types or text it may read (vizzyReadsField). */
-export function vizzyFields(items: readonly RecordField[], textFields = false): RecordField[] {
+/**
+ * The People fields Vizzy may see: in use, of the seven types or text it may read (vizzyReadsField),
+ * with text only while AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED is on.
+ */
+export function vizzyFields(items: readonly RecordField[], textFields: boolean = isVizzyTextFieldsEnabled()): RecordField[] {
   return items.filter((f) => vizzyReadsField(f, textFields));
 }
 
@@ -69,10 +67,10 @@ function words(f: RecordField, v: FieldValue): string {
 }
 
 /** The brand's People fields of the seven types, with no values. */
-export async function agentFieldList(ctx: TenantContext, db?: FirestoreLike, opts: VizzyTextOptions = {}): Promise<ApiResult> {
+export async function agentFieldList(ctx: TenantContext, db?: FirestoreLike): Promise<ApiResult> {
   if (await isRateLimited(`tenant:${ctx.tenantId}`, READ_LIMIT, { db })) return { status: 429, body: { error: "rate_limited" } };
   const list = await readFieldList(ctx, "person", db);
-  const textFields = opts.textFields === true;
+  const textFields = isVizzyTextFieldsEnabled();
   return { status: 200, body: { fields: vizzyFields(list.items, textFields).map((f) => describe(f)), note: valueShapes(textFields) } };
 }
 
@@ -87,7 +85,7 @@ function contactScrubber(c: { firstName?: string | null; lastName?: string | nul
  * scrubber, as stored and in words alike, then is cut to VIZZY_TEXT_CHARS and marked `cut`. The
  * person is our id for them (`ct_`); anything else, or nobody, is `person_not_found`.
  */
-export async function agentPersonFields(ctx: TenantContext, personId: string, db?: FirestoreLike, opts: VizzyTextOptions = {}): Promise<ApiResult> {
+export async function agentPersonFields(ctx: TenantContext, personId: string, db?: FirestoreLike): Promise<ApiResult> {
   if (await isRateLimited(`tenant:${ctx.tenantId}`, READ_LIMIT, { db })) return { status: 429, body: { error: "rate_limited" } };
   if (!isContactPersonId(personId)) return { status: 404, body: { error: "person_not_found" } };
   const contact = await forTenant(ctx, db).contacts.getById(personId);
@@ -95,7 +93,7 @@ export async function agentPersonFields(ctx: TenantContext, personId: string, db
   const [list, open] = await Promise.all([readFieldList(ctx, "person", db), openFieldSuggestions(ctx, personId, db)]);
   const scrub = contactScrubber(contact);
   const values = (contact.fields ?? {}) as Record<string, FieldValue>;
-  const textFields = opts.textFields === true;
+  const textFields = isVizzyTextFieldsEnabled();
   const fields = vizzyFields(list.items, textFields).map((f) => {
     const v = values[f.key];
     const set = v !== undefined && v !== null;

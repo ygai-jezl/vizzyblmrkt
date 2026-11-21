@@ -11,6 +11,7 @@ import { newPersonKey } from "./addPerson";
 import { readFieldList } from "./fieldList";
 import { fitsAgentAction, vizzyValueFits } from "./fieldSuggestions";
 import { parseNewPerson, type NewPersonError } from "./newPerson";
+import { isVizzyTextFieldsEnabled } from "./peopleFlags";
 import { personIdOf } from "./personSync";
 
 /**
@@ -116,7 +117,7 @@ async function openDrafts(ctx: TenantContext, personId: ContactPersonId, db?: Fi
 export async function draftNewPerson(
   ctx: TenantContext,
   input: { email?: string | null; phone?: string | null; firstName?: string | null; lastName?: string | null; fields?: Record<string, unknown> | null },
-  deps: { db?: FirestoreLike; nowMs?: number; textFields?: boolean } = {},
+  deps: { db?: FirestoreLike; nowMs?: number } = {},
 ): Promise<DraftResult> {
   const parsed = parseNewPerson({
     ...(input.email ? { email: input.email } : {}),
@@ -130,7 +131,7 @@ export async function draftNewPerson(
   if (await forTenant(ctx, deps.db).contacts.getById(personId)) return { ok: true, outcome: "existing", personId };
 
   const list = await readFieldList(ctx, "person", deps.db);
-  const { fields, warnings } = draftFields(list.items, input.fields ?? {}, deps.textFields === true);
+  const { fields, warnings } = draftFields(list.items, input.fields ?? {}, isVizzyTextFieldsEnabled());
   const details: DraftDetails = {
     email: parsed.value.email ? normalizeEmail(parsed.value.email) : null,
     phone: parsed.value.phone,

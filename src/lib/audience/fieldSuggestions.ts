@@ -11,6 +11,7 @@ import { readFieldList } from "./fieldList";
 import { setFieldValues, valueText } from "./fields";
 import { holdsScrubbedMark, identityScrubber } from "./identityScrubber";
 import { personHref } from "./paths";
+import { isVizzyTextFieldsEnabled } from "./peopleFlags";
 
 /**
  * Vizzy's field suggestions (AUDIENCE_VIZZY_FIELDS_ENABLED): one agent action per suggestion, of
@@ -119,7 +120,7 @@ function decidedByAPerson(a: AgentAction): boolean {
 export async function suggestFieldChanges(
   ctx: TenantContext,
   input: { personId: string; changes: Record<string, unknown>; why?: string | null },
-  deps: { db?: FirestoreLike; nowMs?: number; textFields?: boolean } = {},
+  deps: { db?: FirestoreLike; nowMs?: number } = {},
 ): Promise<SuggestResult> {
   if (!isContactPersonId(input.personId)) return { ok: false, error: "person_not_found" };
   const personId = input.personId;
@@ -130,6 +131,7 @@ export async function suggestFieldChanges(
   const list = await readFieldList(ctx, "person", deps.db);
   const byId = new Map(list.items.map((f) => [f.key, f]));
   const current = (contact.fields ?? {}) as Record<string, FieldValue>;
+  const textFields = isVizzyTextFieldsEnabled();
 
   const proposed: Record<string, FieldValue | null> = {};
   const basis: Record<string, FieldValue | null> = {};
@@ -137,7 +139,7 @@ export async function suggestFieldChanges(
     const field = byId.get(fieldId);
     if (!field) return { ok: false, error: "unknown_field", fieldId: fieldId.slice(0, 64) };
     if (field.archivedAt) return { ok: false, error: "archived_field", fieldId };
-    if (!vizzyReadsField(field, deps.textFields === true)) return { ok: false, error: "field_not_allowed", fieldId };
+    if (!vizzyReadsField(field, textFields)) return { ok: false, error: "field_not_allowed", fieldId };
     const check = checkFieldValue(field, raw);
     if (!check.ok || !vizzyValueFits(field, check.value)) return { ok: false, error: "invalid_value", fieldId };
     const was = current[fieldId] ?? null;
@@ -290,7 +292,7 @@ export async function decideFieldSuggestion(
   ctx: TenantContext,
   personId: string,
   input: { id: string; rev: number; decision: Decision },
-  deps: { db?: FirestoreLike; nowMs?: number; textFields?: boolean } = {},
+  deps: { db?: FirestoreLike; nowMs?: number } = {},
 ): Promise<DecideResult> {
   const userId = ctx.userId;
   if (!userId || userId.includes("@")) return { ok: false, error: "no_user" };
@@ -321,9 +323,10 @@ export async function decideFieldSuggestion(
     const basis = fieldsUnder(action.basis);
     // A field Vizzy may no longer read is never written from its suggestion.
     const list = await readFieldList(ctx, "person", deps.db);
+    const textFields = isVizzyTextFieldsEnabled();
     const unread = Object.keys(proposed).find((id) => {
       const field = list.items.find((f) => f.key === id);
-      return field && !vizzyReadsField(field, deps.textFields === true);
+      return field && !vizzyReadsField(field, textFields);
     });
     if (unread) {
       await setAside("stale");

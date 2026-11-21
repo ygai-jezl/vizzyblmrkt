@@ -20,16 +20,18 @@ const TITLE = "fld_fffffffffff3";
 const SAM = deterministicContactId("ten_A", "sam.okoro@example.com");
 
 let db: FakeFirestore;
-/** Whether text fields an admin let Vizzy read are on. */
-let textFields = false;
+/** Turns on text fields an admin let Vizzy read (AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED, which needs Vizzy's fields). */
+function textFieldsOn(on = true) {
+  for (const k of ["AUDIENCE_FIELDS_ENABLED", "AUDIENCE_VIZZY_FIELDS_ENABLED"]) vi.stubEnv(k, "true");
+  vi.stubEnv("AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED", on ? "true" : "false");
+}
 const author = (fields: Record<string, unknown>, ctx: TenantContext = admin, nowMs = T0) =>
-  authorNewPerson({ ctx, input: { kind: "new_person", action: "save_draft", ...fields }, brief: "" }, { db, nowMs, textFields });
+  authorNewPerson({ ctx, input: { kind: "new_person", action: "save_draft", ...fields }, brief: "" }, { db, nowMs });
 
 beforeEach(async () => {
   __resetRateLimitState();
   for (const k of ["AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_ADD_PERSON_ENABLED", "AUDIENCE_VIZZY_ADD_PERSON_ENABLED"]) vi.stubEnv(k, "true");
   db = new FakeFirestore();
-  textFields = false;
   let o = 0;
   await saveFieldListChange(admin, "person", { baseRev: 0, change: { op: "add", label: "Plan", type: "select", options: ["Starter", "Pro"] }, by, newFieldId: () => PLAN, newOptionId: () => ["opt_ffffff01", "opt_ffffff02"][o++]! }, db);
   await saveFieldListChange(admin, "person", { baseRev: 1, change: { op: "add", label: "Notes", type: "text" }, by, newFieldId: () => NOTES }, db);
@@ -84,12 +86,12 @@ describe("the new_person kind", () => {
     expect(await readNewPersonDraft(admin, r.id, { db, nowMs: T0 + 8 * 86_400_000 })).toBeNull();
   });
 
-  it("fills in a text field an admin let Vizzy read, only while text fields are on", async () => {
+  it("fills in a text field an admin let Vizzy read, only while its switch is on", async () => {
     const off = await author({ email: "sam.okoro@example.com", fields: { "Job Title": "Head of Sales" } });
     if (!off.ok) throw new Error(off.error);
     expect(off.warnings).toHaveLength(1);
     expect(off.card).toMatchObject({ stats: [{ label: "fields", value: 0 }] });
-    textFields = true;
+    textFieldsOn();
     const r = await author({ email: "kim.lee@example.com", fields: { "job title": "Head of Sales", Notes: "Met at the expo" } });
     if (!r.ok) throw new Error(r.error);
     // Notes, which nobody ticked, is left for the admin to type.
@@ -98,7 +100,7 @@ describe("the new_person kind", () => {
   });
 
   it("leaves out text over 500 characters, or holding a mark the scrubber leaves, with a warning", async () => {
-    textFields = true;
+    textFieldsOn();
     const r = await author({ email: "kim.lee@example.com", fields: { "Job Title": "z".repeat(501) } });
     if (!r.ok) throw new Error(r.error);
     expect(r.warnings).toEqual(["That value is too long for Job Title: you can fill in up to 500 characters, and the admin can type it in the form."]);
@@ -112,7 +114,7 @@ describe("the new_person kind", () => {
   });
 
   it("answers too_large for a draft too big to save, and leaves the one waiting in place", async () => {
-    textFields = true;
+    textFieldsOn();
     // Twenty five text fields Vizzy may read, each given 500 characters that take 6 bytes each as JSON.
     const big = Array.from({ length: 25 }, (_, i) => `fld_ggggggggg${String(i).padStart(3, "0")}`);
     for (const [i, id] of big.entries()) await saveFieldListChange(admin, "person", { baseRev: 3 + i, change: { op: "add", label: `Long ${i}`, type: "text", vizzyReads: true }, by, newFieldId: () => id }, db);

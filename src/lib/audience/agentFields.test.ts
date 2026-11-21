@@ -128,16 +128,17 @@ describe("the field list Vizzy reads", () => {
 });
 
 describe("text fields an admin let Vizzy read", () => {
-  it("are listed and read only while text fields are on, and other text, email, phone, link and team member fields never", async () => {
-    const on = { textFields: true };
-    const list = (await agentFieldList(ctx, db, on)).body as { fields: Array<{ id: string; label: string; type: string }> };
+  it("are listed and read only while their switch is on, and other text, email, phone, link and team member fields never", async () => {
+    vi.stubEnv("AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED", "true");
+    const list = (await agentFieldList(ctx, db)).body as { fields: Array<{ id: string; label: string; type: string }> };
     expect(list.fields.filter((f) => f.type === "text")).toEqual([{ id: ids.title, label: "Job Title", type: "text" }]);
-    const body = (await agentPersonFields(ctx, SAM, db, on)).body as { fields: Array<{ id: string; value: unknown; text: string | null }> };
+    const body = (await agentPersonFields(ctx, SAM, db)).body as { fields: Array<{ id: string; value: unknown; text: string | null }> };
     const byId = Object.fromEntries(body.fields.map((f) => [f.id, f]));
     expect(byId[ids.title]).toMatchObject({ value: "Head of Growth", text: "Head of Growth" });
     for (const hidden of [ids.notes, ids.work, ids.mobile, ids.site, ids.owner, ids.old]) expect(byId[hidden]).toBeUndefined();
     expect(JSON.stringify(body)).not.toContain("expo");
 
+    vi.stubEnv("AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED", "false");
     const off = (await agentFieldList(ctx, db)).body as { fields: Array<{ id: string }>; note: string };
     expect(off.fields.map((f) => f.id)).not.toContain(ids.title);
     expect(off.note).not.toContain("Text takes");
@@ -145,8 +146,9 @@ describe("text fields an admin let Vizzy read", () => {
   });
 
   it("scrub their name and address out of the value as stored as well as in words, and say how text is written", async () => {
+    vi.stubEnv("AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED", "true");
     db.seed("contacts", SAM, { ...db.raw("contacts", SAM), fields: { [ids.title]: "Head of Growth, ask Sam Rivera at sam.rivera@example.com" } });
-    const body = (await agentPersonFields(ctx, SAM, db, { textFields: true })).body as { fields: Array<{ id: string; value: unknown; text: string | null; cut?: boolean }>; note: string };
+    const body = (await agentPersonFields(ctx, SAM, db)).body as { fields: Array<{ id: string; value: unknown; text: string | null; cut?: boolean }>; note: string };
     const title = body.fields.find((f) => f.id === ids.title)!;
     expect(title).toEqual({ id: ids.title, label: "Job Title", type: "text", value: "Head of Growth, ask [name] [name] at [email]", text: "Head of Growth, ask [name] [name] at [email]" });
     expect(JSON.stringify(body)).not.toMatch(/Sam|Rivera|example\.com/);
@@ -155,9 +157,10 @@ describe("text fields an admin let Vizzy read", () => {
   });
 
   it("cut a long value at 500 characters after scrubbing it, and mark it cut", async () => {
+    vi.stubEnv("AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED", "true");
     // The surname straddles the cut: scrubbed first, so no part of it is left behind.
     db.seed("contacts", SAM, { ...db.raw("contacts", SAM), fields: { [ids.title]: `${"a".repeat(497)} Rivera and more after it` } });
-    const body = (await agentPersonFields(ctx, SAM, db, { textFields: true })).body as { fields: Array<{ id: string; value: string; text: string; cut?: boolean }> };
+    const body = (await agentPersonFields(ctx, SAM, db)).body as { fields: Array<{ id: string; value: string; text: string; cut?: boolean }> };
     const title = body.fields.find((f) => f.id === ids.title)!;
     expect(title.cut).toBe(true);
     expect(title.value).toHaveLength(500);
@@ -166,7 +169,7 @@ describe("text fields an admin let Vizzy read", () => {
     expect(JSON.stringify(body)).not.toContain("Rivera");
     // A value that fits is not marked.
     db.seed("contacts", SAM, { ...db.raw("contacts", SAM), fields: { [ids.title]: "b".repeat(500) } });
-    const fits = ((await agentPersonFields(ctx, SAM, db, { textFields: true })).body as { fields: Array<{ id: string; cut?: boolean }> }).fields.find((f) => f.id === ids.title)!;
+    const fits = ((await agentPersonFields(ctx, SAM, db)).body as { fields: Array<{ id: string; cut?: boolean }> }).fields.find((f) => f.id === ids.title)!;
     expect(fits).not.toHaveProperty("cut");
   });
 });

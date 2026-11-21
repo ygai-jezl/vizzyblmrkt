@@ -10,7 +10,7 @@ Context: piece B of the CRM and tiers plan turns Audience into People and adds w
 needs on top of the person record: fields, filters, adding someone by hand, a timeline and
 Vizzy's suggestions. It also starts the settings log (piece O part 1) and stops catalog
 history being pruned. It ships as one pull request in eleven commit groups, all covered here.
-The only Firestore changes are the two composite indexes and the two field exemptions below;
+The only Firestore changes are the two composite indexes and the four field exemptions below;
 `src/lib/settings/indexes.test.ts` checks every composite query the piece makes has its index,
 and the field exemptions. No dependency, rules or infra change. Seven switches, all `"false"` in
 `apphosting.yaml` and empty in `.env.example`: `NEXT_PUBLIC_NAV_PEOPLE_ENABLED`,
@@ -68,6 +68,10 @@ Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
 - **Indexes (asks approved with the plan).** `settings_versions (tenantId, subject, rev
   DESC)` and `catalog_revisions (tenantId, connectionId, rev DESC)`.
   `src/lib/settings/indexes.test.ts` checks each new query shape has its index.
+  - Field exemptions (approved 2026-11-21): `settings_versions.snapshot` and
+    `settings_versions.items` (`indexes: []`), in the shape of piece 0's `ontology_events` and
+    `agent_actions` exemptions. Versions are read only by id or by subject and rev, and each
+    holds a whole setting, so indexing every option label in it would only cost writes.
 - **People added by hand are kept (group 3).** A contact may carry `addedBy` (a team
   member's user id or an agent action's id, when, and from the form, ⌘K or Vizzy) and
   `consent.marketing_email` (state, how, note, who recorded it, when). The kinds are

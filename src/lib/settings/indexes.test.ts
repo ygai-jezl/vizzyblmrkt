@@ -63,18 +63,31 @@ describe("the indexes piece B's queries need", () => {
   });
 });
 
-/** Maps whose keys are ids the brand makes: exempt from automatic indexing, or every key is its own index entry. */
+/**
+ * Maps and lists nobody queries: exempt from automatic indexing, or every key or entry is its own
+ * index entry. These are the only field exemptions piece B adds.
+ */
 const EXEMPT = [
   { collection: "contacts", field: "fields", by: "setRecordFieldValues (src/lib/tenant/recordFieldWrites.ts)" },
   { collection: "companies", field: "fields", by: "setRecordFieldValues (src/lib/tenant/recordFieldWrites.ts)" },
+  // A whole setting and its changed items, kept per version and only ever read by id or subject.
+  { collection: "settings_versions", field: "snapshot", by: "commitSettingsChange (src/lib/tenant/settingsLog.ts)" },
+  { collection: "settings_versions", field: "items", by: "commitSettingsChange (src/lib/tenant/settingsLog.ts)" },
 ];
 const OVERRIDES = (JSON.parse(readFileSync(join(process.cwd(), "firestore.indexes.json"), "utf8")) as {
   fieldOverrides: Array<{ collectionGroup: string; fieldPath: string; indexes: unknown[] }>;
 }).fieldOverrides;
 
-describe("the field values piece B stores", () => {
+describe("the values piece B stores", () => {
   it.each(EXEMPT.map((e) => [`${e.collection}.${e.field}`, e] as const))("%s is exempt from automatic indexing", (_name, e) => {
     const found = OVERRIDES.some((o) => o.collectionGroup === e.collection && o.fieldPath === e.field && o.indexes.length === 0);
     expect(found, `${e.by} writes ${e.collection}.${e.field}, which needs a field exemption in firestore.indexes.json`).toBe(true);
+  });
+
+  it("adds no other exemption on the collections it writes", () => {
+    const mine = new Set(EXEMPT.map((e) => e.collection));
+    const theirs = OVERRIDES.filter((o) => mine.has(o.collectionGroup) && !EXEMPT.some((e) => e.collection === o.collectionGroup && e.field === o.fieldPath));
+    // contacts.products and contacts.optOuts were exempt before piece B.
+    expect(theirs.map((o) => `${o.collectionGroup}.${o.fieldPath}`).sort()).toEqual(["contacts.optOuts", "contacts.products"]);
   });
 });

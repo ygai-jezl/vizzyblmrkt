@@ -1487,6 +1487,16 @@
       "collectionGroup": "agent_actions",
       "fieldPath": "signals",
       "indexes": []
+    },
+    {
+      "collectionGroup": "settings_versions",
+      "fieldPath": "snapshot",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "settings_versions",
+      "fieldPath": "items",
+      "indexes": []
     }
   ]
 }

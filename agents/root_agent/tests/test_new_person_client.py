@@ -61,12 +61,15 @@ def test_errors_become_plain_messages(monkeypatch):
         (400, {"error": "invalid_email"}, "invalid_email"),
         (400, {"error": "consent_not_allowed"}, "consent_not_allowed"),
         (429, {"error": "rate_limited"}, "rate_limited"),
+        (400, {"error": "too_large"}, "too_large"),
         (500, "not json", "http_500"),
     ]:
         monkeypatch.setattr(npc, "_post", lambda *_, s=status, b=body: (s, b if isinstance(b, str) else json.dumps(b)))
         monkeypatch.setenv("CANVAS_CALLBACK_URL", "https://app.example.com")
         out = npc.propose({"ctxToken": "tok"}, "sam@example.com", "", "", "", None)
         assert out["status"] == "error" and out["code"] == code and out["message"]
+        if code == "too_large":
+            assert out["message"].startswith("That form is too big to save")
 
 
 def test_root_never_records_consent_and_never_asks_for_more_details():

@@ -64,11 +64,12 @@ export function isTimelineEnabled(): boolean {
 /**
  * Vizzy reads fields and suggests edits (AUDIENCE_VIZZY_FIELDS_ENABLED, needs fields): on any
  * person's page Vizzy is told who is open, reads the field list and that person's select, multi
- * select, status, checkbox, number, currency and date values (never text, email, phone, link or
- * team member ones), and suggests changes that an admin confirms on the page or from Review. It
- * doesn't need the lifecycle person brief. Off: Vizzy isn't told who is open unless the brief is
- * on, its field routes answer unavailable, and suggestions are hidden. Open suggestions stay, and
- * export and erase cover them whatever this says. Off in production until the DPA line.
+ * select, status, checkbox, number, currency and date values (never email, phone, link or team
+ * member ones, and text only with AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED), and suggests changes that
+ * an admin confirms on the page or from Review. It doesn't need the lifecycle person brief. Off:
+ * Vizzy isn't told who is open unless the brief is on, its field routes answer unavailable, and
+ * suggestions are hidden. Open suggestions stay, and export and erase cover them whatever this
+ * says. Off in production until the DPA line.
  */
 export function isVizzyFieldsEnabled(): boolean {
   return isFieldsEnabled() && process.env.AUDIENCE_VIZZY_FIELDS_ENABLED === "true";

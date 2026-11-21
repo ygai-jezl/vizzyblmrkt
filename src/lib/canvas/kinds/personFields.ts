@@ -8,9 +8,9 @@ import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types
 
 /**
  * The `person_fields` canvas kind (AUDIENCE_VIZZY_FIELDS_ENABLED): Vizzy suggests changes to one
- * person's fields from the chat, of the seven types it may read. Always a suggestion: an admin
- * confirms or dismisses it on the person's page or from Review, and only then does anything
- * change. The person is named by our id for them (`ct_`), found only in the token's brand.
+ * person's fields from the chat, of the fields it may read (vizzyReadsField). Always a
+ * suggestion: an admin confirms or dismisses it on the person's page or from Review, and only then
+ * does anything change. The person is named by our id for them (`ct_`), found only in the token's brand.
  *
  * Admins only, like changing a value on the page: a token without a role fails closed.
  */

@@ -87,6 +87,7 @@ def test_errors_become_plain_messages_and_switch_the_rules_off(monkeypatch):
         (403, {"error": "forbidden"}, "forbidden"),
         (404, {"error": "person_not_found"}, "person_not_found"),
         (400, {"error": "field_not_allowed", "issues": ["fld_1"]}, "field_not_allowed"),
+        (400, {"error": "too_large"}, "too_large"),
         (409, {"error": "already_decided"}, "already_decided"),
         (429, {"error": "rate_limited"}, "rate_limited"),
         (500, "not json", "http_500"),
@@ -97,6 +98,8 @@ def test_errors_become_plain_messages_and_switch_the_rules_off(monkeypatch):
         out = pf.propose(state, {"fld_1": 1}, "why")
         assert out["status"] == "error" and out["code"] == code and out["message"]
         assert state["personFieldsEnabled"] is (code != "unavailable")
+        if code == "too_large":
+            assert out["message"].startswith("That suggestion is too big to save")
 
 
 def test_messages_name_no_area_and_use_no_dashes():

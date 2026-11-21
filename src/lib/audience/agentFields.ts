@@ -66,7 +66,7 @@ function words(f: RecordField, v: FieldValue): string {
   return f.type === "date" ? String(v) : valueText(f, v);
 }
 
-/** The brand's People fields of the seven types, with no values. */
+/** The brand's People fields Vizzy may read, with no values. */
 export async function agentFieldList(ctx: TenantContext, db?: FirestoreLike): Promise<ApiResult> {
   if (await isRateLimited(`tenant:${ctx.tenantId}`, READ_LIMIT, { db })) return { status: 429, body: { error: "rate_limited" } };
   const list = await readFieldList(ctx, "person", db);

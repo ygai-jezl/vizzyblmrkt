@@ -6,8 +6,9 @@ effect, the HTTP call, is isolated in `_request` so tests can monkeypatch it.
 
 Every call carries the signed capability token (`ctxToken` in session state) as
 `X-Canvas-Context`; the app takes the brand from that token, never from here. The
-app only ever sends the seven field types Vizzy may read (select, multi select,
-status, checkbox, number, currency and date), and never a name or an address.
+app only ever sends the field types Vizzy may read (select, multi select, status,
+checkbox, number, currency and date, and text fields the brand lets it read, scrubbed
+and cut to 500 characters), and never a name or an address.
 Suggestions are saved for someone on the team to confirm: nothing changes until
 then. `personFieldsEnabled` is written on every answer that shows whether the
 switch is on, so the instruction builder's fields rule comes and goes with it.
@@ -35,11 +36,12 @@ _ERRORS = {
     "forbidden": "Only an admin on the team can ask me to suggest changes to someone's fields.",
     "unknown_field": "One of those fields isn't on the list any more. Let me read the fields again.",
     "archived_field": "That field was archived, so I can't suggest a value for it.",
-    "field_not_allowed": "I can only suggest select, multi select, status, checkbox, number, currency and date fields.",
-    "invalid_value": "One of the values doesn't fit its field. Use the option ids and value shapes the fields read gives.",
+    "field_not_allowed": "I can only suggest select, multi select, status, checkbox, number, currency and date fields, and text fields the brand lets me read.",
+    "invalid_value": "One of the values doesn't fit its field. Use the option ids and value shapes the fields read gives; text is at most 500 characters, with no [name], [email] or [id] in it, and a text value marked cut can only be cleared with null.",
     "no_change": "Their fields already hold those values, so there's nothing to suggest.",
     "already_decided": "Someone on the team already decided that exact suggestion, so I won't raise it again.",
     "too_many_fields": "That's too many fields for one suggestion. Suggest up to 20 at once.",
+    "too_large": "That suggestion is too big to save. Suggest fewer fields, or shorter text, at once.",
     "invalid_input": "The suggestion was missing something",
 }
 

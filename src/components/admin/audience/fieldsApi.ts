@@ -37,6 +37,9 @@ export const FIELD_MESSAGES = {
   failed: "That didn't save. Try again.",
 } as const;
 
+/** The hint beside "Vizzy can read this field" in Data model (AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED); the help page quotes it. */
+export const VIZZY_READS_HINT = "Only for fields that don't say who someone is or how to reach them.";
+
 /** The plain-word message for an error a fields route answered. */
 export function fieldErrorText(data: unknown): string {
   const d = (data ?? {}) as { error?: string; reason?: string };

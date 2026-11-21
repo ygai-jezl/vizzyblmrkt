@@ -11,7 +11,8 @@ export const SUGGESTION_NOTES = {
 
 /** The plain words for each answer the suggestions route gives. */
 export const SUGGESTION_MESSAGES = {
-  stale: "This suggestion was out of date: a field changed since Vizzy made it, so it was set aside. Ask Vizzy again if it still fits.",
+  stale:
+    "This suggestion was out of date, so it was set aside: a field changed since Vizzy made it, or Vizzy can no longer read one. Ask Vizzy again if it still fits, or set the value under Fields.",
   changed: "Someone else decided this suggestion. Reload the page to see what happened.",
   edited_since: "A field changed since this was confirmed, so it can't be undone here. Change it under Fields instead.",
   too_old: "This was confirmed more than 7 days ago, so it can't be undone here. Change it under Fields instead.",

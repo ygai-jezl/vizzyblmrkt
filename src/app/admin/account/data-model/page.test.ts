@@ -22,14 +22,23 @@ const { default: DataModelPage } = await import("./page");
 
 const CTX = { tenantId: "ten_demo", region: "us" as const, userId: "uid_owner", role: "admin" as const, source: "idtoken" as const };
 
-const SWITCHES = ["AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_FIELDS_ENABLED", "AUDIENCE_FIELD_FILTERS_ENABLED"];
+const SWITCHES = [
+  "AUDIENCE_PERSON_LINKS_ENABLED",
+  "AUDIENCE_ONE_VIEW_ENABLED",
+  "ONTOLOGY_PERSON_IDS_ENABLED",
+  "AUDIENCE_FIELDS_ENABLED",
+  "AUDIENCE_FIELD_FILTERS_ENABLED",
+  "AUDIENCE_VIZZY_FIELDS_ENABLED",
+  "AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED",
+];
 
 function turnOn(...names: string[]) {
   for (const n of names) process.env[n] = "true";
 }
 
-async function props(): Promise<{ canEdit: boolean; filters?: boolean }> {
-  return ((await DataModelPage()) as ReactElement<{ canEdit: boolean; filters?: boolean }>).props;
+type Props = { canEdit: boolean; filters?: boolean; vizzyText?: boolean };
+async function props(): Promise<Props> {
+  return ((await DataModelPage()) as ReactElement<Props>).props;
 }
 
 describe("Settings › Data model page", () => {
@@ -52,6 +61,16 @@ describe("Settings › Data model page", () => {
     expect((await props()).filters).toBe(false);
     turnOn("AUDIENCE_FIELD_FILTERS_ENABLED");
     expect((await props()).filters).toBe(true);
+  });
+
+  it("shows what Vizzy reads, and the tick for text fields, only while Vizzy's text fields are on", async () => {
+    turnOn("AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_FIELDS_ENABLED");
+    expect((await props()).vizzyText).toBe(false);
+    turnOn("AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED");
+    // It needs Vizzy's fields.
+    expect((await props()).vizzyText).toBe(false);
+    turnOn("AUDIENCE_VIZZY_FIELDS_ENABLED");
+    expect((await props()).vizzyText).toBe(true);
   });
 
   it("lets admins change the fields and members read them", async () => {

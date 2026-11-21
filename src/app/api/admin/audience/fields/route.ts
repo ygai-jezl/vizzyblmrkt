@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { fieldsAdmin } from "@/lib/audience/admin";
-import { FIELD_LIST_STATUS, FieldListChangeSchema, readFieldList, saveFieldListChange } from "@/lib/audience/fieldList";
+import { FIELD_LIST_STATUS, FieldListChangeSchema, readFieldList, saveFieldListChange, type FieldListChange } from "@/lib/audience/fieldList";
+import { isVizzyTextFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { forTenant, type TenantContext } from "@/lib/tenant";
 import { teamMemberNames } from "@/lib/team/names";
 import { isRecordFieldObject, RECORD_FIELD_OBJECTS } from "@/lib/types/recordField";
@@ -38,6 +39,11 @@ const Body = z.object({
   message: z.string().max(200).nullable().optional(),
 });
 
+/** Whether a change sets "Vizzy can read this field": the `vizzy_reads` change, or adding a field with it ticked. */
+function setsVizzyReading(c: FieldListChange): boolean {
+  return c.op === "vizzy_reads" || (c.op === "add" && c.vizzyReads === true);
+}
+
 async function change(req: Request, adding: boolean) {
   const gate = await fieldsAdmin(req, { mutate: true });
   if (!gate.ok) return gate.response;
@@ -46,6 +52,8 @@ async function change(req: Request, adding: boolean) {
     return NextResponse.json({ error: "invalid_input" }, { status: 400, headers: noStore });
   }
   const { object, baseRev, change: c, message } = parsed.data;
+  // Off (AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED), the tick can't be set or changed: as if it weren't there.
+  if (setsVizzyReading(c) && !isVizzyTextFieldsEnabled()) return NextResponse.json({ error: "not_found" }, { status: 404, headers: noStore });
   const r = await saveFieldListChange(gate.ctx, object, { baseRev, change: c, message, by: { type: "member", id: gate.ctx.userId ?? null } });
   if (!r.ok) return NextResponse.json({ error: r.error, ...(r.list ? { list: r.list } : {}) }, { status: FIELD_LIST_STATUS[r.error], headers: noStore });
   return NextResponse.json({ list: r.list, message: r.message }, { headers: noStore });
@@ -56,7 +64,10 @@ export async function POST(req: Request) {
   return change(req, true);
 }
 
-/** Rename, reorder, add or change an option, archive, restore or change a field's type. Admins only. */
+/**
+ * Rename, reorder, add or change an option, archive, restore or change a field's type, or let Vizzy
+ * read a People text field (while AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED is on). Admins only.
+ */
 export async function PATCH(req: Request) {
   return change(req, false);
 }

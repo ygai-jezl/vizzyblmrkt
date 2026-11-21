@@ -5,11 +5,13 @@ import { deterministicAgentActionId } from "@/lib/crm/identifiers";
 import { getAgentAction, listAgentActionsForPerson } from "@/lib/ontology/agentActions";
 import { isContactPersonId, type ContactPersonId } from "@/lib/ontology/person";
 import { agentDedupeKey, isAgentActionId, type AgentAction, type AgentActionId } from "@/lib/types/agentAction";
-import { checkFieldValue, isVizzyFieldType, liveOptions, sameFieldValue, type FieldValue, type RecordField } from "@/lib/types/recordField";
+import { checkFieldValue, liveOptions, sameFieldValue, VIZZY_TEXT_CHARS, vizzyReadsField, type FieldValue, type RecordField } from "@/lib/types/recordField";
 import { normalizeEmail } from "@/lib/waitlist/identifiers";
 import { newPersonKey } from "./addPerson";
 import { readFieldList } from "./fieldList";
+import { fitsAgentAction, vizzyValueFits } from "./fieldSuggestions";
 import { parseNewPerson, type NewPersonError } from "./newPerson";
+import { isVizzyTextFieldsEnabled } from "./peopleFlags";
 import { personIdOf } from "./personSync";
 
 /**
@@ -24,8 +26,12 @@ import { personIdOf } from "./personSync";
  * - The details sit in the proposal and are cleared when it closes: confirmed (acted, keeping only
  *   the new person's id), dismissed, or declined as expired by the tick after 7 days.
  * - Someone already in People gets no draft: Vizzy is told, and links to their page.
- * - Field values only of the seven types Vizzy may read, named by label or id; an option by its
- *   label or id. Anything else is left out with a warning, and the admin types it in the form.
+ * - Field values only of fields Vizzy may read (vizzyReadsField), named by label or id; an option
+ *   by its label or id. A text value is at most VIZZY_TEXT_CHARS with none of the scrubber's marks
+ *   (vizzyValueFits). Anything else is left out with a warning, and the admin types it in the form.
+ *   The form gets only those Vizzy may still read when it opens (readNewPersonDraft).
+ * - A draft too big to save as an agent action is refused (`too_large`), before one waiting is
+ *   replaced.
  */
 
 export const NEW_PERSON_ACTION = "new_person.draft";
@@ -46,7 +52,7 @@ export function draftHref(id: string): string {
   return `/admin/crm?draft=${encodeURIComponent(id)}`;
 }
 
-export type DraftError = NewPersonError;
+export type DraftError = NewPersonError | "too_large";
 
 export type DraftResult =
   | { ok: true; outcome: "created" | "open"; action: AgentAction; fields: number; warnings: string[] }
@@ -65,8 +71,8 @@ function asStored(field: RecordField, raw: unknown): unknown {
 }
 
 /** Field values named by label or id, checked against the list; the rest become warnings. */
-function draftFields(items: readonly RecordField[], typed: Record<string, unknown>): { fields: Record<string, FieldValue>; warnings: string[] } {
-  const live = items.filter((f) => !f.archivedAt && isVizzyFieldType(f.type));
+function draftFields(items: readonly RecordField[], typed: Record<string, unknown>, textFields: boolean): { fields: Record<string, FieldValue>; warnings: string[] } {
+  const live = items.filter((f) => vizzyReadsField(f, textFields));
   const fields: Record<string, FieldValue> = {};
   const warnings: string[] = [];
   for (const [name, raw] of Object.entries(typed).slice(0, 50)) {
@@ -77,7 +83,9 @@ function draftFields(items: readonly RecordField[], typed: Record<string, unknow
       continue;
     }
     const check = checkFieldValue(field, asStored(field, raw));
-    if (!check.ok) warnings.push(`That value doesn't fit ${field.label}: the admin can set it in the form.`);
+    if (check.ok && field.type === "text" && typeof check.value === "string" && check.value.length > VIZZY_TEXT_CHARS) {
+      warnings.push(`That value is too long for ${field.label}: you can fill in up to ${VIZZY_TEXT_CHARS} characters, and the admin can type it in the form.`);
+    } else if (!check.ok || !vizzyValueFits(field, check.value)) warnings.push(`That value doesn't fit ${field.label}: the admin can set it in the form.`);
     else if (check.value !== null) fields[field.key] = check.value;
   }
   return { fields, warnings };
@@ -124,7 +132,7 @@ export async function draftNewPerson(
   if (await forTenant(ctx, deps.db).contacts.getById(personId)) return { ok: true, outcome: "existing", personId };
 
   const list = await readFieldList(ctx, "person", deps.db);
-  const { fields, warnings } = draftFields(list.items, input.fields ?? {});
+  const { fields, warnings } = draftFields(list.items, input.fields ?? {}, isVizzyTextFieldsEnabled());
   const details: DraftDetails = {
     email: parsed.value.email ? normalizeEmail(parsed.value.email) : null,
     phone: parsed.value.phone,
@@ -132,6 +140,9 @@ export async function draftNewPerson(
     lastName: parsed.value.lastName,
     fields,
   };
+  const proposal = { person: { email: details.email, phone: details.phone, firstName: details.firstName, lastName: details.lastName }, fields: details.fields };
+  // Checked before a waiting draft is replaced: a proposal over the limit would throw.
+  if (!fitsAgentAction(proposal, null)) return { ok: false, error: "too_large" };
   const nowMs = deps.nowMs ?? Date.now();
   const at = new Date(nowMs).toISOString();
 
@@ -154,7 +165,7 @@ export async function draftNewPerson(
       action: NEW_PERSON_ACTION,
       target: { type: "person", id: personId },
       personId,
-      proposal: { person: { email: details.email, phone: details.phone, firstName: details.firstName, lastName: details.lastName }, fields: details.fields },
+      proposal,
       basis: null,
       fieldIds: Object.keys(details.fields),
       signals: [],
@@ -170,7 +181,12 @@ export async function draftNewPerson(
   return { ok: true, outcome: saved.outcome === "open" ? "open" : "created", action: saved.action, fields: Object.keys(fields).length, warnings };
 }
 
-/** A draft as the form reads it, or null once it is closed, cleared or past its 7 days. */
+/**
+ * A draft as the form reads it, or null once it is closed, cleared or past its 7 days. Only the
+ * field values Vizzy may still read (vizzyReadsField, against the list as it is now) fill the form:
+ * a text field an admin unticked since, or every text field while text fields are off, is left for
+ * the admin to type, and so is a field no longer on the list.
+ */
 export async function readNewPersonDraft(
   ctx: TenantContext,
   id: string,
@@ -181,6 +197,14 @@ export async function readNewPersonDraft(
   const at = new Date(deps.nowMs ?? Date.now()).toISOString();
   if (!a || a.action !== NEW_PERSON_ACTION || a.state !== "proposed" || !a.proposal || a.expiresAt <= at) return null;
   const p = (a.proposal.person ?? {}) as Record<string, string | null>;
+  const drafted = (a.proposal.fields && typeof a.proposal.fields === "object" ? a.proposal.fields : {}) as Record<string, FieldValue>;
+  const fields: Record<string, FieldValue> = {};
+  if (Object.keys(drafted).length) {
+    const list = await readFieldList(ctx, "person", deps.db);
+    const textFields = isVizzyTextFieldsEnabled();
+    const byId = new Map(list.items.map((f) => [f.key, f]));
+    for (const [fieldId, value] of Object.entries(drafted)) if (vizzyReadsField(byId.get(fieldId), textFields)) fields[fieldId] = value;
+  }
   return {
     id: a.id,
     rev: a.rev,
@@ -189,7 +213,7 @@ export async function readNewPersonDraft(
     phone: p.phone ?? null,
     firstName: p.firstName ?? null,
     lastName: p.lastName ?? null,
-    fields: (a.proposal.fields ?? {}) as Record<string, FieldValue>,
+    fields,
   };
 }
 

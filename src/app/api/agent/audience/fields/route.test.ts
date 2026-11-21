@@ -19,6 +19,7 @@ const ctx = { tenantId: "ten_A", region: "us", source: "agent", userId: "u_membe
 const PERSON = deterministicContactId("ten_A", "alex@example.com");
 const SEATS = "fld_bbbbbbbbbbb1";
 const NOTES = "fld_bbbbbbbbbbb2";
+const TITLE = "fld_bbbbbbbbbbb3";
 
 const req = (path: string, token?: string) => new Request(`https://app.example.com${path}`, { headers: token ? { "x-canvas-context": token } : {} });
 
@@ -31,7 +32,15 @@ beforeEach(async () => {
   const by = { type: "member", id: "u_admin" } as const;
   await saveFieldListChange({ ...ctx, role: "admin" }, "person", { baseRev: 0, change: { op: "add", label: "Seats", type: "number" }, by, newFieldId: () => SEATS }, db);
   await saveFieldListChange({ ...ctx, role: "admin" }, "person", { baseRev: 1, change: { op: "add", label: "Notes", type: "text" }, by, newFieldId: () => NOTES }, db);
-  db.seed("contacts", PERSON, { tenantId: "ten_A", contactKey: "alex@example.com", fields: { [SEATS]: 4, [NOTES]: "Prefers calls" } });
+  await saveFieldListChange({ ...ctx, role: "admin" }, "person", { baseRev: 2, change: { op: "add", label: "Job Title", type: "text", vizzyReads: true }, by, newFieldId: () => TITLE }, db);
+  db.seed("contacts", PERSON, {
+    tenantId: "ten_A",
+    contactKey: "alex@example.com",
+    email: "alex@example.com",
+    firstName: "Alex",
+    lastName: "Morgan",
+    fields: { [SEATS]: 4, [NOTES]: "Prefers calls", [TITLE]: `Head of Growth, reports to Alex Morgan (alex@example.com). ${"More detail. ".repeat(60)}` },
+  });
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -56,5 +65,29 @@ describe("GET /api/agent/audience/fields and /people/[personId]/fields", () => {
     const body = await one.json();
     expect(body.fields).toEqual([{ id: SEATS, label: "Seats", type: "number", value: 4, text: "4" }]);
     expect(JSON.stringify(body)).not.toContain("Prefers calls");
+    expect(JSON.stringify(body)).not.toContain("Head of Growth");
+  });
+
+  it("serve a text field an admin let Vizzy read while its switch is on, scrubbed and cut at 500 characters", async () => {
+    vi.stubEnv("AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED", "true");
+    const token = signCanvasContext(ctx);
+    const list = await (await listRoute.GET(req("/api/agent/audience/fields", token))).json();
+    expect(list.fields).toEqual([
+      { id: SEATS, label: "Seats", type: "number" },
+      { id: TITLE, label: "Job Title", type: "text" },
+    ]);
+    const body = await (await personRoute.GET(req(`/api/agent/audience/people/${PERSON}/fields`, token), { params: Promise.resolve({ personId: PERSON }) })).json();
+    const title = body.fields.find((f: { id: string }) => f.id === TITLE);
+    expect(title).toMatchObject({ type: "text", cut: true });
+    expect(title.value).toHaveLength(500);
+    expect(title.value.startsWith("Head of Growth, reports to [name] [name] ([email]). More detail.")).toBe(true);
+    expect(title.text).toBe(title.value);
+    // Notes, a text field nobody ticked, never goes; nor do their name and address.
+    const text = JSON.stringify(body);
+    for (const never of ["Prefers calls", "Alex", "Morgan", "alex@example.com"]) expect(text).not.toContain(never);
+
+    vi.stubEnv("AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED", "false");
+    const off = await (await personRoute.GET(req(`/api/agent/audience/people/${PERSON}/fields`, token), { params: Promise.resolve({ personId: PERSON }) })).json();
+    expect(off.fields.map((f: { id: string }) => f.id)).toEqual([SEATS]);
   });
 });

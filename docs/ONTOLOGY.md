@@ -647,7 +647,7 @@ One row per thing that happened to a person, company, idea or agent action and h
 
 ### Field (`custom_field`)
 
-A field the brand adds to people or companies, of one of twelve types, managed in Settings › Data model. One list per object is a setting kept in the settings log, so every change is a version; a field is archived, never deleted, and its type is fixed once made. Values sit on the person or company under `fields.<fieldId>`, written only by `src/lib/tenant/recordFieldWrites.ts`, each change a record.field_changed event. Fields from sign-up questions, the catalog and enrichment are shown beside them, read only and never stored.
+A field the brand adds to people or companies, of one of twelve types, managed in Settings › Data model. One list per object is a setting kept in the settings log, so every change is a version; a field is archived, never deleted, and its type is fixed once made. Values sit on the person or company under `fields.<fieldId>`, written only by `src/lib/tenant/recordFieldWrites.ts`, each change a record.field_changed event. Fields from sign-up questions, the catalog and enrichment are shown beside them, read only and never stored. Values that reach Vizzy (`vizzyReadsField`): a person's select, multi select, status, checkbox, number, currency and date fields, and text fields an admin ticked ‘Vizzy can read this field’ while AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED is on, scrubbed of their name and address and cut to 500 characters; never email, phone, link or team member values, or a company's.
 
 - Status: built
 - Home: the brand's region

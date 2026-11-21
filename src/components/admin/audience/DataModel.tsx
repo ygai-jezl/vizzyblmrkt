@@ -8,21 +8,25 @@ import {
   FIELD_LIMITS,
   FIELD_TYPE_LABEL,
   FIELD_TYPES,
+  canVizzyReadText,
   hasOptions,
   isFilterType,
+  vizzyReadsField,
   type FieldType,
   type RecordField,
   type RecordFieldObject,
 } from "@/lib/types/recordField";
 import { Banner, Button, inputClass } from "../connect/ui";
 import { ago, day } from "../people/format";
-import { changeFieldList, fieldErrorText, loadFieldHistory, loadFieldLists, type FieldVersionRow, type StoredFieldList } from "./fieldsApi";
+import { changeFieldList, fieldErrorText, loadFieldHistory, loadFieldLists, VIZZY_READS_HINT, type FieldVersionRow, type StoredFieldList } from "./fieldsApi";
 
 /**
  * Settings › Data model (AUDIENCE_FIELDS_ENABLED): the fields on People and on Companies. Your
  * own fields (admins add, rename, change options, archive, restore and change a type; members
  * read), the fields from elsewhere, read only, an archived list, and every change. Restoring an
- * older list comes with settings history (piece O).
+ * older list comes with settings history (piece O). While Vizzy's text fields are on
+ * (AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED), a "Vizzy reads" column, and "Vizzy can read this field" on
+ * a People text field for admins.
  */
 
 const OBJECT_WORD: Record<RecordFieldObject, { tab: string; each: string }> = {
@@ -44,12 +48,15 @@ export function DataModel({
   canEdit,
   readOnly,
   filters = false,
+  vizzyText = false,
 }: {
   canEdit: boolean;
   /** The fields from elsewhere, worked out on the server. */
   readOnly: Record<RecordFieldObject, ReadOnlyFieldDef[]>;
   /** People can be filtered by fields (AUDIENCE_FIELD_FILTERS_ENABLED). */
   filters?: boolean;
+  /** Vizzy reads text fields an admin let it read (AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED, from the server). */
+  vizzyText?: boolean;
 }) {
   const [object, setObject] = useState<RecordFieldObject>("person");
   const [lists, setLists] = useState<Record<RecordFieldObject, StoredFieldList> | null>(null);
@@ -76,6 +83,7 @@ export function DataModel({
   const archived = list.items.filter((f) => f.archivedAt);
   const words = OBJECT_WORD[object];
   const filterable = (f: RecordField) => filters && object === "person" && isFilterType(f.type);
+  const columns = vizzyText ? 6 : 5;
 
   async function apply(change: FieldListChange): Promise<boolean> {
     setBusy(true);
@@ -117,13 +125,14 @@ export function DataModel({
         <h2 className="text-base font-semibold">Fields on {words.tab}</h2>
         {error ? <Banner tone="err">{error}</Banner> : null}
         <div className="overflow-x-auto rounded-md border border-neutral-200 dark:border-neutral-800">
-          <table className="w-full min-w-[560px] text-sm">
+          <table className={`w-full text-sm ${vizzyText ? "min-w-[640px]" : "min-w-[560px]"}`}>
             <thead className="text-left text-xs text-neutral-500">
               <tr className="border-b border-neutral-200 dark:border-neutral-800">
                 <th className="px-3 py-2 font-medium">Field</th>
                 <th className="px-3 py-2 font-medium">Type</th>
                 <th className="px-3 py-2 font-medium">Comes from</th>
                 <th className="px-3 py-2 font-medium">In filters</th>
+                {vizzyText ? <th className="px-3 py-2 font-medium">Vizzy reads</th> : null}
                 <th className="px-3 py-2 font-medium">
                   <span className="sr-only">Actions</span>
                 </th>
@@ -135,6 +144,8 @@ export function DataModel({
                   key={f.key}
                   field={f}
                   inFilters={filterable(f)}
+                  vizzyText={vizzyText}
+                  columns={columns}
                   canEdit={canEdit}
                   open={editing === f.key}
                   busy={busy}
@@ -152,6 +163,7 @@ export function DataModel({
                     {d.source} <span className="ml-1 text-xs text-neutral-500">read only</span>
                   </td>
                   <td className={`px-3 py-2 ${d.inFilters === "Yes" ? "" : "text-neutral-500"}`}>{d.inFilters}</td>
+                  {vizzyText ? <td /> : null}
                   <td />
                 </tr>
               ))}
@@ -182,7 +194,7 @@ export function DataModel({
       </div>
 
       <aside className="flex w-full flex-col gap-4 lg:w-72">
-        {canEdit ? <AddField object={object} busy={busy} filters={filters} apply={apply} /> : null}
+        {canEdit ? <AddField object={object} busy={busy} filters={filters} vizzyText={vizzyText} apply={apply} /> : null}
         <section className="space-y-2 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
           <h3 className="text-sm font-semibold">Changes</h3>
           {!history ? (
@@ -211,6 +223,8 @@ export function DataModel({
 function FieldRow({
   field,
   inFilters,
+  vizzyText,
+  columns,
   canEdit,
   open,
   busy,
@@ -219,6 +233,9 @@ function FieldRow({
 }: {
   field: RecordField;
   inFilters: boolean;
+  /** Show the "Vizzy reads" column and the tick (AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED). */
+  vizzyText: boolean;
+  columns: number;
   canEdit: boolean;
   open: boolean;
   busy: boolean;
@@ -228,6 +245,7 @@ function FieldRow({
   const [label, setLabel] = useState(field.label);
   const [option, setOption] = useState("");
   const [type, setType] = useState<FieldType>(field.type);
+  const read = vizzyReadsField(field, true);
   return (
     <>
       <tr>
@@ -237,6 +255,7 @@ function FieldRow({
         </td>
         <td className="px-3 py-2">Your field</td>
         <td className={`px-3 py-2 ${inFilters ? "" : "text-neutral-500"}`}>{inFilters ? "Yes" : "No"}</td>
+        {vizzyText ? <td className={`px-3 py-2 ${read ? "" : "text-neutral-500"}`}>{read ? "Yes" : "No"}</td> : null}
         <td className="px-3 py-2 text-right">
           {canEdit ? (
             <button type="button" aria-expanded={open} className="text-xs underline underline-offset-2" onClick={onToggle}>
@@ -247,7 +266,7 @@ function FieldRow({
       </tr>
       {open ? (
         <tr>
-          <td colSpan={5} className="space-y-3 bg-neutral-50 px-3 py-3 dark:bg-neutral-900/40">
+          <td colSpan={columns} className="space-y-3 bg-neutral-50 px-3 py-3 dark:bg-neutral-900/40">
             <div className="flex flex-wrap items-end gap-2">
               <label className="min-w-0 flex-1 space-y-1">
                 <span className="text-xs text-neutral-500">Name</span>
@@ -286,6 +305,15 @@ function FieldRow({
                 </div>
               </div>
             ) : null}
+            {vizzyText && canVizzyReadText(field) ? (
+              <div className="space-y-0.5">
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={field.vizzyReads === true} disabled={busy} onChange={(e) => void apply({ op: "vizzy_reads", key: field.key, on: e.target.checked })} />
+                  Vizzy can read this field
+                </label>
+                <p className="text-xs text-neutral-500">{VIZZY_READS_HINT}</p>
+              </div>
+            ) : null}
             <div className="flex flex-wrap items-end gap-2">
               <label className="space-y-1">
                 <span className="text-xs text-neutral-500">Change the type</span>
@@ -319,22 +347,44 @@ function FieldRow({
   );
 }
 
-function AddField({ object, busy, filters, apply }: { object: RecordFieldObject; busy: boolean; filters: boolean; apply: (change: FieldListChange) => Promise<boolean> }) {
+function AddField({
+  object,
+  busy,
+  filters,
+  vizzyText,
+  apply,
+}: {
+  object: RecordFieldObject;
+  busy: boolean;
+  filters: boolean;
+  vizzyText: boolean;
+  apply: (change: FieldListChange) => Promise<boolean>;
+}) {
   const [label, setLabel] = useState("");
   const [type, setType] = useState<FieldType>("text");
   const [options, setOptions] = useState("");
   const [currency, setCurrency] = useState("");
+  const [vizzyReads, setVizzyReads] = useState(false);
+  const canTick = vizzyText && canVizzyReadText({ type, object });
   const optionList = options
     .split("\n")
     .map((s) => s.trim())
     .filter(Boolean);
   const ready = !!label.trim() && (type !== "currency" || CURRENCY_CODE.test(currency.trim().toUpperCase())) && (!hasOptions(type) || optionList.length > 0);
   async function add() {
-    const ok = await apply({ op: "add", label, type, ...(hasOptions(type) ? { options: optionList } : {}), ...(type === "currency" ? { currency: currency.trim().toUpperCase() } : {}) });
+    const ok = await apply({
+      op: "add",
+      label,
+      type,
+      ...(hasOptions(type) ? { options: optionList } : {}),
+      ...(type === "currency" ? { currency: currency.trim().toUpperCase() } : {}),
+      ...(canTick && vizzyReads ? { vizzyReads: true } : {}),
+    });
     if (ok) {
       setLabel("");
       setOptions("");
       setCurrency("");
+      setVizzyReads(false);
     }
   }
   return (
@@ -363,6 +413,15 @@ function AddField({ object, busy, filters, apply }: { object: RecordFieldObject;
           <span className="text-xs text-neutral-500">Currency code, such as GBP or USD</span>
           <input value={currency} maxLength={3} onChange={(e) => setCurrency(e.target.value)} className={inputClass} />
         </label>
+      ) : null}
+      {canTick ? (
+        <div className="space-y-0.5">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={vizzyReads} onChange={(e) => setVizzyReads(e.target.checked)} />
+            Vizzy can read this field
+          </label>
+          <p className="text-xs text-neutral-500">{VIZZY_READS_HINT}</p>
+        </div>
       ) : null}
       {object === "person" && filters ? <p className="text-xs text-neutral-500">Select, multi select, status and checkbox fields can filter People.</p> : null}
       <Button tone="primary" disabled={busy || !ready} onClick={() => void add()}>

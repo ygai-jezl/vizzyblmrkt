@@ -5,6 +5,7 @@ import {
   amountToMinor,
   checkFieldValue,
   currencyDigits,
+  cutText,
   FIELD_LIMITS,
   FIELD_TYPES,
   fieldListProblems,
@@ -15,6 +16,8 @@ import {
   optionsForValue,
   RecordFieldSchema,
   sameFieldValue,
+  VIZZY_FIELD_TYPES,
+  vizzyReadsField,
   type RecordField,
 } from "./recordField";
 
@@ -53,6 +56,16 @@ describe("a field", () => {
     expect(RecordFieldSchema.safeParse(field({ type: "select", options: [opt(1), opt(1)] })).success).toBe(false);
   });
 
+  it("lets Vizzy read only a People text field, and stores the mark only as true", () => {
+    expect(RecordFieldSchema.safeParse(field({ type: "text", vizzyReads: true })).success).toBe(true);
+    expect(RecordFieldSchema.safeParse(field({ type: "text", object: "company", vizzyReads: true })).success).toBe(false);
+    for (const type of ["email", "phone", "link", "team_member", "number"] as const) {
+      expect(RecordFieldSchema.safeParse(field({ type, vizzyReads: true })).success, type).toBe(false);
+    }
+    expect(RecordFieldSchema.safeParse({ ...field({ type: "text" }), vizzyReads: false }).success).toBe(false);
+    expect(RecordFieldSchema.parse(field({ type: "text" }))).not.toHaveProperty("vizzyReads");
+  });
+
   it("has an id that fits a dotted path, a label up to 60 characters and user ids only", () => {
     expect(RecordFieldSchema.safeParse(field({ key: "fld_ABC" })).success).toBe(false);
     expect(RecordFieldSchema.safeParse(field({ key: "fields.x" })).success).toBe(false);
@@ -60,6 +73,45 @@ describe("a field", () => {
     expect(RecordFieldSchema.safeParse(field({ label: "   " })).success).toBe(false);
     expect(RecordFieldSchema.safeParse(field({ createdBy: "admin@example.com" })).success).toBe(false);
     expect(RecordFieldSchema.parse(field({ label: "  Plan  " })).label).toBe("Plan");
+  });
+});
+
+describe("what Vizzy may read", () => {
+  it("is the seven types on People, whatever the text switch says", () => {
+    for (const type of VIZZY_FIELD_TYPES) {
+      expect(vizzyReadsField(field({ type }), false), type).toBe(true);
+      expect(vizzyReadsField(field({ type }), true), type).toBe(true);
+    }
+  });
+
+  it("is a text field only when an admin let Vizzy read it and text fields are on", () => {
+    expect(vizzyReadsField(field({ type: "text", vizzyReads: true }), true)).toBe(true);
+    expect(vizzyReadsField(field({ type: "text", vizzyReads: true }), false)).toBe(false);
+    expect(vizzyReadsField(field({ type: "text" }), true)).toBe(false);
+    // Only exactly true: a stored item that doesn't parse is kept as it is.
+    expect(vizzyReadsField({ ...field({ type: "text" }), vizzyReads: "true" }, true)).toBe(false);
+  });
+
+  it("is never email, phone, link or team member, a company's field or an archived one, whatever is stored", () => {
+    for (const type of ["email", "phone", "link", "team_member"] as const) {
+      expect(vizzyReadsField({ ...field({ type }), vizzyReads: true }, true), type).toBe(false);
+    }
+    expect(vizzyReadsField(field({ type: "select", object: "company", options: [opt(1)] }), true)).toBe(false);
+    expect(vizzyReadsField({ ...field({ type: "text", object: "company" }), vizzyReads: true }, true)).toBe(false);
+    expect(vizzyReadsField(field({ type: "number", archivedAt: AT }), true)).toBe(false);
+    expect(vizzyReadsField(field({ type: "text", vizzyReads: true, archivedAt: AT }), true)).toBe(false);
+    expect(vizzyReadsField({ ...field(), type: "nope" } as unknown as RecordField, true)).toBe(false);
+    expect(vizzyReadsField(null, true)).toBe(false);
+  });
+});
+
+describe("cutting a text value", () => {
+  it("keeps a value that fits, and cuts a longer one without splitting a character", () => {
+    expect(cutText("abc", 3)).toEqual({ text: "abc", cut: false });
+    expect(cutText("abcd", 3)).toEqual({ text: "abc", cut: true });
+    // An emoji is two UTF-16 units: one that would be split is left out whole.
+    expect(cutText("ab😀c", 3)).toEqual({ text: "ab", cut: true });
+    expect(cutText("ab😀c", 4)).toEqual({ text: "ab😀", cut: true });
   });
 });
 

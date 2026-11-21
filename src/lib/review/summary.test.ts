@@ -314,3 +314,50 @@ describe("what competitors changed, in Review", () => {
     expect(await countReview(ctx, { lifecycle: false, now: 3_000 }, db)).toBe(0);
   });
 });
+
+describe("Vizzy's suggestions about people", () => {
+  const vizzy: TenantContext = { tenantId: "ten_A", region: "us", source: "agent", userId: "u_admin", role: "admin" };
+  const by = { type: "member", id: "u_admin" } as const;
+  const SEATS = "fld_eeeeeeeeeee1";
+  const PLAN = "fld_eeeeeeeeeee2";
+  afterEach(() => vi.unstubAllEnvs());
+
+  async function world() {
+    const { saveFieldListChange } = await import("@/lib/audience/fieldList");
+    const { deterministicContactId } = await import("@/lib/crm/identifiers");
+    const db = new FakeFirestore();
+    await saveFieldListChange(vizzy, "person", { baseRev: 0, change: { op: "add", label: "Seats", type: "number" }, by, newFieldId: () => SEATS }, db);
+    await saveFieldListChange(vizzy, "person", { baseRev: 1, change: { op: "add", label: "Plan", type: "select", options: ["Pro"] }, by, newFieldId: () => PLAN, newOptionId: () => "opt_eeeeee01" }, db);
+    const person = deterministicContactId("ten_A", "rosa.diaz@example.com");
+    db.seed("contacts", person, { tenantId: "ten_A", email: "rosa.diaz@example.com", firstName: "Rosa", lastName: "Diaz", fields: { [SEATS]: 3 } });
+    return { db, person };
+  }
+
+  it("are listed with the switch on, linking to the person's page, with no name, address or value", async () => {
+    const { suggestFieldChanges } = await import("@/lib/audience/fieldSuggestions");
+    const { db, person } = await world();
+    for (const k of ["AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_FIELDS_ENABLED", "AUDIENCE_VIZZY_FIELDS_ENABLED"]) vi.stubEnv(k, "true");
+    const one = await suggestFieldChanges(vizzy, { personId: person, changes: { [SEATS]: 7 }, why: "Rosa Diaz added four people." }, { db });
+    if (!one.ok) throw new Error(one.error);
+    const r = await loadReview(ctx, { lifecycle: false, includeContent: false }, db);
+    expect(r.items).toEqual([
+      {
+        id: `aa:${one.action.id}`,
+        kind: "person_suggestion",
+        title: "Vizzy suggests a change to Seats",
+        detail: "On one person's page. Nothing changes until someone confirms.",
+        href: `/admin/crm/people/${person}#vizzy`,
+        action: "Review",
+      },
+    ]);
+    const two = await suggestFieldChanges(vizzy, { personId: person, changes: { [SEATS]: 8, [PLAN]: "opt_eeeeee01" } }, { db });
+    if (!two.ok) throw new Error(two.error);
+    const again = await loadReview(ctx, { lifecycle: false, includeContent: false }, db);
+    // The newer one replaced the first, which was for the same field.
+    expect(again.items.map((i) => [i.title, i.detail])).toEqual([["Vizzy suggests changes to 2 fields", "Seats, Plan · On one person's page. Nothing changes until someone confirms."]]);
+    expect(JSON.stringify(again.items)).not.toMatch(/Rosa|Diaz|example\.com|\b8\b/);
+
+    vi.stubEnv("AUDIENCE_VIZZY_FIELDS_ENABLED", "false");
+    expect((await loadReview(ctx, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
+  });
+});

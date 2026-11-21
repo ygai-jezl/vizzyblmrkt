@@ -25,6 +25,11 @@ import { listCompetitors, unseenChanges } from "@/lib/competitors/store";
 import { PROBLEM_TEXT } from "@/lib/competitors/view";
 import { brandCanUse } from "@/lib/plans/brandAccess";
 import type { Competitor, CompetitorChange } from "@/lib/types/competitor";
+import type { AgentAction } from "@/lib/types/agentAction";
+import { agentActionReviewItem, listOpenAgentActions } from "@/lib/ontology/agentActions";
+import { isVizzyFieldsEnabled } from "@/lib/audience/peopleFlags";
+import { PERSON_FIELDS_ACTION } from "@/lib/audience/fieldSuggestions";
+import { readFieldList } from "@/lib/audience/fieldList";
 
 /**
  * Review (nav v2 phase 2): every decision waiting on a person, in one place,
@@ -343,6 +348,32 @@ export function connectionItem(
   };
 }
 
+/**
+ * Vizzy's suggestion about one person (AUDIENCE_VIZZY_FIELDS_ENABLED), linking to their page. The
+ * title and detail never hold the person's name, address or any value: only the brand's own field
+ * names, by the field list as it is now.
+ */
+export function personSuggestionItem(a: AgentAction, labels: ReadonlyMap<string, string>): ReviewItem | null {
+  if (a.action !== PERSON_FIELDS_ACTION) return null;
+  const names = a.fieldIds.map((id) => labels.get(id)).filter((l): l is string => !!l);
+  const title =
+    a.fieldIds.length === 1 && names.length === 1 ? `Vizzy suggests a change to ${names[0]}` : `Vizzy suggests changes to ${a.fieldIds.length} fields`;
+  return agentActionReviewItem(a, {
+    title,
+    detail: `${names.length > 1 ? `${names.join(", ")} · ` : ""}On one person's page. Nothing changes until someone confirms.`,
+    action: "Review",
+  });
+}
+
+/** Open field suggestions, newest first, labelled by the People field list (index: action, state, createdAt desc). */
+async function personSuggestionItems(ctx: TenantContext, db?: FirestoreLike): Promise<ReviewItem[]> {
+  const open = await listOpenAgentActions(ctx, { action: PERSON_FIELDS_ACTION, limit: 50, db });
+  if (!open.length) return [];
+  const list = await readFieldList(ctx, "person", db);
+  const labels = new Map(list.items.map((f) => [f.key, f.label]));
+  return open.map((a) => personSuggestionItem(a, labels)).filter((i): i is ReviewItem => !!i);
+}
+
 // ---------------------------------------------------------------------------
 // Loading
 
@@ -490,6 +521,7 @@ export async function loadReview(
   ]);
 
   const autopilotRuns = isAutopilotEnabled() ? await soft("autopilot runs", recentRuns(ctx, 60, { db }), [] as AutopilotRun[]) : [];
+  const personSuggestions = isVizzyFieldsEnabled() ? await soft("person suggestions", personSuggestionItems(ctx, db), [] as ReviewItem[]) : [];
   const liveConnections = connections.filter((c) => c.kind === "custom" && c.status !== "revoked");
   const latestRuns = await Promise.all(
     liveConnections.map((c) => soft("repo analyses", listRepoAnalyses(ctx, c.id, db), [] as RepoAnalysis[])),
@@ -506,6 +538,7 @@ export async function loadReview(
     ...agentJourneys.map((j) => agentJourneyItem(j, j.audience?.kind === "waitlist" ? launchNames.get(j.audience.campaignId) : undefined)),
     ...launchJourneys.map((j) => agentLaunchJourneyItem(j, launchNames.get(j.campaignId))),
     ...agentWaves.map((w) => agentInviteWaveItem(w, launchNames.get(w.campaignId))),
+    ...personSuggestions,
     ...liveConnections.map((c, i) => repoResultsItem(c, latestRuns[i]?.[0])),
     brandMapItem(brandMap, brandMapProposals),
     ...competitorItems(competitors, competitorNews),

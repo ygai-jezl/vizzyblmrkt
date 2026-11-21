@@ -1,6 +1,7 @@
 import { requireAdminContext } from "@/lib/auth/session";
 import { AccountTabs } from "@/components/admin/AccountTabs";
 import { isNavV2Enabled } from "@/lib/nav/flags";
+import { isFieldsEnabled } from "@/lib/audience/peopleFlags";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,7 @@ export default async function AccountLayout({
           Global settings for your account, reused across all of your launches.
         </p>
       </div>
-      <AccountTabs />
+      <AccountTabs dataModel={isFieldsEnabled()} />
       <div>{children}</div>
     </div>
   );

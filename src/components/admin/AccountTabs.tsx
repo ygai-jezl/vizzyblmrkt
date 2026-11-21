@@ -10,7 +10,10 @@ import { isPlansUiEnabled } from "@/lib/plans/flags";
  * "border pill" style. Domains lives at the base route (exact match); Billing
  * (Plan and usage with NEXT_PUBLIC_PLANS_ENABLED) is a child route matched by prefix.
  */
-export function AccountTabs() {
+export function AccountTabs({ dataModel = false }: {
+  /** Settings › Data model (AUDIENCE_FIELDS_ENABLED, a server switch): worked out by the layout. */
+  dataModel?: boolean;
+} = {}) {
   const pathname = usePathname();
   // Nav v2 phase 3: General first; the guidelines moved to Brand; Billing stays
   // hidden until there is something to bill (no "Coming soon" tabs). With
@@ -23,6 +26,7 @@ export function AccountTabs() {
         { href: "/admin/account", label: "Sending", exact: true },
         { href: "/admin/account/connections", label: "Integrations", exact: false },
         ...(plans ? [{ href: "/admin/account/billing", label: "Plan and usage", exact: false }] : []),
+        ...(dataModel ? [{ href: "/admin/account/data-model", label: "Data model", exact: false }] : []),
       ]
     : [
         { href: "/admin/account", label: "Domains", exact: true },
@@ -30,6 +34,7 @@ export function AccountTabs() {
         { href: "/admin/account/settings", label: "Settings", exact: false },
         { href: "/admin/account/connections", label: "Connections", exact: false },
         { href: "/admin/account/billing", label: plans ? "Plan and usage" : "Billing", exact: false },
+        ...(dataModel ? [{ href: "/admin/account/data-model", label: "Data model", exact: false }] : []),
       ];
 
   return (

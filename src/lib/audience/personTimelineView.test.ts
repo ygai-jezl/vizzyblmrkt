@@ -104,6 +104,27 @@ describe("loadPersonTimeline", () => {
     }
   });
 
+  it("shows each sign-up, email and voice chat once when a whole page of events can't be read", async () => {
+    const { db, id } = await world();
+    const all = texts((await loadPersonTimeline(ctx, id, { db, lookup }))!.entries);
+    // The two newest rows are unreadable (no kind): the first page of two holds nothing but them.
+    for (const [n, day] of [[1, 6], [2, 7]] as const) {
+      db.seed("ontology_events", `ev_${String(n).repeat(40)}`, { tenantId: TENANT_ID, personId: id, at: iso(T0 + day * DAY) });
+    }
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const first = (await loadPersonTimeline(ctx, id, { db, lookup, limit: 2 }))!;
+    expect(first.entries).toEqual([]);
+    expect(first.next).not.toBeNull();
+    const seen: TimelineEntry[] = [];
+    let cursor: string | null = first.next;
+    for (let i = 0; i < 20 && cursor; i++) {
+      const page: Awaited<ReturnType<typeof loadPersonTimeline>> = await loadPersonTimeline(ctx, id, { db, lookup, limit: 2, cursor });
+      seen.push(...page!.entries);
+      cursor = page!.next;
+    }
+    expect(texts(seen)).toEqual(all);
+  });
+
   it("shows being added by hand and how they agreed, and nothing about anyone else", async () => {
     const { db } = await world();
     const sam = parseNewPerson({ email: "sam@labs.test", firstName: "Sam", agreed: { how: "in_person" }, via: "palette" });

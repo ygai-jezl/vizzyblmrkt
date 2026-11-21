@@ -5,7 +5,7 @@ import type { StoredEvent } from "@/lib/types/ontologyEvent";
 import type { FieldValue, RecordField } from "@/lib/types/recordField";
 import { getContactEmailHistory, type ContactEmailHistoryEntry } from "@/lib/crm/emailHistory";
 import { ENVIRONMENT_LABEL, environmentOf, productNameOf } from "@/lib/connect/environments";
-import { InvalidCursorError, listPersonEvents, TIMELINE_PAGE } from "@/lib/ontology/timeline";
+import { decodeTimelineCursor, InvalidCursorError, listPersonEvents, TIMELINE_PAGE } from "@/lib/ontology/timeline";
 import { isContactPersonId } from "@/lib/ontology/person";
 import { memberLabel, teamMemberNames, type UserLookup } from "@/lib/team/names";
 import { readFieldList } from "./fieldList";
@@ -275,8 +275,10 @@ export async function loadPersonTimeline(
   const contact = await forTenant(ctx, opts.db).contacts.getById(personId);
   if (!contact) return null;
   const page = await listPersonEvents(ctx, personId, { cursor: after?.e ?? null, limit: opts.limit ?? TIMELINE_PAGE.default, db: opts.db });
-  // This page reaches back to its oldest event while there are older ones, else to the start.
-  const lower = page.next ? (page.events.at(-1)?.at ?? null) : null;
+  // This page reaches back to where the event read stopped while there are older ones, else to the
+  // start: the cursor's own time, which counts rows that didn't parse, so a page of unreadable rows
+  // still bounds what else it shows.
+  const lower = page.next ? (decodeTimelineCursor(page.next)?.at ?? page.events.at(-1)?.at ?? null) : null;
   const upper = after?.b ?? null;
   const names = await namesFor(ctx, contact, page.events, opts.db, opts.lookup);
   const joined = new Set((contact.campaigns ?? []).filter((l) => l.status !== "deleted").map((l) => l.campaignId));

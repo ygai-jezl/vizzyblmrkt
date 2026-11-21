@@ -124,9 +124,15 @@ export function isCarriedTag(tag: string): boolean {
   return tag.startsWith("field:") || tag === HAND_ADDED_TAG;
 }
 
-/** A sync's tags with the carried tags the record already has, sorted, each once. */
+/**
+ * A sync's tags with the carried tags the record already has, sorted, each once. Field tags are
+ * carried only while the person stays in Everyone (`summaryTags` has `all`), so a field filter
+ * never shows someone Everyone doesn't; the field writer rebuilds them if they come back.
+ */
 export function withCarriedTags(summaryTags: readonly string[], current: readonly string[] | null | undefined): string[] {
-  return [...new Set([...summaryTags, ...(current ?? []).filter(isCarriedTag)])].sort();
+  const live = summaryTags.includes("all");
+  const carried = (current ?? []).filter((t) => isCarriedTag(t) && (live || !t.startsWith("field:")));
+  return [...new Set([...summaryTags, ...carried])].sort();
 }
 
 /**

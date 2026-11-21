@@ -82,7 +82,11 @@ Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
     stays active when a sign-up goes; a later sign-up never replaces a typed name.
   - Tags other writers own (the field writer's `field:` tags and `added:hand`) are carried
     over by every sync and compared with the rest, so a sync never wipes them and never
-    writes when only they differ.
+    writes when only they differ. Field tags are carried only while the person is in Everyone
+    (`all`): someone whose last launch goes keeps their values but loses the tags, so a field
+    filter is always part of Everyone, and the sync that brings them back rebuilds the tags
+    from their values (`repairFieldTags`). The field writer makes none for someone out of
+    Everyone.
 
 - **Fields: data and the one writer (group 4, decisions 28 and 30, answer 2).**
   `AUDIENCE_FIELDS_ENABLED` (RUNTIME, `"false"`) is read in `src/lib/audience/peopleFlags.ts`
@@ -151,8 +155,8 @@ Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
   - Archived fields and options keep their tags with their values; their pills are hidden, and a
     restore brings them back with nothing to run. No "Added by hand" pill: `added:hand` stays
     internal (owner, 20 Nov). Companies have no filters in B.
-  - The tags are written whatever the filters switch says (they are derived and harmless), and
-    the sync's keep-field-tags rule has no switch. `scripts/backfill-field-tags.ts` rebuilds them
+  - The tags are written whatever the filters switch says (they are derived and harmless), for
+    people in Everyone, and the sync's keep-field-tags rule has no switch. `scripts/backfill-field-tags.ts` rebuilds them
     from stored values (dry run, then `--apply`), for values written without them.
 
 - **New person (group 7, decisions 28 and 29, answers 6 and 8).** `AUDIENCE_ADD_PERSON_ENABLED`

@@ -8,6 +8,8 @@ import type { Contact } from "@/lib/types/contact";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import type { Signup } from "@/lib/types/signup";
 import { markNeedsSync, personIdOf, syncPerson, syncProductLink } from "./personSync";
+import { saveFieldListChange } from "./fieldList";
+import { setRecordFieldValues } from "@/lib/tenant";
 
 /**
  * The person record across launches and products. Addresses are .test; phone numbers
@@ -451,6 +453,38 @@ describe("field values", () => {
     db.seed("signups", "sig_1", { ...db.raw("signups", "sig_1"), status: "deleted" });
     await syncPerson(ctx, "ada@customer.test", { db, nowMs: T0 + 4 * DAY });
     expect(person(db, "ada@customer.test")!.fields).toEqual(fields);
+  });
+});
+
+describe("field tags of someone out of Everyone", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const PLAN = "fld_000000000001";
+  const FREE = "opt_00000001";
+  const by = { type: "member", id: "usr_1" } as const;
+
+  /** A Plan select field, and someone's value for it set through the one writer. */
+  async function withPlan(db: FakeFirestore, key: string) {
+    await saveFieldListChange(ctx, "person", { baseRev: 0, change: { op: "add", label: "Plan", type: "select", options: ["Free"] }, by, newFieldId: () => PLAN, newOptionId: () => FREE }, db);
+    const r = await setRecordFieldValues(ctx, { object: "person", recordId: personIdOf(TENANT_ID, key), changes: { [PLAN]: FREE }, by, source: "editor" }, { db });
+    if (!r.ok) throw new Error(r.error);
+  }
+
+  it("gets its field tags back from its values when it comes back into Everyone", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    seedSignup(db, "sig_1");
+    await syncPerson(ctx, "ada@customer.test", { db, nowMs: NOW });
+    await withPlan(db, "ada@customer.test");
+    db.seed("signups", "sig_1", { ...db.raw("signups", "sig_1"), status: "deleted" });
+    await syncPerson(ctx, "ada@customer.test", { db, nowMs: NOW + 60_000 });
+    expect(person(db, "ada@customer.test")).toMatchObject({ status: "deleted", memberOf: [], fields: { [PLAN]: FREE } });
+    // A value set while they are out of Everyone makes no tag either.
+    await setRecordFieldValues(ctx, { object: "person", recordId: personIdOf(TENANT_ID, "ada@customer.test"), changes: { [PLAN]: null }, by, source: "editor" }, { db });
+    await setRecordFieldValues(ctx, { object: "person", recordId: personIdOf(TENANT_ID, "ada@customer.test"), changes: { [PLAN]: FREE }, by, source: "editor" }, { db });
+    expect(person(db, "ada@customer.test")!.memberOf).toEqual([]);
+    seedSignup(db, "sig_2", { campaignId: "camp2", createdAt: new Date(NOW + 120_000).toISOString() });
+    await syncPerson(ctx, "ada@customer.test", { db, nowMs: NOW + 180_000 });
+    expect(person(db, "ada@customer.test")!.memberOf).toEqual(expect.arrayContaining(["all", "launch:camp2", `field:${PLAN}:${FREE}`]));
   });
 });
 

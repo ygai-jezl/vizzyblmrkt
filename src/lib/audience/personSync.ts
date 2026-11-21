@@ -1,4 +1,4 @@
-import { appendEvents, forTenant, type WhereClause } from "@/lib/tenant";
+import { appendEvents, forTenant, repairFieldTags, type WhereClause } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { Contact, ContactCampaignLink, PersonProductLink } from "@/lib/types/contact";
 import type { EmailSuppression } from "@/lib/types/emailSuppression";
@@ -40,7 +40,8 @@ import {
  *
  * Someone added by hand (`addedBy` on their record, piece B) is a source of their own, with no
  * switch: no path deletes them, renames them from a product or marks them deleted. The tags
- * other writers own (`field:` tags and `added:hand`) are kept as they are on every write.
+ * other writers own (`field:` tags and `added:hand`) are kept as they are on every write, field
+ * tags while the person is in Everyone (and rebuilt from their values when they come back).
  *
  * With AUDIENCE_TIMELINE_ENABLED, both functions record the person's moves (launch, product,
  * stage and quiet, src/lib/audience/personMoves.ts) after their commit, so every caller is
@@ -343,6 +344,10 @@ export async function syncPerson(ctx: TenantContext, rawKey: string, deps: SyncD
     return { ...(patch ?? { updatedAt: nowIso }), ...(renamed ?? {}) } as never;
   });
   const changes = tagChanges(created ? [] : before, doc.memberOf ?? []);
+  // Back in Everyone with values the team set: their field tags come back from those values.
+  if (!created && !before.includes("all") && (doc.memberOf ?? []).includes("all") && holdsFieldValues(doc)) {
+    await repairFieldTags(ctx, personId, { db: deps.db }).catch((err) => warn("restoring field tags", ctx, err));
+  }
   const result: SyncResult = {
     personId,
     outcome: created ? "created" : patched ? "updated" : "unchanged",
@@ -351,6 +356,11 @@ export async function syncPerson(ctx: TenantContext, rawKey: string, deps: SyncD
   };
   await recordMoves(ctx, result, productUsersOf(beforeProducts, doc.products), deps);
   return result;
+}
+
+/** Whether a record holds any of the team's field values (`fields.<fieldId>`). */
+function holdsFieldValues(record: Pick<Contact, "fields">): boolean {
+  return !!record.fields && Object.keys(record.fields).length > 0;
 }
 
 /** The fields of a person who so far only uses a product: no consent from a sign-up, no company. */

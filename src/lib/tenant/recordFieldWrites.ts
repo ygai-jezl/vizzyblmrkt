@@ -5,7 +5,7 @@ import { prepareEventsTx, regionalStoreFor, retryOnceOnExists, stageEvent } from
 import { planAgentTransition, readAgentActionTx, stageAgentTransition, type AgentTransition, type AgentTransitionOk, type TransitionError } from "./agentActions";
 import { RECORD_FIELD_LISTS, settingsDocId } from "./settingsLog";
 import type { FirestoreLike, TenantContext } from "./types";
-import { fieldTagRepair, fieldTagsFor, sameFieldTags, withFieldTags } from "@/lib/audience/fieldTags";
+import { fieldTagRepair, fieldTagsForPerson, sameFieldTags, withFieldTags } from "@/lib/audience/fieldTags";
 import { fieldChangedEvent } from "@/lib/ontology/eventBuilders";
 import { isCanonicalInstant, jsonBytes, type EventActor, type FieldChangeSource } from "@/lib/ontology/events";
 import { isContactPersonId } from "@/lib/ontology/person";
@@ -188,11 +188,11 @@ export async function setRecordFieldValues(ctx: TenantContext, input: SetFieldVa
         changed.push({ field, before: was, after: check.value });
       }
 
-      // A person's field tags follow their values; every other tag stays as it is.
+      // A person's field tags follow their values while they are in Everyone; every other tag stays as it is.
       let droppedTags = 0;
       if (input.object === "person" && changed.length) {
         const current = Array.isArray(record.memberOf) ? (record.memberOf as string[]) : [];
-        const next = fieldTagsFor(fields, values);
+        const next = fieldTagsForPerson(fields, values, current);
         droppedTags = next.dropped;
         if (!sameFieldTags(current, next.tags)) {
           patch.memberOf = withFieldTags(current, next.tags);
@@ -242,8 +242,9 @@ export async function setRecordFieldValues(ctx: TenantContext, input: SetFieldVa
 
 /**
  * Rebuild one person's field tags from their stored values, for values written before the tags
- * existed (scripts/backfill-field-tags.ts). Every other tag stays. Reads the list and the person
- * in one transaction; a dry run writes nothing. Safe to run again.
+ * existed (scripts/backfill-field-tags.ts) and after a sync brings someone back into Everyone.
+ * Every other tag stays; someone not in Everyone has none. Reads the list and the person in one
+ * transaction; a dry run writes nothing. Safe to run again.
  */
 export async function repairFieldTags(
   ctx: TenantContext,

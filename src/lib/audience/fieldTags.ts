@@ -11,6 +11,10 @@ import { isFieldId, isFilterType, type FieldValues, type RecordField } from "@/l
  * The field writer keeps them in step with the values in the same transaction; a sync carries
  * them over untouched (isCarriedTag in ./personLinks.ts). Archived fields and options keep their
  * tags with their values, so a restore brings the filter back with nothing to run.
+ *
+ * Only someone in Everyone (tagged `all`) has field tags, so a field filter is always part of
+ * Everyone: a person whose last launch went keeps their values but loses the tags, and gets them
+ * back from their values if they return (repairFieldTags, after the sync that brings them back).
  */
 
 export const FIELD_TAG_PREFIX = "field:";
@@ -61,6 +65,20 @@ export function fieldTagsFor(fields: readonly Pick<RecordField, "key" | "type">[
   return { tags: all.slice(0, MAX_FIELD_TAGS), dropped: Math.max(0, all.length - MAX_FIELD_TAGS) };
 }
 
+/** Whether a person is in Everyone, the only people with field tags. */
+export function isInEveryone(memberOf: readonly string[] | null | undefined): boolean {
+  return (memberOf ?? []).includes("all");
+}
+
+/** The field tags a person with these tags should have: those for their values while they are in Everyone, none otherwise. */
+export function fieldTagsForPerson(
+  fields: readonly Pick<RecordField, "key" | "type">[],
+  values: FieldValues | null | undefined,
+  memberOf: readonly string[] | null | undefined,
+): { tags: string[]; dropped: number } {
+  return isInEveryone(memberOf) ? fieldTagsFor(fields, values) : { tags: [], dropped: 0 };
+}
+
 /** The tags with their field tags replaced by `fieldTags`: every other tag kept, sorted, each once. */
 export function withFieldTags(current: readonly string[] | null | undefined, fieldTags: readonly string[]): string[] {
   return [...new Set([...(current ?? []).filter((t) => !isFieldTag(t)), ...fieldTags])].sort();
@@ -75,14 +93,15 @@ export function sameFieldTags(a: readonly string[], b: readonly string[]): boole
 
 /**
  * The tags a record should have for its values, when they differ from what it has: the backfill's
- * plan (scripts/backfill-field-tags.ts). Null when the record's field tags are already right.
+ * plan (scripts/backfill-field-tags.ts), and the repair after a sync brings someone back into
+ * Everyone. Null when the record's field tags are already right.
  */
 export function fieldTagRepair(
   fields: readonly Pick<RecordField, "key" | "type">[],
   values: FieldValues | null | undefined,
   memberOf: readonly string[] | null | undefined,
 ): { memberOf: string[]; dropped: number } | null {
-  const want = fieldTagsFor(fields, values);
+  const want = fieldTagsForPerson(fields, values, memberOf);
   if (sameFieldTags(memberOf ?? [], want.tags)) return null;
   return { memberOf: withFieldTags(memberOf, want.tags), dropped: want.dropped };
 }

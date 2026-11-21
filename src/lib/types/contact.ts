@@ -212,8 +212,9 @@ export const ContactSchema = z.object({
    * `stage:<connectionId>:<stage>`, `quiet:<connectionId>`, `group:<connectionId>:<id>`, and
    * `added:hand` for someone added by hand. `field:<fieldId>:<optionId>` (a select, a status,
    * each option of a multi select) and `field:<fieldId>:yes` (a ticked checkbox) belong to the
-   * field writer, at most 50: a sync keeps them, and `added:hand`, as they are (isCarriedTag in
-   * src/lib/audience/personLinks.ts). A group's id is the product's own, so it may hold `.` and `:`.
+   * field writer, at most 50, and only while the person is in Everyone (`all`): a sync keeps
+   * them, and `added:hand`, as they are (isCarriedTag in src/lib/audience/personLinks.ts). A
+   * group's id is the product's own, so it may hold `.` and `:`.
    */
   memberOf: z.array(z.string()).optional(),
   /** The best reach across their sources, unless a brand-wide opt-out stops everything. */

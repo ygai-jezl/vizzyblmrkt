@@ -1010,6 +1010,26 @@ env:
     availability:
       - RUNTIME
 
+  # == Connectors ==
+  # Connected data (ADR-0011): the connector core, its routes and connection records, and
+  # every call to a provider. Off, every connector route answers 404 and sealed tokens stay
+  # sealed. Needs CONNECTORS_VAULT_KEY (a secret, by name in your environment file) to save.
+  - variable: CONNECTORS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # The Browse, Listing and Connected views (needs CONNECTORS_ENABLED).
+  - variable: NEXT_PUBLIC_CONNECTORS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Cloudflare with an API token (needs CONNECTORS_ENABLED).
+  - variable: CONNECTOR_CLOUDFLARE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+
   # == Analytics from BigQuery ==
   # Breakdowns and widget views from BigQuery. Needs a dataset per region and the export
   # extensions in extensions/ (docs/self-host.md).

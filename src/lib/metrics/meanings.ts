@@ -183,6 +183,32 @@ export const MEANINGS = {
     unit: "count",
     source: "Google results, through DataForSEO",
   },
+  // Connected data (src/lib/connectors). Namespaced by source, because plain clicks and impressions
+  // already mean LinkedIn and X post numbers above.
+  cfRequests: {
+    name: "Cloudflare requests",
+    definition: "Every request Cloudflare answered for the site in the day: pages, images, scripts and API calls, from people and from bots.",
+    grain: "one Cloudflare zone on one day (UTC)",
+    unit: "count",
+    source: "Cloudflare analytics, daily zone totals",
+    caveat: "Counts every file a page loads and every bot, so it runs far above visits and page views.",
+  },
+  cfPageViews: {
+    name: "Cloudflare page views",
+    definition: "Requests for a web page rather than a file such as an image or a script.",
+    grain: "one Cloudflare zone on one day (UTC)",
+    unit: "count",
+    source: "Cloudflare analytics, daily zone totals",
+    caveat: "Includes bots that fetch pages, so it runs above what an analytics tag counts.",
+  },
+  cfVisits: {
+    name: "Cloudflare visits",
+    definition: "Page views that arrived from another site or a direct link: roughly the start of a visit.",
+    grain: "one Cloudflare zone on one day (UTC)",
+    unit: "count",
+    source: "Cloudflare analytics, sampled request data",
+    caveat: "Cloudflare samples busy sites, so this is an estimate, and it only goes back about a month.",
+  },
 } as const satisfies Record<string, Meaning>;
 
 export type MeaningKey = keyof typeof MEANINGS;

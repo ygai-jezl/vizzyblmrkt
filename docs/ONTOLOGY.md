@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts`. Don't edit this file: change the 
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one.
 
-90 types: 67 built and 23 planned.
+91 types: 67 built and 24 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -288,6 +288,19 @@ A competitor the brand watches: their sitemap's pages, their news posts, monthly
 - Export: none. Public pages about another business.
 - Search: `competitor`
 - Numbers: none. No numbers an agent reads.
+
+### Data connection (`data_connection`)
+
+A brand's link to an outside source of numbers, such as a Cloudflare zone: which connector, how it signs in, its health, who may read it live, and its secret, sealed with the brand, connection and slot bound in. Each change goes into an activity log kept 90 days.
+
+- Status: planned, in connectors 1
+- Home: the brand's region
+- Personal: the brand's own team
+- Links: `brand` through tenantId; `connector_manifest` through connectorId
+- Erase: none. Planned: connectors 1 decides it with the store.
+- Export: none. A sealed secret and its settings, never exported.
+- Search: none. Credentials and settings, never searched.
+- Numbers: `cfRequests`, `cfPageViews`, `cfVisits`, through `readLive`
 
 ### Connector stream (`connector_stream`)
 
@@ -1221,16 +1234,16 @@ An outside agent connected to the brand's MCP server, and what it may read and a
 
 ### Connector manifest (`connector_manifest`)
 
-What a connector says it produces: each stream's shape, its keys, the meaning of every number and the shared keys it joins on.
+What a connector says it produces: each stream's shape, its keys, the meaning of every number and the shared keys it joins on. Manifests are pure data kept in code (`src/lib/connectors/manifests`), so this type keeps no store and stays planned.
 
 - Status: planned, in connectors 1
 - Home: the brand's region
 - Personal: no
 - Links: `connector_stream` through its streams (many)
-- Erase: none. Planned: connectors 1 decides it with the store.
-- Export: none. Planned: connectors 1 decides it with the store.
+- Erase: none. Manifests live in code, with no store.
+- Export: none. Manifests live in code, with no store.
 - Search: none. Found on Connections.
-- Numbers: none. Planned: connectors 1 decides it with the store.
+- Numbers: none. Its numbers' meanings are claimed by the data connection that reads them.
 
 ### Partner (`partner`)
 

@@ -287,7 +287,9 @@ export default function YourAudienceHelp({
           <P>
             When someone changes their email in your product, or someone who used your product with no email adds one, their values
             go with them to the person with that email. Where that person already has a value for a field, it is kept, and the
-            earlier one stays on the record they left.{timeline ? " Their timeline says which values came with them." : ""}
+            earlier one stays on the record they left. If their old email is still someone in People (a sign-up, someone added by
+            hand, or another product user), the values stay with that person.
+            {timeline ? " Their timeline says which values came with them." : ""}
           </P>
 
           <H2 id="company-fields">Company fields</H2>

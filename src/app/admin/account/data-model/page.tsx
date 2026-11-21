@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { requireAdminContext } from "@/lib/auth/session";
-import { isFieldsEnabled } from "@/lib/audience/peopleFlags";
+import { isFieldFiltersEnabled, isFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { loadPeopleConnections } from "@/lib/audience/personSync";
 import { readOnlyFieldDefs } from "@/lib/audience/readOnlyFields";
 import { ENVIRONMENT_LABEL, environmentOf, productNameOf } from "@/lib/connect/environments";
@@ -26,5 +26,11 @@ export default async function DataModelPage() {
     return { id: c.id, catalog: c.catalog, name: `${productNameOf(c)}${env ? ` · ${ENVIRONMENT_LABEL[env]}` : ""}` };
   });
   const sources = { campaigns, connections: named };
-  return <DataModel canEdit={ctx.role === "admin"} readOnly={{ person: readOnlyFieldDefs("person", sources), company: readOnlyFieldDefs("company", sources) }} />;
+  return (
+    <DataModel
+      canEdit={ctx.role === "admin"}
+      filters={isFieldFiltersEnabled()}
+      readOnly={{ person: readOnlyFieldDefs("person", sources), company: readOnlyFieldDefs("company", sources) }}
+    />
+  );
 }

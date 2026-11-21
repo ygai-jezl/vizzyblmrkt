@@ -1,6 +1,7 @@
 import { forTenant, type WhereClause } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { Contact, ContactCampaignLink, PersonProductLink } from "@/lib/types/contact";
+import type { EmailSuppression } from "@/lib/types/emailSuppression";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import type { ProductUser } from "@/lib/types/productUser";
 import type { Signup } from "@/lib/types/signup";
@@ -63,6 +64,21 @@ export function isPeopleConnection(c: Pick<ProductConnection, "kind" | "status">
 }
 
 export type PeopleConnections = Map<string, ProductConnection>;
+
+/**
+ * The opt-out rows for a person key (an address only: a phone or a product user has none). The
+ * brand-wide row is read by its id too: an erase elsewhere blanks the address on it, and it still
+ * stops every send.
+ */
+export async function optOutRowsFor(ctx: TenantContext, key: string, db?: FirestoreLike): Promise<EmailSuppression[]> {
+  if (key.startsWith(PRODUCT_USER_KEY_PREFIX) || !key.includes("@")) return [];
+  const repo = forTenant(ctx, db);
+  const [byId, rows] = await Promise.all([
+    repo.emailSuppressions.getById(suppressionDocId(ctx.tenantId, key)),
+    repo.emailSuppressions.find({ where: [["normalizedEmail", "==", key]], limit: 100 }),
+  ]);
+  return byId && !rows.some((r) => r.id === byId.id) ? [byId, ...rows] : rows;
+}
 
 /** The brand's people connections by id, read once and shared across a batch of syncs. */
 export async function loadPeopleConnections(ctx: TenantContext, db?: FirestoreLike): Promise<PeopleConnections> {
@@ -199,13 +215,7 @@ export async function syncPerson(ctx: TenantContext, rawKey: string, deps: SyncD
       : isEmail
         ? repo.productUsers.find({ where: [["emailNormalized", "==", key]], limit: 100 })
         : Promise.resolve([] as ProductUser[]),
-    // The brand-wide row by its id too: an erase elsewhere blanks the address on it, and it still stops every send.
-    isEmail
-      ? Promise.all([
-          repo.emailSuppressions.getById(suppressionDocId(ctx.tenantId, key)),
-          repo.emailSuppressions.find({ where: [["normalizedEmail", "==", key]], limit: 100 }),
-        ]).then(([byId, rows]) => (byId && !rows.some((r) => r.id === byId.id) ? [byId, ...rows] : rows))
-      : Promise.resolve([]),
+    optOutRowsFor(ctx, key, deps.db),
   ]);
 
   // Sign-ups by key, plus any the contact links that the lookup missed (an address stored before

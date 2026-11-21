@@ -29,6 +29,7 @@ from root_agent_pkg.tools.audience_counts import get_audience_counts  # noqa: E4
 from root_agent_pkg.tools.journey_style import get_journey_email_style, set_journey_email_style  # noqa: E402
 from root_agent_pkg.tools.retrieve_knowledge import retrieve_knowledge  # noqa: E402
 from root_agent_pkg.tools.setup_help import get_setup_status, read_help_page  # noqa: E402
+from root_agent_pkg.tools.new_person import new_person_propose  # noqa: E402
 
 TOOLS = [
     retrieve_knowledge,
@@ -52,6 +53,7 @@ TOOLS = [
     get_next_up,
     get_setup_status,
     read_help_page,
+    new_person_propose,
 ]
 
 
@@ -205,3 +207,12 @@ def test_lifecycle_ops_can_read_and_suggest_a_persons_fields():
     props, required = _params(FunctionTool(person_fields_propose)._get_declaration())
     assert set(props) == {"changes", "why", "person_id"}
     assert sorted(required) == ["changes", "why"]
+
+
+@pytest.mark.filterwarnings("ignore::UserWarning")
+def test_the_root_agent_fills_in_new_person_with_no_place_for_consent():
+    from root_agent_pkg.agent import root_agent
+
+    assert new_person_propose in root_agent.tools
+    props, required = _params(FunctionTool(new_person_propose)._get_declaration())
+    assert set(props) == {"email", "phone", "first_name", "last_name", "fields"} and not required

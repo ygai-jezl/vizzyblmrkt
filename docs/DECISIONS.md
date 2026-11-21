@@ -182,6 +182,11 @@ Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
   - **Can email** on someone added by hand means the team recorded that they agreed. No send
     path reads them yet: journeys and broadcasts reach people added by hand with lists (piece
     E). The form, the list ("Yes, recorded", "Not yet") and the person's page say so.
+  - **Withdrawing is a named gap.** B records agreement only (piece 0 left withdrawal to piece
+    F), so nothing in the app withdraws or corrects a recorded agreement yet: someone who asks to
+    stop is unsubscribed brand-wide or erased. Withdrawing must be as easy as agreeing, so no
+    send may read a hand-added person's reach until it exists; the registry's `consent_record`
+    and `list` entries say so for pieces E and F.
   - **The plan's people:** the form reads piece A's `checkAllowance` and says when under 1% of
     the limit is left or it is passed. It never blocks (gates guide, never lock).
   - Rate limited per admin; export and erase cover `addedBy`, the consent and both events

@@ -177,6 +177,16 @@ export const FieldListSchema = z
   });
 export type FieldList = { items: RecordField[] };
 
+/** A list as its document holds it in `record_field_lists`, read through forTenant(ctx).recordFieldLists. */
+export interface RecordFieldListDoc extends FieldList {
+  /** settingsDocId: `ss_` and a hash of the brand and subject. */
+  id: string;
+  tenantId: string;
+  subject: (typeof FIELD_LIST_SUBJECT)[RecordFieldObject];
+  rev: number;
+  updatedAt: string;
+}
+
 // --- Values ------------------------------------------------------------------------------------
 
 /** A stored value: text, a number, a day, a box, an option id or several, or a user id. */

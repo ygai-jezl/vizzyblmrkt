@@ -58,6 +58,7 @@ import type { AutopilotRun, LearnedEntry, NextUpDoc } from "@/lib/types/autopilo
 import type { StoredEvent } from "@/lib/types/ontologyEvent";
 import type { AgentAction } from "@/lib/types/agentAction";
 import type { SettingsVersion } from "@/lib/types/settingsVersion";
+import type { RecordFieldListDoc } from "@/lib/types/recordField";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -553,6 +554,11 @@ export interface TenantRepositories {
   agentActions: HistoryCollection<AgentAction>;
   /** The settings log: every version of a brand's settings, kept whole (./settingsLog.ts writes them). */
   settingsVersions: VersionCollection<SettingsVersion>;
+  /**
+   * The brand's People and Company field lists, one document each (AUDIENCE_FIELDS_ENABLED). Read
+   * only here: a list changes only with its settings version (./settingsLog.ts).
+   */
+  recordFieldLists: VersionCollection<RecordFieldListDoc>;
 }
 
 /**
@@ -699,5 +705,6 @@ export function forTenant(
     ontologyEvents: new TenantCollection<StoredEvent>(regionalDb, "ontology_events", t),
     agentActions: new TenantCollection<AgentAction>(regionalDb, "agent_actions", t),
     settingsVersions: new TenantCollection<SettingsVersion>(regionalDb, "settings_versions", t),
+    recordFieldLists: new TenantCollection<RecordFieldListDoc>(regionalDb, "record_field_lists", t),
   };
 }

@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts`. Don't edit this file: change the 
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one.
 
-90 types: 66 built and 24 planned.
+90 types: 67 built and 23 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -442,7 +442,7 @@ One human, once per brand: every sign-up, product user and address they came thr
 - Stores:
   - `contacts`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
 - Links: `signup` through campaigns[].signupId (many); `product_user` through products[].productUserId (many); `company` through companyId
-- Events: `record.merged`, `record.repointed`
+- Events: `record.merged`, `record.repointed`, `record.created`, `consent.recorded`, `record.field_changed`
 - Erase:
   - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export
 - Export:
@@ -452,18 +452,20 @@ One human, once per brand: every sign-up, product user and address they came thr
 
 ### Company (`company`)
 
-A business people work at, by its web address, with how many of the brand's people are there.
+A business people work at, by its web address, with how many of the brand's people are there, and the brand's own company fields (`fields.<fieldId>`), which can hold what the team knows about the people there.
 
 - Status: built
 - Home: the brand's region
-- Personal: no
+- Personal: yes, the brand's people
 - Stores:
   - `companies`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
 - Links: `person` through contacts.companyId (many)
+- Events: `record.field_changed`
 - Erase:
-  - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (the company goes when its last person is erased)
-- Export: none. A business by its web address, not a person.
-- Search: none. Found on the Companies tab; joins brand search with people (piece B).
+  - `processContactEraseJob` in `src/lib/crm/eraseWorker.ts`, on a person's erase or export (the company, its field values and its history go when its last person is erased)
+  - Gap: erasing one person keeps their company's field values while others still work there
+- Export: gap. A person's export leaves out their company's own field values.
+- Search: none. Found on the Companies tab; joins brand search with people once the data processing agreement covers it.
 - Numbers: none. No numbers an agent reads.
 
 ### Opt out (`email_suppression`)
@@ -640,16 +642,18 @@ One row per thing that happened to a person, company, idea or agent action and h
 
 ### Field (`custom_field`)
 
-A field the brand adds to people or companies, or one that comes from sign-up questions, the catalog or enrichment.
+A field the brand adds to people or companies, of one of twelve types, managed in Settings › Data model. One list per object is a setting kept in the settings log, so every change is a version; a field is archived, never deleted, and its type is fixed once made. Values sit on the person or company under `fields.<fieldId>`, written only by `src/lib/tenant/recordFieldWrites.ts`, each change a record.field_changed event. Fields from sign-up questions, the catalog and enrichment are shown beside them, read only and never stored.
 
-- Status: planned, in B
+- Status: built
 - Home: the brand's region
-- Personal: no
-- Links: `ontology_event` through fieldId, one row per change of a value (many)
-- Erase: none. Planned: piece B decides it with the store.
-- Export: none. Planned: piece B decides it with the store.
+- Personal: the brand's own team
+- Stores:
+  - `record_field_lists`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One document per brand and object (subjects fields:person and fields:company) with its `rev`, written only with its settings version (`src/lib/tenant/settingsLog.ts`); `createdBy` and `archivedBy` hold user ids, never an address; under 200 KB.
+- Links: `settings_version` through its subject, one version per change of the list (many); `person` through contacts.fields.<fieldId> (many); `company` through companies.fields.<fieldId> (many); `ontology_event` through fieldId, one row per change of a value (many)
+- Erase: gap. A field is archived, never deleted, and a team member's user id in createdBy or archivedBy stays an id when they leave; erasing archived values comes with piece O part 2.
+- Export: gap. Team member ids stay as ids, with no export by team member; a person's export names each field of theirs with its label.
 - Search: none. A field's values are found with its person.
-- Numbers: none. Planned: piece B decides it with the store.
+- Numbers: none. A value belongs to one record and is not a brand metric.
 
 ### Consent purpose (`consent_purpose`)
 
@@ -1500,7 +1504,6 @@ Every change to how a brand works, with who, what and why: the items that change
 - Personal: the brand's own team
 - Stores:
   - `settings_versions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Written only through `src/lib/tenant/settingsLog.ts`, in one transaction with its setting; ids are `ss_<hash of brand and subject>_r<rev>`; `by` holds ids only, never a name or an address.
-  - `record_field_lists`, the brand's regional Firestore, in `src/lib/tenant/settingsLog.ts`. The live setting a version belongs to, one document per brand and subject (fields:person, fields:company) with its `rev`, written only with its version; piece B's fields give it to `custom_field` when they are built.
 - Links: `member` through by.id, when a team member saved it
 - Erase: gap. No path removes a team member's user id in `by` when they leave the team; it stays an id and shows as Former team member.
 - Export: gap. Team member ids in `by` stay as ids, with no export by team member.
@@ -1584,6 +1587,9 @@ What the registry records as missing, by type. Each is a known gap, not a promis
   - Export: not in a person's export: a webhook only carries a change on its way to the product
 - Person (`person`):
   - Numbers: people counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`)
+- Company (`company`):
+  - Erase: erasing one person keeps their company's field values while others still work there
+  - Export: a person's export leaves out their company's own field values
 - Engaged social profile (`social_profile`):
   - Erase: a person's erase does not reach engaged social profiles (`social_engaged`)
   - Export: a person's export does not include engaged social profiles (`social_engaged`)
@@ -1631,6 +1637,9 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 - Settings version (`settings_version`):
   - Erase: no path removes a team member's user id in `by` when they leave the team; it stays an id and shows as Former team member
   - Export: team member ids in `by` stay as ids, with no export by team member
+- Field (`custom_field`):
+  - Erase: a field is archived, never deleted, and a team member's user id in createdBy or archivedBy stays an id when they leave; erasing archived values comes with piece O part 2
+  - Export: team member ids stay as ids, with no export by team member; a person's export names each field of theirs with its label
 - Consent record (`consent_record`):
   - Erase: planned: piece F erases and exports it with the person
   - Export: planned: piece F erases and exports it with the person

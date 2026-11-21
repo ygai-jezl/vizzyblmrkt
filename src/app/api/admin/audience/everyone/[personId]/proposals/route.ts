@@ -36,6 +36,7 @@ const STATUS: Record<DecideError, number> = {
   stale: 409,
   changed: 409,
   edited_since: 409,
+  too_old: 409,
   too_large: 400,
   no_user: 403,
 };

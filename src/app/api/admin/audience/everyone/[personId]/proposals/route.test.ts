@@ -128,6 +128,21 @@ describe("a person's suggestions from Vizzy", () => {
     expect(fields()).toEqual({ [SEATS]: 12, [PLAN]: "opt_dddddd01" });
   });
 
+  it("won't undo once the 7 days the page offers it are over", async () => {
+    const { decideFieldSuggestion, UNDO_DAYS } = await import("@/lib/audience/fieldSuggestions");
+    const a = await suggestion({ [SEATS]: 15 });
+    const confirmedAt = Date.parse("2026-11-01T10:00:00.000Z");
+    expect(await decideFieldSuggestion(admin, PERSON, { id: a.id, rev: a.rev, decision: "confirm" }, { db, nowMs: confirmedAt })).toEqual({ ok: true, state: "acted" });
+    const acted = await getAgentAction(admin, a.id, { db });
+    const late = Date.parse(acted!.actedAt!) + UNDO_DAYS * 86_400_000 + 1;
+    const r = await decideFieldSuggestion(admin, PERSON, { id: a.id, rev: acted!.rev, decision: "undo" }, { db, nowMs: late });
+    expect(r).toEqual({ ok: false, error: "too_old" });
+    expect(suggestionErrorText(r)).toBe(SUGGESTION_MESSAGES.too_old);
+    expect(fields()).toMatchObject({ [SEATS]: 15 });
+    // Still inside the window it undoes.
+    expect(await decideFieldSuggestion(admin, PERSON, { id: a.id, rev: acted!.rev, decision: "undo" }, { db, nowMs: late - 1 })).toEqual({ ok: true, state: "undone" });
+  });
+
   it("won't undo once a field was changed again", async () => {
     const a = await suggestion({ [SEATS]: 15 });
     await post({ id: a.id, rev: a.rev, decision: "confirm" });

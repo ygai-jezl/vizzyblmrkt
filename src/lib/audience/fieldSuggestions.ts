@@ -229,7 +229,7 @@ export async function suggestionsForPage(ctx: TenantContext, personId: ContactPe
 }
 
 export type Decision = "confirm" | "dismiss" | "undo";
-export type DecideError = "not_found" | "stale" | "changed" | "edited_since" | "too_large" | "no_user";
+export type DecideError = "not_found" | "stale" | "changed" | "edited_since" | "too_old" | "too_large" | "no_user";
 export type DecideResult = { ok: true; state: "acted" | "declined" | "undone" } | { ok: false; error: DecideError; fieldId?: string };
 
 /**
@@ -238,8 +238,8 @@ export type DecideResult = { ok: true; state: "acted" | "declined" | "undone" } 
  * agent, only while each field still holds the value the suggestion was made from, and records
  * agent.approved and agent.acted with the values in one transaction; a stale one is set aside
  * (declined as stale) and answers `stale`. Undo writes the earlier values back with source undo,
- * only while the fields still hold what the confirm set, and records agent.undone. Dismiss
- * records agent.declined.
+ * only while the fields still hold what the confirm set and for UNDO_DAYS after the confirm (as
+ * the page offers it), and records agent.undone. Dismiss records agent.declined.
  */
 export async function decideFieldSuggestion(
   ctx: TenantContext,
@@ -297,8 +297,9 @@ export async function decideFieldSuggestion(
     return { ok: false, error: r.error === "not_found" || r.error === "agent_action_not_found" ? "not_found" : "changed" };
   }
 
-  // Undo.
+  // Undo, for as long as the page offers it.
   if (action.state !== "acted" || action.rev !== input.rev || !action.undo) return { ok: false, error: "changed" };
+  if ((action.actedAt ?? "") < new Date(nowMs - UNDO_DAYS * 86_400_000).toISOString()) return { ok: false, error: "too_old" };
   const r = await setFieldValues(
     ctx,
     {

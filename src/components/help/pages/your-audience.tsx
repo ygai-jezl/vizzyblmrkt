@@ -392,6 +392,7 @@ export default function YourAudienceHelp({
             ? ([
                 [SUGGESTION_MESSAGES.stale, "Nothing changed. Ask Vizzy again if a change still fits what their fields say now."],
                 [SUGGESTION_MESSAGES.edited_since, "Someone changed the field after the confirm. Set the value you want under Fields."],
+                [SUGGESTION_MESSAGES.too_old, "Undo lasts 7 days after the confirm. Set the value you want under Fields."],
                 [SUGGESTION_MESSAGES.changed, "Reload the page. Another admin confirmed or dismissed it first."],
                 [SUGGESTION_NOTES.waiting, "Nothing to fix. An admin confirms or dismisses it, here or from Review."],
               ] as Array<[string, string]>)

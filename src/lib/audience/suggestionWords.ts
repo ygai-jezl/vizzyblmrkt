@@ -14,6 +14,7 @@ export const SUGGESTION_MESSAGES = {
   stale: "This suggestion was out of date: a field changed since Vizzy made it, so it was set aside. Ask Vizzy again if it still fits.",
   changed: "Someone else decided this suggestion. Reload the page to see what happened.",
   edited_since: "A field changed since this was confirmed, so it can't be undone here. Change it under Fields instead.",
+  too_old: "This was confirmed more than 7 days ago, so it can't be undone here. Change it under Fields instead.",
   too_large: "This person's record can't hold any more. Shorten some long text in their fields first.",
   not_found: "This suggestion is no longer there. Reload the page.",
   forbidden: "Only admins can confirm, dismiss or undo Vizzy's suggestions.",

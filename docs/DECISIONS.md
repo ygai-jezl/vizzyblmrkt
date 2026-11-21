@@ -9,9 +9,17 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 Context: piece B of the CRM and tiers plan turns Audience into People and adds what a CRM
 needs on top of the person record: fields, filters, adding someone by hand, a timeline and
 Vizzy's suggestions. It also starts the settings log (piece O part 1) and stops catalog
-history being pruned. It ships as one pull request in commit groups; this record covers
-groups 1 to 9 and grows with the rest. The only Firestore changes are the two composite
-indexes and the two field exemptions below. No dependency, rules or infra change.
+history being pruned. It ships as one pull request in eleven commit groups, all covered here.
+The only Firestore changes are the two composite indexes and the two field exemptions below;
+`src/lib/settings/indexes.test.ts` checks every composite query the piece makes has its index,
+and the field exemptions. No dependency, rules or infra change. Seven switches, all `"false"` in
+`apphosting.yaml` and empty in `.env.example`: `NEXT_PUBLIC_NAV_PEOPLE_ENABLED`,
+`AUDIENCE_FIELDS_ENABLED`, `AUDIENCE_FIELD_FILTERS_ENABLED`, `AUDIENCE_ADD_PERSON_ENABLED`,
+`AUDIENCE_TIMELINE_ENABLED`, `AUDIENCE_VIZZY_FIELDS_ENABLED` and
+`AUDIENCE_VIZZY_ADD_PERSON_ENABLED`, with the settings log, catalog history and the rules that
+keep people added by hand needing none. Help: your-audience (with Data model, filters, Add
+someone by hand, the timeline and Vizzy and their fields), people, review-and-approvals,
+plan-and-usage and connect-your-product.
 
 Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
 

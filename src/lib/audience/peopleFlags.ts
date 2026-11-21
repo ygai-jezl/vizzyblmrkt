@@ -18,3 +18,13 @@ import { isOntologyPersonIdsEnabled } from "@/lib/ontology/flags";
 export function isFieldsEnabled(): boolean {
   return isOneViewEnabled() && isOntologyPersonIdsEnabled() && process.env.AUDIENCE_FIELDS_ENABLED === "true";
 }
+
+/**
+ * Filtering People by fields and by product group (AUDIENCE_FIELD_FILTERS_ENABLED, needs fields):
+ * a pill for each select, multi select, status and checkbox field, and "Everyone in this group"
+ * from a person's page, through the existing `memberOf` index. Off: the list as before. The field
+ * tags are written with the values whatever this says; they are derived and harmless.
+ */
+export function isFieldFiltersEnabled(): boolean {
+  return isFieldsEnabled() && process.env.AUDIENCE_FIELD_FILTERS_ENABLED === "true";
+}

@@ -384,6 +384,12 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Filter People by select, multi select, status and checkbox fields, and by product group (needs
+  # AUDIENCE_FIELDS_ENABLED).
+  - variable: AUDIENCE_FIELD_FILTERS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Email style ==
   # A logo, name and colours on branded emails, then header options, themes, web fonts

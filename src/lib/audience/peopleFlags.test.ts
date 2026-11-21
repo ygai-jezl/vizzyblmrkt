@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { isFieldsEnabled } from "./peopleFlags";
+import { isFieldFiltersEnabled, isFieldsEnabled } from "./peopleFlags";
 
 beforeEach(() => {
   vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
@@ -22,5 +22,17 @@ describe("isFieldsEnabled", () => {
   it("reads only the exact string true", () => {
     vi.stubEnv("AUDIENCE_FIELDS_ENABLED", "TRUE");
     expect(isFieldsEnabled()).toBe(false);
+  });
+});
+
+describe("isFieldFiltersEnabled", () => {
+  it("needs fields and its own switch", () => {
+    vi.stubEnv("AUDIENCE_FIELD_FILTERS_ENABLED", "true");
+    expect(isFieldFiltersEnabled()).toBe(true);
+    vi.stubEnv("AUDIENCE_FIELDS_ENABLED", "false");
+    expect(isFieldFiltersEnabled()).toBe(false);
+    vi.stubEnv("AUDIENCE_FIELDS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_FIELD_FILTERS_ENABLED", "false");
+    expect(isFieldFiltersEnabled()).toBe(false);
   });
 });

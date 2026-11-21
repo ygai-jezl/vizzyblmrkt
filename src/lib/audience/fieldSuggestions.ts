@@ -23,7 +23,8 @@ import { personHref } from "./paths";
  *   erased field is blanked in place.
  * - A suggestion for a field that already has one waiting replaces it (the old one is declined as
  *   superseded). The same suggestion from the same values again answers with the one there is,
- *   or, once someone decided it, says so and saves nothing.
+ *   or, once a person decided it (confirmed or dismissed it), says so and saves nothing. One set
+ *   aside by nobody (replaced by a newer one, out of time, or out of date) can be made again.
  */
 
 export const PERSON_FIELDS_ACTION = "person_fields.suggest";
@@ -66,13 +67,28 @@ function stable(values: Record<string, unknown>): Array<[string, unknown]> {
     .map(([k, v]) => [k, Array.isArray(v) ? [...v].sort() : v]);
 }
 
-/** The key that names this suggestion: the person, and a hash of what it changes from what. */
-function dedupeKeyOf(personId: string, proposed: Record<string, FieldValue | null>, basis: Record<string, FieldValue | null>): string {
+/**
+ * The key that names this suggestion: the person, and a hash of what it changes from what. `round`
+ * counts the earlier ones with the same key that nobody decided (each set aside), so it can be made
+ * again under a key of its own; round 0 has no suffix.
+ */
+function dedupeKeyOf(personId: string, proposed: Record<string, FieldValue | null>, basis: Record<string, FieldValue | null>, round = 0): string {
   const hash = createHash("sha256")
     .update(JSON.stringify([stable(proposed), stable(basis)]))
     .digest("hex")
     .slice(0, 32);
-  return agentDedupeKey(PERSON_FIELDS_ACTION, personId, hash);
+  return round ? agentDedupeKey(PERSON_FIELDS_ACTION, personId, hash, `r${round}`) : agentDedupeKey(PERSON_FIELDS_ACTION, personId, hash);
+}
+
+/** How many times the same suggestion may be set aside by nobody and made again. */
+const MAX_ROUNDS = 50;
+
+/**
+ * Whether a person decided a suggestion: confirmed it (undone or not) or dismissed it. One declined
+ * as superseded, expired or stale was set aside without anyone deciding the change itself.
+ */
+function decidedByAPerson(a: AgentAction): boolean {
+  return a.state === "acted" || a.state === "undone" || (a.state === "declined" && a.declined?.reason === "dismissed");
 }
 
 /**
@@ -114,14 +130,20 @@ export async function suggestFieldChanges(
 
   const scrub = identityScrubber({ name: [contact.firstName, contact.lastName].filter(Boolean).join(" "), email: contact.email ?? null });
   const why = input.why ? scrub(input.why.replace(/\s+/g, " ").trim()).slice(0, SUGGESTION_WHY_CHARS) : "";
-  const dedupeKey = dedupeKeyOf(personId, proposed, basis);
   const nowMs = deps.nowMs ?? Date.now();
   const at = new Date(nowMs).toISOString();
 
-  // The same suggestion from the same values: the one there is, or "already decided".
-  const same = await getAgentAction(ctx, deterministicAgentActionId(ctx.tenantId, dedupeKey), { db: deps.db });
-  if (same && (same.state === "proposed" || same.state === "approved")) return { ok: true, outcome: "open", action: same, fields: same.fieldIds.length, superseded: 0 };
-  if (same) return { ok: false, error: "already_decided" };
+  // The same suggestion from the same values: the one there is, or "already decided" once a person
+  // decided it. Each earlier one set aside by nobody moves it on to the next round's key.
+  let dedupeKey: string | null = null;
+  for (let round = 0; round < MAX_ROUNDS && !dedupeKey; round += 1) {
+    const key = dedupeKeyOf(personId, proposed, basis, round);
+    const same = await getAgentAction(ctx, deterministicAgentActionId(ctx.tenantId, key), { db: deps.db });
+    if (!same) dedupeKey = key;
+    else if (same.state === "proposed" || same.state === "approved") return { ok: true, outcome: "open", action: same, fields: same.fieldIds.length, superseded: 0 };
+    else if (decidedByAPerson(same)) return { ok: false, error: "already_decided" };
+  }
+  if (!dedupeKey) return { ok: false, error: "already_decided" };
 
   // A newer suggestion for a field replaces the one waiting.
   let superseded = 0;

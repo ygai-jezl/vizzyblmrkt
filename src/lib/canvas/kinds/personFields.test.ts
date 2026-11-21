@@ -124,6 +124,27 @@ describe("the person_fields kind", () => {
     expect(await suggest({ [SEATS]: 16 })).toMatchObject({ ok: false, status: 409, error: "already_decided" });
   });
 
+  it("can make a suggestion again that nobody decided: replaced, out of time or out of date", async () => {
+    const first = await suggest({ [SEATS]: 15 });
+    if (!first.ok) throw new Error("not saved");
+    // Replaced by a newer one for the same field, which then runs out of time.
+    const newer = await suggest({ [SEATS]: 16 });
+    if (!newer.ok) throw new Error("not saved");
+    await transitionAgentAction(admin, newer.id as AgentActionId, { to: "declined", reason: "expired", by: { type: "system", id: "agent_action_expiry" }, at: new Date(T0 + 1000).toISOString() }, { db });
+    const back = await suggest({ [SEATS]: 15 });
+    expect(back).toMatchObject({ ok: true, status: "suggested" });
+    if (!back.ok) throw new Error("not saved");
+    expect(back.id).not.toBe(first.id);
+    // A retry answers with it, and the expired one can come back too.
+    expect(await suggest({ [SEATS]: 15 })).toMatchObject({ ok: true, id: back.id });
+    const again16 = await suggest({ [SEATS]: 16 });
+    expect(again16).toMatchObject({ ok: true, status: "suggested" });
+    // Once a person dismisses it, it stays decided.
+    if (!again16.ok) throw new Error("not saved");
+    await transitionAgentAction(admin, again16.id as AgentActionId, { to: "declined", reason: "dismissed", by, at: new Date(T0 + 2000).toISOString() }, { db });
+    expect(await suggest({ [SEATS]: 16 })).toMatchObject({ ok: false, status: 409, error: "already_decided" });
+  });
+
   it("is rate limited", async () => {
     let last: unknown;
     for (let i = 0; i < 12; i++) last = await suggest({ [SEATS]: 100 + i });

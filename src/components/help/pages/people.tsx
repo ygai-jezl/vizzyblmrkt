@@ -1,10 +1,14 @@
 import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
-import { isOneViewEnabled } from "@/lib/audience/flags";
+import { isOneViewEnabled, isPeopleNameEnabled } from "@/lib/audience/flags";
+import type { HelpBodyProps } from "@/lib/help/pages";
+import { peopleArea } from "@/lib/nav/terms";
 
-export default function PeopleHelp() {
-  // One People list (AUDIENCE_ONE_VIEW_ENABLED) in place of the Product users tab.
-  const oneView = isOneViewEnabled();
+export default function PeopleHelp({ people = isPeopleNameEnabled() }: HelpBodyProps = {}) {
+  // One People list (AUDIENCE_ONE_VIEW_ENABLED) in place of the Product users tab. People (the
+  // area's new name) needs it, so the How to drawer, which can't read server switches, passes it.
+  const oneView = people || isOneViewEnabled();
+  const area = peopleArea(people);
   return (
     <article>
       <H1>One person&apos;s view</H1>
@@ -31,7 +35,7 @@ export default function PeopleHelp() {
       {oneView ? (
         <Steps>
           <li>
-            Open <Open href="/admin/crm">Audience</Open>. The <strong>People</strong> tab lists everyone.
+            Open <Open href="/admin/crm">{area}</Open>. {people ? "Its" : "The"} <strong>People</strong> tab lists everyone.
           </li>
           <li>
             Pick your product at the top, then a stage such as <strong>Stuck</strong> or <strong>Quiet</strong>, or search
@@ -39,13 +43,13 @@ export default function PeopleHelp() {
           </li>
           <li>
             Click their row. Their page shows each launch they joined too, and each product they use has a part like the
-            one below. See <Open href="/help/your-audience">Your audience</Open>.
+            one below. See <Open href="/help/your-audience">{people ? "People" : "Your audience"}</Open>.
           </li>
         </Steps>
       ) : (
         <Steps>
           <li>
-            Open <Open href="/admin/crm">Audience</Open> and choose the <strong>Product users</strong> tab.
+            Open <Open href="/admin/crm">{area}</Open> and choose the <strong>Product users</strong> tab.
           </li>
           <li>
             Search by name or email, or filter by stage, such as <strong>Stuck</strong> or <strong>Quiet</strong>.

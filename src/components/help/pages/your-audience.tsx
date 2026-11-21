@@ -1,11 +1,18 @@
 import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
+import { isPeopleNameEnabled } from "@/lib/audience/flags";
+import type { HelpBodyProps } from "@/lib/help/pages";
+import { peopleArea } from "@/lib/nav/terms";
 
-/** Shown only while AUDIENCE_ONE_VIEW_ENABLED is on (src/lib/help/pages.ts). */
-export default function YourAudienceHelp() {
+/**
+ * Shown only while AUDIENCE_ONE_VIEW_ENABLED is on (src/lib/help/pages.ts). With People on
+ * (NEXT_PUBLIC_NAV_PEOPLE_ENABLED) the area is People, as the sidebar says; the slug stays.
+ */
+export default function YourAudienceHelp({ people = isPeopleNameEnabled() }: HelpBodyProps = {}) {
+  const area = peopleArea(people);
   return (
     <article>
-      <H1>Your audience</H1>
+      <H1>{people ? "People" : "Your audience"}</H1>
       <Lead>
         Everyone you know, in one list: people who joined a launch, people from your own site&apos;s sign-up box, and the
         users of your connected products. One row and one page per person, whatever brought them.
@@ -33,8 +40,8 @@ export default function YourAudienceHelp() {
       <H2 id="list">The People list</H2>
       <Steps>
         <li>
-          Open <Open href="/admin/crm">Audience</Open>. The <strong>People</strong> tab lists everyone, most recently active
-          first, with the total at the bottom.
+          Open <Open href="/admin/crm">{area}</Open>. {people ? "Its" : "The"} <strong>People</strong> tab lists everyone,
+          most recently active first, with the total at the bottom.
         </li>
         <li>
           Pick a group at the top: <strong>Everyone</strong>, one of your launches, <strong>From your site</strong>, or one

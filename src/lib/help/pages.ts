@@ -1,5 +1,5 @@
 import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
-import { isOneViewEnabled } from "@/lib/audience/flags";
+import { isOneViewEnabled, isPeopleNameEnabled } from "@/lib/audience/flags";
 import { isSearchUiEnabled } from "@/lib/search/flags";
 import { isPlansUiEnabled } from "@/lib/plans/flags";
 
@@ -25,6 +25,16 @@ export interface HelpPage {
    * The switches are read on the server, so client lists (⌘K) leave these pages out.
    */
   onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans";
+}
+
+/**
+ * What a help page's body is told when it renders. Each body works it out itself on the server
+ * (the /help routes, their Markdown copies, llms-full.txt); the in-app How to drawer renders on the
+ * client, where server switches read off, so it passes what the admin shell was given.
+ */
+export interface HelpBodyProps {
+  /** The Audience area is called People (isPeopleNameEnabled()). */
+  people?: boolean;
 }
 
 /** Navigation headings, matching Home's stages. */
@@ -96,21 +106,32 @@ export function isHelpPageShown(p: Pick<HelpPage, "onlyWhen">): boolean {
   return true;
 }
 
-/** The pages to list now: every page, less those whose switch is off. */
-export function shownHelpPages(): HelpPage[] {
-  return HELP_PAGES.filter(isHelpPageShown);
+/**
+ * A page's entry in the words used now: with People on, the page about the People list is listed
+ * as People. Its slug stays your-audience so links and llms.txt keep working.
+ */
+function inWords(p: HelpPage, people: boolean): HelpPage {
+  return people && p.slug === "your-audience" ? { ...p, label: "People" } : p;
 }
 
-export function helpPage(slug: string): HelpPage | null {
-  return HELP_PAGES.find((p) => p.slug === slug) ?? null;
+/** The pages to list now: every page, less those whose switch is off. */
+export function shownHelpPages(): HelpPage[] {
+  const people = isPeopleNameEnabled();
+  return HELP_PAGES.filter(isHelpPageShown).map((p) => inWords(p, people));
+}
+
+/** One page's entry; `people` overrides the server's answer (the How to drawer passes the shell's). */
+export function helpPage(slug: string, opts: HelpBodyProps = {}): HelpPage | null {
+  const p = HELP_PAGES.find((x) => x.slug === slug);
+  return p ? inWords(p, opts.people ?? isPeopleNameEnabled()) : null;
 }
 
 /** The page after this one in reading order, for "Next" links (skipping pages that are switched off). */
 export function nextHelpPage(slug: string): HelpPage | null {
-  const shown = shownHelpPages();
   const i = HELP_PAGES.findIndex((p) => p.slug === slug);
   if (i < 0) return null;
-  return HELP_PAGES.slice(i + 1).find((p) => shown.includes(p)) ?? null;
+  const next = HELP_PAGES.slice(i + 1).find(isHelpPageShown);
+  return next ? inWords(next, isPeopleNameEnabled()) : null;
 }
 
 /** `/help/email-sending` → `/help/email-sending.md`; the Get set up page is `/help.md`. */

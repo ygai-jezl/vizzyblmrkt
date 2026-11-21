@@ -1,9 +1,11 @@
 import { H1, H2, Lead, P, Pairs, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Messages, Meta, NextPage, Open } from "@/components/help/blocks";
 import { PLANS } from "@/lib/plans/catalog";
+import { isPeopleNameEnabled } from "@/lib/audience/flags";
+import type { HelpBodyProps } from "@/lib/help/pages";
 
 /** /help/plan-and-usage (NEXT_PUBLIC_PLANS_ENABLED): Settings › Plan and usage. No prices: they may change. */
-export default function PlanAndUsageHelp() {
+export default function PlanAndUsageHelp({ people = isPeopleNameEnabled() }: HelpBodyProps = {}) {
   return (
     <article>
       <H1>Plan and usage</H1>
@@ -35,7 +37,7 @@ export default function PlanAndUsageHelp() {
       </P>
       <Pairs head={["Plan", "In a sentence"]} rows={PLANS.map((p) => [p.name, p.summary])} />
       <P>
-        Every plan includes launches and waitlists, journeys, posts and your Audience. Plans differ in the features they add
+        Every plan includes launches and waitlists, journeys, posts and {people ? "People" : "your Audience"}. Plans differ in the features they add
         and in how much they allow.
       </P>
       <P>
@@ -77,7 +79,7 @@ export default function PlanAndUsageHelp() {
         rows={[
           ["Brands", "Every brand on the plan, suspended ones too."],
           ["Users", "Everyone added to any of the plan's brands, counted once however many brands they are in."],
-          ["People", "Everyone in each brand's Audience, added up across the plan's brands."],
+          ["People", `Everyone in each brand's ${people ? "People list" : "Audience"}, added up across the plan's brands.`],
           ["Live launches", "Each brand's launches that aren't archived. This one is per brand, not shared."],
         ]}
       />

@@ -9,9 +9,11 @@ import { H2 } from "@/components/developers/Doc";
 import { SETUP_HOW_TO } from "@/lib/connect/setupChecklist";
 import { computeGrowth, type GrowthSignals } from "@/lib/nav/growth";
 import { launchChecklist } from "@/lib/nav/launchChecklist";
+import { docToMarkdown } from "@/lib/developers/markdown";
 import { helpLlmsTxt, helpPageMarkdown } from "./agentFiles";
-import { HELP_PAGES } from "./pages";
+import { HELP_PAGES, helpPage, shownHelpPages } from "./pages";
 import { HELP_PLACES, helpFor, parseHelpPath } from "./places";
+import { isPeopleNameEnabled } from "@/lib/audience/flags";
 
 
 /**
@@ -151,6 +153,48 @@ describe("the help pages", () => {
         expect(/[–—]/.test(line), `${p.path}: ${line}`).toBe(false);
         expect(/\S - \S/.test(line), `${p.path}: ${line}`).toBe(false);
       }
+    }
+  });
+});
+
+describe("People in place of Audience", () => {
+  const PEOPLE_PAGES = ["your-audience", "people", "connect-your-product", "plan-and-usage"];
+  const md = (slug: string, people: boolean) => docToMarkdown(HELP_BODIES[slug]!({ people }), "https://app.example.com");
+
+  it("the pages that name the area say People while it is on, and never Audience", () => {
+    for (const slug of PEOPLE_PAGES) {
+      const text = md(slug, true);
+      expect(text, slug).not.toMatch(/\bAudience\b/);
+      for (const line of text.split("\n")) {
+        expect(/[–—]/.test(line) || /\S - \S/.test(line), `${slug}: ${line}`).toBe(false);
+      }
+    }
+    expect(md("your-audience", true)).toMatch(/^# People\n/);
+    expect(md("people", true)).toContain("See [People](https://app.example.com/help/your-audience.md)");
+  });
+
+  it("keep Audience while it is off", () => {
+    expect(md("your-audience", false)).toMatch(/^# Your audience\n/);
+    expect(md("your-audience", false)).toContain("Audience");
+    expect(md("connect-your-product", false)).toContain("A page for each user in Audience");
+  });
+
+  it("list the People list's page as People, keeping its slug", () => {
+    expect(helpPage("your-audience", { people: true })).toMatchObject({ label: "People", path: "/help/your-audience" });
+    expect(helpPage("your-audience", { people: false })?.label).toBe("Your audience");
+    // The server's answer, used by the /help navigation, llms.txt and the page title.
+    expect(shownHelpPages().find((p) => p.slug === "your-audience")?.label).toBe("Your audience");
+    vi.stubEnv("NEXT_PUBLIC_NAV_V2_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_NAV_PEOPLE_ENABLED", "true");
+    try {
+      expect(shownHelpPages().find((p) => p.slug === "your-audience")?.label).toBe("People");
+      expect(helpPage("your-audience")?.label).toBe("People");
+      expect(md("your-audience", isPeopleNameEnabled())).toMatch(/^# People\n/);
+      expect(helpPageMarkdown("your-audience", "https://app.example.com")).toMatch(/^# People\n/);
+    } finally {
+      vi.unstubAllEnvs();
     }
   });
 });

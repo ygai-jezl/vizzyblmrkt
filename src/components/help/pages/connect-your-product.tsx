@@ -1,8 +1,11 @@
 import { C, H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning, WhoGetsWhichEmails } from "@/components/help/blocks";
 import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
+import { isPeopleNameEnabled } from "@/lib/audience/flags";
+import type { HelpBodyProps } from "@/lib/help/pages";
+import { peopleArea } from "@/lib/nav/terms";
 
-export default function ConnectYourProductHelp() {
+export default function ConnectYourProductHelp({ people = isPeopleNameEnabled() }: HelpBodyProps = {}) {
   return (
     <article>
       <H1>Connect your product</H1>
@@ -19,7 +22,7 @@ export default function ConnectYourProductHelp() {
         unlocks={
           <>
             <li>Onboarding journeys for your product&apos;s users</li>
-            <li>A page for each user in Audience</li>
+            <li>A page for each user in {peopleArea(people)}</li>
             <li>Inviting your waitlist into your product</li>
           </>
         }

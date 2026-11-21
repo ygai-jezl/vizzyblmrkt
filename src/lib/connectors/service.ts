@@ -322,7 +322,8 @@ function outcomePlan(cur: DataConnection, outcome: { ok: true } | HookFailure, a
   if (outcome.ok) {
     const recentOk = cur.health.state === "ok" && cur.health.lastOkAt && now.getTime() - Date.parse(cur.health.lastOkAt) < 10 * 60_000;
     if (!onSuccess && recentOk) return null;
-    return { patch: { health: healthAfterSuccess(cur.health, now) }, activity: onSuccess ? [{ kind: onSuccess, by: byOf(actor), at }] : [] };
+    // Vizzy's reads are logged but kept off the recent list (the Connected view shows people's changes).
+    return { patch: { health: healthAfterSuccess(cur.health, now) }, activity: onSuccess ? [{ kind: onSuccess, by: byOf(actor), at, ...(onSuccess === "read" ? { recent: false } : {}) }] : [] };
   }
   const next = healthAfterFailure(cur.health, outcome.code, now, outcome.retryAfterSec);
   if (!next) return null;

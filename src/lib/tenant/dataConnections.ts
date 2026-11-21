@@ -45,6 +45,11 @@ export interface ActivityWrite {
   code?: string | null;
   /** Canonical ISO instant. */
   at: string;
+  /**
+   * False keeps it in the activity log only, off the record's recent list, so frequent rows (Vizzy's
+   * reads) never push an admin's changes off the Connected view. Never stored.
+   */
+  recent?: boolean;
 }
 
 /** A new connection, before the tenant is stamped. Its recent list is built from its activity. */
@@ -77,9 +82,15 @@ function entryOf(a: ActivityWrite): ActivityEntry {
   return { at: a.at, kind: a.kind, by: a.by, code: a.code ?? null };
 }
 
-/** The recent list with these changes added, newest first, capped. */
+/** The recent list with these changes added, newest first, capped. Rows marked recent: false stay off it. */
 export function withRecent(current: readonly ActivityEntry[], added: readonly ActivityWrite[]): ActivityEntry[] {
-  return [...added.map(entryOf).reverse(), ...current].slice(0, RECENT_LIMIT);
+  return [
+    ...added
+      .filter((a) => a.recent !== false)
+      .map(entryOf)
+      .reverse(),
+    ...current,
+  ].slice(0, RECENT_LIMIT);
 }
 
 function activityRow(tenantId: string, conn: Pick<DataConnection, "id" | "connectorId">, a: ActivityWrite): Omit<DataConnectionActivity, "id"> {
@@ -161,7 +172,7 @@ export async function changeDataConnection(
     for (const k of FIXED) delete patch[k];
     const last = planned.activity.at(-1);
     if (patch.updatedAt === undefined && last) patch.updatedAt = last.at;
-    if (planned.activity.length) patch.recent = withRecent(current.recent, planned.activity);
+    if (planned.activity.some((a) => a.recent !== false)) patch.recent = withRecent(current.recent, planned.activity);
     const next = DataConnectionSchema.safeParse({ ...current, ...patch });
     if (!next.success) invalid(next.error.issues[0]?.path.join(".") ?? "patch");
     txn.update(ref, patch);

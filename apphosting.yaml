@@ -1049,6 +1049,12 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Vizzy lists connections and reads them live, only those an admin let Vizzy read (needs
+  # CONNECTORS_ENABLED and Vizzy, the agent, redeployed with its connector tools).
+  - variable: CONNECTORS_CHAT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Disconnect also revokes a Google sign in at Google. Leave it off unless you know no Google
   # account signs in for two brands: Google's revoke ends every grant that account gave the app.
   - variable: CONNECTOR_GOOGLE_REVOKE_ENABLED

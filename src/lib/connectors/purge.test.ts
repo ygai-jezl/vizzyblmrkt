@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { changeDataConnection, createDataConnection, type NewDataConnection, type TenantContext } from "@/lib/tenant";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { purgeActor, purgeConnections, purgeLines } from "./purge";
+import { shareDescription } from "./shareAccess";
 import { sealConnectorSecret } from "./vault";
 
 // Runs with every connector switch off: the purge must work whatever they say.
@@ -51,8 +52,8 @@ describe("purgeConnections", () => {
     const before = JSON.stringify([db.dump("data_connections"), db.dump("data_connection_activity")]);
     const r = await purgeConnections(A, { apply: false, db });
     expect(r.items).toEqual([
-      { connectionId: ONE, connectorId: "cloudflare", status: "connected", secrets: 1, recent: 2, activity: 2 },
-      { connectionId: TWO, connectorId: "cloudflare", status: "connected", secrets: 1, recent: 2, activity: 2 },
+      { connectionId: ONE, connectorId: "cloudflare", status: "connected", secrets: 1, recent: 2, activity: 2, address: "none" },
+      { connectionId: TWO, connectorId: "cloudflare", status: "connected", secrets: 1, recent: 2, activity: 2, address: "none" },
     ]);
     expect(r.removed).toEqual([]);
     expect(JSON.stringify([db.dump("data_connections"), db.dump("data_connection_activity")])).toBe(before);
@@ -60,7 +61,7 @@ describe("purgeConnections", () => {
 
   it("touches only the named connection of the named brand", async () => {
     const r = await purgeConnections(A, { connectionId: ONE, apply: true, by: "ops", now: new Date(T1), db });
-    expect(r.removed).toEqual([{ connectionId: ONE, found: true, activityDeleted: 2, secretsDeleted: 1, recentDeleted: 2, revoked: false }]);
+    expect(r.removed).toEqual([{ connectionId: ONE, found: true, activityDeleted: 2, secretsDeleted: 1, recentDeleted: 2, revoked: false, addressDeleted: null }]);
     expect(db.raw("data_connections", ONE)).toMatchObject({ secrets: {}, status: "disconnected", disconnectedAt: T1, recent: [{ kind: "purged", by: "purge:ops", at: T1, code: null }] });
     expect(activityOf("ten_a", ONE)).toEqual(["purged"]);
     // The brand's other connection and another brand's are left alone.
@@ -128,5 +129,108 @@ describe("purging a Google sign in", () => {
     const dry = await purgeConnections(A, { apply: false, db, transport, log: () => {} });
     expect(dry.removed).toEqual([]);
     expect(transport).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("purging shared connections and leftover Google addresses", () => {
+  const PROJECT = "made-up-identities";
+  const SHARED = "dcn_eeeeeeeeeeeeeeeeeeee";
+  const GONE = "dcn_ffffffffffffffffffff";
+  const emailOf = (n: string) => `ygc-${n.repeat(20)}@${PROJECT}.iam.gserviceaccount.com`;
+
+  /** A fake IAM holding the addresses, each tagged for a brand and a connection. */
+  function fakeIam(failDeletes = false) {
+    const accounts = new Map<string, { email: string; uniqueId: string; description: string }>();
+    const add = (uniqueId: string, email: string, tenantId: string, connectionId: string) => accounts.set(uniqueId, { email, uniqueId, description: shareDescription(tenantId, connectionId) });
+    const transport = vi.fn(async (url: string, init: RequestInit) => {
+      const u = new URL(url);
+      if (init.method === "GET") return new Response(JSON.stringify({ accounts: [...accounts.values()] }), { status: 200 });
+      if (init.method === "DELETE") {
+        if (failDeletes) return new Response(JSON.stringify({ error: { status: "UNAVAILABLE" } }), { status: 503 });
+        accounts.delete(u.pathname.split("/").pop()!);
+        return new Response("{}", { status: 200 });
+      }
+      return new Response("{}", { status: 500 });
+    });
+    return { accounts, add, transport, deps: { transport, appToken: async () => "made-up-app-token", log: () => {} } };
+  }
+
+  const sharedConn = async (id: string, uniqueId: string, email: string, status: "connected" | "disconnected" = "connected") => {
+    await createDataConnection(
+      A,
+      {
+        ...conn(id),
+        connectorId: "search-console",
+        method: "share_access",
+        account: "sc-domain:example.com",
+        secrets: {},
+        serviceAccount: { email, uniqueId, createdAt: T0, deletedAt: null },
+        status,
+        disconnectedAt: status === "disconnected" ? T0 : null,
+      },
+      [{ kind: "shared", by: "usr_admin", at: T0 }],
+      db,
+    );
+  };
+
+  beforeEach(() => vi.stubEnv("CONNECTORS_IDENTITIES_PROJECT", PROJECT));
+
+  it("lists this brand's leftover addresses in a dry run and deletes nothing", async () => {
+    const iam = fakeIam();
+    await sharedConn(SHARED, "101", emailOf("a"));
+    iam.add("101", emailOf("a"), "ten_a", SHARED);
+    iam.add("102", emailOf("b"), "ten_a", "dcn_gggggggggggggggggggg");
+    iam.add("103", emailOf("c"), "ten_b", "dcn_hhhhhhhhhhhhhhhhhhhh");
+    const r = await purgeConnections(A, { apply: false, db, ...iam.deps });
+    expect(r.items.find((i) => i.connectionId === SHARED)?.address).toBe("kept");
+    expect(r.orphans).toEqual([{ email: emailOf("b"), connectionId: "dcn_gggggggggggggggggggg", deleted: null }]);
+    expect(iam.accounts.size).toBe(3);
+    expect(purgeLines(r).join("\n")).toContain(`leftover Google address ${emailOf("b")}`);
+  });
+
+  it("deletes a purged connection's address and this brand's orphans, never another brand's", async () => {
+    const iam = fakeIam();
+    await sharedConn(SHARED, "101", emailOf("a"));
+    iam.add("101", emailOf("a"), "ten_a", SHARED);
+    iam.add("102", emailOf("b"), "ten_a", "dcn_gggggggggggggggggggg");
+    iam.add("103", emailOf("c"), "ten_b", "dcn_hhhhhhhhhhhhhhhhhhhh");
+    const r = await purgeConnections(A, { apply: true, by: "ops", now: new Date(T1), db, ...iam.deps });
+    expect(r.removed.find((x) => x.connectionId === SHARED)).toMatchObject({ addressDeleted: true });
+    expect(r.orphans).toEqual([{ email: emailOf("b"), connectionId: "dcn_gggggggggggggggggggg", deleted: true }]);
+    expect([...iam.accounts.keys()]).toEqual(["103"]);
+    expect(db.raw("data_connections", SHARED)).toMatchObject({ status: "disconnected", serviceAccount: { deletedAt: T1 } });
+  });
+
+  it("retries a failed delete with addresses only, leaving every record's history alone", async () => {
+    const iam = fakeIam();
+    await sharedConn(GONE, "104", emailOf("d"), "disconnected");
+    iam.add("104", emailOf("d"), "ten_a", GONE);
+    const before = activityOf("ten_a", ONE).length;
+    const r = await purgeConnections(A, { apply: true, by: "ops", now: new Date(T1), db, addressesOnly: true, ...iam.deps });
+    expect(r.items.map((i) => i.connectionId)).toEqual([GONE]);
+    expect(r.removed).toEqual([{ connectionId: GONE, found: true, activityDeleted: 0, secretsDeleted: 0, recentDeleted: 0, revoked: false, addressDeleted: true }]);
+    expect(iam.accounts.size).toBe(0);
+    expect(db.raw("data_connections", ONE)?.status).toBe("connected");
+    expect(activityOf("ten_a", ONE)).toHaveLength(before);
+    expect(activityOf("ten_a", GONE)).toEqual(["shared"]);
+  });
+
+  it("records cleanup_failed when Google won't delete, and says to run again", async () => {
+    const iam = fakeIam(true);
+    await sharedConn(SHARED, "101", emailOf("a"));
+    iam.add("101", emailOf("a"), "ten_a", SHARED);
+    const r = await purgeConnections(A, { connectionId: SHARED, apply: true, by: "ops", now: new Date(T1), db, ...iam.deps });
+    expect(r.removed[0]).toMatchObject({ addressDeleted: false });
+    expect(activityOf("ten_a", SHARED)).toEqual(["purged", "cleanup_failed"]);
+    expect(db.raw("data_connections", SHARED)).toMatchObject({ serviceAccount: { deletedAt: null } });
+    expect(purgeLines(r).join("\n")).toContain("NOT deleted");
+  });
+
+  it("skips the identities project when it isn't set, saying why", async () => {
+    vi.stubEnv("CONNECTORS_IDENTITIES_PROJECT", "");
+    const iam = fakeIam();
+    const r = await purgeConnections(A, { apply: false, db, ...iam.deps });
+    expect(r.shareSkipped).toContain("CONNECTORS_IDENTITIES_PROJECT is not set");
+    expect(iam.transport).not.toHaveBeenCalled();
   });
 });

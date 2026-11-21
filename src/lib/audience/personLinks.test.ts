@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { ContactCampaignLink, PersonProductLink } from "@/lib/types/contact";
-import { MAX_GROUP_TAGS, optOutsOf, sameProductLink, signupReach, summarize, tagChanges } from "./personLinks";
+import {
+  handAddedOf,
+  isCarriedTag,
+  MAX_GROUP_TAGS,
+  optOutsOf,
+  sameProductLink,
+  signupReach,
+  summarize,
+  tagChanges,
+  withCarriedTags,
+} from "./personLinks";
 
 const signup = (over: Partial<ContactCampaignLink> = {}): ContactCampaignLink => ({
   campaignId: "camp1",
@@ -93,6 +103,62 @@ describe("summarize", () => {
     const groups = Array.from({ length: MAX_GROUP_TAGS + 20 }, (_, i) => `ws_${String(i).padStart(3, "0")}`);
     const s = summarize([], [product({ groups })], undefined);
     expect(s.memberOf.filter((t) => t.startsWith("group:"))).toHaveLength(MAX_GROUP_TAGS);
+  });
+});
+
+describe("someone added by hand", () => {
+  const ADDED = "2026-09-10T09:00:00.000Z";
+  const hand = (marketingConsent = false) => ({ at: ADDED, marketingConsent });
+
+  it("is live with only that source, tagged all and added:hand, active from when they were added", () => {
+    expect(summarize([], [], undefined, hand())).toEqual({ live: true, memberOf: ["added:hand", "all"], reach: "no", activeAt: ADDED });
+  });
+
+  it("can be emailed only with recorded consent and no brand-wide opt-out", () => {
+    expect(summarize([], [], undefined, hand(true)).reach).toBe("yes");
+    expect(summarize([], [], undefined, hand(false)).reach).toBe("no");
+    expect(summarize([], [], { blocked: "unsubscribe", categories: [] }, hand(true)).reach).toBe("no");
+    // Without consent their other sources decide, as for anyone.
+    expect(summarize([signup({ status: "unverified" })], [], undefined, hand(false)).reach).toBe("limited");
+  });
+
+  it("keeps their other sources' tags and the latest activity", () => {
+    const s = summarize([signup({ joinedAt: "2026-09-20T10:00:00.000Z" })], [], undefined, hand());
+    expect(s.memberOf).toEqual(["added:hand", "all", "launch:any", "launch:camp1", "via:form"]);
+    expect(s.activeAt).toBe("2026-09-20T10:00:00.000Z");
+    // A deleted sign-up leaves them live, by hand.
+    expect(summarize([signup({ status: "deleted" })], [], undefined, hand()).live).toBe(true);
+  });
+
+  it("comes from the contact's addedBy and its recorded marketing consent", () => {
+    expect(handAddedOf(null)).toBeNull();
+    expect(handAddedOf({})).toBeNull();
+    const addedBy = { kind: "member" as const, id: "usr_1", at: ADDED, via: "form" as const };
+    expect(handAddedOf({ addedBy })).toEqual({ at: ADDED, marketingConsent: false });
+    const granted = { state: "granted" as const, how: "verbal", note: null, recordedBy: "usr_1", at: ADDED, agreedAt: null };
+    expect(handAddedOf({ addedBy, consent: { marketing_email: granted } })).toEqual({ at: ADDED, marketingConsent: true });
+    expect(handAddedOf({ addedBy, consent: { marketing_email: { ...granted, state: "withdrawn" } } })?.marketingConsent).toBe(false);
+    // Consent without addedBy is not a hand-added source.
+    expect(handAddedOf({ consent: { marketing_email: granted } })).toBeNull();
+  });
+});
+
+describe("carried tags", () => {
+  it("are the field writer's field: tags and the hand-added mark", () => {
+    expect(isCarriedTag("field:fld_plan:opt_pro")).toBe(true);
+    expect(isCarriedTag("added:hand")).toBe(true);
+    expect(isCarriedTag("launch:camp1")).toBe(false);
+    expect(isCarriedTag("all")).toBe(false);
+  });
+
+  it("join a sync's tags, sorted and each once", () => {
+    expect(withCarriedTags(["all", "launch:camp1"], ["launch:old", "field:fld_plan:opt_pro", "added:hand", "all"])).toEqual([
+      "added:hand",
+      "all",
+      "field:fld_plan:opt_pro",
+      "launch:camp1",
+    ]);
+    expect(withCarriedTags(["all"], undefined)).toEqual(["all"]);
   });
 });
 

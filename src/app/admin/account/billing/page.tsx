@@ -2,6 +2,7 @@ import { requireAdminContext } from "@/lib/auth/session";
 import { PlanAndUsage, PlanAndUsageFailed, PlansOff } from "@/components/admin/plans/PlanAndUsage";
 import { isPlansEnabled, isPlansUiEnabled } from "@/lib/plans/flags";
 import { organisationUsage, type UsageSummary } from "@/lib/plans/usage";
+import { isPeopleNameEnabled } from "@/lib/audience/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -29,5 +30,5 @@ export default async function AccountBillingPage() {
     console.warn("[account/billing] plan and usage didn't load", err instanceof Error ? err.message : "unknown error");
     return <PlanAndUsageFailed />;
   }
-  return <PlanAndUsage summary={summary} />;
+  return <PlanAndUsage summary={summary} people={isPeopleNameEnabled()} />;
 }

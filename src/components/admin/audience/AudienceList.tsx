@@ -117,7 +117,7 @@ export function AudienceList({ initialQuery = "", initialLaunch = null }: {
     setSearch("");
   };
 
-  if (error) return <p className="text-sm text-red-700 dark:text-red-400">Couldn&rsquo;t load your audience. Reload the page to try again.</p>;
+  if (error) return <p className="text-sm text-red-700 dark:text-red-400">Couldn&rsquo;t load the list. Reload the page to try again.</p>;
   if (filters && filters.everyone === 0) {
     return (
       <p className="rounded-md border border-dashed border-neutral-300 p-8 text-center text-sm text-neutral-500 dark:border-neutral-700">

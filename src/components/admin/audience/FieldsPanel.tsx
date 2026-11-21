@@ -4,7 +4,18 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { ReadOnlyValue, VoiceChatSummary } from "@/lib/audience/readOnlyFields";
 import { FORMER_TEAM_MEMBER } from "@/lib/team/former";
-import { liveOptions, optionLabel, sameFieldValue, type FieldValue, type FieldValues, type RecordField, type RecordFieldObject } from "@/lib/types/recordField";
+import {
+  amountToMinor,
+  currencyDigits,
+  liveOptions,
+  minorToAmount,
+  optionLabel,
+  sameFieldValue,
+  type FieldValue,
+  type FieldValues,
+  type RecordField,
+  type RecordFieldObject,
+} from "@/lib/types/recordField";
 import { Banner, Button, inputClass, Section } from "../connect/ui";
 import { day, dayTime } from "../people/format";
 import { fieldErrorText, loadFieldLists, saveFieldValues, type Team } from "./fieldsApi";
@@ -16,6 +27,12 @@ import { VoiceChatDialog } from "./VoiceChatDialog";
  * read only, with where each comes from, and a person's voice chats. Archived fields are hidden;
  * their values stay on the record and in the export.
  */
+
+/** The smallest step a currency's amount takes: "0.01" for USD, "1" for JPY. */
+const currencyStep = (code: string | undefined) => {
+  const d = currencyDigits(code);
+  return d === 0 ? "1" : `0.${"0".repeat(d - 1)}1`;
+};
 
 /** A day stored as YYYY-MM-DD, shown as a day whatever the viewer's time zone. */
 const calendarDay = (v: string) => day(`${v}T12:00:00.000Z`, "UTC");
@@ -31,7 +48,7 @@ function shown(field: RecordField, value: FieldValue | undefined, team: Team): s
     case "checkbox":
       return value ? "Yes" : "No";
     case "currency":
-      return typeof value === "number" ? `${(value / 100).toFixed(2)} ${field.currency ?? ""}`.trim() : String(value);
+      return typeof value === "number" ? `${minorToAmount(value, field.currency)} ${field.currency ?? ""}`.trim() : String(value);
     case "date":
       return calendarDay(String(value));
     case "team_member":
@@ -205,7 +222,7 @@ export function FieldInput({
 }) {
   const initial = (): string => {
     if (value === undefined || value === null) return "";
-    if (field.type === "currency" && typeof value === "number") return (value / 100).toFixed(2);
+    if (field.type === "currency" && typeof value === "number") return minorToAmount(value, field.currency);
     return Array.isArray(value) ? "" : String(value);
   };
   const [text, setText] = useState(initial);
@@ -224,7 +241,7 @@ export function FieldInput({
       case "number":
         return t.trim() === "" ? null : Number(t);
       case "currency":
-        return t.trim() === "" ? null : Math.round(Number(t) * 100);
+        return t.trim() === "" ? null : amountToMinor(t, field.currency);
       default:
         return t.trim() === "" ? null : t;
     }
@@ -293,7 +310,7 @@ export function FieldInput({
         <span className="flex items-center gap-1.5">
           <input
             type={type}
-            step={field.type === "currency" ? "0.01" : field.type === "number" ? "any" : undefined}
+            step={field.type === "currency" ? currencyStep(field.currency) : field.type === "number" ? "any" : undefined}
             value={text}
             onChange={(e) => typed(e.target.value)}
             className={inputClass}

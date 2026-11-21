@@ -46,6 +46,11 @@ describe("values in words", () => {
     ]);
     expect(valueText({ type: "checkbox" }, false)).toBe("No");
   });
+
+  it("shows an amount in its currency's own units", () => {
+    expect(valueText({ type: "currency", currency: "JPY" }, 1000)).toBe("1000 JPY");
+    expect(valueText({ type: "currency", currency: "KWD" }, 1250)).toBe("1.250 KWD");
+  });
 });
 
 // --- Only the one writer writes field values ---------------------------------------------------

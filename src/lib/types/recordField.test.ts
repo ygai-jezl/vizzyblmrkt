@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import { jsonBytes } from "@/lib/ontology/events";
 import { SETTINGS_LIMITS } from "./settingsVersion";
 import {
+  amountToMinor,
   checkFieldValue,
+  currencyDigits,
   FIELD_LIMITS,
   FIELD_TYPES,
   fieldListProblems,
   FieldListSchema,
   isCalendarDay,
+  minorToAmount,
   RecordFieldSchema,
   sameFieldValue,
   type RecordField,
@@ -82,6 +85,21 @@ describe("values", () => {
     expect(ok({ type: "number" }, "3")).toBe("BAD");
     expect(ok({ type: "currency", currency: "GBP" }, 1250)).toBe(1250);
     expect(ok({ type: "currency", currency: "GBP" }, 12.5)).toBe("BAD");
+  });
+
+  it("a currency's minor units follow its own digits: two for GBP, none for JPY, three for KWD", () => {
+    expect(currencyDigits("GBP")).toBe(2);
+    expect(currencyDigits("JPY")).toBe(0);
+    expect(currencyDigits("KWD")).toBe(3);
+    expect(currencyDigits(undefined)).toBe(2);
+    expect(currencyDigits("not a code")).toBe(2);
+    expect(minorToAmount(1250, "GBP")).toBe("12.50");
+    expect(minorToAmount(1000, "JPY")).toBe("1000");
+    expect(minorToAmount(1250, "KWD")).toBe("1.250");
+    expect(amountToMinor("12.5", "GBP")).toBe(1250);
+    expect(amountToMinor("1000", "JPY")).toBe(1000);
+    expect(amountToMinor("1.25", "KWD")).toBe(1250);
+    expect(amountToMinor("lots", "GBP")).toBeNaN();
   });
 
   it("a date is a real calendar day with no time", () => {

@@ -1,6 +1,6 @@
 import { forTenant, setRecordFieldValues, type SetFieldValuesInput, type SetFieldValuesResult, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
-import { FIELD_TYPE_LABEL, optionLabel, type FieldType, type FieldValue, type FieldValues, type RecordField } from "@/lib/types/recordField";
+import { FIELD_TYPE_LABEL, minorToAmount, optionLabel, type FieldType, type FieldValue, type FieldValues, type RecordField } from "@/lib/types/recordField";
 
 /**
  * Field values on people and companies (AUDIENCE_FIELDS_ENABLED): the way in for routes and,
@@ -64,7 +64,7 @@ export function valueText(field: Pick<RecordField, "type" | "options" | "currenc
     case "checkbox":
       return value === true ? "Yes" : "No";
     case "currency":
-      return typeof value === "number" ? `${(value / 100).toFixed(2)} ${field.currency ?? ""}`.trim() : String(value);
+      return typeof value === "number" ? `${minorToAmount(value, field.currency)} ${field.currency ?? ""}`.trim() : String(value);
     default:
       return Array.isArray(value) ? value.join(", ") : String(value);
   }

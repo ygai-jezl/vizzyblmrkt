@@ -25,7 +25,7 @@ const READ_LIMIT = { prefix: "audience_agent_fields", burstLimit: 20, hourlyLimi
 
 /** How each type's value is written, for Vizzy to read and to suggest. */
 const VALUE_SHAPES =
-  "Values: select and status take one option id, multi select a list of option ids, checkbox true or false, number a number, currency whole minor units (1250 means 12.50 in the field's currency), date a day as YYYY-MM-DD. null clears a value.";
+  "Values: select and status take one option id, multi select a list of option ids, checkbox true or false, number a number, currency whole minor units of the field's currency (1250 means 12.50 USD, and 1250 JPY means 1250 yen, since the yen has no minor unit), date a day as YYYY-MM-DD. null clears a value.";
 
 /** 503 while off or without the signing key, 401 for a token that doesn't verify; the brand comes from the token. */
 export function vizzyFieldsAgentGate(req: Request): { ok: true; ctx: TenantContext } | { ok: false; result: ApiResult } {

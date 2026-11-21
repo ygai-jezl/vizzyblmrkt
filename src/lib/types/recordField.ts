@@ -11,8 +11,9 @@ import { isCanonicalInstant, jsonBytes } from "@/lib/ontology/events";
  * - A field is archived, never deleted, and its type is fixed once it is made: a type change makes
  *   a new field and archives the old one with `replacedBy`. Values under an archived field stay.
  * - Who made or archived a field is a user id only; names are looked up when shown.
- * - Currency is whole minor units (1250 means 12.50) with the code on the field. A date is a
- *   calendar day (YYYY-MM-DD) with no time.
+ * - Currency is whole minor units with the code on the field: 1250 means 12.50 USD, and 1250 JPY
+ *   means 1250 yen, since the yen has no minor unit (currencyDigits). A date is a calendar day
+ *   (YYYY-MM-DD) with no time.
  *
  * Pure: zod and plain data only, so client components can import it.
  */
@@ -285,6 +286,32 @@ export function checkFieldValue(field: Pick<RecordField, "type" | "options" | "c
     case "team_member":
       return typeof raw === "string" && USER_ID.test(raw) ? { ok: true, value: raw } : bad("team_member");
   }
+}
+
+/**
+ * How many digits a currency has after the point: 2 for USD, 0 for JPY, 3 for KWD. From the
+ * runtime's currency data (Intl), the same in the browser and on the server; 2 for a code it
+ * doesn't know.
+ */
+export function currencyDigits(code: string | null | undefined): number {
+  if (!code) return 2;
+  try {
+    const d = new Intl.NumberFormat("en", { style: "currency", currency: code }).resolvedOptions().maximumFractionDigits;
+    return typeof d === "number" && Number.isInteger(d) && d >= 0 && d <= 4 ? d : 2;
+  } catch {
+    return 2;
+  }
+}
+
+/** Whole minor units as the amount people read and type: 1250 is "12.50" in USD and "1250" in JPY. */
+export function minorToAmount(minor: number, code: string | null | undefined): string {
+  const d = currencyDigits(code);
+  return (minor / 10 ** d).toFixed(d);
+}
+
+/** An amount typed in the currency's own units as whole minor units: "12.5" is 1250 in USD, "1000" is 1000 in JPY. NaN when it isn't a number. */
+export function amountToMinor(amount: string, code: string | null | undefined): number {
+  return Math.round(Number(amount) * 10 ** currencyDigits(code));
 }
 
 /** Whether two stored values are the same (a multi select compares as a set). */

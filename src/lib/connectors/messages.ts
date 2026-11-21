@@ -31,6 +31,8 @@ export const CONNECTOR_ERRORS = {
     "This copy of YouGrow can't use shared access right now (CONNECTORS_IDENTITIES_PROJECT, or an API or permission in that project). Ask whoever runs it to check, or sign in with Google instead.",
   share_quota:
     "YouGrow can't make a new address for shared access right now, because its Google project holds as many as Google allows. Sign in with Google instead, or try again later.",
+  share_limit:
+    "This brand already has 5 shared Google addresses for this connector, the most one brand can have. Disconnect a shared connection you no longer use, or sign in with Google instead.",
 } as const;
 
 export type ConnectorErrorCode = keyof typeof CONNECTOR_ERRORS;

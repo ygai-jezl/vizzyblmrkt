@@ -129,6 +129,7 @@ export const SHARE_ACCESS_HELP = {
     "If Google won't let you add the address because your organisation only allows people from its own domain, ask your Google Workspace admin to allow it, or sign in with Google instead.",
   notVisible: CONNECTOR_ERRORS.share_not_visible,
   quota: CONNECTOR_ERRORS.share_quota,
+  limit: CONNECTOR_ERRORS.share_limit,
 } as const;
 
 /** Letting Vizzy read a connection (CONNECTORS_CHAT_ENABLED). */
@@ -143,6 +144,7 @@ export const VIZZY_HELP: readonly string[] = [
 export const TROUBLESHOOTING_QUOTES = {
   shareNotVisible: CONNECTOR_ERRORS.share_not_visible,
   shareQuota: CONNECTOR_ERRORS.share_quota,
+  shareLimit: CONNECTOR_ERRORS.share_limit,
   shareWorkspace: SHARE_ACCESS_HELP.workspace,
 } as const;
 

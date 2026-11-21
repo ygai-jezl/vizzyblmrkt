@@ -50,12 +50,13 @@ function refuse(status: 400 | 403 | 404 | 409 | 429 | 502 | 503, error: string, 
   return { ok: false, status, error, ...(message ? { message } : {}) };
 }
 
-const CONFLICTS: ReadonlySet<ConnectorErrorCode> = new Set(["paused", "secret_unopenable", "disconnected", "signin_refused", "account_needed", "share_not_visible", "share_pending"]);
+const CONFLICTS: ReadonlySet<ConnectorErrorCode> = new Set(["paused", "secret_unopenable", "disconnected", "signin_refused", "account_needed", "share_not_visible", "share_pending", "share_limit"]);
 const UNCONFIGURED: ReadonlySet<ConnectorErrorCode> = new Set(["vault_unconfigured", "signin_unconfigured", "share_unconfigured", "share_quota"]);
 
 /**
  * A provider or vault failure: busy is 429; a pause, a dead token or sign in, no site picked yet,
- * or a shared address that can't see the property yet 409; this copy missing a key, a Google
+ * a shared address that can't see the property yet, or a brand holding all the shared addresses
+ * it may 409; this copy missing a key, a Google
  * client or its identities project, or that project being full, 503; the rest 502.
  */
 export function providerRefusal(code: ConnectorErrorCode): ServiceResult<never> {
@@ -530,9 +531,41 @@ export interface ShareOutcome {
 /** New shared addresses one brand may make for one connector: a few a minute, ten an hour. */
 const SHARE_CREATE_LIMIT = { burst: 3, hourly: 10 };
 
+/**
+ * The most Google addresses one brand may hold at once for one connector. Every brand shares the
+ * identities project's service account quota (100 unless Google raises it), and the rate limit
+ * above lets a request through when its store fails, so this cap is what stops one brand filling
+ * the project for everyone. The message (share_limit) says the number: change both together.
+ */
+export const SHARE_ADDRESS_CAP = 5;
+/** Disconnected shared connections read when counting addresses a failed delete left at Google. */
+const SHARE_LEFTOVER_SCAN = 200;
+
 /** A shared connection's health before Check access first works. */
 function notYetChecked(): DataConnection["health"] {
   return { state: "check", lastOkAt: null, lastCheckedAt: null, lastErrorCode: null, failures: 0, pausedUntil: null };
+}
+
+/**
+ * How many Google addresses the brand holds for a connector: its shared connections still
+ * connected, and disconnected ones whose address a failed delete left at Google (they still count
+ * towards the project's quota until the purge deletes them). Equality only, so no index is needed.
+ */
+async function liveShareAddresses(ctx: TenantContext, connectorId: string, deps: ServiceDeps): Promise<number> {
+  const repo = forTenant(ctx, deps.db).dataConnections;
+  const atGoogle = (c: DataConnection) => Boolean(c.serviceAccount && !c.serviceAccount.deletedAt);
+  const of = (status: DataConnection["status"], limit: number) =>
+    repo.find({
+      where: [
+        ["connectorId", "==", connectorId],
+        ["method", "==", "share_access"],
+        ["status", "==", status],
+      ],
+      limit,
+    });
+  const live = (await of("connected", SHARE_ADDRESS_CAP + 1)).filter(atGoogle).length;
+  if (live >= SHARE_ADDRESS_CAP) return live;
+  return live + (await of("disconnected", SHARE_LEFTOVER_SCAN)).filter(atGoogle).length;
 }
 
 /**
@@ -540,7 +573,8 @@ function notYetChecked(): DataConnection["health"] {
  * the connection with it, reading nothing until an admin adds the address to the property, presses
  * Check access and picks what it reads. A brand with a shared connection still waiting for its
  * property gets that one back instead of a new address, so pressing twice never spends the project's
- * quota. A full project says so (share_quota), and the screen offers Sign in with Google. Admins only.
+ * quota. A brand holding SHARE_ADDRESS_CAP addresses for the connector gets no more (share_limit). A
+ * full project says so (share_quota), and the screen offers Sign in with Google. Admins only.
  */
 export async function shareConnect(ctx: TenantContext, actor: ConnectorActor, connectorId: string, body: unknown, deps: ServiceDeps = {}): Promise<ServiceResult<ShareOutcome>> {
   const m = getConnector(connectorId);
@@ -566,6 +600,7 @@ export async function shareConnect(ctx: TenantContext, actor: ConnectorActor, co
   });
   const reuse = waiting.find((c) => c.serviceAccount && !c.serviceAccount.deletedAt);
   if (reuse) return { ok: true, status: 200, value: { connection: viewOf(reuse, actor, now), share: shareOf(reuse), reused: true } };
+  if ((await liveShareAddresses(ctx, m.id, deps)) >= SHARE_ADDRESS_CAP) return providerRefusal("share_limit");
 
   const limit = deps.limit ?? ((subject: string, config: Parameters<typeof isRateLimited>[1]) => isRateLimited(subject, config));
   if (await limit(ctx.tenantId, { prefix: `connector-share:${m.id}`, burstLimit: SHARE_CREATE_LIMIT.burst, hourlyLimit: SHARE_CREATE_LIMIT.hourly })) return providerRefusal("busy");

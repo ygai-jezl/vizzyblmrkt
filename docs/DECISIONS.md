@@ -220,7 +220,10 @@ Developer Knowledge MCP.
 - **Starting share access** is `POST /api/admin/connectors/[connectorId]/share`, admins only. A brand
   with a shared connection still waiting for its property gets that one back, and making addresses
   is limited per brand (3 a minute, 10 an hour), so the project's quota isn't spent by double
-  clicks. A shared connection's failures read in its own words: a refused token or property is
+  clicks. That limit lets a request through when its store fails, so a brand also holds at most 5
+  addresses per connector (`SHARE_ADDRESS_CAP`: connected ones, plus disconnected ones a failed
+  delete left at Google), counted by equality queries; past it, `share_limit` says to disconnect one
+  or sign in with Google. One brand can't fill the project every brand shares. A shared connection's failures read in its own words: a refused token or property is
   `share_not_visible`, an API or permission missing in the identities project `share_unconfigured`.
 - **Quota plan and fallback.** A project holds a limited number of service accounts (100 by
   default; deleted ones don't count). The owner asks Google for more on the identities project. A

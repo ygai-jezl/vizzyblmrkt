@@ -256,7 +256,8 @@ needs the identities project above, and `npm run selfhost` keeps the switch off.
   stores none. Disconnect deletes the address. Its entry stays in the property's users, harmless.
 - A project holds a limited number of service accounts (100 unless Google raises it; deleted ones
   don't count). Ask for more on the identities project's quotas page (Service Account Count) before
-  you need it. When it is full, share access says so and offers Sign in with Google.
+  you need it. When it is full, share access says so and offers Sign in with Google. One brand
+  holds at most 5 addresses per connector, so no brand can fill the project for the others.
 - If your projects sit in an organisation, turn on the policy `iam.disableServiceAccountKeyCreation`
   for the identities project: YouGrow never makes keys.
 - A delete that failed is recorded and retried by

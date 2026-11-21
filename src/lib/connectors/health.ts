@@ -34,6 +34,7 @@ const OURS: ReadonlySet<ConnectorErrorCode> = new Set([
   "share_pending",
   "share_unconfigured",
   "share_quota",
+  "share_limit",
 ]);
 
 /** A new connection's health, after the check that let it be saved. */

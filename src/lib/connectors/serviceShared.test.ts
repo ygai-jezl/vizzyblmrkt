@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { shapeRecordingFirestore } from "@/lib/tenant/testing/queryShape";
-import { forTenant, type TenantContext } from "@/lib/tenant";
+import { createDataConnection, forTenant, type TenantContext } from "@/lib/tenant";
 import type { ConnectorActor } from "./grants";
 import { getConnector, readyMethods, knownConnector } from "./registry";
 import { agentConnections, agentLiveRead } from "./agentApi";
 import { purgeConnections } from "./purge";
-import { ADDRESS_DELETED_MESSAGE, ADDRESS_KEPT_MESSAGE, check, checkAccess, disconnect, listForActor, pickAccount, readLiveFor, setGrants, shareConnect } from "./service";
+import { ADDRESS_DELETED_MESSAGE, ADDRESS_KEPT_MESSAGE, check, checkAccess, disconnect, listForActor, pickAccount, readLiveFor, setGrants, SHARE_ADDRESS_CAP, shareConnect } from "./service";
+import { CONNECTOR_ERRORS } from "./messages";
 import { __resetShareTokens, brandTag } from "./shareAccess";
 
 // Search Console by share access, through the service: a Google address made per connection,
@@ -33,6 +34,11 @@ const deps = () => ({ db, transport, limit: async () => false, log: () => {}, no
 const urls = () => transport.mock.calls.map((c) => `${(c[1] as RequestInit).method} ${String(c[0])}`);
 const activity = () => db.dump("data_connection_activity").map((a) => `${a.kind}${a.code ? `:${a.code}` : ""}`);
 const load = async (id: string) => (await forTenant(A, db).dataConnections.getById(id))!;
+/** Mark a shared connection as reading a site, so it no longer waits for one. */
+const changeAccount = async (id: string, account: string) => {
+  const { changeDataConnection } = await import("@/lib/tenant");
+  await changeDataConnection(A, id, () => ({ patch: { account }, activity: [] }), db);
+};
 
 beforeEach(() => {
   __resetShareTokens();
@@ -124,6 +130,51 @@ describe("connecting by share access", () => {
     expect(r).toMatchObject({ ok: false, status: 503, error: "share_quota" });
     expect(!r.ok && r.message).toContain("Sign in with Google instead");
     expect(db.dump("data_connections")).toEqual([]);
+  });
+
+  it("stops a brand holding the most addresses one brand may have for a connector, counting ones a failed delete left", async () => {
+    ids.push("dcn_dddddddddddddddddddd", "dcn_eeeeeeeeeeeeeeeeeeee");
+    // One shared connection made for real, then copied with picked sites to fill the allowance.
+    const first = await shareConnect(A, admin, "search-console", {}, deps());
+    if (!first.ok) throw new Error("not shared");
+    await changeAccount(first.value.connection.id, "sc-domain:site0.example.com");
+    const base = await load(first.value.connection.id);
+    const { tenantId: _t, recent: _r, ...rest } = base;
+    const copyId = (n: number) => `dcn_${"ghjkmnpqrs"[n]!.repeat(20)}`;
+    const copy = (n: number, patch: Partial<typeof base> = {}) =>
+      createDataConnection(
+        A,
+        { ...rest, id: copyId(n), account: `sc-domain:site${n}.example.com`, serviceAccount: { ...base.serviceAccount!, uniqueId: String(5000 + n) }, ...patch },
+        [],
+        db,
+      );
+    for (let n = 1; n < SHARE_ADDRESS_CAP - 1; n++) await copy(n);
+    // A disconnected connection whose address is gone at Google doesn't count.
+    await copy(8, { status: "disconnected", serviceAccount: { ...base.serviceAccount!, uniqueId: "5008", deletedAt: NOW.toISOString() } });
+    const fifth = await shareConnect(A, admin, "search-console", {}, deps());
+    expect(fifth).toMatchObject({ ok: true, status: 201 });
+    if (!fifth.ok) return;
+    await changeAccount(fifth.value.connection.id, `sc-domain:site${SHARE_ADDRESS_CAP - 1}.example.com`);
+
+    transport.mockClear();
+    const full = await shareConnect(A, admin, "search-console", {}, deps());
+    expect(full).toMatchObject({ ok: false, status: 409, error: "share_limit", message: CONNECTOR_ERRORS.share_limit });
+    expect(CONNECTOR_ERRORS.share_limit).toContain(`${SHARE_ADDRESS_CAP} shared Google addresses`);
+    expect(transport).not.toHaveBeenCalled();
+
+    // Disconnected with its address left at Google by a failed delete: it still counts.
+    const { changeDataConnection } = await import("@/lib/tenant");
+    await changeDataConnection(A, copyId(1), () => ({ patch: { status: "disconnected" }, activity: [] }), db);
+    expect(await shareConnect(A, admin, "search-console", {}, deps())).toMatchObject({ status: 409, error: "share_limit" });
+    // Once the purge deletes it, there is room again.
+    await changeDataConnection(A, copyId(1), (cur) => ({ patch: { serviceAccount: { ...cur.serviceAccount!, deletedAt: NOW.toISOString() } }, activity: [] }), db);
+    expect(await shareConnect(A, admin, "search-console", {}, deps())).toMatchObject({ ok: true, status: 201 });
+
+    // Another connector, and another brand, are counted on their own.
+    vi.stubEnv("CONNECTOR_GA4_ENABLED", "true");
+    expect(await shareConnect(A, admin, "google-analytics", {}, deps())).toMatchObject({ ok: true, status: 201 });
+    const B: TenantContext = { ...A, tenantId: "ten_b" };
+    expect(await shareConnect(B, admin, "search-console", {}, deps())).toMatchObject({ ok: true, status: 201 });
   });
 
   it("refuses a bad body and a brand making addresses too fast", async () => {

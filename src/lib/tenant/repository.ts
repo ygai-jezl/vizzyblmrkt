@@ -57,6 +57,7 @@ import type { BrandSignal } from "@/lib/types/brandSignal";
 import type { AutopilotRun, LearnedEntry, NextUpDoc } from "@/lib/types/autopilot";
 import type { StoredEvent } from "@/lib/types/ontologyEvent";
 import type { AgentAction } from "@/lib/types/agentAction";
+import type { SettingsVersion } from "@/lib/types/settingsVersion";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -414,6 +415,13 @@ export interface UpdateWhereResult {
  */
 export type HistoryCollection<T extends TenantScoped> = Pick<TenantCollection<T>, "find" | "getById" | "count" | "deleteWhere">;
 
+/**
+ * The settings log's view through forTenant: reads only. Versions are created by
+ * commitSettingsChange (./settingsLog.ts) in one transaction with their setting, and never
+ * changed or deleted, so any other write fails typecheck however the store is reached.
+ */
+export type VersionCollection<T extends TenantScoped> = Pick<TenantCollection<T>, "find" | "getById" | "count">;
+
 /** The set of tenant-scoped repositories available within a request context. */
 export interface TenantRepositories {
   campaigns: TenantCollection<Campaign>;
@@ -543,6 +551,8 @@ export interface TenantRepositories {
   ontologyEvents: HistoryCollection<StoredEvent>;
   /** Agents' suggestions, one record each, with their agent.* trail in ontologyEvents (./agentActions.ts writes them). */
   agentActions: HistoryCollection<AgentAction>;
+  /** The settings log: every version of a brand's settings, kept whole (./settingsLog.ts writes them). */
+  settingsVersions: VersionCollection<SettingsVersion>;
 }
 
 /**
@@ -688,5 +698,6 @@ export function forTenant(
     // A person's history and agents' suggestions are personal: regional, beside the person.
     ontologyEvents: new TenantCollection<StoredEvent>(regionalDb, "ontology_events", t),
     agentActions: new TenantCollection<AgentAction>(regionalDb, "agent_actions", t),
+    settingsVersions: new TenantCollection<SettingsVersion>(regionalDb, "settings_versions", t),
   };
 }

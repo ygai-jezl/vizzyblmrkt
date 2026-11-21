@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts`. Don't edit this file: change the 
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one.
 
-90 types: 65 built and 25 planned.
+90 types: 66 built and 24 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -1495,16 +1495,18 @@ The organisation's paid plan with YouGrow, from checkout, trial and renewals. Ca
 
 ### Settings version (`settings_version`)
 
-Every change to how a brand or organisation works, with who, what and why. A restore makes a new version and never deletes data.
+Every change to how a brand works, with who, what and why: the items that changed and the whole setting after it. A restore makes a new version on top, and a version is never changed, pruned or deleted. Kept per brand in its region, with no organisation id: piece O reads an organisation's history through its brands. Piece B's People and Company field lists are the first settings it records.
 
-- Status: planned, in O part 1
-- Home: the control plane
+- Status: built
+- Home: the brand's region
 - Personal: the brand's own team
-- Links: `organisation` through organisationId
-- Erase: none. Planned: piece O decides it with the store.
-- Export: none. Planned: piece O decides it with the store.
-- Search: none. Found on the History page.
-- Numbers: none. Planned: piece O decides it with the store.
+- Stores:
+  - `settings_versions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Written only through `src/lib/tenant/settingsLog.ts`, in one transaction with its setting; ids are `ss_<hash of brand and subject>_r<rev>`; `by` holds ids only, never a name or an address.
+- Links: `member` through by.id, when a team member saved it
+- Erase: gap. No path removes a team member's user id in `by` when they leave the team; it stays an id and shows as Former team member.
+- Export: gap. Team member ids in `by` stay as ids, with no export by team member.
+- Search: none. Found on a setting's history.
+- Numbers: none. No numbers an agent reads.
 
 ### Team (`team`)
 
@@ -1626,6 +1628,9 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 - Mandrill message log (`mandrill_message`):
   - Erase: no erase reaches Mandrill's message log; it keeps it for its own retention period
   - Export: a person's export does not include Mandrill's message log
+- Settings version (`settings_version`):
+  - Erase: no path removes a team member's user id in `by` when they leave the team; it stays an id and shows as Former team member
+  - Export: team member ids in `by` stay as ids, with no export by team member
 - Consent record (`consent_record`):
   - Erase: planned: piece F erases and exports it with the person
   - Export: planned: piece F erases and exports it with the person

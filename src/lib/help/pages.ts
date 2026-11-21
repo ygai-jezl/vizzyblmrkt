@@ -41,6 +41,8 @@ export interface HelpBodyProps {
   fieldFilters?: boolean;
   /** Admins can add someone by hand (isAddPersonEnabled()). */
   addPerson?: boolean;
+  /** A person's page has a timeline (isTimelineEnabled()). */
+  timeline?: boolean;
 }
 
 /** Navigation headings, matching Home's stages. */

@@ -38,6 +38,7 @@ vi.hoisted(() => {
   process.env.AUDIENCE_FIELDS_ENABLED = "true";
   process.env.AUDIENCE_FIELD_FILTERS_ENABLED = "true";
   process.env.AUDIENCE_ADD_PERSON_ENABLED = "true";
+  process.env.AUDIENCE_TIMELINE_ENABLED = "true";
   process.env.NEXT_PUBLIC_EDIT_MODE_ENABLED = "true";
   process.env.NEXT_PUBLIC_EDIT_MODE_EMAILS_ENABLED = "true";
   process.env.NEXT_PUBLIC_NEWSLETTER_MARKDOWN_EMAIL_ENABLED = "true";
@@ -324,5 +325,19 @@ describe("the New person section", () => {
     expect(md("your-audience", false)).not.toContain("Add someone by hand");
     expect(md("your-audience", false)).not.toContain("New person");
     expect(md("plan-and-usage", false)).not.toContain("New person");
+  });
+});
+
+describe("the timeline section", () => {
+  const md = (timeline: boolean) => docToMarkdown(HELP_BODIES["your-audience"]!({ people: true, fields: true, fieldFilters: true, addPerson: true, timeline }), "https://app.example.com");
+
+  it("shows while the timeline is on, saying when it starts and that erase removes it", () => {
+    expect(md(true)).toContain("## The timeline");
+    expect(md(true)).toContain("from the day the timeline was turned on");
+    expect(md(true)).toContain("erasing them removes it");
+  });
+
+  it("stays hidden while it is off", () => {
+    expect(md(false)).not.toContain("timeline");
   });
 });

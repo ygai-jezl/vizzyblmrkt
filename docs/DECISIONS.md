@@ -10,7 +10,7 @@ Context: piece B of the CRM and tiers plan turns Audience into People and adds w
 needs on top of the person record: fields, filters, adding someone by hand, a timeline and
 Vizzy's suggestions. It also starts the settings log (piece O part 1) and stops catalog
 history being pruned. It ships as one pull request in commit groups; this record covers
-groups 1 to 7 and grows with the rest. The only Firestore changes are the two composite
+groups 1 to 8 and grows with the rest. The only Firestore changes are the two composite
 indexes and the two field exemptions below. No dependency, rules or infra change.
 
 Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
@@ -174,13 +174,42 @@ Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
   - Rate limited per admin; export and erase cover `addedBy`, the consent and both events
     whatever the switch says, with no code change.
 
+- **Timeline (group 8, answer 5).** `AUDIENCE_TIMELINE_ENABLED` (RUNTIME, `"false"`) needs the
+  one People list and the person ids. It gates the recording as well as the screen: nothing is
+  written while it is off, and history starts the day it goes on, with no backfill.
+  - **Moves are recorded inside `syncPerson` and `syncProductLink`,** after their commit, so every
+    caller is covered (the write hooks, the sweep's owed syncs and daily check, the previous-key
+    sync, the owed fallbacks). `src/lib/audience/personMoves.ts` turns a sync's tag changes into
+    moves with an explicit list: `launch:<id>` (`sys.launch.<id>`), `product:<id>`
+    (`sys.product.<id>`), `stage:<id>:<stage>` (`sys.stage.<id>`; a swap in one product is one
+    move, from one stage to the other) and `quiet:<id>` (`sys.quiet.<id>`). Ignored: `all`,
+    `launch:any`, `product:any`, `via:*`, `group:*`, `field:*` (the field writer records those),
+    `added:hand`, `launches:many` and unknown prefixes.
+  - Each move is a `record.field_changed` made by the system at the sync's `changedAt`, keyed
+    `move|<personId>|<changedAt>|<tag>`, written in one `appendEvents` batch per sync: a retry
+    writes nothing twice. A product's moves carry its product user, so erasing or moving that
+    product user takes them along. Best effort: a lost move leaves a gap, never a wrong value.
+  - **Never recorded** on a dry run, for a person who was deleted, on the erase path
+    (`personAfterProductErase` passes `moves: "skip"`, so no row is written after the history
+    it would belong to was erased), or by `scripts/backfill-person-links.ts`, which passes
+    `moves: "skip"` so a rebuild never floods timelines.
+  - **The read** (`src/lib/audience/personTimelineView.ts`, `GET .../everyone/[personId]/timeline`,
+    members can read) pages piece 0's `listPersonEvents` (index `(tenantId, personId, at DESC)`,
+    piece 0's) and merges in their sign-ups, launch emails and voice chats between this page's
+    oldest event and the last page's, under its own opaque cursor. Each product's own story stays
+    on its part of the page, so `personTimeline` is not repeated. A launch joined shows once, as
+    the sign-up; a first stage comes with starting to use the product.
+  - Export and erase cover the moves whatever the switch says, with no code change: piece 0's
+    history erase and export find them by person and by product user. No new index.
+
 Rollback: turning `NEXT_PUBLIC_NAV_PEOPLE_ENABLED` off (a rebuild) changes only words. The
 settings log has no switch and nothing calls it until the fields. Never revert group 3 once
 anyone has been added by hand: without the `addedBy` rule the next sync would delete them. Once
 field values exist, turn `AUDIENCE_FIELDS_ENABLED` off rather than reverting: the values stay on
 the records, and export and erase still cover them. Turning the filters off hides the pills; the
 tags stay. If the field writer were reverted, rerun the backfill once it is back. Turning
-`AUDIENCE_ADD_PERSON_ENABLED` off hides the form and its routes; everyone added stays.
+`AUDIENCE_ADD_PERSON_ENABLED` off hides the form and its routes; everyone added stays. Turning
+the timeline off stops recording and hides it; the rows stay and are exported and erased.
 
 ---
 

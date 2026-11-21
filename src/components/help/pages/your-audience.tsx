@@ -1,7 +1,8 @@
 import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
-import { isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled } from "@/lib/audience/peopleFlags";
+import { isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled, isTimelineEnabled } from "@/lib/audience/peopleFlags";
+import { TIMELINE_EMPTY } from "@/lib/audience/timelineWords";
 import { FIELD_MESSAGES } from "@/components/admin/audience/fieldsApi";
 import { CONSENT_WAYS, NEW_PERSON_MESSAGES, NEW_PERSON_NOTES } from "@/lib/audience/newPerson";
 import type { HelpBodyProps } from "@/lib/help/pages";
@@ -12,13 +13,14 @@ import { peopleArea } from "@/lib/nav/terms";
  * (NEXT_PUBLIC_NAV_PEOPLE_ENABLED) the area is People, as the sidebar says; the slug stays. The
  * fields sections show while AUDIENCE_FIELDS_ENABLED is on, and the filters section while
  * AUDIENCE_FIELD_FILTERS_ENABLED is too. Adding someone by hand shows while
- * AUDIENCE_ADD_PERSON_ENABLED is on.
+ * AUDIENCE_ADD_PERSON_ENABLED is on, and the timeline while AUDIENCE_TIMELINE_ENABLED is.
  */
 export default function YourAudienceHelp({
   people = isPeopleNameEnabled(),
   fields = isFieldsEnabled(),
   fieldFilters = isFieldFiltersEnabled(),
   addPerson = isAddPersonEnabled(),
+  timeline = isTimelineEnabled(),
 }: HelpBodyProps = {}) {
   const area = peopleArea(people);
   return (
@@ -174,7 +176,34 @@ export default function YourAudienceHelp({
           <strong>Emails from your launches</strong>, and <strong>Consent, in one place</strong>: whether you can email
           them and why not.
         </li>
+        {timeline ? (
+          <li>
+            Their <Open href="/help/your-audience#timeline">timeline</Open>, beside the rest.
+          </li>
+        ) : null}
       </UL>
+
+      {timeline ? (
+        <>
+          <H2 id="timeline">The timeline</H2>
+          <P>A person&apos;s page shows what happened to them, newest first. Press <strong>Show older</strong> for more.</P>
+          <UL>
+            <li>joining a launch&apos;s waitlist, and leaving it;</li>
+            <li>starting to use one of your products, moving from one stage to another in it, going quiet and coming back;</li>
+            <li>the emails your launches sent them, and what they did with them;</li>
+            <li>a voice chat on a sign-up page, which an admin can read;</li>
+            {addPerson ? <li>being added by hand, and agreeing to marketing emails;</li> : null}
+            {fields ? <li>each change to your own fields, with who made it and the values before and after;</li> : null}
+            <li>what Vizzy suggested, and what came of it.</li>
+          </UL>
+          <P>
+            Moves are recorded from the day the timeline was turned on in your copy of YouGrow; nothing from before then is added.
+            What they did inside a product stays in that product&apos;s part of their page. Anyone on your team can read the
+            timeline. It is in their export, and erasing them removes it; erasing them from one product removes that
+            product&apos;s moves.
+          </P>
+        </>
+      ) : null}
 
       {fields ? (
         <>
@@ -254,6 +283,7 @@ export default function YourAudienceHelp({
         <li>Someone who signed up to a launch appears in People, under that launch.</li>
         <li>The same email sent by your product shows on the same row, with the product beside the launch.</li>
         {addPerson ? <li>Someone you add by hand shows in People marked Added by hand, and adding them again opens their page.</li> : null}
+        {timeline ? <li>After a stage moves in your product, the person&apos;s timeline shows the move.</li> : null}
       </Checks>
 
       <H2 id="messages">If you see this</H2>
@@ -286,6 +316,7 @@ export default function YourAudienceHelp({
                 ["You can still add people.", "Nothing to fix now. See Plan and usage for your plan's people."],
               ] as Array<[string, string]>)
             : []),
+          ...(timeline ? ([[TIMELINE_EMPTY, "Nothing to fix. Their timeline fills as things happen to them."]] as Array<[string, string]>) : []),
         ]}
       />
 

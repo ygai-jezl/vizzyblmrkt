@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { TimelineEntry, TimelineViewPage } from "@/lib/audience/personTimelineView";
+import { TIMELINE_EMPTY } from "@/lib/audience/timelineWords";
 import { api } from "../connect/api";
 import { Banner, Button, Section } from "../connect/ui";
 import { day, dayTime } from "../people/format";
@@ -26,8 +27,6 @@ const DOT: Record<TimelineEntry["kind"], string> = {
   email: "bg-sky-500",
   voice_chat: "bg-violet-500",
 };
-
-export const TIMELINE_EMPTY = "Nothing here yet. Moves are recorded from the day the timeline was turned on.";
 
 export function PersonTimeline({ personId, canEdit }: { personId: string; canEdit: boolean }) {
   const [entries, setEntries] = useState<TimelineEntry[] | null>(null);

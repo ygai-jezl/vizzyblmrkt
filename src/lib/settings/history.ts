@@ -2,6 +2,7 @@ import { commitSettingsChange, forTenant, readSetting, settingsVersionId, type S
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { EventActor } from "@/lib/ontology/events";
 import type { SettingsItem, SettingsList, SettingsSubject, SettingsVersion } from "@/lib/types/settingsVersion";
+import { FORMER_TEAM_MEMBER, memberLabel } from "@/lib/team/names";
 import { describeItemChanges, isArchived, sameItem } from "./archive";
 
 /**
@@ -11,14 +12,11 @@ import { describeItemChanges, isArchived, sameItem } from "./archive";
  * commitSettingsChange (src/lib/tenant/settingsLog.ts).
  */
 
-export { settingsVersionId };
+export { settingsVersionId, FORMER_TEAM_MEMBER };
 
 /** Versions per page when the caller doesn't say. */
 export const VERSIONS_PAGE = 20;
 const MAX_PAGE = 100;
-
-/** What someone no longer on the team is called wherever history names who did something. */
-export const FORMER_TEAM_MEMBER = "Former team member";
 
 /**
  * One subject's versions, newest first, a page at a time: pass `nextCursor` back as `cursor`.
@@ -130,7 +128,7 @@ export async function restoreSettingsVersion(
 export function byLabel(by: EventActor, names: Readonly<Record<string, string>>): string {
   switch (by.type) {
     case "member":
-      return (by.id && names[by.id]) || FORMER_TEAM_MEMBER;
+      return memberLabel(by.id, names);
     case "agent":
       return "Vizzy";
     case "product":

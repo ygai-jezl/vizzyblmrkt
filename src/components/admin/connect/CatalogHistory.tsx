@@ -8,6 +8,7 @@ import { Badge, Banner, Button, Section } from "./ui";
 type Version = {
   rev: number;
   savedAt: string;
+  /** Who saved it, looked up now: a team member's name, or "Former team member" once they left. */
   savedBy: string | null;
   source: "editor" | "learn" | "restore" | "before_history";
   restoredFrom: number | null;
@@ -24,8 +25,9 @@ function sourceOf(v: Version): string {
 }
 
 /**
- * The catalog's last saved versions — what changed, who saved it, when — with
- * Restore. A restore is saved as a new version, so the one it replaces stays here.
+ * Every saved version of the catalog (what changed, who saved it, when) with
+ * Restore, newest first, a page at a time. A restore is saved as a new version,
+ * so the one it replaces stays here.
  */
 export function CatalogHistory({
   connectionId,
@@ -43,16 +45,30 @@ export function CatalogHistory({
   onRestore: (rev: number) => Promise<void>;
 }) {
   const [versions, setVersions] = useState<Version[] | null>(null);
+  const [cursor, setCursor] = useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<number | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
 
   const load = useCallback(async () => {
-    const r = await api<{ versions: Version[] }>(`/api/admin/connections/${connectionId}/catalog-history`);
+    const r = await api<{ versions: Version[]; nextCursor: number | null }>(`/api/admin/connections/${connectionId}/catalog-history`);
     if (!r.ok) return setError(errorText(r.data));
     setError(null);
     setVersions(r.data.versions);
+    setCursor(r.data.nextCursor ?? null);
   }, [connectionId]);
+
+  async function older() {
+    if (cursor === null || loadingMore) return;
+    setLoadingMore(true);
+    const r = await api<{ versions: Version[]; nextCursor: number | null }>(`/api/admin/connections/${connectionId}/catalog-history?cursor=${cursor}`);
+    setLoadingMore(false);
+    // A page that didn't load leaves the versions shown; the button stays to try again.
+    if (!r.ok) return;
+    setVersions((cur) => [...(cur ?? []), ...r.data.versions]);
+    setCursor(r.data.nextCursor ?? null);
+  }
 
   useEffect(() => {
     void load();
@@ -68,7 +84,7 @@ export function CatalogHistory({
   }
 
   return (
-    <Section title="History" description="The last 20 saved versions of this catalog. Restoring one saves it as a new version, so nothing is lost.">
+    <Section title="History" description="Every saved version of this catalog. Restoring one saves it as a new version, so nothing is lost.">
       {error ? <Banner tone="err">{error}</Banner> : null}
       {versions === null ? (
         error ? null : <p className="text-sm text-neutral-500">Loading…</p>
@@ -109,6 +125,11 @@ export function CatalogHistory({
           ))}
         </ul>
       )}
+      {versions && cursor !== null ? (
+        <Button disabled={loadingMore} onClick={() => void older()}>
+          {loadingMore ? "Loading…" : "Show older versions"}
+        </Button>
+      ) : null}
     </Section>
   );
 }

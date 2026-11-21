@@ -326,18 +326,16 @@ A product connected to the brand: its keys, endpoints, catalog and what has arri
 
 ### Catalog (`catalog`)
 
-What a product says about its users: traits, facts, steps and event names. The live catalog sits on the connection, and earlier versions are kept for undo.
+What a product says about its users: traits, facts, steps and event names. The live catalog sits on the connection, and every earlier version is kept whole for undo, with who saved it as a user id.
 
 - Status: built
 - Home: the brand's region
-- Personal: no
+- Personal: the brand's own team
 - Stores:
-  - `catalog_revisions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
-- Links: `product` through connectionId
-- Erase:
-  - `HISTORY_KEEP` in `src/lib/connect/catalogHistory.ts`, on retention (only the last 20 versions of each catalog are kept)
-  - Gap: keeping 20 versions goes against the owner's rule that settings history has no limit (piece O)
-- Export: none. The brand's own settings.
+  - `catalog_revisions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Every version is kept; `savedBy` is the saver's user id, never an address, shown by name only while they are on the team.
+- Links: `product` through connectionId; `member` through savedBy
+- Erase: gap. No path removes a team member's user id in `savedBy` when they leave the team; it stays an id and shows as Former team member.
+- Export: gap. Team member ids in `savedBy` stay as ids, with no export by team member.
 - Search: none. Read by Vizzy through the connection, not searched.
 - Numbers: none. No numbers an agent reads.
 
@@ -1574,7 +1572,8 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 - Product (`product`):
   - Numbers: people counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`)
 - Catalog (`catalog`):
-  - Erase: keeping 20 versions goes against the owner's rule that settings history has no limit (piece O)
+  - Erase: no path removes a team member's user id in `savedBy` when they leave the team; it stays an id and shows as Former team member
+  - Export: team member ids in `savedBy` stay as ids, with no export by team member
 - Product user (`product_user`):
   - Numbers: people counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`)
 - Product event (`product_event`):

@@ -2,6 +2,7 @@ import { C, H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning, WhoGetsWhichEmails } from "@/components/help/blocks";
 import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
+import { isCatalogHistoryEnabled } from "@/lib/connect/v2/flags";
 import type { HelpBodyProps } from "@/lib/help/pages";
 import { peopleArea } from "@/lib/nav/terms";
 
@@ -112,6 +113,13 @@ export default function ConnectYourProductHelp({ people = isPeopleNameEnabled() 
         <strong>Catalog</strong> tab. In a company&apos;s GitHub organisation, an owner may need to approve the app first. See{" "}
         <Open href="/developers/connect-your-code">how connecting works</Open>.
       </P>
+      {isCatalogHistoryEnabled() ? (
+        <P>
+          Every save of the catalog is kept under <strong>History</strong> on the <strong>Catalog</strong> tab, with what
+          changed, who saved it and when. Someone no longer on your team shows as <strong>Former team member</strong>.{" "}
+          <strong>Restore</strong> brings an earlier version back as a new one, so nothing is lost.
+        </P>
+      ) : null}
 
       <H2 id="developer">What to send your developer</H2>
       <Steps>

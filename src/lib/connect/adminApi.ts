@@ -25,6 +25,7 @@ import { stepPlacement } from "./stepPlacement";
 import { getUserView } from "./v2/users";
 import { isCatalogHistoryEnabled, isDateFactsEnabled, isEntitiesEnabled } from "./v2/flags";
 import { getCatalogRevision, listCatalogRevisions, recordCatalogRevision } from "./catalogHistory";
+import { memberLabel, teamMemberNames, type UserLookup } from "@/lib/team/names";
 import {
   hasSandboxLastActive,
   sandboxCatalog,
@@ -316,18 +317,39 @@ async function writeCatalog(
 
 // ---- Catalog history ------------------------------------------------------------------
 
-/** The catalog's kept versions, newest first — what changed, who and when (not the catalogs themselves). */
-export async function getCatalogHistory(ctx: TenantContext, id: string, db?: FirestoreLike): Promise<ApiResult> {
+/**
+ * Who saved a version, in words: a team member's name, looked up now, or "Former team member" once
+ * they have left. An address stored before history kept user ids shows as it is until
+ * scripts/scrub-catalog-savers.ts replaces it. Null when nobody is known (the catalog from before history).
+ */
+function saverLabel(savedBy: string | null, names: Readonly<Record<string, string>>): string | null {
+  if (!savedBy) return null;
+  if (savedBy.includes("@")) return savedBy;
+  return memberLabel(savedBy, names);
+}
+
+/**
+ * The catalog's versions, newest first, a page at a time (pass `nextCursor` back as `cursor`):
+ * what changed, who and when, not the catalogs themselves. Every version is kept.
+ */
+export async function getCatalogHistory(
+  ctx: TenantContext,
+  id: string,
+  db?: FirestoreLike,
+  opts: { cursor?: number | null; lookup?: UserLookup } = {},
+): Promise<ApiResult> {
   if (!isCatalogHistoryEnabled()) return fail(404, "not_found");
   const conn = await loadConnection(ctx, id, db);
   if (!conn) return fail(404, "not_found");
-  const rows = await listCatalogRevisions(ctx, id, db);
+  const { versions, nextCursor } = await listCatalogRevisions(ctx, id, { cursor: opts.cursor ?? null }, db);
+  const names = await teamMemberNames(ctx, versions.map((r) => r.savedBy), { db, lookup: opts.lookup });
   return ok({
     catalogRev: conn.catalogRev ?? 0,
-    versions: rows.map((r) => ({
+    nextCursor,
+    versions: versions.map((r) => ({
       rev: r.rev,
       savedAt: r.savedAt,
-      savedBy: r.savedBy,
+      savedBy: saverLabel(r.savedBy, names),
       source: r.source,
       restoredFrom: r.restoredFrom ?? null,
       changes: r.changes,

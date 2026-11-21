@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseManifest } from "./manifest";
 import { cloudflareManifest } from "./manifests/cloudflare";
-import { allConnectors, CONNECTOR_SWITCHES, getConnector, knownConnector, listConnectors, refusals } from "./registry";
+import { allConnectors, CONNECTOR_SWITCHES, getConnector, knownConnector, listConnectors, readyMethods, refusals } from "./registry";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -42,14 +42,26 @@ describe("the connector registry", () => {
   });
 
   it("refuses a sign-in method that isn't built yet", () => {
-    const withOAuth = parseManifest({
+    const withShare = parseManifest({
       ...cloudflareManifest,
-      connect: [...cloudflareManifest.connect, { method: "oauth_pkce", client: "google", scopes: ["https://www.googleapis.com/auth/webmasters.readonly"] }],
-      shares: cloudflareManifest.shares.map((s, i) => (i === 0 ? { ...s, needs: [...s.needs!, "https://www.googleapis.com/auth/webmasters.readonly"] } : s)),
+      connect: [...cloudflareManifest.connect, { method: "share_access", google: "ga4", role: "Viewer" }],
+      hooks: { ...cloudflareManifest.hooks, accounts: "cloudflare.zones" },
     });
-    expect(refusals(withOAuth)).toEqual(["cloudflare: the oauth_pkce sign-in is not built yet"]);
-    const withShare = parseManifest({ ...cloudflareManifest, connect: [...cloudflareManifest.connect, { method: "share_access", google: "ga4", role: "Viewer" }] });
     expect(refusals(withShare)).toEqual(["cloudflare: the share_access sign-in is not built yet"]);
+    expect(readyMethods(withShare)).toEqual(["token_fields"]);
+  });
+
+  it("offers Search Console only with its switch, the core and a Google client", () => {
+    vi.stubEnv("CONNECTORS_ENABLED", "true");
+    vi.stubEnv("CONNECTOR_SEARCH_CONSOLE_ENABLED", "true");
+    expect(getConnector("search-console")).toBeNull();
+    expect(readyMethods(knownConnector("search-console")!)).toEqual([]);
+    vi.stubEnv("CONNECTOR_GOOGLE_CLIENT_ID", "made-up-client.example.test");
+    vi.stubEnv("CONNECTOR_GOOGLE_CLIENT_SECRET", "made-up-client-secret");
+    expect(getConnector("search-console")?.name).toBe("Google Search Console");
+    expect(readyMethods(knownConnector("search-console")!)).toEqual(["oauth_pkce"]);
+    vi.stubEnv("CONNECTOR_SEARCH_CONSOLE_ENABLED", "false");
+    expect(getConnector("search-console")).toBeNull();
   });
 
   it("refuses a personal stream while the data processing agreement is closed, and an unknown switch", () => {

@@ -24,7 +24,8 @@ export type DataConnectionMethod = (typeof DATA_CONNECTION_METHODS)[number];
 export const HEALTH_STATES = ["ok", "check", "broken", "paused"] as const;
 export type HealthState = (typeof HEALTH_STATES)[number];
 
-export const ACTIVITY_KINDS = ["connected", "verified", "failed", "paused", "resumed", "grants_changed", "disconnected", "purged"] as const;
+/** account_picked: an admin picked which site or property a signed in connection reads. */
+export const ACTIVITY_KINDS = ["connected", "verified", "failed", "paused", "resumed", "grants_changed", "account_picked", "disconnected", "purged"] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 
 /** Who may read a connection beyond its admins. "manage" is never a grant: it is the admin role. */

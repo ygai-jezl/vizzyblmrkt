@@ -10,8 +10,8 @@ import { MEANINGS } from "@/lib/metrics/meanings";
  * survives a JSON round trip and writes in house style.
  *
  * Fields, in the order of the plan's design:
- * - connect: the sign-in methods. Only token_fields is built (connectors 1a); the registry refuses
- *   the others until their piece builds them.
+ * - connect: the sign-in methods. token_fields (connectors 1a) and oauth_pkce, Sign in with
+ *   Google (1b), are built; the registry refuses share_access until 1c builds it.
  * - api: every outbound call. Only these hosts are reachable, under these limits
  *   (src/lib/connectors/safeFetch.ts enforces them).
  * - verify: the one request that proves a connection works, run before anything is saved.
@@ -20,7 +20,8 @@ import { MEANINGS } from "@/lib/metrics/meanings";
  * - produces: each stream for people and agents: its shape, keys, the meaning of every number
  *   (a MEANINGS key) and the shared keys it joins on.
  * - uses: what it plugs into in YouGrow.
- * - hooks: named handler ids, never functions.
+ * - hooks: named handler ids, never functions: live reads a stream, and accounts lists what a
+ *   signed in connection can see, for the picker.
  */
 
 /** Ids the routes and pages use beside /connectors/[connectorId], so no connector may take them. */
@@ -214,7 +215,11 @@ export const ConnectorManifestSchema = z
     shares: z.array(ShareSchema).min(1).max(10),
     produces: z.array(ProduceSchema).min(1).max(10),
     uses: z.array(z.enum(USES)).max(USES.length),
-    hooks: z.object({ live: HookId }).strict(),
+    /**
+     * live reads a stream; accounts lists what a signed in connection can see (sites,
+     * properties), for the picker. A connection that signs in needs accounts.
+     */
+    hooks: z.object({ live: HookId, accounts: HookId.optional() }).strict(),
     /** What Disconnect can and can't do at the provider, for the screen and help. */
     disconnect: Copy(),
   })
@@ -222,7 +227,7 @@ export const ConnectorManifestSchema = z
   .superRefine((m, ctx) => {
     const hostOf = (u: string) => new URL(u).hostname;
     if (!m.api.hosts.includes(hostOf(m.verify.url))) ctx.addIssue({ code: "custom", message: "verify.url is not on a declared host" });
-    for (const hook of [m.verify.hook, m.hooks.live]) {
+    for (const hook of [m.verify.hook, m.hooks.live, ...(m.hooks.accounts ? [m.hooks.accounts] : [])]) {
       if (!hook.startsWith(`${m.id.replace(/-([a-z0-9])/g, (_, c: string) => c.toUpperCase())}.`)) {
         ctx.addIssue({ code: "custom", message: `hook ${hook} must start with the connector's own name` });
       }
@@ -245,6 +250,10 @@ export const ConnectorManifestSchema = z
       if (c.method === "oauth_pkce") {
         for (const s of c.scopes) if (!needs.has(s)) ctx.addIssue({ code: "custom", message: `the scope ${s} has no shares line` });
       }
+      // A sign in or a shared address can see many sites or properties: an admin picks one.
+      if ((c.method === "oauth_pkce" || c.method === "share_access") && !m.hooks.accounts) {
+        ctx.addIssue({ code: "custom", message: `${c.method} needs hooks.accounts, the picker` });
+      }
     }
     if (!m.shares.some((s) => s.direction === "never")) ctx.addIssue({ code: "custom", message: "shares needs a line saying what is never read or written" });
     const streams = m.produces.map((p) => p.stream);
@@ -255,6 +264,7 @@ export type ConnectorManifest = z.infer<typeof ConnectorManifestSchema>;
 export type ConnectorManifestInput = z.input<typeof ConnectorManifestSchema>;
 export type ConnectMethod = z.infer<typeof ConnectMethodSchema>;
 export type TokenFieldsMethod = Extract<ConnectMethod, { method: "token_fields" }>;
+export type OAuthMethod = Extract<ConnectMethod, { method: "oauth_pkce" }>;
 export type TokenField = z.infer<typeof TokenFieldSchema>;
 export type ProducedStream = z.infer<typeof ProduceSchema>;
 
@@ -272,6 +282,11 @@ export function parseManifest(input: unknown): ConnectorManifest {
     throw new Error(`bad_connector_manifest:${id}:${manifestIssue(parsed.error)}`);
   }
   return parsed.data;
+}
+
+/** The oauth_pkce method of a manifest, when it has one. */
+export function oauthMethod(m: ConnectorManifest): OAuthMethod | null {
+  return (m.connect.find((c) => c.method === "oauth_pkce") as OAuthMethod | undefined) ?? null;
 }
 
 /** The token_fields method of a manifest, when it has one. */

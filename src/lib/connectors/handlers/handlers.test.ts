@@ -3,7 +3,7 @@ import { parseManifest } from "../manifest";
 import { cloudflareManifest } from "../manifests/cloudflare";
 import { allConnectors } from "../registry";
 import { classifyErrors, VISITS_NOTE, zoneDaily, zoneProbe } from "./cloudflare";
-import { LIVE_HOOKS, VERIFY_HOOKS } from "./index";
+import { ACCOUNT_HOOKS, LIVE_HOOKS, VERIFY_HOOKS } from "./index";
 
 // Cloudflare is never called: the transport is a stub that answers like its GraphQL API.
 const manifest = parseManifest(cloudflareManifest);
@@ -25,6 +25,7 @@ describe("connector hooks", () => {
     for (const m of allConnectors()) {
       expect(VERIFY_HOOKS[m.verify.hook], m.verify.hook).toBeDefined();
       expect(LIVE_HOOKS[m.hooks.live], m.hooks.live).toBeDefined();
+      if (m.hooks.accounts) expect(ACCOUNT_HOOKS[m.hooks.accounts], m.hooks.accounts).toBeDefined();
     }
   });
 });

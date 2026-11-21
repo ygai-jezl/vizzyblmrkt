@@ -4,6 +4,7 @@ import { LIVE_BY, LIVE_LIMITS, streamOf, type ConnectorManifest, type LiveBy } f
 import { LIVE_HOOKS } from "./handlers";
 import type { HookFailure, HookInput, LiveQuery, LiveRow } from "./handlers/types";
 import type { ConnectorFetchDeps } from "./safeFetch";
+import { cleanPagePath } from "./paths";
 
 /**
  * A live read of a connection's numbers, bounded (Connectors 1 plan, live reads):
@@ -53,16 +54,7 @@ export function checkLiveRequest(manifest: ConnectorManifest, raw: unknown, now:
   return { ok: true, query: { stream: q.stream, from: q.from, to: q.to, by: q.by, limit: q.limit } };
 }
 
-/** A page as one way of writing it: the path only, no query string or fragment. */
-export function cleanPagePath(raw: string): string {
-  let path = raw.trim();
-  try {
-    path = new URL(path, "https://page.invalid").pathname;
-  } catch {
-    path = path.split(/[?#]/)[0] ?? "";
-  }
-  return path.startsWith("/") ? path : `/${path}`;
-}
+export { cleanPagePath };
 
 /** The days a stream's numbers take to settle, in words. */
 export function lagWords(lagDays: number): string {

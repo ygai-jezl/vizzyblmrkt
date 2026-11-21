@@ -1802,7 +1802,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "data_connection",
     name: "Data connection",
     description:
-      "A brand's link to an outside source of numbers, such as a Cloudflare zone: which connector, how it signs in, its health, who may read it live, and its secret, sealed with the brand, connection and slot bound in. Each change goes into an activity log kept 90 days.",
+      "A brand's link to an outside source of numbers, such as a Cloudflare zone or a Search Console site: which connector, how it signs in, its health, who may read it live, and its secrets (a pasted token, or a Google sign in's access and refresh tokens), sealed with the brand, connection and slot bound in. Each change goes into an activity log kept 90 days.",
     place: "signals",
     status: "built",
     home: "brand",
@@ -1832,7 +1832,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     },
     export: { none: "a sealed secret and its settings, never exported" },
     search: { none: "credentials and settings, never searched" },
-    numbers: { meanings: ["cfRequests", "cfPageViews", "cfVisits"], tool: "readLive" },
+    numbers: { meanings: ["cfRequests", "cfPageViews", "cfVisits", "searchClicks", "searchImpressions", "searchCtr", "searchPosition"], tool: "readLive" },
   },
   {
     id: "connector_stream",

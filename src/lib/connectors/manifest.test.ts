@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { MEANINGS } from "@/lib/metrics/meanings";
-import { ConnectorManifestSchema, parseManifest, RESERVED_CONNECTOR_IDS, streamOf, tokenMethod, type ConnectorManifestInput } from "./manifest";
+import { ConnectorManifestSchema, oauthMethod, parseManifest, RESERVED_CONNECTOR_IDS, streamOf, tokenMethod, type ConnectorManifestInput } from "./manifest";
 import { cloudflareManifest } from "./manifests/cloudflare";
+import { searchConsoleManifest } from "./manifests/searchConsole";
 import { MANIFESTS } from "./registry";
 
 /** Every string anywhere in a value, for the house style check. */
@@ -91,6 +92,19 @@ describe("connector manifests", () => {
   it("refuses unknown keys anywhere, so a typo never passes quietly", () => {
     expect(issues({ ...base(), colour: "orange" }).length).toBeGreaterThan(0);
     expect(issues({ ...base(), api: { ...base().api, followRedirects: true } }).length).toBeGreaterThan(0);
+  });
+
+  it("has a sign in ask for one scope that a shares line names, with a picker named for the connector", () => {
+    const sc = clone(searchConsoleManifest) as ConnectorManifestInput;
+    const parsed = parseManifest(sc);
+    expect(oauthMethod(parsed)?.scopes).toEqual(["https://www.googleapis.com/auth/webmasters.readonly"]);
+    expect(tokenMethod(parsed)).toBeNull();
+    expect(oauthMethod(parseManifest(cloudflareManifest))).toBeNull();
+    const two = { method: "oauth_pkce", client: "google", scopes: ["https://www.googleapis.com/auth/webmasters.readonly", "https://www.googleapis.com/auth/analytics.readonly"] };
+    expect(issues({ ...sc, connect: [two] }).length).toBeGreaterThan(0);
+    expect(issues({ ...sc, shares: sc.shares.map((s) => ({ ...s, needs: [] })) }).join()).toContain("has no shares line");
+    expect(issues({ ...sc, hooks: { live: sc.hooks.live } }).join()).toContain("needs hooks.accounts");
+    expect(issues({ ...sc, hooks: { ...sc.hooks, accounts: "cloudflare.zones" } }).join()).toContain("connector's own name");
   });
 
   it("finds a manifest's token method and streams", () => {

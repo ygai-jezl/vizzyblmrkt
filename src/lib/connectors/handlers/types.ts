@@ -11,7 +11,7 @@ import type { ConnectorFetchDeps } from "../safeFetch";
 export interface HookInput {
   manifest: ConnectorManifest;
   connection: Pick<DataConnection, "id" | "tenantId" | "pausedAt" | "health">;
-  /** The non secret account (a zone id). */
+  /** The non secret account (a zone id, a site), or "" when a signed in connection has none picked yet. */
   account: string;
   /** The opened secret, used only for the call. */
   token: string;
@@ -35,5 +35,19 @@ export type LiveRow = Record<string, string | number | null>;
 
 export type LiveHookResult = { ok: true; rows: LiveRow[]; notes: string[] } | HookFailure;
 
+/** One thing a signed in connection can read, for the picker: a site, a property. */
+export interface ConnectorAccount {
+  /** What is stored as the connection's account once picked (a site URL, a property id). */
+  id: string;
+  /** How people read it. */
+  label: string;
+  /** A short note beside it, such as the access the Google account has, or null. */
+  detail: string | null;
+}
+
+/** more: the provider listed more than the picker shows. */
+export type AccountsResult = { ok: true; accounts: ConnectorAccount[]; more: boolean } | HookFailure;
+
 export type VerifyHook = (input: HookInput, deps: ConnectorFetchDeps) => Promise<VerifyResult>;
+export type AccountsHook = (input: HookInput, deps: ConnectorFetchDeps) => Promise<AccountsResult>;
 export type LiveHook = (input: HookInput & { query: LiveQuery; today: string }, deps: ConnectorFetchDeps) => Promise<LiveHookResult>;

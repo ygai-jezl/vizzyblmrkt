@@ -1,0 +1,73 @@
+import type { ConnectorManifestInput } from "../manifest";
+
+const SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
+
+/**
+ * Google Search Console, by signing in with Google (Connectors 1b). Read only: search clicks,
+ * impressions, click rate and position for one site, read live when someone asks. Collecting them
+ * every day is Connectors 2; share access (no sign in) is 1c.
+ *
+ * - One scope, webmasters.readonly, which Google's console classes as non sensitive.
+ * - Sign in gives a token for every site the Google account can see, so an admin then picks one
+ *   from sites.list, with unverified sites left out (src/lib/connectors/handlers/searchConsole.ts).
+ * - Search analytics: POST .../sites/{site}/searchAnalytics/query, grouped by date, page or
+ *   query, web results only, finalized data only (dataState final), so a day settles about 3
+ *   days later. Dates are Pacific time. Docs: developers.google.com/webmaster-tools/v1.
+ * - Google's docs write these paths under www.googleapis.com/webmasters/v3; the same paths answer
+ *   on the API's own host, searchconsole.googleapis.com, the only host this connector may call
+ *   besides Google's token endpoint.
+ * - Quotas: 1,200 queries a minute per site and per user; the limits here stay far below.
+ */
+export const searchConsoleManifest = {
+  schema: 1,
+  id: "search-console",
+  name: "Google Search Console",
+  summary: "Clicks, impressions and positions in Google Search for your site, read from Search Console when you ask.",
+  category: "search",
+  publisher: "yougrow",
+  switch: "CONNECTOR_SEARCH_CONSOLE_ENABLED",
+  connect: [{ method: "oauth_pkce", client: "google", scopes: [SCOPE] }],
+  api: {
+    hosts: ["searchconsole.googleapis.com", "oauth2.googleapis.com"],
+    limits: { connection: { perMinute: 20, perHour: 300 }, brand: { perMinute: 40, perHour: 600 } },
+    timeoutMs: 15_000,
+    maxBytes: 512 * 1024,
+  },
+  verify: { method: "GET", url: "https://searchconsole.googleapis.com/webmasters/v3/sites", hook: "searchConsole.siteCheck" },
+  shares: [
+    {
+      what: "Search numbers for the site you pick",
+      detail: "clicks, impressions, click rate and position, by day, page or search",
+      direction: "read",
+      where: "Read live when you or Vizzy ask. Nothing is stored.",
+      needs: [SCOPE],
+    },
+    {
+      what: "The sites your Google account can see in Search Console",
+      direction: "read",
+      where: "Listed once so you can pick one. Sites you haven't verified are left out.",
+      needs: [SCOPE],
+    },
+    {
+      what: "Anything else",
+      direction: "never",
+      where: "Nothing is ever written to Google, and your Google password never reaches YouGrow.",
+    },
+  ],
+  produces: [
+    {
+      stream: "search_performance",
+      description: "Clicks, impressions, click rate and average position in Google Search, a row per day, page or search.",
+      shape: "numbers",
+      keys: ["day", "page", "query"],
+      measures: ["searchClicks", "searchImpressions", "searchCtr", "searchPosition"],
+      joins: { day: "day", page: "page", query: "topic" },
+      lagDays: 3,
+      personal: false,
+      liveBy: ["day", "page", "topic"],
+    },
+  ],
+  uses: ["vizzy.read"],
+  hooks: { live: "searchConsole.searchAnalytics", accounts: "searchConsole.sites" },
+  disconnect: "Disconnecting deletes the sign in YouGrow keeps. To end access at Google too, remove YouGrow from your Google account's third party connections.",
+} satisfies ConnectorManifestInput;

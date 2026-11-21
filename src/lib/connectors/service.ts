@@ -6,13 +6,14 @@ import { meaningsOf } from "@/lib/metrics/meanings";
 import { ConnectionGrantSchema, type ConnectionGrant, type DataConnection } from "@/lib/types/dataConnection";
 import { can, grantsCode, normaliseGrants, type ConnectorActor } from "./grants";
 import { healthAfterFailure, healthAfterSuccess, healthyAt, isCallPaused, shownState } from "./health";
-import { VERIFY_HOOKS } from "./handlers";
-import type { HookFailure } from "./handlers/types";
+import { ACCOUNT_HOOKS, VERIFY_HOOKS } from "./handlers";
+import type { ConnectorAccount, HookFailure } from "./handlers/types";
 import { checkLiveRequest, lagWords, readLive, type LiveAnswer } from "./live";
-import { tokenMethod, type ConnectorManifest } from "./manifest";
+import { tokenMethod, type ConnectMethodName, type ConnectorManifest } from "./manifest";
 import { connectorMessage, type ConnectorErrorCode } from "./messages";
-import { getConnector, knownConnector, listConnectors } from "./registry";
+import { getConnector, knownConnector, listConnectors, readyMethods } from "./registry";
 import type { ConnectorFetchDeps } from "./safeFetch";
+import { freshAccessToken, type KeeperDeps } from "./tokenKeeper";
 import { isVaultConfigured, openConnectorSecret, sealConnectorSecret, VaultOpenError, type SealedSecret } from "./vault";
 
 /**
@@ -23,7 +24,7 @@ import { isVaultConfigured, openConnectorSecret, sealConnectorSecret, VaultOpenE
  * and never leave here.
  */
 
-export interface ServiceDeps extends ConnectorFetchDeps {
+export interface ServiceDeps extends ConnectorFetchDeps, KeeperDeps {
   db?: FirestoreLike;
   newId?: () => string;
 }
@@ -46,14 +47,19 @@ function refuse(status: 400 | 403 | 404 | 409 | 429 | 502 | 503, error: string, 
   return { ok: false, status, error, ...(message ? { message } : {}) };
 }
 
-/** A provider or vault failure: busy is 429, a pause or a dead token 409, the rest 502. */
-function providerRefusal(code: ConnectorErrorCode): ServiceResult<never> {
-  const status = code === "busy" ? 429 : code === "paused" || code === "secret_unopenable" || code === "disconnected" ? 409 : code === "vault_unconfigured" ? 503 : 502;
+const CONFLICTS: ReadonlySet<ConnectorErrorCode> = new Set(["paused", "secret_unopenable", "disconnected", "signin_refused", "account_needed"]);
+
+/**
+ * A provider or vault failure: busy is 429; a pause, a dead token or sign in, or no site picked
+ * yet 409; this copy missing a key or a Google client 503; the rest 502.
+ */
+export function providerRefusal(code: ConnectorErrorCode): ServiceResult<never> {
+  const status = code === "busy" ? 429 : CONFLICTS.has(code) ? 409 : code === "vault_unconfigured" || code === "signin_unconfigured" ? 503 : 502;
   return refuse(status, code, connectorMessage(code));
 }
 
 const nowOf = (deps: ServiceDeps) => deps.now ?? new Date();
-const byOf = (actor: ConnectorActor) => (actor.kind === "agent" ? `agent:${actor.agent}` : actor.uid || "system");
+export const byOf = (actor: ConnectorActor) => (actor.kind === "agent" ? `agent:${actor.agent}` : actor.uid || "system");
 
 // --- What people see ---------------------------------------------------------------------------
 
@@ -63,6 +69,8 @@ export interface ConnectorListing {
   summary: string;
   category: string;
   connect: ConnectorManifest["connect"];
+  /** The sign-in methods this copy can use now (Sign in with Google needs its client). */
+  ready: ConnectMethodName[];
   shares: ConnectorManifest["shares"];
   produces: Array<{ stream: string; description: string; shape: string; measures: Array<{ key: string; name: string; definition: string; caveat?: string }>; lag: string; liveBy: string[] }>;
   uses: ConnectorManifest["uses"];
@@ -77,6 +85,7 @@ export function listingOf(m: ConnectorManifest): ConnectorListing {
     summary: m.summary,
     category: m.category,
     connect: m.connect,
+    ready: readyMethods(m),
     shares: m.shares,
     produces: m.produces.map((p) => ({
       stream: p.stream,
@@ -100,6 +109,8 @@ export interface ConnectionView {
   label: string;
   status: DataConnection["status"];
   health: { state: ReturnType<typeof shownState>; lastOkAt: string | null; lastCheckedAt: string | null; message: string | null; pausedUntil: string | null };
+  /** True after a sign in until an admin picks the site or property it reads. */
+  needsAccount: boolean;
   canReadLive: boolean;
   /** Admins only. */
   details?: {
@@ -135,7 +146,8 @@ export function viewOf(conn: DataConnection, actor: ConnectorActor, now: Date): 
       message: conn.health.lastErrorCode ? connectorMessage(conn.health.lastErrorCode) : null,
       pausedUntil: conn.health.pausedUntil,
     },
-    canReadLive: conn.status === "connected" && can(actor, "read_live", conn.grants),
+    needsAccount: conn.status === "connected" && !conn.account,
+    canReadLive: conn.status === "connected" && !!conn.account && can(actor, "read_live", conn.grants),
   };
   if (can(actor, "see_details", conn.grants)) {
     view.details = {
@@ -292,7 +304,10 @@ function outcomePlan(cur: DataConnection, outcome: { ok: true } | HookFailure, a
 
 type Usable = { ok: true; conn: DataConnection; manifest: ConnectorManifest; token: string } | { ok: false; result: ServiceResult<never> };
 
-/** Load a connection for a call: allowed, connected, its connector on, not paused, its secret opened. */
+/**
+ * Load a connection for a call: allowed, connected, its connector on, not paused, a site picked
+ * for a live read, and its token: a pasted one opened, or a Google sign in's kept fresh.
+ */
 async function usable(ctx: TenantContext, actor: ConnectorActor, id: string, action: "check" | "read_live", deps: ServiceDeps): Promise<Usable> {
   const conn = await load(ctx, id, deps);
   if (!conn || !can(actor, "see", conn.grants)) return { ok: false, result: refuse(404, "not_found") };
@@ -302,6 +317,16 @@ async function usable(ctx: TenantContext, actor: ConnectorActor, id: string, act
   if (!manifest) return { ok: false, result: refuse(404, "connector_off") };
   const now = nowOf(deps);
   if (isCallPaused(conn, now)) return { ok: false, result: providerRefusal("paused") };
+  if (action === "read_live" && !conn.account) return { ok: false, result: providerRefusal("account_needed") };
+  if (conn.method === "oauth_pkce") {
+    // A Google sign in: the token keeper refreshes the access token under its lease when it is due.
+    const kept = await freshAccessToken(ctx, conn, byOf(actor), deps);
+    if (kept.ok) return { ok: true, conn, manifest, token: kept.token };
+    if (!kept.recorded) {
+      await changeDataConnection(ctx, conn.id, (cur) => outcomePlan(cur, { ok: false, code: kept.code, retryAfterSec: kept.retryAfterSec }, actor, now, null), deps.db);
+    }
+    return { ok: false, result: providerRefusal(kept.code) };
+  }
   const method = tokenMethod(manifest);
   const sealed = method ? conn.secrets[method.auth.field] : undefined;
   let token: string;
@@ -354,6 +379,83 @@ export async function readLiveFor(ctx: TenantContext, actor: ConnectorActor, id:
   await changeDataConnection(ctx, id, (cur) => outcomePlan(cur, r.ok ? { ok: true } : r, actor, now, null), deps.db);
   if (!r.ok) return providerRefusal(r.code);
   return { ok: true, status: 200, value: r.answer };
+}
+
+// --- Picking what a signed in connection reads -------------------------------------------------
+
+export interface AccountsList {
+  accounts: ConnectorAccount[];
+  /** The provider listed more than the picker shows. */
+  more: boolean;
+  /** What the connection reads now, or "" when nothing is picked yet. */
+  current: string;
+}
+
+/**
+ * The sites or properties a signed in connection can see, for the picker (Search Console's
+ * sites.list, unverified sites left out). Admins only. Nothing is stored.
+ */
+export async function listAccounts(ctx: TenantContext, actor: ConnectorActor, id: string, deps: ServiceDeps = {}): Promise<ServiceResult<AccountsList>> {
+  const u = await usable(ctx, actor, id, "check", deps);
+  if (!u.ok) return u.result;
+  const hook = u.manifest.hooks.accounts ? ACCOUNT_HOOKS[u.manifest.hooks.accounts] : undefined;
+  if (!hook) return refuse(400, "method_not_supported");
+  const now = nowOf(deps);
+  const r = await hook({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token }, deps);
+  if (!r.ok) {
+    if (r.code !== "busy") await changeDataConnection(ctx, id, (cur) => outcomePlan(cur, r, actor, now, null), deps.db);
+    return providerRefusal(r.code);
+  }
+  await changeDataConnection(ctx, id, (cur) => outcomePlan(cur, { ok: true }, actor, now, null), deps.db);
+  return { ok: true, status: 200, value: { accounts: r.accounts, more: r.more, current: u.conn.account } };
+}
+
+export const PickAccountBodySchema = z.object({ account: z.string().trim().min(1).max(2000) }).strict();
+
+/**
+ * Pick the site or property a signed in connection reads. It must be one the sign in can see now
+ * (the verify request runs with it), and not already read by another of the brand's connections.
+ * A refused pick changes nothing on the connection. Admins only.
+ */
+export async function pickAccount(ctx: TenantContext, actor: ConnectorActor, id: string, body: unknown, deps: ServiceDeps = {}): Promise<ServiceResult<ConnectionView>> {
+  const parsed = PickAccountBodySchema.safeParse(body);
+  if (!parsed.success) return refuse(400, "invalid_input");
+  const conn = await load(ctx, id, deps);
+  if (!conn || !can(actor, "see", conn.grants)) return refuse(404, "not_found");
+  if (!can(actor, "connect", conn.grants)) return refuse(403, "forbidden");
+  if (conn.method === "token_fields") return refuse(400, "method_not_supported");
+  const u = await usable(ctx, actor, id, "check", deps);
+  if (!u.ok) return u.result;
+  const account = parsed.data.account;
+  const verify = VERIFY_HOOKS[u.manifest.verify.hook];
+  if (!verify) return refuse(503, "connector_unavailable");
+  const checked = await verify({ manifest: u.manifest, connection: u.conn, account, token: u.token }, deps);
+  if (!checked.ok) {
+    if (checked.code === "account_refused") return refuse(400, "account_refused", "That site isn't one this sign in can read. Pick one from the list.");
+    return providerRefusal(checked.code);
+  }
+  const existing = await forTenant(ctx, deps.db).dataConnections.find({
+    where: [
+      ["connectorId", "==", u.conn.connectorId],
+      ["account", "==", account],
+      ["status", "==", "connected"],
+    ],
+    limit: 2,
+  });
+  if (existing.some((c) => c.id !== id)) return refuse(409, "already_connected", "Another connection reads this already. Check or disconnect it there.");
+  const now = nowOf(deps);
+  const at = now.toISOString();
+  const r = await changeDataConnection(
+    ctx,
+    id,
+    (cur) => {
+      if (cur.status !== "connected" || cur.account === account) return null;
+      return { patch: { account, health: healthAfterSuccess(cur.health, now) }, activity: [{ kind: "account_picked", by: byOf(actor), at }] };
+    },
+    deps.db,
+  );
+  if (!r.ok && r.why === "not_found") return refuse(404, "not_found");
+  return { ok: true, status: 200, value: viewOf(r.ok ? r.connection : r.connection, actor, now) };
 }
 
 // --- Manage ------------------------------------------------------------------------------------

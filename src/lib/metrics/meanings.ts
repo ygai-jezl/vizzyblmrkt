@@ -209,6 +209,38 @@ export const MEANINGS = {
     source: "Cloudflare analytics, sampled request data",
     caveat: "Cloudflare samples busy sites, so this is an estimate, and it only goes back about a month.",
   },
+  // Google Search Console's own numbers for the site, never DataForSEO's googlePosition above.
+  searchClicks: {
+    name: "Search clicks",
+    definition: "Clicks from Google Search results through to the site.",
+    grain: "one Search Console site on one day (Pacific time), or one page or search over the days asked",
+    unit: "count",
+    source: "Google Search Console, web search results",
+    caveat: "Google leaves out rare searches to protect privacy, so clicks by search add up to less than the site's total.",
+  },
+  searchImpressions: {
+    name: "Search impressions",
+    definition: "Times a link to the site was shown in Google Search results.",
+    grain: "one Search Console site on one day (Pacific time), or one page or search over the days asked",
+    unit: "count",
+    source: "Google Search Console, web search results",
+    caveat: "By site, one search counts once however many of its pages showed; by page, each page counts.",
+  },
+  searchCtr: {
+    name: "Search click rate",
+    definition: "Search clicks divided by search impressions, from 0 to 1.",
+    grain: "one Search Console site on one day (Pacific time), or one page or search over the days asked",
+    unit: "ratio",
+    source: "Google Search Console, web search results",
+  },
+  searchPosition: {
+    name: "Average search position",
+    definition: "The average of the site's highest place in Google Search results, 1 being the top.",
+    grain: "one Search Console site on one day (Pacific time), or one page or search over the days asked",
+    unit: "rank",
+    source: "Google Search Console, web search results",
+    caveat: "An average over every search that showed the site, so it moves with which searches showed it, not only with rank.",
+  },
 } as const satisfies Record<string, Meaning>;
 
 export type MeaningKey = keyof typeof MEANINGS;

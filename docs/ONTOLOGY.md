@@ -291,7 +291,7 @@ A competitor the brand watches: their sitemap's pages, their news posts, monthly
 
 ### Data connection (`data_connection`)
 
-A brand's link to an outside source of numbers, such as a Cloudflare zone: which connector, how it signs in, its health, who may read it live, and its secret, sealed with the brand, connection and slot bound in. Each change goes into an activity log kept 90 days.
+A brand's link to an outside source of numbers, such as a Cloudflare zone or a Search Console site: which connector, how it signs in, its health, who may read it live, and its secrets (a pasted token, or a Google sign in's access and refresh tokens), sealed with the brand, connection and slot bound in. Each change goes into an activity log kept 90 days.
 
 - Status: built
 - Home: the brand's region
@@ -310,7 +310,7 @@ A brand's link to an outside source of numbers, such as a Cloudflare zone: which
   - Gap: a team member's user id in ownerUid and in by stays after they leave the brand, as settings history does
 - Export: none. A sealed secret and its settings, never exported.
 - Search: none. Credentials and settings, never searched.
-- Numbers: `cfRequests`, `cfPageViews`, `cfVisits`, through `readLive`
+- Numbers: `cfRequests`, `cfPageViews`, `cfVisits`, `searchClicks`, `searchImpressions`, `searchCtr`, `searchPosition`, through `readLive`
 
 ### Connector stream (`connector_stream`)
 

@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
-import { connectedDataHelp, connectorHelp, SIGN_IN_HELP } from "./helpText";
+import { connectedDataHelp, connectorHelp, SHARE_ACCESS_HELP, SIGN_IN_HELP, TROUBLESHOOTING_QUOTES, VIZZY_HELP } from "./helpText";
 import { parseManifest } from "./manifest";
 import { cloudflareManifest } from "./manifests/cloudflare";
+import { ga4Manifest } from "./manifests/ga4";
 import { searchConsoleManifest } from "./manifests/searchConsole";
-import { SIGNIN_REASONS } from "./messages";
+import { CONNECTOR_ERRORS, SIGNIN_REASONS } from "./messages";
 import { allConnectors } from "./registry";
 
 function stringsIn(value: unknown, out: string[] = []): string[] {
@@ -40,6 +41,34 @@ describe("the connected data help words", () => {
     expect(help.numbers.map((n) => n.name)).toEqual(["Search clicks", "Search impressions", "Search click rate", "Average search position"]);
     expect(help.lag).toBe("A day's numbers are complete about 3 days later.");
     expect(connectorHelp(parseManifest(cloudflareManifest)).signIn).toBeNull();
+  });
+
+  it("takes share access's role and steps from each manifest, and Google Analytics' numbers and lag", () => {
+    const sc = connectorHelp(parseManifest(searchConsoleManifest));
+    expect(sc.share?.role).toBe("Restricted");
+    expect(sc.share?.steps[0]).toBe("On Google Search Console in Connected data, press Share access. YouGrow shows a Google address made for this one connection.");
+    expect(sc.share?.steps.at(-1)).toBe("Back in YouGrow, press Check access, then pick the site.");
+    const ga = connectorHelp(parseManifest(ga4Manifest));
+    expect(ga.share?.role).toBe("Viewer");
+    expect(ga.share?.steps.join(" ")).toContain("Property access management");
+    expect(ga.signIn?.reads).toEqual(ga.share?.reads);
+    expect(ga.numbers.map((n) => n.name)).toEqual(["Analytics sessions", "Analytics active users", "Analytics views", "Analytics key events"]);
+    expect(ga.lag).toBe("A day's numbers are complete about 2 days later.");
+    expect(connectorHelp(parseManifest(cloudflareManifest)).share).toBeNull();
+  });
+
+  it("says what share access keeps, what Disconnect leaves on the property, and quotes its messages", () => {
+    const help = connectedDataHelp();
+    expect(help.share).toBe(SHARE_ACCESS_HELP);
+    expect(help.share.disconnect).toContain("does no harm");
+    expect(help.share.hidden).toContain("CONNECTORS_IDENTITIES_PROJECT");
+    expect(help.troubleshooting).toBe(TROUBLESHOOTING_QUOTES);
+    expect(help.troubleshooting.shareNotVisible).toBe(CONNECTOR_ERRORS.share_not_visible);
+    expect(help.troubleshooting.shareNotVisible).toMatch(/^We can't see your property yet\./);
+    expect(help.troubleshooting.shareQuota).toContain("Sign in with Google instead");
+    expect(help.troubleshooting.shareWorkspace).toContain("Google Workspace admin");
+    expect(help.vizzy).toBe(VIZZY_HELP);
+    expect(help.vizzy.join(" ")).toContain("only when an admin allows Vizzy to read it");
   });
 
   it("says Google's 100 sign in limit, the 7 day testing limit, how to remove access and what Disconnect leaves", () => {

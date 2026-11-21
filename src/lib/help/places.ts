@@ -41,6 +41,8 @@ const RULES: Array<[RegExp, string]> = [
   [/^\/admin\/brand-kit/, "/help/your-brand"],
   [/^\/admin\/account\/brand/, "/help/your-brand"],
   [/^\/admin\/account\/connections/, "/help/connected-accounts"],
+  // Settings › Data model exists only with fields on, which needs the one People list, so the page is shown.
+  [/^\/admin\/account\/data-model/, "/help/your-audience#fields"],
   [/^\/admin\/account\/?$/, "/help/email-sending"],
 ];
 

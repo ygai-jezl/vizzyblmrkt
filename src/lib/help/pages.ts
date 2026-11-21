@@ -35,6 +35,8 @@ export interface HelpPage {
 export interface HelpBodyProps {
   /** The Audience area is called People (isPeopleNameEnabled()). */
   people?: boolean;
+  /** Fields on people and companies are on (isFieldsEnabled()). */
+  fields?: boolean;
 }
 
 /** Navigation headings, matching Home's stages. */
@@ -86,7 +88,7 @@ export const HELP_PAGES: HelpPage[] = [
     "your-audience",
     "Your audience",
     "grow",
-    "Everyone from your launches, your own site and your products in one list, one page per person, and erasing or exporting them everywhere.",
+    "Everyone from your launches, your own site and your products in one list, one page per person, your own fields on people and companies, and erasing or exporting them everywhere.",
     "audience_one_view",
   ),
   page("connect-your-product", "Connect your product", "product", "Connect your app, learn its onboarding steps from its code, and hand the rest to your developer."),

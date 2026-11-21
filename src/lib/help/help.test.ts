@@ -34,6 +34,8 @@ vi.hoisted(() => {
   process.env.LAUNCH_SITE_SIGNUPS_ENABLED = "true";
   process.env.AUDIENCE_PERSON_LINKS_ENABLED = "true";
   process.env.AUDIENCE_ONE_VIEW_ENABLED = "true";
+  process.env.ONTOLOGY_PERSON_IDS_ENABLED = "true";
+  process.env.AUDIENCE_FIELDS_ENABLED = "true";
   process.env.NEXT_PUBLIC_EDIT_MODE_ENABLED = "true";
   process.env.NEXT_PUBLIC_EDIT_MODE_EMAILS_ENABLED = "true";
   process.env.NEXT_PUBLIC_NEWSLETTER_MARKDOWN_EMAIL_ENABLED = "true";
@@ -280,5 +282,20 @@ describe("links into the help", () => {
     expect(helpFor("/admin/account/billing")).toBe("/help/plan-and-usage");
     expect(helpFor("/admin/brands/new")).toBe("/help/plan-and-usage#brands");
     expect(HELP_PLACES).toContain("/help/plan-and-usage");
+  });
+});
+
+describe("the fields sections", () => {
+  const md = (fields: boolean) => docToMarkdown(HELP_BODIES["your-audience"]!({ people: true, fields }), "https://app.example.com");
+
+  it("show while fields are on, and How to on Data model opens them", () => {
+    expect(md(true)).toContain("## Your own fields");
+    expect(md(true)).toContain("## Company fields");
+    expect(helpFor("/admin/account/data-model")).toBe("/help/your-audience#fields");
+  });
+
+  it("stay hidden while fields are off", () => {
+    expect(md(false)).not.toContain("Data model");
+    expect(md(false)).not.toContain("Company fields");
   });
 });

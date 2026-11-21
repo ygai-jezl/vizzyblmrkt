@@ -1,14 +1,17 @@
 import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
+import { isFieldsEnabled } from "@/lib/audience/peopleFlags";
+import { FIELD_MESSAGES } from "@/components/admin/audience/fieldsApi";
 import type { HelpBodyProps } from "@/lib/help/pages";
 import { peopleArea } from "@/lib/nav/terms";
 
 /**
  * Shown only while AUDIENCE_ONE_VIEW_ENABLED is on (src/lib/help/pages.ts). With People on
- * (NEXT_PUBLIC_NAV_PEOPLE_ENABLED) the area is People, as the sidebar says; the slug stays.
+ * (NEXT_PUBLIC_NAV_PEOPLE_ENABLED) the area is People, as the sidebar says; the slug stays. The
+ * fields sections show while AUDIENCE_FIELDS_ENABLED is on.
  */
-export default function YourAudienceHelp({ people = isPeopleNameEnabled() }: HelpBodyProps = {}) {
+export default function YourAudienceHelp({ people = isPeopleNameEnabled(), fields = isFieldsEnabled() }: HelpBodyProps = {}) {
   const area = peopleArea(people);
   return (
     <article>
@@ -17,7 +20,13 @@ export default function YourAudienceHelp({ people = isPeopleNameEnabled() }: Hel
         Everyone you know, in one list: people who joined a launch, people from your own site&apos;s sign-up box, and the
         users of your connected products. One row and one page per person, whatever brought them.
       </Lead>
-      <Meta items={["2 minutes", "Anyone on your team; erasing and exporting are for admins", "Whenever you need it"]} />
+      <Meta
+        items={[
+          "2 minutes",
+          fields ? "Anyone on your team; erasing, exporting and changing fields are for admins" : "Anyone on your team; erasing and exporting are for admins",
+          "Whenever you need it",
+        ]}
+      />
 
       <BeforeAndUnlocks
         before={
@@ -33,6 +42,7 @@ export default function YourAudienceHelp({ people = isPeopleNameEnabled() }: Hel
             <li>Seeing how many people you have, and how many you can email</li>
             <li>One page for each person, with their launches and their product together</li>
             <li>Erasing or exporting a person everywhere at once</li>
+            {fields ? <li>Your own fields on people and companies, with every change kept</li> : null}
           </>
         }
       />
@@ -77,6 +87,59 @@ export default function YourAudienceHelp({ people = isPeopleNameEnabled() }: Hel
         </li>
       </UL>
 
+      {fields ? (
+        <>
+          <H2 id="fields">Your own fields</H2>
+          <Steps>
+            <li>
+              Open <Open href="/admin/account/data-model">Settings, then Data model</Open>. <strong>People</strong> is picked; pick{" "}
+              <strong>Companies</strong> for <Open href="/help/your-audience#company-fields">company fields</Open>.
+            </li>
+            <li>
+              In <strong>Add field</strong>, type a name and pick a type: text, number, currency, date, checkbox, select, multi select,
+              status, email, phone, link or team member. A type is fixed once the field is made. Select, multi select and status need
+              their options, one per line, and currency needs its code, such as GBP.
+            </li>
+            <li>
+              Press <strong>Add field</strong>. It shows on every person&apos;s page under <strong>Fields</strong>, where an admin presses{" "}
+              <strong>Edit</strong> beside it to set a value. A team member field lists the people on your team.
+            </li>
+          </Steps>
+          <P>
+            To rename a field, add or archive an option, or change its type, press <strong>Edit</strong> beside it in Data model.
+            Changing the type makes a new field with the same name and archives the old one with its values.{" "}
+            <strong>Archive field</strong> hides a field and keeps every value on each person; <strong>Bring back</strong> under{" "}
+            <strong>Archived</strong> returns it, values and all. Nothing is ever deleted.
+          </P>
+          <P>
+            <strong>Changes</strong> lists every change to the list, with who made it and when. Someone who has left your team shows as
+            Former team member. Restoring an older list comes with settings history.
+          </P>
+          <P>Beside your own fields, a person&apos;s page shows fields from elsewhere, read only, each with where it comes from:</P>
+          <UL>
+            <li>their answers to a launch&apos;s sign-up questions, labelled with the launch;</li>
+            <li>each product&apos;s stage for them, and the traits and facts your product sends;</li>
+            <li>their company&apos;s size, from company enrichment;</li>
+            <li>
+              a voice chat on a sign-up page: its summary, which their browser sent when the chat ended and nobody has checked. An admin
+              can press <strong>Read the conversation</strong> to read what was said.
+            </li>
+          </UL>
+          <P>
+            Admins change fields and values; everyone else on your team can read them. A person&apos;s export lists their values with
+            each field&apos;s name, archived ones marked, and erasing them removes their values and every change. A list holds up to 100
+            fields in use, 300 in all, and 50 options a field.
+          </P>
+
+          <H2 id="company-fields">Company fields</H2>
+          <P>
+            Pick <strong>Companies</strong> in Data model to add fields to companies, the same way. Open a company from the{" "}
+            <strong>Companies</strong> tab in <Open href="/admin/crm">{area}</Open> to see and edit them under{" "}
+            <strong>Company fields</strong>. A company&apos;s values go when its last person is erased.
+          </P>
+        </>
+      ) : null}
+
       <H2 id="stages">How stages are read</H2>
       <P>
         Each product puts its users in a stage with three clocks: New for the first 2 days, Stuck after 7 days on one step,
@@ -115,6 +178,14 @@ export default function YourAudienceHelp({ people = isPeopleNameEnabled() }: Hel
             "Erasing them everywhere. It finishes within a few minutes; then this page finds nobody.",
             "Nothing to fix. The erase runs in the background; reload the page in a few minutes.",
           ],
+          ...(fields
+            ? ([
+                [FIELD_MESSAGES.fields_changed, "Reload the page, then make your change again on top of theirs."],
+                [FIELD_MESSAGES.field_list_full, "Archive fields you no longer use, or a field with fewer options. Archived fields and options still count towards the total."],
+                [FIELD_MESSAGES.not_on_team, "They left your team, so pick someone who is, or Nobody."],
+                [FIELD_MESSAGES.archived_field, "Someone archived the field while you were editing. Reload the page; Bring back returns it."],
+              ] as Array<[string, string]>)
+            : []),
         ]}
       />
 

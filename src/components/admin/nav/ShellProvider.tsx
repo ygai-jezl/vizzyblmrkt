@@ -25,6 +25,8 @@ interface Shell {
   personInContext: boolean;
   /** Audience is called People (isPeopleNameEnabled(), from the server), so the How to drawer says what the sidebar says. */
   people: boolean;
+  /** Fields on people and companies are on (isFieldsEnabled(), from the server), so the How to drawer shows their help. */
+  fields: boolean;
   /**
    * Hear about each draft Vizzy saves in this chat (returns the unsubscribe), so a page whose
    * data isn't the server's render (the journey editor, a person's page) can reload it. Null
@@ -62,6 +64,7 @@ export function ShellProvider({
   journeyInContext = false,
   personInContext = false,
   people = false,
+  fields = false,
   children,
 }: {
   names: CrumbNames;
@@ -70,6 +73,8 @@ export function ShellProvider({
   personInContext?: boolean;
   /** Audience is called People (isPeopleNameEnabled(), from the server): the page label Vizzy gets follows the crumbs. */
   people?: boolean;
+  /** Fields are on (isFieldsEnabled(), from the server): the How to drawer shows their help sections. */
+  fields?: boolean;
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? "/admin";
@@ -133,9 +138,10 @@ export function ShellProvider({
       ask,
       personInContext,
       people,
+      fields,
       onCanvasSaved: journeyInContext || personInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, people, saved],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, people, fields, saved],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

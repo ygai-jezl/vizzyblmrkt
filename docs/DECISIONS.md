@@ -10,7 +10,7 @@ Context: piece B of the CRM and tiers plan turns Audience into People and adds w
 needs on top of the person record: fields, filters, adding someone by hand, a timeline and
 Vizzy's suggestions. It also starts the settings log (piece O part 1) and stops catalog
 history being pruned. It ships as one pull request in commit groups; this record covers
-groups 1 to 4 and grows with the rest. The only Firestore changes are the two composite
+groups 1 to 5 and grows with the rest. The only Firestore changes are the two composite
 indexes and the two field exemptions below. No dependency, rules or infra change.
 
 Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
@@ -107,6 +107,23 @@ Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
     names; a person's export leaves out their company's values.
   - Index ask (approved): `contacts.fields` and `companies.fields` exempt from automatic
     indexing, as `contacts.products` already is.
+- **Fields on screen, with the voice chat (group 5, answers 3, 10 and 11).**
+  - Fields are managed in Settings › Data model (`/admin/account/data-model`). Its tab is a
+    server switch, worked out in the account layout and passed to `AccountTabs`; How to opens
+    `/help/your-audience#fields`, and the How to drawer gets `fields` from the shell, as it gets
+    `people`. Restoring an older list waits for piece O's settings history screen; the route is
+    there.
+  - Fields panels on a person's page and on the company panel: admins edit values in place,
+    members read, archived fields are hidden.
+  - Fields from elsewhere are worked out when shown and never stored
+    (`src/lib/audience/readOnlyFields.ts`): sign-up answers from each of the person's sign-ups,
+    labelled with their launch, read only because questions are keyed by their text, which
+    admins can edit; each product's stage, traits and facts; company enrichment.
+  - The voice chat on a sign-up page: B shows a read-only Voice chat field with its summary,
+    labelled as sent by the person's browser and unchecked. What was said stays out of
+    `loadWholePerson` and is served only by `GET .../everyone/[personId]/conversation`, behind
+    `oneViewAdmin` with `mutate`, as export is. Analysing it (a server summary, suggested values,
+    themes, brand search) is the later "Voice chat insights" card, after the DPA.
 
 Rollback: turning `NEXT_PUBLIC_NAV_PEOPLE_ENABLED` off (a rebuild) changes only words. The
 settings log has no switch and nothing calls it until the fields. Never revert group 3 once

@@ -23,6 +23,10 @@ export type Fetcher = typeof safeFetch;
 
 export interface FetchDeps {
   fetch?: Fetcher;
+  /** Another client name for the same reader (Found live checks the brand's own site with it). */
+  agent?: string;
+  /** A smaller cap for sitemap files than COMPETITOR_LIMITS.MAX_SITEMAP_BYTES. */
+  maxSitemapBytes?: number;
 }
 
 /**
@@ -93,7 +97,7 @@ async function fetchBytes(
   timeoutMs = 8000,
 ): Promise<{ ok: true; url: string; bytes: Buffer; truncated: boolean; contentType: string } | { ok: false; reason: FetchFailure }> {
   try {
-    const res = await (deps.fetch ?? safeFetch)(url, { headers: { "User-Agent": userAgent(), Accept: accept } }, { timeoutMs, maxRedirects: 3 });
+    const res = await (deps.fetch ?? safeFetch)(url, { headers: { "User-Agent": deps.agent ?? userAgent(), Accept: accept } }, { timeoutMs, maxRedirects: 3 });
     const at = res.url || url;
     const contentType = res.headers.get("content-type") ?? "";
     const html = /text\/html|application\/xhtml/i.test(contentType);
@@ -132,7 +136,7 @@ function isGzip(b: Buffer): boolean {
  * MAX_SITEMAP_BYTES after unzipping. A cut file says so, so it never reads as a smaller site.
  */
 export async function fetchSitemapFile(url: string, deps: FetchDeps = {}): Promise<Fetched> {
-  const max = COMPETITOR_LIMITS.MAX_SITEMAP_BYTES;
+  const max = Math.min(deps.maxSitemapBytes ?? COMPETITOR_LIMITS.MAX_SITEMAP_BYTES, COMPETITOR_LIMITS.MAX_SITEMAP_BYTES);
   const got = await fetchBytes(url, "application/xml,text/xml,text/plain;q=0.8,*/*;q=0.5", max, deps, 10_000);
   if (!got.ok) return got;
   let bytes = got.bytes;

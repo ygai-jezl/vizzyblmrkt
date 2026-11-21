@@ -1179,6 +1179,22 @@ export const ONTOLOGY: readonly OntologyType[] = [
     search: { none: "a record of runs; what they wrote is searched as content" },
     numbers: { none: NO_NUMBERS },
   },
+  {
+    id: "live_watch",
+    name: "Live watch",
+    description: "Found live's working state: when to look at the brand's site next, which article addresses it checks, and which of the site's pages it already opened.",
+    place: "content",
+    status: "built",
+    home: "brand",
+    personal: "none",
+    stores: [regional("live_watch"), regional("live_watch_seen", "the brand's pages already opened, as hashes")],
+    links: [{ to: "content_plan", via: "the articles it checks", many: true }],
+    events: [],
+    erase: { none: "worked out again each time; what it finds is the article's live mark" },
+    export: { none: NOT_PERSONAL },
+    search: { none: "working state; what it finds is searched as the article" },
+    numbers: { none: NO_NUMBERS },
+  },
 
   // ===== Partner and agent: who acts for the brand ===========================================
   {

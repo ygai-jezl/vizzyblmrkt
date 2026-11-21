@@ -150,6 +150,7 @@ export const NEW_PERSON_NOTES = {
   emailHint: "Or leave it empty and add a phone number.",
   phoneOnly: "Added with a phone only? If they later sign up with an email, that sign-up becomes a separate person.",
   agreeHint: 'Saved with your name and the time. "Other" needs a short note. Joining a list never counts as agreeing.',
+  noAddress: "With no email address they can't be emailed, whatever they agreed. Add their email to reach them.",
   nothingSent: "Nothing is sent to people added by hand yet. Recording that they agreed means they can be emailed once lists reach them.",
   existing: "If this email is already in People, you'll go to that person instead of adding a second one.",
   fromVizzy: "Vizzy filled this in from your chat. Check it, and say how they agreed yourself: Vizzy never records that.",

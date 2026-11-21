@@ -103,12 +103,14 @@ export interface HandAdded {
   at: string;
   /** The team recorded that they agreed to marketing email, and it stands. */
   marketingConsent: boolean;
+  /** They have an email address: someone added with only a phone can't be emailed, whatever they agreed. */
+  hasAddress: boolean;
 }
 
 /** The hand-added source of a contact, or null when nobody added them by hand. */
-export function handAddedOf(contact: Pick<Contact, "addedBy" | "consent"> | null | undefined): HandAdded | null {
+export function handAddedOf(contact: Pick<Contact, "addedBy" | "consent" | "email"> | null | undefined): HandAdded | null {
   if (!contact?.addedBy) return null;
-  return { at: contact.addedBy.at, marketingConsent: contact.consent?.marketing_email?.state === "granted" };
+  return { at: contact.addedBy.at, marketingConsent: contact.consent?.marketing_email?.state === "granted", hasAddress: !!contact.email };
 }
 
 /** The tag every person added by hand carries. Internal: the People list has no pill for it. */
@@ -130,7 +132,8 @@ export function withCarriedTags(summaryTags: readonly string[], current: readonl
 /**
  * The tags, reach and last activity of a person, from their links. Someone added by hand is
  * live with the `all` and `added:hand` tags, active from when they were added, and can be
- * emailed only when the team recorded their marketing consent and no brand-wide opt-out stops it.
+ * emailed only when they have an address, the team recorded their marketing consent and no
+ * brand-wide opt-out stops it.
  */
 export function summarize(
   campaigns: readonly ContactCampaignLink[],
@@ -160,7 +163,7 @@ export function summarize(
 
   let reach: Reach = "no";
   if (!optOuts?.blocked) {
-    const handReach: Reach[] = hand?.marketingConsent ? ["yes"] : [];
+    const handReach: Reach[] = hand?.marketingConsent && hand.hasAddress ? ["yes"] : [];
     for (const r of [...liveCampaigns.map(signupReach), ...products.map((p) => p.reach), ...handReach]) {
       if (REACH_RANK[r] > REACH_RANK[reach]) reach = r;
     }

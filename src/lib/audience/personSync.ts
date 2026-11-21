@@ -173,7 +173,7 @@ interface Derived {
 
 /** The derived fields for a record as it is now: its hand-added source read from the record itself. */
 function derive(
-  record: Pick<Contact, "addedBy" | "consent"> | null | undefined,
+  record: Pick<Contact, "addedBy" | "consent" | "email"> | null | undefined,
   campaigns: ContactCampaignLink[],
   products: PersonProductLink[],
   optOuts: Contact["optOuts"],

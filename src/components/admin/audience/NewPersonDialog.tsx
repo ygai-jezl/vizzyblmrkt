@@ -250,6 +250,7 @@ export function NewPersonDialog({
                 />
               ) : null}
               <span className={hint}>{NEW_PERSON_NOTES.agreeHint}</span>
+              {!email.trim() ? <span className={hint}>{NEW_PERSON_NOTES.noAddress}</span> : null}
             </fieldset>
           ) : null}
 

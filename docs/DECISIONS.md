@@ -75,8 +75,8 @@ Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
   - Being added by hand is a source of its own, keyed on `addedBy`, with no switch:
     turning New person off never lets a sync delete or hide anyone. `summarize` takes it as
     an input: the person is live, tagged `all` and `added:hand`, and active from when they
-    were added, and their reach is yes only with marketing email granted and no brand-wide
-    opt-out. `added:hand` stays internal: the People list has no pill for it (owner, 20 Nov).
+    were added, and their reach is yes only with marketing email granted, an email address
+    (someone added with only a phone can't be emailed) and no brand-wide opt-out. `added:hand` stays internal: the People list has no pill for it (owner, 20 Nov).
   - Every path keeps them: `syncPerson` and the fast path read it from the record inside
     the transaction; the delete branch and the product-only rename skip them; their status
     stays active when a sign-up goes; a later sign-up never replaces a typed name.

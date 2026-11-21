@@ -108,7 +108,7 @@ describe("summarize", () => {
 
 describe("someone added by hand", () => {
   const ADDED = "2026-09-10T09:00:00.000Z";
-  const hand = (marketingConsent = false) => ({ at: ADDED, marketingConsent });
+  const hand = (marketingConsent = false, hasAddress = true) => ({ at: ADDED, marketingConsent, hasAddress });
 
   it("is live with only that source, tagged all and added:hand, active from when they were added", () => {
     expect(summarize([], [], undefined, hand())).toEqual({ live: true, memberOf: ["added:hand", "all"], reach: "no", activeAt: ADDED });
@@ -120,6 +120,14 @@ describe("someone added by hand", () => {
     expect(summarize([], [], { blocked: "unsubscribe", categories: [] }, hand(true)).reach).toBe("no");
     // Without consent their other sources decide, as for anyone.
     expect(summarize([signup({ status: "unverified" })], [], undefined, hand(false)).reach).toBe("limited");
+  });
+
+  it("can't be emailed with only a phone, whatever they agreed", () => {
+    expect(summarize([], [], undefined, hand(true, false)).reach).toBe("no");
+    const addedBy = { kind: "member" as const, id: "usr_1", at: ADDED, via: "form" as const };
+    const granted = { state: "granted" as const, how: "in_person", note: null, recordedBy: "usr_1", at: ADDED, agreedAt: null };
+    expect(summarize([], [], undefined, handAddedOf({ addedBy, consent: { marketing_email: granted }, email: null })).reach).toBe("no");
+    expect(summarize([], [], undefined, handAddedOf({ addedBy, consent: { marketing_email: granted }, email: "sam@customer.test" })).reach).toBe("yes");
   });
 
   it("keeps their other sources' tags and the latest activity", () => {
@@ -134,9 +142,9 @@ describe("someone added by hand", () => {
     expect(handAddedOf(null)).toBeNull();
     expect(handAddedOf({})).toBeNull();
     const addedBy = { kind: "member" as const, id: "usr_1", at: ADDED, via: "form" as const };
-    expect(handAddedOf({ addedBy })).toEqual({ at: ADDED, marketingConsent: false });
+    expect(handAddedOf({ addedBy })).toEqual({ at: ADDED, marketingConsent: false, hasAddress: false });
     const granted = { state: "granted" as const, how: "verbal", note: null, recordedBy: "usr_1", at: ADDED, agreedAt: null };
-    expect(handAddedOf({ addedBy, consent: { marketing_email: granted } })).toEqual({ at: ADDED, marketingConsent: true });
+    expect(handAddedOf({ addedBy, consent: { marketing_email: granted }, email: "sam@customer.test" })).toEqual({ at: ADDED, marketingConsent: true, hasAddress: true });
     expect(handAddedOf({ addedBy, consent: { marketing_email: { ...granted, state: "withdrawn" } } })?.marketingConsent).toBe(false);
     // Consent without addedBy is not a hand-added source.
     expect(handAddedOf({ consent: { marketing_email: granted } })).toBeNull();

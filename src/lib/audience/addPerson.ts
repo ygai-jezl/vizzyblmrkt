@@ -96,7 +96,7 @@ export async function addPerson(
   const consent = input.agreed ? { marketing_email: consentEntry(input.agreed, userId, nowIso) } : undefined;
   // Read before the transaction: an address that unsubscribed keeps them unreachable from the start.
   const optOuts = optOutsOf(await optOutRowsFor(ctx, key, deps.db));
-  const summary = summarize([], [], optOuts, handAddedOf({ addedBy, consent }));
+  const summary = summarize([], [], optOuts, handAddedOf({ addedBy, consent, email }));
 
   const create: Omit<Contact, "id" | "tenantId"> = {
     contactKey: key,

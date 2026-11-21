@@ -100,6 +100,17 @@ describe("addPerson", () => {
     expect(contact(db, "+44 7700 900456")).toMatchObject({ email: null, phone: "+44 7700 900456", companyId: null, emailDomain: null });
   });
 
+  it("keeps someone with only a phone off Only people we can email, though their agreement is recorded", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    await addPerson(ctx, input({ phone: "+44 7700 900457", agreed: { how: "in_person" } }), { db, nowIso: NOW });
+    expect(contact(db, "+44 7700 900457")).toMatchObject({ reach: "no", consent: { marketing_email: { state: "granted", how: "in_person" } } });
+    expect(events(db).filter((e) => e.kind === "consent.recorded")).toHaveLength(1);
+    // A sync keeps it that way.
+    await syncPerson(ctx, "+44 7700 900457", { db, nowMs: T0 + 60_000 });
+    expect(contact(db, "+44 7700 900457")?.reach).toBe("no");
+  });
+
   it("matches no company for a public email provider", async () => {
     const db = new FakeFirestore();
     seedWorld(db);

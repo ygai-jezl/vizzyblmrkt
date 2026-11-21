@@ -162,8 +162,8 @@ export default function YourAudienceHelp({
             keep the name you typed, and are exported and erased like anyone else.
           </P>
           <P>
-            Someone added with only a phone is their own person. If they later sign up with an email, that sign-up becomes a separate
-            person. People added by hand count towards your plan&apos;s people; near or over the limit the form says so and still adds
+            Someone added with only a phone is their own person, and can&apos;t be emailed even if they agreed. If they later sign up
+            with an email, that sign-up becomes a separate person. People added by hand count towards your plan&apos;s people; near or over the limit the form says so and still adds
             them.
           </P>
           {vizzyAdds ? (

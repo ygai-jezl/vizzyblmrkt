@@ -2,7 +2,7 @@ import { lifecycleAdmin, type AdminGate } from "@/lib/connect/admin";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { isOneViewEnabled, isPersonViewEnabled } from "./flags";
-import { isAddPersonEnabled, isFieldsEnabled } from "./peopleFlags";
+import { isAddPersonEnabled, isFieldsEnabled, isTimelineEnabled } from "./peopleFlags";
 
 /**
  * Gate for the person view's admin APIs: its flag (off = these routes don't exist),
@@ -60,4 +60,9 @@ export async function fieldsAdmin(req: Request, opts: { mutate: boolean }): Prom
  */
 export async function addPersonAdmin(req: Request): Promise<AdminGate> {
   return switchedAdmin(isAddPersonEnabled(), req, { mutate: true });
+}
+
+/** Gate for a person's timeline (AUDIENCE_TIMELINE_ENABLED): anyone on the team can read it. */
+export async function timelineAdmin(req: Request): Promise<AdminGate> {
+  return switchedAdmin(isTimelineEnabled(), req, { mutate: false });
 }

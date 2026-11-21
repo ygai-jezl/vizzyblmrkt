@@ -306,6 +306,8 @@ export async function decideFieldSuggestion(
       recordId: personId,
       changes: action.undo.before,
       expect: fieldsUnder(action.result),
+      // The values it held before the confirm, archived options and all.
+      restoring: true,
       by,
       source: "undo",
       nowIso: at,

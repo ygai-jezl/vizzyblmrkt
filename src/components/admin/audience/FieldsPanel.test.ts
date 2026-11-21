@@ -19,4 +19,18 @@ describe("FieldInput", () => {
     expect(pounds).toContain('step="0.01"');
     expect(draw(field({ type: "currency", currency: "KWD" }), 1250)).toContain('step="0.001"');
   });
+
+  it("shows an archived option the value still holds, ticked, so it can be taken off", () => {
+    const options = [
+      { id: "opt_00000001", label: "Analytics" },
+      { id: "opt_00000002", label: "Exports", archivedAt: AT },
+      { id: "opt_00000003", label: "Legacy", archivedAt: AT },
+    ];
+    const html = draw(field({ type: "multi_select", label: "Interests", options }), ["opt_00000001", "opt_00000002"]);
+    expect(html).toContain("Exports (no longer in use)");
+    expect(html).not.toContain("Legacy");
+    const select = draw(field({ type: "select", label: "Plan", options }), "opt_00000003");
+    expect(select).toContain("Legacy (no longer in use)");
+    expect(select).not.toContain("Exports");
+  });
 });

@@ -105,7 +105,9 @@ Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
     `record.field_changed` per changed value (companies too, with no person) and the action's
     decision. It takes an optional `agentAction`, so Vizzy's confirm (group 10) needs no
     rewrite. The record is budgeted at 900 KB. A source scan keeps every other writer off
-    `fields`, and `syncPerson` never touches it.
+    `fields`, and `syncPerson` never touches it. An option archived since may stay in a value
+    while the record holds it (and an undo may put it back), so the value can still be edited;
+    a newly chosen option must be live. The editor shows such an option as no longer in use.
   - Admins change lists and values; members read. Routes sit behind `fieldsAdmin`, in
     `oneViewAdmin`'s order. A stale rev answers 409 `fields_changed`, a broken cap 400
     `field_list_full`.

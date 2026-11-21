@@ -223,12 +223,19 @@ export function isCalendarDay(v: string): boolean {
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** The option ids a stored value names (a select's or status's one, a multi select's several). */
+export function optionIdsOf(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+}
+
 /**
  * A value as it would be stored, or why it can't be. null clears. Option values must be live
- * options; a team member value is a user id (whether they are on the team is checked by the
- * writer, which knows the members). Pure.
+ * options, or among `held`: options the record already holds, which may stay though they were
+ * archived since (a newly chosen option must be live). A team member value is a user id (whether
+ * they are on the team is checked by the writer, which knows the members). Pure.
  */
-export function checkFieldValue(field: Pick<RecordField, "type" | "options" | "currency">, raw: unknown): ValueCheck {
+export function checkFieldValue(field: Pick<RecordField, "type" | "options" | "currency">, raw: unknown, held?: ReadonlySet<string>): ValueCheck {
   if (raw === null) return { ok: true, value: null };
   const bad = (reason: string): ValueCheck => ({ ok: false, reason });
   switch (field.type) {
@@ -247,14 +254,16 @@ export function checkFieldValue(field: Pick<RecordField, "type" | "options" | "c
     case "checkbox":
       return typeof raw === "boolean" ? { ok: true, value: raw } : bad("checkbox");
     case "select":
-    case "status":
-      return typeof raw === "string" && liveOptionIds(field as RecordField).has(raw) ? { ok: true, value: raw } : bad("option");
+    case "status": {
+      if (typeof raw !== "string") return bad("option");
+      return liveOptionIds(field as RecordField).has(raw) || held?.has(raw) ? { ok: true, value: raw } : bad("option");
+    }
     case "multi_select": {
       if (!Array.isArray(raw) || raw.some((x) => typeof x !== "string")) return bad("options");
       const ids = [...new Set(raw as string[])];
       if (ids.length > FIELD_LIMITS.multiSelect) return bad("too_many_options");
       const live = liveOptionIds(field as RecordField);
-      if (ids.some((id) => !live.has(id))) return bad("option");
+      if (ids.some((id) => !live.has(id) && !held?.has(id))) return bad("option");
       return { ok: true, value: ids.length ? ids : null };
     }
     case "email": {
@@ -329,6 +338,15 @@ export function sameFieldValue(a: FieldValue | null | undefined, b: FieldValue |
 /** A field's options that are in use, in order. */
 export function liveOptions(field: Pick<RecordField, "options">): FieldOption[] {
   return (field.options ?? []).filter((o) => !o.archivedAt);
+}
+
+/**
+ * The options an editor offers for a value: those in use, then any archived option the value still
+ * holds, so it can be seen and taken off. An archived one can't be picked again once it's off.
+ */
+export function optionsForValue(field: Pick<RecordField, "options">, value: unknown): FieldOption[] {
+  const held = new Set(optionIdsOf(value));
+  return (field.options ?? []).filter((o) => !o.archivedAt || held.has(o.id));
 }
 
 /** An option's label, or null when the field has no such option. */

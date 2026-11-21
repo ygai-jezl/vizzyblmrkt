@@ -15,7 +15,9 @@ import {
   checkFieldValue,
   FIELD_LIMITS,
   FIELD_LIST_SUBJECT,
+  hasOptions,
   isFieldId,
+  optionIdsOf,
   sameFieldValue,
   type FieldValue,
   type FieldValues,
@@ -61,6 +63,12 @@ export interface SetFieldValuesInput {
    * made from, and an undo the values the confirm set.
    */
   expect?: Record<string, unknown>;
+  /**
+   * The changes put back values this record held before (an undo): the options they name count as
+   * held, so one archived since can come back. Otherwise only options the record holds now may
+   * stay archived, and a newly chosen option must be live.
+   */
+  restoring?: boolean;
   nowIso?: string;
   /** Makes each event's key unique; inject one in tests. */
   nonce?: () => string;
@@ -105,7 +113,8 @@ function applied(current: Record<string, unknown>, values: FieldValues, patch: R
 
 /**
  * Set some of a record's field values, with their events and tags, in one transaction. Refuses
- * the whole write for an unknown or archived field, a value its type doesn't allow, a team member
+ * the whole write for an unknown or archived field, a value its type doesn't allow (an archived
+ * option counts only while the record already holds it), a team member
  * who isn't on the team, a field that no longer holds what `expect` says, or a record that would
  * outgrow the budget. With `agentAction`, a move
  * that can't happen refuses with `agent_action_<error>`, and a decision with no value to change is
@@ -160,7 +169,9 @@ export async function setRecordFieldValues(ctx: TenantContext, input: SetFieldVa
         const field = byId.get(fieldId);
         if (!field) return { ok: false, error: "unknown_field", fieldId };
         if (field.archivedAt) return { ok: false, error: "archived_field", fieldId };
-        const check = checkFieldValue(field, raw);
+        // Options the value holds now (or held before, for an undo) may stay though archived since.
+        const held = hasOptions(field.type) ? new Set([...optionIdsOf(before[fieldId]), ...(input.restoring ? optionIdsOf(raw) : [])]) : undefined;
+        const check = checkFieldValue(field, raw, held);
         if (!check.ok) return { ok: false, error: "invalid_value", fieldId, reason: check.reason };
         const was = before[fieldId] ?? null;
         if (sameFieldValue(was, check.value)) continue;

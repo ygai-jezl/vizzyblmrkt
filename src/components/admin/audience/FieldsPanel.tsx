@@ -7,9 +7,9 @@ import { FORMER_TEAM_MEMBER } from "@/lib/team/former";
 import {
   amountToMinor,
   currencyDigits,
-  liveOptions,
   minorToAmount,
   optionLabel,
+  optionsForValue,
   sameFieldValue,
   type FieldValue,
   type FieldValues,
@@ -269,23 +269,25 @@ export function FieldInput({
       );
     case "select":
     case "status":
+      // An option archived since stays listed while it is the value, so saving another keeps working.
       return (
         <select value={text} onChange={(e) => typed(e.target.value)} className={inputClass} aria-label={field.label}>
           <option value="">None</option>
-          {liveOptions(field).map((o) => (
+          {optionsForValue(field, value).map((o) => (
             <option key={o.id} value={o.id}>
-              {o.label}
+              {o.archivedAt ? `${o.label} (no longer in use)` : o.label}
             </option>
           ))}
         </select>
       );
     case "multi_select":
+      // An option archived since shows while it is ticked, so it can be taken off; once off, it can't be picked again.
       return (
         <span className="flex flex-wrap gap-2" role="group" aria-label={field.label}>
-          {liveOptions(field).map((o) => (
+          {optionsForValue(field, value).map((o) => (
             <label key={o.id} className="flex items-center gap-1">
-              <input type="checkbox" checked={picked.includes(o.id)} onChange={(e) => toggled(o.id, e.target.checked)} />
-              {o.label}
+              <input type="checkbox" checked={picked.includes(o.id)} disabled={!!o.archivedAt && !picked.includes(o.id)} onChange={(e) => toggled(o.id, e.target.checked)} />
+              {o.archivedAt ? `${o.label} (no longer in use)` : o.label}
             </label>
           ))}
         </span>

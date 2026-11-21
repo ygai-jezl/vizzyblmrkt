@@ -11,6 +11,8 @@ import {
   FieldListSchema,
   isCalendarDay,
   minorToAmount,
+  optionIdsOf,
+  optionsForValue,
   RecordFieldSchema,
   sameFieldValue,
   type RecordField,
@@ -107,6 +109,18 @@ describe("values", () => {
     expect(ok({ type: "date" }, "2027-02-30")).toBe("BAD");
     expect(ok({ type: "date" }, "2027-03-01T00:00:00.000Z")).toBe("BAD");
     expect(isCalendarDay("2028-02-29")).toBe(true);
+  });
+
+  it("an option value must be live, unless the record already holds it", () => {
+    const f = field({ type: "multi_select", options: [opt(1), opt(2, true)] });
+    expect(checkFieldValue(f, ["opt_00000001", "opt_00000002"])).toMatchObject({ ok: false, reason: "option" });
+    expect(checkFieldValue(f, ["opt_00000001", "opt_00000002"], new Set(["opt_00000002"]))).toEqual({ ok: true, value: ["opt_00000001", "opt_00000002"] });
+    const select = field({ type: "select", options: [opt(1), opt(2, true)] });
+    expect(checkFieldValue(select, "opt_00000002")).toMatchObject({ ok: false });
+    expect(checkFieldValue(select, "opt_00000002", new Set(["opt_00000002"]))).toEqual({ ok: true, value: "opt_00000002" });
+    expect(optionsForValue(select, "opt_00000002").map((o) => o.id)).toEqual(["opt_00000001", "opt_00000002"]);
+    expect(optionsForValue(select, "opt_00000001").map((o) => o.id)).toEqual(["opt_00000001"]);
+    expect(optionIdsOf(["opt_00000001", 3])).toEqual(["opt_00000001"]);
   });
 
   it("a checkbox is true or false", () => {

@@ -119,6 +119,15 @@ describe("a person's suggestions from Vizzy", () => {
     expect(await getAgentAction(admin, a.id, { db })).toMatchObject({ state: "declined", declined: { reason: "stale" } });
   });
 
+  it("undo puts back an option archived after the confirm", async () => {
+    const a = await suggestion({ [PLAN]: "opt_dddddd02" });
+    await post({ id: a.id, rev: a.rev, decision: "confirm" });
+    await saveFieldListChange(admin, "person", { baseRev: 2, change: { op: "archive_option", key: PLAN, optionId: "opt_dddddd01" }, by }, db);
+    const acted = await getAgentAction(admin, a.id, { db });
+    expect(await (await post({ id: a.id, rev: acted!.rev, decision: "undo" })).json()).toEqual({ state: "undone" });
+    expect(fields()).toEqual({ [SEATS]: 12, [PLAN]: "opt_dddddd01" });
+  });
+
   it("won't undo once a field was changed again", async () => {
     const a = await suggestion({ [SEATS]: 15 });
     await post({ id: a.id, rev: a.rev, decision: "confirm" });

@@ -122,6 +122,28 @@ describe("setRecordFieldValues", () => {
     });
   });
 
+  it("lets a value keep an option archived since, so it can still be edited, but never pick one again", async () => {
+    const db = new FakeFirestore();
+    await world(db);
+    await set(db, { [TOPICS]: ["opt_00000003", "opt_00000004"], [PLAN]: "opt_00000001" });
+    const change = (baseRev: number, c: FieldListChange) => saveFieldListChange(ctx, "person", { baseRev, change: c, by, nowIso: T1, newOptionId: () => "opt_00000009" }, db);
+    await change(6, { op: "archive_option", key: TOPICS, optionId: "opt_00000004" });
+    await change(7, { op: "archive_option", key: PLAN, optionId: "opt_00000001" });
+    await change(8, { op: "add_option", key: TOPICS, label: "Billing" });
+    // Ticking another option with the archived one still ticked.
+    expect(await set(db, { [TOPICS]: ["opt_00000003", "opt_00000004", "opt_00000009"] })).toMatchObject({ ok: true, changed: [TOPICS] });
+    // Saving another field while a select still holds its archived option.
+    expect(await set(db, { [PLAN]: "opt_00000001", [SEATS]: 3 })).toMatchObject({ ok: true, changed: [SEATS] });
+    // Taking the archived one off works; picking it again doesn't.
+    expect(await set(db, { [TOPICS]: ["opt_00000003"] })).toMatchObject({ ok: true, changed: [TOPICS] });
+    expect(await set(db, { [TOPICS]: ["opt_00000003", "opt_00000004"] })).toMatchObject({ ok: false, error: "invalid_value", fieldId: TOPICS, reason: "option" });
+    expect(await set(db, { [PLAN]: "opt_00000002" })).toMatchObject({ ok: true, changed: [PLAN] });
+    expect(await set(db, { [PLAN]: "opt_00000001" })).toMatchObject({ ok: false, error: "invalid_value", fieldId: PLAN });
+    // An undo puts back what the record held before, archived options and all.
+    expect(await set(db, { [PLAN]: "opt_00000001" }, { restoring: true })).toMatchObject({ ok: true, changed: [PLAN] });
+    expect((await forTenant(ctx, db).contacts.getById(PERSON))?.fields).toEqual({ [TOPICS]: ["opt_00000003"], [PLAN]: "opt_00000001", [SEATS]: 3 });
+  });
+
   it("refuses a value for a field archived in a racing transaction", async () => {
     const db = new FakeFirestore();
     await world(db);

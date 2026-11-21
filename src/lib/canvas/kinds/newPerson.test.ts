@@ -16,19 +16,24 @@ const by = { type: "member", id: "u_admin" } as const;
 const T0 = Date.parse("2026-11-21T10:00:00.000Z");
 const PLAN = "fld_fffffffffff1";
 const NOTES = "fld_fffffffffff2";
+const TITLE = "fld_fffffffffff3";
 const SAM = deterministicContactId("ten_A", "sam.okoro@example.com");
 
 let db: FakeFirestore;
+/** Whether text fields an admin let Vizzy read are on. */
+let textFields = false;
 const author = (fields: Record<string, unknown>, ctx: TenantContext = admin, nowMs = T0) =>
-  authorNewPerson({ ctx, input: { kind: "new_person", action: "save_draft", ...fields }, brief: "" }, { db, nowMs });
+  authorNewPerson({ ctx, input: { kind: "new_person", action: "save_draft", ...fields }, brief: "" }, { db, nowMs, textFields });
 
 beforeEach(async () => {
   __resetRateLimitState();
   for (const k of ["AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_ADD_PERSON_ENABLED", "AUDIENCE_VIZZY_ADD_PERSON_ENABLED"]) vi.stubEnv(k, "true");
   db = new FakeFirestore();
+  textFields = false;
   let o = 0;
   await saveFieldListChange(admin, "person", { baseRev: 0, change: { op: "add", label: "Plan", type: "select", options: ["Starter", "Pro"] }, by, newFieldId: () => PLAN, newOptionId: () => ["opt_ffffff01", "opt_ffffff02"][o++]! }, db);
   await saveFieldListChange(admin, "person", { baseRev: 1, change: { op: "add", label: "Notes", type: "text" }, by, newFieldId: () => NOTES }, db);
+  await saveFieldListChange(admin, "person", { baseRev: 2, change: { op: "add", label: "Job Title", type: "text", vizzyReads: true }, by, newFieldId: () => TITLE }, db);
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -77,6 +82,19 @@ describe("the new_person kind", () => {
     expect(db.raw("contacts", SAM)).toBeUndefined();
     expect(await readNewPersonDraft(admin, r.id, { db, nowMs: T0 })).toMatchObject({ email: "sam.okoro@example.com", firstName: "Sam", fields: { [PLAN]: "opt_ffffff02" } });
     expect(await readNewPersonDraft(admin, r.id, { db, nowMs: T0 + 8 * 86_400_000 })).toBeNull();
+  });
+
+  it("fills in a text field an admin let Vizzy read, only while text fields are on", async () => {
+    const off = await author({ email: "sam.okoro@example.com", fields: { "Job Title": "Head of Sales" } });
+    if (!off.ok) throw new Error(off.error);
+    expect(off.warnings).toHaveLength(1);
+    expect(off.card).toMatchObject({ stats: [{ label: "fields", value: 0 }] });
+    textFields = true;
+    const r = await author({ email: "kim.lee@example.com", fields: { "job title": "Head of Sales", Notes: "Met at the expo" } });
+    if (!r.ok) throw new Error(r.error);
+    // Notes, which nobody ticked, is left for the admin to type.
+    expect(r.warnings).toHaveLength(1);
+    expect(await getAgentAction(admin, r.id as AgentActionId, { db })).toMatchObject({ proposal: { fields: { [TITLE]: "Head of Sales" } }, fieldIds: [TITLE] });
   });
 
   it("points at the person already holding the address, and drafts nothing", async () => {

@@ -19,27 +19,32 @@ const SEATS = "fld_ccccccccccc1";
 const PLAN = "fld_ccccccccccc2";
 const NOTES = "fld_ccccccccccc3";
 const OLD = "fld_ccccccccccc4";
+const TITLE = "fld_ccccccccccc5";
 const T0 = Date.parse("2026-11-21T10:00:00.000Z");
 
 let db: FakeFirestore;
+/** Whether text fields an admin let Vizzy read are on. */
+let textFields = false;
 async function add(id: string, change: FieldListChange, options: string[] = []) {
   const { rev } = await readFieldList(admin, "person", db);
   let n = 0;
   const r = await saveFieldListChange(admin, "person", { baseRev: rev, change, by, newFieldId: () => id, newOptionId: () => options[n++]! }, db);
   if (!r.ok) throw new Error(r.error);
 }
-const author = (input: Record<string, unknown>, ctx: TenantContext = admin, nowMs = T0) => authorPersonFields({ ctx, input, brief: "" }, { db, nowMs });
+const author = (input: Record<string, unknown>, ctx: TenantContext = admin, nowMs = T0) => authorPersonFields({ ctx, input, brief: "" }, { db, nowMs, textFields });
 const suggest = (changes: Record<string, unknown>, extra: Record<string, unknown> = {}) => author({ kind: "person_fields", action: "save_draft", scope: { personId: PRIYA }, changes, ...extra });
 
 beforeEach(async () => {
   __resetRateLimitState();
   for (const k of ["AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_FIELDS_ENABLED", "AUDIENCE_VIZZY_FIELDS_ENABLED"]) vi.stubEnv(k, "true");
   db = new FakeFirestore();
+  textFields = false;
   await add(SEATS, { op: "add", label: "Seats", type: "number" });
   await add(PLAN, { op: "add", label: "Plan", type: "select", options: ["Starter", "Pro"] }, ["opt_cccccc01", "opt_cccccc02"]);
   await add(NOTES, { op: "add", label: "Notes", type: "text" });
   await add(OLD, { op: "add", label: "Old seats", type: "number" });
   await add(OLD, { op: "archive", key: OLD });
+  await add(TITLE, { op: "add", label: "Job Title", type: "text", vizzyReads: true });
   db.seed("contacts", PRIYA, {
     tenantId: "ten_A",
     contactKey: "priya.shah@example.com",
@@ -100,6 +105,17 @@ describe("the person_fields kind", () => {
     expect(await suggest({})).toMatchObject({ ok: false, status: 400, error: "invalid_input" });
     expect(await author({ scope: { personId: "pu_1" }, changes: { [SEATS]: 1 } })).toMatchObject({ ok: false, status: 404, error: "person_not_found" });
     expect(await author({ scope: { personId: PRIYA }, changes: { [SEATS]: 1 } }, { ...admin, tenantId: "ten_B" })).toMatchObject({ ok: false, status: 404 });
+  });
+
+  it("suggests a text field an admin let Vizzy read, only while text fields are on", async () => {
+    expect(await suggest({ [TITLE]: "Head of Sales" })).toMatchObject({ ok: false, status: 400, error: "field_not_allowed" });
+    textFields = true;
+    const r = await suggest({ [TITLE]: " Head of Sales " });
+    if (!r.ok) throw new Error(r.error);
+    const action = await getAgentAction(admin, r.id as AgentActionId, { db });
+    expect(action).toMatchObject({ proposal: { fields: { [TITLE]: "Head of Sales" } }, basis: { fields: { [TITLE]: null } }, fieldIds: [TITLE] });
+    // A text field nobody ticked stays out.
+    expect(await suggest({ [NOTES]: "Call her on Friday" })).toMatchObject({ ok: false, status: 400, error: "field_not_allowed" });
   });
 
   it("takes their name and address out of the reason", async () => {

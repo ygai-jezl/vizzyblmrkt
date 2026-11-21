@@ -5,7 +5,7 @@ import { deterministicAgentActionId } from "@/lib/crm/identifiers";
 import { getAgentAction, listAgentActionsForPerson } from "@/lib/ontology/agentActions";
 import { isContactPersonId, type ContactPersonId } from "@/lib/ontology/person";
 import { agentDedupeKey, isAgentActionId, type AgentAction, type AgentActionId } from "@/lib/types/agentAction";
-import { checkFieldValue, isVizzyFieldType, liveOptions, sameFieldValue, type FieldValue, type RecordField } from "@/lib/types/recordField";
+import { checkFieldValue, liveOptions, sameFieldValue, vizzyReadsField, type FieldValue, type RecordField } from "@/lib/types/recordField";
 import { normalizeEmail } from "@/lib/waitlist/identifiers";
 import { newPersonKey } from "./addPerson";
 import { readFieldList } from "./fieldList";
@@ -24,8 +24,8 @@ import { personIdOf } from "./personSync";
  * - The details sit in the proposal and are cleared when it closes: confirmed (acted, keeping only
  *   the new person's id), dismissed, or declined as expired by the tick after 7 days.
  * - Someone already in People gets no draft: Vizzy is told, and links to their page.
- * - Field values only of the seven types Vizzy may read, named by label or id; an option by its
- *   label or id. Anything else is left out with a warning, and the admin types it in the form.
+ * - Field values only of fields Vizzy may read (vizzyReadsField), named by label or id; an option
+ *   by its label or id. Anything else is left out with a warning, and the admin types it in the form.
  */
 
 export const NEW_PERSON_ACTION = "new_person.draft";
@@ -65,8 +65,8 @@ function asStored(field: RecordField, raw: unknown): unknown {
 }
 
 /** Field values named by label or id, checked against the list; the rest become warnings. */
-function draftFields(items: readonly RecordField[], typed: Record<string, unknown>): { fields: Record<string, FieldValue>; warnings: string[] } {
-  const live = items.filter((f) => !f.archivedAt && isVizzyFieldType(f.type));
+function draftFields(items: readonly RecordField[], typed: Record<string, unknown>, textFields: boolean): { fields: Record<string, FieldValue>; warnings: string[] } {
+  const live = items.filter((f) => vizzyReadsField(f, textFields));
   const fields: Record<string, FieldValue> = {};
   const warnings: string[] = [];
   for (const [name, raw] of Object.entries(typed).slice(0, 50)) {
@@ -110,7 +110,7 @@ async function openDrafts(ctx: TenantContext, personId: ContactPersonId, db?: Fi
 export async function draftNewPerson(
   ctx: TenantContext,
   input: { email?: string | null; phone?: string | null; firstName?: string | null; lastName?: string | null; fields?: Record<string, unknown> | null },
-  deps: { db?: FirestoreLike; nowMs?: number } = {},
+  deps: { db?: FirestoreLike; nowMs?: number; textFields?: boolean } = {},
 ): Promise<DraftResult> {
   const parsed = parseNewPerson({
     ...(input.email ? { email: input.email } : {}),
@@ -124,7 +124,7 @@ export async function draftNewPerson(
   if (await forTenant(ctx, deps.db).contacts.getById(personId)) return { ok: true, outcome: "existing", personId };
 
   const list = await readFieldList(ctx, "person", deps.db);
-  const { fields, warnings } = draftFields(list.items, input.fields ?? {});
+  const { fields, warnings } = draftFields(list.items, input.fields ?? {}, deps.textFields === true);
   const details: DraftDetails = {
     email: parsed.value.email ? normalizeEmail(parsed.value.email) : null,
     phone: parsed.value.phone,

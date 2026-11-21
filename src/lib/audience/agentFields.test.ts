@@ -26,6 +26,7 @@ const ids = {
   site: "fld_aaaaaaaaaab2",
   owner: "fld_aaaaaaaaaab3",
   old: "fld_aaaaaaaaaab4",
+  title: "fld_aaaaaaaaaab5",
 };
 const optionIds = ["opt_aaaaaaa1", "opt_aaaaaaa2", "opt_aaaaaaa3", "opt_aaaaaaa4", "opt_aaaaaaa5", "opt_aaaaaaa6", "opt_aaaaaaa7", "opt_aaaaaaa8"];
 
@@ -64,6 +65,8 @@ beforeEach(async () => {
   await add(ids.owner, { op: "add", label: "Owner", type: "team_member" });
   await add(ids.old, { op: "add", label: "Old tier", type: "number" });
   await add(ids.old, { op: "archive", key: ids.old });
+  // A text field an admin let Vizzy read; Notes, beside it, stays unticked.
+  await add(ids.title, { op: "add", label: "Job Title", type: "text", vizzyReads: true });
   // Someone who only joined a launch: no product, no lifecycle brief.
   db.seed("contacts", SAM, {
     tenantId: "ten_A",
@@ -86,6 +89,7 @@ beforeEach(async () => {
       [ids.site]: "https://sam.example.com",
       [ids.owner]: "u_admin",
       [ids.old]: 3,
+      [ids.title]: "Head of Growth",
     },
   });
 });
@@ -123,6 +127,23 @@ describe("the field list Vizzy reads", () => {
   });
 });
 
+describe("text fields an admin let Vizzy read", () => {
+  it("are listed and read only while text fields are on, and other text, email, phone, link and team member fields never", async () => {
+    const on = { textFields: true };
+    const list = (await agentFieldList(ctx, db, on)).body as { fields: Array<{ id: string; label: string; type: string }> };
+    expect(list.fields.filter((f) => f.type === "text")).toEqual([{ id: ids.title, label: "Job Title", type: "text" }]);
+    const body = (await agentPersonFields(ctx, SAM, db, on)).body as { fields: Array<{ id: string; value: unknown; text: string | null }> };
+    const byId = Object.fromEntries(body.fields.map((f) => [f.id, f]));
+    expect(byId[ids.title]).toMatchObject({ value: "Head of Growth", text: "Head of Growth" });
+    for (const hidden of [ids.notes, ids.work, ids.mobile, ids.site, ids.owner, ids.old]) expect(byId[hidden]).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain("expo");
+
+    const off = (await agentFieldList(ctx, db)).body as { fields: Array<{ id: string }> };
+    expect(off.fields.map((f) => f.id)).not.toContain(ids.title);
+    expect(JSON.stringify((await agentPersonFields(ctx, SAM, db)).body)).not.toContain("Head of Growth");
+  });
+});
+
 describe("one person's fields for Vizzy", () => {
   it("serves someone who only joined a launch, with values of the seven types only", async () => {
     const r = await agentPersonFields(ctx, SAM, db);
@@ -136,7 +157,7 @@ describe("one person's fields for Vizzy", () => {
     expect(byId[ids.onboarded]).toMatchObject({ value: true, text: "Yes" });
     expect(byId[ids.interests]).toMatchObject({ value: ["opt_aaaaaaa3", "opt_aaaaaaa4"], text: "Analytics, Exports" });
     expect(byId[ids.status]).toMatchObject({ value: null, text: null });
-    for (const hidden of [ids.notes, ids.work, ids.mobile, ids.site, ids.owner, ids.old]) expect(byId[hidden]).toBeUndefined();
+    for (const hidden of [ids.notes, ids.work, ids.mobile, ids.site, ids.owner, ids.old, ids.title]) expect(byId[hidden]).toBeUndefined();
     const text = JSON.stringify(body);
     for (const never of ["expo", "work.example.com", "7700", "sam.example.com", "u_admin", "sam.rivera", "Sam"]) expect(text).not.toContain(never);
   });

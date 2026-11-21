@@ -2,7 +2,7 @@ import { forTenant, isRateLimited, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { isCanvasAuthConfigured, tenantContextFromCanvasToken, verifyCanvasContext } from "@/lib/canvas/auth";
 import { isContactPersonId } from "@/lib/ontology/person";
-import { isVizzyFieldType, liveOptions, type FieldValue, type RecordField } from "@/lib/types/recordField";
+import { liveOptions, vizzyReadsField, type FieldValue, type RecordField } from "@/lib/types/recordField";
 import { readFieldList } from "./fieldList";
 import { valueText } from "./fields";
 import { openFieldSuggestions } from "./fieldSuggestions";
@@ -36,9 +36,14 @@ export function vizzyFieldsAgentGate(req: Request): { ok: true; ctx: TenantConte
   return { ok: true, ctx: tenantContextFromCanvasToken(verified.claims) };
 }
 
-/** The People fields Vizzy may see: in use, of the seven types. */
-export function vizzyFields(items: readonly RecordField[]): RecordField[] {
-  return items.filter((f) => !f.archivedAt && isVizzyFieldType(f.type));
+/** Whether text fields an admin let Vizzy read are on. Off until their switch is added. */
+export interface VizzyTextOptions {
+  textFields?: boolean;
+}
+
+/** The People fields Vizzy may see: in use, of the seven types or text it may read (vizzyReadsField). */
+export function vizzyFields(items: readonly RecordField[], textFields = false): RecordField[] {
+  return items.filter((f) => vizzyReadsField(f, textFields));
 }
 
 /** A field as Vizzy reads it: its id, name, type, live options and currency. Scrubbed when it is about one person. */
@@ -58,10 +63,10 @@ function words(f: RecordField, v: FieldValue): string {
 }
 
 /** The brand's People fields of the seven types, with no values. */
-export async function agentFieldList(ctx: TenantContext, db?: FirestoreLike): Promise<ApiResult> {
+export async function agentFieldList(ctx: TenantContext, db?: FirestoreLike, opts: VizzyTextOptions = {}): Promise<ApiResult> {
   if (await isRateLimited(`tenant:${ctx.tenantId}`, READ_LIMIT, { db })) return { status: 429, body: { error: "rate_limited" } };
   const list = await readFieldList(ctx, "person", db);
-  return { status: 200, body: { fields: vizzyFields(list.items).map((f) => describe(f)), note: VALUE_SHAPES } };
+  return { status: 200, body: { fields: vizzyFields(list.items, opts.textFields === true).map((f) => describe(f)), note: VALUE_SHAPES } };
 }
 
 /** The scrubber for one contact: their name and address taken out of anything sent about them. */
@@ -74,7 +79,7 @@ function contactScrubber(c: { firstName?: string | null; lastName?: string | nul
  * fields that already have a suggestion waiting. The person is our id for them (`ct_`); anything
  * else, or nobody, is `person_not_found`.
  */
-export async function agentPersonFields(ctx: TenantContext, personId: string, db?: FirestoreLike): Promise<ApiResult> {
+export async function agentPersonFields(ctx: TenantContext, personId: string, db?: FirestoreLike, opts: VizzyTextOptions = {}): Promise<ApiResult> {
   if (await isRateLimited(`tenant:${ctx.tenantId}`, READ_LIMIT, { db })) return { status: 429, body: { error: "rate_limited" } };
   if (!isContactPersonId(personId)) return { status: 404, body: { error: "person_not_found" } };
   const contact = await forTenant(ctx, db).contacts.getById(personId);
@@ -82,7 +87,7 @@ export async function agentPersonFields(ctx: TenantContext, personId: string, db
   const [list, open] = await Promise.all([readFieldList(ctx, "person", db), openFieldSuggestions(ctx, personId, db)]);
   const scrub = contactScrubber(contact);
   const values = (contact.fields ?? {}) as Record<string, FieldValue>;
-  const fields = vizzyFields(list.items).map((f) => {
+  const fields = vizzyFields(list.items, opts.textFields === true).map((f) => {
     const v = values[f.key];
     const set = v !== undefined && v !== null;
     return { ...describe(f, scrub), value: set ? v : null, text: set ? scrub(words(f, v)) : null };

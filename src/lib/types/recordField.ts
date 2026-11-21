@@ -76,8 +76,9 @@ export function isFilterType(type: FieldType): boolean {
 
 /**
  * The types Vizzy may read and suggest (AUDIENCE_VIZZY_FIELDS_ENABLED, answer 7 of 20 Nov): values
- * that pick from the brand's own options, a box, a number, an amount or a day. Never text, email,
- * phone, link or team member values, which can hold who someone is.
+ * that pick from the brand's own options, a box, a number, an amount or a day. Never email, phone,
+ * link or team member values, which can hold who someone is, and text only where an admin let
+ * Vizzy read that field (vizzyReadsField).
  */
 export const VIZZY_FIELD_TYPES = ["select", "multi_select", "status", "checkbox", "number", "currency", "date"] as const satisfies readonly FieldType[];
 export function isVizzyFieldType(type: FieldType): boolean {
@@ -90,6 +91,19 @@ export function isVizzyFieldType(type: FieldType): boolean {
  */
 export function canVizzyReadText(field: { type?: unknown; object?: unknown }): boolean {
   return field.type === "text" && field.object === "person";
+}
+
+/**
+ * The one rule for what Vizzy may read and suggest: a People field in use, either of the seven
+ * types, or a text field an admin let Vizzy read while text fields are on (`textFields`, the
+ * server's answer for AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED). Never email, phone, link or team member
+ * fields, whatever is stored. It checks the type and object itself, since a stored item that
+ * doesn't parse is kept as it is.
+ */
+export function vizzyReadsField(field: { type?: unknown; object?: unknown; archivedAt?: unknown; vizzyReads?: unknown } | null | undefined, textFields: boolean): boolean {
+  if (!field || field.object !== "person" || field.archivedAt) return false;
+  if (typeof field.type === "string" && isVizzyFieldType(field.type as FieldType)) return true;
+  return textFields === true && canVizzyReadText(field) && field.vizzyReads === true;
 }
 
 export const FIELD_LIMITS = {

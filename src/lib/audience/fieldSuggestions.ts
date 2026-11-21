@@ -5,7 +5,7 @@ import { deterministicAgentActionId } from "@/lib/crm/identifiers";
 import { getAgentAction, listAgentActionsForPerson } from "@/lib/ontology/agentActions";
 import { isContactPersonId, type ContactPersonId } from "@/lib/ontology/person";
 import { agentDedupeKey, isAgentActionId, type AgentAction, type AgentActionId } from "@/lib/types/agentAction";
-import { checkFieldValue, isVizzyFieldType, sameFieldValue, type FieldType, type FieldValue, type RecordField } from "@/lib/types/recordField";
+import { checkFieldValue, sameFieldValue, vizzyReadsField, type FieldType, type FieldValue, type RecordField } from "@/lib/types/recordField";
 import { readFieldList } from "./fieldList";
 import { setFieldValues, valueText } from "./fields";
 import { identityScrubber } from "./identityScrubber";
@@ -17,7 +17,7 @@ import { personHref } from "./paths";
  * canvas kind; someone on the team confirms, dismisses or undoes it on the person's page or from
  * Review. Nothing changes until then.
  *
- * - Only the seven types Vizzy may read, fields in use, values their type allows.
+ * - Only fields Vizzy may read (vizzyReadsField), in use, values their type allows.
  * - The proposal holds the suggested values under `fields` and a short reason; the basis holds the
  *   values when it was made, also under `fields`, so confirming can refuse a stale one and an
  *   erased field is blanked in place.
@@ -99,7 +99,7 @@ function decidedByAPerson(a: AgentAction): boolean {
 export async function suggestFieldChanges(
   ctx: TenantContext,
   input: { personId: string; changes: Record<string, unknown>; why?: string | null },
-  deps: { db?: FirestoreLike; nowMs?: number } = {},
+  deps: { db?: FirestoreLike; nowMs?: number; textFields?: boolean } = {},
 ): Promise<SuggestResult> {
   if (!isContactPersonId(input.personId)) return { ok: false, error: "person_not_found" };
   const personId = input.personId;
@@ -117,7 +117,7 @@ export async function suggestFieldChanges(
     const field = byId.get(fieldId);
     if (!field) return { ok: false, error: "unknown_field", fieldId: fieldId.slice(0, 64) };
     if (field.archivedAt) return { ok: false, error: "archived_field", fieldId };
-    if (!isVizzyFieldType(field.type)) return { ok: false, error: "field_not_allowed", fieldId };
+    if (!vizzyReadsField(field, deps.textFields === true)) return { ok: false, error: "field_not_allowed", fieldId };
     const check = checkFieldValue(field, raw);
     if (!check.ok) return { ok: false, error: "invalid_value", fieldId };
     const was = current[fieldId] ?? null;

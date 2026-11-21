@@ -32,7 +32,7 @@ const NewPersonInput = z
 
 const AUTHOR_LIMIT = { prefix: "new_person_author", burstLimit: 10, hourlyLimit: 60 };
 
-export async function authorNewPerson({ ctx, input }: CanvasAuthorArgs, deps: { db?: FirestoreLike; nowMs?: number } = {}): Promise<CanvasAuthorOutcome> {
+export async function authorNewPerson({ ctx, input }: CanvasAuthorArgs, deps: { db?: FirestoreLike; nowMs?: number; textFields?: boolean } = {}): Promise<CanvasAuthorOutcome> {
   if (!isVizzyAddPersonEnabled()) return { ok: false, status: 503, error: "unavailable" };
   // Adding people is admin-only, so filling in the form through Vizzy is too.
   if (ctx.role !== "admin") return { ok: false, status: 403, error: "forbidden" };

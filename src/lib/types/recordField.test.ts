@@ -15,6 +15,8 @@ import {
   optionsForValue,
   RecordFieldSchema,
   sameFieldValue,
+  VIZZY_FIELD_TYPES,
+  vizzyReadsField,
   type RecordField,
 } from "./recordField";
 
@@ -70,6 +72,35 @@ describe("a field", () => {
     expect(RecordFieldSchema.safeParse(field({ label: "   " })).success).toBe(false);
     expect(RecordFieldSchema.safeParse(field({ createdBy: "admin@example.com" })).success).toBe(false);
     expect(RecordFieldSchema.parse(field({ label: "  Plan  " })).label).toBe("Plan");
+  });
+});
+
+describe("what Vizzy may read", () => {
+  it("is the seven types on People, whatever the text switch says", () => {
+    for (const type of VIZZY_FIELD_TYPES) {
+      expect(vizzyReadsField(field({ type }), false), type).toBe(true);
+      expect(vizzyReadsField(field({ type }), true), type).toBe(true);
+    }
+  });
+
+  it("is a text field only when an admin let Vizzy read it and text fields are on", () => {
+    expect(vizzyReadsField(field({ type: "text", vizzyReads: true }), true)).toBe(true);
+    expect(vizzyReadsField(field({ type: "text", vizzyReads: true }), false)).toBe(false);
+    expect(vizzyReadsField(field({ type: "text" }), true)).toBe(false);
+    // Only exactly true: a stored item that doesn't parse is kept as it is.
+    expect(vizzyReadsField({ ...field({ type: "text" }), vizzyReads: "true" }, true)).toBe(false);
+  });
+
+  it("is never email, phone, link or team member, a company's field or an archived one, whatever is stored", () => {
+    for (const type of ["email", "phone", "link", "team_member"] as const) {
+      expect(vizzyReadsField({ ...field({ type }), vizzyReads: true }, true), type).toBe(false);
+    }
+    expect(vizzyReadsField(field({ type: "select", object: "company", options: [opt(1)] }), true)).toBe(false);
+    expect(vizzyReadsField({ ...field({ type: "text", object: "company" }), vizzyReads: true }, true)).toBe(false);
+    expect(vizzyReadsField(field({ type: "number", archivedAt: AT }), true)).toBe(false);
+    expect(vizzyReadsField(field({ type: "text", vizzyReads: true, archivedAt: AT }), true)).toBe(false);
+    expect(vizzyReadsField({ ...field(), type: "nope" } as unknown as RecordField, true)).toBe(false);
+    expect(vizzyReadsField(null, true)).toBe(false);
   });
 });
 

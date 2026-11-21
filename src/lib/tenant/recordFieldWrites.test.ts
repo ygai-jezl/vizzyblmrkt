@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FakeFirestore } from "./testing/fakeFirestore";
-import { forTenant, proposeAgentAction, setRecordFieldValues } from "./index";
+import { forTenant, moveRecordFieldValues, proposeAgentAction, setRecordFieldValues } from "./index";
 import { RECORD_BYTE_BUDGET } from "./recordFieldWrites";
 import type { TenantContext } from "./types";
 import { saveFieldListChange, type FieldListChange } from "@/lib/audience/fieldList";
@@ -243,5 +243,95 @@ describe("repairFieldTags", () => {
     expect(await repairFieldTags(ctx, PERSON, { db })).toBe("unchanged");
     expect(await repairFieldTags(ctx, deterministicContactId("ten_A", "nobody@example.com"), { db })).toBe("missing");
     await expect(repairFieldTags(other, PERSON, { db })).rejects.toThrow(/another tenant/);
+  });
+});
+
+describe("moveRecordFieldValues", () => {
+  // Sam's earlier record, left behind on a move (out of Everyone), and the record they moved to.
+  const FORMER = deterministicContactId("ten_A", "sam@old.example.com");
+  const T2 = "2026-11-21T11:00:00.000Z";
+  async function moved(db: FakeFirestore, formerFields: Record<string, unknown>, over: Record<string, unknown> = {}) {
+    await world(db);
+    await db.collection("contacts").doc(FORMER).set({ tenantId: "ten_A", contactKey: "sam@old.example.com", memberOf: [], fields: formerFields, updatedAt: T0, ...over });
+  }
+  const contact = (db: FakeFirestore, id: string) => db.raw("contacts", id) as { fields?: Record<string, unknown>; memberOf?: string[] } | undefined;
+  const fieldEvents = (db: FakeFirestore) => db.dump("ontology_events").filter((e) => e.kind === "record.field_changed");
+
+  it("moves each value to the new record with its event and tags, and clears it from the old one", async () => {
+    const db = new FakeFirestore();
+    await moved(db, { [PLAN]: "opt_00000002", [SEATS]: 12 });
+    const r = await moveRecordFieldValues(ctx, { from: FORMER, to: PERSON, nowIso: T2 }, { db });
+    expect(r).toEqual({ outcome: "moved", moved: [PLAN, SEATS], same: [], kept: [], tooLarge: [], emptied: true, fromKey: "sam@old.example.com" });
+    expect(contact(db, PERSON)).toMatchObject({ fields: { [PLAN]: "opt_00000002", [SEATS]: 12 }, changedAt: T2, updatedAt: T2 });
+    expect(contact(db, PERSON)?.memberOf).toEqual(["all", "launch:any", `field:${PLAN}:opt_00000002`].sort());
+    expect(contact(db, FORMER)?.fields).toEqual({});
+    const events = fieldEvents(db);
+    expect(events.filter((e) => e.personId === PERSON).map((e) => [e.fieldId, (e.properties as { before: unknown }).before, (e.properties as { after: unknown }).after])).toEqual(
+      expect.arrayContaining([
+        [PLAN, null, "opt_00000002"],
+        [SEATS, null, 12],
+      ]),
+    );
+    expect(events.filter((e) => e.personId === FORMER).map((e) => (e.properties as { after: unknown }).after)).toEqual([null, null]);
+    expect(events.every((e) => (e.properties as { source: string }).source === "sync" && (e.actor as { type: string }).type === "system")).toBe(true);
+    expect(events).toHaveLength(4);
+  });
+
+  it("keeps the new record's own value, and only clears one it already holds", async () => {
+    const db = new FakeFirestore();
+    await moved(db, { [PLAN]: "opt_00000001", [SEATS]: 12, [DONE]: true });
+    await set(db, { [PLAN]: "opt_00000002", [SEATS]: 12 });
+    const r = await moveRecordFieldValues(ctx, { from: FORMER, to: PERSON, nowIso: T2 }, { db });
+    expect(r).toMatchObject({ outcome: "moved", moved: [DONE], same: [SEATS], kept: [PLAN], emptied: false });
+    expect(contact(db, PERSON)?.fields).toEqual({ [PLAN]: "opt_00000002", [SEATS]: 12, [DONE]: true });
+    expect(contact(db, FORMER)?.fields).toEqual({ [PLAN]: "opt_00000001" });
+  });
+
+  it("moves an archived field's value too", async () => {
+    const db = new FakeFirestore();
+    await moved(db, { [NOTES]: "Met at the conference" });
+    await saveFieldListChange(ctx, "person", { baseRev: 6, change: { op: "archive", key: NOTES }, by, nowIso: T1 }, db);
+    expect(await moveRecordFieldValues(ctx, { from: FORMER, to: PERSON, nowIso: T2 }, { db })).toMatchObject({ outcome: "moved", moved: [NOTES] });
+    expect(contact(db, PERSON)?.fields).toEqual({ [NOTES]: "Met at the conference" });
+  });
+
+  it("does nothing twice: a second run, or a retried one, writes nothing", async () => {
+    const db = new FakeFirestore();
+    await moved(db, { [PLAN]: "opt_00000002" });
+    await moveRecordFieldValues(ctx, { from: FORMER, to: PERSON, nowIso: T2 }, { db });
+    const after = { events: fieldEvents(db).length, person: JSON.stringify(contact(db, PERSON)) };
+    expect(await moveRecordFieldValues(ctx, { from: FORMER, to: PERSON, nowIso: T2 }, { db })).toMatchObject({ outcome: "unchanged", emptied: true });
+    expect(await moveRecordFieldValues(ctx, { from: FORMER, to: PERSON, nowIso: "2026-11-21T12:00:00.000Z" }, { db })).toMatchObject({ outcome: "unchanged" });
+    expect(fieldEvents(db)).toHaveLength(after.events);
+    expect(JSON.stringify(contact(db, PERSON))).toBe(after.person);
+  });
+
+  it("leaves a value that won't fit on the old record", async () => {
+    const db = new FakeFirestore();
+    await moved(db, { [NOTES]: "y".repeat(2000), [SEATS]: 3 });
+    await db.collection("contacts").doc(PERSON).update({ padding: "x".repeat(RECORD_BYTE_BUDGET - 1000) });
+    const r = await moveRecordFieldValues(ctx, { from: FORMER, to: PERSON, nowIso: T2 }, { db });
+    expect(r).toMatchObject({ outcome: "moved", moved: [SEATS], tooLarge: [NOTES], emptied: false });
+    expect(contact(db, FORMER)?.fields).toEqual({ [NOTES]: "y".repeat(2000) });
+    expect(contact(db, PERSON)?.fields).toEqual({ [SEATS]: 3 });
+  });
+
+  it("leaves the values of a record that is still someone in People, or with nowhere to go", async () => {
+    const db = new FakeFirestore();
+    await moved(db, { [SEATS]: 3 }, { memberOf: ["all", "launch:any"] });
+    expect(await moveRecordFieldValues(ctx, { from: FORMER, to: PERSON, nowIso: T2 }, { db })).toMatchObject({ outcome: "skipped", reason: "still_a_person" });
+    await db.collection("contacts").doc(FORMER).update({ memberOf: [] });
+    expect(await moveRecordFieldValues(ctx, { from: FORMER, to: deterministicContactId("ten_A", "nobody@example.com"), nowIso: T2 }, { db })).toMatchObject({ outcome: "skipped", reason: "no_target" });
+    expect(contact(db, FORMER)?.fields).toEqual({ [SEATS]: 3 });
+    expect(fieldEvents(db)).toHaveLength(0);
+  });
+
+  it("never reads or writes another brand's records", async () => {
+    const db = new FakeFirestore();
+    await moved(db, { [SEATS]: 3 });
+    await expect(moveRecordFieldValues(other, { from: FORMER, to: PERSON, nowIso: T2 }, { db })).rejects.toThrow(/another tenant/);
+    expect(contact(db, FORMER)?.fields).toEqual({ [SEATS]: 3 });
+    expect(contact(db, PERSON)?.fields).toBeUndefined();
+    expect(fieldEvents(db)).toHaveLength(0);
   });
 });

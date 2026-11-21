@@ -604,7 +604,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
         LEFT_BEHIND,
       ],
       gaps: [
-        "a record that only came from products is kept when it holds field values and its last product user goes another way (revoked, a new address, or joined to an address), out of Everyone until the team erases it; whether its values should follow the person is an open decision",
+        "a record that only came from products is kept when it holds field values its person can't take: its product was revoked, or, after a new address or a join to an address, the new record had its own value for that field or no room for it; it stays out of Everyone until the team erases it or the product user's erase takes it",
         "a person left behind on an address change while ONTOLOGY_PERSON_IDS_ENABLED was off has no move for the product user's erase to find; fields need that switch, so values are only left behind while it is on",
       ],
     },
@@ -755,7 +755,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "person_move",
     name: "Person move",
     description:
-      "A product user who moved to another person: merged when one known only by their own record gave an address, repointed when their address changed or went. Their rows follow, moved by the person_repoint job. Ids only.",
+      "A product user who moved to another person: merged when one known only by their own record gave an address, repointed when their address changed or went. Their rows follow, moved by the person_repoint job, and so do the team's field values on a record the move left behind (the new record's own values win). Ids only.",
     place: "customers",
     status: "built",
     home: "brand",

@@ -283,6 +283,11 @@ export default function YourAudienceHelp({
             them, and their filters come back if they return. Erasing them, or erasing them from the only product they came from,
             removes the values too.
           </P>
+          <P>
+            When someone changes their email in your product, or someone who used your product with no email adds one, their values
+            go with them to the person with that email. Where that person already has a value for a field, it is kept, and the
+            earlier one stays on the record they left.{timeline ? " Their timeline says which values came with them." : ""}
+          </P>
 
           <H2 id="company-fields">Company fields</H2>
           <P>

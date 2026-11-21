@@ -193,7 +193,7 @@ export type { AgentProposal, AgentTransition, TransitionError } from "./agentAct
 export { commitSettingsChange, readSetting, settingsDocId, settingsVersionId } from "./settingsLog";
 export type { SettingsChange, SettingsCommit, StoredSetting } from "./settingsLog";
 // Field values: the one writer, with their events, tags and an agent action's decision in one transaction.
-export { setRecordFieldValues, repairFieldTags, RECORD_BYTE_BUDGET } from "./recordFieldWrites";
+export { setRecordFieldValues, repairFieldTags, moveRecordFieldValues, RECORD_BYTE_BUDGET } from "./recordFieldWrites";
 export type { SetFieldValuesInput, SetFieldValuesResult, SetFieldValuesError } from "./recordFieldWrites";
 export type { VersionCollection } from "./repository";
 export type { SendClaimArgs, SendClaimOutcome } from "./lifecycleSend";

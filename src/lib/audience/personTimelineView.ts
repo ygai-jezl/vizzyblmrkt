@@ -46,6 +46,9 @@ export interface TimelineViewPage {
   next: string | null;
 }
 
+/** What a value that came with them from an earlier record says on the timeline. */
+export const FIELD_MOVED_DETAIL = "Came with them from their earlier record";
+
 /** The most of each other source one timeline reads. */
 const BESIDE_MAX = 200;
 
@@ -224,7 +227,14 @@ function fromEvent(e: StoredEvent, names: Names, launchesJoined: ReadonlySet<str
       if (fieldId.startsWith("sys.")) return null;
       const field = names.fields.get(fieldId);
       const label = field?.label ?? "A field no longer in use";
-      const undo = (e.properties as { source?: unknown }).source === "undo";
+      const source = (e.properties as { source?: unknown }).source;
+      if (source === "sync") {
+        // A value that came with them from the record they moved from. Its clearing on that record
+        // is bookkeeping, and a merge brings it here too, so it isn't shown.
+        if (e.blankedAt || before != null || after == null) return null;
+        return { ...base, kind: "field", text: `${label} set to ${fieldValueText(field, after, names.people)}`, detail: FIELD_MOVED_DETAIL };
+      }
+      const undo = source === "undo";
       const detail = undo
         ? by
           ? `${by} undid Vizzy's suggestion`

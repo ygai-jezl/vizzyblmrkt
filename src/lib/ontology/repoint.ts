@@ -1,4 +1,5 @@
-import { forTenant, repointHistoryPage, type HistoryStore } from "@/lib/tenant";
+import { forTenant, moveRecordFieldValues, repointHistoryPage, type HistoryStore } from "@/lib/tenant";
+import { syncPersonSafe } from "@/lib/audience/personSync";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { EmailJob } from "@/lib/types/emailJob";
 import { isOntologyPersonIdsEnabled } from "./flags";
@@ -23,6 +24,11 @@ import { personIdForProductUser } from "./personRef";
  * HISTORY_STORES, never a collection name): first their rows naming the product user, then, for
  * each pending move of theirs that was a merge (a pu: person never comes back once the user has
  * an address) or whose from-person's record is gone, every row filed under that person.
+ *
+ * Before the walk, the team's field values follow them: from each person their pending moves left
+ * behind onto the person they are now, through the one field writer (moveRecordFieldValues), and
+ * a record that leaves empty is synced again, so one nothing else keeps goes as it would have
+ * without values and its history follows in the walk. Running it again moves nothing twice.
  */
 
 /** The stores a product user's person is written on, in the order the job walks them. */
@@ -141,6 +147,8 @@ export async function processPersonRepointJob(
       ],
       limit: 100,
     });
+    // Their field values first: a record they leave empty may go, and then its history follows below.
+    await moveFieldValues(pending, to);
     const froms = new Set<ContactPersonId>();
     for (const m of pending) {
       if (!isContactPersonId(m.fromPersonId) || m.fromPersonId === to || froms.has(m.fromPersonId)) continue;
@@ -149,6 +157,24 @@ export async function processPersonRepointJob(
     for (const from of [...froms].sort()) for (const store of HISTORY_STORES) steps.push({ kind: "history", store, from });
     return steps;
   };
+
+  /** Field values from each person their pending moves left behind, onto `to`. Never throws. */
+  async function moveFieldValues(pending: ReadonlyArray<{ fromPersonId: string }>, to: ContactPersonId): Promise<void> {
+    const froms = [...new Set(pending.map((m) => m.fromPersonId))].filter((f): f is ContactPersonId => isContactPersonId(f) && f !== to).sort();
+    // The run's start, so the slice clock isn't spent here.
+    const at = new Date(started).toISOString();
+    for (const from of froms) {
+      try {
+        const r = await moveRecordFieldValues(ctx, { from, to, nowIso: at }, { db });
+        // Codes and counts only: never a value, an address or an id.
+        if (r.tooLarge.length) console.warn(`[ontology] move_field_values_too_large tenant=${ctx.tenantId} count=${r.tooLarge.length}`);
+        if (r.outcome === "skipped" && r.reason === "no_target") console.warn(`[ontology] move_field_values_no_target tenant=${ctx.tenantId}`);
+        if (r.outcome === "moved" && r.emptied) await syncPersonSafe(ctx, r.fromKey, { db, nowMs: started });
+      } catch (err) {
+        console.warn(`[ontology] moving field values failed tenant=${ctx.tenantId}:`, err instanceof Error ? err.message.slice(0, 120) : "error");
+      }
+    }
+  }
 
   let steps = await stepsFor(target);
   const saved = cursorOf(job.payload);

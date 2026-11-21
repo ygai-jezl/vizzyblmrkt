@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
-import { setRecordFieldValues } from "@/lib/tenant";
+import { moveRecordFieldValues, setRecordFieldValues } from "@/lib/tenant";
 import { InvalidCursorError } from "@/lib/ontology/timeline";
 import { CONNECTION_ID, T0, TENANT_ID, ctx, seedUser, seedWorld } from "@/lib/lifecycle/testing/fixtures";
 import { saveFieldListChange } from "./fieldList";
@@ -9,7 +9,7 @@ import { decideFieldSuggestion, suggestFieldChanges } from "./fieldSuggestions";
 import { parseNewPerson } from "./newPerson";
 import { personIdOf, syncPerson, syncProductLink } from "./personSync";
 import { expireAgentActions } from "@/lib/tenant";
-import { compareTimelineEntries, loadPersonTimeline, TIMELINE_KIND_ORDER, type TimelineEntry } from "./personTimelineView";
+import { compareTimelineEntries, FIELD_MOVED_DETAIL, loadPersonTimeline, TIMELINE_KIND_ORDER, type TimelineEntry } from "./personTimelineView";
 
 /** Made-up people at .test, with a launch, a product, a field and a voice chat. */
 
@@ -224,6 +224,22 @@ describe("loadPersonTimeline", () => {
     expect(shuffled.sort(compareTimelineEntries).map((e) => `${e.kind}:${e.id}`)).toEqual(["signup:a", "created:a", "consent:z", "field:c", "field:b", "email:a"]);
     expect(TIMELINE_KIND_ORDER.indexOf("created")).toBeLessThan(TIMELINE_KIND_ORDER.indexOf("consent"));
     expect(new Set(TIMELINE_KIND_ORDER).size).toBe(11);
+  });
+
+  it("shows a value that came with them from their earlier record, and not its clearing there", async () => {
+    const { db, id } = await world();
+    const SEATS = "fld_000000000002";
+    await saveFieldListChange(ctx, "person", { baseRev: 1, change: { op: "add", label: "Seats", type: "number" }, by: { type: "member", id: "usr_1" }, newFieldId: () => SEATS }, db);
+    const former = personIdOf(TENANT_ID, "priya@old.customer.test");
+    db.seed("contacts", former, { tenantId: TENANT_ID, contactKey: "priya@old.customer.test", memberOf: [], fields: { [SEATS]: 4, [PLAN]: STARTER } });
+    expect(await moveRecordFieldValues(ctx, { from: former, to: id, nowIso: iso(T0 + 6 * DAY) }, { db })).toMatchObject({ moved: [SEATS], kept: [PLAN] });
+    // A merge brings the old record's rows here too: its clearing still isn't shown.
+    const formerRows = [...db.cols.get("ontology_events")!.entries()].filter(([, e]) => e.personId === former);
+    expect(formerRows).toHaveLength(1);
+    for (const [rowId, row] of formerRows) db.seed("ontology_events", rowId, { ...row, personId: id });
+    const page = (await loadPersonTimeline(ctx, id, { db, lookup }))!;
+    expect(page.entries[0]).toMatchObject({ text: "Seats set to 4", detail: FIELD_MOVED_DETAIL, kind: "field" });
+    expect(texts(page.entries).filter((t) => t.startsWith("Seats"))).toEqual(["Seats set to 4"]);
   });
 
   it("refuses a cursor it didn't make, and finds nobody for an unknown person", async () => {

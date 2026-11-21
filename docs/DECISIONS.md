@@ -98,8 +98,23 @@ Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
     with its values (`erase: true` on `personAfterProductErase` and on the dry run that
     decides whether to erase the history), and that erase also reaches the people the user
     left behind on a move (`forgetLeftBehindPeople`: their `pu:` person, and earlier
-    addresses from `person_moves`). Whether the values should follow the person to the new
-    key is left open for the owner.
+    addresses from `person_moves`).
+  - **Values follow the person (approved 2026-11-21).** On a product user's address change or
+    a `pu:` record merging into an address, the `person_repoint` job first moves the values off
+    each record their pending moves left behind (out of Everyone) onto the person they are now,
+    through the one field writer (`moveRecordFieldValues`, one transaction): a value goes where
+    the new record has none for that field (its own values win; one it already holds just leaves
+    the old record), with `record.field_changed` on the new record (source "sync", by the system)
+    and one clearing it on the old, both records' field tags in step, archived fields included.
+    A value that would push the new record past its budget stays behind, logged as a code with a
+    count. Event keys carry both records, the field and the moment, and a moved value is no longer
+    there to move, so a retried job writes nothing twice. A record left empty is synced again, so
+    one nothing else keeps goes as it would have without values, and its history follows in the
+    walk; one still holding a value stays, and the product user's erase still reaches it. A record
+    still in Everyone (a sign-up, another product user, added by hand) is still someone in People
+    and keeps its values. The timeline shows each value that came with them ("Came with them from
+    their earlier record") and not its clearing. No switch of its own: values exist only once
+    fields were on, and the job runs only with `ONTOLOGY_PERSON_IDS_ENABLED`.
 
 - **Fields: data and the one writer (group 4, decisions 28 and 30, answer 2).**
   `AUDIENCE_FIELDS_ENABLED` (RUNTIME, `"false"`) is read in `src/lib/audience/peopleFlags.ts`

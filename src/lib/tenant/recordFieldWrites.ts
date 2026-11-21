@@ -5,7 +5,7 @@ import { prepareEventsTx, regionalStoreFor, retryOnceOnExists, stageEvent } from
 import { planAgentTransition, readAgentActionTx, stageAgentTransition, type AgentTransition, type AgentTransitionOk, type TransitionError } from "./agentActions";
 import { RECORD_FIELD_LISTS, settingsDocId } from "./settingsLog";
 import type { FirestoreLike, TenantContext } from "./types";
-import { fieldTagRepair, fieldTagsForPerson, sameFieldTags, withFieldTags } from "@/lib/audience/fieldTags";
+import { fieldTagRepair, fieldTagsForPerson, isInEveryone, sameFieldTags, withFieldTags } from "@/lib/audience/fieldTags";
 import { fieldChangedEvent } from "@/lib/ontology/eventBuilders";
 import { isCanonicalInstant, jsonBytes, type EventActor, type FieldChangeSource } from "@/lib/ontology/events";
 import { isContactPersonId } from "@/lib/ontology/person";
@@ -236,6 +236,153 @@ export async function setRecordFieldValues(ctx: TenantContext, input: SetFieldVa
         agentAction: move ? move.next : null,
         droppedTags,
       };
+    }),
+  );
+}
+
+export interface MoveFieldValuesResult {
+  /** moved: something was written. unchanged: nothing to move. skipped: see `reason`. */
+  outcome: "moved" | "unchanged" | "skipped";
+  /** Why nothing was written: the old record is still someone in People, or the new one is missing. */
+  reason?: "still_a_person" | "no_target";
+  /** Field ids copied to the new record and cleared from the old one. */
+  moved: string[];
+  /** Field ids the new record already held with the same value: cleared from the old one only. */
+  same: string[];
+  /** Field ids the new record holds another value for: its own value wins, the old one stays. */
+  kept: string[];
+  /** Field ids that would push the new record past its budget: left on the old one. */
+  tooLarge: string[];
+  /** The old record holds no values after this. */
+  emptied: boolean;
+  /** The old record's key (its address, phone or pu: key), to sync it once emptied. Never log it. */
+  fromKey: string | null;
+}
+
+/**
+ * A person's field values follow them to a new record (a product user's address change, or a pu:
+ * record merged into an address), in ONE transaction: each value goes to the new record where it
+ * has none for that field (the new record's own values win, and a value it already holds just
+ * leaves the old record), with a record.field_changed on the new record (source "sync") and one
+ * clearing it on the old, and both records' field tags in step. Archived fields' values move too.
+ * A value that would push the new record past RECORD_BYTE_BUDGET stays on the old one.
+ *
+ * Only off a record the move left behind: one still in Everyone (a sign-up, another product user,
+ * added by hand) is still someone in People and keeps its values. Idempotent: a moved value is no
+ * longer on the old record, so running it again writes nothing, and each event's key carries both
+ * records, the field and the moment, so a retried transaction writes nothing twice.
+ */
+export async function moveRecordFieldValues(
+  ctx: TenantContext,
+  input: { from: string; to: string; nowIso?: string },
+  opts: { db?: FirestoreLike } = {},
+): Promise<MoveFieldValuesResult> {
+  const nothing = (over: Partial<MoveFieldValuesResult> = {}): MoveFieldValuesResult => ({
+    outcome: "unchanged",
+    moved: [],
+    same: [],
+    kept: [],
+    tooLarge: [],
+    emptied: false,
+    fromKey: null,
+    ...over,
+  });
+  if (!isContactPersonId(input.from) || !isContactPersonId(input.to)) throw new TenantValidationError("moveRecordFieldValues takes two person ids");
+  if (input.from === input.to) return nothing();
+  const nowIso = now(input.nowIso);
+  const store = regionalStoreFor(ctx, opts.db);
+  const listRef = store.collection(RECORD_FIELD_LISTS).doc(settingsDocId(ctx.tenantId, FIELD_LIST_SUBJECT.person));
+  const fromRef = store.collection("contacts").doc(input.from);
+  const toRef = store.collection("contacts").doc(input.to);
+  const from = input.from as `ct_${string}`;
+  const to = input.to as `ct_${string}`;
+  const system: EventActor = { type: "system", id: null };
+
+  return retryOnceOnExists(() =>
+    store.runTransaction(async (txn): Promise<MoveFieldValuesResult> => {
+      const listSnap = await txn.get(listRef);
+      const fromSnap = await txn.get(fromRef);
+      const toSnap = await txn.get(toRef);
+      if (!fromSnap.exists) return nothing();
+      const old = fromSnap.data() ?? {};
+      if (old[TENANT_FIELD] !== ctx.tenantId) throw new TenantIsolationError(`contacts/${input.from} belongs to another tenant`);
+      const oldValues = (old.fields && typeof old.fields === "object" ? old.fields : {}) as FieldValues;
+      const ids = Object.keys(oldValues).filter(isFieldId).sort();
+      const fromKey = typeof old.contactKey === "string" ? old.contactKey : null;
+      if (!ids.length) return nothing({ emptied: true, fromKey });
+      const oldTags = Array.isArray(old.memberOf) ? (old.memberOf as string[]) : [];
+      if (isInEveryone(oldTags)) return nothing({ outcome: "skipped", reason: "still_a_person", fromKey });
+      if (!toSnap.exists) return nothing({ outcome: "skipped", reason: "no_target", fromKey });
+      const record = toSnap.data() ?? {};
+      if (record[TENANT_FIELD] !== ctx.tenantId) throw new TenantIsolationError(`contacts/${input.to} belongs to another tenant`);
+      let fields: RecordField[] = [];
+      if (listSnap.exists) {
+        const data = listSnap.data() ?? {};
+        if (data[TENANT_FIELD] !== ctx.tenantId) throw new TenantIsolationError(`${RECORD_FIELD_LISTS}/${listRef.id} belongs to another tenant`);
+        fields = Array.isArray(data.items) ? (data.items as RecordField[]) : [];
+      }
+
+      const newValues: FieldValues = { ...((record.fields && typeof record.fields === "object" ? record.fields : {}) as FieldValues) };
+      const leftValues: FieldValues = { ...oldValues };
+      const toPatch: Record<string, unknown> = {};
+      const fromPatch: Record<string, unknown> = {};
+      const out = nothing({ fromKey });
+      for (const id of ids) {
+        const value = oldValues[id]!;
+        const theirs = newValues[id] ?? null;
+        if (theirs !== null) {
+          // The new record's own value wins; the same value only leaves the old record.
+          if (!sameFieldValue(theirs, value)) {
+            out.kept.push(id);
+            continue;
+          }
+          out.same.push(id);
+        } else {
+          newValues[id] = value;
+          toPatch[`fields.${id}`] = value;
+          // A value is moved only while the new record stays inside its budget.
+          if (jsonBytes(applied(record, newValues, toPatch)) > RECORD_BYTE_BUDGET) {
+            delete newValues[id];
+            delete toPatch[`fields.${id}`];
+            out.tooLarge.push(id);
+            continue;
+          }
+          out.moved.push(id);
+        }
+        delete leftValues[id];
+        fromPatch[`fields.${id}`] = Sentinel.delete();
+      }
+      if (!out.moved.length && !out.same.length) return { ...out, outcome: "unchanged", emptied: false };
+
+      // Both records' field tags follow their values (none while out of Everyone).
+      if (out.moved.length) {
+        const current = Array.isArray(record.memberOf) ? (record.memberOf as string[]) : [];
+        const next = fieldTagsForPerson(fields, newValues, current);
+        if (!sameFieldTags(current, next.tags)) {
+          toPatch.memberOf = withFieldTags(current, next.tags);
+          toPatch.changedAt = nowIso;
+        }
+        if (next.dropped) console.warn(`[fields] ${ctx.tenantId}: ${next.dropped} field tags left off one person (over the cap)`);
+        toPatch.updatedAt = nowIso;
+      }
+      const oldNext = fieldTagsForPerson(fields, leftValues, oldTags);
+      if (!sameFieldTags(oldTags, oldNext.tags)) fromPatch.memberOf = withFieldTags(oldTags, oldNext.tags);
+      fromPatch.updatedAt = nowIso;
+
+      const key = (id: string, side: "in" | "out") => `fieldmove|${from}|${to}|${id}|${nowIso}|${side}`;
+      const events = [
+        ...out.moved.map((id) =>
+          fieldChangedEvent({ subject: { type: "person", id: to }, personId: to, fieldId: id, object: "person", before: null, after: oldValues[id], source: "sync", actor: system, at: nowIso, key: key(id, "in") }),
+        ),
+        ...[...out.moved, ...out.same].sort().map((id) =>
+          fieldChangedEvent({ subject: { type: "person", id: from }, personId: from, fieldId: id, object: "person", before: oldValues[id], after: null, source: "sync", actor: system, at: nowIso, key: key(id, "out") }),
+        ),
+      ];
+      const { fresh } = await prepareEventsTx(txn, store, ctx, events);
+      if (Object.keys(toPatch).length) txn.update(toRef, toPatch);
+      txn.update(fromRef, fromPatch);
+      for (const e of fresh) stageEvent(txn, store, ctx, e, nowIso);
+      return { ...out, outcome: "moved", emptied: Object.keys(leftValues).filter(isFieldId).length === 0 };
     }),
   );
 }

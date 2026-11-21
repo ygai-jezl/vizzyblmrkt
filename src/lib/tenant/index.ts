@@ -189,5 +189,9 @@ export {
   countFieldAgentActions,
 } from "./agentActions";
 export type { AgentProposal, AgentTransition, TransitionError } from "./agentActions";
+// The settings log: a setting and its version in one transaction (read the versions through forTenant).
+export { commitSettingsChange, readSetting, settingsDocId, settingsVersionId } from "./settingsLog";
+export type { SettingsChange, SettingsCommit, StoredSetting } from "./settingsLog";
+export type { VersionCollection } from "./repository";
 export type { SendClaimArgs, SendClaimOutcome } from "./lifecycleSend";
 export type { RateLimitConfig } from "./rateLimit";

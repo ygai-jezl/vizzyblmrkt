@@ -1512,6 +1512,9 @@ export const ONTOLOGY: readonly OntologyType[] = [
         "settings_versions",
         "written only through `src/lib/tenant/settingsLog.ts`, in one transaction with its setting; ids are `ss_<hash of brand and subject>_r<rev>`; `by` holds ids only, never a name or an address",
       ),
+      side("record_field_lists", "src/lib/tenant/settingsLog.ts", {
+        note: "the live setting a version belongs to, one document per brand and subject (fields:person, fields:company) with its `rev`, written only with its version; piece B's fields give it to `custom_field` when they are built",
+      }),
     ],
     links: [{ to: "member", via: "by.id, when a team member saved it", many: false }],
     events: [],

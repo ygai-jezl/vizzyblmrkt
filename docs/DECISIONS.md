@@ -130,7 +130,8 @@ Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
   - The voice chat on a sign-up page: B shows a read-only Voice chat field with its summary,
     labelled as sent by the person's browser and unchecked. What was said stays out of
     `loadWholePerson` and is served only by `GET .../everyone/[personId]/conversation`, behind
-    `oneViewAdmin` with `mutate`, as export is. Analysing it (a server summary, suggested values,
+    `voiceChatAdmin`: admins only, as export is, and only while the Fields panel or the timeline,
+    which link to it, is on. Analysing it (a server summary, suggested values,
     themes, brand search) is the later "Voice chat insights" card, after the DPA.
 - **Filters (group 6, answer 4).** `AUDIENCE_FIELD_FILTERS_ENABLED` (RUNTIME, `"false"`, needs
   fields) gives the People list a menu for each select, multi select, status and checkbox field,

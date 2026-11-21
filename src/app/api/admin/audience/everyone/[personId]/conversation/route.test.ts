@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Read the conversation: admins only, as export is.
+// Read the conversation: admins only, as export is, while the Fields panel or the timeline is on.
 const session = vi.hoisted(() => ({ getAdminContext: vi.fn() }));
 vi.mock("@/lib/auth/session", () => session);
 const voice = vi.hoisted(() => ({ loadVoiceChat: vi.fn() }));
@@ -16,6 +16,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
   vi.stubEnv("AUDIENCE_ONE_VIEW_ENABLED", "true");
+  vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+  vi.stubEnv("AUDIENCE_FIELDS_ENABLED", "true");
   session.getAdminContext.mockResolvedValue(admin);
   voice.loadVoiceChat.mockResolvedValue({ signupId: "s1", turns: [] });
 });
@@ -26,6 +28,18 @@ describe("GET a person's voice chat", () => {
     vi.stubEnv("AUDIENCE_ONE_VIEW_ENABLED", "false");
     expect((await call("ct_1")).status).toBe(404);
     expect(voice.loadVoiceChat).not.toHaveBeenCalled();
+  });
+
+  it("doesn't exist while neither screen that links to it is on", async () => {
+    vi.stubEnv("AUDIENCE_FIELDS_ENABLED", "false");
+    expect((await call("ct_1")).status).toBe(404);
+    expect(voice.loadVoiceChat).not.toHaveBeenCalled();
+  });
+
+  it("is there with the timeline on and fields off", async () => {
+    vi.stubEnv("AUDIENCE_FIELDS_ENABLED", "false");
+    vi.stubEnv("AUDIENCE_TIMELINE_ENABLED", "true");
+    expect((await call("ct_1")).status).toBe(200);
   });
 
   it("is for admins only", async () => {

@@ -62,6 +62,15 @@ export async function addPersonAdmin(req: Request): Promise<AdminGate> {
   return switchedAdmin(isAddPersonEnabled(), req, { mutate: true });
 }
 
+/**
+ * Gate for Read the conversation: admins only, as export is, and only while a screen that links to
+ * it is on (the Fields panel with AUDIENCE_FIELDS_ENABLED, or the timeline with
+ * AUDIENCE_TIMELINE_ENABLED). Both off: the route doesn't exist.
+ */
+export async function voiceChatAdmin(req: Request): Promise<AdminGate> {
+  return switchedAdmin(isFieldsEnabled() || isTimelineEnabled(), req, { mutate: true });
+}
+
 /** Gate for a person's timeline (AUDIENCE_TIMELINE_ENABLED): anyone on the team can read it. */
 export async function timelineAdmin(req: Request): Promise<AdminGate> {
   return switchedAdmin(isTimelineEnabled(), req, { mutate: false });

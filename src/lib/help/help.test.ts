@@ -405,6 +405,9 @@ describe("the Vizzy and their fields section", () => {
     expect(text).toContain("Nothing changes until then");
     expect(text).toContain("**Undo** within 7 days");
     expect(md("review-and-approvals", true)).toContain("**Suggestions about people**");
+    // A suggestion set aside because Vizzy can no longer read a field: asking again won't help.
+    expect(text).toContain("or Vizzy can no longer read one. Ask Vizzy again if it still fits, or set the value under Fields.");
+    expect(text).toContain("If Vizzy can no longer read the field, set the value yourself under Fields.");
   });
 
   it("explains Vizzy can read this field while text fields are on, and keeps email, phone, link and team member out", () => {

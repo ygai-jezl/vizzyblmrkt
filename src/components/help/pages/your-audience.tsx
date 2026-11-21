@@ -444,7 +444,10 @@ export default function YourAudienceHelp({
           ...(timeline ? ([[TIMELINE_EMPTY, "Nothing to fix. Their timeline fills as things happen to them."]] as Array<[string, string]>) : []),
           ...(vizzyFields
             ? ([
-                [SUGGESTION_MESSAGES.stale, "Nothing changed. Ask Vizzy again if a change still fits what their fields say now."],
+                [
+                  SUGGESTION_MESSAGES.stale,
+                  "Nothing changed. Ask Vizzy again if a change still fits what their fields say now. If Vizzy can no longer read the field, set the value yourself under Fields.",
+                ],
                 [SUGGESTION_MESSAGES.edited_since, "Someone changed the field after the confirm. Set the value you want under Fields."],
                 [SUGGESTION_MESSAGES.too_old, "Undo lasts 7 days after the confirm. Set the value you want under Fields."],
                 [SUGGESTION_MESSAGES.changed, "Reload the page. Another admin confirmed or dismissed it first."],

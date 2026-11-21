@@ -43,3 +43,19 @@ describe("the indexes piece B's queries need", () => {
     expect(found, `${shape.by} needs ${shape.collection} (${want(shape).join(", ")}) in firestore.indexes.json`).toBe(true);
   });
 });
+
+/** Maps whose keys are ids the brand makes: exempt from automatic indexing, or every key is its own index entry. */
+const EXEMPT = [
+  { collection: "contacts", field: "fields", by: "setRecordFieldValues (src/lib/tenant/recordFieldWrites.ts)" },
+  { collection: "companies", field: "fields", by: "setRecordFieldValues (src/lib/tenant/recordFieldWrites.ts)" },
+];
+const OVERRIDES = (JSON.parse(readFileSync(join(process.cwd(), "firestore.indexes.json"), "utf8")) as {
+  fieldOverrides: Array<{ collectionGroup: string; fieldPath: string; indexes: unknown[] }>;
+}).fieldOverrides;
+
+describe("the field values piece B stores", () => {
+  it.each(EXEMPT.map((e) => [`${e.collection}.${e.field}`, e] as const))("%s is exempt from automatic indexing", (_name, e) => {
+    const found = OVERRIDES.some((o) => o.collectionGroup === e.collection && o.fieldPath === e.field && o.indexes.length === 0);
+    expect(found, `${e.by} writes ${e.collection}.${e.field}, which needs a field exemption in firestore.indexes.json`).toBe(true);
+  });
+});

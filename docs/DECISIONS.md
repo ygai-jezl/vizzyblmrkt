@@ -10,8 +10,8 @@ Context: piece B of the CRM and tiers plan turns Audience into People and adds w
 needs on top of the person record: fields, filters, adding someone by hand, a timeline and
 Vizzy's suggestions. It also starts the settings log (piece O part 1) and stops catalog
 history being pruned. It ships as one pull request in commit groups; this record covers
-groups 1 to 3 and grows with the rest. The only Firestore change is the two composite
-indexes below. No dependency, rules or infra change.
+groups 1 to 4 and grows with the rest. The only Firestore changes are the two composite
+indexes and the two field exemptions below. No dependency, rules or infra change.
 
 Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
 
@@ -76,9 +76,43 @@ Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
     over by every sync and compared with the rest, so a sync never wipes them and never
     writes when only they differ.
 
+- **Fields: data and the one writer (group 4, decisions 28 and 30, answer 2).**
+  `AUDIENCE_FIELDS_ENABLED` (RUNTIME, `"false"`) is read in `src/lib/audience/peopleFlags.ts`
+  with the one People list and, by decision 25, `ONTOLOGY_PERSON_IDS_ENABLED`, so every value
+  change is filed under its person. That file imports both flag files, which avoids the cycle.
+  - Twelve types (`src/lib/types/recordField.ts`): text, number, currency, date, checkbox,
+    select, multi select, status, email, phone, link and team member. Currency is whole minor
+    units with the code on the field; a date is a calendar day with no time; a team member is a
+    user id, named when shown, and "Former team member" once they leave.
+  - One list per brand per object in the regional `record_field_lists`, saved only through
+    `commitSettingsChange`, so every change is a settings version. Field ids are `fld_` and 12
+    characters, option ids `opt_` and 8. A field is archived, never deleted, and its type is
+    fixed once made: a type change makes a new field and archives the old one with `replacedBy`;
+    old values stay under the archived field. Caps: 100 fields in use, 300 in all, 50 options,
+    and the whole list under 200 KB, which keeps it under the document limit and the settings
+    snapshot whatever the counts.
+  - One writer, `src/lib/tenant/recordFieldWrites.ts`: in one regional transaction it reads
+    the list, the record and any agent action, checks each change against the list as read
+    there, and writes the dotted `fields.<id>` patch, a person's `field:` tags, one
+    `record.field_changed` per changed value (companies too, with no person) and the action's
+    decision. It takes an optional `agentAction`, so Vizzy's confirm (group 10) needs no
+    rewrite. The record is budgeted at 900 KB. A source scan keeps every other writer off
+    `fields`, and `syncPerson` never touches it.
+  - Admins change lists and values; members read. Routes sit behind `fieldsAdmin`, in
+    `oneViewAdmin`'s order. A stale rev answers 409 `fields_changed`, a broken cap 400
+    `field_list_full`.
+  - Export and erase whatever the switch says: the whole person export lists values with labels
+    and the archived mark; values go with the contact and the company, and their events with the
+    history. Company values stay when one of several people there is erased, a gap the registry
+    names; a person's export leaves out their company's values.
+  - Index ask (approved): `contacts.fields` and `companies.fields` exempt from automatic
+    indexing, as `contacts.products` already is.
+
 Rollback: turning `NEXT_PUBLIC_NAV_PEOPLE_ENABLED` off (a rebuild) changes only words. The
 settings log has no switch and nothing calls it until the fields. Never revert group 3 once
-anyone has been added by hand: without the `addedBy` rule the next sync would delete them.
+anyone has been added by hand: without the `addedBy` rule the next sync would delete them. Once
+field values exist, turn `AUDIENCE_FIELDS_ENABLED` off rather than reverting: the values stay on
+the records, and export and erase still cover them.
 
 ---
 

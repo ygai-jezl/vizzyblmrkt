@@ -1439,6 +1439,16 @@
       "indexes": []
     },
     {
+      "collectionGroup": "contacts",
+      "fieldPath": "fields",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "companies",
+      "fieldPath": "fields",
+      "indexes": []
+    },
+    {
       "collectionGroup": "ontology_events",
       "fieldPath": "properties",
       "indexes": []

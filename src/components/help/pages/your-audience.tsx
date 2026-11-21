@@ -1,7 +1,8 @@
 import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
-import { isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled, isTimelineEnabled } from "@/lib/audience/peopleFlags";
+import { isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled, isTimelineEnabled, isVizzyFieldsEnabled } from "@/lib/audience/peopleFlags";
+import { SUGGESTION_MESSAGES, SUGGESTION_NOTES } from "@/lib/audience/suggestionWords";
 import { TIMELINE_EMPTY } from "@/lib/audience/timelineWords";
 import { FIELD_MESSAGES } from "@/components/admin/audience/fieldsApi";
 import { CONSENT_WAYS, NEW_PERSON_MESSAGES, NEW_PERSON_NOTES } from "@/lib/audience/newPerson";
@@ -13,7 +14,8 @@ import { peopleArea } from "@/lib/nav/terms";
  * (NEXT_PUBLIC_NAV_PEOPLE_ENABLED) the area is People, as the sidebar says; the slug stays. The
  * fields sections show while AUDIENCE_FIELDS_ENABLED is on, and the filters section while
  * AUDIENCE_FIELD_FILTERS_ENABLED is too. Adding someone by hand shows while
- * AUDIENCE_ADD_PERSON_ENABLED is on, and the timeline while AUDIENCE_TIMELINE_ENABLED is.
+ * AUDIENCE_ADD_PERSON_ENABLED is on, and the timeline while AUDIENCE_TIMELINE_ENABLED is. Vizzy
+ * and their fields shows while AUDIENCE_VIZZY_FIELDS_ENABLED is on.
  */
 export default function YourAudienceHelp({
   people = isPeopleNameEnabled(),
@@ -21,6 +23,7 @@ export default function YourAudienceHelp({
   fieldFilters = isFieldFiltersEnabled(),
   addPerson = isAddPersonEnabled(),
   timeline = isTimelineEnabled(),
+  vizzyFields = isVizzyFieldsEnabled(),
 }: HelpBodyProps = {}) {
   const area = peopleArea(people);
   return (
@@ -56,6 +59,7 @@ export default function YourAudienceHelp({
             <li>Erasing or exporting a person everywhere at once</li>
             {fields ? <li>Your own fields on people and companies, with every change kept</li> : null}
             {addPerson ? <li>Adding someone you met by hand, with how they agreed to hear from you</li> : null}
+            {vizzyFields ? <li>Vizzy suggesting changes to someone&apos;s fields, which an admin confirms</li> : null}
           </>
         }
       />
@@ -181,6 +185,12 @@ export default function YourAudienceHelp({
             Their <Open href="/help/your-audience#timeline">timeline</Open>, beside the rest.
           </li>
         ) : null}
+        {vizzyFields ? (
+          <li>
+            <strong>Vizzy suggests</strong>: changes to <Open href="/help/your-audience#vizzy">their fields</Open> that Vizzy suggested,
+            while one is waiting.
+          </li>
+        ) : null}
       </UL>
 
       {timeline ? (
@@ -258,6 +268,42 @@ export default function YourAudienceHelp({
         </>
       ) : null}
 
+      {vizzyFields ? (
+        <>
+          <H2 id="vizzy">Vizzy and their fields</H2>
+          <P>
+            On a person&apos;s page, press <strong>Ask Vizzy</strong> (or ⌘J) and ask about their fields: what they say, what looks
+            out of date, or what a field should be.
+          </P>
+          <UL>
+            <li>
+              Vizzy reads only your select, multi select, status, checkbox, number, currency and date fields. It never sees text,
+              email, phone, link or team member fields, or the person&apos;s name or address.
+            </li>
+            <li>It works for anyone in People, including people who only joined a launch or were added by hand.</li>
+          </UL>
+          <Steps>
+            <li>Ask Vizzy, for example &quot;Suggest a status for them&quot;. It reads their fields and saves a suggestion.</li>
+            <li>
+              The suggestion shows under <strong>Vizzy suggests</strong> on their page and in{" "}
+              <Open href="/help/review-and-approvals#what">Review</Open>: each change from what to what, and why.
+            </li>
+            <li>
+              An admin presses <strong>Confirm</strong> to make the change, or <strong>Dismiss</strong>. Nothing changes until then.
+            </li>
+            <li>
+              Changed your mind? Press <strong>Undo</strong> within 7 days to put the earlier values back.
+            </li>
+          </Steps>
+          <P>
+            If someone changed one of its fields since Vizzy made it, confirming sets the suggestion aside and changes nothing. A newer
+            suggestion for a field replaces the one waiting, and one nobody decides is set aside after 30 days. Only admins can ask
+            Vizzy for a suggestion, or confirm, dismiss or undo one; everyone else on your team can read them. Suggestions are in the
+            person&apos;s export and go when they are erased.{timeline ? " Each step shows on their timeline." : ""}
+          </P>
+        </>
+      ) : null}
+
       <H2 id="stages">How stages are read</H2>
       <P>
         Each product puts its users in a stage with three clocks: New for the first 2 days, Stuck after 7 days on one step,
@@ -317,6 +363,14 @@ export default function YourAudienceHelp({
               ] as Array<[string, string]>)
             : []),
           ...(timeline ? ([[TIMELINE_EMPTY, "Nothing to fix. Their timeline fills as things happen to them."]] as Array<[string, string]>) : []),
+          ...(vizzyFields
+            ? ([
+                [SUGGESTION_MESSAGES.stale, "Nothing changed. Ask Vizzy again if a change still fits what their fields say now."],
+                [SUGGESTION_MESSAGES.edited_since, "Someone changed the field after the confirm. Set the value you want under Fields."],
+                [SUGGESTION_MESSAGES.changed, "Reload the page. Another admin confirmed or dismissed it first."],
+                [SUGGESTION_NOTES.waiting, "Nothing to fix. An admin confirms or dismisses it, here or from Review."],
+              ] as Array<[string, string]>)
+            : []),
         ]}
       />
 

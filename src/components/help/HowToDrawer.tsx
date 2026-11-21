@@ -37,6 +37,7 @@ export function HowToDrawer() {
   const fieldFilters = useShell()?.fieldFilters ?? false;
   const addPerson = useShell()?.addPerson ?? false;
   const timeline = useShell()?.timeline ?? false;
+  const vizzyFields = useShell()?.vizzyFields ?? false;
   const [steps, setSteps] = useState<GuideStep[] | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -187,7 +188,7 @@ export function HowToDrawer() {
         ) : null}
         {Body ? (
           <div className="text-sm [&_h1]:text-xl [&_h2]:mt-8 [&_h2]:text-base">
-            <Body people={people} fields={fields} fieldFilters={fieldFilters} addPerson={addPerson} timeline={timeline} />
+            <Body people={people} fields={fields} fieldFilters={fieldFilters} addPerson={addPerson} timeline={timeline} vizzyFields={vizzyFields} />
           </div>
         ) : (
           <p className="text-sm text-shell-muted">Loading…</p>

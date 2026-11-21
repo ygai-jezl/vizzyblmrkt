@@ -39,6 +39,7 @@ vi.hoisted(() => {
   process.env.AUDIENCE_FIELD_FILTERS_ENABLED = "true";
   process.env.AUDIENCE_ADD_PERSON_ENABLED = "true";
   process.env.AUDIENCE_TIMELINE_ENABLED = "true";
+  process.env.AUDIENCE_VIZZY_FIELDS_ENABLED = "true";
   process.env.NEXT_PUBLIC_EDIT_MODE_ENABLED = "true";
   process.env.NEXT_PUBLIC_EDIT_MODE_EMAILS_ENABLED = "true";
   process.env.NEXT_PUBLIC_NEWSLETTER_MARKDOWN_EMAIL_ENABLED = "true";
@@ -339,5 +340,25 @@ describe("the timeline section", () => {
 
   it("stays hidden while it is off", () => {
     expect(md(false)).not.toContain("timeline");
+  });
+});
+
+describe("the Vizzy and their fields section", () => {
+  const md = (slug: string, vizzyFields: boolean) =>
+    docToMarkdown(HELP_BODIES[slug]!({ people: true, fields: true, fieldFilters: true, addPerson: true, timeline: true, vizzyFields }), "https://app.example.com");
+
+  it("shows while Vizzy's field suggestions are on: what Vizzy sees, that an admin confirms, and undo", () => {
+    const text = md("your-audience", true);
+    expect(text).toContain("## Vizzy and their fields");
+    expect(text).toContain("select, multi select, status, checkbox, number, currency and date fields");
+    expect(text).toContain("never sees text");
+    expect(text).toContain("Nothing changes until then");
+    expect(text).toContain("**Undo** within 7 days");
+    expect(md("review-and-approvals", true)).toContain("**Suggestions about people**");
+  });
+
+  it("stays hidden while they are off", () => {
+    expect(md("your-audience", false)).not.toContain("Vizzy suggests");
+    expect(md("review-and-approvals", false)).not.toContain("Suggestions about people");
   });
 });

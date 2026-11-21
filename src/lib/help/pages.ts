@@ -43,6 +43,8 @@ export interface HelpBodyProps {
   addPerson?: boolean;
   /** A person's page has a timeline (isTimelineEnabled()). */
   timeline?: boolean;
+  /** Vizzy reads people's fields and suggests changes (isVizzyFieldsEnabled()). */
+  vizzyFields?: boolean;
 }
 
 /** Navigation headings, matching Home's stages. */

@@ -1,8 +1,11 @@
 import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { isAutopilotEnabled } from "@/lib/autopilot/flags";
+import { isVizzyFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
+import type { HelpBodyProps } from "@/lib/help/pages";
 
-export default function ReviewAndApprovalsHelp() {
+/** Vizzy's suggestions about people show while AUDIENCE_VIZZY_FIELDS_ENABLED is on (the How to drawer passes the shell's answer). */
+export default function ReviewAndApprovalsHelp({ vizzyFields = isVizzyFieldsEnabled() }: HelpBodyProps = {}) {
   return (
     <article>
       <H1>Review and approvals</H1>
@@ -46,6 +49,12 @@ export default function ReviewAndApprovalsHelp() {
         <li>
           <strong>Drafts from Vizzy</strong>: journeys, welcome emails, invite waves and content plans.
         </li>
+        {vizzyFields ? (
+          <li>
+            <strong>Suggestions about people</strong>: changes to someone&apos;s fields that Vizzy suggested. Each opens their page,
+            where an admin confirms or dismisses it (<Open href="/help/your-audience#vizzy">Vizzy and their fields</Open>).
+          </li>
+        ) : null}
         <li>
           <strong>Learned from your repo</strong>: steps, events and facts to accept into your catalog.
         </li>

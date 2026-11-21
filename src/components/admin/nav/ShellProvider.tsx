@@ -35,6 +35,8 @@ interface Shell {
   addPerson: boolean;
   /** A person's page has a timeline (isTimelineEnabled(), from the server), for the How to drawer. */
   timeline: boolean;
+  /** Vizzy reads people's fields and suggests changes (isVizzyFieldsEnabled(), from the server), for the How to drawer. */
+  vizzyFields: boolean;
   /**
    * Hear about each draft Vizzy saves in this chat (returns the unsubscribe), so a page whose
    * data isn't the server's render (the journey editor, a person's page) can reload it. Null
@@ -77,6 +79,7 @@ export function ShellProvider({
   fieldFilters = false,
   addPerson = false,
   timeline = false,
+  vizzyFields = false,
   children,
 }: {
   names: CrumbNames;
@@ -98,6 +101,8 @@ export function ShellProvider({
   addPerson?: boolean;
   /** The timeline is on (isTimelineEnabled(), from the server): the How to drawer shows its help. */
   timeline?: boolean;
+  /** Vizzy's field suggestions are on (isVizzyFieldsEnabled(), from the server): the How to drawer shows their help. */
+  vizzyFields?: boolean;
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? "/admin";
@@ -166,9 +171,10 @@ export function ShellProvider({
       fieldFilters,
       addPerson,
       timeline,
+      vizzyFields,
       onCanvasSaved: journeyInContext || personInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, saved],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, saved],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

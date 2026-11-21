@@ -217,6 +217,50 @@ Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
     so `productUserId` would be wrong for half its callers; the rename reaches what it returns.
   - The chat's `personId` state key stays: it names the person in view, of either kind.
 
+- **Vizzy reads fields and suggests edits (group 10, decisions 31 and answer 7).**
+  `AUDIENCE_VIZZY_FIELDS_ENABLED` (RUNTIME, `"false"`) needs fields and not the lifecycle person
+  brief. Off in production until the DPA line, like every B Vizzy part.
+  - **Who's open:** `isPersonInContextEnabled()` (the brief, or this switch) decides whether the
+    shell's chat names the person in view, and the chat route checks it again, so the id never
+    leaves the app otherwise. "Whenever fields are on" is read as this switch: telling Vizzy who
+    is open while it can read nothing about them would only send an id. The Ask Vizzy panel offers
+    the situation's starters with the brief, and starters about fields without it.
+  - **What Vizzy reads:** `GET /api/agent/audience/fields` and
+    `GET /api/agent/audience/people/[personId]/fields` (signed canvas token, rate limited, 503
+    `unavailable` while off) serve only select, multi select, status, checkbox, number, currency
+    and date fields in use, never text, email, phone, link or team member ones, scrubbed of the
+    person's name and address (`identityScrubber`), with the fields that already have a suggestion
+    waiting. They read the contact directly, so they work for people who only joined a launch or
+    were added by hand. Google's Agent Sandbox stays an option for analysis that needs more.
+  - **Suggestions:** the `person_fields` canvas kind saves an agent action
+    (`person_fields.suggest`, agent `vizzy`) through `proposeAgentAction`: admins only (a token
+    without a role fails closed), rate limited, checked against the live list. The proposal holds
+    the suggested values under `fields` and a reason of at most 280 characters, scrubbed; the
+    basis holds the values it changes from. The dedupe key is the person and a hash of the change
+    and its basis: the same suggestion again answers with the one waiting, and a decided one is
+    never raised again from the same values. A newer suggestion for a field declines the waiting
+    one as `superseded`. Each waits 30 days, then the tick declines it as expired (group 11).
+  - **Confirm, dismiss, undo:** `.../everyone/[personId]/proposals` (members read, admins decide,
+    behind `vizzyFieldsAdmin`). Confirm goes through group 4's writer with source `agent` and the
+    action's move to acted (agent.approved then agent.acted) in one transaction, with
+    `expect: basis`: the writer refuses with `stale` unless each field still holds what the
+    suggestion was made from, and the route then declines it as stale with a plain message. Undo
+    writes `undo.before` back with source `undo`, `expect: result`, and agent.undone; a field
+    changed since refuses with `edited_since`. Undo is offered for 7 days. The writer's new
+    `expect` map is the only change to it.
+  - **Review:** a new kind, `person_suggestion` ("Suggestions about people"), listed from
+    `listOpenAgentActions` (piece 0's index on action, state and createdAt). Titles name only the
+    brand's own field labels, never the person, their address or a value. The person's page reads
+    their actions by equality only.
+  - **Vizzy:** Lifecycle Ops gains `people_fields_list`, `person_fields_read` and
+    `person_fields_propose`, with rules on what it sees, when to suggest, that a person confirms,
+    that it never records consent, and that fields work when the brief is unavailable. The root
+    agent's block for the person in view says one person's page and sends their fields there too.
+    The tools exist once Vizzy is redeployed; until then and while off, the routes answer
+    unavailable.
+  - Export and erase cover suggestions whatever the switch says, with no code change: piece 0's
+    history export and erase find agent actions by person.
+
 Rollback: turning `NEXT_PUBLIC_NAV_PEOPLE_ENABLED` off (a rebuild) changes only words. The
 settings log has no switch and nothing calls it until the fields. Never revert group 3 once
 anyone has been added by hand: without the `addedBy` rule the next sync would delete them. Once
@@ -226,7 +270,10 @@ tags stay. If the field writer were reverted, rerun the backfill once it is back
 `AUDIENCE_ADD_PERSON_ENABLED` off hides the form and its routes; everyone added stays. Turning
 the timeline off stops recording and hides it; the rows stay and are exported and erased.
 Reverting group 9 is safe only while Vizzy still sends `personId` too; after a Vizzy that sends
-only `productUserId`, keep the app's scope taking both.
+only `productUserId`, keep the app's scope taking both. Turning `AUDIENCE_VIZZY_FIELDS_ENABLED`
+off stops Vizzy being told who is open (unless the brief is on), makes its field routes answer
+unavailable and hides suggestions; open ones stay, expire on the tick, and are exported and
+erased.
 
 ---
 

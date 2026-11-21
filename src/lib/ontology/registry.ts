@@ -1804,17 +1804,27 @@ export const ONTOLOGY: readonly OntologyType[] = [
     description:
       "A brand's link to an outside source of numbers, such as a Cloudflare zone: which connector, how it signs in, its health, who may read it live, and its secret, sealed with the brand, connection and slot bound in. Each change goes into an activity log kept 90 days.",
     place: "signals",
-    status: "planned",
-    plannedIn: "connectors 1",
+    status: "built",
     home: "brand",
     personal: "team",
-    stores: [],
+    stores: [
+      regional("data_connections", "one record per connection, written only through `src/lib/tenant/dataConnections.ts`; its secrets are sealed and never leave the server"),
+      regional("data_connection_activity", "each change to a connection and who made it, by user id; written with its change, never queried, deleted 90 days on by a time to live on ttlAt"),
+    ],
     links: [
       { to: "brand", via: "tenantId", many: false },
+      { to: "member", via: "ownerUid, and by on each activity row", many: false },
       { to: "connector_manifest", via: "connectorId", many: false },
     ],
     events: [],
-    erase: { none: planned("connectors 1") },
+    states: ["connected", "disconnected"],
+    erase: {
+      paths: [
+        brandPath("purgeDataConnection", "src/lib/tenant/dataConnections.ts", "an operator purge removes the secrets, the recent list and the activity"),
+        retention("ACTIVITY_KEEP_DAYS", "src/lib/tenant/dataConnections.ts", "activity rows go 90 days on, through the TTL on ttlAt"),
+      ],
+      gaps: ["a team member's user id in ownerUid and in by stays after they leave the brand, as settings history does"],
+    },
     export: { none: "a sealed secret and its settings, never exported" },
     search: { none: "credentials and settings, never searched" },
     numbers: { meanings: ["cfRequests", "cfPageViews", "cfVisits"], tool: "readLive" },

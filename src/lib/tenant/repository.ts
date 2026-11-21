@@ -59,6 +59,7 @@ import type { StoredEvent } from "@/lib/types/ontologyEvent";
 import type { AgentAction } from "@/lib/types/agentAction";
 import type { SettingsVersion } from "@/lib/types/settingsVersion";
 import type { RecordFieldListDoc } from "@/lib/types/recordField";
+import type { DataConnection, DataConnectionActivity } from "@/lib/types/dataConnection";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -423,6 +424,15 @@ export type HistoryCollection<T extends TenantScoped> = Pick<TenantCollection<T>
  */
 export type VersionCollection<T extends TenantScoped> = Pick<TenantCollection<T>, "find" | "getById" | "count">;
 
+/**
+ * Connected data's records through forTenant: reads only. A connection and the activity that
+ * records each change are written together by ./dataConnections.ts, its only writer.
+ */
+export type ConnectionRecords<T extends TenantScoped> = Pick<TenantCollection<T>, "find" | "getById" | "count">;
+
+/** Connected data's activity log through forTenant: a count only. The app writes it and never queries it. */
+export type ActivityLog<T extends TenantScoped> = Pick<TenantCollection<T>, "count">;
+
 /** The set of tenant-scoped repositories available within a request context. */
 export interface TenantRepositories {
   campaigns: TenantCollection<Campaign>;
@@ -559,6 +569,10 @@ export interface TenantRepositories {
    * only here: a list changes only with its settings version (./settingsLog.ts).
    */
   recordFieldLists: VersionCollection<RecordFieldListDoc>;
+  /** Connected data (CONNECTORS_ENABLED): one record per connection, its secrets sealed (./dataConnections.ts writes them). */
+  dataConnections: ConnectionRecords<DataConnection>;
+  /** Each change to a connection, kept 90 days by a TTL on ttlAt (./dataConnections.ts writes them). */
+  dataConnectionActivity: ActivityLog<DataConnectionActivity>;
 }
 
 /**
@@ -706,5 +720,9 @@ export function forTenant(
     agentActions: new TenantCollection<AgentAction>(regionalDb, "agent_actions", t),
     settingsVersions: new TenantCollection<SettingsVersion>(regionalDb, "settings_versions", t),
     recordFieldLists: new TenantCollection<RecordFieldListDoc>(regionalDb, "record_field_lists", t),
+    // A connection holds a brand's sealed tokens and settings, kept in its region beside the data
+    // it reads; its activity names team members by id only. Both regional, like launch_site_keys.
+    dataConnections: new TenantCollection<DataConnection>(regionalDb, "data_connections", t),
+    dataConnectionActivity: new TenantCollection<DataConnectionActivity>(regionalDb, "data_connection_activity", t),
   };
 }

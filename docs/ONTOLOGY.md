@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts`. Don't edit this file: change the 
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one.
 
-91 types: 67 built and 24 planned.
+91 types: 68 built and 23 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -293,11 +293,18 @@ A competitor the brand watches: their sitemap's pages, their news posts, monthly
 
 A brand's link to an outside source of numbers, such as a Cloudflare zone: which connector, how it signs in, its health, who may read it live, and its secret, sealed with the brand, connection and slot bound in. Each change goes into an activity log kept 90 days.
 
-- Status: planned, in connectors 1
+- Status: built
 - Home: the brand's region
 - Personal: the brand's own team
-- Links: `brand` through tenantId; `connector_manifest` through connectorId
-- Erase: none. Planned: connectors 1 decides it with the store.
+- Stores:
+  - `data_connections`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per connection, written only through `src/lib/tenant/dataConnections.ts`; its secrets are sealed and never leave the server.
+  - `data_connection_activity`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Each change to a connection and who made it, by user id; written with its change, never queried, deleted 90 days on by a time to live on ttlAt.
+- Links: `brand` through tenantId; `member` through ownerUid, and by on each activity row; `connector_manifest` through connectorId
+- States: `connected`, `disconnected`
+- Erase:
+  - `purgeDataConnection` in `src/lib/tenant/dataConnections.ts`, on removing the record (an operator purge removes the secrets, the recent list and the activity)
+  - `ACTIVITY_KEEP_DAYS` in `src/lib/tenant/dataConnections.ts`, on retention (activity rows go 90 days on, through the TTL on ttlAt)
+  - Gap: a team member's user id in ownerUid and in by stays after they leave the brand, as settings history does
 - Export: none. A sealed secret and its settings, never exported.
 - Search: none. Credentials and settings, never searched.
 - Numbers: `cfRequests`, `cfPageViews`, `cfVisits`, through `readLive`
@@ -1676,6 +1683,8 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 - Import (`import`):
   - Erase: planned: piece J decides how an import's rows are erased with the person
   - Export: planned: piece J decides how an import's rows are exported with the person
+- Data connection (`data_connection`):
+  - Erase: a team member's user id in ownerUid and in by stays after they leave the brand, as settings history does
 - Agent action (`agent_action`):
   - Erase: team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does
   - Erase: rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen

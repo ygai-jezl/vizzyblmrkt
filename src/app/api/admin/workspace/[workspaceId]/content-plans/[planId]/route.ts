@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { keepApprovedSeen } from "@/lib/content/blog/hubActions";
 import { AUTOPILOT_RUNNING, autopilotHolds } from "@/lib/autopilot/planLock";
+import { closeDraftRows, draftDoneWith } from "@/lib/autopilot/answers";
 import { z } from "zod";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
@@ -94,6 +95,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
   }
   // An autopilot draft's notes count as used once a person approves it.
   await keepApprovedSeen(ctx, { workspaceId, before: plan, after: updated });
+  // Approved or archived: an autopilot draft's question rows in Review close.
+  if (updated?.autopilot && !draftDoneWith(plan) && draftDoneWith(updated)) await closeDraftRows(ctx, updated);
   indexPlanAfterSave(ctx, updated);
   return NextResponse.json({ plan: updated });
 }
@@ -111,6 +114,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
   const plan = await getContentPlan(ctx, workspaceId, planId);
   if (!plan) return NextResponse.json({ error: "not_found" }, { status: 404 });
   await deleteContentPlan(ctx, workspaceId, planId);
+  await closeDraftRows(ctx, plan);
   await removePlanPageSoftly(ctx, planId);
   await syncSeenHolds(ctx, { article: { ref: `${workspaceId}/${planId}`, title: plan.name }, before: plan.blog, after: null });
   removePlanAfterDelete(ctx, plan);

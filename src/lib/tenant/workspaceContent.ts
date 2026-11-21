@@ -457,6 +457,8 @@ export async function updateContentPlan(
                   aiDraft: n.aiDraft ?? null,
                   live: n.blog?.live,
                   hero: n.blog?.hero,
+                  status: n.status,
+                  body: n.body,
                 },
               ] as const,
           ),
@@ -469,6 +471,8 @@ export async function updateContentPlan(
             aiDraft: ContentNode["aiDraft"];
             live: BlogArticleLive | null | undefined;
             hero: BlogHero | undefined;
+            status: ContentNode["status"];
+            body: string;
           }
         >();
     const graph = {
@@ -477,13 +481,25 @@ export async function updateContentPlan(
         const keep = owned.get(n.id);
         // Vizzy's draft is only ever the stored one: a Save can't set, change or clear it.
         if (!keep) return withoutAiDraft(n);
-        const { live, hero, aiDraft, ...distribution } = keep;
-        const merged = withoutAiDraft({ ...n, ...distribution });
+        const { live, hero, aiDraft, status, body, ...distribution } = keep;
+        const merged = withoutAiDraft({ ...n, ...distribution, ...(keepsLiveApproval(n, { live, status, body }) ? { status } : {}) });
         return withStoredBlog(aiDraft ? { ...merged, aiDraft } : merged, { live, hero });
       }),
     };
     tx.update(ref, { ...fields, ...strategy, graph, updatedAt: new Date().toISOString() });
   });
+}
+
+/**
+ * An article approved by being found live (Found live) stays approved through a save from a canvas
+ * opened before that: the save sends the same text with its older status. A changed text still
+ * takes the approval back, as typing does.
+ */
+function keepsLiveApproval(
+  incoming: Pick<ContentNode, "status" | "body">,
+  stored: { live: BlogArticleLive | null | undefined; status: ContentNode["status"]; body: string },
+): boolean {
+  return Boolean(stored.live?.approvedOnLive) && stored.status === "approved" && incoming.status !== "approved" && incoming.body === stored.body;
 }
 
 /** The node without an `aiDraft` (written only by fillPlanNode, never by a canvas Save). */
@@ -560,8 +576,14 @@ export async function updateContentPlanNode(
   // FakeFirestore under test) reflects node status against the SAME db instead of reaching
   // for the real getDb(). Defaults to the tenant's regional DB for all normal callers.
   db?: FirestoreLike,
-  /** The live check's own write: the new live mark, from the one stored (read in the transaction). */
-  opts: { setLive?: (stored: BlogArticleLive | null) => BlogArticleLive | null } = {},
+  opts: {
+    /** The live check's own write: the new live mark, from the one stored (read in the transaction),
+     *  and the node before and after this write's patch. */
+    setLive?: (stored: BlogArticleLive | null, change: { before: ContentNode; after: ContentNode }) => BlogArticleLive | null;
+    /** More of the patch, decided from the plan and node as stored (in the transaction), so a check
+     *  and the write it guards can't be split by another write (Found live's approval). */
+    patchFor?: (plan: ContentPlan, stored: ContentNode) => Partial<Pick<ContentNode, "status">>;
+  } = {},
 ): Promise<ContentNode | null> {
   const database = db ?? (getDb(databaseIdForRegion(ctx.region)) as unknown as FirestoreLike);
   // Slash-path collection ref (`workspaces/{ws}/content_plans`): the real admin SDK reads it as
@@ -581,8 +603,8 @@ export async function updateContentPlanNode(
     const idx = plan.graph.nodes.findIndex((n) => n.id === nodeId);
     if (idx < 0) return null;
     const stored = plan.graph.nodes[idx]!;
-    const merged = ContentNodeSchema.parse({ ...stored, ...patch });
-    const live = opts.setLive ? opts.setLive(stored.blog?.live ?? null) : stored.blog?.live;
+    const merged = ContentNodeSchema.parse({ ...stored, ...patch, ...(opts.patchFor ? opts.patchFor(plan, stored) : {}) });
+    const live = opts.setLive ? opts.setLive(stored.blog?.live ?? null, { before: stored, after: merged }) : stored.blog?.live;
     const next = ContentNodeSchema.parse(withStoredBlog(merged, { live, hero: stored.blog?.hero }));
     const nodes = [...plan.graph.nodes];
     nodes[idx] = next;

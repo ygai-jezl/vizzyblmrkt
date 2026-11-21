@@ -13,8 +13,9 @@ import { searchConsoleManifest } from "./manifests/searchConsole";
  * - Every manifest is parsed when this module loads, so a bad one fails at once.
  * - A connector is offered only while its own switch is on (each needs CONNECTORS_ENABLED) and
  *   at least one of its sign-in methods is ready on this copy: Sign in with Google needs the
- *   connectors' Google client (CONNECTOR_GOOGLE_CLIENT_ID and its secret), and share access needs
- *   the identities project (CONNECTORS_IDENTITIES_PROJECT), so a copy without one hides it.
+ *   connectors' Google client (CONNECTOR_GOOGLE_CLIENT_ID and its secret) and an address to return
+ *   to (CONNECTORS_OAUTH_ORIGIN, which a production server must have), and share access needs the
+ *   identities project (CONNECTORS_IDENTITIES_PROJECT), so a copy without one hides it.
  * - A sign-in method is offered only once its piece builds it: token_fields (Connectors 1a),
  *   oauth_pkce (1b) and share_access (1c). A manifest listing an unbuilt method is refused.
  * - A stream marked personal is refused until the data processing agreement covers connected
@@ -38,8 +39,8 @@ export const CONNECTOR_SWITCHES: Readonly<Record<string, () => boolean>> = {
 };
 
 /**
- * Whether this copy has what a sign-in method needs: Sign in with Google needs its client, share
- * access the identities project.
+ * Whether this copy has what a sign-in method needs: Sign in with Google needs its client and,
+ * in production, CONNECTORS_OAUTH_ORIGIN; share access the identities project.
  */
 function methodReady(c: ConnectMethod, built: readonly ConnectMethodName[]): boolean {
   if (!built.includes(c.method)) return false;

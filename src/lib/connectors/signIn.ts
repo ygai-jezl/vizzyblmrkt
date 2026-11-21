@@ -5,7 +5,7 @@ import { originFromHeaders } from "@/lib/http/origin";
 import { generatePkce } from "@/lib/social/x/oauth";
 import { DATA_CONNECTION_ID_RE, type DataConnection } from "@/lib/types/dataConnection";
 import { can, type ConnectorActor } from "./grants";
-import { exchangeGoogleCode, googleAuthorizeUrl, googleClient } from "./google";
+import { checkedConnectorsOrigin, exchangeGoogleCode, googleAuthorizeUrl, googleClient, pinnedConnectorsOrigin } from "./google";
 import { VERIFY_HOOKS } from "./handlers";
 import { healthyAt } from "./health";
 import { oauthMethod, type ConnectorManifest } from "./manifest";
@@ -50,21 +50,10 @@ export type SignInDeps = ServiceDeps;
 
 /** The origin Google returns people to: pinned, else (outside production) the request's own. */
 export function connectorsOrigin(headers: Headers): string | null {
-  const pinned = (process.env.CONNECTORS_OAUTH_ORIGIN ?? "").trim().replace(/\/+$/, "");
-  if (pinned) return checkedOrigin(pinned);
+  const pinned = pinnedConnectorsOrigin();
+  if (pinned) return checkedConnectorsOrigin(pinned);
   if (process.env.NODE_ENV === "production") return null;
-  return checkedOrigin(originFromHeaders(headers));
-}
-
-function checkedOrigin(raw: string): string | null {
-  try {
-    const url = new URL(raw);
-    if (url.origin !== raw) return null;
-    if (url.protocol === "https:") return url.origin;
-    return url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1") ? url.origin : null;
-  } catch {
-    return null;
-  }
+  return checkedConnectorsOrigin(originFromHeaders(headers));
 }
 
 /** The server record's id for a nonce. */

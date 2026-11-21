@@ -63,6 +63,29 @@ describe("the connector registry", () => {
     expect(getConnector("search-console")).toBeNull();
   });
 
+  it("offers Sign in in production only with CONNECTORS_OAUTH_ORIGIN, since a sign in without it is refused", () => {
+    vi.stubEnv("CONNECTORS_ENABLED", "true");
+    vi.stubEnv("CONNECTOR_SEARCH_CONSOLE_ENABLED", "true");
+    vi.stubEnv("CONNECTOR_GOOGLE_CLIENT_ID", "made-up-client.example.test");
+    vi.stubEnv("CONNECTOR_GOOGLE_CLIENT_SECRET", "made-up-client-secret");
+    vi.stubEnv("CONNECTORS_OAUTH_ORIGIN", "");
+    vi.stubEnv("NODE_ENV", "production");
+    const sc = knownConnector("search-console")!;
+    expect(readyMethods(sc)).toEqual([]);
+    expect(getConnector("search-console")).toBeNull();
+    // Share access still offers it.
+    vi.stubEnv("CONNECTORS_IDENTITIES_PROJECT", "made-up-identities");
+    expect(readyMethods(sc)).toEqual(["share_access"]);
+    vi.stubEnv("CONNECTORS_OAUTH_ORIGIN", "not an origin");
+    expect(readyMethods(sc)).toEqual(["share_access"]);
+    vi.stubEnv("CONNECTORS_OAUTH_ORIGIN", "https://app.example.test/");
+    expect(readyMethods(sc)).toEqual(["oauth_pkce", "share_access"]);
+    // Outside production a local run uses the request's own origin.
+    vi.stubEnv("CONNECTORS_OAUTH_ORIGIN", "");
+    vi.stubEnv("NODE_ENV", "development");
+    expect(readyMethods(sc)).toEqual(["oauth_pkce", "share_access"]);
+  });
+
   it("offers Google Analytics only with its switch, the core and one way to connect", () => {
     vi.stubEnv("CONNECTORS_ENABLED", "true");
     vi.stubEnv("CONNECTOR_GA4_ENABLED", "true");

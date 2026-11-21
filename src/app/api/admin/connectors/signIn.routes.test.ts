@@ -137,9 +137,14 @@ describe("starting a sign in", () => {
     expect((await startRoute.POST(startReq(), p("cloudflare"))).status).toBe(404);
     vi.stubEnv("CONNECTORS_OAUTH_ORIGIN", "");
     vi.stubEnv("NODE_ENV", "production");
+    // No address to return to: Sign in isn't offered, so Search Console with only Sign in is hidden.
+    expect((await startRoute.POST(startReq(), p())).status).toBe(404);
+    // Listed for share access, Sign in still refuses, saying what is missing.
+    vi.stubEnv("CONNECTORS_IDENTITIES_PROJECT", "made-up-identities");
     const noOrigin = await startRoute.POST(startReq(), p());
     expect(noOrigin.status).toBe(503);
     expect(await noOrigin.json()).toMatchObject({ error: "signin_unconfigured" });
+    vi.stubEnv("CONNECTORS_IDENTITIES_PROJECT", "");
     vi.stubEnv("CONNECTOR_GOOGLE_CLIENT_ID", "");
     expect((await startRoute.POST(startReq(), p())).status).toBe(404);
     expect(db.dump("data_connection_states")).toEqual([]);

@@ -50,8 +50,40 @@ export function googleClient(): GoogleClient | null {
   return clientId && clientSecret ? { clientId, clientSecret } : null;
 }
 
+/**
+ * A redirect origin as given, when it is exactly an origin: https, or http on localhost or
+ * 127.0.0.1. Else null.
+ */
+export function checkedConnectorsOrigin(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    if (url.origin !== raw) return null;
+    if (url.protocol === "https:") return url.origin;
+    return url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1") ? url.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+/** CONNECTORS_OAUTH_ORIGIN, trimmed and without a trailing slash, or "" when unset. */
+export function pinnedConnectorsOrigin(): string {
+  return (process.env.CONNECTORS_OAUTH_ORIGIN ?? "").trim().replace(/\/+$/, "");
+}
+
+/**
+ * Whether a sign in can find the address Google returns people to: CONNECTORS_OAUTH_ORIGIN set to
+ * an origin, or, outside production, unset (a local run uses the request's own origin). A
+ * production server without one refuses every sign in, so it mustn't offer Sign in at all.
+ */
+export function isSignInOriginAvailable(): boolean {
+  const pinned = pinnedConnectorsOrigin();
+  if (pinned) return checkedConnectorsOrigin(pinned) !== null;
+  return process.env.NODE_ENV !== "production";
+}
+
+/** Whether Sign in with Google can work on this copy: the client, and an address to return to. */
 export function isGoogleSignInConfigured(): boolean {
-  return googleClient() !== null;
+  return googleClient() !== null && isSignInOriginAvailable();
 }
 
 /** Google's authorize address for one sign in. */

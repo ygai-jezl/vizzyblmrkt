@@ -138,9 +138,36 @@ describe("text fields an admin let Vizzy read", () => {
     for (const hidden of [ids.notes, ids.work, ids.mobile, ids.site, ids.owner, ids.old]) expect(byId[hidden]).toBeUndefined();
     expect(JSON.stringify(body)).not.toContain("expo");
 
-    const off = (await agentFieldList(ctx, db)).body as { fields: Array<{ id: string }> };
+    const off = (await agentFieldList(ctx, db)).body as { fields: Array<{ id: string }>; note: string };
     expect(off.fields.map((f) => f.id)).not.toContain(ids.title);
+    expect(off.note).not.toContain("Text takes");
     expect(JSON.stringify((await agentPersonFields(ctx, SAM, db)).body)).not.toContain("Head of Growth");
+  });
+
+  it("scrub their name and address out of the value as stored as well as in words, and say how text is written", async () => {
+    db.seed("contacts", SAM, { ...db.raw("contacts", SAM), fields: { [ids.title]: "Head of Growth, ask Sam Rivera at sam.rivera@example.com" } });
+    const body = (await agentPersonFields(ctx, SAM, db, { textFields: true })).body as { fields: Array<{ id: string; value: unknown; text: string | null; cut?: boolean }>; note: string };
+    const title = body.fields.find((f) => f.id === ids.title)!;
+    expect(title).toEqual({ id: ids.title, label: "Job Title", type: "text", value: "Head of Growth, ask [name] [name] at [email]", text: "Head of Growth, ask [name] [name] at [email]" });
+    expect(JSON.stringify(body)).not.toMatch(/Sam|Rivera|example\.com/);
+    expect(body.note).toContain("Text takes plain words, at most 500 characters");
+    expect(body.note).toContain("never write them in a value");
+  });
+
+  it("cut a long value at 500 characters after scrubbing it, and mark it cut", async () => {
+    // The surname straddles the cut: scrubbed first, so no part of it is left behind.
+    db.seed("contacts", SAM, { ...db.raw("contacts", SAM), fields: { [ids.title]: `${"a".repeat(497)} Rivera and more after it` } });
+    const body = (await agentPersonFields(ctx, SAM, db, { textFields: true })).body as { fields: Array<{ id: string; value: string; text: string; cut?: boolean }> };
+    const title = body.fields.find((f) => f.id === ids.title)!;
+    expect(title.cut).toBe(true);
+    expect(title.value).toHaveLength(500);
+    expect(title.value.endsWith(" [n")).toBe(true);
+    expect(title.text).toBe(title.value);
+    expect(JSON.stringify(body)).not.toContain("Rivera");
+    // A value that fits is not marked.
+    db.seed("contacts", SAM, { ...db.raw("contacts", SAM), fields: { [ids.title]: "b".repeat(500) } });
+    const fits = ((await agentPersonFields(ctx, SAM, db, { textFields: true })).body as { fields: Array<{ id: string; cut?: boolean }> }).fields.find((f) => f.id === ids.title)!;
+    expect(fits).not.toHaveProperty("cut");
   });
 });
 

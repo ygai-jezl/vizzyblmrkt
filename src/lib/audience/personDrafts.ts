@@ -5,10 +5,11 @@ import { deterministicAgentActionId } from "@/lib/crm/identifiers";
 import { getAgentAction, listAgentActionsForPerson } from "@/lib/ontology/agentActions";
 import { isContactPersonId, type ContactPersonId } from "@/lib/ontology/person";
 import { agentDedupeKey, isAgentActionId, type AgentAction, type AgentActionId } from "@/lib/types/agentAction";
-import { checkFieldValue, liveOptions, sameFieldValue, vizzyReadsField, type FieldValue, type RecordField } from "@/lib/types/recordField";
+import { checkFieldValue, liveOptions, sameFieldValue, VIZZY_TEXT_CHARS, vizzyReadsField, type FieldValue, type RecordField } from "@/lib/types/recordField";
 import { normalizeEmail } from "@/lib/waitlist/identifiers";
 import { newPersonKey } from "./addPerson";
 import { readFieldList } from "./fieldList";
+import { fitsAgentAction, vizzyValueFits } from "./fieldSuggestions";
 import { parseNewPerson, type NewPersonError } from "./newPerson";
 import { personIdOf } from "./personSync";
 
@@ -25,7 +26,10 @@ import { personIdOf } from "./personSync";
  *   the new person's id), dismissed, or declined as expired by the tick after 7 days.
  * - Someone already in People gets no draft: Vizzy is told, and links to their page.
  * - Field values only of fields Vizzy may read (vizzyReadsField), named by label or id; an option
- *   by its label or id. Anything else is left out with a warning, and the admin types it in the form.
+ *   by its label or id. A text value is at most VIZZY_TEXT_CHARS with none of the scrubber's marks
+ *   (vizzyValueFits). Anything else is left out with a warning, and the admin types it in the form.
+ * - A draft too big to save as an agent action is refused (`too_large`), before one waiting is
+ *   replaced.
  */
 
 export const NEW_PERSON_ACTION = "new_person.draft";
@@ -46,7 +50,7 @@ export function draftHref(id: string): string {
   return `/admin/crm?draft=${encodeURIComponent(id)}`;
 }
 
-export type DraftError = NewPersonError;
+export type DraftError = NewPersonError | "too_large";
 
 export type DraftResult =
   | { ok: true; outcome: "created" | "open"; action: AgentAction; fields: number; warnings: string[] }
@@ -77,7 +81,9 @@ function draftFields(items: readonly RecordField[], typed: Record<string, unknow
       continue;
     }
     const check = checkFieldValue(field, asStored(field, raw));
-    if (!check.ok) warnings.push(`That value doesn't fit ${field.label}: the admin can set it in the form.`);
+    if (check.ok && field.type === "text" && typeof check.value === "string" && check.value.length > VIZZY_TEXT_CHARS) {
+      warnings.push(`That value is too long for ${field.label}: you can fill in up to ${VIZZY_TEXT_CHARS} characters, and the admin can type it in the form.`);
+    } else if (!check.ok || !vizzyValueFits(field, check.value)) warnings.push(`That value doesn't fit ${field.label}: the admin can set it in the form.`);
     else if (check.value !== null) fields[field.key] = check.value;
   }
   return { fields, warnings };
@@ -132,6 +138,9 @@ export async function draftNewPerson(
     lastName: parsed.value.lastName,
     fields,
   };
+  const proposal = { person: { email: details.email, phone: details.phone, firstName: details.firstName, lastName: details.lastName }, fields: details.fields };
+  // Checked before a waiting draft is replaced: a proposal over the limit would throw.
+  if (!fitsAgentAction(proposal, null)) return { ok: false, error: "too_large" };
   const nowMs = deps.nowMs ?? Date.now();
   const at = new Date(nowMs).toISOString();
 
@@ -154,7 +163,7 @@ export async function draftNewPerson(
       action: NEW_PERSON_ACTION,
       target: { type: "person", id: personId },
       personId,
-      proposal: { person: { email: details.email, phone: details.phone, firstName: details.firstName, lastName: details.lastName }, fields: details.fields },
+      proposal,
       basis: null,
       fieldIds: Object.keys(details.fields),
       signals: [],

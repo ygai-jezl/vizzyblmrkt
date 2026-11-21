@@ -4,11 +4,12 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import { deterministicAgentActionId } from "@/lib/crm/identifiers";
 import { getAgentAction, listAgentActionsForPerson } from "@/lib/ontology/agentActions";
 import { isContactPersonId, type ContactPersonId } from "@/lib/ontology/person";
-import { agentDedupeKey, isAgentActionId, type AgentAction, type AgentActionId } from "@/lib/types/agentAction";
-import { checkFieldValue, sameFieldValue, vizzyReadsField, type FieldType, type FieldValue, type RecordField } from "@/lib/types/recordField";
+import { jsonBytes } from "@/lib/ontology/events";
+import { AGENT_ACTION_LIMITS, agentDedupeKey, isAgentActionId, type AgentAction, type AgentActionId } from "@/lib/types/agentAction";
+import { checkFieldValue, sameFieldValue, VIZZY_TEXT_CHARS, vizzyReadsField, type FieldType, type FieldValue, type RecordField } from "@/lib/types/recordField";
 import { readFieldList } from "./fieldList";
 import { setFieldValues, valueText } from "./fields";
-import { identityScrubber } from "./identityScrubber";
+import { holdsScrubbedMark, identityScrubber } from "./identityScrubber";
 import { personHref } from "./paths";
 
 /**
@@ -17,7 +18,10 @@ import { personHref } from "./paths";
  * canvas kind; someone on the team confirms, dismisses or undoes it on the person's page or from
  * Review. Nothing changes until then.
  *
- * - Only fields Vizzy may read (vizzyReadsField), in use, values their type allows.
+ * - Only fields Vizzy may read (vizzyReadsField), in use, values their type allows. A text value
+ *   is at most VIZZY_TEXT_CHARS and holds none of the scrubber's marks (vizzyValueFits).
+ * - A suggestion too big to save as an agent action is refused (`too_large`), before anything
+ *   waiting is replaced.
  * - The proposal holds the suggested values under `fields` and a short reason; the basis holds the
  *   values when it was made, also under `fields`, so confirming can refuse a stale one and an
  *   erased field is blanked in place.
@@ -54,7 +58,23 @@ export type SuggestError =
   | "invalid_value"
   | "no_change"
   | "too_many_fields"
+  | "too_large"
   | "already_decided";
+
+/**
+ * Whether a value Vizzy wrote fits what Vizzy may write, beyond its type: a text value of at most
+ * VIZZY_TEXT_CHARS, with none of the scrubber's marks (`[name]`, `[email]`, `[id]`), so a scrubbed
+ * value Vizzy read can never be saved over the real one. Other types always fit. Pure.
+ */
+export function vizzyValueFits(field: Pick<RecordField, "type">, value: FieldValue | null): boolean {
+  if (field.type !== "text" || typeof value !== "string") return true;
+  return value.length <= VIZZY_TEXT_CHARS && !holdsScrubbedMark(value);
+}
+
+/** Whether a proposal and its basis fit an agent action (AGENT_ACTION_LIMITS). */
+export function fitsAgentAction(proposal: unknown, basis: unknown): boolean {
+  return jsonBytes(proposal) <= AGENT_ACTION_LIMITS.proposalBytes && (basis == null || jsonBytes(basis) <= AGENT_ACTION_LIMITS.basisBytes);
+}
 
 export type SuggestResult =
   | { ok: true; outcome: "created" | "open"; action: AgentAction; fields: number; superseded: number }
@@ -119,7 +139,7 @@ export async function suggestFieldChanges(
     if (field.archivedAt) return { ok: false, error: "archived_field", fieldId };
     if (!vizzyReadsField(field, deps.textFields === true)) return { ok: false, error: "field_not_allowed", fieldId };
     const check = checkFieldValue(field, raw);
-    if (!check.ok) return { ok: false, error: "invalid_value", fieldId };
+    if (!check.ok || !vizzyValueFits(field, check.value)) return { ok: false, error: "invalid_value", fieldId };
     const was = current[fieldId] ?? null;
     if (sameFieldValue(was, check.value)) continue;
     proposed[fieldId] = check.value;
@@ -130,6 +150,8 @@ export async function suggestFieldChanges(
 
   const scrub = identityScrubber({ name: [contact.firstName, contact.lastName].filter(Boolean).join(" "), email: contact.email ?? null });
   const why = input.why ? scrub(input.why.replace(/\s+/g, " ").trim()).slice(0, SUGGESTION_WHY_CHARS) : "";
+  // Checked before anything waiting is replaced: a proposal or basis over the limit would throw.
+  if (!fitsAgentAction({ fields: proposed, why }, { fields: basis })) return { ok: false, error: "too_large" };
   const nowMs = deps.nowMs ?? Date.now();
   const at = new Date(nowMs).toISOString();
 
@@ -257,9 +279,10 @@ export type DecideResult = { ok: true; state: "acted" | "declined" | "undone" } 
 /**
  * Confirm, dismiss or undo one suggestion about this person, by the team member in `ctx`, at the
  * rev the page saw. Confirming writes the suggested values through the one writer with source
- * agent, only while each field still holds the value the suggestion was made from, and records
- * agent.approved and agent.acted with the values in one transaction; a stale one is set aside
- * (declined as stale) and answers `stale`. Undo writes the earlier values back with source undo,
+ * agent, only while each field still holds the value the suggestion was made from and Vizzy may
+ * still read it (a text field an admin stopped Vizzy reading since, or text fields turned off),
+ * and records agent.approved and agent.acted with the values in one transaction; a stale one is
+ * set aside (declined as stale) and answers `stale`. Undo writes the earlier values back with source undo,
  * only while the fields still hold what the confirm set and for UNDO_DAYS after the confirm (as
  * the page offers it), and records agent.undone. Dismiss records agent.declined.
  */
@@ -267,7 +290,7 @@ export async function decideFieldSuggestion(
   ctx: TenantContext,
   personId: string,
   input: { id: string; rev: number; decision: Decision },
-  deps: { db?: FirestoreLike; nowMs?: number } = {},
+  deps: { db?: FirestoreLike; nowMs?: number; textFields?: boolean } = {},
 ): Promise<DecideResult> {
   const userId = ctx.userId;
   if (!userId || userId.includes("@")) return { ok: false, error: "no_user" };
@@ -296,6 +319,16 @@ export async function decideFieldSuggestion(
     }
     const proposed = fieldsUnder(action.proposal);
     const basis = fieldsUnder(action.basis);
+    // A field Vizzy may no longer read is never written from its suggestion.
+    const list = await readFieldList(ctx, "person", deps.db);
+    const unread = Object.keys(proposed).find((id) => {
+      const field = list.items.find((f) => f.key === id);
+      return field && !vizzyReadsField(field, deps.textFields === true);
+    });
+    if (unread) {
+      await setAside("stale");
+      return { ok: false, error: "stale", fieldId: unread };
+    }
     const r = await setFieldValues(
       ctx,
       {

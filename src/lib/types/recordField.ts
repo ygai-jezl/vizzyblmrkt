@@ -106,6 +106,19 @@ export function vizzyReadsField(field: { type?: unknown; object?: unknown; archi
   return textFields === true && canVizzyReadText(field) && field.vizzyReads === true;
 }
 
+/**
+ * The most characters of one text value Vizzy reads, suggests or fills in. A longer value is cut
+ * when read, and refused when Vizzy writes it.
+ */
+export const VIZZY_TEXT_CHARS = 500;
+
+/** A text value cut to at most `max` characters, never splitting a character in two, and whether it was cut. */
+export function cutText(value: string, max: number): { text: string; cut: boolean } {
+  if (value.length <= max) return { text: value, cut: false };
+  const end = /[\uD800-\uDBFF]/.test(value.charAt(max - 1)) ? max - 1 : max;
+  return { text: value.slice(0, end), cut: true };
+}
+
 export const FIELD_LIMITS = {
   /** Fields in use on one object. */
   liveFields: 100,

@@ -97,6 +97,32 @@ describe("the new_person kind", () => {
     expect(await getAgentAction(admin, r.id as AgentActionId, { db })).toMatchObject({ proposal: { fields: { [TITLE]: "Head of Sales" } }, fieldIds: [TITLE] });
   });
 
+  it("leaves out text over 500 characters, or holding a mark the scrubber leaves, with a warning", async () => {
+    textFields = true;
+    const r = await author({ email: "kim.lee@example.com", fields: { "Job Title": "z".repeat(501) } });
+    if (!r.ok) throw new Error(r.error);
+    expect(r.warnings).toEqual(["That value is too long for Job Title: you can fill in up to 500 characters, and the admin can type it in the form."]);
+    expect(r.card).toMatchObject({ stats: [{ label: "fields", value: 0 }] });
+    const marked = await author({ email: "ana.ruiz@example.com", fields: { "Job Title": "Assistant to [name]" } });
+    if (!marked.ok) throw new Error(marked.error);
+    expect(marked.warnings).toEqual(["That value doesn't fit Job Title: the admin can set it in the form."]);
+    const fits = await author({ email: "lee.park@example.com", fields: { "Job Title": "q".repeat(500) } });
+    if (!fits.ok) throw new Error(fits.error);
+    expect(fits.warnings).toEqual([]);
+  });
+
+  it("answers too_large for a draft too big to save, and leaves the one waiting in place", async () => {
+    textFields = true;
+    // Twenty five text fields Vizzy may read, each given 500 characters that take 6 bytes each as JSON.
+    const big = Array.from({ length: 25 }, (_, i) => `fld_ggggggggg${String(i).padStart(3, "0")}`);
+    for (const [i, id] of big.entries()) await saveFieldListChange(admin, "person", { baseRev: 3 + i, change: { op: "add", label: `Long ${i}`, type: "text", vizzyReads: true }, by, newFieldId: () => id }, db);
+    const waiting = await author({ email: "sam.okoro@example.com", fields: { "Job Title": "Head of Sales" } });
+    if (!waiting.ok) throw new Error(waiting.error);
+    const r = await author({ email: "sam.okoro@example.com", fields: Object.fromEntries(big.map((_, i) => [`Long ${i}`, "\u0001".repeat(500)])) });
+    expect(r).toMatchObject({ ok: false, status: 400, error: "too_large" });
+    expect(await getAgentAction(admin, waiting.id as AgentActionId, { db })).toMatchObject({ state: "proposed" });
+  });
+
   it("points at the person already holding the address, and drafts nothing", async () => {
     db.seed("contacts", SAM, { tenantId: "ten_A", contactKey: "sam.okoro@example.com", email: "sam.okoro@example.com" });
     const r = await author({ email: "sam.okoro@example.com", firstName: "Samuel" });

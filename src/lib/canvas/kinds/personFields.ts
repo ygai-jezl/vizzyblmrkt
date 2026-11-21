@@ -32,6 +32,7 @@ const STATUS: Record<SuggestError, number> = {
   field_not_allowed: 400,
   invalid_value: 400,
   too_many_fields: 400,
+  too_large: 400,
   no_change: 409,
   already_decided: 409,
 };

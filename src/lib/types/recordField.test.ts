@@ -5,6 +5,7 @@ import {
   amountToMinor,
   checkFieldValue,
   currencyDigits,
+  cutText,
   FIELD_LIMITS,
   FIELD_TYPES,
   fieldListProblems,
@@ -101,6 +102,16 @@ describe("what Vizzy may read", () => {
     expect(vizzyReadsField(field({ type: "text", vizzyReads: true, archivedAt: AT }), true)).toBe(false);
     expect(vizzyReadsField({ ...field(), type: "nope" } as unknown as RecordField, true)).toBe(false);
     expect(vizzyReadsField(null, true)).toBe(false);
+  });
+});
+
+describe("cutting a text value", () => {
+  it("keeps a value that fits, and cuts a longer one without splitting a character", () => {
+    expect(cutText("abc", 3)).toEqual({ text: "abc", cut: false });
+    expect(cutText("abcd", 3)).toEqual({ text: "abc", cut: true });
+    // An emoji is two UTF-16 units: one that would be split is left out whole.
+    expect(cutText("ab😀c", 3)).toEqual({ text: "ab", cut: true });
+    expect(cutText("ab😀c", 4)).toEqual({ text: "ab😀", cut: true });
   });
 });
 

@@ -6,7 +6,7 @@ import { deterministicContactId } from "@/lib/crm/identifiers";
 import { getAgentAction } from "@/lib/ontology/agentActions";
 import { listPersonEvents } from "@/lib/ontology/timeline";
 import { readFieldList, saveFieldListChange, type FieldListChange } from "@/lib/audience/fieldList";
-import { openFieldSuggestions, PERSON_FIELDS_ACTION } from "@/lib/audience/fieldSuggestions";
+import { decideFieldSuggestion, openFieldSuggestions, PERSON_FIELDS_ACTION } from "@/lib/audience/fieldSuggestions";
 import type { AgentActionId } from "@/lib/types/agentAction";
 import { authorPersonFields } from "./personFields";
 import { getCanvasKind } from "../registry";
@@ -116,6 +116,51 @@ describe("the person_fields kind", () => {
     expect(action).toMatchObject({ proposal: { fields: { [TITLE]: "Head of Sales" } }, basis: { fields: { [TITLE]: null } }, fieldIds: [TITLE] });
     // A text field nobody ticked stays out.
     expect(await suggest({ [NOTES]: "Call her on Friday" })).toMatchObject({ ok: false, status: 400, error: "field_not_allowed" });
+  });
+
+  it("refuses text over 500 characters, or holding a mark the scrubber leaves, so a scrubbed value never goes back over the real one", async () => {
+    textFields = true;
+    expect(await suggest({ [TITLE]: "x".repeat(500) })).toMatchObject({ ok: true });
+    expect(await suggest({ [TITLE]: "y".repeat(501) })).toMatchObject({ ok: false, status: 400, error: "invalid_value", issues: [TITLE] });
+    for (const marked of ["Head of Sales, reports to [name]", "Write to [email]", "Account [ID] owner"]) {
+      expect(await suggest({ [TITLE]: marked }), marked).toMatchObject({ ok: false, status: 400, error: "invalid_value", issues: [TITLE] });
+    }
+  });
+
+  it("answers too_large for a suggestion too big to save, and leaves the one waiting in place", async () => {
+    textFields = true;
+    // Six text fields Vizzy may read, each holding 2000 characters that take 6 bytes each as JSON.
+    const big = ["fld_ccccccccccd1", "fld_ccccccccccd2", "fld_ccccccccccd3", "fld_ccccccccccd4", "fld_ccccccccccd5", "fld_ccccccccccd6"];
+    for (const [i, id] of big.entries()) await add(id, { op: "add", label: `Long ${i}`, type: "text", vizzyReads: true });
+    db.seed("contacts", PRIYA, { ...db.raw("contacts", PRIYA), fields: { [SEATS]: 12, ...Object.fromEntries(big.map((id) => [id, "\u0001".repeat(2000)])) } });
+    const waiting = await suggest({ [big[0]!]: "Short" });
+    if (!waiting.ok) throw new Error(waiting.error);
+    const r = await suggest(Object.fromEntries(big.map((id) => [id, "New"])));
+    expect(r).toMatchObject({ ok: false, status: 400, error: "too_large" });
+    expect((await openFieldSuggestions(admin, PRIYA as `ct_${string}`, db)).map((a) => a.id)).toEqual([waiting.id]);
+  });
+
+  it("sets aside a text suggestion once an admin stops Vizzy reading the field, or text fields are off, and never applies it", async () => {
+    textFields = true;
+    const decide = (id: string, rev: number, on = true) => decideFieldSuggestion(admin, PRIYA, { id, rev, decision: "confirm" }, { db, nowMs: T0 + 1000, textFields: on });
+    const first = await suggest({ [TITLE]: "Head of Sales" });
+    if (!first.ok) throw new Error(first.error);
+    await add(TITLE, { op: "vizzy_reads", key: TITLE, on: false });
+    expect(await decide(first.id, 1)).toEqual({ ok: false, error: "stale", fieldId: TITLE });
+    expect(await getAgentAction(admin, first.id as AgentActionId, { db })).toMatchObject({ state: "declined", declined: { reason: "stale" } });
+    expect(db.raw("contacts", PRIYA)?.fields).toEqual({ [SEATS]: 12, [PLAN]: "opt_cccccc01" });
+
+    await add(TITLE, { op: "vizzy_reads", key: TITLE, on: true });
+    const second = await suggest({ [TITLE]: "Head of Sales" });
+    if (!second.ok) throw new Error(second.error);
+    expect(await decide(second.id, 1, false)).toEqual({ ok: false, error: "stale", fieldId: TITLE });
+    expect(db.raw("contacts", PRIYA)?.fields).not.toHaveProperty(TITLE);
+
+    // Still read and switched on: it is confirmed.
+    const third = await suggest({ [TITLE]: "Head of Partnerships" });
+    if (!third.ok) throw new Error(third.error);
+    expect(await decide(third.id, 1)).toEqual({ ok: true, state: "acted" });
+    expect(db.raw("contacts", PRIYA)?.fields).toMatchObject({ [TITLE]: "Head of Partnerships" });
   });
 
   it("takes their name and address out of the reason", async () => {

@@ -34,6 +34,7 @@ export function CrmClient({
   initialLaunch = null,
   audience = null,
   initialTab,
+  fields = false,
 }: {
   isAdmin: boolean;
   initialContacts: Contact[];
@@ -53,6 +54,8 @@ export function CrmClient({
   audience?: { productUsers: boolean; personView?: boolean; oneView?: boolean } | null;
   /** With the person view: the tab the page arrived on (?tab=). */
   initialTab?: string;
+  /** Fields are on (AUDIENCE_FIELDS_ENABLED): company fields on each company. */
+  fields?: boolean;
 }) {
   /** AUDIENCE_ONE_VIEW_ENABLED: one People tab in place of Signups and Product users. */
   const oneView = Boolean(audience?.oneView);
@@ -112,7 +115,7 @@ export function CrmClient({
       ) : tab === "product" ? (
         personView ? <PeopleList /> : <ProductUsersView />
       ) : tab === "companies" ? (
-        <CompaniesView isAdmin={isAdmin} initialRows={initialCompanies} initialCursor={companiesCursor} />
+        <CompaniesView isAdmin={isAdmin} initialRows={initialCompanies} initialCursor={companiesCursor} fields={fields} />
       ) : (
         <EngagedView isAdmin={isAdmin} initialRows={initialEngaged} initialCursor={engagedCursor} />
       )}

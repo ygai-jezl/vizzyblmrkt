@@ -5,6 +5,7 @@ import { CrmClient } from "@/components/admin/crm/CrmClient";
 import { isNavV2Enabled, isNavV2Phase2Enabled, isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { isOneViewEnabled, isPeopleNameEnabled, isPersonLinksEnabled, isPersonViewEnabled } from "@/lib/audience/flags";
+import { isFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { peopleArea } from "@/lib/nav/terms";
 import { forTenant } from "@/lib/tenant";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
@@ -89,6 +90,7 @@ export default async function CrmPage({ searchParams }: { searchParams: Promise<
         initialLaunch={launch ? { id: launch.id, name: launch.waitlistName } : null}
         audience={phase3 ? { productUsers: isLifecycleEnabled(), personView, oneView } : null}
         initialTab={personView || oneView ? sp.tab : undefined}
+        fields={phase3 && isFieldsEnabled()}
       />
     </div>
   );

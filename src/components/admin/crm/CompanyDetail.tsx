@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { Contact } from "@/lib/types/contact";
 import type { Company } from "@/lib/types/company";
 import { Modal } from "@/components/admin/email/Modal";
+import { FieldsPanel } from "../audience/FieldsPanel";
 
 interface DetailResponse {
   company: Company;
@@ -23,10 +24,13 @@ export function CompanyDetail({
   companyId,
   isAdmin,
   onClose,
+  fields = false,
 }: {
   companyId: string;
   isAdmin: boolean;
   onClose: () => void;
+  /** Company fields are on (AUDIENCE_FIELDS_ENABLED): the brand's own company fields. */
+  fields?: boolean;
 }) {
   const [data, setData] = useState<DetailResponse | null>(null);
   const [busy, setBusy] = useState(false);
@@ -106,6 +110,8 @@ export function CompanyDetail({
               {company.lastError ? ` (${company.lastError})` : ""}
             </p>
           )}
+
+          {fields ? <FieldsPanel object="company" recordId={company.id} initialValues={company.fields ?? {}} canEdit={isAdmin} title="Company fields" /> : null}
 
           <div>
             <div className="mb-1 text-xs uppercase tracking-wide text-neutral-400">

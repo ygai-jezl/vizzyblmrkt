@@ -12,6 +12,7 @@ import { PersonView } from "../people/PersonView";
 import { EmailHistoryList } from "../crm/EmailHistoryList";
 import { useShell } from "../nav/ShellProvider";
 import { ago, day } from "../people/format";
+import { FieldsPanel } from "./FieldsPanel";
 
 /**
  * One person, whole (AUDIENCE_ONE_VIEW_ENABLED): everything a brand knows about one
@@ -37,6 +38,7 @@ export function WholePersonView({
   canEdit,
   vizzy = false,
   productView = false,
+  fields = false,
 }: {
   personId: string;
   canEdit: boolean;
@@ -44,6 +46,8 @@ export function WholePersonView({
   vizzy?: boolean;
   /** Each product user's own view is on (AUDIENCE_PERSON_VIEW): show it for each product. */
   productView?: boolean;
+  /** Fields are on (AUDIENCE_FIELDS_ENABLED): the Fields panel, with fields from elsewhere and voice chats. */
+  fields?: boolean;
 }) {
   const shell = useShell();
   const [state, setState] = useState<State>({ status: "loading" });
@@ -162,6 +166,10 @@ export function WholePersonView({
       </header>
 
       {msg ? <Banner tone={msg.tone}>{msg.text}</Banner> : null}
+
+      {fields && p.fields ? (
+        <FieldsPanel object="person" recordId={p.id} initialValues={p.fields.values} readOnly={p.fields.readOnly} voiceChats={p.fields.voiceChats} canEdit={canEdit} />
+      ) : null}
 
       {p.launches.length ? (
         <Section title="Launches">

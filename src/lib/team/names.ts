@@ -1,5 +1,6 @@
 import { forTenant, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
+import { FORMER_TEAM_MEMBER } from "./former";
 
 /**
  * Team members' names for history screens. History keeps who did something as a user id only
@@ -8,7 +9,7 @@ import type { FirestoreLike } from "@/lib/tenant/types";
  */
 
 /** What someone no longer on the team is called wherever history names who did something. */
-export const FORMER_TEAM_MEMBER = "Former team member";
+export { FORMER_TEAM_MEMBER };
 
 /** A team member's name from `names` (teamMemberNames), or "Former team member". */
 export function memberLabel(userId: string | null | undefined, names: Readonly<Record<string, string>>): string {

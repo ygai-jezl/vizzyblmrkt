@@ -390,3 +390,27 @@ describe("Vizzy's field suggestions on an erase, with its switch off", () => {
     expect(new Set(db.dump("ontology_events").map((r) => r.personId))).toEqual(new Set([BOB]));
   });
 });
+
+describe("Vizzy's New person drafts on an erase, with its switch off", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("an open draft for the same address goes with the person, and another's stays", async () => {
+    vi.stubEnv("AUDIENCE_VIZZY_ADD_PERSON_ENABLED", "false");
+    const { draftNewPerson } = await import("@/lib/audience/personDrafts");
+    const vizzy: TenantContext = { tenantId: "ten_demo", region: "us", source: "agent", role: "admin", userId: "uid_1" };
+    const demo: TenantContext = { tenantId: "ten_demo", region: "us", source: "system" };
+    const ADA = deterministicContactId("ten_demo", "ada@example.test");
+    const db = new FakeFirestore();
+    // Drafted before Ada signed up on her own; the draft's person is the one her address gives.
+    for (const email of ["Ada@Example.test", "bob@example.test"]) {
+      const d = await draftNewPerson(vizzy, { email, firstName: "A" }, { db });
+      if (!d.ok) throw new Error(d.error);
+    }
+    db.seed("contacts", ADA, { tenantId: "ten_demo", email: "ada@example.test", contactKey: "ada@example.test", companyId: null, campaigns: [] });
+    expect(await processContactEraseJob(demo, { id: "erase_ada", payload: { contactId: ADA } } as unknown as EmailJob, db)).toBe("done");
+    const left = db.dump("agent_actions");
+    expect(left).toHaveLength(1);
+    expect(JSON.stringify(left)).not.toContain("ada@example.test");
+    expect(left[0]).toMatchObject({ personId: deterministicContactId("ten_demo", "bob@example.test") });
+  });
+});

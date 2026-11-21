@@ -54,6 +54,7 @@ import { runWaitlistTick } from "./waitlist/tick";
 import { isPersonLinksEnabled } from "@/lib/audience/flags";
 import { sweepPeople } from "@/lib/audience/personSweep";
 import { repairPendingMoves } from "@/lib/ontology/moves";
+import { expireDueAgentActions } from "@/lib/ontology/agentActions";
 import { isWaitlistEngineEnabled } from "./waitlist/flags";
 import { isEntitiesEnabled } from "@/lib/connect/v2/flags";
 import { dateStartOf, JOURNEY_ABOUT_DEFAULT } from "@/lib/types/lifecycle";
@@ -824,6 +825,11 @@ export interface LifecycleTickResult {
   dateStart?: { journeys: number; checked: number; enrolled: number };
   /** Person records rebuilt or checked (AUDIENCE_PERSON_LINKS_ENABLED). */
   people?: { synced: number; checked: number; failed: number };
+  /**
+   * Agent actions past their expiry, declined (AUDIENCE_PERSON_LINKS_ENABLED, whatever Vizzy's
+   * switches say): Vizzy's suggestions, and New person drafts, whose typed details go with them.
+   */
+  expiredActions?: number;
 }
 
 /**
@@ -849,7 +855,7 @@ export async function runLifecycleTick(
     ...(waitlist ? { waitlist: { due: 0, outcomes: {}, deferred: 0, backfilled: 0, retired: 0 } } : {}),
     ...(product && isLifecycleGoLiveSweepEnabled() ? { goLive: { journeys: 0, enrolled: 0 } } : {}),
     ...(product && isLifecycleDateStartEnabled() ? { dateStart: { journeys: 0, checked: 0, enrolled: 0 } } : {}),
-    ...(isPersonLinksEnabled() ? { people: { synced: 0, checked: 0, failed: 0 } } : {}),
+    ...(isPersonLinksEnabled() ? { people: { synced: 0, checked: 0, failed: 0 }, expiredActions: 0 } : {}),
   };
   for (const [index, t] of tenants.entries()) {
     if (clock() >= deadline) {
@@ -933,6 +939,15 @@ export async function runLifecycleTick(
         await repairPendingMoves(ctx, { db: deps.db, now: clock() });
       } catch (err) {
         console.warn(`[lifecycle] tenant ${t.id} (${t.region}) person sweep failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+      }
+    }
+    // After the people: agent actions past their expiry, within what's left of the run. A New
+    // person draft's typed details are cleared with it, so they never outlive their 7 days.
+    if (total.expiredActions !== undefined && clock() < deadline) {
+      try {
+        total.expiredActions += await expireDueAgentActions(ctx, { db: deps.db, now: clock, deadlineMs: deadline });
+      } catch (err) {
+        console.warn(`[lifecycle] tenant ${t.id} (${t.region}) agent action expiry failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
       }
     }
   }

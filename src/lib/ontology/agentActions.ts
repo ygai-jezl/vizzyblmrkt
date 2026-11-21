@@ -1,4 +1,4 @@
-import { forTenant, type WhereClause } from "@/lib/tenant";
+import { expireAgentActions, forTenant, type WhereClause } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { ReviewItem } from "@/lib/review/summary";
 import { AgentActionSchema, type AgentAction, type AgentActionId, type AgentActionState } from "@/lib/types/agentAction";
@@ -130,4 +130,23 @@ export function agentActionReviewItemId(id: AgentActionId): `aa:${string}` {
 export function agentActionReviewItem(a: AgentAction, copy: { title: string; detail: string; action: string }): ReviewItem | null {
   if (!a.review || a.state !== "proposed") return null;
   return { id: agentActionReviewItemId(a.id), kind: a.review.kind, href: a.review.href, title: copy.title, detail: copy.detail, action: copy.action };
+}
+
+/** The most pages one expiry run reads, whatever time is left. */
+const EXPIRY_PAGES = 20;
+
+/**
+ * Decline every action past its expiry, whatever its agent, a page at a time until none are left,
+ * the deadline passes or EXPIRY_PAGES are read (the lifecycle tick, while person links are on). A
+ * declined action that asks for it (a New person draft) has its typed details cleared with the
+ * decision. Returns how many were declined.
+ */
+export async function expireDueAgentActions(ctx: TenantContext, opts: { now: () => number; deadlineMs: number; db?: FirestoreLike }): Promise<number> {
+  let declined = 0;
+  for (let page = 0; page < EXPIRY_PAGES && opts.now() < opts.deadlineMs; page++) {
+    const r = await expireAgentActions(ctx, { now: new Date(opts.now()).toISOString(), db: opts.db });
+    declined += r.declined;
+    if (!r.more) break;
+  }
+  return declined;
 }

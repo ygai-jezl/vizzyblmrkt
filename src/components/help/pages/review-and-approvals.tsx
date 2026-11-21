@@ -1,11 +1,14 @@
 import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { isAutopilotEnabled } from "@/lib/autopilot/flags";
-import { isVizzyFieldsEnabled } from "@/lib/audience/peopleFlags";
+import { isVizzyAddPersonEnabled, isVizzyFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
-/** Vizzy's suggestions about people show while AUDIENCE_VIZZY_FIELDS_ENABLED is on (the How to drawer passes the shell's answer). */
-export default function ReviewAndApprovalsHelp({ vizzyFields = isVizzyFieldsEnabled() }: HelpBodyProps = {}) {
+/**
+ * Vizzy's suggestions about people show while AUDIENCE_VIZZY_FIELDS_ENABLED or
+ * AUDIENCE_VIZZY_ADD_PERSON_ENABLED is on (the How to drawer passes the shell's answers).
+ */
+export default function ReviewAndApprovalsHelp({ vizzyFields = isVizzyFieldsEnabled(), vizzyAddPerson = isVizzyAddPersonEnabled() }: HelpBodyProps = {}) {
   return (
     <article>
       <H1>Review and approvals</H1>
@@ -53,6 +56,12 @@ export default function ReviewAndApprovalsHelp({ vizzyFields = isVizzyFieldsEnab
           <li>
             <strong>Suggestions about people</strong>: changes to someone&apos;s fields that Vizzy suggested. Each opens their page,
             where an admin confirms or dismisses it (<Open href="/help/your-audience#vizzy">Vizzy and their fields</Open>).
+            {vizzyAddPerson ? " It also lists New person forms Vizzy filled in, which open the form to check and add them." : ""}
+          </li>
+        ) : vizzyAddPerson ? (
+          <li>
+            <strong>Suggestions about people</strong>: New person forms Vizzy filled in. Each opens the form, where an admin checks it,
+            says how they agreed and adds them (<Open href="/help/your-audience#add">Add someone by hand</Open>).
           </li>
         ) : null}
         <li>

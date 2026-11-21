@@ -40,6 +40,7 @@ vi.hoisted(() => {
   process.env.AUDIENCE_ADD_PERSON_ENABLED = "true";
   process.env.AUDIENCE_TIMELINE_ENABLED = "true";
   process.env.AUDIENCE_VIZZY_FIELDS_ENABLED = "true";
+  process.env.AUDIENCE_VIZZY_ADD_PERSON_ENABLED = "true";
   process.env.NEXT_PUBLIC_EDIT_MODE_ENABLED = "true";
   process.env.NEXT_PUBLIC_EDIT_MODE_EMAILS_ENABLED = "true";
   process.env.NEXT_PUBLIC_NEWSLETTER_MARKDOWN_EMAIL_ENABLED = "true";
@@ -345,7 +346,7 @@ describe("the timeline section", () => {
 
 describe("the Vizzy and their fields section", () => {
   const md = (slug: string, vizzyFields: boolean) =>
-    docToMarkdown(HELP_BODIES[slug]!({ people: true, fields: true, fieldFilters: true, addPerson: true, timeline: true, vizzyFields }), "https://app.example.com");
+    docToMarkdown(HELP_BODIES[slug]!({ people: true, fields: true, fieldFilters: true, addPerson: true, timeline: true, vizzyFields, vizzyAddPerson: false }), "https://app.example.com");
 
   it("shows while Vizzy's field suggestions are on: what Vizzy sees, that an admin confirms, and undo", () => {
     const text = md("your-audience", true);
@@ -359,6 +360,25 @@ describe("the Vizzy and their fields section", () => {
 
   it("stays hidden while they are off", () => {
     expect(md("your-audience", false)).not.toContain("Vizzy suggests");
+    expect(md("review-and-approvals", false)).not.toContain("Suggestions about people");
+  });
+});
+
+describe("Vizzy filling in New person", () => {
+  const md = (slug: string, vizzyAddPerson: boolean, addPerson = true) =>
+    docToMarkdown(HELP_BODIES[slug]!({ people: true, fields: true, fieldFilters: true, addPerson, timeline: true, vizzyFields: false, vizzyAddPerson }), "https://app.example.com");
+
+  it("shows while it is on: you confirm, you record how they agreed, and what was typed goes", () => {
+    const text = md("your-audience", true);
+    expect(text).toContain("Vizzy never records that someone agreed");
+    expect(text).toContain("nobody is added until you confirm");
+    expect(text).toContain("or after 7 days");
+    expect(md("review-and-approvals", true)).toContain("New person forms Vizzy filled in");
+  });
+
+  it("stays hidden while it, or New person, is off", () => {
+    expect(md("your-audience", false)).not.toContain("Vizzy never records");
+    expect(md("your-audience", true, false)).not.toContain("Vizzy never records");
     expect(md("review-and-approvals", false)).not.toContain("Suggestions about people");
   });
 });

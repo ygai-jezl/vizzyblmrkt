@@ -1,7 +1,7 @@
 import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
-import { isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled, isTimelineEnabled, isVizzyFieldsEnabled } from "@/lib/audience/peopleFlags";
+import { isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled, isTimelineEnabled, isVizzyAddPersonEnabled, isVizzyFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { SUGGESTION_MESSAGES, SUGGESTION_NOTES } from "@/lib/audience/suggestionWords";
 import { TIMELINE_EMPTY } from "@/lib/audience/timelineWords";
 import { FIELD_MESSAGES } from "@/components/admin/audience/fieldsApi";
@@ -15,7 +15,8 @@ import { peopleArea } from "@/lib/nav/terms";
  * fields sections show while AUDIENCE_FIELDS_ENABLED is on, and the filters section while
  * AUDIENCE_FIELD_FILTERS_ENABLED is too. Adding someone by hand shows while
  * AUDIENCE_ADD_PERSON_ENABLED is on, and the timeline while AUDIENCE_TIMELINE_ENABLED is. Vizzy
- * and their fields shows while AUDIENCE_VIZZY_FIELDS_ENABLED is on.
+ * and their fields shows while AUDIENCE_VIZZY_FIELDS_ENABLED is on, and Vizzy filling in New person
+ * while AUDIENCE_VIZZY_ADD_PERSON_ENABLED is.
  */
 export default function YourAudienceHelp({
   people = isPeopleNameEnabled(),
@@ -24,8 +25,11 @@ export default function YourAudienceHelp({
   addPerson = isAddPersonEnabled(),
   timeline = isTimelineEnabled(),
   vizzyFields = isVizzyFieldsEnabled(),
+  vizzyAddPerson = isVizzyAddPersonEnabled(),
 }: HelpBodyProps = {}) {
   const area = peopleArea(people);
+  // Vizzy's New person drafts need New person.
+  const vizzyAdds = addPerson && vizzyAddPerson;
   return (
     <article>
       <H1>{people ? "People" : "Your audience"}</H1>
@@ -162,6 +166,15 @@ export default function YourAudienceHelp({
             person. People added by hand count towards your plan&apos;s people; near or over the limit the form says so and still adds
             them.
           </P>
+          {vizzyAdds ? (
+            <P>
+              Or ask Vizzy, for example &quot;Add Sam Okoro, sam@example.com, on the Pro plan&quot;. It fills in the form for you: open
+              it from the card in the chat or from <Open href="/help/review-and-approvals#what">Review</Open>, check it, say how they
+              agreed yourself, and press <strong>Add person</strong>. Vizzy never records that someone agreed, and nobody is added until
+              you confirm. What was typed is removed once you add them or press <strong>Dismiss Vizzy&apos;s draft</strong>, or after 7
+              days. Only admins can ask Vizzy to add someone.
+            </P>
+          ) : null}
         </>
       ) : null}
 
@@ -301,6 +314,12 @@ export default function YourAudienceHelp({
             Vizzy for a suggestion, or confirm, dismiss or undo one; everyone else on your team can read them. Suggestions are in the
             person&apos;s export and go when they are erased.{timeline ? " Each step shows on their timeline." : ""}
           </P>
+          {vizzyAdds ? (
+            <P>
+              Vizzy can also fill in New person for someone you tell it about; you confirm it and record how they agreed yourself (
+              <Open href="/help/your-audience#add">Add someone by hand</Open>).
+            </P>
+          ) : null}
         </>
       ) : null}
 
@@ -359,6 +378,12 @@ export default function YourAudienceHelp({
                 [NEW_PERSON_MESSAGES.consent_elsewhere, "Nothing to fix. Their consent shows under Consent, in one place, from their launch or product."],
                 [NEW_PERSON_MESSAGES.fields_not_saved, "Open their page and set the values in Fields."],
                 [NEW_PERSON_NOTES.nothingSent, "Nothing to fix. People added by hand get emails once lists reach them."],
+                ...(vizzyAdds
+                  ? ([
+                      [NEW_PERSON_NOTES.fromVizzy, "Check each box, pick how they agreed, then press Add person, or dismiss the draft."],
+                      [NEW_PERSON_MESSAGES.draft_gone, "Nothing to fix. Add them yourself with New person, or ask Vizzy again."],
+                    ] as Array<[string, string]>)
+                  : []),
                 ["You can still add people.", "Nothing to fix now. See Plan and usage for your plan's people."],
               ] as Array<[string, string]>)
             : []),

@@ -23,7 +23,7 @@ import { isDevelopersDocsEnabled } from "@/lib/developers/flags";
 import { isEmailJourneyStyleEnabled, isEmailStyleEnabled } from "@/lib/email/flags";
 import { isNavV2Enabled, isNavV2Phase2Enabled, isThemeSwitchEnabled } from "@/lib/nav/flags";
 import { isOneViewEnabled, isPeopleNameEnabled, isPersonBriefEnabled } from "@/lib/audience/flags";
-import { isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled, isTimelineEnabled, isPersonInContextEnabled, isVizzyFieldsEnabled } from "@/lib/audience/peopleFlags";
+import { isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled, isTimelineEnabled, isPersonInContextEnabled, isVizzyAddPersonEnabled, isVizzyFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { parseThemePreference, THEME_COOKIE } from "@/lib/theme";
 
 export const dynamic = "force-dynamic";
@@ -175,6 +175,7 @@ export default async function AdminLayout({
             addPerson={isAddPersonEnabled()}
             timeline={isTimelineEnabled()}
             vizzyFields={isVizzyFieldsEnabled()}
+            vizzyAddPerson={isVizzyAddPersonEnabled()}
           >
             {shell}
           </ShellProvider>

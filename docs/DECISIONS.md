@@ -261,6 +261,43 @@ Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
   - Export and erase cover suggestions whatever the switch says, with no code change: piece 0's
     history export and erase find agent actions by person.
 
+- **Vizzy fills in the New person form (group 11, decisions 29 and 31, answer 9).**
+  `AUDIENCE_VIZZY_ADD_PERSON_ENABLED` (RUNTIME, `"false"`) needs New person, not Vizzy's fields.
+  Off in production until the DPA line.
+  - **The draft:** the `new_person` canvas kind saves an agent action (`new_person.draft`) with
+    `personId = personIdOf(key)`, the key worked out exactly as New person does (the normalised
+    address, else the trimmed phone), so erasing that person finds it. Admins only, rate limited.
+    The proposal holds the typed name, address or phone and field values; `clearDetailsOnClose`
+    clears them with any decision, and it expires after 7 days. Each request has its own dedupe
+    key (a random part), so a dismissed draft never blocks asking again; the same details again
+    answer with the draft waiting, and new details for the same person replace it (declined as
+    superseded, details cleared). Someone already in People gets no draft, only a link to their
+    page.
+  - **Never consent:** the request has no place for it and one that tries is refused
+    (`consent_not_allowed`); the form starts at Not yet and the admin says how they agreed.
+  - **Field values** only of the seven types Vizzy may read, named by label or id, options by
+    label or id; anything else comes back to Vizzy as a warning for the admin to type. Names and
+    addresses typed into chat pass through Vizzy to fill the form, as they already did whenever
+    someone typed them.
+  - **Confirming runs group 7's create:** the card and Review link to `/admin/crm?draft=<id>`,
+    the id only. The form loads the draft from the admin-only drafts route and posts to the New
+    person route with `draftId` and `via: "vizzy"` (refused without a draft id); after the create,
+    or for an address already held, the route moves the draft to acted with only
+    `{ personId }` in its result and the details cleared. Two steps, not one transaction: if the
+    close were lost, the details still go at expiry. Dismiss declines it and clears the details.
+    A draft whose typed address was changed in the form keeps its first person id, with no
+    details left in it.
+  - **Expiry runs whenever person links are on**, not behind a Vizzy switch: after the people
+    sweep, the lifecycle tick calls `expireDueAgentActions`, which declines every action past its
+    expiry a page at a time within the run's deadline. That clears a draft's details and sets
+    aside field suggestions after their 30 days. A Firestore TTL policy would do it without code
+    but needs a gcloud change, so the tick does it.
+  - **Vizzy:** the root agent gains `new_person_propose` (adding someone isn't about the person in
+    view). Its rules: nobody is added until an admin confirms, it never records consent, never
+    asks for details the operator didn't offer, and what it sent is kept 7 days at most.
+  - **Review** lists open drafts under Suggestions about people, titled without anything about the
+    person. The timeline of someone added from a draft says Vizzy filled in New person for them.
+
 Rollback: turning `NEXT_PUBLIC_NAV_PEOPLE_ENABLED` off (a rebuild) changes only words. The
 settings log has no switch and nothing calls it until the fields. Never revert group 3 once
 anyone has been added by hand: without the `addedBy` rule the next sync would delete them. Once
@@ -273,7 +310,9 @@ Reverting group 9 is safe only while Vizzy still sends `personId` too; after a V
 only `productUserId`, keep the app's scope taking both. Turning `AUDIENCE_VIZZY_FIELDS_ENABLED`
 off stops Vizzy being told who is open (unless the brief is on), makes its field routes answer
 unavailable and hides suggestions; open ones stay, expire on the tick, and are exported and
-erased.
+erased. Turning `AUDIENCE_VIZZY_ADD_PERSON_ENABLED` off stops new drafts and hides their links; open
+drafts still expire on the tick with their details cleared, and erase still finds them. Keep the
+tick's expiry once any draft exists.
 
 ---
 

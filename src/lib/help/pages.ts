@@ -45,6 +45,8 @@ export interface HelpBodyProps {
   timeline?: boolean;
   /** Vizzy reads people's fields and suggests changes (isVizzyFieldsEnabled()). */
   vizzyFields?: boolean;
+  /** Vizzy fills in the New person form (isVizzyAddPersonEnabled()). */
+  vizzyAddPerson?: boolean;
 }
 
 /** Navigation headings, matching Home's stages. */

@@ -44,12 +44,19 @@ const RULES: Array<[RegExp, string]> = [
   [/^\/admin\/account\/?$/, "/help/email-sending"],
 ];
 
-export function helpFor(pathname: string): string {
-  return RULES.find(([re]) => re.test(pathname))?.[1] ?? "/help";
+/**
+ * With People on (isPeopleNameEnabled(): the switch and the one People list), the People area
+ * opens the page about the one list; off, it still opens One person's view.
+ */
+const PEOPLE_RULES: Array<[RegExp, string]> = [[/^\/admin\/crm/, "/help/your-audience"]];
+
+export function helpFor(pathname: string, opts: { people?: boolean } = {}): string {
+  const rules = opts.people ? [...PEOPLE_RULES, ...RULES] : RULES;
+  return rules.find(([re]) => re.test(pathname))?.[1] ?? "/help";
 }
 
 /** Every help address the app links to from a page, for the tests. */
-export const HELP_PLACES: string[] = [...new Set(RULES.map(([, to]) => to))];
+export const HELP_PLACES: string[] = [...new Set([...RULES, ...PEOPLE_RULES].map(([, to]) => to))];
 
 /** "/help/email-sending#domain" → { slug: "email-sending", anchor: "domain" }; "/help" → slug "". */
 export function parseHelpPath(path: string): { slug: string; anchor: string | null } | null {

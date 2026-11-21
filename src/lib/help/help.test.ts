@@ -222,6 +222,16 @@ describe("links into the help", () => {
     expect(helpFor("/admin/somewhere-new")).toBe("/help");
   });
 
+  it("opens the People list's page from the People area only with People on", () => {
+    expect(helpFor("/admin/crm")).toBe("/help/people");
+    expect(helpFor("/admin/crm/people/pu_3f9a")).toBe("/help/people");
+    expect(helpFor("/admin/crm", { people: true })).toBe("/help/your-audience");
+    expect(helpFor("/admin/crm/people/ct_9b2e", { people: true })).toBe("/help/your-audience");
+    // Only the People area changes.
+    expect(helpFor("/admin/lifecycle/j1", { people: true })).toBe("/help/onboarding-journeys");
+    expect(HELP_PLACES).toEqual(expect.arrayContaining(["/help/people", "/help/your-audience"]));
+  });
+
   it("sends Plan and usage and Add Brand to the plans page while its switch is on", () => {
     expect(helpFor("/admin/account/billing")).toBe("/help/plan-and-usage");
     expect(helpFor("/admin/brands/new")).toBe("/help/plan-and-usage#brands");

@@ -23,6 +23,8 @@ interface Shell {
   ask: (text: string) => void;
   /** Vizzy can read the product user whose page is in view (LIFECYCLE_PERSON_BRIEF). */
   personInContext: boolean;
+  /** Audience is called People (isPeopleNameEnabled(), from the server), so the How to drawer says what the sidebar says. */
+  people: boolean;
   /**
    * Hear about each draft Vizzy saves in this chat (returns the unsubscribe), so a page whose
    * data isn't the server's render (the journey editor, a person's page) can reload it. Null
@@ -59,16 +61,19 @@ export function ShellProvider({
   names,
   journeyInContext = false,
   personInContext = false,
+  people = false,
   children,
 }: {
   names: CrumbNames;
   journeyInContext?: boolean;
   /** Vizzy can read one person (LIFECYCLE_PERSON_BRIEF, from the server): the chat names the person in view. */
   personInContext?: boolean;
+  /** Audience is called People (isPeopleNameEnabled(), from the server): the page label Vizzy gets follows the crumbs. */
+  people?: boolean;
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? "/admin";
-  const page = vizzyPageLabel(breadcrumbsFor(pathname, names, { phase3: isNavV2Phase3Enabled(), insights: isInsightsHubEnabled(), plans: isPlansUiEnabled() }));
+  const page = vizzyPageLabel(breadcrumbsFor(pathname, names, { phase3: isNavV2Phase3Enabled(), insights: isInsightsHubEnabled(), plans: isPlansUiEnabled(), people }));
   const router = useRouter();
   // Made once, so a page's subscription outlives re-renders.
   const [saved] = useState(cardListeners);
@@ -127,9 +132,10 @@ export function ShellProvider({
       setPaletteOpen,
       ask,
       personInContext,
+      people,
       onCanvasSaved: journeyInContext || personInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, saved],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, people, saved],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

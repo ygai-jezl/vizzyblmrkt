@@ -22,7 +22,7 @@ import { DeveloperDocsProvider } from "@/components/developers/DocsAvailability"
 import { isDevelopersDocsEnabled } from "@/lib/developers/flags";
 import { isEmailJourneyStyleEnabled, isEmailStyleEnabled } from "@/lib/email/flags";
 import { isNavV2Enabled, isNavV2Phase2Enabled, isThemeSwitchEnabled } from "@/lib/nav/flags";
-import { isOneViewEnabled, isPersonBriefEnabled } from "@/lib/audience/flags";
+import { isOneViewEnabled, isPeopleNameEnabled, isPersonBriefEnabled } from "@/lib/audience/flags";
 import { parseThemePreference, THEME_COOKIE } from "@/lib/theme";
 
 export const dynamic = "force-dynamic";
@@ -123,6 +123,9 @@ export default async function AdminLayout({
       workspaces: Object.fromEntries(workspaces.map((w) => [w.id, w.name])),
     };
     const phase2 = isNavV2Phase2Enabled();
+    // Audience is called People: the switch (phase 3) plus the one People list, a server
+    // switch, so it is worked out here and passed down. The How to drawer reads it from the shell.
+    const people = isPeopleNameEnabled();
     const shell = (
       <>
         <SessionKeeper />
@@ -132,9 +135,10 @@ export default async function AdminLayout({
           archivedLaunches={archivedLaunches}
           ctx={sidebarCtx}
           email={ctx.email}
+          people={people}
         />
         <div className="flex min-w-0 flex-1 flex-col">
-          <AdminHeader names={crumbNames} />
+          <AdminHeader names={crumbNames} people={people} />
           <main className="min-w-0 flex-1 px-6 py-6">
             <DeveloperDocsProvider enabled={docs}>{children}</DeveloperDocsProvider>
           </main>
@@ -146,6 +150,7 @@ export default async function AdminLayout({
             launches={launches}
             archivedLaunches={archivedLaunches}
             workspaces={workspaces.filter((w) => !w.archivedAt).map((w) => ({ id: w.id, name: w.name }))}
+            people={people}
           />
         ) : null}
       </>
@@ -161,6 +166,7 @@ export default async function AdminLayout({
             names={crumbNames}
             journeyInContext={isEmailStyleEnabled() && isEmailJourneyStyleEnabled() && ctx.role === "admin"}
             personInContext={isPersonBriefEnabled()}
+            people={people}
           >
             {shell}
           </ShellProvider>

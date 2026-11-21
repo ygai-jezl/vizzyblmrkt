@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Command } from "cmdk";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -50,14 +50,14 @@ const ICONS: Record<NavKey, LucideIcon> = {
   settings: Settings,
 };
 
-/** Other words people use for each area, so "crm" finds Audience. */
+/** Other words people use for each area, so "crm" finds Audience, and "audience" finds People. */
 const KEYWORDS: Partial<Record<NavKey, string[]>> = {
   review: ["approvals", "inbox", "decisions"],
   launches: ["waitlists", "campaigns"],
   content: ["workspaces", "programmes", "posts", "newsletter"],
   products: ["connections", "app", "sandbox"],
   journeys: ["lifecycle", "emails", "onboarding"],
-  audience: ["crm", "people", "contacts", "signups"],
+  audience: ["crm", "people", "audience", "contacts", "signups"],
   insights: isInsightsHubEnabled()
     ? ["analytics", "metrics", "reports", "funnel", "attribution", "sources"]
     : ["analytics", "metrics"],
@@ -71,7 +71,9 @@ const PHASE3 = isNavV2Phase3Enabled();
 const INVITES = isInvitesUiEnabled();
 const GUIDE = isSetupGuideEnabled();
 const SEARCH = isSearchUiEnabled();
-const NAV = buildNav({ lifecycle, brandKit: isBrandKitUiEnabled(), review: true, phase3: PHASE3 }).flatMap((s) => s.items);
+/** The areas to jump to; `people` (from the server) names the Audience area People. */
+const navItems = (people: boolean) =>
+  buildNav({ lifecycle, brandKit: isBrandKitUiEnabled(), review: true, phase3: PHASE3, people }).flatMap((s) => s.items);
 
 const ITEM =
   "flex cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 text-sm text-shell-ink data-[selected=true]:bg-shell-active";
@@ -90,12 +92,16 @@ export function CommandPalette({
   launches,
   archivedLaunches,
   workspaces,
+  people = false,
 }: {
   launches: LaunchRef[];
   archivedLaunches: LaunchRef[];
   workspaces: LaunchRef[];
+  /** Audience is called People (isPeopleNameEnabled(), worked out by the layout on the server). */
+  people?: boolean;
 }) {
   const shell = useShell();
+  const nav = useMemo(() => navItems(people), [people]);
   const router = useRouter();
   const container = useThemePortalContainer();
   const [query, setQuery] = useState("");
@@ -200,7 +206,7 @@ export function CommandPalette({
         ) : null}
 
         <Command.Group heading="Go to">
-          {NAV.map((item) => {
+          {nav.map((item) => {
             const Icon = ICONS[item.key];
             return (
               <Command.Item

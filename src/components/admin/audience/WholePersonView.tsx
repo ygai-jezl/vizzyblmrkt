@@ -39,6 +39,7 @@ export function WholePersonView({
   vizzy = false,
   productView = false,
   fields = false,
+  fieldFilters = false,
 }: {
   personId: string;
   canEdit: boolean;
@@ -48,6 +49,8 @@ export function WholePersonView({
   productView?: boolean;
   /** Fields are on (AUDIENCE_FIELDS_ENABLED): the Fields panel, with fields from elsewhere and voice chats. */
   fields?: boolean;
+  /** Field filters are on (AUDIENCE_FIELD_FILTERS_ENABLED): each product group links to everyone in it. */
+  fieldFilters?: boolean;
 }) {
   const shell = useShell();
   const [state, setState] = useState<State>({ status: "loading" });
@@ -210,6 +213,27 @@ export function WholePersonView({
           </Section>
         ),
       )}
+
+      {fieldFilters && p.products.some((x) => x.groups?.length) ? (
+        <Section title="Product groups">
+          <ul className="divide-y divide-neutral-100 text-sm dark:divide-neutral-900">
+            {p.products.flatMap((x) =>
+              (x.groups ?? []).map((g) => (
+                <li key={`${x.connectionId}:${g.id}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+                  <span>
+                    <span className="text-neutral-500">In {x.name}:</span>{" "}
+                    {g.kind ? `${g.kind.charAt(0).toUpperCase()}${g.kind.slice(1)}: ` : ""}
+                    {g.name ?? g.id}
+                  </span>
+                  <Link href={`/admin/crm?group=${encodeURIComponent(`${x.connectionId}:${g.id}`)}`} className="text-xs underline underline-offset-2">
+                    Everyone in this group
+                  </Link>
+                </li>
+              )),
+            )}
+          </ul>
+        </Section>
+      ) : null}
 
       {p.launches.length ? (
         <Section title={`Emails from your launches${p.launchEmails.length ? ` (${p.launchEmails.length})` : ""}`}>

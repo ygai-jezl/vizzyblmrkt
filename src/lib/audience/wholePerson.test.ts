@@ -89,3 +89,20 @@ describe("loadWholePerson with fields", () => {
     expect(JSON.stringify(p)).not.toContain("hello there");
   });
 });
+
+describe("loadWholePerson with groups", () => {
+  it("names each product's groups they belong to, only when asked", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const at = new Date(T0).toISOString();
+    seedUser(db, "ada", {
+      email: "ada@customer.test",
+      emailNormalized: "ada@customer.test",
+      entities: { "org.acme:team-1": { kind: "workspace", name: "Acme Labs", parentId: null, role: "owner", steps: {}, facts: {}, activeAt: null, firstSeenAt: at, updatedAt: at } },
+    });
+    await syncPerson(ctx, "ada@customer.test", { db, nowMs: T0 });
+    const id = personIdOf(TENANT_ID, "ada@customer.test");
+    expect((await loadWholePerson(ctx, id, db))!.products[0]!.groups).toBeUndefined();
+    expect((await loadWholePerson(ctx, id, db, { groups: true }))!.products[0]!.groups).toEqual([{ id: "org.acme:team-1", name: "Acme Labs", kind: "workspace" }]);
+  });
+});

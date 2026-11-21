@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { oneViewAdmin } from "@/lib/audience/admin";
 import { isPersonId } from "@/lib/audience/paths";
 import { loadWholePerson } from "@/lib/audience/wholePerson";
-import { isFieldsEnabled } from "@/lib/audience/peopleFlags";
+import { isFieldFiltersEnabled, isFieldsEnabled } from "@/lib/audience/peopleFlags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,7 +15,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ personId
   const gate = await oneViewAdmin(req, { mutate: false });
   if (!gate.ok) return gate.response;
   const { personId } = await params;
-  const person = isPersonId(personId) ? await loadWholePerson(gate.ctx, personId, undefined, { fields: isFieldsEnabled() }) : null;
+  const person = isPersonId(personId) ? await loadWholePerson(gate.ctx, personId, undefined, { fields: isFieldsEnabled(), groups: isFieldFiltersEnabled() }) : null;
   if (!person) return NextResponse.json({ error: "not_found" }, { status: 404, headers: { "cache-control": "no-store" } });
   return NextResponse.json({ person }, { headers: { "cache-control": "no-store" } });
 }

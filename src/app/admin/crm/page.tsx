@@ -5,7 +5,8 @@ import { CrmClient } from "@/components/admin/crm/CrmClient";
 import { isNavV2Enabled, isNavV2Phase2Enabled, isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { isOneViewEnabled, isPeopleNameEnabled, isPersonLinksEnabled, isPersonViewEnabled } from "@/lib/audience/flags";
-import { isFieldsEnabled } from "@/lib/audience/peopleFlags";
+import { isFieldFiltersEnabled, isFieldsEnabled } from "@/lib/audience/peopleFlags";
+import { groupLabel, parseGroupTag } from "@/lib/audience/peopleList";
 import { peopleArea } from "@/lib/nav/terms";
 import { forTenant } from "@/lib/tenant";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
@@ -34,7 +35,7 @@ async function tab<T>(label: string, p: Promise<ListResult<T>>): Promise<ListRes
  * company intelligence (Agent 1) and per-contact email history. Server-renders
  * the first page of each tab; the client owns search/filter/pagination.
  */
-export default async function CrmPage({ searchParams }: { searchParams: Promise<{ q?: string; launch?: string; tab?: string }> }) {
+export default async function CrmPage({ searchParams }: { searchParams: Promise<{ q?: string; launch?: string; tab?: string; group?: string }> }) {
   const ctx = await requireAdminContext();
   const sp = await searchParams;
   // Nav v2 phase 2: ⌘K "Search people" arrives with ?q=, pre-filtering Contacts.
@@ -49,6 +50,11 @@ export default async function CrmPage({ searchParams }: { searchParams: Promise<
   const personView = phase3 && isPersonViewEnabled();
   // One People list across every source, in place of the Signups and Product users tabs.
   const oneView = phase3 && isOneViewEnabled();
+  // Field filters: People by a field or a product group. A person's page links here with
+  // ?group=<connectionId>:<entity id> ("Everyone in this group"); its name comes from someone in it.
+  const fieldFilters = oneView && isFieldFiltersEnabled();
+  const groupTag = fieldFilters && !q && sp.group ? `group:${sp.group.slice(0, 300)}` : null;
+  const group = groupTag && parseGroupTag(groupTag) ? { tag: groupTag, label: (await groupLabel(ctx, groupTag).catch(() => null)) ?? "this group" } : null;
   // With person records on, people who only use a product aren't sign-ups: the Signups tab leaves them out.
   const signupsOnly = isPersonLinksEnabled() ? { launchesOnly: true } : {};
   const [companies, contacts, engaged, funnel] = await Promise.all([
@@ -91,6 +97,8 @@ export default async function CrmPage({ searchParams }: { searchParams: Promise<
         audience={phase3 ? { productUsers: isLifecycleEnabled(), personView, oneView } : null}
         initialTab={personView || oneView ? sp.tab : undefined}
         fields={phase3 && isFieldsEnabled()}
+        fieldFilters={fieldFilters}
+        initialGroup={group}
       />
     </div>
   );

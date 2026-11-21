@@ -4,7 +4,7 @@ import { suppressEmail } from "@/lib/email/suppression";
 import { CONNECTION_ID, T0, TENANT_ID, ctx, seedUser, seedWorld, system } from "@/lib/lifecycle/testing/fixtures";
 import { listContacts } from "@/lib/admin/crm";
 import { setRecordFieldValues } from "@/lib/tenant";
-import { fieldOptionCounts, isFilterTag, isPeopleTag, listPeople, parseGroupTag, peopleFilters, PEOPLE_PAGE } from "./peopleList";
+import { fieldOptionCounts, groupLabel, isFilterTag, isPeopleTag, listPeople, parseGroupTag, peopleFilters, PEOPLE_PAGE } from "./peopleList";
 import { personIdOf, syncPerson } from "./personSync";
 import { saveFieldListChange, type FieldListChange } from "./fieldList";
 
@@ -198,6 +198,9 @@ describe("field and group filters", () => {
     seedUser(db, "ada", { email: "ada@customer.test", emailNormalized: "ada@customer.test", entities: { "org.acme:team-1": { kind: "workspace", name: "Acme Labs", parentId: null, role: "owner", steps: {}, facts: {}, activeAt: null, firstSeenAt: ISO(T0), updatedAt: ISO(T0) } } });
     await syncPerson(ctx, "ada@customer.test", { db, nowMs: T0 + 3_600_000 });
     expect(await emails(db, `group:${CONNECTION_ID}:org.acme:team-1`)).toEqual(["ada@customer.test"]);
+    expect(await groupLabel(ctx, `group:${CONNECTION_ID}:org.acme:team-1`, db)).toBe("Acme Labs");
+    expect(await groupLabel(ctx, `group:${CONNECTION_ID}:nobody`, db)).toBeNull();
+    expect(await groupLabel({ ...ctx, tenantId: "ten_other" }, `group:${CONNECTION_ID}:org.acme:team-1`, db)).toBeNull();
   });
 
   it("accepts field and group tags as filters, and nothing like them", () => {

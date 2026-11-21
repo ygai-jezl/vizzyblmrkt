@@ -218,3 +218,21 @@ export async function fieldOptionCounts(ctx: TenantContext, fieldId: string, db?
 export async function filterFieldIds(ctx: TenantContext, db?: FirestoreLike): Promise<Set<string>> {
   return new Set(filterFields((await readFieldList(ctx, "person", db)).items).map((f) => f.id));
 }
+
+/**
+ * A product group's name, for its pill: read from one person in it (the first by the list's order,
+ * through the memberOf index) and their user in that product. Null when nobody is in it.
+ */
+export async function groupLabel(ctx: TenantContext, tag: string, db?: FirestoreLike): Promise<string | null> {
+  const g = parseGroupTag(tag);
+  if (!g) return null;
+  const repo = forTenant(ctx, db);
+  const [someone] = await repo.contacts.find({ where: [["memberOf", "array-contains", tag]], orderBy: [["sortKey", "desc"]], limit: 1 });
+  const link = someone?.products?.find((p) => p.connectionId === g.connectionId && p.groups.includes(g.entityId));
+  if (!link) return null;
+  const [user, connection] = await Promise.all([repo.productUsers.getById(link.productUserId), repo.productConnections.getById(g.connectionId)]);
+  const entity = user?.entities?.[g.entityId];
+  if (!entity?.name) return null;
+  const kind = connection?.catalog?.entityKinds?.find((k) => k.kind === entity.kind)?.label ?? null;
+  return kind ? `${kind.charAt(0).toUpperCase()}${kind.slice(1)} ${entity.name}` : entity.name;
+}

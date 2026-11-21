@@ -9,6 +9,7 @@ import { api } from "../connect/api";
 import { inputClass } from "../connect/ui";
 import { Chip, type ChipTone } from "../people/Chip";
 import { ago, day } from "../people/format";
+import { cellText, filterLabel, PeopleFilterBar, type ActiveGroup } from "./PeopleFilterBar";
 
 /**
  * Audience → People (AUDIENCE_ONE_VIEW_ENABLED): one row per person, whatever brought
@@ -48,16 +49,20 @@ const pill = (active: boolean) =>
       : "border-neutral-300 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
   }`;
 
-export function AudienceList({ initialQuery = "", initialLaunch = null }: {
+export function AudienceList({ initialQuery = "", initialLaunch = null, fieldFilters = false, initialGroup = null }: {
   /** A search the page arrived with (?q=, from ⌘K). */
   initialQuery?: string;
   /** A launch the page arrived with (?launch=, from a launch's Signups page). */
   initialLaunch?: { id: string } | null;
+  /** AUDIENCE_FIELD_FILTERS_ENABLED: a menu per filter and per field, and product groups. */
+  fieldFilters?: boolean;
+  /** A product group the page arrived with (?group=, from "Everyone in this group" on a person's page). */
+  initialGroup?: ActiveGroup | null;
 }) {
   const router = useRouter();
   const [filters, setFilters] = useState<PeopleFilters | null>(null);
   /** The group shown: a memberOf tag. Within a product, `product` is that product's id. */
-  const [show, setShow] = useState(initialLaunch ? `launch:${initialLaunch.id}` : "all");
+  const [show, setShow] = useState(initialGroup ? initialGroup.tag : initialLaunch ? `launch:${initialLaunch.id}` : "all");
   const [product, setProduct] = useState<string | null>(null);
   const [canEmail, setCanEmail] = useState(false);
   const [q, setQ] = useState(initialQuery);
@@ -136,10 +141,18 @@ export function AudienceList({ initialQuery = "", initialLaunch = null }: {
 
   const inProduct = product ? filters?.products.find((p) => p.id === product) : null;
   const multiProduct = (filters?.products.length ?? 0) > 1;
+  // With field filters: the active field's column first, then the next, at most two.
+  const activeField = !search && show.startsWith("field:") ? show.split(":")[1] : null;
+  const fieldColumns = fieldFilters
+    ? [...(filters?.fields ?? [])].sort((a, b) => Number(b.id === activeField) - Number(a.id === activeField)).slice(0, 2)
+    : [];
+  const shownLabel = fieldFilters && filters && !search ? filterLabel(show, filters, initialGroup) : null;
 
   return (
     <div className="space-y-3">
-      {filters ? (
+      {fieldFilters && filters ? (
+        <PeopleFilterBar filters={filters} show={show} search={search} canEmail={canEmail} group={initialGroup} onPick={(tag) => pick(tag)} onCanEmail={setCanEmail} />
+      ) : filters ? (
         <div className="flex flex-wrap gap-1.5 text-xs" role="group" aria-label="Who to show">
           <button type="button" aria-pressed={show === "all"} className={pill(show === "all" && !search)} onClick={() => pick("all")}>
             Everyone <span className="tabular-nums opacity-70">{filters.everyone}</span>
@@ -166,7 +179,7 @@ export function AudienceList({ initialQuery = "", initialLaunch = null }: {
         </div>
       ) : null}
 
-      {inProduct ? (
+      {inProduct && !fieldFilters ? (
         <div className="flex flex-wrap gap-1.5 text-xs" role="group" aria-label={`Stages in ${inProduct.name}`}>
           <button type="button" className={pill(show === `product:${inProduct.id}`)} onClick={() => pick(`product:${inProduct.id}`, inProduct.id)}>
             All in {inProduct.name}
@@ -190,12 +203,21 @@ export function AudienceList({ initialQuery = "", initialLaunch = null }: {
           aria-label="Search people"
           className={`${inputClass} max-w-xs`}
         />
-        <label className={`flex items-center gap-1.5 text-sm ${search ? "opacity-50" : ""}`}>
-          <input type="checkbox" checked={canEmail} disabled={Boolean(search)} onChange={(e) => setCanEmail(e.target.checked)} />
-          Only people we can email
-          {filters ? <span className="tabular-nums text-neutral-500">({filters.canEmail} in all)</span> : null}
-        </label>
+        {fieldFilters ? null : (
+          <label className={`flex items-center gap-1.5 text-sm ${search ? "opacity-50" : ""}`}>
+            <input type="checkbox" checked={canEmail} disabled={Boolean(search)} onChange={(e) => setCanEmail(e.target.checked)} />
+            Only people we can email
+            {filters ? <span className="tabular-nums text-neutral-500">({filters.canEmail} in all)</span> : null}
+          </label>
+        )}
       </div>
+
+      {shownLabel && rows && total !== null ? (
+        <p className="text-sm text-neutral-600 dark:text-neutral-400">
+          {total} {total === 1 ? "person" : "people"} with {shownLabel}
+          {canEmail ? ", only people we can email" : ""}
+        </p>
+      ) : null}
 
       {!rows ? (
         <p className="text-sm text-neutral-500">Loading…</p>
@@ -211,6 +233,11 @@ export function AudienceList({ initialQuery = "", initialLaunch = null }: {
                 <th className="px-3 py-2 font-medium">Person</th>
                 <th className="px-3 py-2 font-medium">Where from</th>
                 <th className="px-3 py-2 font-medium">Stage</th>
+                {fieldColumns.map((f) => (
+                  <th key={f.id} className="px-3 py-2 font-medium">
+                    {f.label}
+                  </th>
+                ))}
                 <th className="px-3 py-2 font-medium">Can email</th>
                 <th className="px-3 py-2 font-medium">Last active</th>
               </tr>
@@ -261,6 +288,11 @@ export function AudienceList({ initialQuery = "", initialLaunch = null }: {
                           : null}
                       </span>
                     </td>
+                    {fieldColumns.map((f) => (
+                      <td key={f.id} className="px-3 py-2">
+                        {cellText(f, p.fields?.[f.id]) ?? <span className="text-neutral-400">None set</span>}
+                      </td>
+                    ))}
                     <td className="whitespace-nowrap px-3 py-2">
                       {p.reach === "yes" ? (
                         <Chip tone="green">Yes</Chip>
@@ -302,6 +334,12 @@ export function AudienceList({ initialQuery = "", initialLaunch = null }: {
             </button>
           ) : null}
         </div>
+      ) : null}
+
+      {fieldFilters ? (
+        <p className="text-xs text-neutral-500">
+          Filtering by a product group starts from a person&rsquo;s page: open someone, then <strong>Everyone in this group</strong>.
+        </p>
       ) : null}
     </div>
   );

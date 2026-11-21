@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { requireAdminContext } from "@/lib/auth/session";
 import { isOneViewEnabled, isPersonBriefEnabled, isPersonViewEnabled } from "@/lib/audience/flags";
 import { isPersonId, personHref } from "@/lib/audience/paths";
-import { isFieldsEnabled } from "@/lib/audience/peopleFlags";
+import { isFieldFiltersEnabled, isFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { personIdOf, personKeyOf } from "@/lib/audience/personSync";
 import { forTenant } from "@/lib/tenant";
 import { PersonView } from "@/components/admin/people/PersonView";
@@ -29,6 +29,7 @@ export default async function PersonPage({ params }: { params: Promise<{ personI
         vizzy={isPersonBriefEnabled()}
         productView={isPersonViewEnabled()}
         fields={isFieldsEnabled()}
+        fieldFilters={isFieldFiltersEnabled()}
       />
     );
   }

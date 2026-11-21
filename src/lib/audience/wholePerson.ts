@@ -32,6 +32,11 @@ export interface WholePersonLaunch {
 
 export interface WholePersonProduct extends Pick<PersonProductLink, "connectionId" | "productUserId" | "stage" | "quiet" | "activated" | "signedUpAt" | "lastActiveAt" | "reach"> {
   name: string;
+  /**
+   * With field filters on (AUDIENCE_FIELD_FILTERS_ENABLED): the product's groups they belong to
+   * (workspaces, teams: the product's own word as `kind`), each a filter on the People list.
+   */
+  groups?: Array<{ id: string; name: string | null; kind: string | null }>;
 }
 
 export interface WholePerson {
@@ -61,8 +66,16 @@ function inviteStageOf(inv: { invited: boolean; signedUp: boolean; activated: bo
   return inv.activated ? "activated" : inv.signedUp ? "signed_up" : inv.invited ? "invited" : null;
 }
 
-/** Null when there's no such person in this brand. `fields` adds their fields (AUDIENCE_FIELDS_ENABLED). */
-export async function loadWholePerson(ctx: TenantContext, personId: string, db?: FirestoreLike, opts: { fields?: boolean } = {}): Promise<WholePerson | null> {
+/**
+ * Null when there's no such person in this brand. `fields` adds their fields (AUDIENCE_FIELDS_ENABLED),
+ * `groups` each product's groups (AUDIENCE_FIELD_FILTERS_ENABLED).
+ */
+export async function loadWholePerson(
+  ctx: TenantContext,
+  personId: string,
+  db?: FirestoreLike,
+  opts: { fields?: boolean; groups?: boolean } = {},
+): Promise<WholePerson | null> {
   const repo = forTenant(ctx, db);
   const contact = await repo.contacts.getById(personId);
   if (!contact) return null;
@@ -85,12 +98,13 @@ export async function loadWholePerson(ctx: TenantContext, personId: string, db?:
     const env = c ? environmentOf(c) : null;
     return c ? `${productNameOf(c)}${env ? ` · ${ENVIRONMENT_LABEL[env]}` : ""}` : "A product";
   };
+  const users =
+    opts.fields || opts.groups ? await Promise.all((contact.products ?? []).map((p) => repo.productUsers.getById(p.productUserId).catch(() => null))) : [];
   let fields: WholePerson["fields"] = null;
   if (opts.fields) {
-    const [list, signups, users, company] = await Promise.all([
+    const [list, signups, company] = await Promise.all([
       readFieldList(ctx, "person", db),
       Promise.all(links.map((l) => repo.signups.getById(l.signupId).catch(() => null))),
-      Promise.all((contact.products ?? []).map((p) => repo.productUsers.getById(p.productUserId).catch(() => null))),
       contact.companyId ? repo.companies.getById(contact.companyId).catch(() => null) : Promise.resolve(null),
     ]);
     const live = new Set(list.items.filter((f) => !f.archivedAt).map((f) => f.key));
@@ -136,6 +150,8 @@ export async function loadWholePerson(ctx: TenantContext, personId: string, db?:
     }),
     products: (contact.products ?? []).map((p, i) => {
       const c = connections[i];
+      const entities = users[i]?.entities ?? {};
+      const kinds = new Map((c?.catalog?.entityKinds ?? []).map((k) => [k.kind, k.label]));
       return {
         connectionId: p.connectionId,
         productUserId: p.productUserId,
@@ -146,6 +162,14 @@ export async function loadWholePerson(ctx: TenantContext, personId: string, db?:
         lastActiveAt: p.lastActiveAt ?? null,
         reach: p.reach,
         name: productName(c),
+        ...(opts.groups
+          ? {
+              groups: (p.groups ?? []).map((id) => {
+                const e = entities[id];
+                return { id, name: e?.name ?? null, kind: e ? (kinds.get(e.kind) ?? e.kind) : null };
+              }),
+            }
+          : {}),
       };
     }),
     launchEmails,

@@ -107,6 +107,21 @@ describe("setRecordFieldValues", () => {
     expect(await set(db, { [SEATS]: 1 }, { recordId: deterministicContactId("ten_A", "nobody@example.com") })).toEqual({ ok: false, error: "not_found" });
   });
 
+  it("refuses with stale, writing nothing, when a field no longer holds what the caller expects", async () => {
+    const db = new FakeFirestore();
+    await world(db);
+    await set(db, { [SEATS]: 12 });
+    expect(await set(db, { [SEATS]: 15 }, { expect: { [SEATS]: 10 } })).toEqual({ ok: false, error: "stale", fieldId: SEATS });
+    expect(await set(db, { [SEATS]: 15 }, { expect: { [PLAN]: "opt_00000001" } })).toEqual({ ok: false, error: "stale", fieldId: PLAN });
+    expect((await forTenant(ctx, db).contacts.getById(PERSON))?.fields).toEqual({ [SEATS]: 12 });
+    // null expects no value; a multi select compares as a set.
+    await set(db, { [TOPICS]: ["opt_00000003", "opt_00000004"] });
+    expect(await set(db, { [SEATS]: 15, [PLAN]: "opt_00000002" }, { expect: { [SEATS]: 12, [PLAN]: null, [TOPICS]: ["opt_00000004", "opt_00000003"] } })).toMatchObject({
+      ok: true,
+      changed: [SEATS, PLAN],
+    });
+  });
+
   it("refuses a value for a field archived in a racing transaction", async () => {
     const db = new FakeFirestore();
     await world(db);

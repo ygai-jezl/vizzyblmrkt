@@ -5,6 +5,7 @@ import { InvalidCursorError } from "@/lib/ontology/timeline";
 import { CONNECTION_ID, T0, TENANT_ID, ctx, seedUser, seedWorld } from "@/lib/lifecycle/testing/fixtures";
 import { saveFieldListChange } from "./fieldList";
 import { addPerson } from "./addPerson";
+import { decideFieldSuggestion, suggestFieldChanges } from "./fieldSuggestions";
 import { parseNewPerson } from "./newPerson";
 import { personIdOf, syncPerson, syncProductLink } from "./personSync";
 import { loadPersonTimeline, type TimelineEntry } from "./personTimelineView";
@@ -114,6 +115,30 @@ describe("loadPersonTimeline", () => {
       ["Added by hand", "By Alex Morgan, from ⌘K"],
     ]);
     expect(await loadPersonTimeline({ ...ctx, tenantId: "ten_other" }, personIdOf(TENANT_ID, "sam@labs.test"), { db })).toBeNull();
+  });
+
+  it("says who confirmed Vizzy's suggestion and who undid it", async () => {
+    const { db, id } = await world();
+    vi.stubEnv("AUDIENCE_FIELDS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_VIZZY_FIELDS_ENABLED", "true");
+    const s = await suggestFieldChanges({ ...ctx, source: "agent", userId: "usr_1", role: "admin" }, { personId: id, changes: { [PLAN]: STARTER } }, { db, nowMs: T0 + 6 * DAY });
+    if (!s.ok) throw new Error(s.error);
+    const admin = { ...ctx, userId: "usr_1", role: "admin" as const };
+    expect(await decideFieldSuggestion(admin, id, { id: s.action.id, rev: s.action.rev, decision: "confirm" }, { db, nowMs: T0 + 7 * DAY })).toEqual({ ok: true, state: "acted" });
+    expect(await decideFieldSuggestion(admin, id, { id: s.action.id, rev: s.action.rev + 2, decision: "undo" }, { db, nowMs: T0 + 8 * DAY })).toEqual({ ok: true, state: "undone" });
+    const page = (await loadPersonTimeline(ctx, id, { db, lookup }))!;
+    const pairs = page.entries.map((e) => [e.text, e.detail]);
+    // The undo and its value change share a moment: either may come first.
+    expect(pairs.slice(0, 2)).toEqual(
+      expect.arrayContaining([
+        ["A change was undone", "By Alex Morgan"],
+        ["Plan changed from Starter to Pro", "Alex Morgan undid Vizzy's suggestion"],
+      ]),
+    );
+    expect(pairs.slice(2, 4)).toEqual([
+      ["Plan changed from Pro to Starter", "Alex Morgan confirmed Vizzy's suggestion"],
+      ["Vizzy suggested a change", "Nothing changes until someone confirms"],
+    ]);
   });
 
   it("refuses a cursor it didn't make, and finds nobody for an unknown person", async () => {

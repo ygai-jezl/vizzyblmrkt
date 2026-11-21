@@ -20,6 +20,7 @@ const STATUS: Record<SetFieldValuesError, number> = {
   archived_field: 400,
   invalid_value: 400,
   record_too_large: 400,
+  stale: 409,
   agent_action_not_found: 404,
   agent_action_wrong_state: 409,
   agent_action_changed: 409,

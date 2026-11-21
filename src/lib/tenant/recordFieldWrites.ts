@@ -55,6 +55,12 @@ export interface SetFieldValuesInput {
   members?: ReadonlySet<string>;
   /** A suggestion this change decides: its move commits with the values (Vizzy's confirm). */
   agentAction?: { id: AgentActionId; transition: AgentTransition };
+  /**
+   * Refuse with `stale`, writing nothing, unless each of these fields still holds this value as
+   * read in the transaction (null: no value). Vizzy's confirm passes the values its suggestion was
+   * made from, and an undo the values the confirm set.
+   */
+  expect?: Record<string, unknown>;
   nowIso?: string;
   /** Makes each event's key unique; inject one in tests. */
   nonce?: () => string;
@@ -66,6 +72,7 @@ export type SetFieldValuesError =
   | "archived_field"
   | "invalid_value"
   | "record_too_large"
+  | "stale"
   | `agent_action_${TransitionError}`;
 
 export type SetFieldValuesResult =
@@ -99,7 +106,8 @@ function applied(current: Record<string, unknown>, values: FieldValues, patch: R
 /**
  * Set some of a record's field values, with their events and tags, in one transaction. Refuses
  * the whole write for an unknown or archived field, a value its type doesn't allow, a team member
- * who isn't on the team, or a record that would outgrow the budget. With `agentAction`, a move
+ * who isn't on the team, a field that no longer holds what `expect` says, or a record that would
+ * outgrow the budget. With `agentAction`, a move
  * that can't happen refuses with `agent_action_<error>`, and a decision with no value to change is
  * still recorded.
  */
@@ -142,6 +150,9 @@ export async function setRecordFieldValues(ctx: TenantContext, input: SetFieldVa
       // Every change against the list as read here.
       const byId = new Map(fields.map((f) => [f.key, f]));
       const before = (record.fields && typeof record.fields === "object" ? record.fields : {}) as FieldValues;
+      for (const [fieldId, want] of Object.entries(input.expect ?? {})) {
+        if (!sameFieldValue(before[fieldId] ?? null, (want ?? null) as FieldValue | null)) return { ok: false, error: "stale", fieldId };
+      }
       const values: FieldValues = { ...before };
       const patch: Record<string, unknown> = {};
       const changed: Array<{ field: RecordField; before: FieldValue | null; after: FieldValue | null }> = [];

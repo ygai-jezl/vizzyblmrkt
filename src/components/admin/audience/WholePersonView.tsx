@@ -15,6 +15,7 @@ import { useShell } from "../nav/ShellProvider";
 import { ago, day } from "../people/format";
 import { FieldsPanel } from "./FieldsPanel";
 import { PersonTimeline } from "./PersonTimeline";
+import { VizzySuggestions } from "./VizzySuggestions";
 
 /**
  * One person, whole (AUDIENCE_ONE_VIEW_ENABLED): everything a brand knows about one
@@ -44,6 +45,7 @@ export function WholePersonView({
   fieldFilters = false,
   addPerson = false,
   timeline = false,
+  vizzyFields = false,
 }: {
   personId: string;
   canEdit: boolean;
@@ -59,9 +61,13 @@ export function WholePersonView({
   addPerson?: boolean;
   /** The timeline is on (AUDIENCE_TIMELINE_ENABLED): it sits beside the rest, above consent. */
   timeline?: boolean;
+  /** Vizzy reads their fields and suggests changes (AUDIENCE_VIZZY_FIELDS_ENABLED): "Vizzy suggests". */
+  vizzyFields?: boolean;
 }) {
   const shell = useShell();
   const [state, setState] = useState<State>({ status: "loading" });
+  // Bumped when a suggestion changed their fields, so the Fields panel and the timeline read them again.
+  const [version, setVersion] = useState(0);
   const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
   const [erasing, setErasing] = useState<"no" | "busy" | "queued">("no");
 
@@ -124,12 +130,27 @@ export function WholePersonView({
         ? { tone: "amber" as const, chip: "Some emails only" }
         : { tone: "red" as const, chip: "Can't email" };
 
+  const changed = () => {
+    void load().then(() => setVersion((v) => v + 1));
+  };
+  // Vizzy's suggestions: at the top of the side column beside the timeline, else under the fields.
+  const suggestions = vizzyFields ? <VizzySuggestions personId={p.id} canEdit={canEdit} onChanged={changed} /> : null;
+
   // Their parts, and consent: beside the timeline when it is on, in one column otherwise.
   const main = (
     <>
       {fields && p.fields ? (
-        <FieldsPanel object="person" recordId={p.id} initialValues={p.fields.values} readOnly={p.fields.readOnly} voiceChats={p.fields.voiceChats} canEdit={canEdit} />
+        <FieldsPanel
+          key={`fields-${version}`}
+          object="person"
+          recordId={p.id}
+          initialValues={p.fields.values}
+          readOnly={p.fields.readOnly}
+          voiceChats={p.fields.voiceChats}
+          canEdit={canEdit}
+        />
       ) : null}
+      {suggestions && !timeline ? suggestions : null}
 
       {p.launches.length ? (
         <Section title="Launches">
@@ -274,8 +295,12 @@ export function WholePersonView({
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          {vizzy && shell ? (
-            <Button tone="primary" onClick={() => shell.setVizzyOpen(true)} title="Vizzy sees their situation, never their name or address">
+          {(vizzy || vizzyFields) && shell ? (
+            <Button
+              tone="primary"
+              onClick={() => shell.setVizzyOpen(true)}
+              title={vizzy ? "Vizzy sees their situation, never their name or address" : "Vizzy sees some of their fields, never their name or address"}
+            >
               <Sparkles size={14} /> Ask Vizzy
             </Button>
           ) : null}
@@ -301,7 +326,8 @@ export function WholePersonView({
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
           <div className="min-w-0 space-y-5">{main}</div>
           <div className="min-w-0 space-y-5">
-            <PersonTimeline personId={p.id} canEdit={canEdit} />
+            {suggestions}
+            <PersonTimeline key={`timeline-${version}`} personId={p.id} canEdit={canEdit} />
             {consent}
           </div>
         </div>

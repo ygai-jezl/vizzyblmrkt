@@ -140,7 +140,18 @@ function fromEvent(e: StoredEvent, names: Names, launchesJoined: ReadonlySet<str
       if (fieldId.startsWith("sys.")) return null;
       const field = names.fields.get(fieldId);
       const label = field?.label ?? "A field no longer in use";
-      const detail = e.agentActionId ? (by && by !== "Vizzy" ? `${by} confirmed Vizzy's suggestion` : "Vizzy's suggestion") : by ? `By ${by}` : null;
+      const undo = (e.properties as { source?: unknown }).source === "undo";
+      const detail = undo
+        ? by
+          ? `${by} undid Vizzy's suggestion`
+          : "Vizzy's suggestion undone"
+        : e.agentActionId
+          ? by && by !== "Vizzy"
+            ? `${by} confirmed Vizzy's suggestion`
+            : "Vizzy's suggestion"
+          : by
+            ? `By ${by}`
+            : null;
       if (e.blankedAt) return { ...base, kind: "field", text: `${label} changed`, detail: "Its values went when the field was erased" };
       if (before == null && after == null) return null;
       const text =

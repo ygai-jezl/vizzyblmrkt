@@ -16,7 +16,7 @@ import {
 import { mintCanvasContextOrNull } from "@/lib/canvas/auth";
 import { getTenantById } from "@/lib/tenant/registry";
 import { normalizeLocale } from "@/lib/i18n/locale";
-import { isPersonBriefEnabled } from "@/lib/audience/flags";
+import { isPersonInContextEnabled } from "@/lib/audience/peopleFlags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,8 +50,8 @@ const Body = z.object({
   // The content programme / plan in view (nav v2 phase 4) — for Vizzy's content tools.
   workspaceId: z.string().max(64).regex(/^[A-Za-z0-9_-]+$/).nullish(),
   planId: z.string().max(64).regex(/^[A-Za-z0-9_-]+$/).nullish(),
-  // The product user whose page is in view, by our id for them (LIFECYCLE_PERSON_BRIEF). An
-  // empty one tells Vizzy there's no person in view any more.
+  // The person whose page is in view, by our id for them (LIFECYCLE_PERSON_BRIEF, or
+  // AUDIENCE_VIZZY_FIELDS_ENABLED). An empty one tells Vizzy there's no person in view any more.
   personId: z.string().max(128).regex(/^[A-Za-z0-9_-]*$/).nullish(),
   // The admin page in view, as its breadcrumb. Brace- and bracket-free because it
   // rides inside the `[ctx:{...}]` envelope, which the agent parses non-greedily.
@@ -75,8 +75,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid_input" }, { status: 400 });
   }
   const { message, sessionId, mode, campaignId, connectionId, journeyId, workspaceId, planId, page } = parsed.data;
-  // Only while Vizzy may read a person: otherwise the id never leaves the app.
-  const personId = isPersonBriefEnabled() ? parsed.data.personId : undefined;
+  // Only while Vizzy may read a person's situation or their fields: otherwise the id never leaves the app.
+  const personId = isPersonInContextEnabled() ? parsed.data.personId : undefined;
 
   if (!isAgentRuntimeConfigured()) {
     return new Response(unconfiguredStream(), { headers: SSE_HEADERS });

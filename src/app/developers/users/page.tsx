@@ -296,7 +296,7 @@ export const yougrowSignup = functions.auth.user().onCreate(async (user) => {
           ) : null}
           {personView ? (
             <P>
-              Name the date someone last used your product <C>{ACTIVITY_FACT}</C>, a date kept per person. Audience then
+              Name the date someone last used your product <C>{ACTIVITY_FACT}</C>, a date kept per person. Your list of people then
               shows it as their <strong>Last active</strong> and marks them quiet once it is {QUIET_AFTER_DAYS} days old{isOneViewEnabled() ? " (each product can set its own number of days)" : ""}.
               Without it we only know when you last sent us their state, which says nothing about whether they came back.
             </P>

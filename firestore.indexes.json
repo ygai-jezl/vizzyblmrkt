@@ -1389,6 +1389,42 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "settings_versions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "subject",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "rev",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "catalog_revisions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "connectionId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "rev",
+          "order": "DESCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": [
@@ -1400,6 +1436,16 @@
     {
       "collectionGroup": "contacts",
       "fieldPath": "optOuts",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "contacts",
+      "fieldPath": "fields",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "companies",
+      "fieldPath": "fields",
       "indexes": []
     },
     {
@@ -1440,6 +1486,16 @@
     {
       "collectionGroup": "agent_actions",
       "fieldPath": "signals",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "settings_versions",
+      "fieldPath": "snapshot",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "settings_versions",
+      "fieldPath": "items",
       "indexes": []
     }
   ]

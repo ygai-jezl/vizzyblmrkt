@@ -1,5 +1,5 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
-import { launchInView, vizzyPageLabel, vizzySuggestions, programmeInView, homePrompts, journeyInView, shellChatContext } from "./vizzy";
+import { launchInView, vizzyPageLabel, vizzySuggestions, programmeInView, homePrompts, journeyInView, shellChatContext, PERSON_FIELD_SUGGESTIONS, PERSON_SUGGESTIONS } from "./vizzy";
 
 describe("vizzyPageLabel", () => {
   it("joins the breadcrumb", () => {
@@ -147,5 +147,14 @@ describe("the person in view", () => {
   it("gets its own starter questions", () => {
     expect(vizzySuggestions("audience", { person: true })).toEqual(["What's happened with this person so far?", "Why have they stalled?", "What should they get next?"]);
     expect(vizzySuggestions("audience")).toContain("Who joined this week?");
+  });
+
+  it("is named on a whole person's page when only fields can be read, and the starters match what Vizzy can do", () => {
+    // AUDIENCE_VIZZY_FIELDS_ENABLED without the lifecycle brief: the layout still passes personInContext.
+    expect(shellChatContext("/admin/crm/people/ct_0123abcd", "People › Sam", { phase4: false, personInContext: true })).toMatchObject({ personId: "ct_0123abcd" });
+    expect(vizzySuggestions("audience", { personFields: true })).toEqual(PERSON_FIELD_SUGGESTIONS);
+    // The brief, where it is on, wins: it can answer the fields questions too.
+    expect(vizzySuggestions("audience", { person: true, personFields: true })).toEqual(PERSON_SUGGESTIONS);
+    for (const s of PERSON_FIELD_SUGGESTIONS) expect(s).not.toMatch(/stalled|journey|email/i);
   });
 });

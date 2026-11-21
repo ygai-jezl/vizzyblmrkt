@@ -4,7 +4,11 @@ import { helpMetadata } from "@/lib/help/metadata";
 import { isOneViewEnabled } from "@/lib/audience/flags";
 
 export const dynamic = "force-dynamic";
-export const metadata = helpMetadata("your-audience");
+
+/** Worked out per request, so the title says People while that switch is on. */
+export function generateMetadata() {
+  return helpMetadata("your-audience");
+}
 
 /** Served only while AUDIENCE_ONE_VIEW_ENABLED is on. */
 export default function Page() {

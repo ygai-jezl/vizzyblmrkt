@@ -2,7 +2,7 @@ import { eraseHistory, forTenant, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { tombstoneOf } from "./profile";
 import { personAfterProductErase, previousPersonKey } from "@/lib/audience/personHooks";
-import { forgetGonePersonHistory, productUserPersonId } from "@/lib/ontology/erase";
+import { forgetGonePersonHistory, forgetLeftBehindPeople, leftBehindPersonKeys, productUserPersonId } from "@/lib/ontology/erase";
 
 /**
  * Erasure (GDPR Art. 17) of one product user. Two routes in: the product's own
@@ -22,6 +22,8 @@ export async function eraseProductUser(
   if (!user || user.connectionId !== connectionId) return false;
   const email = user.emailNormalized ?? null;
   const personKey = previousPersonKey(user);
+  // The people they left behind on a move, read before their moves are erased with their history.
+  const leftBehind = await leftBehindPersonKeys(ctx, productUserId, personKey, { db });
   await repo.productUsers.claim(productUserId, (cur) =>
     cur.status === "deleted" ? null : tombstoneOf(cur, nowMs),
   );
@@ -30,6 +32,8 @@ export async function eraseProductUser(
   await personAfterProductErase(ctx, personKey, { db, nowMs });
   // Their person's event history and agent actions, when the person record went with them.
   await forgetGonePersonHistory(ctx, personKey, { db });
+  // A person they left behind, kept while it held field values, goes too when nothing else keeps it.
+  await forgetLeftBehindPeople(ctx, leftBehind, { db, nowMs });
   return true;
 }
 

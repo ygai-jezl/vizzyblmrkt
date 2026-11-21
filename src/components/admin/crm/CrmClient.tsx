@@ -34,6 +34,12 @@ export function CrmClient({
   initialLaunch = null,
   audience = null,
   initialTab,
+  fields = false,
+  fieldFilters = false,
+  initialGroup = null,
+  canAddPerson = false,
+  newPerson = false,
+  newPersonDraft = null,
 }: {
   isAdmin: boolean;
   initialContacts: Contact[];
@@ -53,6 +59,18 @@ export function CrmClient({
   audience?: { productUsers: boolean; personView?: boolean; oneView?: boolean } | null;
   /** With the person view: the tab the page arrived on (?tab=). */
   initialTab?: string;
+  /** Fields are on (AUDIENCE_FIELDS_ENABLED): company fields on each company. */
+  fields?: boolean;
+  /** Field filters are on (AUDIENCE_FIELD_FILTERS_ENABLED): a menu per filter and per field on People. */
+  fieldFilters?: boolean;
+  /** A product group the page arrived with (?group=), with its name. */
+  initialGroup?: { tag: string; label: string } | null;
+  /** An admin with New person on (AUDIENCE_ADD_PERSON_ENABLED): People has a New person button. */
+  canAddPerson?: boolean;
+  /** The page arrived from ⌘K's New person (?new=person). */
+  newPerson?: boolean;
+  /** The page arrived from a form Vizzy filled in (?draft=), by the draft's id. */
+  newPersonDraft?: string | null;
 }) {
   /** AUDIENCE_ONE_VIEW_ENABLED: one People tab in place of Signups and Product users. */
   const oneView = Boolean(audience?.oneView);
@@ -100,7 +118,17 @@ export function CrmClient({
         </button>
       </div>
       {tab === "people" ? (
-        <AudienceList initialQuery={initialQuery} initialLaunch={initialLaunch} />
+        <AudienceList
+          key={initialGroup?.tag ?? "list"}
+          initialQuery={initialQuery}
+          initialLaunch={initialLaunch}
+          fieldFilters={fieldFilters}
+          initialGroup={initialGroup}
+          canAddPerson={canAddPerson}
+          fields={fields}
+          newPerson={newPerson}
+          newPersonDraft={newPersonDraft}
+        />
       ) : tab === "contacts" ? (
         <ContactsView
           isAdmin={isAdmin}
@@ -112,7 +140,7 @@ export function CrmClient({
       ) : tab === "product" ? (
         personView ? <PeopleList /> : <ProductUsersView />
       ) : tab === "companies" ? (
-        <CompaniesView isAdmin={isAdmin} initialRows={initialCompanies} initialCursor={companiesCursor} />
+        <CompaniesView isAdmin={isAdmin} initialRows={initialCompanies} initialCursor={companiesCursor} fields={fields} />
       ) : (
         <EngagedView isAdmin={isAdmin} initialRows={initialEngaged} initialCursor={engagedCursor} />
       )}

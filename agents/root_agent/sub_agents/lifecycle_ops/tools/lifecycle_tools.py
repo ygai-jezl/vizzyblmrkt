@@ -12,6 +12,7 @@ from typing import Optional
 from google.adk.tools import ToolContext
 
 from . import lifecycle_client as client
+from . import people_fields_client as fields_client
 
 
 def _state(tool_context: ToolContext) -> dict:
@@ -161,7 +162,7 @@ def get_repo_analysis(tool_context: ToolContext, connection_id: str = "") -> dic
     return client.get_repo_analysis(_state(tool_context), connection_id)
 
 
-def get_person_brief(tool_context: ToolContext, person_id: str = "") -> dict:
+def get_person_brief(tool_context: ToolContext, product_user_id: str = "") -> dict:
     """Read ONE product user's situation, to explain what happened or plan what they get next.
 
     Returns a brief of that person: the stage they're at (onboarding steps done, the
@@ -176,10 +177,10 @@ def get_person_brief(tool_context: ToolContext, person_id: str = "") -> dict:
     and you must not ask for any of those. Call them "this person" or "they".
 
     Args:
-        person_id: Leave empty for the person whose page the operator is on. Only
-            pass the `personId` a brief gave you earlier.
+        product_user_id: Leave empty for the person whose page the operator is on. Only
+            pass the `productUserId` a brief gave you earlier.
     """
-    return client.get_person(_state(tool_context), person_id)
+    return client.get_person(_state(tool_context), product_user_id)
 
 
 def save_person_plan(
@@ -188,7 +189,7 @@ def save_person_plan(
     tool_context: ToolContext,
     next_steps: Optional[list] = None,
     review_in_days: Optional[int] = None,
-    person_id: str = "",
+    product_user_id: str = "",
 ) -> dict:
     """Save a DRAFT plan for ONE product user: what to help them do next, and how to put it.
 
@@ -208,10 +209,56 @@ def save_person_plan(
         next_steps: Up to 6 short steps for the team, in order (e.g. "Send the next
             reminder with this angle", "If still stuck in a week, add them to <journey>").
         review_in_days: When to look at them again, in days from today (1-90).
+        product_user_id: Leave empty for the person whose page the operator is on.
+
+    Returns:
+        A status dict to relay (with a card the chat shows, linking to their page).
+    """
+    return client.save_person_plan(_state(tool_context), goal, angle, next_steps, review_in_days, product_user_id)
+
+
+
+def people_fields_list(tool_context: ToolContext) -> dict:
+    """List the brand's own People fields you can read and suggest, with their options.
+
+    Only select, multi select, status, checkbox, number, currency and date fields, the
+    ones in use: never text, email, phone, link or team member fields. No values. Each
+    has an id, a label, a type, its options (each with an id) and, for currency, its
+    code. The note says how each type's value is written.
+    """
+    return fields_client.list_fields(_state(tool_context))
+
+
+def person_fields_read(tool_context: ToolContext, person_id: str = "") -> dict:
+    """Read ONE person's values of the fields you can see, to answer about them or suggest a change.
+
+    Returns each field with its value (null when unset) and the value in words, and
+    `waiting`: the fields that already have a suggestion for someone to confirm. It
+    never holds their name, their email address or a text, email, phone, link or team
+    member value. Works for anyone in the list of people, including people who only
+    joined a launch or were added by hand.
+
+    Args:
+        person_id: Leave empty for the person whose page the operator is on.
+    """
+    return fields_client.read_person(_state(tool_context), person_id)
+
+
+def person_fields_propose(changes: dict, why: str, tool_context: ToolContext, person_id: str = "") -> dict:
+    """Suggest changes to ONE person's fields, for someone on the operator's team to confirm.
+
+    Call person_fields_read first. Nothing changes until an admin confirms it on the
+    person's page or in Review. A suggestion for a field that already has one waiting
+    replaces it. Never use it to record consent.
+
+    Args:
+        changes: Field id to the suggested value, written as the fields read says
+            (an option id, a list of option ids, true or false, a number, whole minor
+            units for currency, or a day as YYYY-MM-DD). null clears a value.
+        why: One sentence on what you saw that supports it. No name or email address.
         person_id: Leave empty for the person whose page the operator is on.
 
     Returns:
         A status dict to relay (with a card the chat shows, linking to their page).
     """
-    return client.save_person_plan(_state(tool_context), goal, angle, next_steps, review_in_days, person_id)
-
+    return fields_client.propose(_state(tool_context), changes, why, person_id)

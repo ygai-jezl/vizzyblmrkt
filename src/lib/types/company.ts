@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { FieldValuesSchema } from "./recordField";
 
 /**
  * Company — one record per CANONICAL registrable domain per tenant, shared
@@ -71,6 +72,11 @@ export const CompanySchema = z.object({
   enrichedAt: z.string().nullable().optional(),
   /** Storage-limitation purge boundary (nullable = keep). */
   retentionUntil: z.string().nullable().optional(),
+  /**
+   * The brand's own company fields (AUDIENCE_FIELDS_ENABLED), by field id: written only by
+   * src/lib/tenant/recordFieldWrites.ts. They go with the document.
+   */
+  fields: FieldValuesSchema.optional(),
   updatedAt: z.string(),
   createdAt: z.string(),
 });

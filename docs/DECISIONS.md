@@ -4,6 +4,383 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0010 · People (piece B) (2026-11-21)
+
+Context: piece B of the CRM and tiers plan turns Audience into People and adds what a CRM
+needs on top of the person record: fields, filters, adding someone by hand, a timeline and
+Vizzy's suggestions. It also starts the settings log (piece O part 1) and stops catalog
+history being pruned. It ships as one pull request in eleven commit groups, all covered here.
+The only Firestore changes are the two composite indexes and the four field exemptions below;
+`src/lib/settings/indexes.test.ts` checks every composite query the piece makes has its index,
+and the field exemptions. No dependency, rules or infra change. Seven switches, all `"false"` in
+`apphosting.yaml` and empty in `.env.example`: `NEXT_PUBLIC_NAV_PEOPLE_ENABLED`,
+`AUDIENCE_FIELDS_ENABLED`, `AUDIENCE_FIELD_FILTERS_ENABLED`, `AUDIENCE_ADD_PERSON_ENABLED`,
+`AUDIENCE_TIMELINE_ENABLED`, `AUDIENCE_VIZZY_FIELDS_ENABLED` and
+`AUDIENCE_VIZZY_ADD_PERSON_ENABLED`, with the settings log, catalog history and the rules that
+keep people added by hand needing none. Help: your-audience (with Data model, filters, Add
+someone by hand, the timeline and Vizzy and their fields), people, review-and-approvals,
+plan-and-usage and connect-your-product.
+
+Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
+
+- **People in the words people read (group 1, decision 27).** `NEXT_PUBLIC_NAV_PEOPLE_ENABLED`
+  (BUILD and RUNTIME, `"false"`) renames Audience to People in the sidebar, ⌘K, the header
+  crumbs (also the page label Vizzy is told), page titles, the How to button and help. The
+  nav key `audience`, the `/admin/crm` route, the `/api/admin/audience` paths,
+  `src/lib/audience`, the contacts collection and the `/help/your-audience` slug keep their
+  names, as `programmeWord()` did for programmes.
+  - It needs nav phase 3 and the one People list. The list is a server switch, so
+    `isPeopleNameEnabled()` is worked out in the admin layout and passed down as a `people`
+    prop to the sidebar, ⌘K, the header and `ShellProvider`. People never sits over the
+    old Signups and Product users tabs.
+  - Help bodies take an optional `people` prop. The `/help` routes, Markdown copies and
+    llms-full.txt work it out on the server; the How to drawer renders in the browser,
+    where server switches read off, so it passes the shell's answer.
+  - Vizzy's Python can't read the switch, so its prompts and relayed messages use words that
+    fit both names ("from your list of people"). Any redeploy is safe.
+- **The settings log (group 2, decisions 30 and the answer on who changed it).**
+  - One version per change in the brand's regional `settings_versions`, with no
+    organisation id: piece O reads an organisation's history through its brands.
+  - `commitSettingsChange` (`src/lib/tenant/settingsLog.ts`) is the only writer. The setting
+    and its version are written in one regional transaction. The setting keeps its `rev`
+    and versions have fixed ids (`ss_<hash of brand and subject>_r<rev>`), so a write reads
+    two documents by id and needs no index, and a retry never writes a second version. A
+    stale rev returns `settings_changed`. Versions are created, never updated or deleted:
+    `forTenant` gives them read only.
+  - Who saved a version is piece 0's event actor, ids only. Names are looked up when shown
+    (`teamMemberNames`, `src/lib/team/names.ts`), and anyone no longer on the team shows as
+    "Former team member".
+  - Items are archived, never removed: every save goes through `assertNoRemoval`, and a
+    type change makes a new item and archives the old one with `replacedBy`. A restore is a
+    new version on top.
+  - The People and Company field lists (subjects `fields:person` and `fields:company`) live
+    in the regional `record_field_lists`, one document per brand and subject. The registry
+    lists that store under `settings_version` until the fields are built (group 4), which
+    gives it to `custom_field`. The version shape keeps a draft state for piece O; only live
+    versions are written.
+- **Catalog history kept whole (group 2, decision 30).** No more pruning: every version is
+  kept. A new version stores the saver's user id, never their address. The list reads by
+  (tenantId, connectionId, rev DESC) with a cursor, and falls back to the old query while
+  that index builds. `scripts/scrub-catalog-savers.ts` replaces the addresses already
+  stored with user ids, or null (dry run, then `--apply`). Until it runs, an old address
+  shows as it is. The version is still written just after the save, best effort, as
+  before.
+- **Indexes (asks approved with the plan).** `settings_versions (tenantId, subject, rev
+  DESC)` and `catalog_revisions (tenantId, connectionId, rev DESC)`.
+  `src/lib/settings/indexes.test.ts` checks each new query shape has its index.
+  - Field exemptions (approved 2026-11-21): `settings_versions.snapshot` and
+    `settings_versions.items` (`indexes: []`), in the shape of piece 0's `ontology_events` and
+    `agent_actions` exemptions. Versions are read only by id or by subject and rev, and each
+    holds a whole setting, so indexing every option label in it would only cost writes.
+- **People added by hand are kept (group 3).** A contact may carry `addedBy` (a team
+  member's user id or an agent action's id, when, and from the form, ⌘K or Vizzy) and
+  `consent.marketing_email` (state, how, note, who recorded it, when). The kinds are
+  `member` and `agent`, matching piece 0's event actors.
+  - Being added by hand is a source of its own, keyed on `addedBy`, with no switch:
+    turning New person off never lets a sync delete or hide anyone. `summarize` takes it as
+    an input: the person is live, tagged `all` and `added:hand`, and active from when they
+    were added, and their reach is yes only with marketing email granted, an email address
+    (someone added with only a phone can't be emailed) and no brand-wide opt-out. `added:hand` stays internal: the People list has no pill for it (owner, 20 Nov).
+  - Every path keeps them: `syncPerson` and the fast path read it from the record inside
+    the transaction; the delete branch and the product-only rename skip them; their status
+    stays active when a sign-up goes; a later sign-up never replaces a typed name.
+  - Tags other writers own (the field writer's `field:` tags and `added:hand`) are carried
+    over by every sync and compared with the rest, so a sync never wipes them and never
+    writes when only they differ. Field tags are carried only while the person is in Everyone
+    (`all`): someone whose last launch goes keeps their values but loses the tags, so a field
+    filter is always part of Everyone, and the sync that brings them back rebuilds the tags
+    from their values (`repairFieldTags`). The field writer makes none for someone out of
+    Everyone.
+  - A record holding the team's field values is never deleted by a sync. One that only came
+    from products stays, out of Everyone, when its last product user goes another way (the
+    product is revoked, the user moves to a new address, or a `pu:` person joins an address),
+    as a sign-up contact whose launches went does. Only a product user's erase removes it
+    with its values (`erase: true` on `personAfterProductErase` and on the dry run that
+    decides whether to erase the history), and that erase also reaches the people the user
+    left behind on a move (`forgetLeftBehindPeople`: their `pu:` person, and earlier
+    addresses from `person_moves`).
+  - **Values follow the person (approved 2026-11-21).** On a product user's address change or
+    a `pu:` record merging into an address, the `person_repoint` job first moves the values off
+    each record their pending moves left behind (out of Everyone) onto the person they are now,
+    through the one field writer (`moveRecordFieldValues`, one transaction): a value goes where
+    the new record has none for that field (its own values win; one it already holds just leaves
+    the old record), with `record.field_changed` on the new record (source "sync", by the system)
+    and one clearing it on the old, both records' field tags in step, archived fields included.
+    A value that would push the new record past its budget stays behind, logged as a code with a
+    count. Event keys carry both records, the field and the moment, and a moved value is no longer
+    there to move, so a retried job writes nothing twice. A record left empty is synced again, so
+    one nothing else keeps goes as it would have without values, and its history follows in the
+    walk; one still holding a value stays, and the product user's erase still reaches it. A record
+    still in Everyone (a sign-up, another product user, added by hand) is still someone in People
+    and keeps its values. A sync a product write couldn't make is made by the job first (a record
+    left behind still in Everyone while it owes one, `needsSync`, or a new record not there yet),
+    then the move is tried once more. Values that still didn't move (a failed transaction, or that
+    sync failing again) keep their record's history with them, and the job answers "again" with
+    its moves still pending, from the history stores, counting runs on the job (`valueTries`); at
+    `MAX_VALUE_TRIES` (5) it settles the moves and logs `move_field_values_left_behind` with a
+    count, and the values stay as with a value that won't fit. The timeline shows each value that came with them ("Came with them from
+    their earlier record") and not its clearing. No switch of its own: values exist only once
+    fields were on, and the job runs only with `ONTOLOGY_PERSON_IDS_ENABLED`.
+
+- **Fields: data and the one writer (group 4, decisions 28 and 30, answer 2).**
+  `AUDIENCE_FIELDS_ENABLED` (RUNTIME, `"false"`) is read in `src/lib/audience/peopleFlags.ts`
+  with the one People list and, by decision 25, `ONTOLOGY_PERSON_IDS_ENABLED`, so every value
+  change is filed under its person. That file imports both flag files, which avoids the cycle.
+  - Twelve types (`src/lib/types/recordField.ts`): text, number, currency, date, checkbox,
+    select, multi select, status, email, phone, link and team member. Currency is whole minor
+    units with the code on the field; a date is a calendar day with no time; a team member is a
+    user id, named when shown, and "Former team member" once they leave.
+  - One list per brand per object in the regional `record_field_lists`, saved only through
+    `commitSettingsChange`, so every change is a settings version. Field ids are `fld_` and 12
+    characters, option ids `opt_` and 8. A field is archived, never deleted, and its type is
+    fixed once made: a type change makes a new field and archives the old one with `replacedBy`;
+    old values stay under the archived field. Options are archived, never removed, too: a restore
+    brings back the older version's options as they were and archives any added since, and the
+    settings log refuses a save that drops an option, as it does a field. Caps: 100 fields in use, 300 in all, 50 options,
+    and the whole list under 200 KB, which keeps it under the document limit and the settings
+    snapshot whatever the counts.
+  - One writer, `src/lib/tenant/recordFieldWrites.ts`: in one regional transaction it reads
+    the list, the record and any agent action, checks each change against the list as read
+    there, and writes the dotted `fields.<id>` patch, a person's `field:` tags, one
+    `record.field_changed` per changed value (companies too, with no person) and the action's
+    decision. It takes an optional `agentAction`, so Vizzy's confirm (group 10) needs no
+    rewrite. The record is budgeted at 900 KB. A source scan keeps every other writer off
+    `fields`, and `syncPerson` never touches it. An option archived since may stay in a value
+    while the record holds it (and an undo may put it back), so the value can still be edited;
+    a newly chosen option must be live. The editor shows such an option as no longer in use.
+  - Admins change lists and values; members read. Routes sit behind `fieldsAdmin`, in
+    `oneViewAdmin`'s order. A stale rev answers 409 `fields_changed`, a broken cap 400
+    `field_list_full`.
+  - Export and erase whatever the switch says: the whole person export lists values with labels
+    and the archived mark; values go with the contact and the company, and their events with the
+    history. Company values stay when one of several people there is erased, a gap the registry
+    names; a person's export leaves out their company's values.
+  - Index ask (approved): `contacts.fields` and `companies.fields` exempt from automatic
+    indexing, as `contacts.products` already is.
+- **Fields on screen, with the voice chat (group 5, answers 3, 10 and 11).**
+  - Fields are managed in Settings › Data model (`/admin/account/data-model`). Its tab is a
+    server switch, worked out in the account layout and passed to `AccountTabs`; How to opens
+    `/help/your-audience#fields`, and the How to drawer gets `fields` from the shell, as it gets
+    `people`. Restoring an older list waits for piece O's settings history screen; the route is
+    there.
+  - Fields panels on a person's page and on the company panel: admins edit values in place,
+    members read, archived fields are hidden.
+  - Fields from elsewhere are worked out when shown and never stored
+    (`src/lib/audience/readOnlyFields.ts`): sign-up answers from each of the person's sign-ups,
+    labelled with their launch, read only because questions are keyed by their text, which
+    admins can edit; each product's stage, traits and facts; company enrichment.
+  - The voice chat on a sign-up page: B shows a read-only Voice chat field with its summary,
+    labelled as sent by the person's browser and unchecked. What was said stays out of
+    `loadWholePerson` and is served only by `GET .../everyone/[personId]/conversation`, behind
+    `voiceChatAdmin`: admins only, as export is, and only while the Fields panel or the timeline,
+    which link to it, is on. Analysing it (a server summary, suggested values,
+    themes, brand search) is the later "Voice chat insights" card, after the DPA.
+- **Filters (group 6, answer 4).** `AUDIENCE_FIELD_FILTERS_ENABLED` (RUNTIME, `"false"`, needs
+  fields) gives the People list a menu for each select, multi select, status and checkbox field,
+  and "Everyone in this group" on a person's page (`?group=<connectionId>:<entity id>`). Field
+  pills and the group filter share the switch.
+  - Each value is a `memberOf` tag the field writer keeps in step: `field:<fieldId>:<optionId>`
+    for a select or status and for each option of a multi select, `field:<fieldId>:yes` for a
+    ticked checkbox, at most 50 a person. `isFilterTag` accepts them and `group:` tags, whose
+    entity ids may hold `.` and `:`. They use the existing (tenantId, memberOf, sortKey) and
+    (tenantId, reach, memberOf, sortKey) indexes: one filter at a time, as before. No new index.
+  - Counts: the filters route lists the fields without counts and counts one field's options
+    with `?field=` when its menu opens, so a page load never runs a count per option.
+  - Archived fields and options keep their tags with their values; their pills are hidden, and a
+    restore brings them back with nothing to run. No "Added by hand" pill: `added:hand` stays
+    internal (owner, 20 Nov). Companies have no filters in B.
+  - The tags are written whatever the filters switch says (they are derived and harmless), for
+    people in Everyone, and the sync's keep-field-tags rule has no switch. `scripts/backfill-field-tags.ts` rebuilds them
+    from stored values (dry run, then `--apply`), for values written without them.
+
+- **New person (group 7, decisions 28 and 29, answers 6 and 8).** `AUDIENCE_ADD_PERSON_ENABLED`
+  (RUNTIME, `"false"`) needs the one People list and the person ids (decision 25). Admins add
+  someone by hand from a New person button on People, the empty list, and Create in ⌘K (the
+  layout passes `canAddPerson`, which opens `/admin/crm?new=person`). Members can't.
+  - **Keyed like a sign-up:** the normalised address, or the phone trimmed and nothing more,
+    so a later sign-up with the same address or phone joins them. Someone can be added with
+    only a phone; the form notes that a later sign-up with an email becomes a separate person.
+    Normalising phones is its own decision. A key already held opens that person (200
+    `existing`) and writes nothing.
+  - **One transaction:** `addPerson` (`src/lib/audience/addPerson.ts`) creates the contact, its
+    `record.created` event and, when they agreed, its `consent.recorded` event through
+    `writeRecordWithEvents`. The record is group 3's hand-added summary (tagged `all` and
+    `added:hand`, live, active from now), with the address's opt-outs read first,
+    `needsSync: false`, no launches, `addedBy` (member, user id, when, form or palette) and the
+    company a work address matches. It is never enriched (enrichment needs a confirmed
+    sign-up) and never on a launch's Signups tab. Field values are checked against the list
+    first and set through the one writer once the person exists.
+  - **Ways to agree:** Told me in person, Signed a form, Replied by email, and Other, which
+    needs a note (`in_person`, `signed_form`, `email_reply`, `other`). Kept on the record as
+    `consent.marketing_email` (granted, how, note, who by user id, when) and as a
+    `consent.recorded` event, which is the proof. Reach is yes only with it and no brand-wide
+    opt-out. `PATCH .../everyone/[personId]/consent` records it later for someone added by hand
+    only; anyone else answers 409 `consent_elsewhere`, because their consent comes from their
+    launch or product (piece F decides the rest).
+  - **Can email** on someone added by hand means the team recorded that they agreed. No send
+    path reads them yet: journeys and broadcasts reach people added by hand with lists (piece
+    E). The form, the list ("Yes, recorded", "Not yet") and the person's page say so.
+  - **Withdrawing is in B (approved 2026-11-21); piece F still owns consent for every
+    channel.** `POST .../everyone/[personId]/consent/withdraw` (`{ note? }`, admins only, behind
+    `AUDIENCE_ADD_PERSON_ENABLED` with the person ids, in New person's gate order) withdraws what
+    the team recorded for someone added by hand: in one `writeRecordWithEvents` transaction the
+    entry becomes withdrawn (`how` "withdrawn", who by user id, when, the note) with a
+    `consent.recorded` event of state "withdrawn", and reach is worked out again through
+    summarize's hand-added input, so what the team recorded no longer counts towards can email
+    (a launch or product of theirs still can) and every later sync keeps it. Withdrawn already writes nothing; nothing recorded answers 409 `nothing_to_withdraw`,
+    anyone not added by hand 409 `consent_elsewhere`, another brand's person 404. Recording
+    agreement again is the same PATCH as the first time. The person page's Consent card has
+    **Withdraw** for admins (members see the state), the list says "Withdrawn", the timeline
+    shows it, and export and erase cover the entry and its event. Consent from a launch or a
+    product is untouched: that stays piece F's, and for someone who also joined a launch or uses
+    a product the confirm says that agreement still stands (`withdrawElsewhere`).
+  - **The plan's people:** the form reads piece A's `checkAllowance` and says when under 1% of
+    the limit is left or it is passed. It never blocks (gates guide, never lock).
+  - Rate limited per admin; export and erase cover `addedBy`, the consent and both events
+    whatever the switch says, with no code change.
+
+- **Timeline (group 8, answer 5).** `AUDIENCE_TIMELINE_ENABLED` (RUNTIME, `"false"`) needs the
+  one People list and the person ids. It gates the recording as well as the screen: nothing is
+  written while it is off, and history starts the day it goes on, with no backfill.
+  - **Moves are recorded inside `syncPerson` and `syncProductLink`,** after their commit, so every
+    caller is covered (the write hooks, the sweep's owed syncs and daily check, the previous-key
+    sync, the owed fallbacks). `src/lib/audience/personMoves.ts` turns a sync's tag changes into
+    moves with an explicit list: `launch:<id>` (`sys.launch.<id>`), `product:<id>`
+    (`sys.product.<id>`), `stage:<id>:<stage>` (`sys.stage.<id>`; a swap in one product is one
+    move, from one stage to the other) and `quiet:<id>` (`sys.quiet.<id>`). Ignored: `all`,
+    `launch:any`, `product:any`, `via:*`, `group:*`, `field:*` (the field writer records those),
+    `added:hand`, `launches:many` and unknown prefixes.
+  - Each move is a `record.field_changed` made by the system at the sync's `changedAt`, keyed
+    `move|<personId>|<changedAt>|<tag>`, written in one `appendEvents` batch per sync: a retry
+    writes nothing twice. A product's moves carry its product user, so erasing or moving that
+    product user takes them along. Best effort: a lost move leaves a gap, never a wrong value.
+  - **Never recorded** on a dry run, for a person who was deleted, on the erase path
+    (`personAfterProductErase` passes `moves: "skip"`, so no row is written after the history
+    it would belong to was erased), or by `scripts/backfill-person-links.ts`, which passes
+    `moves: "skip"` so a rebuild never floods timelines.
+  - **The read** (`src/lib/audience/personTimelineView.ts`, `GET .../everyone/[personId]/timeline`,
+    members can read) pages piece 0's `listPersonEvents` (index `(tenantId, personId, at DESC)`,
+    piece 0's) and merges in their sign-ups, launch emails and voice chats between this page's
+    oldest event and the last page's, under its own opaque cursor. Each product's own story stays
+    on its part of the page, so `personTimeline` is not repeated. A launch joined shows once, as
+    the sign-up; a first stage comes with starting to use the product.
+  - Export and erase cover the moves whatever the switch says, with no code change: piece 0's
+    history erase and export find them by person and by product user. No new index.
+
+- **`productUserId` where `personId` meant a product user (group 9, decision 13 of piece 0).**
+  `personPlans.ts` (its parameters and the plan's id), `exportPerson` and the admin folder
+  `api/admin/audience/people/[personId]` (now `[productUserId]`; the URLs are unchanged) say
+  `productUserId`. The person page route keeps its name, because it serves both kinds of id.
+  - **Both names work for a while,** so either side can deploy first: the `person_plan` canvas
+    scope takes `productUserId` or `personId` (given both, they must match), and the brief names
+    its product user as `productUserId` and as `personId`. Vizzy's tools take
+    `product_user_id`; its client reads `productUserId` or `personId` and sends both in the
+    plan's scope. Once Vizzy has been redeployed everywhere, a later change drops `personId`
+    from the scope and the brief.
+  - **Deviation:** the agent route `api/agent/lifecycle/people/[personId]` keeps its segment
+    name. Like the person page, it takes a whole person's `ct_` id as well as a product user's,
+    so `productUserId` would be wrong for half its callers; the rename reaches what it returns.
+  - The chat's `personId` state key stays: it names the person in view, of either kind.
+
+- **Vizzy reads fields and suggests edits (group 10, decisions 31 and answer 7).**
+  `AUDIENCE_VIZZY_FIELDS_ENABLED` (RUNTIME, `"false"`) needs fields and not the lifecycle person
+  brief. Off in production until the DPA line, like every B Vizzy part.
+  - **Who's open:** `isPersonInContextEnabled()` (the brief, or this switch) decides whether the
+    shell's chat names the person in view, and the chat route checks it again, so the id never
+    leaves the app otherwise. "Whenever fields are on" is read as this switch: telling Vizzy who
+    is open while it can read nothing about them would only send an id. The Ask Vizzy panel offers
+    the situation's starters with the brief, and starters about fields without it.
+  - **What Vizzy reads:** `GET /api/agent/audience/fields` and
+    `GET /api/agent/audience/people/[personId]/fields` (signed canvas token, rate limited, 503
+    `unavailable` while off) serve only select, multi select, status, checkbox, number, currency
+    and date fields in use, never text, email, phone, link or team member ones, scrubbed of the
+    person's name and address (`identityScrubber`), with the fields that already have a suggestion
+    waiting. They read the contact directly, so they work for people who only joined a launch or
+    were added by hand. Google's Agent Sandbox stays an option for analysis that needs more.
+  - **Suggestions:** the `person_fields` canvas kind saves an agent action
+    (`person_fields.suggest`, agent `vizzy`) through `proposeAgentAction`: admins only (a token
+    without a role fails closed), rate limited, checked against the live list. The proposal holds
+    the suggested values under `fields` and a reason of at most 280 characters, scrubbed; the
+    basis holds the values it changes from. The dedupe key is the person and a hash of the change
+    and its basis: the same suggestion again answers with the one waiting, and a decided one is
+    never raised again from the same values. A newer suggestion for a field declines the waiting
+    one as `superseded`. Each waits 30 days, then the tick declines it as expired (group 11).
+  - **Confirm, dismiss, undo:** `.../everyone/[personId]/proposals` (members read, admins decide,
+    behind `vizzyFieldsAdmin`). Confirm goes through group 4's writer with source `agent` and the
+    action's move to acted (agent.approved then agent.acted) in one transaction, with
+    `expect: basis`: the writer refuses with `stale` unless each field still holds what the
+    suggestion was made from, and the route then declines it as stale with a plain message. Undo
+    writes `undo.before` back with source `undo`, `expect: result`, and agent.undone; a field
+    changed since refuses with `edited_since`. Undo is offered for 7 days. The writer's new
+    `expect` map is the only change to it.
+  - **Review:** a new kind, `person_suggestion` ("Suggestions about people"), listed from
+    `listOpenAgentActions` (piece 0's index on action, state and createdAt). Titles name only the
+    brand's own field labels, never the person, their address or a value. The person's page reads
+    their actions by equality only.
+  - **Vizzy:** Lifecycle Ops gains `people_fields_list`, `person_fields_read` and
+    `person_fields_propose`, with rules on what it sees, when to suggest, that a person confirms,
+    that it never records consent, and that fields work when the brief is unavailable. The root
+    agent's block for the person in view says one person's page and sends their fields there too.
+    The tools exist once Vizzy is redeployed; until then and while off, the routes answer
+    unavailable.
+  - Export and erase cover suggestions whatever the switch says, with no code change: piece 0's
+    history export and erase find agent actions by person.
+
+- **Vizzy fills in the New person form (group 11, decisions 29 and 31, answer 9).**
+  `AUDIENCE_VIZZY_ADD_PERSON_ENABLED` (RUNTIME, `"false"`) needs New person, not Vizzy's fields.
+  Off in production until the DPA line.
+  - **The draft:** the `new_person` canvas kind saves an agent action (`new_person.draft`) with
+    `personId = personIdOf(key)`, the key worked out exactly as New person does (the normalised
+    address, else the trimmed phone), so erasing that person finds it. Admins only, rate limited.
+    The proposal holds the typed name, address or phone and field values; `clearDetailsOnClose`
+    clears them with any decision, and it expires after 7 days. Each request has its own dedupe
+    key (a random part), so a dismissed draft never blocks asking again; the same details again
+    answer with the draft waiting, and new details for the same person replace it (declined as
+    superseded, details cleared). Someone already in People gets no draft, only a link to their
+    page.
+  - **Never consent:** the request has no place for it and one that tries is refused
+    (`consent_not_allowed`); the form starts at Not yet and the admin says how they agreed.
+  - **Field values** only of the seven types Vizzy may read, named by label or id, options by
+    label or id; anything else comes back to Vizzy as a warning for the admin to type. Names and
+    addresses typed into chat pass through Vizzy to fill the form, as they already did whenever
+    someone typed them.
+  - **Confirming runs group 7's create:** the card and Review link to `/admin/crm?draft=<id>`,
+    the id only. The form loads the draft from the admin-only drafts route and posts to the New
+    person route with `draftId` and `via: "vizzy"` (refused without a draft id); after the create,
+    or for an address already held, the route moves the draft to acted with only
+    `{ personId }` in its result and the details cleared. Two steps, not one transaction: if the
+    close were lost, the details still go at expiry. Dismiss declines it and clears the details.
+    A draft whose typed address was changed in the form keeps its first person id, with no
+    details left in it.
+  - **Expiry runs whenever person links are on**, not behind a Vizzy switch: after the people
+    sweep, the lifecycle tick calls `expireDueAgentActions`, which declines every action past its
+    expiry a page at a time within the run's deadline. That clears a draft's details and sets
+    aside field suggestions after their 30 days. A Firestore TTL policy would do it without code
+    but needs a gcloud change, so the tick does it.
+  - **Vizzy:** the root agent gains `new_person_propose` (adding someone isn't about the person in
+    view). Its rules: nobody is added until an admin confirms, it never records consent, never
+    asks for details the operator didn't offer, and what it sent is kept 7 days at most.
+  - **Review** lists open drafts under Suggestions about people, titled without anything about the
+    person. The timeline of someone added from a draft says Vizzy filled in New person for them.
+
+Rollback: turning `NEXT_PUBLIC_NAV_PEOPLE_ENABLED` off (a rebuild) changes only words. The
+settings log has no switch and nothing calls it until the fields. Never revert group 3 once
+anyone has been added by hand: without the `addedBy` rule the next sync would delete them. Once
+field values exist, turn `AUDIENCE_FIELDS_ENABLED` off rather than reverting: the values stay on
+the records, and export and erase still cover them. Turning the filters off hides the pills; the
+tags stay. If the field writer were reverted, rerun the backfill once it is back. Turning
+`AUDIENCE_ADD_PERSON_ENABLED` off hides the form and its routes; everyone added stays. Turning
+the timeline off stops recording and hides it; the rows stay and are exported and erased.
+Reverting group 9 is safe only while Vizzy still sends `personId` too; after a Vizzy that sends
+only `productUserId`, keep the app's scope taking both. Turning `AUDIENCE_VIZZY_FIELDS_ENABLED`
+off stops Vizzy being told who is open (unless the brief is on), makes its field routes answer
+unavailable and hides suggestions; open ones stay, expire on the tick, and are exported and
+erased. Turning `AUDIENCE_VIZZY_ADD_PERSON_ENABLED` off stops new drafts and hides their links; open
+drafts still expire on the tick with their details cleared, and erase still finds them. Keep the
+tick's expiry once any draft exists.
+
+---
+
 ## ADR-0009 · Organisations and plans (2026-11-20)
 
 Context: piece A of the CRM and tiers plan puts an organisation above brands and gives it

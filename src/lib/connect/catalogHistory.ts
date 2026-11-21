@@ -1,4 +1,4 @@
-import { forTenant, type TenantContext } from "@/lib/tenant";
+import { forTenant, type TenantContext, type WhereClause } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { ConnectionCatalog } from "@/lib/types/productConnection";
 import type { CatalogRevision, CatalogRevisionSource } from "@/lib/types/catalogRevision";
@@ -8,11 +8,14 @@ import { describeChanges } from "./catalogChanges";
  * Catalog history: every catalog change keeps the version it saved, so a
  * mistaken save can be seen and undone from the Catalog tab. Versions are
  * recorded whether or not the history UI is on (CATALOG_HISTORY_ENABLED), so
- * there's something to restore by the time it is. The last HISTORY_KEEP per
- * connection are kept.
+ * there's something to restore by the time it is. Every version is kept, with
+ * no limit (settings history on every plan), and who saved it is kept as a user
+ * id only: the name is looked up when shown.
  */
 
-export const HISTORY_KEEP = 20;
+/** Versions per page of the history when the caller doesn't say. */
+export const CATALOG_HISTORY_PAGE = 20;
+const MAX_PAGE = 100;
 
 /** `pcn_…_r000012`: one per connection and version, so a retried write can't duplicate it. */
 export function revisionId(connectionId: string, rev: number): string {
@@ -57,24 +60,46 @@ export async function recordCatalogRevision(ctx: TenantContext, change: CatalogC
       rev: after.rev,
       catalog: after.catalog,
       savedAt: change.nowIso,
-      savedBy: ctx.email ?? ctx.userId ?? null,
+      // A user id only, never an address: the name is looked up when the history is shown.
+      savedBy: ctx.userId ?? null,
       source: change.source,
       ...(change.restoredFrom !== undefined ? { restoredFrom: change.restoredFrom } : {}),
       changes: describeChanges(before.catalog, after.catalog).slice(0, 30),
     });
-    const all = await col.find({ where: [["connectionId", "==", connectionId]], limit: 100 });
-    const extra = all.sort((a, b) => b.rev - a.rev).slice(HISTORY_KEEP);
-    await Promise.all(extra.map((r) => col.delete(r.id)));
   } catch (err) {
     const m = err instanceof Error ? err.message : String(err);
     console.warn(`[connect] catalog history write failed for ${ctx.tenantId}/${connectionId}: ${m}`);
   }
 }
 
-/** A connection's kept versions, newest first. */
-export async function listCatalogRevisions(ctx: TenantContext, connectionId: string, db?: FirestoreLike): Promise<CatalogRevision[]> {
-  const rows = await forTenant(ctx, db).catalogRevisions.find({ where: [["connectionId", "==", connectionId]], limit: 100 });
-  return rows.sort((a, b) => b.rev - a.rev).slice(0, HISTORY_KEEP);
+/**
+ * A connection's versions, newest first, a page at a time: pass `nextCursor` back as `cursor`.
+ * Reads by (tenantId, connectionId, rev DESC). Until that index is ready (just after a deploy) it
+ * falls back to the query history used before, newest first in memory, which then held at most
+ * 20 versions per connection.
+ */
+export async function listCatalogRevisions(
+  ctx: TenantContext,
+  connectionId: string,
+  opts: { cursor?: number | null; limit?: number } = {},
+  db?: FirestoreLike,
+): Promise<{ versions: CatalogRevision[]; nextCursor: number | null }> {
+  const limit = Math.min(Math.max(1, Math.floor(opts.limit ?? CATALOG_HISTORY_PAGE)), MAX_PAGE);
+  const col = forTenant(ctx, db).catalogRevisions;
+  const where: WhereClause[] = [["connectionId", "==", connectionId]];
+  let rows: CatalogRevision[];
+  try {
+    rows = await col.find({ where, orderBy: [["rev", "desc"]], ...(opts.cursor != null ? { startAfter: [opts.cursor] } : {}), limit: limit + 1 });
+  } catch (err) {
+    console.warn(`[connect] catalog history read by rev failed (index building?) for ${ctx.tenantId}/${connectionId}: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+    const all = await col.find({ where, limit: 100 });
+    rows = all
+      .sort((a, b) => b.rev - a.rev)
+      .filter((r) => opts.cursor == null || r.rev < opts.cursor)
+      .slice(0, limit + 1);
+  }
+  const versions = rows.slice(0, limit);
+  return { versions, nextCursor: rows.length > limit ? versions[versions.length - 1]!.rev : null };
 }
 
 export async function getCatalogRevision(

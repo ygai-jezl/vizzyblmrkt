@@ -172,6 +172,14 @@ export function recomputeContactStatus(
 }
 
 /**
+ * The contact's top-level status across its launch links. Someone added by hand (piece B,
+ * `addedBy`) is a source of their own, so stays active whatever their launches say.
+ */
+export function contactStatusOf(contact: Pick<Contact, "addedBy">, links: ReadonlyArray<{ status: string }>): ContactStatus {
+  return contact.addedBy ? "active" : recomputeContactStatus(links);
+}
+
+/**
  * Upsert the Unified-CRM contact for a signup. Deduped across campaigns by
  * contactKey (normalizeEmail(email) ?? phone). Returns null when there is
  * nothing to key on (no email and no phone).
@@ -222,8 +230,11 @@ export async function upsertContactFromSignup(
   const campaignIds = Array.from(new Set([...existing.campaignIds, signup.campaignId]));
   const totalReferred = campaigns.reduce((s, c) => s + (c.amountReferred ?? 0), 0);
 
-  const firstName = signup.firstName ?? existing.firstName ?? null;
-  const lastName = signup.lastName ?? existing.lastName ?? null;
+  // Someone added by hand keeps the name that was typed: a later sign-up never replaces it. Only
+  // when nothing was typed does the sign-up's name fill in.
+  const typed = !!existing.addedBy && (existing.firstName != null || existing.lastName != null);
+  const firstName = typed ? (existing.firstName ?? null) : (signup.firstName ?? existing.firstName ?? null);
+  const lastName = typed ? (existing.lastName ?? null) : (signup.lastName ?? existing.lastName ?? null);
   const email = existing.email ?? d.email;
   const phone = existing.phone ?? d.phone;
   const emailDomain = existing.emailDomain ?? d.emailDomain;
@@ -257,7 +268,7 @@ export async function upsertContactFromSignup(
     totalReferred,
     // Recompute lifecycle status across all links so a re-signup/verify (and the
     // offboard/delete sync below) keeps the top-level status honest.
-    status: recomputeContactStatus(campaigns),
+    status: contactStatusOf(existing, campaigns),
     utm: signup.utm ?? existing.utm,
     referrerUrl: signup.referrerUrl ?? existing.referrerUrl ?? null,
     enrichment: nextEnrichment,
@@ -341,7 +352,8 @@ export async function recordSignupContactStatus(
     campaigns,
     campaignIds,
     totalReferred,
-    status: recomputeContactStatus(campaigns),
+    // Someone added by hand is never marked deleted because a sign-up went.
+    status: contactStatusOf(existing, campaigns),
     updatedAt: now,
     ...owesSync(),
   };

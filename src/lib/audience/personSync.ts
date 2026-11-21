@@ -1,6 +1,7 @@
-import { forTenant, type WhereClause } from "@/lib/tenant";
+import { appendEvents, forTenant, repairFieldTags, type WhereClause } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { Contact, ContactCampaignLink, PersonProductLink } from "@/lib/types/contact";
+import type { EmailSuppression } from "@/lib/types/emailSuppression";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import type { ProductUser } from "@/lib/types/productUser";
 import type { Signup } from "@/lib/types/signup";
@@ -9,13 +10,19 @@ import { suppressionDocId } from "@/lib/email/suppression";
 import { deterministicContactId, domainFromEmail } from "@/lib/crm/identifiers";
 import { buildSearchTokens } from "@/lib/crm/searchTokens";
 import { contactFieldsFromSignup, linkFromSignup, recomputeContactStatus } from "@/lib/crm/contactService";
+import { isContactPersonId } from "@/lib/ontology/person";
+import { isTimelineEnabled } from "./peopleFlags";
+import { moveEvents, movesOf } from "./personMoves";
 import {
+  handAddedOf,
   linkFromProductUser,
   optOutsOf,
   sameDay,
   sameProductLink,
   summarize,
   tagChanges,
+  withCarriedTags,
+  type HandAdded,
   type PersonSummary,
 } from "./personLinks";
 
@@ -30,6 +37,21 @@ import {
  * `syncProductLink` is the fast path for product writes: it swaps one product's link
  * using the user record already in hand. Both are safe to repeat; the sweep and the
  * backfill script call them too.
+ *
+ * Someone added by hand (`addedBy` on their record, piece B) is a source of their own, with no
+ * switch: no path deletes them, renames them from a product or marks them deleted. The tags
+ * other writers own (`field:` tags and `added:hand`) are kept as they are on every write, field
+ * tags while the person is in Everyone (and rebuilt from their values when they come back).
+ *
+ * A record holding the team's field values is never deleted by a sync, whoever it came from: one
+ * that only came from products stays when its last product user goes (revoked, moved to another
+ * address, or joined to an address), out of Everyone like a sign-up contact whose launches went,
+ * until the team erases it. Only the erase path (`erase: true`) removes it with its values.
+ *
+ * With AUDIENCE_TIMELINE_ENABLED, both functions record the person's moves (launch, product,
+ * stage and quiet, src/lib/audience/personMoves.ts) after their commit, so every caller is
+ * covered. Best effort, keyed so a retry writes nothing twice; never on a dry run, a person who
+ * was deleted, or a caller that passes `moves: "skip"` (the erase path and the backfill).
  */
 
 /** The key prefix for a product user with no email address: they're their own person until one arrives. */
@@ -57,6 +79,21 @@ export function isPeopleConnection(c: Pick<ProductConnection, "kind" | "status">
 
 export type PeopleConnections = Map<string, ProductConnection>;
 
+/**
+ * The opt-out rows for a person key (an address only: a phone or a product user has none). The
+ * brand-wide row is read by its id too: an erase elsewhere blanks the address on it, and it still
+ * stops every send.
+ */
+export async function optOutRowsFor(ctx: TenantContext, key: string, db?: FirestoreLike): Promise<EmailSuppression[]> {
+  if (key.startsWith(PRODUCT_USER_KEY_PREFIX) || !key.includes("@")) return [];
+  const repo = forTenant(ctx, db);
+  const [byId, rows] = await Promise.all([
+    repo.emailSuppressions.getById(suppressionDocId(ctx.tenantId, key)),
+    repo.emailSuppressions.find({ where: [["normalizedEmail", "==", key]], limit: 100 }),
+  ]);
+  return byId && !rows.some((r) => r.id === byId.id) ? [byId, ...rows] : rows;
+}
+
 /** The brand's people connections by id, read once and shared across a batch of syncs. */
 export async function loadPeopleConnections(ctx: TenantContext, db?: FirestoreLike): Promise<PeopleConnections> {
   const all = await forTenant(ctx, db).productConnections.find({ limit: 100 });
@@ -69,6 +106,18 @@ export interface SyncDeps {
   connections?: PeopleConnections;
   /** Work out what would change and report it, writing nothing (the backfill's dry run). */
   dryRun?: boolean;
+  /**
+   * Whether to record the person's moves for their timeline (AUDIENCE_TIMELINE_ENABLED). "skip"
+   * on the erase path, where a row written after the history was erased would outlive it, and in
+   * the backfill, so a rebuild never floods timelines. Default "record".
+   */
+  moves?: "record" | "skip";
+  /**
+   * The product user's erase (personAfterProductErase, and the dry run that decides whether to
+   * erase the history): a record that only came from products goes with its last product user even
+   * when it holds field values, which would otherwise keep it.
+   */
+  erase?: boolean;
 }
 
 export type SyncOutcome = "created" | "updated" | "unchanged" | "deleted" | "none";
@@ -79,6 +128,37 @@ export interface SyncResult {
   outcome: SyncOutcome;
   added: string[];
   removed: string[];
+  /** When this sync changed the record (its changedAt, or when it was created); null when it wrote nothing. */
+  changedAt: string | null;
+}
+
+/** Each product's user on a person, by connection, where the product has just one of them. */
+function productUsersOf(...lists: Array<readonly PersonProductLink[] | null | undefined>): Map<string, string> {
+  const users = new Map<string, Set<string>>();
+  for (const list of lists) for (const p of list ?? []) users.set(p.connectionId, (users.get(p.connectionId) ?? new Set()).add(p.productUserId));
+  return new Map([...users].flatMap(([c, ids]) => (ids.size === 1 ? [[c, [...ids][0]!] as [string, string]] : [])));
+}
+
+/**
+ * Record one sync's moves on the person's timeline (AUDIENCE_TIMELINE_ENABLED), in one batch after
+ * its commit. Best effort: a lost move leaves a gap in the timeline, never a wrong value. Counts
+ * only in the log.
+ */
+async function recordMoves(
+  ctx: TenantContext,
+  result: SyncResult,
+  products: Map<string, string>,
+  deps: SyncDeps,
+): Promise<void> {
+  if (deps.moves === "skip" || deps.dryRun || !result.changedAt || result.outcome === "deleted" || !isTimelineEnabled()) return;
+  if (!isContactPersonId(result.personId)) return;
+  const moves = movesOf(result);
+  if (!moves.length) return;
+  try {
+    await appendEvents(ctx, moveEvents(result.personId, result.changedAt, moves, products), { db: deps.db });
+  } catch (err) {
+    warn(`recording ${moves.length} moves`, ctx, err);
+  }
 }
 
 /** A sign-up from the brand's own site joins the person once it's confirmed, as it joins the contact today. */
@@ -99,6 +179,19 @@ interface Derived {
   products: PersonProductLink[];
   summary: PersonSummary;
   optOuts: Contact["optOuts"];
+  /** Added by hand: a source of its own. */
+  hand: HandAdded | null;
+}
+
+/** The derived fields for a record as it is now: its hand-added source read from the record itself. */
+function derive(
+  record: Pick<Contact, "addedBy" | "consent" | "email"> | null | undefined,
+  campaigns: ContactCampaignLink[],
+  products: PersonProductLink[],
+  optOuts: Contact["optOuts"],
+): Derived {
+  const hand = handAddedOf(record);
+  return { campaigns, products, optOuts, hand, summary: summarize(campaigns, products, optOuts, hand) };
 }
 
 function sameCampaigns(a: readonly ContactCampaignLink[], b: readonly ContactCampaignLink[]): boolean {
@@ -115,9 +208,9 @@ function sameProducts(a: readonly PersonProductLink[], b: readonly PersonProduct
   return a.length === b.length && a.every((link, i) => sameProductLink(link, b[i]!));
 }
 
-/** The status the contact has always shown, with a product user counting as live. */
-function statusOf(campaigns: readonly ContactCampaignLink[], products: readonly PersonProductLink[]): Contact["status"] {
-  return products.length ? "active" : recomputeContactStatus(campaigns);
+/** The status the contact has always shown, with a product user, or being added by hand, counting as live. */
+function statusOf(campaigns: readonly ContactCampaignLink[], products: readonly PersonProductLink[], hand: HandAdded | null): Contact["status"] {
+  return products.length || hand ? "active" : recomputeContactStatus(campaigns);
 }
 
 /** The list's order for a person: unique, newest activity first when sorted descending. */
@@ -125,10 +218,15 @@ export function sortKeyOf(activeAt: string, personId: string): string {
   return `${activeAt}|${personId}`;
 }
 
-/** The patch that brings `current` in line with `next`, or null when it already is. */
+/**
+ * The patch that brings `current` in line with `next`, or null when it already is. The tags other
+ * writers own are carried over from `current` and compared with the rest, so a sync never wipes
+ * or rewrites them, and never writes when only they differ.
+ */
 function patchFor(personId: string, current: Contact, next: Derived, nowIso: string): Partial<Contact> | null {
-  const { campaigns, products, summary, optOuts } = next;
-  const tagsChanged = (current.memberOf ?? []).join("\n") !== summary.memberOf.join("\n");
+  const { campaigns, products, summary, optOuts, hand } = next;
+  const memberOf = withCarriedTags(summary.memberOf, current.memberOf);
+  const tagsChanged = (current.memberOf ?? []).join("\n") !== memberOf.join("\n");
   const productsChanged = !sameProducts(current.products ?? [], products);
   const reachChanged = current.reach !== summary.reach;
   const campaignsChanged = !sameCampaigns(current.campaigns ?? [], campaigns);
@@ -141,9 +239,9 @@ function patchFor(personId: string, current: Contact, next: Derived, nowIso: str
     campaigns,
     campaignIds: [...new Set(campaigns.map((c) => c.campaignId))],
     totalReferred: campaigns.reduce((s, c) => s + (c.amountReferred ?? 0), 0),
-    status: statusOf(campaigns, products),
+    status: statusOf(campaigns, products, hand),
     products,
-    memberOf: summary.memberOf,
+    memberOf,
     reach: summary.reach,
     optOuts,
     ...(summary.activeAt ? { activeAt: summary.activeAt, sortKey: sortKeyOf(summary.activeAt, personId) } : {}),
@@ -156,7 +254,7 @@ function patchFor(personId: string, current: Contact, next: Derived, nowIso: str
 /** Rebuild one person from their sources. */
 export async function syncPerson(ctx: TenantContext, rawKey: string, deps: SyncDeps = {}): Promise<SyncResult> {
   const key = normalizeKey(rawKey);
-  if (!key) return { personId: "", outcome: "none", added: [], removed: [] };
+  if (!key) return { personId: "", outcome: "none", added: [], removed: [], changedAt: null };
   const personId = personIdOf(ctx.tenantId, key);
   const repo = forTenant(ctx, deps.db);
   const nowMs = deps.nowMs ?? Date.now();
@@ -174,13 +272,7 @@ export async function syncPerson(ctx: TenantContext, rawKey: string, deps: SyncD
       : isEmail
         ? repo.productUsers.find({ where: [["emailNormalized", "==", key]], limit: 100 })
         : Promise.resolve([] as ProductUser[]),
-    // The brand-wide row by its id too: an erase elsewhere blanks the address on it, and it still stops every send.
-    isEmail
-      ? Promise.all([
-          repo.emailSuppressions.getById(suppressionDocId(ctx.tenantId, key)),
-          repo.emailSuppressions.find({ where: [["normalizedEmail", "==", key]], limit: 100 }),
-        ]).then(([byId, rows]) => (byId && !rows.some((r) => r.id === byId.id) ? [byId, ...rows] : rows))
-      : Promise.resolve([]),
+    optOutRowsFor(ctx, key, deps.db),
   ]);
 
   // Sign-ups by key, plus any the contact links that the lookup missed (an address stored before
@@ -202,16 +294,18 @@ export async function syncPerson(ctx: TenantContext, rawKey: string, deps: SyncD
     .filter((u) => u.status === "active" && connections.has(u.connectionId))
     .sort((a, b) => a.connectionId.localeCompare(b.connectionId) || a.id.localeCompare(b.id));
   const products = users.map((u) => linkFromProductUser(u, connections.get(u.connectionId)!, optOuts, nowMs));
-  const summary = summarize(campaigns, products, optOuts);
-  const next: Derived = { campaigns, products, summary, optOuts };
+  const next = derive(existing, campaigns, products, optOuts);
+  const { summary } = next;
 
   if (!summary.live) {
-    if (!existing) return { personId, outcome: "none", added: [], removed: [] };
+    if (!existing) return { personId, outcome: "none", added: [], removed: [], changedAt: null };
     // A record that only ever came from products goes with its last product user. One with
-    // sign-up history stays, marked deleted, as contacts always have (erase is the way to remove it).
-    if (existing.consentStatus === "none" && !(existing.campaigns ?? []).length) {
+    // sign-up history stays, marked deleted, as contacts always have (erase is the way to remove it),
+    // and so does one holding the team's field values, except on a product user's erase.
+    // Someone added by hand is live, so never reaches here; addedBy spares them all the same.
+    if (existing.consentStatus === "none" && !(existing.campaigns ?? []).length && !existing.addedBy && (deps.erase || !holdsFieldValues(existing))) {
       if (!deps.dryRun) await repo.contacts.delete(personId);
-      return { personId, outcome: "deleted", added: [], removed: existing.memberOf ?? [] };
+      return { personId, outcome: "deleted", added: [], removed: existing.memberOf ?? [], changedAt: deps.dryRun ? null : nowIso };
     }
   }
 
@@ -234,29 +328,51 @@ export async function syncPerson(ctx: TenantContext, rawKey: string, deps: SyncD
       personId,
       outcome: !existing ? "created" : patch ? "updated" : "unchanged",
       ...tagChanges(existing?.memberOf ?? [], summary.memberOf),
+      changedAt: null,
     };
   }
 
   let before: string[] = [];
+  let beforeProducts: PersonProductLink[] = [];
   let patched = false;
   const { doc, created } = await repo.contacts.upsert(personId, create, (current) => {
     before = current.memberOf ?? [];
+    beforeProducts = current.products ?? [];
     // A person who only uses products is named as their product names them, kept in step. A
     // contact from a sign-up keeps its own name and address: none is copied in from a product,
-    // so erasing them in the product leaves nothing of theirs behind here.
-    const productOnly = current.consentStatus === "none" && !(current.campaigns ?? []).length && campaigns.length === 0;
+    // so erasing them in the product leaves nothing of theirs behind here. Nor does someone added
+    // by hand: they keep the name, address and search words that were typed.
+    const productOnly =
+      current.consentStatus === "none" && !(current.campaigns ?? []).length && campaigns.length === 0 && !current.addedBy;
     const who = productOnly && users.length ? productOnlyFields(key, users, firstUser, nowIso) : null;
     const renamed =
       who && (who.firstName !== (current.firstName ?? null) || who.lastName !== (current.lastName ?? null) || who.email !== (current.email ?? null))
         ? { firstName: who.firstName, lastName: who.lastName, email: who.email, emailDomain: who.emailDomain, searchTokens: who.searchTokens }
         : null;
-    const patch = patchFor(personId, current, next, nowIso);
+    // The record as it is inside this transaction says whether it was added by hand.
+    const patch = patchFor(personId, current, derive(current, campaigns, products, optOuts), nowIso);
     patched = !!(patch || renamed);
     if (!patch && !renamed) return null;
     return { ...(patch ?? { updatedAt: nowIso }), ...(renamed ?? {}) } as never;
   });
   const changes = tagChanges(created ? [] : before, doc.memberOf ?? []);
-  return { personId, outcome: created ? "created" : patched ? "updated" : "unchanged", ...changes };
+  // Back in Everyone with values the team set: their field tags come back from those values.
+  if (!created && !before.includes("all") && (doc.memberOf ?? []).includes("all") && holdsFieldValues(doc)) {
+    await repairFieldTags(ctx, personId, { db: deps.db }).catch((err) => warn("restoring field tags", ctx, err));
+  }
+  const result: SyncResult = {
+    personId,
+    outcome: created ? "created" : patched ? "updated" : "unchanged",
+    ...changes,
+    changedAt: created || patched ? nowIso : null,
+  };
+  await recordMoves(ctx, result, productUsersOf(beforeProducts, doc.products), deps);
+  return result;
+}
+
+/** Whether a record holds any of the team's field values (`fields.<fieldId>`). */
+function holdsFieldValues(record: Pick<Contact, "fields">): boolean {
+  return !!record.fields && Object.keys(record.fields).length > 0;
 }
 
 /** The fields of a person who so far only uses a product: no consent from a sign-up, no company. */
@@ -311,6 +427,7 @@ export async function syncProductLink(
   }
   const nowIso = new Date(deps.nowMs ?? Date.now()).toISOString();
   let before: string[] = [];
+  let beforeProducts: PersonProductLink[] = [];
   let owed = false;
   const updated = await repo.contacts.claim(personId, (fresh) => {
     // A full rebuild is owed (a sync failed, a launch went): this can't stand in for it.
@@ -321,11 +438,14 @@ export async function syncProductLink(
     const link = linkFromProductUser(user, connection, fresh.optOuts, deps.nowMs ?? Date.now());
     const products = (fresh.products ?? []).map((p) => (p.productUserId === user.id ? link : p));
     before = fresh.memberOf ?? [];
-    return patchFor(personId, fresh, { campaigns: fresh.campaigns ?? [], products, summary: summarize(fresh.campaigns ?? [], products, fresh.optOuts), optOuts: fresh.optOuts }, nowIso) as never;
+    beforeProducts = fresh.products ?? [];
+    return patchFor(personId, fresh, derive(fresh, fresh.campaigns ?? [], products, fresh.optOuts), nowIso) as never;
   });
   if (owed) return syncPerson(ctx, key, deps);
-  if (!updated) return { personId, outcome: "unchanged", added: [], removed: [] };
-  return { personId, outcome: "updated", ...tagChanges(before, updated.memberOf ?? []) };
+  if (!updated) return { personId, outcome: "unchanged", added: [], removed: [], changedAt: null };
+  const result: SyncResult = { personId, outcome: "updated", ...tagChanges(before, updated.memberOf ?? []), changedAt: nowIso };
+  await recordMoves(ctx, result, productUsersOf(beforeProducts, updated.products), deps);
+  return result;
 }
 
 /** Flag everyone with a tag for a full rebuild by the sweep (a product revoked, say), a page at a time. */

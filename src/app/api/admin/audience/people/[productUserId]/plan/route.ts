@@ -8,7 +8,7 @@ import { readJson } from "@/lib/connect/admin";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Params = { params: Promise<{ personId: string }> };
+type Params = { params: Promise<{ productUserId: string }> };
 
 const off = () => NextResponse.json({ error: "not_found" }, { status: 404, headers: { "cache-control": "no-store" } });
 
@@ -23,7 +23,7 @@ export async function GET(req: Request, { params }: Params) {
   if (!isPersonPlansEnabled()) return off();
   const gate = await personViewAdmin(req, { mutate: false });
   if (!gate.ok) return gate.response;
-  const plan = await getPersonPlan(gate.ctx, (await params).personId);
+  const plan = await getPersonPlan(gate.ctx, (await params).productUserId);
   return NextResponse.json({ plan }, { headers: { "cache-control": "no-store" } });
 }
 
@@ -32,7 +32,7 @@ export async function PUT(req: Request, { params }: Params) {
   if (!isPersonPlansEnabled()) return off();
   const gate = await personViewAdmin(req, { mutate: true });
   if (!gate.ok) return gate.response;
-  return respond(await savePlanDraft(gate.ctx, (await params).personId, await readJson(req), { by: "human" }), (plan) => ({ plan }));
+  return respond(await savePlanDraft(gate.ctx, (await params).productUserId, await readJson(req), { by: "human" }), (plan) => ({ plan }));
 }
 
 const Action = z.discriminatedUnion("action", [
@@ -48,10 +48,10 @@ export async function POST(req: Request, { params }: Params) {
   if (!gate.ok) return gate.response;
   const parsed = Action.safeParse(await readJson(req));
   if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
-  const { personId } = await params;
+  const { productUserId } = await params;
   const r =
     parsed.data.action === "approve"
-      ? await approvePlan(gate.ctx, personId, { draftAt: parsed.data.draftAt })
-      : await dropPlan(gate.ctx, personId, parsed.data.action === "discard_draft" ? "draft" : "approved");
+      ? await approvePlan(gate.ctx, productUserId, { draftAt: parsed.data.draftAt })
+      : await dropPlan(gate.ctx, productUserId, parsed.data.action === "discard_draft" ? "draft" : "approved");
   return respond(r, (plan) => ({ plan }));
 }

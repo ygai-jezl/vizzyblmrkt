@@ -25,6 +25,12 @@ import { listCompetitors, unseenChanges } from "@/lib/competitors/store";
 import { PROBLEM_TEXT } from "@/lib/competitors/view";
 import { brandCanUse } from "@/lib/plans/brandAccess";
 import type { Competitor, CompetitorChange } from "@/lib/types/competitor";
+import type { AgentAction } from "@/lib/types/agentAction";
+import { agentActionReviewItem, listOpenAgentActions } from "@/lib/ontology/agentActions";
+import { canAddPeople, isVizzyAddPersonEnabled, isVizzyFieldsEnabled } from "@/lib/audience/peopleFlags";
+import { PERSON_FIELDS_ACTION } from "@/lib/audience/fieldSuggestions";
+import { NEW_PERSON_ACTION } from "@/lib/audience/personDrafts";
+import { readFieldList } from "@/lib/audience/fieldList";
 
 /**
  * Review (nav v2 phase 2): every decision waiting on a person, in one place,
@@ -45,7 +51,8 @@ export type ReviewKind =
   | "failed_post"
   | "connection"
   | "competitor_news"
-  | "next_article";
+  | "next_article"
+  | "person_suggestion";
 
 export interface ReviewItem {
   id: string;
@@ -96,10 +103,14 @@ export const REVIEW_SECTIONS: Record<ReviewKind, { title: string; description: s
     title: "Your next article",
     description: "What the article autopilot found and sorted, the questions it asks your team, and runs that couldn't finish.",
   },
+  person_suggestion: {
+    title: "Suggestions about people",
+    description: "Changes to people's fields, and people to add, that Vizzy suggested. Nothing changes until someone on your team confirms.",
+  },
 };
 
 /** Order of sections on the page (AI lines are time-bound, so they come first). */
-export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "next_article", "agent_draft", "repo_results", "brand_map", "competitor_news", "content_hub"];
+export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "next_article", "agent_draft", "person_suggestion", "repo_results", "brand_map", "competitor_news", "content_hub"];
 
 // ---------------------------------------------------------------------------
 // Per-source rules (pure)
@@ -338,6 +349,44 @@ export function connectionItem(
   };
 }
 
+/**
+ * Vizzy's suggestion about one person (AUDIENCE_VIZZY_FIELDS_ENABLED), linking to their page. The
+ * title and detail never hold the person's name, address or any value: only the brand's own field
+ * names, by the field list as it is now.
+ */
+export function personSuggestionItem(a: AgentAction, labels: ReadonlyMap<string, string>): ReviewItem | null {
+  // A New person form Vizzy filled in (AUDIENCE_VIZZY_ADD_PERSON_ENABLED): who it is stays in the form.
+  if (a.action === NEW_PERSON_ACTION) {
+    return agentActionReviewItem(a, {
+      title: "Vizzy filled in New person for you",
+      detail: "Check it, say how they agreed, and add them, or dismiss it. It goes after 7 days.",
+      action: "Open",
+    });
+  }
+  if (a.action !== PERSON_FIELDS_ACTION) return null;
+  const names = a.fieldIds.map((id) => labels.get(id)).filter((l): l is string => !!l);
+  const title =
+    a.fieldIds.length === 1 && names.length === 1 ? `Vizzy suggests a change to ${names[0]}` : `Vizzy suggests changes to ${a.fieldIds.length} fields`;
+  return agentActionReviewItem(a, {
+    title,
+    detail: `${names.length > 1 ? `${names.join(", ")} · ` : ""}On one person's page. Nothing changes until someone confirms.`,
+    action: "Review",
+  });
+}
+
+/**
+ * Open field suggestions and New person drafts, each switch's own, newest first within each, field
+ * suggestions labelled by the People field list (index: action, state, createdAt desc).
+ */
+async function personSuggestionItems(ctx: TenantContext, opts: { fields: boolean; drafts: boolean }, db?: FirestoreLike): Promise<ReviewItem[]> {
+  const [drafts, open] = await Promise.all([
+    opts.drafts ? listOpenAgentActions(ctx, { action: NEW_PERSON_ACTION, limit: 50, db }) : ([] as AgentAction[]),
+    opts.fields ? listOpenAgentActions(ctx, { action: PERSON_FIELDS_ACTION, limit: 50, db }) : ([] as AgentAction[]),
+  ]);
+  const labels = open.length ? new Map((await readFieldList(ctx, "person", db)).items.map((f) => [f.key, f.label])) : new Map<string, string>();
+  return [...drafts, ...open].map((a) => personSuggestionItem(a, labels)).filter((i): i is ReviewItem => !!i);
+}
+
 // ---------------------------------------------------------------------------
 // Loading
 
@@ -485,6 +534,11 @@ export async function loadReview(
   ]);
 
   const autopilotRuns = isAutopilotEnabled() ? await soft("autopilot runs", recentRuns(ctx, 60, { db }), [] as AutopilotRun[]) : [];
+  // New person drafts only where this user can open the form: admins, who alone add someone
+  // (decision 28), with the People list on screen. Field suggestions show to everyone, since the
+  // person's page tells a member that an admin confirms.
+  const people = { fields: isVizzyFieldsEnabled(), drafts: isVizzyAddPersonEnabled() && canAddPeople(ctx.role) };
+  const personSuggestions = people.fields || people.drafts ? await soft("person suggestions", personSuggestionItems(ctx, people, db), [] as ReviewItem[]) : [];
   const liveConnections = connections.filter((c) => c.kind === "custom" && c.status !== "revoked");
   const latestRuns = await Promise.all(
     liveConnections.map((c) => soft("repo analyses", listRepoAnalyses(ctx, c.id, db), [] as RepoAnalysis[])),
@@ -501,6 +555,7 @@ export async function loadReview(
     ...agentJourneys.map((j) => agentJourneyItem(j, j.audience?.kind === "waitlist" ? launchNames.get(j.audience.campaignId) : undefined)),
     ...launchJourneys.map((j) => agentLaunchJourneyItem(j, launchNames.get(j.campaignId))),
     ...agentWaves.map((w) => agentInviteWaveItem(w, launchNames.get(w.campaignId))),
+    ...personSuggestions,
     ...liveConnections.map((c, i) => repoResultsItem(c, latestRuns[i]?.[0])),
     brandMapItem(brandMap, brandMapProposals),
     ...competitorItems(competitors, competitorNews),
@@ -516,23 +571,30 @@ export async function loadReview(
 const COUNT_TTL_MS = 2 * 60 * 1000;
 const countCache = new Map<string, { at: number; total: number }>();
 
+/** The count's cache key: per brand, and per role, since some items are for admins only. */
+function countKey(tenantId: string, role: TenantContext["role"]): string {
+  return `${tenantId}|${role === "admin" ? "admin" : "member"}`;
+}
+
 export async function countReview(
   ctx: TenantContext,
   opts: { lifecycle: boolean; now?: number },
   db?: FirestoreLike,
 ): Promise<number> {
   const now = opts.now ?? Date.now();
-  const hit = countCache.get(ctx.tenantId);
+  const key = countKey(ctx.tenantId, ctx.role);
+  const hit = countCache.get(key);
   if (hit && now - hit.at < COUNT_TTL_MS) return hit.total;
   const review = await loadReview(ctx, { lifecycle: opts.lifecycle, includeContent: !db }, db);
   const total = review.aiLines + review.items.length;
-  countCache.set(ctx.tenantId, { at: now, total });
+  countCache.set(key, { at: now, total });
   return total;
 }
 
 /** Forget one brand's cached count, after something that changes it (a change marked seen). */
 export function forgetReviewCount(tenantId: string): void {
-  countCache.delete(tenantId);
+  countCache.delete(countKey(tenantId, "admin"));
+  countCache.delete(countKey(tenantId, "member"));
 }
 
 /** Test hook: forget cached counts. */

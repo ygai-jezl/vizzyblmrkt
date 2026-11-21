@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { CONSENT_HOW, CONSENT_NOTE_MAX, CONSENT_STATES } from "@/lib/ontology/consent";
+import { FieldValuesSchema } from "./recordField";
 import { UtmSchema } from "./signup";
 
 /**
@@ -101,6 +103,48 @@ export const PersonOptOutsSchema = z.object({
 });
 export type PersonOptOuts = z.infer<typeof PersonOptOutsSchema>;
 
+const noAt = (v: string) => !v.includes("@");
+/** A team member's user id or an agent action's id: never an address. */
+const ActorId = z.string().min(1).max(200).refine(noAt, { message: "an id, never an address" });
+
+/**
+ * Who added a person by hand (piece B, New person): a team member by user id, or Vizzy's
+ * suggestion (its agent action id) once someone confirmed it. Its presence makes the person a
+ * source of their own, whatever any switch says: no sync deletes them, renames them or marks
+ * them deleted, and a later sign-up never replaces the name that was typed.
+ */
+export const ContactAddedBySchema = z.object({
+  kind: z.enum(["member", "agent"]),
+  id: ActorId,
+  at: z.string(),
+  via: z.enum(["form", "palette", "vizzy"]),
+});
+export type ContactAddedBy = z.infer<typeof ContactAddedBySchema>;
+
+/**
+ * The consent the team recorded for one purpose: the current state. Each change is also a
+ * consent.recorded event in the event history (src/lib/ontology/consent.ts), which is the proof.
+ */
+export const ContactConsentEntrySchema = z.object({
+  state: z.enum(CONSENT_STATES),
+  /** How they agreed, as a short code (the New person form owns the list). */
+  how: z.string().regex(CONSENT_HOW),
+  note: z.string().max(CONSENT_NOTE_MAX).nullable(),
+  /** The team member who recorded it, by user id. */
+  recordedBy: ActorId,
+  /** When it was recorded. */
+  at: z.string(),
+  /** When the person agreed, when that is known and differs from when it was recorded. */
+  agreedAt: z.string().nullable(),
+});
+export type ContactConsentEntry = z.infer<typeof ContactConsentEntrySchema>;
+
+/** Recorded consent by purpose. Only marketing email is recorded today, and only for people added by hand. */
+export const ContactConsentSchema = z.object({
+  marketing_email: ContactConsentEntrySchema.optional(),
+});
+export type ContactConsent = z.infer<typeof ContactConsentSchema>;
+
 export const ContactSchema = z.object({
   id: z.string(),
   tenantId: z.string(),
@@ -144,6 +188,18 @@ export const ContactSchema = z.object({
   /** Storage-limitation purge boundary (nullable = keep). */
   retentionUntil: z.string().nullable().optional(),
 
+  /** Set only on someone added by hand: who added them, when and from where. */
+  addedBy: ContactAddedBySchema.optional(),
+  /** Consent the team recorded for someone added by hand. Reach is yes only with marketing email granted here. */
+  consent: ContactConsentSchema.optional(),
+
+  /**
+   * The brand's own fields (AUDIENCE_FIELDS_ENABLED), by field id: written only by
+   * src/lib/tenant/recordFieldWrites.ts, never by a sync. Archived fields keep their values here.
+   * Exempt from automatic indexing (firestore.indexes.json), like products and optOuts.
+   */
+  fields: FieldValuesSchema.optional(),
+
   // ---- The person record (AUDIENCE_PERSON_LINKS_ENABLED). Derived from the person's
   // sign-ups, product users and opt-outs by src/lib/audience/personSync.ts, and safe
   // to rebuild at any time. Absent on contacts no sync has reached yet.
@@ -153,7 +209,12 @@ export const ContactSchema = z.object({
   /**
    * Tags the People list filters on with one array-contains: `all`, `launch:any`,
    * `launch:<campaignId>`, `via:form`, `via:site`, `product:any`, `product:<connectionId>`,
-   * `stage:<connectionId>:<stage>`, `quiet:<connectionId>`, `group:<connectionId>:<id>`.
+   * `stage:<connectionId>:<stage>`, `quiet:<connectionId>`, `group:<connectionId>:<id>`, and
+   * `added:hand` for someone added by hand. `field:<fieldId>:<optionId>` (a select, a status,
+   * each option of a multi select) and `field:<fieldId>:yes` (a ticked checkbox) belong to the
+   * field writer, at most 50, and only while the person is in Everyone (`all`): a sync keeps
+   * them, and `added:hand`, as they are (isCarriedTag in src/lib/audience/personLinks.ts). A
+   * group's id is the product's own, so it may hold `.` and `:`.
    */
   memberOf: z.array(z.string()).optional(),
   /** The best reach across their sources, unless a brand-wide opt-out stops everything. */

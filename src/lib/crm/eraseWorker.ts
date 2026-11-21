@@ -21,7 +21,9 @@ import { productUserPersonId } from "@/lib/ontology/erase";
  * Their event history and agent actions go whatever any switch says: by their person id (first,
  * so a retried job for a contact already deleted still clears them, and again at the end for rows
  * written while the job ran), by the pu: person id of each product user they link (history from
- * before a merge, even when the product users are kept), and the company's when it goes.
+ * before a merge, even when the product users are kept), and the company's when it goes. Their
+ * field values (AUDIENCE_FIELDS_ENABLED) sit on the contact and go with it, and a company's go with
+ * the company; each value's record.field_changed rows go with that history.
  *
  * NOTE: a self-service DSR entry-point must wrap this job to fully satisfy Art.17,
  * and the audit should be promoted to the WORM store used by launch deletion.

@@ -23,7 +23,7 @@ def get_audience_counts(tool_context: ToolContext) -> dict:
     Call this BEFORE answering how many people the brand has, how many it can
     email, or how many are stuck, quiet or activated in a product. Answer only from
     these numbers. It can't name or find a person; for one person, point the
-    operator to Audience › People.
+    operator to that person's page, opened from their row in the list of people.
 
     Returns:
         {"status": "success", "people": n, "canEmail": n, "fromYourSite": n,

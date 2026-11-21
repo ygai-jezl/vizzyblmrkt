@@ -5,6 +5,7 @@ import {
   deterministicMessageId,
   deterministicEventId,
   deterministicAgentActionId,
+  deterministicSettingsSubjectId,
   canonicalDomain,
   domainFromEmail,
 } from "./identifiers";
@@ -96,5 +97,17 @@ describe("event and agent action ids", () => {
     expect(deterministicEventId("ten_demo", "A")).not.toBe(deterministicEventId("ten_demo", "a"));
     expect(deterministicAgentActionId("ten_demo", "A")).not.toBe(deterministicAgentActionId("ten_demo", "a"));
     expect(deterministicContactId("ten_demo", "A@example.com")).toBe(deterministicContactId("ten_demo", "a@example.com"));
+  });
+});
+
+describe("settings subject ids", () => {
+  it("are ss_ and 40 hex, the same every time", () => {
+    expect(deterministicSettingsSubjectId("ten_demo", "fields:person")).toMatch(/^ss_[0-9a-f]{40}$/);
+    expect(deterministicSettingsSubjectId("ten_demo", "fields:person")).toBe(deterministicSettingsSubjectId("ten_demo", "fields:person"));
+  });
+
+  it("differ for two brands with the same subject, and for two subjects", () => {
+    expect(deterministicSettingsSubjectId("ten_demo", "fields:person")).not.toBe(deterministicSettingsSubjectId("ten_other", "fields:person"));
+    expect(deterministicSettingsSubjectId("ten_demo", "fields:person")).not.toBe(deterministicSettingsSubjectId("ten_demo", "fields:company"));
   });
 });

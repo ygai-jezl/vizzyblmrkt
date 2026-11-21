@@ -11,7 +11,9 @@ import { personIdForProductUser, personStamp } from "@/lib/ontology/personRef";
 /**
  * A plan for one person (LIFECYCLE_PERSON_PLANS): Vizzy or staff save a DRAFT, and
  * only staff approve it. An approved plan steers that person's AI line
- * (lifecycle/prepare.ts); it sends nothing by itself.
+ * (lifecycle/prepare.ts); it sends nothing by itself. A plan belongs to one product user,
+ * named here by `productUserId` (piece B renamed it from `personId`, which now means the
+ * `ct_` person).
  *
  * A plan is words about a person's situation, not about who they are. A save that
  * holds an email address or their full name is refused. Anything less certain — a
@@ -24,18 +26,19 @@ export type PlanResult<T> = { ok: true; value: T } | { ok: false; status: number
 
 const fail = (status: number, error: string, detail?: string): PlanResult<never> => ({ ok: false, status, error, ...(detail ? { detail } : {}) });
 
-export function personPlanDocId(personId: string): string {
-  return `pp_${personId}`;
+/** A plan's id: one per product user (the person a plan is for is the product user it steers). */
+export function personPlanDocId(productUserId: string): string {
+  return `pp_${productUserId}`;
 }
 
-export async function getPersonPlan(ctx: TenantContext, personId: string, db?: FirestoreLike): Promise<PersonPlan | null> {
-  if (!isPersonId(personId)) return null;
-  return forTenant(ctx, db).personPlans.getById(personPlanDocId(personId));
+export async function getPersonPlan(ctx: TenantContext, productUserId: string, db?: FirestoreLike): Promise<PersonPlan | null> {
+  if (!isPersonId(productUserId)) return null;
+  return forTenant(ctx, db).personPlans.getById(personPlanDocId(productUserId));
 }
 
 /** The plan in force for a person: what steers their AI line. Null = none approved. */
-export async function approvedPlanFor(ctx: TenantContext, personId: string, db?: FirestoreLike): Promise<PersonPlan["approved"]> {
-  return (await getPersonPlan(ctx, personId, db))?.approved ?? null;
+export async function approvedPlanFor(ctx: TenantContext, productUserId: string, db?: FirestoreLike): Promise<PersonPlan["approved"]> {
+  return (await getPersonPlan(ctx, productUserId, db))?.approved ?? null;
 }
 
 /**
@@ -70,12 +73,12 @@ function parseBody(input: unknown, user: Parameters<typeof personScrubber>[0]): 
  */
 export async function savePlanDraft(
   ctx: TenantContext,
-  personId: string,
+  productUserId: string,
   input: unknown,
   deps: { db?: FirestoreLike; nowMs?: number; by?: "agent" | "human" } = {},
 ): Promise<PlanResult<PersonPlan>> {
   const repo = forTenant(ctx, deps.db);
-  const user = isPersonId(personId) ? await repo.productUsers.getById(personId) : null;
+  const user = isPersonId(productUserId) ? await repo.productUsers.getById(productUserId) : null;
   if (!user || user.status !== "active") return fail(404, "person_not_found");
   const body = parseBody(input, user);
   if (!body.ok) return body;
@@ -96,7 +99,7 @@ export async function savePlanDraft(
   const now = new Date(deps.nowMs ?? Date.now()).toISOString();
   const draft = { ...body.value, by, at: now };
   const { doc } = await repo.personPlans.upsert(
-    personPlanDocId(personId),
+    personPlanDocId(productUserId),
     // The person is written once, with the plan. A move later is the repoint job's.
     () => ({ connectionId: user.connectionId, productUserId: user.id, ...personStamp(person), draft, approved: null, createdAt: now, updatedAt: now }),
     () => ({ draft, updatedAt: now }),
@@ -111,13 +114,13 @@ export async function savePlanDraft(
  */
 export async function approvePlan(
   ctx: TenantContext,
-  personId: string,
+  productUserId: string,
   deps: { db?: FirestoreLike; nowMs?: number; draftAt: string },
 ): Promise<PlanResult<PersonPlan>> {
-  if (!isPersonId(personId)) return fail(409, "no_draft");
+  if (!isPersonId(productUserId)) return fail(409, "no_draft");
   const now = new Date(deps.nowMs ?? Date.now()).toISOString();
   let changed = false;
-  const saved = await forTenant(ctx, deps.db).personPlans.claim(personPlanDocId(personId), (cur) => {
+  const saved = await forTenant(ctx, deps.db).personPlans.claim(personPlanDocId(productUserId), (cur) => {
     changed = Boolean(cur.draft && cur.draft.at !== deps.draftAt);
     if (!cur.draft || changed) return null;
     const { at: _draftedAt, ...body } = cur.draft;
@@ -129,13 +132,13 @@ export async function approvePlan(
 /** Throw the draft away (`draft`), or end the plan in force (`approved`). The other half stays. */
 export async function dropPlan(
   ctx: TenantContext,
-  personId: string,
+  productUserId: string,
   which: "draft" | "approved",
   deps: { db?: FirestoreLike; nowMs?: number } = {},
 ): Promise<PlanResult<PersonPlan>> {
-  if (!isPersonId(personId)) return fail(409, which === "draft" ? "no_draft" : "no_plan");
+  if (!isPersonId(productUserId)) return fail(409, which === "draft" ? "no_draft" : "no_plan");
   const now = new Date(deps.nowMs ?? Date.now()).toISOString();
-  const saved = await forTenant(ctx, deps.db).personPlans.claim(personPlanDocId(personId), (cur) => {
+  const saved = await forTenant(ctx, deps.db).personPlans.claim(personPlanDocId(productUserId), (cur) => {
     if (!cur[which]) return null;
     return which === "draft" ? { draft: null, updatedAt: now } : { approved: null, updatedAt: now };
   });

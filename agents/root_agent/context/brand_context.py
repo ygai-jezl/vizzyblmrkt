@@ -51,9 +51,10 @@ def _format_brand_block(brand: Dict[str, Any]) -> str:
 
 PERSON_IN_VIEW_BLOCK = (
     "## The person in view\n"
-    "That page is ONE product user's. For anything about \"this person\" — what has happened, why "
-    "they stalled, what they should get next — delegate to the Lifecycle Ops specialist "
-    "(`lifecycle_ops_agent`), which can read their situation. You are never told who they are: "
+    "That page is one person's. For anything about \"this person\" (what has happened, why "
+    "they stalled, what they should get next, their fields such as plan, seats or status, or a "
+    "change to suggest), delegate to the Lifecycle Ops specialist (`lifecycle_ops_agent`), which "
+    "can read their situation and their fields. You are never told who they are: "
     "don't ask for a name or an email address, and don't repeat one the operator types."
 )
 
@@ -81,7 +82,7 @@ def build_dynamic_instruction(ctx: "ReadonlyContext") -> str:
     page_block = _format_page_block(state.get("page") if state else None)
     if page_block:
         instruction = f"{instruction}\n\n{page_block}"
-    # One product user's page (the app sends `personId` only while a person can be read).
+    # One person's page (the app sends `personId` only while their situation or fields can be read).
     if state and state.get("personId"):
         instruction = f"{instruction}\n\n{PERSON_IN_VIEW_BLOCK}"
     return instruction

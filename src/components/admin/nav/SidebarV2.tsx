@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -52,14 +52,18 @@ const ICONS: Record<NavKey, LucideIcon> = {
 // NEXT_PUBLIC_* flags are inlined at build, so these evaluate once.
 const PHASE2 = isNavV2Phase2Enabled();
 const GUIDE = isSetupGuideEnabled();
-const SECTIONS = buildNav({
-  lifecycle: isLifecycleUiEnabled(),
-  brandKit: isBrandKitUiEnabled(),
-  // Phase 2's Review also holds failed posts, Vizzy drafts and content sign-off.
-  review: isLifecycleUiEnabled() || PHASE2,
-  phase3: isNavV2Phase3Enabled(),
-});
-const ALL_ITEMS = SECTIONS.flatMap((s) => s.items);
+
+/** The sidebar's sections; `people` (from the server) names the Audience item People. */
+function sectionsFor(people: boolean) {
+  return buildNav({
+    lifecycle: isLifecycleUiEnabled(),
+    brandKit: isBrandKitUiEnabled(),
+    // Phase 2's Review also holds failed posts, Vizzy drafts and content sign-off.
+    review: isLifecycleUiEnabled() || PHASE2,
+    phase3: isNavV2Phase3Enabled(),
+    people,
+  });
+}
 
 export interface SidebarV2Props {
   brands: BrandOption[];
@@ -67,6 +71,8 @@ export interface SidebarV2Props {
   archivedLaunches: LaunchRef[];
   ctx: { tenantId: string; region: string; role: string };
   email?: string;
+  /** Audience is called People (isPeopleNameEnabled(), worked out by the layout on the server). */
+  people?: boolean;
 }
 
 interface GrowthDots {
@@ -139,8 +145,10 @@ function StageDot({ status }: { status: StageStatus }) {
  * launches instead of one row per launch; Brand and Settings at the bottom.
  * Phase 2 adds search (⌘K), Ask Vizzy (⌘J) and the growth-path dots.
  */
-export function SidebarV2({ brands, launches, archivedLaunches, ctx, email }: SidebarV2Props) {
+export function SidebarV2({ brands, launches, archivedLaunches, ctx, email, people = false }: SidebarV2Props) {
   const pathname = usePathname() ?? "/admin";
+  const sections = useMemo(() => sectionsFor(people), [people]);
+  const allItems = useMemo(() => sections.flatMap((s) => s.items), [sections]);
   const shell = useShell();
   const reviewCount = useReviewCount();
   const growth = useGrowthDots();
@@ -149,7 +157,7 @@ export function SidebarV2({ brands, launches, archivedLaunches, ctx, email }: Si
   const [storedPins] = usePinnedLaunchIds(ctx.tenantId);
   const pins = resolvePins(storedPins, launches, archivedLaunches);
   const archivedIds = new Set(archivedLaunches.map((l) => l.id));
-  const activeKey = activeNavKey(pathname, ALL_ITEMS);
+  const activeKey = activeNavKey(pathname, allItems);
 
   useEffect(() => {
     if (!/Mac|iPhone|iPad/.test(navigator.userAgent)) setMod("Ctrl ");
@@ -202,7 +210,7 @@ export function SidebarV2({ brands, launches, archivedLaunches, ctx, email }: Si
       </div>
     );
 
-  const section = (key: string) => SECTIONS.find((s) => s.key === key)!;
+  const section = (key: string) => sections.find((s) => s.key === key)!;
   const renderSection = (key: "start" | "grow" | "understand") => {
     const s = section(key);
     return (

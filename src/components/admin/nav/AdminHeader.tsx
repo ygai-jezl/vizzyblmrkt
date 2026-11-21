@@ -11,10 +11,15 @@ import { breadcrumbsFor, type CrumbNames } from "@/lib/nav/model";
 import { isPlansUiEnabled } from "@/lib/plans/flags";
 import { ThemeSwitch } from "./ThemeSwitch";
 
-/** The slim bar above every admin page: where you are on the left, the theme switch on the right. */
-export function AdminHeader({ names }: { names: CrumbNames }) {
+/**
+ * The slim bar above every admin page: where you are on the left, the theme switch on the right.
+ * `people` (isPeopleNameEnabled(), from the server) names the Audience area People in the crumbs
+ * and opens its How to on /help/your-audience.
+ */
+export function AdminHeader({ names, people = false }: { names: CrumbNames; people?: boolean }) {
   const pathname = usePathname() ?? "/admin";
-  const crumbs = breadcrumbsFor(pathname, names, { phase3: isNavV2Phase3Enabled(), insights: isInsightsHubEnabled(), plans: isPlansUiEnabled() });
+  const crumbs = breadcrumbsFor(pathname, names, { phase3: isNavV2Phase3Enabled(), insights: isInsightsHubEnabled(), plans: isPlansUiEnabled(), people });
+  const howTo = helpFor(pathname, { people });
   return (
     <header className="sticky top-0 z-20 flex h-12 shrink-0 items-center gap-4 border-b border-shell-line bg-shell-side px-6">
       <nav aria-label="Breadcrumb" className="min-w-0 flex-1">
@@ -41,7 +46,7 @@ export function AdminHeader({ names }: { names: CrumbNames }) {
       {isSetupGuideEnabled() ? (
         <button
           type="button"
-          onClick={() => openHowTo(helpFor(pathname)) || window.open(helpFor(pathname), "_blank", "noopener")}
+          onClick={() => openHowTo(howTo) || window.open(howTo, "_blank", "noopener")}
           className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-sm text-shell-muted hover:bg-shell-hover hover:text-shell-ink"
         >
           <BookOpen size={15} aria-hidden />

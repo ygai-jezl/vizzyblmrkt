@@ -1,7 +1,8 @@
 import type { ComponentType } from "react";
+import type { HelpBodyProps } from "@/lib/help/pages";
 
 /** Each help page's body, loaded on demand: the in-app How to drawer shows one page at a time. */
-export const HELP_LOADERS: Record<string, () => Promise<{ default: ComponentType }>> = {
+export const HELP_LOADERS: Record<string, () => Promise<{ default: ComponentType<HelpBodyProps> }>> = {
   "": () => import("./pages/get-set-up"),
   "plan-and-usage": () => import("./pages/plan-and-usage"),
   "email-sending": () => import("./pages/email-sending"),

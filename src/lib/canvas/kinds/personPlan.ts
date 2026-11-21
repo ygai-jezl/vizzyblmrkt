@@ -18,8 +18,20 @@ import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types
  * who can't be emailed at all gets no plan from Vizzy.
  */
 
+const Id = z.string().min(1).max(128);
+
+/**
+ * Who the plan is for: their product user id. `personId` is its old name, accepted until every
+ * Vizzy sends `productUserId` (piece B); Vizzy sends both meanwhile, so either side can deploy
+ * first. Given both, they must name the same product user.
+ */
+const PlanScope = z
+  .object({ productUserId: Id.optional(), personId: Id.optional() })
+  .refine((s) => Boolean(s.productUserId ?? s.personId), { message: "productUserId is required", path: ["productUserId"] })
+  .refine((s) => !s.productUserId || !s.personId || s.productUserId === s.personId, { message: "productUserId and personId name different people", path: ["personId"] });
+
 const PersonPlanInput = z.object({
-  scope: z.object({ personId: z.string().min(1).max(128) }),
+  scope: PlanScope,
   goal: z.string().max(PLAN_LIMITS.goal * 2),
   angle: z.string().max(PLAN_LIMITS.angle * 2),
   next: z.array(z.string().max(PLAN_LIMITS.step * 2)).max(PLAN_LIMITS.steps * 2).optional(),
@@ -43,13 +55,13 @@ export async function authorPersonPlan(
   if (await isRateLimited(`tenant:${ctx.tenantId}`, AUTHOR_LIMIT, { db: deps.db })) return { ok: false, status: 429, error: "rate_limited" };
 
   const nowMs = deps.nowMs ?? Date.now();
-  const { personId } = req.data.scope;
+  const productUserId = (req.data.scope.productUserId ?? req.data.scope.personId)!;
   const reviewOn = req.data.reviewInDays ? new Date(nowMs + req.data.reviewInDays * 86_400_000).toISOString().slice(0, 10) : null;
-  const saved = await savePlanDraft(ctx, personId, { goal: req.data.goal, angle: req.data.angle, next: req.data.next ?? [], reviewOn }, { db: deps.db, nowMs, by: "agent" });
+  const saved = await savePlanDraft(ctx, productUserId, { goal: req.data.goal, angle: req.data.angle, next: req.data.next ?? [], reviewOn }, { db: deps.db, nowMs, by: "agent" });
   if (!saved.ok) return { ok: false, status: saved.status, error: saved.error, ...(saved.detail ? { issues: [saved.detail] } : {}) };
 
   const steps = saved.value.draft?.next.length ?? 0;
-  const url = personHref(personId);
+  const url = personHref(productUserId);
   return {
     ok: true,
     id: saved.value.id,

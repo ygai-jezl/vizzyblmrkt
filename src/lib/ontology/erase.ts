@@ -1,6 +1,7 @@
-import { eraseHistory } from "@/lib/tenant";
+import { eraseHistory, forTenant } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { personIdOf, PRODUCT_USER_KEY_PREFIX, syncPerson } from "@/lib/audience/personSync";
+import { personAfterProductErase } from "@/lib/audience/personHooks";
 import type { ContactPersonId } from "./person";
 
 /**
@@ -36,8 +37,45 @@ export async function forgetGonePersonHistory(
   opts: { db?: FirestoreLike } = {},
 ): Promise<{ events: number; agentActions: number } | null> {
   if (!personKey) return null;
-  const person = await syncPerson(ctx, personKey, { db: opts.db, dryRun: true });
+  const person = await syncPerson(ctx, personKey, { db: opts.db, dryRun: true, erase: true });
   if (!person.personId) return null;
   if (person.outcome !== "deleted" && person.outcome !== "none") return { events: 0, agentActions: 0 };
   return eraseHistory(ctx, { personId: person.personId }, { db: opts.db });
+}
+
+/** The most earlier people of one product user read for their erase. */
+const LEFT_BEHIND_READ = 200;
+
+/**
+ * The keys of the people a product user left behind on a move, other than `currentKey`: their own
+ * pu: person, and the person for each address they had before (from person_moves, written while
+ * ONTOLOGY_PERSON_IDS_ENABLED is on, which fields need). A sync keeps such a person while it holds
+ * the team's field values, so their erase has to find them. Read before the product user's history
+ * (their moves included) is erased.
+ */
+export async function leftBehindPersonKeys(
+  ctx: TenantContext,
+  productUserId: string,
+  currentKey: string | null,
+  opts: { db?: FirestoreLike } = {},
+): Promise<string[]> {
+  const repo = forTenant(ctx, opts.db);
+  const keys = new Set<string>([`${PRODUCT_USER_KEY_PREFIX}${productUserId}`]);
+  const moves = await repo.personMoves.find({ where: [["productUserId", "==", productUserId]], limit: LEFT_BEHIND_READ });
+  const from = [...new Set(moves.map((m) => m.fromPersonId))];
+  for (const contact of await Promise.all(from.map((id) => repo.contacts.getById(id)))) if (contact?.contactKey) keys.add(contact.contactKey);
+  if (currentKey) keys.delete(currentKey);
+  return [...keys];
+}
+
+/**
+ * After a product user's erase: each person they left behind (leftBehindPersonKeys) goes when
+ * nothing else keeps them (no sign-up, no other product user, not added by hand), field values
+ * and all, and with them their history. Someone still a person stays.
+ */
+export async function forgetLeftBehindPeople(ctx: TenantContext, keys: readonly string[], opts: { db?: FirestoreLike; nowMs?: number } = {}): Promise<void> {
+  for (const key of keys) {
+    await personAfterProductErase(ctx, key, opts);
+    await forgetGonePersonHistory(ctx, key, { db: opts.db });
+  }
 }

@@ -1,5 +1,6 @@
 import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
-import { isOneViewEnabled } from "@/lib/audience/flags";
+import { isOneViewEnabled, isPeopleNameEnabled } from "@/lib/audience/flags";
+import { isFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { isSearchUiEnabled } from "@/lib/search/flags";
 import { isPlansUiEnabled } from "@/lib/plans/flags";
 
@@ -25,6 +26,30 @@ export interface HelpPage {
    * The switches are read on the server, so client lists (⌘K) leave these pages out.
    */
   onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans";
+}
+
+/**
+ * What a help page's body is told when it renders. Each body works it out itself on the server
+ * (the /help routes, their Markdown copies, llms-full.txt); the in-app How to drawer renders on the
+ * client, where server switches read off, so it passes what the admin shell was given.
+ */
+export interface HelpBodyProps {
+  /** The Audience area is called People (isPeopleNameEnabled()). */
+  people?: boolean;
+  /** Fields on people and companies are on (isFieldsEnabled()). */
+  fields?: boolean;
+  /** People can be filtered by fields and product groups (isFieldFiltersEnabled()). */
+  fieldFilters?: boolean;
+  /** Admins can add someone by hand (isAddPersonEnabled()). */
+  addPerson?: boolean;
+  /** A person's page has a timeline (isTimelineEnabled()). */
+  timeline?: boolean;
+  /** Vizzy reads people's fields and suggests changes (isVizzyFieldsEnabled()). */
+  vizzyFields?: boolean;
+  /** Vizzy fills in the New person form (isVizzyAddPersonEnabled()). */
+  vizzyAddPerson?: boolean;
+  /** Every catalog save is kept as history (isCatalogHistoryEnabled()). */
+  catalogHistory?: boolean;
 }
 
 /** Navigation headings, matching Home's stages. */
@@ -96,21 +121,38 @@ export function isHelpPageShown(p: Pick<HelpPage, "onlyWhen">): boolean {
   return true;
 }
 
-/** The pages to list now: every page, less those whose switch is off. */
-export function shownHelpPages(): HelpPage[] {
-  return HELP_PAGES.filter(isHelpPageShown);
+/** The People list page's summary while fields are on: it names them only then. */
+const AUDIENCE_SUMMARY_WITH_FIELDS =
+  "Everyone from your launches, your own site and your products in one list, one page per person, your own fields on people and companies, and erasing or exporting them everywhere.";
+
+/**
+ * A page's entry in the words used now: with People on, the page about the People list is listed
+ * as People, and with fields on its summary names them. Its slug stays your-audience so links and
+ * llms.txt keep working.
+ */
+function inWords(p: HelpPage, now: { people: boolean; fields: boolean }): HelpPage {
+  if (p.slug !== "your-audience") return p;
+  return { ...p, ...(now.people ? { label: "People" } : {}), ...(now.fields ? { summary: AUDIENCE_SUMMARY_WITH_FIELDS } : {}) };
 }
 
-export function helpPage(slug: string): HelpPage | null {
-  return HELP_PAGES.find((p) => p.slug === slug) ?? null;
+/** The pages to list now: every page, less those whose switch is off. */
+export function shownHelpPages(): HelpPage[] {
+  const now = { people: isPeopleNameEnabled(), fields: isFieldsEnabled() };
+  return HELP_PAGES.filter(isHelpPageShown).map((p) => inWords(p, now));
+}
+
+/** One page's entry; `people` and `fields` override the server's answer (the How to drawer passes the shell's). */
+export function helpPage(slug: string, opts: HelpBodyProps = {}): HelpPage | null {
+  const p = HELP_PAGES.find((x) => x.slug === slug);
+  return p ? inWords(p, { people: opts.people ?? isPeopleNameEnabled(), fields: opts.fields ?? isFieldsEnabled() }) : null;
 }
 
 /** The page after this one in reading order, for "Next" links (skipping pages that are switched off). */
 export function nextHelpPage(slug: string): HelpPage | null {
-  const shown = shownHelpPages();
   const i = HELP_PAGES.findIndex((p) => p.slug === slug);
   if (i < 0) return null;
-  return HELP_PAGES.slice(i + 1).find((p) => shown.includes(p)) ?? null;
+  const next = HELP_PAGES.slice(i + 1).find(isHelpPageShown);
+  return next ? inWords(next, { people: isPeopleNameEnabled(), fields: isFieldsEnabled() }) : null;
 }
 
 /** `/help/email-sending` → `/help/email-sending.md`; the Get set up page is `/help.md`. */

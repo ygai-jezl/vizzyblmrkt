@@ -158,6 +158,19 @@ describe("the person_plan canvas kind (Vizzy)", () => {
     expect(await getPersonPlan(ctx, user.id, db)).toMatchObject({ approved: null, draft: { by: "agent", reviewOn: "2026-09-28" } });
   });
 
+  it("takes the product user as productUserId, or as personId (its old name) from a Vizzy not yet redeployed", async () => {
+    const { db, user } = world();
+    const withScope = (scope: Record<string, unknown>) => ({ ...input(user.id), scope });
+    expect(await authorPersonPlan({ ctx: agent, input: withScope({ productUserId: user.id }), brief: "" }, { db, nowMs: T0 })).toMatchObject({ ok: true, id: personPlanDocId(user.id) });
+    expect(await authorPersonPlan({ ctx: agent, input: withScope({ productUserId: user.id, personId: user.id }), brief: "" }, { db, nowMs: T0 })).toMatchObject({ ok: true });
+    expect(await authorPersonPlan({ ctx: agent, input: withScope({ productUserId: user.id, personId: "pu_someone_else" }), brief: "" }, { db, nowMs: T0 })).toMatchObject({
+      ok: false,
+      status: 400,
+      error: "invalid_input",
+    });
+    expect(await authorPersonPlan({ ctx: agent, input: withScope({}), brief: "" }, { db, nowMs: T0 })).toMatchObject({ ok: false, status: 400 });
+  });
+
   it("plans nothing for someone who can't be emailed, or a plan that names them, or for a member, or while it's off", async () => {
     const { db, user } = world();
     expect(await authorPersonPlan({ ctx: agent, input: input(user.id, { angle: "Tell Priya Raman it takes two minutes." }), brief: "" }, { db })).toMatchObject({ ok: false, status: 422, error: "names_the_person" });

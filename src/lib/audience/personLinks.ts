@@ -1,4 +1,4 @@
-import type { ContactCampaignLink, PersonOptOuts, PersonProductLink } from "@/lib/types/contact";
+import type { Contact, ContactCampaignLink, PersonOptOuts, PersonProductLink } from "@/lib/types/contact";
 import type { EmailSuppression } from "@/lib/types/emailSuppression";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import type { ProductUser } from "@/lib/types/productUser";
@@ -6,9 +6,9 @@ import { lastActiveAt, personReach, personStage } from "./personStage";
 
 /**
  * The person record's derived parts, worked out from its sources: a link per launch
- * sign-up, a link per product user, the address's opt-outs, and from those the tags
- * the People list filters on, one reach and when they were last active. Pure, so the
- * full sync, the fast path for product writes and the sweep agree.
+ * sign-up, a link per product user, being added by hand, the address's opt-outs, and
+ * from those the tags the People list filters on, one reach and when they were last
+ * active. Pure, so the full sync, the fast path for product writes and the sweep agree.
  */
 
 export type Reach = "yes" | "limited" | "no";
@@ -90,15 +90,62 @@ export interface PersonSummary {
   memberOf: string[];
   reach: Reach;
   activeAt: string | null;
-  /** True while any sign-up or product user is left. */
+  /** True while any sign-up or product user is left, or they were added by hand. */
   live: boolean;
 }
 
-/** The tags, reach and last activity of a person, from their links. */
+/**
+ * Being added by hand, as a source of its own (piece B). Keyed on the contact's `addedBy`,
+ * with no switch: turning New person off never lets a sync drop anyone who was added.
+ */
+export interface HandAdded {
+  /** When they were added: their activity, until something newer. */
+  at: string;
+  /** The team recorded that they agreed to marketing email, and it stands. */
+  marketingConsent: boolean;
+  /** They have an email address: someone added with only a phone can't be emailed, whatever they agreed. */
+  hasAddress: boolean;
+}
+
+/** The hand-added source of a contact, or null when nobody added them by hand. */
+export function handAddedOf(contact: Pick<Contact, "addedBy" | "consent" | "email"> | null | undefined): HandAdded | null {
+  if (!contact?.addedBy) return null;
+  return { at: contact.addedBy.at, marketingConsent: contact.consent?.marketing_email?.state === "granted", hasAddress: !!contact.email };
+}
+
+/** The tag every person added by hand carries. Internal: the People list has no pill for it. */
+export const HAND_ADDED_TAG = "added:hand";
+
+/**
+ * Tags another writer owns, which a sync keeps exactly as they are: the field writer's `field:`
+ * tags, and the hand-added mark.
+ */
+export function isCarriedTag(tag: string): boolean {
+  return tag.startsWith("field:") || tag === HAND_ADDED_TAG;
+}
+
+/**
+ * A sync's tags with the carried tags the record already has, sorted, each once. Field tags are
+ * carried only while the person stays in Everyone (`summaryTags` has `all`), so a field filter
+ * never shows someone Everyone doesn't; the field writer rebuilds them if they come back.
+ */
+export function withCarriedTags(summaryTags: readonly string[], current: readonly string[] | null | undefined): string[] {
+  const live = summaryTags.includes("all");
+  const carried = (current ?? []).filter((t) => isCarriedTag(t) && (live || !t.startsWith("field:")));
+  return [...new Set([...summaryTags, ...carried])].sort();
+}
+
+/**
+ * The tags, reach and last activity of a person, from their links. Someone added by hand is
+ * live with the `all` and `added:hand` tags, active from when they were added, and can be
+ * emailed only when they have an address, the team recorded their marketing consent and no
+ * brand-wide opt-out stops it.
+ */
 export function summarize(
   campaigns: readonly ContactCampaignLink[],
   products: readonly PersonProductLink[],
   optOuts: PersonOptOuts | undefined,
+  hand: HandAdded | null = null,
 ): PersonSummary {
   const liveCampaigns = campaigns.filter(isLiveSignupLink);
   const tags = new Set<string>();
@@ -116,12 +163,14 @@ export function summarize(
     for (const g of p.groups) groups.push(`group:${p.connectionId}:${g}`);
   }
   for (const g of groups.slice(0, MAX_GROUP_TAGS)) tags.add(g);
-  const live = liveCampaigns.length > 0 || products.length > 0;
+  if (hand) tags.add(HAND_ADDED_TAG);
+  const live = liveCampaigns.length > 0 || products.length > 0 || !!hand;
   if (live) tags.add("all");
 
   let reach: Reach = "no";
   if (!optOuts?.blocked) {
-    for (const r of [...liveCampaigns.map(signupReach), ...products.map((p) => p.reach)]) {
+    const handReach: Reach[] = hand?.marketingConsent && hand.hasAddress ? ["yes"] : [];
+    for (const r of [...liveCampaigns.map(signupReach), ...products.map((p) => p.reach), ...handReach]) {
       if (REACH_RANK[r] > REACH_RANK[reach]) reach = r;
     }
   }
@@ -129,6 +178,7 @@ export function summarize(
   const times = [
     ...liveCampaigns.map((c) => c.joinedAt),
     ...products.map((p) => p.lastActiveAt ?? p.signedUpAt ?? null),
+    ...(hand ? [hand.at] : []),
   ]
     .filter((t): t is string => !!t && Number.isFinite(Date.parse(t)))
     .sort();

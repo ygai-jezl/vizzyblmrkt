@@ -52,3 +52,15 @@ def test_root_counts_the_audience_and_no_longer_promises_signup_actions():
     assert "answer from `get_insights_summary` instead" in ROOT_SYSTEM_INSTRUCTION
     assert "review and action signups" not in ROOT_SYSTEM_INSTRUCTION
     assert "actioning signups" not in ROOT_SYSTEM_INSTRUCTION
+
+
+def test_messages_fit_the_area_whether_it_is_called_audience_or_people(monkeypatch):
+    # NEXT_PUBLIC_NAV_PEOPLE_ENABLED renames Audience to People in the app; Vizzy can't read it.
+    monkeypatch.setenv("CANVAS_CALLBACK_URL", "https://app.example.com")
+    texts = list(ac._ERRORS.values()) + [ac.get_counts({})["message"]]
+    monkeypatch.delenv("CANVAS_CALLBACK_URL")
+    texts.append(ac.get_counts({"ctxToken": "tok"})["message"])
+    for text in texts:
+        assert "Audience" not in text, text
+    assert "in Audience" not in ROOT_SYSTEM_INSTRUCTION
+    assert "**Audience**" not in ROOT_SYSTEM_INSTRUCTION

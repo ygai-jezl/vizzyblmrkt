@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, type ComponentType, type MouseEvent } from "react";
 import Link from "next/link";
 import { BookOpen, Check, ExternalLink, Lock, TriangleAlert, X } from "lucide-react";
-import { helpPage } from "@/lib/help/pages";
+import { useShell } from "@/components/admin/nav/ShellProvider";
+import { helpPage, type HelpBodyProps } from "@/lib/help/pages";
 import { parseHelpPath } from "@/lib/help/places";
 import { HELP_LOADERS } from "./loaders";
 import { listenForHowTo } from "./openHowTo";
@@ -29,7 +30,16 @@ const slugOf = (path: string | undefined) => (path ? (parseHelpPath(path)?.slug 
  */
 export function HowToDrawer() {
   const [path, setPath] = useState<string | null>(null);
-  const [body, setBody] = useState<{ slug: string; Component: ComponentType } | null>(null);
+  const [body, setBody] = useState<{ slug: string; Component: ComponentType<HelpBodyProps> } | null>(null);
+  // The drawer renders in the browser, where server switches read off: it says what the shell says.
+  const people = useShell()?.people ?? false;
+  const fields = useShell()?.fields ?? false;
+  const fieldFilters = useShell()?.fieldFilters ?? false;
+  const addPerson = useShell()?.addPerson ?? false;
+  const timeline = useShell()?.timeline ?? false;
+  const vizzyFields = useShell()?.vizzyFields ?? false;
+  const vizzyAddPerson = useShell()?.vizzyAddPerson ?? false;
+  const catalogHistory = useShell()?.catalogHistory ?? false;
   const [steps, setSteps] = useState<GuideStep[] | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -93,7 +103,7 @@ export function HowToDrawer() {
   }, [path]);
 
   if (!path || slug === null) return null;
-  const page = helpPage(slug);
+  const page = helpPage(slug, { people });
   const Body = body && body.slug === slug ? body.Component : null;
   const mine = (steps ?? []).filter((st) => slugOf(st.howTo) === slug);
 
@@ -180,7 +190,7 @@ export function HowToDrawer() {
         ) : null}
         {Body ? (
           <div className="text-sm [&_h1]:text-xl [&_h2]:mt-8 [&_h2]:text-base">
-            <Body />
+            <Body people={people} fields={fields} fieldFilters={fieldFilters} addPerson={addPerson} timeline={timeline} vizzyFields={vizzyFields} vizzyAddPerson={vizzyAddPerson} catalogHistory={catalogHistory} />
           </div>
         ) : (
           <p className="text-sm text-shell-muted">Loading…</p>

@@ -2,8 +2,9 @@ import { z } from "zod";
 
 /**
  * Consent, as the event history records it (consent.recorded in ontology_events). The current
- * state stays on the person record; each event is the proof of one change. Piece F adds
- * withdrawal and the settings; B4 records consent given when someone is added by hand.
+ * state stays on the person record; each event is the proof of one change. B records agreement
+ * and its withdrawal for people added by hand; piece F owns consent for every channel, and the
+ * settings.
  *
  * Pure: zod only, so client components can import it.
  */
@@ -12,7 +13,7 @@ import { z } from "zod";
 export const CONSENT_PURPOSES = ["marketing_email", "product_email", "transactional"] as const;
 export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
 
-/** B4 records granted only; F decides how a withdrawal is recorded. */
+/** B records both for people added by hand (a withdrawal's `how` is "withdrawn"); F the rest. */
 export const CONSENT_STATES = ["granted", "withdrawn"] as const;
 export type ConsentState = (typeof CONSENT_STATES)[number];
 

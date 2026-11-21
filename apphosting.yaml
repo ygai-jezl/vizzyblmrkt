@@ -378,6 +378,12 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Fields on people and companies, managed in Settings › Data model with every change kept.
+  # Needs AUDIENCE_ONE_VIEW_ENABLED and ONTOLOGY_PERSON_IDS_ENABLED.
+  - variable: AUDIENCE_FIELDS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Email style ==
   # A logo, name and colours on branded emails, then header options, themes, web fonts

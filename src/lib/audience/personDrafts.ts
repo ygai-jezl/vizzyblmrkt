@@ -29,6 +29,7 @@ import { personIdOf } from "./personSync";
  * - Field values only of fields Vizzy may read (vizzyReadsField), named by label or id; an option
  *   by its label or id. A text value is at most VIZZY_TEXT_CHARS with none of the scrubber's marks
  *   (vizzyValueFits). Anything else is left out with a warning, and the admin types it in the form.
+ *   The form gets only those Vizzy may still read when it opens (readNewPersonDraft).
  * - A draft too big to save as an agent action is refused (`too_large`), before one waiting is
  *   replaced.
  */
@@ -180,7 +181,12 @@ export async function draftNewPerson(
   return { ok: true, outcome: saved.outcome === "open" ? "open" : "created", action: saved.action, fields: Object.keys(fields).length, warnings };
 }
 
-/** A draft as the form reads it, or null once it is closed, cleared or past its 7 days. */
+/**
+ * A draft as the form reads it, or null once it is closed, cleared or past its 7 days. Only the
+ * field values Vizzy may still read (vizzyReadsField, against the list as it is now) fill the form:
+ * a text field an admin unticked since, or every text field while text fields are off, is left for
+ * the admin to type, and so is a field no longer on the list.
+ */
 export async function readNewPersonDraft(
   ctx: TenantContext,
   id: string,
@@ -191,6 +197,14 @@ export async function readNewPersonDraft(
   const at = new Date(deps.nowMs ?? Date.now()).toISOString();
   if (!a || a.action !== NEW_PERSON_ACTION || a.state !== "proposed" || !a.proposal || a.expiresAt <= at) return null;
   const p = (a.proposal.person ?? {}) as Record<string, string | null>;
+  const drafted = (a.proposal.fields && typeof a.proposal.fields === "object" ? a.proposal.fields : {}) as Record<string, FieldValue>;
+  const fields: Record<string, FieldValue> = {};
+  if (Object.keys(drafted).length) {
+    const list = await readFieldList(ctx, "person", deps.db);
+    const textFields = isVizzyTextFieldsEnabled();
+    const byId = new Map(list.items.map((f) => [f.key, f]));
+    for (const [fieldId, value] of Object.entries(drafted)) if (vizzyReadsField(byId.get(fieldId), textFields)) fields[fieldId] = value;
+  }
   return {
     id: a.id,
     rev: a.rev,
@@ -199,7 +213,7 @@ export async function readNewPersonDraft(
     phone: p.phone ?? null,
     firstName: p.firstName ?? null,
     lastName: p.lastName ?? null,
-    fields: (a.proposal.fields ?? {}) as Record<string, FieldValue>,
+    fields,
   };
 }
 

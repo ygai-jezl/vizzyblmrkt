@@ -99,6 +99,22 @@ describe("the new_person kind", () => {
     expect(await getAgentAction(admin, r.id as AgentActionId, { db })).toMatchObject({ proposal: { fields: { [TITLE]: "Head of Sales" } }, fieldIds: [TITLE] });
   });
 
+  it("leaves a drafted text field out of the form once Vizzy may no longer read it", async () => {
+    textFieldsOn();
+    const r = await author({ email: "kim.lee@example.com", fields: { Plan: "Pro", "Job Title": "Head of Sales" } });
+    if (!r.ok) throw new Error(r.error);
+    const formFields = async () => (await readNewPersonDraft(admin, r.id, { db, nowMs: T0 }))?.fields;
+    expect(await formFields()).toEqual({ [PLAN]: "opt_ffffff02", [TITLE]: "Head of Sales" });
+    // An admin unticks Job Title: the admin types it in the form instead.
+    await saveFieldListChange(admin, "person", { baseRev: 3, change: { op: "vizzy_reads", key: TITLE, on: false }, by }, db);
+    expect(await formFields()).toEqual({ [PLAN]: "opt_ffffff02" });
+    // Ticked again, but text fields turned off: the same.
+    await saveFieldListChange(admin, "person", { baseRev: 4, change: { op: "vizzy_reads", key: TITLE, on: true }, by }, db);
+    expect(await formFields()).toEqual({ [PLAN]: "opt_ffffff02", [TITLE]: "Head of Sales" });
+    textFieldsOn(false);
+    expect(await formFields()).toEqual({ [PLAN]: "opt_ffffff02" });
+  });
+
   it("leaves out text over 500 characters, or holding a mark the scrubber leaves, with a warning", async () => {
     textFieldsOn();
     const r = await author({ email: "kim.lee@example.com", fields: { "Job Title": "z".repeat(501) } });

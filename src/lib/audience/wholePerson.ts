@@ -6,6 +6,9 @@ import { inviteDocId } from "@/lib/invites/ids";
 import type { InviteStage } from "@/lib/invites/inviteStage";
 import { waitlistEnrolmentId, waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
 import { ENVIRONMENT_LABEL, environmentOf, productNameOf } from "@/lib/connect/environments";
+import type { FieldValues } from "@/lib/types/recordField";
+import { readFieldList } from "./fieldList";
+import { personReadOnly, type ReadOnlyValue, type VoiceChatSummary } from "./readOnlyFields";
 
 /**
  * One person, whole (AUDIENCE_ONE_VIEW_ENABLED): their person record with each launch
@@ -45,6 +48,12 @@ export interface WholePerson {
   products: WholePersonProduct[];
   /** Emails their launches sent, newest first. Each product's are on its own part of the page. */
   launchEmails: ContactEmailHistoryEntry[];
+  /**
+   * With fields on (AUDIENCE_FIELDS_ENABLED): their values for the brand's fields in use (archived
+   * fields are left out: their values stay on the record and in the export), the fields from
+   * elsewhere, and their voice chats without what was said. Null while fields are off.
+   */
+  fields: { values: FieldValues; readOnly: ReadOnlyValue[]; voiceChats: VoiceChatSummary[] } | null;
 }
 
 function inviteStageOf(inv: { invited: boolean; signedUp: boolean; activated: boolean } | null): InviteStage | null {
@@ -52,8 +61,8 @@ function inviteStageOf(inv: { invited: boolean; signedUp: boolean; activated: bo
   return inv.activated ? "activated" : inv.signedUp ? "signed_up" : inv.invited ? "invited" : null;
 }
 
-/** Null when there's no such person in this brand. */
-export async function loadWholePerson(ctx: TenantContext, personId: string, db?: FirestoreLike): Promise<WholePerson | null> {
+/** Null when there's no such person in this brand. `fields` adds their fields (AUDIENCE_FIELDS_ENABLED). */
+export async function loadWholePerson(ctx: TenantContext, personId: string, db?: FirestoreLike, opts: { fields?: boolean } = {}): Promise<WholePerson | null> {
   const repo = forTenant(ctx, db);
   const contact = await repo.contacts.getById(personId);
   if (!contact) return null;
@@ -72,6 +81,35 @@ export async function loadWholePerson(ctx: TenantContext, personId: string, db?:
       }),
     ),
   ]);
+  const productName = (c: (typeof connections)[number] | undefined) => {
+    const env = c ? environmentOf(c) : null;
+    return c ? `${productNameOf(c)}${env ? ` · ${ENVIRONMENT_LABEL[env]}` : ""}` : "A product";
+  };
+  let fields: WholePerson["fields"] = null;
+  if (opts.fields) {
+    const [list, signups, users, company] = await Promise.all([
+      readFieldList(ctx, "person", db),
+      Promise.all(links.map((l) => repo.signups.getById(l.signupId).catch(() => null))),
+      Promise.all((contact.products ?? []).map((p) => repo.productUsers.getById(p.productUserId).catch(() => null))),
+      contact.companyId ? repo.companies.getById(contact.companyId).catch(() => null) : Promise.resolve(null),
+    ]);
+    const live = new Set(list.items.filter((f) => !f.archivedAt).map((f) => f.key));
+    const named = new Map(
+      connections.flatMap((c) => (c ? [[c.id, { id: c.id, catalog: c.catalog, name: productName(c) }] as const] : [])),
+    );
+    const extra = personReadOnly({
+      signups: links.flatMap((l, i) => (signups[i] ? [{ signup: signups[i]!, launchName: campaigns[i]?.waitlistName || "A launch" }] : [])),
+      products: contact.products ?? [],
+      users: users.filter((u): u is NonNullable<typeof u> => !!u && u.status === "active"),
+      connections: named,
+      company,
+    });
+    fields = {
+      values: Object.fromEntries(Object.entries(contact.fields ?? {}).filter(([id]) => live.has(id))),
+      readOnly: extra.values,
+      voiceChats: extra.voiceChats,
+    };
+  }
   return {
     id: contact.id,
     name: [contact.firstName, contact.lastName].filter(Boolean).join(" ").trim() || null,
@@ -98,7 +136,6 @@ export async function loadWholePerson(ctx: TenantContext, personId: string, db?:
     }),
     products: (contact.products ?? []).map((p, i) => {
       const c = connections[i];
-      const env = c ? environmentOf(c) : null;
       return {
         connectionId: p.connectionId,
         productUserId: p.productUserId,
@@ -108,9 +145,10 @@ export async function loadWholePerson(ctx: TenantContext, personId: string, db?:
         signedUpAt: p.signedUpAt ?? null,
         lastActiveAt: p.lastActiveAt ?? null,
         reach: p.reach,
-        name: c ? `${productNameOf(c)}${env ? ` · ${ENVIRONMENT_LABEL[env]}` : ""}` : "A product",
+        name: productName(c),
       };
     }),
     launchEmails,
+    fields,
   };
 }

@@ -42,6 +42,13 @@ describe("GET /api/admin/audience/everyone/[personId]", () => {
     const res = await call("ct_1");
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ person: { id: "ct_1", name: "Ada" } });
-    expect(whole.loadWholePerson).toHaveBeenCalledWith(admin, "ct_1");
+    expect(whole.loadWholePerson).toHaveBeenCalledWith(admin, "ct_1", undefined, { fields: false });
+  });
+
+  it("adds their fields with AUDIENCE_FIELDS_ENABLED (and the person ids it needs)", async () => {
+    vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_FIELDS_ENABLED", "true");
+    await call("ct_1");
+    expect(whole.loadWholePerson).toHaveBeenCalledWith(admin, "ct_1", undefined, { fields: true });
   });
 });

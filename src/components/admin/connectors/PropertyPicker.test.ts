@@ -136,3 +136,13 @@ describe("the picker's domain words", () => {
     }
   });
 });
+
+describe("the picker as people read it", () => {
+  it("writes in house style", () => {
+    for (const page of [form(), form({ rootDomain: null }), form({ method: "share_access", sharedWith: "ygc-made-up@connect.example.iam.gserviceaccount.com", loaded: { accounts: [], more: false, current: "" }, chosen: null })]) {
+      const text = textOf(page);
+      expect(dashesIn(text)).toEqual([]);
+      expect(aiTellsIn(text)).toEqual([]);
+    }
+  });
+});

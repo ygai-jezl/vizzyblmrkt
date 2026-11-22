@@ -151,3 +151,22 @@ describe("the Listing's words", () => {
     for (const listing of [CF, SC, GA]) for (const l of [youNeedOf(listing), ...limitsOf(listing, true)]) expect(dashesIn(l)).toEqual([]);
   });
 });
+
+describe("the Listing as people read it", () => {
+  it("writes in house style in every state, admin or member", () => {
+    const broken = connectionView({ health: { state: "broken", lastOkAt: null, lastCheckedAt: null, message: "x", pausedUntil: null } });
+    const pages = [
+      html({ listing: CF }),
+      html({ listing: CF, connections: [broken], replace: broken }),
+      html({ listing: SC, connections: [SHARED] }),
+      html({ listing: GA }),
+      html({ listing: SC, isAdmin: false }),
+      html({ listing: SC, banner: { tone: "ok", text: LISTING_COPY.connectedBanner } }),
+    ];
+    for (const page of pages) {
+      const text = textOf(page);
+      expect(dashesIn(text), text.slice(0, 80)).toEqual([]);
+      expect(aiTellsIn(text), text.slice(0, 80)).toEqual([]);
+    }
+  });
+});

@@ -193,3 +193,13 @@ describe("Connected's words", () => {
     }
   });
 });
+
+describe("Connected as people read it", () => {
+  it("writes in house style for an admin and a member", () => {
+    for (const page of [render(), render({ chat: false }), render({ isAdmin: false, connections: [{ ...CF, details: undefined }] }), render({ connections: [] })]) {
+      const text = textOf(page);
+      expect(dashesIn(text), text.slice(0, 80)).toEqual([]);
+      expect(aiTellsIn(text), text.slice(0, 80)).toEqual([]);
+    }
+  });
+});

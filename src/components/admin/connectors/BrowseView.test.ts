@@ -90,3 +90,13 @@ describe("Browse's words", () => {
     }
   });
 });
+
+describe("Browse as people read it", () => {
+  it("writes in house style", () => {
+    for (const page of [render(), render({ chat: true }), render({ connectors: [] })]) {
+      const text = textOf(page);
+      expect(dashesIn(text)).toEqual([]);
+      expect(aiTellsIn(text)).toEqual([]);
+    }
+  });
+});

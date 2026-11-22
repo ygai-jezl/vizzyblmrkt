@@ -28,7 +28,7 @@ import { readLiveFor, type ServiceDeps } from "./service";
 const LIST_LIMIT = 200;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-export const NO_AGENT_GRANT = "Vizzy isn't allowed to read this connection. An admin can allow it on the connection in Connected data.";
+export const NO_AGENT_GRANT = "Vizzy isn't allowed to read this connection. An admin can allow it on the connection in Settings › Connections › Connected.";
 export const NO_MEMBER_READ =
   "Members aren't allowed to read this connection's numbers, so Vizzy can't read them for you. An admin can allow members to read it, or ask an admin to look.";
 

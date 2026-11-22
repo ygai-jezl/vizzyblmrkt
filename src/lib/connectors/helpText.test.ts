@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
+import { NO_AGENT_GRANT } from "./agentApi";
 import { connectedDataHelp, connectorHelp, SHARE_ACCESS_HELP, SIGN_IN_HELP, TROUBLESHOOTING_QUOTES, VIZZY_HELP } from "./helpText";
 import { parseManifest } from "./manifest";
 import { cloudflareManifest } from "./manifests/cloudflare";
@@ -92,6 +93,16 @@ describe("the connected data help words", () => {
     for (const state of help.healthOrder) expect(help.health[state], state).toBeTruthy();
     expect(Object.keys(help.messages).length).toBeGreaterThan(10);
     expect(help.grants.length).toBe(5);
+  });
+
+  it("sends people to the screens by their real names, never to a Connected data screen", () => {
+    // Connected data names the feature and the help page; the screens are Settings › Connections › Browse and Connected.
+    const where = /\b(?:in|from|on) Connected data\b/;
+    for (const text of [...stringsIn(connectedDataHelp()), NO_AGENT_GRANT]) expect(text, text).not.toMatch(where);
+    expect(SIGNIN_REASONS.bad_state).toContain("Start again from Settings › Connections › Browse.");
+    expect(SIGNIN_REASONS.wrong_admin).toContain("Start your own from Settings › Connections › Browse.");
+    expect(VIZZY_HELP.join(" ")).toContain("on the connection in Settings › Connections › Connected");
+    expect(NO_AGENT_GRANT).toContain("on the connection in Settings › Connections › Connected");
   });
 
   it("writes in house style", () => {

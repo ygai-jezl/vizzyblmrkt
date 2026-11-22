@@ -56,6 +56,7 @@ def test_says_plainly_when_vizzy_has_no_access_or_the_switch_is_off(monkeypatch)
     _capture(monkeypatch, 403, {"error": "no_agent_grant", "message": "from the app"})
     out = cc.read_connected_live(STATE, CONN, "search_performance", "2026-11-01", "2026-11-02")
     assert out["code"] == "no_agent_grant" and "An admin can let Vizzy read it" in out["message"]
+    assert "on the connection in Settings › Connections › Connected" in out["message"]
     _capture(monkeypatch, 403, {"error": "no_read_grant"})
     assert "Members aren't allowed" in cc.read_connected_live(STATE, CONN, "search_performance", "2026-11-01", "2026-11-02")["message"]
     _capture(monkeypatch, 503, {"error": "unavailable"})
@@ -69,6 +70,8 @@ def test_the_instruction_routes_connected_data_questions_and_never_claims_a_chan
     assert "list_connections" in ROOT_SYSTEM_INSTRUCTION
     assert "read_connected_live" in ROOT_SYSTEM_INSTRUCTION
     assert "an admin can allow Vizzy" in ROOT_SYSTEM_INSTRUCTION
+    assert "on the connection in Settings › Connections › Connected" in ROOT_SYSTEM_INSTRUCTION
+    assert "in Connected data" not in ROOT_SYSTEM_INSTRUCTION
     assert "never say you connected, changed, paused or disconnected anything" in ROOT_SYSTEM_INSTRUCTION
 
 

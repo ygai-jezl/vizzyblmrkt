@@ -52,8 +52,8 @@ export function connectorMessage(code: string | null | undefined): string {
  */
 export const SIGNIN_REASONS = {
   forbidden: "Only a brand's admins can connect data.",
-  bad_state: "This sign in didn't match the brand it started in. Start again from Connected data.",
-  wrong_admin: "Another admin started this sign in, so only they can finish it. Start your own from Connected data.",
+  bad_state: "This sign in didn't match the brand it started in. Start again from Settings › Connections › Browse.",
+  wrong_admin: "Another admin started this sign in, so only they can finish it. Start your own from Settings › Connections › Browse.",
   wrong_browser: "This sign in started in another browser, or its cookie ran out. Start again in this browser.",
   state_expired: "The sign in took longer than 10 minutes. Start again.",
   state_used: "This sign in was finished already. Start again if you need another.",

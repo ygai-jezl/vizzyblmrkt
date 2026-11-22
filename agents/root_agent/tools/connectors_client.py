@@ -31,7 +31,7 @@ _STREAM = re.compile(r"^[a-z][a-z0-9_]{1,39}$")
 
 _OFF = "Reading connected data isn't switched on in this environment yet."
 _NO_LINK = "I can't reach the app from this chat yet. Please send that again."
-_NO_GRANT = "I'm not allowed to read that connection. An admin can let Vizzy read it on the connection in Connected data."
+_NO_GRANT = "I'm not allowed to read that connection. An admin can let Vizzy read it on the connection in Settings › Connections › Connected."
 
 _ERRORS = {
     "unavailable": _OFF,

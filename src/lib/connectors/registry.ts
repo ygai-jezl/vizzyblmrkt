@@ -1,4 +1,4 @@
-import { isCloudflareConnectorEnabled, isGa4ConnectorEnabled, isSearchConsoleConnectorEnabled } from "./flags";
+import { isCloudflareConnectorEnabled, isGa4ConnectorEnabled, isGa4SignInEnabled, isSearchConsoleConnectorEnabled } from "./flags";
 import { isGoogleSignInConfigured } from "./google";
 import { isShareAccessConfigured } from "./shareAccess";
 import { parseManifest, type ConnectMethod, type ConnectMethodName, type ConnectorManifest } from "./manifest";
@@ -15,7 +15,9 @@ import { searchConsoleManifest } from "./manifests/searchConsole";
  *   at least one of its sign-in methods is ready on this copy: Sign in with Google needs the
  *   connectors' Google client (CONNECTOR_GOOGLE_CLIENT_ID and its secret) and an address to return
  *   to (CONNECTORS_OAUTH_ORIGIN, which a production server must have), and share access needs the
- *   identities project (CONNECTORS_IDENTITIES_PROJECT), so a copy without one hides it.
+ *   identities project (CONNECTORS_IDENTITIES_PROJECT), so a copy without one hides it. A sign in
+ *   whose manifest names a switch of its own (GA4's, until Google reviews its sensitive scope)
+ *   also needs that switch on.
  * - A sign-in method is offered only once its piece builds it: token_fields (Connectors 1a),
  *   oauth_pkce (1b) and share_access (1c). A manifest listing an unbuilt method is refused.
  * - A stream marked personal is refused until the data processing agreement covers connected
@@ -38,13 +40,25 @@ export const CONNECTOR_SWITCHES: Readonly<Record<string, () => boolean>> = {
   CONNECTOR_GA4_ENABLED: isGa4ConnectorEnabled,
 };
 
+/** The switches a sign-in method may name for itself, read through src/lib/connectors/flags.ts. */
+export const METHOD_SWITCHES: Readonly<Record<string, () => boolean>> = {
+  CONNECTOR_GA4_SIGNIN_ENABLED: isGa4SignInEnabled,
+};
+
+/** Whether a sign-in method's own switch, when its manifest names one, is on. Unknown is off. */
+export function methodSwitchOn(c: ConnectMethod): boolean {
+  if (c.method !== "oauth_pkce" || !c.switch) return true;
+  return METHOD_SWITCHES[c.switch]?.() ?? false;
+}
+
 /**
  * Whether this copy has what a sign-in method needs: Sign in with Google needs its client and,
- * in production, CONNECTORS_OAUTH_ORIGIN; share access the identities project.
+ * in production, CONNECTORS_OAUTH_ORIGIN, plus its own switch when it names one; share access
+ * the identities project.
  */
 function methodReady(c: ConnectMethod, built: readonly ConnectMethodName[]): boolean {
   if (!built.includes(c.method)) return false;
-  if (c.method === "oauth_pkce") return c.client === "google" && isGoogleSignInConfigured();
+  if (c.method === "oauth_pkce") return c.client === "google" && methodSwitchOn(c) && isGoogleSignInConfigured();
   if (c.method === "share_access") return isShareAccessConfigured();
   return true;
 }
@@ -60,6 +74,7 @@ export function refusals(m: ConnectorManifest, built: readonly ConnectMethodName
   for (const c of m.connect) if (!built.includes(c.method)) out.push(`${m.id}: the ${c.method} sign-in is not built yet`);
   if (!PERSONAL_STREAMS_ALLOWED) for (const p of m.produces) if (p.personal) out.push(`${m.id}: ${p.stream} is personal, which waits for the data processing agreement`);
   if (!CONNECTOR_SWITCHES[m.switch]) out.push(`${m.id}: no switch reads ${m.switch}`);
+  for (const c of m.connect) if (c.method === "oauth_pkce" && c.switch && !METHOD_SWITCHES[c.switch]) out.push(`${m.id}: no switch reads ${c.switch}`);
   return out;
 }
 

@@ -10,7 +10,7 @@ import { VERIFY_HOOKS } from "./handlers";
 import { healthyAt } from "./health";
 import { oauthMethod, type ConnectorManifest } from "./manifest";
 import { connectorMessage, type SignInReason } from "./messages";
-import { getConnector, knownConnector } from "./registry";
+import { getConnector, knownConnector, methodSwitchOn } from "./registry";
 import { newDataConnectionId, type ServiceDeps, type ServiceResult } from "./service";
 import { ACCESS_SLOT, REFRESH_SLOT } from "./tokenKeeper";
 import { isVaultConfigured, sealConnectorSecret, signConnectorState, verifyConnectorState } from "./vault";
@@ -110,7 +110,8 @@ export async function startSignIn(
   if (!m) return refused(404, "not_found");
   if (actor.kind !== "human" || !actor.uid || !can(actor, "connect")) return refused(403, "forbidden");
   const method = oauthMethod(m);
-  if (!method) return refused(400, "method_not_supported");
+  // Listed for another method (share access) while this sign in's own switch is off.
+  if (!method || !methodSwitchOn(method)) return refused(400, "method_not_supported");
   const parsed = StartBodySchema.safeParse(body ?? {});
   if (!parsed.success) return refused(400, "invalid_input");
   const client = googleClient();
@@ -227,7 +228,7 @@ export async function finishSignIn(
   }
   const m = getConnector(state.c);
   const method = m ? oauthMethod(m) : null;
-  if (!m || !method) return fail("connector_off");
+  if (!m || !method || !methodSwitchOn(method)) return fail("connector_off");
   const code = input.query.get("code");
   if (!code || code.length > 2048) return fail("missing_code");
 

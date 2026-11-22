@@ -184,8 +184,9 @@ API reference, read through the Developer Knowledge MCP.
 ### Group 3: Share access, Google Analytics 4 and Vizzy
 
 Switches, `"false"` in the Connectors group, empty in `.env.example` and kept off by
-`npm run selfhost`: `CONNECTOR_GA4_ENABLED` (needs `CONNECTORS_ENABLED`, and a Google client or the
-identities project) and `CONNECTORS_CHAT_ENABLED` (needs `CONNECTORS_ENABLED`; addon `vizzy`). One
+`npm run selfhost`: `CONNECTOR_GA4_ENABLED` (needs `CONNECTORS_ENABLED`, and the identities project
+or GA4's Sign in), `CONNECTOR_GA4_SIGNIN_ENABLED` (GA4 by Sign in, with the Google client) and
+`CONNECTORS_CHAT_ENABLED` (needs `CONNECTORS_ENABLED`; addon `vizzy`). One
 new setting, by name only in the public repo: `CONNECTORS_IDENTITIES_PROJECT`. No new collection,
 index, rules or dependency. The screens (Share access steps on the Listing, Check access, the
 property picker) wait for the mockups; every route they call is built. Grounded in Google's IAM docs
@@ -248,6 +249,11 @@ Developer Knowledge MCP.
   it reads search analytics before prod turns it on.
 - **Google Analytics 4** (`google-analytics`, `analytics.readonly`, which Google classes as
   sensitive: Sign in waits for Google's sensitive scope review, share access as a Viewer doesn't).
+  The Google client that Search Console's Sign in uses would otherwise bring GA4's Sign in with it
+  as soon as GA4 goes on for share access, through an unverified app (Google's warning, the 100 user
+  cap, and a risk to the client every Search Console sign in shares). So the manifest's `oauth_pkce`
+  names a switch of its own, `CONNECTOR_GA4_SIGNIN_ENABLED`, off, which the registry's readiness
+  check and the start and callback routes read; the registry refuses a method switch nothing reads.
   The picker is the Admin API's `accountSummaries.list` (3 pages of 200 at most). Live reads are the
   Data API's `runReport` by `date` or `pagePath` (the path without its query string), at most 93
   days and 100 rows, with `returnPropertyQuota`; metrics are matched by Google's header names;

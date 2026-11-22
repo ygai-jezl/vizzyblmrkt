@@ -150,6 +150,25 @@ describe("starting a sign in", () => {
     expect(db.dump("data_connection_states")).toEqual([]);
   });
 
+  it("keeps GA4's Sign in off behind its own switch while GA4 is offered for share access", async () => {
+    vi.stubEnv("CONNECTOR_GA4_ENABLED", "true");
+    vi.stubEnv("CONNECTORS_IDENTITIES_PROJECT", "made-up-identities");
+    const off = await startRoute.POST(startReq(), p("google-analytics"));
+    expect(off.status).toBe(400);
+    expect(await off.json()).toMatchObject({ error: "method_not_supported" });
+    expect(db.dump("data_connection_states")).toEqual([]);
+    vi.stubEnv("CONNECTOR_GA4_SIGNIN_ENABLED", "true");
+    const res = await startRoute.POST(startReq(), p("google-analytics"));
+    expect(res.status).toBe(200);
+    const url = new URL(((await res.json()) as { url: string }).url);
+    expect(url.searchParams.get("scope")).toBe("https://www.googleapis.com/auth/analytics.readonly");
+    // Turned off while the person was on Google's screen: the callback swaps nothing.
+    vi.stubEnv("CONNECTOR_GA4_SIGNIN_ENABLED", "false");
+    const cookie = (res.headers.get("set-cookie") ?? "").split(";")[0]!;
+    expect(reason(await callback({ state: url.searchParams.get("state")!, code: "c" }, cookie))).toBe("connector_off");
+    expect(exchanges()).toBe(0);
+  });
+
   it("answers 404 with the switch off, before reading the session", async () => {
     vi.stubEnv("CONNECTORS_ENABLED", "false");
     expect((await startRoute.POST(startReq(), p())).status).toBe(404);

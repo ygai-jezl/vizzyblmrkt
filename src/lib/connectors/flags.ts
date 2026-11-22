@@ -31,11 +31,22 @@ export function isSearchConsoleConnectorEnabled(): boolean {
 }
 
 /**
- * Google Analytics 4 in the catalogue (Connectors 1c). Needs CONNECTORS_ENABLED, and a Google sign
- * in client or the identities project (CONNECTORS_IDENTITIES_PROJECT) for one way to connect.
+ * Google Analytics 4 in the catalogue (Connectors 1c). Needs CONNECTORS_ENABLED, and the identities
+ * project (CONNECTORS_IDENTITIES_PROJECT) or, with CONNECTOR_GA4_SIGNIN_ENABLED, a Google sign in
+ * client, for one way to connect.
  */
 export function isGa4ConnectorEnabled(): boolean {
   return isConnectorsEnabled() && process.env.CONNECTOR_GA4_ENABLED === "true";
+}
+
+/**
+ * Google Analytics 4 by Sign in with Google (needs CONNECTOR_GA4_ENABLED and the Google client).
+ * Its scope, analytics.readonly, is one Google treats as sensitive: until Google has reviewed the
+ * app, its sign in screen warns that the app isn't verified and the app is capped at 100 users,
+ * so Sign in stays off while GA4 by share access goes on.
+ */
+export function isGa4SignInEnabled(): boolean {
+  return process.env.CONNECTOR_GA4_SIGNIN_ENABLED === "true";
 }
 
 /**

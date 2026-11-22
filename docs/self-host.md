@@ -233,7 +233,9 @@ the people who sign in see your app's name and support email on Google's screen.
 **Google Analytics and share access.** `CONNECTOR_GA4_ENABLED` adds Google Analytics 4 the same way.
 Its permission, `https://www.googleapis.com/auth/analytics.readonly`, is one Google classes as
 sensitive: add it under **Data Access** too, and Sign in with Google for it waits for Google's
-sensitive scope review (a privacy policy line saying your app reads these numbers helps). Share
+sensitive scope review (a privacy policy line saying your app reads these numbers helps). Its own
+switch, `CONNECTOR_GA4_SIGNIN_ENABLED`, keeps it off until then even when Search Console's Sign in
+is on; turn it on once Google has reviewed your app. Share
 access needs no review: an admin adds a Google address that YouGrow makes for that one connection to
 their Search Console site (as a Restricted user) or Google Analytics property (as a Viewer). It
 needs the identities project above, and `npm run selfhost` keeps the switch off.

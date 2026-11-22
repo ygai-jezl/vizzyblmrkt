@@ -122,6 +122,15 @@ const OAuthMethodSchema = z
     client: z.literal("google"),
     /** One scope per connection (decision 3 of the Connectors 1 plan). */
     scopes: z.array(HttpsUrl).length(1),
+    /**
+     * A switch of its own that holds this sign in back, for a scope Google treats as sensitive:
+     * Sign in waits for Google's review of the app while share access can go on. Read through
+     * src/lib/connectors/flags.ts; the registry refuses a switch nothing reads.
+     */
+    switch: z
+      .string()
+      .regex(/^CONNECTOR_[A-Z0-9_]+_ENABLED$/)
+      .optional(),
   })
   .strict();
 

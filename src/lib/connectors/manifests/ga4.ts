@@ -8,7 +8,8 @@ const SCOPE = "https://www.googleapis.com/auth/analytics.readonly";
  * Collecting them every day is Connectors 2.
  *
  * - One scope, analytics.readonly, which Google's console classes as sensitive: Sign in goes on in
- *   production only after Google's sensitive scope review. Share access needs no review.
+ *   production only after Google's sensitive scope review, so it has a switch of its own,
+ *   CONNECTOR_GA4_SIGNIN_ENABLED, off until then. Share access needs no review.
  * - Share access: the admin adds the connection's own Google address to the property as a Viewer
  *   (Property access management), as Google documents for service accounts.
  * - The picker lists the properties the sign in or address can see through the Admin API's
@@ -29,7 +30,7 @@ export const ga4Manifest = {
   publisher: "yougrow",
   switch: "CONNECTOR_GA4_ENABLED",
   connect: [
-    { method: "oauth_pkce", client: "google", scopes: [SCOPE] },
+    { method: "oauth_pkce", client: "google", scopes: [SCOPE], switch: "CONNECTOR_GA4_SIGNIN_ENABLED" },
     {
       method: "share_access",
       google: "ga4",

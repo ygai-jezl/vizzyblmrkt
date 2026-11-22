@@ -139,6 +139,10 @@ export const KEPT_OFF = {
   CONNECTOR_CLOUDFLARE_ENABLED: { addon: null, why: "connected data is new: turn it on by hand" },
   CONNECTOR_SEARCH_CONSOLE_ENABLED: { addon: null, why: "needs a Google OAuth client in its own project (docs/self-host.md, Connect Google data on your own copy)" },
   CONNECTOR_GA4_ENABLED: { addon: null, why: "needs a Google OAuth client or the identities project (docs/self-host.md, Connect Google data on your own copy)" },
+  CONNECTOR_GA4_SIGNIN_ENABLED: {
+    addon: null,
+    why: "Google Analytics by Sign in needs Google's review of your app's sensitive permission first (docs/self-host.md, Google Analytics and share access)",
+  },
   CONNECTORS_CHAT_ENABLED: { addon: "vizzy", why: "Vizzy reading connected data needs the agent, redeployed with its connector tools" },
   CONNECTOR_GOOGLE_REVOKE_ENABLED: {
     addon: null,

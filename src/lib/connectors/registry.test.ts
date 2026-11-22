@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseManifest } from "./manifest";
 import { cloudflareManifest } from "./manifests/cloudflare";
-import { allConnectors, BUILT_METHODS, CONNECTOR_SWITCHES, getConnector, knownConnector, listConnectors, readyMethods, refusals } from "./registry";
+import { allConnectors, BUILT_METHODS, CONNECTOR_SWITCHES, getConnector, knownConnector, listConnectors, METHOD_SWITCHES, readyMethods, refusals } from "./registry";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -94,10 +94,30 @@ describe("the connector registry", () => {
     expect(readyMethods(knownConnector("google-analytics")!)).toEqual(["share_access"]);
     vi.stubEnv("CONNECTOR_GOOGLE_CLIENT_ID", "made-up-client.example.test");
     vi.stubEnv("CONNECTOR_GOOGLE_CLIENT_SECRET", "made-up-client-secret");
+    // The client that Search Console's Sign in uses doesn't bring GA4's Sign in with it.
+    expect(readyMethods(knownConnector("google-analytics")!)).toEqual(["share_access"]);
+    vi.stubEnv("CONNECTOR_GA4_SIGNIN_ENABLED", "true");
     expect(readyMethods(knownConnector("google-analytics")!)).toEqual(["oauth_pkce", "share_access"]);
     expect(getConnector("google-analytics")?.name).toBe("Google Analytics");
     vi.stubEnv("CONNECTOR_GA4_ENABLED", "1");
     expect(getConnector("google-analytics")).toBeNull();
+  });
+
+  it("holds GA4's Sign in back behind its own switch until Google reviews its sensitive scope", () => {
+    vi.stubEnv("CONNECTORS_ENABLED", "true");
+    vi.stubEnv("CONNECTOR_GA4_ENABLED", "true");
+    vi.stubEnv("CONNECTOR_SEARCH_CONSOLE_ENABLED", "true");
+    vi.stubEnv("CONNECTOR_GOOGLE_CLIENT_ID", "made-up-client.example.test");
+    vi.stubEnv("CONNECTOR_GOOGLE_CLIENT_SECRET", "made-up-client-secret");
+    // Search Console's Sign in is on; GA4 has no ready method, so it isn't offered.
+    expect(readyMethods(knownConnector("search-console")!)).toEqual(["oauth_pkce"]);
+    expect(getConnector("google-analytics")).toBeNull();
+    vi.stubEnv("CONNECTOR_GA4_SIGNIN_ENABLED", "TRUE");
+    expect(getConnector("google-analytics")).toBeNull();
+    vi.stubEnv("CONNECTOR_GA4_SIGNIN_ENABLED", "true");
+    expect(readyMethods(getConnector("google-analytics")!)).toEqual(["oauth_pkce"]);
+    // Every switch a manifest's sign in names has a reader.
+    for (const m of allConnectors()) for (const c of m.connect) if (c.method === "oauth_pkce" && c.switch) expect(METHOD_SWITCHES[c.switch], c.switch).toBeDefined();
   });
 
   it("refuses a personal stream while the data processing agreement is closed, and an unknown switch", () => {
@@ -106,5 +126,8 @@ describe("the connector registry", () => {
       "cloudflare: zone_daily is personal, which waits for the data processing agreement",
     ]);
     expect(refusals({ ...m, switch: "CONNECTOR_NOBODY_ENABLED" })).toEqual(["cloudflare: no switch reads CONNECTOR_NOBODY_ENABLED"]);
+    const ga = knownConnector("google-analytics")!;
+    const unread = { ...ga, connect: ga.connect.map((c) => (c.method === "oauth_pkce" ? { ...c, switch: "CONNECTOR_NOBODY_SIGNIN_ENABLED" } : c)) };
+    expect(refusals(unread)).toEqual(["google-analytics: no switch reads CONNECTOR_NOBODY_SIGNIN_ENABLED"]);
   });
 });

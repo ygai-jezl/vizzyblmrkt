@@ -1049,6 +1049,13 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Google Analytics 4 by signing in with Google too (needs CONNECTOR_GA4_ENABLED and the Google
+  # client). Its permission is one Google treats as sensitive: leave it off until Google has
+  # reviewed your app, or people see Google's unverified app warning. Share access needs no review.
+  - variable: CONNECTOR_GA4_SIGNIN_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Vizzy lists connections and reads them live, only those an admin let Vizzy read (needs
   # CONNECTORS_ENABLED and Vizzy, the agent, redeployed with its connector tools).
   - variable: CONNECTORS_CHAT_ENABLED

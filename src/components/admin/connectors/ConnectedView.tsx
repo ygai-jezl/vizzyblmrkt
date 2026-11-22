@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ConnectionView } from "@/lib/connectors/service";
-import { callApi, ROUTES, startSignIn } from "./api";
+import { connectedActions, type ConnectedActions, type ConnectedNote } from "./connectedActions";
 import {
   BUTTON,
   BUTTON_PRIMARY,
@@ -21,15 +21,16 @@ import {
   TONE_CLASS,
   accountWords,
   activityOf,
+  firstSelected,
   healthLine,
   listingPath,
   needsAttention,
   pickPath,
+  selectedOf,
   stateOf,
   whenWords,
   whoCanReadOf,
   whoWords,
-  withGrant,
 } from "./words";
 
 export interface ConnectedProps {
@@ -43,7 +44,6 @@ export interface ConnectedProps {
   now: string;
 }
 
-type Note = { tone: "ok" | "warn" | "err"; text: string } | null;
 const NOTE_CLASS = { ok: NOTE_OK, warn: NOTE_WARN, err: NOTE_ERR } as const;
 const th = "border-b border-neutral-200 px-3 py-2 text-left text-xs font-medium text-neutral-500 dark:border-neutral-800 dark:text-neutral-400";
 const td = "border-b border-neutral-100 px-3 py-2.5 align-top dark:border-neutral-900";
@@ -57,23 +57,31 @@ const td = "border-b border-neutral-100 px-3 py-2.5 align-top dark:border-neutra
 export function ConnectedView({ connections: initial, isAdmin, uid, chat, now: drawnAt }: ConnectedProps) {
   const router = useRouter();
   const [connections, setConnections] = useState(initial);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Chosen once, explicitly, then only by a click or an action: never worked out again from state.
+  const [selectedId, setSelectedId] = useState<string | null>(() => firstSelected(initial));
   const [now, setNow] = useState(() => new Date(drawnAt));
-  const [note, setNote] = useState<Note>(null);
+  const [note, setNote] = useState<ConnectedNote>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
-  // A refresh from the server (router.refresh) brings the latest list.
+  // A refresh from the server (router.refresh) brings the latest list; the selection stays.
   useEffect(() => setConnections(initial), [initial]);
 
   const live = connections.filter((c) => c.status === "connected");
   const attention = needsAttention(live);
-  const selected = live.find((c) => c.id === selectedId) ?? attention[0] ?? live[0] ?? null;
+  const selected = selectedOf(live, selectedId);
 
-  function replace(view: ConnectionView) {
-    setConnections((list) => list.map((c) => (c.id === view.id ? view : c)));
-    setNow(new Date());
-    router.refresh();
-  }
+  const act = connectedActions({
+    replace: (view) => {
+      setConnections((list) => list.map((c) => (c.id === view.id ? view : c)));
+      setNow(new Date());
+      router.refresh();
+    },
+    select: setSelectedId,
+    note: setNote,
+    confirm: (message) => window.confirm(message),
+    leave: (url) => window.location.assign(url),
+    push: (path) => router.push(path),
+  });
 
   async function run(key: string, task: () => Promise<void>) {
     setBusy(key);
@@ -85,49 +93,13 @@ export function ConnectedView({ connections: initial, isAdmin, uid, chat, now: d
     }
   }
 
-  const actions = {
-    reconnect: (c: ConnectionView) =>
-      run(`reconnect:${c.id}`, async () => {
-        const r = await startSignIn(c.connectorId, c.id);
-        if (r.ok) window.location.assign(r.data.url);
-        else setNote({ tone: "err", text: r.message });
-      }),
-    checkAccess: (c: ConnectionView) =>
-      run(`access:${c.id}`, async () => {
-        const r = await callApi<{ connection: ConnectionView; visible: boolean; message: string | null }>(ROUTES.access(c.id), { method: "POST" });
-        if (!r.ok) return setNote({ tone: r.status === 409 ? "warn" : "err", text: r.message });
-        replace(r.data.connection);
-        if (r.data.visible && r.data.connection.needsAccount) router.push(pickPath(c.connectorId, c.id));
-        else setNote(r.data.visible ? { tone: "ok", text: CONNECTED_COPY.checkedOk } : { tone: "warn", text: r.data.message ?? CONNECTED_COPY.checkedOk });
-      }),
-    check: (c: ConnectionView) =>
-      run(`check:${c.id}`, async () => {
-        const r = await callApi<{ connection: ConnectionView; check: { ok: boolean; message: string | null } }>(ROUTES.check(c.id), { method: "POST" });
-        if (!r.ok) return setNote({ tone: r.status === 409 ? "warn" : "err", text: r.message });
-        replace(r.data.connection);
-        setNote(r.data.check.ok ? { tone: "ok", text: CONNECTED_COPY.checkedOk } : { tone: "warn", text: r.data.check.message ?? CONNECTED_COPY.checkedOk });
-      }),
-    pause: (c: ConnectionView, paused: boolean) =>
-      run(`pause:${c.id}`, async () => {
-        const r = await callApi<ConnectionView>(ROUTES.pause(c.id), { method: "POST", body: { paused } });
-        if (!r.ok) return setNote({ tone: "err", text: r.message });
-        replace(r.data);
-      }),
-    grant: (c: ConnectionView, to: "members" | "agent:vizzy", on: boolean) =>
-      run(`grant:${c.id}`, async () => {
-        const r = await callApi<ConnectionView>(ROUTES.grants(c.id), { method: "PUT", body: { grants: withGrant(c.details?.grants ?? [], to, on) } });
-        if (!r.ok) return setNote({ tone: "err", text: r.message });
-        replace(r.data);
-      }),
-    disconnect: (c: ConnectionView) =>
-      run(`disconnect:${c.id}`, async () => {
-        if (!window.confirm(CONNECTED_COPY.confirmDisconnect)) return;
-        const r = await callApi<{ connection: ConnectionView; message: string }>(ROUTES.connection(c.id), { method: "DELETE" });
-        if (!r.ok) return setNote({ tone: "err", text: r.message });
-        replace(r.data.connection);
-        setSelectedId(null);
-        setNote({ tone: "ok", text: r.data.message });
-      }),
+  const actions: ConnectedActions = {
+    reconnect: (c) => run(`reconnect:${c.id}`, () => act.reconnect(c)),
+    checkAccess: (c) => run(`access:${c.id}`, () => act.checkAccess(c)),
+    check: (c) => run(`check:${c.id}`, () => act.check(c)),
+    pause: (c, paused) => run(`pause:${c.id}`, () => act.pause(c, paused)),
+    grant: (c, to, on) => run(`grant:${c.id}`, () => act.grant(c, to, on)),
+    disconnect: (c) => run(`disconnect:${c.id}`, () => act.disconnect(c)),
   };
 
   if (!live.length && !note) {
@@ -218,7 +190,11 @@ export function ConnectedView({ connections: initial, isAdmin, uid, chat, now: d
 
       {isAdmin ? (
         <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))]">
-          {selected ? <ManageCard c={selected} chat={chat} now={now} busy={busy} actions={actions} /> : null}
+          {selected ? (
+            <ManageCard c={selected} chat={chat} now={now} busy={busy} actions={actions} />
+          ) : live.length ? (
+            <p className={NOTE_PLAIN}>{CONNECTED_COPY.chooseRow}</p>
+          ) : null}
           <ActivityCard connections={connections} uid={uid} now={now} />
         </div>
       ) : null}

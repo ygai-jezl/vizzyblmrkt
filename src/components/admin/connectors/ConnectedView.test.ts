@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { ACTIVITY_KINDS } from "@/lib/types/dataConnection";
 import { CONNECTOR_ERRORS } from "@/lib/connectors/messages";
+import type { ConnectionView } from "@/lib/connectors/service";
 import { connectionView, NOW, textOf } from "./testing";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
@@ -11,7 +12,9 @@ vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: unknown }) => createElement("a", { href, ...rest }, children as never),
 }));
 const { ConnectedView } = await import("./ConnectedView");
-const { CONNECTED_COPY, accountWords, activityOf, activityWords, healthLine, stateOf, whenWords, whoCanReadOf, whoWords, withGrant } = await import("./words");
+const { CONNECTED_COPY, accountWords, activityOf, activityWords, firstSelected, healthLine, needsAttention, selectedOf, stateOf, whenWords, whoCanReadOf, whoWords, withGrant } =
+  await import("./words");
+const { connectedActions } = await import("./connectedActions");
 
 const broken = (message: string) => ({ state: "broken" as const, lastOkAt: "2026-11-20T08:00:00.000Z", lastCheckedAt: "2026-11-21T09:12:00.000Z", message, pausedUntil: null });
 
@@ -121,6 +124,91 @@ describe("Connected, for an admin", () => {
     const html = render({ connections: [] });
     expect(textOf(html)).toContain(CONNECTED_COPY.none);
     expect(html).toContain('href="/admin/account/connections/browse"');
+  });
+});
+
+describe("Connected's panel stays on the connection acted on", () => {
+  type Answer = { ok: true; data: unknown } | { ok: false; status: number; error: string; message: string };
+  const ok = (data: unknown): Answer => ({ ok: true, data });
+  const healed = { ...CF, health: { ...CF.health, state: "ok" as const, message: null } };
+
+  /** The page's state as the actions change it, with the routes answering from a list. */
+  function page(list: ConnectionView[], answers: Answer[], confirmed = true) {
+    const state = { list: [...list], selected: firstSelected(list), note: null as unknown, pushed: [] as string[], asked: [] as string[], calls: [] as string[] };
+    const act = connectedActions({
+      call: (async (url: string, init?: { method?: string }) => {
+        state.calls.push(`${init?.method ?? "GET"} ${url}`);
+        return answers.shift()!;
+      }) as never,
+      signIn: async () => ({ ok: true, data: { url: "https://accounts.google.com/made-up" } }),
+      replace: (view) => (state.list = state.list.map((c) => (c.id === view.id ? view : c))),
+      select: (id) => (state.selected = id),
+      note: (n) => (state.note = n),
+      confirm: (message) => (state.asked.push(message), confirmed),
+      leave: () => {},
+      push: (path) => state.pushed.push(path),
+    });
+    const shown = () => selectedOf(state.list, state.selected)?.id ?? null;
+    return { state, act, shown };
+  }
+
+  it("selects the first shown connection explicitly when the page is drawn", () => {
+    expect(firstSelected([SC, CF])).toBe(CF.id);
+    expect(firstSelected([SC])).toBe(SC.id);
+    expect(firstSelected([{ ...SC, status: "disconnected" }])).toBeNull();
+    expect(selectedOf([SC, CF], null)).toBeNull();
+    expect(selectedOf([SC, { ...CF, status: "disconnected" }], CF.id)).toBeNull();
+  });
+
+  it("stays on Cloudflare after Check now fixes it, though the old fallback would have opened Search Console", async () => {
+    const p = page([SC, CF], [ok({ connection: healed, check: { ok: true, message: null } })]);
+    expect(p.shown()).toBe(CF.id);
+    await p.act.check(CF);
+    expect(p.shown()).toBe(CF.id);
+    // Nothing needs attention now, so a panel worked out from state would have jumped to the first row.
+    expect(needsAttention(p.state.list)).toEqual([]);
+    expect(p.state.list[0]!.id).toBe(SC.id);
+    expect(p.state.note).toEqual({ tone: "ok", text: CONNECTED_COPY.checkedOk });
+  });
+
+  it("stays on the one acted on through Pause, Resume and a grant change, while another needs attention", async () => {
+    const paused = { ...SC, health: { ...SC.health, state: "paused" as const }, details: { ...SC.details!, pausedAt: "2026-11-21T10:00:00.000Z", pausedBy: "usr_alex" } };
+    const p = page([SC, CF], [ok(paused), ok(SC), ok({ ...SC, details: { ...SC.details!, grants: [] } })]);
+    // The admin picks Search Console; Cloudflare still needs attention.
+    p.state.selected = SC.id;
+    await p.act.pause(SC, true);
+    expect(p.shown()).toBe(SC.id);
+    await p.act.pause(paused, false);
+    expect(p.shown()).toBe(SC.id);
+    await p.act.grant(SC, "members", false);
+    expect(p.shown()).toBe(SC.id);
+    expect(p.state.calls).toEqual([
+      `POST /api/admin/connectors/connections/${SC.id}/pause`,
+      `POST /api/admin/connectors/connections/${SC.id}/pause`,
+      `PUT /api/admin/connectors/connections/${SC.id}/grants`,
+    ]);
+  });
+
+  it("moves to a connection acted on from its banner, and stays when the action is refused", async () => {
+    const p = page([SC, CF], [{ ok: false, status: 409, error: "paused", message: CONNECTOR_ERRORS.paused }]);
+    p.state.selected = SC.id;
+    await p.act.check(CF);
+    expect(p.shown()).toBe(CF.id);
+    expect(p.state.note).toEqual({ tone: "warn", text: CONNECTOR_ERRORS.paused });
+  });
+
+  it("selects nothing after a Disconnect, says which went, and changes nothing when the admin says no", async () => {
+    const gone = { ...CF, status: "disconnected" as const };
+    const message = "Disconnecting deletes the token YouGrow keeps. Delete it in Cloudflare too.";
+    const p = page([SC, CF], [ok({ connection: gone, message })]);
+    await p.act.disconnect(CF);
+    expect(p.state.selected).toBeNull();
+    expect(p.shown()).toBeNull();
+    expect(p.state.note).toEqual({ tone: "ok", text: `Cloudflare is disconnected. ${message}` });
+    const no = page([SC, CF], [], false);
+    await no.act.disconnect(CF);
+    expect(no.state.calls).toEqual([]);
+    expect(no.shown()).toBe(CF.id);
   });
 });
 

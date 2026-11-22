@@ -391,7 +391,11 @@ export const CONNECTED_COPY = {
   readsYou: "You can read it",
   readsAdmins: "Admins only",
   pausedByAdmin: "Paused by an admin. Press Resume to read it again.",
+  chooseRow: "Choose a connection in the table to manage it.",
 } as const;
+
+/** The note after a Disconnect: which connection went, then what to do at the tool. */
+export const disconnectedWords = (what: string, message: string) => `${what} is disconnected. ${message}`;
 
 export const HOW_LABELS: Readonly<Record<ConnectMethodName, string>> = {
   token_fields: "API token",
@@ -430,6 +434,23 @@ export const STATE_LABELS = ["Working", "Check failed", "Needs attention", "Paus
 /** The connections whose banner asks for something: turned down, or waiting for a property. */
 export function needsAttention(connections: readonly ConnectionView[]): ConnectionView[] {
   return connections.filter((c) => c.status === "connected" && c.connectorOn && (c.health.state === "broken" || c.needsAccount));
+}
+
+/**
+ * The connection Connected's panel opens on, chosen once when the page is drawn and then kept in
+ * the page's state: the first needing attention, else the first listed, else none.
+ */
+export function firstSelected(connections: readonly ConnectionView[]): string | null {
+  const live = connections.filter((c) => c.status === "connected");
+  return (needsAttention(live)[0] ?? live[0])?.id ?? null;
+}
+
+/**
+ * The connection the panel shows: the one selected while it is still connected, and never another
+ * in its place. Choosing it from the state alone is what keeps the panel on the connection acted on.
+ */
+export function selectedOf(connections: readonly ConnectionView[], id: string | null): ConnectionView | null {
+  return id ? (connections.find((c) => c.id === id && c.status === "connected") ?? null) : null;
 }
 
 /** Who may read it beyond admins, from its grants (Vizzy only while Vizzy reads connected data). */

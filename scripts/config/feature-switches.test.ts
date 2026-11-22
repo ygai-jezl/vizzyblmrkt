@@ -24,6 +24,7 @@ function baseEntries(): Entry[] {
 const SHARED_SETTINGS = [
   "GOOGLE_GENAI_USE_VERTEXAI",
   "GOOGLE_CLOUD_LOCATION",
+  "NODE_OPTIONS",
   "BRAND_BEST_OF_N_COUNT",
   "WAITLIST_ENGINE_PILOT_TENANTS",
   "BQ_DATASET_US",
@@ -80,6 +81,12 @@ describe("the public apphosting.yaml", () => {
   it("holds no other settings than the ones every deployment shares", () => {
     const other = entries.filter((e) => !switches.includes(e.variable) && !SHARED_SETTINGS.includes(e.variable)).map((e) => e.variable);
     expect(other, "these name one deployment: put them in apphosting.<environment>.yaml").toEqual([]);
+  });
+
+  it("gives the build its larger Node heap, for the build only", () => {
+    const node = byName.get("NODE_OPTIONS");
+    expect(node?.value).toMatch(/--max-old-space-size=\d+/);
+    expect(node?.availability, "the running app keeps Node's own memory limits").toEqual(["BUILD"]);
   });
 
   it("defines each variable once", () => {

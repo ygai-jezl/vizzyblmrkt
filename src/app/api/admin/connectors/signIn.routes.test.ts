@@ -17,6 +17,7 @@ vi.mock("@/lib/tenant/firestore", async (importOriginal) => ({
 
 const startRoute = await import("./[connectorId]/start/route");
 const callbackRoute = await import("./callback/route");
+const accountsRoute = await import("./connections/[connectionId]/accounts/route");
 const { forTenant } = await import("@/lib/tenant");
 const { openConnectorSecret } = await import("@/lib/connectors/vault");
 
@@ -298,5 +299,72 @@ describe("finishing a sign in", () => {
     const id = where(await callback({ state: s.state, code: "c" }, s.cookie)).searchParams.get("connection")!;
     session.getAdminContext.mockResolvedValue(otherBrand);
     expect((await startRoute.POST(startReq({ connectionId: id }), p())).status).toBe(404);
+  });
+});
+
+describe("picking the site a sign in reads, through the accounts route", () => {
+  const accountsReq = (method: "GET" | "PUT", id: string, body?: unknown, headers: Record<string, string> = {}) =>
+    new Request(`${ORIGIN}/api/admin/connectors/connections/${id}/accounts`, {
+      method,
+      headers: { "content-type": "application/json", host: "app.yougrow.test", ...headers },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  const cp = (connectionId: string) => ({ params: Promise.resolve({ connectionId }) });
+  const sitesCalls = () => fetchMock.mock.calls.filter((c) => String(c[0]) === SITES_URL);
+  async function signedIn(): Promise<string> {
+    const s = await start();
+    return where(await callback({ state: s.state, code: "c" }, s.cookie)).searchParams.get("connection")!;
+  }
+  const accountOf = async (id: string) => (await forTenant(admin as never, db).dataConnections.getById(id))!.account;
+
+  it("answers 404 with the switch off, before reading the session", async () => {
+    vi.stubEnv("CONNECTORS_ENABLED", "false");
+    expect((await accountsRoute.GET(accountsReq("GET", "dcn_aaaaaaaaaaaaaaaaaaaa"), cp("dcn_aaaaaaaaaaaaaaaaaaaa"))).status).toBe(404);
+    expect((await accountsRoute.PUT(accountsReq("PUT", "dcn_aaaaaaaaaaaaaaaaaaaa", { account: "sc-domain:example.com" }), cp("dcn_aaaaaaaaaaaaaaaaaaaa"))).status).toBe(404);
+    expect(session.getAdminContext).not.toHaveBeenCalled();
+  });
+
+  it("refuses the signed out, a cross-site pick, members, a bad body and another brand's connection", async () => {
+    const id = await signedIn();
+    const before = sitesCalls().length;
+    session.getAdminContext.mockResolvedValueOnce(null);
+    expect((await accountsRoute.GET(accountsReq("GET", id), cp(id))).status).toBe(401);
+    session.getAdminContext.mockResolvedValueOnce(null);
+    expect((await accountsRoute.PUT(accountsReq("PUT", id, { account: "sc-domain:example.com" }), cp(id))).status).toBe(401);
+    const crossSite = { "sec-fetch-site": "cross-site", origin: "https://evil.example.test" };
+    expect((await accountsRoute.PUT(accountsReq("PUT", id, { account: "sc-domain:example.com" }, crossSite), cp(id))).status).toBe(403);
+    expect((await accountsRoute.GET(accountsReq("GET", id, undefined, crossSite), cp(id))).status).toBe(403);
+    session.getAdminContext.mockResolvedValue(member);
+    expect((await accountsRoute.GET(accountsReq("GET", id), cp(id))).status).toBe(403);
+    expect((await accountsRoute.PUT(accountsReq("PUT", id, { account: "sc-domain:example.com" }), cp(id))).status).toBe(403);
+    session.getAdminContext.mockResolvedValue(admin);
+    expect((await accountsRoute.PUT(accountsReq("PUT", id, { account: "" }), cp(id))).status).toBe(400);
+    expect((await accountsRoute.PUT(accountsReq("PUT", id, { account: "sc-domain:example.com", tenantId: "ten_B" }), cp(id))).status).toBe(400);
+    expect((await accountsRoute.PUT(accountsReq("PUT", id), cp(id))).status).toBe(400);
+    session.getAdminContext.mockResolvedValue(otherBrand);
+    expect((await accountsRoute.GET(accountsReq("GET", id), cp(id))).status).toBe(404);
+    expect((await accountsRoute.PUT(accountsReq("PUT", id, { account: "sc-domain:example.com" }), cp(id))).status).toBe(404);
+    // Nothing was asked of Google, and nothing was picked.
+    expect(sitesCalls().length).toBe(before);
+    expect(await accountOf(id)).toBe("");
+  });
+
+  it("lists the sites the sign in sees with its token, then picks one", async () => {
+    const id = await signedIn();
+    const listed = await accountsRoute.GET(accountsReq("GET", id), cp(id));
+    expect(listed.status).toBe(200);
+    expect(listed.headers.get("cache-control")).toBe("no-store");
+    expect(await listed.json()).toMatchObject({ accounts: [{ id: "sc-domain:example.com" }], more: false, current: "" });
+    const call = sitesCalls().at(-1)!;
+    expect(((call[1] as RequestInit).headers as Record<string, string>).authorization).toBe("Bearer made-up-access");
+    const picked = await accountsRoute.PUT(accountsReq("PUT", id, { account: "sc-domain:example.com" }), cp(id));
+    expect(picked.status).toBe(200);
+    expect(await picked.json()).toMatchObject({ id, needsAccount: false });
+    expect(await accountOf(id)).toBe("sc-domain:example.com");
+    // A site the sign in can't see is refused, and the pick stays.
+    const refused = await accountsRoute.PUT(accountsReq("PUT", id, { account: "sc-domain:elsewhere.example.test" }), cp(id));
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toMatchObject({ error: "account_refused" });
+    expect(await accountOf(id)).toBe("sc-domain:example.com");
   });
 });

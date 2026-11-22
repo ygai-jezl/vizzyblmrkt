@@ -7,6 +7,7 @@ import { HowToLink } from "@/components/help/HowToLink";
 import type { ConnectionView, ConnectorListing } from "@/lib/connectors/service";
 import { callApi, ROUTES, startSignIn } from "./api";
 import { ConnectorTile } from "./BrowseView";
+import { connectWithToken } from "./tokenConnect";
 import {
   BUTTON,
   BUTTON_PRIMARY,
@@ -105,7 +106,7 @@ export function ListingView({ listing, connections, isAdmin, chat, banner, repla
           {ways > 1 ? <h3 className={H3}>{LISTING_COPY.chooseHow}</h3> : null}
           {signIn ? <SignInCard listing={listing} isAdmin={isAdmin} alone={ways === 1} heading={heading} waiting={waitingSignInOf(connections, listing.id)} /> : null}
           {share ? <ShareCard listing={listing} isAdmin={isAdmin} afterSignIn={signIn} heading={heading} waiting={waitingShareOf(connections, listing.id)} /> : null}
-          {token ? <TokenCard listing={listing} isAdmin={isAdmin} heading={heading} replace={replace} /> : null}
+          {token ? <TokenCard listing={listing} isAdmin={isAdmin} chat={chat} heading={heading} replace={replace} /> : null}
         </div>
         <div className="space-y-4">
           <ReadsCard listing={listing} />
@@ -289,7 +290,19 @@ function ShareCard({
   );
 }
 
-function TokenCard({ listing, isAdmin, heading: Title, replace }: { listing: ConnectorListing; isAdmin: boolean; heading: CardHeading; replace: ConnectionView | null }) {
+function TokenCard({
+  listing,
+  isAdmin,
+  chat,
+  heading: Title,
+  replace,
+}: {
+  listing: ConnectorListing;
+  isAdmin: boolean;
+  chat: boolean;
+  heading: CardHeading;
+  replace: ConnectionView | null;
+}) {
   const router = useRouter();
   const method = tokenMethodOf(listing)!;
   const [values, setValues] = useState<Record<string, string>>(() =>
@@ -297,6 +310,8 @@ function TokenCard({ listing, isAdmin, heading: Title, replace }: { listing: Con
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Connected, but who can read it didn't carry over: the form is done, so it can't connect twice. */
+  const [lost, setLost] = useState<string | null>(null);
   // Connect waits for the page's script: a form sent before it would go by the browser alone.
   const [ready, setReady] = useState(false);
   useEffect(() => setReady(true), []);
@@ -305,23 +320,18 @@ function TokenCard({ listing, isAdmin, heading: Title, replace }: { listing: Con
     e.preventDefault();
     setBusy(true);
     setError(null);
-    if (replace) {
-      const gone = await callApi(ROUTES.connection(replace.id), { method: "DELETE" });
-      if (!gone.ok && gone.status !== 404) {
-        setError(gone.message);
-        setBusy(false);
-        return;
-      }
-    }
-    const r = await callApi<ConnectionView>(ROUTES.connect(listing.id), { method: "POST", body: { fields: values } });
-    if (!r.ok) {
-      setError(r.message);
-      setBusy(false);
+    const r = await connectWithToken(listing.id, values, replace, chat);
+    if (r.kind === "connected") {
+      router.push(CONNECTED_PATH);
+      router.refresh();
       return;
     }
-    const grants = replace?.details?.grants ?? [];
-    if (grants.length) await callApi(ROUTES.grants(r.data.id), { method: "PUT", body: { grants } });
-    router.push(CONNECTED_PATH);
+    setBusy(false);
+    if (r.kind === "refused") {
+      setError(r.message);
+      return;
+    }
+    setLost(r.message);
     router.refresh();
   }
 
@@ -342,8 +352,15 @@ function TokenCard({ listing, isAdmin, heading: Title, replace }: { listing: Con
           Open {listing.name} with the form filled in
         </a>
       ) : null}
-      {replace ? <p className={NOTE_WARN}>{LISTING_COPY.tokenReconnect}</p> : null}
-      {isAdmin ? (
+      {replace && !lost ? <p className={NOTE_WARN}>{LISTING_COPY.tokenReconnect}</p> : null}
+      {lost ? (
+        <p role="alert" className={NOTE_WARN}>
+          {lost}{" "}
+          <Link href={CONNECTED_PATH} className="font-medium underline underline-offset-2">
+            {LISTING_COPY.openConnected}
+          </Link>
+        </p>
+      ) : isAdmin ? (
         <>
           {method.fields.map((f) => (
             <div key={f.key} className="space-y-1">

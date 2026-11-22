@@ -135,7 +135,10 @@ export const LISTING_COPY = {
   tokenTitle: "Connect with an API token",
   tokenCheck: "YouGrow checks the token before anything is saved.",
   tokenReconnect:
-    "Connecting again replaces the connection whose token was turned down: YouGrow disconnects it first, then checks the new token. Who can read it carries over.",
+    "Connecting again replaces the connection whose token was turned down: YouGrow disconnects it first, then checks the new token. Once the new token works, who can read it carries over.",
+  tokenRetry: "The old connection is disconnected now. Try again without leaving this page, and who can read it still carries over.",
+  grantsLost: "Connected, but who can read it didn't carry over. On Connected, tick these again:",
+  openConnected: "Open Connected",
   readsTitle: "What it reads",
   numbersTitle: "Numbers it gives",
   aboutLabel: "About this connector",
@@ -151,6 +154,19 @@ export const LISTING_COPY = {
   signInFallback: "The sign in didn't finish. Start again.",
   googleLimit: "Google lets one Google account keep up to 100 sign ins with YouGrow. Past that, the oldest stops working.",
 } as const;
+
+/**
+ * After a Reconnect whose grants didn't carry over: what to tick again on Connected, named as the
+ * boxes there name them. Null when there is nothing a person could tick (Vizzy's box shows only
+ * while Vizzy reads connected data).
+ */
+export function grantsLostWords(grants: ReadonlyArray<{ to: string }>, chat: boolean): string | null {
+  const boxes: string[] = [];
+  if (grants.some((g) => g.to === "members")) boxes.push(CONNECTED_COPY.members);
+  if (chat && grants.some((g) => g.to === "agent:vizzy")) boxes.push(CONNECTED_COPY.vizzy);
+  if (!boxes.length) return null;
+  return `${LISTING_COPY.grantsLost} ${boxes.map((b) => `“${b}”`).join(" and ")}.`;
+}
 
 /** Why a sign in with Google didn't finish, from the reason the callback sends back. */
 export function signInReasonWords(reason: string | null | undefined): string {

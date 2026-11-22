@@ -49,6 +49,9 @@ export interface ListingProps {
 
 const H3 = "text-sm font-semibold";
 
+/** A card's title: under "Choose how to connect" when there is a choice, else straight under the name. */
+type CardHeading = "h3" | "h4";
+
 /**
  * A connector's Listing (Settings › Connections › Browse › one connector): how to connect, in the
  * manifest's order (Sign in with Google first, then share access, or an API token), what it reads
@@ -59,6 +62,7 @@ export function ListingView({ listing, connections, isAdmin, chat, banner, repla
   const share = listing.ready.includes("share_access") && shareMethodOf(listing) !== null;
   const token = listing.ready.includes("token_fields") && tokenMethodOf(listing) !== null;
   const ways = [signIn, share, token].filter(Boolean).length;
+  const heading: CardHeading = ways > 1 ? "h4" : "h3";
   const status = connectorStatus(listing.id, connections);
   const live = connections.filter((c) => c.status === "connected");
 
@@ -99,9 +103,9 @@ export function ListingView({ listing, connections, isAdmin, chat, banner, repla
       <div className="grid items-start gap-5 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
         <div className="space-y-4">
           {ways > 1 ? <h3 className={H3}>{LISTING_COPY.chooseHow}</h3> : null}
-          {signIn ? <SignInCard listing={listing} isAdmin={isAdmin} alone={ways === 1} waiting={waitingSignInOf(connections, listing.id)} /> : null}
-          {share ? <ShareCard listing={listing} isAdmin={isAdmin} afterSignIn={signIn} waiting={waitingShareOf(connections, listing.id)} /> : null}
-          {token ? <TokenCard listing={listing} isAdmin={isAdmin} replace={replace} /> : null}
+          {signIn ? <SignInCard listing={listing} isAdmin={isAdmin} alone={ways === 1} heading={heading} waiting={waitingSignInOf(connections, listing.id)} /> : null}
+          {share ? <ShareCard listing={listing} isAdmin={isAdmin} afterSignIn={signIn} heading={heading} waiting={waitingShareOf(connections, listing.id)} /> : null}
+          {token ? <TokenCard listing={listing} isAdmin={isAdmin} heading={heading} replace={replace} /> : null}
         </div>
         <div className="space-y-4">
           <ReadsCard listing={listing} />
@@ -112,7 +116,19 @@ export function ListingView({ listing, connections, isAdmin, chat, banner, repla
   );
 }
 
-function SignInCard({ listing, isAdmin, alone, waiting }: { listing: ConnectorListing; isAdmin: boolean; alone: boolean; waiting: ConnectionView | null }) {
+function SignInCard({
+  listing,
+  isAdmin,
+  alone,
+  heading: Title,
+  waiting,
+}: {
+  listing: ConnectorListing;
+  isAdmin: boolean;
+  alone: boolean;
+  heading: CardHeading;
+  waiting: ConnectionView | null;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -131,9 +147,9 @@ function SignInCard({ listing, isAdmin, alone, waiting }: { listing: ConnectorLi
   return (
     <section aria-labelledby="connect-sign-in" className={`${CARD} space-y-3 ${alone ? "" : "border-sky-300 dark:border-sky-800"}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h4 id="connect-sign-in" className={H3}>
+        <Title id="connect-sign-in" className={H3}>
           {LISTING_COPY.signInTitle}
-        </h4>
+        </Title>
         {alone ? null : <span className={`${TAG} border-sky-300 text-sky-800 dark:border-sky-800 dark:text-sky-300`}>{LISTING_COPY.quickest}</span>}
       </div>
       <p className="text-sm leading-relaxed text-neutral-700 dark:text-neutral-300">
@@ -164,7 +180,19 @@ function SignInCard({ listing, isAdmin, alone, waiting }: { listing: ConnectorLi
   );
 }
 
-function ShareCard({ listing, isAdmin, afterSignIn, waiting }: { listing: ConnectorListing; isAdmin: boolean; afterSignIn: boolean; waiting: ConnectionView | null }) {
+function ShareCard({
+  listing,
+  isAdmin,
+  afterSignIn,
+  heading: Title,
+  waiting,
+}: {
+  listing: ConnectorListing;
+  isAdmin: boolean;
+  afterSignIn: boolean;
+  heading: CardHeading;
+  waiting: ConnectionView | null;
+}) {
   const router = useRouter();
   const method = shareMethodOf(listing)!;
   const [made, setMade] = useState<{ id: string; email: string } | null>(() =>
@@ -217,9 +245,9 @@ function ShareCard({ listing, isAdmin, afterSignIn, waiting }: { listing: Connec
 
   return (
     <section aria-labelledby="connect-share" className={`${CARD} space-y-3`}>
-      <h4 id="connect-share" className={H3}>
+      <Title id="connect-share" className={H3}>
         {afterSignIn ? LISTING_COPY.shareTitleOr : LISTING_COPY.shareTitle}
-      </h4>
+      </Title>
       <p className="text-sm leading-relaxed text-neutral-700 dark:text-neutral-300">{LISTING_COPY.shareLead}</p>
       {!isAdmin ? (
         <p className={HINT}>{LISTING_COPY.adminsOnly}</p>
@@ -261,7 +289,7 @@ function ShareCard({ listing, isAdmin, afterSignIn, waiting }: { listing: Connec
   );
 }
 
-function TokenCard({ listing, isAdmin, replace }: { listing: ConnectorListing; isAdmin: boolean; replace: ConnectionView | null }) {
+function TokenCard({ listing, isAdmin, heading: Title, replace }: { listing: ConnectorListing; isAdmin: boolean; heading: CardHeading; replace: ConnectionView | null }) {
   const router = useRouter();
   const method = tokenMethodOf(listing)!;
   const [values, setValues] = useState<Record<string, string>>(() =>
@@ -301,9 +329,9 @@ function TokenCard({ listing, isAdmin, replace }: { listing: ConnectorListing; i
     // A token never goes in an address: the fields have no name, so the browser has nothing to send
     // on its own, and the form posts rather than putting fields in the URL. The handler sends them.
     <form method="post" aria-labelledby="connect-token" className={`${CARD} space-y-4`} onSubmit={submit}>
-      <h4 id="connect-token" className={H3}>
+      <Title id="connect-token" className={H3}>
         {LISTING_COPY.tokenTitle}
-      </h4>
+      </Title>
       <ol className="list-decimal space-y-1.5 pl-5 text-sm leading-relaxed text-neutral-700 dark:text-neutral-300">
         {method.steps.map((step) => (
           <li key={step}>{step}</li>

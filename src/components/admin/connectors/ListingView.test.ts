@@ -45,6 +45,12 @@ describe("the Cloudflare Listing", () => {
     expect(text).not.toContain("Choose how to connect");
   });
 
+  it("puts its one way to connect straight under the name, with no heading level skipped", () => {
+    const out = html({ listing: CF });
+    expect(out).toMatch(/<h3 id="connect-token"[^>]*>Connect with an API token<\/h3>/);
+    expect(out).not.toMatch(/<h4 id="connect-/);
+  });
+
   it("never lets the browser put the token in an address, even before the page's script runs", () => {
     const out = html({ listing: CF });
     const form = /<form\b[^>]*>[\s\S]*?<\/form>/.exec(out)?.[0] ?? "";
@@ -84,6 +90,11 @@ describe("the Search Console and Google Analytics Listings", () => {
       expect(text).toContain(`YouGrow asks only to read your ${listing.name} data.`);
       expect(text).toContain(LISTING_COPY.shareStart);
       expect(text).toContain(LISTING_COPY.googleLimit);
+      // Two ways: each card's title sits under "Choose how to connect".
+      const out = html({ listing });
+      expect(out).toMatch(/<h3[^>]*>Choose how to connect<\/h3>/);
+      expect(out).toMatch(/<h4 id="connect-sign-in"/);
+      expect(out).toMatch(/<h4 id="connect-share"/);
     }
   });
 
@@ -92,6 +103,7 @@ describe("the Search Console and Google Analytics Listings", () => {
     expect(text).not.toContain("Sign in with Google");
     expect(text).not.toContain("Choose how to connect");
     expect(text).toContain("Share access Give a Google address made for this connection");
+    expect(html({ listing: listingFor("google-analytics", ["share_access"]) })).toMatch(/<h3 id="connect-share"/);
     expect(text).not.toContain(LISTING_COPY.googleLimit);
   });
 

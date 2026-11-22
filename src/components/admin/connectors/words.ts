@@ -228,3 +228,78 @@ export function replaceableOf(connections: readonly ConnectionView[], connectorI
   if (!id) return null;
   return connections.find((c) => c.id === id && c.connectorId === connectorId && c.status === "connected" && c.details?.method === "token_fields" && c.health.state === "broken") ?? null;
 }
+
+// --- The property picker ---------------------------------------------------------------------
+
+export const PICKER_COPY = {
+  title: "Which property is this brand's?",
+  signedIn: "Signed in with Google",
+  connect: "Connect this property",
+  change: "Read this property",
+  loading: "Looking up what it can see…",
+  newHint: "Nothing is read until you choose. Cancel disconnects it and deletes what YouGrow stored for it.",
+  changeHint: "Pick another to change what it reads. Who can read it and its history stay.",
+  noneSignedIn: "This Google account can't see any properties here. Sign in again with the account that can.",
+  adminsOnly: "Only admins choose what a connection reads. Ask an admin on your team.",
+  gone: "This connection isn't waiting for a property. Start again from Browse.",
+} as const;
+
+const bareHost = (h: string) => h.trim().toLowerCase().replace(/\.$/, "").replace(/^www\./, "");
+const HOST_IN_TEXT = /(?:^|[\s(])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63})(?=$|[\s),/])/i;
+
+/**
+ * The website a site or property is on, when it says: a Search Console domain property
+ * (sc-domain:acme.example), a URL prefix property, or a host in a property's name. Null when it
+ * doesn't say, as a Google Analytics property named "Acme website" doesn't.
+ */
+export function accountHost(a: { id: string; label: string }): string | null {
+  if (a.id.startsWith("sc-domain:")) return bareHost(a.id.slice("sc-domain:".length)) || null;
+  if (/^https?:\/\//i.test(a.id)) {
+    try {
+      return bareHost(new URL(a.id).hostname) || null;
+    } catch {
+      return null;
+    }
+  }
+  const m = HOST_IN_TEXT.exec(a.label);
+  return m ? bareHost(m[1]!) : null;
+}
+
+/** True when two hosts are the same site: equal, or one inside the other (shop.acme.example and acme.example). */
+export function sameSite(host: string, root: string): boolean {
+  const a = bareHost(host);
+  const b = bareHost(root);
+  return a === b || a.endsWith(`.${b}`) || b.endsWith(`.${a}`);
+}
+
+/**
+ * The note beside a site or property that isn't on the brand's own website (its root domain).
+ * It never blocks the pick. None when the brand has no root domain, or the property doesn't say
+ * which website it is on.
+ */
+export function domainNote(a: { id: string; label: string }, rootDomain: string | null | undefined): string | null {
+  const root = rootDomain ? bareHost(rootDomain) : "";
+  if (!root) return null;
+  const host = accountHost(a);
+  if (!host || sameSite(host, root)) return null;
+  return `Not on ${root}, this brand's site. You can still choose it.`;
+}
+
+/** Which one starts chosen: what it reads now, else the first on the brand's own site, else the only one. */
+export function preselected(accounts: ReadonlyArray<{ id: string; label: string }>, current: string, rootDomain: string | null | undefined): string | null {
+  if (current && accounts.some((a) => a.id === current)) return current;
+  const root = rootDomain ? bareHost(rootDomain) : "";
+  if (root) {
+    const mine = accounts.find((a) => {
+      const host = accountHost(a);
+      return host !== null && sameSite(host, root);
+    });
+    if (mine) return mine.id;
+  }
+  return accounts.length === 1 ? accounts[0]!.id : null;
+}
+
+/** The manifest's own line about the list a sign in or address can see (which ones are left out). */
+export function listedNoteOf(listing: Pick<ConnectorListing, "shares">): string | null {
+  return listing.shares.find((s) => s.direction === "read" && /can see/.test(s.what))?.where ?? null;
+}

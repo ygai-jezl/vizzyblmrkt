@@ -464,11 +464,11 @@ export function needsAttention(connections: readonly ConnectionView[]): Connecti
 
 /**
  * The connection Connected's panel opens on, chosen once when the page is drawn and then kept in
- * the page's state: the first needing attention, else the first listed, else none.
+ * the page's state: the first row shown, as the approved Connected screen opens on its first row
+ * while another needs attention (that one has its banner and Reconnect above the table), else none.
  */
 export function firstSelected(connections: readonly ConnectionView[]): string | null {
-  const live = connections.filter((c) => c.status === "connected");
-  return (needsAttention(live)[0] ?? live[0])?.id ?? null;
+  return connections.find((c) => c.status === "connected")?.id ?? null;
 }
 
 /**

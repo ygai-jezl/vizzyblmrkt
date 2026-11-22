@@ -81,13 +81,23 @@ describe("Connected, for an admin", () => {
     expect(text).toContain("Cloudflare Zone 012345…cdef API token Someone else YouGrow · 48 minutes ago Admins Needs attention");
   });
 
-  it("opens the connection needing attention first, with who may read it, Check now, Pause and Disconnect", () => {
+  it("opens the first row, as the approved screen, while another needs attention under its banner", () => {
     const html = render();
     const text = textOf(html);
-    expect(text).toContain(`Cloudflare · Zone 012345…cdef Needs attention ${REFUSED}`);
+    expect(text).toContain("Google Search Console · acme.example (whole domain) Working");
+    expect(text).not.toContain(`Cloudflare · Zone 012345…cdef Needs attention ${REFUSED}`);
     expect(text).toContain(`${CONNECTED_COPY.grantsLead} ${CONNECTED_COPY.members} ${CONNECTED_COPY.vizzy}`);
-    expect(text).toContain("Check now Pause Disconnect");
+    expect(text).toContain("Check now Pause Change property Disconnect");
     expect(text).toContain(CONNECTED_COPY.manageHint);
+    // Search Console lets members and Vizzy read it, so both boxes are ticked.
+    expect(html.match(/type="checkbox"[^>]*checked/g)).toHaveLength(2);
+  });
+
+  it("opens a connection needing attention when it is the first row, with who may read it, Check now, Pause and Disconnect", () => {
+    const html = render({ connections: [CF, SC] });
+    const text = textOf(html);
+    expect(text).toContain(`Cloudflare · Zone 012345…cdef Needs attention ${REFUSED}`);
+    expect(text).toContain("Check now Pause Disconnect");
     expect(html).not.toMatch(/type="checkbox"[^>]*checked/);
   });
 
@@ -121,7 +131,7 @@ describe("Connected, for an admin", () => {
     expect(html).toMatch(/<button[^>]*>Reconnect<\/button>/);
     expect(text).toContain("Google Analytics is connected, but reads nothing until a property is chosen. Choose a property");
     expect(html).toContain('href="/admin/account/connections/google-analytics/pick?connection=dcn_shshshshshshshshshsh"');
-    // The first needing attention opens: the sign in.
+    // The first row opens: the sign in.
     expect(text).toContain("Change property");
     const sharedOnly = textOf(render({ connections: [shared] }));
     expect(sharedOnly).toContain("Google address ygc-made-up@connect.example.iam.gserviceaccount.com Check access");
@@ -172,7 +182,10 @@ describe("Connected's panel stays on the connection acted on", () => {
   }
 
   it("selects the first shown connection explicitly when the page is drawn", () => {
-    expect(firstSelected([SC, CF])).toBe(CF.id);
+    // The first row, though Cloudflare needs attention: as the approved Connected screen.
+    expect(firstSelected([SC, CF])).toBe(SC.id);
+    expect(firstSelected([CF, SC])).toBe(CF.id);
+    expect(firstSelected([{ ...SC, status: "disconnected" }, CF])).toBe(CF.id);
     expect(firstSelected([SC])).toBe(SC.id);
     expect(firstSelected([{ ...SC, status: "disconnected" }])).toBeNull();
     expect(selectedOf([SC, CF], null)).toBeNull();
@@ -181,6 +194,8 @@ describe("Connected's panel stays on the connection acted on", () => {
 
   it("stays on Cloudflare after Check now fixes it, though the old fallback would have opened Search Console", async () => {
     const p = page([SC, CF], [ok({ connection: healed, check: { ok: true, message: null } })]);
+    // The admin opens Cloudflare, which needs attention.
+    p.state.selected = CF.id;
     expect(p.shown()).toBe(CF.id);
     await p.act.check(CF);
     expect(p.shown()).toBe(CF.id);
@@ -228,6 +243,7 @@ describe("Connected's panel stays on the connection acted on", () => {
     expect(p.shown()).toBeNull();
     expect(p.state.note).toEqual({ tone: "ok", text: `Cloudflare for acme.example is disconnected. ${message}` });
     const no = page([SC, CF], [], false);
+    no.state.selected = CF.id;
     await no.act.disconnect(CF);
     expect(no.state.calls).toEqual([]);
     expect(no.shown()).toBe(CF.id);

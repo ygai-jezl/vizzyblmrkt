@@ -21,8 +21,17 @@ export interface ConnectorHelp {
   /** Every number it gives, with its meaning. */
   numbers: Array<{ name: string; definition: string; caveat: string | null }>;
   lag: string;
-  /** How to connect with a pasted token, when it can. */
-  token: { permissions: string[]; steps: string[]; link: string | null; fields: Array<{ label: string; help: string | null }> } | null;
+  /**
+   * How to connect with a pasted token, when it can. `pick` is set when the account is picked from
+   * a list after Check, with the note shown when the token can't list them and the field typed instead.
+   */
+  token: {
+    permissions: string[];
+    steps: string[];
+    link: string | null;
+    fields: Array<{ label: string; help: string | null }>;
+    pick: { label: string; cantList: string; typed: string } | null;
+  } | null;
   /** How to connect by signing in with Google, when it can: the steps and what it reads. */
   signIn: { steps: string[]; reads: string[] } | null;
   /** How to connect by sharing access, when it can: the role to give, the steps and what it reads. */
@@ -61,7 +70,13 @@ export function connectorHelp(m: ConnectorManifest): ConnectorHelp {
     lag: lagWords(lag),
     token:
       token && token.method === "token_fields"
-        ? { permissions: token.permissions, steps: token.steps, link: token.tokenLink ?? null, fields: token.fields.map((f) => ({ label: f.label, help: f.help ?? null })) }
+        ? {
+            permissions: token.permissions,
+            steps: token.steps,
+            link: token.tokenLink ?? null,
+            fields: token.fields.map((f) => ({ label: f.label, help: f.help ?? null })),
+            pick: token.pick ? { label: token.pick.label, cantList: token.pick.cantList, typed: token.fields.find((f) => f.key === token.account)?.label ?? "" } : null,
+          }
         : null,
     signIn: signIn ? { steps: signInSteps(m), reads: m.shares.filter((s) => s.direction === "read" && s.needs.some((n) => signIn.scopes.includes(n))).map((s) => s.what) } : null,
     share: share

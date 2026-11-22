@@ -5,11 +5,13 @@ import { isConnectorsChatEnabled } from "@/lib/connectors/flags";
 import { connectedDataHelp, type ConnectorHelp } from "@/lib/connectors/helpText";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
-/** "Google Search Console, Google Analytics 4 and Cloudflare". */
-function names(list: readonly ConnectorHelp[]): string {
-  const n = list.map((c) => c.name);
-  return n.length <= 1 ? (n[0] ?? "") : `${n.slice(0, -1).join(", ")} and ${n.at(-1)}`;
+/** "A and B", or "A, B and C". */
+function andList(items: readonly string[]): string {
+  return items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
 }
+
+/** "Google Search Console, Google Analytics 4 and Cloudflare". */
+const names = (list: readonly ConnectorHelp[]) => andList(list.map((c) => c.name));
 
 function ConnectorSection({ c }: { c: ConnectorHelp }) {
   return (
@@ -228,6 +230,9 @@ export default function ConnectedDataHelp({ connectorsChat = isConnectorsChatEna
           [SCREEN_COPY.noConnectors, "Each connector has a switch of its own. Whoever runs your copy turns on the ones you need."],
           [help.messages.token_refused, "Make a new token with the same permission, then press Reconnect on Connected and paste it."],
           [help.messages.account_refused, "Check the Zone ID, and that the token includes that site, then connect again."],
+          ...help.connectors.flatMap((c): Array<[string, string]> =>
+            c.token?.pick ? [[c.token.pick.cantList, `Type the ${c.token.pick.typed}, or make the token again with ${andList(c.token.permissions)} to pick from a list.`]] : [],
+          ),
           [help.signIn.message, "Press Reconnect on Connected and sign in with the same Google account. Its property, who can read it and its history stay."],
           [help.messages.share_not_visible, "Add the address in your property exactly as shown, with the role shown, then press Check access again."],
           [help.messages.share_pending, "Wait a minute, then press Check access again."],

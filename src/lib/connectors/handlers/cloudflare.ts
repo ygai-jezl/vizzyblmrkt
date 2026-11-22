@@ -1,6 +1,6 @@
 import type { ConnectorErrorCode } from "../messages";
 import { connectorFetch, type ConnectorResponse } from "../safeFetch";
-import type { HookFailure, LiveHook, LiveRow, VerifyHook } from "./types";
+import type { AccountsHook, ConnectorAccount, HookFailure, LiveHook, LiveRow, VerifyHook } from "./types";
 
 /**
  * Cloudflare's hooks, over its GraphQL Analytics API (developers.cloudflare.com/analytics/
@@ -13,6 +13,11 @@ import type { HookFailure, LiveHook, LiveRow, VerifyHook } from "./types";
  * - zoneDaily reads requests and page views from httpRequests1dGroups and visits from
  *   httpRequestsAdaptiveGroups (sum.visits, sampled, about 31 days kept on every plan). When only
  *   the visits part fails, the totals still come back, with visits empty and a note.
+ * - zones lists the zones a pasted token can see, for the picker on the Listing (GET
+ *   /client/v4/zones, which needs Zone Read; at most 50 a page, so at most 4 pages). This one is
+ *   REST: it answers `success`, `errors` with numeric codes, `result` and `result_info`. A token
+ *   Cloudflare doesn't accept at all is token_refused; one that may not list zones (403, or no
+ *   zones listed) means the Zone ID is typed instead, and Connect checks the token with it.
  *
  * Variables carry every value from outside; the query text is fixed but for a row limit that is
  * an integer checked here.
@@ -172,4 +177,60 @@ export const zoneDaily: LiveHook = async (input, deps) => {
   if (query.to >= input.today) notes.push("Today's numbers are still coming in.");
   const rows = [...byDay.values()].filter((r) => (r.day as string) >= query.from && (r.day as string) <= query.to).sort((a, b) => String(a.day).localeCompare(String(b.day)));
   return { ok: true, rows: rows.slice(0, limit), notes };
+};
+
+const ZONES = "https://api.cloudflare.com/client/v4/zones";
+/** Cloudflare lists at most 50 zones a page. */
+const ZONES_PER_PAGE = 50;
+/** The most zones the picker shows (4 pages); past that, the Zone ID can be typed. */
+export const MAX_ZONES = 200;
+/**
+ * Cloudflare's codes for a token it doesn't accept at all (Invalid API Token, and an Authorization
+ * header it can't read), as against one that is fine but may not list zones (9109, 10000).
+ */
+const TOKEN_CODES: ReadonlySet<number> = new Set([1000, 6003, 6111]);
+const ZONE_ID = /^[0-9a-f]{32}$/;
+
+function restCodes(body: unknown): number[] {
+  const errors = (body as { errors?: unknown } | null)?.errors;
+  if (!Array.isArray(errors)) return [];
+  return errors.map((e) => (e as { code?: unknown } | null)?.code).filter((c): c is number => typeof c === "number");
+}
+
+/** A failed zones list: a token Cloudflare refuses outright, one that may not list (403), or the call's own code. */
+function zonesFailure(res: Extract<ConnectorResponse, { ok: false }>): HookFailure {
+  if (res.status === 401 || restCodes(res.body).some((c) => TOKEN_CODES.has(c))) return { ok: false, code: "token_refused", retryAfterSec: null };
+  if (res.status === 403) return { ok: false, code: "account_refused", retryAfterSec: null };
+  return { ok: false, code: res.code, retryAfterSec: res.retryAfterSec };
+}
+
+/** The zones in one page of the list, and how many pages there are, or null when it isn't a list. */
+export function zonePage(body: unknown): { zones: ConnectorAccount[]; pages: number } | null {
+  const b = body as { success?: unknown; result?: unknown; result_info?: { total_pages?: unknown } } | null;
+  if (!b || b.success !== true || !Array.isArray(b.result)) return null;
+  const zones: ConnectorAccount[] = [];
+  for (const z of b.result as Array<{ id?: unknown; name?: unknown; status?: unknown }>) {
+    if (typeof z?.id !== "string" || !ZONE_ID.test(z.id) || typeof z.name !== "string" || !z.name || z.name.length > 253) continue;
+    zones.push({ id: z.id, label: z.name, detail: z.status === "active" ? null : "Not active in Cloudflare yet" });
+  }
+  const pages = b.result_info?.total_pages;
+  return { zones, pages: typeof pages === "number" && Number.isFinite(pages) && pages >= 1 ? pages : 1 };
+}
+
+export const zones: AccountsHook = async (input, deps) => {
+  const out: ConnectorAccount[] = [];
+  const lastPage = MAX_ZONES / ZONES_PER_PAGE;
+  for (let page = 1; page <= lastPage; page++) {
+    const res = await connectorFetch(
+      { manifest: input.manifest, connection: input.connection, url: `${ZONES}?page=${page}&per_page=${ZONES_PER_PAGE}&order=name&direction=asc`, method: "GET", token: input.token },
+      deps,
+    );
+    if (!res.ok) return zonesFailure(res);
+    if (restCodes(res.body).some((c) => TOKEN_CODES.has(c))) return { ok: false, code: "token_refused", retryAfterSec: null };
+    const listed = zonePage(res.body);
+    if (!listed) return { ok: false, code: "bad_response", retryAfterSec: null };
+    out.push(...listed.zones);
+    if (page >= listed.pages) return { ok: true, accounts: out.slice(0, MAX_ZONES), more: false };
+  }
+  return { ok: true, accounts: out.slice(0, MAX_ZONES), more: true };
 };

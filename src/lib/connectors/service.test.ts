@@ -3,7 +3,7 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { shapeRecordingFirestore } from "@/lib/tenant/testing/queryShape";
 import type { TenantContext } from "@/lib/tenant";
 import type { ConnectorActor } from "./grants";
-import { check, connect, disconnect, getForActor, listForActor, readLiveFor, setGrants, setPaused } from "./service";
+import { check, checkToken, connect, disconnect, getForActor, listAccounts, listForActor, readLiveFor, setGrants, setPaused } from "./service";
 
 // Cloudflare is never called: every provider call goes through a stub transport.
 const A: TenantContext = { tenantId: "ten_a", region: "us", source: "idtoken", userId: "usr_admin", role: "admin" };
@@ -78,6 +78,59 @@ describe("connect", () => {
   it("hides the connector with its switch off", async () => {
     vi.stubEnv("CONNECTOR_CLOUDFLARE_ENABLED", "false");
     expect(await connectOk()).toMatchObject({ status: 404 });
+  });
+});
+
+describe("checkToken, before connecting", () => {
+  const ZONES_OK = { success: true, errors: [], result: [{ id: ZONE, name: "acme.example", status: "active" }], result_info: { total_pages: 1 } };
+  const checkOk = (over: Record<string, unknown> = {}) => checkToken(A, admin, "cloudflare", { fields: { token: TOKEN } }, { ...deps(), ...over });
+
+  it("lists the zones the token can see, and saves, seals and logs nothing", async () => {
+    transport.mockResolvedValueOnce(answer(ZONES_OK));
+    const lines: string[] = [];
+    const r = await checkOk({ log: (l: string) => lines.push(l) });
+    expect(r).toEqual({ ok: true, status: 200, value: { accounts: [{ id: ZONE, label: "acme.example", detail: null }], more: false, listed: true } });
+    expect(transport).toHaveBeenCalledTimes(1);
+    expect(db.dump("data_connections")).toEqual([]);
+    expect(db.dump("data_connection_activity")).toEqual([]);
+    expect(JSON.stringify(r)).not.toContain(TOKEN);
+    expect(lines).toEqual([]);
+  });
+
+  it("answers listed: false when the token may not list zones, so the Zone ID is typed", async () => {
+    transport.mockResolvedValueOnce(answer({ success: false, errors: [{ code: 9109, message: "Unauthorized to access requested resource" }] }, 403));
+    expect(await checkOk()).toEqual({ ok: true, status: 200, value: { accounts: [], more: false, listed: false } });
+    transport.mockResolvedValueOnce(answer({ ...ZONES_OK, result: [] }));
+    expect(await checkOk()).toMatchObject({ ok: true, value: { listed: false } });
+    expect(db.dump("data_connections")).toEqual([]);
+  });
+
+  it("says a refused token is turned down, and logs only the host and the code", async () => {
+    transport.mockResolvedValueOnce(answer({ success: false, errors: [{ code: 1000, message: "Invalid API Token" }] }, 400));
+    const lines: string[] = [];
+    const r = await checkOk({ log: (l: string) => lines.push(l) });
+    expect(r).toMatchObject({ ok: false, status: 502, error: "token_refused", message: expect.stringContaining("turned the token down") });
+    expect(lines.join("\n")).not.toContain(TOKEN);
+    expect(lines.join("\n")).not.toContain("zones?");
+  });
+
+  it("takes only the token, and refuses a member, an unknown connector, no vault key and a busy brand before any call", async () => {
+    const zoneToo = await checkToken(A, admin, "cloudflare", { fields: { token: TOKEN, zoneId: ZONE } }, deps());
+    expect(zoneToo).toEqual({ ok: false, status: 400, error: "invalid_fields", message: "Check the fields sent: one isn't asked for here." });
+    expect(await checkToken(A, admin, "cloudflare", { fields: { token: "short" } }, deps())).toMatchObject({ status: 400, message: "Check API token." });
+    expect(await checkToken(A, admin, "cloudflare", "nope", deps())).toMatchObject({ status: 400, error: "invalid_input" });
+    expect(await checkToken(A, member, "cloudflare", { fields: { token: TOKEN } }, deps())).toMatchObject({ status: 403 });
+    expect(await checkToken(A, admin, "github", { fields: { token: TOKEN } }, deps())).toMatchObject({ status: 404 });
+    // A saved token connection keeps the zone it was connected with: the picker's list isn't for it.
+    await connectOk();
+    expect(await listAccounts(A, admin, ID, deps())).toMatchObject({ status: 400, error: "method_not_supported" });
+    transport.mockClear();
+    expect(await checkOk({ limit: async (_s: string, c: { prefix: string }) => c.prefix === "connector-check:cloudflare" })).toMatchObject({ status: 429, error: "busy" });
+    vi.stubEnv("CONNECTORS_VAULT_KEY", "");
+    expect(await checkOk()).toMatchObject({ status: 503, error: "vault_unconfigured" });
+    vi.stubEnv("CONNECTOR_CLOUDFLARE_ENABLED", "false");
+    expect(await checkOk()).toMatchObject({ status: 404 });
+    expect(transport).not.toHaveBeenCalled();
   });
 });
 

@@ -4,10 +4,11 @@ import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { HowToLink } from "@/components/help/HowToLink";
+import type { ConnectorAccount } from "@/lib/connectors/handlers/types";
 import type { ConnectionView, ConnectorListing } from "@/lib/connectors/service";
 import { callApi, ROUTES, startSignIn } from "./api";
 import { ConnectorTile } from "./BrowseView";
-import { connectWithToken } from "./tokenConnect";
+import { checkPastedToken, connectWithToken } from "./tokenConnect";
 import {
   BUTTON,
   BUTTON_PRIMARY,
@@ -22,12 +23,15 @@ import {
   TAG,
   TONE_CLASS,
   categoryLabel,
+  chosenAtFirst,
   connectorStatus,
   limitsOf,
+  moreListedWords,
   numbersOf,
   pickPath,
   readsOf,
   shareMethodOf,
+  tokenCheckedWords,
   tokenMethodOf,
   waitingShareOf,
   waitingSignInOf,
@@ -305,20 +309,61 @@ function TokenCard({
 }) {
   const router = useRouter();
   const method = tokenMethodOf(listing)!;
+  const pick = method.pick ?? null;
+  const accountField = method.fields.find((f) => f.key === method.account)!;
   const [values, setValues] = useState<Record<string, string>>(() =>
-    Object.fromEntries(method.fields.map((f) => [f.key, f.key === method.account && replace?.details ? replace.details.account : ""])),
+    Object.fromEntries(method.fields.map((f) => [f.key, f.key === method.account && replace?.details && !pick ? replace.details.account : ""])),
   );
-  const [busy, setBusy] = useState(false);
+  /** After Check, on a Listing that picks from a list: what the token can see, or that the account is typed. */
+  const [checked, setChecked] = useState<{ accounts: ConnectorAccount[]; more: boolean } | null>(null);
+  const [typing, setTyping] = useState(false);
+  const [busy, setBusy] = useState<"check" | "connect" | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** Connected, but who can read it didn't carry over: the form is done, so it can't connect twice. */
   const [lost, setLost] = useState<string | null>(null);
-  // Connect waits for the page's script: a form sent before it would go by the browser alone.
+  // Check and Connect wait for the page's script: a form sent before it would go by the browser alone.
   const [ready, setReady] = useState(false);
   useEffect(() => setReady(true), []);
 
+  /** A pick Listing shows the account only after Check: from the list, or typed when it can't list. */
+  const stage = !pick ? "all" : !checked ? "token" : typing || !checked.accounts.length ? "typed" : "listed";
+  const shown = method.fields.filter((f) => stage === "all" || f.secret || (stage === "typed" && f.key === method.account));
+  const set = (key: string, value: string) => {
+    // A changed token has to be checked again before it connects.
+    const recheck = Boolean(pick && method.fields.find((f) => f.key === key)?.secret);
+    setValues((v) => ({ ...v, [key]: value, ...(recheck ? { [method.account]: "" } : {}) }));
+    if (recheck) {
+      setChecked(null);
+      setTyping(false);
+    }
+  };
+  /** Switch between the list and typing the account, so the list never shows one it doesn't have. */
+  const typeInstead = (on: boolean) => {
+    setTyping(on);
+    setValues((v) => ({ ...v, [method.account]: on ? "" : chosenAtFirst(checked?.accounts ?? [], replace?.details?.account) }));
+  };
+
+  async function check() {
+    setBusy("check");
+    setError(null);
+    const secrets = Object.fromEntries(method.fields.filter((f) => f.secret).map((f) => [f.key, values[f.key] ?? ""]));
+    const r = await checkPastedToken(listing.id, secrets);
+    setBusy(null);
+    if (r.kind === "refused") {
+      setError(r.message);
+      return;
+    }
+    const accounts = r.kind === "listed" ? r.accounts : [];
+    setChecked({ accounts, more: r.kind === "listed" && r.more });
+    setTyping(false);
+    // A Reconnect starts on the zone it replaces, picked from the list or typed in.
+    setValues((v) => ({ ...v, [method.account]: r.kind === "listed" ? chosenAtFirst(accounts, replace?.details?.account) : (replace?.details?.account ?? "") }));
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault();
-    setBusy(true);
+    if (stage === "token") return check();
+    setBusy("connect");
     setError(null);
     const r = await connectWithToken(listing.id, values, replace, chat);
     if (r.kind === "connected") {
@@ -326,7 +371,7 @@ function TokenCard({
       router.refresh();
       return;
     }
-    setBusy(false);
+    setBusy(null);
     if (r.kind === "refused") {
       setError(r.message);
       return;
@@ -334,6 +379,9 @@ function TokenCard({
     setLost(r.message);
     router.refresh();
   }
+
+  const input = "h-9 w-full rounded-md border border-neutral-300 bg-transparent px-3 font-mono text-sm dark:border-neutral-700";
+  const chosen = values[method.account] ?? "";
 
   return (
     // A token never goes in an address: the fields have no name, so the browser has nothing to send
@@ -362,7 +410,7 @@ function TokenCard({
         </p>
       ) : isAdmin ? (
         <>
-          {method.fields.map((f) => (
+          {shown.map((f) => (
             <div key={f.key} className="space-y-1">
               <label htmlFor={`field-${f.key}`} className="block text-sm font-medium">
                 {f.label}
@@ -376,21 +424,63 @@ function TokenCard({
                 minLength={f.minLength}
                 maxLength={f.maxLength}
                 value={values[f.key] ?? ""}
-                onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
-                className="h-9 w-full rounded-md border border-neutral-300 bg-transparent px-3 font-mono text-sm dark:border-neutral-700"
+                onChange={(e) => set(f.key, e.target.value)}
+                className={input}
               />
               {f.help ? <p className={HINT}>{f.help}</p> : null}
             </div>
           ))}
-          <p className={HINT}>{LISTING_COPY.tokenCheck}</p>
+          {stage === "listed" && checked ? (
+            <div className="space-y-1">
+              <label htmlFor={`field-${method.account}`} className="block text-sm font-medium">
+                {pick!.label}
+              </label>
+              <select id={`field-${method.account}`} required value={chosen} onChange={(e) => set(method.account, e.target.value)} className={input}>
+                {chosen ? null : (
+                  <option value="" disabled>
+                    {LISTING_COPY.chooseOne}
+                  </option>
+                )}
+                {checked.accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.detail ? `${a.label} (${a.detail})` : a.label}
+                  </option>
+                ))}
+              </select>
+              <p className={HINT}>{LISTING_COPY.listedHint}</p>
+              {checked.more ? (
+                <p className={HINT}>
+                  {moreListedWords(listing.name, accountField.label)}{" "}
+                  <button type="button" className="font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-400" onClick={() => typeInstead(true)}>
+                    Type the {accountField.label}
+                  </button>
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+          {stage === "listed" && checked ? (
+            <p role="status" className={NOTE_OK}>
+              {tokenCheckedWords(checked.accounts, chosen)}
+            </p>
+          ) : stage === "typed" && checked && !checked.accounts.length ? (
+            <p role="status" className={NOTE_WARN}>
+              {pick!.cantList}
+            </p>
+          ) : stage === "typed" && checked ? (
+            <button type="button" className="text-sm font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-400" onClick={() => typeInstead(false)}>
+              {LISTING_COPY.pickFromList}
+            </button>
+          ) : (
+            <p className={HINT}>{stage === "token" ? LISTING_COPY.checkFirst : LISTING_COPY.tokenCheck}</p>
+          )}
           {error ? (
             <p role="alert" className={NOTE_ERR}>
               {error}
             </p>
           ) : null}
           <div className="flex flex-wrap gap-2">
-            <button type="submit" className={BUTTON_PRIMARY} disabled={busy || !ready}>
-              {busy ? "Checking the token…" : "Connect"}
+            <button type="submit" className={BUTTON_PRIMARY} disabled={busy !== null || !ready || (stage !== "token" && stage !== "all" && !chosen)}>
+              {stage === "token" ? (busy === "check" ? LISTING_COPY.checking : LISTING_COPY.check) : busy === "connect" ? "Checking the token…" : "Connect"}
             </button>
             <Link href="/admin/account/connections/browse" className={BUTTON}>
               Cancel

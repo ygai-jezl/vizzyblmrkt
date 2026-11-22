@@ -229,20 +229,26 @@ export const ConnectBodySchema = z
   .strict();
 
 /**
- * The typed fields, checked against the manifest. A refusal names the manifest's own labels for
- * the fields that failed, never a value, and never echoes a key the manifest doesn't have.
+ * The typed fields, checked against the manifest: all of them to connect, or only the secrets to
+ * check a token before connecting. A refusal names the manifest's own labels for the fields that
+ * failed, never a value, and never echoes a key the manifest doesn't have.
  */
-export function checkFields(m: ConnectorManifest, raw: Record<string, string>): { ok: true; values: Record<string, string> } | { ok: false; labels: string[] } {
+export function checkFields(
+  m: ConnectorManifest,
+  raw: Record<string, string>,
+  which: "all" | "secrets" = "all",
+): { ok: true; values: Record<string, string> } | { ok: false; labels: string[] } {
   const method = tokenMethod(m);
   if (!method) return { ok: false, labels: [] };
+  const fields = method.fields.filter((f) => which === "all" || f.secret);
   const labels: string[] = [];
   const values: Record<string, string> = {};
-  for (const f of method.fields) {
+  for (const f of fields) {
     const v = (raw[f.key] ?? "").trim();
     if (v.length < f.minLength || v.length > f.maxLength || !new RegExp(f.pattern).test(v)) labels.push(f.label);
     else values[f.key] = v;
   }
-  if (Object.keys(raw).some((k) => !method.fields.some((f) => f.key === k))) labels.push("the fields sent: one isn't asked for here");
+  if (Object.keys(raw).some((k) => !fields.some((f) => f.key === k))) labels.push("the fields sent: one isn't asked for here");
   return labels.length ? { ok: false, labels } : { ok: true, values };
 }
 
@@ -313,6 +319,63 @@ export async function connect(ctx: TenantContext, actor: ConnectorActor, connect
     deps.db,
   );
   return { ok: true, status: 201, value: viewOf(conn, actor, now) };
+}
+
+// --- Check a token before connecting -----------------------------------------------------------
+
+export const CheckTokenBodySchema = z
+  .object({ fields: z.record(z.string().max(64), z.string().max(4096)).refine((f) => Object.keys(f).length <= 10, "too many fields") })
+  .strict();
+
+export interface TokenCheck {
+  /** What the token can see, for the picker (Cloudflare's zones); [] when it can't list them. */
+  accounts: ConnectorAccount[];
+  /** The provider listed more than the picker shows: the account can be typed instead. */
+  more: boolean;
+  /** False when the token can't list them, so the account is typed instead (a Zone ID). */
+  listed: boolean;
+}
+
+/** Token checks one brand may make for one connector: each is a call with a pasted token. */
+const TOKEN_CHECK_LIMIT = { burst: 5, hourly: 30 };
+
+/**
+ * The stand in for the connection a token check has none of: safe fetch rate limits its calls
+ * under this id for the brand, and it is never paused.
+ */
+const CHECK_CONNECTION_ID = "check";
+
+/**
+ * Check a pasted token before anything is saved, and list what it can see for the picker
+ * (Cloudflare's zones, through the manifest's accounts hook). A token that is fine but can't list
+ * them answers listed: false, so the account is typed and Connect checks the token with it. Only
+ * the secret fields come in; nothing is stored, sealed or written to any log, and the token is
+ * used for this one call. Admins only, with the same switch, vault and connector checks as
+ * connect, and rate limited per brand.
+ */
+export async function checkToken(ctx: TenantContext, actor: ConnectorActor, connectorId: string, body: unknown, deps: ServiceDeps = {}): Promise<ServiceResult<TokenCheck>> {
+  const m = getConnector(connectorId);
+  if (!m) return refuse(404, "not_found");
+  if (!can(actor, "connect")) return refuse(403, "forbidden");
+  const method = tokenMethod(m);
+  const hook = method?.pick && m.hooks.accounts ? ACCOUNT_HOOKS[m.hooks.accounts] : undefined;
+  if (!method || !hook) return refuse(400, "method_not_supported");
+  const parsed = CheckTokenBodySchema.safeParse(body);
+  if (!parsed.success) return refuse(400, "invalid_input");
+  const fields = checkFields(m, parsed.data.fields, "secrets");
+  if (!fields.ok) return { ok: false, status: 400, error: "invalid_fields", message: `Check ${fields.labels.join(", and ")}.` };
+  if (!isVaultConfigured()) return providerRefusal("vault_unconfigured");
+
+  const limit = deps.limit ?? ((subject: string, config: Parameters<typeof isRateLimited>[1]) => isRateLimited(subject, config));
+  if (await limit(ctx.tenantId, { prefix: `connector-check:${m.id}`, burstLimit: TOKEN_CHECK_LIMIT.burst, hourlyLimit: TOKEN_CHECK_LIMIT.hourly })) return providerRefusal("busy");
+
+  const connection = { id: CHECK_CONNECTION_ID, tenantId: ctx.tenantId, pausedAt: null, health: healthyAt(nowOf(deps)) };
+  const r = await hook({ manifest: m, connection, account: "", token: fields.values[method.auth.field]! }, deps);
+  if (!r.ok) {
+    if (r.code === "account_refused") return { ok: true, status: 200, value: { accounts: [], more: false, listed: false } };
+    return providerRefusal(r.code);
+  }
+  return { ok: true, status: 200, value: { accounts: r.accounts, more: r.more, listed: r.accounts.length > 0 } };
 }
 
 // --- Calls that use the stored secret ---------------------------------------------------------
@@ -457,7 +520,8 @@ export async function listAccounts(ctx: TenantContext, actor: ConnectorActor, id
   const u = await usable(ctx, actor, id, "check", deps);
   if (!u.ok) return u.result;
   const hook = u.manifest.hooks.accounts ? ACCOUNT_HOOKS[u.manifest.hooks.accounts] : undefined;
-  if (!hook) return refuse(400, "method_not_supported");
+  // A token connection picks its account before it is saved (checkToken) and never changes it here.
+  if (!hook || u.conn.method === "token_fields") return refuse(400, "method_not_supported");
   const now = nowOf(deps);
   const r = forMethod(u.conn.method, await hook({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token }, deps));
   if (!r.ok) {

@@ -94,8 +94,10 @@ Decisions:
   errors, so the `errors` array is read first. Requests and page views come from
   `httpRequests1dGroups`; visits only from `httpRequestsAdaptiveGroups` (`sum.visits`, sampled,
   about 31 days on every plan), so when only that part fails the totals come back with a note. The
-  token needs one permission, Zone, Analytics, Read, from a pre-filled link. Disconnect deletes the
-  stored token; Cloudflare can't cancel it for us, so the answer says to delete it there.
+  token needs Zone Analytics Read, and Zone Read to list the zones it can see (see Cloudflare's
+  Listing under Screens), both filled in by a pre-filled link (keys `analytics` and `zone`).
+  Disconnect deletes the stored token; Cloudflare can't cancel it for us, so the answer says to
+  delete it there.
 - **Live reads** are bounded: at most 93 days and 100 rows, a fixed list of dimensions per stream,
   page paths without query strings, and every number with its meaning. A number with no meaning is
   dropped.
@@ -285,7 +287,8 @@ Developer Knowledge MCP.
 ### Screens
 
 Built from the approved Design canvas (Browse, the Search Console and Cloudflare Listings, the
-picker and Connected), in the app's own Tailwind. No new route: every screen calls the routes above.
+picker and Connected), in the app's own Tailwind. Every screen calls the routes above, and
+Cloudflare's Listing adds one, the token check below.
 Hidden while `NEXT_PUBLIC_CONNECTORS_ENABLED` is off; a connector's card and Listing only while its
 own switch is on and a way to connect is ready (the list route already decides that).
 
@@ -302,6 +305,18 @@ own switch is on and a way to connect is ready (the list route already decides t
   back to the Listing; a new one goes on to the picker. A token can't be replaced in place (connect
   refuses an account already connected), so Reconnect on a turned down token disconnects it, connects
   the new one and copies its grants.
+- **Cloudflare's Listing is token first, as its approved mockup** (owner, 22 Nov; the first build
+  typed the Zone ID beside the token). The admin pastes the token and presses Check:
+  `POST /api/admin/connectors/[connectorId]/check` (admins only, behind the switch and gate connect
+  uses, the vault checked, rate limited per brand) runs the manifest's `accounts` hook,
+  `cloudflare.zones` (`GET /client/v4/zones`, which needs Zone Read, at most 4 pages of 50), with the
+  token for that one call. Nothing is saved, sealed or logged beyond safe fetch's host and code, and
+  the token is never sent back. The admin picks a zone from the list, and Connect checks the token
+  against it with the zone probe before saving, as before. A token Cloudflare refuses outright
+  (401, or codes 1000, 6003 and 6111) is turned down; one that may not list zones (403, or none
+  listed) falls back to a typed Zone ID with a short note, and so does a zone past the 200 listed. A
+  token method picks from a list when its manifest gives `pick` (the list's label and that note),
+  which needs `hooks.accounts`. Account Analytics Read isn't asked for: nothing reads with it.
 - **The picker** lists what the sign in or address sees and marks, never blocks, one whose website
   isn't the brand's root domain; with no root domain, or a property whose name doesn't say its
   website, nothing is marked. Cancel on a new connection disconnects it.

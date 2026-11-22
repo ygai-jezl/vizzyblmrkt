@@ -153,6 +153,13 @@ export const LISTING_COPY = {
   copied: "Copied",
   tokenTitle: "Connect with an API token",
   tokenCheck: "YouGrow checks the token before anything is saved.",
+  check: "Check",
+  checking: "Checking the token…",
+  checkFirst: "Press Check: YouGrow checks the token and lists what it can read. Nothing is saved until you press Connect.",
+  listedHint: "Listed after the token is checked.",
+  chooseOne: "Choose one",
+  checkedChoose: "Token checked. Choose one from the list. Nothing is saved until you press Connect.",
+  pickFromList: "Pick from the list",
   tokenReconnect:
     "Connecting again replaces the connection whose token was turned down: YouGrow disconnects it first, then checks the new token. Once the new token works, who can read it carries over.",
   tokenRetry: "The old connection is disconnected now. Try again without leaving this page, and who can read it still carries over.",
@@ -192,6 +199,21 @@ export function signInReasonWords(reason: string | null | undefined): string {
   return reason && Object.prototype.hasOwnProperty.call(SIGNIN_REASONS, reason) ? SIGNIN_REASONS[reason as keyof typeof SIGNIN_REASONS] : LISTING_COPY.signInFallback;
 }
 
+/** The note once a pasted token is checked and lists what it can see: the one chosen, by name. */
+export function tokenCheckedWords(accounts: ReadonlyArray<{ id: string; label: string }>, chosen: string): string {
+  const one = accounts.find((a) => a.id === chosen);
+  return one ? `Token checked: it can see ${one.label}. Nothing is saved until you press Connect.` : LISTING_COPY.checkedChoose;
+}
+
+/** Which one starts chosen after Check: the one a Reconnect replaces, else the only one, else none. */
+export function chosenAtFirst(accounts: ReadonlyArray<{ id: string }>, current: string | null | undefined): string {
+  if (current && accounts.some((a) => a.id === current)) return current;
+  return accounts.length === 1 ? accounts[0]!.id : "";
+}
+
+/** When the provider listed more than the picker shows: the account can still be typed. */
+export const moreListedWords = (name: string, field: string) => `${name} listed more than fit here. If yours isn't in the list, type its ${field} instead.`;
+
 /** "What it reads": the manifest's read lines, then what it never does. */
 export function readsOf(listing: Pick<ConnectorListing, "shares">): { rows: Array<{ what: string; detail: string; where: string }>; never: string[] } {
   return {
@@ -217,10 +239,16 @@ export function numbersOf(listing: Pick<ConnectorListing, "produces">): { number
 export const tokenMethodOf = (listing: Pick<ConnectorListing, "connect">) => listing.connect.find((c): c is TokenFieldsMethod => c.method === "token_fields") ?? null;
 export const shareMethodOf = (listing: Pick<ConnectorListing, "connect">) => listing.connect.find((c): c is ShareAccessMethod => c.method === "share_access") ?? null;
 
-/** The "You need" line: the token's permission, or access to the property for Google. */
+/** "A and B", or "A, B and C". */
+const andList = (items: readonly string[]) => (items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
+
+/** The "You need" line: the token's permissions, or access to the property for Google. */
 export function youNeedOf(listing: Pick<ConnectorListing, "name" | "connect" | "ready">): string {
   const token = listing.ready.includes("token_fields") ? tokenMethodOf(listing) : null;
-  if (token) return `A ${listing.name} account that can make API tokens, and a token with this permission: ${token.permissions.join(", ")}.`;
+  if (token) {
+    const which = token.permissions.length === 1 ? "this permission" : "these permissions";
+    return `A ${listing.name} account that can make API tokens, and a token with ${which}: ${andList(token.permissions)}.`;
+  }
   const share = listing.ready.includes("share_access");
   return share
     ? `Access to the site or property in ${listing.name}. To share access, someone who can add users to it.`

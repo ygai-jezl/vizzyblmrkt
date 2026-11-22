@@ -451,7 +451,11 @@ describe("Connected data", () => {
     const at = ["## Google Search Console", "## Google Analytics 4", "## Cloudflare"].map((name) => text.indexOf(name));
     expect(at.every((i) => i > 0)).toBe(true);
     expect(at).toEqual([...at].sort((a, b) => a - b));
-    expect(text).toContain("Give the token one permission: Zone, Analytics, Read.");
+    expect(text).toContain("Give the token two permissions: Zone Read, so YouGrow can list your zones, and Zone Analytics Read, so it can read their numbers.");
+    expect(text).toContain("Paste the token here and press Check. Pick your site's zone from the list, then press Connect.");
+    expect(text).toContain("**Zone ID**: Only when the token can't list your zones");
+    expect(text).toContain("This token can't list your zones (that needs Zone Read), so type your site's Zone ID instead.");
+    expect(text).toContain("Type the Zone ID, or make the token again with Zone Read and Zone Analytics Read to pick from a list.");
     expect(text).toContain("Open Google Search Console under Settings › Connections › Browse, then press Sign in with Google.");
     expect(text).toContain("The address gets the **Restricted** role");
     expect(text).toContain("The address gets the **Viewer** role");

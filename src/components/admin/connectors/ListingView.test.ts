@@ -11,7 +11,8 @@ vi.mock("next/link", () => ({
 }));
 const { ListingView } = await import("./ListingView");
 const { listingBanner } = await import("./listingBanner");
-const { LISTING_COPY, limitsOf, readsOf, replaceableOf, signInReasonWords, waitingShareOf, youNeedOf } = await import("./words");
+const { LISTING_COPY, chosenAtFirst, limitsOf, moreListedWords, readsOf, replaceableOf, signInReasonWords, tokenCheckedWords, waitingShareOf, youNeedOf } = await import("./words");
+const { checkPastedToken } = await import("./tokenConnect");
 
 type Props = Parameters<typeof ListingView>[0];
 const CF = listingFor("cloudflare", ["token_fields"]);
@@ -31,19 +32,30 @@ const SHARED = connectionView({
 });
 
 describe("the Cloudflare Listing", () => {
-  it("asks for the manifest's fields, with its steps and the filled in token link", () => {
+  it("asks for the token first, with its steps and the filled in token link, and Check before Connect", () => {
     const out = html({ listing: CF });
     const text = textOf(out);
     expect(text).toContain("Connect with an API token");
     expect(text).toContain("Built by YouGrow · Website and traffic · Ready");
-    expect(out).toContain('id="field-zoneId"');
     expect(out).toMatch(/id="field-token"[^>]*type="password"|type="password"[^>]*id="field-token"/);
-    expect(text).toContain("Give the token one permission: Zone, Analytics, Read.");
+    // The zone comes after Check: picked from what the token can see, or typed when it can't list.
+    expect(out).not.toContain('id="field-zoneId"');
+    expect(text).toContain("Give the token two permissions: Zone Read, so YouGrow can list your zones, and Zone Analytics Read, so it can read their numbers.");
+    expect(text).toContain("Paste the token here and press Check.");
     expect(out).toContain('href="https://dash.cloudflare.com/profile/api-tokens?');
     expect(text).toContain("Open Cloudflare with the form filled in");
-    expect(text).toContain(LISTING_COPY.tokenCheck);
+    expect(text).toContain(LISTING_COPY.checkFirst);
+    expect(out).toMatch(/<button type="submit"[^>]*>Check<\/button>/);
+    expect(text).not.toContain("Connect Cancel");
     expect(text).not.toContain("Sign in with Google");
     expect(text).not.toContain("Choose how to connect");
+  });
+
+  it("fills in Zone Read and Zone Analytics Read on Cloudflare's token form", () => {
+    const link = decodeURIComponent(CF.connect[0]!.method === "token_fields" ? (CF.connect[0]!.tokenLink ?? "") : "");
+    expect(link).toContain('{"key":"zone","type":"read"}');
+    expect(link).toContain('{"key":"analytics","type":"read"}');
+    expect(link).toMatch(/^https:\/\/dash\.cloudflare\.com\/profile\/api-tokens\?/);
   });
 
   it("puts its one way to connect straight under the name, with no heading level skipped", () => {
@@ -66,19 +78,74 @@ describe("the Cloudflare Listing", () => {
   it("says what it reads and never does, every number's meaning and the lag, from the manifest", () => {
     const text = textOf(html({ listing: CF }));
     expect(text).toContain("From Cloudflare What In YouGrow Daily totals for the zone requests, page views and visits Read live when you or Vizzy ask. Nothing is stored.");
+    expect(text).toContain("Your zones their names Listed when you press Check, so you can pick one. Not stored.");
     expect(text).toContain("Nothing is ever written to Cloudflare.");
     expect(text).toContain("Cloudflare requests");
     expect(text).toContain("A day's numbers are complete the next day.");
     expect(text).toContain(CF.disconnect);
-    expect(text).toContain("a token with this permission: Zone, Analytics, Read.");
+    expect(text).toContain("a token with these permissions: Zone Read and Zone Analytics Read.");
     expect(html({ listing: CF })).toContain('href="/help/connected-data#cloudflare"');
   });
 
-  it("explains a reconnect and fills in the zone of the connection it replaces", () => {
+  it("explains a reconnect, and starts on the zone of the connection it replaces once the token is checked", () => {
     const broken = connectionView({ health: { state: "broken", lastOkAt: null, lastCheckedAt: null, message: "x", pausedUntil: null } });
     const out = html({ listing: CF, connections: [broken], replace: broken });
     expect(textOf(out)).toContain(LISTING_COPY.tokenReconnect);
-    expect(out).toContain('value="0123456789abcdef0123456789abcdef"');
+    const zones = [
+      { id: "0123456789abcdef0123456789abcdef", label: "acme.example" },
+      { id: "fedcba9876543210fedcba9876543210", label: "shop.acme.example" },
+    ];
+    expect(chosenAtFirst(zones, broken.details!.account)).toBe("0123456789abcdef0123456789abcdef");
+    // A token Listing that doesn't pick from a list asks for every field at once, the account filled in.
+    const typed = { ...CF, connect: CF.connect.map((c) => (c.method === "token_fields" ? { ...c, pick: undefined } : c)) };
+    const all = html({ listing: typed, connections: [broken], replace: broken });
+    expect(all).toContain('id="field-zoneId"');
+    expect(all).toContain('value="0123456789abcdef0123456789abcdef"');
+    expect(textOf(all)).toContain(LISTING_COPY.tokenCheck);
+  });
+});
+
+describe("Check on the Cloudflare Listing", () => {
+  const zones = [
+    { id: "0123456789abcdef0123456789abcdef", label: "acme.example", detail: null },
+    { id: "fedcba9876543210fedcba9876543210", label: "shop.acme.example", detail: "Not active in Cloudflare yet" },
+  ];
+  const stub = (answer: { ok: true; data: unknown } | { ok: false; status: number; error: string; message: string }) => {
+    const calls: Array<{ url: string; body: unknown }> = [];
+    const call = (async (url: string, init?: { body?: unknown }) => {
+      calls.push({ url, body: init?.body });
+      return answer;
+    }) as Parameters<typeof checkPastedToken>[2];
+    return { call, calls };
+  };
+
+  it("sends only the token to the check route, and lists what it can see to pick from", async () => {
+    const { call, calls } = stub({ ok: true, data: { accounts: zones, more: false, listed: true } });
+    expect(await checkPastedToken("cloudflare", { token: "made-up-token-000000000000" }, call)).toEqual({ kind: "listed", accounts: zones, more: false });
+    expect(calls).toEqual([{ url: "/api/admin/connectors/cloudflare/check", body: { fields: { token: "made-up-token-000000000000" } } }]);
+  });
+
+  it("falls back to a typed Zone ID when the token can't list zones, and says why it was turned down", async () => {
+    expect(await checkPastedToken("cloudflare", { token: "x" }, stub({ ok: true, data: { accounts: [], more: false, listed: false } }).call)).toEqual({ kind: "typed" });
+    const refused = stub({ ok: false, status: 502, error: "token_refused", message: "Cloudflare turned the token down." });
+    expect(await checkPastedToken("cloudflare", { token: "x" }, refused.call)).toEqual({ kind: "refused", message: "Cloudflare turned the token down." });
+  });
+
+  it("names the zone chosen, and starts on the only one", () => {
+    expect(tokenCheckedWords(zones, zones[0]!.id)).toBe("Token checked: it can see acme.example. Nothing is saved until you press Connect.");
+    expect(tokenCheckedWords(zones, "")).toBe(LISTING_COPY.checkedChoose);
+    expect(chosenAtFirst([zones[0]!], null)).toBe(zones[0]!.id);
+    expect(chosenAtFirst(zones, null)).toBe("");
+    expect(chosenAtFirst(zones, "0000000000000000000000000000dead")).toBe("");
+    expect(moreListedWords("Cloudflare", "Zone ID")).toBe("Cloudflare listed more than fit here. If yours isn't in the list, type its Zone ID instead.");
+  });
+
+  it("says why the zone is typed in the manifest's own words", () => {
+    const method = CF.connect[0]!;
+    expect(method.method === "token_fields" && method.pick).toEqual({
+      label: "Zone",
+      cantList: "This token can't list your zones (that needs Zone Read), so type your site's Zone ID instead.",
+    });
   });
 });
 

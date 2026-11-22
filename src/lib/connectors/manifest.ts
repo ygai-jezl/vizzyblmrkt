@@ -21,7 +21,7 @@ import { MEANINGS } from "@/lib/metrics/meanings";
  *   (a MEANINGS key) and the shared keys it joins on.
  * - uses: what it plugs into in YouGrow.
  * - hooks: named handler ids, never functions: live reads a stream, and accounts lists what a
- *   signed in connection can see, for the picker.
+ *   signed in connection or a pasted token can see, for the picker.
  */
 
 /**
@@ -122,6 +122,12 @@ const TokenFieldsMethodSchema = z
     tokenLink: HttpsUrl.optional(),
     /** How to make the token, step by step. */
     steps: z.array(Copy()).min(1).max(10),
+    /**
+     * Pick the account from a list after Check, where the token can list them (hooks.accounts):
+     * the list's label, and the short note shown when the token can't list them, so the account
+     * field is typed instead. Without it, every field is typed and Connect checks them together.
+     */
+    pick: z.object({ label: Copy(60), cantList: Copy(200) }).strict().optional(),
   })
   .strict();
 
@@ -243,8 +249,9 @@ export const ConnectorManifestSchema = z
     produces: z.array(ProduceSchema).min(1).max(10),
     uses: z.array(z.enum(USES)).max(USES.length),
     /**
-     * live reads a stream; accounts lists what a signed in connection can see (sites,
-     * properties), for the picker. A connection that signs in needs accounts.
+     * live reads a stream; accounts lists what a signed in connection, or a pasted token before
+     * it is saved, can see (sites, properties, zones), for the picker. A connection that signs in
+     * needs accounts, and so does a token method that picks from a list.
      */
     hooks: z.object({ live: HookId, accounts: HookId.optional() }).strict(),
     /** What Disconnect can and can't do at the provider, for the screen and help. */
@@ -273,6 +280,8 @@ export const ConnectorManifestSchema = z
         const auth = c.fields.find((f) => f.key === c.auth.field);
         if (!auth || !auth.secret) ctx.addIssue({ code: "custom", message: "auth.field must name a secret field" });
         for (const p of c.permissions) if (!needs.has(p)) ctx.addIssue({ code: "custom", message: `the permission "${p}" has no shares line` });
+        // Picking from a list needs the hook that lists what the token can see.
+        if (c.pick && !m.hooks.accounts) ctx.addIssue({ code: "custom", message: "token_fields pick needs hooks.accounts, the list" });
       }
       if (c.method === "oauth_pkce" || c.method === "share_access") {
         for (const s of c.scopes) if (!needs.has(s)) ctx.addIssue({ code: "custom", message: `the scope ${s} has no shares line` });

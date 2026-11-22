@@ -1,4 +1,5 @@
-import type { ConnectionView } from "@/lib/connectors/service";
+import type { ConnectorAccount } from "@/lib/connectors/handlers/types";
+import type { ConnectionView, TokenCheck } from "@/lib/connectors/service";
 import { callApi, ROUTES, type ApiResult } from "./api";
 import { LISTING_COPY, grantsLostWords } from "./words";
 
@@ -39,4 +40,22 @@ export async function connectWithToken(
   if (kept.ok) return { kind: "connected" };
   const lost = grantsLostWords(grants, chat);
   return lost ? { kind: "grantsLost", message: lost } : { kind: "connected" };
+}
+
+export type TokenCheckOutcome =
+  /** The token works and lists what it can see: pick one. */
+  | { kind: "listed"; accounts: ConnectorAccount[]; more: boolean }
+  /** The token can't list them: type the account instead, and Connect checks the token with it. */
+  | { kind: "typed" }
+  /** The token was turned down, or the check didn't go through: say why. */
+  | { kind: "refused"; message: string };
+
+/**
+ * Check a pasted token before connecting (Check on a token Listing that picks from a list). Only
+ * the secret fields go; the route saves nothing.
+ */
+export async function checkPastedToken(connectorId: string, secrets: Record<string, string>, call: ApiCall = callApi): Promise<TokenCheckOutcome> {
+  const r = await call<TokenCheck>(ROUTES.checkToken(connectorId), { method: "POST", body: { fields: secrets } });
+  if (!r.ok) return { kind: "refused", message: r.message };
+  return r.data.listed && r.data.accounts.length ? { kind: "listed", accounts: r.data.accounts, more: r.data.more } : { kind: "typed" };
 }

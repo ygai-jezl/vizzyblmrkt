@@ -16,6 +16,7 @@ vi.mock("@/lib/tenant/firestore", async (importOriginal) => ({
 
 const list = await import("./route");
 const connectRoute = await import("./[connectorId]/connect/route");
+const tokenCheckRoute = await import("./[connectorId]/check/route");
 const one = await import("./connections/[connectionId]/route");
 const checkRoute = await import("./connections/[connectionId]/check/route");
 const pauseRoute = await import("./connections/[connectionId]/pause/route");
@@ -77,6 +78,7 @@ async function connected(): Promise<string> {
 const calls = (id: string) => ({
   list: () => list.GET(req("GET", "")),
   connect: () => connectRoute.POST(req("POST", "/cloudflare/connect", { fields: { zoneId: ZONE, token: TOKEN } }), p({ connectorId: "cloudflare" })),
+  checkToken: () => tokenCheckRoute.POST(req("POST", "/cloudflare/check", { fields: { token: TOKEN } }), p({ connectorId: "cloudflare" })),
   read: () => one.GET(req("GET", `/connections/${id}`), p({ connectionId: id })),
   disconnect: () => one.DELETE(req("DELETE", `/connections/${id}`), p({ connectionId: id })),
   check: () => checkRoute.POST(req("POST", `/connections/${id}/check`), p({ connectionId: id })),
@@ -84,7 +86,7 @@ const calls = (id: string) => ({
   grants: () => grantsRoute.PUT(req("PUT", `/connections/${id}/grants`, { grants: [{ to: "members", can: "read" }] }), p({ connectionId: id })),
   live: () => liveRoute.GET(req("GET", `/connections/${id}/live?stream=zone_daily&from=2026-11-20&to=2026-11-20`), p({ connectionId: id })),
 });
-const MANAGE = ["connect", "disconnect", "check", "pause", "grants"] as const;
+const MANAGE = ["connect", "checkToken", "disconnect", "check", "pause", "grants"] as const;
 
 describe("the connector routes", () => {
   it("answer 404 on every route with CONNECTORS_ENABLED off, before reading the session", async () => {
@@ -166,6 +168,24 @@ describe("the connector routes", () => {
     expect((await pauseRoute.POST(req("POST", `/connections/${id}/pause`, { paused: "yes" }), p({ connectionId: id }))).status).toBe(400);
     expect((await grantsRoute.PUT(req("PUT", `/connections/${id}/grants`, { grants: [{ to: "members", can: "write" }] }), p({ connectionId: id }))).status).toBe(400);
     expect((await liveRoute.GET(req("GET", `/connections/${id}/live?stream=zone_daily&from=2026-11-20`), p({ connectionId: id }))).status).toBe(400);
+  });
+
+  it("check a pasted token for an admin, listing its zones and saving nothing", async () => {
+    fetchMock.mockResolvedValue(answer({ success: true, errors: [], result: [{ id: ZONE, name: "acme.example", status: "active" }], result_info: { total_pages: 1 } }));
+    const res = await calls("unused").checkToken();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ accounts: [{ id: ZONE, label: "acme.example", detail: null }], more: false, listed: true });
+    expect(String(fetchMock.mock.calls[0]![0])).toMatch(/^https:\/\/api\.cloudflare\.com\/client\/v4\/zones\?/);
+    expect(db.dump("data_connections")).toEqual([]);
+    expect(JSON.stringify(body)).not.toContain(TOKEN);
+    fetchMock.mockResolvedValue(answer({ success: false, errors: [{ code: 1000, message: "Invalid API Token" }] }, 400));
+    const refused = await calls("unused").checkToken();
+    expect(refused.status).toBe(502);
+    expect(await refused.json()).toMatchObject({ error: "token_refused" });
+    const logged = (console.warn as unknown as { mock: { calls: unknown[][] } }).mock.calls.flat().map(String).join("\n");
+    expect(logged).not.toContain(TOKEN);
+    expect((await tokenCheckRoute.POST(req("POST", "/cloudflare/check", "{not json"), p({ connectorId: "cloudflare" }))).status).toBe(400);
   });
 
   it("check, pause and disconnect for an admin", async () => {

@@ -11,6 +11,12 @@ import type { ConnectorManifestInput } from "../manifest";
  * daily dataset (httpRequests1dGroups); visits only from the sampled one
  * (httpRequestsAdaptiveGroups, sum.visits), which keeps about 31 days on every plan.
  * Docs: developers.cloudflare.com/analytics/graphql-api.
+ *
+ * Connecting is token first (owner, 22 Nov, as the approved Listing): Check lists the zones the
+ * token can see (GET /zones, which needs Zone Read) and the admin picks one; a token without Zone
+ * Read falls back to a typed Zone ID. Nothing is saved until Connect, which runs the zone probe on
+ * the picked zone. The link fills in Zone Read (key zone) and Zone Analytics Read (key analytics),
+ * from developers.cloudflare.com/fundamentals/api/how-to/account-owned-token-template.
  */
 export const cloudflareManifest = {
   schema: 1,
@@ -23,38 +29,43 @@ export const cloudflareManifest = {
   connect: [
     {
       method: "token_fields",
+      // The token first: Check lists the zones it can see, and the zone is picked from them.
       fields: [
-        {
-          key: "zoneId",
-          label: "Zone ID",
-          secret: false,
-          help: "On your site's Overview page in Cloudflare, in the API box on the right.",
-          pattern: "^[0-9a-f]{32}$",
-          minLength: 32,
-          maxLength: 32,
-        },
         {
           key: "token",
           label: "API token",
           secret: true,
-          help: "A token that can only read analytics. YouGrow seals it and never shows it again.",
+          help: "A token that can only read. YouGrow seals it and never shows it again.",
           pattern: "^[A-Za-z0-9_-]+$",
           minLength: 20,
           maxLength: 200,
         },
+        {
+          key: "zoneId",
+          label: "Zone ID",
+          secret: false,
+          help: "Only when the token can't list your zones: on your site's Overview page in Cloudflare, in the API box on the right.",
+          pattern: "^[0-9a-f]{32}$",
+          minLength: 32,
+          maxLength: 32,
+        },
       ],
       account: "zoneId",
       auth: { field: "token", scheme: "Bearer" },
-      permissions: ["Zone, Analytics, Read"],
+      permissions: ["Zone Read", "Zone Analytics Read"],
       tokenLink:
-        "https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=%5B%7B%22key%22%3A%22analytics%22%2C%22type%22%3A%22read%22%7D%5D&accountId=%2A&zoneId=all&name=YouGrow%20analytics%20read",
+        "https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=%5B%7B%22key%22%3A%22zone%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22analytics%22%2C%22type%22%3A%22read%22%7D%5D&accountId=%2A&zoneId=all&name=YouGrow%20analytics%20read",
       steps: [
         "In Cloudflare, open My Profile, then API Tokens, or use the link here, which fills in the form for you.",
-        "Give the token one permission: Zone, Analytics, Read.",
+        "Give the token two permissions: Zone Read, so YouGrow can list your zones, and Zone Analytics Read, so it can read their numbers.",
         "Under Zone Resources, include only the site you want to connect.",
         "Create the token and copy it. Cloudflare shows it only once.",
-        "Paste the token and your site's Zone ID here, then press Connect.",
+        "Paste the token here and press Check. Pick your site's zone from the list, then press Connect. Nothing is saved before that.",
       ],
+      pick: {
+        label: "Zone",
+        cantList: "This token can't list your zones (that needs Zone Read), so type your site's Zone ID instead.",
+      },
     },
   ],
   api: {
@@ -71,7 +82,14 @@ export const cloudflareManifest = {
       detail: "requests, page views and visits",
       direction: "read",
       where: "Read live when you or Vizzy ask. Nothing is stored.",
-      needs: ["Zone, Analytics, Read"],
+      needs: ["Zone Analytics Read"],
+    },
+    {
+      what: "Your zones",
+      detail: "their names",
+      direction: "read",
+      where: "Listed when you press Check, so you can pick one. Not stored.",
+      needs: ["Zone Read"],
     },
     {
       what: "Anything else",
@@ -93,6 +111,6 @@ export const cloudflareManifest = {
     },
   ],
   uses: ["vizzy.read"],
-  hooks: { live: "cloudflare.zoneDaily" },
+  hooks: { live: "cloudflare.zoneDaily", accounts: "cloudflare.zones" },
   disconnect: "Disconnecting deletes the token YouGrow keeps. Cloudflare has no way for us to cancel it, so delete it in Cloudflare too.",
 } satisfies ConnectorManifestInput;

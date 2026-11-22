@@ -54,6 +54,7 @@ const ROOT = "/api/admin/connectors";
 export const ROUTES = {
   list: ROOT,
   connect: (connectorId: string) => `${ROOT}/${encodeURIComponent(connectorId)}/connect`,
+  checkToken: (connectorId: string) => `${ROOT}/${encodeURIComponent(connectorId)}/check`,
   start: (connectorId: string) => `${ROOT}/${encodeURIComponent(connectorId)}/start`,
   share: (connectorId: string) => `${ROOT}/${encodeURIComponent(connectorId)}/share`,
   connection: (id: string) => `${ROOT}/connections/${encodeURIComponent(id)}`,

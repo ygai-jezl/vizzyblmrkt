@@ -14,12 +14,16 @@ export type TokenConnectOutcome =
   /** Connected, but who can read it didn't carry over: say what to tick again on Connected. */
   | { kind: "grantsLost"; message: string };
 
+/** The most a connection's label may hold (the connect route's limit). */
+const LABEL_MAX = 60;
+
 /**
  * Connect with a pasted token, or Reconnect a connection whose token was turned down. The brand
  * can't hold two connections to one account, so a Reconnect disconnects the old one first (again
  * is harmless: a disconnected connection answers as before), then connects with the new token and
  * gives the new connection the old one's grants. The grants come from the page, so a failed try
- * keeps them for the next one; a failed grants call is said, never swallowed.
+ * keeps them for the next one; a failed grants call is said, never swallowed. `label` names the
+ * connection, such as the zone picked after Check (acme.example), so Connected and Disconnect can.
  */
 export async function connectWithToken(
   connectorId: string,
@@ -27,12 +31,14 @@ export async function connectWithToken(
   replace: ConnectionView | null,
   chat: boolean,
   call: ApiCall = callApi,
+  label?: string,
 ): Promise<TokenConnectOutcome> {
   if (replace) {
     const gone = await call(ROUTES.connection(replace.id), { method: "DELETE" });
     if (!gone.ok && gone.status !== 404) return { kind: "refused", message: gone.message };
   }
-  const made = await call<ConnectionView>(ROUTES.connect(connectorId), { method: "POST", body: { fields } });
+  const named = label?.trim().slice(0, LABEL_MAX);
+  const made = await call<ConnectionView>(ROUTES.connect(connectorId), { method: "POST", body: { fields, ...(named ? { label: named } : {}) } });
   if (!made.ok) return { kind: "refused", message: replace ? `${made.message} ${LISTING_COPY.tokenRetry}` : made.message };
   const grants = replace?.details?.grants ?? [];
   if (!grants.length) return { kind: "connected" };

@@ -365,7 +365,10 @@ function TokenCard({
     if (stage === "token") return check();
     setBusy("connect");
     setError(null);
-    const r = await connectWithToken(listing.id, values, replace, chat);
+    // Named by the zone picked from the list; a Reconnect on the same account keeps its name.
+    const picked = stage === "listed" ? checked?.accounts.find((a) => a.id === chosen)?.label : undefined;
+    const kept = replace && replace.label !== replace.connectorName && replace.details?.account === chosen ? replace.label : undefined;
+    const r = await connectWithToken(listing.id, values, replace, chat, undefined, picked ?? kept);
     if (r.kind === "connected") {
       router.push(CONNECTED_PATH);
       router.refresh();

@@ -387,7 +387,7 @@ export const CONNECTED_COPY = {
   turnedOff: "This connector is turned off in this copy of YouGrow, so it reads nothing. It works again when it is turned back on.",
   askAdmin: "Ask an admin to reconnect it.",
   address: "Google address",
-  confirmDisconnect: "Disconnect it? YouGrow deletes what it stored, and it reads nothing more.",
+  confirmDisconnect: "YouGrow deletes what it stored for it, and it reads nothing more.",
   readsYou: "You can read it",
   readsAdmins: "Admins only",
   pausedByAdmin: "Paused by an admin. Press Resume to read it again.",
@@ -396,6 +396,21 @@ export const CONNECTED_COPY = {
 
 /** The note after a Disconnect: which connection went, then what to do at the tool. */
 export const disconnectedWords = (what: string, message: string) => `${what} is disconnected. ${message}`;
+
+/** What a connection reads, as its panel and Disconnect name it: its label when it has its own, else its account. */
+export function readsWords(c: Pick<ConnectionView, "connectorName" | "label" | "details">): string {
+  if (c.label && c.label !== c.connectorName) return c.label;
+  return c.details?.account ? accountWords(c.details.account) : "";
+}
+
+/** A connection by its connector and what it reads: "Cloudflare for acme.example". */
+export function connectionWords(c: Pick<ConnectionView, "connectorName" | "label" | "details">): string {
+  const reads = readsWords(c);
+  return reads ? `${c.connectorName} for ${reads}` : c.connectorName;
+}
+
+/** Disconnect's confirm, naming the connection it disconnects. */
+export const confirmDisconnectWords = (c: Pick<ConnectionView, "connectorName" | "label" | "details">) => `Disconnect ${connectionWords(c)}? ${CONNECTED_COPY.confirmDisconnect}`;
 
 export const HOW_LABELS: Readonly<Record<ConnectMethodName, string>> = {
   token_fields: "API token",

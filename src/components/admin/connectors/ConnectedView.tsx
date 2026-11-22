@@ -26,6 +26,7 @@ import {
   listingPath,
   needsAttention,
   pickPath,
+  readsWords,
   selectedOf,
   stateOf,
   whenWords,
@@ -288,7 +289,7 @@ function ManageCard({
   return (
     <section aria-labelledby="manage-title" className={`${CARD} space-y-3`}>
       <h3 id="manage-title" className="text-sm font-semibold">
-        {c.connectorName} · {accountWords(c.details?.account ?? "")}
+        {c.connectorName} · {readsWords(c) || accountWords("")}
       </h3>
       <p className="text-sm">
         <span className={`${TAG} ${TONE_CLASS[state.tone]}`}>{state.label}</span>

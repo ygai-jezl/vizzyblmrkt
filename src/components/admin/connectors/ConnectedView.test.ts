@@ -12,8 +12,23 @@ vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: unknown }) => createElement("a", { href, ...rest }, children as never),
 }));
 const { ConnectedView } = await import("./ConnectedView");
-const { CONNECTED_COPY, accountWords, activityOf, activityWords, firstSelected, healthLine, needsAttention, selectedOf, stateOf, whenWords, whoCanReadOf, whoWords, withGrant } =
-  await import("./words");
+const {
+  CONNECTED_COPY,
+  accountWords,
+  activityOf,
+  activityWords,
+  confirmDisconnectWords,
+  connectionWords,
+  firstSelected,
+  healthLine,
+  needsAttention,
+  selectedOf,
+  stateOf,
+  whenWords,
+  whoCanReadOf,
+  whoWords,
+  withGrant,
+} = await import("./words");
 const { connectedActions } = await import("./connectedActions");
 
 const broken = (message: string) => ({ state: "broken" as const, lastOkAt: "2026-11-20T08:00:00.000Z", lastCheckedAt: "2026-11-21T09:12:00.000Z", message, pausedUntil: null });
@@ -198,17 +213,28 @@ describe("Connected's panel stays on the connection acted on", () => {
   });
 
   it("selects nothing after a Disconnect, says which went, and changes nothing when the admin says no", async () => {
-    const gone = { ...CF, status: "disconnected" as const };
+    // Connected after Check, named by the zone picked from the list.
+    const named = { ...CF, label: "acme.example" };
+    const gone = { ...named, status: "disconnected" as const };
     const message = "Disconnecting deletes the token YouGrow keeps. Delete it in Cloudflare too.";
-    const p = page([SC, CF], [ok({ connection: gone, message })]);
-    await p.act.disconnect(CF);
+    const p = page([SC, named], [ok({ connection: gone, message })]);
+    await p.act.disconnect(named);
+    expect(p.state.asked).toEqual([`Disconnect Cloudflare for acme.example? ${CONNECTED_COPY.confirmDisconnect}`]);
     expect(p.state.selected).toBeNull();
     expect(p.shown()).toBeNull();
-    expect(p.state.note).toEqual({ tone: "ok", text: `Cloudflare is disconnected. ${message}` });
+    expect(p.state.note).toEqual({ tone: "ok", text: `Cloudflare for acme.example is disconnected. ${message}` });
     const no = page([SC, CF], [], false);
     await no.act.disconnect(CF);
     expect(no.state.calls).toEqual([]);
     expect(no.shown()).toBe(CF.id);
+  });
+
+  it("names the connection a Disconnect asks about by its connector and what it reads", () => {
+    expect(confirmDisconnectWords({ ...CF, label: "acme.example" })).toBe("Disconnect Cloudflare for acme.example? YouGrow deletes what it stored for it, and it reads nothing more.");
+    expect(connectionWords(SC)).toBe("Google Search Console for acme.example (whole domain)");
+    expect(connectionWords(CF)).toBe("Cloudflare for Zone 012345…cdef");
+    expect(connectionWords(connectionView({ connectorName: "Google Analytics 4", label: "Google Analytics 4", needsAccount: true, details: { account: "" } }))).toBe("Google Analytics 4");
+    expect(textOf(render({ connections: [{ ...CF, label: "acme.example" }] }))).toContain("Cloudflare · acme.example Needs attention");
   });
 });
 

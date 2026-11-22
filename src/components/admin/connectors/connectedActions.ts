@@ -1,7 +1,7 @@
 import type { ConnectionView } from "@/lib/connectors/service";
 import { callApi, ROUTES, startSignIn } from "./api";
 import type { ApiCall } from "./tokenConnect";
-import { CONNECTED_COPY, disconnectedWords, pickPath, withGrant } from "./words";
+import { CONNECTED_COPY, confirmDisconnectWords, connectionWords, disconnectedWords, pickPath, withGrant } from "./words";
 
 /**
  * What the buttons on Connected do, apart from the page so the tests can run them with a stub
@@ -70,13 +70,13 @@ export function connectedActions(d: ConnectedActionDeps) {
     },
     disconnect: async (c: ConnectionView) => {
       d.select(c.id);
-      if (!d.confirm(CONNECTED_COPY.confirmDisconnect)) return;
+      if (!d.confirm(confirmDisconnectWords(c))) return;
       const r = await call<{ connection: ConnectionView; message: string }>(ROUTES.connection(c.id), { method: "DELETE" });
       if (!r.ok) return d.note({ tone: "err", text: r.message });
       d.replace(r.data.connection);
       // It leaves the table, so the panel shows nothing rather than another connection's buttons.
       d.select(null);
-      d.note({ tone: "ok", text: disconnectedWords(c.connectorName, r.data.message) });
+      d.note({ tone: "ok", text: disconnectedWords(connectionWords(c), r.data.message) });
     },
   };
 }

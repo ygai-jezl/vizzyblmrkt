@@ -29,6 +29,15 @@ const BOTH = [
 const OLD = connectionView({ health: { state: "broken", lastOkAt: null, lastCheckedAt: null, message: "x", pausedUntil: null }, details: { grants: BOTH } });
 
 describe("connecting with a token", () => {
+  it("names the connection by the zone picked after Check, within the route's 60 characters", async () => {
+    const { call, calls } = fakeCall({ POST: OK(NEW) });
+    expect(await connectWithToken("cloudflare", FIELDS, null, true, call, " acme.example ")).toEqual({ kind: "connected" });
+    expect(calls).toEqual([{ method: "POST", url: "/api/admin/connectors/cloudflare/connect", body: { fields: FIELDS, label: "acme.example" } }]);
+    const long = fakeCall({ POST: OK(NEW) });
+    await connectWithToken("cloudflare", FIELDS, null, true, long.call, `${"a".repeat(70)}.example`);
+    expect((long.calls[0]!.body as { label: string }).label).toHaveLength(60);
+  });
+
   it("a first connection posts the fields and nothing else", async () => {
     const { call, calls } = fakeCall({ POST: OK(NEW) });
     expect(await connectWithToken("cloudflare", FIELDS, null, true, call)).toEqual({ kind: "connected" });

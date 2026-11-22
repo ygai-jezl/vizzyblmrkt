@@ -375,9 +375,10 @@ export function stateOf(c: Pick<ConnectionView, "status" | "connectorOn" | "need
 
 /**
  * Every state the Connected table shows, in its order, for the help page: the words come from
- * stateOf and what each health state means from the help words.
+ * stateOf and what each health state means from the help words. A disconnected connection leaves
+ * the table, so Disconnected isn't one of them.
  */
-export const STATE_LABELS = ["Working", "Check failed", "Needs attention", "Paused", "Choose a property", "Turned off here", "Disconnected"] as const;
+export const STATE_LABELS = ["Working", "Check failed", "Needs attention", "Paused", "Choose a property", "Turned off here"] as const;
 
 /** The connections whose banner asks for something: turned down, or waiting for a property. */
 export function needsAttention(connections: readonly ConnectionView[]): ConnectionView[] {

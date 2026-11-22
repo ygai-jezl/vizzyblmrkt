@@ -71,13 +71,16 @@ export function connectorHelp(m: ConnectorManifest): ConnectorHelp {
   };
 }
 
-/** What each health state means, as the Connected view shows it. */
+/**
+ * What each health state means, as the Connected view shows it. Connected lists only connections
+ * still connected, so `disconnected` says where one goes rather than naming a status.
+ */
 export const HEALTH_HELP: Readonly<Record<HealthState | "disconnected", string>> = {
   ok: "Working: the last check or read went through.",
   check: "The last call failed for a reason that may pass, such as the provider being down. YouGrow tries again on the next check.",
   broken: "The provider turned the connection down, usually because the token was deleted or lost its permission, or Google ended a sign in. Connect it again, or press Reconnect for a sign in.",
   paused: "No calls go out: an admin paused it, or YouGrow did for a while after the provider asked it to slow down.",
-  disconnected: "Its token was deleted from YouGrow. The record stays so you can see its history.",
+  disconnected: "A connection you disconnect leaves the list on Connected. Its activity stays, ending with a line that says it was disconnected.",
 };
 
 /** The grants table in plain words. */

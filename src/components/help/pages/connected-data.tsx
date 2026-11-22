@@ -184,14 +184,13 @@ export default function ConnectedDataHelp({ connectorsChat = isConnectorsChatEna
           ["Paused", health.paused],
           ["Choose a property", "It signed in or was shared, but nobody chose which site or property it reads. Nothing is read until an admin does."],
           ["Turned off here", CONNECTED_COPY.turnedOff],
-          ["Disconnected", health.disconnected],
         ]}
       />
       <P>
         <strong>{CONNECTED_COPY.pause}</strong> stops every read until an admin presses <strong>{CONNECTED_COPY.resume}</strong>.{" "}
         <strong>{CONNECTED_COPY.disconnect}</strong> deletes what YouGrow stored for it; each tool&apos;s section above says
-        what it leaves at the tool. The activity on Connected shows the latest changes, and the activity log is kept for 90
-        days.
+        what it leaves at the tool. {health.disconnected} The activity on Connected shows the latest changes, and the
+        activity log is kept for 90 days.
       </P>
 
       <H2 id="who-can-read">Who can read it</H2>

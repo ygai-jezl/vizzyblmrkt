@@ -10,6 +10,8 @@ import { SETUP_HOW_TO } from "@/lib/connect/setupChecklist";
 import { computeGrowth, type GrowthSignals } from "@/lib/nav/growth";
 import { launchChecklist } from "@/lib/nav/launchChecklist";
 import { docToMarkdown } from "@/lib/developers/markdown";
+import { STATE_LABELS } from "@/components/admin/connectors/words";
+import { HEALTH_HELP } from "@/lib/connectors/helpText";
 import { helpLlmsTxt, helpPageMarkdown } from "./agentFiles";
 import { HELP_PAGES, helpPage, shownHelpPages } from "./pages";
 import { HELP_PLACES, helpFor, parseHelpPath } from "./places";
@@ -453,6 +455,14 @@ describe("Connected data", () => {
     expect(text).toContain("**Analytics sessions**");
     expect(text).toContain("at most 100 sign ins for one Google account");
     expect(text).toContain("myaccount.google.com/permissions");
+  });
+
+  it("lists only the statuses Connected shows, and says where a disconnected connection goes", () => {
+    const text = md(true);
+    for (const label of STATE_LABELS) expect(text, label).toMatch(new RegExp(`^\\| ${label} \\|`, "m"));
+    // Connected lists only connections still connected, so Disconnected is never a status there.
+    expect(text).not.toMatch(/^\| Disconnected \|/m);
+    expect(text).toContain(HEALTH_HELP.disconnected);
   });
 
   it("explains letting Vizzy read only while Vizzy reads connected data", () => {

@@ -155,8 +155,7 @@ export default function BrandMapHelp() {
           </Steps>
           <P>
             <strong>Not now</strong> takes a pick off the list for 30 days; say why and it learns that too. When
-            competitors write about something your map doesn&apos;t have, <strong>Suggest it</strong> adds it to your map&apos;s
-            suggestions. <strong>What autopilot learned</strong> lists what your team skipped, moved and added back; admins
+            competitors write about something your map doesn&apos;t have, <strong>Add to my map</strong> adds it as a subject. <strong>What autopilot learned</strong> lists what your team skipped, moved and added back; admins
             can remove any of it.
           </P>
         </>

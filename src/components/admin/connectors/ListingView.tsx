@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { HowToLink } from "@/components/help/HowToLink";
@@ -269,6 +269,9 @@ function TokenCard({ listing, isAdmin, replace }: { listing: ConnectorListing; i
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Connect waits for the page's script: a form sent before it would go by the browser alone.
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(true), []);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -295,7 +298,9 @@ function TokenCard({ listing, isAdmin, replace }: { listing: ConnectorListing; i
   }
 
   return (
-    <form aria-labelledby="connect-token" className={`${CARD} space-y-4`} onSubmit={submit}>
+    // A token never goes in an address: the fields have no name, so the browser has nothing to send
+    // on its own, and the form posts rather than putting fields in the URL. The handler sends them.
+    <form method="post" aria-labelledby="connect-token" className={`${CARD} space-y-4`} onSubmit={submit}>
       <h4 id="connect-token" className={H3}>
         {LISTING_COPY.tokenTitle}
       </h4>
@@ -319,7 +324,6 @@ function TokenCard({ listing, isAdmin, replace }: { listing: ConnectorListing; i
               </label>
               <input
                 id={`field-${f.key}`}
-                name={f.key}
                 type={f.secret ? "password" : "text"}
                 autoComplete="off"
                 spellCheck={false}
@@ -340,7 +344,7 @@ function TokenCard({ listing, isAdmin, replace }: { listing: ConnectorListing; i
             </p>
           ) : null}
           <div className="flex flex-wrap gap-2">
-            <button type="submit" className={BUTTON_PRIMARY} disabled={busy}>
+            <button type="submit" className={BUTTON_PRIMARY} disabled={busy || !ready}>
               {busy ? "Checking the token…" : "Connect"}
             </button>
             <Link href="/admin/account/connections/browse" className={BUTTON}>

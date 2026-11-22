@@ -45,6 +45,17 @@ describe("the Cloudflare Listing", () => {
     expect(text).not.toContain("Choose how to connect");
   });
 
+  it("never lets the browser put the token in an address, even before the page's script runs", () => {
+    const out = html({ listing: CF });
+    const form = /<form\b[^>]*>[\s\S]*?<\/form>/.exec(out)?.[0] ?? "";
+    expect(form).toMatch(/^<form\b[^>]*\bmethod="post"/);
+    // No field has a name, so a form sent without the script carries nothing.
+    expect(form).toContain('id="field-token"');
+    expect(form).not.toMatch(/<input\b[^>]*\bname=/);
+    // Connect stays off until the script is running.
+    expect(form).toMatch(/<button type="submit"[^>]*\bdisabled=""/);
+  });
+
   it("says what it reads and never does, every number's meaning and the lag, from the manifest", () => {
     const text = textOf(html({ listing: CF }));
     expect(text).toContain("From Cloudflare What In YouGrow Daily totals for the zone requests, page views and visits Read live when you or Vizzy ask. Nothing is stored.");

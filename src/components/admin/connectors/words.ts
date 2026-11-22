@@ -353,8 +353,15 @@ export function stateOf(c: Pick<ConnectionView, "status" | "connectorOn" | "need
   if (c.needsAccount) return { label: "Choose a property", tone: "warn" };
   if (c.health.state === "ok") return { label: "Working", tone: "ok" };
   if (c.health.state === "paused") return { label: "Paused", tone: "muted" };
+  if (c.health.state === "check") return { label: "Check failed", tone: "warn" };
   return { label: "Needs attention", tone: "warn" };
 }
+
+/**
+ * Every state the Connected table shows, in its order, for the help page: the words come from
+ * stateOf and what each health state means from the help words.
+ */
+export const STATE_LABELS = ["Working", "Check failed", "Needs attention", "Paused", "Choose a property", "Turned off here", "Disconnected"] as const;
 
 /** The connections whose banner asks for something: turned down, or waiting for a property. */
 export function needsAttention(connections: readonly ConnectionView[]): ConnectionView[] {

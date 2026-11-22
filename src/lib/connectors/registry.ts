@@ -1,8 +1,11 @@
 import { isCloudflareConnectorEnabled, isGa4ConnectorEnabled, isGa4SignInEnabled, isSearchConsoleConnectorEnabled } from "./flags";
 import { isGoogleSignInConfigured } from "./google";
 import { isShareAccessConfigured } from "./shareAccess";
-import { parseManifest, type ConnectMethod, type ConnectMethodName, type ConnectorManifest } from "./manifest";
+import { allConnectors, knownConnector } from "./catalog";
+import { type ConnectMethod, type ConnectMethodName, type ConnectorManifest } from "./manifest";
 import { MANIFESTS as WRITTEN } from "./manifests";
+
+export { allConnectors, knownConnector };
 
 /**
  * The connectors this copy knows, and which of them it offers right now. Business logic never
@@ -76,17 +79,7 @@ export function refusals(m: ConnectorManifest, built: readonly ConnectMethodName
   return out;
 }
 
-const CATALOG: readonly ConnectorManifest[] = MANIFESTS.map(parseManifest);
-
-/** Every parsed manifest, whatever its switch says (for tests, help and scripts). */
-export function allConnectors(): readonly ConnectorManifest[] {
-  return CATALOG;
-}
-
-/** A known connector by id, whatever its switch says (the purge and reseal scripts use it). */
-export function knownConnector(id: string): ConnectorManifest | null {
-  return CATALOG.find((m) => m.id === id) ?? null;
-}
+const CATALOG = allConnectors();
 
 /** The connectors offered now: switch on, every method built, one ready, no personal stream. */
 export function listConnectors(): ConnectorManifest[] {

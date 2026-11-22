@@ -282,6 +282,37 @@ Developer Knowledge MCP.
   what Disconnect leaves, the Workspace sharing message), Google Analytics and letting Vizzy read,
   and the troubleshooting quotes.
 
+### Screens
+
+Built from the approved Design canvas (Browse, the Search Console and Cloudflare Listings, the
+picker and Connected), in the app's own Tailwind. No new route: every screen calls the routes above.
+Hidden while `NEXT_PUBLIC_CONNECTORS_ENABLED` is off; a connector's card and Listing only while its
+own switch is on and a way to connect is ready (the list route already decides that).
+
+- **The Settings tab is Connections again** (owner, 21 Nov), not Integrations: the tab list, the
+  breadcrumbs, places, the help pages and the post messages that point there. The rename isn't
+  switched, because every message names the tab. Inside it, with the switch on, a layout adds the
+  sub-tabs **Accounts** (the GitHub, GitLab, LinkedIn, X and Mailchimp panel, unchanged, on the base
+  route every callback returns to), **Browse** and **Connected**. `connected` joins the reserved ids.
+- **One server read per request** (`src/lib/connectors/screens.ts`, through `listForActor`, so a
+  member gets name and health only) feeds the layout's Connected count and the page; changes go
+  through the routes and the page refreshes.
+- **The Listing** follows the manifest's order: Sign in with Google first, then share access (Make
+  the address, Copy, the manifest's steps and role, Check access), or the token fields. Sign in comes
+  back to the Listing; a new one goes on to the picker. A token can't be replaced in place (connect
+  refuses an account already connected), so Reconnect on a turned down token disconnects it, connects
+  the new one and copies its grants.
+- **The picker** lists what the sign in or address sees and marks, never blocks, one whose website
+  isn't the brand's root domain; with no root domain, or a property whose name doesn't say its
+  website, nothing is marked. Cancel on a new connection disconnects it.
+- **Connected** shows who connected each connection as You or Someone else, because the record holds
+  only a user id and there is no name lookup per brand yet, and a sign in as "Signed in with Google",
+  because the Google account's email isn't kept.
+- **The help page** `/help/connected-data` (`onlyWhen: "connectors"`) renders the generated words.
+  The How to drawer renders it in the browser, so the words now read a pure catalog
+  (`src/lib/connectors/catalog.ts`) and `lag.ts`, and a test walks their imports; the Vizzy section
+  shows only with `CONNECTORS_CHAT_ENABLED`, passed to the drawer like the other server switches.
+
 ---
 
 ## ADR-0010 · People (piece B) (2026-11-21)

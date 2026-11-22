@@ -167,6 +167,7 @@ describe("Connected's words", () => {
     expect(accountWords("properties/123456")).toBe("Property 123456");
     expect(accountWords("")).toBe("No property chosen yet");
     expect(stateOf({ ...CF, status: "disconnected" }).label).toBe("Disconnected");
+    expect(stateOf({ ...CF, health: { ...CF.health, state: "check" } }).label).toBe("Check failed");
     expect(whoCanReadOf(SC, true)).toBe("Admins, members, Vizzy");
     expect(whoCanReadOf({ details: undefined }, true)).toBe("Admins");
     expect(withGrant([{ to: "agent:vizzy", can: "read" }], "members", true)).toEqual([

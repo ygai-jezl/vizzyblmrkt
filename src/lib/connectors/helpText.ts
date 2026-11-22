@@ -1,15 +1,15 @@
 import { meaningsOf } from "@/lib/metrics/meanings";
 import { HEALTH_STATES, type HealthState } from "@/lib/types/dataConnection";
-import { lagWords } from "./live";
+import { allConnectors } from "./catalog";
+import { lagWords } from "./lag";
 import { oauthMethod, shareMethod, type ConnectorManifest } from "./manifest";
 import { CONNECTOR_ERRORS, SIGNIN_REASONS } from "./messages";
-import { allConnectors } from "./registry";
 
 /**
  * The words of the Connected data help page, generated from the manifests so the page can't drift
  * from what each connector really reads and asks for (the Vizzybl lesson: a directory written by
- * hand went out of date). The help page itself comes with the Browse, Listing and Connected
- * screens it describes and renders these words; nothing here needs a screen.
+ * hand went out of date). The help page (src/components/help/pages/connected-data.tsx) renders
+ * these words, in the browser too (the How to drawer), so this file reads only pure modules.
  */
 
 export interface ConnectorHelp {
@@ -33,7 +33,7 @@ export interface ConnectorHelp {
 /** The steps of a sign in, from the manifest: its name, and whether a site is picked after. */
 function signInSteps(m: ConnectorManifest): string[] {
   const steps = [
-    `On ${m.name} in Connected data, press Sign in with Google.`,
+    `Open ${m.name} under Settings › Connections › Browse, then press Sign in with Google.`,
     `Pick the Google account that can see your ${m.name} data.`,
     "On Google's screen, allow YouGrow to read it. It asks to read only, never to change anything.",
   ];
@@ -43,7 +43,7 @@ function signInSteps(m: ConnectorManifest): string[] {
 
 /** The steps of share access: press Share access, then the manifest's own steps. */
 function shareSteps(m: ConnectorManifest, steps: readonly string[]): string[] {
-  return [`On ${m.name} in Connected data, press Share access. YouGrow shows a Google address made for this one connection.`, ...steps];
+  return [`Open ${m.name} under Settings › Connections › Browse, then press Make the address under Share access. YouGrow shows a Google address made for this one connection.`, ...steps];
 }
 
 export function connectorHelp(m: ConnectorManifest): ConnectorHelp {

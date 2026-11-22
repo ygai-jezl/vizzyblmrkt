@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { connectedDataHelp, connectorHelp, SHARE_ACCESS_HELP, SIGN_IN_HELP, TROUBLESHOOTING_QUOTES, VIZZY_HELP } from "./helpText";
@@ -35,7 +37,7 @@ describe("the connected data help words", () => {
   it("takes Search Console's sign in, what it reads, its numbers and its lag from its manifest", () => {
     const help = connectorHelp(parseManifest(searchConsoleManifest));
     expect(help.token).toBeNull();
-    expect(help.signIn?.steps[0]).toBe("On Google Search Console in Connected data, press Sign in with Google.");
+    expect(help.signIn?.steps[0]).toBe("Open Google Search Console under Settings › Connections › Browse, then press Sign in with Google.");
     expect(help.signIn?.steps.at(-1)).toContain("pick which site or property");
     expect(help.signIn?.reads).toEqual(["Search numbers for the site you pick", "The sites your Google account, or the address you share with, can see in Search Console"]);
     expect(help.numbers.map((n) => n.name)).toEqual(["Search clicks", "Search impressions", "Search click rate", "Average search position"]);
@@ -46,7 +48,9 @@ describe("the connected data help words", () => {
   it("takes share access's role and steps from each manifest, and Google Analytics' numbers and lag", () => {
     const sc = connectorHelp(parseManifest(searchConsoleManifest));
     expect(sc.share?.role).toBe("Restricted");
-    expect(sc.share?.steps[0]).toBe("On Google Search Console in Connected data, press Share access. YouGrow shows a Google address made for this one connection.");
+    expect(sc.share?.steps[0]).toBe(
+      "Open Google Search Console under Settings › Connections › Browse, then press Make the address under Share access. YouGrow shows a Google address made for this one connection.",
+    );
     expect(sc.share?.steps.at(-1)).toBe("Back in YouGrow, press Check access, then pick the site.");
     const ga = connectorHelp(parseManifest(ga4Manifest));
     expect(ga.share?.role).toBe("Viewer");
@@ -95,5 +99,47 @@ describe("the connected data help words", () => {
       expect(dashesIn(text), text).toEqual([]);
       expect(aiTellsIn(text), text).toEqual([]);
     }
+  });
+});
+
+describe("where the help words can run", () => {
+  // The How to drawer renders the Connected data page in the browser, so everything helpText.ts
+  // imports, all the way down, must be pure: no store, provider, Google client or Node module.
+  const SRC = join(process.cwd(), "src");
+  const FORBIDDEN = [/^node:/, /^@\/lib\/tenant/, /^@\/lib\/auth/, /google-auth-library/, /firebase/, /\/(registry|service|safeFetch|shareAccess|google|tokenKeeper|vault|live)$/];
+
+  function importsOf(file: string): string[] {
+    const src = readFileSync(file, "utf8");
+    return [...src.matchAll(/^import\s+(?!type\b)[^;]*?from\s+"([^"]+)";/gms)].map((m) => m[1]!);
+  }
+
+  function resolveFile(from: string, spec: string): string | null {
+    if (!spec.startsWith(".") && !spec.startsWith("@/")) return null;
+    const base = spec.startsWith("@/") ? join(SRC, spec.slice(2)) : resolve(dirname(from), spec);
+    for (const f of [`${base}.ts`, `${base}.tsx`, join(base, "index.ts")]) {
+      try {
+        readFileSync(f);
+        return f;
+      } catch {
+        // try the next
+      }
+    }
+    return null;
+  }
+
+  it("imports only pure modules, all the way down", () => {
+    const seen = new Set<string>();
+    const queue = [join(SRC, "lib", "connectors", "helpText.ts")];
+    while (queue.length) {
+      const file = queue.pop()!;
+      if (seen.has(file)) continue;
+      seen.add(file);
+      for (const spec of importsOf(file)) {
+        expect(FORBIDDEN.some((re) => re.test(spec)), `${file.slice(SRC.length)} imports ${spec}`).toBe(false);
+        const next = resolveFile(file, spec);
+        if (next) queue.push(next);
+      }
+    }
+    expect([...seen].some((f) => f.endsWith("catalog.ts"))).toBe(true);
   });
 });

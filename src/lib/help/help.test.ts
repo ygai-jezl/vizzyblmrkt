@@ -52,6 +52,9 @@ vi.hoisted(() => {
   process.env.BRAND_MAP_NEXT_UP_ENABLED = "true";
   process.env.CREATE_ARTICLE_AUTOPILOT_ENABLED = "true";
   process.env.NEXT_PUBLIC_PLANS_ENABLED = "true";
+  process.env.NEXT_PUBLIC_CONNECTORS_ENABLED = "true";
+  process.env.CONNECTORS_ENABLED = "true";
+  process.env.CONNECTORS_CHAT_ENABLED = "true";
 });
 
 const SRC = join(process.cwd(), "src");
@@ -297,6 +300,14 @@ describe("links into the help", () => {
     expect(HELP_PLACES).toEqual(expect.arrayContaining(["/help/people", "/help/your-audience"]));
   });
 
+  it("sends Browse, a connector's pages and Connected to Connected data, and Accounts to Connected accounts", () => {
+    expect(helpFor("/admin/account/connections")).toBe("/help/connected-accounts");
+    expect(helpFor("/admin/account/connections/browse")).toBe("/help/connected-data#connect");
+    expect(helpFor("/admin/account/connections/search-console")).toBe("/help/connected-data#connect");
+    expect(helpFor("/admin/account/connections/google-analytics/pick")).toBe("/help/connected-data#connect");
+    expect(helpFor("/admin/account/connections/connected")).toBe("/help/connected-data#connected");
+  });
+
   it("sends Plan and usage and Add Brand to the plans page while its switch is on", () => {
     expect(helpFor("/admin/account/billing")).toBe("/help/plan-and-usage");
     expect(helpFor("/admin/brands/new")).toBe("/help/plan-and-usage#brands");
@@ -425,5 +436,35 @@ describe("Vizzy filling in New person", () => {
     expect(md("your-audience", false)).not.toContain("Vizzy never records");
     expect(md("your-audience", true, false)).not.toContain("Vizzy never records");
     expect(md("review-and-approvals", false)).not.toContain("Suggestions about people");
+  });
+});
+
+describe("Connected data", () => {
+  const md = (connectorsChat: boolean) => docToMarkdown(HELP_BODIES["connected-data"]!({ connectorsChat }), "https://app.example.com");
+
+  it("takes every connector's steps, role and numbers from its manifest", () => {
+    const text = md(true);
+    expect(text).toMatch(/^# Connected data\n/);
+    for (const name of ["## Cloudflare", "## Google Search Console", "## Google Analytics"]) expect(text).toContain(name);
+    expect(text).toContain("Give the token one permission: Zone, Analytics, Read.");
+    expect(text).toContain("Open Google Search Console under Settings › Connections › Browse, then press Sign in with Google.");
+    expect(text).toContain("The address gets the **Restricted** role");
+    expect(text).toContain("The address gets the **Viewer** role");
+    expect(text).toContain("**Analytics sessions**");
+    expect(text).toContain("at most 100 sign ins for one Google account");
+    expect(text).toContain("myaccount.google.com/permissions");
+  });
+
+  it("explains letting Vizzy read only while Vizzy reads connected data", () => {
+    expect(md(true)).toContain("## Letting Vizzy read it");
+    expect(md(true)).toContain("Vizzy can read it when someone asks");
+    expect(md(false)).not.toContain("Letting Vizzy read it");
+    expect(md(false)).not.toContain("Vizzy can read it when someone asks");
+  });
+
+  it("is listed after Connected accounts, and Connected accounts points to it", () => {
+    const slugs = shownHelpPages().map((p) => p.slug);
+    expect(slugs.indexOf("connected-data")).toBe(slugs.indexOf("connected-accounts") + 1);
+    expect(helpPageMarkdown("connected-accounts", "https://app.example.com")).toContain("[Connected data](https://app.example.com/help/connected-data.md)");
   });
 });

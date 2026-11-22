@@ -53,6 +53,7 @@ describe("the Cloudflare Listing", () => {
     expect(text).toContain("A day's numbers are complete the next day.");
     expect(text).toContain(CF.disconnect);
     expect(text).toContain("a token with this permission: Zone, Analytics, Read.");
+    expect(html({ listing: CF })).toContain('href="/help/connected-data#cloudflare"');
   });
 
   it("explains a reconnect and fills in the zone of the connection it replaces", () => {

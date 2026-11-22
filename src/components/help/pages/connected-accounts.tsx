@@ -1,6 +1,7 @@
 import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
 import { isConnectorRevokeEnabled, isConnectorRevokeXEnabled } from "@/lib/integrations/flags";
+import { isConnectorsScreenEnabled } from "@/lib/connectors/flags";
 
 export default function ConnectedAccountsHelp() {
   return (
@@ -15,6 +16,12 @@ export default function ConnectedAccountsHelp() {
         Only admins connect or disconnect accounts. Everyone else on your team sees what&apos;s connected, and asks an admin
         when something needs connecting.
       </P>
+      {isConnectorsScreenEnabled() ? (
+        <P>
+          These accounts are under <strong>Accounts</strong> in Settings › Connections. To bring in numbers from Cloudflare,
+          Google Search Console or Google Analytics instead, see <Open href="/help/connected-data">Connected data</Open>.
+        </P>
+      ) : null}
 
       <BeforeAndUnlocks
         before={

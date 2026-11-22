@@ -5,6 +5,7 @@ import { LIVE_HOOKS } from "./handlers";
 import type { HookFailure, HookInput, LiveQuery, LiveRow } from "./handlers/types";
 import type { ConnectorFetchDeps } from "./safeFetch";
 import { cleanPagePath } from "./paths";
+import { lagWords } from "./lag";
 
 /**
  * A live read of a connection's numbers, bounded (Connectors 1 plan, live reads):
@@ -56,12 +57,7 @@ export function checkLiveRequest(manifest: ConnectorManifest, raw: unknown, now:
 
 export { cleanPagePath };
 
-/** The days a stream's numbers take to settle, in words. */
-export function lagWords(lagDays: number): string {
-  if (lagDays <= 0) return "Numbers arrive within minutes.";
-  if (lagDays === 1) return "A day's numbers are complete the next day.";
-  return `A day's numbers are complete about ${lagDays} days later.`;
-}
+export { lagWords };
 
 export interface LiveAnswer {
   connectorId: string;

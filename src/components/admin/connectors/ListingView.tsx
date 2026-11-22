@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { HowToLink } from "@/components/help/HowToLink";
 import type { ConnectionView, ConnectorListing } from "@/lib/connectors/service";
 import { callApi, ROUTES, startSignIn } from "./api";
 import { ConnectorTile } from "./BrowseView";
@@ -11,6 +12,7 @@ import {
   BUTTON_PRIMARY,
   CARD,
   CONNECTED_PATH,
+  HELP_PATH,
   HINT,
   LISTING_COPY,
   NOTE_ERR,
@@ -429,6 +431,9 @@ function AboutCard({ listing, chat }: { listing: ConnectorListing; chat: boolean
           ))}
         </div>
       ))}
+      <HowToLink path={`${HELP_PATH}#${listing.id}`} className="inline-block text-sm font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-400">
+        Help: Connected data
+      </HowToLink>
     </aside>
   );
 }

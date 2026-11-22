@@ -303,3 +303,183 @@ export function preselected(accounts: ReadonlyArray<{ id: string; label: string 
 export function listedNoteOf(listing: Pick<ConnectorListing, "shares">): string | null {
   return listing.shares.find((s) => s.direction === "read" && /can see/.test(s.what))?.where ?? null;
 }
+
+// --- Connected -----------------------------------------------------------------------------------
+
+export const CONNECTED_COPY = {
+  none: "Nothing is connected yet. Browse to connect your first one.",
+  grantsLead: "Choose who can read it. Admins always can.",
+  members: "Members can read it",
+  vizzy: "Vizzy can read it when someone asks",
+  checkNow: "Check now",
+  pause: "Pause",
+  resume: "Resume",
+  disconnect: "Disconnect",
+  reconnect: "Reconnect",
+  manageHint: "Disconnect deletes what YouGrow stored for it. Pause stops every read until you resume.",
+  checkedOk: "Working: the check went through.",
+  activity: "Activity",
+  activityKept: "The activity log is kept for 90 days.",
+  noActivity: "Nothing has happened yet.",
+  turnedOff: "This connector is turned off in this copy of YouGrow, so it reads nothing. It works again when it is turned back on.",
+  askAdmin: "Ask an admin to reconnect it.",
+  address: "Google address",
+  confirmDisconnect: "Disconnect it? YouGrow deletes what it stored, and it reads nothing more.",
+  readsYou: "You can read it",
+  readsAdmins: "Admins only",
+  pausedByAdmin: "Paused by an admin. Press Resume to read it again.",
+} as const;
+
+export const HOW_LABELS: Readonly<Record<ConnectMethodName, string>> = {
+  token_fields: "API token",
+  oauth_pkce: "Signed in with Google",
+  share_access: "Shared access",
+};
+
+/** What a connection reads, as people read it: a domain property, a URL, a GA4 property, a zone. */
+export function accountWords(account: string): string {
+  if (!account) return "No property chosen yet";
+  if (account.startsWith("sc-domain:")) return `${account.slice("sc-domain:".length)} (whole domain)`;
+  const property = /^properties\/(\d+)$/.exec(account);
+  if (property) return `Property ${property[1]}`;
+  if (/^[0-9a-f]{32}$/.test(account)) return `Zone ${account.slice(0, 6)}…${account.slice(-4)}`;
+  return account;
+}
+
+/** A connection's state in the table and on Browse's Connected tab. */
+export function stateOf(c: Pick<ConnectionView, "status" | "connectorOn" | "needsAccount" | "health">): { label: string; tone: Tone } {
+  if (c.status === "disconnected") return { label: "Disconnected", tone: "muted" };
+  if (!c.connectorOn) return { label: "Turned off here", tone: "muted" };
+  if (c.needsAccount) return { label: "Choose a property", tone: "warn" };
+  if (c.health.state === "ok") return { label: "Working", tone: "ok" };
+  if (c.health.state === "paused") return { label: "Paused", tone: "muted" };
+  return { label: "Needs attention", tone: "warn" };
+}
+
+/** The connections whose banner asks for something: turned down, or waiting for a property. */
+export function needsAttention(connections: readonly ConnectionView[]): ConnectionView[] {
+  return connections.filter((c) => c.status === "connected" && c.connectorOn && (c.health.state === "broken" || c.needsAccount));
+}
+
+/** Who may read it beyond admins, from its grants (Vizzy only while Vizzy reads connected data). */
+export function whoCanReadOf(c: Pick<ConnectionView, "details">, chat: boolean): string {
+  const grants = c.details?.grants ?? [];
+  const who = ["Admins"];
+  if (grants.some((g) => g.to === "members")) who.push("members");
+  if (chat && grants.some((g) => g.to === "agent:vizzy")) who.push("Vizzy");
+  return who.join(", ");
+}
+
+/** The grants after ticking or unticking one, keeping any it already has. */
+export function withGrant(grants: ReadonlyArray<{ to: "members" | "agent:vizzy"; can: "read" }>, to: "members" | "agent:vizzy", on: boolean) {
+  const rest = grants.filter((g) => g.to !== to);
+  return on ? [...rest, { to, can: "read" as const }] : rest;
+}
+
+/** Who did something, in the words of the person reading. */
+export function whoWords(by: string, uid: string): string {
+  if (uid && by === uid) return "You";
+  if (by === "system") return "YouGrow";
+  if (by.startsWith("agent:")) return "Vizzy";
+  return "An admin";
+}
+
+/** A moment, near ones as "2 hours ago", older ones as a date (UTC, so server and browser agree). */
+export function whenWords(at: string, now: Date): string {
+  const ms = now.getTime() - Date.parse(at);
+  if (!Number.isFinite(ms)) return "";
+  const min = Math.floor(ms / 60_000);
+  if (min < 1) return "just now";
+  if (min < 60) return min === 1 ? "1 minute ago" : `${min} minutes ago`;
+  const hours = Math.floor(min / 60);
+  if (hours < 24) return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
+  if (hours < 48) return "yesterday";
+  return new Date(at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+}
+
+/** Short words for why a call failed, for an activity line. The full words are on the connection. */
+const SHORT: Readonly<Record<string, string>> = {
+  token_refused: "the token was turned down",
+  account_refused: "it can't read that account",
+  signin_refused: "Google ended the sign in",
+  share_not_visible: "the address can't see the property",
+  share_pending: "Google is still setting up the address",
+  rate_limited: "the provider asked YouGrow to slow down",
+  provider_error: "the provider had a problem",
+  timeout: "the provider took too long",
+  network: "the provider couldn't be reached",
+  secret_unopenable: "its saved token can't be opened",
+  query_refused: "the provider refused the question",
+};
+const shortWhy = (code: string | null) => (code && SHORT[code]) || "it didn't go through";
+
+const GRANT_WORDS: Readonly<Record<string, string>> = {
+  "members,agent:vizzy": "Members and Vizzy may read",
+  members: "Members may read",
+  "agent:vizzy": "Vizzy may read",
+  none: "Only admins may read",
+};
+
+/** One activity line: what happened to which connection. */
+export function activityWords(e: { kind: string; code: string | null }, name: string, method: ConnectMethodName | undefined): string {
+  switch (e.kind) {
+    case "connected":
+      if (e.code === "signed_in_again") return `${name} signed in again`;
+      return method === "oauth_pkce" ? `${name} connected by signing in with Google` : method === "share_access" ? `${name} connected by sharing access` : `${name} connected`;
+    case "verified":
+      return `${name} checked: working`;
+    case "failed":
+      return `${name} check failed: ${shortWhy(e.code)}`;
+    case "paused":
+      return e.code ? `Calls to ${name} paused for a while: ${shortWhy(e.code)}` : `${name} paused`;
+    case "resumed":
+      return `${name} resumed`;
+    case "grants_changed":
+      return `${GRANT_WORDS[e.code ?? "none"] ?? GRANT_WORDS.none} ${name}`;
+    case "account_picked":
+      return `Property chosen for ${name}`;
+    case "shared":
+      return `Google address made for ${name}`;
+    case "access_checked":
+      return e.code === "ok" ? `Access checked: ${name} can see the property` : `Access checked for ${name}: ${shortWhy(e.code)}`;
+    case "read":
+      return `Vizzy read ${name}`;
+    case "disconnected":
+      return `${name} disconnected`;
+    case "cleanup_failed":
+      return `${name}'s Google address couldn't be deleted yet. YouGrow tries again.`;
+    case "purged":
+      return `${name} removed by whoever runs YouGrow`;
+    default:
+      return `${name} changed`;
+  }
+}
+
+/** Every connection's recent changes, newest first, each with the connection it belongs to. */
+export function activityOf(connections: readonly ConnectionView[], limit = 12): Array<{ at: string; text: string; by: string; key: string }> {
+  return connections
+    .flatMap((c) =>
+      (c.details?.recent ?? []).map((e, i) => ({
+        at: e.at,
+        text: activityWords(e, c.connectorName, c.details?.method),
+        by: e.kind === "purged" ? "operator" : e.by,
+        key: `${c.id}:${i}`,
+      })),
+    )
+    .sort((a, b) => b.at.localeCompare(a.at))
+    .slice(0, limit);
+}
+
+/** The line under a connection's state: paused and why, the problem in its own words, or when it last worked. */
+export function healthLine(c: Pick<ConnectionView, "health" | "connectorOn" | "status" | "details">, now: Date): string | null {
+  if (c.status !== "connected") return null;
+  if (!c.connectorOn) return CONNECTED_COPY.turnedOff;
+  if (c.details?.pausedAt) return CONNECTED_COPY.pausedByAdmin;
+  if (c.health.state === "paused" && c.health.pausedUntil && Date.parse(c.health.pausedUntil) > now.getTime()) {
+    const min = Math.max(1, Math.ceil((Date.parse(c.health.pausedUntil) - now.getTime()) / 60_000));
+    const left = `Calls start again by themselves in about ${min === 1 ? "1 minute" : `${min} minutes`}.`;
+    return c.health.message ? `${c.health.message} ${left}` : left;
+  }
+  if (c.health.message) return c.health.message;
+  return c.health.lastOkAt ? `Last worked ${whenWords(c.health.lastOkAt, now)}.` : null;
+}

@@ -2,7 +2,7 @@ import { generateTextWithDeadline, isGeminiConfigured, parseFirstJson } from "@/
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { fence, oneLine } from "@/lib/brandMap/lineChecks";
 import { readBrandMap } from "@/lib/brandMap/store";
-import { competitorCoverage, competitorSubjectFlags, type CoverageFlag } from "@/lib/competitors/coverage";
+import { competitorCoverage, competitorSubjectFlags, stillToAdd, type CoverageFlag } from "@/lib/competitors/coverage";
 import { listCompetitors } from "@/lib/competitors/store";
 import { learnedLines, listLearned } from "@/lib/autopilot/learned";
 import { searchBrand, type SearchOutcome } from "@/lib/search/query";
@@ -220,7 +220,7 @@ export async function pickNextUp(
     (deps.flags ?? ((c) => competitorSubjectFlags(c, { db: deps.db })))(ctx).catch(() => null),
     isBrandSignalsEnabled() ? readySignals(ctx, 500, { db: deps.db }).catch(() => [] as BrandSignal[]) : Promise.resolve([] as BrandSignal[]),
     (deps.competitorNames ?? (async (c) => (await listCompetitors(c, { db: deps.db })).map((x) => x.name)))(ctx).catch(() => [] as string[]),
-    (deps.notOnMap ?? (async (c) => (await competitorCoverage(c, { db: deps.db }))?.notOnMap ?? null))(ctx).catch(() => null),
+    (deps.notOnMap ?? (async (c) => stillToAdd(await competitorCoverage(c, { db: deps.db }))))(ctx).catch(() => null),
   ]);
   if (!flags) missing.push("Competitor articles aren't on for this brand.");
   const byQuery = new Map(signals.map((s) => [queryKey(s.about.query), s] as const));

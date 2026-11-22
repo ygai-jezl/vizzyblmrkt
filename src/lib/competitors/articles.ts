@@ -176,6 +176,39 @@ export async function articlesOnSubject(ctx: TenantContext, subjectId: string, d
   return found.filter((a) => a.status === "read").sort(newest);
 }
 
+/**
+ * Articles read that fitted no subject when read, and whose topic is this subject's name: the
+ * ones a subject added from "They write about these" came from. Newest first.
+ */
+export async function articlesOnTopic(ctx: TenantContext, name: string, deps: ArticleStoreDeps = {}): Promise<CompetitorArticle[]> {
+  const topic = name.trim();
+  if (!topic) return [];
+  const found = await repoOf(ctx, deps).find({ where: [["newTopic", "==", topic]], limit: 200 });
+  return found.filter((a) => a.status === "read").sort(newest);
+}
+
+/**
+ * A subject added from a topic they write about: the read articles that fitted no subject and
+ * whose topic (by `keyOf`) is now a subject are put on it, so its box finds them. Returns how many.
+ */
+export async function linkTopicArticles(
+  ctx: TenantContext,
+  subjectByKey: Map<string, string>,
+  keyOf: (topic: string) => string,
+  deps: ArticleStoreDeps = {},
+): Promise<number> {
+  if (!subjectByKey.size) return 0;
+  const repo = repoOf(ctx, deps);
+  let linked = 0;
+  for (const a of await listReadArticles(ctx, deps)) {
+    const id = a.newTopic && !a.subjectIds.length ? subjectByKey.get(keyOf(a.newTopic)) : undefined;
+    if (!id) continue;
+    await repo.update(a.id, { subjectIds: [id] });
+    linked += 1;
+  }
+  return linked;
+}
+
 /** Stop watching: a competitor's articles and their vectors go too. */
 export async function removeArticles(ctx: TenantContext, competitorId: string, deps: ArticleStoreDeps = {}): Promise<number> {
   const repo = repoOf(ctx, deps);

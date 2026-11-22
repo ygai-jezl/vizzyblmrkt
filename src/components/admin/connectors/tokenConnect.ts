@@ -54,14 +54,34 @@ export type TokenCheckOutcome =
   /** The token can't list them: type the account instead, and Connect checks the token with it. */
   | { kind: "typed" }
   /** The token was turned down, or the check didn't go through: say why. */
-  | { kind: "refused"; message: string };
+  | { kind: "refused"; message: string }
+  /** The token in the form changed while Check ran: the answer is for another token, so drop it. */
+  | { kind: "stale" };
+
+/** The secret fields of a token form, as Check sends them. */
+export function secretsOf(fields: ReadonlyArray<{ key: string; secret: boolean }>, values: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(fields.filter((f) => f.secret).map((f) => [f.key, values[f.key] ?? ""]));
+}
+
+const sameSecrets = (a: Record<string, string>, b: Record<string, string>) => {
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((k) => a[k] === b[k]);
+};
 
 /**
  * Check a pasted token before connecting (Check on a token Listing that picks from a list). Only
- * the secret fields go; the route saves nothing.
+ * the secret fields go; the route saves nothing. `current` reads the form's secrets when the answer
+ * comes: one edited while Check ran gets no answer, so a token is never shown as checked, with the
+ * zones another token can see, when it wasn't the one checked.
  */
-export async function checkPastedToken(connectorId: string, secrets: Record<string, string>, call: ApiCall = callApi): Promise<TokenCheckOutcome> {
+export async function checkPastedToken(
+  connectorId: string,
+  secrets: Record<string, string>,
+  call: ApiCall = callApi,
+  current?: () => Record<string, string>,
+): Promise<TokenCheckOutcome> {
   const r = await call<TokenCheck>(ROUTES.checkToken(connectorId), { method: "POST", body: { fields: secrets } });
+  if (current && !sameSecrets(secrets, current())) return { kind: "stale" };
   if (!r.ok) return { kind: "refused", message: r.message };
   return r.data.listed && r.data.accounts.length ? { kind: "listed", accounts: r.data.accounts, more: r.data.more } : { kind: "typed" };
 }

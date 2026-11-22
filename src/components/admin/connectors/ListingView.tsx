@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { HowToLink } from "@/components/help/HowToLink";
@@ -8,7 +8,7 @@ import type { ConnectorAccount } from "@/lib/connectors/handlers/types";
 import type { ConnectionView, ConnectorListing } from "@/lib/connectors/service";
 import { callApi, ROUTES, startSignIn } from "./api";
 import { ConnectorTile } from "./BrowseView";
-import { checkPastedToken, connectWithToken } from "./tokenConnect";
+import { checkPastedToken, connectWithToken, secretsOf } from "./tokenConnect";
 import {
   BUTTON,
   BUTTON_PRIMARY,
@@ -324,6 +324,11 @@ function TokenCard({
   // Check and Connect wait for the page's script: a form sent before it would go by the browser alone.
   const [ready, setReady] = useState(false);
   useEffect(() => setReady(true), []);
+  // The form as it is now, for a Check's answer to compare with the token it sent.
+  const latest = useRef(values);
+  useEffect(() => {
+    latest.current = values;
+  }, [values]);
 
   /** A pick Listing shows the account only after Check: from the list, or typed when it can't list. */
   const stage = !pick ? "all" : !checked ? "token" : typing || !checked.accounts.length ? "typed" : "listed";
@@ -346,9 +351,11 @@ function TokenCard({
   async function check() {
     setBusy("check");
     setError(null);
-    const secrets = Object.fromEntries(method.fields.filter((f) => f.secret).map((f) => [f.key, values[f.key] ?? ""]));
-    const r = await checkPastedToken(listing.id, secrets);
+    const secrets = secretsOf(method.fields, values);
+    const r = await checkPastedToken(listing.id, secrets, undefined, () => secretsOf(method.fields, latest.current));
     setBusy(null);
+    // The token changed while Check ran: the edit already cleared the check, so it is pressed again.
+    if (r.kind === "stale") return;
     if (r.kind === "refused") {
       setError(r.message);
       return;
@@ -427,6 +434,8 @@ function TokenCard({
                 minLength={f.minLength}
                 maxLength={f.maxLength}
                 value={values[f.key] ?? ""}
+                // The token Check is checking stays as it was until the answer comes.
+                readOnly={f.secret && busy === "check"}
                 onChange={(e) => set(f.key, e.target.value)}
                 className={input}
               />

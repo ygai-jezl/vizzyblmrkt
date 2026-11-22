@@ -12,7 +12,7 @@ vi.mock("next/link", () => ({
 const { ListingView } = await import("./ListingView");
 const { listingBanner } = await import("./listingBanner");
 const { LISTING_COPY, chosenAtFirst, limitsOf, moreListedWords, readsOf, replaceableOf, signInReasonWords, tokenCheckedWords, waitingShareOf, youNeedOf } = await import("./words");
-const { checkPastedToken } = await import("./tokenConnect");
+const { checkPastedToken, secretsOf } = await import("./tokenConnect");
 
 type Props = Parameters<typeof ListingView>[0];
 const CF = listingFor("cloudflare", ["token_fields"]);
@@ -129,6 +129,25 @@ describe("Check on the Cloudflare Listing", () => {
     expect(await checkPastedToken("cloudflare", { token: "x" }, stub({ ok: true, data: { accounts: [], more: false, listed: false } }).call)).toEqual({ kind: "typed" });
     const refused = stub({ ok: false, status: 502, error: "token_refused", message: "Cloudflare turned the token down." });
     expect(await checkPastedToken("cloudflare", { token: "x" }, refused.call)).toEqual({ kind: "refused", message: "Cloudflare turned the token down." });
+  });
+
+  it("drops an answer for a token edited while Check ran, so the new one is never shown as checked", async () => {
+    const method = CF.connect[0]!;
+    const fields = method.method === "token_fields" ? method.fields : [];
+    const form = { token: "made-up-token-000000000000", zoneId: "" };
+    const sent = secretsOf(fields, form);
+    expect(sent).toEqual({ token: "made-up-token-000000000000" });
+    // The admin types over the token before the answer listing the old token's zones comes back.
+    const late = (async () => {
+      form.token = "made-up-token-111111111111";
+      return { ok: true, data: { accounts: zones, more: false, listed: true } };
+    }) as Parameters<typeof checkPastedToken>[2];
+    expect(await checkPastedToken("cloudflare", sent, late, () => secretsOf(fields, form))).toEqual({ kind: "stale" });
+    // A turned down answer for the old token is dropped too, and an unchanged token keeps its answer.
+    const refusedLate = (async () => ({ ok: false, status: 502, error: "token_refused", message: "Cloudflare turned the token down." })) as Parameters<typeof checkPastedToken>[2];
+    expect(await checkPastedToken("cloudflare", sent, refusedLate, () => secretsOf(fields, form))).toEqual({ kind: "stale" });
+    const same = stub({ ok: true, data: { accounts: zones, more: false, listed: true } });
+    expect(await checkPastedToken("cloudflare", sent, same.call, () => sent)).toEqual({ kind: "listed", accounts: zones, more: false });
   });
 
   it("names the zone chosen, and starts on the only one", () => {

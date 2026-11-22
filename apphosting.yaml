@@ -40,6 +40,13 @@ env:
     value: global
     availability:
       - RUNTIME
+  # More memory for the build only. The type check in `next build` needs a little over the
+  # build machine's default 2 GB Node heap, and without this the build stops with "JavaScript
+  # heap out of memory". The running app is unchanged.
+  - variable: NODE_OPTIONS
+    value: --max-old-space-size=4096
+    availability:
+      - BUILD
 
   # ===== What your environment file sets =====
   # Nothing below is set here, because each value names one deployment. Put the ones you

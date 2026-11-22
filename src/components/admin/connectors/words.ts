@@ -1,4 +1,4 @@
-import { LIVE_LIMITS, type ConnectMethodName, type ShareAccessMethod, type TokenFieldsMethod } from "@/lib/connectors/manifest";
+import { LIVE_LIMITS, type ConnectMethodName, type ConnectorCategory, type ShareAccessMethod, type TokenFieldsMethod } from "@/lib/connectors/manifest";
 import { SIGNIN_REASONS } from "@/lib/connectors/messages";
 import type { ConnectionView, ConnectorListing } from "@/lib/connectors/service";
 
@@ -26,18 +26,28 @@ export const SCREEN_COPY = {
   membersOnly: "Only admins connect or change anything here. Ask an admin on your team.",
 } as const;
 
-/** Each category's name on Browse's chips and cards and on a Listing, as the approved screens show them. */
-export const CATEGORY_LABELS: Readonly<Record<string, string>> = {
-  search_analytics: "Search and analytics",
-  website_traffic: "Website and traffic",
-  social: "Social",
-  email: "Email",
-  code: "Code",
-  crm: "Customers",
-  shop: "Shop",
-};
+/**
+ * How Browse groups the manifests' categories, for display only: a manifest keeps its own fine
+ * category (analytics, search, traffic), and the chips, cards and a Listing show its group's name,
+ * as the approved screens do. Every category is in exactly one group (a test checks).
+ */
+export const CATEGORY_GROUPS: ReadonlyArray<{ id: string; label: string; categories: readonly ConnectorCategory[] }> = [
+  { id: "search-analytics", label: "Search and analytics", categories: ["analytics", "search"] },
+  { id: "website-traffic", label: "Website and traffic", categories: ["traffic"] },
+  { id: "social", label: "Social", categories: ["social"] },
+  { id: "email", label: "Email", categories: ["email"] },
+  { id: "code", label: "Code", categories: ["code"] },
+  { id: "crm", label: "Customers", categories: ["crm"] },
+  { id: "shop", label: "Shop", categories: ["shop"] },
+];
 
-export const categoryLabel = (category: string) => CATEGORY_LABELS[category] ?? category;
+/** The display group a manifest's category falls in; one this build doesn't know shows as itself. */
+export function groupOf(category: string): { id: string; label: string } {
+  const group = CATEGORY_GROUPS.find((g) => (g.categories as readonly string[]).includes(category));
+  return group ? { id: group.id, label: group.label } : { id: category, label: category };
+}
+
+export const categoryLabel = (category: string) => groupOf(category).label;
 
 export const METHOD_LABELS: Readonly<Record<ConnectMethodName, string>> = {
   token_fields: "API token",
@@ -45,16 +55,21 @@ export const METHOD_LABELS: Readonly<Record<ConnectMethodName, string>> = {
   share_access: "Share access",
 };
 
-/** The categories the offered connectors fall in, in the order they first appear. */
-export function categoriesOf(connectors: readonly Pick<ConnectorListing, "category">[]): string[] {
-  return [...new Set(connectors.map((c) => c.category))];
+/** The display groups the offered connectors fall in, in the order they first appear: Browse's chips. */
+export function categoriesOf(connectors: readonly Pick<ConnectorListing, "category">[]): Array<{ id: string; label: string }> {
+  const seen = new Map<string, { id: string; label: string }>();
+  for (const c of connectors) {
+    const g = groupOf(c.category);
+    if (!seen.has(g.id)) seen.set(g.id, g);
+  }
+  return [...seen.values()];
 }
 
-/** Browse's search and category chips: a connector matches on its name, summary or category. */
-export function filterConnectors<T extends Pick<ConnectorListing, "name" | "summary" | "category">>(connectors: readonly T[], query: string, category: string | null): T[] {
+/** Browse's search and group chips: a connector matches on its name, summary or group's name. */
+export function filterConnectors<T extends Pick<ConnectorListing, "name" | "summary" | "category">>(connectors: readonly T[], query: string, group: string | null): T[] {
   const q = query.trim().toLowerCase();
   return connectors.filter((c) => {
-    if (category && c.category !== category) return false;
+    if (group && groupOf(c.category).id !== group) return false;
     if (!q) return true;
     return [c.name, c.summary, categoryLabel(c.category)].some((s) => s.toLowerCase().includes(q));
   });
@@ -75,9 +90,12 @@ export function connectorStatus(connectorId: string, connections: readonly Conne
   return { label: "Connected", tone: "ok" };
 }
 
-/** Two letters for a connector's tile: its words' first letters, leaving out Google in a longer name. */
+/**
+ * Two letters for a connector's tile: its words' first letters, leaving out a version number
+ * (Google Analytics 4 is GA) and Google in a longer name.
+ */
 export function initialsOf(name: string): string {
-  const words = name.split(/\s+/).filter(Boolean);
+  const words = name.split(/\s+/).filter((w) => w && !/^\d+$/.test(w));
   const kept = words.length > 2 ? words.filter((w) => w !== "Google") : words;
   return kept
     .slice(0, 2)

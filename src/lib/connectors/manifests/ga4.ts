@@ -24,9 +24,9 @@ const SCOPE = "https://www.googleapis.com/auth/analytics.readonly";
 export const ga4Manifest = {
   schema: 1,
   id: "google-analytics",
-  name: "Google Analytics",
+  name: "Google Analytics 4",
   summary: "Sessions, users, views and key events for your site, read from Google Analytics 4 when you ask.",
-  category: "search_analytics",
+  category: "analytics",
   publisher: "yougrow",
   switch: "CONNECTOR_GA4_ENABLED",
   connect: [

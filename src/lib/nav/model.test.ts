@@ -206,8 +206,8 @@ describe("phase 3", () => {
       { label: "Connections", href: "/admin/account/connections/browse" },
       { label: "Google Search Console" },
     ]);
-    expect(crumbs("/admin/account/connections/google-analytics/pick").map((c) => c.label)).toEqual(["Settings", "Connections", "Google Analytics", "Choose a property"]);
-    expect(crumbs("/admin/account/connections/google-analytics/pick")[2]).toEqual({ label: "Google Analytics", href: "/admin/account/connections/google-analytics" });
+    expect(crumbs("/admin/account/connections/google-analytics/pick").map((c) => c.label)).toEqual(["Settings", "Connections", "Google Analytics 4", "Choose a property"]);
+    expect(crumbs("/admin/account/connections/google-analytics/pick")[2]).toEqual({ label: "Google Analytics 4", href: "/admin/account/connections/google-analytics" });
     expect(crumbs("/admin/account/connections/cloudflare", false).map((c) => c.label)).toEqual(["Settings", "Connections", "Cloudflare"]);
     // An id no manifest has reads as itself.
     expect(labels("/admin/account/connections/new-thing")).toEqual(["Settings", "Connections", "New thing"]);

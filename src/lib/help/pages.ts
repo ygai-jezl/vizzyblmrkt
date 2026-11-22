@@ -104,7 +104,7 @@ export const HELP_PAGES: HelpPage[] = [
     "connected-data",
     "Connected data",
     "grow",
-    "Connect Cloudflare, Google Search Console or Google Analytics, choose who can read each, and read the numbers live.",
+    "Connect Google Search Console, Google Analytics 4 or Cloudflare, choose who can read each, and read the numbers live.",
     "connectors",
   ),
   page(

@@ -41,8 +41,8 @@ export function ConnectorTile({ id, name, size = "md" }: { id: string; name: str
 
 /**
  * Settings › Connections › Browse: the connectors this copy offers now (each one's own switch on
- * and a way to connect ready), with a search box and a chip per category. Each card opens the
- * connector's Listing. Members see the same cards; only admins connect, on the Listing.
+ * and a way to connect ready), with a search box and a chip per group of categories. Each card
+ * opens the connector's Listing. Members see the same cards; only admins connect, on the Listing.
  */
 export function BrowseView({ connectors, connections, chat }: BrowseProps) {
   const [query, setQuery] = useState("");
@@ -80,9 +80,9 @@ export function BrowseView({ connectors, connections, chat }: BrowseProps) {
                 <button type="button" className={chip(category === null)} aria-pressed={category === null} onClick={() => setCategory(null)}>
                   All
                 </button>
-                {categories.map((c) => (
-                  <button key={c} type="button" className={chip(category === c)} aria-pressed={category === c} onClick={() => setCategory(c)}>
-                    {categoryLabel(c)}
+                {categories.map((g) => (
+                  <button key={g.id} type="button" className={chip(category === g.id)} aria-pressed={category === g.id} onClick={() => setCategory(g.id)}>
+                    {g.label}
                   </button>
                 ))}
               </>

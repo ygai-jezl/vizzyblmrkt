@@ -98,7 +98,7 @@ describe("the connector registry", () => {
     expect(readyMethods(knownConnector("google-analytics")!)).toEqual(["share_access"]);
     vi.stubEnv("CONNECTOR_GA4_SIGNIN_ENABLED", "true");
     expect(readyMethods(knownConnector("google-analytics")!)).toEqual(["oauth_pkce", "share_access"]);
-    expect(getConnector("google-analytics")?.name).toBe("Google Analytics");
+    expect(getConnector("google-analytics")?.name).toBe("Google Analytics 4");
     vi.stubEnv("CONNECTOR_GA4_ENABLED", "1");
     expect(getConnector("google-analytics")).toBeNull();
   });

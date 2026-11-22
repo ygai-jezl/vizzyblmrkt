@@ -17,7 +17,7 @@ export const cloudflareManifest = {
   id: "cloudflare",
   name: "Cloudflare",
   summary: "Requests, page views and visits for your site, read from Cloudflare when you ask.",
-  category: "website_traffic",
+  category: "traffic",
   publisher: "yougrow",
   switch: "CONNECTOR_CLOUDFLARE_ENABLED",
   connect: [

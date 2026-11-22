@@ -8,7 +8,9 @@ vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: unknown }) => createElement("a", { href, ...rest }, children as never),
 }));
 const { BrowseView } = await import("./BrowseView");
-const { SCREEN_COPY, categoriesOf, connectorStatus, filterConnectors, initialsOf } = await import("./words");
+const { CATEGORY_GROUPS, SCREEN_COPY, categoriesOf, connectorStatus, filterConnectors, groupOf, initialsOf } = await import("./words");
+const { CONNECTOR_CATEGORIES } = await import("@/lib/connectors/manifest");
+const { allConnectors } = await import("@/lib/connectors/catalog");
 
 const ALL = [listingFor("search-console", ["oauth_pkce", "share_access"]), listingFor("google-analytics", ["share_access"]), listingFor("cloudflare", ["token_fields"])];
 const render = (props: Partial<Parameters<typeof BrowseView>[0]> = {}) =>
@@ -24,7 +26,10 @@ describe("Browse", () => {
     expect(text).toContain("Cloudflare Website and traffic · Built by YouGrow");
     expect(text).toContain("Ready Sign in with Google Share access");
     // GA4's Sign in isn't ready on this copy, so only share access shows.
-    expect(text).toContain("Google Analytics Search and analytics · Built by YouGrow Sessions, users, views and key events for your site, read from Google Analytics 4 when you ask. Ready Share access");
+    expect(text).toContain("Google Analytics 4 Search and analytics · Built by YouGrow Sessions, users, views and key events for your site, read from Google Analytics 4 when you ask. Ready Share access");
+    // In the approved Browse screen's order: Search Console, Google Analytics 4, Cloudflare.
+    expect(text.indexOf("Google Search Console Search")).toBeLessThan(text.indexOf("Google Analytics 4 Search"));
+    expect(text.indexOf("Google Analytics 4 Search")).toBeLessThan(text.indexOf("Cloudflare Website"));
     expect(text).toContain("Ready API token");
     expect(text).toContain(SCREEN_COPY.browseFoot);
     // The chips, in the order the connectors come, named as the approved Browse screen names them.
@@ -60,13 +65,30 @@ describe("Browse", () => {
 });
 
 describe("Browse's words", () => {
-  it("search by name, summary or category, and narrow by a chip", () => {
+  it("search by name, summary or group, and narrow by a chip", () => {
     expect(filterConnectors(ALL, "clicks", null).map((c) => c.id)).toEqual(["search-console"]);
     expect(filterConnectors(ALL, "TRAFFIC", null).map((c) => c.id)).toEqual(["cloudflare"]);
-    expect(filterConnectors(ALL, "", "search_analytics").map((c) => c.id)).toEqual(["search-console", "google-analytics"]);
-    expect(filterConnectors(ALL, "", "website_traffic").map((c) => c.id)).toEqual(["cloudflare"]);
-    expect(filterConnectors(ALL, "cloud", "search_analytics")).toEqual([]);
-    expect(categoriesOf(ALL)).toEqual(["search_analytics", "website_traffic"]);
+    expect(filterConnectors(ALL, "", "search-analytics").map((c) => c.id)).toEqual(["search-console", "google-analytics"]);
+    expect(filterConnectors(ALL, "", "website-traffic").map((c) => c.id)).toEqual(["cloudflare"]);
+    expect(filterConnectors(ALL, "cloud", "search-analytics")).toEqual([]);
+    expect(categoriesOf(ALL)).toEqual([
+      { id: "search-analytics", label: "Search and analytics" },
+      { id: "website-traffic", label: "Website and traffic" },
+    ]);
+  });
+
+  it("keep the manifests' fine categories, and group them only for display", () => {
+    const byId = Object.fromEntries(allConnectors().map((m) => [m.id, m.category]));
+    expect(byId).toEqual({ "search-console": "search", "google-analytics": "analytics", cloudflare: "traffic" });
+    expect(groupOf("analytics")).toEqual({ id: "search-analytics", label: "Search and analytics" });
+    expect(groupOf("search")).toEqual({ id: "search-analytics", label: "Search and analytics" });
+    expect(groupOf("traffic")).toEqual({ id: "website-traffic", label: "Website and traffic" });
+    // Every category the manifest schema allows is in exactly one group.
+    for (const c of CONNECTOR_CATEGORIES) expect(CATEGORY_GROUPS.filter((g) => (g.categories as readonly string[]).includes(c)), c).toHaveLength(1);
+  });
+
+  it("list the connectors in the approved Browse screen's order", () => {
+    expect(allConnectors().map((m) => m.name)).toEqual(["Google Search Console", "Google Analytics 4", "Cloudflare"]);
   });
 
   it("rank a connector's state: attention, then a property to pick, then paused, then connected", () => {
@@ -83,7 +105,7 @@ describe("Browse's words", () => {
 
   it("give each connector two letters", () => {
     expect(initialsOf("Google Search Console")).toBe("SC");
-    expect(initialsOf("Google Analytics")).toBe("GA");
+    expect(initialsOf("Google Analytics 4")).toBe("GA");
     expect(initialsOf("Cloudflare")).toBe("C");
   });
 

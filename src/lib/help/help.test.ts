@@ -447,7 +447,10 @@ describe("Connected data", () => {
   it("takes every connector's steps, role and numbers from its manifest", () => {
     const text = md(true);
     expect(text).toMatch(/^# Connected data\n/);
-    for (const name of ["## Cloudflare", "## Google Search Console", "## Google Analytics"]) expect(text).toContain(name);
+    // In Browse's order, with Google Analytics named as the approved screens name it.
+    const at = ["## Google Search Console", "## Google Analytics 4", "## Cloudflare"].map((name) => text.indexOf(name));
+    expect(at.every((i) => i > 0)).toBe(true);
+    expect(at).toEqual([...at].sort((a, b) => a - b));
     expect(text).toContain("Give the token one permission: Zone, Analytics, Read.");
     expect(text).toContain("Open Google Search Console under Settings › Connections › Browse, then press Sign in with Google.");
     expect(text).toContain("The address gets the **Restricted** role");

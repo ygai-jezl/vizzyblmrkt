@@ -5,7 +5,7 @@ import { isConnectorsChatEnabled } from "@/lib/connectors/flags";
 import { connectedDataHelp, type ConnectorHelp } from "@/lib/connectors/helpText";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
-/** "Cloudflare, Google Search Console and Google Analytics". */
+/** "Google Search Console, Google Analytics 4 and Cloudflare". */
 function names(list: readonly ConnectorHelp[]): string {
   const n = list.map((c) => c.name);
   return n.length <= 1 ? (n[0] ?? "") : `${n.slice(0, -1).join(", ")} and ${n.at(-1)}`;

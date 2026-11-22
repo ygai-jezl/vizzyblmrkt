@@ -36,6 +36,7 @@ import {
 } from "@/lib/audience/peopleFlags";
 import { parseThemePreference, THEME_COOKIE } from "@/lib/theme";
 import { isCatalogHistoryEnabled } from "@/lib/connect/v2/flags";
+import { isConnectorsChatEnabled } from "@/lib/connectors/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -189,6 +190,7 @@ export default async function AdminLayout({
             vizzyTextFields={isVizzyTextFieldsEnabled()}
             vizzyAddPerson={isVizzyAddPersonEnabled()}
             catalogHistory={isCatalogHistoryEnabled()}
+            connectorsChat={isConnectorsChatEnabled()}
           >
             {shell}
           </ShellProvider>

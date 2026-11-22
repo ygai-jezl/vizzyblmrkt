@@ -10,6 +10,10 @@ import { SETUP_HOW_TO } from "@/lib/connect/setupChecklist";
 import { computeGrowth, type GrowthSignals } from "@/lib/nav/growth";
 import { launchChecklist } from "@/lib/nav/launchChecklist";
 import { docToMarkdown } from "@/lib/developers/markdown";
+import { STATE_LABELS } from "@/components/admin/connectors/words";
+import { HEALTH_HELP } from "@/lib/connectors/helpText";
+import { allConnectors } from "@/lib/connectors/catalog";
+import { tokenRefusedMessage } from "@/lib/connectors/messages";
 import { helpLlmsTxt, helpPageMarkdown } from "./agentFiles";
 import { HELP_PAGES, helpPage, shownHelpPages } from "./pages";
 import { HELP_PLACES, helpFor, parseHelpPath } from "./places";
@@ -57,6 +61,9 @@ vi.hoisted(() => {
   process.env.BRAND_MAP_PAGES_ENABLED = "true";
   process.env.BLOG_LIVE_WATCH_ENABLED = "true";
   process.env.NEXT_PUBLIC_PLANS_ENABLED = "true";
+  process.env.NEXT_PUBLIC_CONNECTORS_ENABLED = "true";
+  process.env.CONNECTORS_ENABLED = "true";
+  process.env.CONNECTORS_CHAT_ENABLED = "true";
 });
 
 const SRC = join(process.cwd(), "src");
@@ -163,10 +170,14 @@ describe("the help pages", () => {
       // Apostrophes and quotes may be written as entities or escapes in source.
       .replace(/&apos;|&#39;|\\'/g, "'")
       .replace(/&quot;|\\"/g, '"');
+    // Messages the app builds from a manifest's name, as a turned down token's are, count as shown.
+    const generated = new Set(
+      allConnectors().flatMap((m) => [true, false].flatMap((chat) => [tokenRefusedMessage(m.name, "connected", chat), tokenRefusedMessage(m.name, "connecting", chat)])),
+    );
     for (const { page, els } of pages) {
       for (const el of els.filter((e) => e.type === Messages)) {
         for (const [message] of el.props.rows as Array<[string, ReactNode]>) {
-          expect(corpus.includes(message), `${page.path} quotes "${message}", which isn't in src`).toBe(true);
+          expect(corpus.includes(message) || generated.has(message), `${page.path} quotes "${message}", which isn't in src`).toBe(true);
         }
       }
     }
@@ -300,6 +311,14 @@ describe("links into the help", () => {
     // Only the People area changes.
     expect(helpFor("/admin/lifecycle/j1", { people: true })).toBe("/help/onboarding-journeys");
     expect(HELP_PLACES).toEqual(expect.arrayContaining(["/help/people", "/help/your-audience"]));
+  });
+
+  it("sends Browse, a connector's pages and Connected to Connected data, and Accounts to Connected accounts", () => {
+    expect(helpFor("/admin/account/connections")).toBe("/help/connected-accounts");
+    expect(helpFor("/admin/account/connections/browse")).toBe("/help/connected-data#connect");
+    expect(helpFor("/admin/account/connections/search-console")).toBe("/help/connected-data#connect");
+    expect(helpFor("/admin/account/connections/google-analytics/pick")).toBe("/help/connected-data#connect");
+    expect(helpFor("/admin/account/connections/connected")).toBe("/help/connected-data#connected");
   });
 
   it("sends Plan and usage and Add Brand to the plans page while its switch is on", () => {
@@ -455,5 +474,69 @@ describe("Vizzy filling in New person", () => {
     expect(md("your-audience", false)).not.toContain("Vizzy never records");
     expect(md("your-audience", true, false)).not.toContain("Vizzy never records");
     expect(md("review-and-approvals", false)).not.toContain("Suggestions about people");
+  });
+});
+
+describe("Connected data", () => {
+  const md = (connectorsChat: boolean) => docToMarkdown(HELP_BODIES["connected-data"]!({ connectorsChat }), "https://app.example.com");
+
+  it("takes every connector's steps, role and numbers from its manifest", () => {
+    const text = md(true);
+    expect(text).toMatch(/^# Connected data\n/);
+    // In Browse's order, with Google Analytics named as the approved screens name it.
+    const at = ["## Google Search Console", "## Google Analytics 4", "## Cloudflare"].map((name) => text.indexOf(name));
+    expect(at.every((i) => i > 0)).toBe(true);
+    expect(at).toEqual([...at].sort((a, b) => a - b));
+    expect(text).toContain("Give the token three permissions: Zone Read, so YouGrow can list your zones; Zone Analytics Read, so it can read their numbers; and Account Analytics Read, asked for now so later features don't need a new token. Nothing reads with it today.");
+    expect(text).toContain("Paste the token here and press Check. Pick your site's zone from the list, then press Connect.");
+    // The Zone ID line fits both ways to it: the token can't list zones, or yours isn't among those listed.
+    expect(text).toContain("**Zone ID**: Typed only when Check doesn't list your zone. Find it on your site's Overview page in Cloudflare, in the API box on the right.");
+    expect(text).not.toContain("Only when the token can't list your zones");
+    expect(text).toContain("This token can't list your zones (that needs Zone Read), so type your site's Zone ID instead.");
+    expect(text).toContain("Type the Zone ID, or make the token again with Zone Read, Zone Analytics Read and Account Analytics Read to pick from a list.");
+    // The link fills in all three permissions, so the words say permissions.
+    expect(text).toContain("Your account's analytics | Read only. Asked for now so later features don't need a new token. Nothing is read with it today.");
+    expect(text).toContain("The link on the Cloudflare page opens Cloudflare's token form with the permissions filled in: [make a token](https://dash.cloudflare.com/profile/api-tokens?");
+  });
+
+  it("says where Accounts and Sending are, and quotes a turned down token in its tool's own words", () => {
+    const text = md(true);
+    expect(text).toContain("Your accounts for code and posts (GitHub, GitLab, LinkedIn and X) stay under **Accounts**");
+    expect(text).toContain("Email sending is set up under [Settings › Sending]");
+    expect(text).not.toMatch(/Mailchimp/);
+    expect(text).toContain("Cloudflare turned the token down. Vizzy can't read it until you reconnect.");
+    expect(md(false)).toContain("Cloudflare turned the token down. Nobody can read it until you reconnect.");
+    // With two connections to one tool, Connected says which one.
+    expect(text).toContain('each banner and activity line on Connected says which one, as in "Cloudflare for acme.example paused".');
+    expect(text).toContain(tokenRefusedMessage("Cloudflare", "connecting", true));
+    // Only token connectors can have a token turned down.
+    expect(text).not.toContain("Google Search Console turned the token down");
+    expect(text).toContain("Open Google Search Console under Settings › Connections › Browse, then press Sign in with Google.");
+    expect(text).toContain("The address gets the **Restricted** role");
+    expect(text).toContain("The address gets the **Viewer** role");
+    expect(text).toContain("**Analytics sessions**");
+    expect(text).toContain("at most 100 sign ins for one Google account");
+    expect(text).toContain("myaccount.google.com/permissions");
+  });
+
+  it("lists only the statuses Connected shows, and says where a disconnected connection goes", () => {
+    const text = md(true);
+    for (const label of STATE_LABELS) expect(text, label).toMatch(new RegExp(`^\\| ${label} \\|`, "m"));
+    // Connected lists only connections still connected, so Disconnected is never a status there.
+    expect(text).not.toMatch(/^\| Disconnected \|/m);
+    expect(text).toContain(HEALTH_HELP.disconnected);
+  });
+
+  it("explains letting Vizzy read only while Vizzy reads connected data", () => {
+    expect(md(true)).toContain("## Letting Vizzy read it");
+    expect(md(true)).toContain("Vizzy can read it when someone asks");
+    expect(md(false)).not.toContain("Letting Vizzy read it");
+    expect(md(false)).not.toContain("Vizzy can read it when someone asks");
+  });
+
+  it("is listed after Connected accounts, and Connected accounts points to it", () => {
+    const slugs = shownHelpPages().map((p) => p.slug);
+    expect(slugs.indexOf("connected-data")).toBe(slugs.indexOf("connected-accounts") + 1);
+    expect(helpPageMarkdown("connected-accounts", "https://app.example.com")).toContain("[Connected data](https://app.example.com/help/connected-data.md)");
   });
 });

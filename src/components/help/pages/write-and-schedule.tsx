@@ -208,7 +208,7 @@ export default function WriteAndScheduleHelp() {
       <H2 id="schedule">Schedule posts</H2>
       <Steps>
         <li>
-          An admin connects LinkedIn or X in <Open href="/admin/account/connections">Settings › Integrations</Open>.
+          An admin connects LinkedIn or X in <Open href="/admin/account/connections">Settings › Connections</Open>.
         </li>
         <li>
           Open your programme, then <strong>Calendar</strong>.
@@ -317,10 +317,10 @@ export default function WriteAndScheduleHelp() {
           ],
           ["That item isn't generated yet", "Open it in Drafts and generate it first."],
           [
-            "Connect LinkedIn in Settings › Integrations first",
-            "Ask an admin to connect it in Settings › Integrations, then press Schedule again.",
+            "Connect LinkedIn in Settings › Connections first",
+            "Ask an admin to connect it in Settings › Connections, then press Schedule again.",
           ],
-          ["Connect X in Settings › Integrations first", "Ask an admin to connect it in Settings › Integrations, then press Schedule again."],
+          ["Connect X in Settings › Connections first", "Ask an admin to connect it in Settings › Connections, then press Schedule again."],
           [
             "That LinkedIn Page isn't connected.",
             "A YouGrow admin who is also an admin of the Page on LinkedIn connects LinkedIn Pages. Or choose to post as yourself.",
@@ -367,7 +367,7 @@ export default function WriteAndScheduleHelp() {
                   "Results are read for company page posts. Choose your page in Post as when you schedule.",
                 ],
                 [
-                  "Reconnect it in Settings › Integrations so your next posts get results.",
+                  "Reconnect it in Settings › Connections so your next posts get results.",
                   "An admin reconnects the LinkedIn page or X account. This post's numbers aren't read again, but your next posts get results.",
                 ],
                 [

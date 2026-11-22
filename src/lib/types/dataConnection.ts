@@ -1,0 +1,181 @@
+import { z } from "zod";
+import { EncryptedBlobSchema } from "./productConnection";
+
+/**
+ * Connected data (Connectors 1, ADR-0011). One record per connection in the brand's regional
+ * `data_connections`, written only through src/lib/tenant/dataConnections.ts, and each change in
+ * `data_connection_activity`, kept 90 days by a time to live on `ttlAt`.
+ *
+ * Named `data_connection` (ids `dcn_`) because "connection" already means a connected product
+ * (`product_connections`, `pcn_`) and a Review kind. People read "Connected data".
+ */
+
+export const DATA_CONNECTION_ID_RE = /^dcn_[a-z2-7]{20}$/;
+
+export const DATA_CONNECTION_METHODS = ["token_fields", "oauth_pkce", "share_access"] as const;
+export type DataConnectionMethod = (typeof DATA_CONNECTION_METHODS)[number];
+
+/**
+ * - ok: the last call worked;
+ * - check: the last call failed for a reason that may pass (the provider was down or busy);
+ * - broken: the provider turned the connection down, so it needs reconnecting;
+ * - paused: an admin paused it, or YouGrow did after a provider's rate limit or repeated failures.
+ */
+export const HEALTH_STATES = ["ok", "check", "broken", "paused"] as const;
+export type HealthState = (typeof HEALTH_STATES)[number];
+
+/**
+ * - account_picked: an admin picked which site or property a signed in or shared connection reads;
+ * - shared: an admin started share access, and YouGrow made the connection's Google address;
+ * - access_checked: an admin pressed Check access on a shared connection (code ok, or why not);
+ * - read: Vizzy read the connection live (kept in the log, not on the record's recent list);
+ * - cleanup_failed: deleting a shared connection's Google address failed; the purge tries again.
+ */
+export const ACTIVITY_KINDS = [
+  "connected",
+  "verified",
+  "failed",
+  "paused",
+  "resumed",
+  "grants_changed",
+  "account_picked",
+  "shared",
+  "access_checked",
+  "read",
+  "disconnected",
+  "cleanup_failed",
+  "purged",
+] as const;
+export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
+
+/** Who may read a connection beyond its admins. "manage" is never a grant: it is the admin role. */
+export const GRANT_TARGETS = ["members", "agent:vizzy"] as const;
+export type GrantTarget = (typeof GRANT_TARGETS)[number];
+
+export const ConnectionGrantSchema = z.object({ to: z.enum(GRANT_TARGETS), can: z.literal("read") }).strict();
+export type ConnectionGrant = z.infer<typeof ConnectionGrantSchema>;
+
+export const SealedSecretSchema = z.object({
+  blob: EncryptedBlobSchema,
+  /** The short id of the vault root that sealed it (src/lib/connectors/vault.ts). */
+  encKeyId: z.string(),
+  sealedAt: z.string(),
+});
+
+/**
+ * Who is refreshing a signed in connection's access token right now (src/lib/connectors/
+ * tokenKeeper.ts). A caller takes the lease for about 30 seconds before it spends the refresh
+ * token, so two callers never refresh at once; a lease whose holder died runs out by itself.
+ */
+export const RefreshLeaseSchema = z.object({
+  leaseId: z.string().nullable(),
+  leaseUntil: z.string().nullable(),
+});
+export type RefreshLease = z.infer<typeof RefreshLeaseSchema>;
+
+/**
+ * A shared connection's Google address (Connectors 1c): a service account in the identities
+ * project made for this one connection. Not a secret: the admin pastes the email into their
+ * property. deletedAt is set once Disconnect or the purge deleted it at Google.
+ */
+export const ServiceAccountSchema = z.object({
+  email: z.string(),
+  uniqueId: z.string(),
+  createdAt: z.string(),
+  deletedAt: z.string().nullable(),
+});
+export type ConnectionServiceAccount = z.infer<typeof ServiceAccountSchema>;
+
+export const ConnectionHealthSchema = z.object({
+  state: z.enum(HEALTH_STATES),
+  lastOkAt: z.string().nullable(),
+  lastCheckedAt: z.string().nullable(),
+  /** A code from src/lib/connectors/messages.ts, never a provider's own words. */
+  lastErrorCode: z.string().nullable(),
+  /** Failures in a row since the last call that worked. */
+  failures: z.number().int().min(0),
+  /** Calls stop until then: after a provider's rate limit or repeated failures. */
+  pausedUntil: z.string().nullable(),
+});
+export type ConnectionHealth = z.infer<typeof ConnectionHealthSchema>;
+
+/** One change, as kept on the record's recent list and in the activity log. No secrets. */
+export const ActivityEntrySchema = z.object({
+  at: z.string(),
+  kind: z.enum(ACTIVITY_KINDS),
+  /** A team member's user id, "system", an agent ("agent:vizzy") or an operator label. */
+  by: z.string(),
+  code: z.string().nullable(),
+});
+export type ActivityEntry = z.infer<typeof ActivityEntrySchema>;
+
+export const DataConnectionSchema = z.object({
+  id: z.string().regex(DATA_CONNECTION_ID_RE),
+  tenantId: z.string(),
+  connectorId: z.string(),
+  method: z.enum(DATA_CONNECTION_METHODS),
+  label: z.string(),
+  /**
+   * What was connected, not secret: a zone id, a site. Empty after a sign in until an admin picks
+   * which site or property it reads; nothing is read until then.
+   */
+  account: z.string(),
+  /** The admin who connected. Kept for the record; gives no extra rights. */
+  ownerUid: z.string(),
+  grants: z.array(ConnectionGrantSchema),
+  /**
+   * Sealed secrets by slot: "token" for a pasted token, "access" and "refresh" for a sign in;
+   * none for share access, whose tokens are never stored. Emptied on disconnect and purge.
+   */
+  secrets: z.record(z.string(), SealedSecretSchema),
+  /** A sign in's access token expiry (canonical ISO). Unset for a pasted token. */
+  tokenExpiresAt: z.string().nullable().optional(),
+  /** A sign in's refresh lease. Unset for a pasted token. */
+  refresh: RefreshLeaseSchema.optional(),
+  /** A shared connection's Google address. Unset for the other methods. It holds no secret. */
+  serviceAccount: ServiceAccountSchema.nullable().optional(),
+  health: ConnectionHealthSchema,
+  /** Set while an admin has paused it. */
+  pausedAt: z.string().nullable(),
+  pausedBy: z.string().nullable(),
+  /** The last 20 changes, newest first. */
+  recent: z.array(ActivityEntrySchema),
+  status: z.enum(["connected", "disconnected"]),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  disconnectedAt: z.string().nullable(),
+});
+export type DataConnection = z.infer<typeof DataConnectionSchema>;
+
+/** A row of the activity log. Written, never queried by the app; deleted 90 days on. */
+export interface DataConnectionActivity extends ActivityEntry {
+  id: string;
+  tenantId: string;
+  connectionId: string;
+  connectorId: string;
+  /** The time to live: a Date, so Firestore's TTL policy deletes the row. */
+  ttlAt: Date;
+}
+
+/** A sign in state's id: the SHA-256, in hex, of the nonce kept in the browser's cookie. */
+export const DATA_CONNECTION_STATE_ID_RE = /^[0-9a-f]{64}$/;
+
+/**
+ * A sign in with Google under way (Connectors 1b), one per attempt, in the brand's regional
+ * `data_connection_states`, written only through src/lib/tenant/dataConnectionStates.ts. Valid
+ * for 10 minutes, claimed once (usedAt set in a transaction), then deleted. `ttlAt` is a Date so
+ * Firestore's TTL policy removes any record an abandoned sign in leaves behind.
+ */
+export interface DataConnectionState {
+  id: string;
+  tenantId: string;
+  connectorId: string;
+  /** The admin who started it: only they can finish it. */
+  uid: string;
+  /** The connection being signed in again, or null for a new one. */
+  connectionId: string | null;
+  createdAt: string;
+  expiresAt: string;
+  usedAt: string | null;
+  ttlAt: Date;
+}

@@ -169,6 +169,122 @@ per brand; add `competitor_articles` to `GRANTED_ONLY_FEATURES` to keep it for s
 `COMPETITOR_ARTICLES_PLANNING_ENABLED` then feeds what they wrote into the brand map, Suggest an angle,
 blog research and the writer.
 
+**Connected data.** `CONNECTORS_ENABLED`, `NEXT_PUBLIC_CONNECTORS_ENABLED` and
+`CONNECTOR_CLOUDFLARE_ENABLED` let a brand's admins connect outside sources and read their numbers
+live, each number with its meaning. `npm run selfhost` keeps all three off: connected data is new,
+so turn it on by hand once you have read this.
+
+- Tokens are sealed with `CONNECTORS_VAULT_KEY`, a core secret the `secrets` step makes as
+  `connectors-vault-key`. Without it, connecting is refused.
+- Each change to a connection is kept 90 days. The time to live that deletes older rows is set by
+  `FIRESTORE_DATABASES='(default)' bash infra/lifecycle/setup.sh ttl <your-project-id>`, which the
+  `connect` step runs on a new copy. A copy set up before connected data runs it once by hand; it
+  is safe to run again. With the regions add-on on, use
+  `FIRESTORE_DATABASES='(default) signups-eu signups-asia'` instead: without the variable the script
+  covers all three databases and stops at the first one your copy doesn't have.
+- Cloudflare needs nothing else on your side: an admin pastes a read only token (Zone Read, Zone
+  Analytics Read and Account Analytics Read), presses Check and picks the site's zone from the
+  list. Account Analytics Read is asked for so later features don't need a new token; nothing reads
+  with it today. A token without Zone Read can still connect with the site's Zone ID typed in.
+- To change the vault key: add a new version of `connectors-vault-key`, set the old value as
+  `CONNECTORS_VAULT_KEY_PREVIOUS` (a secret too), roll out, then run
+  `npx tsx scripts/reseal-connector-secrets.ts` as a dry run and again with `--apply`. Remove
+  `CONNECTORS_VAULT_KEY_PREVIOUS` only when the dry run counts 0 off the current key. The script's
+  first lines say how to pass both keys.
+- To remove a brand's connected data, run `npx tsx scripts/connectors-purge.ts --tenant <id>`
+  (a dry run), then add `--apply --by <label>`. Turning the switch off keeps the data sealed and
+  unused; the purge is how it goes.
+
+**Connect Google data on your own copy.** `CONNECTOR_SEARCH_CONSOLE_ENABLED` lets an admin connect
+Google Search Console by signing in with Google. It needs a Google sign in client of your own, kept
+in a Google Cloud project used only for it, so your app project's own admin sign in never goes
+through Google's app checks. `npm run selfhost` keeps the switch off. Pick a neutral project id:
+the people who sign in see your app's name and support email on Google's screen.
+
+1. Make the project and turn on the Search Console API (these change only the new project):
+   `gcloud projects create <identities-project-id>`, then
+   `gcloud services enable searchconsole.googleapis.com --project <identities-project-id>`.
+2. In the Google Cloud console, open **Google Auth Platform** for that project.
+   - **Branding:** your app's name and a support email.
+   - **Audience:** External. While it says Testing, add the Google accounts that will sign in;
+     Google ends their sign ins after 7 days until you publish it.
+   - **Data Access:** add `https://www.googleapis.com/auth/webmasters.readonly`. Google classes it
+     as non sensitive, so publishing needs only Google's brand check, which takes a few days.
+   - **Clients:** create a Web application client with the redirect address
+     `https://<your app address>/api/admin/connectors/callback`. Add
+     `http://localhost:3002/api/admin/connectors/callback` too if you will try it locally.
+3. Store the client's secret on your app project (the command asks for it in your terminal) and
+   give the backend access:
+   `firebase apphosting:secrets:set connector-google-client-secret --project <your-project-id>`, then
+   `firebase apphosting:secrets:grantaccess connector-google-client-secret --backend <backend> --project <your-project-id>`.
+4. In `apphosting.live.yaml`, set `CONNECTOR_GOOGLE_CLIENT_ID` to the client id (not a secret),
+   `CONNECTORS_OAUTH_ORIGIN` to `https://<your app address>` (the redirect's origin: without it a
+   production server refuses to start a sign in, rather than trust the request's host), and
+   `CONNECTOR_GOOGLE_CLIENT_SECRET` by name, `secret: connector-google-client-secret`. Then set
+   `CONNECTORS_ENABLED` and `CONNECTOR_SEARCH_CONSOLE_ENABLED` to `"true"` and roll out.
+5. Publish the consent screen (Audience, Publish app) before people rely on it, or every
+   connection asks to reconnect each week.
+
+- Sign in states last 10 minutes and are removed by the time to live that
+  `FIRESTORE_DATABASES='(default)' bash infra/lifecycle/setup.sh ttl <your-project-id>` sets, with
+  the activity's (add `signups-eu signups-asia` with the regions add-on).
+- Google keeps at most 100 sign ins for one Google account with your client; the 101st quietly ends
+  the oldest. The help page says so.
+- `CONNECTOR_GOOGLE_REVOKE_ENABLED` stays off: on, Disconnect also revokes the sign in at Google,
+  which ends every grant that Google account gave your app, for every brand. Off, Disconnect deletes
+  the tokens YouGrow keeps and the help page says how to remove access in a Google account.
+- A local run (`npm run local`) needs no origin: it uses `http://localhost:3002`. Add
+  `CONNECTOR_GOOGLE_CLIENT_ID` and `CONNECTOR_GOOGLE_CLIENT_SECRET` to `.env.local` yourself.
+
+**Google Analytics and share access.** `CONNECTOR_GA4_ENABLED` adds Google Analytics 4 the same way.
+Its permission, `https://www.googleapis.com/auth/analytics.readonly`, is one Google classes as
+sensitive: add it under **Data Access** too, and Sign in with Google for it waits for Google's
+sensitive scope review (a privacy policy line saying your app reads these numbers helps). Its own
+switch, `CONNECTOR_GA4_SIGNIN_ENABLED`, keeps it off until then even when Search Console's Sign in
+is on; turn it on once Google has reviewed your app. Share
+access needs no review: an admin adds a Google address that YouGrow makes for that one connection to
+their Search Console site (as a Restricted user) or Google Analytics property (as a Viewer). It
+needs the identities project above, and `npm run selfhost` keeps the switch off.
+
+1. Turn on the APIs it calls (these change only the projects named): `gcloud services enable
+   iam.googleapis.com iamcredentials.googleapis.com analyticsdata.googleapis.com
+   analyticsadmin.googleapis.com searchconsole.googleapis.com --project <identities-project-id>`, then
+   `gcloud services enable iamcredentials.googleapis.com --project <your-project-id>`.
+2. Give your backend's runtime account three roles on the identities project only, never Service
+   Account Admin or Token Creator. First a role that only mints tokens:
+   `gcloud iam roles create connectorTokenMinter --project <identities-project-id> --title="Connector token minter" --permissions=iam.serviceAccounts.getAccessToken --stage=GA`.
+   Then, for `--member=serviceAccount:firebase-app-hosting-compute@<your-project-id>.iam.gserviceaccount.com`,
+   run `gcloud projects add-iam-policy-binding <identities-project-id>` three times, with
+   `--role=roles/iam.serviceAccountCreator`, `--role=roles/iam.serviceAccountDeleter` and
+   `--role=projects/<identities-project-id>/roles/connectorTokenMinter`.
+3. In `apphosting.live.yaml`, set `CONNECTORS_IDENTITIES_PROJECT` to the identities project's id (not
+   a secret), and set `CONNECTOR_GA4_ENABLED` to `"true"` if you want Google Analytics. Roll out.
+
+- Give each copy (staging and production, say) an identities project of its own. Copies sharing
+  one share its service account quota. Each address is tagged with a hash of the copy's
+  `GOOGLE_CLOUD_PROJECT`, so the purge never deletes another copy's addresses, but only for
+  addresses made since that tag; the purge leaves untagged ones alone.
+
+- Each connection's address lives in the identities project and its tokens last 5 minutes; YouGrow
+  stores none. Disconnect deletes the address. Its entry stays in the property's users, harmless.
+- A project holds a limited number of service accounts (100 unless Google raises it; deleted ones
+  don't count). Ask for more on the identities project's quotas page (Service Account Count) before
+  you need it. When it is full, share access says so and offers Sign in with Google. One brand
+  holds at most 5 addresses per connector, so no brand can fill the project for the others.
+- If your projects sit in an organisation, turn on the policy `iam.disableServiceAccountKeyCreation`
+  for the identities project: YouGrow never makes keys.
+- A delete that failed is recorded and retried by
+  `npx tsx scripts/connectors-purge.ts --tenant <id> --addresses` (a dry run; add
+  `--apply --by <label>`), which also deletes any address no live connection owns. Your Application
+  Default Credentials need to list and delete service accounts in the identities project.
+- Without `CONNECTORS_IDENTITIES_PROJECT`, share access isn't offered and Sign in with Google still
+  works.
+
+**Vizzy reading connected data.** `CONNECTORS_CHAT_ENABLED` lets Vizzy list a brand's connections and
+read them live (addon `vizzy`, and a Vizzy redeploy with its connector tools). Vizzy reads only the
+connections an admin lets it read, never changes one, and every number it gives has its meaning.
+`npm run selfhost` keeps it off.
+
 **Plans stay off.** `PLANS_ENABLED` and `NEXT_PUBLIC_PLANS_ENABLED` are the hosted service's plans
 (Free, Pro, Ultra and Enterprise). Leave both `"false"`; `npm run selfhost` keeps them off. Every brand
 may then use every feature its switch turns on, and `GRANTED_ONLY_FEATURES` with
@@ -212,8 +328,9 @@ the `envfile` step asks for.
   ([configure App Hosting](https://firebase.google.com/docs/app-hosting/configure)).
 - **A custom domain:** add it to the backend
   ([custom domains](https://firebase.google.com/docs/app-hosting/custom-domain)), then set
-  `NEXT_PUBLIC_PLATFORM_ORIGIN`, `EMAIL_LINK_ORIGIN` and `CONNECT_ISSUER` to it, add it to
-  the authorised domains, re-point the scheduled jobs with `--app-url https://<domain>
+  `NEXT_PUBLIC_PLATFORM_ORIGIN`, `EMAIL_LINK_ORIGIN` and `CONNECT_ISSUER` to it (and
+  `CONNECTORS_OAUTH_ORIGIN`, with the new redirect address on your Google client, if you use
+  Sign in with Google for connected data), add it to the authorised domains, re-point the scheduled jobs with `--app-url https://<domain>
   --apply scheduler`, and roll out.
 
 Re-running `--apply envfile` only adds entries that are missing. It never changes one you set.
@@ -230,6 +347,21 @@ Merges don't clash with your settings: they live in `apphosting.live.yaml`, a fi
 upstream repo never has. New features arrive as switches set to `"false"` in
 `apphosting.yaml`, so nothing changes until you turn them on. After a merge, run the plan:
 it shows anything new to set up (a new secret, say). Then push, or `--apply rollout`.
+
+**Upgrading to connected data.** It adds a core secret, `connectors-vault-key`. On a copy set up
+before it, `npm run doctor -- --cloud` reports it missing. Run
+`npm run selfhost -- --project <id> --apply core` before you roll out: the `secrets` step makes
+the key, the `backend` step gives the backend access to every secret added since it last ran,
+and the `envfile` step adds `CONNECTORS_VAULT_KEY` to your settings file by name. Then run
+`FIRESTORE_DATABASES='(default)' bash infra/lifecycle/setup.sh ttl <id>` once for its time to
+live (with the regions add-on, `FIRESTORE_DATABASES='(default) signups-eu signups-asia'`; see
+Connected data above), and roll out.
+
+**Upgrading to Sign in with Google for connected data.** Nothing changes until you follow Connect
+Google data on your own copy above. Run
+`FIRESTORE_DATABASES='(default)' bash infra/lifecycle/setup.sh ttl <id>` once more (with
+`signups-eu signups-asia` added for the regions add-on), for the sign in states' time to live; it
+is safe to run again.
 
 ### Enterprise features
 

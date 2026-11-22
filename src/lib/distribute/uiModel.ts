@@ -165,10 +165,10 @@ const SCHEDULE_ERROR_MESSAGES: Record<string, string> = {
   invalid_input: "Something was off with that request. Please try again.",
   unauthorized: "Your session expired. Sign in again.",
   network_error: "Network error. Check your connection and retry.",
-  x_not_connected: "Connect X in Settings › Integrations first, then schedule this post.",
-  linkedin_not_connected: "Connect LinkedIn in Settings › Integrations first, then schedule this post.",
+  x_not_connected: "Connect X in Settings › Connections first, then schedule this post.",
+  linkedin_not_connected: "Connect LinkedIn in Settings › Connections first, then schedule this post.",
   linkedin_page_not_connected:
-    "That LinkedIn Page isn't connected. Connect LinkedIn Pages in Settings › Integrations as an admin of the Page, or post as yourself.",
+    "That LinkedIn Page isn't connected. Connect LinkedIn Pages in Settings › Connections as an admin of the Page, or post as yourself.",
 };
 
 export function friendlyScheduleError(code: string): string {
@@ -184,11 +184,11 @@ const PLATFORM: Record<string, string> = { x: "X", li: "LinkedIn" };
  */
 export function postFailureText(code: string | null | undefined): string {
   const c = code ?? "";
-  if (c === "x_not_connected") return "X wasn't connected when it was due. Connect it in Settings › Integrations, then reschedule.";
+  if (c === "x_not_connected") return "X wasn't connected when it was due. Connect it in Settings › Connections, then reschedule.";
   if (c === "linkedin_not_connected")
-    return "LinkedIn wasn't connected when it was due. Connect it in Settings › Integrations, then reschedule.";
+    return "LinkedIn wasn't connected when it was due. Connect it in Settings › Connections, then reschedule.";
   if (c === "linkedin_page_not_connected")
-    return "The LinkedIn Page wasn't connected when it was due. Connect LinkedIn Pages in Settings › Integrations, then reschedule.";
+    return "The LinkedIn Page wasn't connected when it was due. Connect LinkedIn Pages in Settings › Connections, then reschedule.";
   if (c === "social_disabled") return "Posting to social accounts isn't switched on for this YouGrow, so nothing was posted.";
   const m = /^(x|li)_publish:(.*)$/.exec(c);
   if (m) {
@@ -197,7 +197,7 @@ export function postFailureText(code: string | null | undefined): string {
     if (/_partial|created_unconfirmed|timeout/.test(reason)) {
       return `${who} may have posted it. Check ${who} before you reschedule, so it doesn't go out twice.`;
     }
-    if (/_api_40[13]/.test(reason)) return `${who} refused the post: the connection may have expired. Reconnect it in Settings › Integrations, then reschedule.`;
+    if (/_api_40[13]/.test(reason)) return `${who} refused the post: the connection may have expired. Reconnect it in Settings › Connections, then reschedule.`;
     if (/_api_429/.test(reason)) return `${who} asked us to slow down. Reschedule it for a little later.`;
     if (/^empty/.test(reason)) return "The post had no text to publish. Edit it, then reschedule.";
     return `${who} didn't accept the post. Check it, then reschedule.`;

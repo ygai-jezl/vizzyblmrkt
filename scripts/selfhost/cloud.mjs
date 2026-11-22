@@ -222,7 +222,14 @@ function accessToken() {
  */
 export async function rest(url, project, opts = {}) {
   const token = accessToken();
-  if (!token) return { ok: false, status: 0, data: null, why: "gcloud has no access token (run: gcloud auth login)" };
+  if (!token) return { ok: false, status: 0, data: null, why: NO_TOKEN };
+  return restWith(token, url, project, opts);
+}
+
+const NO_TOKEN = "gcloud has no access token (run: gcloud auth login)";
+
+/** rest() with a token already in hand, so several calls can share one. */
+async function restWith(token, url, project, opts = {}) {
   try {
     const res = await fetch(url, {
       method: opts.method ?? "GET",
@@ -242,6 +249,36 @@ export async function rest(url, project, opts = {}) {
   } catch (err) {
     return { ok: false, status: 0, data: null, why: err instanceof Error ? err.message : String(err) };
   }
+}
+
+/** Base URL of the Secret Manager API (overridable for tests). */
+export function secretManagerBase() {
+  return (process.env.SELFHOST_SECRETMANAGER_URL || "https://secretmanager.googleapis.com").replace(/\/+$/, "");
+}
+
+/**
+ * Which of these secrets a service account may read (roles/secretmanager.secretAccessor on the
+ * secret, which `firebase apphosting:secrets:grantaccess` grants), from each secret's IAM policy,
+ * read in parallel with one gcloud token. Read only. { ok, readable: Set, why }.
+ * @param {string} project
+ * @param {string[]} names
+ * @param {string} serviceAccount
+ */
+export async function secretsReadableBy(project, names, serviceAccount) {
+  const token = accessToken();
+  if (!token) return { ok: false, readable: new Set(), why: NO_TOKEN };
+  const member = `serviceAccount:${serviceAccount}`;
+  const results = await Promise.all(
+    names.map((name) => restWith(token, `${secretManagerBase()}/v1/projects/${project}/secrets/${encodeURIComponent(name)}:getIamPolicy`, project)),
+  );
+  const failed = results.find((r) => !r.ok);
+  if (failed) return { ok: false, readable: new Set(), why: failed.why };
+  const readable = new Set();
+  results.forEach((r, i) => {
+    const bindings = Array.isArray(r.data?.bindings) ? r.data.bindings : [];
+    if (bindings.some((b) => b.role === "roles/secretmanager.secretAccessor" && Array.isArray(b.members) && b.members.includes(member))) readable.add(names[i]);
+  });
+  return { ok: true, readable, why: "" };
 }
 
 /** Base URL of the Identity Toolkit admin API (overridable for tests). */

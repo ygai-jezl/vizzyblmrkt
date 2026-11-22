@@ -3,6 +3,7 @@ import { isOneViewEnabled, isPeopleNameEnabled } from "@/lib/audience/flags";
 import { isFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { isSearchUiEnabled } from "@/lib/search/flags";
 import { isPlansUiEnabled } from "@/lib/plans/flags";
+import { isConnectorsScreenEnabled } from "@/lib/connectors/flags";
 
 /**
  * The /help pages, in reading order: one list for the help navigation, the
@@ -25,7 +26,7 @@ export interface HelpPage {
    * A page about a switched-off feature: listed and served only while its switch is on.
    * The switches are read on the server, so client lists (⌘K) leave these pages out.
    */
-  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans";
+  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors";
 }
 
 /**
@@ -52,6 +53,8 @@ export interface HelpBodyProps {
   vizzyAddPerson?: boolean;
   /** Every catalog save is kept as history (isCatalogHistoryEnabled()). */
   catalogHistory?: boolean;
+  /** Vizzy reads connected data (isConnectorsChatEnabled()). */
+  connectorsChat?: boolean;
 }
 
 /** Navigation headings, matching Home's stages. */
@@ -100,6 +103,13 @@ export const HELP_PAGES: HelpPage[] = [
   page("search", "Search", "grow", "Find anything your brand wrote by its words or its meaning, and ask Vizzy to search it.", "search"),
   page("connected-accounts", "Connected accounts", "grow", "Connect LinkedIn or X to post, and GitHub or GitLab to read a private repo."),
   page(
+    "connected-data",
+    "Connected data",
+    "grow",
+    "Connect Google Search Console, Google Analytics 4 or Cloudflare, choose who can read each, and read the numbers live.",
+    "connectors",
+  ),
+  page(
     "your-audience",
     "Your audience",
     "grow",
@@ -120,6 +130,7 @@ export function isHelpPageShown(p: Pick<HelpPage, "onlyWhen">): boolean {
   if (p.onlyWhen === "audience_one_view") return isOneViewEnabled();
   if (p.onlyWhen === "search") return isSearchUiEnabled();
   if (p.onlyWhen === "plans") return isPlansUiEnabled();
+  if (p.onlyWhen === "connectors") return isConnectorsScreenEnabled();
   return true;
 }
 

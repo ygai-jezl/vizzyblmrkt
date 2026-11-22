@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts`. Don't edit this file: change the 
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one.
 
-91 types: 68 built and 23 planned.
+92 types: 69 built and 23 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -288,6 +288,30 @@ A competitor the brand watches: their sitemap's pages, their news posts, monthly
 - Export: none. Public pages about another business.
 - Search: `competitor`
 - Numbers: none. No numbers an agent reads.
+
+### Data connection (`data_connection`)
+
+A brand's link to an outside source of numbers, such as a Cloudflare zone, a Search Console site or a Google Analytics property: which connector, how it signs in, its health, who may read it live, and its secrets (a pasted token, or a Google sign in's access and refresh tokens), sealed with the brand, connection and slot bound in. A shared connection keeps no secret, only the Google address made for it. Each change goes into an activity log kept 90 days.
+
+- Status: built
+- Home: the brand's region
+- Personal: the brand's own team
+- Stores:
+  - `data_connections`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per connection, written only through `src/lib/tenant/dataConnections.ts`; its secrets are sealed and never leave the server.
+  - `data_connection_activity`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Each change to a connection and who made it, by user id; written with its change, never queried, deleted 90 days on by a time to live on ttlAt.
+  - `data_connection_states`, the brand's regional Firestore, in `src/lib/tenant/dataConnectionStates.ts`. A sign in with Google under way: the brand, the admin's user id and the connector, read by id, valid 10 minutes, claimed once and deleted, and removed by a time to live on ttlAt.
+- Links: `brand` through tenantId; `member` through ownerUid, and by on each activity row; `connector_manifest` through connectorId
+- States: `connected`, `disconnected`
+- Erase:
+  - `disconnect` in `src/lib/connectors/service.ts`, on removing the record (an admin's Disconnect removes the sealed secrets; the record stays, marked disconnected)
+  - `deleteConnectionAddress` in `src/lib/connectors/service.ts`, on removing the record (a shared connection's Google address is deleted at Google on Disconnect and on the purge, which retries a failed delete)
+  - `purgeDataConnection` in `src/lib/tenant/dataConnections.ts`, on removing the record (an operator purge removes the secrets, the recent list and the activity)
+  - `ACTIVITY_KEEP_DAYS` in `src/lib/tenant/dataConnections.ts`, on retention (activity rows go 90 days on, through the TTL on ttlAt)
+  - `consumeConnectionState` in `src/lib/tenant/dataConnectionStates.ts`, on retention (a sign in state is deleted once used, and by the TTL on ttlAt 10 minutes after it was made)
+  - Gap: a team member's user id in ownerUid and in by stays after they leave the brand, as settings history does
+- Export: none. A sealed secret and its settings, never exported.
+- Search: none. Credentials and settings, never searched.
+- Numbers: `cfRequests`, `cfPageViews`, `cfVisits`, `searchClicks`, `searchImpressions`, `searchCtr`, `searchPosition`, `ga4Sessions`, `ga4ActiveUsers`, `ga4Views`, `ga4KeyEvents`, through `read_connected_live`
 
 ### Connector stream (`connector_stream`)
 
@@ -1237,16 +1261,16 @@ An outside agent connected to the brand's MCP server, and what it may read and a
 
 ### Connector manifest (`connector_manifest`)
 
-What a connector says it produces: each stream's shape, its keys, the meaning of every number and the shared keys it joins on.
+What a connector says it produces: each stream's shape, its keys, the meaning of every number and the shared keys it joins on. Manifests are pure data kept in code (`src/lib/connectors/manifests`), so this type keeps no store and stays planned.
 
 - Status: planned, in connectors 1
 - Home: the brand's region
 - Personal: no
 - Links: `connector_stream` through its streams (many)
-- Erase: none. Planned: connectors 1 decides it with the store.
-- Export: none. Planned: connectors 1 decides it with the store.
+- Erase: none. Manifests live in code, with no store.
+- Export: none. Manifests live in code, with no store.
 - Search: none. Found on Connections.
-- Numbers: none. Planned: connectors 1 decides it with the store.
+- Numbers: none. Its numbers' meanings are claimed by the data connection that reads them.
 
 ### Partner (`partner`)
 
@@ -1679,6 +1703,8 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 - Import (`import`):
   - Erase: planned: piece J decides how an import's rows are erased with the person
   - Export: planned: piece J decides how an import's rows are exported with the person
+- Data connection (`data_connection`):
+  - Erase: a team member's user id in ownerUid and in by stays after they leave the brand, as settings history does
 - Agent action (`agent_action`):
   - Erase: team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does
   - Erase: rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen

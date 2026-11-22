@@ -28,6 +28,11 @@ describe("vizzySuggestions", () => {
     expect(vizzySuggestions("launches")[0]).toBe("Draft a broadcast for this launch");
     expect(vizzySuggestions(null)).toEqual(vizzySuggestions("home"));
   });
+
+  it("asks about Settings › Connections by its tab's name, not Integrations", () => {
+    expect(vizzySuggestions("settings")[0]).toBe("Which accounts are connected?");
+    expect(vizzySuggestions("settings").join(" ")).not.toMatch(/integrations/i);
+  });
 });
 
 describe("programmeInView (nav v2 phase 4)", () => {

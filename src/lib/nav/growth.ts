@@ -127,7 +127,7 @@ function needing(...prereqs: Array<NextStep | false | undefined>): NextStep["nee
   return open.length ? open : undefined;
 }
 
-/** Settings › Sending, Brand and Settings › Integrations, as the setup guide links them. */
+/** Settings › Sending, Brand and Settings › Connections, as the setup guide links them. */
 export const SETUP_HREF = {
   sending: "/admin/account",
   integrations: "/admin/account/connections",

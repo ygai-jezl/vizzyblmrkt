@@ -1,4 +1,5 @@
 import { isPlansUiEnabled } from "@/lib/plans/flags";
+import { isConnectorsScreenEnabled } from "@/lib/connectors/flags";
 
 /**
  * Which help page explains the admin page you're on, for the header's How to
@@ -11,6 +12,13 @@ import { isPlansUiEnabled } from "@/lib/plans/flags";
  * its rules exist only then and the How to button never opens a page that is switched off.
  */
 const PLANS = isPlansUiEnabled();
+
+/**
+ * /help/connected-data is served only with NEXT_PUBLIC_CONNECTORS_ENABLED (fixed at build time), so
+ * the rules for Browse, a connector's Listing, its picker and Connected exist only then. Accounts,
+ * the base route, keeps Connected accounts.
+ */
+const CONNECTORS = isConnectorsScreenEnabled();
 
 const RULES: Array<[RegExp, string]> = [
   [/^\/admin\/?$/, "/help"],
@@ -40,6 +48,12 @@ const RULES: Array<[RegExp, string]> = [
   [/^\/admin\/brand-kit\/notes/, "/help/your-brand#seen"],
   [/^\/admin\/brand-kit/, "/help/your-brand"],
   [/^\/admin\/account\/brand/, "/help/your-brand"],
+  ...(CONNECTORS
+    ? ([
+        [/^\/admin\/account\/connections\/connected/, "/help/connected-data#connected"],
+        [/^\/admin\/account\/connections\/[^/]+/, "/help/connected-data#connect"],
+      ] as Array<[RegExp, string]>)
+    : []),
   [/^\/admin\/account\/connections/, "/help/connected-accounts"],
   // Settings › Data model exists only with fields on, which needs the one People list, so the page is shown.
   [/^\/admin\/account\/data-model/, "/help/your-audience#fields"],

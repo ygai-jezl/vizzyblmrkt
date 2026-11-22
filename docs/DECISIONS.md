@@ -4,6 +4,347 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0011 · Connected data: the connector core and Cloudflare (Connectors 1) (2026-11-21)
+
+Context: wave 2's Connectors 1 (build plan decisions 13, 32 and 33; the Connectors plan v5, whose
+nine decisions were all accepted) builds a shared connector core and the first three connectors:
+Cloudflare with an API token, then Google Search Console and Google Analytics 4. It ships as one
+pull request in three commit groups. This record covers group 1, the core and Cloudflare; groups 2
+(sign in with Google, Search Console) and 3 (share access, GA4, Vizzy) have their own sections below. The
+Browse, Listing and Connected screens wait for the owner's OK on their mockups. No dependency, index,
+rules or infra project change. Switches, all `"false"` in a new "== Connectors ==" group in
+`apphosting.yaml`, empty in `.env.example` and kept off by `npm run selfhost`: `CONNECTORS_ENABLED`,
+`NEXT_PUBLIC_CONNECTORS_ENABLED` and `CONNECTOR_CLOUDFLARE_ENABLED`.
+
+Decisions:
+
+- **Names.** A connection's record is `data_connections` (ids `dcn_`), its activity
+  `data_connection_activity` (ids `dca_`), and people read "Connected data". "Connection" already
+  means a connected product (`product_connections`, `pcn_`) and a Review kind.
+- **A manifest is pure data** (`src/lib/connectors/manifest.ts`): connect methods, fields, api
+  hosts and limits, one verify request, shares, produces, uses and hooks. Code a connector needs is
+  named by a hook id (`cloudflare.zoneProbe`) and lives in `src/lib/connectors/handlers`, so the
+  same file could come from a contributor or a vendor later. A test proves every manifest survives
+  a JSON round trip. The ids `browse`, `callback`, `connections` and `connected` are reserved
+  because routes and pages sit beside `[connectorId]`. Every permission or scope a sign-in asks for
+  needs a shares line that names it, and shares must say what is never read or written.
+- **The registry** (`src/lib/connectors/registry.ts`) offers a connector only while its own switch
+  is on (each needs `CONNECTORS_ENABLED`), refuses a sign-in method not built yet (token_fields now,
+  oauth_pkce with group 2, share_access with group 3) and any stream marked personal until the data
+  processing agreement covers it.
+- **Switch off and rollback.** With `CONNECTORS_ENABLED` off every connector route answers 404
+  before it reads the session, nothing calls a provider, and sealed tokens stay sealed, working
+  again when the switch is turned back on. Rolling back means turning the switch off; removing the
+  data means `scripts/connectors-purge.ts` (dry run first, then `--apply --by <label>`), which works
+  whatever the switches say.
+- **The vault** (decision 32, `src/lib/connectors/vault.ts`). Its own root key,
+  `CONNECTORS_VAULT_KEY` (core secret `connectors-vault-key`), AES-256-GCM through `secretBox`, with
+  AAD `tenant:connection:slot` so a blob opens nowhere else. `secretBox` gains `keyId(label)`: the
+  first 8 bytes, in hex, of an HMAC of the root. Each blob stores `encKeyId`, because `keyId`
+  already means a ygk_ connection key id. Saving with no root is refused.
+  - Rotation: set the old root as `CONNECTORS_VAULT_KEY_PREVIOUS` and a new current root, roll out,
+    run `scripts/reseal-connector-secrets.ts` as a dry run, then with `--apply`, then the dry run
+    again. Remove the previous root only when it counts 0 off the current key, or every token still
+    on it is lost. API tokens never refresh, so "reseal on the next refresh" would never reach them.
+  - The reseal works per connection in a transaction, opens and compares each new blob before it
+    replaces the old one, reports a blob that won't open and never replaces it, and runs on the
+    emulators with `--local` as the organisation scripts do.
+- **Tokens live per connection in the brand's regional database.** Social and git tokens stay on
+  the control plane brand record without AAD, so two patterns sit side by side until Connectors 5
+  moves them.
+- **One writer, one transaction.** `src/lib/tenant/dataConnections.ts` writes a connection and the
+  activity row of each change together. Activity rows carry `ttlAt` as a Date, 90 days on, deleted
+  by the TTL that `infra/lifecycle/setup.sh ttl` turns on. The record keeps the last 20 changes for
+  the Connected view, so the activity log is written and never queried. `forTenant` gives the records
+  read only and the activity a count. Every query is by id or equality with no sort (a shape test
+  holds it), so no composite index is needed.
+- **Safe fetch** (`src/lib/connectors/safeFetch.ts`), the one outbound call for connector APIs:
+  the exact host must be declared in the manifest, over https on 443, before any request; a paused
+  connection is refused; rate limits per connection and per brand for the connector
+  (`isRateLimited`); `security/ssrf.ts` `safeFetch` with `maxRedirects: 0` and `allowedPorts: [443]`.
+  That helper copies the same init, Authorization included, into every redirect hop, so with 0 any
+  3xx ends the call after one request, and a 3xx that comes back anyway is refused: a token is never
+  sent to a second address. Its own timeout; the body read up to the manifest's cap, 512 KB at most
+  (`readBytesUpTo`, which tells an empty body from one cut short); logs name the host and the code,
+  never the path, query, body or token.
+- **Health.** ok, check, broken and paused. A refused token, an account the token can't read or a
+  token that won't open sets broken. A provider's rate limit pauses calls for its Retry-After (1 to
+  60 minutes, 15 when it gives none) and five failures in a row pause them for an hour. Because
+  `isRateLimited` fails open, that pause on the record is the hard stop. Each code has plain words
+  (`src/lib/connectors/messages.ts`); a provider's own words are never stored.
+- **Grants** (`src/lib/connectors/grants.ts`, tested cell by cell):
+
+  | Who | Sees name and health | Sees details | Reads live | Manages |
+  | --- | --- | --- | --- | --- |
+  | Admin | yes | yes | yes | yes |
+  | Member | yes | no | with `{to: "members", can: "read"}` | no |
+  | Vizzy | with `{to: "agent:vizzy", can: "read"}` | no | with its grant, and the members grant when reading for a member | never |
+
+  Only admins change grants, and a new connection starts with none. "Manage" is the admin role, not
+  a grant. The admin who connected (`ownerUid`) gets nothing extra, and the connection stays when
+  they leave. Grants don't fit the settings log's fixed subjects and archive only model, so they live
+  on the record and each change goes into the activity log; piece O part 2 can move them.
+- **Routes** under `/api/admin/connectors` check the switch, then go through `integrationsAdmin`
+  (origin check, sign-in, role). Only the list, one connection and its live read let a member in;
+  the grants table decides the rest. `src/lib/connectors/routesGate.test.ts` fails when a route
+  skips the switch or the gate. Connect runs the manifest's verify request before anything is
+  saved, and one account is connected once per brand.
+- **Cloudflare.** The token is checked with a GraphQL zone query, not `user/tokens/verify`, which
+  may refuse account tokens and doesn't prove the token reads this zone. GraphQL answers HTTP 200 on
+  errors, so the `errors` array is read first. Requests and page views come from
+  `httpRequests1dGroups`; visits only from `httpRequestsAdaptiveGroups` (`sum.visits`, sampled,
+  about 31 days on every plan), so when only that part fails the totals come back with a note. The
+  token needs Zone Analytics Read, and Zone Read to list the zones it can see (see Cloudflare's
+  Listing under Screens). It is also asked for Account Analytics Read (see Screens). A pre-filled
+  link fills in all three (keys `analytics`, `zone` and `account_analytics`).
+  Disconnect deletes the stored token; Cloudflare can't cancel it for us, so the answer says to
+  delete it there.
+- **Live reads** are bounded: at most 93 days and 100 rows, a fixed list of dimensions per stream,
+  page paths without query strings, and every number with its meaning. A number with no meaning is
+  dropped.
+- **Meaning keys are namespaced** (`cfRequests`, `cfPageViews`, `cfVisits`), because plain
+  impressions and clicks already mean social post numbers.
+- **The ontology.** `data_connection` (personal: the team's; a secret, never exported or searched)
+  is built. As finally built (with groups 2 and 3) it has three stores, `data_connections`,
+  `data_connection_activity` and `data_connection_states`, and claims all 11 meanings (cf, search
+  and ga4) through Vizzy's number tool, `read_connected_live`; group 1 first claimed the cf
+  meanings through `readLive`. `connector_manifest` stays planned: manifests live in code, with no
+  store.
+- **Not metered** (owner, 21 Nov): every plan can connect. A plan hook comes later if a connector
+  gets costly.
+- **Self-hosted copies.** `connectors-vault-key` is a core secret. The `backend` step now reads each
+  core secret's IAM policy and gives the backend access to any added since it last ran, which before
+  failed the next rollout with `Error resolving secret version`. `docs/self-host.md` has Connected
+  data and the upgrade note: existing copies run `--apply core`, then `setup.sh ttl` once.
+
+### Group 2: Sign in with Google and Search Console
+
+Switches, `"false"` in the Connectors group, empty in `.env.example` and kept off by
+`npm run selfhost`: `CONNECTOR_SEARCH_CONSOLE_ENABLED` (needs `CONNECTORS_ENABLED` and a Google
+client) and `CONNECTOR_GOOGLE_REVOKE_ENABLED`. Settings, by name only in the public repo:
+`CONNECTOR_GOOGLE_CLIENT_ID`, `CONNECTORS_OAUTH_ORIGIN` and the secret `CONNECTOR_GOOGLE_CLIENT_SECRET`.
+The screens (Listing, Connected, the site picker) wait for the mockups; everything they call is
+built. Grounded in Google's "Using OAuth 2.0 for Web Server Applications" and the Search Console
+API reference, read through the Developer Knowledge MCP.
+
+- **The client lives in an identities project of its own**, never the app project, so the app's own
+  admin sign in (Firebase Auth) is never put through Google's app verification or limited to test
+  users. While that project's consent screen is in testing, Google ends each sign in after 7 days,
+  so dev connections need reconnecting weekly until it is published. `webmasters.readonly` is non
+  sensitive (checked in the console on 21 Nov), so Search Console's Sign in can go on in prod after
+  Google's brand check alone.
+- **The flow:** authorization code with `access_type=offline` and `prompt=consent` (a refresh token
+  on every sign in), one scope per connection, no `include_granted_scopes`, PKCE S256 (documented by
+  Google for installed apps; the dev check confirms the web client accepts it, and the bindings
+  below hold without it).
+- **Four bindings, all checked before a code is swapped:** a state signed with the vault's own state
+  key (`connector-state-v1`) naming brand, connector, admin and a nonce, 10 minutes; this attempt's
+  httpOnly cookie, its name from the nonce so two tabs never clash, holding the nonce and the PKCE
+  verifier, SameSite=Lax (Strict would drop it on Google's redirect back) and path scoped to
+  `/api/admin/connectors/callback`; a single use record in the new regional
+  `data_connection_states` (id the nonce's SHA-256, `usedAt` set in a transaction, then deleted,
+  `ttlAt` a Date for the TTL that `setup.sh ttl` turns on); and PKCE. The X and LinkedIn flows never
+  consume their state; this one does. Another brand's state, another admin's, another browser's
+  cookie, an expired or replayed state are each refused and tested.
+- **Routes.** `POST /api/admin/connectors/[connectorId]/start` is a same-origin admin request
+  (`integrationsAdmin`) answering Google's address and setting the cookie. `GET
+  /api/admin/connectors/callback` has no origin check because Google's redirect is cross-site; it
+  uses `integrationsHopAdmin` (admins only), and sends people back by path only, never built from the
+  request's host, to the connector's Listing page with `status` and `reason`, with no code or token.
+  `CONNECTORS_OAUTH_ORIGIN` pins the redirect address; a production server without it refuses to
+  start (fail closed), and a local run uses the request's origin.
+- **After the swap** the granted scope must be exactly the one asked for (one missing or one extra
+  is refused), a refresh token must have come, and the connector's verify request must pass, before
+  anything is saved. Every refusal has plain words (`SIGNIN_REASONS`).
+- **A site is picked after signing in.** A sign in reaches every site the Google account sees, so a
+  new connection is saved with no account and reads nothing until an admin picks one from
+  `sites.list` (unverified sites left out, at most 200), through `GET` and `PUT
+  .../connections/[id]/accounts`. The pick is checked against what the sign in sees then, refused
+  when another of the brand's connections reads that site, and recorded as `account_picked`.
+  Signing in again for a connection (`start` with its id) keeps its site, grants and history.
+- **The token keeper** (`src/lib/connectors/tokenKeeper.ts`), modelled on GitLab's refresh: refresh
+  5 minutes early, only under a 30 second lease on the record (as `claimSignal`); compare-and-set on
+  the sealed access token; keep the refresh token when Google sends none; on `invalid_grant`, read
+  the record again inside the write and mark it broken (`signin_refused`) only if nobody saved a new
+  token meanwhile; a 5xx, 429, timeout or network error is soft and the current token is used while
+  it works; `invalid_client` is this copy's setup and marks nothing.
+- **Disconnect deletes the tokens; revoking at Google sits behind
+  `CONNECTOR_GOOGLE_REVOKE_ENABLED`, off** (owner, decision 2): Google's revoke ends every grant that
+  Google account gave the app, so it can cut off another brand, the problem ADR-0006 found with X.
+  The purge revokes behind the same switch. The help words say how to remove access in a Google
+  account.
+- **Search Console.** Hosts `searchconsole.googleapis.com` and `oauth2.googleapis.com` only. Google's
+  reference writes the paths under `www.googleapis.com/webmasters/v3`; the same paths answer on the
+  API's own host, which the dev check confirms. Live reads: `searchAnalytics.query`, web results,
+  finalized data, by date, page or query, at most 93 days and 100 rows; pages cut to their paths and
+  rows for one path added together. Lag 3 days, Pacific time dates. Meanings `searchClicks`,
+  `searchImpressions`, `searchCtr` and `searchPosition`, claimed by `data_connection`. Google's error
+  reasons tell this copy's setup (API not on), a quota and a site the account can't read apart.
+- **Help.** Generated words now cover signing in: which account, the unverified warning, the 7 day
+  testing limit, Google's limit of 100 sign ins per Google account for one app (the 101st quietly
+  ends the oldest), reconnecting, removing access, and every reason a sign in didn't finish.
+- **No index change**: states and connections are read by id or equality (shape tests). Self-hosted
+  copies follow "Connect Google data on your own copy" in `docs/self-host.md`; there is no selfhost
+  step for the identities project yet.
+
+### Group 3: Share access, Google Analytics 4 and Vizzy
+
+Switches, `"false"` in the Connectors group, empty in `.env.example` and kept off by
+`npm run selfhost`: `CONNECTOR_GA4_ENABLED` (needs `CONNECTORS_ENABLED`, and the identities project
+or GA4's Sign in), `CONNECTOR_GA4_SIGNIN_ENABLED` (GA4 by Sign in, with the Google client) and
+`CONNECTORS_CHAT_ENABLED` (needs `CONNECTORS_ENABLED`; addon `vizzy`). One
+new setting, by name only in the public repo: `CONNECTORS_IDENTITIES_PROJECT`. No new collection,
+index, rules or dependency. The screens (Share access steps on the Listing, Check access, the
+property picker) wait for the mockups; every route they call is built. Grounded in Google's IAM docs
+(projects.serviceAccounts create, delete and list; iamcredentials generateAccessToken; the IAM roles
+reference; service account quotas) and the Analytics Admin and Data API references, read through the
+Developer Knowledge MCP.
+
+- **One Google address per connection** (`src/lib/connectors/shareAccess.ts`). Share access makes a
+  service account for that one connection in the identities project, so removing one brand's access
+  never touches another's, and Disconnect can delete it outright. Its account id is `ygc-` and 20
+  random characters (Google's rule: 6 to 30 characters, `[a-z]([-a-z0-9]*[a-z0-9])`); it never holds
+  the brand, because the admin pastes the address into their property. The description names the
+  connection, a one way brand tag and a one way copy tag (SHA-256 prefixes of the tenant id and of
+  `GOOGLE_CLOUD_PROJECT`), so the operator purge can find a brand's leftovers and never takes
+  another copy's addresses for them when two copies share an identities project; an address with no
+  copy tag is never deleted as a leftover. Only the identities project's operators can read it.
+  Each copy should still have an identities project of its own, because the quota is per project.
+- **Least privilege.** The app's runtime account holds three roles on the identities project only:
+  Create Service Accounts (`iam.serviceAccounts.create`, `get`, `list`), Delete Service Accounts and
+  a custom role with only `iam.serviceAccounts.getAccessToken`; not Service Account Admin or Token
+  Creator. The addresses get no roles of their own. Calls are the app's own, with its token from
+  `google-auth-library`, through `security/ssrf.ts` safeFetch to `iam.googleapis.com` and
+  `iamcredentials.googleapis.com` only, with no redirects, on 443, a timeout and a capped body.
+- **Tokens last 300 seconds and are never stored.** `generateAccessToken` with the connector's one
+  read scope and `lifetime: "300s"`, on `projects/-/serviceAccounts/{email}` (the wildcard Google
+  requires), kept in the server's memory until a minute before they run out and forgotten on
+  disconnect. A shared connection keeps no sealed secret; its record holds the address
+  (`serviceAccount {email, uniqueId, createdAt, deletedAt}`).
+- **Check access retries.** IAM reads are eventually consistent and Google says a new account can
+  take 60 seconds or more to work, so minting a token for an account younger than 10 minutes retries
+  after 1, 2 and 4 seconds, then answers `share_pending` ("Google is still setting up this
+  connection's address"), which leaves health alone. `POST .../connections/[id]/access` lists what
+  the address sees for the picker and checks the picked one, recorded as `access_checked`. Nothing
+  visible is `share_not_visible` ("We can't see your property yet"), which marks it broken.
+- **Starting share access** is `POST /api/admin/connectors/[connectorId]/share`, admins only. A brand
+  with a shared connection still waiting for its property gets that one back, and making addresses
+  is limited per brand (3 a minute, 10 an hour), so the project's quota isn't spent by double
+  clicks. That limit lets a request through when its store fails, so a brand also holds at most 5
+  addresses per connector (`SHARE_ADDRESS_CAP`: connected ones, plus disconnected ones a failed
+  delete left at Google), counted by equality queries; past it, `share_limit` says to disconnect one
+  or sign in with Google. One brand can't fill the project every brand shares. A shared connection's failures read in its own words: a refused token or property is
+  `share_not_visible`, an API or permission missing in the identities project `share_unconfigured`.
+- **Quota plan and fallback.** A project holds a limited number of service accounts (100 by
+  default; deleted ones don't count). The owner asks Google for more on the identities project. A
+  full project answers `share_quota`, which says so plainly and offers Sign in with Google.
+- **Self-hosted copies.** Without `CONNECTORS_IDENTITIES_PROJECT` the share access method is not
+  offered (the registry's readiness check), which is how a copy without one behaves; Sign in with
+  Google still works. `docs/self-host.md` says how to set one up. A selfhost add-on is a follow up.
+- **Disconnect deletes the address** at Google after the disconnect is saved, by its unique id, so a
+  later account with the same name is never touched; already gone counts as done. A failed delete is
+  recorded as `cleanup_failed` and the address stays on the record. The address's entry in the
+  property's users stays until the admin removes it; the help says it does no harm.
+- **The purge reconciles.** `scripts/connectors-purge.ts` deletes each purged connection's address,
+  lists YouGrow's addresses in the identities project and deletes the brand's that no live
+  connection owns (a crash between making an address and saving its connection, or a failed
+  delete). `--addresses` does only that, plus disconnected connections' leftover addresses, and
+  leaves every record and its history alone; `--local` never reaches a real identities project.
+- **Search Console by share access**: the admin adds the address as a Restricted user. Google
+  documents service accounts as Search Console users only for the Indexing API; the dev check proves
+  it reads search analytics before prod turns it on.
+- **Google Analytics 4** (`google-analytics`, `analytics.readonly`, which Google classes as
+  sensitive: Sign in waits for Google's sensitive scope review, share access as a Viewer doesn't).
+  The Google client that Search Console's Sign in uses would otherwise bring GA4's Sign in with it
+  as soon as GA4 goes on for share access, through an unverified app (Google's warning, the 100 user
+  cap, and a risk to the client every Search Console sign in shares). So the manifest's `oauth_pkce`
+  names a switch of its own, `CONNECTOR_GA4_SIGNIN_ENABLED`, off, which the registry's readiness
+  check and the start and callback routes read; the registry refuses a method switch nothing reads.
+  The picker is the Admin API's `accountSummaries.list` (3 pages of 200 at most). Live reads are the
+  Data API's `runReport` by `date` or `pagePath` (the path without its query string), at most 93
+  days and 100 rows, with `returnPropertyQuota`; metrics are matched by Google's header names;
+  `(other)` and `(not set)` rows are left out; thresholding, sampling, a property low on tokens and
+  days not yet final each become a note. Lag 2 days, in the property's time zone. Meanings
+  `ga4Sessions`, `ga4ActiveUsers`, `ga4Views` and `ga4KeyEvents`, claimed by `data_connection`.
+- **Vizzy reads, never manages.** `GET /api/agent/connectors` and `POST /api/agent/connectors/live`
+  go through `src/lib/connectors/agentGate.ts`, a copy of `resultsAgentGate`: the switch (503 when
+  off), the signed canvas token (the brand comes only from it) and 10 a minute, 60 an hour per brand,
+  because each read spends the provider's quota. Vizzy reads for the token's person: anything but
+  admin reads as a member, so a connection needs `{to: "agent:vizzy", can: "read"}` (403
+  `no_agent_grant` without it) and, for a member, the members grant (403 `no_read_grant`). The list
+  shows only granted connections and says only that others aren't shared. A read is the people's
+  bounded read; every number comes with its meaning and nothing else in an answer is a number. Each
+  read is logged as `read` by `agent:vizzy`, kept off the record's recent list
+  (`ActivityWrite.recent: false`) so Vizzy never pushes an admin's changes off the Connected view.
+- **Vizzy's tools** `list_connections` and `read_connected_live`: a pure client and a thin ADK
+  wrapper, the brand only from the session token, input checked before any call, and a system
+  instruction to read numbers by their meaning and lag, say plainly when it has no access and that an
+  admin can allow it, and never claim a change. Tools change only with a Vizzy redeploy (ask first);
+  the ontology names `read_connected_live` as `data_connection`'s number tool.
+- **Help.** Generated words cover share access (what is kept, Check access, why it may be hidden,
+  what Disconnect leaves, the Workspace sharing message), Google Analytics and letting Vizzy read,
+  and the troubleshooting quotes.
+
+### Screens
+
+Built from the approved Design canvas (Browse, the Search Console and Cloudflare Listings, the
+picker and Connected), in the app's own Tailwind. Every screen calls the routes above, and
+Cloudflare's Listing adds one, the token check below.
+Hidden while `NEXT_PUBLIC_CONNECTORS_ENABLED` is off; a connector's card and Listing only while its
+own switch is on and a way to connect is ready (the list route already decides that).
+
+- **The Settings tab is Connections again** (owner, 21 Nov), not Integrations: the tab list, the
+  breadcrumbs, places, the help pages and the post messages that point there. The rename isn't
+  switched, because every message names the tab. Inside it, with the switch on, a layout adds the
+  sub-tabs **Accounts** (the GitHub, GitLab, LinkedIn and X panel, unchanged, on the base route every
+  callback returns to), **Browse** and **Connected**. `connected` joins the reserved ids. Email
+  sending stays under Sending.
+- **Tiles show two letters, as the approved screens** (owner, 22 Nov): SC, GA and CF. A manifest
+  may give its own (`initials`, two capitals or digits), which a one word name such as Cloudflare
+  needs; without it the screens take its words' first letters, leaving out a version number and
+  Google in a longer name, and a one word name gives its first two letters.
+- **One server read per request** (`src/lib/connectors/screens.ts`, through `listForActor`, so a
+  member gets name and health only) feeds the layout's Connected count and the page; changes go
+  through the routes and the page refreshes.
+- **The Listing** follows the manifest's order: Sign in with Google first, then share access (Make
+  the address, Copy, the manifest's steps and role, Check access), or the token fields. Sign in comes
+  back to the Listing; a new one goes on to the picker. A token can't be replaced in place (connect
+  refuses an account already connected), so Reconnect on a turned down token disconnects it, connects
+  the new one and copies its grants.
+- **Cloudflare's Listing is token first, as its approved mockup** (owner, 22 Nov; the first build
+  typed the Zone ID beside the token). The admin pastes the token and presses Check:
+  `POST /api/admin/connectors/[connectorId]/check` (admins only, behind the switch and gate connect
+  uses, the vault checked, rate limited per brand) runs the manifest's `accounts` hook,
+  `cloudflare.zones` (`GET /client/v4/zones`, which needs Zone Read, at most 4 pages of 50), with the
+  token for that one call. Nothing is saved, sealed or logged beyond safe fetch's host and code, and
+  the token is never sent back. The admin picks a zone from the list, and Connect checks the token
+  against it with the zone probe before saving, as before. A token Cloudflare refuses outright
+  (401, or codes 1000, 6003 and 6111) is turned down; one that may not list zones (403, or none
+  listed) falls back to a typed Zone ID with a short note, and so does a zone past the 200 listed. A
+  token method picks from a list when its manifest gives `pick` (the list's label and that note),
+  which needs `hooks.accounts`. Each way to a typed Zone ID has its own words (owner, 22 Nov): the
+  manifest's note when the token can't list zones, and "Cloudflare listed more than fit here, so type
+  the Zone ID of the one you want" after Type the Zone ID; the field's own hint says only where to
+  find it, and the help page says it is typed only when Check doesn't list your zone.
+- **Account Analytics Read is asked for too** (owner, 22 Nov, as the approved Listing), beside Zone
+  Read and Zone Analytics Read, so later features that read account analytics don't need every
+  admin to make a new token. Nothing reads with it today. The manifest rule still holds: its shares
+  line says it is asked for now and that nothing is read with it, the steps say the same, and the
+  link fills it in with Cloudflare's template key `account_analytics` (from Cloudflare's token
+  template docs). The steps also say to include only the site's account under Account Resources.
+- **The picker** lists what the sign in or address sees and marks, never blocks, one whose website
+  isn't the brand's root domain; with no root domain, or a property whose name doesn't say its
+  website, nothing is marked. Cancel on a new connection disconnects it.
+- **Connected** shows who connected each connection as You or Someone else, because the record holds
+  only a user id and there is no name lookup per brand yet, and a sign in as "Signed in with Google",
+  because the Google account's email isn't kept.
+- **The help page** `/help/connected-data` (`onlyWhen: "connectors"`) renders the generated words.
+  The How to drawer renders it in the browser, so the words now read a pure catalog
+  (`src/lib/connectors/catalog.ts`) and `lag.ts`, and a test walks their imports; the Vizzy section
+  shows only with `CONNECTORS_CHAT_ENABLED`, passed to the drawer like the other server switches.
+
+---
+
 ## ADR-0010 · People (piece B) (2026-11-21)
 
 Context: piece B of the CRM and tiers plan turns Audience into People and adds what a CRM

@@ -1799,7 +1799,8 @@ export const ONTOLOGY: readonly OntologyType[] = [
   {
     id: "connector_manifest",
     name: "Connector manifest",
-    description: "What a connector says it produces: each stream's shape, its keys, the meaning of every number and the shared keys it joins on.",
+    description:
+      "What a connector says it produces: each stream's shape, its keys, the meaning of every number and the shared keys it joins on. Manifests are pure data kept in code (`src/lib/connectors/manifests`), so this type keeps no store and stays planned.",
     place: "partner_agent",
     status: "planned",
     plannedIn: "connectors 1",
@@ -1808,10 +1809,50 @@ export const ONTOLOGY: readonly OntologyType[] = [
     stores: [],
     links: [{ to: "connector_stream", via: "its streams", many: true }],
     events: [],
-    erase: { none: planned("connectors 1") },
-    export: { none: planned("connectors 1") },
+    erase: { none: "manifests live in code, with no store" },
+    export: { none: "manifests live in code, with no store" },
     search: { none: "found on Connections" },
-    numbers: { none: planned("connectors 1") },
+    numbers: { none: "its numbers' meanings are claimed by the data connection that reads them" },
+  },
+  {
+    id: "data_connection",
+    name: "Data connection",
+    description:
+      "A brand's link to an outside source of numbers, such as a Cloudflare zone, a Search Console site or a Google Analytics property: which connector, how it signs in, its health, who may read it live, and its secrets (a pasted token, or a Google sign in's access and refresh tokens), sealed with the brand, connection and slot bound in. A shared connection keeps no secret, only the Google address made for it. Each change goes into an activity log kept 90 days.",
+    place: "signals",
+    status: "built",
+    home: "brand",
+    personal: "team",
+    stores: [
+      regional("data_connections", "one record per connection, written only through `src/lib/tenant/dataConnections.ts`; its secrets are sealed and never leave the server"),
+      regional("data_connection_activity", "each change to a connection and who made it, by user id; written with its change, never queried, deleted 90 days on by a time to live on ttlAt"),
+      side("data_connection_states", "src/lib/tenant/dataConnectionStates.ts", {
+        note: "a sign in with Google under way: the brand, the admin's user id and the connector, read by id, valid 10 minutes, claimed once and deleted, and removed by a time to live on ttlAt",
+      }),
+    ],
+    links: [
+      { to: "brand", via: "tenantId", many: false },
+      { to: "member", via: "ownerUid, and by on each activity row", many: false },
+      { to: "connector_manifest", via: "connectorId", many: false },
+    ],
+    events: [],
+    states: ["connected", "disconnected"],
+    erase: {
+      paths: [
+        brandPath("disconnect", "src/lib/connectors/service.ts", "an admin's Disconnect removes the sealed secrets; the record stays, marked disconnected"),
+        brandPath("deleteConnectionAddress", "src/lib/connectors/service.ts", "a shared connection's Google address is deleted at Google on Disconnect and on the purge, which retries a failed delete"),
+        brandPath("purgeDataConnection", "src/lib/tenant/dataConnections.ts", "an operator purge removes the secrets, the recent list and the activity"),
+        retention("ACTIVITY_KEEP_DAYS", "src/lib/tenant/dataConnections.ts", "activity rows go 90 days on, through the TTL on ttlAt"),
+        retention("consumeConnectionState", "src/lib/tenant/dataConnectionStates.ts", "a sign in state is deleted once used, and by the TTL on ttlAt 10 minutes after it was made"),
+      ],
+      gaps: ["a team member's user id in ownerUid and in by stays after they leave the brand, as settings history does"],
+    },
+    export: { none: "a sealed secret and its settings, never exported" },
+    search: { none: "credentials and settings, never searched" },
+    numbers: {
+      meanings: ["cfRequests", "cfPageViews", "cfVisits", "searchClicks", "searchImpressions", "searchCtr", "searchPosition", "ga4Sessions", "ga4ActiveUsers", "ga4Views", "ga4KeyEvents"],
+      tool: "read_connected_live",
+    },
   },
   {
     id: "connector_stream",

@@ -37,6 +37,8 @@
 #   product_users.ttlAt       deleted-user tombstones, 30 days after erasure
 #   lifecycle_counters.ttlAt  daily send/enrolment counters, 40 days
 #   lifecycle_drafts.ttlAt    AI-line drafts, 90 days after their send
+#   data_connection_activity.ttlAt  connected data activity, 90 days (ADR-0011)
+#   data_connection_states.ttlAt    connected data sign ins, 10 minutes (ADR-0011)
 #   rate_limits.ttl           ingest rate-limit counters, 2 hours (control plane only)
 
 set -euo pipefail
@@ -44,7 +46,7 @@ set -euo pipefail
 CMD="${1:-help}"
 PROJECT="${2:-}"
 
-usage() { sed -n '2,42p' "$0"; }
+usage() { sed -n '2,44p' "$0"; }
 
 case "$CMD" in
   secret|worker-secret|signing-key|rotate-signing-key|retire-signing-key|ttl|scheduler|run|verify) ;;
@@ -201,6 +203,8 @@ case "$CMD" in
       ttl_on "$db" product_users ttlAt
       ttl_on "$db" lifecycle_counters ttlAt
       ttl_on "$db" lifecycle_drafts ttlAt
+      ttl_on "$db" data_connection_activity ttlAt
+      ttl_on "$db" data_connection_states ttlAt
     done
     ttl_on "(default)" rate_limits ttl
     echo "Requested. TTL policies take a few minutes to become ACTIVE. Check with: ./setup.sh verify $PROJECT"

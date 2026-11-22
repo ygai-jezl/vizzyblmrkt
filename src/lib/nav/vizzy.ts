@@ -17,7 +17,7 @@ const SUGGESTIONS: Record<NavKey, string[]> = {
   audience: ["Who joined this week?", "Which companies have several signups?"],
   insights: ["What drove signups this week?", "Which email has the best click rate?"],
   brand: ["Tighten our brand voice for email", "Write do and don't examples for our voice"],
-  settings: ["Which integrations are connected?", "Is our sending domain set up?"],
+  settings: ["Which accounts are connected?", "Is our sending domain set up?"],
 };
 
 /** Nav v2 phase 4: extra starters that only make sense while their feature is on. */

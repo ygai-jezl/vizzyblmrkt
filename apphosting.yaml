@@ -95,6 +95,12 @@ env:
   #     GIT_TOKEN_ENC_KEY, SOCIAL_TOKEN_ENC_KEY                     secrets
   #     X_OAUTH_*, LINKEDIN_OAUTH_*, LINKEDIN_CM_*                  secrets
   #     MAILCHIMP_*                                                 secrets and settings
+  #     CONNECTORS_VAULT_KEY                                        secret, seals connected data tokens
+  #     CONNECTORS_VAULT_KEY_PREVIOUS                               secret, only while rotating it
+  #     CONNECTOR_GOOGLE_CLIENT_ID                                  your connectors Google client id
+  #     CONNECTOR_GOOGLE_CLIENT_SECRET                              secret, that client's secret
+  #     CONNECTORS_OAUTH_ORIGIN                                     https://app.example.com
+  #     CONNECTORS_IDENTITIES_PROJECT                               your identities project, for share access
   #   Analytics and the voice chat
   #     NEXT_PUBLIC_GA_MEASUREMENT_ID                               with NEXT_PUBLIC_GA_ENABLED
   #     GEMINI_LIVE_API_KEY                                         secret, for the voice chat
@@ -1019,6 +1025,59 @@ env:
     availability:
       - RUNTIME
   - variable: TRENDING_TOPICS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+
+  # == Connectors ==
+  # Connected data (ADR-0011): the connector core, its routes and connection records, and
+  # every call to a provider. Off, every connector route answers 404 and sealed tokens stay
+  # sealed. Needs CONNECTORS_VAULT_KEY (a secret, by name in your environment file) to save.
+  - variable: CONNECTORS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # The Browse, Listing and Connected views (needs CONNECTORS_ENABLED).
+  - variable: NEXT_PUBLIC_CONNECTORS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Cloudflare with an API token (needs CONNECTORS_ENABLED).
+  - variable: CONNECTOR_CLOUDFLARE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Google Search Console by signing in with Google or by sharing access (needs
+  # CONNECTORS_ENABLED, plus CONNECTOR_GOOGLE_CLIENT_ID and the secret
+  # CONNECTOR_GOOGLE_CLIENT_SECRET, or CONNECTORS_IDENTITIES_PROJECT, in your environment file:
+  # a Google project of its own, docs/self-host.md).
+  - variable: CONNECTOR_SEARCH_CONSOLE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Google Analytics 4, by signing in with Google or by sharing access (needs CONNECTORS_ENABLED,
+  # plus the Google client above or CONNECTORS_IDENTITIES_PROJECT in your environment file).
+  - variable: CONNECTOR_GA4_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Google Analytics 4 by signing in with Google too (needs CONNECTOR_GA4_ENABLED and the Google
+  # client). Its permission is one Google treats as sensitive: leave it off until Google has
+  # reviewed your app, or people see Google's unverified app warning. Share access needs no review.
+  - variable: CONNECTOR_GA4_SIGNIN_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Vizzy lists connections and reads them live, only those an admin let Vizzy read (needs
+  # CONNECTORS_ENABLED and Vizzy, the agent, redeployed with its connector tools).
+  - variable: CONNECTORS_CHAT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Disconnect also revokes a Google sign in at Google. Leave it off unless you know no Google
+  # account signs in for two brands: Google's revoke ends every grant that account gave the app.
+  - variable: CONNECTOR_GOOGLE_REVOKE_ENABLED
     value: "false"
     availability:
       - RUNTIME

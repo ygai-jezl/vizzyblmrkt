@@ -162,20 +162,21 @@ describe("Connected's panel stays on the connection acted on", () => {
   const healed = { ...CF, health: { ...CF.health, state: "ok" as const, message: null } };
 
   /** The page's state as the actions change it, with the routes answering from a list. */
-  function page(list: ConnectionView[], answers: Answer[], confirmed = true) {
-    const state = { list: [...list], selected: firstSelected(list), note: null as unknown, pushed: [] as string[], asked: [] as string[], calls: [] as string[] };
+  function page(list: ConnectionView[], answers: Answer[], confirmed = true, signedIn: Answer = ok({ url: "https://accounts.google.com/made-up" })) {
+    const state = { list: [...list], selected: firstSelected(list), note: null as unknown, pushed: [] as string[], asked: [] as string[], calls: [] as string[], refreshed: 0 };
     const act = connectedActions({
       call: (async (url: string, init?: { method?: string }) => {
         state.calls.push(`${init?.method ?? "GET"} ${url}`);
         return answers.shift()!;
       }) as never,
-      signIn: async () => ({ ok: true, data: { url: "https://accounts.google.com/made-up" } }),
+      signIn: (async () => signedIn) as never,
       replace: (view) => (state.list = state.list.map((c) => (c.id === view.id ? view : c))),
       select: (id) => (state.selected = id),
       note: (n) => (state.note = n),
       confirm: (message) => (state.asked.push(message), confirmed),
       leave: () => {},
       push: (path) => state.pushed.push(path),
+      refresh: () => state.refreshed++,
     });
     const shown = () => selectedOf(state.list, state.selected)?.id ?? null;
     return { state, act, shown };
@@ -224,11 +225,52 @@ describe("Connected's panel stays on the connection acted on", () => {
   });
 
   it("moves to a connection acted on from its banner, and stays when the action is refused", async () => {
-    const p = page([SC, CF], [{ ok: false, status: 409, error: "paused", message: CONNECTOR_ERRORS.paused }]);
+    const p = page([SC, CF], [{ ok: false, status: 409, error: "paused", message: CONNECTOR_ERRORS.paused }, ok(CF)]);
     p.state.selected = SC.id;
     await p.act.check(CF);
     expect(p.shown()).toBe(CF.id);
     expect(p.state.note).toEqual({ tone: "warn", text: CONNECTOR_ERRORS.paused });
+  });
+
+  it("shows what a refused Check now found at once: the row's state and health line change without a reload", async () => {
+    // Search Console works when the page is drawn; Check now answers 409 because its saved sign in no longer opens.
+    const refusal = { ok: false as const, status: 409, error: "secret_unopenable", message: CONNECTOR_ERRORS.secret_unopenable };
+    const found = { ...SC, health: { ...SC.health, state: "broken" as const, message: CONNECTOR_ERRORS.secret_unopenable } };
+    const p = page([SC, CF], [refusal, ok(found)]);
+    expect(stateOf(p.state.list[0]!).label).toBe("Working");
+    await p.act.check(SC);
+    expect(p.state.calls).toEqual([`POST /api/admin/connectors/connections/${SC.id}/check`, `GET /api/admin/connectors/connections/${SC.id}`]);
+    expect(p.state.note).toEqual({ tone: "warn", text: CONNECTOR_ERRORS.secret_unopenable });
+    expect(stateOf(p.state.list[0]!).label).toBe("Needs attention");
+    expect(healthLine(p.state.list[0]!, NOW)).toBe(CONNECTOR_ERRORS.secret_unopenable);
+    expect(needsAttention(p.state.list).map((c) => c.id)).toEqual([SC.id, CF.id]);
+    expect(p.shown()).toBe(SC.id);
+    expect(p.state.refreshed).toBe(0);
+  });
+
+  it("reads the connection again after every refused action, and the whole list when that read fails too", async () => {
+    const no = (status: number, error: string) => ({ ok: false as const, status, error, message: `Refused: ${error}.` });
+    const runs: Array<[string, (p: ReturnType<typeof page>) => Promise<void>, Answer | null]> = [
+      ["check", (p) => p.act.check(CF), no(409, "paused")],
+      ["checkAccess", (p) => p.act.checkAccess(CF), no(409, "share_pending")],
+      ["pause", (p) => p.act.pause(CF, true), no(502, "error")],
+      ["grant", (p) => p.act.grant(CF, "members", true), no(403, "forbidden")],
+      ["disconnect", (p) => p.act.disconnect(CF), no(502, "error")],
+      ["reconnect", (p) => p.act.reconnect(CF), null],
+    ];
+    for (const [name, run, answer] of runs) {
+      const now = { ...CF, health: { ...CF.health, state: "paused" as const } };
+      const p = page([SC, CF], answer ? [answer, ok(now)] : [ok(now)], true, no(503, "signin_unconfigured"));
+      await run(p);
+      expect(p.state.calls.at(-1), name).toBe(`GET /api/admin/connectors/connections/${CF.id}`);
+      expect(p.state.list[1], name).toEqual(now);
+      expect((p.state.note as { text: string }).text, name).toMatch(/^Refused: /);
+      // The connection's own read refused too, say because it was disconnected elsewhere: the whole list.
+      const gone = page([SC, CF], answer ? [answer, no(404, "not_found")] : [no(404, "not_found")], true, no(503, "signin_unconfigured"));
+      await run(gone);
+      expect(gone.state.refreshed, name).toBe(1);
+      expect(gone.state.list, name).toEqual([SC, CF]);
+    }
   });
 
   it("selects nothing after a Disconnect, says which went, and changes nothing when the admin says no", async () => {

@@ -83,6 +83,7 @@ export function ConnectedView({ connections: initial, isAdmin, uid, chat, now: d
     confirm: (message) => window.confirm(message),
     leave: (url) => window.location.assign(url),
     push: (path) => router.push(path),
+    refresh: () => router.refresh(),
   });
 
   async function run(key: string, task: () => Promise<void>) {

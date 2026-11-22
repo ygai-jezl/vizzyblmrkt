@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CompetitorArticle } from "@/lib/types/competitor";
-import { coverageFrom, flagOf, subjectFlagsFrom, type OurSubject } from "./coverage";
+import { coverageFrom, flagOf, stillToAdd, subjectFlagsFrom, type OurSubject } from "./coverage";
 import { articleViewOf, detailOf } from "./view";
 
 const NOW = Date.parse("2026-11-17T12:00:00Z");
@@ -70,7 +70,9 @@ describe("coverageFrom", () => {
       ["SEO", { cmp_a: 1 }, 1, 4, "you_lead"],
       ["Pricing pages", {}, 0, 0, "open"],
     ]);
-    expect(v.notOnMap).toEqual([{ topic: "Shop apps", count: 2, competitors: ["Rival", "Shopkeep"] }]);
+    expect(v.notOnMap).toEqual([{ topic: "Shop apps", count: 2, competitors: ["Rival", "Shopkeep"], state: "new" }]);
+    expect(v.added).toEqual([]);
+    expect(v.moved).toBe(false);
   });
 
   it("shows the subjects they wrote about on a big map, then the open ones with the most questions", () => {
@@ -83,6 +85,67 @@ describe("coverageFrom", () => {
     const v = coverageFrom(articles, competitors, big, { nowMs: NOW, allSubjects: false });
     expect(v.rows.map((r) => r.name)).toEqual(["Forms", "Ads", "SEO", "Refunds", "Pricing pages"]);
     expect(v.rows.slice(3).every((r) => r.flag === "open")).toBe(true);
+  });
+
+  it("never offers their own news as a topic", () => {
+    const v = coverageFrom(
+      [art("cmp_a", [], { newTopic: "Company milestone announcement", format: "news" }), art("cmp_b", [], { newTopic: "Open Graph tags", format: "research" })],
+      competitors,
+      subjects,
+      { nowMs: NOW, allSubjects: true },
+    );
+    expect(v.notOnMap.map((t) => t.topic)).toEqual(["Open Graph tags"]);
+    expect(v.articles).toBe(2);
+  });
+
+  it("counts a topic on the subject of that name once it's on the map, and lists it as added", () => {
+    const withTopic = new Map<string, OurSubject>([...subjects, ["sub_shop", { name: "Shop Apps", you: 0, questions: 0 }]]);
+    const v = coverageFrom(
+      [...articles, art("cmp_b", [], { newTopic: "Shop apps", format: "news" })],
+      competitors,
+      withTopic,
+      { nowMs: NOW, allSubjects: false, moved: true },
+    );
+    expect(v.rows.find((r) => r.subjectId === "sub_shop")).toMatchObject({ byCompetitor: { cmp_a: 1, cmp_b: 2 }, they: 3, you: 0, flag: "gap" });
+    expect(v.notOnMap).toEqual([]);
+    expect(v.added).toEqual([{ topic: "Shop Apps", subjectId: "sub_shop", count: 3, competitors: ["Rival", "Shopkeep"] }]);
+    expect(v.moved).toBe(true);
+    // The subject list counts it too.
+    expect(subjectFlagsFrom(articles, competitors, withTopic, NOW).sub_shop).toEqual({ they: 2, flag: "gap" });
+  });
+
+  it("puts topics still to add first, then the ones waiting, then the ones dismissed before", () => {
+    const v = coverageFrom(
+      [
+        art("cmp_a", [], { newTopic: "Waiting one" }),
+        art("cmp_a", [], { newTopic: "Waiting one" }),
+        art("cmp_a", [], { newTopic: "Dismissed one" }),
+        art("cmp_a", [], { newTopic: "Dismissed one" }),
+        art("cmp_a", [], { newTopic: "Dismissed one" }),
+        art("cmp_b", [], { newTopic: "Brand new one" }),
+      ],
+      competitors,
+      subjects,
+      {
+        nowMs: NOW,
+        allSubjects: true,
+        topicStates: new Map([
+          ["waiting one", "suggested"],
+          ["dismissed one", "dismissed"],
+        ]),
+      },
+    );
+    expect(v.notOnMap.map((t) => [t.topic, t.state])).toEqual([
+      ["Brand new one", "new"],
+      ["Waiting one", "suggested"],
+      ["Dismissed one", "dismissed"],
+    ]);
+    // Next up only offers the ones a person hasn't dismissed.
+    expect(stillToAdd(v)).toEqual([
+      { topic: "Brand new one", count: 1, competitors: ["Shopkeep"] },
+      { topic: "Waiting one", count: 2, competitors: ["Rival"] },
+    ]);
+    expect(stillToAdd(null)).toBeNull();
   });
 
   it("gives each subject they wrote about its count and what it means, for the subject list", () => {

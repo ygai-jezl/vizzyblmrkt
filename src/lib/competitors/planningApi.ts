@@ -1,16 +1,18 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
-import { fileSuggestions } from "@/lib/brandMap/filing";
-import { fileBrandMapSuggestions, readBrandMap } from "@/lib/brandMap/store";
-import { subjectQuestions } from "@/lib/brandMap/records";
+import { afterRecordsChange } from "@/lib/brandMap/afterChange";
+import { questionKey } from "@/lib/brandMap/keys";
+import { decideProposals } from "@/lib/brandMap/proposals";
+import { fileBrandMapSuggestions } from "@/lib/brandMap/store";
+import { createSubject, getSubject, subjectQuestions } from "@/lib/brandMap/records";
 import { isSuggestAngleEnabled } from "@/lib/content/create/flags";
 import { brandCanUse } from "@/lib/plans/brandAccess";
 import type { FirestoreLike, KnowledgeCollectionLike, TenantContext } from "@/lib/tenant/types";
 import type { ArticleFormat, CompetitorArticle } from "@/lib/types/competitor";
 import type { embedQuery } from "@/lib/agents/embeddings";
-import { articlesOnSubject, questionsNobodyCovers } from "./articles";
-import { competitorCoverage, competitorSubjectFlags, COVERAGE_DAYS } from "./coverage";
+import type { AddTopicsResult } from "./addTopics";
+import { articlesOnSubject, articlesOnTopic, linkTopicArticles, questionsNobodyCovers } from "./articles";
+import { competitorCoverage, competitorSubjectFlags, COVERAGE_DAYS, topicKey } from "./coverage";
 import { isCompetitorArticlesPlanningEnabled } from "./flags";
 import { listCompetitors } from "./store";
 import { cleanTitle } from "./titles";
@@ -18,8 +20,8 @@ import { FORMAT_LABEL, askLabel } from "./view";
 
 /**
  * Planning's side of competitor articles (COMPETITOR_ARTICLES_PLANNING_ENABLED): what competitors
- * wrote on one brand map subject (for its panel), and filing subjects they write about that the
- * map lacks as suggestions a person decides on. The routes check origin, switch, sign-in and role.
+ * wrote on one brand map subject (for its panel), and adding subjects they write about that the
+ * map lacks, when an admin ticks them. The routes check origin, switch, sign-in and role.
  */
 
 export interface PlanningApiDeps {
@@ -51,6 +53,8 @@ export interface SubjectCompetitors {
   uncovered: string[];
   /** Whether Write this next opens with an angle suggested (CREATE_SUGGEST_ANGLE_ENABLED). */
   suggestAngle: boolean;
+  /** Questions their articles on it answer that the subject doesn't have yet, newest first. */
+  theirQuestions: Array<{ text: string; competitor: string; url: string }>;
 }
 
 /** The formats worth noticing when nobody has used one on a subject, as they read after "written". */
@@ -62,6 +66,9 @@ const NOTABLE: Array<[ArticleFormat, string]> = [
   ["guide", "a guide"],
 ];
 
+/** Their questions offered for a subject, at most. */
+const THEIR_QUESTIONS = 5;
+
 /** Questions checked against their articles' meaning, at most, per subject. */
 const CHECK_QUESTIONS = 6;
 /** As close in meaning as planning's other matches (planning.ts MIN_SIM). */
@@ -71,7 +78,7 @@ const COVERED_SIM = 0.65;
 export type CompetitorNames = Map<string, { name: string; site: string }>;
 
 /** What competitors wrote on one subject, for its panel. Pure. */
-export function subjectCompetitorsOf(articles: CompetitorArticle[], names: CompetitorNames): Omit<SubjectCompetitors, "uncovered" | "suggestAngle"> {
+export function subjectCompetitorsOf(articles: CompetitorArticle[], names: CompetitorNames): Omit<SubjectCompetitors, "uncovered" | "suggestAngle" | "theirQuestions"> {
   const read = articles.filter((a) => a.status === "read" && names.has(a.competitorId));
   const byCompetitor = new Map<string, CompetitorArticle[]>();
   for (const a of read) byCompetitor.set(a.competitorId, [...(byCompetitor.get(a.competitorId) ?? []), a]);
@@ -102,6 +109,25 @@ export function subjectCompetitorsOf(articles: CompetitorArticle[], names: Compe
   };
 }
 
+/** The questions their articles answer that the subject lacks (by questionKey), one per wording, newest first. Pure. */
+export function theirQuestionsOf(
+  articles: CompetitorArticle[],
+  names: CompetitorNames,
+  onSubject: Set<string>,
+): SubjectCompetitors["theirQuestions"] {
+  const seen = new Set(onSubject);
+  const out: SubjectCompetitors["theirQuestions"] = [];
+  for (const a of articles) {
+    const text = a.question?.replace(/\s+/g, " ").trim() ?? "";
+    const key = text ? questionKey(text) : "";
+    if (a.status !== "read" || !names.has(a.competitorId) || !key || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ text, competitor: names.get(a.competitorId)!.name, url: a.url });
+    if (out.length >= THEIR_QUESTIONS) break;
+  }
+  return out;
+}
+
 /** One from each competitor first (newest first), then the rest: one competitor can't fill a short list. */
 function firstOfEach(list: CompetitorArticle[]): CompetitorArticle[] {
   const seen = new Set<string>();
@@ -117,17 +143,29 @@ export async function subjectCompetitorsFromRequest(ctx: TenantContext, subjectI
   const blocked = await allowed(ctx, deps);
   if (blocked) return blocked;
   if (!SUBJECT_ID.test(subjectId)) return NextResponse.json({ error: "not_found" }, { status: 404 });
-  const [articles, competitors] = await Promise.all([articlesOnSubject(ctx, subjectId, deps), listCompetitors(ctx, deps)]);
+  const [onSubject, competitors, subject] = await Promise.all([
+    articlesOnSubject(ctx, subjectId, deps),
+    listCompetitors(ctx, deps),
+    getSubject(ctx, subjectId, { db: deps.db }).catch(() => null),
+  ]);
+  // A subject added from a topic they write about: the articles it came from are on it too.
+  const onTopic = subject ? await articlesOnTopic(ctx, subject.name, deps).catch(() => []) : [];
+  const ids = new Set(onSubject.map((a) => a.id));
+  const articles = [...onSubject, ...onTopic.filter((a) => !ids.has(a.id))].sort(
+    (a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? "") || b.queuedAt.localeCompare(a.queuedAt),
+  );
   const names: CompetitorNames = new Map(competitors.map((c) => [c.id, { name: c.name, site: c.site }]));
   const view = subjectCompetitorsOf(articles, names);
-  // Which of the subject's questions their articles don't answer: only worth asking when they wrote on it.
+  // Which of the subject's questions their articles don't answer, and theirs it lacks: only worth asking when they wrote on it.
   let uncovered: string[] = [];
+  let theirQuestions: SubjectCompetitors["theirQuestions"] = [];
   if (view.total) {
     const questions = await (deps.questions ?? ((c, id) => subjectQuestions(c, id, { db: deps.db })))(ctx, subjectId).catch(() => []);
     const checked = questions.filter((q) => q.status === "decided" && q.text.trim()).slice(0, CHECK_QUESTIONS);
     uncovered = (await questionsNobodyCovers(ctx, checked, COVERED_SIM, deps)) ?? [];
+    theirQuestions = theirQuestionsOf(articles, names, new Set(questions.filter((q) => q.status !== "dismissed").map((q) => questionKey(q.text))));
   }
-  return NextResponse.json({ competitors: { ...view, uncovered, suggestAngle: isSuggestAngleEnabled() } }, { headers: noStore });
+  return NextResponse.json({ competitors: { ...view, uncovered, suggestAngle: isSuggestAngleEnabled(), theirQuestions } }, { headers: noStore });
 }
 
 /** How much competitors wrote on each subject, and what it means, for the subject list. */
@@ -138,31 +176,64 @@ export async function subjectFlagsFromRequest(ctx: TenantContext, deps: Planning
   return NextResponse.json({ subjects: subjects ?? {} }, { headers: noStore });
 }
 
-const SuggestBody = z.object({ topics: z.array(z.string().trim().min(2).max(80)).min(1).max(10) });
+const TopicsBody = z.object({ topics: z.array(z.string().trim().min(2).max(80)).min(1).max(10) });
 
-/** File subjects they write about, and the map lacks, as suggestions from Competitors. Only topics the page offered. */
-export async function suggestTopicsFromRequest(ctx: TenantContext, body: unknown, deps: PlanningApiDeps = {}): Promise<Response> {
+/**
+ * Topics they write about, and the map lacks, ticked by an admin. Only topics the page offered.
+ * On a moved map each becomes a decided subject, as if typed into Subjects › Add: a new one is
+ * made, a dismissed one comes back, a waiting proposal is accepted. A small map gets plain
+ * suggestions, as before: adding records would move it.
+ */
+export async function addTopicsFromRequest(ctx: TenantContext, body: unknown, deps: PlanningApiDeps = {}): Promise<Response> {
   const blocked = await allowed(ctx, deps);
   if (blocked) return blocked;
-  const parsed = SuggestBody.safeParse(body);
+  const parsed = TopicsBody.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
   const view = await competitorCoverage(ctx, { ...deps, canUse: async () => true });
-  const wanted = new Set(parsed.data.topics.map((t) => t.toLowerCase()));
-  const topics = (view?.notOnMap ?? []).filter((t) => wanted.has(t.topic.toLowerCase()));
-  if (!topics.length) return NextResponse.json({ filed: 0 });
-  const items = topics.map((t) => ({
-    change: { type: "add_subject" as const, name: t.topic },
-    reason: `${t.competitors.join(" and ")} wrote ${t.count} article${t.count === 1 ? "" : "s"} about it in the last ${COVERAGE_DAYS} days.`,
-  }));
-  const read = await readBrandMap(ctx, deps.db);
-  const moved = read.state === "ok" && Boolean(read.map.moved);
-  // A small map gets plain suggestions: filing proposals would move it to records.
-  if (isBrandMapScaleEnabled() && moved) {
-    const r = await fileSuggestions(ctx, { from: "competitors", items }, { db: deps.db });
+  const wanted = new Set(parsed.data.topics.map((t) => topicKey(t)));
+  const topics = (view?.notOnMap ?? []).filter((t) => wanted.has(topicKey(t.topic)));
+  // Ticked on a page drawn before they were added.
+  const already = (view?.added ?? []).filter((t) => wanted.has(topicKey(t.topic))).map((t) => t.topic);
+
+  if (!view?.moved) {
+    if (!topics.length) return NextResponse.json({ mode: "suggested", filed: 0, already } satisfies AddTopicsResult);
+    const items = topics.map((t) => ({
+      change: { type: "add_subject" as const, name: t.topic },
+      reason: `${t.competitors.join(" and ")} wrote ${t.count} article${t.count === 1 ? "" : "s"} about it in the last ${COVERAGE_DAYS} days.`,
+    }));
+    const r = await fileBrandMapSuggestions(ctx, { from: "competitors", items }, { db: deps.db });
     if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
-    return NextResponse.json({ filed: r.value.filed.length + r.value.proposed.length });
+    return NextResponse.json({ mode: "suggested", filed: r.value.filed.length, already } satisfies AddTopicsResult);
   }
-  const r = await fileBrandMapSuggestions(ctx, { from: "competitors", items }, { db: deps.db });
-  if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
-  return NextResponse.json({ filed: r.value.filed.length });
+
+  const added: string[] = [];
+  const accept: string[] = [];
+  const touched: string[] = [];
+  // Topic key → the subject it is now, so the articles it came from go on it.
+  const subjectByKey = new Map<string, string>();
+  let full = false;
+  for (const t of topics) {
+    const r = await createSubject(ctx, { name: t.topic }, { db: deps.db });
+    if (r.ok) {
+      added.push(r.value.name);
+      touched.push(...r.touched);
+      subjectByKey.set(topicKey(t.topic), r.value.id);
+      continue;
+    }
+    const current = r.current as { id?: string; name?: string; status?: string } | undefined;
+    if (r.error === "subject_exists" && current?.status === "proposed" && current.id) {
+      accept.push(current.id);
+      added.push(current.name ?? t.topic);
+      subjectByKey.set(topicKey(t.topic), current.id);
+    } else if (r.error === "subject_exists") already.push(current?.name ?? t.topic);
+    else if (r.error === "too_many_subjects") {
+      full = true;
+      break;
+    } else return NextResponse.json({ error: r.error }, { status: r.status });
+  }
+  if (accept.length) touched.push(...(await decideProposals(ctx, { accept: { subjects: accept } }, { db: deps.db })).touched);
+  if (touched.length) await afterRecordsChange(ctx, { subjects: touched }, { db: deps.db }).catch(() => undefined);
+  await linkTopicArticles(ctx, subjectByKey, topicKey, deps).catch(() => 0);
+  if (full && !added.length) return NextResponse.json({ error: "too_many_subjects" }, { status: 409 });
+  return NextResponse.json({ mode: "added", added, already } satisfies AddTopicsResult);
 }

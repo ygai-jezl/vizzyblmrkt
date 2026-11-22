@@ -305,17 +305,29 @@ export default function YourBrandHelp() {
             puts your brand map&apos;s subjects beside how many articles each competitor wrote on them in the last 90 days, and how
             many of each subject&apos;s questions you have answered, drafted or planned. Each subject says what that means:{" "}
             <strong>Gap</strong> when they write about it and you don&apos;t yet, <strong>Open</strong> when nobody does,{" "}
-            <strong>Crowded</strong> when a new angle would stand out, or <strong>You lead</strong>. Subjects they write about
-            that your map doesn&apos;t have are listed below, and an admin can press <strong>Suggest for my map</strong> to add them
-            to your brand map&apos;s Suggestions. On a big brand map it lists the subjects they write about, then the open subjects
-            with the most questions.
+            <strong>Crowded</strong> when a new angle would stand out, or <strong>You lead</strong>. On a big brand map it lists the
+            subjects they write about, then the open subjects with the most questions.
+          </P>
+          <P>
+            Below the table are the subjects they write about that your map doesn&apos;t have. A competitor&apos;s news about
+            itself, such as a launch or an award, isn&apos;t listed. One already waiting on your map says{" "}
+            <strong>Suggested</strong>. An admin ticks the ones to keep and presses <strong>Add to my map</strong>. They move to{" "}
+            <strong>On your map now</strong>, and the articles they came from count on their row in the table. When your brand map
+            isn&apos;t split into subjects yet, the button is <strong>Suggest for my map</strong>, and you decide on them in your
+            brand map&apos;s Suggestions.
+          </P>
+          <P>
+            Press a subject in the table, or <strong>Plan it</strong> beside a Gap, Open or Crowded one, to open its{" "}
+            <strong>Competitors on this</strong> box. <strong>Their questions</strong> lists questions their articles answer that
+            the subject doesn&apos;t have yet. An admin presses <strong>Add</strong> on one, then <strong>Write this next</strong>{" "}
+            starts an article on it. This works even for a subject with no questions of its own yet.
           </P>
           <P>
             On <Open href="/admin/brand-kit/map">Brand › Brand map</Open>, each subject in the Subjects list shows how many
             articles competitors wrote on it and what that means, and a subject&apos;s <strong>Competitors on this</strong> box
             shows who wrote on it, the angles they took and what <strong>Nobody has</strong>: your questions none of their articles
             answer, and kinds of article nobody has written on it. <strong>Suggest an angle</strong> opens Write this next on the
-            best of those questions, with an angle that steers away from theirs.
+            best of those questions, with an angle that steers away from theirs. Their questions are there too, to add.
           </P>
           <P>
             Suggest an angle, blog research and the writer also read what competitors wrote on a subject, so a new article takes a

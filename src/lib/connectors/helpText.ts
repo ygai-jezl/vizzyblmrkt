@@ -74,7 +74,11 @@ export function connectorHelp(m: ConnectorManifest): ConnectorHelp {
             permissions: token.permissions,
             steps: token.steps,
             link: token.tokenLink ?? null,
-            fields: token.fields.map((f) => ({ label: f.label, help: f.help ?? null })),
+            // A field picked from a list after Check says when it is typed instead: when Check doesn't list yours.
+            fields: token.fields.map((f) => ({
+              label: f.label,
+              help: token.pick && f.key === token.account ? [`Typed only when Check doesn't list your ${token.pick.label.toLowerCase()}.`, f.help].filter(Boolean).join(" ") : (f.help ?? null),
+            })),
             pick: token.pick ? { label: token.pick.label, cantList: token.pick.cantList, typed: token.fields.find((f) => f.key === token.account)?.label ?? "" } : null,
           }
         : null,

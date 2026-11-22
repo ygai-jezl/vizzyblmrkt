@@ -322,7 +322,10 @@ own switch is on and a way to connect is ready (the list route already decides t
   (401, or codes 1000, 6003 and 6111) is turned down; one that may not list zones (403, or none
   listed) falls back to a typed Zone ID with a short note, and so does a zone past the 200 listed. A
   token method picks from a list when its manifest gives `pick` (the list's label and that note),
-  which needs `hooks.accounts`.
+  which needs `hooks.accounts`. Each way to a typed Zone ID has its own words (owner, 22 Nov): the
+  manifest's note when the token can't list zones, and "Cloudflare listed more than fit here, so type
+  the Zone ID of the one you want" after Type the Zone ID; the field's own hint says only where to
+  find it, and the help page says it is typed only when Check doesn't list your zone.
 - **Account Analytics Read is asked for too** (owner, 22 Nov, as the approved Listing), beside Zone
   Read and Zone Analytics Read, so later features that read account analytics don't need every
   admin to make a new token. Nothing reads with it today. The manifest rule still holds: its shares

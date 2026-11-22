@@ -459,7 +459,9 @@ describe("Connected data", () => {
     expect(at).toEqual([...at].sort((a, b) => a - b));
     expect(text).toContain("Give the token three permissions: Zone Read, so YouGrow can list your zones; Zone Analytics Read, so it can read their numbers; and Account Analytics Read, asked for now so later features don't need a new token. Nothing reads with it today.");
     expect(text).toContain("Paste the token here and press Check. Pick your site's zone from the list, then press Connect.");
-    expect(text).toContain("**Zone ID**: Only when the token can't list your zones");
+    // The Zone ID line fits both ways to it: the token can't list zones, or yours isn't among those listed.
+    expect(text).toContain("**Zone ID**: Typed only when Check doesn't list your zone. Find it on your site's Overview page in Cloudflare, in the API box on the right.");
+    expect(text).not.toContain("Only when the token can't list your zones");
     expect(text).toContain("This token can't list your zones (that needs Zone Read), so type your site's Zone ID instead.");
     expect(text).toContain("Type the Zone ID, or make the token again with Zone Read, Zone Analytics Read and Account Analytics Read to pick from a list.");
     // The link fills in all three permissions, so the words say permissions.

@@ -9,9 +9,9 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: unknown }) => createElement("a", { href, ...rest }, children as never),
 }));
-const { ListingView } = await import("./ListingView");
+const { ListingView, TypedWhy } = await import("./ListingView");
 const { listingBanner } = await import("./listingBanner");
-const { LISTING_COPY, chosenAtFirst, limitsOf, moreListedWords, readsOf, replaceableOf, signInReasonWords, tokenCheckedWords, waitingShareOf, youNeedOf } = await import("./words");
+const { LISTING_COPY, chosenAtFirst, limitsOf, moreListedWords, readsOf, replaceableOf, signInReasonWords, tokenCheckedWords, typedWhyWords, waitingShareOf, youNeedOf } = await import("./words");
 const { checkPastedToken, secretsOf } = await import("./tokenConnect");
 
 type Props = Parameters<typeof ListingView>[0];
@@ -167,6 +167,29 @@ describe("Check on the Cloudflare Listing", () => {
     expect(chosenAtFirst(zones, null)).toBe("");
     expect(chosenAtFirst(zones, "0000000000000000000000000000dead")).toBe("");
     expect(moreListedWords("Cloudflare", "Zone ID")).toBe("Cloudflare listed more than fit here. If yours isn't in the list, type its Zone ID instead.");
+  });
+
+  it("gives each way to a typed Zone ID its own words, never that the token can't list zones after it listed more than fit", () => {
+    const method = CF.connect[0]!;
+    if (method.method !== "token_fields" || !method.pick) throw new Error("Cloudflare picks its zone from a list");
+    const zone = method.fields.find((f) => f.key === method.account)!;
+    // The field's own hint says only where to find it, so it fits however it came to be typed.
+    expect(zone.help).toBe("Find it on your site's Overview page in Cloudflare, in the API box on the right.");
+    // The token can't list zones: the manifest's note, as a warning, with no list to go back to.
+    expect(typedWhyWords("Cloudflare", zone.label, method.pick, false)).toBe(method.pick.cantList);
+    const cant = renderToStaticMarkup(createElement(TypedWhy, { text: method.pick.cantList, listed: false, onPick: () => {} }));
+    expect(textOf(cant)).toBe(method.pick.cantList);
+    expect(cant).not.toContain(LISTING_COPY.pickFromList);
+    // It listed zones, but more than fit, and the admin pressed Type the Zone ID: words for that, and the way back.
+    const more = typedWhyWords("Cloudflare", zone.label, method.pick, true);
+    expect(more).toBe("Cloudflare listed more than fit here, so type the Zone ID of the one you want.");
+    const listed = textOf(renderToStaticMarkup(createElement(TypedWhy, { text: more, listed: true, onPick: () => {} })));
+    expect(listed).toBe(`${more} ${LISTING_COPY.pickFromList}`);
+    for (const line of [zone.help!, listed]) {
+      expect(line).not.toMatch(/can't list|Only when/);
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
   });
 
   it("says why the zone is typed in the manifest's own words", () => {

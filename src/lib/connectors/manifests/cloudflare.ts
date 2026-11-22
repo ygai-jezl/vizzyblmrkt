@@ -49,7 +49,8 @@ export const cloudflareManifest = {
           key: "zoneId",
           label: "Zone ID",
           secret: false,
-          help: "Only when the token can't list your zones: on your site's Overview page in Cloudflare, in the API box on the right.",
+          // Where to find it, whichever way it came to be typed: the screen says why (pick below).
+          help: "Find it on your site's Overview page in Cloudflare, in the API box on the right.",
           pattern: "^[0-9a-f]{32}$",
           minLength: 32,
           maxLength: 32,

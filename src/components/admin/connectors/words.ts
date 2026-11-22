@@ -218,6 +218,14 @@ export function chosenAtFirst(accounts: ReadonlyArray<{ id: string }>, current: 
 /** When the provider listed more than the picker shows: the account can still be typed. */
 export const moreListedWords = (name: string, field: string) => `${name} listed more than fit here. If yours isn't in the list, type its ${field} instead.`;
 
+/**
+ * Why the account is typed after Check, in words that fit how it got there: the token can't list
+ * them (the manifest's own note), or the admin pressed Type after the provider listed more than fit.
+ */
+export function typedWhyWords(name: string, field: string, pick: { cantList: string }, listed: boolean): string {
+  return listed ? `${name} listed more than fit here, so type the ${field} of the one you want.` : pick.cantList;
+}
+
 /** "What it reads": the manifest's read lines, then what it never does. */
 export function readsOf(listing: Pick<ConnectorListing, "shares">): { rows: Array<{ what: string; detail: string; where: string }>; never: string[] } {
   return {

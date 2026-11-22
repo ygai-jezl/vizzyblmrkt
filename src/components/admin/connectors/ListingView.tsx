@@ -33,6 +33,7 @@ import {
   shareMethodOf,
   tokenCheckedWords,
   tokenMethodOf,
+  typedWhyWords,
   waitingShareOf,
   waitingSignInOf,
   whoCanSeeOf,
@@ -474,14 +475,9 @@ function TokenCard({
             <p role="status" className={NOTE_OK}>
               {tokenCheckedWords(checked.accounts, chosen)}
             </p>
-          ) : stage === "typed" && checked && !checked.accounts.length ? (
-            <p role="status" className={NOTE_WARN}>
-              {pick!.cantList}
-            </p>
           ) : stage === "typed" && checked ? (
-            <button type="button" className="text-sm font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-400" onClick={() => typeInstead(false)}>
-              {LISTING_COPY.pickFromList}
-            </button>
+            // Typed because the token can't list them, or because more were listed than fit: each in its own words.
+            <TypedWhy text={typedWhyWords(listing.name, accountField.label, pick!, checked.accounts.length > 0)} listed={checked.accounts.length > 0} onPick={() => typeInstead(false)} />
           ) : (
             <p className={HINT}>{stage === "token" ? LISTING_COPY.checkFirst : LISTING_COPY.tokenCheck}</p>
           )}
@@ -503,6 +499,27 @@ function TokenCard({
         <p className={HINT}>{LISTING_COPY.adminsOnly}</p>
       )}
     </form>
+  );
+}
+
+/** Why the account is typed: a warning when the token can't list them, else a hint and the way back to the list. */
+export function TypedWhy({ text, listed, onPick }: { text: string; listed: boolean; onPick: () => void }) {
+  if (!listed) {
+    return (
+      <p role="status" className={NOTE_WARN}>
+        {text}
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-1">
+      <p role="status" className={HINT}>
+        {text}
+      </p>
+      <button type="button" className="text-sm font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-400" onClick={onPick}>
+        {LISTING_COPY.pickFromList}
+      </button>
+    </div>
   );
 }
 

@@ -52,7 +52,7 @@ function ConnectorSection({ c }: { c: ConnectorHelp }) {
           </Steps>
           {c.token.link ? (
             <P>
-              The link on the {c.name} page opens {c.name}&apos;s token form with the permission filled in:{" "}
+              The link on the {c.name} page opens {c.name}&apos;s token form with the {c.token.permissions.length === 1 ? "permission" : "permissions"} filled in:{" "}
               <a href={c.token.link} className="font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-400">
                 make a token
               </a>

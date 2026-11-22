@@ -462,6 +462,8 @@ describe("Connected data", () => {
     expect(text).toContain("**Zone ID**: Only when the token can't list your zones");
     expect(text).toContain("This token can't list your zones (that needs Zone Read), so type your site's Zone ID instead.");
     expect(text).toContain("Type the Zone ID, or make the token again with Zone Read and Zone Analytics Read to pick from a list.");
+    // The link fills in both permissions, so the words say permissions.
+    expect(text).toContain("The link on the Cloudflare page opens Cloudflare's token form with the permissions filled in: [make a token](https://dash.cloudflare.com/profile/api-tokens?");
   });
 
   it("says where Accounts and Sending are, and quotes a turned down token in its tool's own words", () => {

@@ -51,8 +51,12 @@ const ICONS: Record<NavKey, LucideIcon> = {
   settings: Settings,
 };
 
-/** Other words people use for each area, so "crm" finds Audience, and "audience" finds People. */
-const KEYWORDS: Partial<Record<NavKey, string[]>> = {
+/**
+ * Other words people use for each area, so "crm" finds Audience, and "audience" finds People.
+ * Settings › Connections was Integrations, so both words find Settings. Products keeps
+ * "connections" too, because a connected product is still called a connection there.
+ */
+export const KEYWORDS: Partial<Record<NavKey, string[]>> = {
   review: ["approvals", "inbox", "decisions"],
   launches: ["waitlists", "campaigns"],
   content: ["workspaces", "programmes", "posts", "newsletter"],
@@ -64,7 +68,9 @@ const KEYWORDS: Partial<Record<NavKey, string[]>> = {
     : ["analytics", "metrics"],
   brand: ["voice", "logo", "colours", "brand kit"],
   // With NEXT_PUBLIC_PLANS_ENABLED, Settings › Plan and usage.
-  settings: isPlansUiEnabled() ? ["account", "domains", "integrations", "billing", "plan", "usage"] : ["account", "domains", "integrations", "billing"],
+  settings: isPlansUiEnabled()
+    ? ["account", "domains", "connections", "connected data", "integrations", "billing", "plan", "usage"]
+    : ["account", "domains", "connections", "connected data", "integrations", "billing"],
 };
 
 const lifecycle = isLifecycleUiEnabled();

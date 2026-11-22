@@ -40,7 +40,7 @@ describe("the Cloudflare Listing", () => {
     expect(out).toMatch(/id="field-token"[^>]*type="password"|type="password"[^>]*id="field-token"/);
     // The zone comes after Check: picked from what the token can see, or typed when it can't list.
     expect(out).not.toContain('id="field-zoneId"');
-    expect(text).toContain("Give the token two permissions: Zone Read, so YouGrow can list your zones, and Zone Analytics Read, so it can read their numbers.");
+    expect(text).toContain("Give the token three permissions: Zone Read, so YouGrow can list your zones; Zone Analytics Read, so it can read their numbers; and Account Analytics Read, asked for now so later features don't need a new token. Nothing reads with it today.");
     expect(text).toContain("Paste the token here and press Check.");
     expect(out).toContain('href="https://dash.cloudflare.com/profile/api-tokens?');
     expect(text).toContain("Open Cloudflare with the form filled in");
@@ -51,10 +51,16 @@ describe("the Cloudflare Listing", () => {
     expect(text).not.toContain("Choose how to connect");
   });
 
-  it("fills in Zone Read and Zone Analytics Read on Cloudflare's token form", () => {
+  it("fills in Zone Read, Zone Analytics Read and Account Analytics Read on Cloudflare's token form", () => {
     const link = decodeURIComponent(CF.connect[0]!.method === "token_fields" ? (CF.connect[0]!.tokenLink ?? "") : "");
-    expect(link).toContain('{"key":"zone","type":"read"}');
-    expect(link).toContain('{"key":"analytics","type":"read"}');
+    // Keys from Cloudflare's token template docs: zone, analytics (the zone's) and account_analytics.
+    expect(JSON.parse(new URL(link).searchParams.get("permissionGroupKeys")!)).toEqual([
+      { key: "zone", type: "read" },
+      { key: "analytics", type: "read" },
+      { key: "account_analytics", type: "read" },
+    ]);
+    expect(CF.connect[0]!.method === "token_fields" && CF.connect[0]!.permissions).toEqual(["Zone Read", "Zone Analytics Read", "Account Analytics Read"]);
+    expect(textOf(html({ listing: CF }))).toContain("Under Account Resources, include only the account your site is in.");
     expect(link).toMatch(/^https:\/\/dash\.cloudflare\.com\/profile\/api-tokens\?/);
   });
 
@@ -79,11 +85,13 @@ describe("the Cloudflare Listing", () => {
     const text = textOf(html({ listing: CF }));
     expect(text).toContain("From Cloudflare What In YouGrow Daily totals for the zone requests, page views and visits Read live when you or Vizzy ask. Nothing is stored.");
     expect(text).toContain("Your zones their names Listed when you press Check, so you can pick one. Not stored.");
+    // Account Analytics Read has its own line, which says nothing reads with it today.
+    expect(text).toContain("Your account's analytics Asked for now so later features don't need a new token. Nothing is read with it today.");
     expect(text).toContain("Nothing is ever written to Cloudflare.");
     expect(text).toContain("Cloudflare requests");
     expect(text).toContain("A day's numbers are complete the next day.");
     expect(text).toContain(CF.disconnect);
-    expect(text).toContain("a token with these permissions: Zone Read and Zone Analytics Read.");
+    expect(text).toContain("a token with these permissions: Zone Read, Zone Analytics Read and Account Analytics Read.");
     expect(html({ listing: CF })).toContain('href="/help/connected-data#cloudflare"');
   });
 

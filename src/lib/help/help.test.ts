@@ -457,12 +457,13 @@ describe("Connected data", () => {
     const at = ["## Google Search Console", "## Google Analytics 4", "## Cloudflare"].map((name) => text.indexOf(name));
     expect(at.every((i) => i > 0)).toBe(true);
     expect(at).toEqual([...at].sort((a, b) => a - b));
-    expect(text).toContain("Give the token two permissions: Zone Read, so YouGrow can list your zones, and Zone Analytics Read, so it can read their numbers.");
+    expect(text).toContain("Give the token three permissions: Zone Read, so YouGrow can list your zones; Zone Analytics Read, so it can read their numbers; and Account Analytics Read, asked for now so later features don't need a new token. Nothing reads with it today.");
     expect(text).toContain("Paste the token here and press Check. Pick your site's zone from the list, then press Connect.");
     expect(text).toContain("**Zone ID**: Only when the token can't list your zones");
     expect(text).toContain("This token can't list your zones (that needs Zone Read), so type your site's Zone ID instead.");
-    expect(text).toContain("Type the Zone ID, or make the token again with Zone Read and Zone Analytics Read to pick from a list.");
-    // The link fills in both permissions, so the words say permissions.
+    expect(text).toContain("Type the Zone ID, or make the token again with Zone Read, Zone Analytics Read and Account Analytics Read to pick from a list.");
+    // The link fills in all three permissions, so the words say permissions.
+    expect(text).toContain("Your account's analytics | Read only. Asked for now so later features don't need a new token. Nothing is read with it today.");
     expect(text).toContain("The link on the Cloudflare page opens Cloudflare's token form with the permissions filled in: [make a token](https://dash.cloudflare.com/profile/api-tokens?");
   });
 

@@ -26,11 +26,12 @@ describe("the connected data help words", () => {
   it("takes Cloudflare's token steps, permission, numbers and disconnect from its manifest", () => {
     const m = parseManifest(cloudflareManifest);
     const help = connectorHelp(m);
-    expect(help.token?.permissions).toEqual(["Zone Read", "Zone Analytics Read"]);
+    expect(help.token?.permissions).toEqual(["Zone Read", "Zone Analytics Read", "Account Analytics Read"]);
     expect(help.token?.steps).toEqual(m.connect[0]!.method === "token_fields" ? m.connect[0]!.steps : []);
     expect(help.token?.link).toMatch(/^https:\/\/dash\.cloudflare\.com\/profile\/api-tokens\?/);
     expect(help.numbers.map((n) => n.name)).toEqual(["Cloudflare requests", "Cloudflare page views", "Cloudflare visits"]);
-    expect(help.shares.map((s) => s.direction)).toEqual(["Read only", "Read only", "Never"]);
+    expect(help.shares.map((s) => s.direction)).toEqual(["Read only", "Read only", "Read only", "Never"]);
+    expect(help.shares[2]).toEqual({ what: "Your account's analytics", detail: null, direction: "Read only", where: "Asked for now so later features don't need a new token. Nothing is read with it today." });
     expect(help.token?.fields.map((f) => f.label)).toEqual(["API token", "Zone ID"]);
     expect(help.lag).toBe("A day's numbers are complete the next day.");
     expect(help.disconnect).toContain("delete it in Cloudflare");

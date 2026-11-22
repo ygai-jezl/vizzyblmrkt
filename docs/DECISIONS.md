@@ -95,7 +95,8 @@ Decisions:
   `httpRequests1dGroups`; visits only from `httpRequestsAdaptiveGroups` (`sum.visits`, sampled,
   about 31 days on every plan), so when only that part fails the totals come back with a note. The
   token needs Zone Analytics Read, and Zone Read to list the zones it can see (see Cloudflare's
-  Listing under Screens), both filled in by a pre-filled link (keys `analytics` and `zone`).
+  Listing under Screens). It is also asked for Account Analytics Read (see Screens). A pre-filled
+  link fills in all three (keys `analytics`, `zone` and `account_analytics`).
   Disconnect deletes the stored token; Cloudflare can't cancel it for us, so the answer says to
   delete it there.
 - **Live reads** are bounded: at most 93 days and 100 rows, a fixed list of dimensions per stream,
@@ -317,7 +318,13 @@ own switch is on and a way to connect is ready (the list route already decides t
   (401, or codes 1000, 6003 and 6111) is turned down; one that may not list zones (403, or none
   listed) falls back to a typed Zone ID with a short note, and so does a zone past the 200 listed. A
   token method picks from a list when its manifest gives `pick` (the list's label and that note),
-  which needs `hooks.accounts`. Account Analytics Read isn't asked for: nothing reads with it.
+  which needs `hooks.accounts`.
+- **Account Analytics Read is asked for too** (owner, 22 Nov, as the approved Listing), beside Zone
+  Read and Zone Analytics Read, so later features that read account analytics don't need every
+  admin to make a new token. Nothing reads with it today. The manifest rule still holds: its shares
+  line says it is asked for now and that nothing is read with it, the steps say the same, and the
+  link fills it in with Cloudflare's template key `account_analytics` (from Cloudflare's token
+  template docs). The steps also say to include only the site's account under Account Resources.
 - **The picker** lists what the sign in or address sees and marks, never blocks, one whose website
   isn't the brand's root domain; with no root domain, or a property whose name doesn't say its
   website, nothing is marked. Cancel on a new connection disconnects it.

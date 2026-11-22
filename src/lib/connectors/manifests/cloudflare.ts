@@ -15,8 +15,11 @@ import type { ConnectorManifestInput } from "../manifest";
  * Connecting is token first (owner, 22 Nov, as the approved Listing): Check lists the zones the
  * token can see (GET /zones, which needs Zone Read) and the admin picks one; a token without Zone
  * Read falls back to a typed Zone ID. Nothing is saved until Connect, which runs the zone probe on
- * the picked zone. The link fills in Zone Read (key zone) and Zone Analytics Read (key analytics),
- * from developers.cloudflare.com/fundamentals/api/how-to/account-owned-token-template.
+ * the picked zone. The link fills in Zone Read (key zone), Zone Analytics Read (key analytics) and
+ * Account Analytics Read (key account_analytics), from
+ * developers.cloudflare.com/fundamentals/api/how-to/account-owned-token-template. Account Analytics
+ * Read is asked for now (owner, 22 Nov, as the approved Listing) so later features don't need a new
+ * token; nothing reads with it today, and its shares line says so.
  */
 export const cloudflareManifest = {
   schema: 1,
@@ -52,13 +55,13 @@ export const cloudflareManifest = {
       ],
       account: "zoneId",
       auth: { field: "token", scheme: "Bearer" },
-      permissions: ["Zone Read", "Zone Analytics Read"],
+      permissions: ["Zone Read", "Zone Analytics Read", "Account Analytics Read"],
       tokenLink:
-        "https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=%5B%7B%22key%22%3A%22zone%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22analytics%22%2C%22type%22%3A%22read%22%7D%5D&accountId=%2A&zoneId=all&name=YouGrow%20analytics%20read",
+        "https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=%5B%7B%22key%22%3A%22zone%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22analytics%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22account_analytics%22%2C%22type%22%3A%22read%22%7D%5D&accountId=%2A&zoneId=all&name=YouGrow%20analytics%20read",
       steps: [
         "In Cloudflare, open My Profile, then API Tokens, or use the link here, which fills in the form for you.",
-        "Give the token two permissions: Zone Read, so YouGrow can list your zones, and Zone Analytics Read, so it can read their numbers.",
-        "Under Zone Resources, include only the site you want to connect.",
+        "Give the token three permissions: Zone Read, so YouGrow can list your zones; Zone Analytics Read, so it can read their numbers; and Account Analytics Read, asked for now so later features don't need a new token. Nothing reads with it today.",
+        "Under Account Resources, include only the account your site is in. Under Zone Resources, include only the site you want to connect.",
         "Create the token and copy it. Cloudflare shows it only once.",
         "Paste the token here and press Check. Pick your site's zone from the list, then press Connect. Nothing is saved before that.",
       ],
@@ -90,6 +93,12 @@ export const cloudflareManifest = {
       direction: "read",
       where: "Listed when you press Check, so you can pick one. Not stored.",
       needs: ["Zone Read"],
+    },
+    {
+      what: "Your account's analytics",
+      direction: "read",
+      where: "Asked for now so later features don't need a new token. Nothing is read with it today.",
+      needs: ["Account Analytics Read"],
     },
     {
       what: "Anything else",

@@ -182,9 +182,10 @@ so turn it on by hand once you have read this.
   is safe to run again. With the regions add-on on, use
   `FIRESTORE_DATABASES='(default) signups-eu signups-asia'` instead: without the variable the script
   covers all three databases and stops at the first one your copy doesn't have.
-- Cloudflare needs nothing else on your side: an admin pastes a read only token (Zone Read and
-  Zone Analytics Read), presses Check and picks the site's zone from the list. A token without Zone
-  Read can still connect with the site's Zone ID typed in.
+- Cloudflare needs nothing else on your side: an admin pastes a read only token (Zone Read, Zone
+  Analytics Read and Account Analytics Read), presses Check and picks the site's zone from the
+  list. Account Analytics Read is asked for so later features don't need a new token; nothing reads
+  with it today. A token without Zone Read can still connect with the site's Zone ID typed in.
 - To change the vault key: add a new version of `connectors-vault-key`, set the old value as
   `CONNECTORS_VAULT_KEY_PREVIOUS` (a secret too), roll out, then run
   `npx tsx scripts/reseal-connector-secrets.ts` as a dry run and again with `--apply`. Remove

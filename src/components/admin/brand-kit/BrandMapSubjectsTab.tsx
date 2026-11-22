@@ -453,6 +453,7 @@ export function BrandMapSubjectsTab({
               act={act}
               decide={decide}
               onGone={() => setOpenId(null)}
+              onChanged={() => void refresh()}
               competitorArticles={competitorArticles}
             />
           ) : (
@@ -474,9 +475,12 @@ function SubjectDetail({
   act,
   decide,
   onGone,
+  onChanged,
   competitorArticles,
 }: {
   competitorArticles: boolean;
+  /** Something in the panel changed the subject's questions: load it again. */
+  onChanged: () => void;
   read: SubjectRead;
   groups: BrandMapGroup[];
   canEdit: boolean;
@@ -671,6 +675,8 @@ function SubjectDetail({
           subjectId={subject.id}
           questions={decided.map((q) => ({ id: q.id, text: q.text, open: (states.get(q.id)?.state ?? "open") === "open" }))}
           programmes={programmes}
+          canEdit={canEdit}
+          onQuestionsChanged={onChanged}
         />
       ) : null}
 

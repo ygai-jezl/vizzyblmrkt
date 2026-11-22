@@ -1,5 +1,5 @@
 import { competitorsAdmin, competitorsReader } from "@/lib/competitors/api";
-import { subjectFlagsFromRequest, suggestTopicsFromRequest } from "@/lib/competitors/planningApi";
+import { subjectFlagsFromRequest, addTopicsFromRequest } from "@/lib/competitors/planningApi";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,9 +11,9 @@ export async function GET(req: Request) {
   return subjectFlagsFromRequest(g.ctx);
 }
 
-/** Suggest subjects competitors write about, and the brand map lacks, for the map (admins). */
+/** Add subjects competitors write about, and the brand map lacks, to the map (admins). */
 export async function POST(req: Request) {
   const g = await competitorsAdmin(req);
   if (!g.ok) return g.response;
-  return suggestTopicsFromRequest(g.ctx, await req.json().catch(() => ({})));
+  return addTopicsFromRequest(g.ctx, await req.json().catch(() => ({})));
 }

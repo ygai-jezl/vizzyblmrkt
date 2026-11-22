@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { WriteNext } from "@/components/admin/brand-kit/BrandMapCoverage";
+import { addedNote, type AddTopicsResult } from "@/lib/competitors/addTopics";
 import type { NextUpChip, NextUpDoc, NextUpPick } from "@/lib/types/autopilot";
 import { FoundTrays, type RunView } from "./FoundTrays";
 import { AutopilotSettingsCard } from "./AutopilotSettingsCard";
@@ -123,10 +124,11 @@ function NotOnMap({ topics, isAdmin }: { topics: NextUpDoc["notOnMap"]; isAdmin:
                   headers: { "content-type": "application/json" },
                   body: JSON.stringify({ topics: [t.topic] }),
                 }).catch(() => null);
-                setDone((d) => ({ ...d, [t.topic]: res?.ok ? "Suggested: it waits on your brand map." : "That didn't go through. Try again." }));
+                const data = res?.ok ? ((await res.json().catch(() => null)) as AddTopicsResult | null) : null;
+                setDone((d) => ({ ...d, [t.topic]: data ? addedNote(data) : "That didn't go through. Try again." }));
               }}
             >
-              Suggest it
+              Add to my map
             </button>
           ) : null}
         </li>

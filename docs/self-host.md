@@ -177,8 +177,11 @@ so turn it on by hand once you have read this.
 - Tokens are sealed with `CONNECTORS_VAULT_KEY`, a core secret the `secrets` step makes as
   `connectors-vault-key`. Without it, connecting is refused.
 - Each change to a connection is kept 90 days. The time to live that deletes older rows is set by
-  `bash infra/lifecycle/setup.sh ttl <your-project-id>`, which the `connect` step runs on a new
-  copy. A copy set up before connected data runs it once by hand; it is safe to run again.
+  `FIRESTORE_DATABASES='(default)' bash infra/lifecycle/setup.sh ttl <your-project-id>`, which the
+  `connect` step runs on a new copy. A copy set up before connected data runs it once by hand; it
+  is safe to run again. With the regions add-on on, use
+  `FIRESTORE_DATABASES='(default) signups-eu signups-asia'` instead: without the variable the script
+  covers all three databases and stops at the first one your copy doesn't have.
 - Cloudflare needs nothing else on your side: an admin pastes a read only token (Zone, Analytics,
   Read) and the site's Zone ID.
 - To change the vault key: add a new version of `connectors-vault-key`, set the old value as
@@ -221,7 +224,8 @@ the people who sign in see your app's name and support email on Google's screen.
    connection asks to reconnect each week.
 
 - Sign in states last 10 minutes and are removed by the time to live that
-  `bash infra/lifecycle/setup.sh ttl <your-project-id>` sets, with the activity's.
+  `FIRESTORE_DATABASES='(default)' bash infra/lifecycle/setup.sh ttl <your-project-id>` sets, with
+  the activity's (add `signups-eu signups-asia` with the regions add-on).
 - Google keeps at most 100 sign ins for one Google account with your client; the 101st quietly ends
   the oldest. The help page says so.
 - `CONNECTOR_GOOGLE_REVOKE_ENABLED` stays off: on, Disconnect also revokes the sign in at Google,
@@ -347,12 +351,15 @@ before it, `npm run doctor -- --cloud` reports it missing. Run
 `npm run selfhost -- --project <id> --apply core` before you roll out: the `secrets` step makes
 the key, the `backend` step gives the backend access to every secret added since it last ran,
 and the `envfile` step adds `CONNECTORS_VAULT_KEY` to your settings file by name. Then run
-`bash infra/lifecycle/setup.sh ttl <id>` once for its time to live (see Connected data above),
-and roll out.
+`FIRESTORE_DATABASES='(default)' bash infra/lifecycle/setup.sh ttl <id>` once for its time to
+live (with the regions add-on, `FIRESTORE_DATABASES='(default) signups-eu signups-asia'`; see
+Connected data above), and roll out.
 
 **Upgrading to Sign in with Google for connected data.** Nothing changes until you follow Connect
-Google data on your own copy above. Run `bash infra/lifecycle/setup.sh ttl <id>` once more, for the
-sign in states' time to live; it is safe to run again.
+Google data on your own copy above. Run
+`FIRESTORE_DATABASES='(default)' bash infra/lifecycle/setup.sh ttl <id>` once more (with
+`signups-eu signups-asia` added for the regions add-on), for the sign in states' time to live; it
+is safe to run again.
 
 ### Enterprise features
 

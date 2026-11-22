@@ -127,7 +127,7 @@ export default function ProgrammesAndKnowledgeHelp() {
           ["That source is already ingested.", "Nothing to do. To read it again, press Re-ingest on the source."],
           [
             "That repo isn't selected on your connection, so it's ingested without access",
-            "Ask an admin to choose the repo on the GitHub or GitLab connection in Settings › Integrations, then press Re-ingest. Until then only a public repo can be read.",
+            "Ask an admin to choose the repo on the GitHub or GitLab connection in Settings › Connections, then press Re-ingest. Until then only a public repo can be read.",
           ],
           ["Too many ingestions in progress", "Wait for some sources to finish, then try again."],
           ["Wait until this source has finished being read.", "Press Cite in articles again once the source shows done."],

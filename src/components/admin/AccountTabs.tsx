@@ -24,7 +24,7 @@ export function AccountTabs({ dataModel = false }: {
     ? [
         { href: "/admin/account/settings", label: "General", exact: false },
         { href: "/admin/account", label: "Sending", exact: true },
-        { href: "/admin/account/connections", label: "Integrations", exact: false },
+        { href: "/admin/account/connections", label: "Connections", exact: false },
         ...(plans ? [{ href: "/admin/account/billing", label: "Plan and usage", exact: false }] : []),
         ...(dataModel ? [{ href: "/admin/account/data-model", label: "Data model", exact: false }] : []),
       ]

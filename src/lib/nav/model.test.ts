@@ -191,8 +191,26 @@ describe("phase 3", () => {
   it("uses the new Settings tabs and moves the guidelines to Brand", () => {
     expect(labels("/admin/account")).toEqual(["Settings", "Sending"]);
     expect(labels("/admin/account/settings")).toEqual(["Settings", "General"]);
-    expect(labels("/admin/account/connections")).toEqual(["Settings", "Integrations"]);
+    expect(labels("/admin/account/connections")).toEqual(["Settings", "Connections"]);
     expect(labels("/admin/brand-kit/guidelines")).toEqual(["Brand", "Guidelines"]);
+  });
+
+  it("names Settings › Connections and its connector pages, whatever the sub-tab", () => {
+    const crumbs = (path: string, phase3 = true) => breadcrumbsFor(path, names, { phase3 });
+    for (const path of ["/admin/account/connections", "/admin/account/connections/browse", "/admin/account/connections/connected"]) {
+      expect(labels(path), path).toEqual(["Settings", "Connections"]);
+      expect(crumbs(path, false).map((c) => c.label), path).toEqual(["Settings", "Connections"]);
+    }
+    expect(crumbs("/admin/account/connections/search-console")).toEqual([
+      { label: "Settings", href: "/admin/account/settings" },
+      { label: "Connections", href: "/admin/account/connections/browse" },
+      { label: "Google Search Console" },
+    ]);
+    expect(crumbs("/admin/account/connections/google-analytics/pick").map((c) => c.label)).toEqual(["Settings", "Connections", "Google Analytics", "Choose a property"]);
+    expect(crumbs("/admin/account/connections/google-analytics/pick")[2]).toEqual({ label: "Google Analytics", href: "/admin/account/connections/google-analytics" });
+    expect(crumbs("/admin/account/connections/cloudflare", false).map((c) => c.label)).toEqual(["Settings", "Connections", "Cloudflare"]);
+    // An id no manifest has reads as itself.
+    expect(labels("/admin/account/connections/new-thing")).toEqual(["Settings", "Connections", "New thing"]);
   });
 
   it("names the billing tab Plan and usage only with plans on", () => {

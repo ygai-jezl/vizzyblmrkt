@@ -24,8 +24,11 @@ import { MEANINGS } from "@/lib/metrics/meanings";
  *   signed in connection can see, for the picker.
  */
 
-/** Ids the routes and pages use beside /connectors/[connectorId], so no connector may take them. */
-export const RESERVED_CONNECTOR_IDS = ["browse", "callback", "connections"] as const;
+/**
+ * Ids the routes and pages use beside /connectors/[connectorId] and the Settings pages beside
+ * /admin/account/connections/[connectorId] (Browse and Connected), so no connector may take them.
+ */
+export const RESERVED_CONNECTOR_IDS = ["browse", "callback", "connections", "connected"] as const;
 
 export const CONNECT_METHODS = ["token_fields", "oauth_pkce", "share_access"] as const;
 export type ConnectMethodName = (typeof CONNECT_METHODS)[number];

@@ -158,7 +158,7 @@ describe("postResultView", () => {
   it("says why results stopped, keeping any numbers already read", () => {
     const rec = record({ snapshots: [{ at: "x", ageHours: 48, source: "linkedin_org", raw: raw(50) }] });
     const notConnected = postResultView({ post: post(), job: job({ status: "failed", lastError: "linkedin_not_connected" }), record: rec });
-    expect(notConnected).toMatchObject({ kind: "stopped", message: expect.stringContaining("Settings › Integrations") });
+    expect(notConnected).toMatchObject({ kind: "stopped", message: expect.stringContaining("Settings › Connections") });
     expect(notConnected && "numbers" in notConnected ? notConnected.numbers[0]?.value : null).toBe(50);
     const gone = postResultView({ post: post(), job: job({ status: "done", lastError: "perf_metrics:li_api_404" }), record: null });
     expect(gone).toMatchObject({ kind: "stopped", message: "LinkedIn no longer has this post, so YouGrow stopped reading its numbers." });

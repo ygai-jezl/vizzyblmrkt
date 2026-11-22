@@ -25,9 +25,9 @@ Decisions:
   hosts and limits, one verify request, shares, produces, uses and hooks. Code a connector needs is
   named by a hook id (`cloudflare.zoneProbe`) and lives in `src/lib/connectors/handlers`, so the
   same file could come from a contributor or a vendor later. A test proves every manifest survives
-  a JSON round trip. The ids `browse`, `callback` and `connections` are reserved because routes and
-  pages sit beside `[connectorId]`. Every permission or scope a sign-in asks for needs a shares line
-  that names it, and shares must say what is never read or written.
+  a JSON round trip. The ids `browse`, `callback`, `connections` and `connected` are reserved
+  because routes and pages sit beside `[connectorId]`. Every permission or scope a sign-in asks for
+  needs a shares line that names it, and shares must say what is never read or written.
 - **The registry** (`src/lib/connectors/registry.ts`) offers a connector only while its own switch
   is on (each needs `CONNECTORS_ENABLED`), refuses a sign-in method not built yet (token_fields now,
   oauth_pkce with group 2, share_access with group 3) and any stream marked personal until the data

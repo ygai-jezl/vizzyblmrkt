@@ -2,9 +2,7 @@ import { isCloudflareConnectorEnabled, isGa4ConnectorEnabled, isGa4SignInEnabled
 import { isGoogleSignInConfigured } from "./google";
 import { isShareAccessConfigured } from "./shareAccess";
 import { parseManifest, type ConnectMethod, type ConnectMethodName, type ConnectorManifest } from "./manifest";
-import { cloudflareManifest } from "./manifests/cloudflare";
-import { ga4Manifest } from "./manifests/ga4";
-import { searchConsoleManifest } from "./manifests/searchConsole";
+import { MANIFESTS as WRITTEN } from "./manifests";
 
 /**
  * The connectors this copy knows, and which of them it offers right now. Business logic never
@@ -25,7 +23,7 @@ import { searchConsoleManifest } from "./manifests/searchConsole";
  */
 
 /** Every manifest in the repo, as written. */
-export const MANIFESTS: readonly unknown[] = [cloudflareManifest, searchConsoleManifest, ga4Manifest];
+export const MANIFESTS: readonly unknown[] = WRITTEN;
 
 /** The sign-in methods built so far. */
 export const BUILT_METHODS: readonly ConnectMethodName[] = ["token_fields", "oauth_pkce", "share_access"];

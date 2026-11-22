@@ -7,6 +7,8 @@
  * Grow lists the areas in the order a customer reaches them.
  */
 
+import { connectorName } from "@/lib/connectors/manifests";
+
 export type NavKey =
   | "home"
   | "review"
@@ -260,7 +262,7 @@ const PROGRAMME_TABS: Record<string, string> = {
 };
 const ACCOUNT_TABS_V3: Record<string, string> = {
   settings: "General",
-  connections: "Integrations",
+  connections: "Connections",
   billing: "Billing",
 };
 
@@ -275,6 +277,22 @@ const INSIGHTS_TABS: Record<string, string> = {
 
 /** With plans on (NEXT_PUBLIC_PLANS_ENABLED) the billing tab is Plan and usage. */
 const PLANS_TAB = "Plan and usage";
+
+const CONNECTIONS = "/admin/account/connections";
+
+/**
+ * Settings › Connections and its pages (NEXT_PUBLIC_CONNECTORS_ENABLED): the Accounts, Browse and
+ * Connected sub-tabs are all "Connections"; a connector's Listing, reached from Browse, adds its
+ * name, and the picker after signing in adds "Choose a property". Null for the tab itself.
+ */
+function connectionsCrumbs(settings: Crumb, tab: string, rest: string[]): Crumb[] | null {
+  const [sub, leaf] = rest;
+  if (!sub || sub === "browse" || sub === "connected") return null;
+  const connections: Crumb = { label: tab, href: `${CONNECTIONS}/browse` };
+  const name = connectorName(sub) ?? titleCase(sub);
+  if (leaf === "pick") return [settings, connections, { label: name, href: `${CONNECTIONS}/${sub}` }, { label: "Choose a property" }];
+  return [settings, connections, { label: name }];
+}
 
 export function breadcrumbsFor(
   pathname: string,
@@ -352,15 +370,13 @@ export function breadcrumbsFor(
       const plansTab = opts.plans && id === "billing" ? PLANS_TAB : null;
       if (p3) {
         if (id === "brand") return [{ label: "Brand", href: "/admin/brand-kit" }, { label: "Guidelines" }];
-        return [
-          { label: "Settings", href: "/admin/account/settings" },
-          { label: plansTab ?? (id ? (ACCOUNT_TABS_V3[id] ?? titleCase(id)) : "Sending") },
-        ];
+        const settings: Crumb = { label: "Settings", href: "/admin/account/settings" };
+        if (id === "connections") return connectionsCrumbs(settings, ACCOUNT_TABS_V3.connections!, rest) ?? [settings, { label: ACCOUNT_TABS_V3.connections! }];
+        return [settings, { label: plansTab ?? (id ? (ACCOUNT_TABS_V3[id] ?? titleCase(id)) : "Sending") }];
       }
-      return [
-        { label: "Settings", href: "/admin/account" },
-        { label: plansTab ?? (id ? (ACCOUNT_TABS[id] ?? titleCase(id)) : "Domains") },
-      ];
+      const settings: Crumb = { label: "Settings", href: "/admin/account" };
+      if (id === "connections") return connectionsCrumbs(settings, ACCOUNT_TABS.connections!, rest) ?? [settings, { label: ACCOUNT_TABS.connections! }];
+      return [settings, { label: plansTab ?? (id ? (ACCOUNT_TABS[id] ?? titleCase(id)) : "Domains") }];
     }
     case "lifecycle":
       return id ? [{ label: "Journeys", href: "/admin/lifecycle" }, { label: "Journey" }] : [{ label: "Journeys" }];

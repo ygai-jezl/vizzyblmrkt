@@ -5,9 +5,10 @@ import { numberKeys } from "@/lib/metrics/meanings";
 import type { ConnectionGrant, DataConnection } from "@/lib/types/dataConnection";
 import { agentConnections, agentLiveRead, NO_AGENT_GRANT } from "./agentApi";
 import type { ConnectorActor } from "./grants";
+import { connect, setGrants } from "./service";
 
 // What Vizzy reads, below the routes: who may see and read what, and why not in words. No
-// provider is called here: every read below is refused before one.
+// provider is called here: every read below is refused before one, or answered by a stub transport.
 const A: TenantContext = { tenantId: "ten_a", region: "us", source: "agent", userId: "usr_x", role: "member" };
 const forAdmin: ConnectorActor = { kind: "agent", agent: "vizzy", forRole: "admin" };
 const forMember: ConnectorActor = { kind: "agent", agent: "vizzy", forRole: "member" };
@@ -96,5 +97,24 @@ describe("read_connected_live", () => {
     expect(await agentLiveRead(A, forAdmin, { connectionId: "dcn_bbbbbbbbbbbbbbbbbbbb", ...q }, { db, now: NOW })).toMatchObject({ status: 409, body: { error: "account_needed" } });
     vi.stubEnv("CONNECTOR_SEARCH_CONSOLE_ENABLED", "false");
     expect(await agentLiveRead(A, forAdmin, { connectionId: "dcn_bbbbbbbbbbbbbbbbbbbb", ...q }, { db, now: NOW })).toMatchObject({ status: 404, body: { error: "connector_off" } });
+  });
+
+  it("says a token Cloudflare turns down during a read in its tool's words, naming Vizzy", async () => {
+    vi.stubEnv("CONNECTOR_CLOUDFLARE_ENABLED", "true");
+    vi.stubEnv("CONNECTORS_CHAT_ENABLED", "true");
+    vi.stubEnv("CONNECTORS_VAULT_KEY", "agent-api-test-vault-root-0123456789abcdef");
+    const id = "dcn_cfcfcfcfcfcfcfcfcfcf";
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+    // Connecting runs the zone probe, which this stub answers; the read after it is turned down.
+    const transport = vi.fn(async () => json({ data: { viewer: { zones: [{ httpRequests1dGroups: [] }] } }, errors: null }));
+    const deps = { db, transport, limit: async () => false, log: () => {}, newId: () => id, now: NOW };
+    const admin: ConnectorActor = { kind: "human", uid: "usr_admin", role: "admin" };
+    const made = await connect(A, admin, "cloudflare", { fields: { zoneId: "0123456789abcdef0123456789abcdef", token: "made-up-cloudflare-token-0000000000" } }, deps);
+    expect(made.ok).toBe(true);
+    await setGrants(A, admin, id, { grants: VIZZY }, deps);
+    transport.mockResolvedValueOnce(json({ success: false, errors: [{ code: 10000, message: "Authentication error" }] }, 401));
+    const r = await agentLiveRead(A, forAdmin, { connectionId: id, stream: "zone_daily", from: "2026-11-20", to: "2026-11-20" }, deps);
+    expect(r).toEqual({ status: 502, body: { error: "token_refused", message: "Cloudflare turned the token down. Vizzy can't read it until you reconnect." } });
+    expect(transport).toHaveBeenCalledTimes(2);
   });
 });

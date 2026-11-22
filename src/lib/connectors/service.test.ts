@@ -211,6 +211,17 @@ describe("live reads, grants and disconnect", () => {
     expect(await setGrants(A, admin, ID, { grants: [{ to: "everyone", can: "read" }] }, deps())).toMatchObject({ status: 400 });
   });
 
+  it("says a token turned down during a live read in its tool's words, and records it on health", async () => {
+    transport.mockImplementationOnce(async () => answer({ success: false, errors: [{ code: 10000, message: "Authentication error" }] }, 401));
+    expect(await readLiveFor(A, admin, ID, q, deps())).toEqual({
+      ok: false,
+      status: 502,
+      error: "token_refused",
+      message: "Cloudflare turned the token down. Nobody can read it until you reconnect.",
+    });
+    expect(raw().health).toMatchObject({ state: "broken", lastErrorCode: "token_refused" });
+  });
+
   it("refuses a bad query and an over-long range before any call", async () => {
     transport.mockClear();
     expect(await readLiveFor(A, admin, ID, { ...q, from: "2026-01-01" }, deps())).toMatchObject({ status: 400, error: "too_many_days" });

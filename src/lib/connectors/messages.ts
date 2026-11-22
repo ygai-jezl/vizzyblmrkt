@@ -5,7 +5,7 @@
  */
 
 export const CONNECTOR_ERRORS = {
-  token_refused: "The provider turned the token down. Make a new one with the same read permission and connect again.",
+  token_refused: "The provider turned the token down. Make a new one with the same read permissions and connect again.",
   account_refused: "The token can't read that account. Check the ID you pasted, and that the token includes it.",
   rate_limited: "The provider asked YouGrow to slow down, so calls are paused for a while. They start again by themselves.",
   provider_error: "The provider had a problem answering. YouGrow tries again on the next check.",

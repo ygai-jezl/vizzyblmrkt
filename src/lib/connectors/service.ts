@@ -59,9 +59,9 @@ const UNCONFIGURED: ReadonlySet<ConnectorErrorCode> = new Set(["vault_unconfigur
  * it may 409; this copy missing a key, a Google
  * client or its identities project, or that project being full, 503; the rest 502.
  */
-export function providerRefusal(code: ConnectorErrorCode): ServiceResult<never> {
+export function providerRefusal(code: ConnectorErrorCode, about?: { name: string; chat: boolean }): ServiceResult<never> {
   const status = code === "busy" ? 429 : CONFLICTS.has(code) ? 409 : UNCONFIGURED.has(code) ? 503 : 502;
-  return refuse(status, code, connectorMessage(code));
+  return refuse(status, code, connectorMessage(code, about));
 }
 
 /** A refusal while connecting, before anything is saved: a turned down token names its tool. */
@@ -72,6 +72,12 @@ function connectingRefusal(m: ConnectorManifest, code: ConnectorErrorCode): Serv
 
 /** A connection's tool and whether Vizzy reads connected data, so its messages can name the tool. */
 const aboutOf = (connectorId: string) => ({ name: knownConnector(connectorId)?.name ?? connectorId, chat: isConnectorsChatEnabled() });
+
+/**
+ * A stored connection's call refused: a turned down token names its tool, as Check now and the
+ * Connected screen do, wherever the refusal comes from (a live read, Vizzy's, or the picker).
+ */
+const connectionRefusal = (conn: Pick<DataConnection, "connectorId">, code: ConnectorErrorCode) => providerRefusal(code, aboutOf(conn.connectorId));
 
 /**
  * A shared connection's failures in its own words: Google turning its address down means the
@@ -436,7 +442,7 @@ async function usable(ctx: TenantContext, actor: ConnectorActor, id: string, act
     const kept = await shareToken(conn, manifest, deps);
     if (kept.ok) return { ok: true, conn, manifest, token: kept.token };
     await changeDataConnection(ctx, conn.id, (cur) => outcomePlan(cur, { ok: false, code: kept.code, retryAfterSec: kept.retryAfterSec }, actor, now, null), deps.db);
-    return { ok: false, result: providerRefusal(kept.code) };
+    return { ok: false, result: connectionRefusal(conn, kept.code) };
   }
   if (conn.method === "oauth_pkce") {
     // A Google sign in: the token keeper refreshes the access token under its lease when it is due.
@@ -445,7 +451,7 @@ async function usable(ctx: TenantContext, actor: ConnectorActor, id: string, act
     if (!kept.recorded) {
       await changeDataConnection(ctx, conn.id, (cur) => outcomePlan(cur, { ok: false, code: kept.code, retryAfterSec: kept.retryAfterSec }, actor, now, null), deps.db);
     }
-    return { ok: false, result: providerRefusal(kept.code) };
+    return { ok: false, result: connectionRefusal(conn, kept.code) };
   }
   const method = tokenMethod(manifest);
   const sealed = method ? conn.secrets[method.auth.field] : undefined;
@@ -507,7 +513,7 @@ export async function readLiveFor(
   const r = forMethod(u.conn.method, await readLive({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token, query: checked.query }, deps));
   if (!r.ok && r.code === "busy") return providerRefusal("busy");
   await changeDataConnection(ctx, id, (cur) => outcomePlan(cur, r.ok ? { ok: true } : r, actor, now, record), deps.db);
-  if (!r.ok) return providerRefusal(r.code);
+  if (!r.ok) return connectionRefusal(u.conn, r.code);
   return { ok: true, status: 200, value: r.answer };
 }
 
@@ -535,7 +541,7 @@ export async function listAccounts(ctx: TenantContext, actor: ConnectorActor, id
   const r = forMethod(u.conn.method, await hook({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token }, deps));
   if (!r.ok) {
     if (r.code !== "busy") await changeDataConnection(ctx, id, (cur) => outcomePlan(cur, r, actor, now, null), deps.db);
-    return providerRefusal(r.code);
+    return connectionRefusal(u.conn, r.code);
   }
   await changeDataConnection(ctx, id, (cur) => outcomePlan(cur, { ok: true }, actor, now, null), deps.db);
   return { ok: true, status: 200, value: { accounts: r.accounts, more: r.more, current: u.conn.account } };
@@ -563,7 +569,7 @@ export async function pickAccount(ctx: TenantContext, actor: ConnectorActor, id:
   const checked = await verify({ manifest: u.manifest, connection: u.conn, account, token: u.token }, deps);
   if (!checked.ok) {
     if (checked.code === "account_refused") return refuse(400, "account_refused", "That site or property isn't one this connection can read. Pick one from the list.");
-    return providerRefusal(codeFor(u.conn.method, checked.code));
+    return connectionRefusal(u.conn, codeFor(u.conn.method, checked.code));
   }
   const existing = await forTenant(ctx, deps.db).dataConnections.find({
     where: [
@@ -762,7 +768,7 @@ export async function checkAccess(ctx: TenantContext, actor: ConnectorActor, id:
     },
     deps.db,
   );
-  if (!outcome.ok && outcome.code !== "share_not_visible") return providerRefusal(outcome.code);
+  if (!outcome.ok && outcome.code !== "share_not_visible") return connectionRefusal(u.conn, outcome.code);
   const saved = r.ok ? r.connection : r.why === "unchanged" ? r.connection : u.conn;
   return {
     ok: true,

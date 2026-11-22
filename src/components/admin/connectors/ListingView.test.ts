@@ -37,6 +37,8 @@ describe("the Cloudflare Listing", () => {
     const text = textOf(out);
     expect(text).toContain("Connect with an API token");
     expect(text).toContain("Built by YouGrow · Website and traffic · Ready");
+    // Its tile says CF, as the approved Listing.
+    expect(text).toMatch(/^CF Cloudflare /);
     expect(out).toMatch(/id="field-token"[^>]*type="password"|type="password"[^>]*id="field-token"/);
     // The zone comes after Check: picked from what the token can see, or typed when it can't list.
     expect(out).not.toContain('id="field-zoneId"');

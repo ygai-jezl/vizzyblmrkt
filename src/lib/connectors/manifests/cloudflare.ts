@@ -25,6 +25,8 @@ export const cloudflareManifest = {
   schema: 1,
   id: "cloudflare",
   name: "Cloudflare",
+  // One word, so its tile can't take two first letters: CF, as the approved screens.
+  initials: "CF",
   summary: "Requests, page views and visits for your site, read from Cloudflare when you ask.",
   category: "traffic",
   publisher: "yougrow",

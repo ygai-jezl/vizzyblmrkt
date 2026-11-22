@@ -74,7 +74,7 @@ export function ListingView({ listing, connections, isAdmin, chat, banner, repla
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-3">
-        <ConnectorTile id={listing.id} name={listing.name} size="lg" />
+        <ConnectorTile id={listing.id} name={listing.name} initials={listing.initials} size="lg" />
         <div className="space-y-0.5">
           <h2 className="text-lg font-semibold">{listing.name}</h2>
           <p className={HINT}>

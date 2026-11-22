@@ -91,12 +91,16 @@ export function connectorStatus(connectorId: string, connections: readonly Conne
 }
 
 /**
- * Two letters for a connector's tile: its words' first letters, leaving out a version number
- * (Google Analytics 4 is GA) and Google in a longer name.
+ * Two letters for a connector's tile, as the approved screens: the manifest's own when it gives
+ * them (Cloudflare is CF), else its words' first letters, leaving out a version number (Google
+ * Analytics 4 is GA) and Google in a longer name (Google Search Console is SC). A one word name
+ * splits where a capital starts a word inside it (HubSpot is HS), or else gives its first two letters.
  */
-export function initialsOf(name: string): string {
-  const words = name.split(/\s+/).filter((w) => w && !/^\d+$/.test(w));
+export function initialsOf(name: string, own?: string): string {
+  if (own) return own;
+  const words = name.split(/\s+|(?<=[a-z])(?=[A-Z])/).filter((w) => w && !/^\d+$/.test(w));
   const kept = words.length > 2 ? words.filter((w) => w !== "Google") : words;
+  if (kept.length === 1) return kept[0]!.slice(0, 2).toUpperCase();
   return kept
     .slice(0, 2)
     .map((w) => w[0]!.toUpperCase())

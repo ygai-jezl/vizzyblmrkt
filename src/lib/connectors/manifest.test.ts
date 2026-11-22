@@ -89,6 +89,12 @@ describe("connector manifests", () => {
     expect(issues({ ...m, connect: [{ ...method, fields: method.fields.map((f) => ({ ...f, pattern: "[a-z]+" })) }] }).length).toBeGreaterThan(0);
   });
 
+  it("takes a tile's two letters only as two capitals or digits", () => {
+    expect(parseManifest(cloudflareManifest).initials).toBe("CF");
+    expect(parseManifest(searchConsoleManifest).initials).toBeUndefined();
+    for (const bad of ["C", "cf", "CFX", "C-"]) expect(issues({ ...base(), initials: bad }).join(), bad).toContain("two capital letters or digits");
+  });
+
   it("refuses unknown keys anywhere, so a typo never passes quietly", () => {
     expect(issues({ ...base(), colour: "orange" }).length).toBeGreaterThan(0);
     expect(issues({ ...base(), api: { ...base().api, followRedirects: true } }).length).toBeGreaterThan(0);

@@ -27,14 +27,14 @@ export interface BrowseProps {
   chat: boolean;
 }
 
-/** A connector's tile: its initials on its own colour. */
-export function ConnectorTile({ id, name, size = "md" }: { id: string; name: string; size?: "md" | "lg" }) {
+/** A connector's tile: its two letters on its own colour. */
+export function ConnectorTile({ id, name, initials, size = "md" }: { id: string; name: string; initials?: string; size?: "md" | "lg" }) {
   return (
     <span
       aria-hidden="true"
       className={`grid shrink-0 place-items-center font-bold ${size === "lg" ? "h-12 w-12 rounded-xl text-base" : "h-10 w-10 rounded-lg text-sm"} ${tileClass(id)}`}
     >
-      {initialsOf(name)}
+      {initialsOf(name, initials)}
     </span>
   );
 }
@@ -98,7 +98,7 @@ export function BrowseView({ connectors, connections, chat }: BrowseProps) {
                   <li key={c.id}>
                     <Link href={listingPath(c.id)} className={`${CARD} flex h-full flex-col gap-3 hover:border-neutral-400 dark:hover:border-neutral-600`}>
                       <span className="flex items-center gap-3">
-                        <ConnectorTile id={c.id} name={c.name} />
+                        <ConnectorTile id={c.id} name={c.name} initials={c.initials} />
                         <span className="flex flex-col">
                           <span className="text-sm font-semibold">{c.name}</span>
                           <span className={HINT}>{categoryLabel(c.category)} · Built by YouGrow</span>

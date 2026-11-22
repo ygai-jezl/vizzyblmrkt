@@ -229,6 +229,11 @@ export const ConnectorManifestSchema = z
       .regex(/^[a-z][a-z0-9-]{1,39}$/)
       .refine((id) => !(RESERVED_CONNECTOR_IDS as readonly string[]).includes(id), "a reserved id"),
     name: Copy(60),
+    /**
+     * The two letters on its tile on Browse and its Listing, when its words' first letters aren't
+     * them (Cloudflare is CF, as the approved screens). Without it the screens work them out.
+     */
+    initials: z.string().regex(/^[A-Z0-9]{2}$/, "two capital letters or digits").optional(),
     /** One line for Browse. */
     summary: Copy(160),
     category: z.enum(CONNECTOR_CATEGORIES),

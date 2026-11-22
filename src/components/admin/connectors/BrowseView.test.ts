@@ -105,10 +105,17 @@ describe("Browse's words", () => {
     expect(connectorStatus("search-console", [sick]).label).toBe("Ready");
   });
 
-  it("give each connector two letters", () => {
+  it("give each connector two letters, as the approved screens: SC, GA and CF", () => {
     expect(initialsOf("Google Search Console")).toBe("SC");
     expect(initialsOf("Google Analytics 4")).toBe("GA");
-    expect(initialsOf("Cloudflare")).toBe("C");
+    // A one word name takes the manifest's own letters, else its first two, or two words inside it.
+    expect(initialsOf("Cloudflare", "CF")).toBe("CF");
+    expect(initialsOf("Cloudflare")).toBe("CL");
+    expect(initialsOf("HubSpot")).toBe("HS");
+    // As Browse and the Listing draw them from the manifests.
+    const tiles = [...render().matchAll(/<span aria-hidden="true"[^>]*>([^<]*)<\/span>/g)].map((m) => m[1]);
+    expect(tiles).toEqual(["SC", "GA", "CF"]);
+    expect(ALL.map((c) => c.initials)).toEqual([undefined, undefined, "CF"]);
   });
 
   it("write in house style", () => {

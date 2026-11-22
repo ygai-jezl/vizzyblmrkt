@@ -108,6 +108,8 @@ export const byOf = (actor: ConnectorActor) => (actor.kind === "agent" ? `agent:
 export interface ConnectorListing {
   id: string;
   name: string;
+  /** The manifest's two letters for its tile, when it gives them. */
+  initials?: string;
   summary: string;
   category: string;
   connect: ConnectorManifest["connect"];
@@ -124,6 +126,7 @@ export function listingOf(m: ConnectorManifest): ConnectorListing {
   return {
     id: m.id,
     name: m.name,
+    ...(m.initials ? { initials: m.initials } : {}),
     summary: m.summary,
     category: m.category,
     connect: m.connect,

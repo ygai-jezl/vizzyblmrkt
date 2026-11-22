@@ -299,6 +299,10 @@ own switch is on and a way to connect is ready (the list route already decides t
   sub-tabs **Accounts** (the GitHub, GitLab, LinkedIn and X panel, unchanged, on the base route every
   callback returns to), **Browse** and **Connected**. `connected` joins the reserved ids. Email
   sending stays under Sending.
+- **Tiles show two letters, as the approved screens** (owner, 22 Nov): SC, GA and CF. A manifest
+  may give its own (`initials`, two capitals or digits), which a one word name such as Cloudflare
+  needs; without it the screens take its words' first letters, leaving out a version number and
+  Google in a longer name, and a one word name gives its first two letters.
 - **One server read per request** (`src/lib/connectors/screens.ts`, through `listForActor`, so a
   member gets name and health only) feeds the layout's Connected count and the page; changes go
   through the routes and the page refreshes.

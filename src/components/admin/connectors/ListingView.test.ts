@@ -35,6 +35,7 @@ describe("the Cloudflare Listing", () => {
     const out = html({ listing: CF });
     const text = textOf(out);
     expect(text).toContain("Connect with an API token");
+    expect(text).toContain("Built by YouGrow · Website and traffic · Ready");
     expect(out).toContain('id="field-zoneId"');
     expect(out).toMatch(/id="field-token"[^>]*type="password"|type="password"[^>]*id="field-token"/);
     expect(text).toContain("Give the token one permission: Zone, Analytics, Read.");
@@ -86,6 +87,7 @@ describe("the Search Console and Google Analytics Listings", () => {
     for (const listing of [SC, GA]) {
       const text = textOf(html({ listing }));
       expect(text, listing.id).toContain("Choose how to connect Sign in with Google Quickest");
+      expect(text, listing.id).toContain("Built by YouGrow · Search and analytics · Ready");
       expect(text.indexOf("Sign in with Google")).toBeLessThan(text.indexOf("Or share access"));
       expect(text).toContain(`YouGrow asks only to read your ${listing.name} data.`);
       expect(text).toContain(LISTING_COPY.shareStart);

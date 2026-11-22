@@ -26,7 +26,7 @@ export const ga4Manifest = {
   id: "google-analytics",
   name: "Google Analytics",
   summary: "Sessions, users, views and key events for your site, read from Google Analytics 4 when you ask.",
-  category: "analytics",
+  category: "search_analytics",
   publisher: "yougrow",
   switch: "CONNECTOR_GA4_ENABLED",
   connect: [

@@ -26,9 +26,10 @@ export const SCREEN_COPY = {
   membersOnly: "Only admins connect or change anything here. Ask an admin on your team.",
 } as const;
 
+/** Each category's name on Browse's chips and cards and on a Listing, as the approved screens show them. */
 export const CATEGORY_LABELS: Readonly<Record<string, string>> = {
-  analytics: "Analytics",
-  search: "Search",
+  search_analytics: "Search and analytics",
+  website_traffic: "Website and traffic",
   social: "Social",
   email: "Email",
   code: "Code",

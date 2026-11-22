@@ -20,12 +20,15 @@ describe("Browse", () => {
     const text = textOf(html);
     expect(html).toContain('href="/admin/account/connections/search-console"');
     expect(html).toContain('href="/admin/account/connections/cloudflare"');
-    expect(text).toContain("Google Search Console Search · Built by YouGrow");
+    expect(text).toContain("Google Search Console Search and analytics · Built by YouGrow");
+    expect(text).toContain("Cloudflare Website and traffic · Built by YouGrow");
     expect(text).toContain("Ready Sign in with Google Share access");
     // GA4's Sign in isn't ready on this copy, so only share access shows.
-    expect(text).toContain("Google Analytics Analytics · Built by YouGrow Sessions, users, views and key events for your site, read from Google Analytics 4 when you ask. Ready Share access");
+    expect(text).toContain("Google Analytics Search and analytics · Built by YouGrow Sessions, users, views and key events for your site, read from Google Analytics 4 when you ask. Ready Share access");
     expect(text).toContain("Ready API token");
     expect(text).toContain(SCREEN_COPY.browseFoot);
+    // The chips, in the order the connectors come, named as the approved Browse screen names them.
+    expect(text).toContain("All Search and analytics Website and traffic");
   });
 
   it("leaves out a connector whose switch is off, because the list route never sends it", () => {
@@ -59,10 +62,11 @@ describe("Browse", () => {
 describe("Browse's words", () => {
   it("search by name, summary or category, and narrow by a chip", () => {
     expect(filterConnectors(ALL, "clicks", null).map((c) => c.id)).toEqual(["search-console"]);
-    expect(filterConnectors(ALL, "ANALYTICS", null).map((c) => c.id)).toEqual(["google-analytics", "cloudflare"]);
-    expect(filterConnectors(ALL, "", "search").map((c) => c.id)).toEqual(["search-console"]);
-    expect(filterConnectors(ALL, "cloud", "search")).toEqual([]);
-    expect(categoriesOf(ALL)).toEqual(["search", "analytics"]);
+    expect(filterConnectors(ALL, "TRAFFIC", null).map((c) => c.id)).toEqual(["cloudflare"]);
+    expect(filterConnectors(ALL, "", "search_analytics").map((c) => c.id)).toEqual(["search-console", "google-analytics"]);
+    expect(filterConnectors(ALL, "", "website_traffic").map((c) => c.id)).toEqual(["cloudflare"]);
+    expect(filterConnectors(ALL, "cloud", "search_analytics")).toEqual([]);
+    expect(categoriesOf(ALL)).toEqual(["search_analytics", "website_traffic"]);
   });
 
   it("rank a connector's state: attention, then a property to pick, then paused, then connected", () => {

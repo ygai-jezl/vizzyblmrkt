@@ -33,7 +33,8 @@ export const RESERVED_CONNECTOR_IDS = ["browse", "callback", "connections", "con
 export const CONNECT_METHODS = ["token_fields", "oauth_pkce", "share_access"] as const;
 export type ConnectMethodName = (typeof CONNECT_METHODS)[number];
 
-export const CONNECTOR_CATEGORIES = ["analytics", "search", "social", "email", "code", "crm", "shop"] as const;
+/** The groups Browse shows connectors in: Search Console and GA4 in one, Cloudflare in the other. */
+export const CONNECTOR_CATEGORIES = ["search_analytics", "website_traffic", "social", "email", "code", "crm", "shop"] as const;
 export const STREAM_SHAPES = ["numbers", "events", "records", "text"] as const;
 /** The shared keys a stream may join on (ontology rule: one way of writing each). */
 export const JOIN_KEYS = ["day", "page", "topic", "person", "company", "idea"] as const;

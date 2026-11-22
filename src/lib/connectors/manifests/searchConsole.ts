@@ -26,7 +26,7 @@ export const searchConsoleManifest = {
   id: "search-console",
   name: "Google Search Console",
   summary: "Clicks, impressions and positions in Google Search for your site, read from Search Console when you ask.",
-  category: "search",
+  category: "search_analytics",
   publisher: "yougrow",
   switch: "CONNECTOR_SEARCH_CONSOLE_ENABLED",
   connect: [

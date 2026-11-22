@@ -102,8 +102,11 @@ Decisions:
 - **Meaning keys are namespaced** (`cfRequests`, `cfPageViews`, `cfVisits`), because plain
   impressions and clicks already mean social post numbers.
 - **The ontology.** `data_connection` (personal: the team's; a secret, never exported or searched)
-  is built with both regional stores and claims the cf meanings through `readLive`.
-  `connector_manifest` stays planned: manifests live in code, with no store.
+  is built. As finally built (with groups 2 and 3) it has three stores, `data_connections`,
+  `data_connection_activity` and `data_connection_states`, and claims all 11 meanings (cf, search
+  and ga4) through Vizzy's number tool, `read_connected_live`; group 1 first claimed the cf
+  meanings through `readLive`. `connector_manifest` stays planned: manifests live in code, with no
+  store.
 - **Not metered** (owner, 21 Nov): every plan can connect. A plan hook comes later if a connector
   gets costly.
 - **Self-hosted copies.** `connectors-vault-key` is a core secret. The `backend` step now reads each

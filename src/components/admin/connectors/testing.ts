@@ -19,7 +19,7 @@ export function listingFor(id: keyof typeof MANIFESTS, ready: ConnectMethodName[
 export const NOW = new Date("2026-11-21T10:00:00.000Z");
 
 /** A connection as an admin sees it; `member: true` drops the details, as the route does. */
-export function connectionView(over: Partial<ConnectionView> & { member?: boolean; details?: Partial<NonNullable<ConnectionView["details"]>> } = {}): ConnectionView {
+export function connectionView(over: Omit<Partial<ConnectionView>, "details"> & { member?: boolean; details?: Partial<NonNullable<ConnectionView["details"]>> } = {}): ConnectionView {
   const { member, details, ...rest } = over;
   const base: ConnectionView = {
     id: "dcn_aaaaaaaaaaaaaaaaaaaa",

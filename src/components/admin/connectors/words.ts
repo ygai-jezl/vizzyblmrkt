@@ -1,15 +1,18 @@
-import type { ConnectMethodName } from "@/lib/connectors/manifest";
+import { LIVE_LIMITS, type ConnectMethodName, type ShareAccessMethod, type TokenFieldsMethod } from "@/lib/connectors/manifest";
+import { SIGNIN_REASONS } from "@/lib/connectors/messages";
 import type { ConnectionView, ConnectorListing } from "@/lib/connectors/service";
 
 /**
  * The words and small decisions the Settings › Connections screens share: pure, so the tests read
  * them without a browser. House style (src/lib/content/writingRules.ts): no dashes as
- * punctuation, none of the AI tells. Every fixed line is in SCREEN_COPY so the copy test sees it.
+ * punctuation, none of the AI tells. Every fixed line is in one of the *_COPY objects, so the copy
+ * test sees it.
  */
 
 export const CONNECTIONS_PATH = "/admin/account/connections";
 export const listingPath = (connectorId: string) => `${CONNECTIONS_PATH}/${connectorId}`;
 export const pickPath = (connectorId: string, connectionId: string) => `${CONNECTIONS_PATH}/${connectorId}/pick?connection=${encodeURIComponent(connectionId)}`;
+export const CONNECTED_PATH = `${CONNECTIONS_PATH}/connected`;
 export const HELP_PATH = "/help/connected-data";
 
 export const SCREEN_COPY = {
@@ -114,3 +117,114 @@ export const NOTE_WARN = "rounded-md border border-amber-200 bg-amber-50 px-3 py
 export const NOTE_OK = "rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300";
 export const NOTE_ERR = "rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400";
 export const NOTE_PLAIN = "rounded-md border border-dashed border-neutral-300 px-4 py-6 text-center text-sm text-neutral-500 dark:border-neutral-700 dark:text-neutral-400";
+
+// --- Listing -------------------------------------------------------------------------------------
+
+export const LISTING_COPY = {
+  chooseHow: "Choose how to connect",
+  signInTitle: "Sign in with Google",
+  quickest: "Quickest",
+  shareTitle: "Share access",
+  shareTitleOr: "Or share access",
+  shareLead: "Give a Google address made for this connection access to your property. No password or token is stored, and it keeps working when people leave.",
+  shareStart: "Make the address",
+  copyStep: "Copy this address.",
+  checkHint: "It can take a minute or two before Google lets a new address in.",
+  checkAccess: "Check access",
+  copied: "Copied",
+  tokenTitle: "Connect with an API token",
+  tokenCheck: "YouGrow checks the token before anything is saved.",
+  tokenReconnect:
+    "Connecting again replaces the connection whose token was turned down: YouGrow disconnects it first, then checks the new token. Who can read it carries over.",
+  readsTitle: "What it reads",
+  numbersTitle: "Numbers it gives",
+  aboutLabel: "About this connector",
+  youNeed: "You need",
+  limits: "Limits",
+  whoCanSee: "Who can see it",
+  disconnect: "Disconnect",
+  adminsOnly: "Only admins connect. Ask an admin on your team.",
+  signInWaiting: "You signed in, but haven't chosen which property it reads yet. Nothing is read until you do.",
+  choose: "Choose a property",
+  connectedBanner: "Connected. Choose who can read it on Connected.",
+  reconnectedBanner: "Signed in again. The property it reads, who can read it and its history all stay.",
+  signInFallback: "The sign in didn't finish. Start again.",
+  googleLimit: "Google lets one Google account keep up to 100 sign ins with YouGrow. Past that, the oldest stops working.",
+} as const;
+
+/** Why a sign in with Google didn't finish, from the reason the callback sends back. */
+export function signInReasonWords(reason: string | null | undefined): string {
+  return reason && Object.prototype.hasOwnProperty.call(SIGNIN_REASONS, reason) ? SIGNIN_REASONS[reason as keyof typeof SIGNIN_REASONS] : LISTING_COPY.signInFallback;
+}
+
+/** "What it reads": the manifest's read lines, then what it never does. */
+export function readsOf(listing: Pick<ConnectorListing, "shares">): { rows: Array<{ what: string; detail: string; where: string }>; never: string[] } {
+  return {
+    rows: listing.shares.filter((s) => s.direction === "read").map((s) => ({ what: s.what, detail: s.detail ?? "", where: s.where })),
+    never: listing.shares.filter((s) => s.direction === "never").map((s) => s.where),
+  };
+}
+
+/** Every number a connector gives, each once, with its meaning, and the slowest lag. */
+export function numbersOf(listing: Pick<ConnectorListing, "produces">): { numbers: Array<{ name: string; definition: string }>; lag: string[] } {
+  const seen = new Set<string>();
+  const numbers: Array<{ name: string; definition: string }> = [];
+  for (const p of listing.produces) {
+    for (const m of p.measures) {
+      if (seen.has(m.key)) continue;
+      seen.add(m.key);
+      numbers.push({ name: m.name, definition: m.definition });
+    }
+  }
+  return { numbers, lag: [...new Set(listing.produces.map((p) => p.lag))] };
+}
+
+export const tokenMethodOf = (listing: Pick<ConnectorListing, "connect">) => listing.connect.find((c): c is TokenFieldsMethod => c.method === "token_fields") ?? null;
+export const shareMethodOf = (listing: Pick<ConnectorListing, "connect">) => listing.connect.find((c): c is ShareAccessMethod => c.method === "share_access") ?? null;
+
+/** The "You need" line: the token's permission, or access to the property for Google. */
+export function youNeedOf(listing: Pick<ConnectorListing, "name" | "connect" | "ready">): string {
+  const token = listing.ready.includes("token_fields") ? tokenMethodOf(listing) : null;
+  if (token) return `A ${listing.name} account that can make API tokens, and a token with this permission: ${token.permissions.join(", ")}.`;
+  const share = listing.ready.includes("share_access");
+  return share
+    ? `Access to the site or property in ${listing.name}. To share access, someone who can add users to it.`
+    : `A Google account that can see the site or property in ${listing.name}.`;
+}
+
+/** The "Limits" lines: the live read caps, and Google's sign in limit when Sign in is offered. */
+export function limitsOf(listing: Pick<ConnectorListing, "ready">, chat: boolean): string[] {
+  const reads = chat
+    ? `Vizzy reads up to ${LIVE_LIMITS.maxDays} days and ${LIVE_LIMITS.maxRows} rows at a time.`
+    : `Each read covers up to ${LIVE_LIMITS.maxDays} days and ${LIVE_LIMITS.maxRows} rows.`;
+  return listing.ready.includes("oauth_pkce") ? [reads, LISTING_COPY.googleLimit] : [reads];
+}
+
+export const whoCanSeeOf = (chat: boolean) =>
+  chat ? "Admins connect and disconnect. You choose whether members and Vizzy can read it." : "Admins connect and disconnect. You choose whether members can read it.";
+
+/** The brand's shared connection to this connector still waiting for its property, if any (admins only see its address). */
+export function waitingShareOf(connections: readonly ConnectionView[], connectorId: string): ConnectionView | null {
+  return (
+    connections.find(
+      (c) =>
+        c.connectorId === connectorId &&
+        c.status === "connected" &&
+        c.needsAccount &&
+        c.details?.method === "share_access" &&
+        !!c.details.serviceAccount &&
+        !c.details.serviceAccount.deletedAt,
+    ) ?? null
+  );
+}
+
+/** A sign in to this connector that hasn't picked its property yet, if any. */
+export function waitingSignInOf(connections: readonly ConnectionView[], connectorId: string): ConnectionView | null {
+  return connections.find((c) => c.connectorId === connectorId && c.status === "connected" && c.needsAccount && c.details?.method === "oauth_pkce") ?? null;
+}
+
+/** The token connection a Reconnect replaces: this connector's, connected, by token, turned down. */
+export function replaceableOf(connections: readonly ConnectionView[], connectorId: string, id: string | null | undefined): ConnectionView | null {
+  if (!id) return null;
+  return connections.find((c) => c.id === id && c.connectorId === connectorId && c.status === "connected" && c.details?.method === "token_fields" && c.health.state === "broken") ?? null;
+}

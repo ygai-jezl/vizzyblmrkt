@@ -7,8 +7,8 @@ export const dynamic = "force-dynamic";
 
 /**
  * Settings › Connections. With NEXT_PUBLIC_CONNECTORS_ENABLED on it has three sub-tabs: Accounts
- * (today's GitHub, GitLab, LinkedIn, X and Mailchimp panel, still on this base route because every
- * sign in callback returns here), Browse and Connected. Off, it is the Accounts panel alone, as before.
+ * (today's GitHub, GitLab, LinkedIn and X panel, still on this base route because every sign in
+ * callback returns here), Browse and Connected. Off, it is the Accounts panel alone, as before.
  */
 export default async function ConnectionsLayout({ children }: { children: React.ReactNode }) {
   if (!isConnectorsScreenEnabled()) return <>{children}</>;

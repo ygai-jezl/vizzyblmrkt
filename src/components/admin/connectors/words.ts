@@ -18,7 +18,7 @@ export const HELP_PATH = "/help/connected-data";
 export const SCREEN_COPY = {
   browseLead: "Bring numbers from the tools you already use. Each connection shows exactly what it reads.",
   browseLeadVizzy: "Bring numbers from the tools you already use. Vizzy can read them when you ask, and each connection shows exactly what it reads.",
-  browseFoot: "More connectors come later. Your accounts for code, posts and email stay under Accounts. Only admins connect or change anything here.",
+  browseFoot: "More connectors come later. Your accounts for code and posts stay under Accounts, and email sending is under Sending. Only admins connect or change anything here.",
   noConnectors: "No connectors are turned on in this copy of YouGrow yet. Whoever runs it turns each one on.",
   noMatch: "Nothing matches that search.",
   coreOff: "Connected data is off in this copy of YouGrow (CONNECTORS_ENABLED). Whoever runs it can turn it on.",
@@ -445,6 +445,17 @@ export function stateOf(c: Pick<ConnectionView, "status" | "connectorOn" | "need
  * the table, so Disconnected isn't one of them.
  */
 export const STATE_LABELS = ["Working", "Check failed", "Needs attention", "Paused", "Choose a property", "Turned off here"] as const;
+
+/**
+ * A banner's words: waiting for a property, or the problem in its own words. A message that already
+ * names the tool, as a turned down token's does ("Cloudflare turned the token down."), stands alone;
+ * any other is put after the tool's name.
+ */
+export function bannerWords(c: Pick<ConnectionView, "connectorName" | "needsAccount" | "health">): string {
+  if (c.needsAccount) return `${c.connectorName} is connected, but reads nothing until a property is chosen.`;
+  const message = c.health.message ?? "it needs connecting again.";
+  return message.startsWith(`${c.connectorName} `) ? message : `${c.connectorName}: ${message}`;
+}
 
 /** The connections whose banner asks for something: turned down, or waiting for a property. */
 export function needsAttention(connections: readonly ConnectionView[]): ConnectionView[] {

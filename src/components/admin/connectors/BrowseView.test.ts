@@ -32,6 +32,8 @@ describe("Browse", () => {
     expect(text.indexOf("Google Analytics 4 Search")).toBeLessThan(text.indexOf("Cloudflare Website"));
     expect(text).toContain("Ready API token");
     expect(text).toContain(SCREEN_COPY.browseFoot);
+    // Accounts holds GitHub, GitLab, LinkedIn and X; email sending is under Sending.
+    expect(SCREEN_COPY.browseFoot).toContain("Your accounts for code and posts stay under Accounts, and email sending is under Sending.");
     // The chips, in the order the connectors come, named as the approved Browse screen names them.
     expect(text).toContain("All Search and analytics Website and traffic");
   });

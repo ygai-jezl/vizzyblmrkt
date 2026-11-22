@@ -3,6 +3,7 @@ import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from 
 import { CONNECTED_COPY, PICKER_COPY, SCREEN_COPY } from "@/components/admin/connectors/words";
 import { isConnectorsChatEnabled } from "@/lib/connectors/flags";
 import { connectedDataHelp, type ConnectorHelp } from "@/lib/connectors/helpText";
+import { tokenRefusedMessage } from "@/lib/connectors/messages";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
 /** "A and B", or "A, B and C". */
@@ -136,8 +137,9 @@ export default function ConnectedDataHelp({ connectorsChat = isConnectorsChatEna
         </li>
       </Steps>
       <P>
-        Your accounts for code, posts and email (GitHub, GitLab, LinkedIn, X and Mailchimp) stay under{" "}
-        <strong>Accounts</strong>, as <Open href="/help/connected-accounts">Connected accounts</Open> explains.
+        Your accounts for code and posts (GitHub, GitLab, LinkedIn and X) stay under <strong>Accounts</strong>, as{" "}
+        <Open href="/help/connected-accounts">Connected accounts</Open> explains. Email sending is set up under{" "}
+        <Open href="/admin/account">Settings › Sending</Open>.
       </P>
 
       {help.connectors.map((c) => (
@@ -228,7 +230,14 @@ export default function ConnectedDataHelp({ connectorsChat = isConnectorsChatEna
         rows={[
           [SCREEN_COPY.coreOff, "Connected data isn't turned on in your copy. Whoever runs it turns on CONNECTORS_ENABLED."],
           [SCREEN_COPY.noConnectors, "Each connector has a switch of its own. Whoever runs your copy turns on the ones you need."],
-          [help.messages.token_refused, "Make a new token with the same permission, then press Reconnect on Connected and paste it."],
+          ...help.connectors.flatMap((c): Array<[string, string]> =>
+            c.token
+              ? [
+                  [tokenRefusedMessage(c.name, "connected", connectorsChat), "Make a new token with the same permissions, then press Reconnect on Connected and paste it."],
+                  [tokenRefusedMessage(c.name, "connecting", connectorsChat), "Copy the token again with nothing cut off, or make a new one with the permissions in the steps above."],
+                ]
+              : [],
+          ),
           [help.messages.account_refused, "Check the Zone ID, and that the token includes that site, then connect again."],
           ...help.connectors.flatMap((c): Array<[string, string]> =>
             c.token?.pick ? [[c.token.pick.cantList, `Type the ${c.token.pick.typed}, or make the token again with ${andList(c.token.permissions)} to pick from a list.`]] : [],

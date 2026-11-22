@@ -10,10 +10,10 @@ import { ACCOUNT_HOOKS, VERIFY_HOOKS } from "./handlers";
 import type { ConnectorAccount, HookFailure } from "./handlers/types";
 import { checkLiveRequest, lagWords, readLive, type LiveAnswer } from "./live";
 import { shareMethod, tokenMethod, type ConnectMethodName, type ConnectorManifest } from "./manifest";
-import { connectorMessage, type ConnectorErrorCode } from "./messages";
+import { connectorMessage, tokenRefusedMessage, type ConnectorErrorCode } from "./messages";
 import { getConnector, knownConnector, listConnectors, readyMethods } from "./registry";
 import type { ConnectorFetchDeps } from "./safeFetch";
-import { isGoogleRevokeEnabled } from "./flags";
+import { isConnectorsChatEnabled, isGoogleRevokeEnabled } from "./flags";
 import { revokeGoogleToken } from "./google";
 import { createShareAccount, deleteShareAccount, forgetShareTokens, identitiesProject, projectOfShareAccount, shareAccessToken, type ShareDeps, type ShareResult } from "./shareAccess";
 import { freshAccessToken, REFRESH_SLOT, type KeeperDeps } from "./tokenKeeper";
@@ -63,6 +63,15 @@ export function providerRefusal(code: ConnectorErrorCode): ServiceResult<never> 
   const status = code === "busy" ? 429 : CONFLICTS.has(code) ? 409 : UNCONFIGURED.has(code) ? 503 : 502;
   return refuse(status, code, connectorMessage(code));
 }
+
+/** A refusal while connecting, before anything is saved: a turned down token names its tool. */
+function connectingRefusal(m: ConnectorManifest, code: ConnectorErrorCode): ServiceResult<never> {
+  const r = providerRefusal(code);
+  return code === "token_refused" && !r.ok ? { ...r, message: tokenRefusedMessage(m.name, "connecting", isConnectorsChatEnabled()) } : r;
+}
+
+/** A connection's tool and whether Vizzy reads connected data, so its messages can name the tool. */
+const aboutOf = (connectorId: string) => ({ name: knownConnector(connectorId)?.name ?? connectorId, chat: isConnectorsChatEnabled() });
 
 /**
  * A shared connection's failures in its own words: Google turning its address down means the
@@ -172,7 +181,7 @@ export function viewOf(conn: DataConnection, actor: ConnectorActor, now: Date): 
       state: shownState(conn, now),
       lastOkAt: conn.health.lastOkAt,
       lastCheckedAt: conn.health.lastCheckedAt,
-      message: conn.health.lastErrorCode ? connectorMessage(conn.health.lastErrorCode) : null,
+      message: conn.health.lastErrorCode ? connectorMessage(conn.health.lastErrorCode, aboutOf(conn.connectorId)) : null,
       pausedUntil: conn.health.pausedUntil,
     },
     needsAccount: conn.status === "connected" && !conn.account,
@@ -291,7 +300,7 @@ export async function connect(ctx: TenantContext, actor: ConnectorActor, connect
   const verify = VERIFY_HOOKS[m.verify.hook];
   if (!verify) return refuse(503, "connector_unavailable");
   const result = await verify({ manifest: m, connection: { id, tenantId: ctx.tenantId, pausedAt: null, health }, account, token: fields.values[method.auth.field]! }, deps);
-  if (!result.ok) return providerRefusal(result.code);
+  if (!result.ok) return connectingRefusal(m, result.code);
 
   const secrets: Record<string, SealedSecret> = {};
   for (const f of method.fields) if (f.secret) secrets[f.key] = sealConnectorSecret(ctx.tenantId, id, f.key, fields.values[f.key]!, now);
@@ -373,7 +382,7 @@ export async function checkToken(ctx: TenantContext, actor: ConnectorActor, conn
   const r = await hook({ manifest: m, connection, account: "", token: fields.values[method.auth.field]! }, deps);
   if (!r.ok) {
     if (r.code === "account_refused") return { ok: true, status: 200, value: { accounts: [], more: false, listed: false } };
-    return providerRefusal(r.code);
+    return connectingRefusal(m, r.code);
   }
   return { ok: true, status: 200, value: { accounts: r.accounts, more: r.more, listed: r.accounts.length > 0 } };
 }
@@ -473,7 +482,7 @@ export async function check(ctx: TenantContext, actor: ConnectorActor, id: strin
     status: 200,
     value: {
       connection: viewOf(conn, actor, now),
-      check: outcome.ok ? { ok: true, code: null, message: null } : { ok: false, code: outcome.code, message: connectorMessage(outcome.code) },
+      check: outcome.ok ? { ok: true, code: null, message: null } : { ok: false, code: outcome.code, message: connectorMessage(outcome.code, aboutOf(u.conn.connectorId)) },
     },
   };
 }
@@ -764,7 +773,7 @@ export async function checkAccess(ctx: TenantContext, actor: ConnectorActor, id:
       more: listed.ok ? listed.more : false,
       current: u.conn.account,
       visible: outcome.ok,
-      message: outcome.ok ? null : connectorMessage(outcome.code),
+      message: outcome.ok ? null : connectorMessage(outcome.code, aboutOf(u.conn.connectorId)),
     },
   };
 }

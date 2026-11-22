@@ -295,8 +295,9 @@ own switch is on and a way to connect is ready (the list route already decides t
 - **The Settings tab is Connections again** (owner, 21 Nov), not Integrations: the tab list, the
   breadcrumbs, places, the help pages and the post messages that point there. The rename isn't
   switched, because every message names the tab. Inside it, with the switch on, a layout adds the
-  sub-tabs **Accounts** (the GitHub, GitLab, LinkedIn, X and Mailchimp panel, unchanged, on the base
-  route every callback returns to), **Browse** and **Connected**. `connected` joins the reserved ids.
+  sub-tabs **Accounts** (the GitHub, GitLab, LinkedIn and X panel, unchanged, on the base route every
+  callback returns to), **Browse** and **Connected**. `connected` joins the reserved ids. Email
+  sending stays under Sending.
 - **One server read per request** (`src/lib/connectors/screens.ts`, through `listForActor`, so a
   member gets name and health only) feeds the layout's Connected count and the page; changes go
   through the routes and the page refreshes.

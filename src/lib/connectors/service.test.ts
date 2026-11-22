@@ -52,7 +52,12 @@ describe("connect", () => {
   it("saves nothing when the check fails, and says why in plain words", async () => {
     transport.mockResolvedValueOnce(answer({ data: null, errors: [{ message: "Unauthorized" }] }));
     const r = await connectOk();
-    expect(r).toMatchObject({ ok: false, status: 502, error: "token_refused", message: expect.stringContaining("turned the token down") });
+    expect(r).toMatchObject({
+      ok: false,
+      status: 502,
+      error: "token_refused",
+      message: "Cloudflare turned the token down, so nothing was saved. Paste the whole token again, or make a new one with the permissions listed here.",
+    });
     expect(db.dump("data_connections")).toEqual([]);
   });
 
@@ -145,6 +150,11 @@ describe("check, pause and health", () => {
     transport.mockResolvedValueOnce(answer({ errors: [{ message: "Unauthorized" }] }, 401));
     const r = await check(A, admin, ID, deps({ now: later }));
     expect(r).toMatchObject({ ok: true, value: { check: { ok: false, code: "token_refused" }, connection: { health: { state: "broken" } } } });
+    // In the tool's own words, naming Vizzy only while Vizzy reads connected data.
+    const refused = "Cloudflare turned the token down. Nobody can read it until you reconnect.";
+    expect(r).toMatchObject({ value: { check: { message: refused }, connection: { health: { message: refused } } } });
+    vi.stubEnv("CONNECTORS_CHAT_ENABLED", "true");
+    expect(await getForActor(A, admin, ID, deps())).toMatchObject({ value: { health: { message: "Cloudflare turned the token down. Vizzy can't read it until you reconnect." } } });
     expect(activity()).toEqual(["connected", "verified", "failed:token_refused"]);
   });
 

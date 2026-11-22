@@ -41,8 +41,24 @@ export function isConnectorErrorCode(code: unknown): code is ConnectorErrorCode 
   return typeof code === "string" && Object.prototype.hasOwnProperty.call(CONNECTOR_ERRORS, code);
 }
 
-/** The words for a code, or a plain fallback for one this build doesn't know. */
-export function connectorMessage(code: string | null | undefined): string {
+/**
+ * A turned down token in the words of its tool (owner, 22 Nov, as the approved Connected screen):
+ * which tool turned it down, and what to do, the tool's name coming from its manifest.
+ * - On a connection (the Connected banner, its panel, Check now, Vizzy's list): nothing is read
+ *   until someone reconnects. `chat` is whether Vizzy reads connected data, so it is named only then.
+ * - While connecting (Check or Connect on a Listing): nothing was saved, so try again.
+ */
+export function tokenRefusedMessage(name: string, when: "connected" | "connecting", chat: boolean): string {
+  if (when === "connecting") return `${name} turned the token down, so nothing was saved. Paste the whole token again, or make a new one with the permissions listed here.`;
+  return `${name} turned the token down. ${chat ? "Vizzy can't read it" : "Nobody can read it"} until you reconnect.`;
+}
+
+/**
+ * The words for a code, or a plain fallback for one this build doesn't know. With `about`, the
+ * connection's tool and whether Vizzy reads connected data, a turned down token names its tool.
+ */
+export function connectorMessage(code: string | null | undefined, about?: { name: string; chat: boolean }): string {
+  if (code === "token_refused" && about) return tokenRefusedMessage(about.name, "connected", about.chat);
   return isConnectorErrorCode(code) ? CONNECTOR_ERRORS[code] : "Something went wrong with this connection. Check it again, or connect it again.";
 }
 

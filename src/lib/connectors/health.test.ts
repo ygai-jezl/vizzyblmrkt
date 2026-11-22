@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
-import { CONNECTOR_ERRORS, connectorMessage } from "./messages";
+import { CONNECTOR_ERRORS, connectorMessage, tokenRefusedMessage } from "./messages";
 import { FAILURES_BEFORE_PAUSE, healthAfterFailure, healthAfterSuccess, healthyAt, isCallPaused, shownState } from "./health";
 
 const NOW = new Date("2026-11-21T10:00:00.000Z");
@@ -60,5 +60,19 @@ describe("connection health", () => {
     }
     expect(connectorMessage("token_refused")).toBe(CONNECTOR_ERRORS.token_refused);
     expect(connectorMessage("something_new")).toContain("Something went wrong");
+  });
+
+  it("names the tool that turned a token down, and says what to do, as the approved Connected screen", () => {
+    expect(connectorMessage("token_refused", { name: "Cloudflare", chat: true })).toBe("Cloudflare turned the token down. Vizzy can't read it until you reconnect.");
+    expect(connectorMessage("token_refused", { name: "Cloudflare", chat: false })).toBe("Cloudflare turned the token down. Nobody can read it until you reconnect.");
+    expect(tokenRefusedMessage("Cloudflare", "connecting", true)).toBe(
+      "Cloudflare turned the token down, so nothing was saved. Paste the whole token again, or make a new one with the permissions listed here.",
+    );
+    // Only a turned down token names its tool; every other code keeps its words.
+    expect(connectorMessage("account_refused", { name: "Cloudflare", chat: true })).toBe(CONNECTOR_ERRORS.account_refused);
+    for (const text of [true, false].flatMap((chat) => [tokenRefusedMessage("Cloudflare", "connected", chat), tokenRefusedMessage("Cloudflare", "connecting", chat)])) {
+      expect(dashesIn(text), text).toEqual([]);
+      expect(aiTellsIn(text), text).toEqual([]);
+    }
   });
 });

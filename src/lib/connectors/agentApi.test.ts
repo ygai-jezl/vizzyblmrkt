@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { createDataConnection, type TenantContext } from "@/lib/tenant";
 import { numberKeys } from "@/lib/metrics/meanings";
-import type { ConnectionGrant } from "@/lib/types/dataConnection";
+import type { ConnectionGrant, DataConnection } from "@/lib/types/dataConnection";
 import { agentConnections, agentLiveRead, NO_AGENT_GRANT } from "./agentApi";
 import type { ConnectorActor } from "./grants";
 
@@ -16,7 +16,10 @@ const NOW = new Date("2026-11-21T10:00:00.000Z");
 const VIZZY: ConnectionGrant[] = [{ to: "agent:vizzy", can: "read" }];
 
 let db: FakeFirestore;
-async function seed(id: string, over: { connectorId?: string; account?: string; grants?: ConnectionGrant[]; status?: "connected" | "disconnected"; pausedAt?: string | null } = {}) {
+async function seed(
+  id: string,
+  over: { connectorId?: string; account?: string; grants?: ConnectionGrant[]; status?: "connected" | "disconnected"; pausedAt?: string | null; health?: DataConnection["health"] } = {},
+) {
   await createDataConnection(
     A,
     {
@@ -29,7 +32,7 @@ async function seed(id: string, over: { connectorId?: string; account?: string; 
       grants: over.grants ?? VIZZY,
       secrets: {},
       serviceAccount: { email: `ygc-${"a".repeat(20)}@made-up-identities.iam.gserviceaccount.com`, uniqueId: "1", createdAt: T0, deletedAt: null },
-      health: { state: "ok", lastOkAt: T0, lastCheckedAt: T0, lastErrorCode: null, failures: 0, pausedUntil: null },
+      health: over.health ?? { state: "ok", lastOkAt: T0, lastCheckedAt: T0, lastErrorCode: null, failures: 0, pausedUntil: null },
       pausedAt: over.pausedAt ?? null,
       pausedBy: over.pausedAt ? "usr_admin" : null,
       status: over.status ?? "connected",
@@ -67,6 +70,14 @@ describe("list_connections", () => {
     expect(byId.dcn_cccccccccccccccccccc!.streams).toHaveLength(1);
     expect(r.body.notShared).toBe(false);
     expect([...numberKeys(r.body)]).toEqual([]);
+  });
+
+  it("says a turned down token in its tool's words, naming Vizzy", async () => {
+    vi.stubEnv("CONNECTOR_CLOUDFLARE_ENABLED", "true");
+    const health = { state: "broken" as const, lastOkAt: T0, lastCheckedAt: T0, lastErrorCode: "token_refused" as const, failures: 1, pausedUntil: null };
+    await seed("dcn_aaaaaaaaaaaaaaaaaaaa", { connectorId: "cloudflare", account: "0123456789abcdef0123456789abcdef", health });
+    const r = await agentConnections(A, forAdmin, { db, now: NOW });
+    expect((r.body.connections as Array<{ problem: string | null }>)[0]!.problem).toBe("Cloudflare turned the token down. Vizzy can't read it until you reconnect.");
   });
 
   it("lets Vizzy read for a member only when members may read too", async () => {

@@ -15,9 +15,9 @@ const TABS: ReadonlyArray<{ key: ConnectionsTabKey; label: string; href: string 
 ];
 
 /**
- * Which sub-tab a path is on: the base route is Accounts (GitHub, GitLab, LinkedIn, X and
- * Mailchimp), /connected is Connected, and Browse holds the rest, because a connector's Listing
- * and its picker are reached from Browse.
+ * Which sub-tab a path is on: the base route is Accounts (GitHub, GitLab, LinkedIn and X),
+ * /connected is Connected, and Browse holds the rest, because a connector's Listing and its picker
+ * are reached from Browse.
  */
 export function connectionsTabOf(pathname: string | null | undefined): ConnectionsTabKey {
   const p = (pathname ?? CONNECTIONS_BASE).replace(/\/+$/, "");

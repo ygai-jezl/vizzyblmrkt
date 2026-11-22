@@ -12,6 +12,8 @@ import { launchChecklist } from "@/lib/nav/launchChecklist";
 import { docToMarkdown } from "@/lib/developers/markdown";
 import { STATE_LABELS } from "@/components/admin/connectors/words";
 import { HEALTH_HELP } from "@/lib/connectors/helpText";
+import { allConnectors } from "@/lib/connectors/catalog";
+import { tokenRefusedMessage } from "@/lib/connectors/messages";
 import { helpLlmsTxt, helpPageMarkdown } from "./agentFiles";
 import { HELP_PAGES, helpPage, shownHelpPages } from "./pages";
 import { HELP_PLACES, helpFor, parseHelpPath } from "./places";
@@ -163,10 +165,14 @@ describe("the help pages", () => {
       // Apostrophes and quotes may be written as entities or escapes in source.
       .replace(/&apos;|&#39;|\\'/g, "'")
       .replace(/&quot;|\\"/g, '"');
+    // Messages the app builds from a manifest's name, as a turned down token's are, count as shown.
+    const generated = new Set(
+      allConnectors().flatMap((m) => [true, false].flatMap((chat) => [tokenRefusedMessage(m.name, "connected", chat), tokenRefusedMessage(m.name, "connecting", chat)])),
+    );
     for (const { page, els } of pages) {
       for (const el of els.filter((e) => e.type === Messages)) {
         for (const [message] of el.props.rows as Array<[string, ReactNode]>) {
-          expect(corpus.includes(message), `${page.path} quotes "${message}", which isn't in src`).toBe(true);
+          expect(corpus.includes(message) || generated.has(message), `${page.path} quotes "${message}", which isn't in src`).toBe(true);
         }
       }
     }
@@ -456,6 +462,18 @@ describe("Connected data", () => {
     expect(text).toContain("**Zone ID**: Only when the token can't list your zones");
     expect(text).toContain("This token can't list your zones (that needs Zone Read), so type your site's Zone ID instead.");
     expect(text).toContain("Type the Zone ID, or make the token again with Zone Read and Zone Analytics Read to pick from a list.");
+  });
+
+  it("says where Accounts and Sending are, and quotes a turned down token in its tool's own words", () => {
+    const text = md(true);
+    expect(text).toContain("Your accounts for code and posts (GitHub, GitLab, LinkedIn and X) stay under **Accounts**");
+    expect(text).toContain("Email sending is set up under [Settings › Sending]");
+    expect(text).not.toMatch(/Mailchimp/);
+    expect(text).toContain("Cloudflare turned the token down. Vizzy can't read it until you reconnect.");
+    expect(md(false)).toContain("Cloudflare turned the token down. Nobody can read it until you reconnect.");
+    expect(text).toContain(tokenRefusedMessage("Cloudflare", "connecting", true));
+    // Only token connectors can have a token turned down.
+    expect(text).not.toContain("Google Search Console turned the token down");
     expect(text).toContain("Open Google Search Console under Settings › Connections › Browse, then press Sign in with Google.");
     expect(text).toContain("The address gets the **Restricted** role");
     expect(text).toContain("The address gets the **Viewer** role");

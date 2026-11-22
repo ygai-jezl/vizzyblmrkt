@@ -21,6 +21,7 @@ import {
   TONE_CLASS,
   accountWords,
   activityOf,
+  bannerWords,
   firstSelected,
   healthLine,
   listingPath,
@@ -246,7 +247,7 @@ function AttentionBanner({
   onReconnect: (c: ConnectionView) => void;
   onCheckAccess: (c: ConnectionView) => void;
 }) {
-  const words = c.needsAccount ? `${c.connectorName} is connected, but reads nothing until a property is chosen.` : `${c.connectorName}: ${c.health.message ?? "it needs connecting again."}`;
+  const words = bannerWords(c);
   return (
     <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-900 dark:bg-amber-950/40">
       <p className="text-sm text-amber-900 dark:text-amber-200">

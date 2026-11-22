@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { ACTIVITY_KINDS } from "@/lib/types/dataConnection";
-import { CONNECTOR_ERRORS } from "@/lib/connectors/messages";
+import { CONNECTOR_ERRORS, tokenRefusedMessage } from "@/lib/connectors/messages";
 import type { ConnectionView } from "@/lib/connectors/service";
 import { connectionView, NOW, textOf } from "./testing";
 
@@ -17,6 +17,7 @@ const {
   accountWords,
   activityOf,
   activityWords,
+  bannerWords,
   confirmDisconnectWords,
   connectionWords,
   firstSelected,
@@ -52,8 +53,9 @@ const SC = connectionView({
     ],
   },
 });
+const REFUSED = tokenRefusedMessage("Cloudflare", "connected", true);
 const CF = connectionView({
-  health: broken(CONNECTOR_ERRORS.token_refused),
+  health: broken(REFUSED),
   details: { recent: [{ at: "2026-11-21T09:12:00.000Z", kind: "failed", by: "system", code: "token_refused" }], ownerUid: "usr_sam" },
 });
 
@@ -65,7 +67,9 @@ describe("Connected, for an admin", () => {
   it("puts a banner over each connection that needs something, with the way to fix it", () => {
     const html = render();
     const text = textOf(html);
-    expect(text).toContain(`Cloudflare: ${CONNECTOR_ERRORS.token_refused} Reconnect`);
+    // The approved Connected screen's words, with nothing put before them.
+    expect(text).toContain("Cloudflare turned the token down. Vizzy can't read it until you reconnect. Reconnect");
+    expect(text).not.toContain("Cloudflare: Cloudflare");
     expect(html).toContain('href="/admin/account/connections/cloudflare?reconnect=dcn_aaaaaaaaaaaaaaaaaaaa"');
     expect(text.match(/Reconnect/g)).toHaveLength(1);
   });
@@ -80,7 +84,7 @@ describe("Connected, for an admin", () => {
   it("opens the connection needing attention first, with who may read it, Check now, Pause and Disconnect", () => {
     const html = render();
     const text = textOf(html);
-    expect(text).toContain(`Cloudflare · Zone 012345…cdef Needs attention ${CONNECTOR_ERRORS.token_refused}`);
+    expect(text).toContain(`Cloudflare · Zone 012345…cdef Needs attention ${REFUSED}`);
     expect(text).toContain(`${CONNECTED_COPY.grantsLead} ${CONNECTED_COPY.members} ${CONNECTED_COPY.vizzy}`);
     expect(text).toContain("Check now Pause Disconnect");
     expect(text).toContain(CONNECTED_COPY.manageHint);
@@ -242,7 +246,7 @@ describe("Connected, for a member", () => {
   it("shows names and states, whether they can read each, and nothing to press", () => {
     const html = render({ isAdmin: false, connections: [{ ...SC, details: undefined }, { ...CF, details: undefined, canReadLive: false }] });
     const text = textOf(html);
-    expect(text).toContain(`Cloudflare: ${CONNECTOR_ERRORS.token_refused} ${CONNECTED_COPY.askAdmin}`);
+    expect(text).toContain(`${REFUSED} ${CONNECTED_COPY.askAdmin}`);
     expect(text).toContain("Connection Reading Status");
     expect(text).toContain("Google Search Console You can read it Working");
     expect(text).toContain("Cloudflare Admins only Needs attention");
@@ -269,6 +273,12 @@ describe("Connected's words", () => {
     expect(whoWords("agent:vizzy", "usr_alex")).toBe("Vizzy");
     expect(whoWords("usr_sam", "usr_alex")).toBe("An admin");
     expect(activityOf([{ ...CF, details: { ...CF.details!, recent: [{ at: "2026-11-21T09:00:00.000Z", kind: "purged", by: "ops-label", code: null }] } }])[0]!.by).toBe("operator");
+  });
+
+  it("put the tool's name before a banner's message only when the message doesn't say it", () => {
+    expect(bannerWords(CF)).toBe(REFUSED);
+    expect(bannerWords({ ...CF, health: { ...CF.health, message: CONNECTOR_ERRORS.account_refused } })).toBe(`Cloudflare: ${CONNECTOR_ERRORS.account_refused}`);
+    expect(bannerWords({ ...SC, needsAccount: true })).toBe("Google Search Console is connected, but reads nothing until a property is chosen.");
   });
 
   it("write moments, accounts, states and grants plainly", () => {

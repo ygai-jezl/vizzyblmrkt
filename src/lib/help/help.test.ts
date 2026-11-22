@@ -18,6 +18,7 @@ import { helpLlmsTxt, helpPageMarkdown } from "./agentFiles";
 import { HELP_PAGES, helpPage, shownHelpPages } from "./pages";
 import { HELP_PLACES, helpFor, parseHelpPath } from "./places";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
+import { VIZZY_READS_HINT } from "@/components/admin/audience/fieldsApi";
 
 
 /**
@@ -44,6 +45,7 @@ vi.hoisted(() => {
   process.env.AUDIENCE_ADD_PERSON_ENABLED = "true";
   process.env.AUDIENCE_TIMELINE_ENABLED = "true";
   process.env.AUDIENCE_VIZZY_FIELDS_ENABLED = "true";
+  process.env.AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED = "true";
   process.env.AUDIENCE_VIZZY_ADD_PERSON_ENABLED = "true";
   process.env.NEXT_PUBLIC_EDIT_MODE_ENABLED = "true";
   process.env.NEXT_PUBLIC_EDIT_MODE_EMAILS_ENABLED = "true";
@@ -55,6 +57,9 @@ vi.hoisted(() => {
   process.env.SIGNALS_DATAFORSEO_ENABLED = "true";
   process.env.BRAND_MAP_NEXT_UP_ENABLED = "true";
   process.env.CREATE_ARTICLE_AUTOPILOT_ENABLED = "true";
+  process.env.BRAND_MAP_ENABLED = "true";
+  process.env.BRAND_MAP_PAGES_ENABLED = "true";
+  process.env.BLOG_LIVE_WATCH_ENABLED = "true";
   process.env.NEXT_PUBLIC_PLANS_ENABLED = "true";
   process.env.NEXT_PUBLIC_CONNECTORS_ENABLED = "true";
   process.env.CONNECTORS_ENABLED = "true";
@@ -409,8 +414,11 @@ describe("the timeline section", () => {
 });
 
 describe("the Vizzy and their fields section", () => {
-  const md = (slug: string, vizzyFields: boolean) =>
-    docToMarkdown(HELP_BODIES[slug]!({ people: true, fields: true, fieldFilters: true, addPerson: true, timeline: true, vizzyFields, vizzyAddPerson: false }), "https://app.example.com");
+  const md = (slug: string, vizzyFields: boolean, vizzyTextFields = false) =>
+    docToMarkdown(
+      HELP_BODIES[slug]!({ people: true, fields: true, fieldFilters: true, addPerson: true, timeline: true, vizzyFields, vizzyTextFields, vizzyAddPerson: false }),
+      "https://app.example.com",
+    );
 
   it("shows while Vizzy's field suggestions are on: what Vizzy sees, that an admin confirms, and undo", () => {
     const text = md("your-audience", true);
@@ -420,6 +428,28 @@ describe("the Vizzy and their fields section", () => {
     expect(text).toContain("Nothing changes until then");
     expect(text).toContain("**Undo** within 7 days");
     expect(md("review-and-approvals", true)).toContain("**Suggestions about people**");
+    // A suggestion set aside because Vizzy can no longer read a field: asking again won't help.
+    expect(text).toContain("or Vizzy can no longer read one. Ask Vizzy again if it still fits, or set the value under Fields.");
+    expect(text).toContain("If Vizzy can no longer read the field, set the value yourself under Fields.");
+  });
+
+  it("explains Vizzy can read this field while text fields are on, and keeps email, phone, link and team member out", () => {
+    const text = md("your-audience", true, true);
+    expect(text).toContain("select, multi select, status, checkbox, number, currency and date fields, and text fields an admin");
+    expect(text).toContain("**Vizzy can read this field**");
+    expect(text).toContain("never sees other text fields, or email, phone, link or team member fields, whatever is ticked");
+    expect(text).toContain("at most 500 characters");
+    expect(text).toContain("It starts unticked");
+    // The hint Data model shows beside the tick, word for word.
+    expect(text).toContain(`"${VIZZY_READS_HINT}"`);
+    expect(text).toContain("The **Vizzy reads** column");
+    expect(text).toContain("never tick it again");
+    expect(text).toContain("since Vizzy made it, or an admin unticked Vizzy can read this field for one of them, confirming sets");
+    expect(text).not.toContain("never sees text");
+    // Off, or without Vizzy's fields: as before.
+    expect(md("your-audience", true, false)).not.toContain("Vizzy can read this field");
+    expect(md("your-audience", true, false)).toContain("since Vizzy made it, confirming sets");
+    expect(md("your-audience", false, true)).not.toContain("Vizzy can read this field");
   });
 
   it("stays hidden while they are off", () => {

@@ -335,9 +335,12 @@ which fields already have a suggestion waiting. `person_fields_propose` saves a 
 for someone on the operator's team to confirm on the person's page or in Review. Nothing
 changes until they confirm it.
 
-You only ever see select, multi select, status, checkbox, number, currency and date fields:
-never text, email, phone, link or team member fields, and never their name or address. Don't
-ask for those and don't guess them.
+You only ever see select, multi select, status, checkbox, number, currency and date fields,
+and text fields the brand lets you read: never other text fields, never email, phone, link or
+team member fields, and never their name or address. Don't ask for those and don't guess them.
+A text value has their name and address taken out ([name], [email] and [id] stand in for them)
+and shows at most 500 characters; "cut" means it was longer. Never write those marks in a value,
+keep a suggested text to 500 characters, and don't rewrite a cut value from the part you saw.
 
 When to suggest: when the operator asks you to ("set their plan to Pro", "suggest a status"),
 or asks what looks out of date and what you can read gives a clear reason. Read their fields

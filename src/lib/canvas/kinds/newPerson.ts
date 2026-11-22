@@ -44,6 +44,7 @@ export async function authorNewPerson({ ctx, input }: CanvasAuthorArgs, deps: { 
   if (await isRateLimited(`tenant:${ctx.tenantId}`, AUTHOR_LIMIT, { db: deps.db })) return { ok: false, status: 429, error: "rate_limited" };
 
   const r = await draftNewPerson(ctx, req.data, deps);
+  // Every refusal is the request's to fix, a draft too big to save (`too_large`) included.
   if (!r.ok) return { ok: false, status: 400, error: r.error };
   if (r.outcome === "existing") {
     const url = personHref(r.personId);

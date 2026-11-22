@@ -19,7 +19,7 @@ import { isBlogBrandMapEnabled, isBlogEditorialEnabled } from "@/lib/content/blo
 import { isSeenOn, isSeenQuestionsOn, isSeenRestOn } from "@/lib/content/blog/hubActions";
 import { refreshAnswers } from "@/lib/content/blog/seen";
 import { askOfPlan, loadArticleMap } from "@/lib/content/blog/mapActions";
-import { isBrandMapPagesEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
+import { isBlogLiveWatchEnabled, isBrandMapPagesEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -110,6 +110,7 @@ export default async function ContentPlanPage({
         footerBrand={emailPreview?.footerBrand ?? null}
         brandMap={plan.topology.hubChannel === "blog" ? brandMap : null}
         pagesOn={isBrandMapPagesEnabled()}
+        liveWatchOn={isBlogLiveWatchEnabled()}
         editorialOn={isBlogEditorialEnabled()}
         seenOn={isSeenOn()}
         seenQuestionsOn={isSeenQuestionsOn()}

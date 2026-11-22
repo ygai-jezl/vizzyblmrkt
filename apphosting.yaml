@@ -416,6 +416,13 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Vizzy also reads and suggests People text fields an admin ticked "Vizzy can read this field",
+  # scrubbed and cut to 500 characters; a kill switch for free text alone (needs
+  # AUDIENCE_VIZZY_FIELDS_ENABLED). Off in production until the DPA.
+  - variable: AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Vizzy fills in the New person form for an admin to confirm; consent is always recorded by a
   # person (needs AUDIENCE_ADD_PERSON_ENABLED). Drafts are kept 7 days at most. Off in production until the DPA.
   - variable: AUDIENCE_VIZZY_ADD_PERSON_ENABLED
@@ -640,6 +647,12 @@ env:
     availability:
       - RUNTIME
   - variable: BRAND_MAP_PAGES_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Found live: the live check reads the page's text, checks saved addresses on its own, finds
+  # articles on the brand's sitemap and approves one found live (needs BRAND_MAP_PAGES_ENABLED).
+  - variable: BLOG_LIVE_WATCH_ENABLED
     value: "false"
     availability:
       - RUNTIME

@@ -26,6 +26,7 @@ const ids = {
   site: "fld_aaaaaaaaaab2",
   owner: "fld_aaaaaaaaaab3",
   old: "fld_aaaaaaaaaab4",
+  title: "fld_aaaaaaaaaab5",
 };
 const optionIds = ["opt_aaaaaaa1", "opt_aaaaaaa2", "opt_aaaaaaa3", "opt_aaaaaaa4", "opt_aaaaaaa5", "opt_aaaaaaa6", "opt_aaaaaaa7", "opt_aaaaaaa8"];
 
@@ -64,6 +65,8 @@ beforeEach(async () => {
   await add(ids.owner, { op: "add", label: "Owner", type: "team_member" });
   await add(ids.old, { op: "add", label: "Old tier", type: "number" });
   await add(ids.old, { op: "archive", key: ids.old });
+  // A text field an admin let Vizzy read; Notes, beside it, stays unticked.
+  await add(ids.title, { op: "add", label: "Job Title", type: "text", vizzyReads: true });
   // Someone who only joined a launch: no product, no lifecycle brief.
   db.seed("contacts", SAM, {
     tenantId: "ten_A",
@@ -86,6 +89,7 @@ beforeEach(async () => {
       [ids.site]: "https://sam.example.com",
       [ids.owner]: "u_admin",
       [ids.old]: 3,
+      [ids.title]: "Head of Growth",
     },
   });
 });
@@ -123,6 +127,54 @@ describe("the field list Vizzy reads", () => {
   });
 });
 
+describe("text fields an admin let Vizzy read", () => {
+  it("are listed and read only while their switch is on, and other text, email, phone, link and team member fields never", async () => {
+    vi.stubEnv("AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED", "true");
+    const list = (await agentFieldList(ctx, db)).body as { fields: Array<{ id: string; label: string; type: string }> };
+    expect(list.fields.filter((f) => f.type === "text")).toEqual([{ id: ids.title, label: "Job Title", type: "text" }]);
+    const body = (await agentPersonFields(ctx, SAM, db)).body as { fields: Array<{ id: string; value: unknown; text: string | null }> };
+    const byId = Object.fromEntries(body.fields.map((f) => [f.id, f]));
+    expect(byId[ids.title]).toMatchObject({ value: "Head of Growth", text: "Head of Growth" });
+    for (const hidden of [ids.notes, ids.work, ids.mobile, ids.site, ids.owner, ids.old]) expect(byId[hidden]).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain("expo");
+
+    vi.stubEnv("AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED", "false");
+    const off = (await agentFieldList(ctx, db)).body as { fields: Array<{ id: string }>; note: string };
+    expect(off.fields.map((f) => f.id)).not.toContain(ids.title);
+    expect(off.note).not.toContain("Text takes");
+    expect(JSON.stringify((await agentPersonFields(ctx, SAM, db)).body)).not.toContain("Head of Growth");
+  });
+
+  it("scrub their name and address out of the value as stored as well as in words, and say how text is written", async () => {
+    vi.stubEnv("AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED", "true");
+    db.seed("contacts", SAM, { ...db.raw("contacts", SAM), fields: { [ids.title]: "Head of Growth, ask Sam Rivera at sam.rivera@example.com" } });
+    const body = (await agentPersonFields(ctx, SAM, db)).body as { fields: Array<{ id: string; value: unknown; text: string | null; cut?: boolean }>; note: string };
+    const title = body.fields.find((f) => f.id === ids.title)!;
+    expect(title).toEqual({ id: ids.title, label: "Job Title", type: "text", value: "Head of Growth, ask [name] [name] at [email]", text: "Head of Growth, ask [name] [name] at [email]" });
+    expect(JSON.stringify(body)).not.toMatch(/Sam|Rivera|example\.com/);
+    expect(body.note).toContain("Text takes plain words, at most 500 characters");
+    expect(body.note).toContain("never write them in a value");
+    expect(body.note).toContain('marked "cut" was longer and shows only its start, so a new value for it is refused; null still clears it.');
+  });
+
+  it("cut a long value at 500 characters after scrubbing it, and mark it cut", async () => {
+    vi.stubEnv("AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED", "true");
+    // The surname straddles the cut: scrubbed first, so no part of it is left behind.
+    db.seed("contacts", SAM, { ...db.raw("contacts", SAM), fields: { [ids.title]: `${"a".repeat(497)} Rivera and more after it` } });
+    const body = (await agentPersonFields(ctx, SAM, db)).body as { fields: Array<{ id: string; value: string; text: string; cut?: boolean }> };
+    const title = body.fields.find((f) => f.id === ids.title)!;
+    expect(title.cut).toBe(true);
+    expect(title.value).toHaveLength(500);
+    expect(title.value.endsWith(" [n")).toBe(true);
+    expect(title.text).toBe(title.value);
+    expect(JSON.stringify(body)).not.toContain("Rivera");
+    // A value that fits is not marked.
+    db.seed("contacts", SAM, { ...db.raw("contacts", SAM), fields: { [ids.title]: "b".repeat(500) } });
+    const fits = ((await agentPersonFields(ctx, SAM, db)).body as { fields: Array<{ id: string; cut?: boolean }> }).fields.find((f) => f.id === ids.title)!;
+    expect(fits).not.toHaveProperty("cut");
+  });
+});
+
 describe("one person's fields for Vizzy", () => {
   it("serves someone who only joined a launch, with values of the seven types only", async () => {
     const r = await agentPersonFields(ctx, SAM, db);
@@ -136,7 +188,7 @@ describe("one person's fields for Vizzy", () => {
     expect(byId[ids.onboarded]).toMatchObject({ value: true, text: "Yes" });
     expect(byId[ids.interests]).toMatchObject({ value: ["opt_aaaaaaa3", "opt_aaaaaaa4"], text: "Analytics, Exports" });
     expect(byId[ids.status]).toMatchObject({ value: null, text: null });
-    for (const hidden of [ids.notes, ids.work, ids.mobile, ids.site, ids.owner, ids.old]) expect(byId[hidden]).toBeUndefined();
+    for (const hidden of [ids.notes, ids.work, ids.mobile, ids.site, ids.owner, ids.old, ids.title]) expect(byId[hidden]).toBeUndefined();
     const text = JSON.stringify(body);
     for (const never of ["expo", "work.example.com", "7700", "sam.example.com", "u_admin", "sam.rivera", "Sam"]) expect(text).not.toContain(never);
   });

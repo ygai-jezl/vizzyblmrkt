@@ -666,6 +666,24 @@ Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
     unavailable.
   - Export and erase cover suggestions whatever the switch says, with no code change: piece 0's
     history export and erase find agent actions by person.
+  - **Text fields Vizzy may read (owner's choice, 2026-11-21).** On dev the owner asked Vizzy for
+    a Job Title text field and it couldn't see it. A per-field opt-in: an admin ticks "Vizzy can
+    read this field" (`vizzyReads`, only on a People text field, off by default) in Data model, and
+    Vizzy reads and suggests it like the seven types, always confirmed by a person.
+    `vizzyReadsField` (`src/lib/types/recordField.ts`) is the one rule for the reads, suggestions
+    and New person drafts. A text value is scrubbed of the person's name and address as stored and
+    in words, and cut to 500 characters; Vizzy's text over 500 characters, or holding `[name]`,
+    `[email]` or `[id]`, is refused, so a scrubbed value never goes back over the real one. A
+    value Vizzy read cut can be cleared, never written over. A proposal over the agent action
+    limits answers `too_large`. A restore or Bring back can untick it, never tick it. Once it is
+    unticked, confirming sets a waiting text suggestion aside (checked inside the write's own
+    transaction), and a New person draft no longer fills the field in.
+    Email, phone, link (web addresses often name someone and the scrubber doesn't know them) and
+    team member fields stay hidden whatever is set. `AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED` (RUNTIME,
+    `"false"`, needs Vizzy's fields) is a kill switch for free text alone: off, the tick can't be
+    changed, the checkbox and "Vizzy reads" column are hidden and every text field stays hidden.
+    Off in production with the other Vizzy switches until the DPA line. Vizzy needs a redeploy for
+    its new words.
 
 - **Vizzy fills in the New person form (group 11, decisions 29 and 31, answer 9).**
   `AUDIENCE_VIZZY_ADD_PERSON_ENABLED` (RUNTIME, `"false"`) needs New person, not Vizzy's fields.
@@ -681,10 +699,10 @@ Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
     page.
   - **Never consent:** the request has no place for it and one that tries is refused
     (`consent_not_allowed`); the form starts at Not yet and the admin says how they agreed.
-  - **Field values** only of the seven types Vizzy may read, named by label or id, options by
-    label or id; anything else comes back to Vizzy as a warning for the admin to type. Names and
-    addresses typed into chat pass through Vizzy to fill the form, as they already did whenever
-    someone typed them.
+  - **Field values** only of fields Vizzy may read (the seven types, or text fields Vizzy may
+    read: see Text fields Vizzy may read), named by label or id, options by label or id; anything
+    else comes back to Vizzy as a warning for the admin to type. Names and addresses typed into
+    chat pass through Vizzy to fill the form, as they already did whenever someone typed them.
   - **Confirming runs group 7's create:** the card and Review link to `/admin/crm?draft=<id>`,
     the id only. The form loads the draft from the admin-only drafts route and posts to the New
     person route with `draftId` and `via: "vizzy"` (refused without a draft id); after the create,
@@ -718,7 +736,9 @@ off stops Vizzy being told who is open (unless the brief is on), makes its field
 unavailable and hides suggestions; open ones stay, expire on the tick, and are exported and
 erased. Turning `AUDIENCE_VIZZY_ADD_PERSON_ENABLED` off stops new drafts and hides their links; open
 drafts still expire on the tick with their details cleared, and erase still finds them. Keep the
-tick's expiry once any draft exists.
+tick's expiry once any draft exists. Turning `AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED` off hides every
+text field from Vizzy at once; the ticks stay on the fields, Data model can't change them while
+it is off, and they count again once it is on.
 
 ---
 

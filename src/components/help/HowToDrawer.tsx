@@ -38,6 +38,7 @@ export function HowToDrawer() {
   const addPerson = useShell()?.addPerson ?? false;
   const timeline = useShell()?.timeline ?? false;
   const vizzyFields = useShell()?.vizzyFields ?? false;
+  const vizzyTextFields = useShell()?.vizzyTextFields ?? false;
   const vizzyAddPerson = useShell()?.vizzyAddPerson ?? false;
   const catalogHistory = useShell()?.catalogHistory ?? false;
   const connectorsChat = useShell()?.connectorsChat ?? false;
@@ -191,7 +192,18 @@ export function HowToDrawer() {
         ) : null}
         {Body ? (
           <div className="text-sm [&_h1]:text-xl [&_h2]:mt-8 [&_h2]:text-base">
-            <Body people={people} fields={fields} fieldFilters={fieldFilters} addPerson={addPerson} timeline={timeline} vizzyFields={vizzyFields} vizzyAddPerson={vizzyAddPerson} catalogHistory={catalogHistory} connectorsChat={connectorsChat} />
+            <Body
+              people={people}
+              fields={fields}
+              fieldFilters={fieldFilters}
+              addPerson={addPerson}
+              timeline={timeline}
+              vizzyFields={vizzyFields}
+              vizzyTextFields={vizzyTextFields}
+              vizzyAddPerson={vizzyAddPerson}
+              catalogHistory={catalogHistory}
+              connectorsChat={connectorsChat}
+            />
           </div>
         ) : (
           <p className="text-sm text-shell-muted">Loading…</p>

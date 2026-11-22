@@ -1,5 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { canAddPeople, isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled, isTimelineEnabled, isVizzyFieldsEnabled, isPersonInContextEnabled, isVizzyAddPersonEnabled } from "./peopleFlags";
+import {
+  canAddPeople,
+  isAddPersonEnabled,
+  isFieldFiltersEnabled,
+  isFieldsEnabled,
+  isTimelineEnabled,
+  isVizzyFieldsEnabled,
+  isPersonInContextEnabled,
+  isVizzyAddPersonEnabled,
+  isVizzyTextFieldsEnabled,
+} from "./peopleFlags";
 
 beforeEach(() => {
   vi.stubEnv("AUDIENCE_PERSON_LINKS_ENABLED", "true");
@@ -98,6 +108,28 @@ describe("isVizzyFieldsEnabled", () => {
     }
     vi.stubEnv("AUDIENCE_VIZZY_FIELDS_ENABLED", "TRUE");
     expect(isVizzyFieldsEnabled()).toBe(false);
+  });
+});
+
+describe("isVizzyTextFieldsEnabled", () => {
+  it("needs Vizzy's fields and its own switch, read as the exact string true", () => {
+    vi.stubEnv("AUDIENCE_VIZZY_FIELDS_ENABLED", "true");
+    expect(isVizzyTextFieldsEnabled()).toBe(false);
+    vi.stubEnv("AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED", "true");
+    expect(isVizzyTextFieldsEnabled()).toBe(true);
+    for (const off of ["AUDIENCE_VIZZY_FIELDS_ENABLED", "AUDIENCE_FIELDS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED"]) {
+      vi.stubEnv(off, "false");
+      expect(isVizzyTextFieldsEnabled(), off).toBe(false);
+      vi.stubEnv(off, "true");
+    }
+    vi.stubEnv("AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED", "1");
+    expect(isVizzyTextFieldsEnabled()).toBe(false);
+  });
+
+  it("doesn't change whether Vizzy reads the seven types", () => {
+    vi.stubEnv("AUDIENCE_VIZZY_FIELDS_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED", "false");
+    expect(isVizzyFieldsEnabled()).toBe(true);
   });
 });
 

@@ -76,12 +76,47 @@ export function isFilterType(type: FieldType): boolean {
 
 /**
  * The types Vizzy may read and suggest (AUDIENCE_VIZZY_FIELDS_ENABLED, answer 7 of 20 Nov): values
- * that pick from the brand's own options, a box, a number, an amount or a day. Never text, email,
- * phone, link or team member values, which can hold who someone is.
+ * that pick from the brand's own options, a box, a number, an amount or a day. Never email, phone,
+ * link or team member values, which can hold who someone is, and text only where an admin let
+ * Vizzy read that field (vizzyReadsField).
  */
 export const VIZZY_FIELD_TYPES = ["select", "multi_select", "status", "checkbox", "number", "currency", "date"] as const satisfies readonly FieldType[];
 export function isVizzyFieldType(type: FieldType): boolean {
   return (VIZZY_FIELD_TYPES as readonly string[]).includes(type);
+}
+
+/**
+ * Whether a field can carry "Vizzy can read this field": a text field on People. Email, phone,
+ * link and team member fields never can, whatever is set, and nor can a company's fields.
+ */
+export function canVizzyReadText(field: { type?: unknown; object?: unknown }): boolean {
+  return field.type === "text" && field.object === "person";
+}
+
+/**
+ * The one rule for what Vizzy may read and suggest: a People field in use, either of the seven
+ * types, or a text field an admin let Vizzy read while text fields are on (`textFields`, the
+ * server's answer for AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED). Never email, phone, link or team member
+ * fields, whatever is stored. It checks the type and object itself, since a stored item that
+ * doesn't parse is kept as it is.
+ */
+export function vizzyReadsField(field: { type?: unknown; object?: unknown; archivedAt?: unknown; vizzyReads?: unknown } | null | undefined, textFields: boolean): boolean {
+  if (!field || field.object !== "person" || field.archivedAt) return false;
+  if (typeof field.type === "string" && isVizzyFieldType(field.type as FieldType)) return true;
+  return textFields === true && canVizzyReadText(field) && field.vizzyReads === true;
+}
+
+/**
+ * The most characters of one text value Vizzy reads, suggests or fills in. A longer value is cut
+ * when read, and refused when Vizzy writes it.
+ */
+export const VIZZY_TEXT_CHARS = 500;
+
+/** A text value cut to at most `max` characters, never splitting a character in two, and whether it was cut. */
+export function cutText(value: string, max: number): { text: string; cut: boolean } {
+  if (value.length <= max) return { text: value, cut: false };
+  const end = /[\uD800-\uDBFF]/.test(value.charAt(max - 1)) ? max - 1 : max;
+  return { text: value.slice(0, end), cut: true };
 }
 
 export const FIELD_LIMITS = {
@@ -135,6 +170,8 @@ export type FieldOption = z.infer<typeof FieldOptionSchema>;
 /**
  * One field. `key` is its id (the settings log calls an item's id its key). Options are for
  * select, multi select and status, in the order they show (a status's order is its steps).
+ * `vizzyReads` is set only on a People text field an admin let Vizzy read; it is left out
+ * otherwise, never stored as false.
  */
 export const RecordFieldSchema = z
   .object({
@@ -147,6 +184,7 @@ export const RecordFieldSchema = z
     archivedAt: Instant.nullable().optional(),
     archivedBy: UserId.nullable().optional(),
     replacedBy: z.string().regex(FIELD_ID).nullable().optional(),
+    vizzyReads: z.literal(true).optional(),
     createdAt: Instant,
     createdBy: UserId.nullable(),
   })
@@ -162,6 +200,7 @@ export const RecordFieldSchema = z
       c.addIssue({ code: "custom", path: ["options"], message: "options_only_on_select_multi_select_or_status" });
     }
     if ((f.type === "currency") !== (f.currency !== undefined)) c.addIssue({ code: "custom", path: ["currency"], message: "currency_only_and_always_on_currency" });
+    if (f.vizzyReads !== undefined && !canVizzyReadText(f)) c.addIssue({ code: "custom", path: ["vizzyReads"], message: "vizzy_reads_only_on_a_person_text_field" });
   });
 export type RecordField = z.infer<typeof RecordFieldSchema>;
 

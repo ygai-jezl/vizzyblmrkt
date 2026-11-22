@@ -169,6 +169,106 @@ describe("the field list", () => {
     expect(settingsDocId("ten_A", "fields:person")).not.toBe(settingsDocId("ten_B", "fields:person"));
   });
 
+  it("asks for nothing more than it did: a field is added without the Vizzy mark unless it is asked for", async () => {
+    const db = new FakeFirestore();
+    await save(db, { op: "add", label: "Job Title", type: "text" }, { fld: () => "fld_000000000001" });
+    expect((await readFieldList(ctx, "person", db)).items[0]).not.toHaveProperty("vizzyReads");
+  });
+
+  it("lets Vizzy read a People text field and stops it again, each a version of its own", async () => {
+    const db = new FakeFirestore();
+    await save(db, { op: "add", label: "Job Title", type: "text" }, { fld: () => "fld_000000000001" });
+    const on = await save(db, { op: "vizzy_reads", key: "fld_000000000001", on: true }, { nowIso: T2 });
+    expect(on).toMatchObject({ ok: true, message: "Let Vizzy read ‘Job Title’", list: { rev: 2 } });
+    expect((await readFieldList(ctx, "person", db)).items[0]).toMatchObject({ vizzyReads: true });
+    // Asking again changes nothing and writes no version.
+    expect(await save(db, { op: "vizzy_reads", key: "fld_000000000001", on: true })).toMatchObject({ ok: true, list: { rev: 2 } });
+    const off = await save(db, { op: "vizzy_reads", key: "fld_000000000001", on: false });
+    expect(off).toMatchObject({ ok: true, message: "Stopped Vizzy reading ‘Job Title’", list: { rev: 3 } });
+    expect((await readFieldList(ctx, "person", db)).items[0]).not.toHaveProperty("vizzyReads");
+    const { versions } = await listSettingsVersions(ctx, "fields:person", {}, db);
+    expect(versions.map((v) => [v.rev, v.message, v.source, v.items[0]?.change])).toEqual([
+      [3, "Stopped Vizzy reading ‘Job Title’", "editor", "changed"],
+      [2, "Let Vizzy read ‘Job Title’", "editor", "changed"],
+      [1, "Added ‘Job Title’", "editor", "added"],
+    ]);
+  });
+
+  it("adds a text field Vizzy can read, and refuses the mark anywhere else", () => {
+    const opts = { nowIso: T1, userId: "u_admin", newFieldId: ids("fld"), newOptionId: ids("opt") };
+    const added = applyFieldListChange("person", [], { op: "add", label: "Job Title", type: "text", vizzyReads: true }, opts);
+    expect(added).toMatchObject({ ok: true, message: "Added ‘Job Title’ and let Vizzy read it" });
+    expect(added.ok && added.items[0]).toMatchObject({ type: "text", vizzyReads: true });
+    const unticked = applyFieldListChange("person", [], { op: "add", label: "Notes", type: "text", vizzyReads: false }, opts);
+    expect(unticked.ok && unticked.items[0]).not.toHaveProperty("vizzyReads");
+    expect(applyFieldListChange("person", [], { op: "add", label: "Work email", type: "email", vizzyReads: true }, opts)).toEqual({ ok: false, error: "invalid_field" });
+    expect(applyFieldListChange("company", [], { op: "add", label: "Sector", type: "text", vizzyReads: true }, opts)).toEqual({ ok: false, error: "invalid_field" });
+  });
+
+  it("refuses the Vizzy mark on a field that isn't there, is archived, isn't text or is a company's", () => {
+    const opts = { nowIso: T1, userId: "u_admin", newFieldId: ids("fld"), newOptionId: ids("opt") };
+    let items: RecordField[] = [];
+    for (const change of [
+      { op: "add", label: "Job Title", type: "text" },
+      { op: "add", label: "Work email", type: "email" },
+      { op: "add", label: "Old title", type: "text" },
+      { op: "archive", key: "fld_000000000003" },
+    ] as FieldListChange[]) {
+      const r = applyFieldListChange("person", items, change, opts);
+      if (!r.ok) throw new Error(r.error);
+      items = r.items;
+    }
+    const vizzy = (key: string, on = true) => applyFieldListChange("person", items, { op: "vizzy_reads", key, on }, opts);
+    expect(vizzy("fld_999999999999")).toEqual({ ok: false, error: "field_not_found" });
+    expect(vizzy("fld_000000000002")).toEqual({ ok: false, error: "invalid_field" });
+    expect(vizzy("fld_000000000003")).toEqual({ ok: false, error: "invalid_field" });
+    expect(vizzy("fld_000000000003", false)).toEqual({ ok: false, error: "invalid_field" });
+    expect(vizzy("fld_000000000001")).toMatchObject({ ok: true });
+    const company = applyFieldListChange("company", [], { op: "add", label: "Sector", type: "text" }, { ...opts, newFieldId: () => "fld_00000000000c" });
+    if (!company.ok) throw new Error(company.error);
+    expect(applyFieldListChange("company", company.items, { op: "vizzy_reads", key: "fld_00000000000c", on: true }, opts)).toEqual({ ok: false, error: "invalid_field" });
+  });
+
+  it("never turns Vizzy reading on with Bring back", async () => {
+    const db = new FakeFirestore();
+    await save(db, { op: "add", label: "Job Title", type: "text", vizzyReads: true }, { fld: () => "fld_000000000001" });
+    await save(db, { op: "archive", key: "fld_000000000001" });
+    // Archived, it keeps the mark, and Vizzy reads nothing of it.
+    expect((await readFieldList(ctx, "person", db)).items[0]).toMatchObject({ archivedAt: T1, vizzyReads: true });
+    expect(await save(db, { op: "restore", key: "fld_000000000001" })).toMatchObject({ ok: true, message: "Restored ‘Job Title’" });
+    const back = (await readFieldList(ctx, "person", db)).items[0]!;
+    expect(back).toMatchObject({ archivedAt: null });
+    expect(back).not.toHaveProperty("vizzyReads");
+  });
+
+  it("never turns Vizzy reading on with a restore: an older version can turn it off, never on", async () => {
+    const db = new FakeFirestore();
+    await save(db, { op: "add", label: "Job Title", type: "text", vizzyReads: true }, { fld: () => "fld_000000000001" }); // v1: reading
+    await save(db, { op: "vizzy_reads", key: "fld_000000000001", on: false }); // v2: not reading
+    await save(db, { op: "add", label: "Team", type: "text" }, { fld: () => "fld_000000000002" }); // v3
+    await save(db, { op: "vizzy_reads", key: "fld_000000000002", on: true }); // v4: Team read
+
+    // Back to v1: Job Title stays unread, though v1 had it read; Team, which v1 didn't have, is archived and keeps its mark.
+    const r = await restoreFieldListVersion(ctx, "person", { rev: 1, baseRev: 4, by, nowIso: T2 }, db);
+    expect(r).toMatchObject({ ok: true, list: { rev: 5 } });
+    let items = (await readFieldList(ctx, "person", db)).items;
+    expect(items[0]).not.toHaveProperty("vizzyReads");
+    expect(items[1]).toMatchObject({ label: "Team", archivedAt: T2, vizzyReads: true });
+
+    // Back to v4: Team comes back from the archive without the mark.
+    const again = await restoreFieldListVersion(ctx, "person", { rev: 4, baseRev: 5, by, nowIso: T2 }, db);
+    expect(again).toMatchObject({ ok: true, list: { rev: 6 } });
+    items = (await readFieldList(ctx, "person", db)).items;
+    expect(items[1]).toMatchObject({ label: "Team", archivedAt: null });
+    expect(items[1]).not.toHaveProperty("vizzyReads");
+
+    // Back to v2, while Job Title is read: an older version turns it off.
+    await save(db, { op: "vizzy_reads", key: "fld_000000000001", on: true }); // v7
+    const off = await restoreFieldListVersion(ctx, "person", { rev: 2, baseRev: 7, by, nowIso: T2 }, db);
+    expect(off).toMatchObject({ ok: true });
+    expect((await readFieldList(ctx, "person", db)).items[0]).not.toHaveProperty("vizzyReads");
+  });
+
   it("writes no version when nothing changed", async () => {
     const db = new FakeFirestore();
     await save(db, { op: "add", label: "Plan", type: "text" }, { fld: () => "fld_000000000001" });

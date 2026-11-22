@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { requireAdminContext } from "@/lib/auth/session";
-import { isFieldFiltersEnabled, isFieldsEnabled } from "@/lib/audience/peopleFlags";
+import { isFieldFiltersEnabled, isFieldsEnabled, isVizzyTextFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { loadPeopleConnections } from "@/lib/audience/personSync";
 import { readOnlyFieldDefs } from "@/lib/audience/readOnlyFields";
 import { ENVIRONMENT_LABEL, environmentOf, productNameOf } from "@/lib/connect/environments";
@@ -12,7 +12,8 @@ export const dynamic = "force-dynamic";
 /**
  * Settings › Data model (AUDIENCE_FIELDS_ENABLED): the fields on People and Companies. The fields
  * from elsewhere are worked out here, from the brand's launches and products; the brand's own
- * fields load in the browser. Admins change them; members read.
+ * fields load in the browser. Admins change them; members read. The "Vizzy reads" column and
+ * "Vizzy can read this field" show while AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED is on.
  */
 export default async function DataModelPage() {
   const ctx = await requireAdminContext();
@@ -30,6 +31,7 @@ export default async function DataModelPage() {
     <DataModel
       canEdit={ctx.role === "admin"}
       filters={isFieldFiltersEnabled()}
+      vizzyText={isVizzyTextFieldsEnabled()}
       readOnly={{ person: readOnlyFieldDefs("person", sources), company: readOnlyFieldDefs("company", sources) }}
     />
   );

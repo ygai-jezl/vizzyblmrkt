@@ -448,6 +448,14 @@ export const BlogArticleLiveSchema = z.object({
   checkedAt: z.string().max(40).optional(),
   /** The live page carries a share image (og:image), as last checked (BLOG_HERO_ENABLED). */
   shareImage: z.boolean().optional(),
+  /** How much of the article's text was on the page (0 to 1), as last checked (BLOG_LIVE_WATCH_ENABLED). */
+  textShare: z.number().min(0).max(1).optional(),
+  /** Where it was found: at the address saved on the article, or on the brand's sitemap. */
+  found: z.enum(["address", "sitemap"]).optional(),
+  /** Found with nobody pressing anything (the live watch). */
+  auto: z.boolean().optional(),
+  /** Being found live approved the article (a canvas left open keeps that approval on its next save). */
+  approvedOnLive: z.boolean().optional(),
 });
 export type BlogArticleLive = z.infer<typeof BlogArticleLiveSchema>;
 

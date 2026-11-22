@@ -339,6 +339,29 @@ describe("Connected's words", () => {
     expect(bannerWords({ ...SC, needsAccount: true })).toBe("Google Search Console is connected, but reads nothing until a property is chosen.");
   });
 
+  it("say which connection a banner or an activity line is about when two connect to the same tool", () => {
+    const acme = { ...CF, label: "acme.example", details: { ...CF.details!, recent: [{ at: "2026-11-21T09:30:00.000Z", kind: "paused" as const, by: "usr_alex", code: null }] } };
+    const shop = connectionView({
+      id: "dcn_bbbbbbbbbbbbbbbbbbbb",
+      label: "shop.acme.example",
+      details: { account: "fedcba9876543210fedcba9876543210", recent: [{ at: "2026-11-21T09:20:00.000Z", kind: "verified", by: "system", code: null }] },
+    });
+    const all = [SC, acme, shop];
+    expect(bannerWords(acme, all)).toBe("Cloudflare for acme.example turned the token down. Vizzy can't read it until you reconnect.");
+    expect(bannerWords({ ...acme, health: { ...acme.health, message: CONNECTOR_ERRORS.account_refused } }, all)).toBe(`Cloudflare for acme.example: ${CONNECTOR_ERRORS.account_refused}`);
+    expect(activityOf(all).map((r) => r.text).slice(0, 2)).toEqual(["Cloudflare for acme.example paused", "Cloudflare for shop.acme.example checked: working"]);
+    // One connection to a tool keeps the tool's name alone, as the approved screen.
+    expect(bannerWords(acme, [SC, acme])).toBe(REFUSED);
+    expect(activityOf([SC, acme])[0]!.text).toBe("Cloudflare paused");
+    // A disconnected one still in the list counts too, so the lines it left say which.
+    expect(activityOf([acme, { ...shop, status: "disconnected" }])[0]!.text).toBe("Cloudflare for acme.example paused");
+    const text = textOf(render({ connections: all }));
+    expect(text).toContain("Cloudflare for acme.example turned the token down. Vizzy can't read it until you reconnect.");
+    expect(text).toContain("Cloudflare for acme.example paused");
+    expect(text).toContain("Cloudflare for shop.acme.example checked: working");
+    expect(text).not.toContain("Google Search Console for");
+  });
+
   it("write moments, accounts, states and grants plainly", () => {
     expect(whenWords("2026-11-21T09:59:40.000Z", NOW)).toBe("just now");
     expect(whenWords("2026-11-21T09:59:00.000Z", NOW)).toBe("1 minute ago");

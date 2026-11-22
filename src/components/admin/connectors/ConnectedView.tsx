@@ -127,7 +127,7 @@ export function ConnectedView({ connections: initial, isAdmin, uid, chat, now: d
         </p>
       ) : null}
       {attention.map((c) => (
-        <AttentionBanner key={c.id} c={c} isAdmin={isAdmin} busy={busy} onReconnect={actions.reconnect} onCheckAccess={actions.checkAccess} />
+        <AttentionBanner key={c.id} c={c} among={live} isAdmin={isAdmin} busy={busy} onReconnect={actions.reconnect} onCheckAccess={actions.checkAccess} />
       ))}
       {!isAdmin ? <p className={HINT}>{SCREEN_COPY.membersOnly}</p> : null}
 
@@ -237,18 +237,21 @@ function ReconnectAction({ c, busy, onReconnect, onCheckAccess }: { c: Connectio
 
 function AttentionBanner({
   c,
+  among,
   isAdmin,
   busy,
   onReconnect,
   onCheckAccess,
 }: {
   c: ConnectionView;
+  /** The connections shown, so a banner says which one when two connect to the same tool. */
+  among: readonly ConnectionView[];
   isAdmin: boolean;
   busy: string | null;
   onReconnect: (c: ConnectionView) => void;
   onCheckAccess: (c: ConnectionView) => void;
 }) {
-  const words = bannerWords(c);
+  const words = bannerWords(c, among);
   return (
     <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-900 dark:bg-amber-950/40">
       <p className="text-sm text-amber-900 dark:text-amber-200">

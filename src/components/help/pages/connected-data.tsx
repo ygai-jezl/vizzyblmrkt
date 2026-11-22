@@ -1,6 +1,6 @@
 import { H1, H2, H3, Lead, P, Pairs, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
-import { CONNECTED_COPY, PICKER_COPY, SCREEN_COPY } from "@/components/admin/connectors/words";
+import { CONNECTED_COPY, PICKER_COPY, SCREEN_COPY, activityWords } from "@/components/admin/connectors/words";
 import { isConnectorsChatEnabled } from "@/lib/connectors/flags";
 import { connectedDataHelp, type ConnectorHelp } from "@/lib/connectors/helpText";
 import { tokenRefusedMessage } from "@/lib/connectors/messages";
@@ -195,6 +195,10 @@ export default function ConnectedDataHelp({ connectorsChat = isConnectorsChatEna
         <strong>{CONNECTED_COPY.disconnect}</strong> deletes what YouGrow stored for it; each tool&apos;s section above says
         what it leaves at the tool. {health.disconnected} The activity on Connected shows the latest changes, and the
         activity log is kept for 90 days.
+      </P>
+      <P>
+        When your brand has two connections to one tool, such as two Cloudflare zones, each banner and activity line on
+        Connected says which one, as in &quot;{activityWords({ kind: "paused", code: null }, "Cloudflare for acme.example", "token_fields")}&quot;.
       </P>
 
       <H2 id="who-can-read">Who can read it</H2>

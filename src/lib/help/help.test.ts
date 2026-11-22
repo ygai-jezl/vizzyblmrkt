@@ -474,6 +474,8 @@ describe("Connected data", () => {
     expect(text).not.toMatch(/Mailchimp/);
     expect(text).toContain("Cloudflare turned the token down. Vizzy can't read it until you reconnect.");
     expect(md(false)).toContain("Cloudflare turned the token down. Nobody can read it until you reconnect.");
+    // With two connections to one tool, Connected says which one.
+    expect(text).toContain('each banner and activity line on Connected says which one, as in "Cloudflare for acme.example paused".');
     expect(text).toContain(tokenRefusedMessage("Cloudflare", "connecting", true));
     // Only token connectors can have a token turned down.
     expect(text).not.toContain("Google Search Console turned the token down");

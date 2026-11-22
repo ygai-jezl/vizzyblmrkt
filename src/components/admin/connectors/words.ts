@@ -409,6 +409,17 @@ export function connectionWords(c: Pick<ConnectionView, "connectorName" | "label
   return reads ? `${c.connectorName} for ${reads}` : c.connectorName;
 }
 
+/**
+ * A connection's name in a banner or an activity line: its tool's name, or, when the list holds
+ * another connection to the same tool, which one ("Cloudflare for acme.example").
+ */
+export function nameAmong(
+  c: Pick<ConnectionView, "id" | "connectorId" | "connectorName" | "label" | "details">,
+  among: ReadonlyArray<Pick<ConnectionView, "id" | "connectorId">>,
+): string {
+  return among.some((o) => o.id !== c.id && o.connectorId === c.connectorId) ? connectionWords(c) : c.connectorName;
+}
+
 /** Disconnect's confirm, naming the connection it disconnects. */
 export const confirmDisconnectWords = (c: Pick<ConnectionView, "connectorName" | "label" | "details">) => `Disconnect ${connectionWords(c)}? ${CONNECTED_COPY.confirmDisconnect}`;
 
@@ -449,12 +460,17 @@ export const STATE_LABELS = ["Working", "Check failed", "Needs attention", "Paus
 /**
  * A banner's words: waiting for a property, or the problem in its own words. A message that already
  * names the tool, as a turned down token's does ("Cloudflare turned the token down."), stands alone;
- * any other is put after the tool's name.
+ * any other is put after the tool's name. With two connections to one tool in `among`, the name says
+ * which ("Cloudflare for acme.example turned the token down.").
  */
-export function bannerWords(c: Pick<ConnectionView, "connectorName" | "needsAccount" | "health">): string {
-  if (c.needsAccount) return `${c.connectorName} is connected, but reads nothing until a property is chosen.`;
+export function bannerWords(
+  c: Pick<ConnectionView, "id" | "connectorId" | "connectorName" | "label" | "details" | "needsAccount" | "health">,
+  among: ReadonlyArray<Pick<ConnectionView, "id" | "connectorId">> = [],
+): string {
+  const name = nameAmong(c, among);
+  if (c.needsAccount) return `${name} is connected, but reads nothing until a property is chosen.`;
   const message = c.health.message ?? "it needs connecting again.";
-  return message.startsWith(`${c.connectorName} `) ? message : `${c.connectorName}: ${message}`;
+  return message.startsWith(`${c.connectorName} `) ? `${name}${message.slice(c.connectorName.length)}` : `${name}: ${message}`;
 }
 
 /** The connections whose banner asks for something: turned down, or waiting for a property. */
@@ -565,7 +581,7 @@ export function activityWords(e: { kind: string; code: string | null }, name: st
     case "disconnected":
       return `${name} disconnected`;
     case "cleanup_failed":
-      return `${name}'s Google address couldn't be deleted yet. YouGrow tries again.`;
+      return `The Google address for ${name} couldn't be deleted yet. YouGrow tries again.`;
     case "purged":
       return `${name} removed by whoever runs YouGrow`;
     default:
@@ -573,13 +589,16 @@ export function activityWords(e: { kind: string; code: string | null }, name: st
   }
 }
 
-/** Every connection's recent changes, newest first, each with the connection it belongs to. */
+/**
+ * Every connection's recent changes, newest first, each with the connection it belongs to: its
+ * tool's name, or which one when two connections to that tool are in the list.
+ */
 export function activityOf(connections: readonly ConnectionView[], limit = 12): Array<{ at: string; text: string; by: string; key: string }> {
   return connections
     .flatMap((c) =>
       (c.details?.recent ?? []).map((e, i) => ({
         at: e.at,
-        text: activityWords(e, c.connectorName, c.details?.method),
+        text: activityWords(e, nameAmong(c, connections), c.details?.method),
         by: e.kind === "purged" ? "operator" : e.by,
         key: `${c.id}:${i}`,
       })),

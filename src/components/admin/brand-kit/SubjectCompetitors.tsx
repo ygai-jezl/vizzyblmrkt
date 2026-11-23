@@ -12,7 +12,8 @@ import { WriteNext } from "./BrandMapCoverage";
  * nobody has: the subject's questions none of their articles answer, and formats nobody used.
  * Suggest an angle opens Write this next on the best of those questions. Their questions lists
  * what their articles answer that the subject lacks: an admin adds one, then writes it. Loaded on
- * its own, so the subject opens as fast as before.
+ * its own, in one request that brings the subject's questions too, so it also works on its own
+ * (What they write about › a row).
  */
 export function SubjectCompetitors({
   subjectId,
@@ -22,8 +23,11 @@ export function SubjectCompetitors({
   onQuestionsChanged,
 }: {
   subjectId: string;
-  /** The subject's questions, and whether each is still open (nothing of yours answers it yet). */
-  questions: Array<{ id: string; text: string; open: boolean }>;
+  /**
+   * The subject's questions, and whether each is still open (nothing of yours answers it yet).
+   * Left out, the box uses the ones its own request brings.
+   */
+  questions?: Array<{ id: string; text: string; open: boolean }>;
   /** The programmes a question can be written in; null = not offered. */
   programmes: Array<{ id: string; name: string }> | null;
   /** Admins can add their questions to the subject. */
@@ -32,6 +36,7 @@ export function SubjectCompetitors({
   onQuestionsChanged?: () => void;
 }) {
   const [data, setData] = useState<Data | null>(null);
+  const [failed, setFailed] = useState(false);
   // Their questions added here: the new question's id, or what went wrong.
   const [added, setAdded] = useState<Record<string, { id: string } | { error: string }>>({});
   const [adding, setAdding] = useState<string | null>(null);
@@ -47,22 +52,57 @@ export function SubjectCompetitors({
     if (res.ok) onQuestionsChanged?.();
   }
 
+  const load = useCallback(
+    (isLive: () => boolean = () => true) => {
+      setData(null);
+      setFailed(false);
+      void api<{ competitors: Data }>(`/api/admin/brand-kit/competitors/subjects/${encodeURIComponent(subjectId)}`, { method: "GET" }).then((res) => {
+        if (!isLive()) return;
+        if (res.ok) setData(res.data.competitors);
+        else setFailed(true);
+      });
+    },
+    [subjectId],
+  );
+
   useEffect(() => {
     let live = true;
-    setData(null);
-    void api<{ competitors: Data }>(`/api/admin/brand-kit/competitors/subjects/${encodeURIComponent(subjectId)}`, { method: "GET" }).then((res) => {
-      if (live && res.ok) setData(res.data.competitors);
-    });
+    load(() => live);
     return () => {
       live = false;
     };
-  }, [subjectId]);
+  }, [load]);
 
-  if (!data) return null;
-  const byId = new Map(questions.map((q) => [q.id, q] as const));
+  if (!data) {
+    return (
+      <section aria-label="Competitors on this" aria-busy={!failed} className="space-y-1 rounded-lg border border-blue-200 bg-blue-50/40 p-3 text-xs dark:border-blue-900 dark:bg-blue-950/20">
+        <h4 className="font-semibold">Competitors on this</h4>
+        {failed ? (
+          <p className="flex flex-wrap items-center gap-2 text-neutral-600 dark:text-neutral-300">
+            That didn&rsquo;t load.
+            <button
+              type="button"
+              onClick={() => load()}
+              className="rounded border border-neutral-300 px-2 py-0.5 text-[11px] text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+            >
+              Try again
+            </button>
+          </p>
+        ) : (
+          <p className="text-neutral-500">Reading what they wrote on this…</p>
+        )}
+      </section>
+    );
+  }
+  // The subject's questions: the panel's own when it has them, else this request's, with any added here.
+  const addedHere = Object.entries(added).flatMap(([text, a]) => ("id" in a ? [{ id: a.id, text, open: true }] : []));
+  const base = questions ?? data.questions ?? [];
+  const known = new Set(base.map((q) => q.id));
+  const allQuestions = [...base, ...addedHere.filter((q) => !known.has(q.id))];
+  const byId = new Map(allQuestions.map((q) => [q.id, q] as const));
   const uncovered = (data.uncovered ?? []).flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));
   // The question to suggest an angle for: one nobody answers that you haven't either, else any open one.
-  const suggestFor = uncovered.find((q) => q.open) ?? questions.find((q) => q.open) ?? null;
+  const suggestFor = uncovered.find((q) => q.open) ?? allQuestions.find((q) => q.open) ?? null;
   return (
     <section aria-label="Competitors on this" className="space-y-2 rounded-lg border border-blue-200 bg-blue-50/40 p-3 text-xs dark:border-blue-900 dark:bg-blue-950/20">
       <h4 className="font-semibold">Competitors on this{data.total ? ` · ${data.total} article${data.total === 1 ? "" : "s"}` : ""}</h4>
@@ -178,10 +218,7 @@ export function SubjectCompetitors({
   );
 }
 
-/**
- * The box for one subject, on its own (What they write about › a row): loads the subject's
- * questions and whether each is still open, as the brand map's subject panel has them.
- */
+/** The box for one subject, on its own (What they write about › a row): one request brings everything. */
 export function SubjectCompetitorsBox({
   subjectId,
   programmes,
@@ -191,29 +228,5 @@ export function SubjectCompetitorsBox({
   programmes: Array<{ id: string; name: string }> | null;
   canEdit: boolean;
 }) {
-  const [questions, setQuestions] = useState<Array<{ id: string; text: string; open: boolean }> | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  const load = useCallback(async () => {
-    const res = await api<{
-      questions: Array<{ id: string; text: string; status: string }>;
-      coverage: { questions: Array<{ id: string; state: string }> } | null;
-    }>(`/api/admin/brand-kit/map/subjects/${encodeURIComponent(subjectId)}`, { method: "GET" });
-    if (!res.ok) {
-      setFailed(true);
-      return;
-    }
-    const states = new Map((res.data.coverage?.questions ?? []).map((q) => [q.id, q.state] as const));
-    setQuestions(
-      res.data.questions.filter((q) => q.status === "decided").map((q) => ({ id: q.id, text: q.text, open: (states.get(q.id) ?? "open") === "open" })),
-    );
-  }, [subjectId]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  if (failed) return <p className="text-xs text-neutral-500">This subject couldn&rsquo;t be loaded. It may have been removed from your map.</p>;
-  if (!questions) return <p className="text-xs text-neutral-500">Loading…</p>;
-  return <SubjectCompetitors subjectId={subjectId} questions={questions} programmes={programmes} canEdit={canEdit} onQuestionsChanged={() => void load()} />;
+  return <SubjectCompetitors subjectId={subjectId} programmes={programmes} canEdit={canEdit} />;
 }

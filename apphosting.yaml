@@ -333,6 +333,12 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Sending domains: look up SPF and DMARC in DNS, and keep a verified domain's records on screen
+  # until every one is ticked.
+  - variable: EMAIL_DOMAIN_RECORD_CHECKS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Date facts, and journeys that start when a date passes (needs date facts).
   - variable: CONNECT_DATE_FACTS
     value: "false"

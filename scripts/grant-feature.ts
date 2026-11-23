@@ -15,6 +15,10 @@
  *   ... scripts/grant-feature.ts --tenant <tenantId> --feature next_up --limit 150
  *   ... scripts/grant-feature.ts --tenant <tenantId> --feature next_up --limit default   (the copy's cap again)
  *
+ * A paid resource every brand uses (web searches for research) is never granted, only capped:
+ *
+ *   ... scripts/grant-feature.ts --tenant <tenantId> --feature web_searches --limit 2000
+ *
  * Auth = Application Default Credentials (`gcloud auth application-default login`).
  */
 
@@ -25,7 +29,7 @@ delete process.env.FIREBASE_AUTH_EMULATOR_HOST;
 import { getTenantById } from "@/lib/tenant";
 import { setTenantFeatureGrant, setTenantFeatureLimit } from "@/lib/tenant/control";
 import { METERED_FEATURES, type MeteredFeature } from "@/lib/plans/brandAccess";
-import { LIMITED_FEATURES, isLimitedFeature, monthlyLimitOf, parseLimitArg } from "@/lib/plans/limits";
+import { LIMITED_FEATURES, LIMITED_RESOURCES, isCapKey, isLimitedResource, monthlyLimitOf, parseLimitArg } from "@/lib/plans/limits";
 
 const APPLY = process.argv.includes("--apply");
 const REMOVE = process.argv.includes("--remove");
@@ -43,8 +47,14 @@ async function main() {
     console.error("Set GOOGLE_CLOUD_PROJECT, and pass --tenant <tenantId> --feature <feature>.");
     process.exit(1);
   }
-  if (!(METERED_FEATURES as readonly string[]).includes(feature)) {
-    console.error(`Unknown feature "${feature}". Features: ${METERED_FEATURES.join(", ")}.`);
+  // A paid resource (web searches for research) is never granted, only capped.
+  const resource = isLimitedResource(feature);
+  if (resource && flag("limit") === undefined) {
+    console.error(`"${feature}" is a paid resource every brand uses: it can't be granted or taken away, only capped with --limit.`);
+    process.exit(1);
+  }
+  if (!resource && !(METERED_FEATURES as readonly string[]).includes(feature)) {
+    console.error(`Unknown feature "${feature}". Features: ${METERED_FEATURES.join(", ")}. Resources: ${LIMITED_RESOURCES.join(", ")}.`);
     process.exit(1);
   }
   const tenant = await getTenantById(tenantId);
@@ -54,8 +64,8 @@ async function main() {
   }
   const limitArg = flag("limit");
   if (limitArg !== undefined) {
-    if (!isLimitedFeature(feature)) {
-      console.error(`"${feature}" has no monthly cap. Features with one: ${LIMITED_FEATURES.join(", ")}.`);
+    if (!isCapKey(feature)) {
+      console.error(`"${feature}" has no monthly cap. Features with one: ${LIMITED_FEATURES.join(", ")}; resources: ${LIMITED_RESOURCES.join(", ")}.`);
       process.exit(1);
     }
     const wanted = parseLimitArg(limitArg);

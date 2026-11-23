@@ -12,6 +12,8 @@ import { isAutopilotEnabled } from "@/lib/autopilot/flags";
 import { isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
 import { isConnectorSignalsEnabled } from "@/lib/connectors/flags";
 import type { HelpBodyProps } from "@/lib/help/pages";
+import { isWebSearchMeterUiEnabled } from "@/lib/plans/flags";
+import { WEB_SEARCH_LIMIT_MESSAGE } from "@/lib/plans/resources";
 
 /** The How to drawer passes the server's switches (connectorSignals): it can't read them itself. */
 export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSignalsEnabled() }: HelpBodyProps = {}) {
@@ -326,6 +328,14 @@ export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSig
             "Research didn't finish. You can still write the article, or try again.",
             "Try again in a minute, or let the article be written without it.",
           ],
+          ...(isWebSearchMeterUiEnabled()
+            ? ([
+                [
+                  WEB_SEARCH_LIMIT_MESSAGE,
+                  "Research used your own sources only, and Google wasn't searched. Add pages and facts to the brief by hand, or research again after the 1st.",
+                ],
+              ] as Array<[string, string]>)
+            : []),
           ["That item isn't generated yet", "Open it in Drafts and generate it first."],
           [
             "Connect LinkedIn in Settings › Connections first",

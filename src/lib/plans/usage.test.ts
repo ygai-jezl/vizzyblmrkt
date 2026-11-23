@@ -221,6 +221,29 @@ describe("organisationUsage", () => {
     expect(granted.monthly.find((r) => r.feature === "article_autopilot")).toMatchObject({ included: true, needs: null, used: 1, limit: 4, from: "brand" });
   });
 
+  it("shows web searches for research with its switch on: used of the plan's cap, by feature", async () => {
+    us.seed("usage_meters", "um_ten_A_2026-11", {
+      tenantId: "ten_A",
+      month: "2026-11",
+      meters: { web_searches: { total: 140, calls: 9, lostCalls: 0, byPurpose: { blog_research: 120, brand_map_research: 20 } } },
+      updatedAt: "2026-11-20T00:00:00.000Z",
+    });
+    expect((await organisationUsage(ctxOf("ten_A", "us", "usr_owner"), deps)).monthly.find((r) => r.feature === "web_searches")).toBeUndefined();
+    vi.stubEnv("WEB_SEARCH_METER_ENABLED", "true");
+    const s = await organisationUsage(ctxOf("ten_A", "us", "usr_owner"), deps);
+    // Pro caps web searches at 1,500 a brand a month.
+    expect(s.monthly.find((r) => r.feature === "web_searches")).toEqual({
+      feature: "web_searches",
+      label: "Web searches for research",
+      used: 140,
+      limit: 1500,
+      from: "plan",
+      included: true,
+      needs: null,
+      byPurpose: { blog_research: 120, brand_map_research: 20 },
+    });
+  });
+
   it("lists what the plan includes, and a brand's own grants", async () => {
     control.seed("tenants", "ten_A", brand("Acme", "us", { organisationId: "org_ten_A", orgPlan: "pro", grantedFeatures: ["competitors", "article_autopilot"] }));
     const s = await organisationUsage(ctxOf("ten_A", "us", "usr_owner"), deps);

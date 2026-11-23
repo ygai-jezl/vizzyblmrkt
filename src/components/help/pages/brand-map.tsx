@@ -6,6 +6,8 @@ import { SIGNALS_HELP } from "@/lib/connectors/helpText";
 import type { HelpBodyProps } from "@/lib/help/pages";
 import { isCompetitorsUiEnabled } from "@/lib/competitors/flags";
 import { isAutopilotEnabled, isNextUpEnabled } from "@/lib/autopilot/flags";
+import { isWebSearchMeterUiEnabled } from "@/lib/plans/flags";
+import { WEB_SEARCH_LIMIT_MESSAGE } from "@/lib/plans/resources";
 
 export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnabled(), brandMapScale = isBrandMapScaleEnabled() }: HelpBodyProps = {}) {
   // Linked from Review and Connected data whenever signals are on; at any size the questions wait here.
@@ -54,6 +56,14 @@ export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnab
         <li>
           Press <strong>Research my brand</strong>. It reads your site and your knowledge, searches how people talk about
           your category, and drafts the map. This takes about a minute.
+          {isWebSearchMeterUiEnabled() ? (
+            <>
+              {" "}
+              Its Google searches count toward your brand&apos;s{" "}
+              <Open href="/help/plan-and-usage#use">web searches for research</Open> this month, as finding buying
+              situations does.
+            </>
+          ) : null}
         </li>
         <li>
           No research button? Press <strong>Fill it in yourself</strong>. Research isn&apos;t switched on for your YouGrow,
@@ -268,6 +278,14 @@ export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnab
             "Set your Primary domain in Settings › Sending, or add your website to a programme's Knowledge. Then research again.",
           ],
           ["Not saved yet: articles are written without it until you save.", "Press Save brand map."],
+          ...(isWebSearchMeterUiEnabled()
+            ? ([
+                [
+                  WEB_SEARCH_LIMIT_MESSAGE,
+                  "Research starts searching Google again on the 1st, or ask whoever runs your copy of YouGrow for more. Until then, add subjects, questions and buying situations by hand.",
+                ],
+              ] as Array<[string, string]>)
+            : []),
           ...(isNextUpEnabled()
             ? ([
                 ["Next up was chosen a moment ago. Try again in a few minutes.", "Wait a few minutes, then press Choose again."],

@@ -1,5 +1,6 @@
 import { FEATURE_LABELS, allowanceText, planById, type Allowance, type Plan } from "@/lib/plans/catalog";
-import type { LimitedFeature } from "@/lib/plans/limits";
+import type { CapKey } from "@/lib/plans/limits";
+import { PURPOSE_LABELS, RESOURCES, type ResourcePurpose } from "@/lib/plans/resources";
 import type { AllowanceRow, FeatureRow, MonthlyRow, UsageBrandRow, UsageSummary } from "@/lib/plans/usage";
 import type { Region } from "@/lib/types/tenant";
 import { peopleArea } from "@/lib/nav/terms";
@@ -50,11 +51,21 @@ const PILL = "inline-flex items-center gap-1 rounded-full border border-neutral-
 const REGION: Record<Region, string> = { us: "United States", eu: "Europe", asia: "Asia" };
 
 /** What each monthly count measures, for "This month". */
-const MONTHLY_LABELS: Record<LimitedFeature, string> = {
+const MONTHLY_LABELS: Record<CapKey, string> = {
   next_up: "Google lookups for Next up",
   competitor_articles: "Competitor articles read",
   article_autopilot: "Autopilot drafts",
+  web_searches: RESOURCES.web_searches.label,
 };
+
+/** A resource's use this month by the feature that used it: "Blog research 120 · Brand map research 18". */
+function byFeature(byPurpose: Record<string, number> | undefined): string | null {
+  const parts = Object.entries(byPurpose ?? {})
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([p, n]) => `${PURPOSE_LABELS[p as ResourcePurpose] ?? p} ${fmt(n)}`);
+  return parts.length ? parts.join(" · ") : null;
+}
 
 /** Under "This month" the allowances drop their "a month". */
 const MONTH_ALLOWANCE_LABELS: Partial<Record<Allowance, string>> = {
@@ -121,7 +132,7 @@ function MonthlyMeter({ row }: { row: MonthlyRow }) {
   const label = MONTHLY_LABELS[row.feature];
   if (!row.included) return <Meter label={label} value={row.needs ? needsText(row.needs) : PLAN_AND_USAGE_COPY.notInPlan} />;
   if (row.used === null) return <Meter label={label} value={PLAN_AND_USAGE_COPY.couldNotCount} />;
-  return <Meter label={label} value={usedText(row.used, row.limit)} used={row.used} limit={row.limit} />;
+  return <Meter label={label} value={usedText(row.used, row.limit)} used={row.used} limit={row.limit} note={byFeature(row.byPurpose)} />;
 }
 
 function BrandPill({ brand }: { brand: UsageBrandRow }) {

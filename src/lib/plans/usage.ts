@@ -24,7 +24,10 @@ import {
   type PlanFeature,
 } from "./catalog";
 import { isPlansEnabled } from "./flags";
-import { monthlyLimitWith, type CapSource, type LimitedFeature } from "./limits";
+import { monthlyLimitWith, type CapKey, type CapSource, type LimitedFeature } from "./limits";
+import { usageThisMonth } from "./meter";
+import { RESOURCES } from "./resources";
+import { isWebSearchMeterEnabled } from "./flags";
 
 /**
  * The figures behind Settings › Plan and usage, and allowance counting for later pieces. Server
@@ -95,7 +98,8 @@ export interface AllowanceRow {
 }
 
 export interface MonthlyRow {
-  feature: LimitedFeature;
+  /** A costly feature, or a paid resource (src/lib/plans/resources.ts). */
+  feature: CapKey;
   label: string;
   used: number | null;
   limit: number;
@@ -104,6 +108,8 @@ export interface MonthlyRow {
   included: boolean;
   /** What it needs and this brand can't use ("Needs Next up"); null otherwise. */
   needs: MeteredFeature | null;
+  /** A resource: what used it this month, by feature (RESOURCES[...].purposes). */
+  byPurpose?: Record<string, number>;
 }
 
 export interface FeatureRow {
@@ -209,10 +215,10 @@ async function monthlyRows(ctx: TenantContext, tenant: Tenant | null, plansOn: b
     { feature: "competitor_articles", on: isCompetitorArticlesEnabled(), count: () => readsThisMonth(ctx, counters) },
     { feature: "article_autopilot", on: isAutopilotEnabled(), count: () => draftsThisMonth(ctx, counters) },
   ];
-  return Promise.all(
+  const features = Promise.all(
     rows
       .filter((r) => r.on)
-      .map(async (r) => {
+      .map(async (r): Promise<MonthlyRow> => {
         const cap = monthlyLimitWith(tenant, r.feature, plansOn);
         return {
           feature: r.feature,
@@ -225,6 +231,27 @@ async function monthlyRows(ctx: TenantContext, tenant: Tenant | null, plansOn: b
         };
       }),
   );
+  // Paid resources: every brand uses them, through the features that spend them (the usage meter).
+  const meters = isWebSearchMeterEnabled() ? await soft(() => usageThisMonth(ctx, counters)) : undefined;
+  const resources: MonthlyRow[] = isWebSearchMeterEnabled()
+    ? [
+        (() => {
+          const cap = monthlyLimitWith(tenant, "web_searches", plansOn);
+          const count = meters === null ? null : (meters?.web_searches ?? null);
+          return {
+            feature: "web_searches" as const,
+            label: RESOURCES.web_searches.label,
+            used: meters === null ? null : (count?.total ?? 0),
+            limit: cap.limit,
+            from: cap.from,
+            included: true,
+            needs: null,
+            byPurpose: count?.byPurpose ?? {},
+          };
+        })(),
+      ]
+    : [];
+  return [...(await features), ...resources];
 }
 
 function featureRows(tenant: Tenant | null, plan: Plan | null, plansOn: boolean): FeatureRow[] {

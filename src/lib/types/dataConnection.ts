@@ -154,6 +154,8 @@ export const CollectStateSchema = z.object({
   strikes: z.object({ day: z.string(), quota: z.number().int().min(0), errors: z.number().int().min(0) }).nullable().default(null),
   timeZone: z.string().nullable().default(null),
   rolledOn: z.string().nullable().default(null),
+  /** The UTC day its numbers were last looked at for suggestions (CONNECTOR_SIGNALS_ENABLED), once a day. */
+  detectedOn: z.string().nullable().default(null),
 });
 export type CollectState = z.infer<typeof CollectStateSchema>;
 

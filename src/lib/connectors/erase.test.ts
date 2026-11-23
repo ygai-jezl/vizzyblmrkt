@@ -11,6 +11,9 @@ import { eraseConnectionData, pendingAfter, pendingWith } from "./erase";
 import { purgeConnections, purgeLines } from "./purge";
 import { disconnect, pickAccount } from "./service";
 import { writeDayDoc } from "./snapshots";
+import { saveDetection, linkAction } from "./signals/store";
+import { proposeAgentAction } from "@/lib/tenant";
+import { agentDedupeKey, AgentActionSchema } from "@/lib/types/agentAction";
 import { answer, routedTransport } from "./testing/providers";
 import { ACCESS_SLOT, REFRESH_SLOT } from "./tokenKeeper";
 import { sealConnectorSecret } from "./vault";
@@ -136,6 +139,72 @@ describe("Disconnect", () => {
   });
 });
 
+/** A suggestion from this connection's numbers, open in Review, for generation `gen` (made-up numbers). */
+async function suggested(gen: number, page = "/care/fiddle-leaf-fig") {
+  const { row } = await saveDetection(
+    A,
+    { connectionId: ID, gen, account: OLD_SITE, connectorId: "search-console", rule: "losing_page", key: { page, host: "example.com" }, label: page, numbers: { searchClicks: 41 }, before: { searchClicks: 96 }, window: { from: "2026-10-24", to: "2026-11-20" }, shownIn: "review" },
+    { db, now: NOW },
+  );
+  const { action } = await proposeAgentAction(
+    A,
+    {
+      dedupeKey: agentDedupeKey("data_signal.suggest", row.id, "r1"),
+      agent: "connector_signals",
+      action: "data_signal.suggest",
+      target: { type: "data_signal", id: row.id },
+      personId: null,
+      proposal: { rule: "losing_page", connectionId: ID, gen, label: page },
+      basis: null,
+      signals: [{ kind: "data_signal", ref: row.id }],
+      review: { kind: "data_signal", href: "/admin/approvals#data_signal" },
+      requestedBy: { type: "system", id: "connector_signals" },
+      expiresAt: new Date(NOW.getTime() + 30 * 86_400_000).toISOString(),
+      clearDetailsOnClose: true,
+      at: NOW.toISOString(),
+    },
+    { db },
+  );
+  await linkAction(A, row.id, action.id, 1, { db });
+  return action.id;
+}
+const states = async () => (await forTenant(A, db).agentActions.find()).map((a) => AgentActionSchema.parse(a)).map((a) => `${a.state}${a.declined ? `:${a.declined.reason}` : ""}${a.proposal ? "" : ":cleared"}`);
+
+describe("suggestions from collected numbers", () => {
+  it("leave on Disconnect with signals off: rows deleted, open suggestions declined as stale, values cleared", async () => {
+    await seed();
+    await suggested(0);
+    await suggested(1, "/care/monstera");
+    expect(db.dump("data_signals")).toHaveLength(2);
+    expect((await disconnect(A, admin, ID, deps())).ok).toBe(true);
+    expect(db.dump("data_signals")).toEqual([]);
+    expect(await states()).toEqual(["declined:stale:cleared", "declined:stale:cleared"]);
+  });
+
+  it("of the old site only on Change property", async () => {
+    await seed();
+    await suggested(0);
+    await pickAccount(A, admin, ID, { account: NEW_SITE }, deps());
+    expect(db.dump("data_signals")).toEqual([]);
+    await suggested(1, "/care/monstera");
+    await eraseConnectionData(A, ID, [0], { by: "system", now: NOW, db, searchIndex });
+    expect(db.dump("data_signals")).toHaveLength(1);
+    expect((await states()).sort()).toEqual(["declined:stale:cleared", "proposed"]);
+  });
+
+  it("are counted by the purge's dry run and go with it", async () => {
+    await seed();
+    await suggested(0);
+    const system = { ...A, source: "system" as const };
+    vi.stubEnv("CONNECTORS_ENABLED", "");
+    expect((await purgeConnections(system, { apply: false, db, searchIndex })).items[0]).toMatchObject({ signals: 1 });
+    const done = await purgeConnections(system, { apply: true, by: "ops", now: NOW, db, searchIndex });
+    expect(done.removed[0]).toMatchObject({ signalsDeleted: 1, suggestionsDeclined: 1 });
+    expect(purgeLines(done).join("\n")).toContain("1 suggestions removed (1 open, declined)");
+    expect(db.dump("data_signals")).toEqual([]);
+  });
+});
+
 describe("Change property", () => {
   it("erases the old site's numbers only, bumps the generation and starts the new 90 days", async () => {
     await seed();
@@ -245,7 +314,7 @@ describe("searches in brand search", () => {
     const untouched = vi.fn((): SearchStore => {
       throw new Error("not a Search Console connection");
     });
-    expect(await eraseConnectionData(A, ID, "all", { by: "system", now: NOW, db, searchIndex: untouched })).toEqual({ snapshots: 0, search: "skipped" });
+    expect(await eraseConnectionData(A, ID, "all", { by: "system", now: NOW, db, searchIndex: untouched })).toEqual({ snapshots: 0, signals: 0, declined: 0, search: "skipped" });
     expect(untouched).not.toHaveBeenCalled();
   });
 
@@ -256,7 +325,7 @@ describe("searches in brand search", () => {
     const system = { ...A, source: "system" as const };
     const dry = await purgeConnections(system, { apply: false, db, searchIndex });
     expect(dry.items[0]).toMatchObject({ connectionId: ID, searchEntry: true });
-    expect(purgeLines(dry)[0]).toContain("0 collected snapshots, its Google searches in brand search");
+    expect(purgeLines(dry)[0]).toContain("0 collected snapshots, 0 suggestions, its Google searches in brand search");
     expect(searchKeys()).toEqual([`research:gsc:${ID}`]);
     const done = await purgeConnections(system, { apply: true, by: "ops", now: NOW, db, searchIndex });
     expect(done.removed[0]).toMatchObject({ connectionId: ID, searchRemoved: true });

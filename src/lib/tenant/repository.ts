@@ -62,6 +62,7 @@ import type { SettingsVersion } from "@/lib/types/settingsVersion";
 import type { RecordFieldListDoc } from "@/lib/types/recordField";
 import type { DataConnection, DataConnectionActivity } from "@/lib/types/dataConnection";
 import type { MetricSnapshot } from "@/lib/types/metricSnapshot";
+import type { DataSignal } from "@/lib/types/dataSignal";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -584,6 +585,11 @@ export interface TenantRepositories {
    * fixed id, kept 90 days by a TTL on ttlAt (src/lib/connectors/snapshots.ts writes them).
    */
   metricSnapshots: TenantCollection<MetricSnapshot>;
+  /**
+   * What collected numbers suggest (CONNECTOR_SIGNALS_ENABLED): one row per connection, rule and
+   * key, by fixed id, kept 30 days by a TTL on ttlAt (src/lib/connectors/signals/store.ts writes them).
+   */
+  dataSignals: TenantCollection<DataSignal>;
 }
 
 /**
@@ -741,5 +747,7 @@ export function forTenant(
     // Numbers collected from a brand's connections, with Search Console's searches and page paths
     // (Google's aggregates, decision 37): regional, beside the connection that read them.
     metricSnapshots: new TenantCollection<MetricSnapshot>(regionalDb, "metric_snapshots", t),
+    // What those numbers suggest, with the search words or page path it fired on: regional too.
+    dataSignals: new TenantCollection<DataSignal>(regionalDb, "data_signals", t),
   };
 }

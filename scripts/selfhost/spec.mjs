@@ -156,6 +156,10 @@ export const KEPT_OFF = {
     addon: "search",
     why: "Search Console's searches in brand search need the search databases, and do nothing until CONNECTORS_COLLECT_ENABLED is on",
   },
+  CONNECTOR_SIGNALS_ENABLED: {
+    addon: null,
+    why: "suggestions from collected numbers do nothing until CONNECTORS_COLLECT_ENABLED is on, and need the agent action indexes READY and the data_signals time to live (docs/self-host.md, Upgrading to collected numbers)",
+  },
   ANALYTICS_BQ_ENABLED: { addon: "bigquery", why: "needs the BigQuery datasets and export extensions" },
   NEXT_PUBLIC_ANALYTICS_BQ_ENABLED: { addon: "bigquery", why: "needs the BigQuery datasets and export extensions" },
 };

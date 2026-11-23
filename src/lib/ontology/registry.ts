@@ -1944,9 +1944,47 @@ export const ONTOLOGY: readonly OntologyType[] = [
         "cfUniqueVisitors",
         "rowsDropped",
         "lagDays",
+        "nearbySearches",
       ],
       tool: "get_connected_numbers",
     },
+  },
+  {
+    id: "data_signal",
+    name: "Suggestion from your numbers",
+    description:
+      "What a brand's collected Search Console numbers suggest (Connectors 2 group 4, CONNECTOR_SIGNALS_ENABLED): a search with clearly more impressions than the 14 days before, a page with clearly fewer clicks than the 28 days before, or a brand map question whose search sits just off Google's first page. One row per connection, rule and key, from connections both members and Vizzy may read; it indexes its agent action, where the decision lives (Plan an article to acted, Dismiss to declined). It holds the search's words or the page's path, Google's aggregates (decision 37), never a person.",
+    place: "signals",
+    status: "built",
+    home: "brand",
+    personal: "none",
+    stores: [
+      regional(
+        "data_signals",
+        "one row per connection, generation, rule and key, by a fixed `dsg_` id; written only through `src/lib/connectors/signals/store.ts`, read by id or by equality on the connection; blanked on dismiss, plan or stale; deleted 30 days on by a time to live on ttlAt",
+      ),
+    ],
+    links: [
+      { to: "data_connection", via: "connectionId, and the generation it was detected under", many: false },
+      { to: "agent_action", via: "agentActionId, the suggestion where its decision lives", many: false },
+      { to: "brand_question", via: "the question it is about or proposed", many: false },
+      { to: "metric_snapshot", via: "the collected days it was detected from", many: true },
+    ],
+    events: [],
+    erase: {
+      paths: [
+        brandPath(
+          "eraseConnectionData",
+          "src/lib/connectors/erase.ts",
+          "Disconnect deletes every row of the connection and Change property its old generation's, declines their open suggestions as stale with values cleared, and removes the undecided brand map questions they proposed, whatever any switch says",
+        ),
+        brandPath("purgeConnections", "src/lib/connectors/purge.ts", "the operator purge does the same with every switch off"),
+        retention("expireConnectorSignals", "src/lib/connectors/signals/reconcile.ts", "the lane declines suggestions 30 days old and withdraws the questions they proposed, whenever CONNECTORS_ENABLED is on; the time to live on ttlAt removes the rows"),
+      ],
+    },
+    export: { none: "suggestions about the brand's own site from Google's aggregates, not about a person" },
+    search: { none: "derived suggestions, found on Review and the brand map" },
+    numbers: { meanings: ["searchClicks", "searchImpressions", "searchPosition", "ga4Sessions"], tool: "get_number_suggestions" },
   },
   {
     id: "gate",
@@ -2032,6 +2070,8 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { to: "person", via: "personId, and the target when it is a person", many: false },
       { to: "company", via: "the target, when it is a company", many: false },
       { to: "idea", via: "the target, when it is an idea", many: false },
+      { to: "data_signal", via: "the target, when it is a suggestion from collected numbers", many: false },
+      { to: "brand_question", via: "the target, when it is a question proposed from Search Console", many: false },
       { to: "ontology_event", via: "agentActionId, its agent kinds of event", many: true },
     ],
     events: ["agent.proposed", "agent.approved", "agent.acted", "agent.undone", "agent.declined"],

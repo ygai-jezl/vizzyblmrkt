@@ -5,6 +5,10 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import type { CollectState, DataConnection } from "@/lib/types/dataConnection";
 import { searchTextRef } from "./keys";
 import { searchConsoleManifest } from "./manifests/searchConsole";
+import { declineAs } from "./signals/reconcile";
+import { eraseSignals, signalsOfConnection } from "./signals/store";
+import { getAgentAction } from "@/lib/ontology/agentActions";
+import { isAgentActionId } from "@/lib/types/agentAction";
 import { eraseSnapshots } from "./snapshots";
 
 /**
@@ -19,12 +23,12 @@ import { eraseSnapshots } from "./snapshots";
  * - The lane retries any connection whose erase is still pending, whenever CONNECTORS_ENABLED is
  *   on (a crash or a timeout between the save and the erase).
  *
- * What goes: the connection's metric snapshots (every day, rolled and planning doc), and a
- * Search Console connection's searches in brand search (ADR-0013), removed with indexing forced on,
- * so they leave whatever SEARCH_INDEX_ENABLED or CONNECTORS_SEARCH_TEXT_ENABLED says; a failed
- * removal leaves the erase pending for the lane. Its data_signals rows, its open suggestions and
- * the undecided brand map questions it proposed join this list as signals land. Each erase
- * records one `erased` activity row, kept in the log only, never on the record's recent list.
+ * What goes: the connection's metric snapshots (every day, rolled and planning doc); its
+ * data_signals rows (group 4), after their open suggestions are declined as stale with their
+ * values cleared; and a Search Console connection's searches in brand search (ADR-0013), removed
+ * with indexing forced on, so they leave whatever SEARCH_INDEX_ENABLED or
+ * CONNECTORS_SEARCH_TEXT_ENABLED says; a failed removal leaves the erase pending for the lane. Each
+ * erase records one `erased` activity row, kept in the log only, never on the record's recent list.
  */
 
 /** The brand's search index (tests pass an in-memory one); default searchStoreFor. */
@@ -32,6 +36,9 @@ export type SearchIndexOf = (ctx: Pick<TenantContext, "tenantId" | "region">) =>
 
 export interface EraseCounts {
   snapshots: number;
+  /** Its data_signals rows deleted, and its open suggestions declined as stale. */
+  signals: number;
+  declined: number;
   /**
    * Its searches in brand search: removed (or none were there), failed (the erase stays pending),
    * or skipped for a connection that puts none there.
@@ -50,6 +57,30 @@ async function eraseSearchText(ctx: TenantContext, connectionId: string, deps: {
   if (conn && conn.connectorId !== searchConsoleManifest.id) return "skipped";
   const outcome = await removeFromIndex(ctx, "research", searchTextRef(connectionId), { force: true, ...(deps.searchIndex ? { store: deps.searchIndex(ctx) } : {}) });
   return outcome === "failed" ? "failed" : "removed";
+}
+
+/**
+ * A connection's suggestions from collected numbers, whatever any switch says: the open one each
+ * of its rows names declined as stale with its values cleared, then the rows deleted. For listed
+ * generations, only theirs. A row outlives its suggestion (it is refreshed while its rule holds,
+ * and its suggestion expires 30 days after it was proposed), so the rows find every open one, by
+ * equality on the connection and then by id.
+ */
+async function eraseSuggestions(
+  ctx: TenantContext,
+  connectionId: string,
+  gens: "all" | readonly number[],
+  deps: { db?: FirestoreLike; now?: Date },
+): Promise<{ signals: number; declined: number }> {
+  const rows = (await signalsOfConnection(ctx, connectionId, deps)).filter((r) => gens === "all" || gens.includes(r.gen));
+  let declined = 0;
+  for (const id of new Set(rows.map((r) => r.agentActionId))) {
+    if (!isAgentActionId(id)) continue;
+    const a = await getAgentAction(ctx, id, deps);
+    if (a && (a.state === "proposed" || a.state === "approved") && (await declineAs(ctx, a, "stale", deps))) declined += 1;
+  }
+  const signals = await eraseSignals(ctx, connectionId, gens, deps);
+  return { signals, declined };
 }
 
 /** What is still to erase after erasing `done`: nothing, or the generations left. */
@@ -81,8 +112,9 @@ export async function eraseConnectionData(
   opts: { by: string; now?: Date; db?: FirestoreLike; record?: boolean; searchIndex?: SearchIndexOf },
 ): Promise<EraseCounts> {
   const snapshots = await eraseSnapshots(ctx, connectionId, gens, { db: opts.db });
+  const { signals, declined } = await eraseSuggestions(ctx, connectionId, gens, { db: opts.db, now: opts.now });
   const search = await eraseSearchText(ctx, connectionId, opts);
-  if (search === "failed") return { snapshots, search };
+  if (search === "failed") return { snapshots, signals, declined, search };
   const at = (opts.now ?? new Date()).toISOString();
   const record = opts.record !== false;
   await changeDataConnection(
@@ -95,7 +127,7 @@ export async function eraseConnectionData(
     },
     opts.db,
   );
-  return { snapshots, search };
+  return { snapshots, signals, declined, search };
 }
 
 /**

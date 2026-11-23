@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { shapeRecordingFirestore } from "@/lib/tenant/testing/queryShape";
-import { createDataConnection, type NewDataConnection } from "@/lib/tenant";
+import { createDataConnection, forTenant, proposeAgentAction, type NewDataConnection } from "@/lib/tenant";
+import { agentDedupeKey } from "@/lib/types/agentAction";
+import { freshCollect } from "@/lib/types/dataConnection";
 import type { Tenant } from "@/lib/types/tenant";
 import { healthyAt } from "../health";
-import { isLaneTick, LANE, runConnectorsLane } from "./tick";
+import { isDetectDue, isLaneTick, LANE, laneHousekeeping, runConnectorsLane } from "./tick";
 
 // The lane across brands, with the collect of one connection stubbed: which brands it visits, in
 // what order, what it skips, and when it runs at all. No provider is called.
@@ -97,4 +99,74 @@ describe("the connectors lane", () => {
     expect(housekeeping).toHaveBeenCalledTimes(1);
     expect(r).toMatchObject({ brands: 1, erased: 1, connections: 0 });
   });
+
+  describe("suggestions from collected numbers", () => {
+    const PLANNING = [
+      { to: "members" as const, can: "read" as const },
+      { to: "agent:vizzy" as const, can: "read" as const },
+    ];
+    // The lane's tick falls on 1 Jan 1970 (UTC), so "rolled today" is that day.
+    const TODAY = "1970-01-01";
+    const sc = (id: string, over: Partial<NewDataConnection> = {}) =>
+      conn(id, { connectorId: "search-console", method: "share_access", account: "sc-domain:fernhill.example", grants: PLANNING, collect: { ...freshCollect(null, 0), lastDay: "1969-12-29", rolledOn: TODAY }, ...over });
+
+    it("are looked at once a day, for a Search Console site that feeds planning and rolled a new day today", () => {
+      const at = (over: Partial<NewDataConnection> = {}) => ({ ...sc("dcn_scaaaaaaaaaaaaaaaaaa", over), tenantId: "ten_a", recent: [] });
+      expect(isDetectDue(at(), TODAY)).toBe(true);
+      expect(isDetectDue(at({ collect: { ...freshCollect(null, 0), lastDay: "1969-12-29", rolledOn: TODAY, detectedOn: TODAY } }), TODAY)).toBe(false);
+      expect(isDetectDue(at({ collect: { ...freshCollect(null, 0), lastDay: "1969-12-29", rolledOn: "1969-12-31" } }), TODAY)).toBe(false);
+      expect(isDetectDue(at({ grants: [{ to: "members", can: "read" }] }), TODAY)).toBe(false);
+      expect(isDetectDue(at({ status: "disconnected" }), TODAY)).toBe(false);
+      expect(isDetectDue({ ...at(), connectorId: "google-analytics" }, TODAY)).toBe(false);
+    });
+
+    it("are looked for only with CONNECTOR_SIGNALS_ENABLED on", async () => {
+      await createDataConnection({ tenantId: "ten_a", region: "us", source: "system" }, sc("dcn_scaaaaaaaaaaaaaaaaaa"), [], db);
+      const detect = vi.fn(async () => ({ status: "detected" as const, fired: { rising_search: 0, losing_page: 0, within_reach: 0 }, checked: [], proposed: 0, refreshed: 0, stale: 0 }));
+      const run = () => runConnectorsLane({ deadlineMs: LANE_TICK + 25_000 }, { db, listTenants: async () => [tenant("ten_a")], clock: () => LANE_TICK, collect: vi.fn(), detect, log: () => {} });
+      expect((await run()).detected).toBe(0);
+      vi.stubEnv("CONNECTOR_SIGNALS_ENABLED", "true");
+      expect((await run()).detected).toBe(1);
+      expect(detect).toHaveBeenCalledTimes(1);
+      // Not with too little time left.
+      const short = await runConnectorsLane({ deadlineMs: LANE_TICK + LANE.DETECT_MIN_MS - 1 + 10_000 }, { db, listTenants: async () => [tenant("ten_a")], clock: () => LANE_TICK + 10_000, collect: vi.fn(), detect, log: () => {} });
+      expect(short.detected).toBe(0);
+    });
+
+    it("expire whatever the collect and signals switches say, for a brand with Search Console", async () => {
+      vi.stubEnv("CONNECTORS_COLLECT_ENABLED", "false");
+      vi.stubEnv("CONNECTOR_SIGNALS_ENABLED", "false");
+      const ctx = { tenantId: "ten_a", region: "us" as const, source: "system" as const };
+      await createDataConnection(ctx, sc("dcn_scaaaaaaaaaaaaaaaaaa"), [], db);
+      const sig = `dsg_${"1".repeat(24)}`;
+      await proposeAgentAction(
+        ctx,
+        {
+          dedupeKey: agentDedupeKey("data_signal.suggest", sig, "r1"),
+          agent: "connector_signals",
+          action: "data_signal.suggest",
+          target: { type: "data_signal", id: sig },
+          personId: null,
+          proposal: { label: "/care/fiddle-leaf-fig" },
+          basis: null,
+          signals: [{ kind: "data_signal", ref: sig }],
+          review: { kind: "data_signal", href: "/admin/approvals#data_signal" },
+          requestedBy: { type: "system", id: "connector_signals" },
+          expiresAt: new Date(LANE_TICK - 1000).toISOString(),
+          clearDetailsOnClose: true,
+          at: new Date(LANE_TICK - 30 * 86_400_000).toISOString(),
+        },
+        { db },
+      );
+      const r = await runConnectorsLane({ deadlineMs: LANE_TICK + 25_000 }, { db, listTenants: async () => [tenant("ten_a")], clock: () => LANE_TICK, log: () => {} });
+      expect(r).toMatchObject({ brands: 1, expired: 1 });
+      const [a] = await forTenant(ctx, db).agentActions.find();
+      expect(a).toMatchObject({ state: "declined", declined: { reason: "expired" }, proposal: null });
+      // A brand without Search Console reads no agent actions at all.
+      const ops: string[] = [];
+      await laneHousekeeping({ tenantId: "ten_b", region: "us", source: "system" }, [], { db: shapeRecordingFirestore(db, ops) });
+      expect(ops).toEqual([]);
+    });
+  });
 });
+

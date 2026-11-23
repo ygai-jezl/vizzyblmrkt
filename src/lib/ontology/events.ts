@@ -337,7 +337,7 @@ export const SUBJECT_TYPE_REGISTRY_ID: Record<SubjectType, string> = {
  * What an agent action can be about. A consumer that needs another target adds the value and its
  * registry type id in its own change.
  */
-export const AGENT_TARGET_TYPES = ["person", "company", "idea"] as const;
+export const AGENT_TARGET_TYPES = ["person", "company", "idea", "data_signal", "brand_question"] as const;
 export type AgentTargetType = (typeof AGENT_TARGET_TYPES)[number];
 
 export interface AgentTarget {
@@ -350,6 +350,10 @@ export const AGENT_TARGET_REGISTRY_ID: Record<AgentTargetType, string> = {
   person: "person",
   company: "company",
   idea: "idea",
+  // What collected numbers suggest (Connectors 2 group 4): a Review suggestion, and a question it
+  // proposed on the brand map.
+  data_signal: "data_signal",
+  brand_question: "brand_question",
 };
 
 /**

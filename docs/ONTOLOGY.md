@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts`. Don't edit this file: change the 
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one.
 
-92 types: 71 built and 21 planned.
+93 types: 72 built and 21 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -345,7 +345,25 @@ A connected source's numbers for one day, or for the 28 or 90 days to its last c
   - `dropAgedDay` in `src/lib/connectors/snapshots.ts`, on retention (writing a day deletes the day 90 days before it, by id; the time to live on ttlAt is the backstop)
 - Export: none. Numbers about the brand's own site and Google's aggregates, not about a person.
 - Search: `research`
-- Numbers: `searchClicks`, `searchImpressions`, `searchCtr`, `searchPosition`, `merged`, `ga4Sessions`, `ga4ActiveUsers`, `ga4Views`, `ga4KeyEvents`, `cfRequests`, `cfPageViews`, `cfVisits`, `cfUniqueVisitors`, `rowsDropped`, `lagDays`, through `get_connected_numbers`
+- Numbers: `searchClicks`, `searchImpressions`, `searchCtr`, `searchPosition`, `merged`, `ga4Sessions`, `ga4ActiveUsers`, `ga4Views`, `ga4KeyEvents`, `cfRequests`, `cfPageViews`, `cfVisits`, `cfUniqueVisitors`, `rowsDropped`, `lagDays`, `nearbySearches`, through `get_connected_numbers`
+
+### Suggestion from your numbers (`data_signal`)
+
+What a brand's collected Search Console numbers suggest (Connectors 2 group 4, CONNECTOR_SIGNALS_ENABLED): a search with clearly more impressions than the 14 days before, a page with clearly fewer clicks than the 28 days before, or a brand map question whose search sits just off Google's first page. One row per connection, rule and key, from connections both members and Vizzy may read; it indexes its agent action, where the decision lives (Plan an article to acted, Dismiss to declined). It holds the search's words or the page's path, Google's aggregates (decision 37), never a person.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `data_signals`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One row per connection, generation, rule and key, by a fixed `dsg_` id; written only through `src/lib/connectors/signals/store.ts`, read by id or by equality on the connection; blanked on dismiss, plan or stale; deleted 30 days on by a time to live on ttlAt.
+- Links: `data_connection` through connectionId, and the generation it was detected under; `agent_action` through agentActionId, the suggestion where its decision lives; `brand_question` through the question it is about or proposed; `metric_snapshot` through the collected days it was detected from (many)
+- Erase:
+  - `eraseConnectionData` in `src/lib/connectors/erase.ts`, on removing the record (Disconnect deletes every row of the connection and Change property its old generation's, declines their open suggestions as stale with values cleared, and removes the undecided brand map questions they proposed, whatever any switch says)
+  - `purgeConnections` in `src/lib/connectors/purge.ts`, on removing the record (the operator purge does the same with every switch off)
+  - `expireConnectorSignals` in `src/lib/connectors/signals/reconcile.ts`, on retention (the lane declines suggestions 30 days old and withdraws the questions they proposed, whenever CONNECTORS_ENABLED is on; the time to live on ttlAt removes the rows)
+- Export: none. Suggestions about the brand's own site from Google's aggregates, not about a person.
+- Search: none. Derived suggestions, found on Review and the brand map.
+- Numbers: `searchClicks`, `searchImpressions`, `searchPosition`, `ga4Sessions`, through `get_number_suggestions`
 
 ## Product
 
@@ -1315,7 +1333,7 @@ One record per suggestion an agent makes for the brand: what it proposes and on 
 - Personal: yes, the brand's people
 - Stores:
   - `agent_actions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per suggestion, written only through `src/lib/tenant/agentActions.ts`; its proposal, basis, result and undo may hold personal values.
-- Links: `person` through personId, and the target when it is a person; `company` through the target, when it is a company; `idea` through the target, when it is an idea; `ontology_event` through agentActionId, its agent kinds of event (many)
+- Links: `person` through personId, and the target when it is a person; `company` through the target, when it is a company; `idea` through the target, when it is an idea; `data_signal` through the target, when it is a suggestion from collected numbers; `brand_question` through the target, when it is a question proposed from Search Console; `ontology_event` through agentActionId, its agent kinds of event (many)
 - Events: `agent.proposed`, `agent.approved`, `agent.acted`, `agent.undone`, `agent.declined`
 - States: `proposed`, `approved`, `acted`, `undone`, `declined`
 - Person fields: `personId` (written with the row)

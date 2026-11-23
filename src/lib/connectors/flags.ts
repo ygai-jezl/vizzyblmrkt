@@ -101,3 +101,17 @@ export function isConnectorsSearchTextEnabled(): boolean {
 export function isConnectorsNumbersEnabled(): boolean {
   return isConnectorsChatEnabled() && isConnectorsCollectEnabled();
 }
+
+/**
+ * What collected numbers suggest (Connectors 2 group 4, ADR-0012): rising searches, pages losing
+ * clicks and brand map questions just off Google's first page, from Search Console's final days,
+ * as proposed brand map questions, Review suggestions with Plan an article and Dismiss, Search
+ * Console lines in Next up and the context pack, and Vizzy's get_number_suggestions. Only
+ * connections both members and Vizzy may read feed it. Needs collected numbers
+ * (CONNECTORS_COLLECT_ENABLED) and the agent action indexes READY; never BRAND_SIGNALS_ENABLED
+ * (decision 36). Off, detection stops and every one of those hides; open suggestions still expire
+ * within 30 days, as the lane's housekeeping runs whenever CONNECTORS_ENABLED is on.
+ */
+export function isConnectorSignalsEnabled(): boolean {
+  return isConnectorsCollectEnabled() && process.env.CONNECTOR_SIGNALS_ENABLED === "true";
+}

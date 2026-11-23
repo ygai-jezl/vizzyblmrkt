@@ -53,3 +53,9 @@ export function connectionOfSearchRef(ref: string): string | null {
 export function planningId(connectionId: string, gen: number, stream: string, by: PlanningBy): string {
   return `${connectionId}_${gen}_${stream}_${by}_r28`;
 }
+
+/** A Search Console site as people read it: "example.com" for a domain property, "www.example.com/blog" for a URL prefix. */
+export function siteName(account: string): string {
+  if (account.startsWith("sc-domain:")) return account.slice("sc-domain:".length);
+  return account.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+}

@@ -1,5 +1,5 @@
 import type { TenantContext } from "@/lib/tenant";
-import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isConnectorsEnabled } from "./flags";
+import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsEnabled } from "./flags";
 import { humanActor } from "./grants";
 import { listForActor, type ConnectionView, type ConnectorListing, type ServiceDeps } from "./service";
 
@@ -17,8 +17,8 @@ export interface ConnectionsScreen {
   /** Collected numbers (CONNECTORS_COLLECT_ENABLED): the Collected column and the Manage card's block. */
   collect: boolean;
   /**
-   * Collected numbers suggest articles (signals, a later switch): only then does the Manage card say
-   * whether a connection is used for planning. False until that switch exists.
+   * Collected numbers suggest articles (CONNECTOR_SIGNALS_ENABLED): only then does the Manage card
+   * say whether a connection is used for planning (members and Vizzy may both read it).
    */
   planning: boolean;
   /** Admins connect and change things; everyone else sees read only states. */
@@ -42,7 +42,7 @@ export async function connectionsScreenFor(ctx: TenantContext, deps: ServiceDeps
     core: isConnectorsEnabled(),
     chat: isConnectorsChatEnabled(),
     collect: isConnectorsCollectEnabled(),
-    planning: false,
+    planning: isConnectorSignalsEnabled(),
     isAdmin: ctx.role === "admin",
     uid: ctx.userId ?? "",
     connectors: [],

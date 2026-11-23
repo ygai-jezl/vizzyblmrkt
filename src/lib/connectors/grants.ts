@@ -50,6 +50,16 @@ export function can(actor: ConnectorActor, action: ConnectorAction, grants: read
   return false;
 }
 
+/**
+ * Whether a connection feeds planning (Connectors 2 group 4, ADR-0012): suggestions from its
+ * numbers, Next up lines and context pack lines. Only when both members and Vizzy may read it, as
+ * those are stored once per brand and seen by the whole team and by Vizzy, so none can follow one
+ * viewer's access. No third grant.
+ */
+export function feedsPlanning(grants: readonly ConnectionGrant[] = []): boolean {
+  return has(grants, "members") && has(grants, "agent:vizzy");
+}
+
 /** The grants to store: known targets only, each once, in a fixed order. */
 export function normaliseGrants(list: readonly ConnectionGrant[]): ConnectionGrant[] {
   return GRANT_TARGETS.filter((to) => list.some((g) => g.to === to && g.can === "read")).map((to) => ({ to, can: "read" as const }));

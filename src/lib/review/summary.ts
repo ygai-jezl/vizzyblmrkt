@@ -57,6 +57,7 @@ export type ReviewKind =
   | "data_source"
   | "competitor_news"
   | "next_article"
+  | "data_signal"
   | "person_suggestion";
 
 export interface ReviewItem {
@@ -111,6 +112,10 @@ export const REVIEW_SECTIONS: Record<ReviewKind, { title: string; description: s
   next_article: {
     title: "Your next article",
     description: "What the article autopilot found and sorted, the questions it asks your team, and runs that couldn't finish.",
+  },
+  data_signal: {
+    title: "What your numbers suggest",
+    description: "Searches and pages from Search Console worth an article. Plan one, or dismiss it.",
   },
   person_suggestion: {
     title: "Suggestions about people",

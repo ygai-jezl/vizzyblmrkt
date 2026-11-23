@@ -9,6 +9,7 @@ import { revokeGoogleToken, type GoogleDeps } from "./google";
 import { searchTextRef } from "./keys";
 import { searchConsoleManifest } from "./manifests/searchConsole";
 import { deleteConnectionAddress } from "./service";
+import { countSignals } from "./signals/store";
 import { countSnapshots } from "./snapshots";
 import { brandTag, copyTag, deleteShareAccount, identitiesProject, listShareAccounts, type ShareDeps } from "./shareAccess";
 import { REFRESH_SLOT } from "./tokenKeeper";
@@ -18,8 +19,9 @@ import { openConnectorSecret, VaultOpenError } from "./vault";
  * The operator purge (scripts/connectors-purge.ts, ADR-0011): remove what YouGrow keeps for a
  * brand's connections, whatever any switch says. For one connection, or every connection of one
  * brand, it deletes the sealed secrets, the recent list and the activity rows, and everything it
- * collected (its metric snapshots, ADR-0012, and a Search Console connection's searches in brand
- * search, ADR-0013, even with indexing off, through src/lib/connectors/erase.ts), marks the
+ * collected (its metric snapshots, ADR-0012, its suggestions from those numbers, their open agent
+ * actions declined as stale, and a Search Console connection's searches in brand search, ADR-0013,
+ * even with indexing off, through src/lib/connectors/erase.ts), marks the
  * connection disconnected and leaves one "purged" row as the trace. A pasted token can't be
  * cancelled from here. A Google sign in is revoked at Google only with
  * CONNECTOR_GOOGLE_REVOKE_ENABLED on, after its purge, because Google's revoke ends every grant
@@ -46,6 +48,8 @@ export interface PurgeItem {
   activity: number;
   /** Collected numbers it still has (metric snapshots, every generation). */
   snapshots: number;
+  /** Its suggestions from collected numbers (data_signals rows, every generation). */
+  signals: number;
   /**
    * Whether its searches are in brand search (Search Console only): null when it puts none there,
    * or the index couldn't be read.
@@ -72,6 +76,9 @@ export interface PurgeReport {
       revoked: boolean;
       addressDeleted: boolean | null;
       snapshotsDeleted: number;
+      /** Its data_signals rows deleted, and its open suggestions declined as stale. */
+      signalsDeleted: number;
+      suggestionsDeclined: number;
       /** Its searches left brand search (or none were there), didn't (run again), or it puts none there (null). */
       searchRemoved: boolean | null;
     } & PurgeCounts
@@ -185,6 +192,7 @@ export async function purgeConnections(
       recent: c.recent.length,
       activity: await countDataConnectionActivity(ctx, c.id, opts.db),
       snapshots: await countSnapshots(ctx, c.id, { db: opts.db }),
+      signals: await countSignals(ctx, c.id, { db: opts.db }),
       searchEntry: addressesOnly ? null : await searchEntryOf(ctx, c, opts.searchIndex),
       address: c.serviceAccount ? (c.serviceAccount.deletedAt ? "deleted" : "kept") : "none",
     });
@@ -199,7 +207,7 @@ export async function purgeConnections(
     const sa = keptAddress(c);
     if (addressesOnly) {
       const deleted = await deleteConnectionAddress(ctx, c.id, sa!, by, { db: opts.db, ...share });
-      report.removed.push({ connectionId: c.id, found: true, activityDeleted: 0, secretsDeleted: 0, recentDeleted: 0, revoked: false, addressDeleted: deleted, snapshotsDeleted: 0, searchRemoved: null });
+      report.removed.push({ connectionId: c.id, found: true, activityDeleted: 0, secretsDeleted: 0, recentDeleted: 0, revoked: false, addressDeleted: deleted, snapshotsDeleted: 0, signalsDeleted: 0, suggestionsDeclined: 0, searchRemoved: null });
       continue;
     }
     const signIn = toRevoke(ctx, c);
@@ -210,7 +218,7 @@ export async function purgeConnections(
     const counts = await purgeDataConnection(ctx, c.id, by, at, opts.db);
     const revoked = signIn ? await revokeGoogleToken(signIn, { transport: opts.transport, log: opts.log }) : false;
     const addressDeleted = sa ? await deleteConnectionAddress(ctx, c.id, sa, by, { db: opts.db, ...share }) : null;
-    report.removed.push({ connectionId: c.id, ...counts, revoked, addressDeleted, snapshotsDeleted, searchRemoved });
+    report.removed.push({ connectionId: c.id, ...counts, revoked, addressDeleted, snapshotsDeleted, signalsDeleted: erased.signals, suggestionsDeclined: erased.declined, searchRemoved });
   }
   if (!("skipped" in found)) {
     report.orphans = [];
@@ -229,14 +237,14 @@ export function purgeLines(r: PurgeReport): string[] {
   const lines: string[] = [];
   if (r.missing) lines.push(`${r.tenantId}: no connection ${r.missing}`);
   for (const i of r.items) {
-    lines.push(`${r.tenantId}: ${i.connectionId} (${i.connectorId}, ${i.status}): ${i.secrets} secrets, ${i.recent} recent, ${i.activity} activity rows, ${i.snapshots} collected snapshots${i.searchEntry ? ", its Google searches in brand search" : ""}${ADDRESS_WORDS[i.address]}`);
+    lines.push(`${r.tenantId}: ${i.connectionId} (${i.connectorId}, ${i.status}): ${i.secrets} secrets, ${i.recent} recent, ${i.activity} activity rows, ${i.snapshots} collected snapshots, ${i.signals} suggestions${i.searchEntry ? ", its Google searches in brand search" : ""}${ADDRESS_WORDS[i.address]}`);
   }
   for (const x of r.removed) {
     const address = x.addressDeleted === null ? "" : x.addressDeleted ? ", Google address deleted" : ", Google address NOT deleted (recorded as cleanup_failed; run again)";
     const hadSearches = r.items.find((i) => i.connectionId === x.connectionId)?.searchEntry;
     const searches = x.searchRemoved === false ? ", Google searches NOT removed from brand search (run again)" : x.searchRemoved && hadSearches !== false ? ", Google searches removed from brand search" : "";
     if (r.addressesOnly) lines.push(`${r.tenantId}: ${x.connectionId}${address}`);
-    else lines.push(`${r.tenantId}: ${x.connectionId} purged: ${x.secretsDeleted} secrets, ${x.recentDeleted} recent, ${x.activityDeleted} activity rows, ${x.snapshotsDeleted} collected snapshots removed${searches}${x.revoked ? ", sign in revoked at Google" : ""}${address}`);
+    else lines.push(`${r.tenantId}: ${x.connectionId} purged: ${x.secretsDeleted} secrets, ${x.recentDeleted} recent, ${x.activityDeleted} activity rows, ${x.snapshotsDeleted} collected snapshots and ${x.signalsDeleted} suggestions removed${x.suggestionsDeclined ? ` (${x.suggestionsDeclined} open, declined)` : ""}${searches}${x.revoked ? ", sign in revoked at Google" : ""}${address}`);
   }
   for (const o of r.orphans) {
     const what = o.deleted === null ? "no live connection owns it" : o.deleted ? "deleted" : "NOT deleted; run again";

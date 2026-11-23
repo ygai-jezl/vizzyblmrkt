@@ -18,7 +18,7 @@ import { learnedLine, listLearned } from "@/lib/autopilot/learned";
 import { listLifecycleJourneys } from "@/lib/lifecycle/service";
 import { listRepoAnalyses } from "@/lib/connect/repoAnalysis";
 import { isConnectorsSearchTextEnabled } from "@/lib/connectors/flags";
-import { rolledId, searchTextRef } from "@/lib/connectors/keys";
+import { rolledId, searchTextRef, siteName } from "@/lib/connectors/keys";
 import { searchConsoleManifest } from "@/lib/connectors/manifests/searchConsole";
 import { daysIn, dayWords, isoWeekOf } from "@/lib/connectors/period";
 import { compareRows, readSnapshot } from "@/lib/connectors/snapshots";
@@ -216,11 +216,8 @@ export const SEARCH_TEXT_DAYS = 28;
 const SEARCH_CONSOLE = searchConsoleManifest.id;
 const SEARCH_CONSOLE_STREAM = searchConsoleManifest.produces[0]!.stream;
 
-/** A Search Console site as people read it: "example.com" for a domain property, "www.example.com/blog" for a URL prefix. */
-export function siteName(account: string): string {
-  if (account.startsWith("sc-domain:")) return account.slice("sc-domain:".length);
-  return account.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
-}
+/** A Search Console site as people read it (src/lib/connectors/keys.ts). */
+export { siteName } from "@/lib/connectors/keys";
 
 const counted = (n: number, one: string, many: string) => `${Math.round(n).toLocaleString("en-US")} ${Math.round(n) === 1 ? one : many}`;
 

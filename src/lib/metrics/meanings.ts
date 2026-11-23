@@ -309,6 +309,16 @@ export const MEANINGS = {
     caveat:
       "The rows listed are the top ones, so never say the others had none. When a tool listed more rows than YouGrow fetched for a day, more were left out than this counts.",
   },
+  // What collected numbers suggest (Connectors 2 group 4): Search Console's searches mapped to the
+  // brand map, never a number of Google's own.
+  nearbySearches: {
+    name: "Nearby searches",
+    definition: "Different searches, among the site's top 100 in Search Console over the days read, whose nearest decided brand map subject is this one.",
+    grain: "one brand map subject over the days read (Pacific time)",
+    unit: "count",
+    source: "YouGrow's reading of Google Search Console's searches against the brand map",
+    caveat: "Matched by meaning, so a search can sit near a subject without asking its exact question. Only the top 100 searches are matched.",
+  },
   lagDays: {
     name: "Days to settle",
     definition: "How many days after a day the tool usually takes to finish that day's numbers.",

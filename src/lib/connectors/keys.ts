@@ -36,6 +36,19 @@ export function rolledId(connectionId: string, gen: number, stream: string, by: 
   return `${connectionId}_${gen}_${stream}_${by}_${span}`;
 }
 
+/**
+ * A Search Console connection's searches in brand search (ADR-0013): one research source, ref
+ * `gsc:<connectionId>`, so erase finds it by the connection and a search can tell whose it is.
+ */
+export function searchTextRef(connectionId: string): string {
+  return `gsc:${connectionId}`;
+}
+
+/** The connection a brand search ref holds the searches of, or null for any other ref. */
+export function connectionOfSearchRef(ref: string): string | null {
+  return ref.startsWith("gsc:") ? ref.slice(4) : null;
+}
+
 /** A planning doc's id (Search Console): a line per brand map question or subject, over 28 days. */
 export function planningId(connectionId: string, gen: number, stream: string, by: PlanningBy): string {
   return `${connectionId}_${gen}_${stream}_${by}_r28`;

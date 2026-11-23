@@ -5,6 +5,14 @@ import { purgeActor, purgeConnections, purgeLines } from "./purge";
 import { brandTag, copyTag, shareDescription } from "./shareAccess";
 import { sealConnectorSecret } from "./vault";
 
+// The search databases: an in-memory index, since every erase removes a Search Console
+// connection's searches from brand search whatever SEARCH_INDEX_ENABLED says (ADR-0013).
+vi.mock("@/lib/tenant/searchIndex", async () => {
+  const { MemorySearchIndex } = await import("@/lib/search/memoryStore");
+  const index = new MemorySearchIndex();
+  return { searchStoreFor: (ctx: { tenantId: string }) => index.storeFor(ctx) };
+});
+
 // Runs with every connector switch off: the purge must work whatever they say.
 const A: TenantContext = { tenantId: "ten_a", region: "us", source: "system" };
 const B: TenantContext = { tenantId: "ten_b", region: "us", source: "system" };
@@ -52,8 +60,8 @@ describe("purgeConnections", () => {
     const before = JSON.stringify([db.dump("data_connections"), db.dump("data_connection_activity")]);
     const r = await purgeConnections(A, { apply: false, db });
     expect(r.items).toEqual([
-      { connectionId: ONE, connectorId: "cloudflare", status: "connected", secrets: 1, recent: 2, activity: 2, snapshots: 0, address: "none" },
-      { connectionId: TWO, connectorId: "cloudflare", status: "connected", secrets: 1, recent: 2, activity: 2, snapshots: 0, address: "none" },
+      { connectionId: ONE, connectorId: "cloudflare", status: "connected", secrets: 1, recent: 2, activity: 2, snapshots: 0, searchEntry: null, address: "none" },
+      { connectionId: TWO, connectorId: "cloudflare", status: "connected", secrets: 1, recent: 2, activity: 2, snapshots: 0, searchEntry: null, address: "none" },
     ]);
     expect(r.removed).toEqual([]);
     expect(JSON.stringify([db.dump("data_connections"), db.dump("data_connection_activity")])).toBe(before);
@@ -61,7 +69,7 @@ describe("purgeConnections", () => {
 
   it("touches only the named connection of the named brand", async () => {
     const r = await purgeConnections(A, { connectionId: ONE, apply: true, by: "ops", now: new Date(T1), db });
-    expect(r.removed).toEqual([{ connectionId: ONE, found: true, activityDeleted: 2, secretsDeleted: 1, recentDeleted: 2, revoked: false, addressDeleted: null, snapshotsDeleted: 0 }]);
+    expect(r.removed).toEqual([{ connectionId: ONE, found: true, activityDeleted: 2, secretsDeleted: 1, recentDeleted: 2, revoked: false, addressDeleted: null, snapshotsDeleted: 0, searchRemoved: null }]);
     expect(db.raw("data_connections", ONE)).toMatchObject({ secrets: {}, status: "disconnected", disconnectedAt: T1, recent: [{ kind: "purged", by: "purge:ops", at: T1, code: null }] });
     expect(activityOf("ten_a", ONE)).toEqual(["purged"]);
     // The brand's other connection and another brand's are left alone.
@@ -222,7 +230,7 @@ describe("purging shared connections and leftover Google addresses", () => {
     const before = activityOf("ten_a", ONE).length;
     const r = await purgeConnections(A, { apply: true, by: "ops", now: new Date(T1), db, addressesOnly: true, ...iam.deps });
     expect(r.items.map((i) => i.connectionId)).toEqual([GONE]);
-    expect(r.removed).toEqual([{ connectionId: GONE, found: true, activityDeleted: 0, secretsDeleted: 0, recentDeleted: 0, revoked: false, addressDeleted: true, snapshotsDeleted: 0 }]);
+    expect(r.removed).toEqual([{ connectionId: GONE, found: true, activityDeleted: 0, secretsDeleted: 0, recentDeleted: 0, revoked: false, addressDeleted: true, snapshotsDeleted: 0, searchRemoved: null }]);
     expect(iam.accounts.size).toBe(0);
     expect(db.raw("data_connections", ONE)?.status).toBe("connected");
     expect(activityOf("ten_a", ONE)).toHaveLength(before);

@@ -4,7 +4,8 @@
  *
  * For one connection (--connection) or every connection of the brand, it deletes the sealed
  * secrets, the recent list, the activity rows and everything it collected (its metric snapshots,
- * ADR-0012), marks each connection disconnected and leaves one "purged" activity row as the trace. Delete a pasted token at the provider too. It calls a
+ * ADR-0012, and a Search Console connection's searches in brand search, ADR-0013, even with
+ * indexing off), marks each connection disconnected and leaves one "purged" activity row as the trace. Delete a pasted token at the provider too. It calls a
  * provider only to revoke a Google sign in, and only with CONNECTOR_GOOGLE_REVOKE_ENABLED on and
  * CONNECTORS_VAULT_KEY set: Google's revoke ends every grant of that Google account, for every brand.
  *

@@ -1096,6 +1096,12 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Search Console's top searches in brand search, found only by those who may read the
+  # connection (ADR-0013; needs CONNECTORS_COLLECT_ENABLED and SEARCH_INDEX_ENABLED).
+  - variable: CONNECTORS_SEARCH_TEXT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Analytics from BigQuery ==
   # Breakdowns and widget views from BigQuery. Needs a dataset per region and the export

@@ -375,6 +375,10 @@ once a day and keeps them 90 days (ADR-0012); `npm run selfhost` keeps it off. B
    overrides:** every time to live comes from `setup.sh ttl`, not the index file, so that delete
    removes all of them.
 
+With brand search too (`addon:search`, which turns it on), `CONNECTORS_SEARCH_TEXT_ENABLED` puts
+each Search Console connection's top searches into brand search, found only by those who may read
+the connection (ADR-0013). It does nothing until collected numbers are on.
+
 ### Enterprise features
 
 Merging upstream brings `src/ee`, the Enterprise code. Its features stay off without a

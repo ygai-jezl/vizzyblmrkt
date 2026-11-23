@@ -1,6 +1,10 @@
-import { changeDataConnection, type TenantContext } from "@/lib/tenant";
+import { removeFromIndex } from "@/lib/search/indexer";
+import type { SearchStore } from "@/lib/search/types";
+import { changeDataConnection, forTenant, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { CollectState, DataConnection } from "@/lib/types/dataConnection";
+import { searchTextRef } from "./keys";
+import { searchConsoleManifest } from "./manifests/searchConsole";
 import { eraseSnapshots } from "./snapshots";
 
 /**
@@ -15,14 +19,37 @@ import { eraseSnapshots } from "./snapshots";
  * - The lane retries any connection whose erase is still pending, whenever CONNECTORS_ENABLED is
  *   on (a crash or a timeout between the save and the erase).
  *
- * What goes: the connection's metric snapshots (every day, rolled and planning doc). Search
- * Console's brand search source, its data_signals rows, its open suggestions and the undecided
- * brand map questions it proposed join this list as brand search and signals land. Each erase
+ * What goes: the connection's metric snapshots (every day, rolled and planning doc), and a
+ * Search Console connection's searches in brand search (ADR-0013), removed with indexing forced on,
+ * so they leave whatever SEARCH_INDEX_ENABLED or CONNECTORS_SEARCH_TEXT_ENABLED says; a failed
+ * removal leaves the erase pending for the lane. Its data_signals rows, its open suggestions and
+ * the undecided brand map questions it proposed join this list as signals land. Each erase
  * records one `erased` activity row, kept in the log only, never on the record's recent list.
  */
 
+/** The brand's search index (tests pass an in-memory one); default searchStoreFor. */
+export type SearchIndexOf = (ctx: Pick<TenantContext, "tenantId" | "region">) => SearchStore;
+
 export interface EraseCounts {
   snapshots: number;
+  /**
+   * Its searches in brand search: removed (or none were there), failed (the erase stays pending),
+   * or skipped for a connection that puts none there.
+   */
+  search: "removed" | "failed" | "skipped";
+}
+
+/**
+ * Remove a connection's searches from brand search, whatever any switch says. Only Search Console
+ * connections put any there; one that can't be read is tried anyway, so nothing is left behind.
+ */
+async function eraseSearchText(ctx: TenantContext, connectionId: string, deps: { db?: FirestoreLike; searchIndex?: SearchIndexOf }): Promise<EraseCounts["search"]> {
+  const conn = await forTenant(ctx, deps.db)
+    .dataConnections.getById(connectionId)
+    .catch(() => null);
+  if (conn && conn.connectorId !== searchConsoleManifest.id) return "skipped";
+  const outcome = await removeFromIndex(ctx, "research", searchTextRef(connectionId), { force: true, ...(deps.searchIndex ? { store: deps.searchIndex(ctx) } : {}) });
+  return outcome === "failed" ? "failed" : "removed";
 }
 
 /** What is still to erase after erasing `done`: nothing, or the generations left. */
@@ -40,18 +67,22 @@ export function pendingWith(pending: CollectState["erasePending"], add: "all" | 
 }
 
 /**
- * Erase a connection's collected rows: all of them, or the listed old generations. Then, in one
- * change, clear what is pending (only what this erase covered) and record one `erased` row (the
- * purge, which leaves its own "purged" row, records none). Safe to run again: a second run finds
- * nothing to delete.
+ * Erase a connection's collected rows: all of them, or the listed old generations, and its searches
+ * in brand search either way (they are the old site's after Change property; the new site's are
+ * indexed again once it has 28 days). Then, in one change, clear what is pending (only what this
+ * erase covered) and record one `erased` row (the purge, which leaves its own "purged" row, records
+ * none). When the searches couldn't be removed, nothing is cleared, so the lane tries again. Safe to
+ * run again: a second run finds nothing to delete.
  */
 export async function eraseConnectionData(
   ctx: TenantContext,
   connectionId: string,
   gens: "all" | readonly number[],
-  opts: { by: string; now?: Date; db?: FirestoreLike; record?: boolean },
+  opts: { by: string; now?: Date; db?: FirestoreLike; record?: boolean; searchIndex?: SearchIndexOf },
 ): Promise<EraseCounts> {
   const snapshots = await eraseSnapshots(ctx, connectionId, gens, { db: opts.db });
+  const search = await eraseSearchText(ctx, connectionId, opts);
+  if (search === "failed") return { snapshots, search };
   const at = (opts.now ?? new Date()).toISOString();
   const record = opts.record !== false;
   await changeDataConnection(
@@ -64,21 +95,26 @@ export async function eraseConnectionData(
     },
     opts.db,
   );
-  return { snapshots };
+  return { snapshots, search };
 }
 
 /**
  * The lane's housekeeping: erase what a connection still has pending, one connection at a time.
  * A failure is logged and left pending for the next run.
  */
-export async function retryPendingErases(ctx: TenantContext, connections: readonly DataConnection[], deps: { db?: FirestoreLike; now?: Date } = {}): Promise<{ erased: number }> {
+export async function retryPendingErases(
+  ctx: TenantContext,
+  connections: readonly DataConnection[],
+  deps: { db?: FirestoreLike; now?: Date; searchIndex?: SearchIndexOf } = {},
+): Promise<{ erased: number }> {
   let erased = 0;
   for (const c of connections) {
     const pending = c.collect?.erasePending;
     if (!pending) continue;
     try {
-      await eraseConnectionData(ctx, c.id, pending, { by: "system", now: deps.now, db: deps.db });
-      erased += 1;
+      const r = await eraseConnectionData(ctx, c.id, pending, { by: "system", now: deps.now, db: deps.db, searchIndex: deps.searchIndex });
+      if (r.search === "failed") console.warn(`[connectors] erase for ${c.id} couldn't remove its searches from brand search, tried again next run`);
+      else erased += 1;
     } catch (err) {
       console.warn(`[connectors] erase for ${c.id} failed, tried again next run:`, err instanceof Error ? err.message.slice(0, 200) : "error");
     }

@@ -10,6 +10,14 @@ import { ADDRESS_DELETED_MESSAGE, ADDRESS_KEPT_MESSAGE, check, checkAccess, disc
 import { CONNECTOR_ERRORS } from "./messages";
 import { __resetShareTokens, brandTag } from "./shareAccess";
 
+// The search databases: an in-memory index, since every erase removes a Search Console
+// connection's searches from brand search whatever SEARCH_INDEX_ENABLED says (ADR-0013).
+vi.mock("@/lib/tenant/searchIndex", async () => {
+  const { MemorySearchIndex } = await import("@/lib/search/memoryStore");
+  const index = new MemorySearchIndex();
+  return { searchStoreFor: (ctx: { tenantId: string }) => index.storeFor(ctx) };
+});
+
 // Search Console by share access, through the service: a Google address made per connection,
 // Check access, the picker, a live read with a minted token, and Disconnect deleting the address.
 // Google is never called: one stub transport plays IAM, IAM Credentials and Search Console.

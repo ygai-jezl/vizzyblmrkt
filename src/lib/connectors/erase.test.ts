@@ -1,17 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MemorySearchIndex } from "@/lib/search/memoryStore";
+import type { SearchStore } from "@/lib/search/types";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { changeDataConnection, createDataConnection, forTenant, type NewDataConnection, type TenantContext } from "@/lib/tenant";
 import { ACTIVITY_KINDS, freshCollect } from "@/lib/types/dataConnection";
 import type { ConnectorActor } from "./grants";
 import { healthyAt } from "./health";
 import { LANE, runConnectorsLane } from "./collect/tick";
-import { pendingAfter, pendingWith } from "./erase";
-import { purgeConnections } from "./purge";
+import { eraseConnectionData, pendingAfter, pendingWith } from "./erase";
+import { purgeConnections, purgeLines } from "./purge";
 import { disconnect, pickAccount } from "./service";
 import { writeDayDoc } from "./snapshots";
 import { answer, routedTransport } from "./testing/providers";
 import { ACCESS_SLOT, REFRESH_SLOT } from "./tokenKeeper";
 import { sealConnectorSecret } from "./vault";
+
+// Tests pass their own index; the default store would reach the search databases.
+vi.mock("@/lib/tenant/searchIndex", () => ({
+  searchStoreFor: () => {
+    throw new Error("tests pass their own index");
+  },
+}));
 
 // Erasing what a connection collected: Disconnect, Change property, the lane's retry and the
 // purge, with the collect switch off throughout. Every site and number is made up.
@@ -27,10 +36,23 @@ const SITES = { siteEntry: [{ siteUrl: OLD_SITE, permissionLevel: "siteOwner" },
 const OLD_KINDS = ACTIVITY_KINDS.filter((k) => k !== "collected" && k !== "erased");
 
 let db: FakeFirestore;
+let index: MemorySearchIndex;
 const load = async () => (await forTenant(A, db).dataConnections.getById(ID))!;
 const kinds = () => db.dump("data_connection_activity").map((a) => `${a.kind}${a.code ? `:${a.code}` : ""}`);
 const snapshotsOf = () => db.dump("metric_snapshots").map((d) => `${d.gen}:${d.by}:${d.day}`);
-const deps = () => ({ db, transport: routedTransport(() => answer(SITES)).transport, limit: async () => false, log: () => {}, now: NOW, sleep: async () => {} });
+const searchIndex = (ctx: { tenantId: string }) => index.storeFor(ctx);
+const deps = () => ({ db, transport: routedTransport(() => answer(SITES)).transport, limit: async () => false, log: () => {}, now: NOW, sleep: async () => {}, searchIndex });
+
+/** This connection's searches in brand search, for a brand (ADR-0013): made-up words and numbers. */
+async function indexedSearches(tenantId = "ten_a") {
+  const sourceKey = `research:gsc:${ID}`;
+  await index.storeFor({ tenantId }).putSource(
+    { sourceKey, kind: "research", ref: `gsc:${ID}`, hash: "h", chunks: 1, embedded: true, indexedAt: NOW.toISOString(), version: "2026-W47" },
+    [{ tenantId, kind: "research", ref: `gsc:${ID}`, sourceKey, chunk: 0, title: "Google searches: example.com", text: "repot a fig: 120 impressions, 4 clicks, position 8.2", url: "", lang: "en", updatedAt: NOW.toISOString(), embedding: [1, 0, 0] }],
+    0,
+  );
+}
+const searchKeys = (tenantId = "ten_a") => [...(index.manifests.get(tenantId)?.keys() ?? [])];
 
 async function seed(over: Partial<NewDataConnection> = {}) {
   const at = new Date(NOW.getTime() - 86_400_000);
@@ -73,13 +95,16 @@ async function collected(gen: number, days = ["2026-11-19", "2026-11-20"]) {
 
 beforeEach(() => {
   db = new FakeFirestore();
+  index = new MemorySearchIndex();
   vi.stubEnv("CONNECTORS_ENABLED", "true");
   vi.stubEnv("CONNECTOR_SEARCH_CONSOLE_ENABLED", "true");
   vi.stubEnv("CONNECTORS_VAULT_KEY", "erase-test-vault-root-0123456789abcdefgh");
   vi.stubEnv("CONNECTOR_GOOGLE_CLIENT_ID", "made-up-client.example.test");
   vi.stubEnv("CONNECTOR_GOOGLE_CLIENT_SECRET", "made-up-client-secret");
-  // Collecting is off: erasing never depends on it.
+  // Collecting, brand search and its searches are off: erasing never depends on them.
   vi.stubEnv("CONNECTORS_COLLECT_ENABLED", "false");
+  vi.stubEnv("CONNECTORS_SEARCH_TEXT_ENABLED", "false");
+  vi.stubEnv("SEARCH_INDEX_ENABLED", "false");
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -123,7 +148,7 @@ describe("Change property", () => {
     expect(kinds()).toEqual(["connected", "account_picked", "erased:old_site"]);
     // The new site's numbers, collected under the new generation, are never touched by an old erase.
     await collected(1);
-    await purgeConnections({ ...A, source: "system" }, { apply: false, db });
+    await purgeConnections({ ...A, source: "system" }, { apply: false, db, searchIndex });
     expect(snapshotsOf()).toHaveLength(6);
   });
 
@@ -148,7 +173,7 @@ describe("a half done erase", () => {
     await collected(0);
     await changeDataConnection(A, ID, (cur) => ({ patch: { status: "disconnected", collect: { ...cur.collect!, erasePending: "all" } }, activity: [] }), db);
     const tick = 7 * LANE.TICK_MS;
-    const r = await runConnectorsLane({ deadlineMs: tick + 25_000 }, { db, clock: () => tick, listTenants: async () => [{ id: "ten_a", region: "us", status: "active" } as never], log: () => {} });
+    const r = await runConnectorsLane({ deadlineMs: tick + 25_000 }, { db, clock: () => tick, listTenants: async () => [{ id: "ten_a", region: "us", status: "active" } as never], log: () => {}, searchIndex });
     expect(r).toMatchObject({ brands: 1, erased: 1, connections: 0 });
     expect(snapshotsOf()).toEqual([]);
     expect((await load()).collect?.erasePending).toBeNull();
@@ -161,11 +186,84 @@ describe("the purge", () => {
     await collected(0);
     for (const name of ["CONNECTORS_ENABLED", "CONNECTOR_SEARCH_CONSOLE_ENABLED", "CONNECTORS_VAULT_KEY"]) vi.stubEnv(name, "");
     const system = { ...A, source: "system" as const };
-    const dry = await purgeConnections(system, { apply: false, db });
+    const dry = await purgeConnections(system, { apply: false, db, searchIndex });
     expect(dry.items[0]).toMatchObject({ connectionId: ID, snapshots: 6 });
     expect(snapshotsOf()).toHaveLength(6);
-    const done = await purgeConnections(system, { apply: true, by: "ops", now: NOW, db });
+    const done = await purgeConnections(system, { apply: true, by: "ops", now: NOW, db, searchIndex });
     expect(done.removed[0]).toMatchObject({ connectionId: ID, snapshotsDeleted: 6 });
     expect(snapshotsOf()).toEqual([]);
+  });
+});
+
+describe("searches in brand search", () => {
+  it("leave on Disconnect with indexing off, from this brand only", async () => {
+    await seed();
+    await indexedSearches();
+    await indexedSearches("ten_b");
+    expect(searchKeys()).toEqual([`research:gsc:${ID}`]);
+    expect((await disconnect(A, admin, ID, deps())).ok).toBe(true);
+    expect(searchKeys()).toEqual([]);
+    expect(index.chunks.get("ten_a")?.size ?? 0).toBe(0);
+    expect(searchKeys("ten_b")).toEqual([`research:gsc:${ID}`]);
+    expect((await load()).collect?.erasePending).toBeNull();
+  });
+
+  it("leave on Change property, as the old site's", async () => {
+    await seed();
+    await indexedSearches();
+    await pickAccount(A, admin, ID, { account: NEW_SITE }, deps());
+    expect(searchKeys()).toEqual([]);
+    expect(kinds()).toEqual(["connected", "account_picked", "erased:old_site"]);
+  });
+
+  it("keep the erase pending when they can't be removed, and the lane removes them later", async () => {
+    await seed();
+    await collected(0);
+    await indexedSearches();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const down = (ctx: { tenantId: string }): SearchStore => ({ ...index.storeFor(ctx), removeSource: async () => Promise.reject(Object.assign(new Error("unavailable"), { code: 14 })) });
+    expect((await disconnect(A, admin, ID, { ...deps(), searchIndex: down })).ok).toBe(true);
+    // The numbers went; the searches didn't, so nothing is cleared and no erased row is written yet.
+    expect(snapshotsOf()).toEqual([]);
+    expect(searchKeys()).toEqual([`research:gsc:${ID}`]);
+    expect((await load()).collect?.erasePending).toBe("all");
+    expect(kinds()).toEqual(["connected", "disconnected"]);
+    const tick = 7 * LANE.TICK_MS;
+    const lane = (s: typeof searchIndex) =>
+      runConnectorsLane({ deadlineMs: tick + 25_000 }, { db, clock: () => tick, listTenants: async () => [{ id: "ten_a", region: "us", status: "active" } as never], log: () => {}, searchIndex: s });
+    expect(await lane(down)).toMatchObject({ erased: 0 });
+    expect((await load()).collect?.erasePending).toBe("all");
+    expect(await lane(searchIndex)).toMatchObject({ erased: 1 });
+    expect(searchKeys()).toEqual([]);
+    expect((await load()).collect?.erasePending).toBeNull();
+    expect(kinds()).toEqual(["connected", "disconnected", "erased:all"]);
+    warn.mockRestore();
+  });
+
+  it("aren't looked for on a connection that puts none there", async () => {
+    await seed({ connectorId: "cloudflare", method: "token_fields", label: "Cloudflare", account: "0123456789abcdef0123456789abcdef", secrets: {} });
+    const untouched = vi.fn((): SearchStore => {
+      throw new Error("not a Search Console connection");
+    });
+    expect(await eraseConnectionData(A, ID, "all", { by: "system", now: NOW, db, searchIndex: untouched })).toEqual({ snapshots: 0, search: "skipped" });
+    expect(untouched).not.toHaveBeenCalled();
+  });
+
+  it("are counted by the purge's dry run and removed by it, with every switch off", async () => {
+    await seed();
+    await indexedSearches();
+    for (const name of ["CONNECTORS_ENABLED", "CONNECTOR_SEARCH_CONSOLE_ENABLED", "CONNECTORS_VAULT_KEY"]) vi.stubEnv(name, "");
+    const system = { ...A, source: "system" as const };
+    const dry = await purgeConnections(system, { apply: false, db, searchIndex });
+    expect(dry.items[0]).toMatchObject({ connectionId: ID, searchEntry: true });
+    expect(purgeLines(dry)[0]).toContain("0 collected snapshots, its Google searches in brand search");
+    expect(searchKeys()).toEqual([`research:gsc:${ID}`]);
+    const done = await purgeConnections(system, { apply: true, by: "ops", now: NOW, db, searchIndex });
+    expect(done.removed[0]).toMatchObject({ connectionId: ID, searchRemoved: true });
+    expect(purgeLines(done).join("\n")).toContain("Google searches removed from brand search");
+    expect(searchKeys()).toEqual([]);
+    // Run again: nothing is left, and nothing is said about searches.
+    const again = await purgeConnections(system, { apply: false, db, searchIndex });
+    expect(again.items[0]).toMatchObject({ searchEntry: false });
   });
 });

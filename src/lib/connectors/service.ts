@@ -4,7 +4,7 @@ import { changeDataConnection, createDataConnection, forTenant, isRateLimited, t
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { meaningsOf } from "@/lib/metrics/meanings";
 import { ConnectionGrantSchema, freshCollect, type ActivityKind, type ConnectionGrant, type ConnectionServiceAccount, type DataConnection } from "@/lib/types/dataConnection";
-import { eraseConnectionData, pendingWith } from "./erase";
+import { eraseConnectionData, pendingWith, type SearchIndexOf } from "./erase";
 import { can, grantsCode, normaliseGrants, type ConnectorActor } from "./grants";
 import { healthAfterFailure, healthAfterSuccess, healthyAt, isCallPaused, shownState } from "./health";
 import { ACCOUNT_HOOKS, VERIFY_HOOKS } from "./handlers";
@@ -32,6 +32,8 @@ import { isVaultConfigured, openConnectorSecret, sealConnectorSecret, VaultOpenE
 export interface ServiceDeps extends ConnectorFetchDeps, KeeperDeps, ShareDeps {
   db?: FirestoreLike;
   newId?: () => string;
+  /** The brand's search index, for erasing a connection's searches (tests pass an in-memory one). */
+  searchIndex?: SearchIndexOf;
 }
 
 export type ServiceResult<T> = { ok: true; status: 200 | 201; value: T } | { ok: false; status: 400 | 403 | 404 | 409 | 429 | 502 | 503; error: string; message?: string };
@@ -750,7 +752,7 @@ export async function pickAccount(ctx: TenantContext, actor: ConnectorActor, id:
   const old = erase as number[] | null;
   if (r.ok && old) {
     try {
-      await eraseConnectionData(ctx, id, r.connection.collect?.erasePending ?? old, { by: byOf(actor), now, db: deps.db });
+      await eraseConnectionData(ctx, id, r.connection.collect?.erasePending ?? old, { by: byOf(actor), now, db: deps.db, searchIndex: deps.searchIndex });
     } catch (err) {
       console.warn(`[connectors] erase after Change property failed for ${id}; the lane tries again:`, err instanceof Error ? err.message.slice(0, 200) : "error");
     }
@@ -1094,7 +1096,7 @@ export async function disconnect(ctx: TenantContext, actor: ConnectorActor, id: 
   if (changed) {
     // Whatever any collect switch says: Disconnect deletes what YouGrow stored for it.
     try {
-      await eraseConnectionData(ctx, id, "all", { by: byOf(actor), now: nowOf(deps), db: deps.db });
+      await eraseConnectionData(ctx, id, "all", { by: byOf(actor), now: nowOf(deps), db: deps.db, searchIndex: deps.searchIndex });
     } catch (err) {
       console.warn(`[connectors] erase after Disconnect failed for ${id}; the lane tries again:`, err instanceof Error ? err.message.slice(0, 200) : "error");
     }

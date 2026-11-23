@@ -330,7 +330,7 @@ Data collected from a connected source once a day, as its manifest's stream and 
 
 ### Metric snapshot (`metric_snapshot`)
 
-A connected source's numbers for one day, or for the 28 or 90 days to its last collected day, collected once a day and kept 90 days in the brand's region (ADR-0012). Each number is keyed by its meaning, with the provider's own day and time zone and how final it is. Rows are keyed by day, page path, landing page or search: Search Console's topic rows hold the words people searched and the brand's page paths, Google's aggregates over everyone who searched (decision 37), not only numbers.
+A connected source's numbers for one day, or for the 28 or 90 days to its last collected day, collected once a day and kept 90 days in the brand's region (ADR-0012). Each number is keyed by its meaning, with the provider's own day and time zone and how final it is. Rows are keyed by day, page path, landing page or search: Search Console's topic rows hold the words people searched and the brand's page paths, Google's aggregates over everyone who searched (decision 37), not only numbers; the top 200 searches of the 28 days go into brand search as research, found only by those who may read the connection (ADR-0013).
 
 - Status: built
 - Home: the brand's region
@@ -339,11 +339,12 @@ A connected source's numbers for one day, or for the 28 or 90 days to its last c
   - `metric_snapshots`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One doc per connection, generation, stream, grouping and day, plus the rolled 28 and 90 day docs and Search Console's planning docs, each by a fixed id and at most 500 rows; written only through `src/lib/connectors/snapshots.ts`, read by id (Vizzy's collected numbers through `src/lib/connectors/numbers.ts`), deleted 90 days on by a time to live on ttlAt.
 - Links: `connector_stream` through the stream it was read from; `data_connection` through connectionId, and the generation it was read under
 - Erase:
-  - `eraseConnectionData` in `src/lib/connectors/erase.ts`, on removing the record (Disconnect erases every snapshot of the connection and Change property its old generation, whatever any switch says; a pending erase is retried by the lane whenever CONNECTORS_ENABLED is on)
-  - `purgeConnections` in `src/lib/connectors/purge.ts`, on removing the record (the operator purge erases them with every switch off)
+  - `eraseConnectionData` in `src/lib/connectors/erase.ts`, on removing the record (Disconnect erases every snapshot of the connection and Change property its old generation, whatever any switch says, and both remove a Search Console connection's searches from brand search with indexing forced on; a pending erase is retried by the lane whenever CONNECTORS_ENABLED is on)
+  - `purgeConnections` in `src/lib/connectors/purge.ts`, on removing the record (the operator purge erases them, and the searches in brand search, with every switch off)
+  - `sweepBrand` in `src/lib/search/sweep.ts`, on removing the record (with CONNECTORS_SEARCH_TEXT_ENABLED off the feeder lists no searches, so the scheduled check removes them from brand search)
   - `dropAgedDay` in `src/lib/connectors/snapshots.ts`, on retention (writing a day deletes the day 90 days before it, by id; the time to live on ttlAt is the backstop)
 - Export: none. Numbers about the brand's own site and Google's aggregates, not about a person.
-- Search: none. Numbers stay exact in number tools.
+- Search: `research`
 - Numbers: `searchClicks`, `searchImpressions`, `searchCtr`, `searchPosition`, `merged`, `ga4Sessions`, `ga4ActiveUsers`, `ga4Views`, `ga4KeyEvents`, `cfRequests`, `cfPageViews`, `cfVisits`, `cfUniqueVisitors`, `rowsDropped`, `lagDays`, through `get_connected_numbers`
 
 ## Product

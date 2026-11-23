@@ -17,6 +17,14 @@ import { isAutopilotLearningEnabled } from "@/lib/autopilot/flags";
 import { learnedLine, listLearned } from "@/lib/autopilot/learned";
 import { listLifecycleJourneys } from "@/lib/lifecycle/service";
 import { listRepoAnalyses } from "@/lib/connect/repoAnalysis";
+import { isConnectorsSearchTextEnabled } from "@/lib/connectors/flags";
+import { rolledId, searchTextRef } from "@/lib/connectors/keys";
+import { searchConsoleManifest } from "@/lib/connectors/manifests/searchConsole";
+import { daysIn, dayWords, isoWeekOf } from "@/lib/connectors/period";
+import { compareRows, readSnapshot } from "@/lib/connectors/snapshots";
+import type { FirestoreLike } from "@/lib/tenant/types";
+import type { DataConnection } from "@/lib/types/dataConnection";
+import type { MetricSnapshot, SnapshotRow } from "@/lib/types/metricSnapshot";
 import type { Broadcast } from "@/lib/types/broadcast";
 import type { BrandAuthor } from "@/lib/types/brandAuthor";
 import type { BrandMapImport, BrandMapStoredRecord } from "@/lib/types/brandMapRecords";
@@ -38,7 +46,8 @@ import type { SearchKind, SearchSource, SearchStub } from "./types";
  * mapper (tested without a database) and is read by readBrandStubs. People's words (sign-up
  * answers, AI conversations, social comments, person plans) are not read: they wait for the data
  * processing agreement. Notes that may name a real customer (canName) are left out for the same
- * reason, and so are competitor quotes and authors.
+ * reason, and so are competitor quotes and authors. Search Console's searches are Google's counts
+ * over everyone who searched, not one person's words (decision 37, ADR-0013), so they are read.
  */
 
 const SOCIAL_CHANNELS = new Set(["linkedin", "x", "instagram", "threads", "facebook", "bluesky"]);
@@ -200,6 +209,90 @@ export function signalSource(sig: BrandSignal): SearchSource | null {
   return { kind: "research", ref: `serp:${sig.id}`, title: `Google: ${sig.about.query}`, body, url: "/admin/brand-kit/map" };
 }
 
+/** Searches a Search Console connection puts in brand search: the top ones of the 28 days. */
+export const SEARCH_TEXT_TOP = 200;
+/** The days they cover, to the last collected day: the rolled 28 day doc. */
+export const SEARCH_TEXT_DAYS = 28;
+const SEARCH_CONSOLE = searchConsoleManifest.id;
+const SEARCH_CONSOLE_STREAM = searchConsoleManifest.produces[0]!.stream;
+
+/** A Search Console site as people read it: "example.com" for a domain property, "www.example.com/blog" for a URL prefix. */
+export function siteName(account: string): string {
+  if (account.startsWith("sc-domain:")) return account.slice("sc-domain:".length);
+  return account.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+}
+
+const counted = (n: number, one: string, many: string) => `${Math.round(n).toLocaleString("en-US")} ${Math.round(n) === 1 ? one : many}`;
+
+/** One search with its numbers: "repot a fig: 120 impressions, 4 clicks, position 8.2 in the 28 days to 20 Nov". */
+export function searchLine(row: Pick<SnapshotRow, "key" | "m">, window: { from: string; to: string }): string | null {
+  const words = row.key.replace(/\s+/g, " ").trim();
+  if (!words) return null;
+  const m = row.m;
+  const numbers = [
+    typeof m.searchImpressions === "number" ? counted(m.searchImpressions, "impression", "impressions") : "",
+    typeof m.searchClicks === "number" ? counted(m.searchClicks, "click", "clicks") : "",
+    typeof m.searchPosition === "number" && m.searchPosition > 0 ? `position ${m.searchPosition.toFixed(1)}` : "",
+  ].filter(Boolean);
+  if (!numbers.length) return words;
+  const days = daysIn(window.from, window.to);
+  return `${words}: ${numbers.join(", ")} ${days === 1 ? "on" : `in the ${days} days to`} ${dayWords(window.to)}`;
+}
+
+/**
+ * A Search Console connection's searches (CONNECTORS_SEARCH_TEXT_ENABLED, ADR-0013), as the brand's
+ * research: Google's counts over everyone who searched, not one person's words (decision 37). The
+ * top 200 searches of the rolled 28 day doc, by clicks then impressions, each a part with its
+ * clicks, impressions and position, never a page. Only viewers who may read the connection find
+ * them (searchBrand), and its link opens the connection on Connected.
+ */
+export function searchConsoleSource(conn: Pick<DataConnection, "id" | "account">, doc: Pick<MetricSnapshot, "rows" | "window">): SearchSource | null {
+  if (!doc.window) return null;
+  const title = `Google searches: ${siteName(conn.account)}`;
+  const url = `/admin/account/connections/connected?c=${conn.id}`;
+  const seen = new Set<string>();
+  const parts: NonNullable<SearchSource["parts"]> = [];
+  for (const row of [...doc.rows].sort(compareRows)) {
+    if (parts.length >= SEARCH_TEXT_TOP) break;
+    const key = row.key.replace(/\s+/g, " ").trim().toLowerCase();
+    const text = key && !seen.has(key) ? searchLine(row, doc.window) : null;
+    if (!text) continue;
+    seen.add(key);
+    parts.push({ title, text, url });
+  }
+  return parts.length ? { kind: "research", ref: searchTextRef(conn.id), title, body: "", url, parts } : null;
+}
+
+/**
+ * A Search Console connection's searches as a stub: once 28 days are collected (or all the site
+ * has), so the first week's text isn't a partial window, and only while it is connected. Its version
+ * is the ISO week of the last collected day, so the searches are read and embedded again once a
+ * week, not every day the numbers move.
+ */
+export function searchConsoleStub(ctx: TenantContext, conn: DataConnection, deps: { db?: FirestoreLike } = {}): SearchStub | null {
+  const c = conn.collect;
+  if (conn.connectorId !== SEARCH_CONSOLE || conn.status !== "connected" || !conn.account) return null;
+  if (!c?.lastDay || !c.backfilledTo || !c.rolledOn) return null;
+  if (!c.filled && daysIn(c.backfilledTo, c.lastDay) < SEARCH_TEXT_DAYS) return null;
+  const gen = c.gen;
+  return {
+    kind: "research",
+    ref: searchTextRef(conn.id),
+    version: isoWeekOf(c.lastDay),
+    async load() {
+      const doc = await readSnapshot(ctx, rolledId(conn.id, gen, SEARCH_CONSOLE_STREAM, "topic", "r28"), deps);
+      return doc ? searchConsoleSource(conn, doc) : null;
+    },
+  };
+}
+
+/** Every Search Console connection's searches the brand keeps, while CONNECTORS_SEARCH_TEXT_ENABLED is on. */
+export async function searchConsoleStubs(ctx: TenantContext, deps: { db?: FirestoreLike } = {}): Promise<SearchStub[]> {
+  if (!isConnectorsSearchTextEnabled()) return [];
+  const conns = await forTenant(ctx, deps.db).dataConnections.find({ where: [["connectorId", "==", SEARCH_CONSOLE]], limit: 50 });
+  return conns.map((c) => searchConsoleStub(ctx, c, deps)).filter((x): x is SearchStub => x !== null);
+}
+
 /** One thing the autopilot learned from the brand's people (CREATE_AUTOPILOT_LEARNING_ENABLED). */
 export function learnedSource(e: LearnedEntry): SearchSource {
   return { kind: "learned", ref: e.id, title: learnedLine(e).slice(0, 160), body: lines(learnedLine(e), e.at.slice(0, 10)), url: "/admin/brand-kit/map" };
@@ -294,7 +387,9 @@ export async function readBrandStubs(ctx: TenantContext): Promise<BrandStubs> {
   await read(["research"], async () => {
     const imports = (await listImports(ctx)).map(importSource);
     const google = isBrandSignalsEnabled() ? (await readySignals(ctx, 1000)).map(signalSource) : [];
-    return [...imports, ...google].filter((x): x is SearchSource => x !== null).map(stubOf);
+    // Off, none are listed, so the sweep removes what was indexed (research is read in full).
+    const searches = await searchConsoleStubs(ctx);
+    return [...[...imports, ...google].filter((x): x is SearchSource => x !== null).map(stubOf), ...searches];
   });
   await read(["learned"], async () => (isAutopilotLearningEnabled() ? (await listLearned(ctx)).map((e) => stubOf(learnedSource(e))) : []));
   await read(["competitor"], async () => {

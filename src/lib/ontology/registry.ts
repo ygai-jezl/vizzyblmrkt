@@ -1895,7 +1895,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "metric_snapshot",
     name: "Metric snapshot",
     description:
-      "A connected source's numbers for one day, or for the 28 or 90 days to its last collected day, collected once a day and kept 90 days in the brand's region (ADR-0012). Each number is keyed by its meaning, with the provider's own day and time zone and how final it is. Rows are keyed by day, page path, landing page or search: Search Console's topic rows hold the words people searched and the brand's page paths, Google's aggregates over everyone who searched (decision 37), not only numbers.",
+      "A connected source's numbers for one day, or for the 28 or 90 days to its last collected day, collected once a day and kept 90 days in the brand's region (ADR-0012). Each number is keyed by its meaning, with the provider's own day and time zone and how final it is. Rows are keyed by day, page path, landing page or search: Search Console's topic rows hold the words people searched and the brand's page paths, Google's aggregates over everyone who searched (decision 37), not only numbers; the top 200 searches of the 28 days go into brand search as research, found only by those who may read the connection (ADR-0013).",
     place: "signals",
     status: "built",
     home: "brand",
@@ -1916,14 +1916,17 @@ export const ONTOLOGY: readonly OntologyType[] = [
         brandPath(
           "eraseConnectionData",
           "src/lib/connectors/erase.ts",
-          "Disconnect erases every snapshot of the connection and Change property its old generation, whatever any switch says; a pending erase is retried by the lane whenever CONNECTORS_ENABLED is on",
+          "Disconnect erases every snapshot of the connection and Change property its old generation, whatever any switch says, and both remove a Search Console connection's searches from brand search with indexing forced on; a pending erase is retried by the lane whenever CONNECTORS_ENABLED is on",
         ),
-        brandPath("purgeConnections", "src/lib/connectors/purge.ts", "the operator purge erases them with every switch off"),
+        brandPath("purgeConnections", "src/lib/connectors/purge.ts", "the operator purge erases them, and the searches in brand search, with every switch off"),
+        brandPath("sweepBrand", "src/lib/search/sweep.ts", "with CONNECTORS_SEARCH_TEXT_ENABLED off the feeder lists no searches, so the scheduled check removes them from brand search"),
         retention("dropAgedDay", "src/lib/connectors/snapshots.ts", "writing a day deletes the day 90 days before it, by id; the time to live on ttlAt is the backstop"),
       ],
     },
     export: { none: "numbers about the brand's own site and Google's aggregates, not about a person" },
-    search: { none: "numbers stay exact in number tools" },
+    // A Search Console connection's top 200 searches over 28 days, as research `gsc:<connectionId>`
+    // (CONNECTORS_SEARCH_TEXT_ENABLED, ADR-0013); every other number stays exact in number tools.
+    search: { kinds: ["research"] },
     numbers: {
       meanings: [
         "searchClicks",

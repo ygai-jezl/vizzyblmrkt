@@ -59,6 +59,15 @@ export function daysIn(from: string, to: string): number {
   return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY_MS) + 1;
 }
 
+/** "2026-W47": the ISO week a day falls in (weeks start on Monday; week 1 holds the year's first Thursday). */
+export function isoWeekOf(day: string): string {
+  const t = new Date(`${day}T00:00:00Z`);
+  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));
+  const year = t.getUTCFullYear();
+  const week = Math.ceil(((t.getTime() - Date.UTC(year, 0, 1)) / DAY_MS + 1) / 7);
+  return `${year}-W${String(week).padStart(2, "0")}`;
+}
+
 /** The later of two days. */
 export const laterDay = (a: string, b: string) => (a > b ? a : b);
 /** The earlier of two days. */

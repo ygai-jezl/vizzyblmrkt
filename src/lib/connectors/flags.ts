@@ -81,6 +81,18 @@ export function isConnectorsCollectEnabled(): boolean {
 }
 
 /**
+ * Search Console searches in brand search (Connectors 2, ADR-0013): each Search Console
+ * connection's top 200 searches over 28 days, with their numbers, as one research source, found
+ * only by viewers who may read that connection. Needs collected numbers (CONNECTORS_COLLECT_ENABLED);
+ * the index itself needs SEARCH_INDEX_ENABLED and the brand's brand_search access. Off, the feeder
+ * lists none, so the next sweep removes them, and searches hide them at once. Removing them on
+ * Disconnect, Change property and the purge never depends on it.
+ */
+export function isConnectorsSearchTextEnabled(): boolean {
+  return isConnectorsCollectEnabled() && process.env.CONNECTORS_SEARCH_TEXT_ENABLED === "true";
+}
+
+/**
  * Vizzy reading collected numbers: POST /api/agent/connectors/numbers, which its
  * get_connected_numbers tool calls (Connectors 2, ADR-0012). No switch of its own: it needs Vizzy
  * reading connected data (CONNECTORS_CHAT_ENABLED) and collected numbers (CONNECTORS_COLLECT_ENABLED),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { queryKey } from "@/lib/signals/store";
-import { dayKey, pageKey, planningId, rolledId, snapshotId, topicKey } from "./keys";
+import { connectionOfSearchRef, dayKey, pageKey, planningId, rolledId, searchTextRef, snapshotId, topicKey } from "./keys";
 
 describe("the shared keys", () => {
   it("writes a page as its host and cleaned path, the path alone without a host", () => {
@@ -26,5 +26,11 @@ describe("the shared keys", () => {
     expect(snapshotId("dcn_aaaaaaaaaaaaaaaaaaaa", 1, "search_performance", "page", "2026-11-20")).not.toBe(snapshotId("dcn_aaaaaaaaaaaaaaaaaaaa", 0, "search_performance", "page", "2026-11-20"));
     expect(rolledId("dcn_aaaaaaaaaaaaaaaaaaaa", 2, "site_traffic", "landing", "r90")).toBe("dcn_aaaaaaaaaaaaaaaaaaaa_2_site_traffic_landing_r90");
     expect(planningId("dcn_aaaaaaaaaaaaaaaaaaaa", 0, "search_performance", "question")).toBe("dcn_aaaaaaaaaaaaaaaaaaaa_0_search_performance_question_r28");
+  });
+
+  it("names a connection's searches in brand search by the connection, and reads it back", () => {
+    expect(searchTextRef("dcn_aaaaaaaaaaaaaaaaaaaa")).toBe("gsc:dcn_aaaaaaaaaaaaaaaaaaaa");
+    expect(connectionOfSearchRef("gsc:dcn_aaaaaaaaaaaaaaaaaaaa")).toBe("dcn_aaaaaaaaaaaaaaaaaaaa");
+    for (const other of ["serp:sig_1", "imp_1", "dcn_aaaaaaaaaaaaaaaaaaaa"]) expect(connectionOfSearchRef(other)).toBeNull();
   });
 });

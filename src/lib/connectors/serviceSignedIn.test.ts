@@ -7,6 +7,14 @@ import { check, disconnect, getForActor, listAccounts, listForActor, pickAccount
 import { ACCESS_SLOT, REFRESH_SLOT } from "./tokenKeeper";
 import { openConnectorSecret, sealConnectorSecret } from "./vault";
 
+// The search databases: an in-memory index, since every erase removes a Search Console
+// connection's searches from brand search whatever SEARCH_INDEX_ENABLED says (ADR-0013).
+vi.mock("@/lib/tenant/searchIndex", async () => {
+  const { MemorySearchIndex } = await import("@/lib/search/memoryStore");
+  const index = new MemorySearchIndex();
+  return { searchStoreFor: (ctx: { tenantId: string }) => index.storeFor(ctx) };
+});
+
 // A Search Console connection signed in with Google, through the service: the token keeper's
 // refresh, the site picker and the live read. Google is never called: every request goes to a
 // stub transport that answers by address.

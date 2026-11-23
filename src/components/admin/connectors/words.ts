@@ -552,6 +552,7 @@ const SHORT: Readonly<Record<string, string>> = {
   account_refused: "it can't read that account",
   signin_refused: "Google ended the sign in",
   share_not_visible: "the address can't see the property",
+  share_access_lost: "YouGrow lost access to the property",
   share_pending: "Google is still setting up the address",
   rate_limited: "the provider asked YouGrow to slow down",
   provider_error: "the provider had a problem",

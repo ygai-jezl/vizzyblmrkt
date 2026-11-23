@@ -51,7 +51,7 @@ function refuse(status: 400 | 403 | 404 | 409 | 429 | 502 | 503, error: string, 
   return { ok: false, status, error, ...(message ? { message } : {}) };
 }
 
-const CONFLICTS: ReadonlySet<ConnectorErrorCode> = new Set(["paused", "secret_unopenable", "disconnected", "signin_refused", "account_needed", "share_not_visible", "share_pending", "share_limit"]);
+const CONFLICTS: ReadonlySet<ConnectorErrorCode> = new Set(["paused", "secret_unopenable", "disconnected", "signin_refused", "account_needed", "share_not_visible", "share_access_lost", "share_pending", "share_limit"]);
 const UNCONFIGURED: ReadonlySet<ConnectorErrorCode> = new Set(["vault_unconfigured", "signin_unconfigured", "share_unconfigured", "share_quota"]);
 
 /**
@@ -91,14 +91,22 @@ const SHARE_CODES: Partial<Record<ConnectorErrorCode, ConnectorErrorCode>> = {
   signin_unconfigured: "share_unconfigured",
 };
 
-export function codeFor(method: DataConnection["method"], code: ConnectorErrorCode): ConnectorErrorCode {
-  return method === "share_access" ? (SHARE_CODES[code] ?? code) : code;
+/**
+ * A failure in the connection's own words. A shared connection that had read its property before
+ * (a property picked, and a call that worked) and now can't see it lost its access: its address
+ * was taken off the property, which the daily collect notices the next day. Before it ever worked,
+ * it can't see the property yet.
+ */
+export function codeFor(conn: Pick<DataConnection, "method" | "account" | "health">, code: ConnectorErrorCode): ConnectorErrorCode {
+  if (conn.method !== "share_access") return code;
+  const mapped = SHARE_CODES[code] ?? code;
+  return mapped === "share_not_visible" && conn.account && conn.health.lastOkAt ? "share_access_lost" : mapped;
 }
 
-function forMethod<T extends { ok: boolean }>(method: DataConnection["method"], r: T): T {
-  if (r.ok || method !== "share_access") return r;
+function forMethod<T extends { ok: boolean }>(conn: Pick<DataConnection, "method" | "account" | "health">, r: T): T {
+  if (r.ok || conn.method !== "share_access") return r;
   const failed = r as T & { code: ConnectorErrorCode };
-  return { ...failed, code: codeFor(method, failed.code) };
+  return { ...failed, code: codeFor(conn, failed.code) };
 }
 
 const nowOf = (deps: ServiceDeps) => deps.now ?? new Date();
@@ -209,7 +217,7 @@ export function viewOf(conn: DataConnection, actor: ConnectorActor, now: Date): 
       state: shownState(conn, now),
       lastOkAt: conn.health.lastOkAt,
       lastCheckedAt: conn.health.lastCheckedAt,
-      message: conn.health.lastErrorCode ? connectorMessage(conn.health.lastErrorCode, aboutOf(conn.connectorId)) : null,
+      message: conn.health.lastErrorCode ? connectorMessage(conn.health.lastErrorCode, { ...aboutOf(conn.connectorId), since: conn.health.since ?? null }) : null,
       pausedUntil: conn.health.pausedUntil,
     },
     needsAccount: conn.status === "connected" && !conn.account,
@@ -535,7 +543,7 @@ export async function check(ctx: TenantContext, actor: ConnectorActor, id: strin
   const now = nowOf(deps);
   const verify = VERIFY_HOOKS[u.manifest.verify.hook];
   if (!verify) return refuse(503, "connector_unavailable");
-  const outcome = forMethod(u.conn.method, await verify({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token }, deps));
+  const outcome = forMethod(u.conn, await verify({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token }, deps));
   if (!outcome.ok && outcome.code === "busy") return providerRefusal("busy");
   const r = await changeDataConnection(ctx, id, (cur) => outcomePlan(cur, outcome, actor, now, "verified"), deps.db);
   const conn = r.ok ? r.connection : r.why === "unchanged" ? r.connection : u.conn;
@@ -567,7 +575,7 @@ export async function readLiveFor(
   const checked = checkLiveRequest(u.manifest, rawQuery, now);
   if (!checked.ok) return refuse(400, checked.error);
   const q = checked.query;
-  const r = forMethod(u.conn.method, await readLive({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token, query: q }, deps));
+  const r = forMethod(u.conn, await readLive({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token, query: q }, deps));
   if (!r.ok && r.code === "busy") return providerRefusal("busy");
   const read = r.ok
     ? { stream: q.stream, by: q.by, from: r.answer.period.from, to: r.answer.period.to, timeZone: r.answer.period.timeZone, limit: q.limit, period: q.period ?? null, pageFilter: q.page !== undefined }
@@ -598,7 +606,7 @@ export async function listAccounts(ctx: TenantContext, actor: ConnectorActor, id
   // A token connection picks its account before it is saved (checkToken) and never changes it here.
   if (!hook || u.conn.method === "token_fields") return refuse(400, "method_not_supported");
   const now = nowOf(deps);
-  const r = forMethod(u.conn.method, await hook({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token }, deps));
+  const r = forMethod(u.conn, await hook({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token }, deps));
   if (!r.ok) {
     if (r.code !== "busy") await changeDataConnection(ctx, id, (cur) => outcomePlan(cur, r, actor, now, null), deps.db);
     return connectionRefusal(u.conn, r.code);
@@ -629,7 +637,7 @@ export async function pickAccount(ctx: TenantContext, actor: ConnectorActor, id:
   const checked = await verify({ manifest: u.manifest, connection: u.conn, account, token: u.token }, deps);
   if (!checked.ok) {
     if (checked.code === "account_refused") return refuse(400, "account_refused", "That site or property isn't one this connection can read. Pick one from the list.");
-    return connectionRefusal(u.conn, codeFor(u.conn.method, checked.code));
+    return connectionRefusal(u.conn, codeFor(u.conn, checked.code));
   }
   const existing = await forTenant(ctx, deps.db).dataConnections.find({
     where: [
@@ -838,11 +846,11 @@ export async function checkAccess(ctx: TenantContext, actor: ConnectorActor, id:
   const verify = VERIFY_HOOKS[u.manifest.verify.hook];
   if (!hook || !verify) return refuse(503, "connector_unavailable");
   const input = { manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token };
-  const listed = forMethod(u.conn.method, await hook(input, deps));
+  const listed = forMethod(u.conn, await hook(input, deps));
   if (!listed.ok && listed.code === "busy") return providerRefusal("busy");
   let outcome: { ok: true } | HookFailure = listed.ok ? { ok: true } : listed;
-  if (listed.ok && !listed.accounts.length) outcome = { ok: false, code: "share_not_visible", retryAfterSec: null };
-  else if (listed.ok && u.conn.account) outcome = forMethod(u.conn.method, await verify(input, deps));
+  if (listed.ok && !listed.accounts.length) outcome = { ok: false, code: codeFor(u.conn, "share_not_visible"), retryAfterSec: null };
+  else if (listed.ok && u.conn.account) outcome = forMethod(u.conn, await verify(input, deps));
   if (!outcome.ok && outcome.code === "busy") return providerRefusal("busy");
 
   const now = nowOf(deps);
@@ -861,7 +869,7 @@ export async function checkAccess(ctx: TenantContext, actor: ConnectorActor, id:
     },
     deps.db,
   );
-  if (!outcome.ok && outcome.code !== "share_not_visible") return connectionRefusal(u.conn, outcome.code);
+  if (!outcome.ok && outcome.code !== "share_not_visible" && outcome.code !== "share_access_lost") return connectionRefusal(u.conn, outcome.code);
   const saved = r.ok ? r.connection : r.why === "unchanged" ? r.connection : u.conn;
   return {
     ok: true,

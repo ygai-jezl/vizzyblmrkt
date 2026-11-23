@@ -31,6 +31,10 @@ import { canAddPeople, isVizzyAddPersonEnabled, isVizzyFieldsEnabled } from "@/l
 import { PERSON_FIELDS_ACTION } from "@/lib/audience/fieldSuggestions";
 import { NEW_PERSON_ACTION } from "@/lib/audience/personDrafts";
 import { readFieldList } from "@/lib/audience/fieldList";
+import { isConnectorsCollectEnabled } from "@/lib/connectors/flags";
+import { dayWords } from "@/lib/connectors/period";
+import { getConnector, knownConnector } from "@/lib/connectors/registry";
+import type { DataConnection } from "@/lib/types/dataConnection";
 
 /**
  * Review (nav v2 phase 2): every decision waiting on a person, in one place,
@@ -50,6 +54,7 @@ export type ReviewKind =
   | "content_hub"
   | "failed_post"
   | "connection"
+  | "data_source"
   | "competitor_news"
   | "next_article"
   | "person_suggestion";
@@ -95,6 +100,10 @@ export const REVIEW_SECTIONS: Record<ReviewKind, { title: string; description: s
     title: "Connection problems",
     description: "Your product's context endpoint keeps failing, so personal lines fall back to the standard version.",
   },
+  data_source: {
+    title: "Data sources that need you",
+    description: "A connection that can't be read, so no new numbers are collected for it.",
+  },
   competitor_news: {
     title: "What your competitors changed",
     description: "New posts on their news pages and changes to their sites since you last looked. Open one to read it, or mark it seen.",
@@ -110,7 +119,7 @@ export const REVIEW_SECTIONS: Record<ReviewKind, { title: string; description: s
 };
 
 /** Order of sections on the page (AI lines are time-bound, so they come first). */
-export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "next_article", "agent_draft", "person_suggestion", "repo_results", "brand_map", "competitor_news", "content_hub"];
+export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "data_source", "next_article", "agent_draft", "person_suggestion", "repo_results", "brand_map", "competitor_news", "content_hub"];
 
 // ---------------------------------------------------------------------------
 // Per-source rules (pure)
@@ -349,6 +358,57 @@ export function connectionItem(
   };
 }
 
+/** Collecting has failed this many days before a connection shows in Review. */
+export const COLLECT_FAILED_DAYS = 3;
+/** An admin's pause this many days old shows in Review. */
+export const PAUSED_DAYS = 7;
+const DAY_MS = 86_400_000;
+
+/** The Connected view with this connection selected. */
+export const connectedHref = (id: string) => `/admin/account/connections/connected?c=${encodeURIComponent(id)}`;
+
+/** "19 Nov", from an instant. */
+const dayOf = (iso: string) => dayWords(iso.slice(0, 10));
+
+/**
+ * A data source that needs someone (CONNECTORS_COLLECT_ENABLED, admins only): a connection its
+ * provider turned down, one with no property chosen, one whose collecting has failed since 3 or
+ * more days ago (collect.failedSince, as health counts calls, not days), or one an admin paused 7
+ * or more days ago. Each links to the Connected view with that connection selected. A connection
+ * whose connector this copy has turned off reads nothing on purpose, so it isn't listed.
+ */
+export function dataSourceItem(c: DataConnection, now: Date = new Date()): ReviewItem | null {
+  if (c.status !== "connected" || !getConnector(c.connectorId)) return null;
+  const tool = knownConnector(c.connectorId)?.name ?? c.connectorId;
+  const name = c.label && c.label !== tool ? `${tool} for ${c.label}` : tool;
+  const base = { id: `data_source:${c.id}`, kind: "data_source" as const, href: connectedHref(c.id) };
+  if (c.health.state === "broken") {
+    const since = dayOf(c.health.since ?? c.health.lastCheckedAt ?? now.toISOString());
+    const fix =
+      c.method === "share_access"
+        ? `It can't read its property since ${since}, so no new numbers are collected. Add YouGrow's address to the property again.`
+        : c.method === "oauth_pkce"
+          ? `It can't be read since ${since}, so no new numbers are collected. Reconnect it by signing in with Google again.`
+          : `It can't be read since ${since}, so no new numbers are collected. Reconnect it with a new token.`;
+    return { ...base, title: `${name} needs you`, detail: fix, action: "Fix" };
+  }
+  if (!c.account) return { ...base, title: `${name} needs you`, detail: "It reads nothing until a property is chosen, so no numbers are collected.", action: "Choose" };
+  const failedSince = c.collect?.failedSince;
+  if (failedSince && now.getTime() - Date.parse(failedSince) >= COLLECT_FAILED_DAYS * DAY_MS) {
+    return { ...base, title: `${name} needs you`, detail: `Collecting its numbers has failed since ${dayOf(failedSince)}, so the newest are missing. Press Check now on it to see why.`, action: "Fix" };
+  }
+  if (c.pausedAt && now.getTime() - Date.parse(c.pausedAt) >= PAUSED_DAYS * DAY_MS) {
+    return { ...base, title: `${name} is paused`, detail: `Paused since ${dayOf(c.pausedAt)}, so no new numbers are collected. Resume it, or disconnect it if you no longer need it.`, action: "Open" };
+  }
+  return null;
+}
+
+/** The brand's connected data sources that need someone: equality on status only. */
+async function dataSourceItems(ctx: TenantContext, db?: FirestoreLike): Promise<ReviewItem[]> {
+  const connections = await forTenant(ctx, db).dataConnections.find({ where: [["status", "==", "connected"]], limit: 50 });
+  return connections.map((c) => dataSourceItem(c)).filter((i): i is ReviewItem => !!i);
+}
+
 /**
  * Vizzy's suggestion about one person (AUDIENCE_VIZZY_FIELDS_ENABLED), linking to their page. The
  * title and detail never hold the person's name, address or any value: only the brand's own field
@@ -539,6 +599,8 @@ export async function loadReview(
   // person's page tells a member that an admin confirms.
   const people = { fields: isVizzyFieldsEnabled(), drafts: isVizzyAddPersonEnabled() && canAddPeople(ctx.role) };
   const personSuggestions = people.fields || people.drafts ? await soft("person suggestions", personSuggestionItems(ctx, people, db), [] as ReviewItem[]) : [];
+  // Data sources that need someone: admins only, while collected numbers are on.
+  const dataSources = isConnectorsCollectEnabled() && ctx.role === "admin" ? await soft("data sources", dataSourceItems(ctx, db), [] as ReviewItem[]) : [];
   const liveConnections = connections.filter((c) => c.kind === "custom" && c.status !== "revoked");
   const latestRuns = await Promise.all(
     liveConnections.map((c) => soft("repo analyses", listRepoAnalyses(ctx, c.id, db), [] as RepoAnalysis[])),
@@ -552,6 +614,7 @@ export async function loadReview(
       .sort((a, b) => (b.scheduledAt ?? "").localeCompare(a.scheduledAt ?? ""))
       .map((p) => failedPostItem(p, workspaceNames.get(p.workspaceId))),
     ...connections.map(connectionItem),
+    ...dataSources,
     ...agentJourneys.map((j) => agentJourneyItem(j, j.audience?.kind === "waitlist" ? launchNames.get(j.audience.campaignId) : undefined)),
     ...launchJourneys.map((j) => agentLaunchJourneyItem(j, launchNames.get(j.campaignId))),
     ...agentWaves.map((w) => agentInviteWaveItem(w, launchNames.get(w.campaignId))),

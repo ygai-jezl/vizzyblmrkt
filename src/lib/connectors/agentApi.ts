@@ -61,7 +61,7 @@ export async function agentConnections(ctx: TenantContext, actor: ConnectorActor
       label: c.label,
       health: state,
       // Vizzy reads this, so it reads connected data: a turned down token names its tool and Vizzy.
-      problem: c.health.lastErrorCode && state !== "ok" ? connectorMessage(c.health.lastErrorCode, { name: m?.name ?? c.connectorId, chat: true }) : null,
+      problem: c.health.lastErrorCode && state !== "ok" ? connectorMessage(c.health.lastErrorCode, { name: m?.name ?? c.connectorId, chat: true, since: c.health.since ?? null }) : null,
       canRead: why === null,
       cannotReadBecause: why,
       streams: (m?.produces ?? []).map((p) => ({

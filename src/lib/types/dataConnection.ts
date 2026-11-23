@@ -102,6 +102,8 @@ export const ConnectionHealthSchema = z.object({
   failures: z.number().int().min(0),
   /** Calls stop until then: after a provider's rate limit or repeated failures. */
   pausedUntil: z.string().nullable(),
+  /** When the failures in a row began; unset once a call works (Connectors 2: "lost access on 19 Nov"). */
+  since: z.string().nullable().optional(),
 });
 export type ConnectionHealth = z.infer<typeof ConnectionHealthSchema>;
 

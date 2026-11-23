@@ -297,12 +297,20 @@ describe("Check access, picking and reading", () => {
 
   it("tells a property no longer shared from a provider error, in shared access words", async () => {
     const id = await shared();
+    // Before it ever worked: it can't see the property yet.
+    sitesAnswer = () => answer({ siteEntry: [] });
+    expect(await checkAccess(A, admin, id, deps())).toMatchObject({ ok: true, value: { visible: false, message: CONNECTOR_ERRORS.share_not_visible } });
+    sitesAnswer = () => answer(SITES);
     await checkAccess(A, admin, id, deps());
     await pickAccount(A, admin, id, { account: "sc-domain:example.com" }, deps());
+    // After it worked: YouGrow lost access, dated from the first failure (pick 24).
     sitesAnswer = () => answer({ siteEntry: [] });
     expect(await checkAccess(A, admin, id, deps())).toMatchObject({ ok: true, value: { visible: false } });
     sitesAnswer = () => answer({ error: { status: "PERMISSION_DENIED" } }, 403);
-    expect(await check(A, admin, id, deps())).toMatchObject({ ok: true, value: { check: { ok: false, code: "share_not_visible" } } });
+    expect(await check(A, admin, id, deps())).toMatchObject({ ok: true, value: { check: { ok: false, code: "share_access_lost" } } });
+    expect((await load(id)).health).toMatchObject({ state: "broken", lastErrorCode: "share_access_lost", since: NOW.toISOString() });
+    const view = (await listForActor(A, admin, deps())).ok ? (await listForActor(A, admin, deps()) as { value: { connections: Array<{ health: { message: string | null } }> } }).value.connections[0]! : null;
+    expect(view?.health.message).toBe("YouGrow lost access to this property on 21 Nov. Add the Google address again with the role shown, then press Check access.");
     sitesAnswer = () => answer({}, 503);
     expect(await checkAccess(A, admin, id, deps())).toMatchObject({ ok: false, status: 502, error: "provider_error" });
   });

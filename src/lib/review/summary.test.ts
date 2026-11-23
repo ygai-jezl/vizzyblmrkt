@@ -10,14 +10,18 @@ import {
   competitorItems,
   connectionItem,
   contentHubItem,
+  dataSourceItem,
   countReview,
   failedPostItem,
   forgetReviewCount,
   loadReview,
   repoResultsItem,
   resetReviewCountCache,
+  REVIEW_ORDER,
+  REVIEW_SECTIONS,
 } from "./summary";
 import type { RepoAnalysis } from "@/lib/types/repoAnalysis";
+import { freshCollect, type DataConnection } from "@/lib/types/dataConnection";
 
 const ctx: TenantContext = { tenantId: "ten_A", region: "us", source: "system" };
 
@@ -421,5 +425,79 @@ describe("New person forms Vizzy filled in", () => {
     forgetReviewCount("ten_A");
     vi.stubEnv("AUDIENCE_VIZZY_ADD_PERSON_ENABLED", "false");
     expect(await countReview(admin, { lifecycle: false, now: 3_000 }, db)).toBe(0);
+  });
+});
+
+describe("data sources that need you", () => {
+  const NOW = new Date("2026-11-23T10:00:00.000Z");
+  const admin: TenantContext = { ...ctx, role: "admin", userId: "usr_admin" };
+  const member: TenantContext = { ...ctx, role: "member", userId: "usr_member" };
+  const health = { state: "ok" as const, lastOkAt: "2026-11-18T09:00:00.000Z", lastCheckedAt: "2026-11-18T09:00:00.000Z", lastErrorCode: null, failures: 0, pausedUntil: null };
+  const conn = (over: Partial<DataConnection> = {}): DataConnection => ({
+    id: "dcn_aaaaaaaaaaaaaaaaaaaa",
+    tenantId: "ten_A",
+    connectorId: "google-analytics",
+    method: "share_access",
+    label: "Google Analytics 4",
+    account: "properties/123456789",
+    ownerUid: "usr_admin",
+    grants: [],
+    secrets: {},
+    health,
+    pausedAt: null,
+    pausedBy: null,
+    recent: [],
+    status: "connected",
+    createdAt: "2026-10-01T00:00:00.000Z",
+    updatedAt: "2026-10-01T00:00:00.000Z",
+    disconnectedAt: null,
+    ...over,
+  });
+
+  beforeEach(() => {
+    resetReviewCountCache();
+    vi.stubEnv("CONNECTORS_ENABLED", "true");
+    vi.stubEnv("CONNECTORS_COLLECT_ENABLED", "true");
+    vi.stubEnv("CONNECTOR_GA4_ENABLED", "true");
+    vi.stubEnv("CONNECTORS_IDENTITIES_PROJECT", "made-up-identities");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("names a shared connection that lost its property, since when, and links to it on Connected", () => {
+    const lost = conn({ health: { ...health, state: "broken", lastErrorCode: "share_access_lost", failures: 2, since: "2026-11-19T09:12:00.000Z" } });
+    expect(dataSourceItem(lost, NOW)).toEqual({
+      id: "data_source:dcn_aaaaaaaaaaaaaaaaaaaa",
+      kind: "data_source",
+      title: "Google Analytics 4 needs you",
+      detail: "It can't read its property since 19 Nov, so no new numbers are collected. Add YouGrow's address to the property again.",
+      href: "/admin/account/connections/connected?c=dcn_aaaaaaaaaaaaaaaaaaaa",
+      action: "Fix",
+    });
+  });
+
+  it("lists one with no property, one failing 3 days, and one paused a week, and nothing sooner", () => {
+    expect(dataSourceItem(conn({ account: "" }), NOW)?.detail).toBe("It reads nothing until a property is chosen, so no numbers are collected.");
+    const failing = (since: string) => conn({ collect: { ...freshCollect(), failedSince: since } });
+    expect(dataSourceItem(failing("2026-11-20T09:00:00.000Z"), NOW)?.detail).toBe("Collecting its numbers has failed since 20 Nov, so the newest are missing. Press Check now on it to see why.");
+    expect(dataSourceItem(failing("2026-11-21T09:00:00.000Z"), NOW)).toBeNull();
+    expect(dataSourceItem(conn({ pausedAt: "2026-11-12T09:00:00.000Z", pausedBy: "usr_admin" }), NOW)).toMatchObject({ title: "Google Analytics 4 is paused", detail: expect.stringContaining("Paused since 12 Nov") });
+    expect(dataSourceItem(conn({ pausedAt: "2026-11-20T09:00:00.000Z", pausedBy: "usr_admin" }), NOW)).toBeNull();
+    expect(dataSourceItem(conn(), NOW)).toBeNull();
+    // A connector this copy turned off reads nothing on purpose.
+    vi.stubEnv("CONNECTOR_GA4_ENABLED", "false");
+    expect(dataSourceItem(conn({ account: "" }), NOW)).toBeNull();
+  });
+
+  it("shows only to admins, only while collected numbers are on, in its own section after Connection problems", async () => {
+    const db = new FakeFirestore();
+    const { id, ...stored } = conn({ account: "" });
+    db.seed("data_connections", id, stored as unknown as Record<string, unknown>);
+    db.seed("data_connections", "dcn_bbbbbbbbbbbbbbbbbbbb", { ...stored, tenantId: "ten_B" } as unknown as Record<string, unknown>);
+    expect((await loadReview(admin, { lifecycle: false, includeContent: false }, db)).items.map((i) => i.id)).toEqual(["data_source:dcn_aaaaaaaaaaaaaaaaaaaa"]);
+    expect((await loadReview(member, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
+    vi.stubEnv("CONNECTORS_COLLECT_ENABLED", "false");
+    expect((await loadReview(admin, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
+    expect(REVIEW_ORDER.indexOf("data_source")).toBe(REVIEW_ORDER.indexOf("connection") + 1);
+    expect(REVIEW_SECTIONS.data_source.title).toBe("Data sources that need you");
   });
 });

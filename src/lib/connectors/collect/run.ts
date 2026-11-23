@@ -204,7 +204,7 @@ export async function collectConnection(ctx: TenantContext, id: string, opts: { 
 
   // 5. The cursor and what comes next, under the lease. A shared connection's refusals read in its
   // own words, as a live read's do.
-  const failure: HookFailure | null = r.failure ? { ...r.failure, code: codeFor(conn.method, r.failure.code) } : null;
+  const failure: HookFailure | null = r.failure ? { ...r.failure, code: codeFor(conn, r.failure.code) } : null;
   const cursor = advance(cursorOf(start), landed, { newest: r.newest, keepDays: stream.collect.keepDays, reachFrom: r.reachFrom, timeZone: r.timeZone });
 
   // 6. Once a day after a day lands (and when the backfill fills), the rolled 28 and 90 day docs.

@@ -79,3 +79,13 @@ export function isGoogleRevokeEnabled(): boolean {
 export function isConnectorsCollectEnabled(): boolean {
   return isConnectorsEnabled() && process.env.CONNECTORS_COLLECT_ENABLED === "true";
 }
+
+/**
+ * Vizzy reading collected numbers: POST /api/agent/connectors/numbers, which its
+ * get_connected_numbers tool calls (Connectors 2, ADR-0012). No switch of its own: it needs Vizzy
+ * reading connected data (CONNECTORS_CHAT_ENABLED) and collected numbers (CONNECTORS_COLLECT_ENABLED),
+ * and answers 503 while either is off, as the results routes do.
+ */
+export function isConnectorsNumbersEnabled(): boolean {
+  return isConnectorsChatEnabled() && isConnectorsCollectEnabled();
+}

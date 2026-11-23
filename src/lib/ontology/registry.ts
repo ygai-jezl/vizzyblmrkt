@@ -1903,7 +1903,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     stores: [
       regional(
         "metric_snapshots",
-        "one doc per connection, generation, stream, grouping and day, plus the rolled 28 and 90 day docs and Search Console's planning docs, each by a fixed id and at most 500 rows; written only through `src/lib/connectors/snapshots.ts`, read by id, deleted 90 days on by a time to live on ttlAt",
+        "one doc per connection, generation, stream, grouping and day, plus the rolled 28 and 90 day docs and Search Console's planning docs, each by a fixed id and at most 500 rows; written only through `src/lib/connectors/snapshots.ts`, read by id (Vizzy's collected numbers through `src/lib/connectors/numbers.ts`), deleted 90 days on by a time to live on ttlAt",
       ),
     ],
     links: [
@@ -1924,7 +1924,26 @@ export const ONTOLOGY: readonly OntologyType[] = [
     },
     export: { none: "numbers about the brand's own site and Google's aggregates, not about a person" },
     search: { none: "numbers stay exact in number tools" },
-    numbers: { gap: "no agent tool reads collected numbers yet: Vizzy reads the same numbers live through read_connected_live" },
+    numbers: {
+      meanings: [
+        "searchClicks",
+        "searchImpressions",
+        "searchCtr",
+        "searchPosition",
+        "merged",
+        "ga4Sessions",
+        "ga4ActiveUsers",
+        "ga4Views",
+        "ga4KeyEvents",
+        "cfRequests",
+        "cfPageViews",
+        "cfVisits",
+        "cfUniqueVisitors",
+        "rowsDropped",
+        "lagDays",
+      ],
+      tool: "get_connected_numbers",
+    },
   },
   {
     id: "gate",

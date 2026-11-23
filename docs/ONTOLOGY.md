@@ -336,7 +336,7 @@ A connected source's numbers for one day, or for the 28 or 90 days to its last c
 - Home: the brand's region
 - Personal: no
 - Stores:
-  - `metric_snapshots`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One doc per connection, generation, stream, grouping and day, plus the rolled 28 and 90 day docs and Search Console's planning docs, each by a fixed id and at most 500 rows; written only through `src/lib/connectors/snapshots.ts`, read by id, deleted 90 days on by a time to live on ttlAt.
+  - `metric_snapshots`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One doc per connection, generation, stream, grouping and day, plus the rolled 28 and 90 day docs and Search Console's planning docs, each by a fixed id and at most 500 rows; written only through `src/lib/connectors/snapshots.ts`, read by id (Vizzy's collected numbers through `src/lib/connectors/numbers.ts`), deleted 90 days on by a time to live on ttlAt.
 - Links: `connector_stream` through the stream it was read from; `data_connection` through connectionId, and the generation it was read under
 - Erase:
   - `eraseConnectionData` in `src/lib/connectors/erase.ts`, on removing the record (Disconnect erases every snapshot of the connection and Change property its old generation, whatever any switch says; a pending erase is retried by the lane whenever CONNECTORS_ENABLED is on)
@@ -344,7 +344,7 @@ A connected source's numbers for one day, or for the 28 or 90 days to its last c
   - `dropAgedDay` in `src/lib/connectors/snapshots.ts`, on retention (writing a day deletes the day 90 days before it, by id; the time to live on ttlAt is the backstop)
 - Export: none. Numbers about the brand's own site and Google's aggregates, not about a person.
 - Search: none. Numbers stay exact in number tools.
-- Numbers: gap. No agent tool reads collected numbers yet: Vizzy reads the same numbers live through read_connected_live.
+- Numbers: `searchClicks`, `searchImpressions`, `searchCtr`, `searchPosition`, `merged`, `ga4Sessions`, `ga4ActiveUsers`, `ga4Views`, `ga4KeyEvents`, `cfRequests`, `cfPageViews`, `cfVisits`, `cfUniqueVisitors`, `rowsDropped`, `lagDays`, through `get_connected_numbers`
 
 ## Product
 
@@ -1712,8 +1712,6 @@ What the registry records as missing, by type. Each is a known gap, not a promis
   - Export: planned: piece J decides how an import's rows are exported with the person
 - Data connection (`data_connection`):
   - Erase: a team member's user id in ownerUid and in by stays after they leave the brand, as settings history does
-- Metric snapshot (`metric_snapshot`):
-  - Numbers: no agent tool reads collected numbers yet: Vizzy reads the same numbers live through read_connected_live
 - Agent action (`agent_action`):
   - Erase: team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does
   - Erase: rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen

@@ -12,7 +12,7 @@ import { isAutopilotEnabled } from "@/lib/autopilot/flags";
 import { isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
 import { isConnectorSignalsEnabled } from "@/lib/connectors/flags";
 import type { HelpBodyProps } from "@/lib/help/pages";
-import { isWebSearchMeterUiEnabled } from "@/lib/plans/flags";
+import { isUsageMeterUiEnabled } from "@/lib/plans/flags";
 import { WEB_SEARCH_LIMIT_MESSAGE } from "@/lib/plans/resources";
 
 /** The How to drawer passes the server's switches (connectorSignals): it can't read them itself. */
@@ -328,7 +328,7 @@ export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSig
             "Research didn't finish. You can still write the article, or try again.",
             "Try again in a minute, or let the article be written without it.",
           ],
-          ...(isWebSearchMeterUiEnabled()
+          ...(isUsageMeterUiEnabled()
             ? ([
                 [
                   WEB_SEARCH_LIMIT_MESSAGE,

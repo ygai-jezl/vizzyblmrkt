@@ -1202,7 +1202,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     erase: { none: "counts only, kept as the record of what the brand used" },
     export: { none: NOT_PERSONAL },
     search: { none: "counts, read on Plan and usage" },
-    numbers: { gap: "no Vizzy usage tool yet" },
+    numbers: { meanings: ["usedThisMonth", "monthlyLimit", "leftThisMonth"], tool: "get_usage" },
   },
   {
     id: "live_watch",

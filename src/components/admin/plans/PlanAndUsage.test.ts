@@ -212,6 +212,43 @@ describe("Plan and usage", () => {
     expect(text).not.toContain("Autopilot drafts 0 of 8");
   });
 
+  it("shows each paid resource this month: searches of a cap, model use in tokens with no limit, by feature and model", () => {
+    const text = render(
+      proOwner({
+        monthly: [
+          { feature: "web_searches", label: "Web searches for research", used: 140, limit: 1500, from: "plan", included: true, needs: null, unit: "searches", byPurpose: { blog_research: 120, brand_map_research: 20 } },
+          {
+            feature: "model_tokens",
+            label: "AI model use",
+            used: 9000,
+            limit: null,
+            from: null,
+            included: true,
+            needs: null,
+            unit: "tokens",
+            byPurpose: { vizzy_chat: 6000, blog_write: 3000 },
+            byModel: { "gemini-3.8-flash": 9000 },
+          },
+          { feature: "images", label: "Images made", used: null, limit: 100_000, from: "default", included: true, needs: null, unit: "images" },
+        ],
+        organisationResources: [
+          { resource: "model_tokens", label: "AI model use", unit: "tokens", used: 10_000 },
+          { resource: "images", label: "Images made", unit: "images", used: null },
+        ],
+      }),
+    );
+    expect(text).toContain("Web searches for research 140 of 1,500");
+    expect(text).toContain("Blog research 120 · Brand map research 20");
+    expect(text).toContain("AI model use 9,000 tokens, no limit");
+    expect(text).toContain("gemini-3.8-flash 9,000");
+    expect(text).toContain(`Images made ${PLAN_AND_USAGE_COPY.couldNotCount}`);
+    // The organisation's totals: a brand that couldn't be read is never a low number.
+    expect(text).toContain("AI model use 10,000 tokens");
+    expect(text).not.toMatch(/Images made 0\b/);
+    expect(dashesIn(text)).toEqual([]);
+    expect(aiTellsIn(text)).toEqual([]);
+  });
+
   it("has a neutral line when plans are off, never coming soon", () => {
     const off = textOf(renderToStaticMarkup(createElement(PlansOff)));
     expect(off).toBe(PLAN_AND_USAGE_COPY.plansOff);

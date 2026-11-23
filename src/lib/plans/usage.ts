@@ -24,10 +24,11 @@ import {
   type PlanFeature,
 } from "./catalog";
 import { isPlansEnabled } from "./flags";
-import { monthlyLimitWith, type CapKey, type CapSource, type LimitedFeature } from "./limits";
-import { usageThisMonth } from "./meter";
-import { RESOURCES } from "./resources";
-import { isWebSearchMeterEnabled } from "./flags";
+import { isLimitedResource, monthlyLimitWith, type CapKey, type CapSource, type LimitedFeature } from "./limits";
+import { addCounts, usageThisMonth } from "./meter";
+import type { ResourceCount } from "@/lib/types/usageMeter";
+import { RESOURCE_IDS, RESOURCES, type ResourceId } from "./resources";
+import { isUsageMeterEnabled } from "./flags";
 
 /**
  * The figures behind Settings › Plan and usage, and allowance counting for later pieces. Server
@@ -99,17 +100,31 @@ export interface AllowanceRow {
 
 export interface MonthlyRow {
   /** A costly feature, or a paid resource (src/lib/plans/resources.ts). */
-  feature: CapKey;
+  feature: CapKey | ResourceId;
   label: string;
   used: number | null;
-  limit: number;
-  from: CapSource;
+  /** Null: counted, with no limit (AI model use). */
+  limit: number | null;
+  from: CapSource | null;
   /** Whether this brand can use the feature at all, with what it needs. */
   included: boolean;
   /** What it needs and this brand can't use ("Needs Next up"); null otherwise. */
   needs: MeteredFeature | null;
   /** A resource: what used it this month, by feature (RESOURCES[...].purposes). */
   byPurpose?: Record<string, number>;
+  /** AI model use: tokens by model. */
+  byModel?: Record<string, number>;
+  /** The unit it counts in ("searches", "tokens", "images"), for a resource. */
+  unit?: string;
+}
+
+/** An organisation's use of a paid resource this month, all its brands added up. */
+export interface OrganisationResourceRow {
+  resource: ResourceId;
+  label: string;
+  unit: string;
+  /** Null when a brand couldn't be read: never shown low. */
+  used: number | null;
 }
 
 export interface FeatureRow {
@@ -147,6 +162,8 @@ export interface UsageSummary {
   } | null;
   /** Organisation view only. */
   brands: UsageBrandRow[] | null;
+  /** Organisation view only, with the usage meter on: each paid resource's total this month. */
+  organisationResources?: OrganisationResourceRow[];
   /** Organisation view only. */
   allowances: AllowanceRow[] | null;
   /** This brand only, and only for features whose switch is on. */
@@ -232,26 +249,49 @@ async function monthlyRows(ctx: TenantContext, tenant: Tenant | null, plansOn: b
       }),
   );
   // Paid resources: every brand uses them, through the features that spend them (the usage meter).
-  const meters = isWebSearchMeterEnabled() ? await soft(() => usageThisMonth(ctx, counters)) : undefined;
-  const resources: MonthlyRow[] = isWebSearchMeterEnabled()
-    ? [
-        (() => {
-          const cap = monthlyLimitWith(tenant, "web_searches", plansOn);
-          const count = meters === null ? null : (meters?.web_searches ?? null);
-          return {
-            feature: "web_searches" as const,
-            label: RESOURCES.web_searches.label,
-            used: meters === null ? null : (count?.total ?? 0),
-            limit: cap.limit,
-            from: cap.from,
-            included: true,
-            needs: null,
-            byPurpose: count?.byPurpose ?? {},
-          };
-        })(),
-      ]
-    : [];
-  return [...(await features), ...resources];
+  if (!isUsageMeterEnabled()) return features;
+  const meters = await soft(() => usageThisMonth(ctx, counters));
+  const shown = await features;
+  // The older counters keep their own rows (their caps count records); the meter adds what used them.
+  for (const r of RESOURCE_IDS) {
+    const on = RESOURCES[r].shownAs;
+    const row = on ? shown.find((f) => f.feature === on) : undefined;
+    const count = meters?.[r];
+    if (row && count) row.byPurpose = count.byPurpose ?? {};
+  }
+  const resources = RESOURCE_IDS.filter((r) => RESOURCES[r].shownAs === null).map((r): MonthlyRow => {
+    const count = meters === null ? null : (meters[r] ?? null);
+    const cap = isLimitedResource(r) ? monthlyLimitWith(tenant, r, plansOn) : null;
+    return {
+      feature: r,
+      label: RESOURCES[r].label,
+      used: meters === null ? null : (count?.total ?? 0),
+      limit: cap?.limit ?? null,
+      from: cap?.from ?? null,
+      included: true,
+      needs: null,
+      unit: RESOURCES[r].unit,
+      byPurpose: count?.byPurpose ?? {},
+      ...(count?.byModel ? { byModel: count.byModel } : {}),
+    };
+  });
+  return [...shown, ...resources];
+}
+
+/** Each paid resource's organisation total this month (the meter on): null where a brand couldn't be read. */
+async function organisationResources(brands: Array<{ id: string; region: Region }>, deps: UsageDeps, now: Date): Promise<OrganisationResourceRow[]> {
+  // Each brand read in its own region (by id); one that can't be read makes the totals unknown.
+  const each = await Promise.all(brands.map((b) => usageThisMonth({ tenantId: b.id, region: b.region }, { db: dataDbFor(deps, b.region), now: () => now }).catch(() => null)));
+  const totals = each.some((m) => m === null) ? null : each.reduce<Partial<Record<ResourceId, ResourceCount>>>((sum, m) => {
+    for (const [r, c] of Object.entries(m!) as Array<[ResourceId, ResourceCount]>) sum[r] = addCounts(sum[r] ?? { total: 0, calls: 0, lostCalls: 0, byPurpose: {} }, c);
+    return sum;
+  }, {});
+  return RESOURCE_IDS.filter((r) => RESOURCES[r].shownAs === null).map((r) => ({
+    resource: r,
+    label: RESOURCES[r].label,
+    unit: RESOURCES[r].unit,
+    used: totals === null ? null : (totals[r]?.total ?? 0),
+  }));
 }
 
 function featureRows(tenant: Tenant | null, plan: Plan | null, plansOn: boolean): FeatureRow[] {
@@ -344,6 +384,12 @@ export async function organisationUsage(ctx: TenantContext, deps: UsageDeps = {}
   ]);
   const byId = new Map(siblings.filter((r): r is UsageBrandRow => r !== null).map((r) => [r.id, r]));
   summary.brands = org.brandIds.map((id) => (id === ctx.tenantId ? thisRow : byId.get(id))).filter((r): r is UsageBrandRow => Boolean(r));
+  if (isUsageMeterEnabled()) {
+    // A listed brand that couldn't be shown counts as unread: the totals say "Couldn't count".
+    const missing = summary.brands.length < org.brandIds.length;
+    const rows = await organisationResources(summary.brands, deps, now);
+    summary.organisationResources = missing ? rows.map((r) => ({ ...r, used: null })) : rows;
+  }
   const orgPlan = planById(org.plan);
   const people = sumOf(summary.brands.map((b) => b.people).concat(summary.brands.length < org.brandIds.length ? [null] : []));
   summary.allowances = ALLOWANCES.map((key) => {

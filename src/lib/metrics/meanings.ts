@@ -327,6 +327,29 @@ export const MEANINGS = {
     source: "the connector's manifest",
     caveat: "A usual delay, not a promise: the answer's period says which days are collected and how far they are final.",
   },
+  usedThisMonth: {
+    name: "Used this month",
+    definition: "How much of a paid resource or costly feature the brand used since the 1st of the month: web searches for research, AI model tokens, images, Google lookups, competitor articles read or autopilot drafts.",
+    grain: "one brand (or, under organisation, all its brands) in one calendar month, UTC; by feature or by model where listed",
+    unit: "count",
+    source: "the usage meter, and each feature's own records for the older counters",
+    caveat: "AI model use counts tokens, not calls, and leaves out the Memory Bank's own model and the browser voice chat.",
+  },
+  monthlyLimit: {
+    name: "Monthly limit",
+    definition: "The most the brand may use in a calendar month, from its own limit, its plan or this copy of YouGrow; null means no limit.",
+    grain: "one brand in one calendar month",
+    unit: "count",
+    source: "the brand's plan and settings (src/lib/plans/limits.ts)",
+  },
+  leftThisMonth: {
+    name: "Left this month",
+    definition: "Monthly limit less what was used this month; null when there is no limit.",
+    grain: "one brand in one calendar month",
+    unit: "count",
+    source: "worked out from the two numbers above",
+    caveat: "Calls made at the same moment can go a little past a limit.",
+  },
 } as const satisfies Record<string, Meaning>;
 
 export type MeaningKey = keyof typeof MEANINGS;

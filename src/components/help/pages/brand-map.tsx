@@ -6,7 +6,7 @@ import { SIGNALS_HELP } from "@/lib/connectors/helpText";
 import type { HelpBodyProps } from "@/lib/help/pages";
 import { isCompetitorsUiEnabled } from "@/lib/competitors/flags";
 import { isAutopilotEnabled, isNextUpEnabled } from "@/lib/autopilot/flags";
-import { isWebSearchMeterUiEnabled } from "@/lib/plans/flags";
+import { isUsageMeterUiEnabled } from "@/lib/plans/flags";
 import { WEB_SEARCH_LIMIT_MESSAGE } from "@/lib/plans/resources";
 
 export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnabled(), brandMapScale = isBrandMapScaleEnabled() }: HelpBodyProps = {}) {
@@ -56,7 +56,7 @@ export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnab
         <li>
           Press <strong>Research my brand</strong>. It reads your site and your knowledge, searches how people talk about
           your category, and drafts the map. This takes about a minute.
-          {isWebSearchMeterUiEnabled() ? (
+          {isUsageMeterUiEnabled() ? (
             <>
               {" "}
               Its Google searches count toward your brand&apos;s{" "}
@@ -278,7 +278,7 @@ export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnab
             "Set your Primary domain in Settings › Sending, or add your website to a programme's Knowledge. Then research again.",
           ],
           ["Not saved yet: articles are written without it until you save.", "Press Save brand map."],
-          ...(isWebSearchMeterUiEnabled()
+          ...(isUsageMeterUiEnabled()
             ? ([
                 [
                   WEB_SEARCH_LIMIT_MESSAGE,

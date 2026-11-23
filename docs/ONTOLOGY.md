@@ -1372,7 +1372,7 @@ What a brand used of each paid resource this month, such as web searches for res
 - Erase: none. Counts only, kept as the record of what the brand used.
 - Export: none. The brand's own work, with no one's personal data.
 - Search: none. Counts, read on Plan and usage.
-- Numbers: gap. No Vizzy usage tool yet.
+- Numbers: `usedThisMonth`, `monthlyLimit`, `leftThisMonth`, through `get_usage`
 
 ### Brand (`brand`)
 
@@ -1701,8 +1701,6 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 - What we've seen note (`brand_note`):
   - Erase: a person's erase does not find notes that name them: notes are free text
   - Export: a person's export does not include notes that name them
-- Usage meter (`usage_meter`):
-  - Numbers: no Vizzy usage tool yet
 - Vizzy chat (`vizzy_chat`):
   - Erase: no path deletes a member's chats with Vizzy
   - Export: no path exports a member's chats with Vizzy

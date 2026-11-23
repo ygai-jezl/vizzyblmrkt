@@ -3,7 +3,7 @@ import { parseManifest } from "../manifest";
 import { ga4Manifest } from "../manifests/ga4";
 import { readLive } from "../live";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
-import { MAX_PROPERTIES, notFinalNote, OTHER_NOTE, properties, propertyCheck, QUOTA_NOTE, relativeRange, runReport, SAMPLED_NOTE, showingNote, summariesFrom, THRESHOLD_NOTE } from "./googleAnalytics";
+import { APP_SCREENS_NOTE, MAX_PROPERTIES, notFinalNote, OTHER_NOTE, properties, propertyCheck, QUOTA_NOTE, relativeRange, runReport, SAMPLED_NOTE, showingNote, summariesFrom, THRESHOLD_NOTE } from "./googleAnalytics";
 
 // Google is never called: the transport is a stub that answers like the Analytics Admin and Data
 // APIs. Made-up properties and pages only.
@@ -175,40 +175,65 @@ describe("Google Analytics runReport", () => {
     });
   });
 
-  it("groups landing pages as the Landing page report: landingPage with sessions, leaving out (not set)", async () => {
+  it("groups landing pages as the Landing page report: landingPage with sessions, no filter, so its totals are the report's", async () => {
     const { transport, deps: d } = deps(
       answer({
         metricHeaders: [{ name: "sessions" }, { name: "activeUsers" }, { name: "keyEvents" }],
-        rows: [{ dimensionValues: [{ value: "/" }], metricValues: values(40, 30, 2) }],
-        totals: [{ metricValues: values(40, 30, 2) }],
-        rowCount: 1,
+        rows: [
+          { dimensionValues: [{ value: "/" }], metricValues: values(40, 30, 2) },
+          { dimensionValues: [{ value: "(not set)" }], metricValues: values(5, 5, 0) },
+        ],
+        // The report's totals row counts the (not set) sessions too.
+        totals: [{ metricValues: values(45, 34, 2) }],
+        rowCount: 2,
         metadata: LONDON,
       }),
     );
     const r = await runReport(live("landing"), d);
-    expect(r).toMatchObject({ ok: true, rows: [{ landing: "/", ga4Sessions: 40, ga4ActiveUsers: 30, ga4KeyEvents: 2 }], more: false });
+    expect(r).toMatchObject({ ok: true, rows: [{ landing: "/", ga4Sessions: 40, ga4ActiveUsers: 30, ga4KeyEvents: 2 }], totals: { ga4Sessions: 45, ga4ActiveUsers: 34, ga4KeyEvents: 2 }, more: false });
     expect(sent(transport)).toMatchObject({
       dimensions: [{ name: "landingPage" }],
       metrics: [{ name: "sessions" }, { name: "activeUsers" }, { name: "keyEvents" }],
-      dimensionFilter: { notExpression: { filter: { fieldName: "landingPage", stringFilter: { matchType: "EXACT", value: "(not set)" } } } },
       orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+      metricAggregations: ["TOTAL"],
+    });
+    expect(sent(transport)).not.toHaveProperty("dimensionFilter");
+  });
+
+  it("filters to one page exactly, and reads a page's own numbers by day: views, active users and key events, never sessions", async () => {
+    const pageHeader = [{ name: "screenPageViews" }, { name: "activeUsers" }, { name: "keyEvents" }];
+    const page = deps(answer({ metricHeaders: pageHeader, rows: [{ dimensionValues: [{ value: "20261101" }], metricValues: values(12, 7, 1) }], metadata: LONDON }));
+    const r = await runReport(live("day", { page: "/pricing" }), page.deps);
+    expect(sent(page.transport)).toMatchObject({
+      dimensions: [{ name: "date" }],
+      metrics: [{ name: "screenPageViews" }, { name: "activeUsers" }, { name: "keyEvents" }],
+      dimensionFilter: { filter: { fieldName: "unifiedPagePathScreen", stringFilter: { matchType: "EXACT", value: "/pricing" } } },
+    });
+    expect(r.ok && r.rows).toEqual([{ day: "2026-11-01", ga4Views: 12, ga4ActiveUsers: 7, ga4KeyEvents: 1 }]);
+    // Sessions for one page come from its landing page.
+    const landing = deps(answer({ metricHeaders: header, rows: [], metadata: LONDON }));
+    await runReport(live("landing", { page: "/pricing" }), landing.deps);
+    expect(sent(landing.transport)).toMatchObject({
+      metrics: [{ name: "sessions" }, { name: "activeUsers" }, { name: "keyEvents" }],
+      dimensionFilter: { filter: { fieldName: "landingPage", stringFilter: { matchType: "EXACT", value: "/pricing" } } },
     });
   });
 
-  it("filters to one page exactly, beside the (not set) rule for landing pages", async () => {
-    const page = deps(answer({ metricHeaders: header, rows: [], metadata: LONDON }));
-    await runReport(live("day", { page: "/pricing" }), page.deps);
-    expect(sent(page.transport).dimensionFilter).toEqual({ filter: { fieldName: "unifiedPagePathScreen", stringFilter: { matchType: "EXACT", value: "/pricing" } } });
-    const landing = deps(answer({ metricHeaders: header, rows: [], metadata: LONDON }));
-    await runReport(live("landing", { page: "/pricing" }), landing.deps);
-    expect(sent(landing.transport).dimensionFilter).toEqual({
-      andGroup: {
-        expressions: [
-          { notExpression: { filter: { fieldName: "landingPage", stringFilter: { matchType: "EXACT", value: "(not set)" } } } },
-          { filter: { fieldName: "landingPage", stringFilter: { matchType: "EXACT", value: "/pricing" } } },
+  it("leaves an app's screen classes out of the pages, as they aren't paths, and says so", async () => {
+    const { deps: d } = deps(
+      answer({
+        metricHeaders: [{ name: "screenPageViews" }, { name: "activeUsers" }, { name: "keyEvents" }],
+        rows: [
+          { dimensionValues: [{ value: "MainActivity" }], metricValues: values(50, 20, 0) },
+          { dimensionValues: [{ value: "/pricing" }], metricValues: values(20, 6, 3) },
         ],
-      },
-    });
+        rowCount: 2,
+        metadata: LONDON,
+      }),
+    );
+    const r = await runReport(live("page"), d);
+    expect(r.ok && r.rows).toEqual([{ page: "/pricing", ga4Views: 20, ga4ActiveUsers: 6, ga4KeyEvents: 3 }]);
+    expect(r.ok && r.notes).toEqual([APP_SCREENS_NOTE]);
   });
 
   it("asks for every day of a long read, so readLive keeps the latest days when it cuts", async () => {
@@ -281,7 +306,7 @@ describe("Google Analytics runReport", () => {
   });
 
   it("dates its notes in house style", () => {
-    for (const t of [notFinalNote("2026-11-19", "2026-11-20"), showingNote("landing", 50, 212), showingNote("page", 10, 11)]) {
+    for (const t of [notFinalNote("2026-11-19", "2026-11-20"), showingNote("landing", 50, 212), showingNote("page", 10, 11), APP_SCREENS_NOTE]) {
       expect(dashesIn(t), t).toEqual([]);
       expect(aiTellsIn(t), t).toEqual([]);
     }

@@ -14,9 +14,10 @@ import type { AccountsHook, ConnectorAccount, HookFailure, LiveHook, LiveRow, Ve
  *   no data, and anyone can add any address to their own list.
  * - searchAnalytics reads searchAnalytics.query for the picked site, grouped by date, page or
  *   query, web results, the same days and data as Search Console's own Performance report (see
- *   searchAnalytics below). By page, Google's full addresses are cut to their host and path, and
- *   rows for the same host and path are added together (clicks and impressions summed, click rate
- *   worked out again, position weighted by impressions).
+ *   searchAnalytics below), with the report's headline totals from a query with no dimensions. By
+ *   page, Google's full addresses are cut to their host and path, and rows for the same host and
+ *   path are added together (clicks and impressions summed, click rate worked out again, position
+ *   weighted by impressions). A read for one page keeps each host apart the same way.
  *
  * Google's error body names the reason: an API not turned on in this copy's Google project is its
  * setup, not the connection's; a rate or quota reason is a rate limit; any other 403 means the
@@ -133,18 +134,26 @@ function hostAndPath(raw: string): { host: string; path: string } {
   }
 }
 
+/** A row of a read grouped by day or search for one page: Google's full address rides beside it until the rows are merged. */
+const ADDRESS = "address";
+
 /**
  * Rows for the same host and path added together: Google's addresses that differ only by a query
  * string, a fragment or http and https. Clicks and impressions are summed, the click rate worked
  * out again and position weighted by impressions; `merged` says how many were added, when more
  * than one. Different hosts stay apart, as Search Console's Pages report lists them.
+ *
+ * By page, the address is the row's `page` and becomes its path. By day or search (a read for one
+ * page, grouped by that and page), the address rides as `address` and rows merge only within the
+ * same day or search; the path is the page asked for, so it isn't repeated on the row.
  */
-export function mergePages(rows: readonly LiveRow[]): LiveRow[] {
-  const byKey = new Map<string, { host: string; page: string; clicks: number; impressions: number; weighted: number; positioned: number; n: number; first: LiveRow }>();
+export function mergeByHost(rows: readonly LiveRow[], key: "page" | "day" | "query" = "page"): LiveRow[] {
+  const byKey = new Map<string, { host: string; page: string; group: string; clicks: number; impressions: number; weighted: number; positioned: number; n: number; first: LiveRow }>();
   for (const r of rows) {
-    const { host, path } = hostAndPath(String(r.page));
-    const key = `${host} ${path}`;
-    const acc = byKey.get(key) ?? { host, page: path, clicks: 0, impressions: 0, weighted: 0, positioned: 0, n: 0, first: r };
+    const { host, path } = hostAndPath(String(key === "page" ? r.page : r[ADDRESS]));
+    const group = key === "page" ? path : String(r[key]);
+    const id = `${group}\u0000${host}\u0000${path}`;
+    const acc = byKey.get(id) ?? { host, page: path, group, clicks: 0, impressions: 0, weighted: 0, positioned: 0, n: 0, first: r };
     const impressions = (r.searchImpressions as number | null) ?? 0;
     acc.clicks += (r.searchClicks as number | null) ?? 0;
     acc.impressions += impressions;
@@ -153,30 +162,31 @@ export function mergePages(rows: readonly LiveRow[]): LiveRow[] {
       acc.positioned += impressions;
     }
     acc.n += 1;
-    byKey.set(key, acc);
+    byKey.set(id, acc);
   }
-  return [...byKey.values()].map((a): LiveRow =>
+  return [...byKey.values()].map((a): LiveRow => ({
+    [key]: key === "page" ? a.page : a.group,
+    host: a.host,
     // One address: Google's own numbers, untouched.
-    a.n === 1
+    ...(a.n === 1
       ? {
-          page: a.page,
-          host: a.host,
           searchClicks: a.first.searchClicks ?? null,
           searchImpressions: a.first.searchImpressions ?? null,
           searchCtr: a.first.searchCtr ?? null,
           searchPosition: a.first.searchPosition ?? null,
         }
       : {
-          page: a.page,
-          host: a.host,
           searchClicks: a.clicks,
           searchImpressions: a.impressions,
           searchCtr: a.impressions > 0 ? a.clicks / a.impressions : null,
           searchPosition: a.positioned > 0 ? a.weighted / a.positioned : null,
           merged: a.n,
-        },
-  );
+        }),
+  }));
 }
+
+/** Page rows merged by host and path (mergeByHost by page). */
+export const mergePages = (rows: readonly LiveRow[]): LiveRow[] => mergeByHost(rows, "page");
 
 /** Most clicked first, then most shown, then by name: Google breaks ties in no fixed order. */
 function byClicks(key: "page" | "query") {
@@ -187,7 +197,11 @@ function byClicks(key: "page" | "query") {
     String(a.host ?? "").localeCompare(String(b.host ?? ""));
 }
 
-/** An RE2 pattern for one path on any host, with or without a query string or fragment. */
+/**
+ * An RE2 pattern for one path on any of the site's hosts, with or without a query string or
+ * fragment. The read groups by page beside it, so each host stays a row of its own and the query
+ * string variants of one host are added together with a `merged` count, as page rows are.
+ */
 export function pagePattern(path: string): string {
   return `^https?://[^/]+${path.replace(/[\\^$.|?*+()[\]{}]/g, "\\$&")}([?#].*)?$`;
 }
@@ -217,9 +231,27 @@ export function lastCompleteFrom(body: unknown, today: string): string {
 export const MERGED_NOTE =
   "A row with merged adds together Search Console addresses for the same page that differ only by a query string, a fragment or http and https. Search Console's Pages report lists those one by one.";
 
-/** The days not final yet, dated. */
+/**
+ * The days that usually aren't final yet, dated. Google finishes a day 2 to 3 days later and the
+ * read doesn't ask which, so the note says "may".
+ */
 export function notFinalNote(from: string, to: string): string {
-  return `Search Console's numbers for ${daysWords(from, to)} aren't final yet. Its own report shows them too, and they may still change a little.`;
+  return `Search Console's numbers for ${daysWords(from, to)} may not be final yet. Its own report shows them too, and they may still change a little.`;
+}
+
+/** When the totals query fails but the rows came back. */
+export const NO_TOTALS_NOTE = "Search Console didn't send its totals for these days this time, so this answer has none.";
+
+/**
+ * The report's headline totals: one row from a query with no dimensions, or zeros when Google
+ * lists nothing (no impressions on those days); null when the answer isn't one.
+ */
+export function totalsFrom(body: unknown): Record<string, number | null> | null {
+  const rows = (body as { rows?: unknown } | null)?.rows;
+  if (body === null || typeof body !== "object" || (rows !== undefined && !Array.isArray(rows))) return null;
+  const r = (Array.isArray(rows) ? rows[0] : undefined) as Row | undefined;
+  if (!r) return { searchClicks: 0, searchImpressions: 0, searchCtr: null, searchPosition: null };
+  return { searchClicks: num(r.clicks), searchImpressions: num(r.impressions), searchCtr: num(r.ctr), searchPosition: num(r.position) };
 }
 
 /**
@@ -228,7 +260,11 @@ export function notFinalNote(from: string, to: string): string {
  *   date probe finds (dataState all, grouped by date, the last 10 days);
  * - reads use dataState all, so fresh days the report shows are included, never the preliminary
  *   ones after them; settledOnly reads final numbers only, for Connectors 2;
- * - pages: up to 1,000 rows are fetched before rows for the same host and path are added together.
+ * - pages: up to 1,000 rows are fetched before rows for the same host and path are added together;
+ * - one page: grouped by page as well, so hosts stay apart (by day, a row per day and host);
+ * - totals: the report's headline clicks, impressions, click rate and position, from the same query
+ *   with no dimensions, for the whole site (not for a read of one page, whose rows are by host, nor
+ *   a settled read).
  */
 export const searchAnalytics: LiveHook = async (input, deps) => {
   const { query } = input;
@@ -255,35 +291,52 @@ export const searchAnalytics: LiveHook = async (input, deps) => {
   if (window.empty) return { ok: true, rows: [], notes: [nothingYetNote("Search Console", window.from, window.to, lastComplete)], period, more: false };
 
   const days = daysIn(window.from, window.to);
-  const res = await post({
+  // One page, grouped by day or search: by page as well, so each host stays apart.
+  const byHost = Boolean(query.page) && by !== "page";
+  const rowLimit = by === "day" && !byHost ? days : FETCH_ROWS;
+  const ask = {
     startDate: window.from,
     endDate: window.to,
-    dimensions: [DIMENSION[by]],
     type: "web",
     dataState: query.settledOnly ? "final" : "all",
-    rowLimit: by === "day" ? days : FETCH_ROWS,
     ...(query.page ? { dimensionFilterGroups: [{ filters: [{ dimension: "page", operator: "includingRegex", expression: pagePattern(query.page) }] }] } : {}),
-  });
+  };
+  const res = await post({ ...ask, dimensions: byHost ? [DIMENSION[by], "page"] : [DIMENSION[by]], rowLimit });
   if (!res.ok) return googleFailure(res);
   const raw = (res.body as { rows?: unknown } | null)?.rows;
   if (raw !== undefined && !Array.isArray(raw)) return { ok: false, code: "bad_response", retryAfterSec: null };
   const key = KEY[by];
   let rows: LiveRow[] = [];
   for (const r of (raw ?? []) as Row[]) {
-    const value = Array.isArray(r?.keys) && typeof r.keys[0] === "string" ? r.keys[0] : null;
-    if (value === null || (by === "day" && !isDay(value))) continue;
+    const keys = Array.isArray(r?.keys) ? (r.keys as unknown[]) : [];
+    const value = typeof keys[0] === "string" ? keys[0] : null;
+    const address = byHost ? (typeof keys[1] === "string" && keys[1].length <= 2000 ? keys[1] : null) : undefined;
+    if (value === null || address === null || (by === "day" && !isDay(value))) continue;
     if (by !== "day" && value.length > 2000) continue;
-    rows.push({ [key]: value, searchClicks: num(r.clicks), searchImpressions: num(r.impressions), searchCtr: num(r.ctr), searchPosition: num(r.position) });
+    rows.push({ [key]: value, ...(address ? { [ADDRESS]: address } : {}), searchClicks: num(r.clicks), searchImpressions: num(r.impressions), searchCtr: num(r.ctr), searchPosition: num(r.position) });
   }
   // Google sent as many rows as asked: it may have more.
-  const googleFull = by !== "day" && (raw ?? []).length >= FETCH_ROWS;
-  if (by === "page") rows = mergePages(rows);
-  rows = by === "day" ? rows.sort((a, b) => String(a.day).localeCompare(String(b.day))) : rows.sort(byClicks(by === "page" ? "page" : "query"));
+  const googleFull = rowLimit === FETCH_ROWS && (raw ?? []).length >= FETCH_ROWS;
+  if (by === "page" || byHost) rows = mergeByHost(rows, key);
+  rows =
+    by === "day"
+      ? rows.sort((a, b) => String(a.day).localeCompare(String(b.day)) || String(a.host ?? "").localeCompare(String(b.host ?? "")))
+      : rows.sort(byClicks(by === "page" ? "page" : "query"));
+
+  // The report's headline totals for the whole site. Not for one page (its rows are by host) nor a
+  // settled read (Connectors 2 collects days). A failure here leaves the rows standing, with a note.
+  const wantsTotals = !query.page && !query.settledOnly;
+  let totals: Record<string, number | null> | null = null;
+  if (wantsTotals) {
+    const t = await post(ask);
+    totals = t.ok ? totalsFrom(t.body) : null;
+  }
 
   const notes: string[] = [];
   if (window.capped) notes.push(query.settledOnly ? `Search Console's final numbers usually end on ${dayWords(lastComplete)}, so this read ends there.` : cappedNote("Search Console", lastComplete));
   if (query.period === "yesterday" && lastComplete < addDays(today, -1)) notes.push(nothingYetNote("Search Console", addDays(lastComplete, 1), addDays(today, -1), lastComplete));
   if (!query.settledOnly && window.to > finalThrough) notes.push(notFinalNote(laterDay(window.from, addDays(finalThrough, 1)), window.to));
   if (rows.some((r) => typeof r.merged === "number")) notes.push(MERGED_NOTE);
-  return { ok: true, rows, notes, period, more: googleFull };
+  if (wantsTotals && !totals) notes.push(NO_TOTALS_NOTE);
+  return { ok: true, rows, notes, period, ...(totals ? { totals } : {}), more: googleFull };
 };

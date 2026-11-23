@@ -86,6 +86,8 @@ describe("MarkdownMessage tables", () => {
         "| **/pricing** | `utm_source` |",
         "| <script>alert(1)</script> | <img src=x onerror=alert(1)> |",
         "| [bad](javascript:alert(1)) | [off](//evil.example/x) |",
+        // Browsers read a backslash as a slash, so "/\\host" would be a link to another site.
+        "| [slash](/\\evil.example/x) | [mixed](/\\/evil.example/x) |",
         "| [docs](https://example.com/docs) | [page](/admin/account/connections/connected) |",
       ].join("\n"),
     );
@@ -96,6 +98,8 @@ describe("MarkdownMessage tables", () => {
     expect(out).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
     expect(out).not.toContain('href="javascript:');
     expect(out).not.toContain('href="//evil.example');
+    expect(out).not.toMatch(/href="[^"]*\\/);
+    expect(out).toContain("[slash](/\\evil.example/x)");
     expect(out).toContain('href="https://example.com/docs"');
     expect(out).toContain('href="/admin/account/connections/connected"');
   });

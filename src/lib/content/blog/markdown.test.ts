@@ -102,6 +102,10 @@ describe("article markdown", () => {
     expect(safeHref("javascript:alert(1)")).toBeNull();
     expect(safeHref("{{hub_url}}")).toBeNull();
     expect(safeHref("//evil.example")).toBeNull();
+    // Browsers read a backslash as a slash: "/\\host" is "//host", another site.
+    expect(safeHref("/\\evil.example/x")).toBeNull();
+    expect(safeHref("/docs\\x")).toBeNull();
+    expect(safeHref("/docs/x")).toBe("/docs/x");
     expect(inlineLinks("[x](javascript:alert(1))")).toEqual([]);
     expect(inlineLinks("[Foo](https://en.wikipedia.org/wiki/Foo_(bar))")).toEqual([
       { href: "https://en.wikipedia.org/wiki/Foo_(bar)", text: "Foo" },

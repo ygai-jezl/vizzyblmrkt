@@ -186,15 +186,22 @@ export function ConnectedView({ connections: initial, isAdmin, uid, chat, now: d
   );
 }
 
+/** Room above the Manage card when a pick scrolls to it: the sticky admin header is 48px (h-12), as ReviewHub allows. */
+export const MANAGE_SCROLL_MARGIN = "scroll-mt-16";
+
 /** A connection's small tile, beside its name: the connector's mark, or its two letters. */
 function Tile({ c }: { c: ConnectionView }) {
   return <ConnectorTile id={c.connectorId} name={c.connectorName} initials={c.connectorInitials} icon={c.connectorIcon} size="sm" />;
 }
 
-/** A row's classes: admins can pick any row; the picked one gets a tint and an accent bar, in light and dark. */
+/**
+ * A row's classes: admins can pick any row; the picked one gets a tint and an accent bar, in light
+ * and dark. The tint is a clear blue in both themes, so it stands apart from a plain row and from
+ * the grey of a hovered one.
+ */
 export const ROW_CLASS = {
   pickable: "cursor-pointer transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-900/60",
-  picked: "cursor-pointer bg-blue-50 transition-colors dark:bg-blue-950/40",
+  picked: "cursor-pointer bg-blue-100/70 transition-colors dark:bg-blue-900/40",
   /** On the first cell: box-shadow, so the bar takes no width and the columns stay where they are. */
   bar: "shadow-[inset_3px_0_0_#2563eb] dark:shadow-[inset_3px_0_0_#3b82f6]",
 } as const;
@@ -356,7 +363,8 @@ function ManageCard({
   const any = busy !== null;
 
   return (
-    <section ref={cardRef} aria-labelledby="manage-title" className={`${CARD} scroll-mt-4 space-y-3`}>
+    // scroll-mt-16 clears the admin header (sticky, 48px), so a pick on a narrow screen shows the card's heading.
+    <section ref={cardRef} aria-labelledby="manage-title" className={`${CARD} ${MANAGE_SCROLL_MARGIN} space-y-3`}>
       <h3 id="manage-title" className="flex items-center gap-2 text-sm font-semibold">
         <Tile c={c} />
         <span>

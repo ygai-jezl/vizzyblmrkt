@@ -3,7 +3,7 @@ import { parseManifest } from "../manifest";
 import { cloudflareManifest } from "../manifests/cloudflare";
 import { allConnectors } from "../registry";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
-import { ADAPTIVE_DEFAULTS, adaptiveFrom, adaptiveSettings, classifyErrors, END_USERS_NOTE, freePlanNote, MAX_ZONES, olderDaysNote, zoneDaily, zonePage, zoneProbe, zones } from "./cloudflare";
+import { ADAPTIVE_DEFAULTS, adaptiveFrom, adaptiveSettings, classifyErrors, END_USERS_NOTE, freePlanNote, MAX_ZONES, NO_TOTALS_NOTE, olderDaysNote, zoneDaily, zonePage, zoneProbe, zones } from "./cloudflare";
 import { ACCOUNT_HOOKS, LIVE_HOOKS, VERIFY_HOOKS } from "./index";
 
 // Cloudflare is never called: the transport is a stub that answers like its GraphQL API.
@@ -129,6 +129,10 @@ describe("Cloudflare zoneDaily", () => {
       { dimensions: { date: "2026-11-19" }, count: 250 },
       { dimensions: { date: "2026-11-20" }, count: 270 },
     ],
+    // One group each for the whole period, as the dashboard's totals.
+    total: [{ uniq: { uniques: 150 } }],
+    trafficTotal: [{ count: 3200, sum: { visits: 260 } }],
+    pagesTotal: [{ count: 520 }],
   };
   const data = (z: unknown, errors: unknown = null) => answer({ data: { viewer: { zones: [z] } }, errors });
 
@@ -140,18 +144,34 @@ describe("Cloudflare zoneDaily", () => {
       rows: [{ day: "2026-11-19", cfRequests: 1500, cfPageViews: 250, cfVisits: 120, cfUniqueVisitors: 80 }],
       notes: [],
       period: { from: "2026-11-19", to: "2026-11-19", timeZone: "UTC", finalThrough: "2026-11-19" },
+      totals: { cfUniqueVisitors: 150, cfRequests: 3200, cfPageViews: 520, cfVisits: 260 },
       more: false,
     });
     expect(sentBody(transport, 0).query).toContain("settings {\n        httpRequestsAdaptiveGroups { enabled notOlderThan maxDuration }");
     const body = sentBody(transport, 1);
     expect(body.variables).toEqual({ zoneTag: ZONE, from: "2026-11-19", to: "2026-11-19", afrom: "2026-11-19", ato: "2026-11-19" });
-    // Every adaptive part is filtered to end users; page views are successful HTML responses.
-    expect(body.query.match(/httpRequestsAdaptiveGroups\(/g)).toHaveLength(2);
-    expect(body.query.match(/requestSource: "eyeball"/g)).toHaveLength(2);
+    // Every adaptive part (the days and their totals) is filtered to end users; page views are successful HTML responses.
+    expect(body.query.match(/httpRequestsAdaptiveGroups\(/g)).toHaveLength(4);
+    expect(body.query.match(/requestSource: "eyeball"/g)).toHaveLength(4);
     expect(body.query).toContain('edgeResponseContentTypeName: "html", edgeResponseStatus_geq: 200, edgeResponseStatus_lt: 300');
     expect(body.query).toContain("uniq { uniques }");
     expect(body.query).toContain("httpRequests1dGroups(limit: 1,");
     expect(body.query).not.toContain(ZONE);
+    // The period's totals: the same datasets with no dimensions, one group each.
+    expect(body.query).toContain("total: httpRequests1dGroups(limit: 1, filter: { date_geq: $from, date_leq: $to }) {\n        uniq { uniques }\n      }");
+    expect(body.query).toMatch(/trafficTotal: httpRequestsAdaptiveGroups\(limit: 1, filter: \{ date_geq: \$afrom, date_leq: \$ato, requestSource: "eyeball" \}\) \{\s+count\s+sum \{ visits \}/);
+    expect(body.query).toMatch(/pagesTotal: httpRequestsAdaptiveGroups\(limit: 1, filter: \{ [^}]*requestSource: "eyeball", edgeResponseContentTypeName: "html"/);
+  });
+
+  it("gives unique visitors for the whole period, which daily visitors can't be added up to", async () => {
+    const r = await zoneDaily({ ...input, query: { ...query, from: undefined, to: undefined, period: "last_28_days" as const }, today: "2026-11-21" }, deps(settings(), data(zone)).deps);
+    expect(r.ok && r.totals?.cfUniqueVisitors).toBe(150);
+    expect(r.ok && r.rows.reduce((n, x) => n + Number(x.cfUniqueVisitors), 0)).toBe(175);
+  });
+
+  it("counts yesterday as not yet final, as the Free plan's note says it may be low", async () => {
+    const r = await zoneDaily({ ...input, query, today: "2026-11-21" }, deps(settings(), data(zone)).deps);
+    expect(r).toMatchObject({ ok: true, period: { to: "2026-11-20", finalThrough: "2026-11-19" } });
   });
 
   it("notes the Free plan's day of delay when the read reaches yesterday", async () => {
@@ -167,7 +187,7 @@ describe("Cloudflare zoneDaily", () => {
       { dimensions: { date: "2026-08-23" }, sum: { requests: 900, pageViews: 100 }, uniq: { uniques: 40 } },
       { dimensions: { date: "2026-11-20" }, sum: { requests: 2400, pageViews: 310 }, uniq: { uniques: 95 } },
     ];
-    const { transport, deps: d } = deps(settings(), data({ daily, traffic: [zone.traffic[1]], pages: [zone.pages[1]] }));
+    const { transport, deps: d } = deps(settings(), data({ daily, traffic: [zone.traffic[1]], pages: [zone.pages[1]], total: [{ uniq: { uniques: 600 } }] }));
     const r = await zoneDaily({ ...input, query: { ...query, from: undefined, to: undefined, period: "last_90_days" as const }, today: "2026-11-21" }, d);
     expect(sentBody(transport, 1).variables).toEqual({ zoneTag: ZONE, from: "2026-08-23", to: "2026-11-20", afrom: "2026-10-22", ato: "2026-11-20" });
     expect(sentBody(transport, 1).query).toContain("httpRequests1dGroups(limit: 90,");
@@ -179,6 +199,9 @@ describe("Cloudflare zoneDaily", () => {
       ],
       period: { from: "2026-08-23", to: "2026-11-20" },
     });
+    // Days of two kinds: only unique visitors get a period total, and the end user totals aren't asked for.
+    expect(r.ok && r.totals).toEqual({ cfUniqueVisitors: 600 });
+    expect(sentBody(transport, 1).query).not.toContain("trafficTotal");
     expect(r.ok && r.notes[0]).toBe(olderDaysNote("2026-08-23", "2026-10-21"));
     expect(r.ok && r.notes[0]).toBe(
       "Cloudflare keeps end user numbers only for recent days, so for 23 Aug to 21 Oct requests and page views count all traffic, bots included, and visits are empty.",
@@ -211,6 +234,17 @@ describe("Cloudflare zoneDaily", () => {
     const o = await zoneDaily({ ...input, query: { ...query, from: "2026-09-01", to: "2026-09-02" }, today: "2026-11-21" }, old.deps);
     expect(sentBody(old.transport, 1).query).not.toContain("httpRequestsAdaptiveGroups");
     expect(o.ok && o.notes[0]).toBe(olderDaysNote("2026-09-01", "2026-09-02"));
+  });
+
+  it("keeps the days with a note when only the period's totals fail", async () => {
+    const failed = data({ ...zone, total: null, trafficTotal: null }, [
+      { message: "query consumed excessive resources", path: ["viewer", "zones", 0, "total"] },
+      { message: "query consumed excessive resources", path: ["viewer", "zones", 0, "trafficTotal"] },
+    ]);
+    const r = await zoneDaily({ ...input, query, today: "2026-11-21" }, deps(settings(), failed).deps);
+    expect(r).toMatchObject({ ok: true, rows: [{ cfRequests: 1500 }, { cfRequests: 1700 }] });
+    expect(r.ok && r.totals).toBeUndefined();
+    expect(r.ok && r.notes.at(-1)).toBe(NO_TOTALS_NOTE);
   });
 
   it("keeps the daily totals when only the end user part fails, with a note", async () => {
@@ -277,7 +311,7 @@ describe("Cloudflare zoneDaily", () => {
   });
 
   it("dates its notes in house style", () => {
-    for (const t of [olderDaysNote("2026-08-23", "2026-10-21"), END_USERS_NOTE, freePlanNote("2026-11-20")]) {
+    for (const t of [olderDaysNote("2026-08-23", "2026-10-21"), END_USERS_NOTE, freePlanNote("2026-11-20"), NO_TOTALS_NOTE]) {
       expect(dashesIn(t), t).toEqual([]);
       expect(aiTellsIn(t), t).toEqual([]);
     }

@@ -3,7 +3,7 @@ import { parseManifest } from "../manifest";
 import { searchConsoleManifest } from "../manifests/searchConsole";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { readLive } from "../live";
-import { googleFailure, lastCompleteFrom, MAX_SITES, mergePages, MERGED_NOTE, notFinalNote, pagePattern, searchAnalytics, siteCheck, siteLabel, sites, sitesFrom } from "./searchConsole";
+import { googleFailure, lastCompleteFrom, MAX_SITES, mergeByHost, mergePages, MERGED_NOTE, NO_TOTALS_NOTE, notFinalNote, pagePattern, searchAnalytics, siteCheck, siteLabel, sites, sitesFrom, totalsFrom } from "./searchConsole";
 
 // Google is never called: the transport is a stub that answers like the Search Console API.
 const manifest = parseManifest(searchConsoleManifest);
@@ -24,6 +24,10 @@ const SITES = {
     { siteUrl: "https://someone-else.example.test/", permissionLevel: "siteUnverifiedUser" },
   ],
 };
+
+// The totals query's answer: one row with no keys, the report's headline numbers.
+const TOTALS = { clicks: 40, impressions: 2000, ctr: 0.02, position: 8.4 };
+const totalsAnswer = () => answer({ rows: [TOTALS], responseAggregationType: "byProperty" });
 
 // The date probe's answer: days through 21 Nov, with 21 Nov still being collected.
 const probe = (first = "2026-11-21") =>
@@ -84,19 +88,35 @@ describe("Search Console searchAnalytics", () => {
   });
 
   it("reads Search Console's own last 28 days: complete Pacific days ending the day before its first incomplete one, fresh days included", async () => {
-    const { transport, deps: d } = deps(probe(), answer({ rows: [{ keys: ["https://example.com/"], clicks: 1, impressions: 300, ctr: 0.0033, position: 6.5 }] }));
+    const { transport, deps: d } = deps(probe(), answer({ rows: [{ keys: ["https://example.com/"], clicks: 3, impressions: 300, ctr: 0.01, position: 6.5 }] }), totalsAnswer());
     const r = await searchAnalytics(ask("page"), d);
     expect(body(transport, 0)).toEqual({ startDate: "2026-11-13", endDate: "2026-11-22", dimensions: ["date"], type: "web", dataState: "all", rowLimit: 10 });
     // Exactly the report's request: no aggregationType, so pages aggregate by page as its Pages tab does.
     expect(body(transport, 1)).toEqual({ startDate: "2026-10-24", endDate: "2026-11-20", dimensions: ["page"], type: "web", dataState: "all", rowLimit: 1000 });
+    // The headline totals: the same days and data with no dimensions, as the report's chart totals.
+    expect(body(transport, 2)).toEqual({ startDate: "2026-10-24", endDate: "2026-11-20", type: "web", dataState: "all" });
     expect(r).toMatchObject({
       ok: true,
       period: { from: "2026-10-24", to: "2026-11-20", timeZone: "America/Los_Angeles", finalThrough: "2026-11-19" },
-      rows: [{ page: "/", host: "example.com", searchClicks: 1, searchImpressions: 300 }],
+      rows: [{ page: "/", host: "example.com", searchClicks: 3, searchImpressions: 300 }],
+      totals: { searchClicks: 40, searchImpressions: 2000, searchCtr: 0.02, searchPosition: 8.4 },
       notes: [notFinalNote("2026-11-20", "2026-11-20")],
       more: false,
     });
-    expect(r.ok && r.notes[0]).toBe("Search Console's numbers for 20 Nov aren't final yet. Its own report shows them too, and they may still change a little.");
+    // Google finishes a day 2 to 3 days later, and the read doesn't ask which: "may".
+    expect(r.ok && r.notes[0]).toBe("Search Console's numbers for 20 Nov may not be final yet. Its own report shows them too, and they may still change a little.");
+  });
+
+  it("reads the totals row, zeros when Google lists nothing, and keeps the rows with a note when the totals fail", async () => {
+    expect(totalsFrom({ rows: [TOTALS] })).toEqual({ searchClicks: 40, searchImpressions: 2000, searchCtr: 0.02, searchPosition: 8.4 });
+    expect(totalsFrom({})).toEqual({ searchClicks: 0, searchImpressions: 0, searchCtr: null, searchPosition: null });
+    expect(totalsFrom({ rows: "nope" })).toBeNull();
+    expect(totalsFrom(null)).toBeNull();
+    const { deps: d } = deps(probe(), answer({ rows: [{ keys: ["https://example.com/"], clicks: 3, impressions: 300, ctr: 0.01, position: 6.5 }] }), answer({ error: { status: "RESOURCE_EXHAUSTED" } }, 429));
+    const r = await searchAnalytics(ask("page"), d);
+    expect(r).toMatchObject({ ok: true, rows: [{ page: "/", searchClicks: 3 }] });
+    expect(r.ok && r.totals).toBeUndefined();
+    expect(r.ok && r.notes.at(-1)).toBe(NO_TOTALS_NOTE);
   });
 
   it("finds the last complete day from either spelling, the newest day listed, or yesterday", () => {
@@ -123,31 +143,39 @@ describe("Search Console searchAnalytics", () => {
     expect(body(capped.transport, 1)).toMatchObject({ startDate: "2026-11-10", endDate: "2026-11-20", rowLimit: 11 });
     expect(r).toMatchObject({ ok: true, period: { from: "2026-11-10", to: "2026-11-20" } });
     expect(r.ok && r.notes[0]).toBe("The last complete day in Search Console is 20 Nov, so this read ends there.");
-    const past = deps(answer({ rows: [] }));
+    const past = deps(answer({ rows: [] }), answer({}));
     const old = await searchAnalytics(ask("day", { period: undefined, from: "2026-11-01", to: "2026-11-15" }), past.deps);
-    expect(past.transport).toHaveBeenCalledTimes(1);
+    // No probe: the read and its totals only.
+    expect(past.transport).toHaveBeenCalledTimes(2);
     expect(body(past.transport, 0)).toMatchObject({ startDate: "2026-11-01", endDate: "2026-11-15", dataState: "all" });
-    expect(old).toEqual({ ok: true, rows: [], notes: [], period: { from: "2026-11-01", to: "2026-11-15", timeZone: "America/Los_Angeles", finalThrough: "2026-11-15" }, more: false });
+    expect(old).toEqual({
+      ok: true,
+      rows: [],
+      notes: [],
+      period: { from: "2026-11-01", to: "2026-11-15", timeZone: "America/Los_Angeles", finalThrough: "2026-11-15" },
+      totals: { searchClicks: 0, searchImpressions: 0, searchCtr: null, searchPosition: null },
+      more: false,
+    });
     const none = await searchAnalytics(ask("day", { period: undefined, from: "2026-11-21", to: "2026-11-22" }), deps(probe()).deps);
     expect(none).toMatchObject({ ok: true, rows: [], notes: ["Search Console hasn't finished 21 and 22 Nov yet, so there is nothing to read for those days. Its last complete day is 20 Nov."] });
   });
 
-  it("keeps hosts apart as the Pages report does: / and /features/example", async () => {
+  it("keeps hosts apart as the Pages report does: / on the bare host and on www are two rows", async () => {
     const { deps: d } = deps(
       probe(),
       answer({
         rows: [
-          { keys: ["https://yougrow.example/"], clicks: 1, impressions: 300, ctr: 0.0033, position: 6.5 },
-          { keys: ["https://yougrow.example/features/example"], clicks: 1, impressions: 100, ctr: 0.01, position: 9.5 },
-          { keys: ["https://www.yougrow.example/"], clicks: 0, impressions: 5, ctr: 0, position: 12 },
+          { keys: ["https://example.com/"], clicks: 2, impressions: 300, ctr: 0.0067, position: 6.5 },
+          { keys: ["https://example.com/features/example"], clicks: 1, impressions: 100, ctr: 0.01, position: 9.5 },
+          { keys: ["https://www.example.com/"], clicks: 0, impressions: 5, ctr: 0, position: 12 },
         ],
       }),
     );
     const r = await searchAnalytics(ask("page"), d);
     expect(r.ok && r.rows).toEqual([
-      { page: "/", host: "yougrow.example", searchClicks: 1, searchImpressions: 300, searchCtr: 0.0033, searchPosition: 6.5 },
-      { page: "/features/example", host: "yougrow.example", searchClicks: 1, searchImpressions: 100, searchCtr: 0.01, searchPosition: 9.5 },
-      { page: "/", host: "www.yougrow.example", searchClicks: 0, searchImpressions: 5, searchCtr: 0, searchPosition: 12 },
+      { page: "/", host: "example.com", searchClicks: 2, searchImpressions: 300, searchCtr: 0.0067, searchPosition: 6.5 },
+      { page: "/features/example", host: "example.com", searchClicks: 1, searchImpressions: 100, searchCtr: 0.01, searchPosition: 9.5 },
+      { page: "/", host: "www.example.com", searchClicks: 0, searchImpressions: 5, searchCtr: 0, searchPosition: 12 },
     ]);
   });
 
@@ -202,15 +230,57 @@ describe("Search Console searchAnalytics", () => {
     expect(body(transport, 1)).toMatchObject({ dimensions: ["query"], rowLimit: 1000 });
   });
 
-  it("filters to one page on any host, query strings included, with an RE2 pattern", async () => {
-    const { transport, deps: d } = deps(probe(), answer({ rows: [] }));
-    await searchAnalytics(ask("day", { page: "/features/example" }), d);
-    expect(body(transport, 1)).toMatchObject({
-      dimensions: ["date"],
-      rowLimit: 28,
+  it("reads one page by day with a row per day and host, never adding hosts together, and its query string variants merged", async () => {
+    const { transport, deps: d } = deps(
+      probe(),
+      answer({
+        rows: [
+          { keys: ["2026-11-02", "https://example.com/features/example"], clicks: 2, impressions: 40, ctr: 0.05, position: 4 },
+          { keys: ["2026-11-01", "https://www.example.com/features/example"], clicks: 0, impressions: 6, ctr: 0, position: 11 },
+          { keys: ["2026-11-01", "https://example.com/features/example?ref=a"], clicks: 1, impressions: 10, ctr: 0.1, position: 2 },
+          { keys: ["2026-11-01", "https://example.com/features/example"], clicks: 1, impressions: 30, ctr: 0.0333, position: 6 },
+        ],
+      }),
+    );
+    const r = await searchAnalytics(ask("day", { page: "/features/example" }), d);
+    expect(body(transport, 1)).toEqual({
+      startDate: "2026-10-24",
+      endDate: "2026-11-20",
+      type: "web",
+      dataState: "all",
       dimensionFilterGroups: [{ filters: [{ dimension: "page", operator: "includingRegex", expression: "^https?://[^/]+/features/example([?#].*)?$" }] }],
+      dimensions: ["date", "page"],
+      rowLimit: 1000,
     });
+    // One page's rows are by host, so there are no site totals to send: no third call.
+    expect(transport).toHaveBeenCalledTimes(2);
+    expect(r.ok && r.rows).toEqual([
+      { day: "2026-11-01", host: "example.com", searchClicks: 2, searchImpressions: 40, searchCtr: 0.05, searchPosition: 5, merged: 2 },
+      { day: "2026-11-01", host: "www.example.com", searchClicks: 0, searchImpressions: 6, searchCtr: 0, searchPosition: 11 },
+      { day: "2026-11-02", host: "example.com", searchClicks: 2, searchImpressions: 40, searchCtr: 0.05, searchPosition: 4 },
+    ]);
+    expect(r.ok && r.totals).toBeUndefined();
+    expect(r.ok && r.notes).toContain(MERGED_NOTE);
     expect(pagePattern("/a.b(c)")).toBe("^https?://[^/]+/a\\.b\\(c\\)([?#].*)?$");
+  });
+
+  it("reads one page's searches by host too", async () => {
+    const { transport, deps: d } = deps(
+      probe(),
+      answer({
+        rows: [
+          { keys: ["growth tools", "https://example.com/pricing"], clicks: 3, impressions: 50, ctr: 0.06, position: 4 },
+          { keys: ["growth tools", "https://www.example.com/pricing"], clicks: 1, impressions: 20, ctr: 0.05, position: 7 },
+        ],
+      }),
+    );
+    const r = await searchAnalytics(ask("topic", { page: "/pricing" }), d);
+    expect(body(transport, 1)).toMatchObject({ dimensions: ["query", "page"], rowLimit: 1000 });
+    expect(r.ok && r.rows).toEqual([
+      { query: "growth tools", host: "example.com", searchClicks: 3, searchImpressions: 50, searchCtr: 0.06, searchPosition: 4 },
+      { query: "growth tools", host: "www.example.com", searchClicks: 1, searchImpressions: 20, searchCtr: 0.05, searchPosition: 7 },
+    ]);
+    expect(mergeByHost([{ query: "a", address: "https://x.example/p" }, { query: "b", address: "https://x.example/p" }], "query")).toHaveLength(2);
   });
 
   it("keeps a by day read's days in order, and reads final numbers only when asked to settle", async () => {
@@ -247,7 +317,7 @@ describe("Search Console searchAnalytics", () => {
   });
 
   it("dates its notes in house style", () => {
-    for (const t of [notFinalNote("2026-11-19", "2026-11-21"), MERGED_NOTE]) {
+    for (const t of [notFinalNote("2026-11-19", "2026-11-21"), MERGED_NOTE, NO_TOTALS_NOTE]) {
       expect(dashesIn(t), t).toEqual([]);
       expect(aiTellsIn(t), t).toEqual([]);
     }
@@ -255,14 +325,29 @@ describe("Search Console searchAnalytics", () => {
 });
 
 describe("Search Console through readLive", () => {
-  it("answers the agent's last 28 days with the period in words, the host and more", async () => {
-    const { deps: d } = deps(probe(), answer({ rows: [{ keys: ["https://example.com/"], clicks: 1, impressions: 300, ctr: 0.0033, position: 6.5 }] }));
+  it("answers the agent's last 28 days with the period in words, the host, the report's totals and more", async () => {
+    const { deps: d } = deps(probe(), answer({ rows: [{ keys: ["https://example.com/"], clicks: 3, impressions: 300, ctr: 0.01, position: 6.5 }] }), totalsAnswer());
     const r = await readLive({ ...input(), query: { stream: "search_performance", period: "last_28_days", by: "page", limit: 50 } }, { ...d, now: new Date("2026-11-22T18:00:00Z") });
     if (!r.ok) throw new Error("read failed");
     expect(r.answer.period).toEqual({ from: "2026-10-24", to: "2026-11-20", timeZone: "America/Los_Angeles", finalThrough: "2026-11-19", words: "24 Oct to 20 Nov 2026, Pacific time" });
-    expect(r.answer.rows).toEqual([{ page: "/", host: "example.com", searchClicks: 1, searchImpressions: 300, searchCtr: 0.0033, searchPosition: 6.5 }]);
-    expect(r.answer).toMatchObject({ more: false, totals: null, connectorId: "search-console", connector: "Google Search Console" });
+    expect(r.answer.rows).toEqual([{ page: "/", host: "example.com", searchClicks: 3, searchImpressions: 300, searchCtr: 0.01, searchPosition: 6.5 }]);
+    expect(r.answer).toMatchObject({
+      more: false,
+      totals: { searchClicks: 40, searchImpressions: 2000, searchCtr: 0.02, searchPosition: 8.4 },
+      connectorId: "search-console",
+      connector: "Google Search Console",
+    });
     expect(Object.keys(r.answer.meanings)).toEqual(["searchClicks", "searchImpressions", "searchCtr", "searchPosition"]);
+  });
+
+  it("gives the hook Pacific today: at 05:00 UTC on 22 Nov it is still 21 Nov there, never the UTC day", async () => {
+    const { transport, deps: d } = deps(probe("2026-11-20"), answer({ rows: [] }), totalsAnswer());
+    const r = await readLive({ ...input(), query: { stream: "search_performance", period: "last_28_days", by: "day", limit: 50 } }, { ...d, now: new Date("2026-11-22T05:00:00Z") });
+    if (!r.ok) throw new Error("read failed");
+    const probeBody = JSON.parse(String(transport.mock.calls[0]![1].body)) as Record<string, unknown>;
+    expect(probeBody).toMatchObject({ startDate: "2026-11-12", endDate: "2026-11-21" });
+    // The day before first_incomplete_date (20 Nov).
+    expect(r.answer.period).toMatchObject({ from: "2026-10-23", to: "2026-11-19", words: "23 Oct to 19 Nov 2026, Pacific time" });
   });
 
   it("keeps a merged count on its row, explained by its meaning", async () => {

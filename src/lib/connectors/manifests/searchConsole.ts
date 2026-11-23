@@ -18,8 +18,10 @@ const SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
  *   dataState all (fresh days included), ending on its last complete Pacific day, which a small
  *   date probe finds (metadata.first_incomplete_date). A day's numbers are final about 3 days
  *   later; settledOnly reads final numbers only (dataState final), for Connectors 2. Page rows
- *   keep their host apart and add together only addresses for the same host and path. Dates are
- *   Pacific time. Docs: developers.google.com/webmaster-tools/v1.
+ *   keep their host apart and add together only addresses for the same host and path, and a read
+ *   for one page keeps its hosts apart the same way. The report's headline totals come from the
+ *   same query with no dimensions. Dates are Pacific time. Docs:
+ *   developers.google.com/webmaster-tools/v1.
  * - Google's docs write these paths under www.googleapis.com/webmasters/v3; the same paths answer
  *   on the API's own host, searchconsole.googleapis.com, the only host this connector may call
  *   besides Google's token endpoint.

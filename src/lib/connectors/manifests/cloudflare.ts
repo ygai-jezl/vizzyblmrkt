@@ -7,9 +7,10 @@ import type { ConnectorManifestInput } from "../manifest";
  * Cloudflare's GraphQL Analytics API answers HTTP 200 even when a query fails, with the reason in
  * an `errors` array, so the handlers (src/lib/connectors/handlers/cloudflare.ts) read that array.
  * The token is checked with a zone query rather than user/tokens/verify, which may refuse account
- * tokens and doesn't prove the token can read this zone. Requests and page views come from the
- * daily dataset (httpRequests1dGroups); visits only from the sampled one
- * (httpRequestsAdaptiveGroups, sum.visits), which keeps about 31 days on every plan.
+ * tokens and doesn't prove the token can read this zone. Requests, page views and visits come
+ * from end users in the sampled dataset (httpRequestsAdaptiveGroups), which keeps about 31 days on
+ * every plan; older days and unique visitors come from the daily dataset (httpRequests1dGroups),
+ * and each answer carries the period's totals the dashboard shows (unique visitors always).
  * Docs: developers.cloudflare.com/analytics/graphql-api.
  *
  * Connecting is token first (owner, 22 Nov, as the approved Listing): Check lists the zones the

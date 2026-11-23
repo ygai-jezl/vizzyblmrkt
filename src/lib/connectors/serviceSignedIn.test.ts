@@ -153,8 +153,11 @@ describe("a signed in connection's token", () => {
     await seed({ account: "sc-domain:example.com", expiresAt: inMs(60_000) });
     const r = await readLiveFor(A, admin, ID, { stream: "search_performance", from: "2026-11-01", to: "2026-11-10" }, deps());
     expect(r.ok).toBe(true);
-    expect(calls()).toEqual([TOKEN_URL, "https://searchconsole.googleapis.com/webmasters/v3/sites/sc-domain%3Aexample.com/searchAnalytics/query"]);
+    // The read and its totals, both with the new token.
+    const query = "https://searchconsole.googleapis.com/webmasters/v3/sites/sc-domain%3Aexample.com/searchAnalytics/query";
+    expect(calls()).toEqual([TOKEN_URL, query, query]);
     expect(authOf(1)).toBe("Bearer made-up-new-access");
+    expect(authOf(2)).toBe("Bearer made-up-new-access");
     const conn = await load();
     expect(openConnectorSecret("ten_a", ID, ACCESS_SLOT, conn.secrets[ACCESS_SLOT]!)).toBe("made-up-new-access");
     expect(JSON.stringify(r)).not.toContain("made-up");

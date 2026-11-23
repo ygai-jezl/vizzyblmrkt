@@ -48,7 +48,8 @@ Each font file is under the SIL Open Font Licence 1.1, with its notice in the sa
 
 The logos and buttons of the services YouGrow connects to (Google Analytics, Google Search
 Console and the Sign in with Google button from Google LLC, the Cloudflare cloud from Cloudflare,
-Inc., and the GitHub, GitLab, LinkedIn and X marks on the Accounts tab) belong to their owners.
+Inc., and the GitHub, GitLab, LinkedIn and X marks on the Accounts tab), and the Mailchimp, Gemini,
+Instagram and Node.js marks on the site's "The stack" section, belong to their owners.
 YouGrow shows them only to name those services, which doesn't mean any owner endorses YouGrow.
 They are not covered by the AGPL-3.0, the YouGrow Enterprise Licence or the MIT licence, and this
 repository grants no rights in them. [public/marks/NOTICE.md](public/marks/NOTICE.md) lists each

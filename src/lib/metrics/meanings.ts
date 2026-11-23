@@ -220,13 +220,13 @@ export const MEANINGS = {
     unit: "count",
     source: "Cloudflare analytics, daily zone totals",
     caveat:
-      "Counts addresses, not people: several people behind one address count once, and one person on two networks counts twice. Visitors of different days can't be added up into a longer period.",
+      "Counts addresses, not people: several people behind one address count once, and one person on two networks counts twice. Visitors of different days can't be added up into a longer period: the answer's totals give the period's own figure, as the dashboard shows it.",
   },
   // How a connector read its provider's rows, never a number of the provider's own.
   merged: {
     name: "Addresses added together",
     definition: "How many of the provider's rows for the same page on the same host this row adds up, because their addresses differ only by a query string, a fragment or http and https.",
-    grain: "one page row of a connected read",
+    grain: "one row of a connected read: a page, or a day or search for one page, on one host",
     unit: "count",
     source: "YouGrow's reading of the provider's rows",
     caveat: "Shown only when more than 1. The provider's own report lists those addresses one by one, so its rows for this page add up to this row.",
@@ -235,7 +235,7 @@ export const MEANINGS = {
   searchClicks: {
     name: "Search clicks",
     definition: "Clicks from Google Search results through to the site.",
-    grain: "one Search Console site on one day (Pacific time), or one page on one host, or one search, over the days read",
+    grain: "one Search Console site on one day (Pacific time), or one page on one host, one search, or the whole site, over the days read; a read for one page gives a row per host",
     unit: "count",
     source: "Google Search Console, web search results",
     caveat: "Google leaves out rare searches to protect privacy, so clicks by search add up to less than the site's total.",
@@ -243,7 +243,7 @@ export const MEANINGS = {
   searchImpressions: {
     name: "Search impressions",
     definition: "Times a link to the site was shown in Google Search results.",
-    grain: "one Search Console site on one day (Pacific time), or one page on one host, or one search, over the days read",
+    grain: "one Search Console site on one day (Pacific time), or one page on one host, one search, or the whole site, over the days read; a read for one page gives a row per host",
     unit: "count",
     source: "Google Search Console, web search results",
     caveat: "By site, one search counts once however many of its pages showed; by page, each page counts.",
@@ -251,14 +251,14 @@ export const MEANINGS = {
   searchCtr: {
     name: "Search click rate",
     definition: "Search clicks divided by search impressions, from 0 to 1.",
-    grain: "one Search Console site on one day (Pacific time), or one page on one host, or one search, over the days read",
+    grain: "one Search Console site on one day (Pacific time), or one page on one host, one search, or the whole site, over the days read; a read for one page gives a row per host",
     unit: "ratio",
     source: "Google Search Console, web search results",
   },
   searchPosition: {
     name: "Average search position",
     definition: "The average of the site's highest place in Google Search results, 1 being the top.",
-    grain: "one Search Console site on one day (Pacific time), or one page on one host, or one search, over the days read",
+    grain: "one Search Console site on one day (Pacific time), or one page on one host, one search, or the whole site, over the days read; a read for one page gives a row per host",
     unit: "rank",
     source: "Google Search Console, web search results",
     caveat: "An average over every search that showed the site, so it moves with which searches showed it, not only with rank.",
@@ -270,12 +270,12 @@ export const MEANINGS = {
     grain: "one Google Analytics property on one day (the property's time zone), or one landing page over the days read",
     unit: "count",
     source: "Google Analytics 4, Data API",
-    caveat: "By landing page, each visit counts once, on the page where it began, as the Landing page report shows. Pages and screens rows don't have sessions.",
+    caveat: "By landing page, each visit counts once, on the page where it began, as the Landing page report shows. Pages and screens rows, and a read by day for one page, don't have sessions: read one page's sessions by landing page.",
   },
   ga4ActiveUsers: {
     name: "Analytics active users",
     definition: "Different people who were active on the site or app, as Google Analytics tells them apart (by browser or device).",
-    grain: "one Google Analytics property on one day (the property's time zone), or one page or landing page over the days read",
+    grain: "one Google Analytics property, or one page, on one day (the property's time zone), or one page or landing page over the days read",
     unit: "count",
     source: "Google Analytics 4, Data API",
     caveat:
@@ -284,7 +284,7 @@ export const MEANINGS = {
   ga4Views: {
     name: "Analytics views",
     definition: "Web pages and app screens viewed, each repeat view counted.",
-    grain: "one Google Analytics property on one day (the property's time zone), or one page or screen over the days read",
+    grain: "one Google Analytics property, or one page, on one day (the property's time zone), or one page over the days read",
     unit: "count",
     source: "Google Analytics 4, Data API",
     caveat: "Counts only what the Analytics tag saw, so it runs below Cloudflare page views, which include bots and visitors who block the tag.",
@@ -292,7 +292,7 @@ export const MEANINGS = {
   ga4KeyEvents: {
     name: "Analytics key events",
     definition: "Times something the property marks as a key event happened, such as a sign up or a purchase.",
-    grain: "one Google Analytics property on one day (the property's time zone), or one page or landing page over the days read",
+    grain: "one Google Analytics property, or one page, on one day (the property's time zone), or one page or landing page over the days read",
     unit: "count",
     source: "Google Analytics 4, Data API",
     caveat: "Which events count is set in the property, and marking a new one counts only from then on.",

@@ -55,7 +55,11 @@ export const LIVE_BY = ["day", "page", "topic", "landing"] as const;
 export type LiveBy = (typeof LIVE_BY)[number];
 /** The shared key each grouping's rows join on: a landing page is a page. */
 export const LIVE_BY_JOINS: Readonly<Record<LiveBy, JoinKey>> = { day: "day", page: "page", topic: "topic", landing: "page" };
-/** The filters a live read may use, where its stream lists them: one page path, matched exactly. */
+/**
+ * The filters a live read may use, where its stream lists them: one page path. Google Analytics
+ * matches it exactly; Search Console matches it on every host of the site, keeping hosts apart
+ * (src/lib/connectors/handlers/searchConsole.ts, pagePattern).
+ */
 export const LIVE_FILTERS = ["page"] as const;
 export const USES = ["vizzy.read", "signals.search", "signals.traffic", "signals.bots"] as const;
 
@@ -110,7 +114,7 @@ export const ConnectorIconSchema = z
       .object({
         light: MarkPath,
         dark: MarkPath.optional(),
-        /** The owner's product page, which the logo links to. */
+        /** Where the logo links: the owner's product page, or into the product itself. */
         href: HttpsUrl,
         alt: Copy(60),
         /** Its size on screen, in CSS pixels: at least the owner's minimum. */

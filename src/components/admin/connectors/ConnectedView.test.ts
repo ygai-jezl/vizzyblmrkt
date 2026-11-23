@@ -11,7 +11,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: unknown }) => createElement("a", { href, ...rest }, children as never),
 }));
-const { ConnectedView, ConnectionRow, ROW_CLASS } = await import("./ConnectedView");
+const { ConnectedView, ConnectionRow, MANAGE_SCROLL_MARGIN, ROW_CLASS } = await import("./ConnectedView");
 const {
   CONNECTED_COPY,
   accountWords,
@@ -352,7 +352,9 @@ describe("Connected's rows pick the connection", () => {
     expect(html).toMatch(/aria-pressed="true">Google Search Console<\/button>/);
     expect(html).toMatch(/aria-pressed="false">Cloudflare<\/button>/);
     // A clear tint and bar in both themes, and a pointer with a hover on the rows not picked.
-    expect(ROW_CLASS.picked).toMatch(/\bbg-blue-50\b.*dark:bg-blue-950\/40/);
+    expect(ROW_CLASS.picked).toMatch(/\bbg-blue-100\/70\b.*dark:bg-blue-900\/40/);
+    // Not the hover grey: a picked row reads differently from a hovered one in dark mode too.
+    expect(ROW_CLASS.picked).not.toContain("neutral");
     expect(ROW_CLASS.bar).toMatch(/shadow-\[inset_3px_0_0_#2563eb\].*dark:shadow-\[inset_3px_0_0_#3b82f6\]/);
     expect(ROW_CLASS.pickable).toMatch(/cursor-pointer.*hover:bg-neutral-50.*dark:hover:bg-neutral-900/);
     // Opening Cloudflare first moves the mark with it.
@@ -401,6 +403,9 @@ describe("Connected's rows pick the connection", () => {
     // No card drawn (nothing picked yet, or a member): nothing to scroll to.
     expect(revealManage(null, screen(true))).toBe(false);
     expect(NARROW_SCREEN).toBe("(max-width: 767px)");
+    // The card stops below the sticky admin header (48px), so its heading isn't hidden behind it.
+    expect(MANAGE_SCROLL_MARGIN).toBe("scroll-mt-16");
+    expect(render()).toMatch(/<section aria-labelledby="manage-title" class="[^"]*\bscroll-mt-16\b/);
   });
 });
 

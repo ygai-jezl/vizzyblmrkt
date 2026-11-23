@@ -219,11 +219,14 @@ function release(text: string): string {
   return text.replace(HELD, (ch) => `\\${String.fromCharCode(ch.charCodeAt(0) - 0xe000)}`);
 }
 
-/** A link target an article may carry: http(s), site-relative, or an in-page anchor. */
+/**
+ * A link target an article may carry: http(s), site-relative, or an in-page anchor. Never a
+ * backslash: browsers read "/\host" as "//host", a link to another site.
+ */
 export function safeHref(raw: string): string | null {
   const href = raw.trim();
-  if (/^https?:\/\/[^\s<>"']+$/i.test(href)) return href;
-  if (/^\/(?!\/)[^\s<>"']*$/.test(href)) return href;
+  if (/^https?:\/\/[^\s<>"'\\]+$/i.test(href)) return href;
+  if (/^\/(?![/\\])[^\s<>"'\\]*$/.test(href)) return href;
   if (/^#[\w-]+$/.test(href)) return href;
   return null;
 }

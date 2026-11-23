@@ -7,6 +7,8 @@ Every file under `public/marks/` is a logo, icon or button that belongs to anoth
 
 The Accounts tab (Settings › Connections › Accounts) also draws the GitHub, GitLab, LinkedIn and X marks, from the Simple Icons paths in `src/components/site/BrandIcons.tsx`. They belong to GitHub, Inc., GitLab Inc., LinkedIn Corporation and X Corp.
 
+The site's "The stack" section draws the same four from that file, and the Mailchimp, Gemini, Instagram and Node.js marks. Mailchimp belongs to Intuit Inc., Gemini to Google LLC, Instagram to Meta Platforms, Inc. and Node.js to the OpenJS Foundation.
+
 YouGrow shows these marks only to name the services it connects to. Showing them doesn't mean any of these companies endorses or sponsors YouGrow, or is affiliated with it.
 
 These marks are not covered by the GNU AGPL version 3, the YouGrow Enterprise Licence or the MIT licence, and this repository grants no rights in them. Each stays under its owner's terms. Google's and Cloudflare's guidelines ask for permission before their product icons are used, and a permission is given to whoever asked for it, not passed on. If you run your own copy of YouGrow, check the owners' terms for your use:
@@ -20,8 +22,8 @@ To stop showing a connector's marks, delete the `icon` field from its manifest i
 
 ## How YouGrow shows them
 
-- Never recoloured, cropped further or reshaped. Each icon sits on a plain plate with the service's name beside it.
-- The Google Analytics logo with its name links to Google Analytics wherever YouGrow shows Google Analytics data, at 189 by 50 pixels (Google's minimum is 154 by 50), with the white version on dark backgrounds.
+- Never recoloured or reshaped, and cropped only where the table below says so (the Cloudflare cloud). Each icon sits on a plain plate with the service's name beside it.
+- The Google Analytics logo with its name links straight into Google Analytics (analytics.google.com), as Google's policy allows, wherever YouGrow shows Google Analytics data, at 189 by 50 pixels (Google's minimum is 154 by 50), with the white version on dark backgrounds.
 - The Sign in with Google button is Google's own art, in Google's light and dark themes.
 
 ## Files
@@ -37,5 +39,7 @@ Downloaded on 22 Nov 2026 from the owners' own servers. `src/lib/connectors/mark
 | `connectors/cloudflare/icon.png` | The cloud from the Cloudflare logo ("CF-Logo 1.png" in the press kit's Logos.zip), cropped to the cloud with its colours unchanged | Cloudflare, Inc. | https://cf-assets.www.cloudflare.com/dzlvafdwdttg/2Twekn3xyYyd94qDYAl0ed/9ab649caa40958f195166e0d9f5d9a04/Logos.zip | `c3ed0d2bb4e9de7a6c49518d59aa6305235755cd90e80206ea93242f272b5ef2` |
 | `google/signin-light.png` | Sign in with Google button, light theme, pill, 3x ("Android + Web/PNG @3x/Light" in the zip) | Google LLC | https://developers.google.com/static/identity/images/signin-assets.zip | `1785e04475553fcec1b63524af33ebfde36ff422008c371589a014c03bf224a4` |
 | `google/signin-dark.png` | Sign in with Google button, dark theme, pill, 3x ("Android + Web/PNG @3x/Dark" in the zip) | Google LLC | https://developers.google.com/static/identity/images/signin-assets.zip | `c2170246da7db96313062aba5e8e39b15431b2e2fd202c563a81c498f8b2b1f8` |
+
+The Cloudflare icon is a crop. The press kit's Logos.zip holds only the full logo with the word Cloudflare (`CF-Logo 1.png` and `CF Logo 2.jpg`), with no cloud on its own, so the icon is that logo cut to its cloud, colours unchanged. Cloudflare's trademark guidelines say not to modify its marks, so the crop is a change to clear with Cloudflare along with the permission request. Until it is cleared, deleting the `icon` field from `src/lib/connectors/manifests/cloudflare.ts` shows CF instead.
 
 The Sign in with Google button is the PNG version from Google's zip. The zip's SVG versions draw the G's colours with an embedded HTML element (`foreignObject`), which YouGrow doesn't serve, and taking it out would change the G.

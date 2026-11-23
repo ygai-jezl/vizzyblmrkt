@@ -28,15 +28,17 @@ export const ga4Manifest = {
   schema: 1,
   id: "google-analytics",
   name: "Google Analytics 4",
-  // Google's product icon, and the wide logo Google's Analytics branding policy asks for, linked to
-  // Google Analytics, wherever an app shows its data: at least 154 by 50 (public/marks/NOTICE.md).
+  // Google's product icon, and the wide logo Google's Analytics branding policy asks for wherever an
+  // app shows its data: at least 154 by 50 (public/marks/NOTICE.md). It links straight into Google
+  // Analytics, which the policy allows ("directly into the Google Analytics product"), so the
+  // numbers can be checked there, as every other connector's source link does.
   icon: {
     light: "/marks/connectors/google-analytics/icon.svg",
     owner: "Google LLC",
     lockup: {
       light: "/marks/connectors/google-analytics/lockup-light.png",
       dark: "/marks/connectors/google-analytics/lockup-dark.png",
-      href: "https://marketingplatform.google.com/about/analytics/",
+      href: "https://analytics.google.com/",
       alt: "Google Analytics",
       width: 189,
       height: 50,

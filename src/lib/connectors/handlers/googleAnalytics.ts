@@ -15,7 +15,8 @@ import type { AccountsHook, ConnectorAccount, HookFailure, HookInput, LiveHook, 
  *   property is still in that list.
  * - runReport reads the Data API's properties.runReport (POST analyticsdata.googleapis.com/v1beta/
  *   {property}:runReport) by date, page (unifiedPagePathScreen) or landing page (landingPage),
- *   each a path without its query string, with totals and returnPropertyQuota. Google's metadata
+ *   each a path without its query string (an app's screen class isn't a path, so it is left out
+ *   with a note), with totals and returnPropertyQuota. Google's metadata
  *   says the property's time zone, and when rows were rolled into "(other)", sampled or held
  *   back below its privacy thresholds; each becomes a note, as does a property low on its daily
  *   tokens.
@@ -41,7 +42,11 @@ export const GA4_METRICS = [
   ["screenPageViews", "ga4Views"],
   ["keyEvents", "ga4KeyEvents"],
 ] as const;
-/** The metrics each grouping asks for, in Google's report order. Sessions by page match no report, so pages leave them out. */
+/**
+ * The metrics each grouping asks for, in Google's report order. Sessions by page match no report,
+ * so pages leave them out, and so does a read by day for one page: sessions for one page are read
+ * by landing page.
+ */
 export const METRICS_BY = {
   day: ["sessions", "activeUsers", "screenPageViews", "keyEvents"],
   page: ["screenPageViews", "activeUsers", "keyEvents"],
@@ -57,6 +62,7 @@ export const THRESHOLD_NOTE = "Google Analytics held back some small numbers to 
 export const OTHER_NOTE = "Google Analytics grouped some rarely visited pages as (other), so they aren't listed one by one.";
 export const SAMPLED_NOTE = "Google Analytics worked these numbers out from a sample of the visits, so they are estimates.";
 export const QUOTA_NOTE = "This property has used most of its Google Analytics allowance for now, so reads may stop for a while.";
+export const APP_SCREENS_NOTE = "This property also counts app screens. They aren't web pages, so they aren't listed here, but the totals include them.";
 
 const TYPE_WORDS: Readonly<Record<string, string>> = {
   PROPERTY_TYPE_SUBPROPERTY: "subproperty",
@@ -149,13 +155,18 @@ export function relativeRange(period: LivePeriod): { startDate: string; endDate:
 /** An exact match on a string dimension. */
 const exact = (fieldName: string, value: string) => ({ filter: { fieldName, stringFilter: { matchType: "EXACT", value } } });
 
-/** The dimension filter: landing pages leave out "(not set)", as Google's Landing page report; a page filter matches one path. */
+/**
+ * The dimension filter: only a page filter, one path matched exactly. Landing pages send no filter,
+ * as Google's Landing page report table doesn't, so the totals and rowCount are the report's own;
+ * its "(not set)" row is left out of the rows here instead.
+ */
 function dimensionFilter(by: By, page: string | undefined): Record<string, unknown> | null {
-  const parts: Array<Record<string, unknown>> = [];
-  if (by === "landing") parts.push({ notExpression: exact("landingPage", "(not set)") });
-  if (page) parts.push(exact(by === "landing" ? "landingPage" : "unifiedPagePathScreen", page));
-  if (parts.length === 0) return null;
-  return parts.length === 1 ? parts[0]! : { andGroup: { expressions: parts } };
+  return page ? exact(by === "landing" ? "landingPage" : "unifiedPagePathScreen", page) : null;
+}
+
+/** The metrics a read asks for: a read by day for one page asks for the page's own (no sessions). */
+export function metricsFor(by: By, page: string | undefined): readonly string[] {
+  return by === "day" && page ? METRICS_BY.page : METRICS_BY[by];
 }
 
 /** The runReport body for one read. Days ask for every day, so the latest are never cut. */
@@ -164,7 +175,7 @@ export function reportBody(by: By, range: { startDate: string; endDate: string }
   return {
     dateRanges: [range],
     dimensions: [{ name: DIMENSION[by] }],
-    metrics: METRICS_BY[by].map((name) => ({ name })),
+    metrics: metricsFor(by, page).map((name) => ({ name })),
     ...(filter ? { dimensionFilter: filter } : {}),
     orderBys: by === "day" ? [{ dimension: { dimensionName: "date" } }] : [{ metric: { metricName: ORDER_BY[by] }, desc: true }],
     limit: rows,
@@ -215,8 +226,10 @@ export function notFinalNote(from: string, to: string): string {
  * - explicit days are sent as asked; when the last one isn't over yet in the property's zone,
  *   the read is made again ending yesterday there, with a dated note;
  * - pages are grouped by unifiedPagePathScreen with views, active users and key events (Pages and
- *   screens); landing pages by landingPage with sessions, active users and key events (Landing
- *   page); days with every metric, empty days included;
+ *   screens), web paths only; landing pages by landingPage with sessions, active users and key
+ *   events (Landing page), with no filter so the totals are the report's, and its "(not set)" row
+ *   left out of the rows; days with every metric, empty days included, or a page's own metrics
+ *   when the read is for one page;
  * - totals (metricAggregations TOTAL) count each person once for the whole period, and rowCount
  *   says how many rows Google has.
  */
@@ -280,6 +293,11 @@ export const runReport: LiveHook = async (input, deps) => {
         continue;
       }
       if (dim === "(not set)" || dim.length > 2000) continue;
+      // An app stream's screen class (MainActivity) isn't a path: leave it out rather than make one up.
+      if (!dim.startsWith("/")) {
+        if (by === "page") notes.add(APP_SCREENS_NOTE);
+        continue;
+      }
       value = cleanPagePath(dim);
     }
     rows.push({ [by]: value, ...valuesOf(headers, r.metricValues) });

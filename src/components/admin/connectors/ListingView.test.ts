@@ -263,7 +263,7 @@ describe("the Search Console and Google Analytics Listings", () => {
     const text = textOf(out);
     expect(text).toContain(`${LISTING_COPY.dataFrom} (opens in a new tab)`);
     const link = out.match(/<a href="([^"]+)" target="_blank" rel="noopener noreferrer"[^>]*>((?:(?!<\/a>).)*)<\/a>/)!;
-    expect(link[1]).toBe("https://marketingplatform.google.com/about/analytics/");
+    expect(link[1]).toBe("https://analytics.google.com/");
     expect(link[2]).toContain('<img src="/marks/connectors/google-analytics/lockup-light.png" alt="Google Analytics" width="189" height="50" class="dark:hidden"/>');
     expect(link[2]).toContain('<img src="/marks/connectors/google-analytics/lockup-dark.png" alt="Google Analytics" width="189" height="50" class="hidden dark:block"/>');
     // In the What it reads card, after the numbers, so it is never the biggest thing on the page.

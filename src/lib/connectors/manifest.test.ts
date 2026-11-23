@@ -3,6 +3,7 @@ import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { MEANINGS } from "@/lib/metrics/meanings";
 import { ConnectorManifestSchema, oauthMethod, parseManifest, RESERVED_CONNECTOR_IDS, shareMethod, streamOf, tokenMethod, type ConnectorManifestInput } from "./manifest";
 import { cloudflareManifest } from "./manifests/cloudflare";
+import { ga4Manifest } from "./manifests/ga4";
 import { searchConsoleManifest } from "./manifests/searchConsole";
 import { MANIFESTS } from "./registry";
 
@@ -146,7 +147,9 @@ describe("connector manifests", () => {
     // Only Google Analytics asks for its wide logo beside its data, linked to it, at least 154 by 50.
     const lockups = MANIFESTS.map((m) => parseManifest(m).icon?.lockup).filter(Boolean);
     expect(lockups).toHaveLength(1);
-    expect(lockups[0]).toMatchObject({ href: "https://marketingplatform.google.com/about/analytics/", alt: "Google Analytics" });
+    // Straight into Google Analytics, the same place as its home, so the source line lets people check the numbers there.
+    expect(lockups[0]).toMatchObject({ href: "https://analytics.google.com/", alt: "Google Analytics" });
+    expect(lockups[0]!.href).toBe(ga4Manifest.home);
     expect(lockups[0]!.width).toBeGreaterThanOrEqual(154);
     expect(lockups[0]!.height).toBeGreaterThanOrEqual(50);
   });

@@ -62,10 +62,10 @@ export function GoogleSignInArt({ alt }: { alt: string }) {
 }
 
 /**
- * The wide logo some owners ask for beside their data, linked to their product page: Google
- * Analytics' branding policy wants it wherever an app shows its numbers, at least 154 by 50, in
- * its colours (white words on a dark background). Its alt text is the words in the image, so the
- * link reads "Google Analytics".
+ * The wide logo some owners ask for beside their data, linked to their product (Google Analytics
+ * links straight into it): its branding policy wants it wherever an app shows its numbers, at
+ * least 154 by 50, in its colours (white words on a dark background). Its alt text is the words in
+ * the image, so the link reads "Google Analytics".
  */
 export function ConnectorLockup({ lockup }: { lockup: NonNullable<ConnectorIcon["lockup"]> }) {
   const size = { width: lockup.width, height: lockup.height };

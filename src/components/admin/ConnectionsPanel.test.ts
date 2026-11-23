@@ -23,7 +23,14 @@ describe("the Accounts tab's marks", () => {
     expect(mark("linkedin")).toContain('style="color:#0A66C2"');
     expect(mark("gitlab")).toContain('style="color:#FC6D26"');
     for (const id of ["github", "x"] as const) expect(mark(id)).not.toContain("style=");
-    expect(renderToStaticMarkup(createElement(ProviderMark, { provider: "github" }))).toMatch(/text-neutral-900[^"]*dark:text-white/);
+    expect(renderToStaticMarkup(createElement(ProviderMark, { provider: "github" }))).toMatch(/text-neutral-900[^"]*dark:bg-neutral-900[^"]*dark:text-white/);
+    expect(renderToStaticMarkup(createElement(ProviderMark, { provider: "x" }))).toContain("dark:bg-neutral-900");
+    // LinkedIn's blue mark and GitLab's orange one stay on white in the dark theme, as LinkedIn asks.
+    for (const provider of ["linkedin", "linkedin_org", "gitlab"] as const) {
+      const plate = renderToStaticMarkup(createElement(ProviderMark, { provider })).match(/^<span aria-hidden="true" class="([^"]*)"/)![1]!;
+      expect(plate, provider).toContain("bg-white");
+      expect(plate, provider).not.toMatch(/dark:bg-/);
+    }
     expect(mark("github")).toMatch(/<path d="M12 \.297c-6\.63[^"]*" fill="currentColor"><\/path>/);
   });
 });

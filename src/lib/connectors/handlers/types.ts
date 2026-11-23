@@ -35,7 +35,11 @@ export interface LiveQuery {
   to?: string;
   by: LiveBy;
   limit: number;
-  /** One page path, matched exactly, where the stream allows it. */
+  /**
+   * One page path, where the stream allows it. Google Analytics matches it exactly. Search Console
+   * matches the path on any of the site's hosts with any query string, and keeps each host a row
+   * of its own (query string variants of one host are added together with a `merged` count).
+   */
   page?: string;
   /**
    * Read only the provider's final numbers (Search Console's dataState final), ending where they

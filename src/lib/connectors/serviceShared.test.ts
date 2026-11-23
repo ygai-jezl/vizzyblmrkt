@@ -246,10 +246,12 @@ describe("Check access, picking and reading", () => {
       period: { from: "2026-10-24", to: "2026-11-20", timeZone: "America/Los_Angeles", finalThrough: "2026-11-18", words: "24 Oct to 20 Nov 2026, Pacific time" },
       rows: [{ page: "/pricing", host: "example.com", searchClicks: 3, searchImpressions: 50 }],
       more: false,
-      notes: ["Search Console's numbers for 19 and 20 Nov aren't final yet. Its own report shows them too, and they may still change a little."],
+      notes: ["Search Console's numbers for 19 and 20 Nov may not be final yet. Its own report shows them too, and they may still change a little."],
     });
     expect(r.body).not.toHaveProperty("lag");
+    // One page's rows are by host: no site totals, and no totals query.
     expect(r.body).not.toHaveProperty("totals");
+    expect(asked).toHaveLength(2);
     const read = db.dump("data_connection_activity").find((a) => a.kind === "read")!;
     expect(read.read).toEqual({ stream: "search_performance", by: "page", from: "2026-10-24", to: "2026-11-20", timeZone: "America/Los_Angeles", limit: 100, period: "last_28_days", pageFilter: true });
     expect(JSON.stringify(read)).not.toContain("pricing");

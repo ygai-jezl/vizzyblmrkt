@@ -20,9 +20,10 @@ import React from "react";
 
 import { isTableStart, readTable, type TableAlign } from "@/lib/content/markdownTable";
 
-// A link's target is http(s) or site-relative ("/admin/..."), never "//host" or another scheme.
+// A link's target is http(s) or site-relative ("/admin/..."), never "//host" or another scheme,
+// and never holds a backslash: browsers read "/\host" as "//host", a link to another site.
 const INLINE_PATTERN =
-  /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\((?:https?:\/\/|\/(?!\/))[^)\s]+\))/g;
+  /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\((?:https?:\/\/|\/(?![/\\]))[^)\s\\]+\))/g;
 
 function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];

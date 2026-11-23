@@ -4,6 +4,211 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0012 · Collected numbers: where they live, how long, and what they feed (Connectors 2) (2026-11-23)
+
+Context: wave 3's Connectors 2 (build plan decisions 25, 35, 36 and 37; piece 2 of the Connectors
+plan v5) turns the live reads Connectors 1 built into numbers YouGrow keeps. Every connected Search
+Console site, Google Analytics 4 property and Cloudflare zone is collected once a day into metric
+snapshots in the brand's region, kept 90 days, and erased by Disconnect. Vizzy gets a number tool,
+Search Console searches go into brand search, and the numbers suggest articles. It ships as one pull
+request, `feat/connectors-collect`, in four commit groups: 1 collect, keep and erase; 2 numbers for
+Vizzy; 3 searches in brand search; 4 signals. This record covers all four; each group's own notes
+follow as it lands.
+
+### Decided before the plan (binding)
+
+- **Decision 35: collected numbers live in regional Firestore with a time to live, not BigQuery.**
+  Kept 90 days, about 500 rows per grouping per day. Older figures come from a live read.
+  Disconnect deletes at once, the emulators and self-hosted copies need no BigQuery add-on, and
+  BigQuery can't delete rows still in its streaming buffer. The build plan's gate "BigQuery tables
+  for connectors 2" goes.
+- **Decision 36: Connectors 2 has its own switches,** not `BRAND_SIGNALS_ENABLED` and
+  `SIGNALS_DATAFORSEO_ENABLED`, which are on in prod: reusing them would turn collecting on at the
+  promotion. `CONNECTOR_SIGNALS_ENABLED` needs only collect, so a copy without DataForSEO still gets
+  Search Console signals.
+- **Decision 37: Search Console queries are Google's aggregates,** counts over everyone who searched,
+  not one person's own words, so they may enter brand search before the data processing agreement
+  line. Group 3 writes it into this log as its own entry.
+- **Decision 25: values are cleared when a suggestion closes.** Admins approve for now (decision 28).
+  `agent_actions` has no time to live (decision 22) and clears values only on `acted` or `declined`,
+  so every way a suggestion closes ends in one of those.
+
+### Where the numbers live (group 1)
+
+- **`metric_snapshots`, regional, through `forTenant`.** One doc per connection, generation, stream,
+  grouping and day: `${connectionId}_${gen}_${stream}_${by}_${day}`, with `by` one of `day`, `page`,
+  `topic` and `landing`. Rolled docs, `_r28` and `_r90`, are rewritten once a day from the day docs,
+  so no hot path adds up 90 day docs on a server already near its memory limit; Search Console also
+  gets planning docs (`_question_r28`, and `_subject_r28` from group 4) with a ready line per brand
+  map question. Every read is by id; erase reads by equality on `connectionId`. No composite index.
+- **A doc holds** the provider's own day and time zone (Search Console: Pacific time; GA4: the
+  property's zone; Cloudflare: UTC), whether the day is final, `totals` by meaning key (day docs
+  only: a range's totals come from day totals, never from adding page rows), and at most 500 `rows`
+  `{ key, host?, m }` ranked by the main measure, with `rowsSeen`, `rowsDropped`, `more` and a `floor`
+  (the last kept row's numbers) when rows were cut. A row missing from a cut day is "at most the
+  floor", never a zero. A key longer than 500 characters is dropped and counted, and a doc that would
+  pass 900 KB loses rows from the bottom.
+- **The provider's day stays the provider's.** A daily total can't be moved into another zone, so
+  "day, in the brand's time zone" (plan v5, section 6) doesn't hold, and every doc stores its zone.
+- **Counts of people don't add up across days.** GA4 active users and Cloudflare unique visitors are
+  left empty in every multi day total and row, with a note to read live.
+- **The generation.** `collect.gen` is part of every snapshot id and goes on every row with the
+  account (site, property or zone). Change property bumps it, so an old site's numbers can never
+  share an id with the new site's, even if an erase fails or races a run.
+- **Kept 90 days.** `ttlAt`, a Date, is the day plus the stream's `keepDays` (90, a number in the
+  manifest's new `collect` block that the lane enforces). Firestore deletes expired docs "typically
+  within 24 hours" and shows them until then, so writing day D also deletes D minus 90 by id, and
+  readers read by day.
+- **Index changes: three field exemptions, no composite.** `metric_snapshots.rows`, an array of up
+  to 500 maps, and the two `ttlAt` fields (`metric_snapshots`, `data_signals`), as Google advises for
+  large unqueried fields and for TTL fields. The `ttlAt` entries leave out `ttl`, so an index deploy
+  only touches their index settings. firebase-tools offers to delete every field override missing
+  from `firestore.indexes.json`, and that delete clears its time to live; every TTL here comes from
+  `infra/lifecycle/setup.sh ttl`, so an index deploy runs `--non-interactive` with no `--force`, then
+  `setup.sh verify`. `setup.sh ttl` gains `metric_snapshots ttlAt` and `data_signals ttlAt`.
+
+### How a day is collected (group 1)
+
+- **Only numbers that won't change, with how final each day is.**
+  - Search Console: a small query grouped by date with `dataState: "final"` over the last 10
+    Pacific days (Google's own presence check) lists the days that are final; only those are
+    collected, once. A missing date at or before the newest listed one had no data and gets a zero
+    doc. An empty probe writes nothing and holds collection until the next day. Its rows are the
+    property's daily totals, so the `day` doc needs no extra call. Then one query by page and one by
+    search per new day, one day each, 1,000 rows asked, 500 kept with the floor.
+  - GA4: one report per grouping per day (page, `unifiedPagePathScreen`; landing, `landingPage`),
+    `limit` 1,000 ordered by the main measure, with `metricAggregations: TOTAL` for the day's totals,
+    at most 5 reports per `batchRunReports` (2 days a call), and `returnPropertyQuota` on every call.
+    A first pass two days after the day, at 06:00 property time, is marked not final; a second pass
+    on day 8 marks it final (Google: "some data can arrive late, potentially up to 7 days"). An
+    answer past 512 KiB halves the limit and is retried once. `(other)` rows are left out;
+    `dataLossFromOtherRow`, sampling and thresholding become notes.
+  - Cloudflare: zone totals only, two UTC days after the day (the Free plan's 24 hour delay). End
+    user numbers as far back as the adaptive dataset reaches; the daily totals before that, clamped
+    to the `httpRequests1dGroups.notOlderThan` its settings node gives, with `basis` set.
+- **Backfill.** The first collect fills 90 days, one slice per run, newest first: Search Console 5
+  days a run after one 90 day totals call, GA4 6 days a run, Cloudflare all in one. A paused or
+  broken connection resumes from its last day; out longer than 90 days, it starts again.
+- **The lane.** Every 15th tick of the 2 minute lifecycle tick, at offset 7
+  (`Math.floor(now / 120_000) % 15 === 7`), so it never shares a tick with the competitor scan, the
+  search sweep or Found live, with its own 25 second budget inside the scheduler's 105 seconds.
+  Brands take turns from a rotating offset, one `data_connections` query each, skipping suspended
+  brands; one connection at a time, under a 60 second lease held through `changeDataConnection`; no
+  new day starts with under 10 seconds left. Each run logs how far behind it is (the oldest
+  `collect.nextAt` it saw). Its housekeeping (erase retries now; `connector_signals` expiry and the
+  brand map reconcile in group 4) runs whenever `CONNECTORS_ENABLED` is on; collecting only with
+  `CONNECTORS_COLLECT_ENABLED`.
+- **Collecting is not reading.** The collector opens a connection's token as a system job (the share
+  access mint, the sign in keeper or the vault), with no grant check: grants say who may see
+  numbers, not whether the brand keeps them. Every way out checks grants.
+- **No collect toggle, and the collector's holds stay out of health.** Pause already stops every
+  call. Quota backoff for collection lives in `collect.holdUntil` and `collect.holdReason`, so a
+  collect backoff never blocks Vizzy's live reads; `health.pausedUntil` stays for real provider
+  failures under today's rules. Search Console's first `quotaExceeded` holds collection 15 minutes, a
+  second the same Pacific day holds it to the next Pacific midnight; GA4 holds for an hour when its
+  project tokens for the hour drop under 20% or after 2 server errors; 3 failed tries hold any
+  connection to the next day. Every other outcome goes through the same `outcomePlan` a live read
+  uses: a refused token marks the connection broken.
+- **Rollback safety.** `collected` and `erased` activity rows stay off the record's recent list, as
+  Vizzy's `read` rows do, because an older build's parse throws on an unknown kind there. The
+  `collect` block is optional, and an older build's parse drops it.
+
+### Erase (group 1)
+
+- **Disconnect and Change property erase everything that came from the connection:** its snapshots
+  now; its `data_signals` rows, its brand search source, its open suggestions (declined as `stale`,
+  values cleared) and the undecided brand map questions it proposed (removed, not dismissed) as
+  groups 3 and 4 add them. Decided questions stay: a person adopted them.
+- **Disconnect** sets `collect.erasePending`, then erases after the disconnect is saved. **Change
+  property** takes the collect lease, sets `erasePending` and bumps `gen` in one change, erases the
+  old generation, clears `erasePending` and starts the new backfill. **The operator purge** erases
+  too, whatever any switch says. Each erase is idempotent and records one `erased` activity row; the
+  lane retries any connection with `erasePending` set whenever `CONNECTORS_ENABLED` is on.
+
+### What people see (group 1)
+
+- **Review, "Data sources that need you"** (kind `data_source`: `connection` is the product context
+  endpoint's): a link item, admins only, for a connection that is broken, needs a property, has
+  failed collecting since 3 or more days ago (`collect.failedSince`; `health.failures` counts calls,
+  not days) or was paused by an admin 7 days ago. It links to the Connected view with that connection
+  selected (`?c=<id>`).
+- **Say when access was lost.** A shared connection that had worked and whose Google address was
+  removed from the property shows `share_access_lost` ("YouGrow lost access to this property on 19
+  Nov. ...") instead of the first time message. Health keeps `since`, when the failures in a row
+  began, for that date.
+- **The Connected view** gets a Collected column and a Collected numbers block on the Manage card
+  (last day, days kept, rows a day, filling progress), hidden while collect is off. The manifests'
+  `where` lines lose "Nothing is stored."; each collected stream says it is kept 90 days in the
+  brand's region and Disconnect deletes it, on the Listing and the help page only while collect is
+  on.
+
+### Numbers, searches and signals (groups 2 to 4)
+
+- **Planning uses a connection only when both members and Vizzy may read it.** Next up is stored once
+  per brand and read by everyone and by Vizzy; brand map proposals are seen by the whole team. None
+  can follow one viewer's access, so signals, Next up lines and pack numbers come only from such
+  connections, and the Connected view says which ones feed planning. No third grant.
+- **Vizzy's numbers** (`get_connected_numbers`) read snapshots by id behind their own limit,
+  `connectors_numbers` (burst 10, 120 an hour), with the canvas token giving the brand and role and
+  the connection's Vizzy grant checked; every number carries its meaning. The server works out the
+  period; Vizzy never computes dates.
+- **Searches in brand search** are one `research` source per Search Console connection
+  (`gsc:<connectionId>`), refreshed weekly, and a hit shows only to a viewer who may read that
+  connection.
+- **The decision lives on the agent action; `data_signals` only indexes it.** Plan an article moves
+  the action to `acted` with its link; Dismiss to `declined` (`dismissed`), values cleared and the
+  row blanked, kept 30 days so it doesn't come back. A rising search becomes a proposed brand map
+  question with the map at scale (`RecordFrom` gains `search_console`; older builds read it as
+  `person`), else a Review suggestion. The lane reconciles brand map proposals once a day instead of
+  hooking every decision path. Strict starting thresholds, row cuts respected, at most 5 new and 15
+  open per brand.
+- **Open to every plan.** Collect, numbers and signals cost about 2 to 3 cents a brand a month, so
+  there is no per brand check. Next up lines appear only where Next up is already allowed (Ultra).
+- **`BrandSignal` stays DataForSEO only:** its queue, lease and cost fields are DataForSEO's, and
+  `readySignals` feeds the Get from Google screens.
+- **Out of scope:** DataForSEO as a connector (piece 5), Cloudflare AI crawlers by bot and page (a
+  later card: other datasets, some paid only), and YouGrow's own form view and product event counts,
+  whose registry gaps move from "(connectors 2)" to "(semantic layer)".
+
+### Switches
+
+All server side, `"false"` in the "== Connectors ==" group of `apphosting.yaml`, empty in
+`.env.example`, and kept off by `npm run selfhost`.
+
+| Switch | Group | Needs | Self-host |
+| --- | --- | --- | --- |
+| `CONNECTORS_COLLECT_ENABLED` | 1 | `CONNECTORS_ENABLED`. Erase and housekeeping never depend on it | `KEPT_OFF`, addon null |
+| (none) | 2 | `CONNECTORS_CHAT_ENABLED` and collect, else 503 | |
+| `CONNECTORS_SEARCH_TEXT_ENABLED` | 3 | collect, `SEARCH_INDEX_ENABLED`, `brand_search` | `KEPT_OFF`, addon `search` |
+| `CONNECTOR_SIGNALS_ENABLED` | 4 | collect, and 0e's indexes READY | `KEPT_OFF`, addon null |
+
+A connector manifest may never claim a platform switch: a refine refuses `CONNECTOR_SIGNALS_ENABLED`
+and `CONNECTOR_GOOGLE_REVOKE_ENABLED` as a connector's `switch` or a sign in method's, and `signals`
+joins the reserved connector ids.
+
+**What each switch leaves behind when turned off:**
+
+| Off | Stops | Stays until |
+| --- | --- | --- |
+| `CONNECTORS_COLLECT_ENABLED` | collecting, the Review row, the Connected column, the numbers route | snapshots expire within 90 days, or Disconnect or the purge removes them |
+| `CONNECTORS_SEARCH_TEXT_ENABLED` | new `gsc:` sources | the next sweep removes them, or the purge if indexing is off |
+| `CONNECTOR_SIGNALS_ENABLED` | detection, Review suggestions, chips, pack lines, the suggestions route | open suggestions expire within 30 days (the lane still expires them); undecided proposals are withdrawn at expiry |
+| `CONNECTORS_ENABLED` | everything | erase still runs from the purge, whatever any switch says |
+
+Reverting the whole pull request is safe: snapshots and signals leave through their time to live,
+the sweep removes `gsc:` sources once the feeder stops listing them, and agent actions are left
+declined or expired. A brand that wants its data gone at once runs the purge before the revert.
+
+### Owner gates
+
+The TTL policies (`setup.sh ttl`, then `setup.sh verify`) before collect or signals go on in an
+environment; the index deploy with no `--force`; 0e's indexes READY before `CONNECTOR_SIGNALS_ENABLED`;
+a published consent screen before the dev soak (Testing mode sign ins end after 7 days; share access
+is unaffected); the three switches added as `"false"` to a deployment's own file before its sync;
+and a Vizzy redeploy after groups 2 and 4.
+
+---
+
 ## ADR-0011 · Connected data: the connector core and Cloudflare (Connectors 1) (2026-11-21)
 
 Context: wave 2's Connectors 1 (build plan decisions 13, 32 and 33; the Connectors plan v5, whose

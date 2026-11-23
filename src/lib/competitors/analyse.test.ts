@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { NO_METER } from "@/lib/agents/gemini";
 import { labelSite, plainPostsHeadline, plainSiteHeadline, readFoundLines, searchForSite, summarisePosts, summariseSiteChange, tidy } from "./analyse";
 import { diffBaselines } from "./diff";
 import { sectionTree } from "./shape";
@@ -27,12 +28,12 @@ describe("finding a sitemap with search", () => {
 
   it("asks the grounded model with the site in the prompt, and returns null when there's no model", async () => {
     const grounded = vi.fn(async () => ({ text: "SITEMAP: https://acme-dental.example/sitemap.xml\nNEWS: NONE" }));
-    expect(await searchForSite({ name: "Acme Dental", website: "https://acme-dental.example", site: SITE }, 10_000, { grounded })).toEqual({
+    expect(await searchForSite({ name: "Acme Dental", website: "https://acme-dental.example", site: SITE }, 10_000, NO_METER, { grounded })).toEqual({
       sitemap: "https://acme-dental.example/sitemap.xml",
       news: null,
     });
     expect((grounded.mock.calls[0] as unknown as [string])[0]).toContain("acme-dental.example");
-    expect(await searchForSite({ name: "Acme Dental", website: "https://acme-dental.example", site: SITE }, 10_000, { grounded: async () => null })).toBeNull();
+    expect(await searchForSite({ name: "Acme Dental", website: "https://acme-dental.example", site: SITE }, 10_000, NO_METER, { grounded: async () => null })).toBeNull();
   });
 });
 

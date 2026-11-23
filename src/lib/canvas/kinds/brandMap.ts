@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { usageMeter } from "@/lib/plans/meter";
 import { isRateLimited } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { BrandMapChangeSchema, type BrandMapChange } from "@/lib/types/brandMap";
@@ -205,6 +206,8 @@ async function researchSituations(
 ): Promise<CanvasAuthorOutcome> {
   const url = `${BRAND_KIT_MAP_ROUTE}`;
   if (input.mode === "situations") {
+    // At the month's web search cap nothing is started, so no allowance is used up.
+    if (await usageMeter(ctx, "web_searches", "situations", { db: deps.db }).check()) return { ok: false, status: 429, error: "search_limit" };
     // One research allowance for the run, then its step.
     const run = await startRun(ctx, "situations", { db: deps.db, nowMs: deps.nowMs });
     if (!run.ok) return run;
@@ -227,6 +230,7 @@ async function researchSituations(
     }, url);
   }
   if (!input.situationId) return { ok: false, status: 400, error: "invalid_input", issues: ["situationId: which buying situation to research"] };
+  if (await usageMeter(ctx, "web_searches", "situation_questions", { db: deps.db }).check()) return { ok: false, status: 429, error: "search_limit" };
   if (await isRateLimited(`tenant:${ctx.tenantId}`, RESEARCH_LIMIT, { db: deps.db })) return { ok: false, status: 429, error: "rate_limited" };
   const r = await askSituationQuestions(ctx, input.situationId, { db: deps.db, nowMs: deps.nowMs, timeoutMs: RESEARCH_MS, ...deps.ask });
   if (!r.ok) return r;

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { isGeminiConfigured } from "@/lib/agents/gemini";
+import { usageMeter } from "@/lib/plans/meter";
+import { isGeminiConfigured, type SearchMeter } from "@/lib/agents/gemini";
 import { forTenant } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import { allowedFor, robotsSitemaps } from "@/lib/content/blog/crawlers";
@@ -65,6 +66,8 @@ import {
 export interface StepDeps extends StoreDeps, FetchDeps, AnalyseDeps, GoogleDeps {
   /** Milliseconds now (deadlines). */
   clock?: () => number;
+  /** The web search meter (tests); otherwise the brand's own. */
+  searchMeter?: SearchMeter;
 }
 
 /** Time a step needs before it starts: fetching one file, or asking the model. */
@@ -173,7 +176,7 @@ async function runStep(step: Step, c: Competitor, ctx: TenantContext, deadlineMs
     case "find_plain":
       return findPlain(c, deps);
     case "find_search":
-      return findSearch(c, deadlineMs, deps);
+      return findSearch(c, ctx, deadlineMs, deps);
     case "find_google":
       return findGoogle(c, ctx, deadlineMs, deps);
     case "read":
@@ -275,9 +278,10 @@ function startReadLater(roots: string[], foundBy: SitemapFoundBy): Partial<Compe
   };
 }
 
-async function findSearch(c: Competitor, deadlineMs: number, deps: StepDeps): Promise<Partial<Competitor>> {
+async function findSearch(c: Competitor, ctx: TenantContext, deadlineMs: number, deps: StepDeps): Promise<Partial<Competitor>> {
   const timeoutMs = deadlineMs - clockOf(deps)() - MARGIN_MS;
-  const found = await searchForSite({ name: c.name, website: c.website, site: c.site }, timeoutMs, deps);
+  const meter = deps.searchMeter ?? usageMeter(ctx, "web_searches", "competitor_site", { db: deps.db });
+  const found = await searchForSite({ name: c.name, website: c.website, site: c.site }, timeoutMs, meter, deps);
   const news: CompetitorNews | null = found?.news ? { url: found.news, feedUrl: null, chosenBy: "search", baselineAt: null, checkedAt: null } : null;
   if (c.reader === "google") {
     // We can't fetch it ourselves: Google reads their robots.txt and these files, one a step.

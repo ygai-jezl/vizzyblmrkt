@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { usageMeter } from "@/lib/plans/meter";
 import { reconcileWithSavedMap } from "@/lib/content/blog/mapActions";
 import { checkPlanBlogFacts, matchPlanSeen, researchPlanBlog } from "@/lib/content/blog/hubActions";
 import { runArchitect } from "@/lib/content/create/architectRun";
@@ -97,6 +98,8 @@ export const createStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
   if (!planId) {
     // The cap counts drafts when their plan is made.
     if ((await draftsThisMonth(ctx, deps)) >= monthlyLimit(tenant, "article_autopilot")) return { step: "sorted", error: "monthly_limit" };
+    // Research needs Google: at the month's web search cap the run stops sorted, like at the draft cap.
+    if (await usageMeter(ctx, "web_searches", "autopilot_research", { tenant, db: deps.db }).check()) return { step: "sorted", error: "search_limit" };
     const programmes = (await forTenant(ctx, deps.db).workspaces.find({ limit: 200 })).filter((w) => !w.archivedAt);
     const chosen = settings.workspaceId ? programmes.find((w) => w.id === settings.workspaceId) : programmes.length === 1 ? programmes[0] : undefined;
     if (!chosen) return { step: "failed", error: "no_programme" };
@@ -138,7 +141,7 @@ export const createStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
   const needsResearch = !plan.blog?.researchedAt;
   const [arch] = await Promise.all([
     needsGraph ? runArchitect(ctx, { workspace, plan, deadlineMs: Math.min(opts.deadlineMs - SAVE_MS, Date.now() + 25_000) }) : Promise.resolve(null),
-    needsResearch ? researchPlanBlog(ctx, { workspace, plan, timeoutMs: Math.max(5_000, Math.min(50_000, left(opts) - SAVE_MS)) }).catch(() => null) : Promise.resolve(null),
+    needsResearch ? researchPlanBlog(ctx, { workspace, plan, timeoutMs: Math.max(5_000, Math.min(50_000, left(opts) - SAVE_MS)), searchPurpose: "autopilot_research" }).catch(() => null) : Promise.resolve(null),
   ]);
   if (arch) {
     if (!arch.ok) return { error: "architect_failed", planId, workspaceId: workspace.id };

@@ -8,7 +8,11 @@ import {
   generateTextWithDeadline,
   type GroundedSupport,
   type GroundedTextResult,
+  isSearchLimited,
+  type SearchLimited,
+  type SearchMeter,
 } from "@/lib/agents/gemini";
+import { usageMeter } from "@/lib/plans/meter";
 import {
   retrieveSemanticKnowledgeContext,
   type ContextRetrievalRequest,
@@ -133,6 +137,8 @@ export interface BlogResearchInput {
   timeoutMs?: number;
   /** The brand map the article is written from (CREATE_BLOG_BRAND_MAP_ENABLED); null = none, as before. */
   map?: ArticleMap | null;
+  /** Who is researching, for the web search meter: a person or Vizzy (the default), or the autopilot. */
+  searchPurpose?: "blog_research" | "autopilot_research";
 }
 
 export interface BlogResearchDeps {
@@ -143,6 +149,8 @@ export interface BlogResearchDeps {
    */
   mapWords?: (texts: string[]) => Promise<ArticleMap["subjects"]>;
   grounded?: typeof generateGroundedText;
+  /** The web search meter (tests); otherwise the brand's own. */
+  meter?: SearchMeter;
   retrieve?: typeof retrieveSemanticKnowledgeContext;
   sitePages?: (ctx: TenantContext, workspaceId: string) => Promise<SitePages>;
   /** Google's redirect link → the page's own address (null when it can't be followed). */
@@ -170,6 +178,8 @@ export interface BlogResearchResult {
   brief: BlogBrief;
   /** False when the question search returned nothing (off, timed out or failed). */
   searched: boolean;
+  /** Google wasn't searched: the brand has used its web searches for research this month. */
+  searchLimited?: true;
   found: {
     questions: number;
     links: number;
@@ -756,11 +766,14 @@ async function searchFacts(
   grounded: typeof generateGroundedText,
   deadline: number,
   clock: () => number,
-): Promise<GroundedTextResult | null> {
+  meter: SearchMeter,
+): Promise<GroundedTextResult | SearchLimited | null> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const left = deadline - clock();
     if (left < 10_000) break;
-    const got = await grounded(prompt, { timeoutMs: left, thinkingBudget: blogResearchThinkingBudget() }).catch(() => null);
+    const got = await grounded(prompt, { timeoutMs: left, thinkingBudget: blogResearchThinkingBudget(), meter }).catch(() => null);
+    // At the month's cap there is no second try.
+    if (isSearchLimited(got)) return got;
     if (got && parseResearch(got.text).facts.length) return got;
   }
   return null;
@@ -828,6 +841,7 @@ export async function researchBlogBrief(
   const today = now.toISOString().slice(0, 10);
   const audience = workspace.audience?.trim().slice(0, 500) || "(not given)";
   const search = deps.grounded ?? generateGroundedText;
+  const meter = deps.meter ?? usageMeter(ctx, "web_searches", input.searchPurpose ?? "blog_research");
   // Editorial articles stay on their own question (no spread of intents, alternatives only when choosing).
   const questionsPrompt = renderPrompt(isBlogEditorialEnabled() ? "content.blog_research_editorial" : "content.blog_research", {
     brand_name: brandName.slice(0, 120),
@@ -880,14 +894,19 @@ export async function researchBlogBrief(
       })().catch(() => nothingCited)
     : Promise.resolve(nothingCited);
 
-  const [asked, grounded, site] = await Promise.all([
+  const [askedOrLimited, groundedOrLimited, site] = await Promise.all([
     search(questionsPrompt, {
       timeoutMs: Math.max(deadline - clock().getTime(), 1_000),
       thinkingBudget: blogResearchThinkingBudget(),
+      meter,
     }).catch(() => null),
-    searchFacts(factsPrompt, search, deadline, () => clock().getTime()),
+    searchFacts(factsPrompt, search, deadline, () => clock().getTime(), meter),
     (deps.sitePages ?? indexedSitePages)(ctx, workspace.id).catch((): SitePages => ({ pages: [], repoPaths: [] })),
   ]);
+  // At the month's web search cap, research carries on from the brand's own material, and says so.
+  const searchLimited = isSearchLimited(askedOrLimited) || isSearchLimited(groundedOrLimited);
+  const asked = isSearchLimited(askedOrLimited) ? null : askedOrLimited;
+  const grounded = isSearchLimited(groundedOrLimited) ? null : groundedOrLimited;
   const parsed = parseResearch(asked?.text ?? "");
   const facts = parseResearch(grounded?.text ?? "").facts;
 
@@ -1030,6 +1049,7 @@ export async function researchBlogBrief(
   return {
     brief,
     searched: Boolean(asked?.text),
+    ...(searchLimited ? { searchLimited: true as const } : {}),
     found: {
       questions: parsed.questions.length,
       links: links.length,

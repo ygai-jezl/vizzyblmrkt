@@ -1,5 +1,6 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
-import { generateGroundedText, isGeminiConfigured } from "@/lib/agents/gemini";
+import { generateGroundedText, isGeminiConfigured, isSearchLimited, type SearchMeter } from "@/lib/agents/gemini";
+import { usageMeter } from "@/lib/plans/meter";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { blogResearchThinkingBudget } from "@/lib/content/blog/flags";
@@ -88,6 +89,8 @@ export interface AskDeps {
   nowMs?: number;
   modelReady?: () => boolean;
   grounded?: typeof generateGroundedText;
+  /** The web search meter (tests); otherwise the brand's own. */
+  meter?: SearchMeter;
   embed?: Omit<EmbedDeps, "db" | "nowMs">;
   timeoutMs?: number;
 }
@@ -146,7 +149,8 @@ export async function askSituationQuestions(ctx: TenantContext, situationId: str
     alternatives: fence("alternatives", (map?.names ?? []).filter((n) => n.kind === "alternative").slice(0, 12).map((n) => n.name).join(", ") || "(none on the map)"),
     max: LIMITS.runQuestions,
   });
-  const answer = await (deps.grounded ?? generateGroundedText)(prompt, { timeoutMs: deps.timeoutMs ?? 55_000, thinkingBudget: blogResearchThinkingBudget() }).catch(() => null);
+  const answer = await (deps.grounded ?? generateGroundedText)(prompt, { timeoutMs: deps.timeoutMs ?? 55_000, thinkingBudget: blogResearchThinkingBudget(), meter: deps.meter ?? usageMeter(ctx, "web_searches", "situation_questions") }).catch(() => null);
+  if (isSearchLimited(answer)) return { ok: false, status: 429, error: "search_limit" };
   const lines = parseQuestionLines(answer?.text ?? "", subjects.length);
   if (!answer || !lines.length) return { ok: false, status: 502, error: "research_failed" };
 

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { WEB_SEARCH_LIMIT_MESSAGE } from "@/lib/plans/resources";
 import { forTenant, getTenantById, isRateLimited } from "@/lib/tenant";
 import { updateBlogHero } from "@/lib/tenant/workspaceContent";
 import { BlogHeroSchema } from "@/lib/types/contentPlan";
@@ -208,7 +209,10 @@ export async function authorContentPlanDraft(
     built = { ok: false, status: 502, error: "architect_failed" };
   }
   // Let research finish (and save the brief) before the plan is written to or removed.
-  const researched = Boolean((await researching)?.ok);
+  const researchOutcome = await researching;
+  const researched = Boolean(researchOutcome?.ok);
+  // Researched, but not on the web: the brand's web searches for research are used up this month.
+  const searchLimited = Boolean(researchOutcome && researchOutcome.ok && researchOutcome.searchLimited);
   if (!built.ok) {
     // Nothing is written yet: don't leave an empty plan behind for every retry.
     await deleteContentPlan(ctx, ws.id, created.id, deps.db).catch(() => undefined);
@@ -281,8 +285,9 @@ export async function authorContentPlanDraft(
   // Vizzy repeats this to the operator, so it says exactly what was done to a blog hub —
   // and nothing about research or a fact check when neither ran (the flag is off).
   const blogSteps = blogHub
-    ? `the article is ${researched ? "researched and written" : "written"}` +
+    ? `the article is ${researched ? (searchLimited ? "researched from the brand's own sources and written" : "researched and written") : "written"}` +
       (factsChecked ? " and fact-checked" : "") +
+      (searchLimited ? ` (${WEB_SEARCH_LIMIT_MESSAGE.replace(/\.$/, "")}, so Google wasn't searched)` : "") +
       (researched ? "" : " (research didn't finish: press Research on the canvas for sources)") +
       (factsChecked ? "" : " (press Check facts on the canvas before you approve it)") +
       (hero === "made" ? ", with its hero image" : hero === "asked" ? " (its hero image is made when you open it)" : "")

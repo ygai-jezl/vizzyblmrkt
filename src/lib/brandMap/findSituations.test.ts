@@ -129,5 +129,7 @@ describe("finding buying situations", () => {
     const empty = { ...material, sitePages: async () => ({ pages: [], repoPaths: [] }), retrieve: (async () => null) as never };
     expect(await findSituations(ctx, {}, { db, ...empty })).toEqual({ ok: false, status: 409, error: "nothing_to_read" });
     expect(await findSituations(ctx, {}, { db, ...material, grounded: grounded("I could not find anything.") as never })).toEqual({ ok: false, status: 502, error: "research_failed" });
+    // At the month's web search cap: nothing is proposed.
+    expect(await findSituations(ctx, {}, { db, ...material, grounded: (async () => ({ limited: true, used: 300, limit: 300 })) as never })).toEqual({ ok: false, status: 429, error: "search_limit" });
   });
 });

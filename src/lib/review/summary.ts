@@ -505,7 +505,9 @@ export function nextArticleItems(runs: AutopilotRun[], nowMs = Date.now()): Revi
       detail:
         ready.error === "monthly_limit"
           ? "This month's drafts are used up, so autopilot found and sorted it for you to write. Open Next up to write it."
-          : `${ready.trays?.use.length ?? 0} questions buyers ask go in it. Open Next up to sort them and write it.`,
+          : ready.error === "search_limit"
+            ? "This month's web searches for research are used up, so autopilot found and sorted it for you to write. Open Next up to write it."
+            : `${ready.trays?.use.length ?? 0} questions buyers ask go in it. Open Next up to sort them and write it.`,
       href: "/admin/brand-kit/map",
       action: "Review",
     });

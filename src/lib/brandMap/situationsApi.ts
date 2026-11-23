@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { usageMeter } from "@/lib/plans/meter";
 import { z } from "zod";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { SituationSide, SituationW } from "@/lib/types/brandMapRecords";
@@ -71,6 +72,8 @@ const FindBody = z.object({ runId: z.string().min(1).max(64), customers: z.strin
 export async function findSituationsFromRequest(ctx: TenantContext, body: unknown, deps: Deps & { find?: Omit<FindDeps, "db" | "nowMs"> } = {}): Promise<Response> {
   const parsed = FindBody.safeParse(body);
   if (!parsed.success) return invalid();
+  // At the month's web search cap, before a step of the run is used up.
+  if (await usageMeter(ctx, "web_searches", "situations", { db: deps.db }).check()) return NextResponse.json({ error: "search_limit" }, { status: 429 });
   // Once a run: one allowance finds at most 25 situations.
   const step = await takeStep(ctx, parsed.data.runId, "situations", deps, { once: "find" });
   if (!step.ok) return NextResponse.json({ error: step.error }, { status: step.status });
@@ -95,6 +98,7 @@ export async function situationQuestionsFromRequest(
 ): Promise<Response> {
   const parsed = AskBody.safeParse(body);
   if (!parsed.success) return invalid();
+  if (await usageMeter(ctx, "web_searches", "situation_questions", { db: deps.db }).check()) return NextResponse.json({ error: "search_limit" }, { status: 429 });
   const step = await takeStep(ctx, parsed.data.runId, "situations", deps);
   if (!step.ok) return NextResponse.json({ error: step.error }, { status: step.status });
   const blocked = await moveFirst(ctx, deps);

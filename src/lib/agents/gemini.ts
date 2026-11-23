@@ -291,6 +291,53 @@ export interface GroundedJsonResult {
   json: unknown | null;
   groundingUsed: boolean;
   model: string;
+  /** The Google searches the call ran (each one is billed). */
+  queries: string[];
+}
+
+// ---- Metering web searches (WEB_SEARCH_METER_ENABLED) -------------------------------------
+
+/** A grounded call that wasn't made: this brand has used its web searches for research this month. */
+export interface SearchLimited {
+  limited: true;
+  used: number;
+  limit: number;
+}
+
+/**
+ * How a grounded call is metered: checked before the call, and told after it how many Google
+ * searches it ran (each is billed). Built by src/lib/plans/meter.ts (`usageMeter`) and passed in,
+ * so this file stays free of storage. Every grounded call takes one (a guard test checks).
+ */
+export interface SearchMeter {
+  check(): Promise<SearchLimited | null>;
+  /** `lost`: the call failed after it may have searched, so its searches couldn't be counted. */
+  record(searches: number, opts?: { lost?: boolean }): Promise<void>;
+}
+
+/** A meter that never limits and counts nothing, for tests. */
+export const NO_METER: SearchMeter = { check: async () => null, record: async () => undefined };
+
+export function isSearchLimited(r: unknown): r is SearchLimited {
+  return typeof r === "object" && r !== null && (r as { limited?: unknown }).limited === true;
+}
+
+/** Tell the meter, never failing the call over it. */
+async function recordSearches(meter: SearchMeter, searches: number, lost = false): Promise<void> {
+  await meter.record(searches, lost ? { lost } : undefined).catch(() => undefined);
+}
+
+/** Google's search list on a grounded response. */
+function searchesOf(meta: { webSearchQueries?: string[] } | undefined | null): string[] {
+  return (meta?.webSearchQueries ?? []).filter((q): q is string => typeof q === "string");
+}
+
+/** The request was refused as written (a 400), so nothing ran and nothing was billed. */
+function wasRejected(err: unknown): boolean {
+  const status = (err as { status?: unknown } | null)?.status;
+  if (status === 400) return true;
+  const message = err instanceof Error ? err.message : "";
+  return /INVALID_ARGUMENT|"code":\s*400|\b400\b/.test(message);
 }
 
 /**
@@ -302,27 +349,34 @@ export interface GroundedJsonResult {
  */
 export async function generateGroundedJson(
   prompt: string,
-): Promise<GroundedJsonResult | null> {
+  opts: { meter: SearchMeter },
+): Promise<GroundedJsonResult | SearchLimited | null> {
   const ai = getClient();
   if (!ai) return null;
+  const limited = await opts.meter.check();
+  if (limited) return limited;
   try {
     const res = await ai.models.generateContent({
       model: TEXT_MODEL,
       contents: prompt,
       config: { tools: [{ googleSearch: {} }] },
     });
-    const cand = res.candidates?.[0] as { groundingMetadata?: unknown } | undefined;
+    const meta = res.candidates?.[0]?.groundingMetadata;
+    const queries = searchesOf(meta);
+    await recordSearches(opts.meter, queries.length);
     return {
       json: parseFirstJson(res.text ?? ""),
-      groundingUsed: cand?.groundingMetadata != null,
+      groundingUsed: meta != null,
       model: TEXT_MODEL,
+      queries,
     };
   } catch (err) {
+    await recordSearches(opts.meter, 0, true);
     console.warn(
       "[gemini] generateGroundedJson failed:",
       err instanceof Error ? err.message.slice(0, 200) : "error",
     );
-    return { json: null, groundingUsed: false, model: TEXT_MODEL };
+    return { json: null, groundingUsed: false, model: TEXT_MODEL, queries: [] };
   }
 }
 
@@ -344,6 +398,8 @@ export interface GroundedSupport {
 }
 
 export interface GroundedTextResult {
+  /** The Google searches the call ran (each one is billed). */
+  queries: string[];
   text: string;
   sources: GroundedSource[];
   supports: GroundedSupport[];
@@ -361,10 +417,12 @@ export interface GroundedTextResult {
  */
 export async function generateGroundedText(
   prompt: string,
-  opts: { timeoutMs?: number } & ThinkingOptions = {},
-): Promise<GroundedTextResult | null> {
+  opts: { timeoutMs?: number; meter: SearchMeter } & ThinkingOptions,
+): Promise<GroundedTextResult | SearchLimited | null> {
   const ai = getClient();
   if (!ai) return null;
+  const limited = await opts.meter.check();
+  if (limited) return limited;
   const signal = AbortSignal.timeout(opts.timeoutMs ?? 45_000);
   const deadline = new Promise<never>((_, reject) => {
     signal.addEventListener("abort", () => reject(new Error("deadline")), { once: true });
@@ -381,11 +439,15 @@ export async function generateGroundedText(
       deadline,
     ]);
   try {
+    // Asked again without the thinking setting only when the request was refused as written: any
+    // other failure may have searched (and been billed) already.
     const res = await ask(opts.thinkingBudget !== undefined).catch((err: unknown) => {
-      if (opts.thinkingBudget === undefined || signal.aborted) throw err;
+      if (opts.thinkingBudget === undefined || signal.aborted || !wasRejected(err)) throw err;
       return ask(false);
     });
     const meta = res.candidates?.[0]?.groundingMetadata;
+    const queries = searchesOf(meta);
+    await recordSearches(opts.meter, queries.length);
     const sources: GroundedSource[] = (meta?.groundingChunks ?? []).map((c) => {
       const web = c.web as { uri?: string; title?: string; domain?: string } | undefined;
       return { uri: web?.uri ?? "", title: web?.title ?? "", domain: web?.domain ?? web?.title ?? "" };
@@ -396,8 +458,9 @@ export async function generateGroundedText(
       end: typeof s.segment?.endIndex === "number" ? s.segment.endIndex : null,
       sourceIndexes: (s.groundingChunkIndices ?? []).filter((i) => Number.isInteger(i) && i >= 0 && i < sources.length),
     }));
-    return { text: res.text ?? "", sources, supports, model: TEXT_MODEL };
+    return { text: res.text ?? "", sources, supports, model: TEXT_MODEL, queries };
   } catch (err) {
+    await recordSearches(opts.meter, 0, true);
     console.warn(
       "[gemini] generateGroundedText failed:",
       err instanceof Error ? err.message.slice(0, 200) : "error",

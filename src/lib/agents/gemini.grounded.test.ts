@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { GroundedTextResult } from "./gemini";
 
 /**
  * The two additions the blog hub leans on: a grounded call that returns WHAT grounded it
@@ -44,8 +45,8 @@ describe("generateGroundedText", () => {
         },
       ],
     });
-    const { generateGroundedText } = await fresh();
-    const r = await generateGroundedText("find facts");
+    const { generateGroundedText, NO_METER } = await fresh();
+    const r = (await generateGroundedText("find facts", { meter: NO_METER })) as GroundedTextResult;
     expect(r?.text).toBe("FACT: 51% of buyers start with an AI chatbot.");
     expect(r?.sources).toEqual([
       { uri: "https://vertexaisearch.cloud.google.com/grounding-api-redirect/a", title: "research.example.org", domain: "research.example.org" },
@@ -59,32 +60,89 @@ describe("generateGroundedText", () => {
 
   it("answers without sources when search doesn't say what backed it, and null when the call fails", async () => {
     generateContent.mockResolvedValueOnce({ text: "FACT: something.", candidates: [{ groundingMetadata: { webSearchQueries: ["q"] } }] });
-    const { generateGroundedText } = await fresh();
-    expect(await generateGroundedText("find facts")).toMatchObject({ text: "FACT: something.", sources: [], supports: [] });
+    const { generateGroundedText, NO_METER } = await fresh();
+    expect(await generateGroundedText("find facts", { meter: NO_METER })).toMatchObject({ text: "FACT: something.", sources: [], supports: [], queries: ["q"] });
     const quiet = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     generateContent.mockRejectedValueOnce(new Error("quota"));
-    expect(await generateGroundedText("find facts")).toBeNull();
+    expect(await generateGroundedText("find facts", { meter: NO_METER })).toBeNull();
     quiet.mockRestore();
   });
 
-  it("takes a thinking budget, and asks again without it if the model refuses", async () => {
+  it("takes a thinking budget, and asks again without it only when the model refuses the request", async () => {
     generateContent.mockResolvedValue({ text: "Q: one?", candidates: [] });
-    const { generateGroundedText } = await fresh();
-    await generateGroundedText("find questions", { thinkingBudget: 1024 });
+    const { generateGroundedText, NO_METER } = await fresh();
+    await generateGroundedText("find questions", { thinkingBudget: 1024, meter: NO_METER });
     expect(generateContent.mock.calls[0]![0].config).toMatchObject({ tools: [{ googleSearch: {} }], thinkingConfig: { thinkingBudget: 1024 } });
 
     generateContent.mockReset();
-    generateContent.mockRejectedValueOnce(new Error("thinking_config unsupported")).mockResolvedValueOnce({ text: "Q: one?", candidates: [] });
-    expect(await generateGroundedText("find questions", { thinkingBudget: 1024 })).toMatchObject({ text: "Q: one?" });
+    const refused = Object.assign(new Error("thinking_config unsupported"), { status: 400 });
+    generateContent.mockRejectedValueOnce(refused).mockResolvedValueOnce({ text: "Q: one?", candidates: [] });
+    expect(await generateGroundedText("find questions", { thinkingBudget: 1024, meter: NO_METER })).toMatchObject({ text: "Q: one?" });
     expect(generateContent).toHaveBeenCalledTimes(2);
     expect(generateContent.mock.calls[1]![0].config).not.toHaveProperty("thinkingConfig");
+
+    // Any other failure may have searched already (and been billed): no second call.
+    generateContent.mockReset();
+    const quiet = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    generateContent.mockRejectedValueOnce(Object.assign(new Error("server error"), { status: 503 }));
+    expect(await generateGroundedText("find questions", { thinkingBudget: 1024, meter: NO_METER })).toBeNull();
+    expect(generateContent).toHaveBeenCalledTimes(1);
+    quiet.mockRestore();
   });
 
   it("is null when Gemini isn't configured", async () => {
     vi.stubEnv("GEMINI_API_KEY", "");
-    const { generateGroundedText } = await fresh();
-    expect(await generateGroundedText("find facts")).toBeNull();
+    const { generateGroundedText, NO_METER } = await fresh();
+    expect(await generateGroundedText("find facts", { meter: NO_METER })).toBeNull();
     expect(generateContent).not.toHaveBeenCalled();
+  });
+});
+
+describe("metering web searches", () => {
+  const meter = (limited: { limited: true; used: number; limit: number } | null = null) => ({
+    check: vi.fn(async () => limited),
+    record: vi.fn(async () => undefined),
+  });
+
+  it("counts the searches a call ran", async () => {
+    generateContent.mockResolvedValue({ text: "ok", candidates: [{ groundingMetadata: { webSearchQueries: ["a", "b", "c"] } }] });
+    const { generateGroundedText, generateGroundedJson } = await fresh();
+    const m = meter();
+    expect(await generateGroundedText("find", { meter: m })).toMatchObject({ queries: ["a", "b", "c"] });
+    expect(m.record).toHaveBeenCalledWith(3, undefined);
+    generateContent.mockResolvedValue({ text: '{"topics":[]}', candidates: [{ groundingMetadata: { webSearchQueries: ["x"] } }] });
+    const j = meter();
+    expect(await generateGroundedJson("trends", { meter: j })).toMatchObject({ json: { topics: [] }, queries: ["x"] });
+    expect(j.record).toHaveBeenCalledWith(1, undefined);
+  });
+
+  it("makes no call at the brand's cap, and says so", async () => {
+    const { generateGroundedText, generateGroundedJson, isSearchLimited } = await fresh();
+    const m = meter({ limited: true, used: 300, limit: 300 });
+    const r = await generateGroundedText("find", { meter: m });
+    expect(isSearchLimited(r)).toBe(true);
+    expect(await generateGroundedJson("trends", { meter: m })).toEqual({ limited: true, used: 300, limit: 300 });
+    expect(generateContent).not.toHaveBeenCalled();
+    expect(m.record).not.toHaveBeenCalled();
+  });
+
+  it("notes a call that failed after it may have searched", async () => {
+    const quiet = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    generateContent.mockRejectedValue(new Error("deadline"));
+    const { generateGroundedText, generateGroundedJson } = await fresh();
+    const m = meter();
+    expect(await generateGroundedText("find", { meter: m })).toBeNull();
+    expect(m.record).toHaveBeenCalledWith(0, { lost: true });
+    await generateGroundedJson("trends", { meter: m });
+    expect(m.record).toHaveBeenCalledTimes(2);
+    quiet.mockRestore();
+  });
+
+  it("never fails a call because the meter couldn't write", async () => {
+    generateContent.mockResolvedValue({ text: "ok", candidates: [{ groundingMetadata: { webSearchQueries: ["a"] } }] });
+    const { generateGroundedText } = await fresh();
+    const m = { check: async () => null, record: async () => { throw new Error("write failed"); } };
+    expect(await generateGroundedText("find", { meter: m })).toMatchObject({ text: "ok" });
   });
 });
 

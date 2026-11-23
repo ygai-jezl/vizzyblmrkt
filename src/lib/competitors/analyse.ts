@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { generateGroundedText, generateTextWithDeadline, parseFirstJson } from "@/lib/agents/gemini";
+import { generateGroundedText, generateTextWithDeadline, isSearchLimited, parseFirstJson, type SearchLimited, type SearchMeter } from "@/lib/agents/gemini";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { stripFenceDelimiters } from "@/lib/content/create/siteText";
 import { aiTellsIn } from "@/lib/content/writingRules";
@@ -18,7 +18,7 @@ import type { SiteDiff } from "./diff";
 
 export interface AnalyseDeps {
   generate?: (prompt: string, opts: { timeoutMs: number; json: boolean; thinkingBudget?: number }) => Promise<string | null>;
-  grounded?: (prompt: string, opts: { timeoutMs: number; thinkingBudget?: number }) => Promise<{ text: string } | null>;
+  grounded?: (prompt: string, opts: { timeoutMs: number; thinkingBudget?: number; meter: SearchMeter }) => Promise<{ text: string } | SearchLimited | null>;
 }
 
 /** Thinking is capped so a call fits the step's time. */
@@ -68,11 +68,13 @@ export function readFoundLines(text: string, site: string): SearchFound {
 export async function searchForSite(
   input: { name: string; website: string; site: string },
   timeoutMs: number,
+  meter: SearchMeter,
   deps: AnalyseDeps = {},
 ): Promise<SearchFound | null> {
   const prompt = renderPrompt("competitors.find_site", { name: input.name, website: input.website, site: input.site });
-  const res = await (deps.grounded ?? generateGroundedText)(prompt, { timeoutMs, thinkingBudget: THINKING });
-  if (!res) return null;
+  const res = await (deps.grounded ?? generateGroundedText)(prompt, { timeoutMs, thinkingBudget: THINKING, meter });
+  // At the month's web search cap, nothing was found: the usual fallbacks ask the person.
+  if (!res || isSearchLimited(res)) return null;
   return readFoundLines(res.text ?? "", input.site);
 }
 

@@ -55,6 +55,7 @@ import type { SiteKey } from "@/lib/types/siteKey";
 import type { Competitor, CompetitorArticle, CompetitorChange, CompetitorPagesChunk, CompetitorPost } from "@/lib/types/competitor";
 import type { BrandSignal } from "@/lib/types/brandSignal";
 import type { AutopilotRun, LearnedEntry, NextUpDoc } from "@/lib/types/autopilot";
+import type { UsageMeterDoc } from "@/lib/types/usageMeter";
 import type { LiveWatchDoc, LiveWatchSeen } from "@/lib/types/liveWatch";
 import type { StoredEvent } from "@/lib/types/ontologyEvent";
 import type { AgentAction } from "@/lib/types/agentAction";
@@ -558,6 +559,8 @@ export interface TenantRepositories {
   nextUp: TenantCollection<NextUpDoc>;
   /** Autopilot runs: one question found, sorted and (Draft mode) written (src/lib/autopilot/runs.ts). */
   autopilotRuns: TenantCollection<AutopilotRun>;
+  /** Paid resources used per brand per month, such as web searches for research (src/lib/plans/meter.ts). */
+  usageMeters: TenantCollection<UsageMeterDoc>;
   /** Found live: when to look next and which addresses it checks (src/lib/content/blog/liveWatch.ts). */
   liveWatch: TenantCollection<LiveWatchDoc>;
   /** Found live: the brand's pages it already opened, hashed (src/lib/content/blog/liveWatch.ts). */
@@ -732,6 +735,8 @@ export function forTenant(
     autopilotLearned: new TenantCollection<LearnedEntry>(regionalDb, "autopilot_learned", t),
     nextUp: new TenantCollection<NextUpDoc>(regionalDb, "next_up", t),
     autopilotRuns: new TenantCollection<AutopilotRun>(regionalDb, "autopilot_runs", t),
+    // What the brand used of paid resources this month: counts only, beside the work that used them.
+    usageMeters: new TenantCollection<UsageMeterDoc>(regionalDb, "usage_meters", t),
     // Found live's working state about the brand's own site and articles: regional, beside them.
     liveWatch: new TenantCollection<LiveWatchDoc>(regionalDb, "live_watch", t),
     liveWatchSeen: new TenantCollection<LiveWatchSeen>(regionalDb, "live_watch_seen", t),

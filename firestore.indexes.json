@@ -1497,6 +1497,21 @@
       "collectionGroup": "settings_versions",
       "fieldPath": "items",
       "indexes": []
+    },
+    {
+      "collectionGroup": "metric_snapshots",
+      "fieldPath": "rows",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "metric_snapshots",
+      "fieldPath": "ttlAt",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "data_signals",
+      "fieldPath": "ttlAt",
+      "indexes": []
     }
   ]
 }

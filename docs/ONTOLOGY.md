@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts`. Don't edit this file: change the 
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one.
 
-92 types: 69 built and 23 planned.
+92 types: 71 built and 21 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -192,7 +192,7 @@ Views of a launch's sign-up form: counts per launch per day, and one row per vie
 - Erase: none. Counts and page views with no person.
 - Export: none. Counts and page views with no person.
 - Search: none. Numbers, not text.
-- Numbers: gap. Form view counts have no meanings yet (connectors 2).
+- Numbers: gap. Form view counts have no meanings yet (semantic layer).
 
 ### Product event count (`product_event_day`)
 
@@ -207,7 +207,7 @@ Accepted product events per connection per day by name, kept after the events th
 - Erase: none. Counts by event name with no person.
 - Export: none. Counts by event name with no person.
 - Search: none. Numbers, not text.
-- Numbers: gap. Product event counts have no meanings yet (connectors 2).
+- Numbers: gap. Product event counts have no meanings yet (semantic layer).
 
 ### Brand signal (`brand_signal`)
 
@@ -315,16 +315,35 @@ A brand's link to an outside source of numbers, such as a Cloudflare zone, a Sea
 
 ### Connector stream (`connector_stream`)
 
-Data collected from a connected source on a schedule, as its manifest describes it. Whether a stream holds people's data depends on the source.
+Data collected from a connected source once a day, as its manifest's stream and its collect block describe it: Search Console's search numbers, Google Analytics' traffic and Cloudflare's zone totals. Every built stream is about the brand's own site, never a person (a stream marked personal is refused until the data processing agreement covers it).
 
-- Status: planned, in connectors 2
+- Status: built
 - Home: the brand's region
-- Personal: undecided
-- Links: `connector_manifest` through the manifest
-- Erase: none. Decided with its personal flag in connectors 2.
-- Export: none. Decided with its personal flag in connectors 2.
-- Search: none. Planned: connectors 2 decides it with the store.
+- Personal: no
+- Stores:
+  - `metric_snapshots`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. A stream has no store of its own: its collected days are the metric snapshots its connection writes.
+- Links: `connector_manifest` through the manifest; `data_connection` through connectionId on each snapshot
+- Erase: none. No store of its own: its collected days go with the metric snapshots.
+- Export: none. Numbers about the brand's own site, with no person.
+- Search: none. Found on its connector's Listing.
 - Numbers: none. Its numbers become metric snapshots.
+
+### Metric snapshot (`metric_snapshot`)
+
+A connected source's numbers for one day, or for the 28 or 90 days to its last collected day, collected once a day and kept 90 days in the brand's region (ADR-0012). Each number is keyed by its meaning, with the provider's own day and time zone and how final it is. Rows are keyed by day, page path, landing page or search: Search Console's topic rows hold the words people searched and the brand's page paths, Google's aggregates over everyone who searched (decision 37), not only numbers.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `metric_snapshots`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One doc per connection, generation, stream, grouping and day, plus the rolled 28 and 90 day docs and Search Console's planning docs, each by a fixed id and at most 500 rows; written only through `src/lib/connectors/snapshots.ts`, read by id, deleted 90 days on by a time to live on ttlAt.
+- Links: `connector_stream` through the stream it was read from; `data_connection` through connectionId, and the generation it was read under
+- Erase:
+  - `eraseSnapshots` in `src/lib/connectors/snapshots.ts`, on removing the record (a connection's snapshots by equality on connectionId: all of them, or its old generations)
+  - `dropAgedDay` in `src/lib/connectors/snapshots.ts`, on retention (writing a day deletes the day 90 days before it, by id; the time to live on ttlAt is the backstop)
+- Export: none. Numbers about the brand's own site and Google's aggregates, not about a person.
+- Search: none. Numbers stay exact in number tools.
+- Numbers: gap. No agent tool reads collected numbers yet: Vizzy reads the same numbers live through read_connected_live.
 
 ## Product
 
@@ -422,7 +441,7 @@ One identify or track message a product sent about one of its users, kept 90 day
   - `exportPerson` in `src/lib/audience/personExport.ts`, on a product user's erase or export
   - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on)
 - Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
-- Numbers: gap. Product event counts have no meanings yet (connectors 2).
+- Numbers: gap. Product event counts have no meanings yet (semantic layer).
 
 ### Product webhook (`product_webhook`)
 
@@ -1170,19 +1189,6 @@ A founder's role, country, tax residence, ownership and funding plans, to pick p
 - Search: none. Personal to the founder, never searched.
 - Numbers: none. Planned: the company rail decides it with the store.
 
-### Metric snapshot (`metric_snapshot`)
-
-A metric's value for a period, read from a connected source or typed in, kept in the brand's region.
-
-- Status: planned, in connectors 2
-- Home: the brand's region
-- Personal: no
-- Links: `connector_stream` through the stream it was read from
-- Erase: none. Planned: connectors 2 decides it with the store.
-- Export: none. Planned: connectors 2 decides it with the store.
-- Search: none. Numbers stay exact in number tools.
-- Numbers: none. Planned: connectors 2 decides it with the store.
-
 ### Gate (`gate`)
 
 A readiness check over metrics, such as LTV to CAC above 3. It guides and never locks; a founder can open it early.
@@ -1612,9 +1618,9 @@ What the registry records as missing, by type. Each is a known gap, not a promis
   - Erase: the BigQuery changelog mirror keeps a row's values after the row is erased in Firestore
   - Erase: while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)
 - Form view (`widget_view`):
-  - Numbers: form view counts have no meanings yet (connectors 2)
+  - Numbers: form view counts have no meanings yet (semantic layer)
 - Product event count (`product_event_day`):
-  - Numbers: product event counts have no meanings yet (connectors 2)
+  - Numbers: product event counts have no meanings yet (semantic layer)
 - Social engagement (`social_event`):
   - Erase: a person's erase does not reach social engagement rows (`social_events`)
   - Export: a person's export does not include social engagement rows (`social_events`)
@@ -1627,7 +1633,7 @@ What the registry records as missing, by type. Each is a known gap, not a promis
   - Numbers: people counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`)
 - Product event (`product_event`):
   - Erase: while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)
-  - Numbers: product event counts have no meanings yet (connectors 2)
+  - Numbers: product event counts have no meanings yet (semantic layer)
 - Product webhook (`product_webhook`):
   - Erase: a product user's erase leaves webhooks still waiting to go; each expires after its retries
   - Export: not in a person's export: a webhook only carries a change on its way to the product
@@ -1705,6 +1711,8 @@ What the registry records as missing, by type. Each is a known gap, not a promis
   - Export: planned: piece J decides how an import's rows are exported with the person
 - Data connection (`data_connection`):
   - Erase: a team member's user id in ownerUid and in by stays after they leave the brand, as settings history does
+- Metric snapshot (`metric_snapshot`):
+  - Numbers: no agent tool reads collected numbers yet: Vizzy reads the same numbers live through read_connected_live
 - Agent action (`agent_action`):
   - Erase: team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does
   - Erase: rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen

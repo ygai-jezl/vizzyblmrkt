@@ -61,6 +61,7 @@ import type { AgentAction } from "@/lib/types/agentAction";
 import type { SettingsVersion } from "@/lib/types/settingsVersion";
 import type { RecordFieldListDoc } from "@/lib/types/recordField";
 import type { DataConnection, DataConnectionActivity } from "@/lib/types/dataConnection";
+import type { MetricSnapshot } from "@/lib/types/metricSnapshot";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -578,6 +579,11 @@ export interface TenantRepositories {
   dataConnections: ConnectionRecords<DataConnection>;
   /** Each change to a connection, kept 90 days by a TTL on ttlAt (./dataConnections.ts writes them). */
   dataConnectionActivity: ActivityLog<DataConnectionActivity>;
+  /**
+   * Collected numbers (CONNECTORS_COLLECT_ENABLED): a connection's day, rolled and planning docs, by
+   * fixed id, kept 90 days by a TTL on ttlAt (src/lib/connectors/snapshots.ts writes them).
+   */
+  metricSnapshots: TenantCollection<MetricSnapshot>;
 }
 
 /**
@@ -732,5 +738,8 @@ export function forTenant(
     // it reads; its activity names team members by id only. Both regional, like launch_site_keys.
     dataConnections: new TenantCollection<DataConnection>(regionalDb, "data_connections", t),
     dataConnectionActivity: new TenantCollection<DataConnectionActivity>(regionalDb, "data_connection_activity", t),
+    // Numbers collected from a brand's connections, with Search Console's searches and page paths
+    // (Google's aggregates, decision 37): regional, beside the connection that read them.
+    metricSnapshots: new TenantCollection<MetricSnapshot>(regionalDb, "metric_snapshots", t),
   };
 }

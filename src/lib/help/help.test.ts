@@ -536,6 +536,12 @@ describe("Connected data", () => {
     expect(md(true)).toContain("YouGrow reads the same days as the tool's own report, in its time zone, and Vizzy says which days those are.");
   });
 
+  it("says the chat names the tool the numbers came from, only while Vizzy reads connected data", () => {
+    const line = "Under an answer that read a connection, the chat says which tool the numbers came from, with a link to that tool, so you can check them there.";
+    expect(md(true)).toContain(line);
+    expect(md(false)).not.toContain(line);
+  });
+
   it("puts each connector's mark beside its heading on the page, and keeps the Markdown words only", async () => {
     const { renderToStaticMarkup } = await import("react-dom/server");
     const page = renderToStaticMarkup(HELP_BODIES["connected-data"]!({ connectorsChat: true }) as never);

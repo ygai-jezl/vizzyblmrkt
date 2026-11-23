@@ -389,6 +389,25 @@ No new switch: these ride the connector switches.
   names come from Cloudflare's docs and public queries; the dev check compares a read with the
   Traffic tab set to UTC.
 
+### Follow-ups: Vizzy's connected answers (2026-11-23)
+
+The same dev check showed Vizzy's table as raw pipes on one line, and an answer padded with the
+dates it asked for, the freshness fact twice and a line of filler.
+
+- **Tables in the chat.** `MarkdownMessage` reads pipe tables with the blog's own reader, moved to
+  `src/lib/content/markdownTable.ts` so the two can't disagree. No new dependency (react-markdown
+  and remark-gfm stay out). Unswitched, like the earlier canonical fix: it fixes every chat.
+- **Answers in a few lines.** `read_connected_live` takes a `period` and an optional `page`, with
+  dates only for days the person named. The connected-data rule says the order: the answer in one or
+  two sentences, the period as `period.words` gives it, then a short list or a small table only when
+  3 or more rows are compared on 2 or more numbers, a note once, `totals` for totals, and never
+  zeros for rows left out when `more` is true. The general format line says the same for numbers.
+- **A source line.** The chat reads the connector id from a successful `read_connected_live`
+  result on the stream and shows that connector's mark and name, linked to its dashboard (a
+  manifest's new optional `home`). Google Analytics shows its linked wide logo, as its branding
+  policy asks of a commercial app that shows its data. Names, marks and links come from the
+  manifests, never from the stream, and Vizzy's payloads still carry no icon data.
+
 ---
 
 ## ADR-0010 · People (piece B) (2026-11-21)

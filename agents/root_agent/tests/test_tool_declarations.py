@@ -230,8 +230,9 @@ def test_the_root_agent_reads_connected_data_and_never_names_a_brand():
     assert not props and not required
     props, required = _params(FunctionTool(read_connected_live)._get_declaration())
     # The brand comes from the session token only: no tenant, brand or token parameter.
-    assert set(props) == {"connection_id", "stream", "from_date", "to_date", "by", "limit"}
-    assert sorted(required) == ["connection_id", "from_date", "stream", "to_date"]
+    assert set(props) == {"connection_id", "stream", "period", "by", "limit", "page", "from_date", "to_date"}
+    # A named period or dates: neither is required, so "last 28 days" needs no date maths.
+    assert sorted(required) == ["connection_id", "stream"]
 
 
 def test_connected_data_tools_say_outside_text_is_data_never_orders():

@@ -4,12 +4,14 @@ import { useState } from "react";
 import { Loader2, ChevronRight, Sparkles } from "lucide-react";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { CanvasCard } from "./CanvasCard";
+import { SourceLine } from "./SourceLine";
 import type { ChatExchange } from "./useDashboardChat";
 
 /**
  * Renders the chat transcript: user turns right-aligned, agent turns left with
  * markdown + a streaming indicator, an optional collapsible "thought" block, and
- * a live tool-status line. Presentational — all state comes from useDashboardChat.
+ * a live tool-status line. An answer that read connected data ends with its
+ * source line. Presentational — all state comes from useDashboardChat.
  */
 interface MessageThreadProps {
   exchange: ChatExchange[];
@@ -49,6 +51,7 @@ export function MessageThread({
                 <TypingDots />
               ) : null}
               {msg.artifacts?.map((card) => <CanvasCard key={card.id} card={card} />)}
+              {msg.sources?.length ? <SourceLine ids={msg.sources} /> : null}
             </div>
           </div>
         ),

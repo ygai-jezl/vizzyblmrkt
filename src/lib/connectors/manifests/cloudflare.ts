@@ -29,6 +29,7 @@ export const cloudflareManifest = {
   initials: "CF",
   // The cloud from Cloudflare's press kit logo, colours unchanged (public/marks/NOTICE.md).
   icon: { light: "/marks/connectors/cloudflare/icon.png", owner: "Cloudflare, Inc." },
+  home: "https://dash.cloudflare.com/",
   summary: "Requests, page views, visits and unique visitors for your site, read from Cloudflare when you ask.",
   category: "traffic",
   publisher: "yougrow",

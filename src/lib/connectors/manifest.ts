@@ -26,6 +26,8 @@ import { isTimeZone } from "./period";
  * - icon: the connector's own mark, as files on YouGrow's own site under
  *   public/marks/connectors/<id>/ (never a link to the vendor's host), with whoever owns it.
  *   Without one, the screens show the two letters.
+ * - home: the provider's own dashboard, where people see these numbers. The source line under a
+ *   Vizzy answer that read the connector links to it.
  */
 
 /**
@@ -299,6 +301,11 @@ export const ConnectorManifestSchema = z
     initials: z.string().regex(/^[A-Z0-9]{2}$/, "two capital letters or digits").optional(),
     /** Its own marks, shown beside its name; the two letters stay the fallback. */
     icon: ConnectorIconSchema.optional(),
+    /**
+     * The provider's own dashboard, where people see these numbers: the source line under a Vizzy
+     * answer that read this connector links to it (src/components/admin/chat/SourceLine.tsx).
+     */
+    home: HttpsUrl.optional(),
     /** One line for Browse. */
     summary: Copy(160),
     category: z.enum(CONNECTOR_CATEGORIES),

@@ -42,6 +42,7 @@ export const ga4Manifest = {
       height: 50,
     },
   },
+  home: "https://analytics.google.com/",
   summary: "Sessions, users, views and key events for your site, read from Google Analytics 4 when you ask.",
   category: "analytics",
   publisher: "yougrow",

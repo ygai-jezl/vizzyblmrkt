@@ -164,6 +164,7 @@ export const SHARE_ACCESS_HELP = {
 export const VIZZY_HELP: readonly string[] = [
   "Vizzy can tell you what is connected and read the numbers live when you ask, for example how Search Console clicks went last week.",
   "When you ask for the last 7, 28 or 90 days, YouGrow reads the same days as the tool's own report, in its time zone, and Vizzy says which days those are.",
+  "Under an answer that read a connection, the chat says which tool the numbers came from, with a link to that tool, so you can check them there.",
   "Vizzy reads a connection only when an admin allows Vizzy to read it, on the connection in Settings › Connections › Connected. When Vizzy reads for a member, members must be allowed to read it too.",
   "Vizzy only reads. It never connects, changes, pauses or disconnects anything, and every number it gives comes with what the number means.",
   "Each time Vizzy reads a connection, its activity log records it.",

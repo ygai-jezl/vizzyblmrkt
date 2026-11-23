@@ -13,9 +13,12 @@ import {
   senderDnsRecords,
   applyRecordValidity,
   addSendingDomain,
+  checkPublishedRecords,
   checkSendingDomain,
   mandrillConfigured,
+  type PublishedRecords,
 } from "@/lib/email/senderDomains";
+import { isDomainRecordChecksEnabled } from "@/lib/email/flags";
 import { getTenantById } from "@/lib/tenant";
 import { updateTenantConfig } from "@/lib/tenant/control";
 import { deriveFaviconUrl } from "@/lib/tenant/favicon";
@@ -35,6 +38,8 @@ function present(config: EmailSenderConfig) {
     postalAddress: config.postalAddress ?? "",
     domains: config.domains ?? [],
     providerConfigured: mandrillConfigured(),
+    /** SPF and DMARC are looked up in DNS, and verified domains keep their records on screen. */
+    recordChecks: isDomainRecordChecksEnabled(),
   };
 }
 
@@ -181,9 +186,14 @@ export async function POST(req: Request) {
   let verifyTxtKey: string | undefined;
   let status: SenderDomain["status"] = "pending";
   let detail: string | undefined;
+  let published: PublishedRecords | undefined;
   if (mandrillConfigured()) {
     const added = await addSendingDomain(domain); // register + mint ownership token (idempotent provider-side)
-    const checked = await checkSendingDomain(domain);
+    const [checked, lookedUp] = await Promise.all([
+      checkSendingDomain(domain),
+      isDomainRecordChecksEnabled() ? checkPublishedRecords(domain) : Promise.resolve(undefined),
+    ]);
+    published = lookedUp;
     dkimValid = checked.dkimValid;
     spfValid = checked.spfValid;
     ownershipValid = checked.ownershipValid;
@@ -197,11 +207,11 @@ export async function POST(req: Request) {
     status,
     dkimValid,
     spfValid,
-    records: applyRecordValidity(senderDnsRecords(domain, verifyTxtKey), {
-      dkimValid,
-      spfValid,
-      ownershipValid,
-    }),
+    records: applyRecordValidity(
+      senderDnsRecords(domain, verifyTxtKey),
+      { dkimValid, spfValid, ownershipValid },
+      published,
+    ),
     addedAt: now,
     ...(verifyTxtKey ? { verifyTxtKey } : {}),
     ...(mandrillConfigured() ? { lastCheckedAt: now } : {}),

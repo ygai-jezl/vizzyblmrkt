@@ -1,3 +1,5 @@
+import { Resolver } from "node:dns/promises";
+import { registrableDomain } from "@/lib/domains/registrableDomain";
 import type { SenderDnsRecord } from "@/lib/types/tenant";
 
 /**
@@ -55,17 +57,96 @@ export function senderDnsRecords(domain: string, verifyTxtKey?: string): SenderD
   return records;
 }
 
-/** Reflect the provider's DKIM/SPF/ownership verdict onto the published records. */
+/**
+ * Reflect the provider's DKIM/SPF/ownership verdict onto the published records.
+ * With `published` (our own DNS lookup, see checkPublishedRecords), the SPF row is
+ * also ticked when the record is found in DNS, and the DMARC row gets a real tick.
+ * Without it, DMARC is left untouched, as before.
+ */
 export function applyRecordValidity(
   records: SenderDnsRecord[],
   status: { dkimValid: boolean; spfValid: boolean; ownershipValid: boolean },
+  published?: PublishedRecords,
 ): SenderDnsRecord[] {
   return records.map((r) => {
     if (r.host.includes("._domainkey.")) return { ...r, valid: status.dkimValid };
     if (r.value.startsWith(`${OWNERSHIP_PREFIX}.`)) return { ...r, valid: status.ownershipValid };
-    if (r.value.startsWith("v=spf1")) return { ...r, valid: status.spfValid };
-    return r; // DMARC is not provider-checked
+    if (r.value.startsWith("v=spf1")) {
+      return { ...r, valid: status.spfValid || published?.spfFound === true };
+    }
+    if (published && r.host.startsWith("_dmarc.")) {
+      return {
+        type: r.type,
+        host: r.host,
+        value: r.value,
+        valid: published.dmarcFound,
+        ...(published.dmarcFrom ? { inheritedFrom: published.dmarcFrom } : {}),
+      };
+    }
+    return r; // DMARC without our own lookup: Mandrill doesn't check it
   });
+}
+
+/** Reads a name's TXT records, each as the arrays of strings DNS may split it into. */
+export type TxtLookup = (name: string) => Promise<string[][]>;
+
+/** What our own DNS lookup found for the two records Mandrill doesn't fully report. */
+export interface PublishedRecords {
+  /** A TXT at the domain starts `v=spf1` and includes spf.mandrillapp.com. */
+  spfFound: boolean;
+  /** A `v=DMARC1` TXT at `_dmarc.<domain>`, or at the parent domain's `_dmarc`. */
+  dmarcFound: boolean;
+  /** Set when the DMARC record found is the parent domain's, e.g. "acme.com" for mail.acme.com. */
+  dmarcFrom?: string;
+}
+
+const DNS_TIMEOUT_MS = 3000;
+const DNS_TRIES = 2;
+
+function defaultTxtLookup(): TxtLookup {
+  const resolver = new Resolver({ timeout: DNS_TIMEOUT_MS, tries: DNS_TRIES });
+  return (name) => resolver.resolveTxt(name);
+}
+
+/** A name's TXT values, split chunks joined. Any DNS error (none there, timeout) reads as none. */
+async function txtValues(name: string, lookup: TxtLookup): Promise<string[]> {
+  try {
+    const chunks = await lookup(name);
+    return chunks.map((parts) => parts.join("").trim());
+  } catch {
+    return [];
+  }
+}
+
+const isSpfWithMandrill = (v: string) =>
+  /^v=spf1(\s|$)/i.test(v) && /(^|\s)[+]?include:spf\.mandrillapp\.com(\s|$)/i.test(v);
+const isDmarc = (v: string) => /^v=DMARC1\s*(;|$)/i.test(v);
+
+/**
+ * Look up the domain's SPF and DMARC records in DNS ourselves. Mandrill's verdict
+ * (and so the domain's Verified status) needs only ownership and DKIM, and it never
+ * checks DMARC, so without this a domain can read Verified with both still missing.
+ * A subdomain without its own DMARC record is covered by its parent domain's (mail
+ * servers fall back to it), so that counts as found, with `dmarcFrom` saying where.
+ * Never throws: a failed lookup reads as "not found".
+ */
+export async function checkPublishedRecords(
+  domain: string,
+  lookup: TxtLookup = defaultTxtLookup(),
+): Promise<PublishedRecords> {
+  const d = domain.trim().toLowerCase();
+  const [atDomain, ownDmarc] = await Promise.all([
+    txtValues(d, lookup),
+    txtValues(`_dmarc.${d}`, lookup),
+  ]);
+  const spfFound = atDomain.some(isSpfWithMandrill);
+  if (ownDmarc.some(isDmarc)) return { spfFound, dmarcFound: true };
+
+  const parent = registrableDomain(d);
+  if (parent && parent !== d && (await txtValues(`_dmarc.${parent}`, lookup)).some(isDmarc)) {
+    return { spfFound, dmarcFound: true, dmarcFrom: parent };
+  }
+  return { spfFound, dmarcFound: false };
 }
 
 export interface ProviderDomainStatus {

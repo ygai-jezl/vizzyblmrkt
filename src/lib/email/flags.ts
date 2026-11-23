@@ -135,3 +135,13 @@ export function isTransactionalTenantTagEnabled(): boolean {
 export function isEmailEngagementDetailEnabled(): boolean {
   return process.env.EMAIL_ENGAGEMENT_DETAIL_ENABLED === "true";
 }
+
+/**
+ * Server flag: a sending domain's SPF and DMARC records are looked up in DNS on every check (a
+ * subdomain's DMARC can come from its parent domain), so each row gets a real tick, and a
+ * verified domain keeps its records on screen until every one is ticked. Off: DMARC is never
+ * checked and a verified domain hides its records, as before. Domain status stays Mandrill's.
+ */
+export function isDomainRecordChecksEnabled(): boolean {
+  return process.env.EMAIL_DOMAIN_RECORD_CHECKS_ENABLED === "true";
+}

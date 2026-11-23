@@ -17,6 +17,8 @@ interface DnsRecord {
   host: string;
   value: string;
   valid: boolean;
+  /** DMARC row: the parent domain whose record covers this one. */
+  inheritedFrom?: string;
 }
 
 interface DomainCapabilities {
@@ -48,6 +50,21 @@ interface ConfigResponse {
   domains: SenderDomain[];
   providerConfigured: boolean;
   rootDomain?: string;
+  /** EMAIL_DOMAIN_RECORD_CHECKS_ENABLED: SPF and DMARC are checked, verified domains keep their records. */
+  recordChecks?: boolean;
+}
+
+/** Records on a domain that don't have a tick yet. */
+function missingRecords(d: SenderDomain): number {
+  return d.records.filter((r) => !r.valid).length;
+}
+
+/**
+ * A domain the page should keep checking: not verified yet, or (with record checks
+ * on) verified with records still missing, since Verified needs only ownership and DKIM.
+ */
+function needsCheck(d: SenderDomain, recordChecks: boolean): boolean {
+  return d.status !== "verified" || (recordChecks && missingRecords(d) > 0);
 }
 
 const INPUT_CLASS =
@@ -61,6 +78,7 @@ export function DomainsSettings() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [providerConfigured, setProviderConfigured] = useState(true);
+  const [recordChecks, setRecordChecks] = useState(false);
   const [domains, setDomains] = useState<SenderDomain[]>([]);
 
   const [senderName, setSenderName] = useState("");
@@ -91,6 +109,7 @@ export function DomainsSettings() {
     setDomains(data.domains);
     setProviderConfigured(data.providerConfigured);
     setRootDomain(data.rootDomain ?? "");
+    if (typeof data.recordChecks === "boolean") setRecordChecks(data.recordChecks);
   }
 
   useEffect(() => {
@@ -113,11 +132,13 @@ export function DomainsSettings() {
   }, []);
 
   const verifiedDomains = domains.filter((d) => d.status === "verified");
-  const hasPendingDomains = domains.some((d) => d.status !== "verified");
+  const hasPendingDomains = domains.some((d) => needsCheck(d, recordChecks));
 
   // Latest domains, readable by the background poller without re-subscribing it.
   const domainsRef = useRef(domains);
   domainsRef.current = domains;
+  const recordChecksRef = useRef(recordChecks);
+  recordChecksRef.current = recordChecks;
 
   // Quietly re-check one pending domain in the background. Unlike the manual
   // Verify button it never sets busy/error state — a transient provider timeout
@@ -133,9 +154,11 @@ export function DomainsSettings() {
       const data = (await res.json()) as {
         domains: SenderDomain[];
         providerConfigured: boolean;
+        recordChecks?: boolean;
       };
       setDomains(data.domains);
       setProviderConfigured(data.providerConfigured);
+      if (typeof data.recordChecks === "boolean") setRecordChecks(data.recordChecks);
       return data.providerConfigured; // stop if the provider got unconfigured
     } catch {
       return true; // network blip — keep polling
@@ -143,7 +166,8 @@ export function DomainsSettings() {
   }, []);
 
   // Auto-poll verification for pending domains so status flips without the admin
-  // re-clicking Verify. No new infra: client-side only, paused when the tab is
+  // re-clicking Verify (and, with record checks on, for verified domains whose SPF or
+  // DMARC rows aren't ticked yet, so they tick once the records are published). No new infra: client-side only, paused when the tab is
   // hidden, serialized per tick (the verify route is read-modify-write on one
   // tenant doc), and capped so a tab left open doesn't poll forever.
   useEffect(() => {
@@ -165,7 +189,7 @@ export function DomainsSettings() {
         schedule(); // stay alive but idle until the tab is focused again
         return;
       }
-      const pending = domainsRef.current.filter((d) => d.status !== "verified");
+      const pending = domainsRef.current.filter((d) => needsCheck(d, recordChecksRef.current));
       if (pending.length === 0 || polls >= MAX_POLLS) return; // all done / gave up
       running = true;
       polls += 1;
@@ -240,9 +264,11 @@ export function DomainsSettings() {
         reason?: string;
         domains: SenderDomain[];
         providerConfigured: boolean;
+        recordChecks?: boolean;
       };
       setDomains(data.domains);
       setProviderConfigured(data.providerConfigured);
+      if (typeof data.recordChecks === "boolean") setRecordChecks(data.recordChecks);
       if (!data.providerConfigured) {
         setError("Live verification needs an email provider (MANDRILL_API_KEY) configured.");
       }
@@ -490,6 +516,7 @@ export function DomainsSettings() {
               <DomainCard
                 key={d.domain}
                 domain={d}
+                recordChecks={recordChecks}
                 busy={busyDomain === d.domain}
                 routingBusy={routingBusy === d.domain}
                 routingChallenge={routingChallenge[d.domain]}
@@ -654,6 +681,7 @@ function StatusBadge({ status }: { status: DomainStatus }) {
 
 function DomainCard({
   domain,
+  recordChecks,
   busy,
   routingBusy,
   routingChallenge,
@@ -663,6 +691,7 @@ function DomainCard({
   onDisableRouting,
 }: {
   domain: SenderDomain;
+  recordChecks: boolean;
   busy: boolean;
   routingBusy: boolean;
   routingChallenge?: DnsRecord;
@@ -672,6 +701,10 @@ function DomainCard({
   onDisableRouting: () => void;
 }) {
   const webRouting = domain.capabilities?.webRouting ?? false;
+  const verified = domain.status === "verified";
+  const missing = missingRecords(domain);
+  // Verified needs only ownership and DKIM, so SPF or DMARC can still be missing.
+  const stillToAdd = verified && recordChecks && missing > 0;
   return (
     <div className="space-y-4 rounded-md border border-neutral-200 p-4 dark:border-neutral-800">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -685,9 +718,9 @@ function DomainCard({
           ) : null}
         </div>
         <div className="flex items-center gap-2">
-          {domain.status !== "verified" ? (
+          {!verified || stillToAdd ? (
             <button type="button" onClick={onVerify} className={OUTLINE_BTN} disabled={busy}>
-              {busy ? "Checking…" : "Verify"}
+              {busy ? "Checking…" : verified ? "Check again" : "Verify"}
             </button>
           ) : null}
           <button
@@ -702,10 +735,38 @@ function DomainCard({
         </div>
       </div>
 
-      {domain.status === "verified" ? (
-        <p className="text-sm text-neutral-500">
-          This domain is verified and ready to use as an email sender.
-        </p>
+      {stillToAdd ? (
+        <>
+          <p className="text-sm text-neutral-500">
+            Verified and ready to send. {missing === 1 ? "1 record" : `${missing} records`} still to
+            add.
+          </p>
+          <DnsRecordsTable
+            records={domain.records}
+            recordChecks
+            intro="Add the records without a tick at your DNS provider. This page checks again by itself."
+          />
+        </>
+      ) : verified ? (
+        <>
+          <p className="text-sm text-neutral-500">
+            This domain is verified and ready to use as an email sender.
+          </p>
+          {recordChecks ? (
+            <details>
+              <summary className="cursor-pointer text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300">
+                Show DNS records
+              </summary>
+              <div className="mt-2">
+                <DnsRecordsTable
+                  records={domain.records}
+                  recordChecks
+                  intro="Keep these records at your DNS provider."
+                />
+              </div>
+            </details>
+          ) : null}
+        </>
       ) : (
         <>
           {!domain.verifyTxtKey ? (
@@ -713,7 +774,7 @@ function DomainCard({
               Click Verify to fetch this domain&apos;s ownership record.
             </p>
           ) : null}
-          <DnsRecordsTable records={domain.records} />
+          <DnsRecordsTable records={domain.records} recordChecks={recordChecks} />
         </>
       )}
 
@@ -767,12 +828,19 @@ function DomainCard({
   );
 }
 
-function DnsRecordsTable({ records }: { records: DnsRecord[] }) {
+function DnsRecordsTable({
+  records,
+  recordChecks = false,
+  intro = "Add these records at your DNS provider, then click Verify.",
+}: {
+  records: DnsRecord[];
+  /** SPF and DMARC are checked in DNS, so the "DMARC isn't checked" note goes. */
+  recordChecks?: boolean;
+  intro?: string;
+}) {
   return (
     <div className="space-y-2">
-      <p className="text-xs text-neutral-500">
-        Add these records at your DNS provider, then click Verify.
-      </p>
+      <p className="text-xs text-neutral-500">{intro}</p>
       <div className="overflow-x-auto rounded-md border border-neutral-200 dark:border-neutral-800">
         <table className="w-full text-left text-xs">
           <thead className="bg-neutral-50 text-neutral-500 dark:bg-neutral-900">
@@ -798,6 +866,11 @@ function DnsRecordsTable({ records }: { records: DnsRecord[] }) {
                 <td className="px-3 py-2 font-mono break-all">{r.host}</td>
                 <td className="px-3 py-2 font-mono break-all">
                   {r.value || <span className="text-neutral-400">—</span>}
+                  {r.inheritedFrom ? (
+                    <span className="mt-1 block font-sans text-neutral-400">
+                      Covered by the DMARC record on {r.inheritedFrom}.
+                    </span>
+                  ) : null}
                 </td>
                 <td className="px-3 py-2 text-right">
                   {r.value ? <CopyButton value={r.value} label={`Copy ${r.type} value`} /> : null}
@@ -807,7 +880,7 @@ function DnsRecordsTable({ records }: { records: DnsRecord[] }) {
           </tbody>
         </table>
       </div>
-      {records.some((r) => r.host.startsWith("_dmarc.")) ? (
+      {!recordChecks && records.some((r) => r.host.startsWith("_dmarc.")) ? (
         <p className="text-xs text-neutral-400">
           DMARC isn&apos;t checked automatically. Once the <code>_dmarc</code> record is
           published you&apos;re all set.

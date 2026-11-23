@@ -1,4 +1,4 @@
-import { newestDue, planDays } from "../collect/schedule";
+import { newestDue, nextAt, planDays } from "../collect/schedule";
 import type { ConnectorErrorCode } from "../messages";
 import { addDays, cappedNote, daysIn, dayWords, daysWords, earlierDay, isDay, laterDay, nothingYetNote, resolveWindow } from "../period";
 import { connectorFetch, type ConnectorResponse } from "../safeFetch";
@@ -443,8 +443,8 @@ export const collectDays: CollectHook = async (input, deps) => {
   const { ask } = input;
   const keepDays = ask.stream.collect.keepDays;
   const newest = newestDue(ask.now, "UTC", COLLECT_LAG_DAYS, COLLECT_HOUR);
-  const base: CollectResult = { days: [], newest, reachFrom: null, timeZone: "UTC", probed: false, hold: null, failure: null };
-  if (!ask.canStart()) return base;
+  const base: CollectResult = { days: [], newest, moreDue: false, nextDueMs: nextAt(ask.now, "UTC", COLLECT_HOUR, 0).getTime(), reachFrom: null, timeZone: "UTC", probed: false, hold: null, failure: null };
+  if (!ask.canStart()) return { ...base, moreDue: true };
   const post = (json: unknown) => connectorFetch({ manifest: input.manifest, connection: input.connection, url: GRAPHQL, method: "POST", json, token: input.token }, deps);
 
   const settingsRes = await post({ query: COLLECT_SETTINGS, variables: { zoneTag: input.account } });
@@ -463,7 +463,10 @@ export const collectDays: CollectHook = async (input, deps) => {
   const span = () => ({ from: plan.map((p) => p.day).sort()[0]!, to: plan.map((p) => p.day).sort().at(-1)! });
   // One query: the forward days come first, so a range too wide for one query drops the backfill.
   const widest = Math.min(MAX_QUERY_DAYS, daily.maxDuration ? Math.max(1, Math.floor(daily.maxDuration / 86_400)) : MAX_QUERY_DAYS);
-  while (plan.length > 1 && daysIn(span().from, span().to) > widest) plan = plan.slice(0, -1);
+  while (plan.length > 1 && daysIn(span().from, span().to) > widest) {
+    plan = plan.slice(0, -1);
+    out.moreDue = true;
+  }
   const { from, to } = span();
   const afrom = adaptive.enabled ? adaptiveFrom(ask.now, from, to, adaptive) : null;
   const endUserDays = afrom !== null && afrom <= to;

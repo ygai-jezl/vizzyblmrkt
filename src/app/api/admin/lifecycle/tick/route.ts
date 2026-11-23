@@ -18,6 +18,8 @@ import { isAutopilotEnabled } from "@/lib/autopilot/flags";
 import { runAutopilot } from "@/lib/autopilot/tick";
 import { isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
 import { runLiveWatch } from "@/lib/content/blog/liveWatch";
+import { isConnectorsEnabled } from "@/lib/connectors/flags";
+import { runConnectorsLane } from "@/lib/connectors/collect/tick";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,7 +38,9 @@ export const dynamic = "force-dynamic";
  * too, after the journeys, with what is left of the request's time: never past 105s from
  * its start (the scheduler gives up at 120s). A signed-in admin's call never runs them.
  * Brand search's check (SEARCH_INDEX_ENABLED) rides it the same way, about every 10 minutes, and
- * so does collecting finished Google lookups (SIGNALS_DATAFORSEO_ENABLED).
+ * so does collecting finished Google lookups (SIGNALS_DATAFORSEO_ENABLED). Connected data's lane
+ * (CONNECTORS_ENABLED) runs about every 30 minutes, at a tick of its own: its housekeeping whatever
+ * the collect switch says, and collecting with CONNECTORS_COLLECT_ENABLED (ADR-0012).
  */
 const SCHEDULER_LIMIT_MS = 105_000;
 const COMPETITORS_BUDGET_MS = 25_000;
@@ -50,6 +54,8 @@ const SIGNALS_BUDGET_MS = 25_000;
 const AUTOPILOT_BUDGET_MS = 90_000;
 /** Found live (BLOG_LIVE_WATCH_ENABLED): a few pages of the brands' own sites, every 10 minutes. */
 const LIVE_WATCH_BUDGET_MS = 25_000;
+/** Connected data's lane (CONNECTORS_ENABLED): every 15th tick, at offset 7. */
+const CONNECTORS_BUDGET_MS = 25_000;
 
 export async function POST(req: Request) {
   const started = Date.now();
@@ -62,8 +68,9 @@ export async function POST(req: Request) {
   const signals = isSignalsDataForSeoEnabled();
   const autopilot = isAutopilotEnabled();
   const liveWatch = isBlogLiveWatchEnabled();
+  const connectors = isConnectorsEnabled();
   const journeys = product || waitlist || people;
-  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch))) {
+  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors))) {
     return machine
       ? NextResponse.json({ ok: true, skipped: "lifecycle_disabled" })
       : NextResponse.json({ error: "not_found" }, { status: 404 });
@@ -96,6 +103,12 @@ export async function POST(req: Request) {
           return null;
         })
       : Promise.resolve(null);
+    const connectorsRun = connectors
+      ? runConnectorsLane({ deadlineMs: Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + CONNECTORS_BUDGET_MS) }).catch((err: unknown) => {
+          console.warn(`[connectors] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+          return null;
+        })
+      : Promise.resolve(null);
     if (competitors) {
       // The checks and the article reads run side by side, each within its own budget.
       const [checks, reads] = await Promise.all([
@@ -117,6 +130,7 @@ export async function POST(req: Request) {
     const signalResult = await signalCollect;
     const autopilotResult = await autopilotRun;
     const liveWatchResult = await liveWatchRun;
+    const connectorsResult = await connectorsRun;
     return NextResponse.json({
       ok: true,
       mode: "all_tenants",
@@ -127,6 +141,7 @@ export async function POST(req: Request) {
       ...(signalResult?.tenants ? { signals: signalResult } : {}),
       ...(autopilotResult?.tenants ? { autopilot: autopilotResult } : {}),
       ...(liveWatchResult?.brands ? { liveWatch: liveWatchResult } : {}),
+      ...(connectorsResult?.brands ? { connectors: connectorsResult } : {}),
     });
   }
 

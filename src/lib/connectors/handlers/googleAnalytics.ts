@@ -1,5 +1,5 @@
 import type { SnapshotNote, SnapshotRow } from "@/lib/types/metricSnapshot";
-import { newestDue, planDays } from "../collect/schedule";
+import { newestDue, nextAt, planDays } from "../collect/schedule";
 import { cleanPagePath } from "../paths";
 import { addDays, cappedNote, daysIn, daysWords, earlierDay, isTimeZone, laterDay, nothingYetNote, PERIOD_DAYS, resolveWindow, todayIn, type LivePeriod } from "../period";
 import { connectorFetch } from "../safeFetch";
@@ -440,17 +440,22 @@ export const collectDays: CollectHook = async (input, deps) => {
   const { ask } = input;
   const keepDays = ask.stream.collect.keepDays;
   let timeZone = ask.cursor.timeZone;
-  const base: CollectResult = { days: [], newest: null, reachFrom: null, timeZone, probed: false, hold: null, failure: null };
+  const zone = timeZone ?? "UTC";
+  const base: CollectResult = { days: [], newest: null, moreDue: false, nextDueMs: nextAt(ask.now, zone, PASS_HOUR, 0).getTime(), reachFrom: null, timeZone, probed: false, hold: null, failure: null };
   if (!input.account) return { ...base, failure: { ok: false, code: "account_needed", retryAfterSec: null } };
   if (!PROPERTY_RE.test(input.account)) return { ...base, failure: { ok: false, code: "account_refused", retryAfterSec: null } };
-  const zone = timeZone ?? "UTC";
   const newest = newestDue(ask.now, zone, FIRST_PASS_DAYS, PASS_HOUR);
   const finalLine = newestDue(ask.now, zone, FINAL_PASS_DAYS, PASS_HOUR);
   const out: CollectResult = { ...base, newest };
-  const plan = planDays(ask.cursor, newest, { keepDays, maxDays: COLLECT_DAYS_PER_RUN, rereadThrough: finalLine });
+  const planned = planDays(ask.cursor, newest, { keepDays, maxDays: COLLECT_DAYS_PER_RUN + 1, rereadThrough: finalLine });
+  const plan = planned.slice(0, COLLECT_DAYS_PER_RUN);
+  out.moreDue = planned.length > plan.length;
 
   for (let i = 0; i < plan.length; i += DAYS_PER_BATCH) {
-    if (!ask.canStart()) break;
+    if (!ask.canStart()) {
+      out.moreDue = true;
+      break;
+    }
     const days = plan.slice(i, i + DAYS_PER_BATCH).map((p) => p.day);
     const call = (rows: number) =>
       connectorFetch(

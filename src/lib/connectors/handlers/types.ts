@@ -119,11 +119,14 @@ export interface CollectAsk {
  * A collect hook's answer: the days it read (in the order read), the newest day the provider has
  * (Search Console's final frontier; null when it didn't say), the oldest it can give (a Cloudflare
  * plan's reach), the provider's zone, whether it probed, a hold it asks for, and the failure that
- * stopped it, if any. Days read before a failure are kept.
+ * stopped it, if any. Days read before a failure are kept. `moreDue` says days are still due now
+ * (the backfill, or a slice cut short); `nextDueMs`, when the next new day is due.
  */
 export interface CollectResult {
   days: CollectedDay[];
   newest: string | null;
+  moreDue: boolean;
+  nextDueMs: number | null;
   reachFrom: string | null;
   timeZone: string | null;
   probed: boolean;

@@ -102,6 +102,9 @@ export function advance(
   while (days.has(addDays(backfilledTo, -1))) backfilledTo = addDays(backfilledTo, -1);
   for (const [day, final] of days) if (final && day <= lastDay && day >= backfilledTo && (!finalThrough || day > finalThrough)) finalThrough = day;
   const oldest = laterDay(addDays(lastDay, -(opts.keepDays - 1)), opts.reachFrom ?? "0000-01-01");
+  // Days older than the keep window have left, so the oldest kept day moves up with lastDay.
+  backfilledTo = laterDay(backfilledTo, addDays(lastDay, -(opts.keepDays - 1)));
+  if (finalThrough && finalThrough < backfilledTo) finalThrough = null;
   return { lastDay, finalThrough, backfilledTo, filled: backfilledTo <= oldest, timeZone };
 }
 

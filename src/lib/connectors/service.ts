@@ -416,8 +416,21 @@ export async function checkToken(ctx: TenantContext, actor: ConnectorActor, conn
 
 // --- Calls that use the stored secret ---------------------------------------------------------
 
-/** The activity and health patch for a call's outcome. */
-function outcomePlan(
+/** Who a system job acts as: its activity rows say "system". */
+export const SYSTEM: ConnectorActor = { kind: "human", uid: "", role: undefined };
+
+/**
+ * Activity kinds kept in the log only, off the record's recent list: Vizzy's reads and the daily
+ * collect's rows (the Connected view shows people's changes). Kinds a newer build adds go here too,
+ * because an older build's parse throws on a kind it doesn't know on the recent list.
+ */
+const LOG_ONLY: ReadonlySet<ActivityWrite["kind"]> = new Set(["read", "collected"]);
+
+/**
+ * The activity and health patch for a call's outcome: a live read's, a check's, or the daily
+ * collect's (actor SYSTEM), so collect failures land on health exactly as live read failures do.
+ */
+export function outcomePlan(
   cur: DataConnection,
   outcome: { ok: true } | HookFailure,
   actor: ConnectorActor,
@@ -433,7 +446,7 @@ function outcomePlan(
     // with what was asked and the days read, never a number or a page.
     return {
       patch: { health: healthAfterSuccess(cur.health, now) },
-      activity: onSuccess ? [{ kind: onSuccess, by: byOf(actor), at, ...(onSuccess === "read" ? { recent: false, ...(read ? { read } : {}) } : {}) }] : [],
+      activity: onSuccess ? [{ kind: onSuccess, by: byOf(actor), at, ...(LOG_ONLY.has(onSuccess) ? { recent: false, ...(read ? { read } : {}) } : {}) }] : [],
     };
   }
   const next = healthAfterFailure(cur.health, outcome.code, now, outcome.retryAfterSec);
@@ -444,6 +457,36 @@ function outcomePlan(
 }
 
 type Usable = { ok: true; conn: DataConnection; manifest: ConnectorManifest; token: string } | { ok: false; result: ServiceResult<never> };
+
+/** A connection's token, or why not; `recorded` when the token keeper already wrote the failure on the connection. */
+export type TokenResult = { ok: true; token: string } | { ok: false; code: ConnectorErrorCode; retryAfterSec: number | null; recorded: boolean };
+
+/**
+ * The token for a call on a connection, whoever asks: a shared connection's minted for its address
+ * (300 seconds, kept only in this server's memory), a Google sign in's kept fresh by the token
+ * keeper under its lease, a pasted token opened from the vault. No grant is checked here: the
+ * caller checks its own (usable for people and Vizzy; none for the daily collect, a system job).
+ * Nothing is written, except by the token keeper when Google ended a sign in.
+ */
+export async function connectionToken(ctx: TenantContext, conn: DataConnection, manifest: ConnectorManifest, by: string, deps: ServiceDeps = {}): Promise<TokenResult> {
+  if (conn.method === "share_access") {
+    const kept = await shareToken(conn, manifest, deps);
+    return kept.ok ? { ok: true, token: kept.token } : { ok: false, code: kept.code, retryAfterSec: kept.retryAfterSec, recorded: false };
+  }
+  if (conn.method === "oauth_pkce") {
+    const kept = await freshAccessToken(ctx, conn, by, deps);
+    return kept.ok ? { ok: true, token: kept.token } : { ok: false, code: kept.code, retryAfterSec: kept.retryAfterSec, recorded: Boolean(kept.recorded) };
+  }
+  const method = tokenMethod(manifest);
+  const sealed = method ? conn.secrets[method.auth.field] : undefined;
+  try {
+    if (!sealed) throw new VaultOpenError("unopenable");
+    return { ok: true, token: openConnectorSecret(ctx.tenantId, conn.id, method!.auth.field, sealed) };
+  } catch (err) {
+    if (!(err instanceof VaultOpenError)) throw err;
+    return { ok: false, code: "secret_unopenable", retryAfterSec: null, recorded: false };
+  }
+}
 
 /** A token for a shared connection's address, with the connector's one read scope. */
 async function shareToken(conn: DataConnection, manifest: ConnectorManifest, deps: ServiceDeps): Promise<ShareResult<{ token: string }>> {
@@ -469,34 +512,12 @@ async function usable(ctx: TenantContext, actor: ConnectorActor, id: string, act
   const now = nowOf(deps);
   if (isCallPaused(conn, now)) return { ok: false, result: providerRefusal("paused") };
   if (action === "read_live" && !conn.account) return { ok: false, result: providerRefusal("account_needed") };
-  if (conn.method === "share_access") {
-    // A shared address: a 300 second token minted for it, kept only in this server's memory.
-    const kept = await shareToken(conn, manifest, deps);
-    if (kept.ok) return { ok: true, conn, manifest, token: kept.token };
+  const kept = await connectionToken(ctx, conn, manifest, byOf(actor), deps);
+  if (kept.ok) return { ok: true, conn, manifest, token: kept.token };
+  if (!kept.recorded) {
     await changeDataConnection(ctx, conn.id, (cur) => outcomePlan(cur, { ok: false, code: kept.code, retryAfterSec: kept.retryAfterSec }, actor, now, null), deps.db);
-    return { ok: false, result: connectionRefusal(conn, kept.code) };
   }
-  if (conn.method === "oauth_pkce") {
-    // A Google sign in: the token keeper refreshes the access token under its lease when it is due.
-    const kept = await freshAccessToken(ctx, conn, byOf(actor), deps);
-    if (kept.ok) return { ok: true, conn, manifest, token: kept.token };
-    if (!kept.recorded) {
-      await changeDataConnection(ctx, conn.id, (cur) => outcomePlan(cur, { ok: false, code: kept.code, retryAfterSec: kept.retryAfterSec }, actor, now, null), deps.db);
-    }
-    return { ok: false, result: connectionRefusal(conn, kept.code) };
-  }
-  const method = tokenMethod(manifest);
-  const sealed = method ? conn.secrets[method.auth.field] : undefined;
-  let token: string;
-  try {
-    if (!sealed) throw new VaultOpenError("unopenable");
-    token = openConnectorSecret(ctx.tenantId, conn.id, method!.auth.field, sealed);
-  } catch (err) {
-    if (!(err instanceof VaultOpenError)) throw err;
-    await changeDataConnection(ctx, conn.id, (cur) => outcomePlan(cur, { ok: false, code: "secret_unopenable", retryAfterSec: null }, actor, now, null), deps.db);
-    return { ok: false, result: providerRefusal("secret_unopenable") };
-  }
-  return { ok: true, conn, manifest, token };
+  return { ok: false, result: kept.code === "secret_unopenable" ? providerRefusal("secret_unopenable") : connectionRefusal(conn, kept.code) };
 }
 
 export interface CheckOutcome {

@@ -1,5 +1,5 @@
 import type { SnapshotRow } from "@/lib/types/metricSnapshot";
-import { planDays } from "../collect/schedule";
+import { nextAt, planDays } from "../collect/schedule";
 import type { ConnectorErrorCode } from "../messages";
 import { cleanPagePath } from "../paths";
 import { addDays, cappedNote, daysIn, dayWords, daysWords, earlierDay, isDay, laterDay, nothingYetNote, resolveWindow, todayIn } from "../period";
@@ -349,6 +349,8 @@ export const searchAnalytics: LiveHook = async (input, deps) => {
 export const COLLECT_DAYS_PER_RUN = 5;
 /** Days the probe reads past the keep window while filling, so the oldest kept day is listed too. */
 const PROBE_SPARE_DAYS = 9;
+/** The hour, in UTC, of a day's first probe. */
+export const FIRST_PROBE_HOUR_UTC = 9;
 
 /** A day's totals from a probe row: the property's own numbers for the day (Google's byProperty). */
 function dayTotalsOf(r: Row): Record<string, number | null> {
@@ -384,7 +386,8 @@ function measuresOf(r: LiveRow): Record<string, number> {
 export const collectDays: CollectHook = async (input, deps) => {
   const { ask } = input;
   const keepDays = ask.stream.collect.keepDays;
-  const base: CollectResult = { days: [], newest: null, reachFrom: null, timeZone: PACIFIC, probed: false, hold: null, failure: null };
+  // The first probe of a day comes at 09:00 UTC, after Pacific midnight in summer and winter.
+  const base: CollectResult = { days: [], newest: null, moreDue: false, nextDueMs: nextAt(ask.now, "UTC", FIRST_PROBE_HOUR_UTC, 0).getTime(), reachFrom: null, timeZone: PACIFIC, probed: false, hold: null, failure: null };
   if (!input.account) return { ...base, failure: { ok: false, code: "account_needed", retryAfterSec: null } };
   const today = todayIn(ask.now, PACIFIC);
   const post = (json: unknown) => connectorFetch({ manifest: input.manifest, connection: input.connection, url: queryUrl(input.account), method: "POST", json, token: input.token }, deps);
@@ -404,7 +407,9 @@ export const collectDays: CollectHook = async (input, deps) => {
   const newest = [...totals.keys()].sort().at(-1)!;
   const out: CollectResult = { ...base, probed: true, newest };
 
-  const plan = planDays(ask.cursor, newest, { keepDays, maxDays: COLLECT_DAYS_PER_RUN }).filter((p) => p.day >= from);
+  const planned = planDays(ask.cursor, newest, { keepDays, maxDays: COLLECT_DAYS_PER_RUN + 1 }).filter((p) => p.day >= from);
+  const plan = planned.slice(0, COLLECT_DAYS_PER_RUN);
+  out.moreDue = planned.length > plan.length;
   const rowsOf = async (day: string, by: "page" | "topic"): Promise<{ ok: true; rows: SnapshotRow[]; more: boolean } | HookFailure> => {
     const res = await post({ startDate: day, endDate: day, dimensions: [DIMENSION[by]], type: "web", dataState: "final", rowLimit: FETCH_ROWS });
     if (!res.ok) return googleFailure(res);
@@ -426,7 +431,10 @@ export const collectDays: CollectHook = async (input, deps) => {
   };
 
   for (const p of plan) {
-    if (!ask.canStart()) break;
+    if (!ask.canStart()) {
+      out.moreDue = true;
+      break;
+    }
     const dayTotals = totals.get(p.day);
     if (!dayTotals) {
       // At or before the frontier and not listed: no impressions that day.

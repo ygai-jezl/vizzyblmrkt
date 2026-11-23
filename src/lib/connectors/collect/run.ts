@@ -8,6 +8,7 @@ import { collectedStream, type ConnectorManifest } from "../manifest";
 import { todayIn } from "../period";
 import { getConnector, knownConnector } from "../registry";
 import { codeFor, connectionToken, outcomePlan, SYSTEM, type ServiceDeps } from "../service";
+import { rollConnection } from "../rollups";
 import { dropAgedDay, writeDayDoc } from "../snapshots";
 import { advance, nextMidnight, spreadMs, type CollectCursor } from "./schedule";
 
@@ -21,7 +22,8 @@ import { advance, nextMidnight, spreadMs, type CollectCursor } from "./schedule"
  * 3. run the connector's collect hook, which plans and reads the days due;
  * 4. write each day's docs (a whole doc under a fixed id, so a repeat writes the same), and delete
  *    the day 90 days before each new day;
- * 5. under the lease, move the cursor over the days that landed, set when to look next, and record
+ * 5. once a day after a day lands, rewrite the rolled 28 and 90 day docs (src/lib/connectors/rollups.ts);
+ * 6. under the lease, move the cursor over the days that landed, set when to look next, and record
  *    the outcome: a refused token through the same outcomePlan a live read uses, so the connection
  *    shows broken and goes to Review; a quota answer only as the collector's own hold, so live reads
  *    go on.
@@ -204,6 +206,22 @@ export async function collectConnection(ctx: TenantContext, id: string, opts: { 
   // own words, as a live read's do.
   const failure: HookFailure | null = r.failure ? { ...r.failure, code: codeFor(conn.method, r.failure.code) } : null;
   const cursor = advance(cursorOf(start), landed, { newest: r.newest, keepDays: stream.collect.keepDays, reachFrom: r.reachFrom, timeZone: r.timeZone });
+
+  // 6. Once a day after a day lands (and when the backfill fills), the rolled 28 and 90 day docs.
+  const rolledDay = todayIn(now, "UTC");
+  let rolledOn = start.rolledOn;
+  if (landed.length && cursor.lastDay && cursor.backfilledTo && (start.rolledOn !== rolledDay || (cursor.filled && !start.filled)) && canStart()) {
+    try {
+      await rollConnection(
+        ctx,
+        { owner, stream: stream.stream, by: stream.collect.by, keepDays: stream.collect.keepDays, lastDay: cursor.lastDay, backfilledTo: cursor.backfilledTo, timeZone: r.timeZone },
+        deps,
+      );
+      rolledOn = rolledDay;
+    } catch (err) {
+      console.warn(`[connectors] rolling ${conn.id} failed:`, err instanceof Error ? err.message.slice(0, 200) : "error");
+    }
+  }
   const landedNew = landed.some((l) => !start.lastDay || l.day > start.lastDay);
   const probeDay = todayIn(now, quotaZone(stream));
   const probes = r.probed ? { day: probeDay, count: start.probes?.day === probeDay ? start.probes.count + 1 : 1 } : start.probes;
@@ -221,6 +239,7 @@ export async function collectConnection(ctx: TenantContext, id: string, opts: { 
       ...c,
       ...cursor,
       reachFrom: r.reachFrom ?? c.reachFrom,
+      rolledOn,
       kept: keptOf(written, c.kept),
       probes,
       strikes,

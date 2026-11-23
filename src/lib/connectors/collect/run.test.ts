@@ -88,7 +88,8 @@ describe("collecting one connection", () => {
     const { transport, calls } = cloudflare();
     expect(await run(transport)).toEqual({ status: "collected", days: 90 });
     expect(calls).toHaveLength(2);
-    expect(db.dump("metric_snapshots")).toHaveLength(90);
+    // 90 day docs, and the rolled 28 and 90 days.
+    expect(db.dump("metric_snapshots").filter((d) => d.day)).toHaveLength(90);
     const c = (await load(CF)).collect!;
     expect(c).toMatchObject({ gen: 0, lastDay: "2026-11-21", backfilledTo: "2026-08-24", finalThrough: "2026-11-21", filled: true, leaseId: null, leaseUntil: null, failedSince: null, timeZone: "UTC" });
     // The next day is due at 03:00 UTC two days on, spread over the hour.
@@ -99,6 +100,22 @@ describe("collecting one connection", () => {
     const raw = db.raw("data_connections", CF)!;
     expect((raw.recent as Array<{ kind: string }>).map((e) => e.kind)).not.toContain("collected");
     expect(DataConnectionSchema.omit({ collect: true }).safeParse({ ...raw, id: CF }).success).toBe(true);
+  });
+
+  it("rolls the 28 and 90 days once a day after a day lands, never adding day docs on a read", async () => {
+    await seedCloudflare();
+    await run(cloudflare().transport);
+    expect(db.dump("metric_snapshots")).toHaveLength(92);
+    const r90 = db.raw("metric_snapshots", `${CF}_0_zone_daily_day_r90`)!;
+    expect(r90).toMatchObject({ window: { from: "2026-08-24", to: "2026-11-21" }, days: 90, basis: "mixed", totals: { cfUniqueVisitors: null, cfVisits: null } });
+    expect((await load(CF)).collect?.rolledOn).toBe("2026-11-23");
+    // A later run the same day lands a day but leaves the rolled docs for tomorrow.
+    await changeDataConnection(A, CF, (cur) => ({ patch: { collect: { ...cur.collect!, nextAt: null } }, activity: [] }), db);
+    const before = db.writeCountFor("metric_snapshots", `${CF}_0_zone_daily_day_r28`);
+    const later = new Date("2026-11-23T23:00:00.000Z");
+    const next = routedTransport((c) => (String(c.body.query).includes("settings") ? answer(cfSettings()) : answer(cfDays(["2026-11-21"], ["2026-11-21"]))));
+    await run(next.transport, { now: later, force: true });
+    expect(db.writeCountFor("metric_snapshots", `${CF}_0_zone_daily_day_r28`)).toBe(before);
   });
 
   it("collects nothing more until the next day is due, then only the new day", async () => {

@@ -5,6 +5,7 @@ import type { TenantContext } from "@/lib/tenant/types";
 import type { BrandMap } from "@/lib/types/brandMap";
 import type { CompetitorArticle } from "@/lib/types/competitor";
 import type { Tenant } from "@/lib/types/tenant";
+import { usageThisMonth } from "@/lib/plans/meter";
 import { listArticles } from "./articles";
 import { runArticleReads, type ArticleTickDeps } from "./articleTick";
 import { listPosts, monitorCompetitor, savePosts } from "./store";
@@ -177,12 +178,16 @@ describe("runArticleReads", () => {
   });
 
   it("tries a read the model didn't answer once more, and counts both against the month", async () => {
+    vi.stubEnv("USAGE_METER_ENABLED", "true");
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
     const id = await competitor(1);
     deps.generate.mockResolvedValue(null);
     await tick();
     expect((await listArticles(A, id, deps))[0]).toMatchObject({ status: "queued", problem: "no_answer", attempts: 1, readMonth: "2026-11" });
     await tick();
     expect((await listArticles(A, id, deps))[0]).toMatchObject({ status: "failed", problem: "no_answer", attempts: 2 });
+    // The usage meter counts both model calls too, in the tick's month.
+    expect((await usageThisMonth(A, { db: deps.db, now: () => new Date(NOW) })).competitor_reads).toMatchObject({ total: 2, byPurpose: { competitor_articles: 2 } });
   });
 
   it("stops at the brand's monthly cap", async () => {

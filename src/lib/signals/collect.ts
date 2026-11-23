@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readBrandMap } from "@/lib/brandMap/store";
 import { tenantMayUse } from "@/lib/plans/brandAccess";
 import { monthlyLimit } from "@/lib/plans/limits";
+import { usageMeter } from "@/lib/plans/meter";
 import { getTenantById } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { BrandSignal } from "@/lib/types/brandSignal";
@@ -70,7 +71,8 @@ export async function collectSignal(
   return "failed";
 }
 
-export type LookupAsk = { query: string; questionId: string | null; subjectId: string | null };
+/** purpose: who asked, for the usage meter (a person's "Get from Google", or the autopilot). Default: a person. */
+export type LookupAsk = { query: string; questionId: string | null; subjectId: string | null; purpose?: "get_from_google" | "autopilot" };
 
 export type LookupOutcome =
   | { ok: true; signal: BrandSignal; reused: boolean }
@@ -95,6 +97,9 @@ export async function lookUpQuestion(ctx: TenantContext, ask: LookupAsk, deps: C
 
   const posted = await postSerpTask(ask.query, market, { tag: signalIdFor(ctx.tenantId, ask.query, market), priority: 2 }, deps);
   if (!posted.ok) return { ok: false, status: 502, error: "lookup_failed", detail: posted.error };
-  const signal = await recordPosted(ctx, { ...ask, market, askedBy: "person", taskId: posted.taskId, cost: posted.cost }, deps);
+  // A posted task is billed: it goes on the usage meter (a reused lookup above isn't).
+  const { purpose = "get_from_google", ...lookup } = ask;
+  await usageMeter(ctx, "google_lookups", purpose, { db: deps.db, now: deps.now, tenant }).record(1);
+  const signal = await recordPosted(ctx, { ...lookup, market, askedBy: "person", taskId: posted.taskId, cost: posted.cost }, deps);
   return { ok: true, signal, reused: false };
 }

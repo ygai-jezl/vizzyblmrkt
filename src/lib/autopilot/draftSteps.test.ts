@@ -108,6 +108,19 @@ describe("a Draft run", () => {
     expect((await listContentPlans(A, "ws1", 100, deps.db)).length).toBe(1);
   });
 
+  it("puts each draft on the usage meter once, also after a crash and retry", async () => {
+    vi.stubEnv("USAGE_METER_ENABLED", "true");
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const { deps } = setup();
+    const id = await draftRun(deps);
+    await step(id, deps);
+    await forTenant(A, deps.db).autopilotRuns.update(id, { step: "create", active: true });
+    await step(id, deps);
+    const { usageThisMonth } = await import("@/lib/plans/meter");
+    expect((await usageThisMonth(A, { db: deps.db })).autopilot_drafts).toMatchObject({ total: 1, calls: 1, byPurpose: { autopilot: 1 } });
+    vi.unstubAllEnvs();
+  });
+
   it("stops when a person takes over, and when the article was approved meanwhile", async () => {
     const { deps } = setup();
     const id = await draftRun(deps);
@@ -124,7 +137,7 @@ describe("a Draft run", () => {
   });
 
   it("stays a suggestion at the month's web search cap, before any plan is made", async () => {
-    vi.stubEnv("WEB_SEARCH_METER_ENABLED", "true");
+    vi.stubEnv("USAGE_METER_ENABLED", "true");
     const { deps } = setup({ featureLimits: { web_searches: 0 } });
     const id = await draftRun(deps);
     expect(await step(id, deps)).toMatchObject({ step: "sorted", error: "search_limit" });

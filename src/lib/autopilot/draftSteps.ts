@@ -107,6 +107,8 @@ export const createStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
     workspaceId = chosen.id;
     // Noted first, so a retry finds the same plan rather than making another.
     if (!(await notePlan(ctx, run as AutopilotRun & { leaseId: string }, planId, workspaceId, deps))) return { error: "lease_lost" };
+    // Counted once, where the old counter counts it (a retry finds the plan noted and skips this).
+    await usageMeter(ctx, "autopilot_drafts", "autopilot", { tenant, db: deps.db }).record(1);
   }
   const workspace = await workspaceOf(ctx, workspaceId!, deps);
   if (!workspace) return { step: "failed", error: "no_programme" };

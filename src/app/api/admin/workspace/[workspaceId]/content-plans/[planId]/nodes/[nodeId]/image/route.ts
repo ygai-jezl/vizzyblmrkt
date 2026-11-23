@@ -7,6 +7,7 @@ import { getContentPlan } from "@/lib/tenant/workspaceContent";
 import { generateEmailBlockImage } from "@/lib/agents/creative";
 import { IMAGE_MODEL_SLUGS } from "@/lib/content/create/imageModels";
 import { resolveImageModel } from "@/lib/agents/modelConfig";
+import { aiUsage } from "@/lib/plans/meter";
 import { assembleBrandContext, resolveBrandVoiceText } from "@/lib/content/create/brandContext";
 import { htmlToText } from "@/lib/email/emailRender";
 import { findCopyBlockIndex } from "@/lib/types/emailLayout";
@@ -15,6 +16,7 @@ import { originFromHeaders } from "@/lib/http/origin";
 import { styleForImage } from "@/lib/content/imageStyle/forImage";
 import { canonicalStyleId } from "@/lib/content/imageStyle/catalogue";
 import { learnedDirectiveFor } from "@/lib/content/imageStyle/learning";
+import { IMAGE_LIMIT_MESSAGE } from "@/lib/plans/resources";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,6 +33,7 @@ const BodySchema = z.object({
 });
 
 const IMAGE_ERRORS: Record<string, string> = {
+  image_limit: IMAGE_LIMIT_MESSAGE,
   image_model_unavailable: "The image model isn't available right now.",
   no_asset_bucket: "Image storage isn't configured.",
   store_failed: "Couldn't save the image — try again.",
@@ -86,12 +89,13 @@ export async function POST(req: Request, { params }: RouteParams) {
         : undefined,
     }),
     baseUrl: platformOrigin() || originFromHeaders(req.headers),
+    usage: aiUsage(ctx, "email_block_image", { tenant }),
   });
 
   if (!result.imageUrl) {
     return NextResponse.json(
       { error: result.reason, message: IMAGE_ERRORS[result.reason ?? ""] ?? "Image generation failed." },
-      { status: 502 },
+      { status: result.reason === "image_limit" ? 429 : 502 },
     );
   }
   return NextResponse.json({

@@ -5,6 +5,7 @@ import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant, getTenantById } from "@/lib/tenant";
 import { getContentPlan } from "@/lib/tenant/workspaceContent";
 import { generateEmailLayout } from "@/lib/content/create/generateEmailLayout";
+import { aiUsage } from "@/lib/plans/meter";
 import { resolveBrandVoiceText } from "@/lib/content/create/brandContext";
 import { findCopyBlockIndex } from "@/lib/types/emailLayout";
 
@@ -56,6 +57,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     audience: ws.audience ?? null,
     brandKit: tenant?.brandKit ?? null,
     brandTypography: tenant?.brandTypography ?? null,
+    usage: aiUsage(ctx, "email_layout", { tenant }),
   });
   if (!layout) return NextResponse.json({ error: "generation_failed" }, { status: 502 });
   return NextResponse.json({ layout });

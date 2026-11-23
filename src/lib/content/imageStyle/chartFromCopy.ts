@@ -1,4 +1,4 @@
-import { generateTextWithDeadline, parseFirstJson } from "@/lib/agents/gemini";
+import { generateTextWithDeadline, parseFirstJson, type AiUsage } from "@/lib/agents/gemini";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { articleFigures, figureSet, normalizeFigure } from "@/lib/content/blog/figures";
 import { stripFenceDelimiters } from "@/lib/content/create/siteText";
@@ -113,19 +113,19 @@ export function verifyChart(chart: Chart, copy: CopyText): Chart | null {
 }
 
 export interface ChartDeps {
-  generate: (prompt: string) => Promise<string | null>;
+  generate: (prompt: string, usage: AiUsage) => Promise<string | null>;
 }
 
 const defaultDeps: ChartDeps = {
-  generate: (prompt) => generateTextWithDeadline(prompt, { timeoutMs: TIMEOUT_MS, json: true }),
+  generate: (prompt, usage) => generateTextWithDeadline(prompt, { timeoutMs: TIMEOUT_MS, json: true, usage }),
 };
 
 /** A chart from the copy, checked; null when the copy doesn't hold two comparable numbers. */
-export async function chartFromCopy(copy: CopyText, deps: ChartDeps = defaultDeps): Promise<Chart | null> {
+export async function chartFromCopy(copy: CopyText, usage: AiUsage, deps: ChartDeps = defaultDeps): Promise<Chart | null> {
   const text = (copy.text ?? "").slice(0, MAX_TEXT);
   if (figureSet(text).size < 2) return null;
   const raw = await deps
-    .generate(renderPrompt("content.chart_from_copy", { copy: stripFenceDelimiters(text) }))
+    .generate(renderPrompt("content.chart_from_copy", { copy: stripFenceDelimiters(text) }), usage)
     .catch(() => null);
   if (!raw) return null;
   const json = parseFirstJson(raw);

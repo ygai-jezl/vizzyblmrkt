@@ -1,6 +1,6 @@
 import { safeFetch, readTextCapped } from "@/lib/security/ssrf";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
-import { generateText, parseFirstJson } from "@/lib/agents/gemini";
+import { generateText, parseFirstJson, type AiUsage } from "@/lib/agents/gemini";
 import { BrandVoiceSchema, type BrandVoice } from "@/lib/types/tenant";
 import { htmlToText, stripFenceDelimiters } from "./siteText";
 
@@ -59,14 +59,14 @@ const clampArr = (v: unknown, maxItems: number, maxLen: number): string[] =>
  * than rejecting overflow) so a slightly-too-long draft still returns something usable. Returns
  * null when the model is unavailable or returns unparseable output.
  */
-export async function generateBrandVoiceFromDomain(domain: string): Promise<BrandVoice | null> {
+export async function generateBrandVoiceFromDomain(domain: string, opts: { usage: AiUsage }): Promise<BrandVoice | null> {
   const siteText = await fetchHomepageText(domain);
   const safeSiteText = siteText ? stripFenceDelimiters(siteText) : null;
   const prompt = renderPrompt("brand.generate_voice", {
     domain,
     site_text: safeSiteText || "(no website text available — infer from the domain name only)",
   });
-  const raw = await generateText(prompt);
+  const raw = await generateText(prompt, { usage: opts.usage });
   if (!raw) return null;
   const json = parseFirstJson(raw);
   if (!json || typeof json !== "object") return null;

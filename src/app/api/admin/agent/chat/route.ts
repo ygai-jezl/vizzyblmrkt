@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { aiUsage } from "@/lib/plans/meter";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { getAdminContext } from "@/lib/auth/session";
@@ -12,6 +13,7 @@ import {
   createAgentSession,
   mapVertexEvent,
   parseUpstreamRecords,
+  addChatUsage,
 } from "@/lib/agents/agentRuntime";
 import { mintCanvasContextOrNull } from "@/lib/canvas/auth";
 import { getTenantById } from "@/lib/tenant/registry";
@@ -141,6 +143,8 @@ export async function POST(req: Request) {
         const reader = upstream.body.getReader();
         const decoder = new TextDecoder();
         const dedup = { sawPartialText: false };
+        // Vizzy's own model calls this turn, by model: counted for the brand once the turn ends.
+        const tokens = new Map<string, number>();
         let buffer = "";
 
         while (true) {
@@ -150,16 +154,20 @@ export async function POST(req: Request) {
           const lines = buffer.split("\n");
           buffer = lines.pop() ?? "";
           for (const evt of parseUpstreamRecords(lines)) {
+            addChatUsage(evt, tokens);
             for (const normalized of mapVertexEvent(evt, dedup)) emit(normalized);
           }
         }
         // flush any trailing buffered record
         if (buffer.trim()) {
           for (const evt of parseUpstreamRecords([buffer])) {
+            addChatUsage(evt, tokens);
             for (const normalized of mapVertexEvent(evt, dedup)) emit(normalized);
           }
         }
 
+        const usage = aiUsage(ctx, "vizzy_chat");
+        for (const [model, n] of tokens) await usage.recordModel(n, model);
         emit({ type: "done", sessionId: resolvedSession ?? undefined });
       } catch (err) {
         console.error("[agent-chat] stream error:", err);

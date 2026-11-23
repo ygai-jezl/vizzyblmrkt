@@ -1,4 +1,5 @@
 import { generateTextWithDeadline, isGeminiConfigured, parseFirstJson } from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { fence, oneLine } from "@/lib/brandMap/lineChecks";
 import { readBrandMap } from "@/lib/brandMap/store";
@@ -269,7 +270,13 @@ export async function pickNextUp(
       candidates: untag(weighed.map((w, k) => [`${k + 1}. "${w.candidate.question}" (subject: ${w.candidate.subjectName})`, ...w.lines.map((l) => `${l.id} ${l.text}`)].join("\n")).join("\n\n")),
     });
     const timeoutMs = Math.min(PICK_MS, opts.deadlineMs - Date.now() - 2_000);
-    const raw = await (deps.generate ?? generateTextWithDeadline)(prompt, { timeoutMs, json: true, temperature: 0.3, thinkingBudget: 512 }).catch(() => null);
+    const raw = await (deps.generate ?? generateTextWithDeadline)(prompt, {
+      timeoutMs,
+      json: true,
+      temperature: 0.3,
+      thinkingBudget: 512,
+      usage: aiUsage(ctx, "next_up", { db: deps.db, tenant }),
+    }).catch(() => null);
     picks = readPicks(raw, weighed, names);
   }
   // Too few that hold: fill with the least answered, said plainly.

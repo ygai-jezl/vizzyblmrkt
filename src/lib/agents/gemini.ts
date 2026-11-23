@@ -1,5 +1,5 @@
 import { GoogleGenAI, Modality } from "@google/genai";
-import { TEXT_MODEL, IMAGE_MODEL, CAROUSEL_IMAGE_MODEL, BLOCK_IMAGE_MODEL, EBOOK_IMAGE_MODEL } from "./modelConfig";
+import { TEXT_MODEL, IMAGE_MODEL, CAROUSEL_IMAGE_MODEL, EBOOK_IMAGE_MODEL } from "./modelConfig";
 
 /**
  * Thin Gemini client. Three auth modes (first match wins):
@@ -91,15 +91,17 @@ function thinkingConfig(opts: ThinkingOptions): { thinkingConfig: { thinkingBudg
  * won't take the setting (models change — see modelConfig.ts) is asked again without it,
  * so the cap can only ever make a call faster, never make it fail.
  */
-export async function generateText(prompt: string, opts: ThinkingOptions = {}): Promise<string | null> {
+export async function generateText(prompt: string, opts: ThinkingOptions & { usage: AiUsage }): Promise<string | null> {
   const ai = getClient();
   if (!ai) return null;
   try {
     if (opts.thinkingBudget !== undefined) {
       try {
         const capped = await ai.models.generateContent({ model: TEXT_MODEL, contents: prompt, config: thinkingConfig(opts) });
+        await recordModel(opts.usage, capped, TEXT_MODEL);
         return capped.text ?? null;
       } catch (err) {
+        await recordLost(opts.usage, TEXT_MODEL);
         console.warn(
           "[gemini] generateText with a thinking budget failed; retrying without it:",
           err instanceof Error ? err.message.slice(0, 200) : "error",
@@ -110,8 +112,10 @@ export async function generateText(prompt: string, opts: ThinkingOptions = {}): 
       model: TEXT_MODEL,
       contents: prompt,
     });
+    await recordModel(opts.usage, res, TEXT_MODEL);
     return res.text ?? null;
   } catch (err) {
+    await recordLost(opts.usage, TEXT_MODEL);
     console.warn("[gemini] generateText failed:", err);
     return null;
   }
@@ -126,7 +130,7 @@ export async function generateText(prompt: string, opts: ThinkingOptions = {}): 
  */
 export async function generateTextWithDeadline(
   prompt: string,
-  opts: { timeoutMs: number; json?: boolean; temperature?: number } & ThinkingOptions,
+  opts: { timeoutMs: number; json?: boolean; temperature?: number; usage: AiUsage } & ThinkingOptions,
 ): Promise<string | null> {
   const ai = getClient();
   if (!ai) return null;
@@ -147,8 +151,10 @@ export async function generateTextWithDeadline(
         signal.addEventListener("abort", () => reject(new Error("deadline")), { once: true });
       }),
     ]);
+    await recordModel(opts.usage, res, TEXT_MODEL);
     return res.text ?? null;
   } catch (err) {
+    await recordLost(opts.usage, TEXT_MODEL);
     console.warn(`[gemini] generateTextWithDeadline failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
     return null;
   }
@@ -167,10 +173,13 @@ export async function generateTextWithDeadline(
  */
 export async function* generateTextStream(
   prompt: string,
-  opts: { signal?: AbortSignal } & ThinkingOptions = {},
+  opts: { signal?: AbortSignal; usage: AiUsage } & ThinkingOptions,
 ): AsyncGenerator<string> {
   const ai = getClient();
   if (!ai) return;
+  // The last chunk carries the call's whole usage: kept, and told once however the stream ends.
+  let last: { usageMetadata?: { totalTokenCount?: number } } | null = null;
+  let opened = false;
   const open = (withBudget: boolean) => {
     const config = {
       ...(opts.signal ? { abortSignal: opts.signal } : {}),
@@ -198,13 +207,18 @@ export async function* generateTextStream(
     } else {
       stream = await open(false);
     }
+    opened = true;
     for await (const chunk of stream) {
+      if (chunk.usageMetadata) last = chunk;
       if (opts.signal?.aborted) return;
       const t = chunk.text;
       if (t) yield t;
     }
   } catch (err) {
     if (!opts.signal?.aborted) console.warn("[gemini] generateTextStream failed:", err);
+  } finally {
+    if (last) await recordModel(opts.usage, last, TEXT_MODEL);
+    else if (opened || opts.signal?.aborted) await recordLost(opts.usage, TEXT_MODEL);
   }
 }
 
@@ -218,6 +232,7 @@ export async function generateTextWithImage(
   prompt: string,
   imageBase64: string,
   mimeType: string,
+  opts: { usage: AiUsage },
 ): Promise<string | null> {
   const ai = getClient();
   if (!ai) return null;
@@ -228,8 +243,10 @@ export async function generateTextWithImage(
         { role: "user", parts: [{ text: prompt }, { inlineData: { data: imageBase64, mimeType } }] },
       ],
     });
+    await recordModel(opts.usage, res, TEXT_MODEL);
     return res.text ?? null;
   } catch (err) {
+    await recordLost(opts.usage, TEXT_MODEL);
     console.warn("[gemini] generateTextWithImage failed:", err);
     return null;
   }
@@ -246,7 +263,7 @@ export async function generateTextWithFile(
   prompt: string,
   base64: string,
   mimeType: string,
-  opts: { timeoutMs?: number } = {},
+  opts: { timeoutMs?: number; usage: AiUsage },
 ): Promise<string | null> {
   const ai = getClient();
   if (!ai) return null;
@@ -267,8 +284,10 @@ export async function generateTextWithFile(
           }),
         ])
       : await call;
+    await recordModel(opts.usage, res, TEXT_MODEL);
     return res.text ?? null;
   } catch (err) {
+    await recordLost(opts.usage, TEXT_MODEL);
     console.warn("[gemini] generateTextWithFile failed:", err instanceof Error ? err.message.slice(0, 200) : "error");
     return null;
   }
@@ -295,36 +314,63 @@ export interface GroundedJsonResult {
   queries: string[];
 }
 
-// ---- Metering web searches (WEB_SEARCH_METER_ENABLED) -------------------------------------
+// ---- Usage (USAGE_METER_ENABLED) -------------------------------------------------------------
 
-/** A grounded call that wasn't made: this brand has used its web searches for research this month. */
-export interface SearchLimited {
+/** A call that wasn't made: the brand has used this resource (web searches, images) this month. */
+export interface UsageLimited {
   limited: true;
   used: number;
   limit: number;
 }
+/** The name the grounded callers know it by. */
+export type SearchLimited = UsageLimited;
 
 /**
- * How a grounded call is metered: checked before the call, and told after it how many Google
- * searches it ran (each is billed). Built by src/lib/plans/meter.ts (`usageMeter`) and passed in,
- * so this file stays free of storage. Every grounded call takes one (a guard test checks).
+ * One call's usage: every Gemini call takes one, so none goes uncounted (a guard test checks only
+ * this file calls the model). Built by src/lib/plans/meter.ts (`aiUsage`) and passed in, so this
+ * file stays free of storage. It is told the tokens every call used, and checked before and told
+ * after any web searches or images a call spends.
  */
-export interface SearchMeter {
-  check(): Promise<SearchLimited | null>;
-  /** `lost`: the call failed after it may have searched, so its searches couldn't be counted. */
-  record(searches: number, opts?: { lost?: boolean }): Promise<void>;
+export interface AiUsage {
+  check(kind: "searches" | "images", units?: number): Promise<UsageLimited | null>;
+  /** `lost`: the call failed after it may have used tokens, so they couldn't be counted. */
+  recordModel(tokens: number, model: string, opts?: { lost?: boolean }): Promise<void>;
+  recordSearches(searches: number, opts?: { lost?: boolean }): Promise<void>;
+  recordImages(images: number): Promise<void>;
 }
 
-/** A meter that never limits and counts nothing, for tests. */
-export const NO_METER: SearchMeter = { check: async () => null, record: async () => undefined };
+/** Usage that never limits and counts nothing: for tests only (a guard test checks). */
+export const NO_USAGE: AiUsage = {
+  check: async () => null,
+  recordModel: async () => undefined,
+  recordSearches: async () => undefined,
+  recordImages: async () => undefined,
+};
 
-export function isSearchLimited(r: unknown): r is SearchLimited {
+export function isSearchLimited(r: unknown): r is UsageLimited {
   return typeof r === "object" && r !== null && (r as { limited?: unknown }).limited === true;
 }
+export const isUsageLimited = isSearchLimited;
 
-/** Tell the meter, never failing the call over it. */
-async function recordSearches(meter: SearchMeter, searches: number, lost = false): Promise<void> {
-  await meter.record(searches, lost ? { lost } : undefined).catch(() => undefined);
+/** The tokens a response used (prompt, thinking, tools and answer). */
+function tokensOf(res: { usageMetadata?: { totalTokenCount?: number } } | null | undefined): number {
+  const n = res?.usageMetadata?.totalTokenCount;
+  return typeof n === "number" && n > 0 ? n : 0;
+}
+
+/** Tell the usage what a call used, never failing the call over it. */
+function recordModel(usage: AiUsage, res: { usageMetadata?: { totalTokenCount?: number } } | null | undefined, model: string): Promise<void> {
+  return usage.recordModel(tokensOf(res), model).catch(() => undefined);
+}
+
+/** A call that failed after it may have used tokens. */
+function recordLost(usage: AiUsage, model: string): Promise<void> {
+  return usage.recordModel(0, model, { lost: true }).catch(() => undefined);
+}
+
+/** Tell the usage how many web searches a call ran, never failing the call over it. */
+async function recordSearches(usage: AiUsage, searches: number, lost = false): Promise<void> {
+  await usage.recordSearches(searches, lost ? { lost } : undefined).catch(() => undefined);
 }
 
 /** Google's search list on a grounded response. */
@@ -349,11 +395,11 @@ function wasRejected(err: unknown): boolean {
  */
 export async function generateGroundedJson(
   prompt: string,
-  opts: { meter: SearchMeter },
+  opts: { usage: AiUsage },
 ): Promise<GroundedJsonResult | SearchLimited | null> {
   const ai = getClient();
   if (!ai) return null;
-  const limited = await opts.meter.check();
+  const limited = await opts.usage.check("searches");
   if (limited) return limited;
   try {
     const res = await ai.models.generateContent({
@@ -363,7 +409,8 @@ export async function generateGroundedJson(
     });
     const meta = res.candidates?.[0]?.groundingMetadata;
     const queries = searchesOf(meta);
-    await recordSearches(opts.meter, queries.length);
+    await recordSearches(opts.usage, queries.length);
+    await recordModel(opts.usage, res, TEXT_MODEL);
     return {
       json: parseFirstJson(res.text ?? ""),
       groundingUsed: meta != null,
@@ -371,7 +418,8 @@ export async function generateGroundedJson(
       queries,
     };
   } catch (err) {
-    await recordSearches(opts.meter, 0, true);
+    await recordSearches(opts.usage, 0, true);
+    await recordLost(opts.usage, TEXT_MODEL);
     console.warn(
       "[gemini] generateGroundedJson failed:",
       err instanceof Error ? err.message.slice(0, 200) : "error",
@@ -417,11 +465,11 @@ export interface GroundedTextResult {
  */
 export async function generateGroundedText(
   prompt: string,
-  opts: { timeoutMs?: number; meter: SearchMeter } & ThinkingOptions,
+  opts: { timeoutMs?: number; usage: AiUsage } & ThinkingOptions,
 ): Promise<GroundedTextResult | SearchLimited | null> {
   const ai = getClient();
   if (!ai) return null;
-  const limited = await opts.meter.check();
+  const limited = await opts.usage.check("searches");
   if (limited) return limited;
   const signal = AbortSignal.timeout(opts.timeoutMs ?? 45_000);
   const deadline = new Promise<never>((_, reject) => {
@@ -447,7 +495,8 @@ export async function generateGroundedText(
     });
     const meta = res.candidates?.[0]?.groundingMetadata;
     const queries = searchesOf(meta);
-    await recordSearches(opts.meter, queries.length);
+    await recordSearches(opts.usage, queries.length);
+    await recordModel(opts.usage, res, TEXT_MODEL);
     const sources: GroundedSource[] = (meta?.groundingChunks ?? []).map((c) => {
       const web = c.web as { uri?: string; title?: string; domain?: string } | undefined;
       return { uri: web?.uri ?? "", title: web?.title ?? "", domain: web?.domain ?? web?.title ?? "" };
@@ -460,7 +509,8 @@ export async function generateGroundedText(
     }));
     return { text: res.text ?? "", sources, supports, model: TEXT_MODEL, queries };
   } catch (err) {
-    await recordSearches(opts.meter, 0, true);
+    await recordSearches(opts.usage, 0, true);
+    await recordLost(opts.usage, TEXT_MODEL);
     console.warn(
       "[gemini] generateGroundedText failed:",
       err instanceof Error ? err.message.slice(0, 200) : "error",
@@ -492,7 +542,7 @@ export interface UrlReadResult {
  */
 export async function readUrlsWithGoogle(
   prompt: string,
-  opts: { timeoutMs?: number } & ThinkingOptions = {},
+  opts: { timeoutMs?: number; usage: AiUsage } & ThinkingOptions,
 ): Promise<UrlReadResult | null> {
   const ai = getClient();
   if (!ai) return null;
@@ -513,13 +563,15 @@ export async function readUrlsWithGoogle(
     ]);
   try {
     const res = await ask(opts.thinkingBudget !== undefined).catch((err: unknown) => {
-      if (opts.thinkingBudget === undefined || signal.aborted) throw err;
+      if (opts.thinkingBudget === undefined || signal.aborted || !wasRejected(err)) throw err;
       return ask(false);
     });
+    await recordModel(opts.usage, res, TEXT_MODEL);
     const meta = res.candidates?.[0]?.urlContextMetadata?.urlMetadata ?? [];
     const retrieved = meta.map((m) => ({ url: m.retrievedUrl ?? "", status: String(m.urlRetrievalStatus ?? "") }));
     return { text: res.text ?? "", retrieved, model: TEXT_MODEL };
   } catch (err) {
+    await recordLost(opts.usage, TEXT_MODEL);
     console.warn("[gemini] readUrlsWithGoogle failed:", err instanceof Error ? err.message.slice(0, 200) : "error");
     return null;
   }
@@ -530,6 +582,23 @@ export interface GeneratedImage {
   mimeType: string;
 }
 
+/** The image a response drew, telling the usage about it and the call's tokens. Null when it drew none. */
+async function imageOf(
+  res: { usageMetadata?: { totalTokenCount?: number }; candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { data?: string; mimeType?: string } }> } }> },
+  model: string,
+  usage: AiUsage,
+): Promise<GeneratedImage | null> {
+  await recordModel(usage, res, model);
+  for (const part of res.candidates?.[0]?.content?.parts ?? []) {
+    const data = part.inlineData?.data;
+    if (data) {
+      await usage.recordImages(1).catch(() => undefined);
+      return { bytes: Buffer.from(data, "base64"), mimeType: part.inlineData?.mimeType ?? "image/png" };
+    }
+  }
+  return null;
+}
+
 /**
  * Generate a single square hero image with IMAGE_MODEL (Nano Banana: generateContent + IMAGE
  * modality), or null on missing config / error / no image part. Imagen and its generateImages
@@ -537,8 +606,9 @@ export interface GeneratedImage {
  */
 export async function generateImage(
   prompt: string,
-): Promise<GeneratedImage | null> {
-  return generateBlockImage(prompt, "1:1", IMAGE_MODEL);
+  opts: { usage: AiUsage },
+): Promise<GeneratedImage | UsageLimited | null> {
+  return generateBlockImage(prompt, "1:1", IMAGE_MODEL, opts);
 }
 
 /**
@@ -552,26 +622,21 @@ export async function generateImage(
  */
 export async function generateSlideImage(
   prompt: string,
-): Promise<GeneratedImage | null> {
+  opts: { usage: AiUsage },
+): Promise<GeneratedImage | UsageLimited | null> {
   const ai = getClient();
   if (!ai) return null;
+  const limited = await opts.usage.check("images");
+  if (limited) return limited;
   try {
     const res = await ai.models.generateContent({
       model: CAROUSEL_IMAGE_MODEL,
       contents: prompt,
       config: { responseModalities: [Modality.TEXT, Modality.IMAGE] },
     });
-    for (const part of res.candidates?.[0]?.content?.parts ?? []) {
-      const data = part.inlineData?.data;
-      if (data) {
-        return {
-          bytes: Buffer.from(data, "base64"),
-          mimeType: part.inlineData?.mimeType ?? "image/png",
-        };
-      }
-    }
-    return null;
+    return await imageOf(res, CAROUSEL_IMAGE_MODEL, opts.usage);
   } catch (err) {
+    await recordLost(opts.usage, CAROUSEL_IMAGE_MODEL);
     console.warn("[gemini] generateSlideImage failed:", err);
     return null;
   }
@@ -579,34 +644,31 @@ export async function generateSlideImage(
 
 /**
  * Generate an email-layout block image via the Gemini "Nano Banana" image model
- * (generateContent + IMAGE modality; env-overridable BLOCK_IMAGE_MODEL). Defaults to a
- * 1:1 aspect ratio (imageConfig.aspectRatio — one of "1:1","2:3","3:2","3:4","4:3",
- * "9:16","16:9","21:9"). Null on missing config / error / no image part.
+ * (generateContent + IMAGE modality). `aspectRatio` is one of "1:1","2:3","3:2","3:4","4:3",
+ * "9:16","16:9","21:9" (imageConfig.aspectRatio). Null on missing config / error / no image part.
  *
- * `model` overrides the model id for THIS call (operator model selection — see
- * resolveImageModel / imageModels.ts); omit it to use the default lite block model.
+ * `model` is the model id for THIS call: callers pass BLOCK_IMAGE_MODEL (modelConfig.ts) or the
+ * operator's pick (resolveImageModel / imageModels.ts). Limited at the brand's image cap.
  */
 export async function generateBlockImage(
   prompt: string,
-  aspectRatio = "1:1",
-  model: string = BLOCK_IMAGE_MODEL,
-): Promise<GeneratedImage | null> {
+  aspectRatio: string,
+  model: string,
+  opts: { usage: AiUsage },
+): Promise<GeneratedImage | UsageLimited | null> {
   const ai = getClient();
   if (!ai) return null;
+  const limited = await opts.usage.check("images");
+  if (limited) return limited;
   try {
     const res = await ai.models.generateContent({
       model,
       contents: prompt,
       config: { responseModalities: [Modality.TEXT, Modality.IMAGE], imageConfig: { aspectRatio } },
     });
-    for (const part of res.candidates?.[0]?.content?.parts ?? []) {
-      const data = part.inlineData?.data;
-      if (data) {
-        return { bytes: Buffer.from(data, "base64"), mimeType: part.inlineData?.mimeType ?? "image/png" };
-      }
-    }
-    return null;
+    return await imageOf(res, model, opts.usage);
   } catch (err) {
+    await recordLost(opts.usage, model);
     console.warn("[gemini] generateBlockImage failed:", err);
     return null;
   }
@@ -624,9 +686,12 @@ export async function generateImageWithDeadline(opts: {
   imageSize?: "1K" | "2K";
   model: string;
   timeoutMs: number;
-}): Promise<GeneratedImage | null> {
+  usage: AiUsage;
+}): Promise<GeneratedImage | UsageLimited | null> {
   const ai = getClient();
   if (!ai) return null;
+  const limited = await opts.usage.check("images");
+  if (limited) return limited;
   const signal = AbortSignal.timeout(opts.timeoutMs);
   const once = async (withSize: boolean): Promise<GeneratedImage | null> => {
     const res = await Promise.race([
@@ -643,11 +708,7 @@ export async function generateImageWithDeadline(opts: {
         signal.addEventListener("abort", () => reject(new Error("deadline")), { once: true });
       }),
     ]);
-    for (const part of res.candidates?.[0]?.content?.parts ?? []) {
-      const data = part.inlineData?.data;
-      if (data) return { bytes: Buffer.from(data, "base64"), mimeType: part.inlineData?.mimeType ?? "image/png" };
-    }
-    return null;
+    return imageOf(res, opts.model, opts.usage);
   };
   try {
     return await once(true);
@@ -660,6 +721,7 @@ export async function generateImageWithDeadline(opts: {
         /* fall through */
       }
     }
+    await recordLost(opts.usage, opts.model);
     console.warn(`[gemini] generateImageWithDeadline failed: ${message.slice(0, 200)}`);
     return null;
   }
@@ -679,6 +741,7 @@ export async function generateEbookImage({
   inputImages = [],
   styleRefImages = [],
   model = EBOOK_IMAGE_MODEL,
+  usage,
 }: {
   prompt: string;
   aspectRatio?: string;
@@ -698,9 +761,13 @@ export async function generateEbookImage({
    * may return no image part, in which case this degrades to null like any other miss.
    */
   model?: string;
-}): Promise<GeneratedImage | null> {
+  /** The brand's usage: the image and its tokens are counted, and the image cap is checked first. */
+  usage: AiUsage;
+}): Promise<GeneratedImage | UsageLimited | null> {
   const ai = getClient();
   if (!ai) return null;
+  const limited = await usage.check("images");
+  if (limited) return limited;
   try {
     // Image-to-image EDITS (inputImages present) require the edit-capable model. Ignore a
     // non-edit-capable override (e.g. an operator "lite" pick on Customise / eBook Refine) so an
@@ -717,14 +784,9 @@ export async function generateEbookImage({
       contents: [{ role: "user", parts }],
       config: { responseModalities: [Modality.TEXT, Modality.IMAGE], imageConfig: { aspectRatio } },
     });
-    for (const part of res.candidates?.[0]?.content?.parts ?? []) {
-      const data = part.inlineData?.data;
-      if (data) {
-        return { bytes: Buffer.from(data, "base64"), mimeType: part.inlineData?.mimeType ?? "image/png" };
-      }
-    }
-    return null;
+    return await imageOf(res, effectiveModel, usage);
   } catch (err) {
+    await recordLost(usage, model);
     console.warn("[gemini] generateEbookImage failed:", err);
     return null;
   }

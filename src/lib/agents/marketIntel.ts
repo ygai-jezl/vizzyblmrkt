@@ -2,7 +2,7 @@ import type { Region } from "@/lib/types/tenant";
 import { CompanyProfileSchema, type CompanyProfile } from "@/lib/types/company";
 import { registrableDomain } from "@/lib/domains/registrableDomain";
 import { languageDirective } from "@/lib/i18n/locale";
-import { generateGroundedJson, isSearchLimited, type SearchMeter } from "./gemini";
+import { generateGroundedJson, isSearchLimited, type AiUsage } from "./gemini";
 
 /**
  * Market Intelligence Agent (Agent 1) — in-process company enrichment, mirroring
@@ -26,8 +26,8 @@ export interface EnrichCompanyInput {
    * values localize. Defaults to English when unset. Independent of `region`.
    */
   language?: string | null;
-  /** The brand's web search meter (src/lib/plans/meter.ts): enrichment searches Google. */
-  meter: SearchMeter;
+  /** The brand's usage (src/lib/plans/meter.ts): enrichment searches Google, and its searches and tokens are counted. */
+  usage: AiUsage;
 }
 
 export interface EnrichCompanyResult {
@@ -95,7 +95,7 @@ export async function enrichCompany(input: EnrichCompanyInput): Promise<EnrichCo
 
   const res = await generateGroundedJson(
     buildPrompt(domain, sampleEmail, input.contextHint ?? null, input.language ?? null),
-    { meter: input.meter },
+    { usage: input.usage },
   );
   if (isSearchLimited(res)) {
     return { profile: null, source: "unavailable", model: null, groundingUsed: false, reason: "search_limit" };

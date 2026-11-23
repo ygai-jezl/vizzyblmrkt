@@ -1,5 +1,6 @@
 import type { TenantContext } from "@/lib/tenant/types";
-import { generateSlideImage, type GeneratedImage } from "@/lib/agents/gemini";
+import { generateSlideImage, isUsageLimited, type AiUsage, type GeneratedImage, type UsageLimited } from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import { storeWorkspaceImage, type StoreResult } from "@/lib/workspace/assetStore";
 import { planSlides, slideImagePrompt } from "./slides";
 
@@ -23,10 +24,12 @@ export interface CarouselSlideAsset {
 
 export type BuildCarouselResult =
   | { ok: true; slides: CarouselSlideAsset[]; truncated: boolean }
-  | { ok: false; reason: "disabled" | "no_slides" | "generation_failed" | "store_failed" };
+  | { ok: false; reason: "disabled" | "no_slides" | "generation_failed" | "image_limit" | "store_failed" };
 
 export interface BuildDeps {
-  generate?: (prompt: string) => Promise<GeneratedImage | null>;
+  /** The brand's usage (tests); otherwise the brand's own, under "carousel". */
+  usage?: AiUsage;
+  generate?: (prompt: string) => Promise<GeneratedImage | UsageLimited | null>;
   store?: (
     tenantId: string,
     workspaceId: string,
@@ -43,15 +46,20 @@ export async function buildCarousel(
   deps: BuildDeps = {},
 ): Promise<BuildCarouselResult> {
   if (!isCarouselEnabled()) return { ok: false, reason: "disabled" };
-  const generate = deps.generate ?? generateSlideImage;
+  const usage = deps.usage ?? aiUsage(ctx, "carousel");
+  const generate = deps.generate ?? ((prompt: string) => generateSlideImage(prompt, { usage }));
   const store = deps.store ?? storeWorkspaceImage;
 
   const { slides, truncated } = planSlides(body, opts.maxSlides);
   if (!slides.length) return { ok: false, reason: "no_slides" };
+  // Every slide must fit under the month's image cap, so a carousel is never left half made.
+  if (await usage.check("images", slides.length)) return { ok: false, reason: "image_limit" };
 
   const assets: CarouselSlideAsset[] = [];
   for (const slide of slides) {
     const img = await generate(slideImagePrompt(slide, slides.length, { brandHint: opts.brandHint }));
+    // The brand has used its images for the month: no slide is made, as when the model can't make one.
+    if (isUsageLimited(img)) return { ok: false, reason: "image_limit" };
     if (!img) return { ok: false, reason: "generation_failed" };
     const stored = await store(ctx.tenantId, workspaceId, img.bytes, img.mimeType);
     // A partial failure leaves earlier slides stored (orphaned in the private

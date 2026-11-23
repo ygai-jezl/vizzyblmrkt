@@ -10,9 +10,9 @@ import {
   type GroundedTextResult,
   isSearchLimited,
   type SearchLimited,
-  type SearchMeter,
+  type AiUsage,
 } from "@/lib/agents/gemini";
-import { usageMeter } from "@/lib/plans/meter";
+import { aiUsage } from "@/lib/plans/meter";
 import {
   retrieveSemanticKnowledgeContext,
   type ContextRetrievalRequest,
@@ -137,7 +137,7 @@ export interface BlogResearchInput {
   timeoutMs?: number;
   /** The brand map the article is written from (CREATE_BLOG_BRAND_MAP_ENABLED); null = none, as before. */
   map?: ArticleMap | null;
-  /** Who is researching, for the web search meter: a person or Vizzy (the default), or the autopilot. */
+  /** Who is researching, for the usage meter: a person or Vizzy (the default), or the autopilot. */
   searchPurpose?: "blog_research" | "autopilot_research";
 }
 
@@ -149,15 +149,15 @@ export interface BlogResearchDeps {
    */
   mapWords?: (texts: string[]) => Promise<ArticleMap["subjects"]>;
   grounded?: typeof generateGroundedText;
-  /** The web search meter (tests); otherwise the brand's own. */
-  meter?: SearchMeter;
+  /** The usage (tests); otherwise the brand's own. */
+  usage?: AiUsage;
   retrieve?: typeof retrieveSemanticKnowledgeContext;
   sitePages?: (ctx: TenantContext, workspaceId: string) => Promise<SitePages>;
   /** Google's redirect link → the page's own address (null when it can't be followed). */
   resolve?: (uri: string) => Promise<string | null>;
   fetchPage?: (url: string) => Promise<FetchedPage | null>;
   /** Picks the facts worth citing out of the brand's cite sources: a plain model call, no search. */
-  pick?: (prompt: string, opts: { timeoutMs: number; thinkingBudget?: number }) => Promise<string | null>;
+  pick?: (prompt: string, opts: { timeoutMs: number; thinkingBudget?: number; usage: AiUsage }) => Promise<string | null>;
   /** Is this page live? Returns its address after redirects, or null. */
   reachable?: (url: string) => Promise<string | null>;
   /** A site's robots.txt: its text, `found: false` when it has none, null when it can't be read. */
@@ -766,12 +766,12 @@ async function searchFacts(
   grounded: typeof generateGroundedText,
   deadline: number,
   clock: () => number,
-  meter: SearchMeter,
+  usage: AiUsage,
 ): Promise<GroundedTextResult | SearchLimited | null> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const left = deadline - clock();
     if (left < 10_000) break;
-    const got = await grounded(prompt, { timeoutMs: left, thinkingBudget: blogResearchThinkingBudget(), meter }).catch(() => null);
+    const got = await grounded(prompt, { timeoutMs: left, thinkingBudget: blogResearchThinkingBudget(), usage }).catch(() => null);
     // At the month's cap there is no second try.
     if (isSearchLimited(got)) return got;
     if (got && parseResearch(got.text).facts.length) return got;
@@ -841,7 +841,7 @@ export async function researchBlogBrief(
   const today = now.toISOString().slice(0, 10);
   const audience = workspace.audience?.trim().slice(0, 500) || "(not given)";
   const search = deps.grounded ?? generateGroundedText;
-  const meter = deps.meter ?? usageMeter(ctx, "web_searches", input.searchPurpose ?? "blog_research");
+  const usage = deps.usage ?? aiUsage(ctx, input.searchPurpose ?? "blog_research");
   // Editorial articles stay on their own question (no spread of intents, alternatives only when choosing).
   const questionsPrompt = renderPrompt(isBlogEditorialEnabled() ? "content.blog_research_editorial" : "content.blog_research", {
     brand_name: brandName.slice(0, 120),
@@ -886,7 +886,7 @@ export async function researchBlogBrief(
             audience,
             passages: formatPassages(passages),
           }),
-          { timeoutMs: Math.min(timeLeft(), 30_000), thinkingBudget: blogResearchThinkingBudget() },
+          { timeoutMs: Math.min(timeLeft(), 30_000), thinkingBudget: blogResearchThinkingBudget(), usage },
         );
         // The page's name and year are worth a few seconds, not the whole of what is left.
         const fetchPage = timeLeft() > 8_000 ? (deps.fetchPage ?? fetchSourcePage) : null;
@@ -898,9 +898,9 @@ export async function researchBlogBrief(
     search(questionsPrompt, {
       timeoutMs: Math.max(deadline - clock().getTime(), 1_000),
       thinkingBudget: blogResearchThinkingBudget(),
-      meter,
+      usage,
     }).catch(() => null),
-    searchFacts(factsPrompt, search, deadline, () => clock().getTime(), meter),
+    searchFacts(factsPrompt, search, deadline, () => clock().getTime(), usage),
     (deps.sitePages ?? indexedSitePages)(ctx, workspace.id).catch((): SitePages => ({ pages: [], repoPaths: [] })),
   ]);
   // At the month's web search cap, research carries on from the brand's own material, and says so.

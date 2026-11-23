@@ -1,6 +1,6 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { composePrompt, brandVoiceSection, audienceSection } from "@/lib/agents/prompts/compose";
-import { generateText, parseFirstJson } from "@/lib/agents/gemini";
+import { generateText, parseFirstJson, type AiUsage } from "@/lib/agents/gemini";
 import { BLOCK_TYPES, isBlockType, getBlockType } from "@/lib/content/blocks";
 import { channelBlueprint } from "@/lib/content/channels";
 import { transformFor } from "@/lib/content/transformationMatrix";
@@ -27,6 +27,8 @@ export interface DeconstructInput {
   channels: string[];
   brandVoice?: string | null;
   audience?: string | null;
+  /** The brand's usage: every call's tokens are counted. */
+  usage: AiUsage;
 }
 export interface SpokeDraft {
   title: string;
@@ -44,13 +46,13 @@ interface Block {
   excerpt: string;
 }
 
-async function segment(content: string): Promise<Block[]> {
+async function segment(content: string, usage: AiUsage): Promise<Block[]> {
   const task = renderPrompt("content.segment", {
     content,
     block_ids: BLOCK_TYPES.map((b) => b.id).join(", "),
     max_blocks: String(MAX_BLOCKS),
   });
-  const raw = await generateText(task);
+  const raw = await generateText(task, { usage });
   const j = raw ? parseFirstJson(raw) : null;
   const arr = j && typeof j === "object" ? (j as Record<string, unknown>).blocks : null;
   if (!Array.isArray(arr)) return [];
@@ -85,7 +87,7 @@ async function transformOne(
     userProfile: audienceSection(input.audience),
     task,
   });
-  const raw = await generateText(prompt);
+  const raw = await generateText(prompt, { usage: input.usage });
   const j = raw ? parseFirstJson(raw) : null;
   if (!j || typeof j !== "object") return null;
   const o = j as Record<string, unknown>;
@@ -112,7 +114,7 @@ export async function deconstructTemplate(input: DeconstructInput): Promise<Spok
   const isHub = input.template.tier === "hub" || input.template.blockType === "full-post";
   let blocks: Block[];
   if (isHub) {
-    const segmented = await segment(content);
+    const segmented = await segment(content, input.usage);
     blocks = segmented.length
       ? segmented.slice(0, MAX_BLOCKS)
       : [{ blockType: input.template.blockType ?? "full-post", excerpt: content }];

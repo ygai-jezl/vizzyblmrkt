@@ -1,5 +1,5 @@
 import { forTenant, getTenantById } from "@/lib/tenant";
-import { usageMeter } from "@/lib/plans/meter";
+import { aiUsage } from "@/lib/plans/meter";
 import type { TenantContext, FirestoreLike } from "@/lib/tenant/types";
 import type { EmailJob } from "@/lib/types/emailJob";
 import type { Company } from "@/lib/types/company";
@@ -128,7 +128,7 @@ export async function processContactEnrichJob(
     // Localize the enrichment prose to the brand's default content language
     // (independent of `region`); unset ⇒ English.
     language: tenant?.defaultLocale ?? null,
-    meter: usageMeter(ctx, "web_searches", "enrichment", { tenant }),
+    usage: aiUsage(ctx, "enrichment", { tenant }),
   });
 
   // The brand's web searches for research are used up this month: back in line, and tried again later.

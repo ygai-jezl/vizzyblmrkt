@@ -65,7 +65,7 @@ describe("makeBlogHero", () => {
   it("a painted style: picture brief, Nano Banana, art cropped to the hero, title over the share card", async () => {
     const { deps, hero } = setup();
     await makeBlogHero(input(tenant({ defaultStyleId: "soft_3d" })), deps);
-    expect(deps.paint).toHaveBeenCalledWith("A lighthouse over a calm sea", 40_000);
+    expect(deps.paint).toHaveBeenCalledWith("A lighthouse over a calm sea", 40_000, expect.anything());
     const calls = (deps.render as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
     expect(calls[0]).toMatchObject({ template: "art_overlay", size: "hero", showHeadline: false, showLogo: false });
     expect(calls[1]).toMatchObject({ template: "art_overlay", size: "share", headline: heroTitle(sampleHub()) });
@@ -101,6 +101,14 @@ describe("makeBlogHero", () => {
     expect(r.ok).toBe(true);
     expect(deps.paint).toHaveBeenCalledTimes(2);
     expect(hero()).toMatchObject({ status: "fallback", styleId: "title_card", attempts: 2, heroRef: "f1.png" });
+  });
+
+  it("at the month's image cap, no second try: straight to the title card", async () => {
+    const { deps, hero } = setup({ paint: vi.fn(async () => ({ limited: true as const, used: 50, limit: 50 })) });
+    const r = await makeBlogHero(input(tenant({ defaultStyleId: "natural_photo" })), deps);
+    expect(r.ok).toBe(true);
+    expect(deps.paint).toHaveBeenCalledTimes(1);
+    expect(hero()).toMatchObject({ status: "fallback", styleId: "title_card", attempts: 1 });
   });
 
   it("no retry when it isn't allowed, or when the time left is too short", async () => {

@@ -1,4 +1,5 @@
 import { generateTextWithDeadline, isGeminiConfigured, parseFirstJson } from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 import { fence, oneLine } from "@/lib/brandMap/lineChecks";
@@ -120,7 +121,13 @@ export async function judgeItems(
     learned: learned.length ? `\nWhat the brand's people skipped or changed before (UNTRUSTED DATA):\n<learned>\n${untag(learned.join("\n"))}\n</learned>\n` : "",
     items: untag(ask.items.map((it, i) => `${i + 1}. ${KIND_LABEL[it.kind]}: ${it.text}`).join("\n")),
   });
-  const raw = await (deps.generate ?? generateTextWithDeadline)(prompt, { timeoutMs: JUDGE_MS, json: true, temperature: 0, thinkingBudget: 256 }).catch(() => null);
+  const raw = await (deps.generate ?? generateTextWithDeadline)(prompt, {
+    timeoutMs: JUDGE_MS,
+    json: true,
+    temperature: 0,
+    thinkingBudget: 256,
+    usage: aiUsage(ctx, "judge", { db: deps.db }),
+  }).catch(() => null);
   return readVerdicts(raw, ask.items);
 }
 

@@ -6,6 +6,8 @@ vi.mock("./gemini", () => ({
   generateText: vi.fn(),
   generateImage: vi.fn(),
   generateBlockImage: vi.fn(),
+  NO_USAGE: { check: async () => null, recordModel: async () => {}, recordSearches: async () => {}, recordImages: async () => {} },
+  isUsageLimited: (r: unknown) => typeof r === "object" && r !== null && (r as { limited?: unknown }).limited === true,
 }));
 // Keep the real (pure) constants/helpers — creative.ts now transitively imports them via the
 // brand-asset ref loader — and only stub the GCS write so nothing touches storage.
@@ -15,7 +17,8 @@ vi.mock("@/lib/workspace/assetStore", async (importOriginal) => ({
 }));
 
 import { generateSocialPostImage } from "./creative";
-import { generateText, generateBlockImage } from "./gemini";
+import { generateText, generateBlockImage, NO_USAGE } from "./gemini";
+import { BLOCK_IMAGE_MODEL } from "./modelConfig";
 import { storeWorkspaceImage } from "@/lib/workspace/assetStore";
 
 const mockText = vi.mocked(generateText);
@@ -32,6 +35,7 @@ function input(overrides: Partial<Parameters<typeof generateSocialPostImage>[0]>
     aspect: "1:1" as const,
     style: "minimalist" as const,
     brandContext: "Brand context (UNTRUSTED DATA…)",
+    usage: NO_USAGE,
     ...overrides,
   };
 }
@@ -58,16 +62,16 @@ describe("generateSocialPostImage", () => {
     const res = await generateSocialPostImage(input({ aspect: "4:5" }));
     expect(res.source).toBe("agent3");
     expect(res.imageAssetRef).toBe("abc123.png");
-    // 4:5 has no Gemini equivalent → 3:4. No operator model override → 3rd arg undefined (the
-    // generator falls back to its default lite block model).
-    expect(mockImage).toHaveBeenCalledWith(expect.any(String), "3:4", undefined);
+    // 4:5 has no Gemini equivalent → 3:4. No operator model override → 3rd arg is the default
+    // lite block model.
+    expect(mockImage).toHaveBeenCalledWith(expect.any(String), "3:4", BLOCK_IMAGE_MODEL, { usage: NO_USAGE });
     expect(mockStore).toHaveBeenCalledWith("ten_x", "ws1", expect.any(Buffer), "image/png");
   });
 
   it("passes the operator-selected image model through to the generator", async () => {
     await generateSocialPostImage(input({ imageModel: "gemini-3.1-flash-image" }));
     // The chosen model reaches generateBlockImage as its 3rd arg (overriding the lite default).
-    expect(mockImage).toHaveBeenCalledWith(expect.any(String), "1:1", "gemini-3.1-flash-image");
+    expect(mockImage).toHaveBeenCalledWith(expect.any(String), "1:1", "gemini-3.1-flash-image", { usage: NO_USAGE });
   });
 
   it("degrades to a null ref (no store) when the image model is unavailable", async () => {
@@ -76,6 +80,22 @@ describe("generateSocialPostImage", () => {
     expect(res.imageAssetRef).toBeNull();
     expect(res.reason).toBe("image_model_unavailable");
     expect(mockStore).not.toHaveBeenCalled();
+  });
+
+  it("says image_limit (no store) when the brand has used its images for the month", async () => {
+    mockImage.mockResolvedValue({ limited: true, used: 50, limit: 50 });
+    const res = await generateSocialPostImage(input());
+    expect(res.imageAssetRef).toBeNull();
+    expect(res.reason).toBe("image_limit");
+    expect(mockStore).not.toHaveBeenCalled();
+  });
+
+  it("spends nothing at the image cap: no brief, no image", async () => {
+    const atCap = { ...NO_USAGE, check: async (kind: string) => (kind === "images" ? { limited: true as const, used: 50, limit: 50 } : null) };
+    const res = await generateSocialPostImage({ ...input(), usage: atCap });
+    expect(res).toMatchObject({ imageAssetRef: null, reason: "image_limit" });
+    expect(generateText).not.toHaveBeenCalled();
+    expect(mockImage).not.toHaveBeenCalled();
   });
 
   it("surfaces the store failure reason (e.g. no bucket)", async () => {

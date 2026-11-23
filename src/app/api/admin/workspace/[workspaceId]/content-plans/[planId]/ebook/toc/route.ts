@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { guardEbookRoute } from "@/lib/content/create/ebookRoute";
 import { updateContentPlanEbook } from "@/lib/tenant/workspaceContent";
 import { generateEbookToc } from "@/lib/content/create/ebookToc";
+import { aiUsage } from "@/lib/plans/meter";
 import { activeBrandVoiceText } from "@/lib/content/create/activeBrandVoice";
 import { retrieveSemanticKnowledgeContext } from "@/lib/agents/knowledgeRetrieval";
 import { contentMatrixLabel } from "@/lib/content/contentMatrix";
@@ -46,6 +47,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     brandVoice: await activeBrandVoiceText(ctx.tenantId, ws.brandVoice),
     audience: ws.audience ?? null,
     fallbackTitle: plan.name,
+    usage: aiUsage(ctx, "ebook"),
   });
 
   const saved = await updateContentPlanEbook(ctx, workspaceId, planId, ebook);

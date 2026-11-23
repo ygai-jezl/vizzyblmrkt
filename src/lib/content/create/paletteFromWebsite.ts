@@ -1,6 +1,6 @@
 import { safeFetch, readBytesCapped } from "@/lib/security/ssrf";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
-import { generateText, parseFirstJson } from "@/lib/agents/gemini";
+import { generateText, parseFirstJson, type AiUsage } from "@/lib/agents/gemini";
 import { clampColors, harvestCssColors } from "./colorPalette";
 import { stripFenceDelimiters } from "./siteText";
 import { fetchHomepage } from "./homepage";
@@ -66,7 +66,7 @@ export function extractBrandImageUrl(html: string, baseUrl: string): string | nu
 }
 
 /** Fetch + vision-extract colours from the site's brand image. Best-effort; null on any miss. */
-async function brandImageColors(html: string, baseUrl: string): Promise<PaletteColor[] | null> {
+async function brandImageColors(html: string, baseUrl: string, usage: AiUsage): Promise<PaletteColor[] | null> {
   const url = extractBrandImageUrl(html, baseUrl);
   if (!url) return null;
   try {
@@ -86,16 +86,16 @@ async function brandImageColors(html: string, baseUrl: string): Promise<PaletteC
     }
     const bytes = await readBytesCapped(res, IMAGE_PALETTE_MAX_BYTES);
     if (!bytes) return null;
-    return await extractPaletteFromImageBytes(bytes.toString("base64"), mime);
+    return await extractPaletteFromImageBytes(bytes.toString("base64"), mime, { usage });
   } catch {
     return null;
   }
 }
 
-export async function extractPaletteFromDomain(domain: string): Promise<PaletteColor[] | null> {
+export async function extractPaletteFromDomain(domain: string, opts: { usage: AiUsage }): Promise<PaletteColor[] | null> {
   const page = await homepageOf(domain);
   const cssTokens = page ? harvestCssColors(page.html, MAX_TOKENS) : [];
-  const imageColors = page ? await brandImageColors(page.html, page.baseUrl) : null;
+  const imageColors = page ? await brandImageColors(page.html, page.baseUrl, opts.usage) : null;
 
   // Brand-image hexes lead the token list (higher signal than CSS chrome), then CSS tokens.
   const tokens = [...new Set([...(imageColors ?? []).map((c) => c.hex), ...cssTokens])].slice(
@@ -111,6 +111,7 @@ export async function extractPaletteFromDomain(domain: string): Promise<PaletteC
       color_tokens: tokens.join(", ") || "(none found)",
       site_text: siteText,
     }),
+    { usage: opts.usage },
   );
   if (!raw) return null;
   const json = parseFirstJson(raw);

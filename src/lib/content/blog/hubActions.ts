@@ -10,6 +10,7 @@ import { briefOf } from "./brief";
 import { evaluateCitable } from "./citable";
 import { BLOG_WARNINGS, blogWarnings } from "./draft";
 import { checkBlogFacts, type FactCheckDeps } from "./factCheck";
+import { aiUsage } from "@/lib/plans/meter";
 import { isBlogCitableEnabled } from "./flags";
 import { researchBlogBrief, type BlogResearchDeps, type BlogResearchResult } from "./research";
 import { askOfPlan, fileArticleSuggestions, loadArticleMap, type MapDeps } from "./mapActions";
@@ -163,6 +164,7 @@ export async function checkPlanBlogFacts(
       knowledgeUrls: (rag?.chunks ?? []).map((c) => c.sourceUri).filter(Boolean),
       proofBlock: fenceProof(plan.knowledge.proofAssets ?? []),
       timeoutMs: args.timeoutMs,
+      usage: aiUsage(ctx, "fact_check", { db: deps.db }),
     },
     deps,
   );

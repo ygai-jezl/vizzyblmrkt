@@ -192,7 +192,25 @@ type VertexPart = {
 type VertexEvent = {
   content?: { role?: string; parts?: VertexPart[] };
   partial?: boolean;
+  /** One model call's tokens (Agent Engine sends ADK events as snake_case JSON). */
+  usage_metadata?: { total_token_count?: number; totalTokenCount?: number };
+  usageMetadata?: { total_token_count?: number; totalTokenCount?: number };
+  model_version?: string;
+  modelVersion?: string;
 };
+
+/**
+ * Add one stream event's model tokens to a turn's totals, by model (USAGE_METER_ENABLED). Only
+ * events that aren't partial count: a streamed partial carries the same usage as the final copy.
+ */
+export function addChatUsage(evt: VertexEvent, totals: Map<string, number>): void {
+  if (evt.partial === true) return;
+  const meta = evt.usage_metadata ?? evt.usageMetadata;
+  const n = meta?.total_token_count ?? meta?.totalTokenCount;
+  if (typeof n !== "number" || !(n > 0)) return;
+  const model = (evt.model_version ?? evt.modelVersion ?? "vizzy").slice(0, 80);
+  totals.set(model, (totals.get(model) ?? 0) + n);
+}
 
 /**
  * Map one Vertex stream event to zero+ normalized events.

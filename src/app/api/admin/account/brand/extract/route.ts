@@ -7,6 +7,7 @@ import { getTenantById } from "@/lib/tenant";
 import { readBrandPdf } from "@/lib/tenant/brandAsset";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { generateTextWithFile, parseFirstJson } from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import { BrandKitSchema } from "@/lib/types/tenant";
 import { mergeExtractedFonts, mergeExtractedPalette } from "@/lib/content/brandKitMerge";
 
@@ -37,6 +38,7 @@ export async function POST(req: Request) {
     renderPrompt("brand.extract_kit", {}),
     pdf.toString("base64"),
     "application/pdf",
+    { usage: aiUsage(ctx, "brand_kit") },
   );
   const json = raw ? parseFirstJson(raw) : null;
   if (!json) return NextResponse.json({ error: "extraction_failed" }, { status: 502 });

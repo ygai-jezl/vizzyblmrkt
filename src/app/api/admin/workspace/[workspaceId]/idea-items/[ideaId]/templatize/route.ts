@@ -12,6 +12,7 @@ import {
 } from "@/lib/tenant/workspaceContent";
 import { readWorkspaceAsset } from "@/lib/workspace/assetStore";
 import { templatizeIdea } from "@/lib/content/templatize";
+import { aiUsage } from "@/lib/plans/meter";
 import type { TemplateCategoryId, ModuleSizeId, TemplateTier } from "@/lib/types/template";
 
 export const runtime = "nodejs";
@@ -61,6 +62,7 @@ export async function POST(
     granularity: overrides.granularity ?? null,
     brandVoice: await activeBrandVoiceText(ctx.tenantId, ws.brandVoice),
     audience: ws.audience ?? null,
+    usage: aiUsage(ctx, "templates"),
   });
 
   let template;

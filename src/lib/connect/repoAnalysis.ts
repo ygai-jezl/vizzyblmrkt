@@ -11,6 +11,7 @@ import { zodReason } from "./protocol";
 import { recordCatalogRevision } from "./catalogHistory";
 import { invalidateConnectionCaches } from "./connectionAuth";
 import { isDateFactsEnabled } from "./v2/flags";
+import { isUsageMeterEnabled } from "@/lib/plans/flags";
 import { prepareGitTokenForWorker } from "@/lib/integrations/tokenRefresh";
 
 /**
@@ -141,7 +142,7 @@ export async function startRepoAnalysis(
 async function defaultTrigger(vars: { analysisId: string; tenantId: string; region: TenantContext["region"] }): Promise<void> {
   const { triggerProductMapJob } = await import("@/lib/knowledge/runJob");
   // The analysis proposes date facts only where this app takes them.
-  await triggerProductMapJob({ ...vars, dateFacts: isDateFactsEnabled() });
+  await triggerProductMapJob({ ...vars, dateFacts: isDateFactsEnabled(), usageMeter: isUsageMeterEnabled() });
 }
 
 /** The Job's output re-validated; a map that doesn't parse is treated as missing. */

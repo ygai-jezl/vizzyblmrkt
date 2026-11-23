@@ -109,7 +109,7 @@ describe("processContactEnrichJob", () => {
     expect(await processContactEnrichJob(ctx, enrichJob(), db)).toBe("drop");
     const company = await forTenant(ctx, db).companies.getById(companyId);
     expect(company).toMatchObject({ enrichmentStatus: "pending", lastError: "search_limit" });
-    expect(enrichCompany.mock.calls[0]![0]).toHaveProperty("meter");
+    expect(enrichCompany.mock.calls[0]![0]).toHaveProperty("usage");
   });
 
   it("materialises a pending company and associates WITHOUT spending when not opted in", async () => {

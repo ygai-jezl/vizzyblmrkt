@@ -1,6 +1,6 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { composePrompt, brandVoiceSection, audienceSection } from "@/lib/agents/prompts/compose";
-import { generateText, generateTextWithImage, parseFirstJson } from "@/lib/agents/gemini";
+import { generateText, generateTextWithImage, parseFirstJson, type AiUsage } from "@/lib/agents/gemini";
 import {
   isTemplateCategory,
   DEFAULT_TEMPLATE_CATEGORY,
@@ -49,6 +49,8 @@ export interface TemplatizeInput {
   /** Identity / UserProfile prompt context. */
   brandVoice?: string | null;
   audience?: string | null;
+  /** The brand's usage: every call's tokens are counted. */
+  usage: AiUsage;
 }
 
 export interface TemplatizeResult {
@@ -181,6 +183,7 @@ async function analyze(
   sample: string,
   screenshot: TemplatizeInput["screenshot"],
   knownGroups: string[],
+  usage: AiUsage,
 ): Promise<Analysis | null> {
   const task = renderPrompt("content.analyze", {
     content_sample: sample || "(read the attached screenshot)",
@@ -190,8 +193,8 @@ async function analyze(
     known_groups: (knownGroups.length ? knownGroups : SEED_TEMPLATE_GROUPS).join(", "),
   });
   const raw = screenshot
-    ? await generateTextWithImage(task, screenshot.base64, screenshot.mimeType)
-    : await generateText(task);
+    ? await generateTextWithImage(task, screenshot.base64, screenshot.mimeType, { usage })
+    : await generateText(task, { usage });
   const j = raw ? parseFirstJson(raw) : null;
   if (!j || typeof j !== "object") return null;
   return coerceAnalysis(j as Record<string, unknown>);
@@ -253,8 +256,8 @@ async function templatizeStage(
     task,
   });
   const raw = input.screenshot
-    ? await generateTextWithImage(prompt, input.screenshot.base64, input.screenshot.mimeType)
-    : await generateText(prompt);
+    ? await generateTextWithImage(prompt, input.screenshot.base64, input.screenshot.mimeType, { usage: input.usage })
+    : await generateText(prompt, { usage: input.usage });
   return coerceSkeleton(raw ? parseFirstJson(raw) : null);
 }
 
@@ -270,10 +273,10 @@ function validate(body: string, framework: string): string[] {
   return w;
 }
 
-async function repair(body: string, problems: string[]): Promise<Skeleton | null> {
+async function repair(body: string, problems: string[], usage: AiUsage): Promise<Skeleton | null> {
   const task = renderPrompt("content.templatize_repair", { problems: problems.join("; "), body });
   const prompt = composePrompt({ communication: WRITING_RULES, task });
-  const raw = await generateText(prompt);
+  const raw = await generateText(prompt, { usage });
   return coerceSkeleton(raw ? parseFirstJson(raw) : null);
 }
 
@@ -329,7 +332,7 @@ export async function templatizeIdea(input: TemplatizeInput): Promise<Templatize
   }
 
   // Stage 1 — analyze (with overrides).
-  const analysis = (await analyze(sample, input.screenshot, input.knownGroups)) ?? analysisDefaults();
+  const analysis = (await analyze(sample, input.screenshot, input.knownGroups, input.usage)) ?? analysisDefaults();
   if (input.framework && isFramework(input.framework)) analysis.framework = input.framework;
   if (input.blockType && isBlockType(input.blockType)) {
     analysis.blockType = input.blockType;
@@ -345,7 +348,7 @@ export async function templatizeIdea(input: TemplatizeInput): Promise<Templatize
   // Stage 3 — validate + one repair pass if there are no tokens at all.
   let warnings = validate(skeleton.body, analysis.framework);
   if (warnings.includes("no_placeholders")) {
-    const repaired = await repair(skeleton.body, ["no placeholder tokens were created"]);
+    const repaired = await repair(skeleton.body, ["no placeholder tokens were created"], input.usage);
     if (repaired && bodyTokens(repaired.body).length > 0) {
       skeleton = repaired;
       warnings = validate(skeleton.body, analysis.framework);

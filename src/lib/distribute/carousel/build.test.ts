@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { buildCarousel } from "./build";
 import type { TenantContext } from "@/lib/tenant/types";
-import type { GeneratedImage } from "@/lib/agents/gemini";
+import { NO_USAGE, type GeneratedImage } from "@/lib/agents/gemini";
 import type { StoreResult } from "@/lib/workspace/assetStore";
 
 const ctx: TenantContext = { tenantId: "t", region: "us", source: "system" };
@@ -91,6 +91,30 @@ describe("buildCarousel", () => {
     expect(r).toEqual({ ok: false, reason: "generation_failed" });
     expect(gen).toBe(2); // did NOT generate slide 3 after the slide-2 failure
     expect(store).toBe(1); // only slide 1 stored (the acknowledged orphan)
+  });
+
+  it("makes no slide when the whole carousel won't fit under the month's image cap", async () => {
+    enable();
+    const asked: number[] = [];
+    let gen = 0;
+    const usage = {
+      ...NO_USAGE,
+      check: async (_kind: "searches" | "images", units = 1) => {
+        asked.push(units);
+        return units > 2 ? { limited: true as const, used: 48, limit: 50 } : null;
+      },
+    };
+    const r = await buildCarousel(ctx, "ws", "## A\na\n\n## B\nb\n\n## C\nc", {}, {
+      usage,
+      generate: async () => {
+        gen += 1;
+        return img;
+      },
+      store: okStore,
+    });
+    expect(r).toEqual({ ok: false, reason: "image_limit" });
+    expect(asked).toEqual([3]);
+    expect(gen).toBe(0);
   });
 
   it("propagates the truncation flag", async () => {

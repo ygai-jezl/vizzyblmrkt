@@ -1,5 +1,6 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { generateTextWithDeadline, isGeminiConfigured } from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import { brandMapRecords, type BrandMapRecordStore } from "@/lib/tenant/brandMapRecords";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { BRAND_MAP_RECORD_LIMITS as LIMITS, BrandMapGroupSchema } from "@/lib/types/brandMapRecords";
@@ -88,7 +89,7 @@ export async function sortIntoGroups(ctx: TenantContext, input: { cursor: string
     subjects: fence("subjects", subjects.map((s, i) => `${i + 1}. ${oneLine(s.name)}`).join("\n")),
     max_new: MAX_NEW_GROUPS,
   });
-  const answer = await (deps.generate ?? ((p: string) => generateTextWithDeadline(p, { timeoutMs: SORT_MS })))(prompt).catch(() => null);
+  const answer = await (deps.generate ?? ((p: string) => generateTextWithDeadline(p, { timeoutMs: SORT_MS, usage: aiUsage(ctx, "brand_map_research", { db: deps.db }) })))(prompt).catch(() => null);
   if (answer === null) return { ok: false, status: 502, error: "research_failed" };
 
   const byKey = new Map(groups.map((g) => [g.nameKey, g.id]));

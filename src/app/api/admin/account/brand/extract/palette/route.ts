@@ -4,6 +4,7 @@ import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { isBrandColorsEnabled } from "@/lib/content/brandKit";
 import { extractPaletteFromPdf } from "@/lib/content/create/paletteFromPdf";
+import { aiUsage } from "@/lib/plans/meter";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,7 +30,7 @@ export async function POST(req: Request) {
 
   // readBrandPdf (inside extractPaletteFromPdf) reconstructs the key from ctx.tenantId — a
   // crafted path can only ever reach the caller's OWN tenant's files.
-  const candidates = await extractPaletteFromPdf(ctx.tenantId, parsed.data.pdfPath);
+  const candidates = await extractPaletteFromPdf(ctx.tenantId, parsed.data.pdfPath, { usage: aiUsage(ctx, "brand_kit") });
   if (!candidates) return NextResponse.json({ error: "extraction_failed" }, { status: 502 });
 
   return NextResponse.json({

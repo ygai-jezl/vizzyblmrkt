@@ -1,5 +1,5 @@
 import { generateGroundedJson, isSearchLimited } from "./gemini";
-import { usageMeter } from "@/lib/plans/meter";
+import { aiUsage } from "@/lib/plans/meter";
 import { renderPrompt } from "./prompts/registry";
 import { embedQuery } from "./embeddings";
 import {
@@ -65,7 +65,7 @@ export async function refreshTrendingTopics(
         industry: profile.industry.slice(0, 200),
         audience: (profile.audience ?? "a general professional audience").slice(0, 200),
       }),
-      { meter: usageMeter(ctx, "web_searches", "trending", { db }) },
+      { usage: aiUsage(ctx, "trending", { db }) },
     );
     // At the month's web search cap nothing is searched: the empty snapshot below waits 48 hours.
     const res = isSearchLimited(answer) ? null : answer;

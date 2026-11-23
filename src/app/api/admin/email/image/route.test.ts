@@ -47,4 +47,13 @@ describe("POST /api/admin/email/image", () => {
     expect(last()).toMatchObject({ direction: { label: "Paper collage" } });
     expect(await res.json()).toMatchObject({ imageStyleId: "paper_collage", styleId: "paper_collage" });
   });
+
+  it("answers 429 with the message at the brand's image cap", async () => {
+    const { IMAGE_LIMIT_MESSAGE } = await import("@/lib/plans/resources");
+    agents.generateHeroImage.mockResolvedValueOnce({ imageUrl: null, source: "unavailable", reason: "image_limit" } as never);
+    const res = await POST(req({ campaignId: "camp_1", brief: "Launch day" }));
+    expect(res.status).toBe(429);
+    expect(await res.json()).toMatchObject({ error: "image_limit", reason: "image_limit", message: IMAGE_LIMIT_MESSAGE });
+    expect(last()).toHaveProperty("usage");
+  });
 });

@@ -7,6 +7,8 @@ import { customizeImageAsset } from "@/lib/agents/creative";
 import { IMAGE_MODEL_SLUGS } from "@/lib/content/create/imageModels";
 import { resolveImageModel } from "@/lib/agents/modelConfig";
 import { isBrandKitEnabled } from "@/lib/content/brandKit";
+import { aiUsage } from "@/lib/plans/meter";
+import { IMAGE_LIMIT_MESSAGE } from "@/lib/plans/resources";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +22,7 @@ const BodySchema = z.object({
 });
 
 const IMAGE_ERRORS: Record<string, string> = {
+  image_limit: IMAGE_LIMIT_MESSAGE,
   image_model_unavailable: "The image model isn't available right now.",
   no_asset_bucket: "Image storage isn't configured.",
   store_failed: "Couldn't save the image — try again.",
@@ -58,10 +61,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     source,
     instruction: parsed.data.instruction,
     imageModel: parsed.data.model ? resolveImageModel(parsed.data.model) : undefined,
+    usage: aiUsage(ctx, "customize_image"),
   });
 
   if (!result.asset) {
-    const status = result.reason === "prior_too_large" ? 400 : 502;
+    const status = result.reason === "image_limit" ? 429 : result.reason === "prior_too_large" ? 400 : 502;
     return NextResponse.json(
       { error: result.reason, message: IMAGE_ERRORS[result.reason ?? ""] ?? "Customise failed." },
       { status },

@@ -1,5 +1,5 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
-import { generateImageWithDeadline, generateTextWithDeadline, type GeneratedImage } from "@/lib/agents/gemini";
+import { generateImageWithDeadline, generateTextWithDeadline, isUsageLimited, type AiUsage, type GeneratedImage, type UsageLimited } from "@/lib/agents/gemini";
 import { resolveImageModel } from "@/lib/agents/modelConfig";
 import type { FormatInputs, ImageFormatId } from "@/lib/types/imageStyle";
 
@@ -7,7 +7,8 @@ import type { FormatInputs, ImageFormatId } from "@/lib/types/imageStyle";
  * The painted scene inside a format (IMAGE_FORMATS_ENABLED): Nano Banana 2 paints a place, an
  * object or a metaphor for what the card says, in the image's style. Never a person (the card
  * names a real one in type) and never a logo (the partner is named in type). Null when there's
- * no time or the model fails; the format is then drawn from type alone.
+ * no time, the model fails or the brand has used its images for the month; the format is then
+ * drawn from type alone.
  */
 
 const LABEL: Record<Exclude<ImageFormatId, "standard">, string> = {
@@ -31,16 +32,19 @@ export interface SceneRequest {
   /** "1:1", "4:5" → "3:4", "16:9". */
   aspectRatio: string;
   timeoutMs: number;
+  /** The brand's usage: the brief and the scene are counted, and the image cap is checked first. */
+  usage: AiUsage;
 }
 
 export interface SceneDeps {
-  brief: (prompt: string, timeoutMs: number) => Promise<string | null>;
-  paint: (prompt: string, aspectRatio: string, timeoutMs: number) => Promise<GeneratedImage | null>;
+  brief: (prompt: string, timeoutMs: number, usage: AiUsage) => Promise<string | null>;
+  paint: (prompt: string, aspectRatio: string, timeoutMs: number, usage: AiUsage) => Promise<GeneratedImage | UsageLimited | null>;
 }
 
 const defaultDeps: SceneDeps = {
-  brief: (prompt, timeoutMs) => generateTextWithDeadline(prompt, { timeoutMs }),
-  paint: (prompt, aspectRatio, timeoutMs) => generateImageWithDeadline({ prompt, aspectRatio, model: resolveImageModel("full"), timeoutMs }),
+  brief: (prompt, timeoutMs, usage) => generateTextWithDeadline(prompt, { timeoutMs, usage }),
+  paint: (prompt, aspectRatio, timeoutMs, usage) =>
+    generateImageWithDeadline({ prompt, aspectRatio, model: resolveImageModel("full"), timeoutMs, usage }),
 };
 
 /** What the card says, as the topic for its scene. */
@@ -66,10 +70,13 @@ export async function paintFormatScene(req: SceneRequest, deps: SceneDeps = defa
           scene_hint: HINT[req.format],
         }),
         Math.min(12_000, req.timeoutMs / 3),
+        req.usage,
       )
       .catch(() => null))?.trim() ||
     `${HINT[req.format]} Visual style: ${req.direction.keywords}. No people, no logos, no text.`;
   const left = req.timeoutMs - (Date.now() - started);
   if (left < 12_000) return null;
-  return deps.paint(prompt, req.aspectRatio, Math.min(40_000, left)).catch(() => null);
+  const scene = await deps.paint(prompt, req.aspectRatio, Math.min(40_000, left), req.usage).catch(() => null);
+  // At the month's image cap there is no scene, as when the model can't paint one.
+  return isUsageLimited(scene) ? null : scene;
 }

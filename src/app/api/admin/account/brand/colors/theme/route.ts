@@ -7,6 +7,7 @@ import { getTenantById } from "@/lib/tenant";
 import { clampColors } from "@/lib/content/create/colorPalette";
 import { extractPaletteFromDomain } from "@/lib/content/create/paletteFromWebsite";
 import { generateColorTheme } from "@/lib/content/create/colorTheme";
+import { aiUsage } from "@/lib/plans/meter";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,11 +34,12 @@ export async function POST(req: Request) {
   if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
 
   const tenant = await getTenantById(ctx.tenantId);
+  const usage = aiUsage(ctx, "brand_kit", { tenant });
 
   let seed = clampColors(parsed.data.seed ?? []);
   let mode = parsed.data.mode;
   if (!seed.length && tenant?.rootDomain?.trim()) {
-    const web = await extractPaletteFromDomain(tenant.rootDomain.trim()).catch(() => null);
+    const web = await extractPaletteFromDomain(tenant.rootDomain.trim(), { usage }).catch(() => null);
     if (web?.length) seed = web;
   }
   if (!seed.length && tenant?.brandKit?.palette?.length) {
@@ -53,6 +55,7 @@ export async function POST(req: Request) {
     brandVoice: tenant?.brandVoice?.summary ?? null,
     domain: tenant?.rootDomain ?? null,
     tenantName: tenant?.tenantName ?? null,
+    usage,
   });
   if (!candidates) return NextResponse.json({ error: "generation_failed" }, { status: 502 });
 

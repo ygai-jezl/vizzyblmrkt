@@ -2,6 +2,8 @@ import { z } from "zod";
 import { forTenant } from "@/lib/tenant";
 import { resolveProductName, type Campaign } from "@/lib/types/campaign";
 import { draftCopy } from "@/lib/agents/creative";
+import type { AiUsage } from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import { activeBrandVoiceText } from "@/lib/content/create/activeBrandVoice";
 import { JourneyGraphSchema, type JourneyGraph } from "@/lib/types/journey";
 import { validateJourneyGraph } from "@/lib/email/delivery";
@@ -26,6 +28,7 @@ async function fillContentWithAgent3(
   graph: JourneyGraph,
   brief: string,
   brandVoice: string | null,
+  usage: AiUsage,
 ): Promise<JourneyGraph> {
   const at = new Date().toISOString();
   const nodes = await Promise.all(
@@ -43,6 +46,7 @@ async function fillContentWithAgent3(
         brief: stepBrief,
         variantCount: 1,
         brandVoice,
+        usage,
       });
       const variant = variants[0];
 
@@ -110,7 +114,7 @@ export const journeyCanvasKind: CanvasKind = {
     const converged = appendConvergentExit(parsed.data);
     // Tenant-global authored brand voice (resolved once; null ⇒ campaign tone enum only).
     const brandVoice = await activeBrandVoiceText(ctx.tenantId);
-    const filled = await fillContentWithAgent3(campaign, converged, brief, brandVoice);
+    const filled = await fillContentWithAgent3(campaign, converged, brief, brandVoice, aiUsage(ctx, "journeys"));
 
     // Defense-in-depth: convergence adds a node + edges and upsertJourneyDraft
     // does NOT re-validate, so re-check the SAME schema (incl. the node/edge

@@ -36,7 +36,7 @@ import {
 } from "@/lib/audience/peopleFlags";
 import { parseThemePreference, THEME_COOKIE } from "@/lib/theme";
 import { isCatalogHistoryEnabled } from "@/lib/connect/v2/flags";
-import { isConnectorsChatEnabled, isConnectorsCollectEnabled } from "@/lib/connectors/flags";
+import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isConnectorsSearchTextEnabled } from "@/lib/connectors/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -192,6 +192,7 @@ export default async function AdminLayout({
             catalogHistory={isCatalogHistoryEnabled()}
             connectorsChat={isConnectorsChatEnabled()}
             connectorsCollect={isConnectorsCollectEnabled()}
+            connectorsSearchText={isConnectorsSearchTextEnabled()}
           >
             {shell}
           </ShellProvider>

@@ -47,6 +47,8 @@ interface Shell {
   connectorsChat: boolean;
   /** Connected data is collected daily (isConnectorsCollectEnabled(), from the server), for the How to drawer. */
   connectorsCollect: boolean;
+  /** Search Console's searches are in brand search (isConnectorsSearchTextEnabled(), from the server), for the How to drawer. */
+  connectorsSearchText: boolean;
   /**
    * Hear about each draft Vizzy saves in this chat (returns the unsubscribe), so a page whose
    * data isn't the server's render (the journey editor, a person's page) can reload it. Null
@@ -95,6 +97,7 @@ export function ShellProvider({
   catalogHistory = false,
   connectorsChat = false,
   connectorsCollect = false,
+  connectorsSearchText = false,
   children,
 }: {
   names: CrumbNames;
@@ -128,6 +131,8 @@ export function ShellProvider({
   connectorsChat?: boolean;
   /** Connected data is collected daily (isConnectorsCollectEnabled(), from the server): the How to drawer says so. */
   connectorsCollect?: boolean;
+  /** Search Console's searches are in brand search (isConnectorsSearchTextEnabled(), from the server): the How to drawer says so. */
+  connectorsSearchText?: boolean;
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? "/admin";
@@ -202,9 +207,10 @@ export function ShellProvider({
       catalogHistory,
       connectorsChat,
       connectorsCollect,
+      connectorsSearchText,
       onCanvasSaved: journeyInContext || personInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, catalogHistory, connectorsChat, connectorsCollect, saved],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, saved],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

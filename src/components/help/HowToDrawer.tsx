@@ -43,6 +43,7 @@ export function HowToDrawer() {
   const catalogHistory = useShell()?.catalogHistory ?? false;
   const connectorsChat = useShell()?.connectorsChat ?? false;
   const connectorsCollect = useShell()?.connectorsCollect ?? false;
+  const connectorsSearchText = useShell()?.connectorsSearchText ?? false;
   const [steps, setSteps] = useState<GuideStep[] | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -205,6 +206,7 @@ export function HowToDrawer() {
               catalogHistory={catalogHistory}
               connectorsChat={connectorsChat}
               connectorsCollect={connectorsCollect}
+              connectorsSearchText={connectorsSearchText}
             />
           </div>
         ) : (

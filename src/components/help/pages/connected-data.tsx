@@ -2,8 +2,8 @@ import { H1, H2, H3, Lead, P, Pairs, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
 import { ConnectorTile } from "@/components/admin/connectors/ConnectorTile";
 import { CONNECTED_COPY, PICKER_COPY, SCREEN_COPY, activityWords } from "@/components/admin/connectors/words";
-import { isConnectorsChatEnabled, isConnectorsCollectEnabled } from "@/lib/connectors/flags";
-import { COLLECT_HELP, connectedDataHelp, VIZZY_COLLECTED_HELP, type ConnectorHelp } from "@/lib/connectors/helpText";
+import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isConnectorsSearchTextEnabled } from "@/lib/connectors/flags";
+import { COLLECT_HELP, connectedDataHelp, SEARCH_TEXT_HELP, VIZZY_COLLECTED_HELP, type ConnectorHelp } from "@/lib/connectors/helpText";
 import { tokenRefusedMessage } from "@/lib/connectors/messages";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
@@ -111,10 +111,15 @@ function ConnectorSection({ c, collect }: { c: ConnectorHelp; collect: boolean }
  * numbers and what Disconnect does come from its manifest (src/lib/connectors/helpText.ts), so
  * the page can't drift from what each one really asks for. `connectorsChat` is whether Vizzy reads
  * connected data (CONNECTORS_CHAT_ENABLED) and `connectorsCollect` whether its numbers are collected
- * daily (CONNECTORS_COLLECT_ENABLED), and with both on, how Vizzy reads the collected numbers; the
- * How to drawer passes what the server said.
+ * daily (CONNECTORS_COLLECT_ENABLED), and with both on, how Vizzy reads the collected numbers;
+ * `connectorsSearchText` whether Search Console's searches go into brand search
+ * (CONNECTORS_SEARCH_TEXT_ENABLED, ADR-0013). The How to drawer passes what the server said.
  */
-export default function ConnectedDataHelp({ connectorsChat = isConnectorsChatEnabled(), connectorsCollect = isConnectorsCollectEnabled() }: HelpBodyProps = {}) {
+export default function ConnectedDataHelp({
+  connectorsChat = isConnectorsChatEnabled(),
+  connectorsCollect = isConnectorsCollectEnabled(),
+  connectorsSearchText = isConnectorsSearchTextEnabled(),
+}: HelpBodyProps = {}) {
   const help = connectedDataHelp();
   const google = help.connectors.filter((c) => c.signIn || c.share);
   const health = help.health;
@@ -239,6 +244,26 @@ export default function ConnectedDataHelp({ connectorsChat = isConnectorsChatEna
           <P>{COLLECT_HELP.erase}</P>
           <P>
             {COLLECT_HELP.review} See <Open href="/help/review-and-approvals#what">Review and approvals</Open>.
+          </P>
+        </>
+      ) : null}
+
+      {connectorsCollect && connectorsSearchText ? (
+        <>
+          <H2 id="search-text">Google searches in brand search</H2>
+          <P>{SEARCH_TEXT_HELP.what}</P>
+          <UL>
+            <li>{SEARCH_TEXT_HELP.why}</li>
+            <li>
+              {SEARCH_TEXT_HELP.who} <Open href="/help/connected-data#who-can-read">Who can read it</Open> explains how to
+              choose.
+            </li>
+            {connectorsChat ? <li>{SEARCH_TEXT_HELP.vizzy}</li> : null}
+            <li>{SEARCH_TEXT_HELP.when}</li>
+            <li>{SEARCH_TEXT_HELP.erase}</li>
+          </UL>
+          <P>
+            <Open href="/help/search#whats-in">What search covers</Open> lists everything else it finds.
           </P>
         </>
       ) : null}

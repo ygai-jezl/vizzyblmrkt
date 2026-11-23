@@ -13,7 +13,7 @@ import { docToMarkdown } from "@/lib/developers/markdown";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { STATE_LABELS } from "@/components/admin/connectors/words";
 import { SOURCE_COPY } from "@/components/admin/chat/SourceLine";
-import { HEALTH_HELP, VIZZY_COLLECTED_HELP } from "@/lib/connectors/helpText";
+import { HEALTH_HELP, SEARCH_TEXT_HELP, VIZZY_COLLECTED_HELP } from "@/lib/connectors/helpText";
 import { allConnectors } from "@/lib/connectors/catalog";
 import { CONNECTOR_ERRORS, tokenRefusedMessage } from "@/lib/connectors/messages";
 import { helpLlmsTxt, helpPageMarkdown } from "./agentFiles";
@@ -67,6 +67,7 @@ vi.hoisted(() => {
   process.env.CONNECTORS_ENABLED = "true";
   process.env.CONNECTORS_CHAT_ENABLED = "true";
   process.env.CONNECTORS_COLLECT_ENABLED = "true";
+  process.env.CONNECTORS_SEARCH_TEXT_ENABLED = "true";
 });
 
 const SRC = join(process.cwd(), "src");
@@ -614,9 +615,50 @@ describe("Connected data", () => {
     }
   });
 
+  it("says what Search Console puts into brand search, who finds it and what removes it, only while both switches are on", () => {
+    const page = (connectorsChat: boolean, connectorsCollect: boolean, connectorsSearchText: boolean) =>
+      docToMarkdown(HELP_BODIES["connected-data"]!({ connectorsChat, connectorsCollect, connectorsSearchText }), "https://app.example.com");
+    const text = page(true, true, true);
+    expect(text).toContain("## Google searches in brand search");
+    expect(text).toContain("puts the top 200 searches of its last 28 collected days into brand search");
+    expect(text).toContain("labelled Research");
+    expect(text).toContain(SEARCH_TEXT_HELP.why);
+    expect(text).toContain(SEARCH_TEXT_HELP.vizzy);
+    expect(text).toContain("Disconnect and Change property take them out of brand search at once, whatever any switch says.");
+    expect(text).toContain("[What search covers](https://app.example.com/help/search.md)");
+    // Vizzy's line only while Vizzy reads connected data.
+    expect(page(false, true, true)).not.toContain(SEARCH_TEXT_HELP.vizzy);
+    expect(page(false, true, true)).toContain(SEARCH_TEXT_HELP.who);
+    for (const [collect, searchText] of [
+      [true, false],
+      [false, true],
+    ] as const) {
+      expect(page(true, collect, searchText), `${collect} ${searchText}`).not.toContain("Google searches in brand search");
+    }
+    for (const line of Object.values(SEARCH_TEXT_HELP)) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
+  });
+
   it("is listed after Connected accounts, and Connected accounts points to it", () => {
     const slugs = shownHelpPages().map((p) => p.slug);
     expect(slugs.indexOf("connected-data")).toBe(slugs.indexOf("connected-accounts") + 1);
     expect(helpPageMarkdown("connected-accounts", "https://app.example.com")).toContain("[Connected data](https://app.example.com/help/connected-data.md)");
+  });
+});
+
+describe("Search", () => {
+  it("lists Search Console's searches under What search covers, and who finds them, only while they go into brand search", () => {
+    const md = (connectorsSearchText: boolean) => docToMarkdown(HELP_BODIES.search!({ connectorsSearchText }), "https://app.example.com");
+    const on = md(true);
+    expect(on).toContain("Google searches from your [Search Console connection](https://app.example.com/help/connected-data.md)");
+    expect(on).toContain(SEARCH_TEXT_HELP.why);
+    expect(on).toContain(SEARCH_TEXT_HELP.who);
+    // People's own words stay out either way.
+    expect(on).toContain("It leaves out people's own words");
+    const off = md(false);
+    expect(off).not.toContain("Google searches");
+    expect(off).not.toContain(SEARCH_TEXT_HELP.why);
   });
 });

@@ -193,6 +193,19 @@ export const VIZZY_COLLECTED_HELP = {
 } as const;
 
 /**
+ * Search Console's searches in brand search (CONNECTORS_SEARCH_TEXT_ENABLED, ADR-0013), for the
+ * Connected data and Search help pages.
+ */
+export const SEARCH_TEXT_HELP = {
+  what: "Each Search Console connection also puts the top 200 searches of its last 28 collected days into brand search, each with its clicks, impressions and position. Press Ctrl K to find them: they show as one result, such as \"Google searches: example.com\", labelled Research.",
+  why: "Search Console's searches are Google's counts over everyone who searched those words, never one person's words, and never which page a search led to.",
+  who: "Only people who may read the connection find them: admins always, and members when it lets members read it.",
+  vizzy: "Vizzy finds them only when it may read the connection, and for a member only when members may read it too.",
+  when: "They appear once 28 days are collected, and are updated once a week. The result opens the connection on Connected.",
+  erase: "Disconnect and Change property take them out of brand search at once, whatever any switch says.",
+} as const;
+
+/**
  * Collected numbers (CONNECTORS_COLLECT_ENABLED, ADR-0012), for the help page: when each tool's
  * days are collected, what is kept and for how long, what the Connected view says and what
  * erases them.

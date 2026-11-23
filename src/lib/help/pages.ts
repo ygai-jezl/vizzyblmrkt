@@ -57,6 +57,8 @@ export interface HelpBodyProps {
   connectorsChat?: boolean;
   /** Connected data is collected daily and kept 90 days (isConnectorsCollectEnabled()). */
   connectorsCollect?: boolean;
+  /** Search Console's searches are in brand search (isConnectorsSearchTextEnabled()). */
+  connectorsSearchText?: boolean;
 }
 
 /** Navigation headings, matching Home's stages. */

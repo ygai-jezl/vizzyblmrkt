@@ -6,6 +6,7 @@ import { healthyAt } from "../health";
 import { answer, cfDays, cfSettings, routedTransport, SC_QUOTA, scDays, scRows, type SeenCall } from "../testing/providers";
 import { ACCESS_SLOT, REFRESH_SLOT } from "../tokenKeeper";
 import { sealConnectorSecret } from "../vault";
+import { listForActor } from "../service";
 import { collectConnection, isDue } from "./run";
 
 // One connection's daily collect against stub providers: Cloudflare with a pasted token, and
@@ -100,6 +101,21 @@ describe("collecting one connection", () => {
     const raw = db.raw("data_connections", CF)!;
     expect((raw.recent as Array<{ kind: string }>).map((e) => e.kind)).not.toContain("collected");
     expect(DataConnectionSchema.omit({ collect: true }).safeParse({ ...raw, id: CF }).success).toBe(true);
+  });
+
+  it("shows admins how far it is collected, members only the last day, and nothing with collect off", async () => {
+    await seedCloudflare({ grants: [{ to: "members", can: "read" }] });
+    await run(cloudflare().transport);
+    const admin = await listForActor(A, { kind: "human", uid: "usr_admin", role: "admin" }, { db, now: NOW });
+    const view = admin.ok ? admin.value.connections[0]! : null;
+    expect(view?.collectedTo).toBe("2026-11-21");
+    expect(view?.details?.collect).toMatchObject({ lastDay: "2026-11-21", keptFrom: "2026-08-24", days: 90, keepDays: 90, filled: true, timeZone: "UTC", feedsPlanning: false, waitingFor: null });
+    const member = await listForActor(A, { kind: "human", uid: "usr_member", role: "member" }, { db, now: NOW });
+    expect(member.ok && member.value.connections[0]).toMatchObject({ collectedTo: "2026-11-21" });
+    expect(member.ok && member.value.connections[0]!.details).toBeUndefined();
+    vi.stubEnv("CONNECTORS_COLLECT_ENABLED", "false");
+    const off = await listForActor(A, { kind: "human", uid: "usr_admin", role: "admin" }, { db, now: NOW });
+    expect(off.ok && off.value.connections[0]).toMatchObject({ collectedTo: null, details: { collect: null } });
   });
 
   it("rolls the 28 and 90 days once a day after a day lands, never adding day docs on a read", async () => {

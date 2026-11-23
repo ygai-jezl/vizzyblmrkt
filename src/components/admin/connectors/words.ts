@@ -1,5 +1,6 @@
 import { LIVE_LIMITS, type ConnectMethodName, type ConnectorCategory, type ShareAccessMethod, type TokenFieldsMethod } from "@/lib/connectors/manifest";
 import { SIGNIN_REASONS } from "@/lib/connectors/messages";
+import { dayWords, zoneWords } from "@/lib/connectors/period";
 import type { ConnectionView, ConnectorListing } from "@/lib/connectors/service";
 
 /**
@@ -495,11 +496,141 @@ export function needsAttention(connections: readonly ConnectionView[]): Connecti
 
 /**
  * The connection Connected's panel opens on, chosen once when the page is drawn and then kept in
- * the page's state: the first row shown, as the approved Connected screen opens on its first row
- * while another needs attention (that one has its banner and Reconnect above the table), else none.
+ * the page's state: the one the address names (`?c=<id>`, from a Review row) when it is shown,
+ * else the first row shown, as the approved Connected screen opens on its first row while another
+ * needs attention (that one has its banner and Reconnect above the table), else none.
  */
-export function firstSelected(connections: readonly ConnectionView[]): string | null {
+export function firstSelected(connections: readonly ConnectionView[], wanted: string | null = null): string | null {
+  if (wanted && connections.some((c) => c.id === wanted && c.status === "connected")) return wanted;
   return connections.find((c) => c.status === "connected")?.id ?? null;
+}
+
+// --- Collected numbers (CONNECTORS_COLLECT_ENABLED) ------------------------------------------------
+
+export const COLLECTED_COPY = {
+  column: "Collected",
+  block: "Collected numbers",
+  progress: "Days collected",
+  startsSoon: "Starts within the hour",
+  nothingYet: "Nothing collected yet. The first days arrive within the hour, newest first.",
+  pausedHint: "Nothing is collected until you resume.",
+  stoppedHint: "Nothing new is collected until YouGrow can read the property again.",
+  restArrive: "The rest arrive over the next few hours, newest first.",
+  planningLead: "Used for planning:",
+  planningYes: " yes. Members and Vizzy can read it, so its numbers feed Next up, Review and the brand map.",
+  losingNeeds: "A page losing clicks needs 56 collected days, so that check starts once they are in.",
+  manageHint: "Disconnect deletes what YouGrow stored for it, including its collected numbers. Pause stops every read until you resume.",
+  manageHintPlanning:
+    "Disconnect deletes what YouGrow stored for it, including its collected numbers and the suggestions they made. Pause stops every read until you resume.",
+} as const;
+
+/** "Waiting for Search Console to finish 21 Nov." */
+export const waitingWords = (name: string, day: string) => `Waiting for ${name} to finish ${dayWords(day)}.`;
+/** The provider in a line about its own listing: Google for Google's tools. */
+const providerOf = (c: Pick<ConnectionView, "connectorName">) => (c.connectorName.startsWith("Google ") ? "Google" : c.connectorName);
+/** "Search Console" for "Google Search Console": the product people name. */
+const productOf = (c: Pick<ConnectionView, "connectorName">) => c.connectorName.replace(/^Google (Search Console)$/, "$1");
+
+/** When collecting stopped: the provider turning it down, or failing every day since. */
+function stoppedOn(c: Pick<ConnectionView, "health" | "details">): string | null {
+  if (c.health.state === "broken") return c.health.since ?? c.health.lastCheckedAt;
+  return c.details?.collect?.failedSince ?? null;
+}
+
+/**
+ * The Collected cell on Connected (admins): paused, stopped, filling its 90 days (with a bar), or
+ * collected to a day, with a hint when a day is late or the provider listed nothing.
+ */
+export function collectedCell(
+  c: Pick<ConnectionView, "connectorName" | "health" | "details" | "needsAccount">,
+): { main: string; hint: string | null; progress: { value: number; max: number } | null } | null {
+  const k = c.details?.collect;
+  if (!k) return null;
+  const to = k.lastDay ? `Collected to ${dayWords(k.lastDay)}` : null;
+  if (c.details?.pausedAt) return { main: `Paused on ${dayWords(c.details.pausedAt.slice(0, 10))}`, hint: to, progress: null };
+  const stopped = stoppedOn(c);
+  if (stopped) return { main: `Stopped on ${dayWords(stopped.slice(0, 10))}`, hint: to, progress: null };
+  if (c.needsAccount || !k.lastDay) return { main: c.needsAccount ? "Waits for a property" : COLLECTED_COPY.startsSoon, hint: null, progress: null };
+  if (!k.filled) return { main: `Filling ${k.keepDays} days: ${k.days} of ${k.keepDays}`, hint: null, progress: { value: k.days, max: k.keepDays } };
+  const final = k.finalThrough && k.finalThrough < k.lastDay ? ` (final to ${dayWords(k.finalThrough)})` : "";
+  const hint = k.waitingFor ? waitingWords(productOf(c), k.waitingFor) : k.holdReason === "no_data" ? `${productOf(c)} listed no data in the last 10 days.` : null;
+  return { main: `To ${dayWords(k.lastDay)}${final}, ${k.days} days`, hint, progress: null };
+}
+
+/** A line of the Manage card's Collected numbers block: plain or a hint, with an optional lead and bar. */
+export interface CollectedLine {
+  text: string;
+  hint: boolean;
+  lead?: string;
+  progress?: { value: number; max: number };
+}
+
+/**
+ * The Manage card's Collected numbers block, as the approved Connected screen: how far it is
+ * collected and in which zone, how long a day takes, the days kept and what each holds, and, while
+ * collected numbers suggest articles (`planning`), whether this connection is used for planning.
+ */
+export function collectedLines(
+  c: Pick<ConnectionView, "connectorName" | "health" | "details" | "needsAccount">,
+  opts: { planning?: boolean } = {},
+): CollectedLine[] {
+  const k = c.details?.collect;
+  if (!k) return [];
+  const out: CollectedLine[] = [];
+  const L = (text: string, extra: Partial<CollectedLine> = {}) => out.push({ text, hint: false, ...extra });
+  const H = (text: string) => out.push({ text, hint: true });
+  const zone = zoneWords(k.timeZone);
+  const pausedAt = c.details?.pausedAt ?? null;
+  const stopped = pausedAt ? null : stoppedOn(c);
+  if (pausedAt) {
+    L(`Paused on ${dayWords(pausedAt.slice(0, 10))}. ${COLLECTED_COPY.pausedHint}`);
+    if (k.lastDay) L(`Collected to ${dayWords(k.lastDay, true)}, ${zone}.`);
+  } else if (stopped) {
+    L(`Stopped on ${dayWords(stopped.slice(0, 10))}.${k.lastDay ? ` Collected to ${dayWords(k.lastDay, true)}, ${zone}.` : ""}`);
+    H(COLLECTED_COPY.stoppedHint);
+  } else if (k.lastDay) {
+    const lag = k.finalThrough && k.finalThrough < k.lastDay ? `Days after ${dayWords(k.finalThrough)} may still change a little, so each is read again a week later.` : k.lag;
+    L(`Collected to ${dayWords(k.lastDay, true)}, ${zone}. ${lag}`);
+    if (k.waitingFor) H(waitingWords(productOf(c), k.waitingFor));
+    if (k.holdReason === "no_data") H(`${productOf(c)} listed no data in the last 10 days.`);
+  } else {
+    L(c.needsAccount ? "Nothing is collected until a property is chosen." : COLLECTED_COPY.nothingYet);
+  }
+  if (k.lastDay && k.keptFrom) {
+    L(k.filled ? `Kept: ${dayWords(k.keptFrom)} to ${dayWords(k.lastDay)} (${k.days} days).` : `Kept: ${dayWords(k.keptFrom)} to ${dayWords(k.lastDay)} so far (${k.days} of ${k.keepDays} days).`, k.filled ? {} : { progress: { value: k.days, max: k.keepDays } });
+    const cut = k.kept && k.kept.rows < k.kept.seen && !pausedAt && !stopped ? ` On ${dayWords(k.kept.day)} ${providerOf(c)} listed ${k.kept.more ? "at least " : ""}${k.kept.seen.toLocaleString("en-GB")} ${ROW_WORDS[k.kept.by] ?? "rows"} and ${k.kept.rows.toLocaleString("en-GB")} were kept.` : "";
+    H(`${k.keeps}${cut}`);
+    if (!k.filled && !pausedAt && !stopped) H(COLLECTED_COPY.restArrive);
+    if (pausedAt || stopped) H(`Each day still leaves after ${k.keepDays} days.`);
+  }
+  if (opts.planning && k.feedsPlanning) {
+    const grants = c.details?.grants ?? [];
+    const members = grants.some((g) => g.to === "members");
+    const vizzy = grants.some((g) => g.to === "agent:vizzy");
+    if (members && vizzy) {
+      L(COLLECTED_COPY.planningYes, { lead: COLLECTED_COPY.planningLead });
+      if (!k.filled && c.connectorName === "Google Search Console") H(COLLECTED_COPY.losingNeeds);
+    } else {
+      const ask = members ? "Let Vizzy read it too" : vizzy ? "Let members read it too" : "Let members and Vizzy read it";
+      L(` no. ${ask}, and its numbers will feed Next up, Review and the brand map.`, { lead: COLLECTED_COPY.planningLead });
+    }
+  }
+  return out;
+}
+
+/** The rows a grouping keeps, in words. */
+const ROW_WORDS: Readonly<Record<string, string>> = { page: "pages", topic: "searches", landing: "landing pages" };
+
+/** The Manage card's last line: what Disconnect deletes, with collected numbers when they are on. */
+export function manageHintOf(c: Pick<ConnectionView, "details">, opts: { collect: boolean; planning?: boolean }): string {
+  if (!opts.collect || !c.details?.collect) return CONNECTED_COPY.manageHint;
+  return opts.planning && c.details.collect.feedsPlanning ? COLLECTED_COPY.manageHintPlanning : COLLECTED_COPY.manageHint;
+}
+
+/** A member's Reading cell: whether they can read it, and how far it is collected while collected numbers are on. */
+export function readingWords(c: Pick<ConnectionView, "canReadLive" | "collectedTo">, collect: boolean): string {
+  if (!c.canReadLive) return CONNECTED_COPY.readsAdmins;
+  return collect && c.collectedTo ? `${CONNECTED_COPY.readsYou}, collected to ${dayWords(c.collectedTo)}` : CONNECTED_COPY.readsYou;
 }
 
 /**

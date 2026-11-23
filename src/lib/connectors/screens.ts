@@ -1,5 +1,5 @@
 import type { TenantContext } from "@/lib/tenant";
-import { isConnectorsChatEnabled, isConnectorsEnabled } from "./flags";
+import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isConnectorsEnabled } from "./flags";
 import { humanActor } from "./grants";
 import { listForActor, type ConnectionView, type ConnectorListing, type ServiceDeps } from "./service";
 
@@ -14,6 +14,13 @@ export interface ConnectionsScreen {
   core: boolean;
   /** Vizzy reads connected data (CONNECTORS_CHAT_ENABLED): only then is the Vizzy grant offered. */
   chat: boolean;
+  /** Collected numbers (CONNECTORS_COLLECT_ENABLED): the Collected column and the Manage card's block. */
+  collect: boolean;
+  /**
+   * Collected numbers suggest articles (signals, a later switch): only then does the Manage card say
+   * whether a connection is used for planning. False until that switch exists.
+   */
+  planning: boolean;
   /** Admins connect and change things; everyone else sees read only states. */
   isAdmin: boolean;
   /** The signed in person, so activity can say "You". */
@@ -34,6 +41,8 @@ export async function connectionsScreenFor(ctx: TenantContext, deps: ServiceDeps
   const base: ConnectionsScreen = {
     core: isConnectorsEnabled(),
     chat: isConnectorsChatEnabled(),
+    collect: isConnectorsCollectEnabled(),
+    planning: false,
     isAdmin: ctx.role === "admin",
     uid: ctx.userId ?? "",
     connectors: [],

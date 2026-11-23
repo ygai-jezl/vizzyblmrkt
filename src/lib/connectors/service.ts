@@ -10,7 +10,8 @@ import { healthAfterFailure, healthAfterSuccess, healthyAt, isCallPaused, shownS
 import { ACCOUNT_HOOKS, VERIFY_HOOKS } from "./handlers";
 import type { ConnectorAccount, HookFailure } from "./handlers/types";
 import { checkLiveRequest, lagWords, readLive, type LiveAnswer } from "./live";
-import { shareMethod, tokenMethod, type ConnectMethodName, type ConnectorIcon, type ConnectorManifest } from "./manifest";
+import { collectedStream, shareMethod, tokenMethod, type ConnectMethodName, type ConnectorIcon, type ConnectorManifest, type StreamCollect } from "./manifest";
+import { addDays, daysIn, laterDay, todayIn } from "./period";
 import { connectorMessage, tokenRefusedMessage, type ConnectorErrorCode } from "./messages";
 import { getConnector, knownConnector, listConnectors, readyMethods } from "./registry";
 import type { ConnectorFetchDeps } from "./safeFetch";
@@ -167,6 +168,73 @@ export function listingOf(m: ConnectorManifest): ConnectorListing {
   };
 }
 
+/**
+ * How far a connection's numbers are collected (CONNECTORS_COLLECT_ENABLED), for its admins: the
+ * days kept, in the provider's zone, how final they are, what each day keeps, and whether a day is
+ * late or collecting is failing or held.
+ */
+export interface CollectView {
+  lastDay: string | null;
+  finalThrough: string | null;
+  /** The oldest day kept now. */
+  keptFrom: string | null;
+  days: number;
+  keepDays: number;
+  filled: boolean;
+  timeZone: string | null;
+  /** When a day arrives, from the manifest. */
+  lag: string;
+  /** What each kept day holds. */
+  keeps: string;
+  /** The newest day's busiest grouping: how many rows the provider listed and how many were kept. */
+  kept: { day: string; by: string; seen: number; rows: number; more: boolean } | null;
+  /** A day the provider hasn't finished yet though it usually has by now (Search Console). */
+  waitingFor: string | null;
+  failedSince: string | null;
+  holdReason: string | null;
+  /** Its numbers can suggest articles (pages or searches), when members and Vizzy may read it. */
+  feedsPlanning: boolean;
+}
+
+/** The words for a grouping's rows, for "Each day keeps the top 500 pages". */
+const ROW_NOUNS: Readonly<Record<string, string>> = { page: "pages", topic: "searches", landing: "landing pages" };
+
+/** What each kept day holds, from the stream's collect block. */
+export function keepsWords(collect: StreamCollect): string {
+  if (collect.keeps) return collect.keeps;
+  const parts = collect.by.filter((b) => ROW_NOUNS[b]).map((b) => `the top ${collect.rowsPerDay} ${ROW_NOUNS[b]}`);
+  return parts.length ? `Each day keeps ${parts.join(" and ")}.` : "Each day keeps its totals.";
+}
+
+/** A connection's collect state as its admins see it, or null when its connector collects nothing. */
+export function collectViewOf(conn: DataConnection, now: Date): CollectView | null {
+  const m = knownConnector(conn.connectorId);
+  const stream = m ? collectedStream(m) : null;
+  if (!stream) return null;
+  const c = conn.collect ?? freshCollect();
+  const keepDays = stream.collect.keepDays;
+  const keptFrom = c.lastDay && c.backfilledTo ? laterDay(c.backfilledTo, addDays(c.lastDay, -(keepDays - 1))) : null;
+  const zone = c.timeZone ?? stream.timeZone ?? null;
+  const today = zone ? todayIn(now, zone) : null;
+  const waitingFor = stream.collect.waitsForFinal && c.filled && c.lastDay && today && daysIn(c.lastDay, today) - 1 >= 3 ? addDays(c.lastDay, 1) : null;
+  return {
+    lastDay: c.lastDay,
+    finalThrough: c.finalThrough,
+    keptFrom,
+    days: keptFrom && c.lastDay ? daysIn(keptFrom, c.lastDay) : 0,
+    keepDays,
+    filled: c.filled,
+    timeZone: zone,
+    lag: stream.collect.lag,
+    keeps: keepsWords(stream.collect),
+    kept: c.kept,
+    waitingFor,
+    failedSince: c.failedSince,
+    holdReason: c.holdUntil && Date.parse(c.holdUntil) > now.getTime() ? c.holdReason : c.holdReason === "no_data" ? "no_data" : null,
+    feedsPlanning: stream.collect.by.some((b) => b !== "day"),
+  };
+}
+
 export interface ConnectionView {
   id: string;
   connectorId: string;
@@ -178,10 +246,13 @@ export interface ConnectionView {
   connectorOn: boolean;
   label: string;
   status: DataConnection["status"];
-  health: { state: ReturnType<typeof shownState>; lastOkAt: string | null; lastCheckedAt: string | null; message: string | null; pausedUntil: string | null };
+  /** `since`: when the failures in a row began, or null. */
+  health: { state: ReturnType<typeof shownState>; lastOkAt: string | null; lastCheckedAt: string | null; message: string | null; pausedUntil: string | null; since?: string | null };
   /** True after a sign in until an admin picks the site or property it reads. */
   needsAccount: boolean;
   canReadLive: boolean;
+  /** The last day collected, for anyone who may read it, while collected numbers are on; else null. */
+  collectedTo: string | null;
   /** Admins only. */
   details?: {
     method: DataConnection["method"];
@@ -198,6 +269,8 @@ export interface ConnectionView {
     createdAt: string;
     updatedAt: string;
     disconnectedAt: string | null;
+    /** How far its numbers are collected, while collected numbers are on; null otherwise. */
+    collect: CollectView | null;
   };
 }
 
@@ -219,10 +292,14 @@ export function viewOf(conn: DataConnection, actor: ConnectorActor, now: Date): 
       lastCheckedAt: conn.health.lastCheckedAt,
       message: conn.health.lastErrorCode ? connectorMessage(conn.health.lastErrorCode, { ...aboutOf(conn.connectorId), since: conn.health.since ?? null }) : null,
       pausedUntil: conn.health.pausedUntil,
+      since: conn.health.since ?? null,
     },
     needsAccount: conn.status === "connected" && !conn.account,
     canReadLive: conn.status === "connected" && !!conn.account && can(actor, "read_live", conn.grants),
+    collectedTo: null,
   };
+  const collect = isConnectorsCollectEnabled() && conn.status === "connected" ? collectViewOf(conn, now) : null;
+  if (collect && view.canReadLive) view.collectedTo = collect.lastDay;
   if (can(actor, "see_details", conn.grants)) {
     view.details = {
       method: conn.method,
@@ -237,6 +314,7 @@ export function viewOf(conn: DataConnection, actor: ConnectorActor, now: Date): 
       createdAt: conn.createdAt,
       updatedAt: conn.updatedAt,
       disconnectedAt: conn.disconnectedAt,
+      collect,
     };
   }
   return view;

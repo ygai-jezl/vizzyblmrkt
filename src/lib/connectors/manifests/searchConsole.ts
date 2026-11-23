@@ -100,6 +100,7 @@ export const searchConsoleManifest = {
         keepDays: 90,
         where: "Collected once a day and kept 90 days in your brand's region; Disconnect deletes them.",
         lag: "Search Console finishes a day 2 to 3 days later.",
+        waitsForFinal: true,
       },
     },
   ],

@@ -277,6 +277,11 @@ export const CollectSchema = z
     where: Copy(160),
     lag: Copy(160),
     keeps: Copy(200).optional(),
+    /**
+     * True when a day is collected once the provider lists it final, so it can come late (Search
+     * Console): the Connected view says which day it waits for.
+     */
+    waitsForFinal: z.boolean().optional(),
   })
   .strict();
 export type StreamCollect = z.infer<typeof CollectSchema>;

@@ -3,9 +3,12 @@ import { indexSource, removeFromIndex, storedKindOf, storedSourceKey } from "./i
 import { MemorySearchIndex } from "./memoryStore";
 import type { SearchSource } from "./types";
 
+// Tests pass their own store, except where one sets `defaultStore` to check the brand's own path.
+const searchIndex = vi.hoisted(() => ({ defaultStore: null as null | ((ctx: { tenantId: string }) => unknown) }));
 vi.mock("@/lib/tenant/searchIndex", () => ({
-  searchStoreFor: () => {
-    throw new Error("tests pass their own store");
+  searchStoreFor: (ctx: { tenantId: string }) => {
+    if (!searchIndex.defaultStore) throw new Error("tests pass their own store");
+    return searchIndex.defaultStore(ctx);
   },
 }));
 
@@ -193,5 +196,49 @@ describe("the name an Idea Board item is written under", () => {
     expect(stored(index).manifests).toEqual(["idea idea:i1", "idea_board idea_board:i1"]);
     expect(await removeFromIndex(ctxA, "idea_board", "i1", { store })).toBe("removed");
     expect(stored(index)).toEqual({ manifests: [], chunks: [] });
+  });
+});
+
+describe("removeFromIndex with indexing off", () => {
+  // Erasing a connection's searches (ADR-0013): Google searches for a made-up site.
+  const searches: SearchSource = { kind: "research", ref: "gsc:dcn_aaaaaaaaaaaaaaaaaaaa", title: "Google searches: example.com", body: "", parts: [{ text: "repot a fig: 120 impressions, 4 clicks, position 8.2" }] };
+
+  beforeEach(() => vi.stubEnv("SEARCH_INDEX_ENABLED", "true"));
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    searchIndex.defaultStore = null;
+  });
+
+  async function indexedForBoth() {
+    const index = new MemorySearchIndex();
+    const { embed } = fakeEmbed();
+    await indexSource(ctxA, searches, { store: index.storeFor(ctxA), embed, granted: true });
+    await indexSource(ctxB, searches, { store: index.storeFor(ctxB), embed, granted: true });
+    return index;
+  }
+  const keys = (index: MemorySearchIndex, tenantId: string) => [...(index.manifests.get(tenantId)?.keys() ?? [])];
+
+  it("leaves it alone unless forced, then removes it from this brand only, through the brand's own store", async () => {
+    const index = await indexedForBoth();
+    vi.stubEnv("SEARCH_INDEX_ENABLED", "false");
+    searchIndex.defaultStore = (ctx) => index.storeFor(ctx);
+    expect(await removeFromIndex(ctxA, "research", searches.ref)).toBe("off");
+    expect(keys(index, ctxA.tenantId)).toEqual(["research:gsc:dcn_aaaaaaaaaaaaaaaaaaaa"]);
+    expect(await removeFromIndex(ctxA, "research", searches.ref, { force: true })).toBe("removed");
+    expect(keys(index, ctxA.tenantId)).toEqual([]);
+    expect(index.chunks.get(ctxA.tenantId)?.size ?? 0).toBe(0);
+    // Another brand's record under the same ref is never touched.
+    expect(keys(index, ctxB.tenantId)).toEqual(["research:gsc:dcn_aaaaaaaaaaaaaaaaaaaa"]);
+    // Removing again finds nothing, and says so the same way.
+    expect(await removeFromIndex(ctxA, "research", searches.ref, { force: true })).toBe("removed");
+  });
+
+  it("counts a copy without the search databases as nothing to remove, and any other failure as failed", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const broken = (err: unknown) => ({ ...new MemorySearchIndex().storeFor(ctxA), removeSource: async () => Promise.reject(err) });
+    const missing = Object.assign(new Error("5 NOT_FOUND: The database (search) does not exist for project made-up-project"), { code: 5 });
+    expect(await removeFromIndex(ctxA, "research", searches.ref, { force: true, store: broken(missing) })).toBe("removed");
+    expect(await removeFromIndex(ctxA, "research", searches.ref, { force: true, store: broken(Object.assign(new Error("unavailable"), { code: 14 })) })).toBe("failed");
+    warn.mockRestore();
   });
 });

@@ -1439,7 +1439,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     events: [],
     erase: {
       paths: [
-        brandPath("removeFromIndex", "src/lib/search/indexer.ts", "when its record is removed"),
+        brandPath("removeFromIndex", "src/lib/search/indexer.ts", "when its record is removed; forced, whatever SEARCH_INDEX_ENABLED says, when a connection's collected searches are erased"),
         brandPath("sweepBrand", "src/lib/search/sweep.ts", "the scheduled check drops records that are gone"),
       ],
     },

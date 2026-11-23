@@ -1498,7 +1498,7 @@ The brand's own index of what it wrote, by words and meaning, in its region's se
   - `search_docs` at `brands/{tenantId}/search_docs`, the brand's regional search database, in `src/lib/tenant/searchIndex.ts`
   - `search_sources` at `brands/{tenantId}/search_sources`, the brand's regional search database, in `src/lib/tenant/searchIndex.ts`
 - Erase:
-  - `removeFromIndex` in `src/lib/search/indexer.ts`, on removing the record (when its record is removed)
+  - `removeFromIndex` in `src/lib/search/indexer.ts`, on removing the record (when its record is removed; forced, whatever SEARCH_INDEX_ENABLED says, when a connection's collected searches are erased)
   - `sweepBrand` in `src/lib/search/sweep.ts`, on removing the record (the scheduled check drops records that are gone)
 - Export: none. Copies of the brand's own writing.
 - Search: none. It is the index.

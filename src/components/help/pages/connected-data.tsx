@@ -2,8 +2,8 @@ import { H1, H2, H3, Lead, P, Pairs, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
 import { ConnectorTile } from "@/components/admin/connectors/ConnectorTile";
 import { CONNECTED_COPY, PICKER_COPY, SCREEN_COPY, activityWords } from "@/components/admin/connectors/words";
-import { isConnectorsChatEnabled } from "@/lib/connectors/flags";
-import { connectedDataHelp, type ConnectorHelp } from "@/lib/connectors/helpText";
+import { isConnectorsChatEnabled, isConnectorsCollectEnabled } from "@/lib/connectors/flags";
+import { COLLECT_HELP, connectedDataHelp, type ConnectorHelp } from "@/lib/connectors/helpText";
 import { tokenRefusedMessage } from "@/lib/connectors/messages";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
@@ -15,7 +15,7 @@ function andList(items: readonly string[]): string {
 /** "Google Search Console, Google Analytics 4 and Cloudflare". */
 const names = (list: readonly ConnectorHelp[]) => andList(list.map((c) => c.name));
 
-function ConnectorSection({ c }: { c: ConnectorHelp }) {
+function ConnectorSection({ c, collect }: { c: ConnectorHelp; collect: boolean }) {
   return (
     <>
       <H2 id={c.id}>
@@ -96,6 +96,11 @@ function ConnectorSection({ c }: { c: ConnectorHelp }) {
       <P>
         {c.lag} {c.disconnect}
       </P>
+      {collect && c.collect ? (
+        <P>
+          {c.collect.where} {c.collect.lag} {c.collect.keeps}
+        </P>
+      ) : null}
     </>
   );
 }
@@ -105,9 +110,10 @@ function ConnectorSection({ c }: { c: ConnectorHelp }) {
  * a connector's Listing, the picker and Connected. Every connector's steps, what it reads, its
  * numbers and what Disconnect does come from its manifest (src/lib/connectors/helpText.ts), so
  * the page can't drift from what each one really asks for. `connectorsChat` is whether Vizzy reads
- * connected data (CONNECTORS_CHAT_ENABLED); the How to drawer passes what the server said.
+ * connected data (CONNECTORS_CHAT_ENABLED) and `connectorsCollect` whether its numbers are collected
+ * daily (CONNECTORS_COLLECT_ENABLED); the How to drawer passes what the server said.
  */
-export default function ConnectedDataHelp({ connectorsChat = isConnectorsChatEnabled() }: HelpBodyProps = {}) {
+export default function ConnectedDataHelp({ connectorsChat = isConnectorsChatEnabled(), connectorsCollect = isConnectorsCollectEnabled() }: HelpBodyProps = {}) {
   const help = connectedDataHelp();
   const google = help.connectors.filter((c) => c.signIn || c.share);
   const health = help.health;
@@ -157,7 +163,7 @@ export default function ConnectedDataHelp({ connectorsChat = isConnectorsChatEna
       </P>
 
       {help.connectors.map((c) => (
-        <ConnectorSection key={c.id} c={c} />
+        <ConnectorSection key={c.id} c={c} collect={connectorsCollect} />
       ))}
 
       {google.length ? (
@@ -215,6 +221,27 @@ export default function ConnectedDataHelp({ connectorsChat = isConnectorsChatEna
         Connected says which one, as in &quot;{activityWords({ kind: "paused", code: null }, "Cloudflare for acme.example", "token_fields")}&quot;.
       </P>
 
+      {connectorsCollect ? (
+        <>
+          <H2 id="collected">Collected numbers</H2>
+          <P>{COLLECT_HELP.what}</P>
+          <UL>
+            {COLLECT_HELP.when.map((w) => (
+              <li key={w}>{w}</li>
+            ))}
+          </UL>
+          <P>
+            {COLLECT_HELP.keeps} {COLLECT_HELP.filling}
+          </P>
+          <Pairs head={["Collected says", "What it means"]} rows={COLLECT_HELP.states.map(([words, meaning]) => [words, meaning])} />
+          <P>{COLLECT_HELP.card}</P>
+          <P>{COLLECT_HELP.erase}</P>
+          <P>
+            {COLLECT_HELP.review} See <Open href="/help/review-and-approvals#what">Review and approvals</Open>.
+          </P>
+        </>
+      ) : null}
+
       <H2 id="who-can-read">Who can read it</H2>
       <UL>
         {help.grants.map((g) => (
@@ -262,6 +289,7 @@ export default function ConnectedDataHelp({ connectorsChat = isConnectorsChatEna
           ),
           [help.signIn.message, "Press Reconnect on Connected and sign in with the same Google account. Its property, who can read it and its history stay."],
           [help.messages.share_not_visible, "Add the address in your property exactly as shown, with the role shown, then press Check access again."],
+          [help.messages.share_access_lost, "Someone took the connection's Google address off the property. Add it again with the role shown, then press Check access on Connected. The message says the day it stopped."],
           [help.messages.share_pending, "Wait a minute, then press Check access again."],
           [help.messages.share_quota, "Sign in with Google instead, or try again later."],
           [help.messages.share_limit, "Disconnect a shared connection you no longer use, or sign in with Google."],

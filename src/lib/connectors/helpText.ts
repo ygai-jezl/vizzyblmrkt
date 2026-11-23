@@ -2,7 +2,7 @@ import { meaningsOf } from "@/lib/metrics/meanings";
 import { HEALTH_STATES, type HealthState } from "@/lib/types/dataConnection";
 import { allConnectors } from "./catalog";
 import { lagWords } from "./lag";
-import { oauthMethod, shareMethod, type ConnectorIcon, type ConnectorManifest } from "./manifest";
+import { collectedStream, keepsWords, oauthMethod, shareMethod, type ConnectorIcon, type ConnectorManifest } from "./manifest";
 import { CONNECTOR_ERRORS, SIGNIN_REASONS } from "./messages";
 
 /**
@@ -41,7 +41,10 @@ export interface ConnectorHelp {
   /** How to connect by sharing access, when it can: the role to give, the steps and what it reads. */
   share: { role: string; steps: string[]; reads: string[] } | null;
   disconnect: string;
+  /** What is collected each day and kept, from its stream's collect block (shown while collected numbers are on). */
+  collect: { where: string; lag: string; keeps: string } | null;
 }
+
 
 /** The steps of a sign in, from the manifest: its name, and whether a site is picked after. */
 function signInSteps(m: ConnectorManifest): string[] {
@@ -93,6 +96,10 @@ export function connectorHelp(m: ConnectorManifest): ConnectorHelp {
       ? { role: share.role, steps: shareSteps(m, share.steps), reads: m.shares.filter((s) => s.direction === "read" && s.needs.some((n) => share.scopes.includes(n))).map((s) => s.what) }
       : null,
     disconnect: m.disconnect,
+    collect: (() => {
+      const stream = collectedStream(m);
+      return stream ? { where: stream.collect.where, lag: stream.collect.lag, keeps: keepsWords(stream.collect) } : null;
+    })(),
   };
 }
 
@@ -169,6 +176,34 @@ export const VIZZY_HELP: readonly string[] = [
   "Vizzy only reads. It never connects, changes, pauses or disconnects anything, and every number it gives comes with what the number means.",
   "Each time Vizzy reads a connection, its activity log records it.",
 ];
+
+/**
+ * Collected numbers (CONNECTORS_COLLECT_ENABLED, ADR-0012), for the help page: when each tool's
+ * days are collected, what is kept and for how long, what the Connected view says and what
+ * erases them.
+ */
+export const COLLECT_HELP = {
+  what: "While collected numbers are on in your copy, YouGrow collects each connection's numbers once a day and keeps them 90 days in your brand's region. Decisions rest on days that no longer change; a live read is still there for exploring.",
+  when: [
+    "Google Search Console: each Pacific day once Google lists it as final, usually 2 to 3 days later. Until then Connected says which day it is waiting for.",
+    "Google Analytics 4: each day of the property's own time zone two days later, then again a week later, once Google Analytics no longer changes it. Connected says how far the days are final.",
+    "Cloudflare: each UTC day two days later. Visits by people reach back about 31 days; older days count all traffic, bots included.",
+  ],
+  keeps:
+    "Each day keeps the tool's totals and the top 500 rows of each grouping: pages, searches or landing pages. Counts of people, such as active users and unique visitors, can't be added across days, so totals over several days leave them out.",
+  filling: "A new connection fills its 90 days over the next few hours, newest first.",
+  states: [
+    ["To 20 Nov, 90 days", "Collected every day, up to that day."],
+    ["Filling 90 days: 34 of 90", "Just connected: the rest arrive over the next few hours, newest first."],
+    ["Paused on 12 Nov", "An admin paused it. Nothing is collected until someone presses Resume."],
+    ["Stopped on 19 Nov", "YouGrow can't read it since then. It shows in Review under Data sources that need you."],
+  ] as const,
+  card: "Press a connection's row to see Collected numbers on its card: the last day collected and its time zone, the days kept, and what each day keeps.",
+  erase:
+    "Disconnect deletes everything YouGrow collected for a connection, at once, whatever any switch says. Change property deletes the old property's numbers and fills 90 days for the new one. Pause stops collecting until you resume. If your copy turns collected numbers off, no new days arrive and the kept ones leave after 90 days.",
+  review:
+    "A connection that can't be read, has no property chosen, has failed to collect for 3 days, or was paused a week ago shows in Review under Data sources that need you. Its link opens it on Connected.",
+} as const;
 
 /** Messages the troubleshooting page quotes, word for word. */
 export const TROUBLESHOOTING_QUOTES = {

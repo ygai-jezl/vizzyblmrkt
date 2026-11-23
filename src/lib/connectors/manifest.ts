@@ -482,3 +482,13 @@ export function streamOf(m: ConnectorManifest, stream: string): ProducedStream |
 export function collectedStream(m: Pick<ConnectorManifest, "produces">): (ProducedStream & { collect: StreamCollect }) | null {
   return (m.produces.find((p) => p.collect) as (ProducedStream & { collect: StreamCollect }) | undefined) ?? null;
 }
+
+/** The rows a grouping keeps, in words. */
+const ROW_NOUNS: Readonly<Record<string, string>> = { page: "pages", topic: "searches", landing: "landing pages" };
+
+/** What each kept day holds, from a stream's collect block, as the Connected view and help say it. */
+export function keepsWords(collect: StreamCollect): string {
+  if (collect.keeps) return collect.keeps;
+  const parts = collect.by.filter((b) => ROW_NOUNS[b]).map((b) => `the top ${collect.rowsPerDay} ${ROW_NOUNS[b]}`);
+  return parts.length ? `Each day keeps ${parts.join(" and ")}.` : "Each day keeps its totals.";
+}

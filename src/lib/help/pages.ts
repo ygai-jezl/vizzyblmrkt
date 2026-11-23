@@ -55,6 +55,8 @@ export interface HelpBodyProps {
   catalogHistory?: boolean;
   /** Vizzy reads connected data (isConnectorsChatEnabled()). */
   connectorsChat?: boolean;
+  /** Connected data is collected daily and kept 90 days (isConnectorsCollectEnabled()). */
+  connectorsCollect?: boolean;
 }
 
 /** Navigation headings, matching Home's stages. */

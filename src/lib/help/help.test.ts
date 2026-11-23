@@ -13,7 +13,7 @@ import { docToMarkdown } from "@/lib/developers/markdown";
 import { STATE_LABELS } from "@/components/admin/connectors/words";
 import { HEALTH_HELP } from "@/lib/connectors/helpText";
 import { allConnectors } from "@/lib/connectors/catalog";
-import { tokenRefusedMessage } from "@/lib/connectors/messages";
+import { CONNECTOR_ERRORS, tokenRefusedMessage } from "@/lib/connectors/messages";
 import { helpLlmsTxt, helpPageMarkdown } from "./agentFiles";
 import { HELP_PAGES, helpPage, shownHelpPages } from "./pages";
 import { HELP_PLACES, helpFor, parseHelpPath } from "./places";
@@ -64,6 +64,7 @@ vi.hoisted(() => {
   process.env.NEXT_PUBLIC_CONNECTORS_ENABLED = "true";
   process.env.CONNECTORS_ENABLED = "true";
   process.env.CONNECTORS_CHAT_ENABLED = "true";
+  process.env.CONNECTORS_COLLECT_ENABLED = "true";
 });
 
 const SRC = join(process.cwd(), "src");
@@ -470,6 +471,13 @@ describe("Vizzy filling in New person", () => {
     expect(md("review-and-approvals", true)).toContain("New person forms Vizzy filled in");
   });
 
+  it("lists data sources that need you only while collected numbers are on", () => {
+    const review = (on: boolean) => docToMarkdown(HELP_BODIES["review-and-approvals"]!({ connectorsCollect: on }), "https://app.example.com");
+    expect(review(true)).toContain("**Data sources that need you**: a connected tool that can't be read");
+    expect(review(true)).toContain("([Collected numbers](https://app.example.com/help/connected-data.md))");
+    expect(review(false)).not.toContain("Data sources that need you");
+  });
+
   it("stays hidden while it, or New person, is off", () => {
     expect(md("your-audience", false)).not.toContain("Vizzy never records");
     expect(md("your-audience", true, false)).not.toContain("Vizzy never records");
@@ -561,6 +569,23 @@ describe("Connected data", () => {
     expect(md(true)).toContain("Vizzy can read it when someone asks");
     expect(md(false)).not.toContain("Letting Vizzy read it");
     expect(md(false)).not.toContain("Vizzy can read it when someone asks");
+  });
+
+  it("says what is collected, when, for how long and what erases it, only while collected numbers are on", () => {
+    const collected = (on: boolean) => docToMarkdown(HELP_BODIES["connected-data"]!({ connectorsChat: true, connectorsCollect: on }), "https://app.example.com");
+    const text = collected(true);
+    expect(text).toContain("## Collected numbers");
+    expect(text).toContain("keeps them 90 days in your brand's region");
+    expect(text).toContain("Collected once a day and kept 90 days in your brand's region; Disconnect deletes them. Search Console finishes a day 2 to 3 days later. Each day keeps the top 500 pages and the top 500 searches.");
+    expect(text).toContain("Each day keeps the zone's totals. Visits by people reach back about 31 days, and older days count all traffic.");
+    expect(text).toMatch(/^\| Filling 90 days: 34 of 90 \|/m);
+    expect(text).toContain("Disconnect deletes everything YouGrow collected for a connection, at once, whatever any switch says.");
+    expect(text).toContain("Data sources that need you");
+    const off = collected(false);
+    expect(off).not.toContain("Collected numbers");
+    expect(off).not.toContain("kept 90 days");
+    // Lost access is quoted whatever collect says: Check access can find it too.
+    expect(off).toContain(CONNECTOR_ERRORS.share_access_lost);
   });
 
   it("is listed after Connected accounts, and Connected accounts points to it", () => {

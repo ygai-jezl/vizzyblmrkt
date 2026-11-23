@@ -42,6 +42,7 @@ export function HowToDrawer() {
   const vizzyAddPerson = useShell()?.vizzyAddPerson ?? false;
   const catalogHistory = useShell()?.catalogHistory ?? false;
   const connectorsChat = useShell()?.connectorsChat ?? false;
+  const connectorsCollect = useShell()?.connectorsCollect ?? false;
   const [steps, setSteps] = useState<GuideStep[] | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -203,6 +204,7 @@ export function HowToDrawer() {
               vizzyAddPerson={vizzyAddPerson}
               catalogHistory={catalogHistory}
               connectorsChat={connectorsChat}
+              connectorsCollect={connectorsCollect}
             />
           </div>
         ) : (

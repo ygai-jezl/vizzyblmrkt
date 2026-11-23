@@ -10,7 +10,7 @@ import { healthAfterFailure, healthAfterSuccess, healthyAt, isCallPaused, shownS
 import { ACCOUNT_HOOKS, VERIFY_HOOKS } from "./handlers";
 import type { ConnectorAccount, HookFailure } from "./handlers/types";
 import { checkLiveRequest, lagWords, readLive, type LiveAnswer } from "./live";
-import { collectedStream, shareMethod, tokenMethod, type ConnectMethodName, type ConnectorIcon, type ConnectorManifest, type StreamCollect } from "./manifest";
+import { collectedStream, keepsWords, shareMethod, tokenMethod, type ConnectMethodName, type ConnectorIcon, type ConnectorManifest } from "./manifest";
 import { addDays, daysIn, laterDay, todayIn } from "./period";
 import { connectorMessage, tokenRefusedMessage, type ConnectorErrorCode } from "./messages";
 import { getConnector, knownConnector, listConnectors, readyMethods } from "./registry";
@@ -194,16 +194,6 @@ export interface CollectView {
   holdReason: string | null;
   /** Its numbers can suggest articles (pages or searches), when members and Vizzy may read it. */
   feedsPlanning: boolean;
-}
-
-/** The words for a grouping's rows, for "Each day keeps the top 500 pages". */
-const ROW_NOUNS: Readonly<Record<string, string>> = { page: "pages", topic: "searches", landing: "landing pages" };
-
-/** What each kept day holds, from the stream's collect block. */
-export function keepsWords(collect: StreamCollect): string {
-  if (collect.keeps) return collect.keeps;
-  const parts = collect.by.filter((b) => ROW_NOUNS[b]).map((b) => `the top ${collect.rowsPerDay} ${ROW_NOUNS[b]}`);
-  return parts.length ? `Each day keeps ${parts.join(" and ")}.` : "Each day keeps its totals.";
 }
 
 /** A connection's collect state as its admins see it, or null when its connector collects nothing. */

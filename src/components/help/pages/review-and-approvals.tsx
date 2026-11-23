@@ -2,14 +2,20 @@ import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { isAutopilotEnabled } from "@/lib/autopilot/flags";
 import { isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
 import { isVizzyAddPersonEnabled, isVizzyFieldsEnabled } from "@/lib/audience/peopleFlags";
+import { isConnectorsCollectEnabled } from "@/lib/connectors/flags";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
 /**
  * Vizzy's suggestions about people show while AUDIENCE_VIZZY_FIELDS_ENABLED or
- * AUDIENCE_VIZZY_ADD_PERSON_ENABLED is on (the How to drawer passes the shell's answers).
+ * AUDIENCE_VIZZY_ADD_PERSON_ENABLED is on, and data sources that need someone while
+ * CONNECTORS_COLLECT_ENABLED is (the How to drawer passes the shell's answers).
  */
-export default function ReviewAndApprovalsHelp({ vizzyFields = isVizzyFieldsEnabled(), vizzyAddPerson = isVizzyAddPersonEnabled() }: HelpBodyProps = {}) {
+export default function ReviewAndApprovalsHelp({
+  vizzyFields = isVizzyFieldsEnabled(),
+  vizzyAddPerson = isVizzyAddPersonEnabled(),
+  connectorsCollect = isConnectorsCollectEnabled(),
+}: HelpBodyProps = {}) {
   return (
     <article>
       <H1>Review and approvals</H1>
@@ -50,6 +56,13 @@ export default function ReviewAndApprovalsHelp({ vizzyFields = isVizzyFieldsEnab
         <li>
           <strong>Connection problems</strong>: your product&apos;s context endpoint keeps failing.
         </li>
+        {connectorsCollect ? (
+          <li>
+            <strong>Data sources that need you</strong>: a connected tool that can&apos;t be read, has no property chosen, has
+            failed to collect for 3 days, or was paused a week ago, so no new numbers are collected for it. Admins only. Its
+            link opens it on Connected (<Open href="/help/connected-data#collected">Collected numbers</Open>).
+          </li>
+        ) : null}
         <li>
           <strong>Drafts from Vizzy</strong>: journeys, welcome emails, invite waves and content plans.
         </li>

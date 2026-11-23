@@ -206,7 +206,7 @@ describe("disconnecting a signed in connection", () => {
     expect(calls()).toEqual([REVOKE_URL]);
     expect(String((transport.mock.calls[0]![1] as RequestInit).body)).toBe("token=made-up-refresh");
     expect((await load()).secrets).toEqual({});
-    expect(activity()).toEqual(["connected", "disconnected"]);
+    expect(activity()).toEqual(["connected", "disconnected", "erased:all"]);
   });
 
   it("still disconnects when Google's revoke fails, and never revokes twice or for a member", async () => {

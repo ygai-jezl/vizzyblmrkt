@@ -1913,7 +1913,12 @@ export const ONTOLOGY: readonly OntologyType[] = [
     events: [],
     erase: {
       paths: [
-        brandPath("eraseSnapshots", "src/lib/connectors/snapshots.ts", "a connection's snapshots by equality on connectionId: all of them, or its old generations"),
+        brandPath(
+          "eraseConnectionData",
+          "src/lib/connectors/erase.ts",
+          "Disconnect erases every snapshot of the connection and Change property its old generation, whatever any switch says; a pending erase is retried by the lane whenever CONNECTORS_ENABLED is on",
+        ),
+        brandPath("purgeConnections", "src/lib/connectors/purge.ts", "the operator purge erases them with every switch off"),
         retention("dropAgedDay", "src/lib/connectors/snapshots.ts", "writing a day deletes the day 90 days before it, by id; the time to live on ttlAt is the backstop"),
       ],
     },

@@ -31,7 +31,9 @@ export type HealthState = (typeof HEALTH_STATES)[number];
  * - read: Vizzy read the connection live (kept in the log, not on the record's recent list);
  * - cleanup_failed: deleting a shared connection's Google address failed; the purge tries again;
  * - collected: the daily collect landed days (Connectors 2; in the log only, never on the recent
- *   list, so an older build that doesn't know the kind can still read the record).
+ *   list, so an older build that doesn't know the kind can still read the record);
+ * - erased: what came from the connection was erased, after Disconnect, Change property (the old
+ *   site's) or the purge (Connectors 2; in the log only, as collected).
  */
 export const ACTIVITY_KINDS = [
   "connected",
@@ -45,6 +47,7 @@ export const ACTIVITY_KINDS = [
   "access_checked",
   "read",
   "collected",
+  "erased",
   "disconnected",
   "cleanup_failed",
   "purged",

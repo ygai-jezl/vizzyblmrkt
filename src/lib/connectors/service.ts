@@ -3,7 +3,8 @@ import { z } from "zod";
 import { changeDataConnection, createDataConnection, forTenant, isRateLimited, type ActivityWrite, type ChangePlan, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { meaningsOf } from "@/lib/metrics/meanings";
-import { ConnectionGrantSchema, type ActivityKind, type ConnectionGrant, type ConnectionServiceAccount, type DataConnection } from "@/lib/types/dataConnection";
+import { ConnectionGrantSchema, freshCollect, type ActivityKind, type ConnectionGrant, type ConnectionServiceAccount, type DataConnection } from "@/lib/types/dataConnection";
+import { eraseConnectionData, pendingWith } from "./erase";
 import { can, grantsCode, normaliseGrants, type ConnectorActor } from "./grants";
 import { healthAfterFailure, healthAfterSuccess, healthyAt, isCallPaused, shownState } from "./health";
 import { ACCOUNT_HOOKS, VERIFY_HOOKS } from "./handlers";
@@ -350,6 +351,8 @@ export async function connect(ctx: TenantContext, actor: ConnectorActor, connect
       createdAt: at,
       updatedAt: at,
       disconnectedAt: null,
+      // Collected numbers start on the lane's next run (CONNECTORS_COLLECT_ENABLED).
+      collect: freshCollect(at),
     },
     [{ kind: "connected", by: byOf(actor), at }],
     deps.db,
@@ -424,7 +427,7 @@ export const SYSTEM: ConnectorActor = { kind: "human", uid: "", role: undefined 
  * collect's rows (the Connected view shows people's changes). Kinds a newer build adds go here too,
  * because an older build's parse throws on a kind it doesn't know on the recent list.
  */
-const LOG_ONLY: ReadonlySet<ActivityWrite["kind"]> = new Set(["read", "collected"]);
+const LOG_ONLY: ReadonlySet<ActivityWrite["kind"]> = new Set(["read", "collected", "erased"]);
 
 /**
  * The activity and health patch for a call's outcome: a live read's, a check's, or the daily
@@ -639,18 +642,50 @@ export async function pickAccount(ctx: TenantContext, actor: ConnectorActor, id:
   if (existing.some((c) => c.id !== id)) return refuse(409, "already_connected", "Another connection reads this already. Check or disconnect it there.");
   const now = nowOf(deps);
   const at = now.toISOString();
+  // Change property (a picked one replaced): take the collect lease, bump the generation and mark
+  // the old one for erasing, in this one change, so the new site's numbers never share an id with
+  // the old site's; then erase the old generation and start the new 90 days. A first pick starts
+  // collecting on the lane's next run.
+  let leased = false;
+  let erase: number[] | null = null;
+  const changeLease = randomBytes(12).toString("hex");
   const r = await changeDataConnection(
     ctx,
     id,
     (cur) => {
+      leased = false;
+      erase = null;
       if (cur.status !== "connected" || cur.account === account) return null;
-      return { patch: { account, health: healthAfterSuccess(cur.health, now) }, activity: [{ kind: "account_picked", by: byOf(actor), at }] };
+      const c = cur.collect ?? freshCollect();
+      if (cur.account && c.leaseId && c.leaseUntil && Date.parse(c.leaseUntil) > now.getTime()) {
+        leased = true;
+        return null;
+      }
+      const collect = cur.account
+        ? { ...freshCollect(at, c.gen + 1), erasePending: pendingWith(c.erasePending, [c.gen]), leaseId: changeLease, leaseUntil: new Date(now.getTime() + CHANGE_LEASE_MS).toISOString() }
+        : { ...c, nextAt: at };
+      if (cur.account) erase = [c.gen];
+      return { patch: { account, health: healthAfterSuccess(cur.health, now), collect }, activity: [{ kind: "account_picked", by: byOf(actor), at }] };
     },
     deps.db,
   );
   if (!r.ok && r.why === "not_found") return refuse(404, "not_found");
-  return { ok: true, status: 200, value: viewOf(r.ok ? r.connection : r.connection, actor, now) };
+  if (leased) return providerRefusal("busy");
+  const old = erase as number[] | null;
+  if (r.ok && old) {
+    try {
+      await eraseConnectionData(ctx, id, r.connection.collect?.erasePending ?? old, { by: byOf(actor), now, db: deps.db });
+    } catch (err) {
+      console.warn(`[connectors] erase after Change property failed for ${id}; the lane tries again:`, err instanceof Error ? err.message.slice(0, 200) : "error");
+    }
+    await changeDataConnection(ctx, id, (cur) => (cur.collect?.leaseId === changeLease ? { patch: { collect: { ...cur.collect, leaseId: null, leaseUntil: null, nextAt: at } }, activity: [] } : null), deps.db);
+  }
+  const after = r.ok && old ? await load(ctx, id, deps) : null;
+  return { ok: true, status: 200, value: viewOf(after ?? (r.ok ? r.connection : r.connection), actor, now) };
 }
+
+/** How long Change property holds the collect lease while it erases the old site's numbers. */
+const CHANGE_LEASE_MS = 60_000;
 
 // --- Share access (Connectors 1c) --------------------------------------------------------------
 
@@ -818,7 +853,8 @@ export async function checkAccess(ctx: TenantContext, actor: ConnectorActor, id:
     (cur) => {
       if (cur.status !== "connected") return null;
       const activity: ActivityWrite[] = [{ kind: "access_checked", by: byOf(actor), at, code: outcome.ok ? "ok" : outcome.code }];
-      if (outcome.ok) return { patch: { health: healthAfterSuccess(cur.health, now) }, activity };
+      // Access works again: collecting goes on from the lane's next run.
+      if (outcome.ok) return { patch: { health: healthAfterSuccess(cur.health, now), ...(cur.account ? { collect: { ...(cur.collect ?? freshCollect()), nextAt: at } } : {}) }, activity };
       const next = healthAfterFailure(cur.health, outcome.code, now, outcome.retryAfterSec);
       if (next?.pausedNow) activity.push({ kind: "paused", by: "system", at, code: outcome.code });
       return { patch: next ? { health: next.health } : {}, activity };
@@ -958,6 +994,7 @@ export const REVOKED_MESSAGE =
 export async function disconnect(ctx: TenantContext, actor: ConnectorActor, id: string, deps: ServiceDeps = {}): Promise<ServiceResult<DisconnectOutcome>> {
   let signIn: SealedSecret | null = null;
   let address: ConnectionServiceAccount | null = null;
+  let changed = false;
   const r = await manage(
     ctx,
     actor,
@@ -966,14 +1003,26 @@ export async function disconnect(ctx: TenantContext, actor: ConnectorActor, id: 
     (cur, at) => {
       signIn = null;
       address = null;
+      changed = false;
       if (cur.status === "disconnected") return null;
+      changed = true;
       signIn = cur.method === "oauth_pkce" ? (cur.secrets[REFRESH_SLOT] ?? null) : null;
       address = cur.method === "share_access" && cur.serviceAccount && !cur.serviceAccount.deletedAt ? cur.serviceAccount : null;
-      return { patch: { secrets: {}, status: "disconnected", disconnectedAt: at, pausedAt: null, pausedBy: null }, activity: [{ kind: "disconnected", by: byOf(actor), at }] };
+      // What it collected is marked for erasing in the same change, so a failed erase is retried.
+      const collect = { ...(cur.collect ?? freshCollect()), erasePending: "all" as const, nextAt: null, leaseId: null, leaseUntil: null };
+      return { patch: { secrets: {}, status: "disconnected", disconnectedAt: at, pausedAt: null, pausedBy: null, collect }, activity: [{ kind: "disconnected", by: byOf(actor), at }] };
     },
     deps,
   );
   if (!r.ok) return r;
+  if (changed) {
+    // Whatever any collect switch says: Disconnect deletes what YouGrow stored for it.
+    try {
+      await eraseConnectionData(ctx, id, "all", { by: byOf(actor), now: nowOf(deps), db: deps.db });
+    } catch (err) {
+      console.warn(`[connectors] erase after Disconnect failed for ${id}; the lane tries again:`, err instanceof Error ? err.message.slice(0, 200) : "error");
+    }
+  }
   let revoked = false;
   const sealed = signIn as SealedSecret | null;
   if (sealed && isGoogleRevokeEnabled()) {

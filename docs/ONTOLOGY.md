@@ -339,7 +339,8 @@ A connected source's numbers for one day, or for the 28 or 90 days to its last c
   - `metric_snapshots`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One doc per connection, generation, stream, grouping and day, plus the rolled 28 and 90 day docs and Search Console's planning docs, each by a fixed id and at most 500 rows; written only through `src/lib/connectors/snapshots.ts`, read by id, deleted 90 days on by a time to live on ttlAt.
 - Links: `connector_stream` through the stream it was read from; `data_connection` through connectionId, and the generation it was read under
 - Erase:
-  - `eraseSnapshots` in `src/lib/connectors/snapshots.ts`, on removing the record (a connection's snapshots by equality on connectionId: all of them, or its old generations)
+  - `eraseConnectionData` in `src/lib/connectors/erase.ts`, on removing the record (Disconnect erases every snapshot of the connection and Change property its old generation, whatever any switch says; a pending erase is retried by the lane whenever CONNECTORS_ENABLED is on)
+  - `purgeConnections` in `src/lib/connectors/purge.ts`, on removing the record (the operator purge erases them with every switch off)
   - `dropAgedDay` in `src/lib/connectors/snapshots.ts`, on retention (writing a day deletes the day 90 days before it, by id; the time to live on ttlAt is the backstop)
 - Export: none. Numbers about the brand's own site and Google's aggregates, not about a person.
 - Search: none. Numbers stay exact in number tools.

@@ -346,7 +346,7 @@ describe("disconnecting a shared connection", () => {
     const conn = await load(made.value.connection.id);
     expect(conn.status).toBe("disconnected");
     expect(conn.serviceAccount?.deletedAt).toBeNull();
-    expect(activity()).toEqual(["shared", "disconnected", "cleanup_failed:provider_error"]);
+    expect(activity().sort()).toEqual(["cleanup_failed:provider_error", "disconnected", "erased:all", "shared"]);
     expect(accounts.size).toBe(1);
   });
 });

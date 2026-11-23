@@ -1,9 +1,11 @@
 import { countDataConnectionActivity, forTenant, OPERATOR_LABEL, purgeDataConnection, type PurgeCounts, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { DataConnection } from "@/lib/types/dataConnection";
+import { eraseConnectionData } from "./erase";
 import { isGoogleRevokeEnabled } from "./flags";
 import { revokeGoogleToken, type GoogleDeps } from "./google";
 import { deleteConnectionAddress } from "./service";
+import { countSnapshots } from "./snapshots";
 import { brandTag, copyTag, deleteShareAccount, identitiesProject, listShareAccounts, type ShareDeps } from "./shareAccess";
 import { REFRESH_SLOT } from "./tokenKeeper";
 import { openConnectorSecret, VaultOpenError } from "./vault";
@@ -11,7 +13,8 @@ import { openConnectorSecret, VaultOpenError } from "./vault";
 /**
  * The operator purge (scripts/connectors-purge.ts, ADR-0011): remove what YouGrow keeps for a
  * brand's connections, whatever any switch says. For one connection, or every connection of one
- * brand, it deletes the sealed secrets, the recent list and the activity rows, marks the
+ * brand, it deletes the sealed secrets, the recent list and the activity rows, and everything it
+ * collected (its metric snapshots, ADR-0012, through src/lib/connectors/erase.ts), marks the
  * connection disconnected and leaves one "purged" row as the trace. A pasted token can't be
  * cancelled from here. A Google sign in is revoked at Google only with
  * CONNECTOR_GOOGLE_REVOKE_ENABLED on, after its purge, because Google's revoke ends every grant
@@ -36,6 +39,8 @@ export interface PurgeItem {
   secrets: number;
   recent: number;
   activity: number;
+  /** Collected numbers it still has (metric snapshots, every generation). */
+  snapshots: number;
   /** A shared connection's Google address: still at Google, deleted already, or none. */
   address: "kept" | "deleted" | "none";
 }
@@ -51,7 +56,7 @@ export interface PurgeReport {
    * What was removed, with apply: whether a Google sign in was revoked, and whether a shared
    * connection's Google address was deleted (null when it had none to delete).
    */
-  removed: Array<{ connectionId: string; revoked: boolean; addressDeleted: boolean | null } & PurgeCounts>;
+  removed: Array<{ connectionId: string; revoked: boolean; addressDeleted: boolean | null; snapshotsDeleted: number } & PurgeCounts>;
   /** This brand's Google addresses that no live connection owns; deleted is null in a dry run. */
   orphans: Array<{ email: string; connectionId: string; deleted: boolean | null }>;
   /** Why the identities project wasn't looked at, or null when it was. */
@@ -145,6 +150,7 @@ export async function purgeConnections(
       secrets: Object.keys(c.secrets).length,
       recent: c.recent.length,
       activity: await countDataConnectionActivity(ctx, c.id, opts.db),
+      snapshots: await countSnapshots(ctx, c.id, { db: opts.db }),
       address: c.serviceAccount ? (c.serviceAccount.deletedAt ? "deleted" : "kept") : "none",
     });
   }
@@ -158,14 +164,16 @@ export async function purgeConnections(
     const sa = keptAddress(c);
     if (addressesOnly) {
       const deleted = await deleteConnectionAddress(ctx, c.id, sa!, by, { db: opts.db, ...share });
-      report.removed.push({ connectionId: c.id, found: true, activityDeleted: 0, secretsDeleted: 0, recentDeleted: 0, revoked: false, addressDeleted: deleted });
+      report.removed.push({ connectionId: c.id, found: true, activityDeleted: 0, secretsDeleted: 0, recentDeleted: 0, revoked: false, addressDeleted: deleted, snapshotsDeleted: 0 });
       continue;
     }
     const signIn = toRevoke(ctx, c);
+    // Everything it collected goes first, with no row of its own: the purged row is the trace.
+    const { snapshots: snapshotsDeleted } = await eraseConnectionData(ctx, c.id, "all", { by, now: opts.now, db: opts.db, record: false });
     const counts = await purgeDataConnection(ctx, c.id, by, at, opts.db);
     const revoked = signIn ? await revokeGoogleToken(signIn, { transport: opts.transport, log: opts.log }) : false;
     const addressDeleted = sa ? await deleteConnectionAddress(ctx, c.id, sa, by, { db: opts.db, ...share }) : null;
-    report.removed.push({ connectionId: c.id, ...counts, revoked, addressDeleted });
+    report.removed.push({ connectionId: c.id, ...counts, revoked, addressDeleted, snapshotsDeleted });
   }
   if (!("skipped" in found)) {
     report.orphans = [];
@@ -184,12 +192,12 @@ export function purgeLines(r: PurgeReport): string[] {
   const lines: string[] = [];
   if (r.missing) lines.push(`${r.tenantId}: no connection ${r.missing}`);
   for (const i of r.items) {
-    lines.push(`${r.tenantId}: ${i.connectionId} (${i.connectorId}, ${i.status}): ${i.secrets} secrets, ${i.recent} recent, ${i.activity} activity rows${ADDRESS_WORDS[i.address]}`);
+    lines.push(`${r.tenantId}: ${i.connectionId} (${i.connectorId}, ${i.status}): ${i.secrets} secrets, ${i.recent} recent, ${i.activity} activity rows, ${i.snapshots} collected snapshots${ADDRESS_WORDS[i.address]}`);
   }
   for (const x of r.removed) {
     const address = x.addressDeleted === null ? "" : x.addressDeleted ? ", Google address deleted" : ", Google address NOT deleted (recorded as cleanup_failed; run again)";
     if (r.addressesOnly) lines.push(`${r.tenantId}: ${x.connectionId}${address}`);
-    else lines.push(`${r.tenantId}: ${x.connectionId} purged: ${x.secretsDeleted} secrets, ${x.recentDeleted} recent, ${x.activityDeleted} activity rows removed${x.revoked ? ", sign in revoked at Google" : ""}${address}`);
+    else lines.push(`${r.tenantId}: ${x.connectionId} purged: ${x.secretsDeleted} secrets, ${x.recentDeleted} recent, ${x.activityDeleted} activity rows, ${x.snapshotsDeleted} collected snapshots removed${x.revoked ? ", sign in revoked at Google" : ""}${address}`);
   }
   for (const o of r.orphans) {
     const what = o.deleted === null ? "no live connection owns it" : o.deleted ? "deleted" : "NOT deleted; run again";

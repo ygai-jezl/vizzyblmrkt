@@ -3,6 +3,7 @@ import { listAllTenants } from "@/lib/tenant/registry";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { DataConnection } from "@/lib/types/dataConnection";
 import type { Tenant } from "@/lib/types/tenant";
+import { retryPendingErases } from "../erase";
 import { isConnectorsCollectEnabled, isConnectorsEnabled } from "../flags";
 import { collectConnection, collectOf, isDue, MIN_START_MS, type CollectRunDeps, type CollectRunResult } from "./run";
 
@@ -38,7 +39,7 @@ export interface LaneDeps extends CollectRunDeps {
   /** Collect one connection (tests stub it). */
   collect?: typeof collectConnection;
   /** The housekeeping for one brand's connections (erase retries), run whatever collect says. */
-  housekeeping?: (ctx: TenantContext, connections: DataConnection[], deps: LaneDeps) => Promise<{ erased: number }>;
+  housekeeping?: (ctx: TenantContext, connections: DataConnection[], deps: { db?: LaneDeps["db"]; now?: Date }) => Promise<{ erased: number }>;
   log?: (line: string) => void;
 }
 
@@ -70,7 +71,7 @@ export async function runConnectorsLane(opts: { deadlineMs: number }, deps: Lane
     try {
       const conns = await forTenant(ctx, deps.db).dataConnections.find({ limit: LANE.CONNECTIONS_PER_BRAND });
       result.brands += 1;
-      if (deps.housekeeping) result.erased += (await deps.housekeeping(ctx, conns, deps)).erased;
+      result.erased += (await (deps.housekeeping ?? retryPendingErases)(ctx, conns, { db: deps.db, now: new Date(clock()) })).erased;
       if (!collecting) continue;
       const now = new Date(clock());
       for (const c of conns) {

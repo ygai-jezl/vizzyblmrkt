@@ -593,6 +593,10 @@ export function activityWords(e: { kind: string; code: string | null }, name: st
       return e.code === "ok" ? `Access checked: ${name} can see the property` : `Access checked for ${name}: ${shortWhy(e.code)}`;
     case "read":
       return `Vizzy read ${name}`;
+    case "collected":
+      return `Numbers collected for ${name}`;
+    case "erased":
+      return e.code === "old_site" ? `Collected numbers for the old property of ${name} deleted` : `Collected numbers for ${name} deleted`;
     case "disconnected":
       return `${name} disconnected`;
     case "cleanup_failed":

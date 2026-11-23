@@ -3,8 +3,8 @@
  * (src/lib/connectors/purge.ts, ADR-0011). Works with every connector switch off.
  *
  * For one connection (--connection) or every connection of the brand, it deletes the sealed
- * secrets, the recent list and the activity rows, marks each connection disconnected and leaves
- * one "purged" activity row as the trace. Delete a pasted token at the provider too. It calls a
+ * secrets, the recent list, the activity rows and everything it collected (its metric snapshots,
+ * ADR-0012), marks each connection disconnected and leaves one "purged" activity row as the trace. Delete a pasted token at the provider too. It calls a
  * provider only to revoke a Google sign in, and only with CONNECTOR_GOOGLE_REVOKE_ENABLED on and
  * CONNECTORS_VAULT_KEY set: Google's revoke ends every grant of that Google account, for every brand.
  *

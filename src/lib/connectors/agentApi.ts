@@ -5,8 +5,9 @@ import { DATA_CONNECTION_ID_RE, type DataConnection } from "@/lib/types/dataConn
 import type { AgentApiResult } from "./agentGate";
 import { can, type ConnectorActor } from "./grants";
 import { shownState } from "./health";
-import { lagWords } from "./live";
+import { lagWords, PagePathSchema } from "./live";
 import { LIVE_BY, LIVE_LIMITS } from "./manifest";
+import { LIVE_PERIODS } from "./period";
 import { connectorMessage } from "./messages";
 import { getConnector, knownConnector } from "./registry";
 import { readLiveFor, type ServiceDeps } from "./service";
@@ -21,8 +22,11 @@ import { readLiveFor, type ServiceDeps } from "./service";
  *   read answers 403 with words saying an admin can allow it; the list says only that some
  *   connections aren't shared with Vizzy, never which.
  * - A live read is the people's read (readLiveFor): bounded to 93 days and 100 rows, the stream's
- *   own dimensions, page paths without query strings. Every number in an answer has its meaning,
- *   and nothing else in an answer is a number. Each read is logged as "read" by agent:vizzy.
+ *   own dimensions, page paths without query strings. Vizzy asks for a named period and the
+ *   server works out the days the way the provider's own report does; the answer says which days
+ *   it read (period.words), the provider's totals where it gives them, and whether rows were left
+ *   out (more). Every number in an answer has its meaning, and nothing else in an answer is a
+ *   number. Each read is logged as "read" by agent:vizzy, with what was asked (no numbers).
  */
 
 const LIST_LIMIT = 200;
@@ -60,7 +64,15 @@ export async function agentConnections(ctx: TenantContext, actor: ConnectorActor
       problem: c.health.lastErrorCode && state !== "ok" ? connectorMessage(c.health.lastErrorCode, { name: m?.name ?? c.connectorId, chat: true }) : null,
       canRead: why === null,
       cannotReadBecause: why,
-      streams: (m?.produces ?? []).map((p) => ({ stream: p.stream, description: p.description, by: p.liveBy, lag: lagWords(p.lagDays), measures: p.measures })),
+      streams: (m?.produces ?? []).map((p) => ({
+        stream: p.stream,
+        description: p.description,
+        by: p.liveBy,
+        pageFilter: (p.liveFilters ?? []).includes("page"),
+        lag: lagWords(p.lagDays),
+        ...(p.days ? { days: p.days } : {}),
+        measures: p.measures,
+      })),
     };
   });
   return {
@@ -78,14 +90,22 @@ export const AgentLiveSchema = z
   .object({
     connectionId: z.string().regex(DATA_CONNECTION_ID_RE),
     stream: z.string().regex(/^[a-z][a-z0-9_]{1,39}$/),
-    from: z.string().regex(DATE),
-    to: z.string().regex(DATE),
+    period: z.enum(LIVE_PERIODS).optional(),
+    from: z.string().regex(DATE).optional(),
+    to: z.string().regex(DATE).optional(),
     by: z.enum(LIVE_BY).optional(),
     limit: z.number().int().min(1).max(LIVE_LIMITS.maxRows).optional(),
+    page: PagePathSchema.optional(),
   })
-  .strict();
+  .strict()
+  .refine((b) => (b.period ? b.from === undefined && b.to === undefined : b.from !== undefined && b.to !== undefined), "a period, or both from and to");
 
-/** read_connected_live: one capped live read, every number with its meaning. */
+/**
+ * read_connected_live: one capped live read, every number with its meaning. The answer names the
+ * connector (id and name) for a source line, gives the days read as period {from, to, timeZone,
+ * finalThrough, words}, the provider's totals where it gives them, more when rows were left out,
+ * and each note once. The stream's lag is in list_connections, not repeated here.
+ */
 export async function agentLiveRead(ctx: TenantContext, actor: ConnectorActor, body: unknown, deps: ServiceDeps = {}): Promise<AgentApiResult> {
   const parsed = AgentLiveSchema.safeParse(body);
   if (!parsed.success) return { status: 400, body: { error: "invalid_input" } };
@@ -100,14 +120,14 @@ export async function agentLiveRead(ctx: TenantContext, actor: ConnectorActor, b
   return {
     status: 200,
     body: {
-      connection: { id: conn.id, connector: knownConnector(conn.connectorId)?.name ?? conn.connectorId, label: conn.label },
+      connection: { id: conn.id, connectorId: a.connectorId, connector: a.connector, label: conn.label },
       stream: a.stream,
-      from: a.from,
-      to: a.to,
       by: a.by,
+      period: a.period,
       rows: a.rows,
+      ...(a.totals ? { totals: a.totals } : {}),
+      more: a.more,
       meanings: a.meanings,
-      lag: a.lag.words,
       notes: a.notes,
       asOf: a.asOf,
     },

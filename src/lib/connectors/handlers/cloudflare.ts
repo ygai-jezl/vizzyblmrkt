@@ -1,4 +1,5 @@
 import type { ConnectorErrorCode } from "../messages";
+import { addDays, cappedNote, daysIn, dayWords, daysWords, earlierDay, isDay, laterDay, nothingYetNote, resolveWindow } from "../period";
 import { connectorFetch, type ConnectorResponse } from "../safeFetch";
 import type { AccountsHook, ConnectorAccount, HookFailure, LiveHook, LiveRow, VerifyHook } from "./types";
 
@@ -10,9 +11,14 @@ import type { AccountsHook, ConnectorAccount, HookFailure, LiveHook, LiveRow, Ve
  *
  * - zoneProbe proves the token reads analytics for this zone: one tiny query on the daily dataset
  *   (user/tokens/verify may refuse account tokens and doesn't prove zone access).
- * - zoneDaily reads requests and page views from httpRequests1dGroups and visits from
- *   httpRequestsAdaptiveGroups (sum.visits, sampled, about 31 days kept on every plan). When only
- *   the visits part fails, the totals still come back, with visits empty and a note.
+ * - zoneDaily reads what the dashboard's Traffic tab shows: requests (count), page views
+ *   (successful HTML responses) and visits from httpRequestsAdaptiveGroups filtered to end users
+ *   (requestSource eyeball), for the days the zone's retention allows (its settings node:
+ *   notOlderThan and maxDuration; at least 31 days kept and 30 days a request on every plan since
+ *   2 Oct 2026). Older days, and unique visitors (uniq.uniques, what the Free plan's dashboard
+ *   shows), come from the daily totals, httpRequests1dGroups, whose requests and page views count
+ *   all traffic; a note names those days. Days are whole UTC days. When only the end user part
+ *   fails, the daily totals stand in, with a note.
  * - zones lists the zones a pasted token can see, for the picker on the Listing (GET
  *   /client/v4/zones, which needs Zone Read; at most 50 a page, so at most 4 pages). This one is
  *   REST: it answers `success`, `errors` with numeric codes, `result` and `result_info`. A token
@@ -20,7 +26,7 @@ import type { AccountsHook, ConnectorAccount, HookFailure, LiveHook, LiveRow, Ve
  *   zones listed) means the Zone ID is typed instead, and Connect checks the token with it.
  *
  * Variables carry every value from outside; the query text is fixed but for a row limit that is
- * an integer checked here.
+ * an integer checked here, and whether the end user parts are asked for.
  */
 
 const GRAPHQL = "https://api.cloudflare.com/client/v4/graphql";
@@ -35,30 +41,96 @@ const PROBE = `query ZoneProbe($zoneTag: string, $from: Date, $to: Date) {
   }
 }`;
 
-const daily = (limit: number) => `query ZoneDaily($zoneTag: string, $from: Date, $to: Date) {
+const SETTINGS = `query ZoneSettings($zoneTag: string) {
   viewer {
     zones(filter: { zoneTag: $zoneTag }) {
-      totals: httpRequests1dGroups(limit: ${limit}, filter: { date_geq: $from, date_leq: $to }, orderBy: [date_ASC]) {
-        dimensions { date }
-        sum { requests pageViews }
-      }
-      visits: httpRequestsAdaptiveGroups(limit: ${limit}, filter: { date_geq: $from, date_leq: $to, requestSource: "eyeball" }, orderBy: [date_ASC]) {
-        dimensions { date }
-        sum { visits }
+      settings {
+        httpRequestsAdaptiveGroups { enabled notOlderThan maxDuration }
       }
     }
   }
 }`;
 
-/** When only the sampled visits part fails: it keeps about a month, and some plans give fewer days at once. */
-export const VISITS_NOTE = "Visits aren't available for these days: Cloudflare keeps them for about a month, and some plans give only a few days at a time.";
+/**
+ * One read: the daily dataset for every day (unique visitors, and all traffic for days the
+ * adaptive one no longer keeps), and, for the days the zone's retention allows, the adaptive
+ * dataset filtered to end users (requestSource eyeball), as the dashboard's Traffic tab shows:
+ * requests (count) and visits, and page views as successful HTML responses.
+ */
+export function zoneDailyQuery(limit: number, adaptive: boolean): string {
+  const rows = Math.max(1, Math.min(100, Math.trunc(limit)));
+  const endUsers = `date_geq: $afrom, date_leq: $ato, requestSource: "eyeball"`;
+  return `query ZoneDaily($zoneTag: string, $from: Date, $to: Date${adaptive ? ", $afrom: Date, $ato: Date" : ""}) {
+  viewer {
+    zones(filter: { zoneTag: $zoneTag }) {
+      daily: httpRequests1dGroups(limit: ${rows}, filter: { date_geq: $from, date_leq: $to }, orderBy: [date_ASC]) {
+        dimensions { date }
+        sum { requests pageViews }
+        uniq { uniques }
+      }${
+        adaptive
+          ? `
+      traffic: httpRequestsAdaptiveGroups(limit: ${rows}, filter: { ${endUsers} }, orderBy: [date_ASC]) {
+        dimensions { date }
+        count
+        sum { visits }
+      }
+      pages: httpRequestsAdaptiveGroups(limit: ${rows}, filter: { ${endUsers}, edgeResponseContentTypeName: "html", edgeResponseStatus_geq: 200, edgeResponseStatus_lt: 300 }, orderBy: [date_ASC]) {
+        dimensions { date }
+        count
+      }`
+          : ""
+      }
+    }
+  }
+}`;
+}
+
+/**
+ * How far back, and how many days at once, the adaptive dataset reads, from the zone's settings
+ * (seconds). Cloudflare documents at least 31 days kept and 30 days a request on every plan since
+ * 2 Oct 2026, so those are used when the settings can't be read.
+ */
+export const ADAPTIVE_DEFAULTS = { notOlderThan: 31 * 86_400, maxDuration: 30 * 86_400 };
+
+/** The settings in an answer, or the defaults; enabled false means the zone can't read the dataset. */
+export function adaptiveSettings(body: unknown): { enabled: boolean; notOlderThan: number; maxDuration: number } {
+  const zones = zonesOf(body);
+  const set = (zones?.[0] as { settings?: { httpRequestsAdaptiveGroups?: { enabled?: unknown; notOlderThan?: unknown; maxDuration?: unknown } } } | undefined)?.settings
+    ?.httpRequestsAdaptiveGroups;
+  const seconds = (v: unknown, fallback: number) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : fallback);
+  return {
+    enabled: set?.enabled !== false,
+    notOlderThan: seconds(set?.notOlderThan, ADAPTIVE_DEFAULTS.notOlderThan),
+    maxDuration: seconds(set?.maxDuration, ADAPTIVE_DEFAULTS.maxDuration),
+  };
+}
+
+/** The first day of a read the adaptive dataset can give: whole UTC days inside its retention and its widest range. */
+export function adaptiveFrom(now: Date, from: string, to: string, s: { notOlderThan: number; maxDuration: number }): string {
+  const oldest = new Date(Math.ceil((now.getTime() - s.notOlderThan * 1000) / 86_400_000) * 86_400_000).toISOString().slice(0, 10);
+  const widest = addDays(to, -(Math.max(1, Math.floor(s.maxDuration / 86_400)) - 1));
+  return laterDay(laterDay(from, oldest), widest);
+}
+
+/** Days before the adaptive dataset's reach, read from the daily totals instead: dated. */
+export function olderDaysNote(from: string, to: string): string {
+  return `Cloudflare keeps end user numbers only for recent days, so for ${daysWords(from, to)} requests and page views count all traffic, bots included, and visits are empty.`;
+}
+
+/** When the end user part of a read fails, the daily totals stand in for every day. */
+export const END_USERS_NOTE =
+  "Cloudflare didn't give end user numbers for these days, so requests and page views count all traffic, bots included, and visits are empty.";
+
+/** The Free plan's delay, dated, for a read that reaches the last day. */
+export function freePlanNote(day: string): string {
+  return `On Cloudflare's Free plan numbers arrive 24 hours late, so if this zone is on it, ${dayWords(day)} may be low.`;
+}
 
 interface GraphQLError {
   message?: unknown;
   path?: unknown;
 }
-
-const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** The code for a list of GraphQL errors, from their messages. */
 export function classifyErrors(errors: readonly GraphQLError[]): ConnectorErrorCode {
@@ -114,69 +186,101 @@ export const zoneProbe: VerifyHook = async (input, deps) => {
   return { ok: true };
 };
 
-/** True when every error is about the visits part of the query alone. */
-function onlyVisitsFailed(errors: readonly GraphQLError[]): boolean {
-  return errors.length > 0 && errors.every((e) => Array.isArray(e.path) && e.path.includes("visits") && !e.path.includes("totals"));
+/** Failures of the settings call that would fail the read too, so it stops there. */
+const STOPS_A_READ: ReadonlySet<ConnectorErrorCode> = new Set(["token_refused", "account_refused", "rate_limited", "busy", "redirect_refused", "host_not_allowed"]);
+
+/** True when every error is about the end user (adaptive) parts of the query alone. */
+function onlyEndUsersFailed(errors: readonly GraphQLError[]): boolean {
+  const adaptive = (e: GraphQLError) => Array.isArray(e.path) && (e.path.includes("traffic") || e.path.includes("pages")) && !e.path.includes("daily");
+  return errors.length > 0 && errors.every(adaptive);
 }
 
 function count(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.round(v) : null;
 }
 
+type Group = { dimensions?: { date?: unknown }; count?: unknown; sum?: { requests?: unknown; pageViews?: unknown; visits?: unknown }; uniq?: { uniques?: unknown } };
+
+/** Groups by their day, for days inside the read. */
+function byDay(groups: unknown, from: string, to: string): Map<string, Group> {
+  const out = new Map<string, Group>();
+  if (!Array.isArray(groups)) return out;
+  for (const g of groups as Group[]) {
+    const day = g?.dimensions?.date;
+    if (typeof day === "string" && isDay(day) && day >= from && day <= to) out.set(day, g);
+  }
+  return out;
+}
+
+/**
+ * A zone's days, as the dashboard shows them, in whole UTC days ending on the last complete one
+ * (yesterday in UTC). Two calls: the zone's settings for the adaptive dataset, then the numbers.
+ */
 export const zoneDaily: LiveHook = async (input, deps) => {
   const { query } = input;
   if (query.stream !== "zone_daily" || query.by !== "day") return { ok: false, code: "query_refused", retryAfterSec: null };
-  const limit = Math.max(1, Math.min(100, Math.trunc(query.limit)));
-  const res = await connectorFetch(
-    {
-      manifest: input.manifest,
-      connection: input.connection,
-      url: GRAPHQL,
-      method: "POST",
-      json: { query: daily(limit), variables: { zoneTag: input.account, from: query.from, to: query.to } },
-      token: input.token,
-    },
-    deps,
-  );
+  const now = deps.now ?? new Date();
+  const today = input.today;
+  const lastComplete = addDays(today, -1);
+  const window = resolveWindow(query, lastComplete);
+  const period = { from: window.from, to: window.to, timeZone: "UTC", finalThrough: earlierDay(lastComplete, window.to) };
+  if (window.empty) return { ok: true, rows: [], notes: [nothingYetNote("Cloudflare", window.from, window.to, lastComplete)], period, more: false };
+  const post = (json: unknown) => connectorFetch({ manifest: input.manifest, connection: input.connection, url: GRAPHQL, method: "POST", json, token: input.token }, deps);
+
+  // How far back end user numbers go for this zone. Settings that can't be read fall back to
+  // Cloudflare's documented floor, so a read never fails on them alone; a token or zone Cloudflare
+  // turns down, or a rate limit, stops the read here.
+  const settingsRes = await post({ query: SETTINGS, variables: { zoneTag: input.account } });
+  if (!settingsRes.ok) {
+    const f = failure(settingsRes);
+    if (STOPS_A_READ.has(f.code)) return f;
+  }
+  const settings = !settingsRes.ok || errorsOf(settingsRes.body).length ? { enabled: true, ...ADAPTIVE_DEFAULTS } : adaptiveSettings(settingsRes.body);
+  const afrom = settings.enabled ? adaptiveFrom(now, window.from, window.to, settings) : null;
+  const adaptive = afrom !== null && afrom <= window.to;
+
+  const days = daysIn(window.from, window.to);
+  const res = await post({
+    query: zoneDailyQuery(days, adaptive),
+    variables: { zoneTag: input.account, from: window.from, to: window.to, ...(adaptive ? { afrom, ato: window.to } : {}) },
+  });
   if (!res.ok) return failure(res);
   const errors = errorsOf(res.body);
-  const visitsFailed = onlyVisitsFailed(errors);
-  if (errors.length && !visitsFailed) return { ok: false, code: classifyErrors(errors), retryAfterSec: null };
+  const endUsersFailed = onlyEndUsersFailed(errors);
+  if (errors.length && !endUsersFailed) return { ok: false, code: classifyErrors(errors), retryAfterSec: null };
   const zones = zonesOf(res.body);
   if (!zones) return { ok: false, code: "bad_response", retryAfterSec: null };
   if (zones.length !== 1) return { ok: false, code: "account_refused", retryAfterSec: null };
-  const zone = zones[0] as { totals?: unknown; visits?: unknown };
-  if (!Array.isArray(zone.totals)) return { ok: false, code: "bad_response", retryAfterSec: null };
+  const zone = zones[0] as { daily?: unknown; traffic?: unknown; pages?: unknown };
+  if (!Array.isArray(zone.daily)) return { ok: false, code: "bad_response", retryAfterSec: null };
 
-  const byDay = new Map<string, LiveRow>();
-  const row = (day: string): LiveRow => {
-    let r = byDay.get(day);
-    if (!r) {
-      r = { day, cfRequests: null, cfPageViews: null, cfVisits: null };
-      byDay.set(day, r);
-    }
-    return r;
-  };
-  for (const g of zone.totals as Array<{ dimensions?: { date?: unknown }; sum?: { requests?: unknown; pageViews?: unknown } }>) {
-    const day = g?.dimensions?.date;
-    if (typeof day !== "string" || !DATE.test(day)) continue;
-    const r = row(day);
-    r.cfRequests = count(g.sum?.requests);
-    r.cfPageViews = count(g.sum?.pageViews);
-  }
-  if (Array.isArray(zone.visits)) {
-    for (const g of zone.visits as Array<{ dimensions?: { date?: unknown }; sum?: { visits?: unknown } }>) {
-      const day = g?.dimensions?.date;
-      if (typeof day !== "string" || !DATE.test(day)) continue;
-      row(day).cfVisits = count(g.sum?.visits);
-    }
+  const endUsers = adaptive && !endUsersFailed && Array.isArray(zone.traffic) && Array.isArray(zone.pages);
+  const daily = byDay(zone.daily, window.from, window.to);
+  const traffic = endUsers ? byDay(zone.traffic, afrom!, window.to) : new Map<string, Group>();
+  const pages = endUsers ? byDay(zone.pages, afrom!, window.to) : new Map<string, Group>();
+  const rows: LiveRow[] = [];
+  for (const day of [...new Set([...daily.keys(), ...traffic.keys()])].sort()) {
+    const d = daily.get(day);
+    const recent = endUsers && day >= afrom!;
+    const t = traffic.get(day);
+    rows.push({
+      day,
+      // End users only where the adaptive dataset reaches; a day it lists nothing for has no number
+      // (it may not have arrived yet), and a day with traffic but no HTML responses had no page views.
+      cfRequests: recent ? (t ? count(t.count) : null) : count(d?.sum?.requests),
+      cfPageViews: recent ? (t ? count(pages.get(day)?.count ?? 0) : null) : count(d?.sum?.pageViews),
+      cfVisits: recent && t ? count(t.sum?.visits) : null,
+      cfUniqueVisitors: d ? count(d.uniq?.uniques) : null,
+    });
   }
 
   const notes: string[] = [];
-  if (visitsFailed || !Array.isArray(zone.visits)) notes.push(VISITS_NOTE);
-  if (query.to >= input.today) notes.push("Today's numbers are still coming in.");
-  const rows = [...byDay.values()].filter((r) => (r.day as string) >= query.from && (r.day as string) <= query.to).sort((a, b) => String(a.day).localeCompare(String(b.day)));
-  return { ok: true, rows: rows.slice(0, limit), notes };
+  if (window.capped) notes.push(cappedNote("Cloudflare", lastComplete));
+  if ((adaptive && !endUsers) || !settings.enabled) notes.push(END_USERS_NOTE);
+  else if (!adaptive) notes.push(olderDaysNote(window.from, window.to));
+  else if (afrom! > window.from) notes.push(olderDaysNote(window.from, addDays(afrom!, -1)));
+  if (window.to >= lastComplete) notes.push(freePlanNote(window.to));
+  return { ok: true, rows, notes, period, more: false };
 };
 
 const ZONES = "https://api.cloudflare.com/client/v4/zones";

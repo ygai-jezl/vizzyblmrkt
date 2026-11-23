@@ -79,6 +79,9 @@ function ConnectorSection({ c }: { c: ConnectorHelp }) {
           </li>
         ))}
       </UL>
+      {c.days.map((d) => (
+        <P key={d}>{d}</P>
+      ))}
       <P>
         {c.lag} {c.disconnect}
       </P>

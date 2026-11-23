@@ -33,7 +33,17 @@ const TOKEN = "made-up-cloudflare-token-0000000000";
 const answer = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const PROBE_OK = { data: { viewer: { zones: [{ httpRequests1dGroups: [] }] } }, errors: null };
 const DAILY_OK = {
-  data: { viewer: { zones: [{ totals: [{ dimensions: { date: "2026-11-20" }, sum: { requests: 2400, pageViews: 310 } }], visits: [{ dimensions: { date: "2026-11-20" }, sum: { visits: 140 } }] }] } },
+  data: {
+    viewer: {
+      zones: [
+        {
+          daily: [{ dimensions: { date: "2026-11-20" }, sum: { requests: 2600, pageViews: 330 }, uniq: { uniques: 95 } }],
+          traffic: [{ dimensions: { date: "2026-11-20" }, count: 2400, sum: { visits: 140 } }],
+          pages: [{ dimensions: { date: "2026-11-20" }, count: 310 }],
+        },
+      ],
+    },
+  },
   errors: null,
 };
 
@@ -143,12 +153,14 @@ describe("the connector routes", () => {
     session.getAdminContext.mockResolvedValue(admin);
     expect((await calls(id).grants()).status).toBe(200);
     session.getAdminContext.mockResolvedValue(member);
-    fetchMock.mockResolvedValue(answer(DAILY_OK));
+    // Two calls (the zone's settings, then its numbers), each answered afresh.
+    fetchMock.mockImplementation(async () => answer(DAILY_OK));
     const res = await calls(id).live();
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.rows).toEqual([{ day: "2026-11-20", cfRequests: 2400, cfPageViews: 310, cfVisits: 140 }]);
-    expect(Object.keys(body.meanings).sort()).toEqual(["cfPageViews", "cfRequests", "cfVisits"]);
+    expect(body.rows).toEqual([{ day: "2026-11-20", cfRequests: 2400, cfPageViews: 310, cfVisits: 140, cfUniqueVisitors: 95 }]);
+    expect(Object.keys(body.meanings).sort()).toEqual(["cfPageViews", "cfRequests", "cfUniqueVisitors", "cfVisits"]);
+    expect(body.period).toMatchObject({ from: "2026-11-20", to: "2026-11-20", timeZone: "UTC", words: "20 Nov 2026, UTC" });
   });
 
   it("treat another brand's connection as not there", async () => {

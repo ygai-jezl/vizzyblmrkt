@@ -527,6 +527,15 @@ describe("Connected data", () => {
     expect(text).toContain(HEALTH_HELP.disconnected);
   });
 
+  it("says which days a read covers for each tool, as its own report counts them", () => {
+    const text = md(false);
+    expect(text).toContain("the same days as Search Console's own report: complete days in Pacific time, ending on its last complete day");
+    expect(text).toContain("end yesterday in the property's own time zone, as Google Analytics reports do");
+    expect(text).toContain("Set Cloudflare's dashboard to UTC to compare them with its Traffic tab.");
+    expect(text).toContain("**Cloudflare unique visitors**");
+    expect(md(true)).toContain("YouGrow reads the same days as the tool's own report, in its time zone, and Vizzy says which days those are.");
+  });
+
   it("explains letting Vizzy read only while Vizzy reads connected data", () => {
     expect(md(true)).toContain("## Letting Vizzy read it");
     expect(md(true)).toContain("Vizzy can read it when someone asks");

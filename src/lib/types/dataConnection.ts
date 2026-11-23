@@ -147,12 +147,33 @@ export const DataConnectionSchema = z.object({
 });
 export type DataConnection = z.infer<typeof DataConnectionSchema>;
 
+/**
+ * What a live read asked for and the days it read, kept on its activity row so a number that
+ * doesn't match the provider's report can be checked later. Never a number read, nor a page.
+ */
+export interface ReadActivityDetail {
+  stream: string;
+  /** The grouping: day, page, topic or landing. */
+  by: string;
+  /** The days read, in the provider's time zone. */
+  from: string;
+  to: string;
+  timeZone: string | null;
+  limit: number;
+  /** The named period asked for, or null for explicit days. */
+  period: string | null;
+  /** Whether the read was filtered to one page (which page is never kept). */
+  pageFilter: boolean;
+}
+
 /** A row of the activity log. Written, never queried by the app; deleted 90 days on. */
 export interface DataConnectionActivity extends ActivityEntry {
   id: string;
   tenantId: string;
   connectionId: string;
   connectorId: string;
+  /** On a live read's row: what was asked and the days read. */
+  read?: ReadActivityDetail;
   /** The time to live: a Date, so Firestore's TTL policy deletes the row. */
   ttlAt: Date;
 }

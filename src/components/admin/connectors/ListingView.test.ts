@@ -85,13 +85,13 @@ describe("the Cloudflare Listing", () => {
 
   it("says what it reads and never does, every number's meaning and the lag, from the manifest", () => {
     const text = textOf(html({ listing: CF }));
-    expect(text).toContain("From Cloudflare What In YouGrow Daily totals for the zone requests, page views and visits Read live when you or Vizzy ask. Nothing is stored.");
+    expect(text).toContain("From Cloudflare What In YouGrow Daily totals for the zone requests, page views, visits and unique visitors Read live when you or Vizzy ask. Nothing is stored.");
     expect(text).toContain("Your zones their names Listed when you press Check, so you can pick one. Not stored.");
     // Account Analytics Read has its own line, which says nothing reads with it today.
     expect(text).toContain("Your account's analytics Asked for now so later features don't need a new token. Nothing is read with it today.");
     expect(text).toContain("Nothing is ever written to Cloudflare.");
     expect(text).toContain("Cloudflare requests");
-    expect(text).toContain("A day's numbers are complete the next day.");
+    expect(text).toContain("A day's numbers are final the next day.");
     expect(text).toContain(CF.disconnect);
     expect(text).toContain("a token with these permissions: Zone Read, Zone Analytics Read and Account Analytics Read.");
     expect(html({ listing: CF })).toContain('href="/help/connected-data#cloudflare"');
@@ -243,7 +243,7 @@ describe("the Search Console and Google Analytics Listings", () => {
   it("reads the property table from each manifest", () => {
     expect(textOf(html({ listing: GA }))).toContain("Traffic numbers for the property you pick");
     expect(textOf(html({ listing: SC }))).toContain("Search numbers for the site you pick");
-    expect(textOf(html({ listing: SC }))).toContain("A day's numbers are complete about 3 days later.");
+    expect(textOf(html({ listing: SC }))).toContain("A day's numbers are final about 3 days later.");
   });
 });
 

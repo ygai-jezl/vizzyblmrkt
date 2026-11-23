@@ -72,6 +72,18 @@ describe("connector manifests", () => {
     expect(issues({ ...m, produces: [{ ...stream, joins: { page: "page" } }] }).join()).toContain("not one of its keys");
   });
 
+  it("joins a landing page on page, and refuses a page filter, or a time zone, it can't honour", () => {
+    const m = base();
+    const stream = m.produces[0]!;
+    const landing = { ...stream, keys: ["day", "landing"], joins: { day: "day" as const, landing: "page" as const }, liveBy: ["day" as const, "landing" as const] };
+    expect(issues({ ...m, produces: [landing] })).toEqual([]);
+    expect(issues({ ...m, produces: [{ ...stream, liveBy: ["landing"] }] }).join()).toContain("no key that joins");
+    expect(issues({ ...m, produces: [{ ...stream, liveFilters: ["page"] }] }).join()).toContain("liveFilters page has no key");
+    expect(issues({ ...m, produces: [{ ...landing, liveFilters: ["page"] }] })).toEqual([]);
+    expect(issues({ ...m, produces: [{ ...stream, timeZone: "Mars/Olympus" }] }).join()).toContain("IANA time zone");
+    expect(streamOf(parseManifest(searchConsoleManifest), "search_performance")).toMatchObject({ timeZone: "America/Los_Angeles", liveFilters: ["page"] });
+  });
+
   it("refuses a permission or scope with no shares line, and shares with no Never line", () => {
     const m = base();
     expect(issues({ ...m, shares: m.shares.map((s) => ({ ...s, needs: [] })) }).join()).toContain("has no shares line");
@@ -129,7 +141,7 @@ describe("connector manifests", () => {
   it("finds a manifest's token method and streams", () => {
     const m = parseManifest(cloudflareManifest);
     expect(tokenMethod(m)?.auth.field).toBe("token");
-    expect(streamOf(m, "zone_daily")?.measures).toEqual(["cfRequests", "cfPageViews", "cfVisits"]);
+    expect(streamOf(m, "zone_daily")?.measures).toEqual(["cfRequests", "cfPageViews", "cfVisits", "cfUniqueVisitors"]);
     expect(streamOf(m, "nope")).toBeNull();
     expect(() => parseManifest({ ...base(), id: "browse" })).toThrow(/bad_connector_manifest:browse:id: a reserved id/);
   });

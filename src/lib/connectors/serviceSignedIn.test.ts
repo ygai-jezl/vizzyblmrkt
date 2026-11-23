@@ -130,7 +130,7 @@ describe("a signed in connection with no site picked", () => {
         connectorId: "search-console",
         rows: [{ day: "2026-11-10", searchClicks: 5, searchImpressions: 100, searchCtr: 0.05, searchPosition: 6.5 }],
         meanings: { searchClicks: { name: "Search clicks" }, searchPosition: { unit: "rank" } },
-        lag: { days: 3 },
+        period: { from: "2026-11-01", to: "2026-11-10", timeZone: "America/Los_Angeles", words: "1 Nov to 10 Nov 2026, Pacific time" },
       },
     });
     expect(calls().at(-1)).toBe("https://searchconsole.googleapis.com/webmasters/v3/sites/sc-domain%3Aexample.com/searchAnalytics/query");

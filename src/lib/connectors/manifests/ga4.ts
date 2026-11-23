@@ -15,10 +15,13 @@ const SCOPE = "https://www.googleapis.com/auth/analytics.readonly";
  * - The picker lists the properties the sign in or address can see through the Admin API's
  *   accountSummaries.list (developers.google.com/analytics/devguides/config/admin/v1).
  * - Live reads: the Data API's properties.runReport (developers.google.com/analytics/devguides/
- *   reporting/data/v1) with returnPropertyQuota, by date or pagePath (the path without its query
- *   string), at most 93 days and 100 rows. Dates are in the property's time zone; a day's numbers
- *   settle within about 2 days. Each request spends a few of the property's tokens (200,000 a day
- *   for a standard property); the limits here stay far below.
+ *   reporting/data/v1) with totals and returnPropertyQuota, by date, by page (unifiedPagePathScreen,
+ *   as the Pages and screens report) or by landing page (landingPage, as the Landing page report),
+ *   at most 93 days and 100 rows. A named period goes to Google as its relative dates (28daysAgo
+ *   to yesterday), so Google works the days out in the property's time zone, which each answer
+ *   names; there is no fixed timeZone here. A day's numbers settle within about 2 days. Each
+ *   request spends a few of the property's tokens (200,000 a day for a standard property); the
+ *   limits here stay far below.
  * - Hosts: analyticsdata.googleapis.com, analyticsadmin.googleapis.com and Google's token endpoint.
  */
 export const ga4Manifest = {
@@ -53,7 +56,7 @@ export const ga4Manifest = {
   shares: [
     {
       what: "Traffic numbers for the property you pick",
-      detail: "sessions, active users, views and key events, by day or page",
+      detail: "sessions, active users, views and key events, by day, page or landing page",
       direction: "read",
       where: "Read live when you or Vizzy ask. Nothing is stored.",
       needs: [SCOPE],
@@ -73,14 +76,16 @@ export const ga4Manifest = {
   produces: [
     {
       stream: "site_traffic",
-      description: "Sessions, active users, views and key events from Google Analytics, a row per day or page.",
+      description: "Sessions, active users, views and key events from Google Analytics, a row per day, page or landing page.",
       shape: "numbers",
-      keys: ["day", "page"],
+      keys: ["day", "page", "landing"],
       measures: ["ga4Sessions", "ga4ActiveUsers", "ga4Views", "ga4KeyEvents"],
-      joins: { day: "day", page: "page" },
+      joins: { day: "day", page: "page", landing: "page" },
       lagDays: 2,
+      days: "The last 7, 28 or 90 days end yesterday in the property's own time zone, as Google Analytics reports do. Pages match its Pages and screens report, and landing pages its Landing page report.",
       personal: false,
-      liveBy: ["day", "page"],
+      liveBy: ["day", "page", "landing"],
+      liveFilters: ["page"],
     },
   ],
   uses: ["vizzy.read"],

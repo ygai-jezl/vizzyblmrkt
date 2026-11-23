@@ -399,13 +399,24 @@ export async function checkToken(ctx: TenantContext, actor: ConnectorActor, conn
 // --- Calls that use the stored secret ---------------------------------------------------------
 
 /** The activity and health patch for a call's outcome. */
-function outcomePlan(cur: DataConnection, outcome: { ok: true } | HookFailure, actor: ConnectorActor, now: Date, onSuccess: ActivityWrite["kind"] | null): ChangePlan {
+function outcomePlan(
+  cur: DataConnection,
+  outcome: { ok: true } | HookFailure,
+  actor: ConnectorActor,
+  now: Date,
+  onSuccess: ActivityWrite["kind"] | null,
+  read?: ActivityWrite["read"],
+): ChangePlan {
   const at = now.toISOString();
   if (outcome.ok) {
     const recentOk = cur.health.state === "ok" && cur.health.lastOkAt && now.getTime() - Date.parse(cur.health.lastOkAt) < 10 * 60_000;
     if (!onSuccess && recentOk) return null;
-    // Vizzy's reads are logged but kept off the recent list (the Connected view shows people's changes).
-    return { patch: { health: healthAfterSuccess(cur.health, now) }, activity: onSuccess ? [{ kind: onSuccess, by: byOf(actor), at, ...(onSuccess === "read" ? { recent: false } : {}) }] : [] };
+    // Vizzy's reads are logged but kept off the recent list (the Connected view shows people's changes),
+    // with what was asked and the days read, never a number or a page.
+    return {
+      patch: { health: healthAfterSuccess(cur.health, now) },
+      activity: onSuccess ? [{ kind: onSuccess, by: byOf(actor), at, ...(onSuccess === "read" ? { recent: false, ...(read ? { read } : {}) } : {}) }] : [],
+    };
   }
   const next = healthAfterFailure(cur.health, outcome.code, now, outcome.retryAfterSec);
   if (!next) return null;
@@ -513,9 +524,13 @@ export async function readLiveFor(
   const now = nowOf(deps);
   const checked = checkLiveRequest(u.manifest, rawQuery, now);
   if (!checked.ok) return refuse(400, checked.error);
-  const r = forMethod(u.conn.method, await readLive({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token, query: checked.query }, deps));
+  const q = checked.query;
+  const r = forMethod(u.conn.method, await readLive({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token, query: q }, deps));
   if (!r.ok && r.code === "busy") return providerRefusal("busy");
-  await changeDataConnection(ctx, id, (cur) => outcomePlan(cur, r.ok ? { ok: true } : r, actor, now, record), deps.db);
+  const read = r.ok
+    ? { stream: q.stream, by: q.by, from: r.answer.period.from, to: r.answer.period.to, timeZone: r.answer.period.timeZone, limit: q.limit, period: q.period ?? null, pageFilter: q.page !== undefined }
+    : undefined;
+  await changeDataConnection(ctx, id, (cur) => outcomePlan(cur, r.ok ? { ok: true } : r, actor, now, record, read), deps.db);
   if (!r.ok) return connectionRefusal(u.conn, r.code);
   return { ok: true, status: 200, value: r.answer };
 }

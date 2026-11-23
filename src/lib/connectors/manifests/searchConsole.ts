@@ -14,8 +14,12 @@ const SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
  *   site, and the same hooks read with a 300 second token for that address. Google documents
  *   service accounts as Search Console users only for the Indexing API; the dev check proves it.
  * - Search analytics: POST .../sites/{site}/searchAnalytics/query, grouped by date, page or
- *   query, web results only, finalized data only (dataState final), so a day settles about 3
- *   days later. Dates are Pacific time. Docs: developers.google.com/webmaster-tools/v1.
+ *   query, web results only, the same days and data as Search Console's Performance report:
+ *   dataState all (fresh days included), ending on its last complete Pacific day, which a small
+ *   date probe finds (metadata.first_incomplete_date). A day's numbers are final about 3 days
+ *   later; settledOnly reads final numbers only (dataState final), for Connectors 2. Page rows
+ *   keep their host apart and add together only addresses for the same host and path. Dates are
+ *   Pacific time. Docs: developers.google.com/webmaster-tools/v1.
  * - Google's docs write these paths under www.googleapis.com/webmasters/v3; the same paths answer
  *   on the API's own host, searchconsole.googleapis.com, the only host this connector may call
  *   besides Google's token endpoint.
@@ -75,12 +79,15 @@ export const searchConsoleManifest = {
       stream: "search_performance",
       description: "Clicks, impressions, click rate and average position in Google Search, a row per day, page or search.",
       shape: "numbers",
-      keys: ["day", "page", "query"],
+      keys: ["day", "page", "query", "host"],
       measures: ["searchClicks", "searchImpressions", "searchCtr", "searchPosition"],
       joins: { day: "day", page: "page", query: "topic" },
       lagDays: 3,
+      timeZone: "America/Los_Angeles",
+      days: "The last 7, 28 or 90 days are the same days as Search Console's own report: complete days in Pacific time, ending on its last complete day, including days that aren't final yet.",
       personal: false,
       liveBy: ["day", "page", "topic"],
+      liveFilters: ["page"],
     },
   ],
   uses: ["vizzy.read"],

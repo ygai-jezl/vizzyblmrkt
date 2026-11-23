@@ -17,7 +17,17 @@ const NOW = new Date("2026-11-21T10:00:00.000Z");
 const answer = (body: unknown, status = 200, headers: Record<string, string> = {}) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
 const PROBE_OK = { data: { viewer: { zones: [{ httpRequests1dGroups: [] }] } }, errors: null };
 const DAILY_OK = {
-  data: { viewer: { zones: [{ totals: [{ dimensions: { date: "2026-11-20" }, sum: { requests: 2400, pageViews: 310 } }], visits: [{ dimensions: { date: "2026-11-20" }, sum: { visits: 140 } }] }] } },
+  data: {
+    viewer: {
+      zones: [
+        {
+          daily: [{ dimensions: { date: "2026-11-20" }, sum: { requests: 2600, pageViews: 330 }, uniq: { uniques: 95 } }],
+          traffic: [{ dimensions: { date: "2026-11-20" }, count: 2400, sum: { visits: 140 } }],
+          pages: [{ dimensions: { date: "2026-11-20" }, count: 310 }],
+        },
+      ],
+    },
+  },
   errors: null,
 };
 
@@ -195,7 +205,7 @@ describe("live reads, grants and disconnect", () => {
 
   it("reads live for an admin with every number's meaning", async () => {
     const r = await readLiveFor(A, admin, ID, q, deps());
-    expect(r).toMatchObject({ ok: true, value: { rows: [{ day: "2026-11-20", cfRequests: 2400, cfPageViews: 310, cfVisits: 140 }], meanings: { cfRequests: { name: "Cloudflare requests" } } } });
+    expect(r).toMatchObject({ ok: true, value: { rows: [{ day: "2026-11-20", cfRequests: 2400, cfPageViews: 310, cfVisits: 140, cfUniqueVisitors: 95 }], meanings: { cfRequests: { name: "Cloudflare requests" } } } });
   });
 
   it("lets a member read only once the members grant is set, and shows them name and health only", async () => {

@@ -21,6 +21,8 @@ export interface ConnectorHelp {
   /** Every number it gives, with its meaning. */
   numbers: Array<{ name: string; definition: string; caveat: string | null }>;
   lag: string;
+  /** How a read's days match the provider's own report, from its streams. */
+  days: string[];
   /**
    * How to connect with a pasted token, when it can. `pick` is set when the account is picked from
    * a list after Check, with the note shown when the token can't list them and the field typed instead.
@@ -68,6 +70,7 @@ export function connectorHelp(m: ConnectorManifest): ConnectorHelp {
     shares: m.shares.map((s) => ({ what: s.what, detail: s.detail ?? null, direction: s.direction === "read" ? "Read only" : "Never", where: s.where })),
     numbers: Object.values(meaningsOf(measures)).map((mm) => ({ name: mm!.name, definition: mm!.definition, caveat: mm!.caveat ?? null })),
     lag: lagWords(lag),
+    days: [...new Set(m.produces.flatMap((p) => (p.days ? [p.days] : [])))],
     token:
       token && token.method === "token_fields"
         ? {
@@ -157,6 +160,7 @@ export const SHARE_ACCESS_HELP = {
 /** Letting Vizzy read a connection (CONNECTORS_CHAT_ENABLED). */
 export const VIZZY_HELP: readonly string[] = [
   "Vizzy can tell you what is connected and read the numbers live when you ask, for example how Search Console clicks went last week.",
+  "When you ask for the last 7, 28 or 90 days, YouGrow reads the same days as the tool's own report, in its time zone, and Vizzy says which days those are.",
   "Vizzy reads a connection only when an admin allows Vizzy to read it, on the connection in Settings › Connections › Connected. When Vizzy reads for a member, members must be allowed to read it too.",
   "Vizzy only reads. It never connects, changes, pauses or disconnects anything, and every number it gives comes with what the number means.",
   "Each time Vizzy reads a connection, its activity log records it.",

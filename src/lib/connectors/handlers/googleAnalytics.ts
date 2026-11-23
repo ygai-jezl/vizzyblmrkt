@@ -1,4 +1,5 @@
 import { cleanPagePath } from "../paths";
+import { addDays, cappedNote, daysIn, daysWords, earlierDay, isTimeZone, laterDay, nothingYetNote, PERIOD_DAYS, resolveWindow, todayIn, type LivePeriod } from "../period";
 import { connectorFetch } from "../safeFetch";
 import { googleFailure } from "./searchConsole";
 import type { AccountsHook, ConnectorAccount, HookFailure, HookInput, LiveHook, LiveRow, VerifyHook } from "./types";
@@ -13,10 +14,11 @@ import type { AccountsHook, ConnectorAccount, HookFailure, HookInput, LiveHook, 
  * - propertyCheck (verify): with no property picked it proves the token works; with one, that the
  *   property is still in that list.
  * - runReport reads the Data API's properties.runReport (POST analyticsdata.googleapis.com/v1beta/
- *   {property}:runReport) by date or pagePath, which is the path without its query string, with
- *   returnPropertyQuota. Google's metadata says when rows were rolled into "(other)", sampled or
- *   held back below its privacy thresholds; each becomes a note, as does a property low on its
- *   daily tokens.
+ *   {property}:runReport) by date, page (unifiedPagePathScreen) or landing page (landingPage),
+ *   each a path without its query string, with totals and returnPropertyQuota. Google's metadata
+ *   says the property's time zone, and when rows were rolled into "(other)", sampled or held
+ *   back below its privacy thresholds; each becomes a note, as does a property low on its daily
+ *   tokens.
  *
  * Google's error body tells this copy's setup (an API not turned on), a quota (RESOURCE_EXHAUSTED,
  * which a property out of tokens answers) and a property the token can't read (403) apart, with
@@ -30,14 +32,24 @@ export const PROPERTY_RE = /^properties\/\d{1,20}$/;
 export const MAX_PROPERTIES = 200;
 const MAX_PAGES = 3;
 const PAGE_SIZE = 200;
-const DIMENSION = { day: "date", page: "pagePath" } as const;
-/** Google's metric names, in the order asked, and the meaning key each becomes. */
+/** Each grouping's dimension: pages as the Pages and screens report, landing pages as the Landing page report. */
+const DIMENSION = { day: "date", page: "unifiedPagePathScreen", landing: "landingPage" } as const;
+/** Google's metric names and the meaning key each becomes. */
 export const GA4_METRICS = [
   ["sessions", "ga4Sessions"],
   ["activeUsers", "ga4ActiveUsers"],
   ["screenPageViews", "ga4Views"],
   ["keyEvents", "ga4KeyEvents"],
 ] as const;
+/** The metrics each grouping asks for, in Google's report order. Sessions by page match no report, so pages leave them out. */
+export const METRICS_BY = {
+  day: ["sessions", "activeUsers", "screenPageViews", "keyEvents"],
+  page: ["screenPageViews", "activeUsers", "keyEvents"],
+  landing: ["sessions", "activeUsers", "keyEvents"],
+} as const;
+const ORDER_BY = { page: "screenPageViews", landing: "sessions" } as const;
+/** Days before a day's numbers are usually final. */
+const LAG_DAYS = 2;
 /** Below these, a property is low on Google Analytics tokens for the day or the hour. */
 const LOW_TOKENS = { day: 20_000, hour: 4_000 };
 
@@ -45,7 +57,6 @@ export const THRESHOLD_NOTE = "Google Analytics held back some small numbers to 
 export const OTHER_NOTE = "Google Analytics grouped some rarely visited pages as (other), so they aren't listed one by one.";
 export const SAMPLED_NOTE = "Google Analytics worked these numbers out from a sample of the visits, so they are estimates.";
 export const QUOTA_NOTE = "This property has used most of its Google Analytics allowance for now, so reads may stop for a while.";
-export const NOT_FINAL_NOTE = "Google Analytics can take a day or two to finish a day's numbers, so the last 2 days may be low.";
 
 const TYPE_WORDS: Readonly<Record<string, string>> = {
   PROPERTY_TYPE_SUBPROPERTY: "subproperty",
@@ -128,41 +139,135 @@ const remaining = (q: unknown): number | null => {
   return typeof r === "number" && Number.isFinite(r) ? r : null;
 };
 
+type By = keyof typeof DIMENSION;
+
+/** Google's relative dates for a named period, which it resolves in the property's own time zone. */
+export function relativeRange(period: LivePeriod): { startDate: string; endDate: string } {
+  return period === "yesterday" ? { startDate: "yesterday", endDate: "yesterday" } : { startDate: `${PERIOD_DAYS[period]}daysAgo`, endDate: "yesterday" };
+}
+
+/** An exact match on a string dimension. */
+const exact = (fieldName: string, value: string) => ({ filter: { fieldName, stringFilter: { matchType: "EXACT", value } } });
+
+/** The dimension filter: landing pages leave out "(not set)", as Google's Landing page report; a page filter matches one path. */
+function dimensionFilter(by: By, page: string | undefined): Record<string, unknown> | null {
+  const parts: Array<Record<string, unknown>> = [];
+  if (by === "landing") parts.push({ notExpression: exact("landingPage", "(not set)") });
+  if (page) parts.push(exact(by === "landing" ? "landingPage" : "unifiedPagePathScreen", page));
+  if (parts.length === 0) return null;
+  return parts.length === 1 ? parts[0]! : { andGroup: { expressions: parts } };
+}
+
+/** The runReport body for one read. Days ask for every day, so the latest are never cut. */
+export function reportBody(by: By, range: { startDate: string; endDate: string }, rows: number, page: string | undefined): Record<string, unknown> {
+  const filter = dimensionFilter(by, page);
+  return {
+    dateRanges: [range],
+    dimensions: [{ name: DIMENSION[by] }],
+    metrics: METRICS_BY[by].map((name) => ({ name })),
+    ...(filter ? { dimensionFilter: filter } : {}),
+    orderBys: by === "day" ? [{ dimension: { dimensionName: "date" } }] : [{ metric: { metricName: ORDER_BY[by] }, desc: true }],
+    limit: rows,
+    metricAggregations: ["TOTAL"],
+    keepEmptyRows: by === "day",
+    returnPropertyQuota: true,
+  };
+}
+
+interface ReportBody {
+  metricHeaders?: unknown;
+  rows?: unknown;
+  totals?: unknown;
+  rowCount?: unknown;
+  metadata?: unknown;
+  propertyQuota?: unknown;
+}
+
+/** Google's metric values by meaning key, matched by its header names so their order can't mix them up. */
+function valuesOf(headers: readonly string[], values: unknown): Record<string, number | null> {
+  const out: Record<string, number | null> = {};
+  const list = Array.isArray(values) ? (values as Array<{ value?: unknown }>) : [];
+  headers.forEach((name, i) => {
+    const key = KEY_OF.get(name);
+    if (key) out[key] = count(list[i]?.value);
+  });
+  return out;
+}
+
+const KEY_OF = new Map<string, string>(GA4_METRICS.map(([name, key]) => [name, key]));
+
+/** "Google Analytics lists 212 pages for these days; this shows the top 50 by views." */
+export function showingNote(by: "page" | "landing", shown: number, of: number): string {
+  return by === "landing"
+    ? `Google Analytics lists ${of} landing pages for these days; this shows the top ${shown} by sessions.`
+    : `Google Analytics lists ${of} pages and screens for these days; this shows the top ${shown} by views.`;
+}
+
+/** The days not finished yet, dated. */
+export function notFinalNote(from: string, to: string): string {
+  return `Google Analytics can take a day or two to finish a day's numbers, so ${daysWords(from, to)} may be low.`;
+}
+
+/**
+ * Read a property the way Google Analytics' own reports do:
+ * - a named period is sent as Google's relative dates (28daysAgo to yesterday), so Google works
+ *   the days out in the property's time zone, which its answer names (metadata.timeZone);
+ * - explicit days are sent as asked; when the last one isn't over yet in the property's zone,
+ *   the read is made again ending yesterday there, with a dated note;
+ * - pages are grouped by unifiedPagePathScreen with views, active users and key events (Pages and
+ *   screens); landing pages by landingPage with sessions, active users and key events (Landing
+ *   page); days with every metric, empty days included;
+ * - totals (metricAggregations TOTAL) count each person once for the whole period, and rowCount
+ *   says how many rows Google has.
+ */
 export const runReport: LiveHook = async (input, deps) => {
   const { query } = input;
   if (query.stream !== "site_traffic" || !(query.by in DIMENSION)) return { ok: false, code: "query_refused", retryAfterSec: null };
   if (!input.account) return { ok: false, code: "account_needed", retryAfterSec: null };
   if (!PROPERTY_RE.test(input.account)) return { ok: false, code: "account_refused", retryAfterSec: null };
-  const by = query.by as keyof typeof DIMENSION;
+  const by = query.by as By;
+  const now = deps.now ?? new Date();
   const limit = Math.max(1, Math.min(100, Math.trunc(query.limit)));
-  const res = await connectorFetch(
-    {
-      manifest: input.manifest,
-      connection: input.connection,
-      url: runReportUrl(input.account),
-      method: "POST",
-      json: {
-        dateRanges: [{ startDate: query.from, endDate: query.to }],
-        dimensions: [{ name: DIMENSION[by] }],
-        metrics: GA4_METRICS.map(([name]) => ({ name })),
-        orderBys: by === "day" ? [{ dimension: { dimensionName: "date" } }] : [{ metric: { metricName: "screenPageViews" }, desc: true }],
-        limit,
-        keepEmptyRows: false,
-        returnPropertyQuota: true,
-      },
-      token: input.token,
-    },
-    deps,
-  );
-  if (!res.ok) return googleFailure(res);
-  const body = res.body as { metricHeaders?: unknown; rows?: unknown; metadata?: unknown; propertyQuota?: unknown } | null;
-  if (!body || (body.rows !== undefined && !Array.isArray(body.rows))) return { ok: false, code: "bad_response", retryAfterSec: null };
-  // Metric columns by Google's header names, so their order can't mix the meanings up.
-  const headers = Array.isArray(body.metricHeaders) ? (body.metricHeaders as Array<{ name?: unknown }>).map((h) => (typeof h?.name === "string" ? h.name : "")) : [];
-  const keyOf = new Map<string, string>(GA4_METRICS.map(([name, key]) => [name, key]));
+  const rowsFor = (days: number) => (by === "day" ? Math.min(days, 100) : limit);
+  const call = (range: { startDate: string; endDate: string }, days: number) =>
+    connectorFetch(
+      { manifest: input.manifest, connection: input.connection, url: runReportUrl(input.account), method: "POST", json: reportBody(by, range, rowsFor(days), query.page), token: input.token },
+      deps,
+    );
+
   const notes = new Set<string>();
+  let from = query.from ?? "";
+  let to = query.to ?? "";
+  let res = await call(query.period ? relativeRange(query.period) : { startDate: from, endDate: to }, query.period ? PERIOD_DAYS[query.period] : daysIn(from, to));
+  if (!res.ok) return googleFailure(res);
+  let body = res.body as ReportBody | null;
+  if (!body || typeof body !== "object") return { ok: false, code: "bad_response", retryAfterSec: null };
+  const zone = (body.metadata as { timeZone?: unknown } | undefined)?.timeZone;
+  const timeZone = isTimeZone(zone) ? zone : null;
+  const propertyToday = todayIn(now, timeZone ?? "UTC");
+  const yesterday = addDays(propertyToday, -1);
+  if (query.period) {
+    to = yesterday;
+    from = addDays(to, -(PERIOD_DAYS[query.period] - 1));
+  } else if (to > yesterday) {
+    // The last day asked isn't over in the property's zone: read again, ending on its yesterday.
+    const window = resolveWindow({ from, to }, yesterday);
+    if (window.empty) {
+      return { ok: true, rows: [], notes: [nothingYetNote("Google Analytics", from, to, yesterday)], period: { from, to, timeZone, finalThrough: addDays(propertyToday, -LAG_DAYS) }, more: false };
+    }
+    to = window.to;
+    notes.add(cappedNote("Google Analytics", yesterday));
+    res = await call({ startDate: from, endDate: to }, daysIn(from, to));
+    if (!res.ok) return googleFailure(res);
+    body = res.body as ReportBody | null;
+    if (!body || typeof body !== "object") return { ok: false, code: "bad_response", retryAfterSec: null };
+  }
+  if (body.rows !== undefined && !Array.isArray(body.rows)) return { ok: false, code: "bad_response", retryAfterSec: null };
+
+  const headers = Array.isArray(body.metricHeaders) ? (body.metricHeaders as Array<{ name?: unknown }>).map((h) => (typeof h?.name === "string" ? h.name : "")) : [];
   const rows: LiveRow[] = [];
-  for (const r of (body.rows ?? []) as Array<{ dimensionValues?: unknown; metricValues?: unknown }>) {
+  const listed = (body.rows ?? []) as Array<{ dimensionValues?: unknown; metricValues?: unknown }>;
+  for (const r of listed) {
     const dim = Array.isArray(r?.dimensionValues) ? (r.dimensionValues[0] as { value?: unknown } | undefined)?.value : undefined;
     if (typeof dim !== "string") continue;
     let value: string;
@@ -177,14 +282,14 @@ export const runReport: LiveHook = async (input, deps) => {
       if (dim === "(not set)" || dim.length > 2000) continue;
       value = cleanPagePath(dim);
     }
-    const row: LiveRow = { [by]: value, ga4Sessions: null, ga4ActiveUsers: null, ga4Views: null, ga4KeyEvents: null };
-    const values = Array.isArray(r.metricValues) ? (r.metricValues as Array<{ value?: unknown }>) : [];
-    headers.forEach((name, i) => {
-      const key = keyOf.get(name);
-      if (key) row[key] = count(values[i]?.value);
-    });
-    rows.push(row);
+    rows.push({ [by]: value, ...valuesOf(headers, r.metricValues) });
   }
+  const totalsRow = Array.isArray(body.totals) ? (body.totals[0] as { metricValues?: unknown } | undefined) : undefined;
+  const totals = totalsRow ? valuesOf(headers, totalsRow.metricValues) : undefined;
+  const rowCount = typeof body.rowCount === "number" && Number.isInteger(body.rowCount) && body.rowCount >= 0 ? body.rowCount : null;
+  const more = rowCount !== null && rowCount > listed.length;
+  if (more && by !== "day") notes.add(showingNote(by, rows.length, rowCount));
+
   const meta = (body.metadata ?? {}) as { subjectToThresholding?: unknown; dataLossFromOtherRow?: unknown; samplingMetadatas?: unknown };
   if (meta.subjectToThresholding === true) notes.add(THRESHOLD_NOTE);
   if (meta.dataLossFromOtherRow === true) notes.add(OTHER_NOTE);
@@ -193,12 +298,19 @@ export const runReport: LiveHook = async (input, deps) => {
   const day = remaining(quota.tokensPerDay);
   const hour = remaining(quota.tokensPerHour);
   if ((day !== null && day < LOW_TOKENS.day) || (hour !== null && hour < LOW_TOKENS.hour)) notes.add(QUOTA_NOTE);
-  const settled = new Date(Date.parse(`${input.today}T00:00:00Z`) - 2 * 86_400_000).toISOString().slice(0, 10);
-  if (query.to > settled) notes.add(NOT_FINAL_NOTE);
+  const finalThrough = earlierDay(addDays(propertyToday, -LAG_DAYS), to);
+  if (to > finalThrough) notes.add(notFinalNote(laterDay(from, addDays(finalThrough, 1)), to));
 
   const sorted =
     by === "day"
       ? rows.sort((a, b) => String(a.day).localeCompare(String(b.day)))
-      : rows.sort((a, b) => ((b.ga4Views as number | null) ?? 0) - ((a.ga4Views as number | null) ?? 0));
-  return { ok: true, rows: sorted.slice(0, limit), notes: [...notes] };
+      : rows.sort((a, b) => {
+          const order = by === "landing" ? ["ga4Sessions", "ga4ActiveUsers"] : ["ga4Views", "ga4ActiveUsers"];
+          for (const k of order) {
+            const d = ((b[k] as number | null) ?? 0) - ((a[k] as number | null) ?? 0);
+            if (d) return d;
+          }
+          return String(a[by]).localeCompare(String(b[by]));
+        });
+  return { ok: true, rows: sorted, notes: [...notes], period: { from, to, timeZone, finalThrough }, ...(totals ? { totals } : {}), more };
 };

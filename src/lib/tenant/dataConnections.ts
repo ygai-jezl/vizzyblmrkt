@@ -12,6 +12,7 @@ import {
   type ActivityKind,
   type DataConnection,
   type DataConnectionActivity,
+  type ReadActivityDetail,
 } from "@/lib/types/dataConnection";
 
 /**
@@ -50,6 +51,8 @@ export interface ActivityWrite {
    * reads) never push an admin's changes off the Connected view. Never stored.
    */
   recent?: boolean;
+  /** On a live read: what was asked and the days read, kept on the activity row only. */
+  read?: ReadActivityDetail;
 }
 
 /** A new connection, before the tenant is stamped. Its recent list is built from its activity. */
@@ -71,11 +74,21 @@ function invalid(message: string): never {
   throw new TenantValidationError(`bad_data_connection:${message}`);
 }
 
+const SHORT = (v: unknown, max = 40) => typeof v === "string" && v.length <= max;
+
 function checkActivity(a: ActivityWrite): void {
   if (!ACTIVITY_KINDS.includes(a.kind)) invalid("kind");
   if (!a.by || a.by.length > 200) invalid("by");
   if (Number.isNaN(Date.parse(a.at)) || new Date(a.at).toISOString() !== a.at) invalid("at");
   if (a.code != null && (typeof a.code !== "string" || a.code.length > 200)) invalid("code");
+  if (a.read !== undefined) {
+    const r = a.read;
+    if (a.kind !== "read") invalid("read");
+    const fields = Object.keys(r).sort().join(",");
+    if (fields !== "by,from,limit,pageFilter,period,stream,timeZone,to") invalid("read");
+    if (!SHORT(r.stream) || !SHORT(r.by) || !SHORT(r.from, 10) || !SHORT(r.to, 10) || !(r.timeZone === null || SHORT(r.timeZone, 64))) invalid("read");
+    if (!Number.isInteger(r.limit) || r.limit < 1 || r.limit > 1000 || !(r.period === null || SHORT(r.period)) || typeof r.pageFilter !== "boolean") invalid("read");
+  }
 }
 
 function entryOf(a: ActivityWrite): ActivityEntry {
@@ -99,6 +112,7 @@ function activityRow(tenantId: string, conn: Pick<DataConnection, "id" | "connec
     connectionId: conn.id,
     connectorId: conn.connectorId,
     ...entryOf(a),
+    ...(a.read ? { read: { ...a.read } } : {}),
     ttlAt: new Date(Date.parse(a.at) + ACTIVITY_KEEP_DAYS * DAY_MS),
   } as Omit<DataConnectionActivity, "id">;
 }

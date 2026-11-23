@@ -27,7 +27,7 @@ export const cloudflareManifest = {
   name: "Cloudflare",
   // One word, so its tile can't take two first letters: CF, as the approved screens.
   initials: "CF",
-  summary: "Requests, page views and visits for your site, read from Cloudflare when you ask.",
+  summary: "Requests, page views, visits and unique visitors for your site, read from Cloudflare when you ask.",
   category: "traffic",
   publisher: "yougrow",
   switch: "CONNECTOR_CLOUDFLARE_ENABLED",
@@ -85,7 +85,7 @@ export const cloudflareManifest = {
   shares: [
     {
       what: "Daily totals for the zone",
-      detail: "requests, page views and visits",
+      detail: "requests, page views, visits and unique visitors",
       direction: "read",
       where: "Read live when you or Vizzy ask. Nothing is stored.",
       needs: ["Zone Analytics Read"],
@@ -112,12 +112,14 @@ export const cloudflareManifest = {
   produces: [
     {
       stream: "zone_daily",
-      description: "Requests, page views and visits for one zone, a row per day (UTC).",
+      description: "Requests, page views, visits and unique visitors for one zone, a row per day (UTC).",
       shape: "numbers",
       keys: ["day"],
-      measures: ["cfRequests", "cfPageViews", "cfVisits"],
+      measures: ["cfRequests", "cfPageViews", "cfVisits", "cfUniqueVisitors"],
       joins: { day: "day" },
       lagDays: 1,
+      timeZone: "UTC",
+      days: "Days are whole days in UTC, ending yesterday. Set Cloudflare's dashboard to UTC to compare them with its Traffic tab.",
       personal: false,
       liveBy: ["day"],
     },

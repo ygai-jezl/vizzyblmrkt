@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { MEANINGS } from "@/lib/metrics/meanings";
+import { isTimeZone } from "./period";
 
 /**
  * The connector manifest: what a connector is, how it signs in, which hosts it may call, what it
@@ -45,8 +46,12 @@ export const STREAM_SHAPES = ["numbers", "events", "records", "text"] as const;
 export const JOIN_KEYS = ["day", "page", "topic", "person", "company", "idea"] as const;
 export type JoinKey = (typeof JOIN_KEYS)[number];
 /** The fixed list of dimensions a live read may group by. */
-export const LIVE_BY = ["day", "page", "topic"] as const;
+export const LIVE_BY = ["day", "page", "topic", "landing"] as const;
 export type LiveBy = (typeof LIVE_BY)[number];
+/** The shared key each grouping's rows join on: a landing page is a page. */
+export const LIVE_BY_JOINS: Readonly<Record<LiveBy, JoinKey>> = { day: "day", page: "page", topic: "topic", landing: "page" };
+/** The filters a live read may use, where its stream lists them: one page path, matched exactly. */
+export const LIVE_FILTERS = ["page"] as const;
 export const USES = ["vizzy.read", "signals.search", "signals.traffic", "signals.bots"] as const;
 
 /** Hard caps on every live read, whatever a manifest says. */
@@ -202,10 +207,20 @@ export const ProduceSchema = z
     joins: z.record(z.string(), z.enum(JOIN_KEYS)),
     /** Days before a day's numbers settle. */
     lagDays: z.number().int().min(0).max(14),
+    /**
+     * The IANA time zone the provider's days are in, when it is fixed (Search Console: Pacific
+     * time; Cloudflare: UTC). Without it, the hook learns the zone from each answer (a Google
+     * Analytics property's own zone). "today" for a read is worked out in this zone.
+     */
+    timeZone: z.string().refine(isTimeZone, "an IANA time zone such as America/Los_Angeles").optional(),
+    /** How a read's days match the provider's own report, in plain words, for people and agents. */
+    days: Copy().optional(),
     /** True when a row is about a person. Refused until the data processing agreement covers it. */
     personal: z.boolean(),
     /** The dimensions a live read of this stream may group by. */
     liveBy: z.array(z.enum(LIVE_BY)).min(1).max(LIVE_BY.length),
+    /** The filters a live read of this stream may use. */
+    liveFilters: z.array(z.enum(LIVE_FILTERS)).max(LIVE_FILTERS.length).optional(),
   })
   .strict()
   .superRefine((p, ctx) => {
@@ -215,7 +230,10 @@ export const ProduceSchema = z
       if (!p.keys.includes(k)) ctx.addIssue({ code: "custom", message: `joins names ${k}, which is not one of its keys` });
     }
     for (const by of p.liveBy) {
-      if (!Object.values(p.joins).includes(by)) ctx.addIssue({ code: "custom", message: `liveBy ${by} has no key that joins on it` });
+      if (!Object.values(p.joins).includes(LIVE_BY_JOINS[by])) ctx.addIssue({ code: "custom", message: `liveBy ${by} has no key that joins on it` });
+    }
+    for (const f of p.liveFilters ?? []) {
+      if (!Object.values(p.joins).includes(f)) ctx.addIssue({ code: "custom", message: `liveFilters ${f} has no key that joins on it` });
     }
     if (new Set(p.measures).size !== p.measures.length) ctx.addIssue({ code: "custom", message: "a measure is listed twice" });
   });

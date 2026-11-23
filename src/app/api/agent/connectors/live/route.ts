@@ -7,8 +7,8 @@ export const dynamic = "force-dynamic";
 
 /**
  * For Vizzy's read_connected_live: one capped live read of a connection Vizzy may read, every
- * number with its meaning. Body: { connectionId, stream, from, to, by?, limit? }. Gated by
- * CONNECTORS_CHAT_ENABLED.
+ * number with its meaning. Body: { connectionId, stream, period | from and to, by?, limit?, page? }.
+ * Gated by CONNECTORS_CHAT_ENABLED.
  */
 export async function POST(req: Request) {
   const gate = await connectorsAgentGate(req);

@@ -343,6 +343,52 @@ own switch is on and a way to connect is ready (the list route already decides t
   (`src/lib/connectors/catalog.ts`) and `lag.ts`, and a test walks their imports; the Vizzy section
   shows only with `CONNECTORS_CHAT_ENABLED`, passed to the drawer like the other server switches.
 
+### Follow-ups: reads match the provider's own report (2026-11-23)
+
+The owner's dev check found Vizzy's Search Console impressions for "the last 28 days" off the Pages
+report, for the home page and for one other page. A read-only review traced
+it to the days read and to merging page rows, and found the same kind of gap in GA4 and Cloudflare.
+No new switch: these ride the connector switches.
+
+- **The server picks the days, not Vizzy.** A live read asks for a `period` (`yesterday`,
+  `last_7_days`, `last_28_days`, `last_90_days`) or explicit `from` and `to`, never both. Each hook
+  resolves a period the way its provider's report does, in the provider's time zone
+  (`src/lib/connectors/period.ts`; a stream's `timeZone` in its manifest where it is fixed, and
+  "today" from `Intl.DateTimeFormat` in that zone). Explicit days are capped at the provider's last
+  complete day with a dated note. Every answer returns `period {from, to, timeZone, finalThrough,
+  words}`, `totals` where the provider gives them, `more` when rows were left out, each note once,
+  and the connector's id and name for a source line. The stream's lag stays in `list_connections`
+  and on the screens, no longer repeated in each answer. A read by day keeps the latest days when it
+  cuts. An optional `page` filter (one path, exact) works where a stream lists it (`liveFilters`).
+  Vizzy's read row in the activity log keeps the stream, grouping, days read, limit, period and
+  whether a page filter was used, never a number or the page.
+- **Search Console.** A probe grouped by date over the last 10 days with `dataState: "all"` reads
+  `metadata.first_incomplete_date` (either spelling); the day before it is the last complete Pacific
+  day (the newest day listed without it, yesterday with nothing listed). Google documents that date
+  as the first day still being collected, not as the report's boundary, so the dev check compares
+  the days read with the report's Dates tab. Reads use `dataState: "all"` ending on that day, as the
+  report does, and `rowLimit` 1,000 before page rows for the same host and path are added together;
+  different hosts stay apart (`host` beside `page`, which stays the path and the join key), and a
+  merged row says how many addresses it adds up (`merged`, a meaning of its own that no manifest
+  lists). `settledOnly` reads final numbers only, for Connectors 2.
+- **GA4.** A period goes to Google as its relative dates (`28daysAgo` to `yesterday`), which Google
+  resolves in the property's time zone; the answer's `metadata.timeZone` names it. Explicit days whose
+  last one isn't over there are read again ending yesterday. `metricAggregations: TOTAL` and
+  `rowCount` give the totals (users counted once) and a "lists N, shows the top M" note. Pages group
+  by `unifiedPagePathScreen` with views, active users and key events (Pages and screens), and a new
+  `landing` grouping by `landingPage` with sessions, leaving out `(not set)` (Landing page); it joins
+  on page (`LIVE_BY_JOINS`). Days ask for every day with `keepEmptyRows`.
+- **Cloudflare.** Requests, page views (successful HTML responses) and visits come from end users
+  (`requestSource: "eyeball"` on `httpRequestsAdaptiveGroups`), as the dashboard's Traffic tab shows,
+  for the days the zone's settings node (`notOlderThan`, `maxDuration`) allows, with Cloudflare's
+  documented floor (31 days kept, 30 a request) when the settings can't be read. Older days come
+  from `httpRequests1dGroups`, which count all traffic, with a note naming them. Unique visitors
+  (`uniq.uniques`, what the Free plan's dashboard shows) come from the daily totals. Days are UTC,
+  ending yesterday, and a read that reaches yesterday notes the Free plan's 24 hour delay. The page
+  view filter (`edgeResponseContentTypeName: "html"`, status 200 to 299) and the settings field
+  names come from Cloudflare's docs and public queries; the dev check compares a read with the
+  Traffic tab set to UTC.
+
 ---
 
 ## ADR-0010 · People (piece B) (2026-11-21)

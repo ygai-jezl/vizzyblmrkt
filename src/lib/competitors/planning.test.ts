@@ -8,7 +8,7 @@ import { anglesBlock, competitorContext, questionsBlock, statsBlock } from "./pl
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import { BrandMapDecidedSchema } from "@/lib/types/brandMap";
 import { ensureMoved } from "@/lib/brandMap/move";
-import { decideProposals, proposedSubject } from "@/lib/brandMap/proposals";
+import { decideProposals, proposedQuestion, proposedSubject } from "@/lib/brandMap/proposals";
 import { addQuestion, createSubject } from "@/lib/brandMap/records";
 import { saveBrandMap } from "@/lib/brandMap/store";
 import { competitorCoverage } from "./coverage";
@@ -255,6 +255,41 @@ describe("adding topics they write about to the map", () => {
     // The table counts both wordings on it.
     const view = await competitorCoverage(A, { db, now, canUse: async () => true });
     expect(view?.rows.find((r) => r.subjectId === made.value.id)).toMatchObject({ they: 2 });
+  });
+});
+
+describe("a subject's box in one request", () => {
+  beforeEach(() => {
+    process.env.BRAND_MAP_ENABLED = "true";
+    process.env.BRAND_MAP_SCALE_ENABLED = "true";
+  });
+  afterEach(() => {
+    delete process.env.BRAND_MAP_ENABLED;
+    delete process.env.BRAND_MAP_SCALE_ENABLED;
+  });
+
+  it("brings the subject's decided questions, open unless its last count found them answered, drafted or planned", async () => {
+    const made = await createSubject(A, { name: "Forms" }, { db });
+    if (!made.ok) throw new Error(made.error);
+    const ids: string[] = [];
+    for (const text of ["Answered one?", "Drafted one?", "Planned one?", "Still open?"]) {
+      const q = await addQuestion(A, made.value.id, { text }, { db });
+      if (!q.ok) throw new Error(q.error);
+      ids.push(q.value.id);
+    }
+    const store = brandMapRecords(A, db);
+    await proposedQuestion(A, store, { from: "research", reason: "", evidence: "", now: new Date().toISOString(), subjectId: made.value.id, text: "Only proposed?" });
+    // What the last count found, kept on the subject: read as it is, never counted again here.
+    await store.claim("sub", made.value.id, () => ({ answeredIds: [ids[0]], draftedIds: [ids[1]], plannedIds: [ids[2]] }));
+    const res = await subjectCompetitorsFromRequest(A, made.value.id, { db, canUse: async () => true, query: async () => null });
+    expect((await res.json()).competitors.questions).toEqual([
+      { id: ids[0], text: "Answered one?", open: false },
+      { id: ids[1], text: "Drafted one?", open: false },
+      { id: ids[2], text: "Planned one?", open: false },
+      { id: ids[3], text: "Still open?", open: true },
+    ]);
+    const after = await store.get("sub", made.value.id);
+    expect(after?.answeredIds).toEqual([ids[0]]);
   });
 });
 

@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { healthyAt } from "@/lib/connectors/health";
+import { createDataConnection, type NewDataConnection } from "@/lib/tenant";
+import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
+import { freshCollect, type ConnectionGrant } from "@/lib/types/dataConnection";
 import { MemorySearchIndex } from "./memoryStore";
-import { searchBrand, snippetFor } from "./query";
+import { searchBrand, snippetFor, type SearchViewer } from "./query";
 import { rerank } from "./rerank";
 import type { SearchChunkDoc } from "./types";
 
@@ -104,6 +108,113 @@ describe("searchBrand", () => {
     const store = await seeded();
     const out = await searchBrand(ctx, "   ", {}, { store, embed: embedAs([1, 0, 0]), rerank: noRerank, granted: true });
     expect(out).toEqual({ ok: true, result: { hits: [], reranked: false, meaning: false } });
+  });
+});
+
+describe("searches from a connection", () => {
+  // Search Console's searches for a made-up site (ADR-0013), beside an article anyone may find.
+  const GSC = "dcn_ffffffffffffffffffff";
+  const SEARCHES = `research:gsc:${GSC}`;
+  const AT = "2026-11-22T10:00:00.000Z";
+  let db: FakeFirestore;
+
+  beforeEach(() => {
+    vi.stubEnv("SEARCH_INDEX_ENABLED", "true");
+    vi.stubEnv("SEARCH_ENABLED", "true");
+    vi.stubEnv("CONNECTORS_ENABLED", "true");
+    vi.stubEnv("CONNECTORS_COLLECT_ENABLED", "true");
+    vi.stubEnv("CONNECTORS_SEARCH_TEXT_ENABLED", "true");
+    db = new FakeFirestore();
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  async function withSearches(grants: ConnectionGrant[], over: Partial<NewDataConnection> = {}, tenant = { ...ctx, source: "system" as const }) {
+    await createDataConnection(
+      tenant,
+      {
+        id: GSC,
+        connectorId: "search-console",
+        method: "share_access",
+        label: "Google Search Console",
+        account: "sc-domain:fernleaf.example",
+        ownerUid: "usr_admin",
+        grants,
+        secrets: {},
+        health: healthyAt(new Date(AT)),
+        pausedAt: null,
+        pausedBy: null,
+        status: "connected",
+        createdAt: AT,
+        updatedAt: AT,
+        disconnectedAt: null,
+        collect: freshCollect(null, 0),
+        ...over,
+      },
+      [{ kind: "connected", by: "usr_admin", at: AT }],
+      db,
+    );
+    const store = await seeded();
+    await store.putSource(
+      { sourceKey: SEARCHES, kind: "research", ref: `gsc:${GSC}`, hash: "h", chunks: 1, embedded: true, indexedAt: AT },
+      [{ ...chunk(`gsc:${GSC}`, "research", "Google searches: fernleaf.example", "repotting kit for a fig: 500 impressions, 9 clicks, position 6.4 in the 28 days to 20 Nov", [1, 0.05, 0]), sourceKey: SEARCHES }],
+      0,
+    );
+    return store;
+  }
+  const found = async (store: Awaited<ReturnType<typeof withSearches>>, viewer: SearchViewer | undefined) => {
+    const out = await searchBrand(ctx, "repotting kit", viewer ? { viewer } : {}, { store, embed: embedAs([1, 0.05, 0]), rerank: noRerank, granted: true, db });
+    if (!out.ok) throw new Error("expected ok");
+    return out.result.hits.map((h) => h.sourceKey);
+  };
+  const admin: SearchViewer = { role: "admin", uid: "usr_admin" };
+  const member: SearchViewer = { role: "member", uid: "usr_sam" };
+  const vizzyFor = (forRole: "admin" | "member"): SearchViewer => ({ agent: "vizzy", forRole });
+
+  it("are dropped for a caller that names no viewer, and kept for an admin", async () => {
+    const store = await withSearches([]);
+    expect(await found(store, undefined)).not.toContain(SEARCHES);
+    expect(await found(store, undefined)).toContain("article:a1");
+    expect(await found(store, admin)).toContain(SEARCHES);
+  });
+
+  it("show a member only when members may read the connection", async () => {
+    expect(await found(await withSearches([]), member)).not.toContain(SEARCHES);
+    db = new FakeFirestore();
+    expect(await found(await withSearches([{ to: "members", can: "read" }]), member)).toContain(SEARCHES);
+  });
+
+  it("show Vizzy only with its grant, and for a member only when members may read it too", async () => {
+    const membersOnly = await withSearches([{ to: "members", can: "read" }]);
+    expect(await found(membersOnly, vizzyFor("admin"))).not.toContain(SEARCHES);
+    db = new FakeFirestore();
+    const vizzyOnly = await withSearches([{ to: "agent:vizzy", can: "read" }]);
+    expect(await found(vizzyOnly, vizzyFor("admin"))).toContain(SEARCHES);
+    expect(await found(vizzyOnly, vizzyFor("member"))).not.toContain(SEARCHES);
+    db = new FakeFirestore();
+    const both = await withSearches([
+      { to: "members", can: "read" },
+      { to: "agent:vizzy", can: "read" },
+    ]);
+    expect(await found(both, vizzyFor("member"))).toContain(SEARCHES);
+  });
+
+  it("are dropped for everyone once the connection is disconnected, or the switch or collecting is off", async () => {
+    const store = await withSearches([], { status: "disconnected", disconnectedAt: AT });
+    expect(await found(store, admin)).not.toContain(SEARCHES);
+    db = new FakeFirestore();
+    const live = await withSearches([]);
+    vi.stubEnv("CONNECTORS_SEARCH_TEXT_ENABLED", "false");
+    expect(await found(live, admin)).not.toContain(SEARCHES);
+    vi.stubEnv("CONNECTORS_SEARCH_TEXT_ENABLED", "true");
+    vi.stubEnv("CONNECTORS_COLLECT_ENABLED", "false");
+    expect(await found(live, admin)).not.toContain(SEARCHES);
+  });
+
+  it("are dropped when the connection is another brand's, or not Search Console", async () => {
+    // The same connection id, but on another brand: this brand has no such connection.
+    expect(await found(await withSearches([], {}, { tenantId: "ten_other", region: "us", source: "system" }), admin)).not.toContain(SEARCHES);
+    db = new FakeFirestore();
+    expect(await found(await withSearches([], { connectorId: "cloudflare", method: "token_fields" }), admin)).not.toContain(SEARCHES);
   });
 });
 

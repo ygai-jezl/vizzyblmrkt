@@ -211,7 +211,7 @@ export default function ConnectedDataHelp({ connectorsChat = isConnectorsChatEna
         ))}
       </UL>
       <P>
-        On Connected, choose the connection, then tick <strong>{CONNECTED_COPY.members}</strong>
+        On Connected, press anywhere on the connection&apos;s row, then tick <strong>{CONNECTED_COPY.members}</strong>
         {connectorsChat ? (
           <>
             {" "}

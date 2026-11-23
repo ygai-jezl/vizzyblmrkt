@@ -1,4 +1,4 @@
-import { createElement } from "react";
+import { createElement, isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
@@ -11,7 +11,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: unknown }) => createElement("a", { href, ...rest }, children as never),
 }));
-const { ConnectedView } = await import("./ConnectedView");
+const { ConnectedView, ConnectionRow, ROW_CLASS } = await import("./ConnectedView");
 const {
   CONNECTED_COPY,
   accountWords,
@@ -30,7 +30,7 @@ const {
   whoWords,
   withGrant,
 } = await import("./words");
-const { connectedActions } = await import("./connectedActions");
+const { connectedActions, revealManage, NARROW_SCREEN } = await import("./connectedActions");
 
 const broken = (message: string) => ({ state: "broken" as const, lastOkAt: "2026-11-20T08:00:00.000Z", lastCheckedAt: "2026-11-21T09:12:00.000Z", message, pausedUntil: null });
 
@@ -297,6 +297,94 @@ describe("Connected's panel stays on the connection acted on", () => {
     expect(connectionWords(CF)).toBe("Cloudflare for Zone 012345…cdef");
     expect(connectionWords(connectionView({ connectorName: "Google Analytics 4", label: "Google Analytics 4", needsAccount: true, details: { account: "" } }))).toBe("Google Analytics 4");
     expect(textOf(render({ connections: [{ ...CF, label: "acme.example" }] }))).toContain("Cloudflare · acme.example Needs attention");
+  });
+});
+
+type ElProps = { children?: ReactNode; onClick?: () => void; [k: string]: unknown };
+
+/** The elements from the root down to the first one that matches, as a click would pass through them. */
+function pathTo(node: ReactNode, match: (el: ReactElement<ElProps>) => boolean): Array<ReactElement<ElProps>> | null {
+  if (Array.isArray(node)) {
+    for (const n of node) {
+      const found = pathTo(n, match);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (!isValidElement<ElProps>(node)) return null;
+  if (match(node)) return [node];
+  const below = pathTo(node.props.children, match);
+  return below ? [node, ...below] : null;
+}
+
+/** A click on the matching element: each handler from it up to the row runs, as the browser bubbles it. */
+function clickOn(tree: ReactNode, match: (el: ReactElement<ElProps>) => boolean) {
+  const path = pathTo(tree, match);
+  if (!path) throw new Error("nothing to click");
+  for (const el of [...path].reverse()) el.props.onClick?.();
+}
+
+describe("Connected's rows pick the connection", () => {
+  const row = (c: ConnectionView, over: { isAdmin?: boolean; on?: boolean } = {}) => {
+    const picked: string[] = [];
+    const tree = ConnectionRow({ c, isAdmin: over.isAdmin ?? true, on: over.on ?? false, uid: "usr_alex", chat: true, now: NOW, onPick: (id) => picked.push(id) });
+    return { tree, picked };
+  };
+  const isButton = (el: ReactElement<ElProps>) => el.type === "button";
+  const isCell = (el: ReactElement<ElProps>) => el.type === "td";
+
+  it("picks the connection from a click anywhere on its row, or its name's button, once each time", () => {
+    const { tree, picked } = row(CF);
+    clickOn(tree, isCell);
+    expect(picked).toEqual([CF.id]);
+    // Enter or Space on the name's button is a click on it: the row hears it once, never twice.
+    clickOn(tree, isButton);
+    expect(picked).toEqual([CF.id, CF.id]);
+    expect(pathTo(tree, isButton)!.at(-1)!.props.onClick).toBeUndefined();
+  });
+
+  it("marks the picked row for admins: selected, tinted with an accent bar in light and dark, and its name pressed", () => {
+    const html = render();
+    expect(html.match(/aria-selected="true"/g)).toHaveLength(1);
+    expect(html.match(/aria-selected="false"/g)).toHaveLength(1);
+    expect(html).toContain(`<tr class="${ROW_CLASS.picked}" aria-selected="true"><td class="border-b border-neutral-100 px-3 py-2.5 align-top dark:border-neutral-900 ${ROW_CLASS.bar}">`);
+    expect(html).toContain(`<tr class="${ROW_CLASS.pickable}" aria-selected="false">`);
+    expect(html).toMatch(/aria-pressed="true">Google Search Console<\/button>/);
+    expect(html).toMatch(/aria-pressed="false">Cloudflare<\/button>/);
+    // A clear tint and bar in both themes, and a pointer with a hover on the rows not picked.
+    expect(ROW_CLASS.picked).toMatch(/\bbg-blue-50\b.*dark:bg-blue-950\/40/);
+    expect(ROW_CLASS.bar).toMatch(/shadow-\[inset_3px_0_0_#2563eb\].*dark:shadow-\[inset_3px_0_0_#3b82f6\]/);
+    expect(ROW_CLASS.pickable).toMatch(/cursor-pointer.*hover:bg-neutral-50.*dark:hover:bg-neutral-900/);
+    // Opening Cloudflare first moves the mark with it.
+    expect(render({ connections: [CF, SC] })).toContain(`<tr class="${ROW_CLASS.picked}" aria-selected="true"><td class="border-b border-neutral-100 px-3 py-2.5 align-top dark:border-neutral-900 ${ROW_CLASS.bar}"><button type="button" class="text-left font-medium hover:underline text-blue-900 dark:text-blue-100" aria-pressed="true">Cloudflare</button>`);
+  });
+
+  it("gives a member's rows nothing to pick", () => {
+    const html = render({ isAdmin: false, connections: [{ ...SC, details: undefined }] });
+    expect(html).not.toContain("aria-selected");
+    expect(html).not.toContain("cursor-pointer");
+    const { tree, picked } = row({ ...SC, details: undefined }, { isAdmin: false });
+    expect(tree.props.onClick).toBeUndefined();
+    expect(picked).toEqual([]);
+  });
+
+  it("brings the Manage card into view after a pick on a narrow screen only, without motion when asked", () => {
+    const scrolled: unknown[] = [];
+    const card = { scrollIntoView: (o?: unknown) => void scrolled.push(o) } as Pick<HTMLElement, "scrollIntoView">;
+    const screen = (narrow: boolean, still = false) => ({
+      matchMedia: (q: string) => ({ matches: q === NARROW_SCREEN ? narrow : q === "(prefers-reduced-motion: reduce)" ? still : false }),
+    });
+    expect(revealManage(card, screen(false))).toBe(false);
+    expect(scrolled).toEqual([]);
+    expect(revealManage(card, screen(true))).toBe(true);
+    expect(revealManage(card, screen(true, true))).toBe(true);
+    expect(scrolled).toEqual([
+      { behavior: "smooth", block: "start" },
+      { behavior: "auto", block: "start" },
+    ]);
+    // No card drawn (nothing picked yet, or a member): nothing to scroll to.
+    expect(revealManage(null, screen(true))).toBe(false);
+    expect(NARROW_SCREEN).toBe("(max-width: 767px)");
   });
 });
 

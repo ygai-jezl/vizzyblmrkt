@@ -7,9 +7,10 @@ import type { ConnectorManifestInput } from "../manifest";
  * Cloudflare's GraphQL Analytics API answers HTTP 200 even when a query fails, with the reason in
  * an `errors` array, so the handlers (src/lib/connectors/handlers/cloudflare.ts) read that array.
  * The token is checked with a zone query rather than user/tokens/verify, which may refuse account
- * tokens and doesn't prove the token can read this zone. Requests and page views come from the
- * daily dataset (httpRequests1dGroups); visits only from the sampled one
- * (httpRequestsAdaptiveGroups, sum.visits), which keeps about 31 days on every plan.
+ * tokens and doesn't prove the token can read this zone. Requests, page views and visits come
+ * from end users in the sampled dataset (httpRequestsAdaptiveGroups), which keeps about 31 days on
+ * every plan; older days and unique visitors come from the daily dataset (httpRequests1dGroups),
+ * and each answer carries the period's totals the dashboard shows (unique visitors always).
  * Docs: developers.cloudflare.com/analytics/graphql-api.
  *
  * Connecting is token first (owner, 22 Nov, as the approved Listing): Check lists the zones the
@@ -27,7 +28,10 @@ export const cloudflareManifest = {
   name: "Cloudflare",
   // One word, so its tile can't take two first letters: CF, as the approved screens.
   initials: "CF",
-  summary: "Requests, page views and visits for your site, read from Cloudflare when you ask.",
+  // The cloud from Cloudflare's press kit logo, colours unchanged (public/marks/NOTICE.md).
+  icon: { light: "/marks/connectors/cloudflare/icon.png", owner: "Cloudflare, Inc." },
+  home: "https://dash.cloudflare.com/",
+  summary: "Requests, page views, visits and unique visitors for your site, read from Cloudflare when you ask.",
   category: "traffic",
   publisher: "yougrow",
   switch: "CONNECTOR_CLOUDFLARE_ENABLED",
@@ -85,7 +89,7 @@ export const cloudflareManifest = {
   shares: [
     {
       what: "Daily totals for the zone",
-      detail: "requests, page views and visits",
+      detail: "requests, page views, visits and unique visitors",
       direction: "read",
       where: "Read live when you or Vizzy ask. Nothing is stored.",
       needs: ["Zone Analytics Read"],
@@ -112,12 +116,14 @@ export const cloudflareManifest = {
   produces: [
     {
       stream: "zone_daily",
-      description: "Requests, page views and visits for one zone, a row per day (UTC).",
+      description: "Requests, page views, visits and unique visitors for one zone, a row per day (UTC).",
       shape: "numbers",
       keys: ["day"],
-      measures: ["cfRequests", "cfPageViews", "cfVisits"],
+      measures: ["cfRequests", "cfPageViews", "cfVisits", "cfUniqueVisitors"],
       joins: { day: "day" },
       lagDays: 1,
+      timeZone: "UTC",
+      days: "Days are whole days in UTC, ending yesterday. Set Cloudflare's dashboard to UTC to compare them with its Traffic tab.",
       personal: false,
       liveBy: ["day"],
     },

@@ -9,8 +9,10 @@ export const dynamic = "force-dynamic";
 
 /**
  * A live read of a connection's numbers, each with its meaning. Admins, and members when the
- * connection grants members read. Query: stream, from, to (YYYY-MM-DD, UTC), by, limit; at most
- * 93 days and 100 rows.
+ * connection grants members read. Query: stream, then period (yesterday, last_7_days,
+ * last_28_days, last_90_days) or from and to (YYYY-MM-DD, in the provider's time zone), by,
+ * limit, and page where the stream allows it; at most 93 days and 100 rows. The answer's period
+ * says the days read.
  */
 export async function GET(req: Request, { params }: { params: Promise<{ connectionId: string }> }) {
   if (!isConnectorsEnabled()) return connectorsOff();

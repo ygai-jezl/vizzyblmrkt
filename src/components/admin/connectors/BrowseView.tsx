@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import type { ConnectionView, ConnectorListing } from "@/lib/connectors/service";
+import { ConnectorTile } from "./ConnectorTile";
 import {
   CARD,
   HINT,
@@ -15,9 +16,7 @@ import {
   categoryLabel,
   connectorStatus,
   filterConnectors,
-  initialsOf,
   listingPath,
-  tileClass,
 } from "./words";
 
 export interface BrowseProps {
@@ -25,18 +24,6 @@ export interface BrowseProps {
   connections: ConnectionView[];
   /** Vizzy reads connected data (CONNECTORS_CHAT_ENABLED). */
   chat: boolean;
-}
-
-/** A connector's tile: its two letters on its own colour. */
-export function ConnectorTile({ id, name, initials, size = "md" }: { id: string; name: string; initials?: string; size?: "md" | "lg" }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={`grid shrink-0 place-items-center font-bold ${size === "lg" ? "h-12 w-12 rounded-xl text-base" : "h-10 w-10 rounded-lg text-sm"} ${tileClass(id)}`}
-    >
-      {initialsOf(name, initials)}
-    </span>
-  );
 }
 
 /**
@@ -98,7 +85,7 @@ export function BrowseView({ connectors, connections, chat }: BrowseProps) {
                   <li key={c.id}>
                     <Link href={listingPath(c.id)} className={`${CARD} flex h-full flex-col gap-3 hover:border-neutral-400 dark:hover:border-neutral-600`}>
                       <span className="flex items-center gap-3">
-                        <ConnectorTile id={c.id} name={c.name} initials={c.initials} />
+                        <ConnectorTile id={c.id} name={c.name} initials={c.initials} icon={c.icon} />
                         <span className="flex flex-col">
                           <span className="text-sm font-semibold">{c.name}</span>
                           <span className={HINT}>{categoryLabel(c.category)} · Built by YouGrow</span>

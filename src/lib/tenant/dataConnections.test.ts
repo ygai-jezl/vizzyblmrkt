@@ -120,6 +120,20 @@ describe("changeDataConnection", () => {
     expect(await changeDataConnection(A, "not-an-id", () => null, db)).toEqual({ ok: false, why: "not_found" });
   });
 
+  it("keeps what a live read asked on its activity row only, and refuses anything else there", async () => {
+    const read = { stream: "zone_daily", by: "day", from: "2026-10-24", to: "2026-11-20", timeZone: "UTC", limit: 50, period: "last_28_days", pageFilter: false };
+    await changeDataConnection(A, ID, () => ({ patch: {}, activity: [{ kind: "read", by: "agent:vizzy", at: T1, recent: false, read }] }), db);
+    const row = db.dump(DATA_CONNECTION_ACTIVITY).find((x) => x.kind === "read")!;
+    expect(row.read).toEqual(read);
+    expect((db.raw(DATA_CONNECTIONS, ID)!.recent as Array<Record<string, unknown>>).every((e) => !("read" in e))).toBe(true);
+    const bad = async (r: unknown, kind: "read" | "verified" = "read") =>
+      changeDataConnection(A, ID, () => ({ patch: {}, activity: [{ kind, by: "agent:vizzy", at: T1, read: r as typeof read }] }), db);
+    await expect(bad({ ...read, page: "/pricing" })).rejects.toThrow("bad_data_connection:read");
+    await expect(bad({ ...read, limit: 0 })).rejects.toThrow("bad_data_connection:read");
+    await expect(bad({ ...read, from: "a very long from value" })).rejects.toThrow("bad_data_connection:read");
+    await expect(bad(read, "verified")).rejects.toThrow("bad_data_connection:read");
+  });
+
   it("writes nothing when the plan declines or a patch is bad", async () => {
     const r = await changeDataConnection(A, ID, () => null, db);
     expect(r.ok).toBe(false);

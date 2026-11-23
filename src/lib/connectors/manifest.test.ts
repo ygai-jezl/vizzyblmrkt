@@ -3,6 +3,7 @@ import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { MEANINGS } from "@/lib/metrics/meanings";
 import { ConnectorManifestSchema, oauthMethod, parseManifest, RESERVED_CONNECTOR_IDS, shareMethod, streamOf, tokenMethod, type ConnectorManifestInput } from "./manifest";
 import { cloudflareManifest } from "./manifests/cloudflare";
+import { ga4Manifest } from "./manifests/ga4";
 import { searchConsoleManifest } from "./manifests/searchConsole";
 import { MANIFESTS } from "./registry";
 
@@ -72,6 +73,18 @@ describe("connector manifests", () => {
     expect(issues({ ...m, produces: [{ ...stream, joins: { page: "page" } }] }).join()).toContain("not one of its keys");
   });
 
+  it("joins a landing page on page, and refuses a page filter, or a time zone, it can't honour", () => {
+    const m = base();
+    const stream = m.produces[0]!;
+    const landing = { ...stream, keys: ["day", "landing"], joins: { day: "day" as const, landing: "page" as const }, liveBy: ["day" as const, "landing" as const] };
+    expect(issues({ ...m, produces: [landing] })).toEqual([]);
+    expect(issues({ ...m, produces: [{ ...stream, liveBy: ["landing"] }] }).join()).toContain("no key that joins");
+    expect(issues({ ...m, produces: [{ ...stream, liveFilters: ["page"] }] }).join()).toContain("liveFilters page has no key");
+    expect(issues({ ...m, produces: [{ ...landing, liveFilters: ["page"] }] })).toEqual([]);
+    expect(issues({ ...m, produces: [{ ...stream, timeZone: "Mars/Olympus" }] }).join()).toContain("IANA time zone");
+    expect(streamOf(parseManifest(searchConsoleManifest), "search_performance")).toMatchObject({ timeZone: "America/Los_Angeles", liveFilters: ["page"] });
+  });
+
   it("refuses a permission or scope with no shares line, and shares with no Never line", () => {
     const m = base();
     expect(issues({ ...m, shares: m.shares.map((s) => ({ ...s, needs: [] })) }).join()).toContain("has no shares line");
@@ -93,6 +106,52 @@ describe("connector manifests", () => {
     expect(parseManifest(cloudflareManifest).initials).toBe("CF");
     expect(parseManifest(searchConsoleManifest).initials).toBeUndefined();
     for (const bad of ["C", "cf", "CFX", "C-"]) expect(issues({ ...base(), initials: bad }).join(), bad).toContain("two capital letters or digits");
+  });
+
+  it("takes marks only as svg or png files in the connector's own folder on this site", () => {
+    const icon = { light: "/marks/connectors/cloudflare/icon.png", owner: "Cloudflare, Inc." };
+    expect(issues({ ...base(), icon })).toEqual([]);
+    expect(issues({ ...base(), icon: { ...icon, dark: "/marks/connectors/cloudflare/icon-dark.svg" } })).toEqual([]);
+    const bad = [
+      "https://www.cloudflare.com/logo.png",
+      "//cdn.example/x.png",
+      "/marks/connectors/cloudflare/icon.gif",
+      "/marks/connectors/cloudflare/../../secret.png",
+      "/marks/connectors/cloudflare/sub/icon.png",
+      "/marks/connectors/cloudflare/Icon.png",
+      "/marks/connectors/cloudflare/icon.svg?x=1",
+      "/brand/yougrow-mark.svg",
+      "marks/connectors/cloudflare/icon.png",
+    ];
+    for (const light of bad) expect(issues({ ...base(), icon: { ...icon, light } }).length, light).toBeGreaterThan(0);
+    // Another connector's folder, for any of its files.
+    expect(issues({ ...base(), icon: { ...icon, light: "/marks/connectors/search-console/icon.png" } }).join()).toContain("not in the connector's own folder");
+    const lockup = { light: "/marks/connectors/cloudflare/wide.png", href: "https://www.cloudflare.com/", alt: "Cloudflare", width: 189, height: 50 };
+    expect(issues({ ...base(), icon: { ...icon, lockup } })).toEqual([]);
+    expect(issues({ ...base(), icon: { ...icon, lockup: { ...lockup, dark: "/marks/connectors/ga/wide.png" } } }).join()).toContain("not in the connector's own folder");
+    expect(issues({ ...base(), icon: { ...icon, lockup: { ...lockup, href: "http://www.cloudflare.com/" } } }).length).toBeGreaterThan(0);
+    expect(issues({ ...base(), icon: { ...icon, lockup: { ...lockup, href: undefined } } }).length).toBeGreaterThan(0);
+    // A mark names its owner, and nothing else rides along.
+    expect(issues({ ...base(), icon: { light: icon.light } }).length).toBeGreaterThan(0);
+    expect(issues({ ...base(), icon: { ...icon, svg: "<svg onload=alert(1)>" } }).length).toBeGreaterThan(0);
+  });
+
+  it("gives every built-in connector its marks, owned by Google or Cloudflare, and keeps the letters as the fallback", () => {
+    const icons = MANIFESTS.map((m) => parseManifest(m)).map((m) => [m.id, m.icon?.owner, m.icon?.light]);
+    expect(icons).toEqual([
+      ["search-console", "Google LLC", "/marks/connectors/search-console/icon.png"],
+      ["google-analytics", "Google LLC", "/marks/connectors/google-analytics/icon.svg"],
+      ["cloudflare", "Cloudflare, Inc.", "/marks/connectors/cloudflare/icon.png"],
+    ]);
+    expect(parseManifest(cloudflareManifest).initials).toBe("CF");
+    // Only Google Analytics asks for its wide logo beside its data, linked to it, at least 154 by 50.
+    const lockups = MANIFESTS.map((m) => parseManifest(m).icon?.lockup).filter(Boolean);
+    expect(lockups).toHaveLength(1);
+    // Straight into Google Analytics, the same place as its home, so the source line lets people check the numbers there.
+    expect(lockups[0]).toMatchObject({ href: "https://analytics.google.com/", alt: "Google Analytics" });
+    expect(lockups[0]!.href).toBe(ga4Manifest.home);
+    expect(lockups[0]!.width).toBeGreaterThanOrEqual(154);
+    expect(lockups[0]!.height).toBeGreaterThanOrEqual(50);
   });
 
   it("refuses unknown keys anywhere, so a typo never passes quietly", () => {
@@ -129,7 +188,7 @@ describe("connector manifests", () => {
   it("finds a manifest's token method and streams", () => {
     const m = parseManifest(cloudflareManifest);
     expect(tokenMethod(m)?.auth.field).toBe("token");
-    expect(streamOf(m, "zone_daily")?.measures).toEqual(["cfRequests", "cfPageViews", "cfVisits"]);
+    expect(streamOf(m, "zone_daily")?.measures).toEqual(["cfRequests", "cfPageViews", "cfVisits", "cfUniqueVisitors"]);
     expect(streamOf(m, "nope")).toBeNull();
     expect(() => parseManifest({ ...base(), id: "browse" })).toThrow(/bad_connector_manifest:browse:id: a reserved id/);
   });

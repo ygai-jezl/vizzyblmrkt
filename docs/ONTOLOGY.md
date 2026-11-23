@@ -298,7 +298,7 @@ A brand's link to an outside source of numbers, such as a Cloudflare zone, a Sea
 - Personal: the brand's own team
 - Stores:
   - `data_connections`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per connection, written only through `src/lib/tenant/dataConnections.ts`; its secrets are sealed and never leave the server.
-  - `data_connection_activity`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Each change to a connection and who made it, by user id; written with its change, never queried, deleted 90 days on by a time to live on ttlAt.
+  - `data_connection_activity`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Each change to a connection and who made it, by user id; a live read's row also keeps what was asked and the days read, never a number or a page; written with its change, never queried, deleted 90 days on by a time to live on ttlAt.
   - `data_connection_states`, the brand's regional Firestore, in `src/lib/tenant/dataConnectionStates.ts`. A sign in with Google under way: the brand, the admin's user id and the connector, read by id, valid 10 minutes, claimed once and deleted, and removed by a time to live on ttlAt.
 - Links: `brand` through tenantId; `member` through ownerUid, and by on each activity row; `connector_manifest` through connectorId
 - States: `connected`, `disconnected`
@@ -311,7 +311,7 @@ A brand's link to an outside source of numbers, such as a Cloudflare zone, a Sea
   - Gap: a team member's user id in ownerUid and in by stays after they leave the brand, as settings history does
 - Export: none. A sealed secret and its settings, never exported.
 - Search: none. Credentials and settings, never searched.
-- Numbers: `cfRequests`, `cfPageViews`, `cfVisits`, `searchClicks`, `searchImpressions`, `searchCtr`, `searchPosition`, `ga4Sessions`, `ga4ActiveUsers`, `ga4Views`, `ga4KeyEvents`, through `read_connected_live`
+- Numbers: `cfRequests`, `cfPageViews`, `cfVisits`, `cfUniqueVisitors`, `searchClicks`, `searchImpressions`, `searchCtr`, `searchPosition`, `merged`, `ga4Sessions`, `ga4ActiveUsers`, `ga4Views`, `ga4KeyEvents`, through `read_connected_live`
 
 ### Connector stream (`connector_stream`)
 

@@ -7,8 +7,11 @@
  * about what the article says. Dependency-free, pure and client-safe.
  *
  * Raw HTML in the source is never passed through: text is escaped on the way out, and a
- * link is only a link when it is http(s), site-relative or an in-page anchor.
+ * link is only a link when it is http(s), site-relative or an in-page anchor. Pipe tables are read
+ * by src/lib/content/markdownTable.ts, which Vizzy's chat shares.
  */
+
+import { isTableStart, readTable } from "../markdownTable";
 
 export type ArticleBlock =
   | { kind: "heading"; level: 1 | 2 | 3 | 4; text: string }
@@ -29,39 +32,6 @@ const OL_ITEM = /^\s*\d{1,3}[.)]\s+(.*)$/;
 const QUOTE = /^\s*>\s?(.*)$/;
 const RULE = /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/;
 const FENCE = /^\s*(?:```|~~~)/;
-const TABLE_DELIM = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/;
-
-/** Split one pipe-table row into its cells (`\|` is a literal pipe). */
-function splitRow(line: string): string[] {
-  let s = line.trim();
-  if (s.startsWith("|")) s = s.slice(1);
-  if (s.endsWith("|") && !s.endsWith("\\|")) s = s.slice(0, -1);
-  const cells: string[] = [];
-  let cur = "";
-  for (let i = 0; i < s.length; i += 1) {
-    const ch = s[i];
-    if (ch === "\\" && s[i + 1] === "|") {
-      cur += "|";
-      i += 1;
-    } else if (ch === "|") {
-      cells.push(cur.trim());
-      cur = "";
-    } else {
-      cur += ch;
-    }
-  }
-  cells.push(cur.trim());
-  return cells;
-}
-
-function isTableStart(lines: string[], i: number): boolean {
-  const head = lines[i] ?? "";
-  const delim = lines[i + 1] ?? "";
-  if (!head.includes("|") || !delim.includes("-") || !TABLE_DELIM.test(delim)) return false;
-  // The delimiter row must describe the same columns as the header (so a lone "---"
-  // rule under a line that happens to hold a pipe is not read as a table).
-  return splitRow(delim).length === splitRow(head).length && splitRow(head).length >= 2;
-}
 
 function startsBlock(lines: string[], i: number): boolean {
   const line = lines[i] ?? "";
@@ -131,17 +101,11 @@ export function parseArticle(markdown: string): ArticleBlock[] {
       continue;
     }
 
-    if (isTableStart(lines, i)) {
-      const header = splitRow(line);
-      const rows: string[][] = [];
-      i += 2;
-      while (i < lines.length && at(i).trim() !== "" && at(i).includes("|")) {
-        const cells = splitRow(at(i));
-        // Keep every row the header's width, so a short or long row can't skew the table.
-        rows.push(header.map((_, c) => cells[c] ?? ""));
-        i += 1;
-      }
-      blocks.push({ kind: "table", header, rows });
+    const table = readTable(lines, i);
+    if (table) {
+      // Every row is the header's width, so a short or long row can't skew the table.
+      blocks.push({ kind: "table", header: table.header, rows: table.rows });
+      i = table.next;
       continue;
     }
 
@@ -255,11 +219,14 @@ function release(text: string): string {
   return text.replace(HELD, (ch) => `\\${String.fromCharCode(ch.charCodeAt(0) - 0xe000)}`);
 }
 
-/** A link target an article may carry: http(s), site-relative, or an in-page anchor. */
+/**
+ * A link target an article may carry: http(s), site-relative, or an in-page anchor. Never a
+ * backslash: browsers read "/\host" as "//host", a link to another site.
+ */
 export function safeHref(raw: string): string | null {
   const href = raw.trim();
-  if (/^https?:\/\/[^\s<>"']+$/i.test(href)) return href;
-  if (/^\/(?!\/)[^\s<>"']*$/.test(href)) return href;
+  if (/^https?:\/\/[^\s<>"'\\]+$/i.test(href)) return href;
+  if (/^\/(?![/\\])[^\s<>"'\\]*$/.test(href)) return href;
   if (/^#[\w-]+$/.test(href)) return href;
   return null;
 }

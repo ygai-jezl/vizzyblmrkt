@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type Ref } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ConnectionView } from "@/lib/connectors/service";
-import { connectedActions, type ConnectedActions, type ConnectedNote } from "./connectedActions";
+import { connectedActions, revealManage, type ConnectedActions, type ConnectedNote } from "./connectedActions";
+import { ConnectorTile } from "./ConnectorTile";
 import {
   BUTTON,
   BUTTON_PRIMARY,
@@ -64,9 +65,21 @@ export function ConnectedView({ connections: initial, isAdmin, uid, chat, now: d
   const [now, setNow] = useState(() => new Date(drawnAt));
   const [note, setNote] = useState<ConnectedNote>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Each row pick, counted, so the Manage card is brought into view after it is drawn.
+  const [picks, setPicks] = useState(0);
+  const manageRef = useRef<HTMLElement | null>(null);
 
   // A refresh from the server (router.refresh) brings the latest list; the selection stays.
   useEffect(() => setConnections(initial), [initial]);
+  useEffect(() => {
+    if (picks) revealManage(manageRef.current, window);
+  }, [picks]);
+
+  /** A row was picked, by a click anywhere on it or by its name's button from the keyboard. */
+  const pick = (id: string) => {
+    setSelectedId(id);
+    setPicks((n) => n + 1);
+  };
 
   const live = connections.filter((c) => c.status === "connected");
   const attention = needsAttention(live);
@@ -151,41 +164,9 @@ export function ConnectedView({ connections: initial, isAdmin, uid, chat, now: d
               </tr>
             </thead>
             <tbody>
-              {live.map((c) => {
-                const state = stateOf(c);
-                const last = c.details?.recent[0];
-                const on = isAdmin && selected?.id === c.id;
-                return (
-                  <tr key={c.id} className={on ? "bg-neutral-50 dark:bg-neutral-900/60" : undefined}>
-                    <td className={td}>
-                      {isAdmin ? (
-                        <button type="button" className="text-left font-medium hover:underline" aria-pressed={on} onClick={() => setSelectedId(c.id)}>
-                          {c.connectorName}
-                        </button>
-                      ) : (
-                        <span className="font-medium">{c.connectorName}</span>
-                      )}
-                      {c.label !== c.connectorName ? <span className={`block ${HINT}`}>{c.label}</span> : null}
-                      {c.details ? <span className={`block ${HINT}`}>{accountWords(c.details.account)}</span> : null}
-                    </td>
-                    {isAdmin && c.details ? (
-                      <>
-                        <td className={td}>{HOW_LABELS[c.details.method]}</td>
-                        <td className={td}>{c.details.ownerUid === uid ? "You" : "Someone else"}</td>
-                        <td className={td}>{last ? `${whoWords(last.by, uid)} · ${whenWords(last.at, now)}` : ""}</td>
-                        <td className={td}>{whoCanReadOf(c, chat)}</td>
-                      </>
-                    ) : isAdmin ? (
-                      <td className={td} colSpan={4} />
-                    ) : (
-                      <td className={td}>{c.canReadLive ? CONNECTED_COPY.readsYou : CONNECTED_COPY.readsAdmins}</td>
-                    )}
-                    <td className={td}>
-                      <span className={`${TAG} ${TONE_CLASS[state.tone]}`}>{state.label}</span>
-                    </td>
-                  </tr>
-                );
-              })}
+              {live.map((c) => (
+                <ConnectionRow key={c.id} c={c} isAdmin={isAdmin} on={isAdmin && selected?.id === c.id} uid={uid} chat={chat} now={now} onPick={pick} />
+              ))}
             </tbody>
           </table>
         </div>
@@ -194,7 +175,7 @@ export function ConnectedView({ connections: initial, isAdmin, uid, chat, now: d
       {isAdmin ? (
         <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))]">
           {selected ? (
-            <ManageCard c={selected} chat={chat} now={now} busy={busy} actions={actions} />
+            <ManageCard c={selected} chat={chat} now={now} busy={busy} actions={actions} cardRef={manageRef} />
           ) : live.length ? (
             <p className={NOTE_PLAIN}>{CONNECTED_COPY.chooseRow}</p>
           ) : null}
@@ -202,6 +183,93 @@ export function ConnectedView({ connections: initial, isAdmin, uid, chat, now: d
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** Room above the Manage card when a pick scrolls to it: the sticky admin header is 48px (h-12), as ReviewHub allows. */
+export const MANAGE_SCROLL_MARGIN = "scroll-mt-16";
+
+/** A connection's small tile, beside its name: the connector's mark, or its two letters. */
+function Tile({ c }: { c: ConnectionView }) {
+  return <ConnectorTile id={c.connectorId} name={c.connectorName} initials={c.connectorInitials} icon={c.connectorIcon} size="sm" />;
+}
+
+/**
+ * A row's classes: admins can pick any row; the picked one gets a tint and an accent bar, in light
+ * and dark. The tint is a clear blue in both themes, so it stands apart from a plain row and from
+ * the grey of a hovered one.
+ */
+export const ROW_CLASS = {
+  pickable: "cursor-pointer transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-900/60",
+  picked: "cursor-pointer bg-blue-100/70 transition-colors dark:bg-blue-900/40",
+  /** On the first cell: box-shadow, so the bar takes no width and the columns stay where they are. */
+  bar: "shadow-[inset_3px_0_0_#2563eb] dark:shadow-[inset_3px_0_0_#3b82f6]",
+} as const;
+
+/**
+ * One connection's row. For an admin the whole row picks the connection: a click anywhere on it,
+ * or Enter or Space on its name's button, which is how the keyboard reaches it. The button has no
+ * handler of its own, so its click reaches the row once; any other button or link a row holds does
+ * its own job and the same click picks its row. No hooks, so a test can draw it as a plain function.
+ */
+export function ConnectionRow({
+  c,
+  isAdmin,
+  on,
+  uid,
+  chat,
+  now,
+  onPick,
+}: {
+  c: ConnectionView;
+  isAdmin: boolean;
+  /** The picked row (admins only). */
+  on: boolean;
+  uid: string;
+  chat: boolean;
+  now: Date;
+  onPick: (id: string) => void;
+}) {
+  const state = stateOf(c);
+  const last = c.details?.recent[0];
+  return (
+    <tr
+      className={isAdmin ? (on ? ROW_CLASS.picked : ROW_CLASS.pickable) : undefined}
+      aria-selected={isAdmin ? on : undefined}
+      onClick={isAdmin ? () => onPick(c.id) : undefined}
+    >
+      <td className={on ? `${td} ${ROW_CLASS.bar}` : td}>
+        <span className="flex items-start gap-2.5">
+          <Tile c={c} />
+          <span className="min-w-0">
+            {isAdmin ? (
+              <button type="button" className={on ? "text-left font-medium text-blue-900 hover:underline dark:text-blue-100" : "text-left font-medium hover:underline"} aria-pressed={on}>
+                {c.connectorName}
+              </button>
+            ) : (
+              <span className="font-medium">{c.connectorName}</span>
+            )}
+            {c.label !== c.connectorName ? <span className={`block ${HINT}`}>{c.label}</span> : null}
+            {c.details ? <span className={`block ${HINT}`}>{accountWords(c.details.account)}</span> : null}
+          </span>
+        </span>
+      </td>
+      {isAdmin && c.details ? (
+        <>
+          <td className={td}>{HOW_LABELS[c.details.method]}</td>
+          <td className={td}>{c.details.ownerUid === uid ? "You" : "Someone else"}</td>
+          <td className={td}>{last ? `${whoWords(last.by, uid)} · ${whenWords(last.at, now)}` : ""}</td>
+          <td className={td}>{whoCanReadOf(c, chat)}</td>
+        </>
+      ) : isAdmin ? (
+        <td className={td} colSpan={4} />
+      ) : (
+        <td className={td}>{c.canReadLive ? CONNECTED_COPY.readsYou : CONNECTED_COPY.readsAdmins}</td>
+      )}
+      <td className={td}>
+        <span className={`${TAG} ${TONE_CLASS[state.tone]}`}>{state.label}</span>
+      </td>
+    </tr>
   );
 }
 
@@ -269,11 +337,14 @@ function ManageCard({
   now,
   busy,
   actions,
+  cardRef,
 }: {
   c: ConnectionView;
   chat: boolean;
   now: Date;
   busy: string | null;
+  /** So a row pick on a narrow screen can bring the card into view. */
+  cardRef?: Ref<HTMLElement>;
   actions: {
     check: (c: ConnectionView) => void;
     checkAccess: (c: ConnectionView) => void;
@@ -292,9 +363,13 @@ function ManageCard({
   const any = busy !== null;
 
   return (
-    <section aria-labelledby="manage-title" className={`${CARD} space-y-3`}>
-      <h3 id="manage-title" className="text-sm font-semibold">
-        {c.connectorName} · {readsWords(c) || accountWords("")}
+    // scroll-mt-16 clears the admin header (sticky, 48px), so a pick on a narrow screen shows the card's heading.
+    <section ref={cardRef} aria-labelledby="manage-title" className={`${CARD} ${MANAGE_SCROLL_MARGIN} space-y-3`}>
+      <h3 id="manage-title" className="flex items-center gap-2 text-sm font-semibold">
+        <Tile c={c} />
+        <span>
+          {c.connectorName} · {readsWords(c) || accountWords("")}
+        </span>
       </h3>
       <p className="text-sm">
         <span className={`${TAG} ${TONE_CLASS[state.tone]}`}>{state.label}</span>

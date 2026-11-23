@@ -1825,7 +1825,10 @@ export const ONTOLOGY: readonly OntologyType[] = [
     personal: "team",
     stores: [
       regional("data_connections", "one record per connection, written only through `src/lib/tenant/dataConnections.ts`; its secrets are sealed and never leave the server"),
-      regional("data_connection_activity", "each change to a connection and who made it, by user id; written with its change, never queried, deleted 90 days on by a time to live on ttlAt"),
+      regional(
+        "data_connection_activity",
+        "each change to a connection and who made it, by user id; a live read's row also keeps what was asked and the days read, never a number or a page; written with its change, never queried, deleted 90 days on by a time to live on ttlAt",
+      ),
       side("data_connection_states", "src/lib/tenant/dataConnectionStates.ts", {
         note: "a sign in with Google under way: the brand, the admin's user id and the connector, read by id, valid 10 minutes, claimed once and deleted, and removed by a time to live on ttlAt",
       }),
@@ -1850,7 +1853,21 @@ export const ONTOLOGY: readonly OntologyType[] = [
     export: { none: "a sealed secret and its settings, never exported" },
     search: { none: "credentials and settings, never searched" },
     numbers: {
-      meanings: ["cfRequests", "cfPageViews", "cfVisits", "searchClicks", "searchImpressions", "searchCtr", "searchPosition", "ga4Sessions", "ga4ActiveUsers", "ga4Views", "ga4KeyEvents"],
+      meanings: [
+        "cfRequests",
+        "cfPageViews",
+        "cfVisits",
+        "cfUniqueVisitors",
+        "searchClicks",
+        "searchImpressions",
+        "searchCtr",
+        "searchPosition",
+        "merged",
+        "ga4Sessions",
+        "ga4ActiveUsers",
+        "ga4Views",
+        "ga4KeyEvents",
+      ],
       tool: "read_connected_live",
     },
   },

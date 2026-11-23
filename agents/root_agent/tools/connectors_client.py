@@ -8,6 +8,11 @@ the app takes the brand from that token, never from here.
 Reads only. Vizzy sees a brand's connected data (Cloudflare, Google Search Console, Google
 Analytics) only where an admin let Vizzy read it, and reads it for a member only when members may
 read it too. Every number in an answer comes with its meaning in `meanings`.
+
+A read asks for a named period ("last_28_days") and the app works out the days the way the
+provider's own report does, so Vizzy never does date maths; explicit dates are for days the person
+named. The app's answer (`period` with its words, `totals`, `more`, `notes`, `connection`) is passed
+through unchanged.
 """
 
 from __future__ import annotations
@@ -17,17 +22,22 @@ import json
 import os
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 
 LIST_PATH = "/api/agent/connectors"
 LIVE_PATH = "/api/agent/connectors/live"
 _TIMEOUT_SECONDS = 30
 
-BY = ("day", "page", "topic")
+BY = ("day", "page", "topic", "landing")
+# The named periods the app works out itself (src/lib/connectors/period.ts, LIVE_PERIODS).
+PERIODS = ("yesterday", "last_7_days", "last_28_days", "last_90_days")
 MAX_ROWS = 100
 MAX_DAYS = 93
 _CONNECTION = re.compile(r"^dcn_[a-z2-7]{20}$")
 _STREAM = re.compile(r"^[a-z][a-z0-9_]{1,39}$")
+# One page path, as the app checks it (src/lib/connectors/live.ts, PagePathSchema).
+_PAGE = re.compile(r"^/[A-Za-z0-9\-._~%!$&'()*+,;=:@/]{0,511}$")
 
 _OFF = "Reading connected data isn't switched on in this environment yet."
 _NO_LINK = "I can't reach the app from this chat yet. Please send that again."
@@ -44,7 +54,10 @@ _ERRORS = {
     "busy": "That connection was asked a lot in the last few minutes. Please try again shortly.",
     "unauthorized": "My session to the app expired. Please send your message again.",
     "canvas_auth_unconfigured": "Reading connected data from chat isn't set up in this environment yet.",
-    "invalid_input": "I couldn't read that. Check the connection, the stream and the dates.",
+    "invalid_input": "I couldn't read that. Check the connection, the stream, and the period or dates.",
+    "bad_period": "I can read yesterday, or the last 7, 28 or 90 days. For other days, give me the first and last day.",
+    "bad_page": "That isn't a page path I can read. Give me the page's path, such as /pricing.",
+    "page_not_allowed": "I can't read that stream for one page. Ask me what's connected to see which streams I can.",
     "unknown_stream": "That connection doesn't give that stream. Ask me what's connected to see its streams.",
     "by_not_allowed": "That connection can't be grouped that way. Ask me what's connected to see how it can be.",
     "bad_dates": "Those dates don't work: the start must be on or before the end, and neither in the future.",
@@ -110,30 +123,61 @@ def list_connections(state: "dict | None") -> dict:
     return _call(state, "GET", LIST_PATH)
 
 
+def _page(value: str) -> "str | None":
+    """One page's path: "/pricing", or the path of a full address, without its query. None when it isn't one."""
+    try:
+        parts = urllib.parse.urlsplit((value or "").strip())
+    except ValueError:
+        return None
+    path = parts.path or ("/" if parts.netloc else "")
+    return path if _PAGE.match(path) else None
+
+
 def read_connected_live(
     state: "dict | None",
     connection_id: str = "",
     stream: str = "",
-    from_date: str = "",
-    to_date: str = "",
+    period: str = "",
     by: str = "day",
     limit: int = 50,
+    page: str = "",
+    from_date: str = "",
+    to_date: str = "",
 ) -> dict:
-    """One capped live read of a connection, every number with its meaning. Never raises."""
+    """One capped live read of a connection, every number with its meaning. Never raises.
+
+    A named period wins over dates: the app works out its days the way the provider's own report
+    does. Without one, both dates are needed. The app's answer comes back unchanged.
+    """
     cid = (connection_id or "").strip()
     if not _CONNECTION.match(cid):
         return {"status": "error", "code": "connection_required", "message": _ERRORS["connection_required"]}
     name = (stream or "").strip()
-    start, end = _day(from_date), _day(to_date)
-    if not _STREAM.match(name) or not start or not end:
+    if not _STREAM.match(name):
         return {"status": "error", "code": "invalid_input", "message": _ERRORS["invalid_input"]}
-    if start > end:
-        return {"status": "error", "code": "bad_dates", "message": _ERRORS["bad_dates"]}
-    if (_dt.date.fromisoformat(end) - _dt.date.fromisoformat(start)).days + 1 > MAX_DAYS:
-        return {"status": "error", "code": "too_many_days", "message": _ERRORS["too_many_days"]}
     try:
         rows = max(1, min(int(limit), MAX_ROWS))
     except (TypeError, ValueError):
         rows = 50
     group = by if by in BY else "day"
-    return _call(state, "POST", LIVE_PATH, {"connectionId": cid, "stream": name, "from": start, "to": end, "by": group, "limit": rows})
+    payload: dict = {"connectionId": cid, "stream": name, "by": group, "limit": rows}
+    named = (period or "").strip().lower()
+    if named:
+        if named not in PERIODS:
+            return {"status": "error", "code": "bad_period", "message": _ERRORS["bad_period"]}
+        payload["period"] = named
+    else:
+        start, end = _day(from_date), _day(to_date)
+        if not start or not end:
+            return {"status": "error", "code": "bad_period", "message": _ERRORS["bad_period"]}
+        if start > end:
+            return {"status": "error", "code": "bad_dates", "message": _ERRORS["bad_dates"]}
+        if (_dt.date.fromisoformat(end) - _dt.date.fromisoformat(start)).days + 1 > MAX_DAYS:
+            return {"status": "error", "code": "too_many_days", "message": _ERRORS["too_many_days"]}
+        payload["from"], payload["to"] = start, end
+    if (page or "").strip():
+        path = _page(page)
+        if not path:
+            return {"status": "error", "code": "bad_page", "message": _ERRORS["bad_page"]}
+        payload["page"] = path
+    return _call(state, "POST", LIVE_PATH, payload)

@@ -7,7 +7,7 @@ import { HowToLink } from "@/components/help/HowToLink";
 import type { ConnectorAccount } from "@/lib/connectors/handlers/types";
 import type { ConnectionView, ConnectorListing } from "@/lib/connectors/service";
 import { callApi, ROUTES, startSignIn } from "./api";
-import { ConnectorTile } from "./BrowseView";
+import { ConnectorLockup, ConnectorTile, GoogleSignInArt } from "./ConnectorTile";
 import { checkPastedToken, connectWithToken, secretsOf } from "./tokenConnect";
 import {
   BUTTON,
@@ -75,7 +75,7 @@ export function ListingView({ listing, connections, isAdmin, chat, banner, repla
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-3">
-        <ConnectorTile id={listing.id} name={listing.name} initials={listing.initials} size="lg" />
+        <ConnectorTile id={listing.id} name={listing.name} initials={listing.initials} icon={listing.icon} size="lg" />
         <div className="space-y-0.5">
           <h2 className="text-lg font-semibold">{listing.name}</h2>
           <p className={HINT}>
@@ -170,9 +170,22 @@ function SignInCard({
         </p>
       ) : null}
       {isAdmin ? (
-        <button type="button" className={BUTTON_PRIMARY} onClick={go} disabled={busy}>
-          {busy ? "Opening Google…" : LISTING_COPY.signInTitle}
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Google's own button art inside our button: its name is the art's alt text. */}
+          <button
+            type="button"
+            className="inline-flex rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:opacity-50"
+            onClick={go}
+            disabled={busy}
+          >
+            <GoogleSignInArt alt={LISTING_COPY.signInTitle} />
+          </button>
+          {busy ? (
+            <span role="status" className={HINT}>
+              {LISTING_COPY.openingGoogle}
+            </span>
+          ) : null}
+        </div>
       ) : (
         <p className={HINT}>{LISTING_COPY.adminsOnly}</p>
       )}
@@ -575,6 +588,12 @@ function ReadsCard({ listing }: { listing: ConnectorListing }) {
             </p>
           ))}
         </>
+      ) : null}
+      {listing.icon?.lockup ? (
+        <div className="flex flex-wrap items-center gap-3 border-t border-neutral-100 pt-3 dark:border-neutral-900">
+          <span className={HINT}>{LISTING_COPY.dataFrom}</span>
+          <ConnectorLockup lockup={listing.icon.lockup} />
+        </div>
       ) : null}
     </section>
   );

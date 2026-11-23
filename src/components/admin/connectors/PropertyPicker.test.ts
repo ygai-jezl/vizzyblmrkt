@@ -63,6 +63,12 @@ describe("the property picker", () => {
     expect(text).toContain(PICKER_COPY.newHint);
   });
 
+  it("names the connector with its mark at the top, or its letters when it has none", () => {
+    const html = form({ connectorIcon: listingFor("search-console", ["oauth_pkce"]).icon });
+    expect(html).toMatch(/^<form[^>]*><p class="[^"]*"><span aria-hidden="true"[^>]*><img src="\/marks\/connectors\/search-console\/icon\.png" alt=""[^>]*\/><\/span>Google Search Console<\/p>/);
+    expect(textOf(form())).toMatch(/^SC Google Search Console Signed in with Google/);
+  });
+
   it("marks nothing when the brand has no root domain", () => {
     expect(textOf(form({ rootDomain: null }))).not.toContain("Not on");
   });

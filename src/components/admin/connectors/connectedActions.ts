@@ -95,3 +95,22 @@ export function connectedActions(d: ConnectedActionDeps) {
 }
 
 export type ConnectedActions = ReturnType<typeof connectedActions>;
+
+/** Below Tailwind's md breakpoint the Manage card sits under the table, out of sight after a pick. */
+export const NARROW_SCREEN = "(max-width: 767px)";
+
+/** The few parts of the browser a row pick needs, so the tests can pass stand-ins. */
+export interface RevealWindow {
+  matchMedia: (query: string) => { matches: boolean };
+}
+
+/**
+ * After a row is picked on a narrow screen, bring the Manage card into view (smoothly, unless the
+ * person asked for less motion). On a wider screen it stays put. Returns whether it scrolled.
+ */
+export function revealManage(card: Pick<HTMLElement, "scrollIntoView"> | null, win: RevealWindow): boolean {
+  if (!card || !win.matchMedia(NARROW_SCREEN).matches) return false;
+  const still = win.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  card.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "start" });
+  return true;
+}

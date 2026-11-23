@@ -9,7 +9,7 @@ import { healthAfterFailure, healthAfterSuccess, healthyAt, isCallPaused, shownS
 import { ACCOUNT_HOOKS, VERIFY_HOOKS } from "./handlers";
 import type { ConnectorAccount, HookFailure } from "./handlers/types";
 import { checkLiveRequest, lagWords, readLive, type LiveAnswer } from "./live";
-import { shareMethod, tokenMethod, type ConnectMethodName, type ConnectorManifest } from "./manifest";
+import { shareMethod, tokenMethod, type ConnectMethodName, type ConnectorIcon, type ConnectorManifest } from "./manifest";
 import { connectorMessage, tokenRefusedMessage, type ConnectorErrorCode } from "./messages";
 import { getConnector, knownConnector, listConnectors, readyMethods } from "./registry";
 import type { ConnectorFetchDeps } from "./safeFetch";
@@ -110,6 +110,8 @@ export interface ConnectorListing {
   name: string;
   /** The manifest's two letters for its tile, when it gives them. */
   initials?: string;
+  /** Its own marks (files on this site), when the manifest has them; else the tile shows the letters. */
+  icon?: ConnectorIcon;
   summary: string;
   category: string;
   connect: ConnectorManifest["connect"];
@@ -127,6 +129,7 @@ export function listingOf(m: ConnectorManifest): ConnectorListing {
     id: m.id,
     name: m.name,
     ...(m.initials ? { initials: m.initials } : {}),
+    ...(m.icon ? { icon: m.icon } : {}),
     summary: m.summary,
     category: m.category,
     connect: m.connect,
@@ -149,6 +152,9 @@ export interface ConnectionView {
   id: string;
   connectorId: string;
   connectorName: string;
+  /** The connector's tile: its marks, or the two letters its manifest gives, when it has them. */
+  connectorIcon?: ConnectorIcon;
+  connectorInitials?: string;
   /** False when this copy has the connector switched off: the connection stays, unread. */
   connectorOn: boolean;
   label: string;
@@ -183,6 +189,8 @@ export function viewOf(conn: DataConnection, actor: ConnectorActor, now: Date): 
     id: conn.id,
     connectorId: conn.connectorId,
     connectorName: known?.name ?? conn.connectorId,
+    ...(known?.icon ? { connectorIcon: known.icon } : {}),
+    ...(known?.initials ? { connectorInitials: known.initials } : {}),
     connectorOn: getConnector(conn.connectorId) !== null,
     label: conn.label,
     status: conn.status,
@@ -399,13 +407,24 @@ export async function checkToken(ctx: TenantContext, actor: ConnectorActor, conn
 // --- Calls that use the stored secret ---------------------------------------------------------
 
 /** The activity and health patch for a call's outcome. */
-function outcomePlan(cur: DataConnection, outcome: { ok: true } | HookFailure, actor: ConnectorActor, now: Date, onSuccess: ActivityWrite["kind"] | null): ChangePlan {
+function outcomePlan(
+  cur: DataConnection,
+  outcome: { ok: true } | HookFailure,
+  actor: ConnectorActor,
+  now: Date,
+  onSuccess: ActivityWrite["kind"] | null,
+  read?: ActivityWrite["read"],
+): ChangePlan {
   const at = now.toISOString();
   if (outcome.ok) {
     const recentOk = cur.health.state === "ok" && cur.health.lastOkAt && now.getTime() - Date.parse(cur.health.lastOkAt) < 10 * 60_000;
     if (!onSuccess && recentOk) return null;
-    // Vizzy's reads are logged but kept off the recent list (the Connected view shows people's changes).
-    return { patch: { health: healthAfterSuccess(cur.health, now) }, activity: onSuccess ? [{ kind: onSuccess, by: byOf(actor), at, ...(onSuccess === "read" ? { recent: false } : {}) }] : [] };
+    // Vizzy's reads are logged but kept off the recent list (the Connected view shows people's changes),
+    // with what was asked and the days read, never a number or a page.
+    return {
+      patch: { health: healthAfterSuccess(cur.health, now) },
+      activity: onSuccess ? [{ kind: onSuccess, by: byOf(actor), at, ...(onSuccess === "read" ? { recent: false, ...(read ? { read } : {}) } : {}) }] : [],
+    };
   }
   const next = healthAfterFailure(cur.health, outcome.code, now, outcome.retryAfterSec);
   if (!next) return null;
@@ -513,9 +532,13 @@ export async function readLiveFor(
   const now = nowOf(deps);
   const checked = checkLiveRequest(u.manifest, rawQuery, now);
   if (!checked.ok) return refuse(400, checked.error);
-  const r = forMethod(u.conn.method, await readLive({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token, query: checked.query }, deps));
+  const q = checked.query;
+  const r = forMethod(u.conn.method, await readLive({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token, query: q }, deps));
   if (!r.ok && r.code === "busy") return providerRefusal("busy");
-  await changeDataConnection(ctx, id, (cur) => outcomePlan(cur, r.ok ? { ok: true } : r, actor, now, record), deps.db);
+  const read = r.ok
+    ? { stream: q.stream, by: q.by, from: r.answer.period.from, to: r.answer.period.to, timeZone: r.answer.period.timeZone, limit: q.limit, period: q.period ?? null, pageFilter: q.page !== undefined }
+    : undefined;
+  await changeDataConnection(ctx, id, (cur) => outcomePlan(cur, r.ok ? { ok: true } : r, actor, now, record, read), deps.db);
   if (!r.ok) return connectionRefusal(u.conn, r.code);
   return { ok: true, status: 200, value: r.answer };
 }

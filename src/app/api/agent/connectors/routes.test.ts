@@ -29,7 +29,17 @@ const PRIVATE = "dcn_bbbbbbbbbbbbbbbbbbbb";
 const THEIRS = "dcn_cccccccccccccccccccc";
 const T0 = "2026-11-20T10:00:00.000Z";
 const DAILY = {
-  data: { viewer: { zones: [{ totals: [{ dimensions: { date: "2026-11-19" }, sum: { requests: 2400, pageViews: 310 } }], visits: [{ dimensions: { date: "2026-11-19" }, sum: { visits: 140 } }] }] } },
+  data: {
+    viewer: {
+      zones: [
+        {
+          daily: [{ dimensions: { date: "2026-11-19" }, sum: { requests: 2600, pageViews: 330 }, uniq: { uniques: 95 } }],
+          traffic: [{ dimensions: { date: "2026-11-19" }, count: 2400, sum: { visits: 140 } }],
+          pages: [{ dimensions: { date: "2026-11-19" }, count: 310 }],
+        },
+      ],
+    },
+  },
   errors: null,
 };
 
@@ -123,6 +133,9 @@ describe("/api/agent/connectors", () => {
     expect((await read({ limit: 500 })).status).toBe(400);
     expect((await read({ from: "yesterday" })).status).toBe(400);
     expect((await read({ from: "2026-01-01", to: "2026-11-19" })).status).toBe(400);
+    expect((await read({ period: "last_28_days" })).status).toBe(400);
+    expect((await read({ from: undefined, to: undefined, period: "last_week" })).status).toBe(400);
+    expect((await read({ page: "/pricing" })).status).toBe(400);
     expect((await live.POST(new Request("http://localhost/api/agent/connectors/live", { method: "POST", headers: { "x-canvas-context": "tok" }, body: "not json" }))).status).toBe(400);
   });
 
@@ -130,8 +143,9 @@ describe("/api/agent/connectors", () => {
     const body = await (await get()).json();
     expect(body.connections.map((c: { id: string }) => c.id)).toEqual([SHARED]);
     expect(body.notShared).toBe(true);
-    expect(body.connections[0]).toMatchObject({ connector: "Cloudflare", health: "ok", canRead: true, streams: [{ stream: "zone_daily", by: ["day"] }] });
-    expect(Object.keys(body.meanings)).toEqual(["cfRequests", "cfPageViews", "cfVisits"]);
+    expect(body.connections[0]).toMatchObject({ connector: "Cloudflare", health: "ok", canRead: true, streams: [{ stream: "zone_daily", by: ["day"], pageFilter: false }] });
+    expect(body.connections[0].streams[0].days).toContain("UTC");
+    expect(Object.keys(body.meanings)).toEqual(["cfRequests", "cfPageViews", "cfVisits", "cfUniqueVisitors"]);
     expect(JSON.stringify(body)).not.toContain("made-up-cloudflare-token");
     expect(JSON.stringify(body)).not.toContain(THEIRS);
   });
@@ -140,9 +154,12 @@ describe("/api/agent/connectors", () => {
     const res = await read();
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.rows).toEqual([{ day: "2026-11-19", cfRequests: 2400, cfPageViews: 310, cfVisits: 140 }]);
+    expect(body.rows).toEqual([{ day: "2026-11-19", cfRequests: 2400, cfPageViews: 310, cfVisits: 140, cfUniqueVisitors: 95 }]);
     for (const k of numberKeys(body)) expect(Object.keys(body.meanings), k).toContain(k);
-    expect(typeof body.lag).toBe("string");
+    expect(body.connection).toEqual({ id: SHARED, connectorId: "cloudflare", connector: "Cloudflare", label: `Cloudflare ${SHARED.slice(-4)}` });
+    expect(body.period).toMatchObject({ from: "2026-11-19", to: "2026-11-19", timeZone: "UTC", words: "19 Nov 2026, UTC" });
+    expect(body.more).toBe(false);
+    expect(body).not.toHaveProperty("lag");
     const rows = db.dump("data_connection_activity").filter((a) => a.connectionId === SHARED).map((a) => `${a.kind}:${a.by}`);
     expect(rows).toContain("read:agent:vizzy");
     expect((db.raw("data_connections", SHARED) as { recent: Array<{ kind: string }> }).recent.map((r) => r.kind)).toEqual(["connected"]);

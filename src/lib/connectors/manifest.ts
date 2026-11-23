@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { MEANINGS } from "@/lib/metrics/meanings";
+import { isTimeZone } from "./period";
 
 /**
  * The connector manifest: what a connector is, how it signs in, which hosts it may call, what it
@@ -22,6 +23,11 @@ import { MEANINGS } from "@/lib/metrics/meanings";
  * - uses: what it plugs into in YouGrow.
  * - hooks: named handler ids, never functions: live reads a stream, and accounts lists what a
  *   signed in connection or a pasted token can see, for the picker.
+ * - icon: the connector's own mark, as files on YouGrow's own site under
+ *   public/marks/connectors/<id>/ (never a link to the vendor's host), with whoever owns it.
+ *   Without one, the screens show the two letters.
+ * - home: the provider's own dashboard, where people see these numbers. The source line under a
+ *   Vizzy answer that read the connector links to it.
  */
 
 /**
@@ -45,8 +51,16 @@ export const STREAM_SHAPES = ["numbers", "events", "records", "text"] as const;
 export const JOIN_KEYS = ["day", "page", "topic", "person", "company", "idea"] as const;
 export type JoinKey = (typeof JOIN_KEYS)[number];
 /** The fixed list of dimensions a live read may group by. */
-export const LIVE_BY = ["day", "page", "topic"] as const;
+export const LIVE_BY = ["day", "page", "topic", "landing"] as const;
 export type LiveBy = (typeof LIVE_BY)[number];
+/** The shared key each grouping's rows join on: a landing page is a page. */
+export const LIVE_BY_JOINS: Readonly<Record<LiveBy, JoinKey>> = { day: "day", page: "page", topic: "topic", landing: "page" };
+/**
+ * The filters a live read may use, where its stream lists them: one page path. Google Analytics
+ * matches it exactly; Search Console matches it on every host of the site, keeping hosts apart
+ * (src/lib/connectors/handlers/searchConsole.ts, pagePattern).
+ */
+export const LIVE_FILTERS = ["page"] as const;
 export const USES = ["vizzy.read", "signals.search", "signals.traffic", "signals.bots"] as const;
 
 /** Hard caps on every live read, whatever a manifest says. */
@@ -75,6 +89,48 @@ const HttpsUrl = z
       return false;
     }
   }, "an https URL with no port or credentials");
+
+/**
+ * A file of a connector's marks, served from YouGrow's own site: /marks/connectors/<id>/<name>,
+ * an svg or png, lower case, with no dots or slashes in the name. The manifest checks the folder
+ * is the connector's own; src/lib/connectors/marks.test.ts checks every file is there and safe.
+ */
+const MarkPath = z.string().regex(/^\/marks\/connectors\/[a-z][a-z0-9-]{1,39}\/[a-z0-9][a-z0-9-]{0,39}\.(?:svg|png)$/, "an svg or png under /marks/connectors/<id>/");
+
+/**
+ * A connector's marks: its square icon for tiles and rows, on a light background (and a file for
+ * dark backgrounds when its owner gives one), who owns it, and a wide logo with its name where the
+ * owner asks for one linked to them (Google Analytics wherever an app shows its data). The screens
+ * keep the name beside every mark, so its alt text is empty; the wide logo is a link, so its alt
+ * says the words in the image.
+ */
+export const ConnectorIconSchema = z
+  .object({
+    light: MarkPath,
+    dark: MarkPath.optional(),
+    /** Whose trademark it is, for the notice beside the files (public/marks/NOTICE.md). */
+    owner: Copy(80),
+    lockup: z
+      .object({
+        light: MarkPath,
+        dark: MarkPath.optional(),
+        /** Where the logo links: the owner's product page, or into the product itself. */
+        href: HttpsUrl,
+        alt: Copy(60),
+        /** Its size on screen, in CSS pixels: at least the owner's minimum. */
+        width: z.number().int().min(16).max(400),
+        height: z.number().int().min(16).max(200),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type ConnectorIcon = z.infer<typeof ConnectorIconSchema>;
+
+/** Every file a connector's marks name. */
+export function iconFiles(icon: ConnectorIcon): string[] {
+  return [icon.light, icon.dark, icon.lockup?.light, icon.lockup?.dark].filter((p): p is string => typeof p === "string");
+}
 
 /** `<connector>.<name>`: a handler in src/lib/connectors/handlers. */
 const HookId = z.string().regex(/^[a-z][a-zA-Z0-9]*\.[a-z][a-zA-Z0-9]*$/, "a hook id such as cloudflare.zoneDaily");
@@ -202,10 +258,20 @@ export const ProduceSchema = z
     joins: z.record(z.string(), z.enum(JOIN_KEYS)),
     /** Days before a day's numbers settle. */
     lagDays: z.number().int().min(0).max(14),
+    /**
+     * The IANA time zone the provider's days are in, when it is fixed (Search Console: Pacific
+     * time; Cloudflare: UTC). Without it, the hook learns the zone from each answer (a Google
+     * Analytics property's own zone). "today" for a read is worked out in this zone.
+     */
+    timeZone: z.string().refine(isTimeZone, "an IANA time zone such as America/Los_Angeles").optional(),
+    /** How a read's days match the provider's own report, in plain words, for people and agents. */
+    days: Copy().optional(),
     /** True when a row is about a person. Refused until the data processing agreement covers it. */
     personal: z.boolean(),
     /** The dimensions a live read of this stream may group by. */
     liveBy: z.array(z.enum(LIVE_BY)).min(1).max(LIVE_BY.length),
+    /** The filters a live read of this stream may use. */
+    liveFilters: z.array(z.enum(LIVE_FILTERS)).max(LIVE_FILTERS.length).optional(),
   })
   .strict()
   .superRefine((p, ctx) => {
@@ -215,7 +281,10 @@ export const ProduceSchema = z
       if (!p.keys.includes(k)) ctx.addIssue({ code: "custom", message: `joins names ${k}, which is not one of its keys` });
     }
     for (const by of p.liveBy) {
-      if (!Object.values(p.joins).includes(by)) ctx.addIssue({ code: "custom", message: `liveBy ${by} has no key that joins on it` });
+      if (!Object.values(p.joins).includes(LIVE_BY_JOINS[by])) ctx.addIssue({ code: "custom", message: `liveBy ${by} has no key that joins on it` });
+    }
+    for (const f of p.liveFilters ?? []) {
+      if (!Object.values(p.joins).includes(f)) ctx.addIssue({ code: "custom", message: `liveFilters ${f} has no key that joins on it` });
     }
     if (new Set(p.measures).size !== p.measures.length) ctx.addIssue({ code: "custom", message: "a measure is listed twice" });
   });
@@ -234,6 +303,13 @@ export const ConnectorManifestSchema = z
      * them (Cloudflare is CF, as the approved screens). Without it the screens work them out.
      */
     initials: z.string().regex(/^[A-Z0-9]{2}$/, "two capital letters or digits").optional(),
+    /** Its own marks, shown beside its name; the two letters stay the fallback. */
+    icon: ConnectorIconSchema.optional(),
+    /**
+     * The provider's own dashboard, where people see these numbers: the source line under a Vizzy
+     * answer that read this connector links to it (src/components/admin/chat/SourceLine.tsx).
+     */
+    home: HttpsUrl.optional(),
     /** One line for Browse. */
     summary: Copy(160),
     category: z.enum(CONNECTOR_CATEGORIES),
@@ -265,6 +341,9 @@ export const ConnectorManifestSchema = z
   .strict()
   .superRefine((m, ctx) => {
     const hostOf = (u: string) => new URL(u).hostname;
+    for (const file of m.icon ? iconFiles(m.icon) : []) {
+      if (!file.startsWith(`/marks/connectors/${m.id}/`)) ctx.addIssue({ code: "custom", path: ["icon"], message: `${file} is not in the connector's own folder, /marks/connectors/${m.id}/` });
+    }
     if (!m.api.hosts.includes(hostOf(m.verify.url))) ctx.addIssue({ code: "custom", message: "verify.url is not on a declared host" });
     for (const hook of [m.verify.hook, m.hooks.live, ...(m.hooks.accounts ? [m.hooks.accounts] : [])]) {
       if (!hook.startsWith(`${m.id.replace(/-([a-z0-9])/g, (_, c: string) => c.toUpperCase())}.`)) {

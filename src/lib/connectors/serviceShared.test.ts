@@ -221,6 +221,80 @@ describe("Check access, picking and reading", () => {
     expect((await load(id)).secrets).toEqual({});
   });
 
+  it("answers Vizzy's last 28 days with Search Console's own days and logs what was asked, never a number or a page", async () => {
+    const id = await shared();
+    await checkAccess(A, admin, id, deps());
+    await pickAccount(A, admin, id, { account: "sc-domain:example.com" }, deps());
+    await setGrants(A, admin, id, { grants: [{ to: "agent:vizzy", can: "read" }] }, deps());
+    const asked: Array<Record<string, unknown>> = [];
+    const plain = transport.getMockImplementation()!;
+    transport.mockImplementation(async (url: string, init: RequestInit) => {
+      if (!url.includes("/searchAnalytics/query")) return plain(url, init);
+      const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+      asked.push(body);
+      // The date probe: 21 Nov (Pacific) is still being collected.
+      if (body.rowLimit === 10) return answer({ rows: [{ keys: ["2026-11-20"], clicks: 1, impressions: 9 }], metadata: { first_incomplete_date: "2026-11-21" } });
+      return answer({ rows: [{ keys: ["https://example.com/pricing"], clicks: 3, impressions: 50, ctr: 0.06, position: 4 }] });
+    });
+    const vizzy = { kind: "agent", agent: "vizzy", forRole: "admin" } as const;
+    const r = await agentLiveRead(A, vizzy, { connectionId: id, stream: "search_performance", period: "last_28_days", by: "page", page: "/pricing" }, deps());
+    expect(r.status).toBe(200);
+    expect(asked[1]).toMatchObject({ startDate: "2026-10-24", endDate: "2026-11-20", dataState: "all", rowLimit: 1000 });
+    expect(r.body).toMatchObject({
+      connection: { id, connectorId: "search-console", connector: "Google Search Console" },
+      by: "page",
+      period: { from: "2026-10-24", to: "2026-11-20", timeZone: "America/Los_Angeles", finalThrough: "2026-11-18", words: "24 Oct to 20 Nov 2026, Pacific time" },
+      rows: [{ page: "/pricing", host: "example.com", searchClicks: 3, searchImpressions: 50 }],
+      more: false,
+      notes: ["Search Console's numbers for 19 and 20 Nov may not be final yet. Its own report shows them too, and they may still change a little."],
+    });
+    expect(r.body).not.toHaveProperty("lag");
+    // One page's rows are by host: no site totals, and no totals query.
+    expect(r.body).not.toHaveProperty("totals");
+    expect(asked).toHaveLength(2);
+    const read = db.dump("data_connection_activity").find((a) => a.kind === "read")!;
+    expect(read.read).toEqual({ stream: "search_performance", by: "page", from: "2026-10-24", to: "2026-11-20", timeZone: "America/Los_Angeles", limit: 100, period: "last_28_days", pageFilter: true });
+    expect(JSON.stringify(read)).not.toContain("pricing");
+  });
+
+  it("gives Vizzy Google Analytics' own totals and days for a landing page read, in the property's zone", async () => {
+    vi.stubEnv("CONNECTOR_GA4_ENABLED", "true");
+    const made = await shareConnect(A, admin, "google-analytics", {}, deps());
+    if (!made.ok) throw new Error("not shared");
+    const id = made.value.connection.id;
+    await changeAccount(id, "properties/1000");
+    await setGrants(A, admin, id, { grants: [{ to: "agent:vizzy", can: "read" }] }, deps());
+    const plain = transport.getMockImplementation()!;
+    let sent: Record<string, unknown> = {};
+    transport.mockImplementation(async (url: string, init: RequestInit) => {
+      if (!url.startsWith("https://analyticsdata.googleapis.com/")) return plain(url, init);
+      sent = JSON.parse(String(init.body)) as Record<string, unknown>;
+      const header = [{ name: "sessions" }, { name: "activeUsers" }, { name: "keyEvents" }];
+      const v = (...n: number[]) => n.map((x) => ({ value: String(x) }));
+      return answer({
+        metricHeaders: header,
+        rows: [{ dimensionValues: [{ value: "/" }], metricValues: v(40, 30, 2) }],
+        totals: [{ metricValues: v(55, 41, 3) }],
+        rowCount: 7,
+        metadata: { timeZone: "Europe/London" },
+      });
+    });
+    const vizzy = { kind: "agent", agent: "vizzy", forRole: "admin" } as const;
+    const r = await agentLiveRead(A, vizzy, { connectionId: id, stream: "site_traffic", period: "last_28_days", by: "landing", limit: 1 }, deps());
+    expect(r.status).toBe(200);
+    expect(sent).toMatchObject({ dateRanges: [{ startDate: "28daysAgo", endDate: "yesterday" }], dimensions: [{ name: "landingPage" }], metricAggregations: ["TOTAL"] });
+    expect(r.body).toMatchObject({
+      connection: { connectorId: "google-analytics", connector: "Google Analytics 4" },
+      // 10:00 UTC on 21 Nov is 21 Nov in London, so Google's 28daysAgo to yesterday is 24 Oct to 20 Nov.
+      period: { from: "2026-10-24", to: "2026-11-20", timeZone: "Europe/London", words: "24 Oct to 20 Nov 2026, United Kingdom time" },
+      rows: [{ landing: "/", ga4Sessions: 40, ga4ActiveUsers: 30, ga4KeyEvents: 2 }],
+      totals: { ga4Sessions: 55, ga4ActiveUsers: 41, ga4KeyEvents: 3 },
+      more: true,
+    });
+    expect((r.body.notes as string[])[0]).toBe("Google Analytics lists 7 landing pages for these days; this shows the top 1 by sessions.");
+    expect(Object.keys(r.body.meanings as object)).toEqual(["ga4Sessions", "ga4ActiveUsers", "ga4KeyEvents"]);
+  });
+
   it("tells a property no longer shared from a provider error, in shared access words", async () => {
     const id = await shared();
     await checkAccess(A, admin, id, deps());

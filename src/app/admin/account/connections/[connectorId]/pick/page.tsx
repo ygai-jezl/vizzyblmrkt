@@ -36,6 +36,8 @@ export default async function PickPropertyPage({ params, searchParams }: Params)
     <PropertyPicker
       connectorId={connectorId}
       connectorName={listing.name}
+      connectorIcon={listing.icon}
+      connectorInitials={listing.initials}
       connectionId={conn.id}
       method={method}
       sharedWith={conn.details.serviceAccount?.email ?? null}

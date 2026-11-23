@@ -4,15 +4,25 @@ import React from "react";
 
 /**
  * Minimal, dependency-free markdown renderer for agent responses. Handles the
- * common subset the agent emits — headings, paragraphs, fenced + inline code,
- * bullet/numbered lists, bold, and links — without pulling in react-markdown.
- * Output is built as React elements (never dangerouslySetInnerHTML), so raw
- * HTML in the model output is rendered as inert text. Revisit react-markdown
- * only if rich tables/GFM become necessary (see plan §Phase 1 / R4).
+ * common subset the agent emits: headings, paragraphs, fenced and inline code,
+ * bullet and numbered lists, pipe tables, bold, and links, without pulling in
+ * react-markdown. Output is built as React elements (never dangerouslySetInnerHTML),
+ * so raw HTML in the model output is rendered as inert text, and a link is only a
+ * link when it is http(s) or site-relative.
+ *
+ * Tables are read by src/lib/content/markdownTable.ts, the same reader as the blog's
+ * articles: a header row, then a separator row with as many cells. A table straight
+ * after a sentence still starts a table; while a reply streams, a header row whose
+ * separator hasn't arrived yet stays a paragraph until it does. Cells use the same
+ * inline rendering as paragraphs, `\|` is a literal pipe, and a table wider than the
+ * chat scrolls sideways on its own, not the page.
  */
 
+import { isTableStart, readTable, type TableAlign } from "@/lib/content/markdownTable";
+
+// A link's target is http(s) or site-relative ("/admin/..."), never "//host" or another scheme.
 const INLINE_PATTERN =
-  /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\((?:https?:\/\/|\/)[^)\s]+\))/g;
+  /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\((?:https?:\/\/|\/(?!\/))[^)\s]+\))/g;
 
 function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
@@ -66,6 +76,7 @@ type Block =
   | { kind: "ul"; items: string[] }
   | { kind: "ol"; items: string[] }
   | { kind: "heading"; level: number; text: string }
+  | { kind: "table"; header: string[]; align: TableAlign[]; rows: string[][] }
   | { kind: "p"; text: string };
 
 function parseBlocks(content: string): Block[] {
@@ -129,7 +140,15 @@ function parseBlocks(content: string): Block[] {
       continue;
     }
 
-    // Paragraph: gather consecutive non-blank, non-special lines
+    // Pipe table: a header row and its separator row
+    const table = readTable(lines, i);
+    if (table) {
+      blocks.push({ kind: "table", header: table.header, align: table.align, rows: table.rows });
+      i = table.next;
+      continue;
+    }
+
+    // Paragraph: gather consecutive non-blank, non-special lines (a table ends it too)
     const para: string[] = [];
     while (
       i < lines.length &&
@@ -137,7 +156,8 @@ function parseBlocks(content: string): Block[] {
       !at(i).trimStart().startsWith("```") &&
       !/^(#{1,3})\s+/.test(at(i)) &&
       !/^\s*[-*]\s+/.test(at(i)) &&
-      !/^\s*\d+\.\s+/.test(at(i))
+      !/^\s*\d+\.\s+/.test(at(i)) &&
+      !isTableStart(lines, i)
     ) {
       para.push(at(i));
       i++;
@@ -191,10 +211,54 @@ export function MarkdownMessage({ content }: { content: string }) {
                 ))}
               </ol>
             );
+          case "table":
+            return <ChatTable key={idx} block={block} idx={idx} />;
           default:
             return <p key={idx}>{renderInline(block.text, `p${idx}`)}</p>;
         }
       })}
+    </div>
+  );
+}
+
+const ALIGN: Readonly<Record<Exclude<TableAlign, null>, string>> = {
+  left: "text-left",
+  center: "text-center",
+  right: "text-right",
+};
+
+const CELL = "px-2.5 py-1.5 align-top";
+
+/** A pipe table at chat density, light and dark; wider than the chat, it scrolls sideways. */
+function ChatTable({ block, idx }: { block: Extract<Block, { kind: "table" }>; idx: number }) {
+  const alignOf = (c: number) => {
+    const a = block.align[c];
+    return a ? ALIGN[a] : "text-left";
+  };
+  return (
+    <div className="overflow-x-auto rounded-md border border-neutral-200 dark:border-neutral-700">
+      <table className="w-full border-collapse text-xs tabular-nums">
+        <thead className="border-b border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800/60">
+          <tr>
+            {block.header.map((cell, c) => (
+              <th key={c} scope="col" className={`${CELL} font-semibold ${alignOf(c)}`}>
+                {renderInline(cell, `t${idx}-h${c}`)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-neutral-200 dark:divide-neutral-700">
+          {block.rows.map((row, r) => (
+            <tr key={r}>
+              {row.map((cell, c) => (
+                <td key={c} className={`${CELL} ${alignOf(c)}`}>
+                  {renderInline(cell, `t${idx}-${r}-${c}`)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

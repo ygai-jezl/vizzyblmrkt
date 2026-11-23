@@ -4,6 +4,55 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0013 · Search Console queries are Google's aggregates, so they may enter brand search (decision 37) (2026-11-23)
+
+Context: Connectors 2 group 3 (ADR-0012) puts each Search Console connection's top searches into
+brand search, so the team and Vizzy can find what people search for beside what the brand wrote.
+Brand search keeps people's own words out (sign up answers, AI conversations, social comments,
+person plans, notes that may name a customer) until the data processing agreement covers a new
+store of personal data (`src/lib/search/types.ts`, `src/lib/search/feeders.ts`). Search queries are
+words people typed, so the build plan asked whether they count.
+
+Decided (build plan decision 37, the owner's, before wave 3): **no, they are Google's aggregates.**
+- A Search Console row is a count over everyone who searched those words in a day: clicks,
+  impressions, click rate and position for the site, never who searched, when or from where.
+- Google keeps very rare queries out of the query rows, to protect the privacy of the people who
+  searched them, and counts them only in the totals (anonymized queries,
+  https://developers.google.com/search/blog/2022/10/performance-data-deep-dive). What reaches YouGrow
+  is only words many people searched.
+- So they are not one person's own words, may enter brand search before the DPA line, and are not
+  personal data in the ontology registry (`metric_snapshot` stays `personal: "none"`).
+
+What follows (group 3, behind `CONNECTORS_SEARCH_TEXT_ENABLED`, which needs collected numbers,
+`SEARCH_INDEX_ENABLED` and the brand's `brand_search` access):
+- **One `research` source per Search Console connection,** ref `gsc:<connectionId>`, titled
+  "Google searches: <site>". Its parts are the top 200 searches by clicks, then impressions, over the
+  28 days to the last collected day (the rolled `topic` doc), each with its clicks, impressions and
+  position. Never a page: page and query together is Search Console's most expensive load, and a
+  search alone says what people want. No new search kind, so Vizzy's tool and its list of kinds
+  don't change.
+- **Refreshed weekly.** The version is the ISO week of the last collected day, so daily numbers don't
+  re-embed 200 parts every day. Listed once 28 days are collected (or all the site has), so the first
+  week isn't a partial window. Its link opens the Connected view with that connection selected.
+- **Who finds them follows each viewer's access,** as the connection's grants say
+  (`src/lib/connectors/grants.ts`). `searchBrand` takes an optional viewer: a person (`role`, `uid`)
+  or Vizzy reading for one (`forRole`). With no viewer every `gsc:` hit is dropped, so a caller that
+  doesn't say who is looking (Next up, the autopilot, the context pack, which are stored or shared
+  with the whole team) never shows them. A hit stays only while its connection is connected and
+  `can(viewer, "read_live", grants)` holds; with the switch off, none shows.
+- **Erase reaches the index whatever any switch says.** `removeFromIndex` takes `{ force: true }`,
+  which skips `SEARCH_INDEX_ENABLED` but still goes through `searchStoreFor`, the brand's own path.
+  Disconnect, Change property and the purge remove the source with it; a failed removal leaves the
+  erase pending for the lane, and a copy without the search databases has nothing to remove.
+- **Switch off:** the feeder stops listing `gsc:` sources and the next sweep removes them (research
+  is read in full). With indexing off too, the purge removes them.
+
+Rejected: a new search kind (Vizzy's kinds list and a redeploy for no gain); each search with its
+page (the costly query, and the page adds little to finding the words); and leaving the searches
+out until the DPA (they hold no one's own words).
+
+---
+
 ## ADR-0012 · Collected numbers: where they live, how long, and what they feed (Connectors 2) (2026-11-23)
 
 Context: wave 3's Connectors 2 (build plan decisions 25, 35, 36 and 37; piece 2 of the Connectors
@@ -28,7 +77,7 @@ follow as it lands.
   Search Console signals.
 - **Decision 37: Search Console queries are Google's aggregates,** counts over everyone who searched,
   not one person's own words, so they may enter brand search before the data processing agreement
-  line. Group 3 writes it into this log as its own entry.
+  line. Its own entry is ADR-0013.
 - **Decision 25: values are cleared when a suggestion closes.** Admins approve for now (decision 28).
   `agent_actions` has no time to live (decision 22) and clears values only on `acted` or `declined`,
   so every way a suggestion closes ends in one of those.

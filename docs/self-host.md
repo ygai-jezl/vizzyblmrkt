@@ -363,6 +363,18 @@ Google data on your own copy above. Run
 `signups-eu signups-asia` added for the regions add-on), for the sign in states' time to live; it
 is safe to run again.
 
+**Upgrading to collected numbers.** `CONNECTORS_COLLECT_ENABLED` collects each connection's numbers
+once a day and keeps them 90 days (ADR-0012); `npm run selfhost` keeps it off. Before you turn it on:
+
+1. Run `FIRESTORE_DATABASES='(default)' bash infra/lifecycle/setup.sh ttl <id>` once more (with
+   `signups-eu signups-asia` added for the regions add-on). It adds the time to live on
+   `metric_snapshots.ttlAt` and `data_signals.ttlAt`; `setup.sh verify <id>` shows both ACTIVE.
+2. Deploy the index file, which exempts `metric_snapshots.rows` and both `ttlAt` fields from
+   indexing: `firebase deploy --only firestore:indexes --non-interactive --project <id>`, then
+   `setup.sh verify <id>` again. **Never add `--force`, and never answer yes to deleting field
+   overrides:** every time to live comes from `setup.sh ttl`, not the index file, so that delete
+   removes all of them.
+
 ### Enterprise features
 
 Merging upstream brings `src/ee`, the Enterprise code. Its features stay off without a

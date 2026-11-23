@@ -1,7 +1,7 @@
-import { zoneDaily, zoneProbe, zones } from "./cloudflare";
-import { properties, propertyCheck, runReport } from "./googleAnalytics";
-import { searchAnalytics, siteCheck, sites } from "./searchConsole";
-import type { AccountsHook, LiveHook, VerifyHook } from "./types";
+import { collectDays as cloudflareCollect, zoneDaily, zoneProbe, zones } from "./cloudflare";
+import { collectDays as googleAnalyticsCollect, properties, propertyCheck, runReport } from "./googleAnalytics";
+import { collectDays as searchConsoleCollect, searchAnalytics, siteCheck, sites } from "./searchConsole";
+import type { AccountsHook, CollectHook, LiveHook, VerifyHook } from "./types";
 
 /**
  * Connector code by hook id: the only code a connector adds beside its manifest. A manifest names
@@ -24,4 +24,11 @@ export const ACCOUNT_HOOKS: Readonly<Record<string, AccountsHook>> = {
   "cloudflare.zones": zones,
   "searchConsole.sites": sites,
   "googleAnalytics.properties": properties,
+};
+
+/** Each connector's daily collect (Connectors 2, ADR-0012): the days it keeps, read as a system job. */
+export const COLLECT_HOOKS: Readonly<Record<string, CollectHook>> = {
+  "cloudflare.collectDays": cloudflareCollect,
+  "searchConsole.collectDays": searchConsoleCollect,
+  "googleAnalytics.collectDays": googleAnalyticsCollect,
 };

@@ -4,8 +4,10 @@ const SCOPE = "https://www.googleapis.com/auth/analytics.readonly";
 
 /**
  * Google Analytics 4 (Connectors 1c), by signing in with Google or by sharing access. Read only:
- * sessions, active users, views and key events for one property, read live when someone asks.
- * Collecting them every day is Connectors 2.
+ * sessions, active users, views and key events for one property, read live when someone asks,
+ * and collected once a day (Connectors 2, ADR-0012): each day two days later, marked not final,
+ * and again on day 8, when Google Analytics no longer changes it; by day, page and landing page,
+ * the top 500 rows of each, kept 90 days.
  *
  * - One scope, analytics.readonly, which Google's console classes as sensitive: Sign in goes on in
  *   production only after Google's sensitive scope review, so it has a switch of its own,
@@ -75,7 +77,7 @@ export const ga4Manifest = {
       what: "Traffic numbers for the property you pick",
       detail: "sessions, active users, views and key events, by day, page or landing page",
       direction: "read",
-      where: "Read live when you or Vizzy ask. Nothing is stored.",
+      where: "Read live when you or Vizzy ask.",
       needs: [SCOPE],
     },
     {
@@ -103,9 +105,16 @@ export const ga4Manifest = {
       personal: false,
       liveBy: ["day", "page", "landing"],
       liveFilters: ["page"],
+      collect: {
+        by: ["day", "page", "landing"],
+        rowsPerDay: 500,
+        keepDays: 90,
+        where: "Collected once a day and kept 90 days in your brand's region; Disconnect deletes them.",
+        lag: "Each day is read two days later, then again a week later, once Google Analytics no longer changes it.",
+      },
     },
   ],
   uses: ["vizzy.read"],
-  hooks: { live: "googleAnalytics.runReport", accounts: "googleAnalytics.properties" },
+  hooks: { live: "googleAnalytics.runReport", accounts: "googleAnalytics.properties", collect: "googleAnalytics.collectDays" },
   disconnect: "Disconnecting deletes the sign in YouGrow keeps. To end access at Google too, remove YouGrow from your Google account's third party connections.",
 } satisfies ConnectorManifestInput;

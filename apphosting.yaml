@@ -1088,6 +1088,14 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Collected numbers (ADR-0012): each connection's numbers collected once a day and kept 90 days
+  # in the brand's region (needs CONNECTORS_ENABLED). Before turning it on, run
+  # infra/lifecycle/setup.sh ttl for the metric_snapshots time to live, and deploy the index file
+  # without --force (docs/self-host.md). Disconnect erases collected numbers whatever it says.
+  - variable: CONNECTORS_COLLECT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Analytics from BigQuery ==
   # Breakdowns and widget views from BigQuery. Needs a dataset per region and the export

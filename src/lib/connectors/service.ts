@@ -13,7 +13,7 @@ import { shareMethod, tokenMethod, type ConnectMethodName, type ConnectorIcon, t
 import { connectorMessage, tokenRefusedMessage, type ConnectorErrorCode } from "./messages";
 import { getConnector, knownConnector, listConnectors, readyMethods } from "./registry";
 import type { ConnectorFetchDeps } from "./safeFetch";
-import { isConnectorsChatEnabled, isGoogleRevokeEnabled } from "./flags";
+import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isGoogleRevokeEnabled } from "./flags";
 import { revokeGoogleToken } from "./google";
 import { createShareAccount, deleteShareAccount, forgetShareTokens, identitiesProject, projectOfShareAccount, shareAccessToken, type ShareDeps, type ShareResult } from "./shareAccess";
 import { freshAccessToken, REFRESH_SLOT, type KeeperDeps } from "./tokenKeeper";
@@ -118,7 +118,16 @@ export interface ConnectorListing {
   /** The sign-in methods this copy can use now (Sign in with Google needs its client). */
   ready: ConnectMethodName[];
   shares: ConnectorManifest["shares"];
-  produces: Array<{ stream: string; description: string; shape: string; measures: Array<{ key: string; name: string; definition: string; caveat?: string }>; lag: string; liveBy: string[] }>;
+  produces: Array<{
+    stream: string;
+    description: string;
+    shape: string;
+    measures: Array<{ key: string; name: string; definition: string; caveat?: string }>;
+    lag: string;
+    liveBy: string[];
+    /** What is kept of it each day and for how long, while collected numbers are on; else null. */
+    collect: string | null;
+  }>;
   uses: ConnectorManifest["uses"];
   disconnect: string;
 }
@@ -142,6 +151,7 @@ export function listingOf(m: ConnectorManifest): ConnectorListing {
       measures: Object.entries(meaningsOf(p.measures)).map(([key, mm]) => ({ key, name: mm!.name, definition: mm!.definition, ...(mm!.caveat ? { caveat: mm!.caveat } : {}) })),
       lag: lagWords(p.lagDays),
       liveBy: p.liveBy,
+      collect: p.collect && isConnectorsCollectEnabled() ? p.collect.where : null,
     })),
     uses: m.uses,
     disconnect: m.disconnect,

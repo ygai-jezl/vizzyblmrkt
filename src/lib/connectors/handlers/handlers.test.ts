@@ -4,7 +4,7 @@ import { cloudflareManifest } from "../manifests/cloudflare";
 import { allConnectors } from "../registry";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { ADAPTIVE_DEFAULTS, adaptiveFrom, adaptiveSettings, classifyErrors, END_USERS_NOTE, freePlanNote, MAX_ZONES, NO_TOTALS_NOTE, olderDaysNote, zoneDaily, zonePage, zoneProbe, zones } from "./cloudflare";
-import { ACCOUNT_HOOKS, LIVE_HOOKS, VERIFY_HOOKS } from "./index";
+import { ACCOUNT_HOOKS, COLLECT_HOOKS, LIVE_HOOKS, VERIFY_HOOKS } from "./index";
 
 // Cloudflare is never called: the transport is a stub that answers like its GraphQL API.
 const manifest = parseManifest(cloudflareManifest);
@@ -27,6 +27,7 @@ describe("connector hooks", () => {
       expect(VERIFY_HOOKS[m.verify.hook], m.verify.hook).toBeDefined();
       expect(LIVE_HOOKS[m.hooks.live], m.hooks.live).toBeDefined();
       if (m.hooks.accounts) expect(ACCOUNT_HOOKS[m.hooks.accounts], m.hooks.accounts).toBeDefined();
+      if (m.hooks.collect) expect(COLLECT_HOOKS[m.hooks.collect], m.hooks.collect).toBeDefined();
     }
   });
 });

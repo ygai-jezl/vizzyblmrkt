@@ -67,3 +67,15 @@ export function isConnectorsChatEnabled(): boolean {
 export function isGoogleRevokeEnabled(): boolean {
   return process.env.CONNECTOR_GOOGLE_REVOKE_ENABLED === "true";
 }
+
+/**
+ * Collected numbers (Connectors 2, ADR-0012): every connected Search Console site, Google
+ * Analytics property and Cloudflare zone collected once a day into metric snapshots, kept 90 days;
+ * the Review row for a data source that needs someone, and the Connected view's Collected column.
+ * Needs CONNECTORS_ENABLED. Off, nothing new is collected and those screens look as before; what
+ * was collected leaves through its time to live. Erasing never depends on it: Disconnect, Change
+ * property, the purge and the lane's erase retries run whenever CONNECTORS_ENABLED is on.
+ */
+export function isConnectorsCollectEnabled(): boolean {
+  return isConnectorsEnabled() && process.env.CONNECTORS_COLLECT_ENABLED === "true";
+}

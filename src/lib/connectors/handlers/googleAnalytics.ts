@@ -1,8 +1,10 @@
+import type { SnapshotNote, SnapshotRow } from "@/lib/types/metricSnapshot";
+import { newestDue, planDays } from "../collect/schedule";
 import { cleanPagePath } from "../paths";
 import { addDays, cappedNote, daysIn, daysWords, earlierDay, isTimeZone, laterDay, nothingYetNote, PERIOD_DAYS, resolveWindow, todayIn, type LivePeriod } from "../period";
 import { connectorFetch } from "../safeFetch";
 import { googleFailure } from "./searchConsole";
-import type { AccountsHook, ConnectorAccount, HookFailure, HookInput, LiveHook, LiveRow, VerifyHook } from "./types";
+import type { AccountsHook, CollectHook, CollectResult, ConnectorAccount, HookFailure, HookInput, LiveHook, LiveRow, VerifyHook } from "./types";
 
 /**
  * Google Analytics 4's hooks, called with a signed in connection's access token from the token
@@ -331,4 +333,161 @@ export const runReport: LiveHook = async (input, deps) => {
           return String(a[by]).localeCompare(String(b[by]));
         });
   return { ok: true, rows: sorted, notes: [...notes], period: { from, to, timeZone, finalThrough }, ...(totals ? { totals } : {}), more };
+};
+
+// --- Collecting (Connectors 2, ADR-0012) ----------------------------------------------------------
+
+const batchUrl = (property: string) => `https://analyticsdata.googleapis.com/v1beta/${property}:batchRunReports`;
+/** Days a collect run reads: 3 calls of 2 days, each day a page and a landing report. */
+export const COLLECT_DAYS_PER_RUN = 6;
+/** Days in one batchRunReports call: 4 reports, under Google's 5. */
+export const DAYS_PER_BATCH = 2;
+/** Rows asked of each report before the cut to 500; halved once when an answer is too big. */
+export const COLLECT_ROWS = 1000;
+/** A day is first read 2 days later and read again on day 8, both from 06:00 in the property's zone. */
+export const FIRST_PASS_DAYS = 2;
+export const FINAL_PASS_DAYS = 8;
+export const PASS_HOUR = 6;
+/**
+ * Below this many of the project's tokens for the property this hour (20% of a standard
+ * property's 14,000), the collector holds itself for an hour so live reads keep the rest.
+ */
+export const LOW_PROJECT_TOKENS = 2_800;
+const HOUR_MS = 3_600_000;
+
+interface CollectReport {
+  rows: SnapshotRow[];
+  totals: Record<string, number | null> | null;
+  more: boolean;
+  notes: Set<SnapshotNote>;
+  timeZone: string | null;
+  quota: { projectHour: number | null; day: number | null };
+}
+
+/**
+ * One report's rows as kept rows: paths only (an app's screen class isn't one, so it is left out
+ * with a note), "(other)" and "(not set)" left out, and query string variants of one landing page
+ * added together. A merged row adds sessions, views and key events, but not active users: the same
+ * person may be in more than one.
+ */
+function reportRows(by: "page" | "landing", body: ReportBody): CollectReport {
+  const headers = Array.isArray(body.metricHeaders) ? (body.metricHeaders as Array<{ name?: unknown }>).map((h) => (typeof h?.name === "string" ? h.name : "")) : [];
+  const notes = new Set<SnapshotNote>();
+  const merged = new Map<string, { m: Record<string, number>; n: number }>();
+  const listed = Array.isArray(body.rows) ? (body.rows as Array<{ dimensionValues?: unknown; metricValues?: unknown }>) : [];
+  for (const r of listed) {
+    const dim = Array.isArray(r?.dimensionValues) ? (r.dimensionValues[0] as { value?: unknown } | undefined)?.value : undefined;
+    if (typeof dim !== "string" || dim === "(not set)" || dim.length > 2000) continue;
+    if (dim === "(other)") {
+      notes.add("other_row");
+      continue;
+    }
+    if (!dim.startsWith("/")) {
+      notes.add("app_screens");
+      continue;
+    }
+    const key = cleanPagePath(dim);
+    const values = valuesOf(headers, r.metricValues);
+    const acc = merged.get(key);
+    if (!acc) {
+      const m: Record<string, number> = {};
+      for (const [k, v] of Object.entries(values)) if (v !== null) m[k] = v;
+      merged.set(key, { m, n: 1 });
+      continue;
+    }
+    acc.n += 1;
+    delete acc.m.ga4ActiveUsers;
+    for (const [k, v] of Object.entries(values)) if (v !== null && k !== "ga4ActiveUsers") acc.m[k] = (acc.m[k] ?? 0) + v;
+  }
+  const totalsRow = Array.isArray(body.totals) ? (body.totals[0] as { metricValues?: unknown } | undefined) : undefined;
+  const meta = (body.metadata ?? {}) as { timeZone?: unknown; subjectToThresholding?: unknown; dataLossFromOtherRow?: unknown; samplingMetadatas?: unknown };
+  if (meta.subjectToThresholding === true) notes.add("thresholded");
+  if (meta.dataLossFromOtherRow === true) notes.add("other_row");
+  if (Array.isArray(meta.samplingMetadatas) && meta.samplingMetadatas.length) notes.add("sampled");
+  const rowCount = typeof body.rowCount === "number" && Number.isInteger(body.rowCount) ? body.rowCount : null;
+  const quota = (body.propertyQuota ?? {}) as { tokensPerProjectPerHour?: unknown; tokensPerDay?: unknown };
+  return {
+    rows: [...merged.entries()].map(([key, v]) => ({ key, m: v.m })),
+    totals: totalsRow ? valuesOf(headers, totalsRow.metricValues) : null,
+    more: rowCount !== null && rowCount > listed.length,
+    notes,
+    timeZone: isTimeZone(meta.timeZone) ? meta.timeZone : null,
+    quota: { projectHour: remaining(quota.tokensPerProjectPerHour), day: remaining(quota.tokensPerDay) },
+  };
+}
+
+/** A day's totals: views, active users and key events from the page report, sessions from the landing one. */
+function dayTotals(page: CollectReport, landing: CollectReport): Record<string, number | null> {
+  return {
+    ga4Sessions: landing.totals?.ga4Sessions ?? null,
+    ga4ActiveUsers: page.totals?.ga4ActiveUsers ?? null,
+    ga4Views: page.totals?.ga4Views ?? null,
+    ga4KeyEvents: page.totals?.ga4KeyEvents ?? null,
+  };
+}
+
+/**
+ * Collect a property's days (ADR-0012). A day D is first read 2 days later from 06:00 in the
+ * property's zone and marked not final; it is read again from day 8, when Google Analytics no
+ * longer changes it ("some data can arrive late, potentially up to 7 days delayed"), and marked
+ * final. Each day is two reports, one by page and one by landing page, that day alone, 1,000 rows
+ * asked in the main measure's order with the day's totals; two days go in one batchRunReports call
+ * (4 reports, under Google's 5), at most 3 calls a run, one at a time. An answer past the byte cap
+ * is asked again once with half the rows. Every call returns the property's quota: under 20% of the
+ * project's tokens for the hour, the collector holds itself for an hour.
+ */
+export const collectDays: CollectHook = async (input, deps) => {
+  const { ask } = input;
+  const keepDays = ask.stream.collect.keepDays;
+  let timeZone = ask.cursor.timeZone;
+  const base: CollectResult = { days: [], newest: null, reachFrom: null, timeZone, probed: false, hold: null, failure: null };
+  if (!input.account) return { ...base, failure: { ok: false, code: "account_needed", retryAfterSec: null } };
+  if (!PROPERTY_RE.test(input.account)) return { ...base, failure: { ok: false, code: "account_refused", retryAfterSec: null } };
+  const zone = timeZone ?? "UTC";
+  const newest = newestDue(ask.now, zone, FIRST_PASS_DAYS, PASS_HOUR);
+  const finalLine = newestDue(ask.now, zone, FINAL_PASS_DAYS, PASS_HOUR);
+  const out: CollectResult = { ...base, newest };
+  const plan = planDays(ask.cursor, newest, { keepDays, maxDays: COLLECT_DAYS_PER_RUN, rereadThrough: finalLine });
+
+  for (let i = 0; i < plan.length; i += DAYS_PER_BATCH) {
+    if (!ask.canStart()) break;
+    const days = plan.slice(i, i + DAYS_PER_BATCH).map((p) => p.day);
+    const call = (rows: number) =>
+      connectorFetch(
+        {
+          manifest: input.manifest,
+          connection: input.connection,
+          url: batchUrl(input.account),
+          method: "POST",
+          json: { requests: days.flatMap((d) => (["page", "landing"] as const).map((by) => reportBody(by, { startDate: d, endDate: d }, rows, undefined))) },
+          token: input.token,
+        },
+        deps,
+      );
+    let res = await call(COLLECT_ROWS);
+    if (!res.ok && res.code === "body_too_large") res = await call(COLLECT_ROWS / 2);
+    if (!res.ok) return { ...out, failure: googleFailure(res) };
+    const reports = (res.body as { reports?: unknown } | null)?.reports;
+    if (!Array.isArray(reports) || reports.length !== days.length * 2) return { ...out, failure: { ok: false, code: "bad_response", retryAfterSec: null } };
+    let low = false;
+    days.forEach((day, j) => {
+      const page = reportRows("page", (reports[j * 2] ?? {}) as ReportBody);
+      const landing = reportRows("landing", (reports[j * 2 + 1] ?? {}) as ReportBody);
+      timeZone = page.timeZone ?? landing.timeZone ?? timeZone;
+      const notes = [...new Set([...page.notes, ...landing.notes])];
+      out.days.push({
+        day,
+        final: day <= finalLine,
+        docs: [
+          { by: "day", totals: dayTotals(page, landing), rows: [], more: false, notes },
+          { by: "page", totals: null, rows: page.rows, more: page.more, notes: [...page.notes] },
+          { by: "landing", totals: null, rows: landing.rows, more: landing.more, notes: [...landing.notes] },
+        ],
+      });
+      for (const q of [page.quota, landing.quota]) if ((q.projectHour !== null && q.projectHour < LOW_PROJECT_TOKENS) || (q.day !== null && q.day < LOW_TOKENS.day)) low = true;
+    });
+    out.timeZone = timeZone;
+    if (low) return { ...out, hold: { untilMs: ask.now.getTime() + HOUR_MS, reason: "tokens_low" } };
+  }
+  return out;
 };

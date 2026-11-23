@@ -247,7 +247,8 @@ export function numbersOf(listing: Pick<ConnectorListing, "produces">): { number
       numbers.push({ name: m.name, definition: m.definition });
     }
   }
-  return { numbers, lag: [...new Set(listing.produces.map((p) => p.lag))] };
+  // Each stream's lag, and what is kept of it while collected numbers are on.
+  return { numbers, lag: [...new Set(listing.produces.flatMap((p) => [p.lag, ...(p.collect ? [p.collect] : [])]))] };
 }
 
 export const tokenMethodOf = (listing: Pick<ConnectorListing, "connect">) => listing.connect.find((c): c is TokenFieldsMethod => c.method === "token_fields") ?? null;

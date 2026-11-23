@@ -1,7 +1,8 @@
+import { newestDue, planDays } from "../collect/schedule";
 import type { ConnectorErrorCode } from "../messages";
 import { addDays, cappedNote, daysIn, dayWords, daysWords, earlierDay, isDay, laterDay, nothingYetNote, resolveWindow } from "../period";
 import { connectorFetch, type ConnectorResponse } from "../safeFetch";
-import type { AccountsHook, ConnectorAccount, HookFailure, LiveHook, LiveRow, VerifyHook } from "./types";
+import type { AccountsHook, CollectHook, CollectResult, ConnectorAccount, HookFailure, LiveHook, LiveRow, VerifyHook } from "./types";
 
 /**
  * Cloudflare's hooks, over its GraphQL Analytics API (developers.cloudflare.com/analytics/
@@ -392,4 +393,119 @@ export const zones: AccountsHook = async (input, deps) => {
     if (page >= listed.pages) return { ok: true, accounts: out.slice(0, MAX_ZONES), more: false };
   }
   return { ok: true, accounts: out.slice(0, MAX_ZONES), more: true };
+};
+
+// --- Collecting (Connectors 2, ADR-0012) ----------------------------------------------------------
+
+/** A UTC day D is collected 2 days later from 03:00 UTC: the Free plan's numbers arrive 24 hours late. */
+export const COLLECT_LAG_DAYS = 2;
+export const COLLECT_HOUR = 3;
+/** One query reads at most this many days (its row limit). */
+const MAX_QUERY_DAYS = 100;
+
+/** Both datasets' settings: how far back each reads, and how many days at once. */
+const COLLECT_SETTINGS = `query ZoneSettings($zoneTag: string) {
+  viewer {
+    zones(filter: { zoneTag: $zoneTag }) {
+      settings {
+        httpRequestsAdaptiveGroups { enabled notOlderThan maxDuration }
+        httpRequests1dGroups { enabled notOlderThan maxDuration }
+      }
+    }
+  }
+}`;
+
+/**
+ * The daily totals' reach from the zone's settings (seconds), or null when it can't be read: the
+ * live limits page tells readers to take each plan's limit from this node.
+ */
+export function dailySettings(body: unknown): { notOlderThan: number | null; maxDuration: number | null } {
+  const set = ((zonesOf(body)?.[0] as { settings?: { httpRequests1dGroups?: { notOlderThan?: unknown; maxDuration?: unknown } } } | undefined)?.settings?.httpRequests1dGroups) ?? {};
+  const seconds = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null);
+  return { notOlderThan: seconds(set.notOlderThan), maxDuration: seconds(set.maxDuration) };
+}
+
+/** The oldest whole UTC day a dataset keeping `seconds` still holds. */
+export function oldestDay(now: Date, seconds: number): string {
+  return new Date(Math.ceil((now.getTime() - seconds * 1000) / 86_400_000) * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * Collect a zone's daily totals (ADR-0012), two UTC days after each day, in one query: end user
+ * requests, page views and visits (the adaptive dataset, filtered to eyeball traffic) as far back as
+ * it reaches, and the daily totals before that, which count all traffic and have no visits, each
+ * day marked with its basis. Unique visitors always come from the daily totals. The zone's settings
+ * node gives both datasets' reach: the backfill is clamped to the daily totals' notOlderThan and
+ * maxDuration. A day neither dataset lists, two days on, had no traffic. Zone totals only: AI
+ * crawlers by bot and page need other datasets, some paid only.
+ */
+export const collectDays: CollectHook = async (input, deps) => {
+  const { ask } = input;
+  const keepDays = ask.stream.collect.keepDays;
+  const newest = newestDue(ask.now, "UTC", COLLECT_LAG_DAYS, COLLECT_HOUR);
+  const base: CollectResult = { days: [], newest, reachFrom: null, timeZone: "UTC", probed: false, hold: null, failure: null };
+  if (!ask.canStart()) return base;
+  const post = (json: unknown) => connectorFetch({ manifest: input.manifest, connection: input.connection, url: GRAPHQL, method: "POST", json, token: input.token }, deps);
+
+  const settingsRes = await post({ query: COLLECT_SETTINGS, variables: { zoneTag: input.account } });
+  if (!settingsRes.ok) {
+    const f = failure(settingsRes);
+    if (STOPS_A_READ.has(f.code)) return { ...base, failure: f };
+  }
+  const readable = settingsRes.ok && !errorsOf(settingsRes.body).length;
+  const adaptive = readable ? adaptiveSettings(settingsRes.body) : { enabled: true, ...ADAPTIVE_DEFAULTS };
+  const daily = readable ? dailySettings(settingsRes.body) : { notOlderThan: null, maxDuration: null };
+  const reachFrom = daily.notOlderThan ? oldestDay(ask.now, daily.notOlderThan) : null;
+  const out: CollectResult = { ...base, reachFrom };
+
+  let plan = planDays(ask.cursor, newest, { keepDays, maxDays: keepDays, reachFrom });
+  if (!plan.length) return out;
+  const span = () => ({ from: plan.map((p) => p.day).sort()[0]!, to: plan.map((p) => p.day).sort().at(-1)! });
+  // One query: the forward days come first, so a range too wide for one query drops the backfill.
+  const widest = Math.min(MAX_QUERY_DAYS, daily.maxDuration ? Math.max(1, Math.floor(daily.maxDuration / 86_400)) : MAX_QUERY_DAYS);
+  while (plan.length > 1 && daysIn(span().from, span().to) > widest) plan = plan.slice(0, -1);
+  const { from, to } = span();
+  const afrom = adaptive.enabled ? adaptiveFrom(ask.now, from, to, adaptive) : null;
+  const endUserDays = afrom !== null && afrom <= to;
+  const res = await post({
+    query: zoneDailyQuery(daysIn(from, to), endUserDays, false),
+    variables: { zoneTag: input.account, from, to, ...(endUserDays ? { afrom, ato: to } : {}) },
+  });
+  if (!res.ok) return { ...out, failure: failure(res) };
+  const soft = softFailures(errorsOf(res.body));
+  if (!soft) return { ...out, failure: { ok: false, code: classifyErrors(errorsOf(res.body)), retryAfterSec: null } };
+  const zones = zonesOf(res.body);
+  if (!zones) return { ...out, failure: { ok: false, code: "bad_response", retryAfterSec: null } };
+  if (zones.length !== 1) return { ...out, failure: { ok: false, code: "account_refused", retryAfterSec: null } };
+  const zone = zones[0] as { daily?: unknown; traffic?: unknown; pages?: unknown };
+  if (!Array.isArray(zone.daily)) return { ...out, failure: { ok: false, code: "bad_response", retryAfterSec: null } };
+  const endUsers = endUserDays && !soft.has("traffic") && !soft.has("pages") && Array.isArray(zone.traffic) && Array.isArray(zone.pages);
+  const days = byDay(zone.daily, from, to);
+  const traffic = endUsers ? byDay(zone.traffic, afrom!, to) : new Map<string, Group>();
+  const pages = endUsers ? byDay(zone.pages, afrom!, to) : new Map<string, Group>();
+
+  for (const p of [...plan].sort((a, b) => a.day.localeCompare(b.day))) {
+    const d = days.get(p.day);
+    const recent = endUsers && p.day >= afrom!;
+    const t = traffic.get(p.day);
+    out.days.push({
+      day: p.day,
+      final: true,
+      docs: [
+        {
+          by: "day",
+          totals: {
+            cfRequests: recent ? (t ? count(t.count) : 0) : (d ? count(d.sum?.requests) : 0),
+            cfPageViews: recent ? (t ? count(pages.get(p.day)?.count ?? 0) : 0) : (d ? count(d.sum?.pageViews) : 0),
+            cfVisits: recent ? (t ? count(t.sum?.visits) : 0) : null,
+            cfUniqueVisitors: d ? count(d.uniq?.uniques) : 0,
+          },
+          rows: [],
+          more: false,
+          basis: recent ? "end_users" : "all_traffic",
+        },
+      ],
+    });
+  }
+  return out;
 };

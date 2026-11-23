@@ -2,7 +2,8 @@ import type { ConnectorManifestInput } from "../manifest";
 
 /**
  * Cloudflare, with an API token (Connectors 1a). Read only: daily totals for one zone, read live
- * when someone asks. Collecting them every day is Connectors 2.
+ * when someone asks, and collected once a day two UTC days later (Connectors 2, ADR-0012), the
+ * zone's totals only, kept 90 days.
  *
  * Cloudflare's GraphQL Analytics API answers HTTP 200 even when a query fails, with the reason in
  * an `errors` array, so the handlers (src/lib/connectors/handlers/cloudflare.ts) read that array.
@@ -91,7 +92,7 @@ export const cloudflareManifest = {
       what: "Daily totals for the zone",
       detail: "requests, page views, visits and unique visitors",
       direction: "read",
-      where: "Read live when you or Vizzy ask. Nothing is stored.",
+      where: "Read live when you or Vizzy ask.",
       needs: ["Zone Analytics Read"],
     },
     {
@@ -126,9 +127,17 @@ export const cloudflareManifest = {
       days: "Days are whole days in UTC, ending yesterday. Set Cloudflare's dashboard to UTC to compare them with its Traffic tab.",
       personal: false,
       liveBy: ["day"],
+      collect: {
+        by: ["day"],
+        rowsPerDay: 500,
+        keepDays: 90,
+        where: "Collected once a day and kept 90 days in your brand's region; Disconnect deletes them.",
+        lag: "Each day is collected 2 days later.",
+        keeps: "Each day keeps the zone's totals. Visits by people reach back about 31 days, and older days count all traffic.",
+      },
     },
   ],
   uses: ["vizzy.read"],
-  hooks: { live: "cloudflare.zoneDaily", accounts: "cloudflare.zones" },
+  hooks: { live: "cloudflare.zoneDaily", accounts: "cloudflare.zones", collect: "cloudflare.collectDays" },
   disconnect: "Disconnecting deletes the token YouGrow keeps. Cloudflare has no way for us to cancel it, so delete it in Cloudflare too.",
 } satisfies ConnectorManifestInput;

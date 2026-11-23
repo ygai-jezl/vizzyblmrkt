@@ -29,7 +29,7 @@ export interface PlanningApiDeps {
   now?: () => Date;
   canUse?: (ctx: TenantContext) => Promise<boolean>;
   /** Test seams: a subject's questions, and meaning. */
-  questions?: (ctx: TenantContext, subjectId: string) => Promise<Array<{ id: string; text: string; status: string }>>;
+  questions?: (ctx: TenantContext, subjectId: string) => Promise<Array<{ id: string; text: string; status: string; mergedInto?: string | null }>>;
   query?: typeof embedQuery;
   vectors?: KnowledgeCollectionLike;
 }
@@ -55,6 +55,11 @@ export interface SubjectCompetitors {
   suggestAngle: boolean;
   /** Questions their articles on it answer that the subject doesn't have yet, newest first. */
   theirQuestions: Array<{ text: string; competitor: string; url: string }>;
+  /**
+   * The subject's decided questions, open unless its last count found them answered, drafted or
+   * planned: what the box needs to write one, in this one request (no recount).
+   */
+  questions: Array<{ id: string; text: string; open: boolean }>;
 }
 
 /** The formats worth noticing when nobody has used one on a subject, as they read after "written". */
@@ -78,7 +83,7 @@ const COVERED_SIM = 0.65;
 export type CompetitorNames = Map<string, { name: string; site: string }>;
 
 /** What competitors wrote on one subject, for its panel. Pure. */
-export function subjectCompetitorsOf(articles: CompetitorArticle[], names: CompetitorNames): Omit<SubjectCompetitors, "uncovered" | "suggestAngle" | "theirQuestions"> {
+export function subjectCompetitorsOf(articles: CompetitorArticle[], names: CompetitorNames): Omit<SubjectCompetitors, "uncovered" | "suggestAngle" | "theirQuestions" | "questions"> {
   const read = articles.filter((a) => a.status === "read" && names.has(a.competitorId));
   const byCompetitor = new Map<string, CompetitorArticle[]>();
   for (const a of read) byCompetitor.set(a.competitorId, [...(byCompetitor.get(a.competitorId) ?? []), a]);
@@ -156,16 +161,19 @@ export async function subjectCompetitorsFromRequest(ctx: TenantContext, subjectI
   );
   const names: CompetitorNames = new Map(competitors.map((c) => [c.id, { name: c.name, site: c.site }]));
   const view = subjectCompetitorsOf(articles, names);
+  const all = await (deps.questions ?? ((c, id) => subjectQuestions(c, id, { db: deps.db })))(ctx, subjectId).catch(() => []);
+  const decided = all.filter((q) => q.status === "decided" && !q.mergedInto && q.text.trim());
+  // What the subject's last count found: kept on it, so nothing is counted again here.
+  const done = new Set([...(subject?.answeredIds ?? []), ...(subject?.draftedIds ?? []), ...(subject?.plannedIds ?? [])]);
+  const questions = decided.map((q) => ({ id: q.id, text: q.text, open: !done.has(q.id) }));
   // Which of the subject's questions their articles don't answer, and theirs it lacks: only worth asking when they wrote on it.
   let uncovered: string[] = [];
   let theirQuestions: SubjectCompetitors["theirQuestions"] = [];
   if (view.total) {
-    const questions = await (deps.questions ?? ((c, id) => subjectQuestions(c, id, { db: deps.db })))(ctx, subjectId).catch(() => []);
-    const checked = questions.filter((q) => q.status === "decided" && q.text.trim()).slice(0, CHECK_QUESTIONS);
-    uncovered = (await questionsNobodyCovers(ctx, checked, COVERED_SIM, deps)) ?? [];
-    theirQuestions = theirQuestionsOf(articles, names, new Set(questions.filter((q) => q.status !== "dismissed").map((q) => questionKey(q.text))));
+    uncovered = (await questionsNobodyCovers(ctx, decided.slice(0, CHECK_QUESTIONS), COVERED_SIM, deps)) ?? [];
+    theirQuestions = theirQuestionsOf(articles, names, new Set(all.filter((q) => q.status !== "dismissed").map((q) => questionKey(q.text))));
   }
-  return NextResponse.json({ competitors: { ...view, uncovered, suggestAngle: isSuggestAngleEnabled(), theirQuestions } }, { headers: noStore });
+  return NextResponse.json({ competitors: { ...view, uncovered, suggestAngle: isSuggestAngleEnabled(), theirQuestions, questions } }, { headers: noStore });
 }
 
 /** How much competitors wrote on each subject, and what it means, for the subject list. */

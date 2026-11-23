@@ -107,6 +107,9 @@ export interface FetchedPage {
   refused?: boolean;
   /** The page's og:image, when it has one (the blog hero's live check). */
   ogImage?: string;
+  /** The page's first heading (its <h1>), as text. A site often gives the page its own title
+   *  for search and keeps the article's own title as the heading. */
+  h1?: string;
 }
 
 // The listing of a programme's pages lives with the knowledge base now (the brand map reads
@@ -309,7 +312,17 @@ function decodeEntities(s: string): string {
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")
     .replace(/&nbsp;/gi, " ")
-    .replace(/&#(\d+);/g, (_m, n: string) => String.fromCodePoint(Number(n)));
+    .replace(/&#(\d+);/g, (_m, n: string) => codePoint(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_m, n: string) => codePoint(parseInt(n, 16)));
+}
+
+/** A numeric entity's character; "" for a number that is no character (rather than throw). */
+const codePoint = (n: number) => (Number.isInteger(n) && n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : "");
+
+/** A page's first <h1>, as text (300 characters at most); "" when it has none. */
+export function readH1(html: string): string {
+  const inner = /<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html)?.[1] ?? "";
+  return decodeEntities(inner.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim().slice(0, 300);
 }
 
 /** A <meta> tag's content, whichever order its attributes come in. The value runs to
@@ -372,7 +385,8 @@ export async function fetchSourcePage(url: string): Promise<FetchedPage | null> 
     }
     const html = await readTextCapped(res, PAGE_BYTES);
     const ogImage = metaContent(html, "og:image").slice(0, 2000);
-    return { url: res.url || url, ...readPageMeta(html), text: htmlToText(html), ...(ogImage ? { ogImage } : {}) };
+    const h1 = readH1(html);
+    return { url: res.url || url, ...readPageMeta(html), text: htmlToText(html), ...(ogImage ? { ogImage } : {}), ...(h1 ? { h1 } : {}) };
   } catch {
     return null;
   }

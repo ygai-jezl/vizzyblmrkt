@@ -21,12 +21,33 @@ function day(iso: string): string {
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
-/** What a check found, in a line. */
+/** "96%" */
+const percent = (share: number) => `${Math.round(share * 100)}%`;
+
+/** What a check found, in a line. With Found live it reads the page's text, and says how much of the article it found. */
 function checkSaid(c: LiveCheck): string {
+  if (c.textShare !== undefined) {
+    if (c.matched) return `Live: ${percent(c.textShare)} of the article's text is on the page.`;
+    if (c.reachable && !c.refused) return `The page answers, but it isn't this article yet: ${percent(c.textShare)} of its text is there. If it's the right page, say so.`;
+  }
   if (c.matched) return "Live: the page's title is the article's.";
   if (c.refused) return "Your site turned the check away. If the article is up, say so.";
   if (c.reachable) return `The page answers, but its title isn't the article's${c.title ? ` (“${c.title}”)` : ""}. If it's the right page, say so.`;
   return "Couldn't open the page. Check the address, or try again once it's published.";
+}
+
+/** "Live · found on your site 21 Nov 2026 · 96% of the text matches · approved" */
+function liveLine(live: BlogArticleLive): string {
+  const when =
+    live.by !== "check"
+      ? `you said so ${day(live.at)}`
+      : live.found === "sitemap"
+        ? `found on your site ${day(live.at)}`
+        : live.auto
+          ? `found at this address ${day(live.at)}`
+          : `checked ${day(live.checkedAt ?? live.at)}`;
+  const share = live.textShare !== undefined ? ` · ${percent(live.textShare)} of the text matches` : "";
+  return `Live · ${when}${share}${live.approvedOnLive ? " · approved" : ""}`;
 }
 
 const LIVE_ERROR: Record<string, string> = {
@@ -63,7 +84,7 @@ function LiveRow({
           {live ? (
             <>
               <span aria-hidden className="text-green-600 dark:text-green-400">● </span>
-              Live · {live.by === "check" ? `checked ${day(live.checkedAt ?? live.at)}` : `you said so ${day(live.at)}`}
+              {liveLine(live)}
             </>
           ) : (
             <>
@@ -105,6 +126,7 @@ export function BlogAddress({
   live = null,
   onLive,
   disabled = false,
+  liveWatch = false,
 }: {
   pageUrl: string | null;
   onSave: (url: string | null) => Promise<AddressSaved>;
@@ -113,6 +135,8 @@ export function BlogAddress({
   onLive?: (action: LiveAction) => Promise<LiveResult>;
   /** Something else is running on the article. */
   disabled?: boolean;
+  /** Found live (BLOG_LIVE_WATCH_ENABLED): YouGrow checks the address on its own, or finds the article on the sitemap. */
+  liveWatch?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(pageUrl ?? "");
@@ -216,7 +240,10 @@ export function BlogAddress({
           {error}
         </p>
       ) : open ? (
-        <p className={HINT}>Where the article lives, or will. Its markup and your brand map use it.</p>
+        <p className={HINT}>
+          Where the article lives, or will. Its markup and your brand map use it.
+          {liveWatch ? " YouGrow checks it for you every few hours for two weeks. Leave it empty and YouGrow finds the article on your site's sitemap." : null}
+        </p>
       ) : null}
       {!open && onLive ? <LiveRow live={liveHere} onLive={onLive} disabled={disabled} /> : null}
     </div>

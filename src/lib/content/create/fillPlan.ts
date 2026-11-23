@@ -8,6 +8,7 @@ import { aiDraftFor } from "./aiDraft";
 import { postEditPreferencesFor } from "@/lib/distribute/learnFromPostEdit";
 import { askOfPlan, loadArticleMap, type MapDeps } from "@/lib/content/blog/mapActions";
 import { syncPlanPageSoftly } from "@/lib/content/blog/pageActions";
+import { wakeLiveWatch } from "@/lib/content/blog/liveWatchWake";
 
 /**
  * Fill plan nodes with copy. Shared by the Create canvas's per-node route and
@@ -120,6 +121,8 @@ export async function fillPlanNode(
   }
   // A written blog article is a draft page on the brand map.
   if (blogHub && fresh) await syncPlanPageSoftly(ctx, { workspaceId: ws.id, planId: plan.id, plan: fresh }, { db: deps.db });
+  // A written article is one Found live watches for on the brand's site.
+  if (blogHub && fresh) await wakeLiveWatch(ctx, { db: deps.db });
   return { ok: true, node: updated };
 }
 

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ConnectionView } from "@/lib/connectors/service";
 import { connectedActions, revealManage, type ConnectedActions, type ConnectedNote } from "./connectedActions";
+import { ConnectorTile } from "./ConnectorTile";
 import {
   BUTTON,
   BUTTON_PRIMARY,
@@ -185,6 +186,11 @@ export function ConnectedView({ connections: initial, isAdmin, uid, chat, now: d
   );
 }
 
+/** A connection's small tile, beside its name: the connector's mark, or its two letters. */
+function Tile({ c }: { c: ConnectionView }) {
+  return <ConnectorTile id={c.connectorId} name={c.connectorName} initials={c.connectorInitials} icon={c.connectorIcon} size="sm" />;
+}
+
 /** A row's classes: admins can pick any row; the picked one gets a tint and an accent bar, in light and dark. */
 export const ROW_CLASS = {
   pickable: "cursor-pointer transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-900/60",
@@ -225,16 +231,21 @@ export function ConnectionRow({
       aria-selected={isAdmin ? on : undefined}
       onClick={isAdmin ? () => onPick(c.id) : undefined}
     >
-      <td className={`${td} ${on ? ROW_CLASS.bar : ""}`}>
-        {isAdmin ? (
-          <button type="button" className={`text-left font-medium hover:underline ${on ? "text-blue-900 dark:text-blue-100" : ""}`} aria-pressed={on}>
-            {c.connectorName}
-          </button>
-        ) : (
-          <span className="font-medium">{c.connectorName}</span>
-        )}
-        {c.label !== c.connectorName ? <span className={`block ${HINT}`}>{c.label}</span> : null}
-        {c.details ? <span className={`block ${HINT}`}>{accountWords(c.details.account)}</span> : null}
+      <td className={on ? `${td} ${ROW_CLASS.bar}` : td}>
+        <span className="flex items-start gap-2.5">
+          <Tile c={c} />
+          <span className="min-w-0">
+            {isAdmin ? (
+              <button type="button" className={on ? "text-left font-medium text-blue-900 hover:underline dark:text-blue-100" : "text-left font-medium hover:underline"} aria-pressed={on}>
+                {c.connectorName}
+              </button>
+            ) : (
+              <span className="font-medium">{c.connectorName}</span>
+            )}
+            {c.label !== c.connectorName ? <span className={`block ${HINT}`}>{c.label}</span> : null}
+            {c.details ? <span className={`block ${HINT}`}>{accountWords(c.details.account)}</span> : null}
+          </span>
+        </span>
       </td>
       {isAdmin && c.details ? (
         <>
@@ -346,8 +357,11 @@ function ManageCard({
 
   return (
     <section ref={cardRef} aria-labelledby="manage-title" className={`${CARD} scroll-mt-4 space-y-3`}>
-      <h3 id="manage-title" className="text-sm font-semibold">
-        {c.connectorName} · {readsWords(c) || accountWords("")}
+      <h3 id="manage-title" className="flex items-center gap-2 text-sm font-semibold">
+        <Tile c={c} />
+        <span>
+          {c.connectorName} · {readsWords(c) || accountWords("")}
+        </span>
       </h3>
       <p className="text-sm">
         <span className={`${TAG} ${TONE_CLASS[state.tone]}`}>{state.label}</span>

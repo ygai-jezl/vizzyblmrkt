@@ -356,7 +356,23 @@ describe("Connected's rows pick the connection", () => {
     expect(ROW_CLASS.bar).toMatch(/shadow-\[inset_3px_0_0_#2563eb\].*dark:shadow-\[inset_3px_0_0_#3b82f6\]/);
     expect(ROW_CLASS.pickable).toMatch(/cursor-pointer.*hover:bg-neutral-50.*dark:hover:bg-neutral-900/);
     // Opening Cloudflare first moves the mark with it.
-    expect(render({ connections: [CF, SC] })).toContain(`<tr class="${ROW_CLASS.picked}" aria-selected="true"><td class="border-b border-neutral-100 px-3 py-2.5 align-top dark:border-neutral-900 ${ROW_CLASS.bar}"><button type="button" class="text-left font-medium hover:underline text-blue-900 dark:text-blue-100" aria-pressed="true">Cloudflare</button>`);
+    const first = render({ connections: [CF, SC] });
+    expect(first).toContain(`<tr class="${ROW_CLASS.picked}" aria-selected="true"><td class="border-b border-neutral-100 px-3 py-2.5 align-top dark:border-neutral-900 ${ROW_CLASS.bar}">`);
+    expect(first).toMatch(/<tr class="[^"]*" aria-selected="true">(?:(?!<\/tr>).)*aria-pressed="true">Cloudflare<\/button>/);
+  });
+
+  it("puts each connector's mark beside its name in the rows and the Manage card, or its letters when it has none", () => {
+    const html = render();
+    const row = (name: string) => html.match(new RegExp(`<tr [^>]*>(?:(?!</tr>).)*>${name}</button>`))![0];
+    expect(row("Google Search Console")).toContain('<img src="/marks/connectors/search-console/icon.png" alt=""');
+    expect(row("Cloudflare")).toContain('<img src="/marks/connectors/cloudflare/icon.png" alt=""');
+    const manage = html.match(/<h3 id="manage-title"[^>]*>((?:(?!<\/h3>).)*)<\/h3>/)![1]!;
+    expect(manage).toContain('<img src="/marks/connectors/search-console/icon.png" alt=""');
+    expect(textOf(manage)).toBe("Google Search Console · acme.example (whole domain)");
+    // A connector this build no longer knows keeps a tile of letters, and members see the marks too.
+    const gone = textOf(render({ connections: [connectionView({ connectorId: "old-tool", connectorName: "Old Tool", label: "Old Tool", connectorIcon: undefined })] }));
+    expect(gone).toContain("OT Old Tool");
+    expect(render({ isAdmin: false, connections: [{ ...SC, details: undefined }] })).toContain('<img src="/marks/connectors/search-console/icon.png" alt=""');
   });
 
   it("gives a member's rows nothing to pick", () => {

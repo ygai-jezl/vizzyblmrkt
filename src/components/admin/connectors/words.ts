@@ -171,6 +171,8 @@ export const LISTING_COPY = {
   openConnected: "Open Connected",
   readsTitle: "What it reads",
   numbersTitle: "Numbers it gives",
+  dataFrom: "Data from",
+  openingGoogle: "Opening Google…",
   aboutLabel: "About this connector",
   youNeed: "You need",
   limits: "Limits",

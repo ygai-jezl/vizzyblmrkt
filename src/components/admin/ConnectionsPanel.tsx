@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { BrandMark, type FlatBrandId } from "@/components/site/BrandIcons";
 import { GitRepoPicker } from "./GitRepoPicker";
 import { connectErrorMessage } from "./connectErrors";
 
@@ -39,6 +40,27 @@ function repoSummary(s: ProviderStatus, canEdit: boolean): string {
 }
 
 const PROVIDER_IDS = ["github", "gitlab", "x", "linkedin", "linkedin_org"] as const;
+
+/** Each account's mark, beside its name: LinkedIn Pages is LinkedIn too. */
+export const PROVIDER_MARKS: Record<(typeof PROVIDER_IDS)[number], FlatBrandId> = {
+  github: "github",
+  gitlab: "gitlab",
+  x: "x",
+  linkedin: "linkedin",
+  linkedin_org: "linkedin",
+};
+
+/** An account's mark on a neutral plate, as the connector tiles: black marks turn white in the dark theme. */
+export function ProviderMark({ provider }: { provider: (typeof PROVIDER_IDS)[number] }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-neutral-200 bg-white text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-white"
+    >
+      <BrandMark id={PROVIDER_MARKS[provider]} size={14} />
+    </span>
+  );
+}
 
 /** Names for the banner before the status has loaded. */
 const LABELS: Record<string, string> = {
@@ -176,7 +198,10 @@ export function ConnectionsPanel() {
             >
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-sm font-medium">{s?.label ?? p}</div>
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <ProviderMark provider={p} />
+                    {s?.label ?? p}
+                  </div>
                   {!s ? (
                     <span className="text-xs text-neutral-400">Loading…</span>
                   ) : !s.configured ? (

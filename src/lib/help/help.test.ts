@@ -536,6 +536,20 @@ describe("Connected data", () => {
     expect(md(true)).toContain("YouGrow reads the same days as the tool's own report, in its time zone, and Vizzy says which days those are.");
   });
 
+  it("puts each connector's mark beside its heading on the page, and keeps the Markdown words only", async () => {
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const page = renderToStaticMarkup(HELP_BODIES["connected-data"]!({ connectorsChat: true }) as never);
+    for (const c of allConnectors()) {
+      const heading = page.match(new RegExp(`<h2 id="${c.id}"[^>]*>((?:(?!</h2>).)*)</h2>`))![1]!;
+      expect(heading, c.id).toContain(`<img src="${c.icon!.light}" alt=""`);
+      expect(heading.replace(/<[^>]+>/g, ""), c.id).toBe(c.name);
+    }
+    const text = md(true);
+    for (const c of allConnectors()) expect(text, c.id).toMatch(new RegExp(`^## ${c.name}$`, "m"));
+    expect(text).not.toContain("![");
+    expect(text).not.toContain("/marks/");
+  });
+
   it("explains letting Vizzy read only while Vizzy reads connected data", () => {
     expect(md(true)).toContain("## Letting Vizzy read it");
     expect(md(true)).toContain("Vizzy can read it when someone asks");

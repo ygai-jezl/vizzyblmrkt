@@ -112,10 +112,20 @@ describe("Browse's words", () => {
     expect(initialsOf("Cloudflare", "CF")).toBe("CF");
     expect(initialsOf("Cloudflare")).toBe("CL");
     expect(initialsOf("HubSpot")).toBe("HS");
-    // As Browse and the Listing draw them from the manifests.
-    const tiles = [...render().matchAll(/<span aria-hidden="true"[^>]*>([^<]*)<\/span>/g)].map((m) => m[1]);
-    expect(tiles).toEqual(["SC", "GA", "CF"]);
+    // As Browse and the Listing draw them from the manifests, when a connector has no mark of its own.
+    const tiles = (html: string) => [...html.matchAll(/<span aria-hidden="true"[^>]*>([^<]*)<\/span>/g)].map((m) => m[1]);
+    expect(tiles(render({ connectors: ALL.map((c) => ({ ...c, icon: undefined })) }))).toEqual(["SC", "GA", "CF"]);
     expect(ALL.map((c) => c.initials)).toEqual([undefined, undefined, "CF"]);
+  });
+
+  it("show each connector's own mark on a neutral plate, with no words, beside its name", () => {
+    const html = render();
+    const marks = [...html.matchAll(/<span aria-hidden="true" class="([^"]*)"><img src="([^"]+)" alt=""/g)];
+    expect(marks.map((m) => m[2])).toEqual(["/marks/connectors/search-console/icon.png", "/marks/connectors/google-analytics/icon.svg", "/marks/connectors/cloudflare/icon.png"]);
+    // White in both themes, as the owners show their full colour marks; the size of today's tile.
+    for (const [, cls] of marks) expect(cls).toMatch(/\bbg-white\b.*\bh-10 w-10 rounded-lg\b/);
+    expect(html).not.toMatch(/<span aria-hidden="true"[^>]*>(?:SC|GA|CF)<\/span>/);
+    expect(textOf(html)).toMatch(/^.*Google Search Console Search and analytics · Built by YouGrow/);
   });
 
   it("write in house style", () => {

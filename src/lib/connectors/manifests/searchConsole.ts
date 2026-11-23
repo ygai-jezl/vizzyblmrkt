@@ -29,6 +29,8 @@ export const searchConsoleManifest = {
   schema: 1,
   id: "search-console",
   name: "Google Search Console",
+  // Google's product icon from gstatic.com (public/marks/NOTICE.md).
+  icon: { light: "/marks/connectors/search-console/icon.png", owner: "Google LLC" },
   summary: "Clicks, impressions and positions in Google Search for your site, read from Search Console when you ask.",
   category: "search",
   publisher: "yougrow",

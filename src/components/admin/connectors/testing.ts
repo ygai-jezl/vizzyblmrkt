@@ -49,6 +49,10 @@ export function connectionView(over: Omit<Partial<ConnectionView>, "details"> & 
     ...rest,
   };
   if (member) delete base.details;
+  // As viewOf gives it: the connector's tile from its manifest, unless the test says otherwise.
+  const known = (MANIFESTS as Record<string, { icon?: ConnectionView["connectorIcon"]; initials?: string }>)[base.connectorId];
+  if (known?.icon && !("connectorIcon" in over)) base.connectorIcon = known.icon;
+  if (known?.initials && !("connectorInitials" in over)) base.connectorInitials = known.initials;
   return base;
 }
 

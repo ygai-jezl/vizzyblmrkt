@@ -71,6 +71,8 @@ describe("list_connections", () => {
     expect(byId.dcn_cccccccccccccccccccc!.streams).toHaveLength(1);
     expect(r.body.notShared).toBe(false);
     expect([...numberKeys(r.body)]).toEqual([]);
+    // The marks are for people's screens: Vizzy gains nothing from file paths or owners.
+    expect(JSON.stringify(r.body)).not.toMatch(/\/marks\/|Google LLC|"icon"|lockup/);
   });
 
   it("says a turned down token in its tool's words, naming Vizzy", async () => {

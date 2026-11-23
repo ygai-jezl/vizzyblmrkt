@@ -2,7 +2,7 @@ import { meaningsOf } from "@/lib/metrics/meanings";
 import { HEALTH_STATES, type HealthState } from "@/lib/types/dataConnection";
 import { allConnectors } from "./catalog";
 import { lagWords } from "./lag";
-import { oauthMethod, shareMethod, type ConnectorManifest } from "./manifest";
+import { oauthMethod, shareMethod, type ConnectorIcon, type ConnectorManifest } from "./manifest";
 import { CONNECTOR_ERRORS, SIGNIN_REASONS } from "./messages";
 
 /**
@@ -15,6 +15,8 @@ import { CONNECTOR_ERRORS, SIGNIN_REASONS } from "./messages";
 export interface ConnectorHelp {
   id: string;
   name: string;
+  /** Its marks beside its heading on the page (never in the Markdown), when it has them. */
+  icon: ConnectorIcon | null;
   summary: string;
   /** The shared data table: what, which way, where it goes. */
   shares: Array<{ what: string; detail: string | null; direction: "Read only" | "Never"; where: string }>;
@@ -66,6 +68,7 @@ export function connectorHelp(m: ConnectorManifest): ConnectorHelp {
   return {
     id: m.id,
     name: m.name,
+    icon: m.icon ?? null,
     summary: m.summary,
     shares: m.shares.map((s) => ({ what: s.what, detail: s.detail ?? null, direction: s.direction === "read" ? "Read only" : "Never", where: s.where })),
     numbers: Object.values(meaningsOf(measures)).map((mm) => ({ name: mm!.name, definition: mm!.definition, caveat: mm!.caveat ?? null })),

@@ -27,6 +27,8 @@ export const cloudflareManifest = {
   name: "Cloudflare",
   // One word, so its tile can't take two first letters: CF, as the approved screens.
   initials: "CF",
+  // The cloud from Cloudflare's press kit logo, colours unchanged (public/marks/NOTICE.md).
+  icon: { light: "/marks/connectors/cloudflare/icon.png", owner: "Cloudflare, Inc." },
   summary: "Requests, page views, visits and unique visitors for your site, read from Cloudflare when you ask.",
   category: "traffic",
   publisher: "yougrow",

@@ -37,8 +37,10 @@ describe("the Cloudflare Listing", () => {
     const text = textOf(out);
     expect(text).toContain("Connect with an API token");
     expect(text).toContain("Built by YouGrow · Website and traffic · Ready");
-    // Its tile says CF, as the approved Listing.
-    expect(text).toMatch(/^CF Cloudflare /);
+    // Its tile is Cloudflare's cloud, an image with no words beside the name; CF without it.
+    expect(text).toMatch(/^Cloudflare Built by YouGrow /);
+    expect(out).toMatch(/^<div[^>]*><div[^>]*><span aria-hidden="true"[^>]*><img src="\/marks\/connectors\/cloudflare\/icon\.png" alt=""/);
+    expect(textOf(html({ listing: { ...CF, icon: undefined } }))).toMatch(/^CF Cloudflare /);
     expect(out).toMatch(/id="field-token"[^>]*type="password"|type="password"[^>]*id="field-token"/);
     // The zone comes after Check: picked from what the token can see, or typed when it can't list.
     expect(out).not.toContain('id="field-zoneId"');
@@ -238,6 +240,37 @@ describe("the Search Console and Google Analytics Listings", () => {
     const ga = textOf(html({ listing: GA, connections: [{ ...SHARED, connectorId: "google-analytics" }] }));
     expect(ga).toContain("Property access management");
     expect(ga).toContain("choose the Viewer role");
+  });
+
+  it("signs in with Google's own button, light or dark with the theme, named Sign in with Google", () => {
+    for (const listing of [SC, GA]) {
+      const out = html({ listing });
+      const button = out.match(/<button type="button" class="[^"]*">((?:(?!<\/button>).)*)<\/button>/)!;
+      expect(button, listing.id).toBeTruthy();
+      expect(button[1]).toBe(
+        '<img src="/marks/google/signin-light.png" alt="Sign in with Google" width="180" height="40" class="block dark:hidden"/>' +
+          '<img src="/marks/google/signin-dark.png" alt="Sign in with Google" width="180" height="40" class="hidden dark:block"/>',
+      );
+      // Nothing is shown as busy until it is pressed.
+      expect(textOf(out)).not.toContain(LISTING_COPY.openingGoogle);
+    }
+    expect(html({ listing: CF })).not.toContain("/marks/google/");
+    expect(html({ listing: SC, isAdmin: false })).not.toContain("/marks/google/");
+  });
+
+  it("shows Google Analytics' own logo, linked to Google Analytics, at least 154 by 50, only on its Listing", () => {
+    const out = html({ listing: GA });
+    const text = textOf(out);
+    expect(text).toContain(`${LISTING_COPY.dataFrom} (opens in a new tab)`);
+    const link = out.match(/<a href="([^"]+)" target="_blank" rel="noopener noreferrer"[^>]*>((?:(?!<\/a>).)*)<\/a>/)!;
+    expect(link[1]).toBe("https://marketingplatform.google.com/about/analytics/");
+    expect(link[2]).toContain('<img src="/marks/connectors/google-analytics/lockup-light.png" alt="Google Analytics" width="189" height="50" class="dark:hidden"/>');
+    expect(link[2]).toContain('<img src="/marks/connectors/google-analytics/lockup-dark.png" alt="Google Analytics" width="189" height="50" class="hidden dark:block"/>');
+    // In the What it reads card, after the numbers, so it is never the biggest thing on the page.
+    const reads = out.slice(out.indexOf('id="connector-reads"'));
+    expect(reads.indexOf("lockup-light.png")).toBeGreaterThan(reads.indexOf(LISTING_COPY.numbersTitle));
+    expect(reads.indexOf("lockup-light.png")).toBeLessThan(reads.indexOf("</section>"));
+    for (const listing of [SC, CF]) expect(html({ listing }), listing.id).not.toContain("lockup");
   });
 
   it("reads the property table from each manifest", () => {

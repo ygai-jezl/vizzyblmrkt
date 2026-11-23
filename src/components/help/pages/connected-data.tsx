@@ -1,5 +1,6 @@
 import { H1, H2, H3, Lead, P, Pairs, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
+import { ConnectorTile } from "@/components/admin/connectors/ConnectorTile";
 import { CONNECTED_COPY, PICKER_COPY, SCREEN_COPY, activityWords } from "@/components/admin/connectors/words";
 import { isConnectorsChatEnabled } from "@/lib/connectors/flags";
 import { connectedDataHelp, type ConnectorHelp } from "@/lib/connectors/helpText";
@@ -17,7 +18,17 @@ const names = (list: readonly ConnectorHelp[]) => andList(list.map((c) => c.name
 function ConnectorSection({ c }: { c: ConnectorHelp }) {
   return (
     <>
-      <H2 id={c.id}>{c.name}</H2>
+      <H2 id={c.id}>
+        {/* The mark is an image with no words, so the Markdown heading stays the name alone. */}
+        {c.icon ? (
+          <span className="inline-flex items-center gap-2">
+            <ConnectorTile id={c.id} name={c.name} icon={c.icon} size="sm" />
+            {c.name}
+          </span>
+        ) : (
+          c.name
+        )}
+      </H2>
       <P>{c.summary}</P>
       {c.signIn ? (
         <>

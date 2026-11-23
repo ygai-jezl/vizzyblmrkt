@@ -9,7 +9,7 @@ import { healthAfterFailure, healthAfterSuccess, healthyAt, isCallPaused, shownS
 import { ACCOUNT_HOOKS, VERIFY_HOOKS } from "./handlers";
 import type { ConnectorAccount, HookFailure } from "./handlers/types";
 import { checkLiveRequest, lagWords, readLive, type LiveAnswer } from "./live";
-import { shareMethod, tokenMethod, type ConnectMethodName, type ConnectorManifest } from "./manifest";
+import { shareMethod, tokenMethod, type ConnectMethodName, type ConnectorIcon, type ConnectorManifest } from "./manifest";
 import { connectorMessage, tokenRefusedMessage, type ConnectorErrorCode } from "./messages";
 import { getConnector, knownConnector, listConnectors, readyMethods } from "./registry";
 import type { ConnectorFetchDeps } from "./safeFetch";
@@ -110,6 +110,8 @@ export interface ConnectorListing {
   name: string;
   /** The manifest's two letters for its tile, when it gives them. */
   initials?: string;
+  /** Its own marks (files on this site), when the manifest has them; else the tile shows the letters. */
+  icon?: ConnectorIcon;
   summary: string;
   category: string;
   connect: ConnectorManifest["connect"];
@@ -127,6 +129,7 @@ export function listingOf(m: ConnectorManifest): ConnectorListing {
     id: m.id,
     name: m.name,
     ...(m.initials ? { initials: m.initials } : {}),
+    ...(m.icon ? { icon: m.icon } : {}),
     summary: m.summary,
     category: m.category,
     connect: m.connect,
@@ -149,6 +152,9 @@ export interface ConnectionView {
   id: string;
   connectorId: string;
   connectorName: string;
+  /** The connector's tile: its marks, or the two letters its manifest gives, when it has them. */
+  connectorIcon?: ConnectorIcon;
+  connectorInitials?: string;
   /** False when this copy has the connector switched off: the connection stays, unread. */
   connectorOn: boolean;
   label: string;
@@ -183,6 +189,8 @@ export function viewOf(conn: DataConnection, actor: ConnectorActor, now: Date): 
     id: conn.id,
     connectorId: conn.connectorId,
     connectorName: known?.name ?? conn.connectorId,
+    ...(known?.icon ? { connectorIcon: known.icon } : {}),
+    ...(known?.initials ? { connectorInitials: known.initials } : {}),
     connectorOn: getConnector(conn.connectorId) !== null,
     label: conn.label,
     status: conn.status,

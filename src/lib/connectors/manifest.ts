@@ -23,6 +23,9 @@ import { isTimeZone } from "./period";
  * - uses: what it plugs into in YouGrow.
  * - hooks: named handler ids, never functions: live reads a stream, and accounts lists what a
  *   signed in connection or a pasted token can see, for the picker.
+ * - icon: the connector's own mark, as files on YouGrow's own site under
+ *   public/marks/connectors/<id>/ (never a link to the vendor's host), with whoever owns it.
+ *   Without one, the screens show the two letters.
  */
 
 /**
@@ -80,6 +83,48 @@ const HttpsUrl = z
       return false;
     }
   }, "an https URL with no port or credentials");
+
+/**
+ * A file of a connector's marks, served from YouGrow's own site: /marks/connectors/<id>/<name>,
+ * an svg or png, lower case, with no dots or slashes in the name. The manifest checks the folder
+ * is the connector's own; src/lib/connectors/marks.test.ts checks every file is there and safe.
+ */
+const MarkPath = z.string().regex(/^\/marks\/connectors\/[a-z][a-z0-9-]{1,39}\/[a-z0-9][a-z0-9-]{0,39}\.(?:svg|png)$/, "an svg or png under /marks/connectors/<id>/");
+
+/**
+ * A connector's marks: its square icon for tiles and rows, on a light background (and a file for
+ * dark backgrounds when its owner gives one), who owns it, and a wide logo with its name where the
+ * owner asks for one linked to them (Google Analytics wherever an app shows its data). The screens
+ * keep the name beside every mark, so its alt text is empty; the wide logo is a link, so its alt
+ * says the words in the image.
+ */
+export const ConnectorIconSchema = z
+  .object({
+    light: MarkPath,
+    dark: MarkPath.optional(),
+    /** Whose trademark it is, for the notice beside the files (public/marks/NOTICE.md). */
+    owner: Copy(80),
+    lockup: z
+      .object({
+        light: MarkPath,
+        dark: MarkPath.optional(),
+        /** The owner's product page, which the logo links to. */
+        href: HttpsUrl,
+        alt: Copy(60),
+        /** Its size on screen, in CSS pixels: at least the owner's minimum. */
+        width: z.number().int().min(16).max(400),
+        height: z.number().int().min(16).max(200),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type ConnectorIcon = z.infer<typeof ConnectorIconSchema>;
+
+/** Every file a connector's marks name. */
+export function iconFiles(icon: ConnectorIcon): string[] {
+  return [icon.light, icon.dark, icon.lockup?.light, icon.lockup?.dark].filter((p): p is string => typeof p === "string");
+}
 
 /** `<connector>.<name>`: a handler in src/lib/connectors/handlers. */
 const HookId = z.string().regex(/^[a-z][a-zA-Z0-9]*\.[a-z][a-zA-Z0-9]*$/, "a hook id such as cloudflare.zoneDaily");
@@ -252,6 +297,8 @@ export const ConnectorManifestSchema = z
      * them (Cloudflare is CF, as the approved screens). Without it the screens work them out.
      */
     initials: z.string().regex(/^[A-Z0-9]{2}$/, "two capital letters or digits").optional(),
+    /** Its own marks, shown beside its name; the two letters stay the fallback. */
+    icon: ConnectorIconSchema.optional(),
     /** One line for Browse. */
     summary: Copy(160),
     category: z.enum(CONNECTOR_CATEGORIES),
@@ -283,6 +330,9 @@ export const ConnectorManifestSchema = z
   .strict()
   .superRefine((m, ctx) => {
     const hostOf = (u: string) => new URL(u).hostname;
+    for (const file of m.icon ? iconFiles(m.icon) : []) {
+      if (!file.startsWith(`/marks/connectors/${m.id}/`)) ctx.addIssue({ code: "custom", path: ["icon"], message: `${file} is not in the connector's own folder, /marks/connectors/${m.id}/` });
+    }
     if (!m.api.hosts.includes(hostOf(m.verify.url))) ctx.addIssue({ code: "custom", message: "verify.url is not on a declared host" });
     for (const hook of [m.verify.hook, m.hooks.live, ...(m.hooks.accounts ? [m.hooks.accounts] : [])]) {
       if (!hook.startsWith(`${m.id.replace(/-([a-z0-9])/g, (_, c: string) => c.toUpperCase())}.`)) {

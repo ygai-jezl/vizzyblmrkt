@@ -107,6 +107,50 @@ describe("connector manifests", () => {
     for (const bad of ["C", "cf", "CFX", "C-"]) expect(issues({ ...base(), initials: bad }).join(), bad).toContain("two capital letters or digits");
   });
 
+  it("takes marks only as svg or png files in the connector's own folder on this site", () => {
+    const icon = { light: "/marks/connectors/cloudflare/icon.png", owner: "Cloudflare, Inc." };
+    expect(issues({ ...base(), icon })).toEqual([]);
+    expect(issues({ ...base(), icon: { ...icon, dark: "/marks/connectors/cloudflare/icon-dark.svg" } })).toEqual([]);
+    const bad = [
+      "https://www.cloudflare.com/logo.png",
+      "//cdn.example/x.png",
+      "/marks/connectors/cloudflare/icon.gif",
+      "/marks/connectors/cloudflare/../../secret.png",
+      "/marks/connectors/cloudflare/sub/icon.png",
+      "/marks/connectors/cloudflare/Icon.png",
+      "/marks/connectors/cloudflare/icon.svg?x=1",
+      "/brand/yougrow-mark.svg",
+      "marks/connectors/cloudflare/icon.png",
+    ];
+    for (const light of bad) expect(issues({ ...base(), icon: { ...icon, light } }).length, light).toBeGreaterThan(0);
+    // Another connector's folder, for any of its files.
+    expect(issues({ ...base(), icon: { ...icon, light: "/marks/connectors/search-console/icon.png" } }).join()).toContain("not in the connector's own folder");
+    const lockup = { light: "/marks/connectors/cloudflare/wide.png", href: "https://www.cloudflare.com/", alt: "Cloudflare", width: 189, height: 50 };
+    expect(issues({ ...base(), icon: { ...icon, lockup } })).toEqual([]);
+    expect(issues({ ...base(), icon: { ...icon, lockup: { ...lockup, dark: "/marks/connectors/ga/wide.png" } } }).join()).toContain("not in the connector's own folder");
+    expect(issues({ ...base(), icon: { ...icon, lockup: { ...lockup, href: "http://www.cloudflare.com/" } } }).length).toBeGreaterThan(0);
+    expect(issues({ ...base(), icon: { ...icon, lockup: { ...lockup, href: undefined } } }).length).toBeGreaterThan(0);
+    // A mark names its owner, and nothing else rides along.
+    expect(issues({ ...base(), icon: { light: icon.light } }).length).toBeGreaterThan(0);
+    expect(issues({ ...base(), icon: { ...icon, svg: "<svg onload=alert(1)>" } }).length).toBeGreaterThan(0);
+  });
+
+  it("gives every built-in connector its marks, owned by Google or Cloudflare, and keeps the letters as the fallback", () => {
+    const icons = MANIFESTS.map((m) => parseManifest(m)).map((m) => [m.id, m.icon?.owner, m.icon?.light]);
+    expect(icons).toEqual([
+      ["search-console", "Google LLC", "/marks/connectors/search-console/icon.png"],
+      ["google-analytics", "Google LLC", "/marks/connectors/google-analytics/icon.svg"],
+      ["cloudflare", "Cloudflare, Inc.", "/marks/connectors/cloudflare/icon.png"],
+    ]);
+    expect(parseManifest(cloudflareManifest).initials).toBe("CF");
+    // Only Google Analytics asks for its wide logo beside its data, linked to it, at least 154 by 50.
+    const lockups = MANIFESTS.map((m) => parseManifest(m).icon?.lockup).filter(Boolean);
+    expect(lockups).toHaveLength(1);
+    expect(lockups[0]).toMatchObject({ href: "https://marketingplatform.google.com/about/analytics/", alt: "Google Analytics" });
+    expect(lockups[0]!.width).toBeGreaterThanOrEqual(154);
+    expect(lockups[0]!.height).toBeGreaterThanOrEqual(50);
+  });
+
   it("refuses unknown keys anywhere, so a typo never passes quietly", () => {
     expect(issues({ ...base(), colour: "orange" }).length).toBeGreaterThan(0);
     expect(issues({ ...base(), api: { ...base().api, followRedirects: true } }).length).toBeGreaterThan(0);

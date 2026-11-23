@@ -5,12 +5,17 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ConnectorAccount } from "@/lib/connectors/handlers/types";
 import { CONNECTOR_ERRORS } from "@/lib/connectors/messages";
+import type { ConnectorIcon } from "@/lib/connectors/manifest";
 import { callApi, ROUTES } from "./api";
+import { ConnectorTile } from "./ConnectorTile";
 import { BUTTON, BUTTON_PRIMARY, CARD, CONNECTED_PATH, HINT, NOTE_ERR, NOTE_WARN, PICKER_COPY, domainNote, listingPath, preselected } from "./words";
 
 export interface PickerProps {
   connectorId: string;
   connectorName: string;
+  /** The connector's tile beside its name: its marks, or the two letters its manifest gives. */
+  connectorIcon?: ConnectorIcon;
+  connectorInitials?: string;
   connectionId: string;
   method: "oauth_pkce" | "share_access";
   /** A shared connection's Google address, to say who sees the list. */
@@ -102,6 +107,8 @@ export function PropertyPicker(props: PickerProps) {
 export function PickerForm({
   connectorId,
   connectorName,
+  connectorIcon,
+  connectorInitials,
   method,
   sharedWith,
   current,
@@ -129,6 +136,10 @@ export function PickerForm({
   const empty = loaded !== null && loaded.accounts.length === 0;
   return (
     <form aria-labelledby="pick-title" onSubmit={onSubmit} className={`${CARD} mx-auto w-full max-w-xl space-y-4`}>
+      <p className="flex items-center gap-2 text-sm font-medium">
+        <ConnectorTile id={connectorId} name={connectorName} initials={connectorInitials} icon={connectorIcon} size="sm" />
+        {connectorName}
+      </p>
       <p className="text-sm text-green-700 dark:text-green-400">{method === "share_access" && sharedWith ? `Shared with ${sharedWith}` : PICKER_COPY.signedIn}</p>
       <h2 id="pick-title" className="text-lg font-semibold">
         {PICKER_COPY.title}

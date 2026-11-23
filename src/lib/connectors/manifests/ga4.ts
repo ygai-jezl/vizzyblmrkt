@@ -28,6 +28,20 @@ export const ga4Manifest = {
   schema: 1,
   id: "google-analytics",
   name: "Google Analytics 4",
+  // Google's product icon, and the wide logo Google's Analytics branding policy asks for, linked to
+  // Google Analytics, wherever an app shows its data: at least 154 by 50 (public/marks/NOTICE.md).
+  icon: {
+    light: "/marks/connectors/google-analytics/icon.svg",
+    owner: "Google LLC",
+    lockup: {
+      light: "/marks/connectors/google-analytics/lockup-light.png",
+      dark: "/marks/connectors/google-analytics/lockup-dark.png",
+      href: "https://marketingplatform.google.com/about/analytics/",
+      alt: "Google Analytics",
+      width: 189,
+      height: 50,
+    },
+  },
   summary: "Sessions, users, views and key events for your site, read from Google Analytics 4 when you ask.",
   category: "analytics",
   publisher: "yougrow",

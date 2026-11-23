@@ -13,6 +13,8 @@ export interface ResourceCount {
   lostCalls: number;
   /** Units by the feature that used them (RESOURCES[...].purposes). */
   byPurpose: Record<string, number>;
+  /** AI model use only: tokens by model ("gemini-3.8-flash"). */
+  byModel?: Record<string, number>;
 }
 
 export interface UsageMeterDoc {

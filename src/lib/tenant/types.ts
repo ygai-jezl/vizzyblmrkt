@@ -85,7 +85,8 @@ export interface DocRefLike {
   get(): Promise<DocSnapLike>;
   /** Atomic create — rejects with ALREADY_EXISTS if the document already exists. */
   create(data: Record<string, unknown>): Promise<unknown>;
-  set(data: Record<string, unknown>): Promise<unknown>;
+  /** With `merge`, nested maps are merged into what is stored (FieldValue.increment adds to a number). */
+  set(data: Record<string, unknown>, opts?: { merge?: boolean }): Promise<unknown>;
   update(data: Record<string, unknown>): Promise<unknown>;
   delete(): Promise<unknown>;
 }

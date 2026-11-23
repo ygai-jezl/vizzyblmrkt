@@ -233,14 +233,15 @@ env:
     availability:
       - BUILD
       - RUNTIME
-  # The usage meter for web searches for research: every Google search Gemini runs is counted per
-  # brand per month and stops at the brand's cap (src/lib/plans/meter.ts). Off: nothing is counted.
-  - variable: WEB_SEARCH_METER_ENABLED
+  # The usage meter: every paid resource a brand uses (web searches for research, AI model use,
+  # images, older counters) is counted per brand per month, and a capped one stops at its cap
+  # (src/lib/plans/meter.ts). Off: nothing is counted or capped.
+  - variable: USAGE_METER_ENABLED
     value: "false"
     availability:
       - RUNTIME
-  # Its row on Plan and usage, and its help.
-  - variable: NEXT_PUBLIC_WEB_SEARCH_METER_ENABLED
+  # Its rows on Plan and usage, and their help.
+  - variable: NEXT_PUBLIC_USAGE_METER_ENABLED
     value: "false"
     availability:
       - BUILD

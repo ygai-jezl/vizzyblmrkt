@@ -38,6 +38,8 @@ export const DEFAULT_MONTHLY_LIMITS: Record<CapKey, number> = {
   article_autopilot: 8,
   /** Google searches Gemini runs for research: counted, but in practice uncapped unless a plan or this copy sets one. */
   web_searches: 100_000,
+  /** Images a model draws: counted, and in practice uncapped until a plan or this copy sets a cap. */
+  images: 100_000,
 };
 
 /** The most a cap may be set to, so a typo can't open the tap. */

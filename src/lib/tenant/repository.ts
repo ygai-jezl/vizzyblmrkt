@@ -1,3 +1,4 @@
+import { FieldValue } from "firebase-admin/firestore";
 import { getDb, isAlreadyExists, isNotFound } from "./firestore";
 import { databaseIdForRegion } from "./region";
 import { TenantIsolationError, TenantValidationError } from "./errors";
@@ -253,6 +254,29 @@ export class TenantCollection<T extends TenantScoped> {
    * TenantIsolationError — it is never overwritten or re-homed. Identity fields
    * (tenantId/id) are stamped/stripped, and createdAt is never rewritten on update.
    */
+  /**
+   * Add to numbers in a document without reading it first: `deltas` is a nested map whose
+   * leaves are amounts to add (a missing field starts at 0), merged in one write with
+   * FieldValue.increment, so many writers at once never wait on a transaction. `fields` are
+   * set as given. The id must carry this tenant's id (the caller builds it from ctx), and the
+   * tenant field is stamped, so a write can never land in another tenant's document. Keys are
+   * nested map keys, never dotted paths, so a key may contain dots (a model id).
+   */
+  async increment(id: string, deltas: Record<string, unknown>, fields: Record<string, unknown> = {}): Promise<void> {
+    // "um_<tenantId>_<month>": the tenant's id whole, between separators, never a longer one's prefix.
+    if (!id || !(id.includes(`_${this.tenantId}_`) || id.startsWith(`${this.tenantId}_`))) {
+      throw new TenantValidationError("increment() requires an id that carries the tenant's id");
+    }
+    const toIncrements = (obj: Record<string, unknown>): Record<string, unknown> =>
+      Object.fromEntries(
+        Object.entries(obj)
+          .filter(([, v]) => v !== undefined && v !== 0)
+          .map(([k, v]) => [k, typeof v === "number" ? FieldValue.increment(v) : toIncrements(v as Record<string, unknown>)]),
+      );
+    const { tenantId: _t, id: _i, ...rest } = fields;
+    await this.db.collection(this.name).doc(id).set({ ...rest, ...toIncrements(deltas), [TENANT_FIELD]: this.tenantId }, { merge: true });
+  }
+
   async upsert(
     id: string,
     create: () => CreateInput<T>,

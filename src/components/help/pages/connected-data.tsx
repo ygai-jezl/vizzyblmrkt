@@ -3,7 +3,7 @@ import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from 
 import { ConnectorTile } from "@/components/admin/connectors/ConnectorTile";
 import { CONNECTED_COPY, PICKER_COPY, SCREEN_COPY, activityWords } from "@/components/admin/connectors/words";
 import { isConnectorsChatEnabled, isConnectorsCollectEnabled } from "@/lib/connectors/flags";
-import { COLLECT_HELP, connectedDataHelp, type ConnectorHelp } from "@/lib/connectors/helpText";
+import { COLLECT_HELP, connectedDataHelp, VIZZY_COLLECTED_HELP, type ConnectorHelp } from "@/lib/connectors/helpText";
 import { tokenRefusedMessage } from "@/lib/connectors/messages";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
@@ -111,7 +111,8 @@ function ConnectorSection({ c, collect }: { c: ConnectorHelp; collect: boolean }
  * numbers and what Disconnect does come from its manifest (src/lib/connectors/helpText.ts), so
  * the page can't drift from what each one really asks for. `connectorsChat` is whether Vizzy reads
  * connected data (CONNECTORS_CHAT_ENABLED) and `connectorsCollect` whether its numbers are collected
- * daily (CONNECTORS_COLLECT_ENABLED); the How to drawer passes what the server said.
+ * daily (CONNECTORS_COLLECT_ENABLED), and with both on, how Vizzy reads the collected numbers; the
+ * How to drawer passes what the server said.
  */
 export default function ConnectedDataHelp({ connectorsChat = isConnectorsChatEnabled(), connectorsCollect = isConnectorsCollectEnabled() }: HelpBodyProps = {}) {
   const help = connectedDataHelp();
@@ -267,6 +268,24 @@ export default function ConnectedDataHelp({ connectorsChat = isConnectorsChatEna
               <li key={v}>{v}</li>
             ))}
           </UL>
+        </>
+      ) : null}
+
+      {connectorsChat && connectorsCollect ? (
+        <>
+          <H2 id="vizzy-collected">Vizzy and your collected numbers</H2>
+          <P>{VIZZY_COLLECTED_HELP.what}</P>
+          <P>{VIZZY_COLLECTED_HELP.ask}</P>
+          <UL>
+            <li>{VIZZY_COLLECTED_HELP.reach}</li>
+            <li>{VIZZY_COLLECTED_HELP.live}</li>
+            <li>{VIZZY_COLLECTED_HELP.source}</li>
+            <li>{VIZZY_COLLECTED_HELP.grants}</li>
+          </UL>
+          <P>
+            To let Vizzy read a connection, tick <strong>{CONNECTED_COPY.vizzy}</strong> on it, as{" "}
+            <Open href="/help/connected-data#who-can-read">Who can read it</Open> explains.
+          </P>
         </>
       ) : null}
 

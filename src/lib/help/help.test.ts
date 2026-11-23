@@ -10,8 +10,10 @@ import { SETUP_HOW_TO } from "@/lib/connect/setupChecklist";
 import { computeGrowth, type GrowthSignals } from "@/lib/nav/growth";
 import { launchChecklist } from "@/lib/nav/launchChecklist";
 import { docToMarkdown } from "@/lib/developers/markdown";
+import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { STATE_LABELS } from "@/components/admin/connectors/words";
-import { HEALTH_HELP } from "@/lib/connectors/helpText";
+import { SOURCE_COPY } from "@/components/admin/chat/SourceLine";
+import { HEALTH_HELP, VIZZY_COLLECTED_HELP } from "@/lib/connectors/helpText";
 import { allConnectors } from "@/lib/connectors/catalog";
 import { CONNECTOR_ERRORS, tokenRefusedMessage } from "@/lib/connectors/messages";
 import { helpLlmsTxt, helpPageMarkdown } from "./agentFiles";
@@ -586,6 +588,30 @@ describe("Connected data", () => {
     expect(off).not.toContain("kept 90 days");
     // Lost access is quoted whatever collect says: Check access can find it too.
     expect(off).toContain(CONNECTOR_ERRORS.share_access_lost);
+  });
+
+  it("explains Vizzy and collected numbers only while Vizzy reads connected data and numbers are collected", () => {
+    const page = (connectorsChat: boolean, connectorsCollect: boolean) => docToMarkdown(HELP_BODIES["connected-data"]!({ connectorsChat, connectorsCollect }), "https://app.example.com");
+    const text = page(true, true);
+    expect(text).toContain("## Vizzy and your collected numbers");
+    expect(text).toContain(VIZZY_COLLECTED_HELP.what);
+    expect(text).toContain("Collected numbers, 24 Oct to 20 Nov 2026, Pacific time. Search Console finishes a day 2 to 3 days later, so 21 and 22 Nov aren't in yet.");
+    expect(text).toContain("Active users and unique visitors can't be added across days, so for more than a day Vizzy reads those live too.");
+    // The source line's own words, and the grant that allows it, as Connected names it.
+    expect(text).toContain(`the chat puts ${SOURCE_COPY.collected} after the tool's name`);
+    expect(text).toContain("tick **Vizzy can read it when someone asks**");
+    expect(text).toContain("as [Who can read it](https://app.example.com/help/connected-data.md) explains.");
+    for (const [chat, collect] of [
+      [false, true],
+      [true, false],
+      [false, false],
+    ] as const) {
+      expect(page(chat, collect), `${chat} ${collect}`).not.toContain("Vizzy and your collected numbers");
+    }
+    for (const line of Object.values(VIZZY_COLLECTED_HELP)) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
   });
 
   it("is listed after Connected accounts, and Connected accounts points to it", () => {

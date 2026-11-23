@@ -178,6 +178,21 @@ export const VIZZY_HELP: readonly string[] = [
 ];
 
 /**
+ * Vizzy reading collected numbers (get_connected_numbers, Connectors 2): shown while Vizzy reads
+ * connected data (CONNECTORS_CHAT_ENABLED) and numbers are collected (CONNECTORS_COLLECT_ENABLED).
+ */
+export const VIZZY_COLLECTED_HELP = {
+  what: "Vizzy answers questions about the last 28 or 90 days, what grew or fell, and what to write next from the numbers YouGrow collected. Those days no longer change, so the answer still matches the tool's own report when you check it there.",
+  reach:
+    "Every answer from collected numbers says which days it covers, in the tool's own time zone, and how far collecting reaches, for example: Collected numbers, 24 Oct to 20 Nov 2026, Pacific time. Search Console finishes a day 2 to 3 days later, so 21 and 22 Nov aren't in yet.",
+  live: "For today, days older than the 90 kept, or one page day by day, Vizzy reads live instead. Active users and unique visitors can't be added across days, so for more than a day Vizzy reads those live too.",
+  source: "Under an answer from collected numbers, the chat puts (collected) after the tool's name. Google Analytics shows its logo only.",
+  grants:
+    "Collected numbers follow the same rules as live reads: Vizzy reads a connection's numbers only when an admin allows Vizzy to read it, and for a member only when members may read it too. They come from YouGrow's own copy, so asking never uses the tool's allowance.",
+  ask: "Ask in your own words, such as which searches brought the most Google clicks in the last 28 days, or which landing pages started the most sessions this month.",
+} as const;
+
+/**
  * Collected numbers (CONNECTORS_COLLECT_ENABLED, ADR-0012), for the help page: when each tool's
  * days are collected, what is kept and for how long, what the Connected view says and what
  * erases them.

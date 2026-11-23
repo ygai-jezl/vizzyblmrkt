@@ -218,3 +218,117 @@ def test_the_live_read_docstring_says_how_to_answer():
     assert "`more` is true when the provider has rows this answer left out" in doc
     assert "`notes` say what to bear in mind, each once" in doc
     assert "\u2014" not in doc and "\u2013" not in doc and " - " not in doc
+
+
+# --- get_connected_numbers: the numbers YouGrow collects once a day ---------------------------
+
+
+def test_reads_collected_numbers_for_a_named_period_and_never_a_brand(monkeypatch):
+    calls = _capture(monkeypatch, 200, {"rows": [], "rowsDropped": 0, "lagDays": 3, "meanings": {}})
+    out = cc.get_connected_numbers(STATE, CONN, "search_performance", period="last_28_days", by="topic", limit=9999)
+    assert out["status"] == "success" and out["lagDays"] == 3
+    assert calls[0]["method"] == "POST" and calls[0]["url"] == "https://app.example.com/api/agent/connectors/numbers"
+    assert calls[0]["payload"] == {"connectionId": CONN, "stream": "search_performance", "by": "topic", "limit": 100, "period": "last_28_days"}
+    assert "tenant" not in json.dumps(calls[0]["payload"])
+    # A period wins over dates: Vizzy never sends days it worked out itself beside one.
+    cc.get_connected_numbers(STATE, CONN, "site_traffic", period=" Last_7_Days ", from_date="2026-10-26", to_date="2026-11-22", by="weekly", limit="lots")
+    assert calls[1]["payload"] == {"connectionId": CONN, "stream": "site_traffic", "by": "day", "limit": 50, "period": "last_7_days"}
+
+
+def test_collected_numbers_cap_named_days_by_grouping(monkeypatch):
+    calls = _capture(monkeypatch, 200, {"rows": []})
+    # By page, search or landing page: 14 days at most. By day: the 90 days kept.
+    cc.get_connected_numbers(STATE, CONN, "search_performance", by="page", from_date="2026-11-07", to_date="2026-11-20")
+    assert calls[0]["payload"]["from"] == "2026-11-07" and calls[0]["payload"]["to"] == "2026-11-20"
+    out = cc.get_connected_numbers(STATE, CONN, "search_performance", by="topic", from_date="2026-11-06", to_date="2026-11-20")
+    assert out["code"] == "range_too_long" and "last 28 or 90 days" in out["message"]
+    cc.get_connected_numbers(STATE, CONN, "zone_daily", from_date="2026-08-23", to_date="2026-11-20")
+    assert calls[1]["payload"]["from"] == "2026-08-23"
+    out = cc.get_connected_numbers(STATE, CONN, "zone_daily", from_date="2026-08-22", to_date="2026-11-20")
+    assert out["code"] == "range_too_long" and "90" in out["message"]
+    assert len(calls) == 2
+
+
+def test_collected_numbers_read_one_page_by_page_or_landing_page(monkeypatch):
+    calls = _capture(monkeypatch, 200, {"rows": []})
+    cc.get_connected_numbers(STATE, CONN, "search_performance", period="last_90_days", by="page", page="https://www.example.com/pricing?ref=x")
+    assert calls[0]["payload"]["page"] == "/pricing"
+    cc.get_connected_numbers(STATE, CONN, "site_traffic", period="last_28_days", by="landing", page="/")
+    assert calls[1]["payload"]["page"] == "/"
+    out = cc.get_connected_numbers(STATE, CONN, "search_performance", period="last_28_days", page="/pricing")
+    assert out["code"] == "page_needs_grouping" and "by page or landing page" in out["message"]
+    assert cc.get_connected_numbers(STATE, CONN, "search_performance", period="last_28_days", by="page", page="pricing")["code"] == "bad_page"
+    assert len(calls) == 2
+
+
+def test_collected_numbers_check_their_input_before_calling(monkeypatch):
+    calls = _capture(monkeypatch)
+    assert cc.get_connected_numbers(STATE, "", "search_performance", period="last_7_days")["code"] == "connection_required"
+    assert cc.get_connected_numbers(STATE, CONN, "search performance", period="last_7_days")["code"] == "invalid_input"
+    assert cc.get_connected_numbers(STATE, CONN, "search_performance")["code"] == "bad_period"
+    assert cc.get_connected_numbers(STATE, CONN, "search_performance", period="last_30_days")["code"] == "bad_period"
+    assert cc.get_connected_numbers(STATE, CONN, "search_performance", from_date="2026-11-05", to_date="2026-11-02")["code"] == "bad_dates"
+    assert calls == []
+
+
+def test_collected_numbers_pass_the_apps_answer_through_unchanged(monkeypatch):
+    body = {
+        "connection": {"id": CONN, "connectorId": "search-console", "connector": "Google Search Console", "label": "example.com"},
+        "stream": "search_performance",
+        "by": "topic",
+        "period": {"from": "2026-10-24", "to": "2026-11-20", "timeZone": "America/Los_Angeles", "finalThrough": "2026-11-20", "words": "24 Oct to 20 Nov 2026, Pacific time"},
+        "lag": "Search Console finishes a day 2 to 3 days later.",
+        "lagDays": 3,
+        "totals": {"searchClicks": 40, "searchImpressions": 900},
+        "rows": [{"query": "made up search", "searchClicks": 4, "searchImpressions": 80}],
+        "rowsDropped": 12,
+        "notes": ["21 and 22 Nov aren't in these numbers yet."],
+        "meanings": {"searchClicks": {"name": "Search clicks"}, "rowsDropped": {"name": "Rows left out"}, "lagDays": {"name": "Days to settle"}},
+    }
+    _capture(monkeypatch, 200, body)
+    assert cc.get_connected_numbers(STATE, CONN, "search_performance", period="last_28_days", by="topic") == {"status": "success", **body}
+
+
+def test_collected_numbers_say_plainly_why_they_cant_be_read(monkeypatch):
+    _capture(monkeypatch, 503, {"error": "unavailable"})
+    out = cc.get_connected_numbers(STATE, CONN, "search_performance", period="last_7_days")
+    assert out["message"] == cc._NUMBERS_OFF and "read the connection live instead" in out["message"]
+    # Live reads keep their own words for the same code.
+    assert cc.read_connected_live(STATE, CONN, "search_performance", period="last_7_days")["message"] == cc._OFF
+    _capture(monkeypatch, 403, {"error": "no_agent_grant"})
+    assert "An admin can let Vizzy read it" in cc.get_connected_numbers(STATE, CONN, "search_performance", period="last_7_days")["message"]
+    # Codes only the app knows come back in the app's own words.
+    _capture(monkeypatch, 409, {"error": "not_collected_yet", "message": "Nothing has been collected for this connection yet."})
+    assert cc.get_connected_numbers(STATE, CONN, "search_performance", period="last_7_days")["message"] == "Nothing has been collected for this connection yet."
+    _capture(monkeypatch, 409, {"error": "disconnected", "message": "This connection was disconnected."})
+    assert cc.get_connected_numbers(STATE, CONN, "search_performance", period="last_7_days")["code"] == "disconnected"
+    assert cc.get_connected_numbers({}, CONN, "search_performance", period="last_7_days")["code"] == "not_connected"
+
+
+def test_the_instruction_decides_on_collected_numbers_and_explores_live():
+    rule = _connected_rule()
+    assert "To decide something" in rule and "read the collected numbers with `get_connected_numbers`" in rule
+    assert "To explore, read live with `read_connected_live`" in rule
+    assert "counts of people (active users, unique visitors) over several days" in rule
+    # Always say how far collected numbers reach, in the approved words.
+    assert 'start that line with "Collected numbers" and always say how far they reach, from `lag` and the note on days not in yet' in rule
+    assert "Search Console finishes a day 2 to 3 days later, so 21 and 22 Nov aren't in yet." in rule
+    assert "the same goes when `rowsDropped` is above 0" in rule
+    assert "If collected numbers aren't switched on, or nothing is collected yet, read live instead." in rule
+    assert "—" not in rule and "–" not in rule and " - " not in rule
+
+
+def test_the_collected_numbers_docstring_says_how_to_answer_and_guards_outside_text():
+    from root_agent_pkg.tools.connectors import get_connected_numbers
+
+    doc = " ".join((get_connected_numbers.__doc__ or "").split())
+    assert "pass `period` and never work out dates yourself" in doc
+    assert "every period ends on the last collected day" in doc
+    assert "Always say how far the numbers reach" in doc
+    assert "`rowsDropped` counts the rows this answer left out" in doc and "never say the others had none" in doc
+    assert "Counts of people, such as active users and unique visitors, are empty over more than one day: read them live." in doc
+    assert "at most 14 days by page, search or landing page, and at most 90 by day" in doc
+    assert "—" not in doc and "–" not in doc and " - " not in doc
+    sentence = _outside_text_sentence(get_connected_numbers.__doc__ or "")
+    for key in _row_keys():
+        assert f"`{key}`" in sentence, key

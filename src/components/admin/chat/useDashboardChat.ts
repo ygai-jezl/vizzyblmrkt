@@ -25,7 +25,7 @@ export interface ChatExchange {
   thoughtText?: string;
   isStreaming?: boolean;
   artifacts?: CanvasCardData[];
-  /** The connectors this answer read (read_connected_live), by id, for its source line. */
+  /** The connectors this answer read, by id ("<id>:collected" for get_connected_numbers), for its source line. */
   sources?: string[];
 }
 

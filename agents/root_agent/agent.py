@@ -39,7 +39,7 @@ from .tools.brand_notes import get_brand_notes, suggest_brand_notes
 from .tools.competitors import get_competitors
 from .tools.search import search_brand
 from .tools.results import get_email_results, get_post_results
-from .tools.connectors import list_connections, read_connected_live
+from .tools.connectors import get_connected_numbers, list_connections, read_connected_live
 from .tools.context_pack import get_brand_context
 from .tools.next_up import get_next_up
 from .tools.setup_help import get_setup_status, read_help_page
@@ -69,6 +69,8 @@ root_agent = LlmAgent(
     # get_email_results/get_post_results read how emails and posts did, each number explained;
     # list_connections/read_connected_live read connected data (Cloudflare, Search Console,
     # Google Analytics) live, only where an admin let Vizzy read it, each number explained;
+    # get_connected_numbers reads the numbers YouGrow collects daily for the same connections, for
+    # decisions (read only, same grants);
     # get_brand_context reads everything the brand knows about one question (read only);
     # get_next_up reads the brand's three best next articles, with why (read only);
     # get_setup_status/read_help_page answer "what should I set up first?"
@@ -95,6 +97,7 @@ root_agent = LlmAgent(
         get_post_results,
         list_connections,
         read_connected_live,
+        get_connected_numbers,
         get_brand_context,
         get_next_up,
         get_setup_status,

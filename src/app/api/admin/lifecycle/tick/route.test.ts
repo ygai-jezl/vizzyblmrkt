@@ -191,6 +191,25 @@ describe("the tick's log lines", () => {
     expect(memoryLines()).toHaveLength(1);
   });
 
+  it("still answers 200 when the memory can't be read, and a journeys error still comes through", async () => {
+    vi.stubEnv("LIFECYCLE_ENABLED", "true");
+    const memory = vi.spyOn(process, "memoryUsage").mockImplementation(() => {
+      throw new Error("EMFILE: too many open files");
+    });
+    try {
+      const res = await POST(machine());
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ ok: true, tenants: 2 });
+      expect(jobLines().map((line) => line.split(" ")[1])).toEqual(["journeys"]);
+      expect(memoryLines()).toEqual([]);
+
+      runner.runLifecycleTick.mockRejectedValueOnce(new Error("boom"));
+      await expect(POST(machine())).rejects.toThrow("boom");
+    } finally {
+      memory.mockRestore();
+    }
+  });
+
   it("logs nothing when the scheduler's call has nothing to run, or for a signed-in admin", async () => {
     await POST(machine());
     vi.stubEnv("LIFECYCLE_ENABLED", "true");

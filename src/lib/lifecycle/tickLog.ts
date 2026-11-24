@@ -1,7 +1,9 @@
 /**
  * The scheduler tick's own log lines: how long each job took, and how much memory the instance
- * holds once the tick is done. One memory line per instance every 2 minutes is cheap, and it
- * shows how memory splits between the JavaScript heap and everything outside it.
+ * holds once the tick is done. There is one memory line per scheduler tick, from the instance
+ * that served it, which is cheap. It shows how memory splits between the JavaScript heap and
+ * everything outside it. Instances that only serve user traffic never write one, so the lines
+ * sample only the instances that took a tick.
  *
  * Neither line carries personal data or brand ids: only job names, times and byte counts.
  */
@@ -21,8 +23,16 @@ export function tickMemoryLine(m: NodeJS.MemoryUsage = process.memoryUsage()): s
   );
 }
 
-export function logTickMemory(): void {
-  console.log(tickMemoryLine());
+/**
+ * Writes the memory line. It is best effort: `process.memoryUsage()` can throw (for example when
+ * the instance runs out of file handles), and a finished tick must still return what it did.
+ */
+export function logTickMemory(read: () => NodeJS.MemoryUsage = () => process.memoryUsage()): void {
+  try {
+    console.log(tickMemoryLine(read()));
+  } catch {
+    // The memory line is best effort.
+  }
 }
 
 /**

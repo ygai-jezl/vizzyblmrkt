@@ -25,6 +25,16 @@ describe("the tick's memory line", () => {
       /^\[tick\] memory MiB rss=\d+(\.\d)? heapUsed=\d+(\.\d)? heapTotal=\d+(\.\d)? external=\d+(\.\d)? arrayBuffers=\d+(\.\d)?$/,
     );
   });
+
+  it("writes nothing and does not throw when the memory can't be read", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    expect(() =>
+      logTickMemory(() => {
+        throw new Error("EMFILE: too many open files");
+      }),
+    ).not.toThrow();
+    expect(log).not.toHaveBeenCalled();
+  });
 });
 
 describe("a timed tick job", () => {

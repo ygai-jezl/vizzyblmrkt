@@ -209,5 +209,17 @@ export type { ActivityWrite, NewDataConnection, DataConnectionPatch, ChangePlan,
 // Connected data sign in states: made at Sign in, claimed once by the callback, then deleted.
 export { createConnectionState, consumeConnectionState, STATE_VALID_MS } from "./dataConnectionStates";
 export type { NewConnectionState, StoredConnectionState, ConsumeOutcome } from "./dataConnectionStates";
+// Emailed codes for password sign-in: one hashed code per account, checked in a transaction.
+export {
+  putEmailCode,
+  checkEmailCode,
+  claimEmailCodeSend,
+  deleteEmailCode,
+  EMAIL_CODE_VALID_MS,
+  EMAIL_CODE_MAX_TRIES,
+  EMAIL_CODE_SENDS_PER_HOUR,
+  EMAIL_CODE_WRONG_PER_DAY,
+} from "./emailCodes";
+export type { EmailCodeCheck, EmailCodeSendClaim } from "./emailCodes";
 export type { SendClaimArgs, SendClaimOutcome } from "./lifecycleSend";
 export type { RateLimitConfig } from "./rateLimit";

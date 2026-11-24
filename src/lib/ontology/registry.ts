@@ -1448,6 +1448,34 @@ export const ONTOLOGY: readonly OntologyType[] = [
     numbers: { none: NO_NUMBERS },
   },
   {
+    id: "email_code",
+    name: "Email code",
+    description:
+      "The 6-digit code emailed to confirm a password account's address: one per account, kept as a hash with its count of tries for 10 minutes.",
+    place: "platform",
+    status: "built",
+    home: "control",
+    personal: "team",
+    stores: [
+      control(
+        "email_codes",
+        "src/lib/tenant/emailCodes.ts",
+        "keyed by the account's Firebase user id; the code's SHA-256 and its tries, never the code or the address; deleted when used, on the fifth wrong try or when found expired, and removed by a time to live on ttl",
+      ),
+      control(
+        "email_code_guards",
+        "src/lib/tenant/emailCodes.ts",
+        "keyed by the SHA-256 of the address, never the address; the times of its sends in the last hour and its wrong tries in the last day, across codes and accounts; removed by a time to live on ttl a day after the last",
+      ),
+    ],
+    links: [],
+    events: [],
+    erase: { none: "hashes with no address, removed by a time to live after 10 minutes, or a day for the per address counts" },
+    export: { none: "hashes with no address" },
+    search: { none: "codes" },
+    numbers: { none: NO_NUMBERS },
+  },
+  {
     id: "email_job",
     name: "Email job",
     description:

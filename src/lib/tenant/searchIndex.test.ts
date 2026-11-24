@@ -1,7 +1,26 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readSearchKind, SEARCH_KIND_ALIASES, storedKindsFor } from "@/lib/search/types";
-import { brandRoot, manifestFrom, rankedFrom, resultId, searchChunkId, searchManifestId } from "./searchIndex";
+import { brandRoot, manifestFrom, rankedFrom, resultId, searchChunkId, searchManifestId, searchStoreFor } from "./searchIndex";
 import { SEARCH_DATABASE_IDS, searchDatabaseIdForRegion } from "./region";
+
+// @google-cloud/firestore 9 and its pipelines, recording when each loads and which clients are made.
+const sdk = vi.hoisted(() => ({ loads: 0, pipelineLoads: 0, made: [] as Array<Record<string, unknown>> }));
+vi.mock("@google-cloud/firestore", () => {
+  sdk.loads++;
+  class Firestore {
+    constructor(opts: Record<string, unknown>) {
+      sdk.made.push(opts);
+    }
+    collection() {
+      return { doc: () => ({ get: async () => ({ data: () => undefined }) }) };
+    }
+  }
+  return { Firestore, FieldValue: { vector: (v: number[]) => ({ vector: v }) } };
+});
+vi.mock("@google-cloud/firestore/pipelines", () => {
+  sdk.pipelineLoads++;
+  return {};
+});
 
 describe("brand search paths", () => {
   it("gives each brand its own folder and refuses ids that could leave it", () => {
@@ -69,5 +88,25 @@ describe("kinds stored under an alias", () => {
     expect(rankedFrom("c_1", { ...chunk, kind: "people" }, "ten_A")).toBeNull();
     expect(rankedFrom("c_1", chunk, "ten_B")).toBeNull();
     expect(manifestFrom(undefined)).toBeNull();
+  });
+});
+
+describe("loading the search client", () => {
+  it("loads @google-cloud/firestore with the index's first use, and makes one client per database", async () => {
+    expect(sdk.loads).toBe(0);
+    const eu = searchStoreFor({ tenantId: "ten_fernleaf", region: "eu" });
+    expect(sdk.loads).toBe(0);
+
+    await expect(Promise.all([eu.getManifest("article:p1"), eu.getManifest("article:p2")])).resolves.toEqual([null, null]);
+    expect(sdk.loads).toBe(1);
+    expect(sdk.made).toEqual([expect.objectContaining({ databaseId: "search-eu", ignoreUndefinedProperties: true })]);
+
+    await searchStoreFor({ tenantId: "ten_bramble", region: "eu" }).getManifest("article:p3");
+    expect(sdk.made).toHaveLength(1);
+    await searchStoreFor({ tenantId: "ten_bramble", region: "us" }).getManifest("article:p3");
+    expect(sdk.made.map((o) => o.databaseId)).toEqual(["search-eu", "search"]);
+    expect(sdk.loads).toBe(1);
+    // Pipelines load with the first search, not with the client.
+    expect(sdk.pipelineLoads).toBe(0);
   });
 });

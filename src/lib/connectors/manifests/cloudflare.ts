@@ -82,7 +82,12 @@ export const cloudflareManifest = {
   api: {
     hosts: ["api.cloudflare.com"],
     // Cloudflare allows 300 GraphQL queries every 5 minutes per user; stay well under it.
-    limits: { connection: { perMinute: 10, perHour: 120 }, brand: { perMinute: 20, perHour: 300 } },
+    limits: {
+      connection: { perMinute: 10, perHour: 120 },
+      brand: { perMinute: 20, perHour: 300 },
+      // One token serves several brands' zones; Cloudflare counts per token, and a 429 blocks five minutes.
+      source: { perMinute: 40, perHour: 600, holds: "connection", holdMinutes: 5 },
+    },
     timeoutMs: 10_000,
     maxBytes: 512 * 1024,
   },

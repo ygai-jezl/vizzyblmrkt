@@ -289,3 +289,37 @@ export async function sourceToken(
     return fail("source_broken");
   }
 }
+
+/**
+ * When the organisation's connection holds collecting for every part (a Search Console or
+ * Cloudflare quota answer), or null. Read through partLive, so a part that reads nothing returns
+ * null and its token is refused next. Live reads never look at it.
+ */
+export async function sourceHeldUntil(ctx: Pick<TenantContext, "tenantId" | "region">, conn: DataConnection, deps: SourceDeps = {}): Promise<string | null> {
+  if (!conn.source) return null;
+  const check = await partLive(ctx, conn, deps);
+  if (!check.live) return null;
+  const hold = check.source.collectHold;
+  const now = (deps.now ?? new Date()).getTime();
+  return hold && Date.parse(hold.until) > now ? hold.until : null;
+}
+
+/**
+ * Hold collecting for every part of an organisation's connection until then (a quota answer the
+ * provider counts per user or per token), with a "held" row. A later hold already set stays.
+ * Best effort: the brand's own record carries its own hold either way.
+ */
+export async function holdSource(source: SourceRef, until: Date, reason: string, deps: SourceDeps = {}): Promise<void> {
+  const at = (deps.now ?? new Date()).toISOString();
+  await changeOrganisationConnection(
+    source.organisationId,
+    source.connectionId,
+    source.region,
+    (cur) => {
+      if (cur.status !== "connected") return null;
+      if (cur.collectHold && Date.parse(cur.collectHold.until) >= until.getTime()) return null;
+      return { patch: { collectHold: { until: until.toISOString(), reason } }, activity: [{ kind: "held", by: "system", at, code: reason }] };
+    },
+    storesOf(deps),
+  ).catch(() => null);
+}

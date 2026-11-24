@@ -47,6 +47,7 @@ const OURS: ReadonlySet<ConnectorErrorCode> = new Set([
   "share_unconfigured",
   "share_quota",
   "share_limit",
+  "org_share_limit",
   "managed_by_organisation",
   "part_ended",
   "source_paused",

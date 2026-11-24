@@ -365,7 +365,7 @@ export default function ConnectedDataHelp({
           [help.messages.share_access_lost, "Someone took the connection's Google address off the property. Add it again with the role shown, then press Check access on Connected. The message says the day it stopped."],
           [help.messages.share_pending, "Wait a minute, then press Check access again."],
           [help.messages.share_quota, "Sign in with Google instead, or try again later."],
-          [help.messages.share_limit, "Disconnect a shared connection you no longer use, or sign in with Google."],
+          [help.messages.share_limit, "Disconnect one you no longer use, or sign in with Google."],
           [help.messages.share_unconfigured, "Ask whoever runs your copy to set up its identities project, or sign in with Google."],
           [help.messages.signin_unconfigured, "Ask whoever runs your copy to add its Google client, or share access instead."],
           [help.messages.vault_unconfigured, "Ask whoever runs your copy to set CONNECTORS_VAULT_KEY. Nothing can be connected until then."],

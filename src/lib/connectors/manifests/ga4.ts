@@ -67,7 +67,12 @@ export const ga4Manifest = {
   ],
   api: {
     hosts: ["analyticsdata.googleapis.com", "analyticsadmin.googleapis.com", "oauth2.googleapis.com"],
-    limits: { connection: { perMinute: 10, perHour: 120 }, brand: { perMinute: 20, perHour: 240 } },
+    limits: {
+      connection: { perMinute: 10, perHour: 120 },
+      brand: { perMinute: 20, perHour: 240 },
+      // GA4 counts per property, so a quota answer holds only that brand's part.
+      source: { perMinute: 40, perHour: 480, holds: "part" },
+    },
     timeoutMs: 15_000,
     maxBytes: 512 * 1024,
   },

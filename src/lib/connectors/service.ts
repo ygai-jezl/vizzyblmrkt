@@ -68,6 +68,7 @@ const CONFLICTS: ReadonlySet<ConnectorErrorCode> = new Set([
   "share_access_lost",
   "share_pending",
   "share_limit",
+  "org_share_limit",
   "managed_by_organisation",
   "part_ended",
   "source_broken",

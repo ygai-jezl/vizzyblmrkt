@@ -43,7 +43,9 @@ export const CONNECTOR_ERRORS = {
   share_quota:
     "YouGrow can't make a new address for shared access right now, because its Google project holds as many as Google allows. Sign in with Google instead, or try again later.",
   share_limit:
-    "This brand already has 5 shared Google addresses for this connector, the most one brand can have. Disconnect a shared connection you no longer use, or sign in with Google instead.",
+    "This brand already has 5 shared Google addresses for this connector, the most one brand can have. Disconnect one you no longer use, or sign in with Google instead.",
+  org_share_limit:
+    "This organisation already has 5 Google addresses for this connector, the most one organisation can have. Disconnect one it no longer uses, or sign in with Google instead.",
   // A brand's part of its organisation's connection (Connectors 3, ADR-0014).
   managed_by_organisation: "Your organisation manages this connection. Its owners can change it.",
   part_ended: "Your organisation doesn't give this brand this part right now, so it reads nothing.",

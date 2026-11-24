@@ -55,7 +55,12 @@ export const searchConsoleManifest = {
   ],
   api: {
     hosts: ["searchconsole.googleapis.com", "oauth2.googleapis.com"],
-    limits: { connection: { perMinute: 20, perHour: 300 }, brand: { perMinute: 40, perHour: 600 } },
+    limits: {
+      connection: { perMinute: 20, perHour: 300 },
+      brand: { perMinute: 40, perHour: 600 },
+      // One organisation sign in or address serves several brands; Google counts per user and per site.
+      source: { perMinute: 100, perHour: 1500, holds: "connection" },
+    },
     timeoutMs: 15_000,
     maxBytes: 512 * 1024,
   },

@@ -13,6 +13,11 @@
  *    the account must be untouched (its tokens not revoked since it was created) and explained:
  *    confirmed by the emailed code (the `email_code` claim), or created by Google in this same
  *    sign-in. Anything else is removed, and the person signs in again.
+ *  - A renamed Google address: the door remembers each account's Google account id (the
+ *    `google_id` claim, Google's permanent id for the account, which a rename keeps). On an
+ *    established account, a Google sign-in whose only mismatch is that its linked Google sign-in
+ *    carries another address passes as a rename when the token's Google identity and the recorded
+ *    id are both that sign-in's id. The door then moves the account to the new address.
  *
  * Authorization (which addresses may get in at all) is not judged here: see ./allowlist.ts.
  */
@@ -36,12 +41,20 @@ export const UNTOUCHED_WINDOW_MS = 1_000;
  */
 export const GOOGLE_CREATED_WINDOW_MS = 3_000;
 
+/**
+ * The custom claim that remembers the account's Google account id: the `uid` of its linked
+ * google.com sign-in, which is Google's permanent id for the account (`sub`). A renamed Google
+ * address keeps it; someone else's Google account has another one.
+ */
+export const GOOGLE_ID_CLAIM = "google_id";
+
 /** The verified ID token claims the judgement reads (a firebase-admin DecodedIdToken fits). */
 export interface SignInClaims {
   email?: string;
   /** When the person signed in, in seconds since the epoch. */
   auth_time?: number;
-  firebase?: { sign_in_provider?: string };
+  /** `identities["google.com"][0]` is the Google account id on a Google sign-in. */
+  firebase?: { sign_in_provider?: string; identities?: Readonly<Record<string, unknown>> };
   tenant_id?: unknown;
 }
 
@@ -49,7 +62,8 @@ export interface SignInClaims {
 export interface AccountFacts {
   email?: string;
   emailVerified: boolean;
-  providerData: ReadonlyArray<{ providerId: string; email?: string | null }>;
+  /** For google.com, `uid` is the Google account id. */
+  providerData: ReadonlyArray<{ providerId: string; email?: string | null; uid?: string | null }>;
   metadata: { creationTime?: string | null };
   tokensValidAfterTime?: string | null;
   customClaims?: Readonly<Record<string, unknown>> | null;
@@ -58,16 +72,22 @@ export interface AccountFacts {
 /**
  * Why a sign-in gets nothing, while the account stays. "provider_email_changed" is a trojan on an
  * established account that looks like a renamed Google address (signed in with Google, the token's
- * email is the account's, and only a linked Google sign-in carries another address): refused all
- * the same, but logged apart so an operator can tell it from an attack.
+ * email is the account's, and only a linked Google sign-in carries another address) when the
+ * account has no Google account id recorded: refused all the same, but logged apart so an operator
+ * can tell it from an attack. With an id recorded, a rename by the same Google account passes, and
+ * that shape with any other id is a "trojan".
  */
 export type RefuseReason = "provider_not_allowed" | "no_email" | "trojan" | "provider_email_changed" | "email_not_verified";
 /** Why a first sign-in's account is removed. */
 export type RemoveReason = "trojan" | "touched" | "unexplained";
 
 export type TrustVerdict =
-  /** Authenticated: go on to the admin list and the claims bootstrap. */
-  | { kind: "pass"; provider: TrustedProvider; firstSignIn: boolean }
+  /**
+   * Authenticated: go on to the admin list and the claims bootstrap. `renamedEmail` is set only
+   * on an established account whose Google address was renamed by the same Google account: the
+   * new address, which the door checks against the admin list and moves the account to.
+   */
+  | { kind: "pass"; provider: TrustedProvider; firstSignIn: boolean; renamedEmail?: string }
   /** Refused, account kept: an established account, or one that may still confirm its email. */
   | { kind: "refuse"; reason: RefuseReason; provider: string }
   /** A first sign-in the door can't trust: delete the Auth account and ask for a new sign-in. */
@@ -94,16 +114,25 @@ export function judgeSignIn({ token, account, now }: SignInFacts): TrustVerdict 
   const accountAgeSeconds = created === null ? null : Math.max(0, Math.round((now - created) / 1000));
 
   // Rule 2: a trojan gets nothing. On a first sign-in it holds nothing of ours, so remove it.
+  // On an established account, the one mismatch let through is a rename by the same Google account.
+  let renamedEmail: string | undefined;
   if (isTrojan(token, account, accountEmail)) {
     if (firstSignIn) return { kind: "remove", reason: "trojan", provider, accountAgeSeconds };
-    const reason = isRenamedGoogleAddress(token, account, accountEmail, provider) ? "provider_email_changed" : "trojan";
-    return { kind: "refuse", reason, provider };
+    const rename = judgeGoogleRename(token, account, accountEmail, provider);
+    if (rename.kind !== "same_id") {
+      return { kind: "refuse", reason: rename.kind === "no_recorded_id" ? "provider_email_changed" : "trojan", provider };
+    }
+    renamedEmail = rename.email;
   }
 
   // Rule 2: nothing for an unconfirmed address. Not removed: a password account confirms it next.
   if (account.emailVerified !== true) return { kind: "refuse", reason: "email_not_verified", provider };
 
-  if (!firstSignIn) return { kind: "pass", provider, firstSignIn: false };
+  if (!firstSignIn) {
+    return renamedEmail === undefined
+      ? { kind: "pass", provider, firstSignIn: false }
+      : { kind: "pass", provider, firstSignIn: false, renamedEmail };
+  }
 
   // Rule 4: a first sign-in must be untouched and explained.
   if (!isUntouched(account, created)) return { kind: "remove", reason: "touched", provider, accountAgeSeconds };
@@ -111,6 +140,33 @@ export function judgeSignIn({ token, account, now }: SignInFacts): TrustVerdict 
     return { kind: "remove", reason: "unexplained", provider, accountAgeSeconds };
   }
   return { kind: "pass", provider, firstSignIn: true };
+}
+
+/**
+ * The Google account id the claims bootstrap records (first sign-in): the `uid` of the account's
+ * one linked Google sign-in. Null when it has none (a password account) or, never in practice,
+ * more than one. The judgement has already made sure every linked sign-in is for the account's
+ * own address.
+ */
+export function googleIdAtBootstrap(account: AccountFacts): string | null {
+  const google = account.providerData.filter((p) => p.providerId === "google.com");
+  return google.length === 1 ? nonEmpty(google[0]?.uid) : null;
+}
+
+/**
+ * The Google account id to merge into the claims of an account set up before the door recorded
+ * one: on a Google sign-in that passed with no mismatch (not a rename), from the linked Google
+ * sign-in for the account's own address, while no id is recorded. Null otherwise, and never on a
+ * password sign-in.
+ */
+export function googleIdToBackfill(token: SignInClaims, account: AccountFacts, verdict: TrustVerdict): string | null {
+  if (verdict.kind !== "pass" || verdict.renamedEmail !== undefined) return null;
+  if (verdict.provider !== "google.com" || token.firebase?.sign_in_provider !== "google.com") return null;
+  if (recordedGoogleId(account) !== null) return null;
+  const accountEmail = normalEmail(account.email);
+  if (!accountEmail) return null;
+  const own = account.providerData.filter((p) => p.providerId === "google.com" && normalEmail(p.email) === accountEmail);
+  return own.length === 1 ? nonEmpty(own[0]?.uid) : null;
 }
 
 /** The part of an address after the @, lower case, for logs that must not hold the address. */
@@ -148,6 +204,51 @@ function isRenamedGoogleAddress(token: SignInClaims, account: AccountFacts, acco
     if (!isTrustedProvider(p.providerId) || !email) return false;
     return email === accountEmail || p.providerId === "google.com";
   });
+}
+
+type GoogleRename =
+  /** Not the shape of a renamed Google address: an ordinary trojan. */
+  | { kind: "not_a_rename" }
+  /** The shape of a rename, but the account has no Google account id recorded to compare. */
+  | { kind: "no_recorded_id" }
+  /** The shape of a rename, but by another Google account (or not exactly a rename). */
+  | { kind: "other_id" }
+  /** The same Google account, now with this address. */
+  | { kind: "same_id"; email: string };
+
+/**
+ * Judge a trojan on an established account that may be a renamed Google address. It is the same
+ * Google account when the account's one linked Google sign-in is the only one carrying another
+ * address, and its `uid`, the token's Google identity and the recorded `google_id` claim are all
+ * the same id.
+ */
+function judgeGoogleRename(token: SignInClaims, account: AccountFacts, accountEmail: string, provider: string): GoogleRename {
+  if (!isRenamedGoogleAddress(token, account, accountEmail, provider)) return { kind: "not_a_rename" };
+  const recorded = recordedGoogleId(account);
+  if (recorded === null) return { kind: "no_recorded_id" };
+  const google = account.providerData.filter((p) => p.providerId === "google.com");
+  const entry = google.length === 1 ? google[0] : undefined;
+  if (!entry) return { kind: "other_id" };
+  const newEmail = (entry.email ?? "").trim();
+  if (!newEmail || normalEmail(newEmail) === accountEmail) return { kind: "other_id" };
+  const entryId = nonEmpty(entry.uid);
+  if (entryId === null || entryId !== tokenGoogleId(token) || entryId !== recorded) return { kind: "other_id" };
+  return { kind: "same_id", email: newEmail };
+}
+
+/** The Google account id the token's sign-in used: `firebase.identities["google.com"][0]`. */
+function tokenGoogleId(token: SignInClaims): string | null {
+  const ids = token.firebase?.identities?.["google.com"];
+  return Array.isArray(ids) ? nonEmpty(ids[0]) : null;
+}
+
+/** The account's recorded Google account id, or null when none (or not a string) is recorded. */
+function recordedGoogleId(account: AccountFacts): string | null {
+  return nonEmpty(account.customClaims?.[GOOGLE_ID_CLAIM]);
+}
+
+function nonEmpty(v: unknown): string | null {
+  return typeof v === "string" && v.trim() !== "" ? v : null;
 }
 
 /** Its tokens were never revoked after creation (a password reset or change revokes them). */

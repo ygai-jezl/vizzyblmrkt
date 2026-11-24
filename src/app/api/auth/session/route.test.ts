@@ -47,6 +47,7 @@ describe("POST /api/auth/session", () => {
     ["email_not_verified", 403, { error: "email_not_verified" }],
     ["google_only", 403, { error: "google_only" }],
     ["sign_in_again", 409, { error: "sign_in_again" }],
+    ["address_updated", 409, { error: "address_updated" }],
     ["needs_refresh", 200, { needsRefresh: true }],
   ])("answers %s with %i and no cookie", async (access, status, body) => {
     session.ensureAdminAccess.mockResolvedValue(access);

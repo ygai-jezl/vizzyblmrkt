@@ -10,7 +10,15 @@ import type { Region } from "@/lib/types/tenant";
 import type { TenantRole } from "@/lib/types/tenantUser";
 import { adminAuth } from "./adminAuth";
 import { isAllowedAdmin } from "./allowlist";
-import { emailDomain, judgeSignIn, type TrustVerdict } from "./trust";
+import {
+  emailDomain,
+  GOOGLE_ID_CLAIM,
+  googleIdAtBootstrap,
+  googleIdToBackfill,
+  judgeSignIn,
+  type AccountFacts,
+  type TrustVerdict,
+} from "./trust";
 
 /**
  * Server-side admin session. The verified ID-token / session-cookie CLAIMS
@@ -40,7 +48,8 @@ export type AdminAccess =
   | "not_set_up"
   | "email_not_verified"
   | "google_only"
-  | "sign_in_again";
+  | "sign_in_again"
+  | "address_updated";
 
 /**
  * The door. Verify the ID token (refusing revoked ones), read the account as Auth holds
@@ -48,16 +57,27 @@ export type AdminAccess =
  * BOOTSTRAP the tenant/role claims on first sign-in. Returns:
  *  - "forbidden"          → not a Google or password sign-in, a trojan on an established
  *                           account, an unverified Google email, or not an allowed account
+ *                           (for a renamed Google admin: the new address isn't allowed, or
+ *                           another account already has it)
  *  - "email_not_verified" → a password account that hasn't confirmed its emailed code yet
  *  - "google_only"        → allowed only through the domain list, but signed in with a password
  *  - "sign_in_again"      → a first sign-in the door can't trust: the Auth account was deleted
  *                           (it held nothing of ours yet) and the person must sign in again
- *  - "needs_refresh"      → just minted claims; the client must refresh its ID token
- *                           and call again so the new token carries the claims
+ *  - "address_updated"    → moved a renamed Google admin to their new address. Firebase treats
+ *                           an email change as a major account change and revokes the account's
+ *                           tokens (this sign-in's too, and every other device's session), so a
+ *                           refresh can't carry on: the client signs out and the admin signs in
+ *                           with Google once more, which then passes as an ordinary sign-in
+ *  - "needs_refresh"      → just minted claims; the client must refresh its ID token and call
+ *                           again so the new token carries the claims
  *  - "ready"              → the token already has tenant_id+region; create the session
  *  - "not_set_up"         → an allowed account with no tenant yet, and no
  *                           ADMIN_BOOTSTRAP_TENANT_ID to put it in (the deployment
  *                           hasn't named its first workspace)
+ *
+ * The door also remembers each account's Google account id (the `google_id` claim): the
+ * bootstrap records it, and a Google sign-in on an account set up before that merges it in. It
+ * is what tells a renamed Google address (same id) from someone else's Google account.
  *
  * The local emulator runs the same checks: the seeded demo admin is verified, has its claims,
  * and has password and Google sign-in linked for its own address (src/lib/dev/seedAdmin.ts).
@@ -86,6 +106,9 @@ export async function ensureAdminAccess(idToken: string, now: number = Date.now(
       ? "email_not_verified"
       : "forbidden";
   }
+  if (verdict.renamedEmail !== undefined) {
+    return moveToRenamedAddress(decoded.uid, account.email, verdict.renamedEmail, decoded.hd as string | undefined);
+  }
   // AUTHORIZATION: which tenant/role this verified identity gets.
   const listed = isAllowedAdmin(decoded.email, decoded.hd as string | undefined, verdict.provider);
   if (listed === "google_only") return "google_only";
@@ -101,14 +124,68 @@ export async function ensureAdminAccess(idToken: string, now: number = Date.now(
     // The tenant a first-time admin joins. No default: a deployment names its own.
     const tenantId = process.env.ADMIN_BOOTSTRAP_TENANT_ID?.trim();
     if (!tenantId) return "not_set_up";
+    const googleId = googleIdAtBootstrap(account);
     await auth.setCustomUserClaims(decoded.uid, {
       tenant_id: tenantId,
       region: process.env.ADMIN_BOOTSTRAP_REGION ?? "us",
       role: "admin",
+      ...(googleId === null ? {} : { [GOOGLE_ID_CLAIM]: googleId }),
     });
     return "needs_refresh";
   }
+  await backfillGoogleId(decoded.uid, account, googleIdToBackfill(decoded, account, verdict));
   return "ready";
+}
+
+/**
+ * An established admin whose Google address was renamed (same Google account id, judged in
+ * ./trust.ts): check the NEW address against the admin lists, then move the account to it. Moving
+ * the email revokes the account's tokens (Firebase moves tokensValidAfterTime), so this sign-in
+ * can't be refreshed into a session: the answer is "address_updated", and the admin's next Google
+ * sign-in carries the new address and gets in. Not allowed, or another account already has the
+ * address: refused, and nothing changes. Logs carry the old and new domains only.
+ */
+async function moveToRenamedAddress(
+  uid: string,
+  oldEmail: string | undefined,
+  newEmail: string,
+  hostedDomain: string | undefined,
+): Promise<AdminAccess> {
+  if (isAllowedAdmin(newEmail, hostedDomain, "google.com") !== "allowed") return "forbidden";
+  const domains = { newEmailDomain: emailDomain(newEmail) };
+  try {
+    await adminAuth().updateUser(uid, { email: newEmail, emailVerified: true });
+  } catch (err) {
+    const code = (err as { code?: unknown } | null)?.code;
+    if (code === "auth/email-already-exists") {
+      logAuthEvent("auth_google_rename_conflict", "email_already_exists", "google.com", oldEmail, domains);
+      return "forbidden";
+    }
+    logAuthEvent("auth_google_rename_failed", "update_failed", "google.com", oldEmail, {
+      ...domains,
+      errorCode: typeof code === "string" ? code : "unknown",
+    });
+    throw err;
+  }
+  logAuthEvent("auth_google_address_renamed", "same_google_account", "google.com", oldEmail, domains);
+  return "address_updated";
+}
+
+/**
+ * Record the Google account id on an account set up before the door recorded one, merged into
+ * its claims (none dropped). The door reads it from the account, so no token refresh is needed.
+ * A failure doesn't keep the admin out: the next Google sign-in tries again.
+ */
+async function backfillGoogleId(uid: string, account: AccountFacts, googleId: string | null): Promise<void> {
+  if (googleId === null) return;
+  try {
+    await adminAuth().setCustomUserClaims(uid, { ...(account.customClaims ?? {}), [GOOGLE_ID_CLAIM]: googleId });
+  } catch (err) {
+    const code = (err as { code?: unknown } | null)?.code;
+    logAuthEvent("auth_google_id_record_failed", "set_claims_failed", "google.com", account.email, {
+      errorCode: typeof code === "string" ? code : "unknown",
+    });
+  }
 }
 
 /**

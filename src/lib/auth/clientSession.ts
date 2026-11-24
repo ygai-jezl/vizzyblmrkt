@@ -32,6 +32,8 @@ const MINT_STAMP_KEY = "vzb.sessionMintedAt";
  * - "email_not_verified": a password account that hasn't typed its emailed code yet.
  * - "google_only": the address gets in only through the domain list, which is Google only.
  * - "sign_in_again": the door removed an account it couldn't trust; sign out, then sign in again.
+ * - "address_updated": the door moved a renamed Google admin to their new address, which revoked
+ *   this sign-in; sign out, then sign in with Google again.
  */
 export type MintResult =
   | "ok"
@@ -40,6 +42,7 @@ export type MintResult =
   | "email_not_verified"
   | "google_only"
   | "sign_in_again"
+  | "address_updated"
   | "error";
 
 /** Record a successful mint (localStorage, shared across tabs). */
@@ -75,6 +78,7 @@ export async function mintSession(user: User): Promise<MintResult> {
     return "ok";
   }
   if (r.status === 409 && r.error === "sign_in_again") return "sign_in_again";
+  if (r.status === 409 && r.error === "address_updated") return "address_updated";
   if (r.status === 403) {
     switch (r.error) {
       case "workspace_not_set_up":
@@ -88,6 +92,11 @@ export async function mintSession(user: User): Promise<MintResult> {
     }
   }
   return "error";
+}
+
+/** The door's answers after which the browser's Firebase sign-in can't be used again: sign out. */
+export function mustSignOut(result: MintResult): boolean {
+  return result === "sign_in_again" || result === "address_updated";
 }
 
 async function postIdToken(
@@ -133,8 +142,9 @@ async function silentRefresh(): Promise<boolean> {
     const user = auth.currentUser;
     if (!user) return false;
     const result = await mintSession(user);
-    // The door removed this account: the persisted sign-in points at nothing, so drop it.
-    if (result === "sign_in_again") await signOut(auth).catch(() => undefined);
+    // The door removed this account, or moved it to a renamed Google address (which revoked this
+    // sign-in): the persisted sign-in can't be used again, so drop it.
+    if (mustSignOut(result)) await signOut(auth).catch(() => undefined);
     return result === "ok";
   } catch {
     return false; // missing client config / network failure — not silently healable

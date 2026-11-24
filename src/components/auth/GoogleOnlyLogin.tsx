@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { signInWithPopup, signOut } from "firebase/auth";
 import { getClientAuth, googleProvider } from "@/lib/auth/firebaseClient";
 import { accessDeniedMessage, WORKSPACE_NOT_SET_UP_MESSAGE, signInNote } from "@/lib/auth/accessDenied";
-import { mintSession } from "@/lib/auth/clientSession";
+import { mintSession, mustSignOut } from "@/lib/auth/clientSession";
+import { AUTH_MESSAGES } from "@/lib/auth/messages";
 import { afterSignInPath } from "@/lib/auth/passwordClient";
 import { GoogleMark } from "./parts";
 
@@ -29,8 +30,14 @@ export function GoogleOnlyLogin() {
         setBusy(false);
         return;
       }
-      // The door removed an account it couldn't trust: drop the sign-in so the next try starts fresh.
-      if (result === "sign_in_again") await signOut(getClientAuth()).catch(() => undefined);
+      // The door removed an account it couldn't trust, or moved a renamed Google address (which
+      // revoked this sign-in): drop the sign-in so the next try starts fresh.
+      if (mustSignOut(result)) await signOut(getClientAuth()).catch(() => undefined);
+      if (result === "address_updated") {
+        setError(AUTH_MESSAGES.googleAddressChanged);
+        setBusy(false);
+        return;
+      }
       if (result !== "ok") throw new Error("session");
       // Return to where the session expired (validated, internal paths only);
       // read at click time so the client page needs no useSearchParams Suspense.

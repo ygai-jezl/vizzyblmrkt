@@ -3,6 +3,7 @@ import type { User } from "firebase/auth";
 import {
   mintSession,
   msSinceSessionMint,
+  mustSignOut,
   safeNextPath,
   shouldInterceptApi,
   stampSessionMinted,
@@ -104,6 +105,25 @@ describe("mintSession", () => {
     await expect(mintSession(user)).resolves.toBe("error");
     respond(500, { error: "sign_in_again" });
     await expect(mintSession(user)).resolves.toBe("error");
+  });
+
+  it("signs out after a renamed Google address was moved, without refreshing the revoked sign-in", async () => {
+    const tokens: boolean[] = [];
+    const renamed = {
+      getIdToken: async (force?: boolean) => {
+        tokens.push(force === true);
+        return "id-token";
+      },
+    } as unknown as User;
+    respond(409, { error: "address_updated" });
+    await expect(mintSession(renamed)).resolves.toBe("address_updated");
+    // Refreshing would fail: the move revoked this sign-in.
+    expect(tokens).toEqual([false]);
+    expect(mustSignOut("address_updated")).toBe(true);
+    expect(mustSignOut("sign_in_again")).toBe(true);
+    for (const r of ["ok", "forbidden", "not_set_up", "email_not_verified", "google_only", "error"] as const) {
+      expect(mustSignOut(r), r).toBe(false);
+    }
   });
 
   it("reads the door's answer after the first sign-in's refresh too", async () => {

@@ -24,6 +24,9 @@ export const dynamic = "force-dynamic";
  *    with a password
  *  - 409 { error: "sign_in_again" } if the door removed the account (an unexplained first
  *    sign-in); the client must sign out of Firebase and sign in again
+ *  - 409 { error: "address_updated" } if the door moved a renamed Google admin to their new
+ *    address, which revokes this sign-in; the client must sign out of Firebase, and the admin
+ *    signs in with Google again
  *  - 200 { needsRefresh: true } on first sign-in: claims were just minted; the
  *    client must force-refresh its ID token and POST again
  *  - 200 { ok: true } + Set-Cookie once the token carries the tenant/role claims
@@ -46,6 +49,8 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "google_only" }, { status: 403 });
       case "sign_in_again":
         return NextResponse.json({ error: "sign_in_again" }, { status: 409 });
+      case "address_updated":
+        return NextResponse.json({ error: "address_updated" }, { status: 409 });
       case "needs_refresh":
         return NextResponse.json({ needsRefresh: true });
       case "ready":

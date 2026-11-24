@@ -10,6 +10,7 @@ import {
   installSessionFetchInterceptor,
   mintSession,
   msSinceSessionMint,
+  mustSignOut,
   refreshSession,
   REMINT_AFTER_MS,
   SESSION_EXPIRED_EVENT,
@@ -68,8 +69,9 @@ export function SessionKeeper() {
         setBusy(false);
         return;
       }
-      // The door removed an account it couldn't trust: drop the sign-in so the next try starts fresh.
-      if (result === "sign_in_again") await signOut(getClientAuth()).catch(() => undefined);
+      // The door removed an account it couldn't trust, or moved a renamed Google address (which
+      // revoked this sign-in): drop the sign-in so the next try starts fresh.
+      if (mustSignOut(result)) await signOut(getClientAuth()).catch(() => undefined);
       setError(
         result === "forbidden"
           ? accessDeniedMessage()
@@ -77,7 +79,9 @@ export function SessionKeeper() {
             ? WORKSPACE_NOT_SET_UP_MESSAGE
             : result === "sign_in_again"
               ? AUTH_MESSAGES.signInAgainBody
-              : "Sign-in failed. Please try again.",
+              : result === "address_updated"
+                ? AUTH_MESSAGES.googleAddressChanged
+                : "Sign-in failed. Please try again.",
       );
     } catch (err) {
       // A password account's address: Google can't sign it in here, the sign-in page can.

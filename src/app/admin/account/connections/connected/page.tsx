@@ -13,11 +13,11 @@ export const dynamic = "force-dynamic";
  * the recent activity. A connection whose connector is switched off stays listed, reading nothing.
  * `?c=<id>` opens on that connection (a Review row for a data source links here with it).
  */
-export default async function ConnectedPage({ searchParams }: { searchParams?: Promise<{ c?: string | string[] }> } = {}) {
+export default async function ConnectedPage({ searchParams }: { searchParams: Promise<{ c?: string | string[] }> }) {
   if (!isConnectorsScreenEnabled()) notFound();
   const screen = await loadConnectionsScreen();
   if (!screen.core || screen.failed) return <ScreenUnavailable screen={screen} />;
-  const c = (await searchParams)?.c;
+  const c = (await searchParams).c;
   const wanted = typeof c === "string" && DATA_CONNECTION_ID_RE.test(c) ? c : null;
   return (
     <ConnectedView

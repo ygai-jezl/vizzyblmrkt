@@ -32,15 +32,18 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllEnvs());
 
+/** Next.js always hands a page its search params; none here. */
+const none = () => ({ searchParams: Promise.resolve({}) });
+
 describe("the Connected and Browse pages", () => {
   it("are not found while NEXT_PUBLIC_CONNECTORS_ENABLED is off", async () => {
     vi.stubEnv("NEXT_PUBLIC_CONNECTORS_ENABLED", "false");
-    await expect(ConnectedPage()).rejects.toThrow("not_found");
+    await expect(ConnectedPage(none())).rejects.toThrow("not_found");
     await expect(BrowsePage()).rejects.toThrow("not_found");
   });
 
   it("hand the view what the server read for this person", async () => {
-    const el = (await ConnectedPage()) as { props: { isAdmin: boolean; chat: boolean; connections: unknown[]; uid: string } };
+    const el = (await ConnectedPage(none())) as { props: { isAdmin: boolean; chat: boolean; connections: unknown[]; uid: string } };
     expect(el.props).toMatchObject({ isAdmin: false, chat: true, uid: "usr_sam" });
     expect(el.props.connections).toHaveLength(1);
   });
@@ -57,7 +60,7 @@ describe("the Connected and Browse pages", () => {
 
   it("say so when the core switch is off or the list didn't load", async () => {
     state.screen = base({ core: false, connections: [] });
-    expect(((await ConnectedPage()) as { props: { screen: { core: boolean } } }).props.screen.core).toBe(false);
+    expect(((await ConnectedPage(none())) as { props: { screen: { core: boolean } } }).props.screen.core).toBe(false);
     state.screen = base({ failed: true, connections: [] });
     expect(((await BrowsePage()) as { props: { screen: { failed: boolean } } }).props.screen.failed).toBe(true);
   });

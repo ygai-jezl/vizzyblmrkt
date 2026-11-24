@@ -36,6 +36,8 @@ const list = await import("./route");
 const one = await import("./[sourceId]/route");
 const pause = await import("./[sourceId]/pause/route");
 const access = await import("./[sourceId]/access/route");
+const parts = await import("./[sourceId]/parts/route");
+const accounts = await import("./[sourceId]/accounts/route");
 const { forTenant, getOrganisationConnection, givePart } = await import("@/lib/tenant");
 const { openConnectorSecret, sealConnectorSecret, VaultOpenError } = await import("@/lib/connectors/vault");
 
@@ -327,6 +329,26 @@ describe("pause, one connection and Disconnect", () => {
     const rec = (await getOrganisationConnection(ORG, src.connectionId, "eu", { regionDb: regionDb as never }))!;
     expect(rec).toMatchObject({ status: "disconnected", secrets: {}, parts: [] });
     expect(changes().map((c) => c.kind)).toEqual(["connection.disconnected"]);
+  });
+});
+
+describe("giving and taking back through the routes", () => {
+  it("give a United States brand a zone, list it as given, and take it back, with the brand's region from its own record", async () => {
+    const src = await seedOrgToken("ocn_aaaaaaaaaaaaaaaaaaaa");
+    fetchMock.mockImplementation(async (url: string | URL, init: RequestInit) => {
+      const u = new URL(String(url));
+      if (u.pathname === "/client/v4/zones") return answer({ success: true, result: zones, result_info: { total_pages: 1 } });
+      if (u.pathname === "/client/v4/graphql" && init.method === "POST") return answer({ data: { viewer: { zones: [{ httpRequests1dGroups: [] }] } }, errors: null });
+      return answer({}, 500);
+    });
+    const given = await parts.POST(req("POST", `/${src.connectionId}/parts`, { tenantId: US, account: ZONE_B, label: "fernhill-us.example", members: true, vizzy: true }), p(src.connectionId));
+    expect(given.status).toBe(201);
+    expect((us.dump("data_connections") as Array<Record<string, unknown>>).map((d) => d.account)).toEqual([ZONE_B]);
+    const listed = await accounts.GET(req("GET", `/${src.connectionId}/accounts`), p(src.connectionId));
+    expect(((await listed.json()) as { accounts: Array<{ id: string; givenTo: unknown }> }).accounts.find((a) => a.id === ZONE_B)!.givenTo).toEqual({ tenantId: US });
+    const back = await parts.DELETE(req("DELETE", `/${src.connectionId}/parts`, { tenantId: US }), p(src.connectionId));
+    expect(back.status).toBe(200);
+    expect((await getOrganisationConnection(ORG, src.connectionId, "eu", { regionDb: regionDb as never }))!.parts).toEqual([]);
   });
 });
 

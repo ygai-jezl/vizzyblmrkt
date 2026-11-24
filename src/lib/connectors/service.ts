@@ -792,11 +792,6 @@ export async function pickAccount(ctx: TenantContext, actor: ConnectorActor, id:
   });
   if (existing.some((c) => c.id !== id)) return refuse(409, "already_connected", "Another connection reads this already. Check or disconnect it there.");
   const now = nowOf(deps);
-  const at = now.toISOString();
-  // Change property (a picked one replaced): take the collect lease, bump the generation and mark
-  // the old one for erasing, in this one change, so the new site's numbers never share an id with
-  // the old site's; then erase the old generation and start the new 90 days. A first pick starts
-  // collecting on the lane's next run.
   let leased = false;
   let erase: number[] | null = null;
   const changeLease = randomBytes(12).toString("hex");
@@ -804,35 +799,69 @@ export async function pickAccount(ctx: TenantContext, actor: ConnectorActor, id:
     ctx,
     id,
     (cur) => {
-      leased = false;
-      erase = null;
-      if (cur.status !== "connected" || cur.account === account) return null;
-      const c = cur.collect ?? freshCollect();
-      if (cur.account && c.leaseId && c.leaseUntil && Date.parse(c.leaseUntil) > now.getTime()) {
-        leased = true;
-        return null;
-      }
-      const collect = cur.account
-        ? { ...freshCollect(at, c.gen + 1), erasePending: pendingWith(c.erasePending, [c.gen]), leaseId: changeLease, leaseUntil: new Date(now.getTime() + CHANGE_LEASE_MS).toISOString() }
-        : { ...c, nextAt: at };
-      if (cur.account) erase = [c.gen];
-      return { patch: { account, health: healthAfterSuccess(cur.health, now), collect }, activity: [{ kind: "account_picked", by: byOf(actor), at }] };
+      const planned = changePropertyPlan(cur, account, { now, by: byOf(actor), leaseId: changeLease });
+      leased = planned?.kind === "leased";
+      erase = planned?.kind === "plan" ? planned.erase : null;
+      return planned?.kind === "plan" ? planned.plan : null;
     },
     deps.db,
   );
   if (!r.ok && r.why === "not_found") return refuse(404, "not_found");
   if (leased) return providerRefusal("busy");
   const old = erase as number[] | null;
-  if (r.ok && old) {
-    try {
-      await eraseConnectionData(ctx, id, r.connection.collect?.erasePending ?? old, { by: byOf(actor), now, db: deps.db, searchIndex: deps.searchIndex });
-    } catch (err) {
-      console.warn(`[connectors] erase after Change property failed for ${id}; the lane tries again:`, err instanceof Error ? err.message.slice(0, 200) : "error");
-    }
-    await changeDataConnection(ctx, id, (cur) => (cur.collect?.leaseId === changeLease ? { patch: { collect: { ...cur.collect, leaseId: null, leaseUntil: null, nextAt: at } }, activity: [] } : null), deps.db);
-  }
+  if (r.ok && old) await afterChangeProperty(ctx, id, r.connection, old, changeLease, { by: byOf(actor), now, db: deps.db, searchIndex: deps.searchIndex });
   const after = r.ok && old ? await load(ctx, id, deps) : null;
   return { ok: true, status: 200, value: viewOf(after ?? (r.ok ? r.connection : r.connection), actor, now) };
+}
+
+/**
+ * Change property's change to a record, for a brand's own connection (pickAccount) and a brand's
+ * part (the part change, src/lib/tenant/organisationConnections.ts): take the collect lease, bump
+ * the generation and mark the old one for erasing, in this one change, so the new site's numbers
+ * never share an id with the old site's; a first pick starts collecting on the lane's next run.
+ * Null when it already reads that account or isn't connected; `leased` while a collect run holds it.
+ */
+export function changePropertyPlan(
+  cur: DataConnection,
+  account: string,
+  opts: { now: Date; by: string; leaseId: string; code?: string; label?: string },
+): { kind: "leased" } | { kind: "plan"; plan: NonNullable<ChangePlan>; erase: number[] | null } | null {
+  if (cur.status !== "connected" || cur.account === account) return null;
+  const at = opts.now.toISOString();
+  const c = cur.collect ?? freshCollect();
+  if (cur.account && c.leaseId && c.leaseUntil && Date.parse(c.leaseUntil) > opts.now.getTime()) return { kind: "leased" };
+  const collect = cur.account
+    ? { ...freshCollect(at, c.gen + 1), erasePending: pendingWith(c.erasePending, [c.gen]), leaseId: opts.leaseId, leaseUntil: new Date(opts.now.getTime() + CHANGE_LEASE_MS).toISOString() }
+    : { ...c, nextAt: at };
+  return {
+    kind: "plan",
+    erase: cur.account ? [c.gen] : null,
+    plan: {
+      patch: { account, health: healthAfterSuccess(cur.health, opts.now), collect, ...(opts.label ? { label: opts.label } : {}) },
+      activity: [{ kind: "account_picked", by: opts.by, at, ...(opts.code ? { code: opts.code } : {}) }],
+    },
+  };
+}
+
+/**
+ * After Change property: erase the old generation's numbers (a failure stays pending for the lane),
+ * then let go of the collect lease and start the new 90 days on the lane's next run.
+ */
+export async function afterChangeProperty(
+  ctx: TenantContext,
+  id: string,
+  changed: DataConnection,
+  old: number[],
+  leaseId: string,
+  opts: { by: string; now: Date; db?: FirestoreLike; searchIndex?: SearchIndexOf },
+): Promise<void> {
+  try {
+    await eraseConnectionData(ctx, id, changed.collect?.erasePending ?? old, { by: opts.by, now: opts.now, db: opts.db, searchIndex: opts.searchIndex });
+  } catch (err) {
+    console.warn(`[connectors] erase after Change property failed for ${id}; the lane tries again:`, err instanceof Error ? err.message.slice(0, 200) : "error");
+  }
+  const at = opts.now.toISOString();
+  await changeDataConnection(ctx, id, (cur) => (cur.collect?.leaseId === leaseId ? { patch: { collect: { ...cur.collect, leaseId: null, leaseUntil: null, nextAt: at } }, activity: [] } : null), opts.db);
 }
 
 /** How long Change property holds the collect lease while it erases the old site's numbers. */

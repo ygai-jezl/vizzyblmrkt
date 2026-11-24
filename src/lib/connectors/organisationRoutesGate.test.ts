@@ -60,7 +60,7 @@ describe("organisation routes", () => {
   const files = routeFiles(ROOT);
 
   it("are all found", () => {
-    expect(files.length).toBeGreaterThanOrEqual(5);
+    expect(files.length).toBeGreaterThanOrEqual(7);
   });
 
   it.each(files.map((f) => [relative(ROOT, f), f]))("%s uses the integrations gate and never reads the session itself", (_name, file) => {

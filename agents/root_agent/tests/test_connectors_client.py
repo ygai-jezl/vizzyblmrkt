@@ -332,3 +332,61 @@ def test_the_collected_numbers_docstring_says_how_to_answer_and_guards_outside_t
     sentence = _outside_text_sentence(get_connected_numbers.__doc__ or "")
     for key in _row_keys():
         assert f"`{key}`" in sentence, key
+
+
+# --- get_number_suggestions: what the collected numbers suggest -------------------------------
+
+
+def test_lists_suggestions_with_a_bounded_request_and_never_a_brand(monkeypatch):
+    calls = _capture(monkeypatch, 200, {"suggestions": [], "meanings": {}, "note": "Read only"})
+    out = cc.get_number_suggestions(STATE)
+    assert out["status"] == "success"
+    assert calls[-1]["method"] == "POST"
+    assert calls[-1]["url"] == "https://app.example.com/api/agent/connectors/suggestions"
+    assert calls[-1]["token"] == "tok"
+    assert calls[-1]["payload"] == {"limit": 20}
+    cc.get_number_suggestions(STATE, rule=" Losing_Page ", limit=9999)
+    assert calls[-1]["payload"] == {"limit": 50, "rule": "losing_page"}
+    cc.get_number_suggestions(STATE, limit="lots")
+    assert calls[-1]["payload"] == {"limit": 20}
+    assert "tenantId" not in json.dumps(calls)
+
+
+def test_suggestions_check_the_rule_before_calling(monkeypatch):
+    calls = _capture(monkeypatch)
+    out = cc.get_number_suggestions(STATE, rule="everything")
+    assert out["code"] == "bad_rule" and calls == []
+
+
+def test_suggestions_pass_the_apps_answer_through_and_say_plainly_when_off(monkeypatch):
+    body = {
+        "suggestions": [
+            {
+                "id": "dsg_000000000000000000000001",
+                "rule": "losing_page",
+                "title": "Fewer Google clicks to /care/fiddle-leaf-fig",
+                "lines": ["41 clicks in the 28 days to 20 Nov, down from 96 in the 28 days before."],
+                "numbers": {"searchClicks": 41},
+                "before": {"searchClicks": 96},
+                "where": "review",
+            }
+        ],
+        "meanings": {"searchClicks": {"name": "Search clicks"}},
+        "note": "Read only",
+    }
+    _capture(monkeypatch, 200, body)
+    assert cc.get_number_suggestions(STATE) == {"status": "success", **body}
+    _capture(monkeypatch, 503, {"error": "unavailable"})
+    assert cc.get_number_suggestions(STATE)["message"] == cc._SUGGESTIONS_OFF
+    _capture(monkeypatch, 429, {"error": "rate_limited"})
+    assert cc.get_number_suggestions(STATE)["code"] == "rate_limited"
+    assert cc.get_number_suggestions({})["code"] == "not_connected"
+
+
+def test_the_instruction_sends_people_to_review_to_act_on_a_suggestion():
+    rule = _connected_rule()
+    assert "call `get_number_suggestions`" in rule
+    assert "an admin plans an article or dismisses it in Review, or adds a proposed question on the brand map" in rule
+    assert "never say you planned or dismissed one" in rule
+    assert "—" not in rule and "–" not in rule
+

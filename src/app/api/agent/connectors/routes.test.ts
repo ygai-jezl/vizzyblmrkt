@@ -25,6 +25,7 @@ vi.mock("@/lib/tenant/firestore", async (importOriginal) => ({
 const list = await import("./route");
 const live = await import("./live/route");
 const numbers = await import("./numbers/route");
+const suggestions = await import("./suggestions/route");
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "agent", userId: "usr_admin", role: "admin" };
 const B: TenantContext = { tenantId: "ten_B", region: "us", source: "agent", userId: "usr_b", role: "admin" };
@@ -291,3 +292,76 @@ describe("/api/agent/connectors/numbers", () => {
     expect(CONNECTORS_AGENT_LIMIT.prefix).not.toBe(CONNECTORS_NUMBERS_LIMIT.prefix);
   });
 });
+
+describe("/api/agent/connectors/suggestions", () => {
+  // Open suggestions from collected numbers: made-up sites, pages and searches, read only.
+  const SC = "dcn_ffffffffffffffffffff";
+  const MEMBERS_ONLY = "dcn_gggggggggggggggggggg";
+  const ask = (body?: unknown) =>
+    suggestions.POST(new Request("http://localhost/api/agent/connectors/suggestions", { method: "POST", headers: { "x-canvas-context": "tok", "content-type": "application/json" }, ...(body === undefined ? {} : { body: typeof body === "string" ? body : JSON.stringify(body) }) }));
+
+  beforeEach(async () => {
+    vi.stubEnv("CONNECTORS_COLLECT_ENABLED", "true");
+    vi.stubEnv("CONNECTOR_SIGNALS_ENABLED", "true");
+    const { seedSearchConsole, seedSuggestion } = await import("@/lib/connectors/testing/signals");
+    await seedSearchConsole(A, db, SC);
+    await seedSearchConsole(A, db, MEMBERS_ONLY, { account: "sc-domain:shop.fernhill.example", grants: [{ to: "members", can: "read" }] });
+    await seedSuggestion(A, db, SC, "losing");
+    await seedSuggestion(A, db, SC, "reach");
+    await seedSuggestion(A, db, MEMBERS_ONLY, "rising", { account: "sc-domain:shop.fernhill.example" });
+    await seedSuggestion(B, db, SC, "rising");
+  });
+
+  it("is unavailable while signals are off, whatever Vizzy's other switches say", async () => {
+    vi.stubEnv("CONNECTOR_SIGNALS_ENABLED", "false");
+    expect((await ask()).status).toBe(503);
+    vi.stubEnv("CONNECTOR_SIGNALS_ENABLED", "true");
+    vi.stubEnv("CONNECTORS_COLLECT_ENABLED", "false");
+    expect((await ask()).status).toBe(503);
+    expect(auth.verifyCanvasContext).not.toHaveBeenCalled();
+    // Chat off doesn't stop it: it needs signals, not live reads.
+    vi.stubEnv("CONNECTORS_COLLECT_ENABLED", "true");
+    vi.stubEnv("CONNECTORS_CHAT_ENABLED", "false");
+    expect((await ask()).status).toBe(200);
+  });
+
+  it("lists the token's brand's open suggestions from planning connections, every number with its meaning", async () => {
+    const res = await ask();
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    const body = await res.json();
+    expect(body.suggestions.map((s: { rule: string }) => s.rule).sort()).toEqual(["losing_page", "within_reach"]);
+    const losing = body.suggestions.find((s: { rule: string }) => s.rule === "losing_page");
+    expect(losing).toMatchObject({
+      title: "Fewer Google clicks to /care/fiddle-leaf-fig",
+      lines: ["41 clicks in the 28 days to 20 Nov, down from 96 in the 28 days before."],
+      label: "/care/fiddle-leaf-fig",
+      numbers: { searchClicks: 41 },
+      before: { searchClicks: 96 },
+      where: "review",
+      agentActionId: expect.stringMatching(/^aa_/),
+      connection: { id: SC, connector: "Google Search Console", site: "fernhill.example" },
+    });
+    for (const k of numberKeys(body)) expect(body.meanings[k], k).toEqual(MEANINGS[k as keyof typeof MEANINGS]);
+    expect(body.note).toContain("Read only");
+    expect((await (await ask({ rule: "within_reach", limit: 5 })).json()).suggestions).toHaveLength(1);
+    // A member reads the same: a planning connection lets members read it.
+    auth.verifyCanvasContext.mockReturnValue(claims("member"));
+    expect((await (await ask()).json()).suggestions).toHaveLength(2);
+  });
+
+  it("400s a brand in the body, a bad rule or limit, and a body that isn't JSON", async () => {
+    expect((await ask({ tenantId: "ten_B" })).status).toBe(400);
+    expect((await ask({ rule: "everything" })).status).toBe(400);
+    expect((await ask({ limit: 51 })).status).toBe(400);
+    expect((await ask("not json")).status).toBe(400);
+  });
+
+  it("counts in the collected numbers' own rate limit", async () => {
+    const statuses: number[] = [];
+    for (let i = 0; i < 11; i++) statuses.push((await ask()).status);
+    expect(statuses.slice(0, 10).every((s) => s === 200)).toBe(true);
+    expect(statuses[10]).toBe(429);
+  });
+});
+

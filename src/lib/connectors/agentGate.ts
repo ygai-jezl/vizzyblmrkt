@@ -1,6 +1,6 @@
 import { isRateLimited, type RateLimitConfig, type TenantContext } from "@/lib/tenant";
 import { isCanvasAuthConfigured, tenantContextFromCanvasToken, verifyCanvasContext } from "@/lib/canvas/auth";
-import { isConnectorsChatEnabled, isConnectorsNumbersEnabled } from "./flags";
+import { isConnectorsChatEnabled, isConnectorSignalsEnabled, isConnectorsNumbersEnabled } from "./flags";
 import type { ConnectorActor } from "./grants";
 
 /** What an agent route answers: a status and a JSON body. */
@@ -28,6 +28,9 @@ export interface ConnectorsGateOptions {
 
 /** The numbers route: Vizzy reading connected data and collected numbers both on, its own bucket. */
 export const NUMBERS_GATE: Required<ConnectorsGateOptions> = { enabled: isConnectorsNumbersEnabled, limit: CONNECTORS_NUMBERS_LIMIT };
+
+/** The suggestions route (get_number_suggestions): signals on instead of chat, sharing the numbers bucket. */
+export const SUGGESTIONS_GATE: Required<ConnectorsGateOptions> = { enabled: isConnectorSignalsEnabled, limit: CONNECTORS_NUMBERS_LIMIT };
 
 /**
  * For /api/agent/connectors/*, copied from resultsAgentGate (src/lib/metrics/agentGate.ts): the

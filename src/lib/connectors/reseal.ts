@@ -1,6 +1,7 @@
-import { changeDataConnection, forTenant, type TenantContext } from "@/lib/tenant";
+import { changeOrganisationConnection, changeDataConnection, forTenant, listRegionOrganisationConnections, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { DataConnection } from "@/lib/types/dataConnection";
+import type { Region } from "@/lib/types/tenant";
 import { currentVaultKeyId, previousVaultKeyId, resealConnectorSecret, type SealedSecret } from "./vault";
 
 /**
@@ -17,6 +18,11 @@ import { currentVaultKeyId, previousVaultKeyId, resealConnectorSecret, type Seal
  *   may CONNECTORS_VAULT_KEY_PREVIOUS be removed.
  *
  * Reports name connections, slots and key ids, never a secret.
+ *
+ * Organisation connections (Connectors 3, ADR-0014) keep their sealed secrets in the region each was
+ * connected from, bound to the organisation: resealOrganisationRegion covers one region, and the
+ * script runs it for every provisioned region after the brands, so a "zero left" dry run is true for
+ * them too before CONNECTORS_VAULT_KEY_PREVIOUS is removed.
  */
 
 export interface Unopenable {
@@ -38,7 +44,7 @@ export interface BrandResealReport {
 }
 
 /** The slots of a connection that are not on the current root. */
-function offCurrentSlots(conn: DataConnection, current: string | null): Array<[string, SealedSecret]> {
+function offCurrentSlots(conn: Pick<DataConnection, "secrets">, current: string | null): Array<[string, SealedSecret]> {
   return Object.entries(conn.secrets).filter(([, s]) => s.encKeyId !== current);
 }
 
@@ -86,6 +92,59 @@ export async function resealBrand(ctx: TenantContext, opts: { apply: boolean; db
         return found.resealed ? { patch: { secrets }, activity: [] } : null;
       },
       opts.db,
+    );
+    report.resealed += found.resealed;
+    report.unopenable.push(...found.unopenable);
+  }
+  return report;
+}
+
+/**
+ * Count, check and (with apply) reseal the sealed secrets of every organisation connection kept in
+ * one region, each bound to its organisation. `tenantId` on the report names the region
+ * (`organisations:<region>`), for the script's lines.
+ */
+export async function resealOrganisationRegion(region: Region, opts: { apply: boolean; db?: FirestoreLike; now?: Date }): Promise<BrandResealReport> {
+  const current = currentVaultKeyId();
+  if (opts.apply && !current) throw new Error("connectors_vault_key_unconfigured");
+  const now = opts.now ?? new Date();
+  const stores = opts.db ? { regionDb: () => opts.db! } : {};
+  const conns = await listRegionOrganisationConnections(region, {}, stores);
+  const report: BrandResealReport = { tenantId: `organisations:${region}`, connections: conns.length, secrets: 0, byKeyId: {}, offCurrent: 0, resealed: 0, unopenable: [] };
+  for (const conn of conns) {
+    for (const s of Object.values(conn.secrets)) {
+      report.secrets += 1;
+      report.byKeyId[s.encKeyId] = (report.byKeyId[s.encKeyId] ?? 0) + 1;
+    }
+    const off = offCurrentSlots(conn, current);
+    report.offCurrent += off.length;
+    if (!off.length) continue;
+    if (!opts.apply) {
+      for (const [slot, sealed] of off) {
+        const r = resealConnectorSecret(conn.organisationId, conn.id, slot, sealed, now);
+        if (!r.ok) report.unopenable.push({ connectionId: conn.id, slot, why: r.why });
+      }
+      continue;
+    }
+    let found: { resealed: number; unopenable: Unopenable[] } = { resealed: 0, unopenable: [] };
+    await changeOrganisationConnection(
+      conn.organisationId,
+      conn.id,
+      region,
+      (fresh) => {
+        found = { resealed: 0, unopenable: [] };
+        const secrets = { ...fresh.secrets };
+        for (const [slot, sealed] of offCurrentSlots(fresh, current)) {
+          const r = resealConnectorSecret(fresh.organisationId, fresh.id, slot, sealed, now);
+          if (!r.ok) found.unopenable.push({ connectionId: fresh.id, slot, why: r.why });
+          else if (r.changed) {
+            secrets[slot] = r.sealed;
+            found.resealed += 1;
+          }
+        }
+        return found.resealed ? { patch: { secrets }, activity: [] } : null;
+      },
+      stores,
     );
     report.resealed += found.resealed;
     report.unopenable.push(...found.unopenable);

@@ -102,6 +102,17 @@ export async function getOrganisation(id: string, db: FirestoreLike = defaultDb(
   return organisationOf(await db.collection(ORGANISATIONS).doc(id).get());
 }
 
+/**
+ * Whether an organisation exists and the brands it lists, read as stored (whether or not the rest of
+ * it parses): housekeeping's evidence that an organisation is gone or has no brands left, so its
+ * connections are disconnected (Connectors 3). A read error throws, so nothing is decided on it.
+ */
+export async function organisationMembership(id: string, db: FirestoreLike = defaultDb()): Promise<{ exists: boolean; brandIds: string[] }> {
+  if (!id) return { exists: false, brandIds: [] };
+  const snap = await db.collection(ORGANISATIONS).doc(id).get();
+  return snap.exists ? { exists: true, brandIds: idsOf(snap.data()?.brandIds) } : { exists: false, brandIds: [] };
+}
+
 /** Every organisation that parses (for the backfill's --check and --replan). */
 export async function listOrganisations(db: FirestoreLike = defaultDb()): Promise<Organisation[]> {
   const snap = await db.collection(ORGANISATIONS).get();

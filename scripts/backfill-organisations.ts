@@ -220,8 +220,15 @@ async function main() {
   if (blocked) refuse(TOOL, blocked);
 
   const results: Record<string, string[]> = { created: [], exists: [], conflict: [], missing_brand: [], failed: [] };
+  const { clearOrganisationIdForReuse } = await import("@/lib/connectors/organisation");
   for (const brand of open) {
     try {
+      // An empty org_<id> taken up again never carries a sign in (Connectors 3): its connections go first.
+      const reused = rows.find((r) => r.id === brand.id)?.action === "reuse";
+      if (reused) {
+        const cleared = await clearOrganisationIdForReuse(tenantLib.organisationIdFor(brand.id), actor!);
+        if (cleared) console.log(`  ${brand.id}: ${count(cleared, "connection")} left on ${tenantLib.organisationIdFor(brand.id)} disconnected first`);
+      }
       const res = await tenantLib.ensureBrandOrganisation(brand.id, { plan, createdBy: "backfill", actor: actor! });
       results[res.status]!.push(brand.id);
     } catch (err) {

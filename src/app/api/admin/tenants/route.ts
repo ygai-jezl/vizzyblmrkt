@@ -6,9 +6,12 @@ import {
   createTenant,
   addTenantMember,
   ensureBrandOrganisation,
+  getOrganisation,
   getTenantById,
+  organisationIdFor,
   TenantIsolationError,
 } from "@/lib/tenant";
+import { clearOrganisationIdForReuse } from "@/lib/connectors/organisation";
 import { isPlansEnabled, newOrganisationPlan } from "@/lib/plans/flags";
 import { Region } from "@/lib/types/tenant";
 import { normalizeDomain, slugifyTenantId } from "@/lib/tenant/tenantId";
@@ -131,6 +134,9 @@ export async function POST(req: Request) {
  */
 async function startOrganisation(tenantId: string, userId: string): Promise<void> {
   try {
+    // An empty org_<id> taken up again never carries a sign in (Connectors 3): its connections go first.
+    const own = await getOrganisation(organisationIdFor(tenantId));
+    if (own && own.brandIds.length === 0) await clearOrganisationIdForReuse(own.id, userId);
     const res = await ensureBrandOrganisation(tenantId, {
       plan: newOrganisationPlan(),
       createdBy: userId,

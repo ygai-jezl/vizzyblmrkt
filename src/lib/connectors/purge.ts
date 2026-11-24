@@ -1,5 +1,23 @@
 import { sourceKeyOf } from "@/lib/search/types";
-import { changeDataConnection, countDataConnectionActivity, forTenant, OPERATOR_LABEL, purgeDataConnection, type PurgeCounts, type TenantContext } from "@/lib/tenant";
+import {
+  changeDataConnection,
+  countDataConnectionActivity,
+  countOrganisationConnectionActivity,
+  endPart,
+  forTenant,
+  listOrganisationConnections,
+  listRegionOrganisationConnections,
+  OPERATOR_LABEL,
+  provisionedRegions,
+  purgeDataConnection,
+  purgeOrganisationConnection,
+  type OrganisationPurgeCounts,
+  type OrganisationStores,
+  type PurgeCounts,
+  type TenantContext,
+} from "@/lib/tenant";
+import type { Region } from "@/lib/types/tenant";
+import type { OrganisationConnection } from "@/lib/types/organisationConnection";
 import { searchStoreFor } from "@/lib/tenant/searchIndex";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { freshCollect, type DataConnection } from "@/lib/types/dataConnection";
@@ -11,7 +29,9 @@ import { searchConsoleManifest } from "./manifests/searchConsole";
 import { deleteConnectionAddress } from "./service";
 import { countSignals } from "./signals/store";
 import { countSnapshots } from "./snapshots";
-import { brandTag, copyTag, deleteShareAccount, identitiesProject, listShareAccounts, type ShareDeps } from "./shareAccess";
+import { brandTag, copyTag, deleteShareAccount, identitiesProject, listShareAccounts, orgTag, type ShareDeps } from "./shareAccess";
+import { disconnectOrganisationConnection } from "./organisation";
+import { storesOf } from "./sources";
 import { REFRESH_SLOT } from "./tokenKeeper";
 import { openConnectorSecret, VaultOpenError } from "./vault";
 
@@ -37,6 +57,16 @@ import { openConnectorSecret, VaultOpenError } from "./vault";
  *
  * Turning CONNECTORS_ENABLED off is the rollback; this is how the data goes. The dry run counts
  * and writes nothing.
+ *
+ * Shared connections (Connectors 3, ADR-0014): a brand's part keeps no secret and no address, so
+ * its purge revokes and deletes nothing at Google; it also ends the part on its organisation's
+ * record, in whatever region that is kept. An organisation's address is tagged for the
+ * organisation, never for a brand, so a brand's leftover search never sees it. The organisation
+ * purge (purgeOrganisations, `--organisation <orgId|all>`) covers organisation connections in
+ * every provisioned region: each is disconnected (its brands' parts ended and erased in their own
+ * regions, its address deleted, a sign in revoked only with the switch), its activity and secrets
+ * removed, and the organisation's leftover addresses deleted. It runs whatever any switch says, so
+ * a revert or a switch turned off never strands a sign in.
  */
 
 export interface PurgeItem {
@@ -160,7 +190,7 @@ async function findOrphans(
 /** Count, and with apply remove, one brand's connection data and its leftover Google addresses. */
 export async function purgeConnections(
   ctx: TenantContext,
-  opts: { connectionId?: string; apply: boolean; by?: string; now?: Date; db?: FirestoreLike; addressesOnly?: boolean; searchIndex?: SearchIndexOf } & Pick<
+  opts: { connectionId?: string; apply: boolean; by?: string; now?: Date; db?: FirestoreLike; regionDb?: (region: Region) => FirestoreLike; addressesOnly?: boolean; searchIndex?: SearchIndexOf } & Pick<
     GoogleDeps,
     "transport" | "log"
   > &
@@ -211,7 +241,11 @@ export async function purgeConnections(
       report.removed.push({ connectionId: c.id, found: true, activityDeleted: 0, secretsDeleted: 0, recentDeleted: 0, revoked: false, addressDeleted: deleted, snapshotsDeleted: 0, signalsDeleted: 0, suggestionsDeclined: 0, questionsWithdrawn: 0, searchRemoved: null });
       continue;
     }
-    const signIn = toRevoke(ctx, c);
+    const signIn = c.source ? null : toRevoke(ctx, c);
+    // A part ends on its organisation's record too, wherever that is kept (never revoking anything).
+    if (c.source && c.status === "connected") {
+      await endPart({ source: c.source, brand: { tenantId: ctx.tenantId, region: ctx.region }, useId: c.id, by, at, code: "part_ended", evenIfSourceFails: true }, storesOf(opts)).catch(() => null);
+    }
     // Stopped first, in one change: marked disconnected with everything it collected pending, so a
     // collect run, a look for suggestions or a search sweep that starts now writes nothing, and one
     // already going marks what it wrote for the lane to erase (Disconnect's order).
@@ -261,5 +295,150 @@ export function purgeLines(r: PurgeReport): string[] {
     lines.push(`${r.tenantId}: leftover Google address ${o.email} (for ${o.connectionId}): ${what}`);
   }
   if (r.shareSkipped) lines.push(`${r.tenantId}: ${r.shareSkipped}`);
+  return lines;
+}
+
+
+// --- Organisations (Connectors 3) -----------------------------------------------------------------
+
+export interface OrganisationPurgeItem {
+  organisationId: string;
+  connectionId: string;
+  region: Region;
+  connectorId: string;
+  status: string;
+  secrets: number;
+  recent: number;
+  activity: number;
+  /** Parts given out, and how many still to end. */
+  parts: number;
+  address: "kept" | "deleted" | "none";
+}
+
+export interface OrganisationPurgeReport {
+  /** An organisation id, or "all". */
+  target: string;
+  apply: boolean;
+  items: OrganisationPurgeItem[];
+  removed: Array<{ connectionId: string; ended: number; revoked: boolean; addressDeleted: boolean | null } & OrganisationPurgeCounts>;
+  /** Organisation addresses in the identities project that no organisation connection owns; deleted is null in a dry run. */
+  orphans: Array<{ email: string; connectionId: string; deleted: boolean | null }>;
+  shareSkipped: string | null;
+}
+
+export interface OrganisationPurgeOptions extends Pick<GoogleDeps, "transport" | "log">, Pick<ShareDeps, "appToken" | "sleep"> {
+  apply: boolean;
+  by?: string;
+  now?: Date;
+  /** Each region's database (tests); unset, the region's own. */
+  regionDb?: (region: Region) => FirestoreLike;
+  /** The control database (tests). */
+  controlDb?: FirestoreLike;
+  searchIndex?: SearchIndexOf;
+}
+
+const orgKept = (c: OrganisationConnection) => (c.serviceAccount ? (c.serviceAccount.deletedAt ? "deleted" : "kept") : "none");
+
+/**
+ * The organisation purge: every connection of one organisation (or of every organisation, "all"),
+ * in every provisioned region, whatever any switch says. The dry run counts and writes nothing.
+ * With apply, each is disconnected (its brands' parts ended and erased in their own regions, its
+ * address deleted, a Google sign in revoked only with CONNECTOR_GOOGLE_REVOKE_ENABLED), then its
+ * activity, secrets and parts removed, with one "purged" row left. Then the organisation's
+ * addresses in the identities project that no organisation connection owns, on this copy, are
+ * deleted. A region that can't be read throws: "nothing left" is never said on a region's silence.
+ */
+export async function purgeOrganisations(target: string, opts: OrganisationPurgeOptions): Promise<OrganisationPurgeReport> {
+  const by = opts.apply ? purgeActor(opts.by) : "";
+  const stores: OrganisationStores = opts.regionDb ? { regionDb: opts.regionDb } : {};
+  const share: ShareDeps = { transport: opts.transport, log: opts.log, appToken: opts.appToken, sleep: opts.sleep, now: opts.now };
+  const conns: OrganisationConnection[] = [];
+  if (target === "all") {
+    for (const region of provisionedRegions()) conns.push(...(await listRegionOrganisationConnections(region, {}, stores)));
+  } else {
+    if (!target.startsWith("org_")) throw new Error("--organisation takes an organisation id (org_...) or all");
+    conns.push(...(await listOrganisationConnections(target, {}, stores)));
+  }
+  conns.sort((a, b) => a.id.localeCompare(b.id));
+  const report: OrganisationPurgeReport = { target, apply: opts.apply, items: [], removed: [], orphans: [], shareSkipped: null };
+  for (const c of conns) {
+    report.items.push({
+      organisationId: c.organisationId,
+      connectionId: c.id,
+      region: c.region,
+      connectorId: c.connectorId,
+      status: c.status,
+      secrets: Object.keys(c.secrets).length,
+      recent: c.recent.length,
+      activity: await countOrganisationConnectionActivity(c.organisationId, c.id, c.region, stores),
+      parts: c.parts.length,
+      address: orgKept(c),
+    });
+  }
+
+  // Leftover organisation addresses: tagged for this copy (and this organisation), owned by no record.
+  const project = identitiesProject();
+  let orphans: Array<{ email: string; uniqueId: string; connectionId: string }> = [];
+  if (!project) report.shareSkipped = "CONNECTORS_IDENTITIES_PROJECT is not set, so no Google address was looked for";
+  else {
+    const listed = await listShareAccounts(project, share);
+    if (!listed.ok) report.shareSkipped = `listing the identities project failed (${listed.code})`;
+    else {
+      const copy = copyTag();
+      const tag = target === "all" ? null : orgTag(target);
+      // Every organisation's connections in every region, so one region's records never see another's live addresses as orphans.
+      const owners = target === "all" ? conns : await allOrganisationConnections(stores);
+      for (const a of listed.accounts) {
+        const o = a.orgOwner;
+        if (!o || o.copy !== copy || (tag && o.org !== tag)) continue;
+        const owner = owners.find((c) => c.id === o.connectionId);
+        const owns = owner?.serviceAccount && owner.serviceAccount.uniqueId === a.uniqueId && !owner.serviceAccount.deletedAt && owner.status === "connected";
+        if (!owns) orphans.push({ email: a.email, uniqueId: a.uniqueId, connectionId: o.connectionId });
+      }
+      // With apply, the connections purged below delete their own addresses; the rest are leftovers.
+      if (opts.apply) orphans = orphans.filter((x) => !conns.some((c) => c.id === x.connectionId && c.serviceAccount?.uniqueId === x.uniqueId && !c.serviceAccount.deletedAt));
+      report.orphans = orphans.map((x) => ({ email: x.email, connectionId: x.connectionId, deleted: null }));
+    }
+  }
+  if (!opts.apply) return report;
+
+  const at = (opts.now ?? new Date()).toISOString();
+  for (const c of conns) {
+    const ref = { organisationId: c.organisationId, connectionId: c.id, region: c.region };
+    const off = await disconnectOrganisationConnection(ref, by, { regionDb: opts.regionDb, controlDb: opts.controlDb, now: opts.now, searchIndex: opts.searchIndex, ...share });
+    const counts = await purgeOrganisationConnection(c.organisationId, c.id, c.region, by, at, stores);
+    report.removed.push({ connectionId: c.id, ended: off.ended, revoked: off.revoked, addressDeleted: off.addressDeleted, ...counts });
+  }
+  if (project && orphans.length) {
+    report.orphans = [];
+    for (const o of orphans) {
+      const r = await deleteShareAccount(project, o.uniqueId, share);
+      report.orphans.push({ email: o.email, connectionId: o.connectionId, deleted: r.ok });
+    }
+  }
+  return report;
+}
+
+async function allOrganisationConnections(stores: OrganisationStores): Promise<OrganisationConnection[]> {
+  const out: OrganisationConnection[] = [];
+  for (const region of provisionedRegions()) out.push(...(await listRegionOrganisationConnections(region, {}, stores)));
+  return out;
+}
+
+/** The lines the script prints for the organisation purge: ids, regions and counts, never a secret. */
+export function organisationPurgeLines(r: OrganisationPurgeReport): string[] {
+  const lines: string[] = [];
+  for (const i of r.items) {
+    lines.push(`${i.organisationId}: ${i.connectionId} (${i.connectorId}, kept in ${i.region}, ${i.status}): ${i.secrets} secrets, ${i.recent} recent, ${i.activity} activity rows, ${i.parts} parts given${ADDRESS_WORDS[i.address]}`);
+  }
+  for (const x of r.removed) {
+    const address = x.addressDeleted === null ? "" : x.addressDeleted ? ", Google address deleted" : ", Google address NOT deleted (recorded as cleanup_failed; run again)";
+    lines.push(`${x.connectionId} purged: ${x.ended} brands' parts ended and erased, ${x.secretsDeleted} secrets, ${x.recentDeleted} recent, ${x.activityDeleted} activity rows removed${x.revoked ? ", sign in revoked at Google" : ""}${address}`);
+  }
+  for (const o of r.orphans) {
+    const what = o.deleted === null ? "no organisation connection owns it" : o.deleted ? "deleted" : "NOT deleted; run again";
+    lines.push(`leftover organisation Google address ${o.email} (for ${o.connectionId}): ${what}`);
+  }
+  if (r.shareSkipped) lines.push(r.shareSkipped);
   return lines;
 }

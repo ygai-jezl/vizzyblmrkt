@@ -22,6 +22,12 @@
  * After combining, add the people who should see the combined totals with scripts/set-plan.ts
  * --organisation <orgId> --add-owner <uid>.
  *
+ * Shared connections (Connectors 3, ADR-0014), whatever any switch says: after a move, the brand's
+ * parts from the organisation it left end, and what was collected through them is erased; when the
+ * move leaves that organisation with no brands, every connection it holds is disconnected, in every
+ * region. An empty org_<tenantId> taken up again (--to new) has its connections disconnected first,
+ * so it never carries a sign in. The dry run says how many would be.
+ *
  * Export the deployment's own GRANTED_ONLY_FEATURES and FEATURE_MONTHLY_LIMITS first: the dry run
  * reads them from this shell, and prints what it read.
  *
@@ -54,6 +60,7 @@ async function main() {
   const { accessChangeLines, accessChanges, guardChanges, previewSettingsLines } = await import("@/lib/plans/preview");
   const { allowanceLimit, planById } = await import("@/lib/plans/catalog");
   const { PLAN_IDS, PlanIdSchema } = await import("@/lib/types/organisation");
+  const orgConnections = await import("@/lib/connectors/organisation");
 
   printHeader(TOOL, where, previewSettingsLines());
 
@@ -74,6 +81,23 @@ async function main() {
     `${o.id} "${o.name}" (${planById(o.plan)?.name ?? o.plan}, ${count(o.brandIds.length, "brand")})`;
   say(`Brand ${tenantId} "${brand.tenantName}" is in ${from ? orgText(from) : brand.organisationId ? `${brand.organisationId}, which is missing or doesn't read` : "no organisation (open, no plan)"}.`);
 
+  // What the move ends: the brand's parts from the organisation it leaves, and that organisation's
+  // connections when it is left with no brands.
+  const brandRef = { tenantId: brand.id, region: brand.region };
+  const leaving = async () => {
+    if (!from) return;
+    const parts = (await tenantLib.forTenant({ ...brandRef, source: "system" }).dataConnections.find({ where: [["status", "==", "connected"]], limit: 200 })).filter((c) => c.source?.organisationId === from.id).length;
+    const left = from.brandIds.filter((id) => id !== tenantId).length;
+    const held = left ? 0 : (await tenantLib.listOrganisationConnections(from.id)).filter((c) => c.status === "connected").length;
+    say(`Its ${count(parts, "part")} from ${from.id} would end, and what was collected through them be erased.${left ? "" : ` ${from.id} would have no brands left, so its ${count(held, "connection")} would be disconnected in every region.`}`);
+  };
+  const afterMove = async () => {
+    if (!from) return;
+    const ended = await orgConnections.endBrandParts(brandRef, { fromOrganisationId: from.id, by: actor! });
+    const off = await orgConnections.disconnectEmptiedOrganisation(from.id, actor!);
+    say(`${count(ended, "part")} from ${from.id} ended${off ? `; ${count(off, "connection")} of ${from.id}, left with no brands, disconnected` : ""}.`);
+  };
+
   const showChanges = (nextPlan: Parameters<typeof accessChanges>[1]) => {
     const changes = accessChanges(brand, nextPlan);
     const lines = accessChangeLines(changes);
@@ -93,6 +117,10 @@ async function main() {
     say(`Would move it to a new organisation of its own, ${targetId}, on ${planById(plan)!.name}.`);
     const changes = showChanges(plan);
     if (from) say(`${from.id} is kept, with ${count(from.brandIds.filter((id) => id !== tenantId).length, "brand")}.`);
+    await leaving();
+    const reusedId = own && own.brandIds.length === 0 ? own.id : null;
+    const carried = reusedId ? (await tenantLib.listOrganisationConnections(reusedId)).filter((c) => c.status === "connected").length : 0;
+    if (carried) say(`${reusedId} still holds ${count(carried, "connection")}: they would be disconnected first, so the brand never takes up a sign in.`);
     const blocked = guardChanges([changes], ALLOW);
     if (!APPLY) {
       if (blocked) say(`--apply would be refused: ${blocked}`);
@@ -100,9 +128,11 @@ async function main() {
       return;
     }
     if (blocked) refuse(TOOL, blocked);
+    if (reusedId) await orgConnections.clearOrganisationIdForReuse(reusedId, actor!);
     const res = await tenantLib.moveBrandToNewOrganisation(tenantId, { plan, actor: actor! });
     if (!res) refuse(TOOL, `${tenantId} went missing.`);
     say(res.moved ? `done: ${tenantId} is in ${res.organisationId} on ${planById(plan)!.name}.` : `${tenantId} is on its own in ${res.organisationId} already; nothing changed.`);
+    if (res.moved) await afterMove();
     return;
   }
 
@@ -121,6 +151,7 @@ async function main() {
   const changes = showChanges(target.plan);
   say(`${count(target.ownerIds.length, "owner")} of ${target.id} would see this brand's figures on Plan and usage.`);
   if (from) say(`${from.id} is kept, with ${count(from.brandIds.filter((id) => id !== tenantId).length, "brand")}.`);
+  if (from && from.id !== target.id) await leaving();
   if (full) say(`${target.id} is at its brands allowance on ${targetPlan.name}. Change its plan first with scripts/set-plan.ts --organisation ${target.id} --plan <plan>.`);
   const blocked = guardChanges([changes], ALLOW);
   if (!APPLY) {
@@ -135,6 +166,7 @@ async function main() {
   if (res === "full") refuse(TOOL, `${target.id} filled up meanwhile: nothing changed.`);
   if (res === "missing") refuse(TOOL, "The brand or the organisation went missing: nothing changed.");
   say(res === "already" ? `${tenantId} is in ${target.id} already; nothing changed.` : `done: ${tenantId} is in ${target.id} on ${targetPlan.name}.`);
+  if (res === "moved" && from && from.id !== target.id) await afterMove();
 }
 
 main().catch((err) => {

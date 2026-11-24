@@ -326,8 +326,10 @@ An organisation's own link to an outside source of numbers (Connectors 3, ADR-00
 - Links: `organisation` through organisationId; `data_connection` through parts[].useId, each brand record pointing back with source (many); `brand` through parts[].tenantId, and connectedFromTenantId (many); `member` through createdBy, signerUid, givenBy and endedBy, and by on each activity row (many); `connector_manifest` through connectorId
 - States: `connected`, `disconnected`
 - Erase:
-  - `disconnectOrganisationConnectionRecord` in `src/lib/tenant/organisationConnections.ts`, on removing the record (Disconnect at the organisation empties the sealed secrets and ends every part; the record stays, marked disconnected)
-  - `purgeOrganisationConnection` in `src/lib/tenant/organisationConnections.ts`, on removing the record (the organisation purge removes the secrets, the recent list, the parts and the activity, whatever any switch says)
+  - `disconnectOrganisationConnection` in `src/lib/connectors/organisation.ts`, on removing the record (Disconnect at the organisation empties the sealed secrets, ends every brand's part and erases what it collected in that brand's region, and deletes its Google address; the record stays, marked disconnected)
+  - `purgeOrganisations` in `src/lib/connectors/purge.ts`, on removing the record (the organisation purge (`connectors-purge --organisation <orgId|all>`) removes the secrets, the recent list, the parts, the activity and leftover addresses in every region, whatever any switch says)
+  - `purgeOrganisationConnection` in `src/lib/tenant/organisationConnections.ts`, on removing the record (the purge's last step for one record)
+  - `sweepOrganisationConnections` in `src/lib/connectors/organisation.ts`, on retention (the lane disconnects the connections of an organisation that is gone or has no brands left, and every move or reused organisation id does too)
   - `ORGANISATION_CONNECTION_ACTIVITY` in `src/lib/tenant/organisationConnections.ts`, on retention (activity rows go 90 days on, through the TTL on ttlAt)
   - Gap: an owner's user id in createdBy, signerUid, givenBy and by stays after they stop being an owner, as settings history does
 - Export: none. A sealed secret and the parts it serves, never exported.

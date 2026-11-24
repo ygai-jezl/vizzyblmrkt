@@ -10,6 +10,8 @@ import { searchConsoleManifest } from "../manifests/searchConsole";
 import { todayIn } from "../period";
 import { detectConnection, type DetectResult } from "../signals/detect";
 import { expireConnectorSignals, reconcileProposals } from "../signals/reconcile";
+import { partHousekeeping, sweepOrganisationConnections } from "../organisation";
+import { PartCache, partLive } from "../sources";
 import { collectConnection, collectOf, isDue, MIN_START_MS, type CollectRunDeps, type CollectRunResult } from "./run";
 
 /**
@@ -30,6 +32,15 @@ import { collectConnection, collectOf, isDue, MIN_START_MS, type CollectRunDeps,
  *   planning and rolled a new day today, looked at once that day (src/lib/connectors/signals/detect.ts),
  *   with no look started under 12 seconds before the budget ends.
  * Each run logs how far behind it is: the oldest nextAt among the due connections it saw.
+ *
+ * Shared connections (Connectors 3, ADR-0014), whenever CONNECTORS_ENABLED is on, whatever sharing
+ * or plans say: first a sweep of every region's connected organisation connections (those of an
+ * organisation gone or with no brands are disconnected; half done gives, changes and take backs are
+ * repaired on positive evidence), then for each brand its parts' housekeeping (a part ends only on
+ * positive evidence; a disconnected part's stale entry is dropped). A brand's part is collected and
+ * looked at for suggestions only while partLive honours it and its organisation's connection isn't
+ * holding collection; otherwise it is skipped quietly, with no failure, so Review never asks a brand
+ * admin to reconnect it. The reads behind partLive are kept for the run.
  */
 
 export const LANE = {
@@ -51,7 +62,13 @@ export interface LaneDeps extends CollectRunDeps {
   /** Collect one connection (tests stub it). */
   collect?: typeof collectConnection;
   /** The housekeeping for one brand's connections (erase retries), run whatever collect says. */
-  housekeeping?: (ctx: TenantContext, connections: DataConnection[], deps: { db?: LaneDeps["db"]; now?: Date; searchIndex?: SearchIndexOf }) => Promise<{ erased: number; expired?: number }>;
+  housekeeping?: (
+    ctx: TenantContext,
+    connections: DataConnection[],
+    deps: { db?: LaneDeps["db"]; now?: Date; searchIndex?: SearchIndexOf; regionDb?: LaneDeps["regionDb"]; controlDb?: LaneDeps["controlDb"]; partCache?: PartCache },
+  ) => Promise<{ erased: number; expired?: number; partsEnded?: number }>;
+  /** The sweep of organisation connections (tests stub it). */
+  sweep?: typeof sweepOrganisationConnections;
   /** Look at one connection for suggestions (tests stub it). */
   detect?: (ctx: TenantContext, conn: DataConnection, others: readonly DataConnection[], deps: { db?: LaneDeps["db"]; now?: Date }) => Promise<DetectResult>;
   /** The brand's search index for erases (tests pass an in-memory one). */
@@ -62,6 +79,11 @@ export interface LaneDeps extends CollectRunDeps {
 export interface LaneResult {
   /** Brands looked at. */
   brands: number;
+  /** Organisation connections disconnected by the sweep, and parts it repaired. */
+  swept?: number;
+  repaired?: number;
+  /** Parts ended by housekeeping on positive evidence. */
+  partsEnded?: number;
   /** Connections collected (a run that landed days or found none new). */
   connections: number;
   days: number;
@@ -85,29 +107,43 @@ export async function runConnectorsLane(opts: { deadlineMs: number }, deps: Lane
   const offset = tenants.length ? Math.floor(clock() / (LANE.TICK_MS * LANE.EVERY)) % tenants.length : 0;
   const order = [...tenants.slice(offset), ...tenants.slice(0, offset)];
   let oldestDue: number | null = null;
+  // One cache of the reads behind partLive for the whole run.
+  const partCache = new PartCache();
+  try {
+    const swept = await (deps.sweep ?? sweepOrganisationConnections)({ deadlineMs: opts.deadlineMs, clock, minLeftMs: MIN_START_MS }, { ...deps, now: new Date(clock()) });
+    result.swept = swept.disconnected;
+    result.repaired = swept.repaired;
+  } catch (err) {
+    console.warn("[connectors] the organisation connections sweep failed:", err instanceof Error ? err.message.slice(0, 200) : "error");
+  }
   for (const t of order) {
     if (opts.deadlineMs - clock() < MIN_START_MS) break;
     const ctx: TenantContext = { tenantId: t.id, region: t.region, source: "system" };
+    // The brand's own region's database (tests pass one per region; production reads the region's own).
+    const brand: LaneDeps = { ...deps, db: deps.regionDb?.(t.region) ?? deps.db };
     try {
-      const conns = await forTenant(ctx, deps.db).dataConnections.find({ limit: LANE.CONNECTIONS_PER_BRAND });
+      const conns = await forTenant(ctx, brand.db).dataConnections.find({ limit: LANE.CONNECTIONS_PER_BRAND });
       result.brands += 1;
-      const kept = await (deps.housekeeping ?? laneHousekeeping)(ctx, conns, { db: deps.db, now: new Date(clock()), searchIndex: deps.searchIndex });
+      const kept = await (deps.housekeeping ?? laneHousekeeping)(ctx, conns, { db: brand.db, now: new Date(clock()), searchIndex: deps.searchIndex, regionDb: deps.regionDb, controlDb: deps.controlDb, partCache });
       result.erased += kept.erased;
       result.expired += kept.expired ?? 0;
+      result.partsEnded = (result.partsEnded ?? 0) + (kept.partsEnded ?? 0);
       if (!collecting) continue;
       const now = new Date(clock());
       for (const c of conns) {
         if (!isDue(c, now)) continue;
+        // A part's collect reads its source afresh: a hold another part set this run must stop it.
+        if (c.source && !(await collectablePart(ctx, c, now, { ...brand, partCache }))) continue;
         const nextAt = collectOf(c).nextAt;
         const dueAt = nextAt ? Date.parse(nextAt) : now.getTime();
         if (oldestDue === null || dueAt < oldestDue) oldestDue = dueAt;
         if (opts.deadlineMs - clock() < MIN_START_MS) break;
-        const r: CollectRunResult = await (deps.collect ?? collectConnection)(ctx, c.id, { deadlineMs: opts.deadlineMs }, { ...deps, clock });
+        const r: CollectRunResult = await (deps.collect ?? collectConnection)(ctx, c.id, { deadlineMs: opts.deadlineMs }, { ...brand, clock });
         if (r.status === "collected" || r.status === "nothing") result.connections += 1;
         if (r.status === "failed") result.failed += 1;
         result.days += r.days;
       }
-      if (suggesting) result.detected += await detectBrand(ctx, conns, opts.deadlineMs, { ...deps, clock });
+      if (suggesting) result.detected += await detectBrand(ctx, conns, opts.deadlineMs, { ...brand, clock, partCache });
     } catch (err) {
       result.failed += 1;
       console.warn(`[connectors] lane failed for ${t.id}:`, err instanceof Error ? err.message.slice(0, 200) : "error");
@@ -130,8 +166,15 @@ export async function runConnectorsLane(opts: { deadlineMs: number }, deps: Lane
 export async function laneHousekeeping(
   ctx: TenantContext,
   connections: DataConnection[],
-  deps: { db?: LaneDeps["db"]; now?: Date; searchIndex?: SearchIndexOf } = {},
-): Promise<{ erased: number; expired: number }> {
+  deps: { db?: LaneDeps["db"]; now?: Date; searchIndex?: SearchIndexOf; regionDb?: LaneDeps["regionDb"]; controlDb?: LaneDeps["controlDb"]; partCache?: PartCache } = {},
+): Promise<{ erased: number; expired: number; partsEnded: number }> {
+  // Parts first, whatever sharing or plans say: one ended now is erased here, and a stale entry dropped.
+  let partsEnded = 0;
+  try {
+    partsEnded = (await partHousekeeping(ctx, connections, deps)).ended;
+  } catch (err) {
+    console.warn(`[connectors] part housekeeping for ${ctx.tenantId} failed:`, err instanceof Error ? err.message.slice(0, 200) : "error");
+  }
   const { erased } = await retryPendingErases(ctx, connections, deps);
   let expired = 0;
   const searchConsole = connections.filter((c) => c.connectorId === searchConsoleManifest.id);
@@ -145,7 +188,19 @@ export async function laneHousekeeping(
       console.warn(`[connectors] expiring suggestions for ${ctx.tenantId} failed:`, err instanceof Error ? err.message.slice(0, 200) : "error");
     }
   }
-  return { erased, expired };
+  return { erased, expired, partsEnded };
+}
+
+/**
+ * Whether the lane collects a brand's part now: partLive honours it and its organisation's
+ * connection isn't holding collection for every part. Otherwise it is skipped quietly: no lease, no
+ * failure, nothing on its health.
+ */
+async function collectablePart(ctx: TenantContext, c: DataConnection, now: Date, deps: LaneDeps & { partCache: PartCache }): Promise<boolean> {
+  const check = await partLive(ctx, c, deps);
+  if (!check.live) return false;
+  const hold = check.source.collectHold;
+  return !(hold && Date.parse(hold.until) > now.getTime());
 }
 
 /** A Search Console connection to look at for suggestions now: feeds planning, rolled today, not looked at today. */
@@ -155,7 +210,7 @@ export function isDetectDue(c: DataConnection, today: string): boolean {
 }
 
 /** Look at a brand's due Search Console connections for suggestions, freshly read. Returns how many. */
-async function detectBrand(ctx: TenantContext, conns: DataConnection[], deadlineMs: number, deps: LaneDeps & { clock: () => number }): Promise<number> {
+async function detectBrand(ctx: TenantContext, conns: DataConnection[], deadlineMs: number, deps: LaneDeps & { clock: () => number; partCache: PartCache }): Promise<number> {
   let n = 0;
   for (const c of conns) {
     if (c.connectorId !== searchConsoleManifest.id || c.status !== "connected") continue;
@@ -163,6 +218,8 @@ async function detectBrand(ctx: TenantContext, conns: DataConnection[], deadline
     const now = new Date(deps.clock());
     const fresh = await forTenant(ctx, deps.db).dataConnections.getById(c.id);
     if (!fresh || !isDetectDue(fresh, todayIn(now, "UTC"))) continue;
+    // A brand's part is looked at only while its organisation still gives it.
+    if (fresh.source && !(await partLive(ctx, fresh, deps)).live) continue;
     try {
       const r = await (deps.detect ?? detectConnection)(ctx, fresh, conns, { db: deps.db, now });
       if (r.status === "detected") n += 1;

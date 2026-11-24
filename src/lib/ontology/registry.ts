@@ -1929,8 +1929,18 @@ export const ONTOLOGY: readonly OntologyType[] = [
     states: ["connected", "disconnected"],
     erase: {
       paths: [
-        brandPath("disconnectOrganisationConnectionRecord", ORG_CONNECTIONS, "Disconnect at the organisation empties the sealed secrets and ends every part; the record stays, marked disconnected"),
-        brandPath("purgeOrganisationConnection", ORG_CONNECTIONS, "the organisation purge removes the secrets, the recent list, the parts and the activity, whatever any switch says"),
+        brandPath(
+          "disconnectOrganisationConnection",
+          "src/lib/connectors/organisation.ts",
+          "Disconnect at the organisation empties the sealed secrets, ends every brand's part and erases what it collected in that brand's region, and deletes its Google address; the record stays, marked disconnected",
+        ),
+        brandPath("purgeOrganisations", "src/lib/connectors/purge.ts", "the organisation purge (`connectors-purge --organisation <orgId|all>`) removes the secrets, the recent list, the parts, the activity and leftover addresses in every region, whatever any switch says"),
+        brandPath("purgeOrganisationConnection", ORG_CONNECTIONS, "the purge's last step for one record"),
+        retention(
+          "sweepOrganisationConnections",
+          "src/lib/connectors/organisation.ts",
+          "the lane disconnects the connections of an organisation that is gone or has no brands left, and every move or reused organisation id does too",
+        ),
         retention("ORGANISATION_CONNECTION_ACTIVITY", ORG_CONNECTIONS, "activity rows go 90 days on, through the TTL on ttlAt"),
       ],
       gaps: ["an owner's user id in createdBy, signerUid, givenBy and by stays after they stop being an owner, as settings history does"],

@@ -11,11 +11,16 @@ const tenant = vi.hoisted(() => ({
   ensureBrandOrganisation: vi.fn(async () => ({ status: "created", organisationId: "org_ten_acme" })),
   getTenantById: vi.fn(async () => null as unknown),
   attachBrandToOrganisation: vi.fn(async () => "moved"),
+  getOrganisation: vi.fn(async () => null as unknown),
+  organisationIdFor: (id: string) => `org_${id}`,
 }));
 vi.mock("@/lib/tenant", async () => {
   const errors = await vi.importActual<typeof import("@/lib/tenant/errors")>("@/lib/tenant/errors");
   return { ...tenant, TenantIsolationError: errors.TenantIsolationError };
 });
+// An empty org_<id> taken up again has its organisation connections disconnected first (Connectors 3).
+const orgConnections = vi.hoisted(() => ({ clearOrganisationIdForReuse: vi.fn(async () => 0) }));
+vi.mock("@/lib/connectors/organisation", () => orgConnections);
 
 const { POST } = await import("./route");
 
@@ -116,5 +121,15 @@ describe("POST /api/admin/tenants", () => {
     expect(logged).toContain("organisation_link_failed");
     expect(logged).not.toContain("example.com");
     errors.mockRestore();
+  });
+
+  it("disconnects what an empty org_<id> still holds before the new brand takes it up, and leaves a fresh one alone", async () => {
+    vi.stubEnv("PLANS_ENABLED", "true");
+    expect((await POST(req())).status).toBe(201);
+    expect(orgConnections.clearOrganisationIdForReuse).not.toHaveBeenCalled();
+    tenant.getOrganisation.mockResolvedValueOnce({ id: "org_ten_acme", brandIds: [], ownerIds: ["usr_old"] });
+    expect((await POST(req())).status).toBe(201);
+    expect(orgConnections.clearOrganisationIdForReuse).toHaveBeenCalledWith("org_ten_acme", "usr_creator");
+    expect(orgConnections.clearOrganisationIdForReuse.mock.invocationCallOrder[0]!).toBeLessThan(tenant.ensureBrandOrganisation.mock.invocationCallOrder.at(-1)!);
   });
 });

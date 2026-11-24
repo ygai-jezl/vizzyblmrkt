@@ -95,6 +95,7 @@ export {
   ORGANISATION_CHANGES,
   organisationIdFor,
   getOrganisation,
+  organisationMembership,
   listOrganisations,
   ensureBrandOrganisation,
   attachBrandToOrganisation,

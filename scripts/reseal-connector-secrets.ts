@@ -23,6 +23,10 @@
  *   ...the same with --apply
  * Optional:  --tenant <tenantId>   --local (the emulators only, with the keys from .env.local)
  *
+ * Organisations' own connections (Connectors 3, ADR-0014) are covered too, in every provisioned
+ * region, after the brands (skipped with --tenant), so the count of secrets off the current key
+ * includes them.
+ *
  * Auth = Application Default Credentials (`gcloud auth application-default login`).
  */
 
@@ -40,8 +44,8 @@ function say(line: string): void {
 async function main() {
   const where = settleEnvironment(TOOL, args.has("local"));
   // Imported after the environment is settled, so the library reads it.
-  const { listAllTenants, getTenantById } = await import("@/lib/tenant");
-  const { resealBrand, reportLines } = await import("@/lib/connectors/reseal");
+  const { listAllTenants, getTenantById, provisionedRegions } = await import("@/lib/tenant");
+  const { resealBrand, resealOrganisationRegion, reportLines } = await import("@/lib/connectors/reseal");
   const { currentVaultKeyId, previousVaultKeyId } = await import("@/lib/connectors/vault");
 
   const current = currentVaultKeyId();
@@ -65,6 +69,17 @@ async function main() {
     off += r.offCurrent;
     resealed += r.resealed;
     unopenable += r.unopenable.length;
+  }
+  // Organisations' own connections, in every region (bound to the organisation, not a brand).
+  if (!ONLY_TENANT) {
+    for (const region of provisionedRegions()) {
+      const r = await resealOrganisationRegion(region, { apply: APPLY });
+      if (!r.connections) continue;
+      for (const line of reportLines(r, APPLY)) say(line);
+      off += r.offCurrent;
+      resealed += r.resealed;
+      unopenable += r.unopenable.length;
+    }
   }
 
   say(`${count(tenants.length, "brand")}, ${count(off, "secret")} off the current key before this run${APPLY ? `, ${resealed} resealed` : ""}, ${unopenable} won't open.`);

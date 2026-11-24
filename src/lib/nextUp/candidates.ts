@@ -7,6 +7,7 @@ import { readBrandMap } from "@/lib/brandMap/store";
 import { computeCoverage, type QuestionCoverage } from "@/lib/content/blog/coverage";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { BrandMapPage } from "@/lib/types/brandMapPage";
+import type { FreshnessReason } from "@/lib/types/contentPlan";
 
 /**
  * Next up's candidates: the brand map's open questions worth weighing, narrowed in code so one
@@ -28,6 +29,8 @@ export interface Candidate {
   lastArticleAt: string | null;
   /** On a buying situation the brand focuses on. */
   focus: boolean;
+  /** A live article due a refresh (BLOG_FRESHNESS_ENABLED): its plan, programme and reasons. */
+  refresh?: { planId: string; workspaceId: string; reasons: FreshnessReason[] };
 }
 
 export interface CandidateDeps {

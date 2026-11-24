@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { refreshHref } from "@/lib/content/blog/freshnessHref";
 import { WriteNext } from "@/components/admin/brand-kit/BrandMapCoverage";
 import { addedNote, type AddTopicsResult } from "@/lib/competitors/addTopics";
 import type { NextUpChip, NextUpDoc, NextUpPick } from "@/lib/types/autopilot";
@@ -56,8 +57,9 @@ function Pick({
   return (
     <li className={`space-y-2 rounded-md border p-3 ${top ? "border-blue-400 dark:border-blue-500" : "border-neutral-200 dark:border-neutral-800"}`}>
       <div>
+        {pick.kind === "refresh" ? <p className="text-[11px] font-medium uppercase tracking-wide text-blue-700 dark:text-blue-300">Refresh a live article</p> : null}
         <p className="text-sm font-medium">&ldquo;{pick.question}&rdquo;</p>
-        <p className={HINT}>Subject: {pick.subjectName}</p>
+        {pick.kind === "refresh" ? null : <p className={HINT}>Subject: {pick.subjectName}</p>}
       </div>
       <p className="rounded bg-neutral-50 px-2 py-1.5 text-xs text-neutral-800 dark:bg-neutral-900 dark:text-neutral-200">
         <b className="font-medium">Why now:</b> {pick.because}
@@ -65,7 +67,13 @@ function Pick({
       <Chips chips={pick.chips} />
       <div className="flex flex-wrap items-center gap-2">
         {children}
-        {programmes?.length ? <WriteNext questionId={pick.questionId} programmes={programmes} label="Write it" /> : null}
+        {pick.kind === "refresh" && pick.planId && pick.workspaceId ? (
+          <a href={refreshHref({ planId: pick.planId, workspaceId: pick.workspaceId })} className={BUTTON}>
+            Open article
+          </a>
+        ) : programmes?.length ? (
+          <WriteNext questionId={pick.questionId} programmes={programmes} label="Write it" />
+        ) : null}
         {skipping ? (
           <span className="flex flex-wrap items-center gap-1.5">
             <input

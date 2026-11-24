@@ -44,6 +44,4 @@ export async function liveArticleAt(ctx: TenantContext, key: string, deps: { db?
   return hit ? { planId: hit.planId, workspaceId: hit.workspaceId } : null;
 }
 
-/** The article's canvas, opened at its Freshness card. */
-export const refreshHref = (a: { planId: string; workspaceId: string }) =>
-  `/admin/workspace/${encodeURIComponent(a.workspaceId)}/create/${encodeURIComponent(a.planId)}?freshness=1`;
+export { refreshHref } from "./freshnessHref";

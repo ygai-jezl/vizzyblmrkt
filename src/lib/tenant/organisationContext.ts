@@ -17,7 +17,8 @@ import type { TenantRole } from "@/lib/types/tenantUser";
  *   last up to 5 days and no role can be lowered today, so nothing is exposed now; before piece M
  *   lets a role be lowered, it must revoke refresh tokens or read live claims, and this follows.
  * - `isBrandAdminByRow`: the row alone, for moving brands between organisations (pick 16), where
- *   claims decide nothing.
+ *   claims decide nothing; `mayMoveBrand` puts it together with the owners of the brand's
+ *   organisation, both read live.
  *
  * Reads the control database only. The routes build the person from getAdminContextWithHome
  * (src/lib/auth/session.ts) and check the switches first.
@@ -73,4 +74,39 @@ export async function isBrandAdminByRow(userId: string, tenantId: string, db?: F
 export async function isBrandAdminLive(person: VerifiedPerson, tenantId: string, db?: FirestoreLike): Promise<boolean> {
   if (await isBrandAdminByRow(person.userId, tenantId, db)) return true;
   return tenantId === person.homeTenantId && person.homeRole === "admin";
+}
+
+/**
+ * Why the person may not move a brand between organisations:
+ * - `no_brand`: the brand is missing or suspended;
+ * - `no_organisation`: it has no organisation, or its organisation doesn't list it back (drift);
+ * - `not_owner`: the person isn't an owner of the organisation the brand is in now;
+ * - `home_only`: they have no admin row for it, and reach it only as the brand they first signed in
+ *   with (their verified home brand, whose claims decide nothing here);
+ * - `not_admin`: they have no `tenant_users` row with role admin for it.
+ */
+export type BrandMoveRefusal = "no_brand" | "no_organisation" | "not_owner" | "home_only" | "not_admin";
+
+export type BrandMoveCheck = { ok: true; brand: Tenant; organisation: Organisation } | { ok: false; why: BrandMoveRefusal };
+
+/**
+ * Whether the person may move a brand out of the organisation it is in now (Bring in elsewhere, or
+ * Move out to one of its own: pick 16), read live on every action and never from a request or the
+ * session's claims: the brand's own registry record (uncached), the organisation it names, which
+ * must list it back, the person in that organisation's `ownerIds`, and a real `tenant_users` row
+ * with role admin for the brand. The home brand's claims are not enough here, unlike giving a part
+ * (isBrandAdminLive): claims last up to 5 days and no role can be lowered today, so a privileged
+ * plan change takes the live row only (ADR-0003 P2, ADR-0014). The organisation the brand would go
+ * into is the caller's to check. A read error throws, so nothing is decided on it.
+ */
+export async function mayMoveBrand(person: VerifiedPerson, tenantId: string, db?: FirestoreLike): Promise<BrandMoveCheck> {
+  if (!person.userId || !tenantId) return { ok: false, why: "no_brand" };
+  const brand = db ? await getTenantById(tenantId, db) : await getTenantById(tenantId);
+  if (!brand || brand.status === "suspended") return { ok: false, why: "no_brand" };
+  if (!brand.organisationId) return { ok: false, why: "no_organisation" };
+  const organisation = db ? await getOrganisation(brand.organisationId, db) : await getOrganisation(brand.organisationId);
+  if (!organisation || !organisation.brandIds.includes(brand.id)) return { ok: false, why: "no_organisation" };
+  if (!organisation.ownerIds.includes(person.userId)) return { ok: false, why: "not_owner" };
+  if (!(await isBrandAdminByRow(person.userId, brand.id, db))) return { ok: false, why: tenantId === person.homeTenantId ? "home_only" : "not_admin" };
+  return { ok: true, brand, organisation };
 }

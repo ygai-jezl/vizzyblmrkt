@@ -252,8 +252,8 @@ export type {
   RepairOutcome,
 } from "./organisationConnections";
 // Who may act for an organisation, read live.
-export { organisationContextFor, verifiedPersonOf, isBrandAdminLive, isBrandAdminByRow } from "./organisationContext";
-export type { OrganisationContext, VerifiedPerson } from "./organisationContext";
+export { organisationContextFor, verifiedPersonOf, isBrandAdminLive, isBrandAdminByRow, mayMoveBrand } from "./organisationContext";
+export type { BrandMoveCheck, BrandMoveRefusal, OrganisationContext, VerifiedPerson } from "./organisationContext";
 // Connected data sign in states: made at Sign in, claimed once by the callback, then deleted.
 export { createConnectionState, consumeConnectionState, STATE_VALID_MS } from "./dataConnectionStates";
 export type { NewConnectionState, StoredConnectionState, ConsumeOutcome } from "./dataConnectionStates";

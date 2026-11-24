@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { FakeFirestore } from "./testing/fakeFirestore";
-import { isBrandAdminByRow, isBrandAdminLive, organisationContextFor, verifiedPersonOf, type VerifiedPerson } from "./organisationContext";
+import { isBrandAdminByRow, isBrandAdminLive, mayMoveBrand, organisationContextFor, verifiedPersonOf, type VerifiedPerson } from "./organisationContext";
 import type { TenantContext } from "./types";
 
 // Made-up people: Priya owns Fernhill Group and is in Fernhill Plants by her claims (her home
@@ -75,5 +75,63 @@ describe("isBrandAdminLive", () => {
   it("builds the person from the verified session only", () => {
     expect(verifiedPersonOf({ ctx: ctx("ten_harbour"), homeTenantId: "ten_fernhill", homeRole: "admin" })).toEqual(priya);
     expect(verifiedPersonOf({ ctx: { tenantId: "ten_x", region: "eu", source: "idtoken" }, homeTenantId: "ten_x" })).toBeNull();
+  });
+});
+
+describe("mayMoveBrand: who may move a brand, read live (pick 16)", () => {
+  // Fernhill Cafe [made up] sits in an organisation of its own that Priya also owns, and she has an
+  // admin row there; Otto's Bakery [made up] is in Otto's organisation, where Priya has an admin row
+  // but isn't an owner.
+  beforeEach(() => {
+    seedBrand("ten_cafe", { organisationId: "org_ten_cafe" });
+    seedBrand("ten_otto", { organisationId: "org_ten_otto" });
+    seedBrand("ten_open", { organisationId: undefined });
+    db.seed("organisations", "org_ten_cafe", { name: "Fernhill Cafe", plan: "free", planSince: T, brandIds: ["ten_cafe"], ownerIds: ["usr_priya"], createdBy: "usr_priya", createdAt: T, updatedAt: T });
+    db.seed("organisations", "org_ten_otto", { name: "Otto Group", plan: "pro", planSince: T, brandIds: ["ten_otto"], ownerIds: ["usr_otto"], createdBy: "usr_otto", createdAt: T, updatedAt: T });
+    db.seed("tenant_users", "m3", { userId: "usr_priya", tenantId: "ten_cafe", role: "admin", joinedAt: T });
+    db.seed("tenant_users", "m4", { userId: "usr_priya", tenantId: "ten_otto", role: "admin", joinedAt: T });
+    db.seed("tenant_users", "m5", { userId: "usr_priya", tenantId: "ten_open", role: "admin", joinedAt: T });
+  });
+
+  it("takes an owner of the brand's organisation with a real admin row for the brand, in any organisation they own", async () => {
+    const a = await mayMoveBrand(priya, "ten_harbour", db);
+    expect(a).toMatchObject({ ok: true, brand: { id: "ten_harbour" }, organisation: { id: "org_ten_fernhill" } });
+    const b = await mayMoveBrand(priya, "ten_cafe", db);
+    expect(b).toMatchObject({ ok: true, organisation: { id: "org_ten_cafe", plan: "free" } });
+  });
+
+  it("refuses the home brand reached by claims only, even when they say admin", async () => {
+    expect(await mayMoveBrand(priya, "ten_fernhill", db)).toEqual({ ok: false, why: "home_only" });
+    // An operator adds a row: now it may move.
+    db.seed("tenant_users", "m6", { userId: "usr_priya", tenantId: "ten_fernhill", role: "admin", joinedAt: T });
+    expect((await mayMoveBrand(priya, "ten_fernhill", db)).ok).toBe(true);
+  });
+
+  it("refuses a member's row and no row at all, for a brand that isn't the home brand", async () => {
+    const leo: VerifiedPerson = { userId: "usr_leo", homeTenantId: "ten_leo", homeRole: "admin" };
+    db.seed("organisations", "org_ten_fernhill", { ...db.raw("organisations", "org_ten_fernhill")!, ownerIds: ["usr_priya", "usr_leo"] });
+    expect(await mayMoveBrand(leo, "ten_harbour", db)).toEqual({ ok: false, why: "not_admin" });
+    expect(await mayMoveBrand(leo, "ten_fernhill", db)).toEqual({ ok: false, why: "not_admin" });
+  });
+
+  it("refuses an organisation the person doesn't own, whatever rows they have (another organisation's brand)", async () => {
+    expect(await mayMoveBrand(priya, "ten_otto", db)).toEqual({ ok: false, why: "not_owner" });
+  });
+
+  it("reads the owners and rows as they are now", async () => {
+    db.seed("organisations", "org_ten_cafe", { ...db.raw("organisations", "org_ten_cafe")!, ownerIds: [] });
+    expect(await mayMoveBrand(priya, "ten_cafe", db)).toEqual({ ok: false, why: "not_owner" });
+    db.seed("organisations", "org_ten_cafe", { ...db.raw("organisations", "org_ten_cafe")!, ownerIds: ["usr_priya"] });
+    db.seed("tenant_users", "m3", { userId: "usr_priya", tenantId: "ten_cafe", role: "member", joinedAt: T });
+    expect(await mayMoveBrand(priya, "ten_cafe", db)).toEqual({ ok: false, why: "not_admin" });
+  });
+
+  it("refuses a missing or suspended brand, one with no organisation, and one its organisation doesn't list", async () => {
+    expect(await mayMoveBrand(priya, "ten_nobody", db)).toEqual({ ok: false, why: "no_brand" });
+    seedBrand("ten_cafe", { organisationId: "org_ten_cafe", status: "suspended" });
+    expect(await mayMoveBrand(priya, "ten_cafe", db)).toEqual({ ok: false, why: "no_brand" });
+    expect(await mayMoveBrand(priya, "ten_open", db)).toEqual({ ok: false, why: "no_organisation" });
+    expect(await mayMoveBrand(priya, "ten_stray", db)).toEqual({ ok: false, why: "no_organisation" });
+    expect(await mayMoveBrand({ ...priya, userId: "" }, "ten_harbour", db)).toEqual({ ok: false, why: "no_brand" });
   });
 });

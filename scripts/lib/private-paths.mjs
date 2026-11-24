@@ -11,6 +11,7 @@ export const PRIVATE_PATHS = [
   { glob: ".firebaserc", why: "our Firebase project aliases" },
   { glob: "extensions/*.env.vizzybl-marketing-*", why: "our per project extension settings" },
   { glob: "ops/**", why: "our operations" },
+  { glob: "legal/**", why: "our privacy policy, terms and DPA" },
   { glob: ".github/workflows/yougrow-*", why: "our deployment workflows" },
   { glob: ".claude/skills/yougrow-*/**", why: "our deployment skills" },
 ].map((p) => ({ ...p, re: globToRegExp(p.glob) }));

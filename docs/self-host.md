@@ -268,6 +268,15 @@ npm run doctor -- --cloud --project <your-project-id>
 The build log for each rollout is in the Firebase console: App Hosting, your backend,
 Rollouts.
 
+## Your privacy policy, terms and DPA
+
+Your copy can show `/privacy`, `/terms` and `/dpa`, linked from the site footer. The texts are yours, so the code ships none.
+
+1. Write them in Markdown as `legal/privacy.md`, `legal/terms.md` and `legal/dpa.md` at the root of your fork. Start each with a `# ` title. Any file you leave out just doesn't show.
+2. Turn on `LEGAL_PAGES_ENABLED` in your settings file for the privacy policy and terms, and `LEGAL_DPA_ENABLED` as well for the DPA.
+
+A page stays hidden while its text still has a `[placeholder]` in square brackets, so a draft never goes live by mistake. Links in the `[text](https://example.com)` form are fine.
+
 ## Embed the waitlist on another site
 
 Copy the snippet from the admin **Widget** tab (`/admin/widget`). It looks like:

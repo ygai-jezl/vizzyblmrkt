@@ -652,6 +652,21 @@ describe("npm run selfhost: addon:password", { timeout: SLOW }, () => {
     expect(s.notificationChannels?.[0]).toMatchObject({ labels: { email_address: "owner@example.com" } });
   });
 
+  it("emails the alerts to --alert-email when given, instead of the first admin", async () => {
+    await readyForAddons();
+    expect((await password(["--alert-email", "alerts@example.com"])).code).toBe(0);
+    const s = readState() as FakeCloudState;
+    expect(s.notificationChannels).toEqual([expect.objectContaining({ type: "email", labels: { email_address: "alerts@example.com" } })]);
+  });
+
+  it("refuses an --alert-email that isn't an address, before changing anything", async () => {
+    await readyForAddons();
+    const r = await password(["--alert-email", "not-an-address"]);
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("--alert-email must be an email address");
+    expect((readState() as FakeCloudState).patches ?? []).toEqual([]);
+  });
+
   it("changes only what differs, and keeps a stricter project's settings it doesn't own", async () => {
     await readyForAddons();
     withEmailProvider();

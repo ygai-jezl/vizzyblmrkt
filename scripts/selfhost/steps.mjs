@@ -918,8 +918,10 @@ function hasEmailProvider(ctx) {
   return e.has("MANDRILL_API_KEY") || e.has("RESEND_API_KEY");
 }
 
-/** The first address on ADMIN_ALLOWED_EMAILS: the sign-in alerts go to it. */
+/** Who the sign-in alerts email: --alert-email, else the first address on ADMIN_ALLOWED_EMAILS. */
 function alertEmail(ctx) {
+  const chosen = ctx.flags?.alertEmail?.trim();
+  if (chosen) return chosen;
   return envValue(ctx, "ADMIN_ALLOWED_EMAILS").split(",").map((s) => s.trim()).find(Boolean) ?? "";
 }
 

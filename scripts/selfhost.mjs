@@ -10,7 +10,7 @@
 // --backend (the project id), --branch (main), --yes (don't ask; for coding agents, after the
 // user agreed), --json (the plan as JSON), and answers: --location, --admin-email,
 // --privacy-url, --workspace-name, --workspace-domain, --workspace-region,
-// --another-workspace, --provider, --email-from, --github-app-name, --app-url.
+// --another-workspace, --provider, --email-from, --github-app-name, --app-url, --alert-email.
 //
 // The plan only reads. Nothing changes without --apply. docs/self-host.md explains each step.
 // Node built-ins only; it shells out to gcloud and firebase.
@@ -25,6 +25,7 @@ const BOOLEAN_FLAGS = new Set(["yes", "help", "json", "another-workspace"]);
 const VALUE_FLAGS = new Set([
   "project", "region", "env", "backend", "branch", "apply", "location", "admin-email", "privacy-url",
   "workspace-name", "workspace-domain", "workspace-region", "provider", "email-from", "github-app-name", "app-url",
+  "alert-email",
 ]);
 
 function usage() {
@@ -88,6 +89,9 @@ async function main() {
   if (project && !BACKEND_ID_RE.test(backendId)) errors.push(`--backend "${backendId}" is not a backend id`);
   const appUrlFlag = args["app-url"] ? httpsOrigin(args["app-url"]) : "";
   if (args["app-url"] && !appUrlFlag) errors.push("--app-url must be an https origin with no path, e.g. https://app.example.com");
+  if (args["alert-email"] !== undefined && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(args["alert-email"].trim())) {
+    errors.push("--alert-email must be an email address, e.g. alerts@example.com");
+  }
   const apply = args.apply;
   const target = apply === undefined || apply === "core" ? null : ALL_STEPS.find((s) => s.id === apply);
   if (apply !== undefined && apply !== "core" && !target) errors.push(`--apply "${apply}" is not a step. Steps: core, ${ALL_STEPS.map((s) => s.id).join(", ")}`);
@@ -119,6 +123,7 @@ async function main() {
       emailFrom: args["email-from"],
       githubAppName: args["github-app-name"],
       appUrl: appUrlFlag,
+      alertEmail: args["alert-email"],
     },
     memo: new Map(),
     state: {},

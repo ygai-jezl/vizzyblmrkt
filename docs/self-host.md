@@ -366,9 +366,9 @@ Enforced, a request without a reCAPTCHA token is refused. To also refuse low sco
 rule as [Google's reCAPTCHA guide](https://cloud.google.com/identity-platform/docs/recaptcha-enterprise)
 shows.
 
-**The two alerts.** Both email the first address on `ADMIN_ALLOWED_EMAILS`; change who they email,
-or their thresholds, in Cloud Monitoring, Alerting. Running the add-on again leaves them as you left
-them.
+**The two alerts.** Both email the first address on `ADMIN_ALLOWED_EMAILS`, or the address you
+pass with `--alert-email` when you run the add-on. Change who they email, or their thresholds, in
+Cloud Monitoring, Alerting. Running the add-on again leaves them as you left them.
 
 | Alert | What it counts | Fires when |
 | --- | --- | --- |

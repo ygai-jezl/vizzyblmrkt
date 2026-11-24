@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { MockInstance } from "vitest";
 
 // The scheduler's tick: journeys, then Competitors' checks with what is left of the request's time.
 const session = vi.hoisted(() => ({ getAdminContext: vi.fn() }));
@@ -22,11 +23,20 @@ const { POST } = await import("./route");
 
 const machine = () => new Request("http://localhost/api/admin/lifecycle/tick", { method: "POST", headers: { "x-worker-secret": "s3cret-value-for-tests" } });
 
+let log: MockInstance<typeof console.log>;
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("LIFECYCLE_WORKER_SECRET", "s3cret-value-for-tests");
+  log = vi.spyOn(console, "log").mockImplementation(() => {});
 });
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  log.mockRestore();
+});
+
+const tickLines = () => log.mock.calls.map(([line]) => String(line)).filter((line) => line.startsWith("[tick] "));
+const jobLines = () => tickLines().filter((line) => /^\[tick\] [a-z-]+ \d+ms$/.test(line));
+const memoryLines = () => tickLines().filter((line) => line.startsWith("[tick] memory MiB "));
 
 describe("the lifecycle tick with Competitors", () => {
   it("is a no-op for the scheduler with everything off", async () => {
@@ -137,5 +147,48 @@ describe("the lifecycle tick with Competitors", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, skipped: "lifecycle_disabled" });
     expect(lane.runConnectorsLane).not.toHaveBeenCalled();
+  });
+});
+
+describe("the tick's log lines", () => {
+  it("logs one line per job that ran and one memory line, with no brand ids", async () => {
+    vi.stubEnv("LIFECYCLE_ENABLED", "true");
+    vi.stubEnv("COMPETITORS_ENABLED", "true");
+    vi.stubEnv("COMPETITOR_ARTICLES_ENABLED", "true");
+    vi.stubEnv("CONNECTORS_ENABLED", "true");
+    const res = await POST(machine());
+    expect(res.status).toBe(200);
+    expect(jobLines().map((line) => line.split(" ")[1]).sort()).toEqual(["competitor-articles", "competitors", "connectors", "journeys"]);
+    expect(memoryLines()).toHaveLength(1);
+    expect(memoryLines()[0]).toMatch(/rss=[\d.]+ heapUsed=[\d.]+ heapTotal=[\d.]+ external=[\d.]+ arrayBuffers=[\d.]+$/);
+    expect(tickLines()).toHaveLength(5);
+    expect(tickLines().join("\n")).not.toMatch(/ten_|@/);
+  });
+
+  it("logs a job that failed too", async () => {
+    vi.stubEnv("BRAND_SIGNALS_ENABLED", "true");
+    vi.stubEnv("SIGNALS_DATAFORSEO_ENABLED", "true");
+    signals.runSignals.mockRejectedValueOnce(new Error("down"));
+    const res = await POST(machine());
+    expect(res.status).toBe(200);
+    expect(jobLines().map((line) => line.split(" ")[1])).toEqual(["signals"]);
+    expect(memoryLines()).toHaveLength(1);
+  });
+
+  it("still logs the memory line when the journeys throw", async () => {
+    vi.stubEnv("LIFECYCLE_ENABLED", "true");
+    runner.runLifecycleTick.mockRejectedValueOnce(new Error("boom"));
+    await expect(POST(machine())).rejects.toThrow("boom");
+    expect(jobLines().map((line) => line.split(" ")[1])).toEqual(["journeys"]);
+    expect(memoryLines()).toHaveLength(1);
+  });
+
+  it("logs nothing when the scheduler's call has nothing to run, or for a signed-in admin", async () => {
+    await POST(machine());
+    vi.stubEnv("LIFECYCLE_ENABLED", "true");
+    session.getAdminContext.mockResolvedValue({ tenantId: "ten_A", region: "us", role: "admin" });
+    const res = await POST(new Request("http://localhost/api/admin/lifecycle/tick", { method: "POST" }));
+    expect(res.status).toBe(200);
+    expect(tickLines()).toEqual([]);
   });
 });

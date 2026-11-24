@@ -40,10 +40,14 @@ export const SETTINGS_VERSIONS = "settings_versions";
 /** The People and Company field lists' collection (src/lib/tenant/recordFieldWrites.ts reads it in its transaction). */
 export const RECORD_FIELD_LISTS = "record_field_lists";
 
+/** The parts a brand's organisation gives it (Connectors 3): its `connections:shared` setting's collection. */
+export const CONNECTION_PARTS = "connection_parts";
+
 /** Where each subject's live setting is kept: one document per brand and subject, id settingsDocId. */
 export const SETTINGS_HOMES = {
   "fields:person": "record_field_lists",
   "fields:company": "record_field_lists",
+  "connections:shared": "connection_parts",
 } as const satisfies Record<SettingsSubject, string>;
 
 /** The fields the log keeps on a setting's document beside the setting itself. */

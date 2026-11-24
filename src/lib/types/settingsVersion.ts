@@ -16,8 +16,11 @@ import { EventActorSchema } from "./agentAction";
  * Pure: zod and plain data only, so client components can import it.
  */
 
-/** What a setting is about. Piece B's field lists are the first; later pieces add their own. */
-export const SETTINGS_SUBJECTS = ["fields:person", "fields:company"] as const;
+/**
+ * What a setting is about. Piece B's field lists are the first; later pieces add their own.
+ * `connections:shared` (Connectors 3) is the parts a brand's organisation gives it, one item each.
+ */
+export const SETTINGS_SUBJECTS = ["fields:person", "fields:company", "connections:shared"] as const;
 export type SettingsSubject = (typeof SETTINGS_SUBJECTS)[number];
 
 export function isSettingsSubject(v: unknown): v is SettingsSubject {

@@ -1,9 +1,13 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { getDb, isAlreadyExists } from "./firestore";
 import { databaseIdForRegion, REGION_CONFIGS } from "./region";
 import { forTenant } from "./repository";
 import { TenantIsolationError, TenantValidationError } from "./errors";
 import { prepareDataConnectionChange, stageDataConnectionCreate, type ActivityWrite, type ChangePlan, type NewDataConnection } from "./dataConnections";
+import { TENANT_FIELD } from "./repository";
+import { CONNECTION_PARTS, prepareSettingsChange, settingsDocId } from "./settingsLog";
+import type { EventActor } from "@/lib/ontology/events";
+import type { SettingsItem } from "@/lib/types/settingsVersion";
 import type { FirestoreLike, QueryLike, TenantContext, TransactionLike } from "./types";
 import type { Region } from "@/lib/types/tenant";
 import { CollectStateSchema, DataConnectionSchema, type DataConnection } from "@/lib/types/dataConnection";
@@ -43,7 +47,10 @@ import {
  * disagrees: never on a read error, never on a switch.
  *
  * Every change to a record writes its activity rows in the same transaction; rows carry `ttlAt` 90
- * days on and are never queried. Records are read by id and by equality on `organisationId` (with
+ * days on and are never queried. Step two also saves the brand's `connections:shared` setting
+ * (`connection_parts`, one document per brand) and its version in the brand's `settings_versions`,
+ * in the same transaction as the brand record: a part given is an item, a part changed archives the
+ * old item with `replacedBy`, a part ended archives it (decision 30: history stays with the brand). Records are read by id and by equality on `organisationId` (with
  * `connectorId`) or `status`, so no composite index is needed. The organisation's own change log
  * (`organisation_changes`, in (default)) can't join these transactions; its writers add rows after.
  */
@@ -377,6 +384,121 @@ export type StepTwoStage = (txn: TransactionLike, store: FirestoreLike) => Promi
 
 const brandCtxOf = (brand: BrandRef): TenantContext => ({ tenantId: brand.tenantId, region: brand.region, source: "system" });
 
+// --- The brand's settings history of its parts (connections:shared) ---------------------------
+
+const PARTS_SUBJECT = "connections:shared" as const;
+
+/** One part as the brand's `connections:shared` setting keeps it: ids, the part and who gave it, never a secret. */
+export interface PartSettingItem extends SettingsItem {
+  connectorId: string;
+  organisationId: string;
+  /** The organisation's connection, and the region it is kept in. */
+  connectionId: string;
+  sourceRegion: Region;
+  /** The brand record that reads it. */
+  useId: string;
+  account: string;
+  givenBy: string;
+  givenAt: string;
+}
+
+/** A part's item key: the brand record and the part, so a change makes a new item and archives the old. */
+export function partItemKey(useId: string, account: string): string {
+  return `p_${createHash("sha256").update(`${useId}\n${account}`).digest("hex").slice(0, 24)}`;
+}
+
+/** Who saved a version: a person by user id, or housekeeping. */
+const actorOf = (by: string): EventActor => (!by || by === "system" ? { type: "system", id: "connectors" } : { type: "member", id: by.slice(0, 200) });
+
+/** What a step does to the brand's parts setting. */
+type PartSettingOp =
+  | { kind: "give"; source: SourceRef; connectorId: string; useId: string; account: string }
+  | { kind: "change"; source: SourceRef; connectorId: string; useId: string; from: string; to: string }
+  | { kind: "end"; useId: string };
+
+function itemOf(op: { source: SourceRef; connectorId: string; useId: string }, account: string, by: string, at: string): PartSettingItem {
+  return {
+    key: partItemKey(op.useId, account),
+    label: account.slice(0, 200),
+    archivedAt: null,
+    replacedBy: null,
+    connectorId: op.connectorId,
+    organisationId: op.source.organisationId,
+    connectionId: op.source.connectionId,
+    sourceRegion: op.source.region,
+    useId: op.useId,
+    account,
+    givenBy: by,
+    givenAt: at,
+  };
+}
+
+/** Add an item, or bring an archived one back as given now. */
+function withItem(items: PartSettingItem[], item: PartSettingItem): PartSettingItem[] {
+  return items.some((it) => it.key === item.key) ? items.map((it) => (it.key === item.key ? item : it)) : [...items, item];
+}
+
+/** The setting after the step, or null when it changes nothing (archived items are kept, never removed). */
+function applyPartOp(items: PartSettingItem[], op: PartSettingOp, by: string, at: string): PartSettingItem[] | null {
+  if (op.kind === "give") {
+    const item = itemOf(op, op.account, by, at);
+    return items.some((it) => it.key === item.key && !it.archivedAt) ? null : withItem(items, item);
+  }
+  if (op.kind === "change") {
+    const next = itemOf(op, op.to, by, at);
+    const archived = items.map((it) => (it.useId === op.useId && !it.archivedAt && it.key !== next.key ? { ...it, archivedAt: at, replacedBy: next.key } : it));
+    return withItem(archived, next);
+  }
+  if (!items.some((it) => it.useId === op.useId && !it.archivedAt)) return null;
+  return items.map((it) => (it.useId === op.useId && !it.archivedAt ? { ...it, archivedAt: at } : it));
+}
+
+/** Why a part ended, in the brand's history. */
+const END_MESSAGES: Record<string, string> = {
+  part_ended: "Taken back by the organisation",
+  stopped_using: "Stopped using it",
+  left: "Ended: the brand left the organisation",
+  disconnected: "Ended: the organisation disconnected it",
+  repaired: "Ended by housekeeping",
+};
+
+/**
+ * Step two's write to the brand's parts setting and its version, in the brand's database, reads
+ * first. Refuses (settings_changed) only when the setting moved on inside the transaction, which
+ * the transaction's own retry resolves.
+ */
+function partSettingStage(brand: BrandRef, op: PartSettingOp, by: string, at: string, message: string): StepTwoStage {
+  return async (txn, store) => {
+    const ctx = brandCtxOf(brand);
+    // The subject's home (SETTINGS_HOMES["connections:shared"]).
+    const ref = store.collection(CONNECTION_PARTS).doc(settingsDocId(brand.tenantId, PARTS_SUBJECT));
+    const snap = await txn.get(ref);
+    const data = snap.exists ? (snap.data() ?? {}) : null;
+    if (data && data[TENANT_FIELD] !== brand.tenantId) throw new TenantIsolationError(`${CONNECTION_PARTS}/${ref.id} belongs to another tenant`);
+    const items = Array.isArray(data?.items) ? (data!.items as PartSettingItem[]) : [];
+    const rev = typeof data?.rev === "number" ? data.rev : 0;
+    const next = applyPartOp(items, op, by, at);
+    if (!next) return { ok: true, stage: () => undefined };
+    const prepared = await prepareSettingsChange(ctx, { subject: PARTS_SUBJECT, baseRev: rev, value: { items: next }, by: actorOf(by), source: "editor", message, nowIso: at }, txn, store);
+    if (!prepared.ok) return { ok: false, why: "settings_changed" };
+    return { ok: true, stage: prepared.stage };
+  };
+}
+
+/** Several step two writes as one: each one's reads in turn, then every stage. Any refusal refuses all. */
+function composeStages(...stages: Array<StepTwoStage | undefined>): StepTwoStage {
+  return async (txn, store) => {
+    const ready: Array<() => void> = [];
+    for (const s of stages) {
+      if (!s) continue;
+      const r = await s(txn, store);
+      if (!r.ok) return r;
+      ready.push(r.stage);
+    }
+    return { ok: true, stage: () => ready.forEach((f) => f()) };
+  };
+}
+
 const sameSource = (c: Pick<DataConnection, "source">, src: SourceRef) =>
   c.source?.organisationId === src.organisationId && c.source.connectionId === src.connectionId && c.source.region === src.region;
 
@@ -483,12 +605,13 @@ export async function givePart(input: GivePartInput, stores: OrganisationStores 
     return { ok: false, why: "own_connection" };
   }
   let made: DataConnection;
+  const giveStage = composeStages(partSettingStage(brand, { kind: "give", source, connectorId: record.connectorId, useId, account }, by, at, "Given by the organisation"), input.alsoStage);
   try {
     const two = await brandStore.runTransaction(async (txn): Promise<{ ok: true; made: DataConnection } | { ok: false; why: string }> => {
-      const extra = input.alsoStage ? await input.alsoStage(txn, brandStore) : null;
-      if (extra && !extra.ok) return extra;
+      const extra = await giveStage(txn, brandStore);
+      if (!extra.ok) return extra;
       const created = stageDataConnectionCreate(brandCtx, { ...record, source: { ...source } }, input.recordActivity, txn, brandStore, { part: true });
-      extra?.stage();
+      extra.stage();
       return { ok: true, made: created };
     });
     if (!two.ok) {
@@ -524,8 +647,10 @@ export async function givePart(input: GivePartInput, stores: OrganisationStores 
   }
   if (gone) {
     await brandStore.runTransaction(async (txn) => {
+      const extra = await partSettingStage(brand, { kind: "end", useId }, by, at, END_MESSAGES.part_ended!)(txn, brandStore);
       const p = await prepareDataConnectionChange(brandCtx, useId, endedPlan(by, at, "part_ended"), txn, brandStore, { part: true });
       p.stage();
+      if (extra.ok && p.result.ok) extra.stage();
     });
     return { ok: false, why: "gone" };
   }
@@ -565,6 +690,7 @@ export async function changePart(input: ChangePartInput, stores: OrganisationSto
 
   let why: string | null = null;
   let was = "";
+  let connectorId = "";
   const one = await changeOrganisationConnection(
     source.organisationId,
     source.connectionId,
@@ -578,6 +704,7 @@ export async function changePart(input: ChangePartInput, stores: OrganisationSto
       else if (cur.parts.some((x) => x.useId !== useId && (x.account === account || x.was === account))) why = "part_given";
       if (why || !p) return null;
       was = p.account;
+      connectorId = cur.connectorId;
       return { patch: { parts: replacePart(cur.parts, useId, { ...p, state: "pending", stateSince: at, account, was: p.account }), updatedAt: at }, activity: [] };
     },
     stores,
@@ -599,8 +726,9 @@ export async function changePart(input: ChangePartInput, stores: OrganisationSto
   let changed: DataConnection;
   try {
     const two = await brandStore.runTransaction(async (txn): Promise<{ ok: true; changed: DataConnection } | { ok: false; why: string }> => {
-      const extra = input.alsoStage ? await input.alsoStage(txn, brandStore) : null;
-      if (extra && !extra.ok) return extra;
+      const changeStage = composeStages(partSettingStage(brand, { kind: "change", source, connectorId, useId, from: was, to: account }, by, at, "Changed by the organisation"), input.alsoStage);
+      const extra = await changeStage(txn, brandStore);
+      if (!extra.ok) return extra;
       const prepared = await prepareDataConnectionChange(
         brandCtx,
         useId,
@@ -615,7 +743,7 @@ export async function changePart(input: ChangePartInput, stores: OrganisationSto
       );
       if (!prepared.result.ok) return { ok: false, why: prepared.result.why };
       prepared.stage();
-      extra?.stage();
+      extra.stage();
       return { ok: true, changed: prepared.result.connection };
     });
     if (!two.ok) {
@@ -696,11 +824,12 @@ export async function endPart(input: EndPartInput, stores: OrganisationStores = 
     if (!input.evenIfSourceFails) throw err;
   }
 
+  const endStage = composeStages(partSettingStage(brand, { kind: "end", useId }, by, at, END_MESSAGES[input.code] ?? END_MESSAGES.part_ended!), input.alsoStage);
   const two = await brandStore.runTransaction(async (txn) => {
-    const extra = input.alsoStage ? await input.alsoStage(txn, brandStore) : null;
+    const extra = await endStage(txn, brandStore);
     const prepared = await prepareDataConnectionChange(brandCtx, useId, (cur) => (sameSource(cur, source) ? endedPlan(by, at, input.code)(cur) : null), txn, brandStore, { part: true });
     prepared.stage();
-    if (extra?.ok && prepared.result.ok) extra.stage();
+    if (extra.ok && prepared.result.ok) extra.stage();
     return prepared.result;
   });
   const ended = two.ok;
@@ -820,10 +949,12 @@ export async function repairParts(conn: OrganisationConnection, opts: { by: stri
         if (live) {
           const brandStore = regionStore(part.region, stores);
           await brandStore.runTransaction(async (txn) => {
+            const extra = await partSettingStage({ tenantId: part.tenantId, region: part.region }, { kind: "end", useId: part.useId }, part.endedBy ?? opts.by, at, END_MESSAGES.repaired!)(txn, brandStore);
             const p = await prepareDataConnectionChange({ tenantId: part.tenantId, region: part.region, source: "system" }, part.useId, endedPlan(part.endedBy ?? opts.by, at, "part_ended"), txn, brandStore, {
               part: true,
             });
             p.stage();
+            if (extra.ok && p.result.ok) extra.stage();
           });
         }
         outcome = (await removePartEntry(source, part.tenantId, part.useId, { by: opts.by, at, code: "repaired" }, stores)) ? "finished" : "skipped";

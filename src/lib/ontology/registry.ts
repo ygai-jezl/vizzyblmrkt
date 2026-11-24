@@ -1859,9 +1859,13 @@ export const ONTOLOGY: readonly OntologyType[] = [
       side("data_connection_states", "src/lib/tenant/dataConnectionStates.ts", {
         note: "a sign in with Google under way: the brand, the admin's user id and the connector, read by id, valid 10 minutes, claimed once and deleted, and removed by a time to live on ttlAt",
       }),
+      side("connection_parts", "src/lib/tenant/settingsLog.ts", {
+        note: "the parts a brand's organisation gives it (Connectors 3), as its `connections:shared` setting: one document per brand, id from settingsDocId, one item per part (the organisation's connection and its region, the brand record, the part, who gave it by user id), archived when the part ends, never removed; written with its settings version in the same transaction as the brand record, by `src/lib/tenant/organisationConnections.ts` only",
+      }),
     ],
     links: [
       { to: "brand", via: "tenantId", many: false },
+      { to: "settings_version", via: "the connections:shared subject, one version per part given, changed or ended", many: true },
       { to: "member", via: "ownerUid, and by on each activity row", many: false },
       { to: "connector_manifest", via: "connectorId", many: false },
       { to: "organisation_connection", via: "source, on a part its organisation gave it", many: false },

@@ -113,6 +113,41 @@ describe("choosing Next up", () => {
     expect(d.generate).toHaveBeenCalledTimes(1);
   });
 
+  it("weighs live articles due a refresh beside the questions, at most the brand's share of them, never filled in by code", async () => {
+    const d = await setup();
+    const refresh = (n: number): Candidate => ({
+      ...cand(9),
+      questionId: `refresh:plan_${n}`,
+      question: `Article ${n}`,
+      subjectName: "a live article",
+      refresh: { planId: `plan_${n}`, workspaceId: "ws1", reasons: [{ kind: "losing_clicks", detail: "Search Console: 120 clicks, down from 260.", hard: true }, { kind: "age", detail: "35 days since its last update or check, on a 30-day clock", hard: true }] },
+    });
+    d.refreshCandidates = async () => [refresh(1), refresh(2)];
+    d.generate = vi.fn(async (prompt: string) => {
+      expect(prompt).toContain('5. REFRESH "Article 1" (a live article)');
+      expect(prompt).toContain("5.1 Freshness: Search Console: 120 clicks, down from 260.");
+      expect(prompt).toContain("Choose at most 1 of them");
+      // Two refreshes chosen: only the first holds the brand's share of one.
+      return JSON.stringify({ picks: [5, 6, 1].map((n) => ({ n, because: `Pick ${n}: from 260 to 120.`.replace("from 260 to 120", n > 4 ? "down from 260" : "2 of 7 answered"), uses: [`${n}.1`] })) });
+    });
+    const got = await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d);
+    const picks = got.ok ? got.doc.picks : [];
+    expect(picks.map((p) => [p.questionId, p.kind ?? "write"])).toEqual([
+      ["refresh:plan_1", "refresh"],
+      ["q_aaaaaaa1", "write"],
+      ["q_aaaaaaa2", "write"],
+    ]);
+    expect(picks[0]).toMatchObject({ planId: "plan_1", workspaceId: "ws1", chips: [{ kind: "num", label: "Search Console", text: "120 clicks, down from 260." }] });
+    // With no refresh share, none is offered at all.
+    d.loadTenant = async () => ({ id: "ten_A", refreshShare: 0 }) as never;
+    d.generate = vi.fn(async (prompt: string) => {
+      expect(prompt).not.toContain("REFRESH");
+      return null;
+    });
+    const none = await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d);
+    expect(none.ok && none.doc.picks.every((p) => p.kind !== "refresh")).toBe(true);
+  });
+
   it("fills in from code, plainly, when Gemini gives too few or none", async () => {
     const d = await setup();
     d.generate = async () => null;

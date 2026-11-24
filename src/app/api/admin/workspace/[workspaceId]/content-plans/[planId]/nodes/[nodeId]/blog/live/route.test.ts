@@ -12,6 +12,8 @@ const content = vi.hoisted(() => ({ getContentPlan: vi.fn(async () => ({ id: "pl
 vi.mock("@/lib/tenant/workspaceContent", () => content);
 const live = vi.hoisted(() => ({ setArticleLive: vi.fn(async () => ({ ok: true, node: { id: "hub" }, check: null })) }));
 vi.mock("@/lib/content/blog/live", () => live);
+const refresh = vi.hoisted(() => ({ markChecked: vi.fn(async () => ({ ok: true, node: { id: "hub" } })) }));
+vi.mock("@/lib/content/blog/refreshAdmin", () => refresh);
 
 const { POST } = await import("./route");
 const params = { params: Promise.resolve({ workspaceId: "ws1", planId: "plan_1", nodeId: "hub" }) };
@@ -38,6 +40,15 @@ describe("the live route", () => {
     expect(live.setArticleLive).toHaveBeenLastCalledWith(expect.anything(), expect.not.objectContaining({ day: expect.anything() }));
     expect((await POST(req({ action: "mark", day: "2026-11-20", tenantId: "ten_B" }), params)).status).toBe(400);
     expect((await POST(req({ action: "mark", day: "a very long day" }), params)).status).toBe(400);
+  });
+
+  it("takes Checked, nothing to change to the freshness check, with no day", async () => {
+    expect((await POST(req({ action: "checked" }), params)).status).toBe(200);
+    expect(refresh.markChecked).toHaveBeenCalledWith(expect.anything(), { workspaceId: "ws1", planId: "plan_1", nodeId: "hub" });
+    expect(live.setArticleLive).not.toHaveBeenCalled();
+    expect((await POST(req({ action: "checked", day: "2026-11-20" }), params)).status).toBe(400);
+    refresh.markChecked.mockResolvedValueOnce({ ok: false, status: 409, error: "no_clock" } as never);
+    expect((await POST(req({ action: "checked" }), params)).status).toBe(409);
   });
 
   it("answers with what setArticleLive refuses, and is off with its switch off", async () => {

@@ -508,6 +508,44 @@ export const BlogArticleDatesSchema = z.object({
 });
 export type BlogArticleDates = z.infer<typeof BlogArticleDatesSchema>;
 
+/** Why a live article is due, or soon due, a refresh (BLOG_FRESHNESS_ENABLED). */
+export const FRESHNESS_REASONS = ["age", "losing_clicks", "within_reach", "old_figure", "old_source", "dead_link", "new_questions", "no_page_date"] as const;
+export type FreshnessReasonKind = (typeof FRESHNESS_REASONS)[number];
+/** The clocks a live article can have, in days (the owner's test, 2026-11-24). */
+export const FRESHNESS_CLOCKS = [20, 30, 45] as const;
+export type FreshnessClock = (typeof FRESHNESS_CLOCKS)[number];
+const ClockDaysSchema = z.union([z.literal(20), z.literal(30), z.literal(45)]);
+
+/**
+ * A live blog article's freshness (BLOG_FRESHNESS_ENABLED). Server-owned, like `live` and `dates`:
+ * written by the daily freshness watch and "Checked, nothing to change", kept through every other
+ * write. `events` keep what happened under which clock, for the clock test's readout.
+ */
+export const BlogArticleFreshnessSchema = z.object({
+  clockDays: ClockDaysSchema,
+  /** test: given at random for the clock test; fixed: the brand chose one clock. */
+  arm: z.enum(["test", "fixed"]),
+  assignedAt: z.string().max(40),
+  /** A person (or, later, a review) checked it and found nothing worth changing: the clock starts again. */
+  checkedAt: z.string().max(40).nullable().default(null),
+  state: z.enum(["fresh", "soon", "due"]),
+  reasons: z
+    .array(z.object({ kind: z.enum(FRESHNESS_REASONS), detail: z.string().max(200), hard: z.boolean() }))
+    .max(12)
+    .default([]),
+  dueAt: z.string().max(40),
+  sweptAt: z.string().max(40),
+  /** The article's outbound links that answered 404 or 410 at the last weekly check. */
+  deadLinks: z.array(z.string().max(2000)).max(10).default([]),
+  linksCheckedAt: z.string().max(40).nullable().default(null),
+  events: z
+    .array(z.object({ at: z.string().max(40), kind: z.enum(["due", "checked", "updated"]), clockDays: z.number().int().min(1).max(365) }))
+    .max(20)
+    .default([]),
+});
+export type BlogArticleFreshness = z.infer<typeof BlogArticleFreshnessSchema>;
+export type FreshnessReason = BlogArticleFreshness["reasons"][number];
+
 /** What the writer proposed for a blog hub, and what the checks found. On the hub node. */
 export const BlogArticleMetaSchema = z.object({
   metaTitle: z.string().max(120).default(""),
@@ -532,6 +570,8 @@ export const BlogArticleMetaSchema = z.object({
   hero: BlogHeroSchema.optional(),
   /** True Published and Updated dates (BLOG_DATES_ENABLED). Optional with no default, like `hero`. */
   dates: BlogArticleDatesSchema.optional(),
+  /** Its clock and freshness (BLOG_FRESHNESS_ENABLED). Optional with no default, like `dates`. */
+  freshness: BlogArticleFreshnessSchema.optional(),
   /** Where the client put the hero / share card on their own site (https). Our hosted addresses
    *  never go into client markup, so the image is in the export only once one is set. */
   imageUrl: z.string().max(2000).optional(),

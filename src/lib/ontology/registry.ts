@@ -1220,6 +1220,22 @@ export const ONTOLOGY: readonly OntologyType[] = [
     search: { none: "working state; what it finds is searched as the article" },
     numbers: { none: NO_NUMBERS },
   },
+  {
+    id: "freshness_watch",
+    name: "Freshness watch",
+    description: "Article freshness's daily record per brand: its live articles' counts by state and by clock, their pages, and the articles due a refresh. Each article's own clock and state live on the article.",
+    place: "content",
+    status: "built",
+    home: "brand",
+    personal: "none",
+    stores: [regional("freshness_watch")],
+    links: [{ to: "content_plan", via: "the live articles it looks at", many: true }],
+    events: [],
+    erase: { none: "worked out again each day; each article's freshness is on the article" },
+    export: { none: NOT_PERSONAL },
+    search: { none: "working state; the articles are searched as themselves" },
+    numbers: { meanings: ["articlesDue", "articlesReviewSoon", "articlesFresh", "clockDays", "liveArticles"], tool: "list_articles_due" },
+  },
 
   // ===== Partner and agent: who acts for the brand ===========================================
   {

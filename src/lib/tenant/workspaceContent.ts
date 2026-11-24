@@ -15,6 +15,7 @@ import {
   EbookChapterSchema,
   CONTENT_PLAN_LIMITS,
   type BlogArticleDates,
+  type BlogArticleFreshness,
   type BlogArticleLive,
   type BlogHero,
   type ContentPlan,
@@ -481,6 +482,7 @@ export async function updateContentPlan(
                   live: n.blog?.live,
                   hero: n.blog?.hero,
                   dates: n.blog?.dates,
+                  freshness: n.blog?.freshness,
                   status: n.status,
                   body: n.body,
                 },
@@ -496,6 +498,7 @@ export async function updateContentPlan(
             live: BlogArticleLive | null | undefined;
             hero: BlogHero | undefined;
             dates: BlogArticleDates | undefined;
+            freshness: BlogArticleFreshness | undefined;
             status: ContentNode["status"];
             body: string;
           }
@@ -506,9 +509,9 @@ export async function updateContentPlan(
         const keep = owned.get(n.id);
         // Vizzy's draft is only ever the stored one: a Save can't set, change or clear it.
         if (!keep) return withoutAiDraft(n);
-        const { live, hero, dates, aiDraft, status, body, ...distribution } = keep;
+        const { live, hero, dates, freshness, aiDraft, status, body, ...distribution } = keep;
         const merged = withoutAiDraft({ ...n, ...distribution, ...(keepsLiveApproval(n, { live, status, body }) ? { status } : {}) });
-        return withStoredBlog(aiDraft ? { ...merged, aiDraft } : merged, { live, hero, dates });
+        return withStoredBlog(aiDraft ? { ...merged, aiDraft } : merged, { live, hero, dates, freshness });
       }),
     };
     tx.update(ref, { ...fields, ...strategy, graph, updatedAt: new Date().toISOString() });
@@ -543,20 +546,29 @@ function withoutAiDraft<N extends { aiDraft?: unknown }>(node: N): N {
  *  - `blog.hero`, set only by the hero's own writer (`updateBlogHero`). The fact check saves
  *    the whole meta it read at its start, and a hero made meanwhile would otherwise be lost;
  *  - `blog.dates` (BLOG_DATES_ENABLED), set only with the live mark (`setDates` below). A rewrite
- *    replaces the whole meta, and the day the page went up must outlive it.
+ *    replaces the whole meta, and the day the page went up must outlive it;
+ *  - `blog.freshness` (BLOG_FRESHNESS_ENABLED), set only by the freshness watch and a check
+ *    (`setFreshness` below): its clock and events are the clock test's record.
  */
 function withStoredBlog<N extends Pick<ContentNode, "blog">>(
   node: N,
-  stored: { live: BlogArticleLive | null | undefined; hero: BlogHero | undefined; dates: BlogArticleDates | undefined },
+  stored: {
+    live: BlogArticleLive | null | undefined;
+    hero: BlogHero | undefined;
+    dates: BlogArticleDates | undefined;
+    freshness?: BlogArticleFreshness | undefined;
+  },
 ): N {
-  const { live, hero, dates } = stored;
+  const { live, hero, dates, freshness } = stored;
   if (
     live === undefined &&
     node.blog?.live === undefined &&
     hero === undefined &&
     node.blog?.hero === undefined &&
     dates === undefined &&
-    node.blog?.dates === undefined
+    node.blog?.dates === undefined &&
+    freshness === undefined &&
+    node.blog?.freshness === undefined
   ) {
     return node;
   }
@@ -567,6 +579,8 @@ function withStoredBlog<N extends Pick<ContentNode, "blog">>(
   else blog.hero = hero;
   if (dates === undefined) delete blog.dates;
   else blog.dates = dates;
+  if (freshness === undefined) delete blog.freshness;
+  else blog.freshness = freshness;
   return { ...node, blog };
 }
 
@@ -624,6 +638,9 @@ export async function updateContentPlanNode(
     /** The article's dates with the live mark (BLOG_DATES_ENABLED): from the ones stored and the new
      *  live mark. Undefined removes them (the article isn't live). */
     setDates?: (stored: BlogArticleDates | undefined, live: BlogArticleLive | null) => BlogArticleDates | undefined;
+    /** The article's freshness (BLOG_FRESHNESS_ENABLED), from the one stored and the node as stored.
+     *  Undefined removes it. */
+    setFreshness?: (stored: BlogArticleFreshness | undefined, node: ContentNode) => BlogArticleFreshness | undefined;
   } = {},
 ): Promise<ContentNode | null> {
   const database = db ?? (getDb(databaseIdForRegion(ctx.region)) as unknown as FirestoreLike);
@@ -647,7 +664,10 @@ export async function updateContentPlanNode(
     const merged = ContentNodeSchema.parse({ ...stored, ...patch, ...(opts.patchFor ? opts.patchFor(plan, stored) : {}) });
     const live = opts.setLive ? opts.setLive(stored.blog?.live ?? null, { before: stored, after: merged }) : stored.blog?.live;
     const dates = opts.setDates ? opts.setDates(stored.blog?.dates, live ?? null) : stored.blog?.dates;
-    const next = ContentNodeSchema.parse(withStoredBlog(merged, { live, hero: stored.blog?.hero, dates }));
+    // "Not live" takes the article's clock away with its live mark: a clock runs only while it is live.
+    const cleared = Boolean(opts.setLive) && live === null;
+    const freshness = cleared ? undefined : opts.setFreshness ? opts.setFreshness(stored.blog?.freshness, stored) : stored.blog?.freshness;
+    const next = ContentNodeSchema.parse(withStoredBlog(merged, { live, hero: stored.blog?.hero, dates, freshness }));
     const nodes = [...plan.graph.nodes];
     nodes[idx] = next;
     tx.update(ref, {

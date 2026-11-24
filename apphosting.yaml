@@ -704,6 +704,18 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Article freshness: a clock per live article (20, 30 or 45 days, tested), a daily state with its
+  # reasons, and due articles in Review, Next up and Search Console's rows (needs BLOG_DATES_ENABLED).
+  - variable: BLOG_FRESHNESS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Its screens: the Freshness card, the clock setting and the article list's pills.
+  - variable: NEXT_PUBLIC_BLOG_FRESHNESS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
   - variable: BRAND_MAP_CHAT_ENABLED
     value: "false"
     availability:

@@ -1,0 +1,22 @@
+/* Legal pages: plain, readable long text. Scoped to .legal-doc. */
+.legal-doc { font-size: 15px; line-height: 1.7; }
+.legal-doc h1 { font-size: 1.9rem; line-height: 1.2; font-weight: 700; margin: 0 0 0.5rem; }
+.legal-doc h2 { font-size: 1.35rem; font-weight: 700; margin: 2.5rem 0 0.75rem; }
+.legal-doc h3 { font-size: 1.05rem; font-weight: 650; margin: 1.75rem 0 0.5rem; }
+.legal-doc p { margin: 0 0 0.9rem; }
+.legal-doc ul, .legal-doc ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+.legal-doc ul { list-style: disc; }
+.legal-doc ol { list-style: decimal; }
+.legal-doc li { margin: 0.25rem 0; }
+.legal-doc li > p { margin: 0; }
+.legal-doc a { text-decoration: underline; text-underline-offset: 3px; }
+.legal-doc code { font-family: ui-monospace, monospace; font-size: 0.9em; }
+.legal-doc hr { margin: 2rem 0; border-color: rgb(229 229 229); }
+.legal-table { overflow-x: auto; margin: 0 0 1.25rem; }
+.legal-doc table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.legal-doc th, .legal-doc td { text-align: left; vertical-align: top; padding: 0.5rem 0.75rem; border-bottom: 1px solid rgb(229 229 229); }
+.legal-doc th { font-weight: 650; }
+.legal-doc th p, .legal-doc td p { margin: 0; }
+@media (prefers-color-scheme: dark) {
+  .legal-doc hr, .legal-doc th, .legal-doc td { border-color: rgb(38 38 38); }
+}

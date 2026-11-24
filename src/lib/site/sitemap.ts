@@ -2,6 +2,7 @@ import { shownDocPages } from "@/lib/developers/docs";
 import { isDevelopersDocsEnabled } from "@/lib/developers/flags";
 import { shownHelpPages } from "@/lib/help/pages";
 import { isHelpPagesEnabled } from "@/lib/help/flags";
+import { legalLinks } from "@/lib/legal/pages";
 import { FEATURE_ORDER, STAGE_IDS } from "./content";
 import { isSiteLanguagesEnabled, isSiteLoopEnabled } from "./flags";
 import { SITE_LANGS, languageAlternates, sitePath, type SitePage } from "./langs";
@@ -37,6 +38,7 @@ export function sitemapEntries(origin: string): SitemapEntry[] {
   }
   if (isDevelopersDocsEnabled()) for (const p of shownDocPages()) out.push({ loc: origin + p.path });
   if (isHelpPagesEnabled()) for (const p of shownHelpPages()) out.push({ loc: origin + p.path });
+  for (const l of legalLinks()) out.push({ loc: origin + l.href });
   return out;
 }
 

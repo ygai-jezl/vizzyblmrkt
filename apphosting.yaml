@@ -131,6 +131,16 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # /privacy, /terms and the footer links to them, from the deployment's own legal/*.md files.
+  - variable: LEGAL_PAGES_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # /dpa and its footer link (needs LEGAL_PAGES_ENABLED). Turn on once the DPA is signed off.
+  - variable: LEGAL_DPA_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Google Analytics on the public site (needs NEXT_PUBLIC_GA_MEASUREMENT_ID); debug
   # mode sends hits to DebugView.
   - variable: NEXT_PUBLIC_GA_ENABLED

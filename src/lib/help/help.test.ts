@@ -62,6 +62,7 @@ vi.hoisted(() => {
   process.env.BRAND_MAP_ENABLED = "true";
   process.env.BRAND_MAP_PAGES_ENABLED = "true";
   process.env.BLOG_LIVE_WATCH_ENABLED = "true";
+  process.env.NEXT_PUBLIC_BLOG_DATES_ENABLED = "true";
   process.env.NEXT_PUBLIC_PLANS_ENABLED = "true";
   process.env.NEXT_PUBLIC_USAGE_METER_ENABLED = "true";
   process.env.NEXT_PUBLIC_CONNECTORS_ENABLED = "true";

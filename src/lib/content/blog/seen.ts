@@ -1,5 +1,6 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
-import { generateTextWithDeadline } from "@/lib/agents/gemini";
+import { generateTextWithDeadline, type AiUsage } from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import { forTenant } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import { embedDocuments, embedQuery } from "@/lib/agents/embeddings";
@@ -78,6 +79,13 @@ const WHY_NEAR = "About the same subject";
 
 export interface SeenDeps extends NotesDeps {
   generate?: typeof generateTextWithDeadline;
+  /** The usage (tests); otherwise the brand's own. */
+  usage?: AiUsage;
+}
+
+/** What the model calls count against: the brand's own usage, or the one a test gave. */
+function usageOf(ctx: TenantContext, deps: SeenDeps): AiUsage {
+  return deps.usage ?? aiUsage(ctx, "seen_notes", { db: deps.db });
 }
 
 /** The question an article's notes are matched to. */
@@ -163,6 +171,7 @@ export async function matchSeen(
   const manual = current.notes.filter((n) => n.why === ADDED_BY_YOU && !removed.has(n.id));
   const skip = (id: string) => removed.has(id) || priorIds.has(id) || manual.some((n) => n.id === id);
   const generate = deps.generate ?? generateTextWithDeadline;
+  const usage = usageOf(ctx, deps);
   const brand = args.brandName.replace(/["\n]/g, " ").slice(0, 120);
   const spark = oneLine(args.plan.scope.spark).slice(0, 600) || "(none)";
   const about = [question, args.plan.scope.spark].filter(Boolean).join("\n");
@@ -190,7 +199,7 @@ export async function matchSeen(
         spark,
         notes: toCheck.map((n, i) => `[${i + 1}] ${oneLine(n.text).replace(/<\/?\s*notes\s*>/gi, " ")}`).join("\n"),
       }),
-      { timeoutMs: 25_000, temperature: 0, thinkingBudget: 512 },
+      { timeoutMs: 25_000, temperature: 0, thinkingBudget: 512, usage },
     ).catch(() => null);
     if (raw) verdicts = parseVerdicts(raw, toCheck.length);
   }
@@ -243,7 +252,7 @@ export async function matchSeen(
   } else if (!notes.length) {
     const raw = await generate(
       renderPrompt("content.blog_note_asks", { brand_name: brand, question, spark, audience }),
-      { timeoutMs: 20_000, temperature: 0.4, thinkingBudget: 256 },
+      { timeoutMs: 20_000, temperature: 0.4, thinkingBudget: 256, usage },
     ).catch(() => null);
     asks = raw ? parseAsks(raw) : [];
   }
@@ -361,7 +370,7 @@ async function articleQuestions(
           open: open.map((o, i) => `[${i + 1}] ${oneLine(o.note.question ?? "").replace(/<\/?\s*open\s*>/gi, " ")}`).join("\n"),
         })
       : renderPrompt("content.blog_note_asks", vars),
-    { timeoutMs: 20_000, temperature: 0.4, thinkingBudget: 256 },
+    { timeoutMs: 20_000, temperature: 0.4, thinkingBudget: 256, usage: usageOf(ctx, deps) },
   ).catch(() => null);
   if (!raw) return { questions: answered, unsaved: [] };
 
@@ -412,7 +421,7 @@ async function freshQuestions(
       have: have.join("\n") || "(nothing yet)",
       open: a.open.map((o, i) => `[${i + 1}] ${strip(o.note.question ?? "", "open")}`).join("\n") || "(none)",
     }),
-    { timeoutMs: 20_000, temperature: 0.4, thinkingBudget: 256 },
+    { timeoutMs: 20_000, temperature: 0.4, thinkingBudget: 256, usage: usageOf(ctx, deps) },
   ).catch(() => null);
   if (!raw) return { questions: a.answered, unsaved: [] };
 

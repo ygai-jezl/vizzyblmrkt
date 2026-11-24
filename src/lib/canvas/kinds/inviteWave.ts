@@ -4,6 +4,8 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import type { Campaign } from "@/lib/types/campaign";
 import { INVITE_LIMITS, type InviteWave } from "@/lib/types/invite";
 import { draftCopy } from "@/lib/agents/creative";
+import type { AiUsage } from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import { resolveBrandVoiceText } from "@/lib/content/create/brandContext";
 import { resolveCampaignLocale } from "@/lib/i18n/locale";
 import { isInvitesEnabled } from "@/lib/invites/flags";
@@ -38,13 +40,13 @@ const InviteWaveInput = z.object({
 const AUTHOR_LIMIT = { prefix: "invite_author", burstLimit: 5, hourlyLimit: 20 };
 
 export interface InviteCopyWriter {
-  (args: { campaign: Campaign; brief: string; productName: string; brandVoice: string | null; locale: string }): Promise<
+  (args: { campaign: Campaign; brief: string; productName: string; brandVoice: string | null; locale: string; usage: AiUsage }): Promise<
     { subject: string; body: string } | null
   >;
 }
 
 /** On-brand invite copy from the copywriter; null when it falls back (the default invite copy is used then). */
-const writeWithAgent: InviteCopyWriter = async ({ campaign, brief, productName, brandVoice, locale }) => {
+const writeWithAgent: InviteCopyWriter = async ({ campaign, brief, productName, brandVoice, locale, usage }) => {
   const r = await draftCopy({
     campaign,
     brief:
@@ -54,6 +56,7 @@ const writeWithAgent: InviteCopyWriter = async ({ campaign, brief, productName, 
     variantCount: 1,
     brandVoice,
     locale,
+    usage,
   });
   const v = r.source === "agent3" ? r.variants[0] : null;
   return v?.subject && v?.body ? { subject: v.subject, body: v.body } : null;
@@ -117,6 +120,7 @@ export async function authorInviteWaveDraft(
       productName: inviteProductName(connection),
       brandVoice: resolveBrandVoiceText({ tenantBrandVoice: tenant?.brandVoice }) || null,
       locale,
+      usage: aiUsage(ctx, "email_copy", { db: deps.db, tenant }),
     }).catch(() => null);
   }
   copy ??= defaultInviteCopy(locale);

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { isGeminiConfigured } from "@/lib/agents/gemini";
+import { isGeminiConfigured, type AiUsage } from "@/lib/agents/gemini";
+import { aiUsage, usageMeter } from "@/lib/plans/meter";
 import { articleMapAtScale } from "@/lib/brandMap/articleScale";
 import { isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 import { decidedBrandMap } from "@/lib/brandMap/store";
@@ -53,6 +54,8 @@ export interface ArticleTickDeps extends ReadDeps, ArticleStoreDeps, FetchDeps {
   loadMap?: (ctx: TenantContext) => Promise<BrandMap | null>;
   /** The part of a moved map near an article (tests). */
   mapNear?: (ctx: TenantContext, map: BrandMap, text: string) => Promise<ArticleMap | null>;
+  /** The usage (tests); otherwise the brand's own. */
+  usage?: AiUsage;
 }
 
 export interface ArticleTickResult {
@@ -201,11 +204,15 @@ export async function readOneArticle(
     return "skipped" as const;
   };
   const title = (t: string) => cleanTitle(t, [c.name, c.site]);
+  const usage = deps.usage ?? aiUsage(ctx, "competitor_articles", { db: deps.db });
+  // Each model call is one read on the meter, found or not, as the old counter counts it (modelCalled).
+  const counted = () => usageMeter(ctx, "competitor_reads", "competitor_articles", { db: deps.db, now: () => new Date(clock()) }).record(1);
 
   if (c.reader === "google") {
     if (!isCompetitorsGoogleReaderEnabled() || (!deps.readWithGoogle && !isGeminiConfigured())) return stop({ status: "failed", problem: "turned_away" }, "failed");
     const cand = await candidatesFor(ctx, c, brandName, a.title, deps);
-    const found = await readArticleWithGoogle(a.url, cand, { name: c.name, timeoutMs: Math.max(1, timeLeft()) }, deps);
+    const found = await readArticleWithGoogle(a.url, cand, { name: c.name, timeoutMs: Math.max(1, timeLeft()), usage }, deps);
+    await counted();
     if (!found) return notRead(ctx, a, leaseId, "no_answer", true, refresh, deps);
     if (found.format === "listing") return listing("google");
     const done = await saved({ readBy: "google", title: title(a.title), ...found });
@@ -229,7 +236,8 @@ export async function readOneArticle(
   const page = readArticlePage(got.text, got.url, c.site, now);
   if (page.words < MIN_ARTICLE_WORDS) return stop({ status: "skipped", problem: "not_an_article", words: page.words }, "skipped");
   const cand = await candidatesFor(ctx, c, brandName, [page.title, page.description, ...page.headings].join("\n"), deps);
-  const found = await readArticle(page, cand, { name: c.name, timeoutMs: Math.max(1, timeLeft()) }, deps);
+  const found = await readArticle(page, cand, { name: c.name, timeoutMs: Math.max(1, timeLeft()), usage }, deps);
+  await counted();
   if (!found) return notRead(ctx, a, leaseId, "no_answer", true, refresh, deps);
   if (found.format === "listing") return listing("direct");
   const done = await saved({

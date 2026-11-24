@@ -1,4 +1,5 @@
-import { generateText, parseFirstJson } from "@/lib/agents/gemini";
+import { generateText, parseFirstJson, type AiUsage } from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { getTenantById } from "@/lib/tenant/registry";
 import {
@@ -155,13 +156,14 @@ interface Proposed {
   avoid: LearnedPatternRule[];
 }
 
-async function synthesize(channel: string, promoted: ClusterAgg[], avoid: ClusterAgg[]): Promise<Proposed | null> {
+async function synthesize(channel: string, promoted: ClusterAgg[], avoid: ClusterAgg[], usage: AiUsage): Promise<Proposed | null> {
   const raw = await generateText(
     renderPrompt("content.post_patterns_synthesize", {
       channel,
       promoted: renderPromotedBlock(promoted),
       avoid: renderAvoidBlock(avoid),
     }),
+    { usage },
   );
   if (!raw) return null;
   const json = parseFirstJson(raw) as { directive?: unknown; labels?: unknown; avoid?: unknown } | null;
@@ -193,6 +195,7 @@ async function judge(
   oldDirective: string | null,
   proposed: Proposed,
   promoted: ClusterAgg[],
+  usage: AiUsage,
 ): Promise<JudgeResult> {
   const evidence = promoted
     .slice(0, MAX_EVIDENCE)
@@ -205,6 +208,7 @@ async function judge(
       new: proposed.directive,
       evidence,
     }),
+    { usage },
   );
   const json = raw ? (parseFirstJson(raw) as { safe?: unknown; score?: unknown; rationale?: unknown } | null) : null;
   if (!json) {
@@ -249,10 +253,11 @@ export async function refreshLearnedPostPatterns(
     const promoted = promotedClusters(clusters);
     if (promoted.length === 0) return; // nothing proven+repeatable yet
 
-    const proposed = await synthesize(channel, promoted, avoidClusters(clusters));
+    const usage = aiUsage(ctx, "post_feedback", { db, tenant });
+    const proposed = await synthesize(channel, promoted, avoidClusters(clusters), usage);
     if (!proposed) return;
 
-    const judged = await judge(channel, frag?.directive ?? null, proposed, promoted);
+    const judged = await judge(channel, frag?.directive ?? null, proposed, promoted, usage);
     // Don't replace an existing directive with a judged-unsafe proposal (regression guard);
     // the first-ever directive is always adopted (nothing to regress from).
     if (!judged.safe && frag?.directive) return;

@@ -1,5 +1,5 @@
 import { composePrompt, brandVoiceSection, audienceSection } from "@/lib/agents/prompts/compose";
-import { generateText, parseFirstJson } from "@/lib/agents/gemini";
+import { generateText, parseFirstJson, type AiUsage } from "@/lib/agents/gemini";
 import { spamScan, collapseBangs } from "@/lib/content/create/emailCritics";
 import { WRITING_RULES } from "@/lib/content/writingRules";
 
@@ -50,6 +50,8 @@ export async function draftEmailCopy(input: {
   brandVoice?: string | null;
   audience?: string | null;
   generate?: (prompt: string) => Promise<string | null>;
+  /** The brand's usage: the call's tokens are counted. */
+  usage: AiUsage;
 }): Promise<DraftedEmailCopy | null> {
   const prompt = composePrompt({
     identity: brandVoiceSection(input.brandVoice),
@@ -57,7 +59,7 @@ export async function draftEmailCopy(input: {
     userProfile: audienceSection(input.audience),
     task: input.task,
   });
-  const drafted = coerceDraftedEmail(await (input.generate ?? generateText)(prompt));
+  const drafted = coerceDraftedEmail(await (input.generate ?? ((p: string) => generateText(p, { usage: input.usage })))(prompt));
   if (!drafted.body) return null;
   // Critics run on the MODEL PROSE, before any caller bakes tokens in — so a baked
   // value containing "!!" (legal in a URL) is never mangled.

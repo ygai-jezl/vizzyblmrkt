@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { WEB_SEARCH_LIMIT_MESSAGE } from "@/lib/plans/resources";
 import { useRouter } from "next/navigation";
 import {
   ReactFlow,
@@ -515,6 +516,8 @@ export function ContentCanvas({
       const data = (await res.json().catch(() => ({}))) as {
         brief?: BlogBrief;
         searched?: boolean;
+        /** Google wasn't searched: the brand's web searches for research are used up this month. */
+        searchLimited?: boolean;
         found?: {
           questions: number;
           links: number;
@@ -537,7 +540,11 @@ export function ContentCanvas({
                 (f.citedSources
                   ? `— ${f.citedSources} from your cite sources and ${f.sources - f.citedSources} from the web (${f.verifiedSources} checked).`
                   : `(${f.verifiedSources} checked on the page).`) +
-                (data.searched === false ? " Search wasn't available, so the questions are yours alone." : "") +
+                (data.searchLimited
+                  ? ` ${WEB_SEARCH_LIMIT_MESSAGE} Research used your own sources only.`
+                  : data.searched === false
+                    ? " Search wasn't available, so the questions are yours alone."
+                    : "") +
                 (f.facts > 0 && f.sources === 0
                   ? " Search found facts but not the pages behind them this time — research again for sources."
                   : "") +

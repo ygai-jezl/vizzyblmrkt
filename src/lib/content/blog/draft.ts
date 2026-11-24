@@ -1,6 +1,6 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { composePrompt, brandVoiceSection, audienceSection, fencedContext } from "@/lib/agents/prompts/compose";
-import { generateText, generateTextWithDeadline } from "@/lib/agents/gemini";
+import { generateText, generateTextWithDeadline, type AiUsage } from "@/lib/agents/gemini";
 import { withoutSources } from "@/lib/agents/knowledgeRetrieval";
 import {
   BlogArticleMetaSchema,
@@ -75,6 +75,8 @@ export interface BlogDraftInput {
   competitorAngles?: string;
   /** The context pack, as a prompt block (CREATE_RESEARCH_CONTEXT_ENABLED). */
   contextPack?: string;
+  /** The brand's usage: every pass's tokens are counted. */
+  usage: AiUsage;
 }
 
 export interface BlogDraftDeps {
@@ -409,7 +411,12 @@ export async function draftBlogArticle(input: BlogDraftInput, deps: BlogDraftDep
   const generate: typeof generateText =
     deps.generate ??
     (deadline
-      ? (prompt, opts) => generateTextWithDeadline(prompt, { timeoutMs: Math.max(1_000, deadline - Date.now() - SAVE_MS), thinkingBudget: opts?.thinkingBudget })
+      ? (prompt, opts) =>
+          generateTextWithDeadline(prompt, {
+            timeoutMs: Math.max(1_000, deadline - Date.now() - SAVE_MS),
+            thinkingBudget: opts.thinkingBudget,
+            usage: opts.usage,
+          })
       : generateText);
   const started = clock().getTime();
   const today = clock().toISOString().slice(0, 10);
@@ -436,7 +443,7 @@ export async function draftBlogArticle(input: BlogDraftInput, deps: BlogDraftDep
     extra: [mapMaterial(input.map ?? null), editorial ? seenMaterial(brief) : ""].filter(Boolean).join("\n"),
   });
 
-  const thinking = { thinkingBudget: blogWriterThinkingBudget() };
+  const thinking = { thinkingBudget: blogWriterThinkingBudget(), usage: input.usage };
   const raw = await generate(compose(task), thinking);
   let best = raw ? checkDraft(raw, input, reference, today, editorial) : null;
   if (!best) return null;

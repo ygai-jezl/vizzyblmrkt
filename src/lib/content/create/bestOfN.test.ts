@@ -4,6 +4,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // was given, so we can assert best-of-N picks the highest-scoring image deterministically.
 vi.mock("@/lib/agents/gemini", () => ({
   generateTextWithImage: vi.fn(),
+  NO_USAGE: {},
+  isUsageLimited: (r: unknown) => typeof r === "object" && r !== null && (r as { limited?: unknown }).limited === true,
   parseFirstJson: (t: string) => {
     const m = t.match(/\{[\s\S]*\}/);
     return m ? JSON.parse(m[0]) : null;
@@ -11,11 +13,13 @@ vi.mock("@/lib/agents/gemini", () => ({
 }));
 
 import { generateBestOfN, judgeBrandFit } from "./bestOfN";
-import { generateTextWithImage } from "@/lib/agents/gemini";
+import { generateTextWithImage, NO_USAGE } from "@/lib/agents/gemini";
 
 const mockJudge = vi.mocked(generateTextWithImage);
 
 const img = (tag: string) => ({ bytes: Buffer.from(tag), mimeType: "image/png" });
+/** The picked image's tag, or null when none (or the image cap) came back. */
+const tagOf = (r: Awaited<ReturnType<typeof generateBestOfN>>) => (r && "bytes" in r ? r.bytes.toString() : null);
 const SCORES: Record<string, number> = { a: 10, b: 90, c: 50 };
 
 beforeEach(() => {
@@ -36,8 +40,9 @@ describe("generateBestOfN", () => {
       generate: async () => queue[i++]!,
       styleReference: "brand style",
       brief: "hero",
+      usage: NO_USAGE,
     });
-    expect(best?.bytes.toString()).toBe("b"); // 90 wins
+    expect(tagOf(best)).toBe("b"); // 90 wins
   });
 
   it("skips a single generation (no judging) — degenerate N", async () => {
@@ -46,8 +51,9 @@ describe("generateBestOfN", () => {
       generate: async () => img("a"),
       styleReference: "s",
       brief: "b",
+      usage: NO_USAGE,
     });
-    expect(best?.bytes.toString()).toBe("a");
+    expect(tagOf(best)).toBe("a");
     expect(mockJudge).not.toHaveBeenCalled();
   });
 
@@ -57,8 +63,20 @@ describe("generateBestOfN", () => {
       generate: async () => null,
       styleReference: "s",
       brief: "b",
+      usage: NO_USAGE,
     });
     expect(best).toBeNull();
+  });
+
+  it("drops candidates the image cap stopped, and says so when none were made", async () => {
+    const limited = { limited: true as const, used: 50, limit: 50 };
+    const queue = [limited, img("c")];
+    let i = 0;
+    const one = await generateBestOfN({ n: 2, generate: async () => queue[i++]!, styleReference: "s", brief: "b", usage: NO_USAGE });
+    expect(tagOf(one)).toBe("c");
+    expect(mockJudge).not.toHaveBeenCalled();
+    const none = await generateBestOfN({ n: 2, generate: async () => limited, styleReference: "s", brief: "b", usage: NO_USAGE });
+    expect(none).toEqual(limited);
   });
 
   it("falls back to the first candidate when every judge fails", async () => {
@@ -70,24 +88,25 @@ describe("generateBestOfN", () => {
       generate: async () => queue[i++]!,
       styleReference: "s",
       brief: "b",
+      usage: NO_USAGE,
     });
-    expect(best?.bytes.toString()).toBe("a"); // never worse than single-shot
+    expect(tagOf(best)).toBe("a"); // never worse than single-shot
   });
 });
 
 describe("judgeBrandFit", () => {
   it("clamps the score to 0–100", async () => {
     mockJudge.mockResolvedValue(JSON.stringify({ score: 150 }));
-    expect(await judgeBrandFit({ candidate: img("x"), styleReference: "s", brief: "b" })).toBe(100);
+    expect(await judgeBrandFit({ candidate: img("x"), styleReference: "s", brief: "b", usage: NO_USAGE })).toBe(100);
   });
 
   it("returns null on a non-numeric / missing score", async () => {
     mockJudge.mockResolvedValue(JSON.stringify({ reasons: "meh" }));
-    expect(await judgeBrandFit({ candidate: img("x"), styleReference: "s", brief: "b" })).toBeNull();
+    expect(await judgeBrandFit({ candidate: img("x"), styleReference: "s", brief: "b", usage: NO_USAGE })).toBeNull();
   });
 
   it("returns null when the model is unavailable", async () => {
     mockJudge.mockResolvedValue(null);
-    expect(await judgeBrandFit({ candidate: img("x"), styleReference: "s", brief: "b" })).toBeNull();
+    expect(await judgeBrandFit({ candidate: img("x"), styleReference: "s", brief: "b", usage: NO_USAGE })).toBeNull();
   });
 });

@@ -221,6 +221,71 @@ describe("organisationUsage", () => {
     expect(granted.monthly.find((r) => r.feature === "article_autopilot")).toMatchObject({ included: true, needs: null, used: 1, limit: 4, from: "brand" });
   });
 
+  it("shows web searches for research with its switch on: used of the plan's cap, by feature", async () => {
+    us.seed("usage_meters", "um_ten_A_2026-11", {
+      tenantId: "ten_A",
+      month: "2026-11",
+      meters: { web_searches: { total: 140, calls: 9, lostCalls: 0, byPurpose: { blog_research: 120, brand_map_research: 20 } } },
+      updatedAt: "2026-11-20T00:00:00.000Z",
+    });
+    expect((await organisationUsage(ctxOf("ten_A", "us", "usr_owner"), deps)).monthly.find((r) => r.feature === "web_searches")).toBeUndefined();
+    vi.stubEnv("USAGE_METER_ENABLED", "true");
+    const s = await organisationUsage(ctxOf("ten_A", "us", "usr_owner"), deps);
+    // Pro caps web searches at 1,500 a brand a month.
+    expect(s.monthly.find((r) => r.feature === "web_searches")).toEqual({
+      feature: "web_searches",
+      label: "Web searches for research",
+      used: 140,
+      limit: 1500,
+      from: "plan",
+      included: true,
+      needs: null,
+      unit: "searches",
+      byPurpose: { blog_research: 120, brand_map_research: 20 },
+    });
+  });
+
+  it("shows model use with no limit, images at this copy's cap, and what used the older counters", async () => {
+    vi.stubEnv("USAGE_METER_ENABLED", "true");
+    vi.stubEnv("BRAND_MAP_NEXT_UP_ENABLED", "true");
+    us.seed("brand_signals", "s1", { tenantId: "ten_A", lookupMonth: "2026-11" });
+    us.seed("usage_meters", "um_ten_A_2026-11", {
+      tenantId: "ten_A",
+      month: "2026-11",
+      meters: {
+        model_tokens: { total: 9000, calls: 4, lostCalls: 1, byPurpose: { vizzy_chat: 6000, blog_write: 3000 }, byModel: { "gemini-3.8-flash": 9000 } },
+        images: { total: 3, calls: 3, lostCalls: 0, byPurpose: { blog_hero: 3 } },
+        google_lookups: { total: 1, calls: 1, lostCalls: 0, byPurpose: { get_from_google: 1 } },
+      },
+      updatedAt: "2026-11-20T00:00:00.000Z",
+    });
+    eu.seed("usage_meters", "um_ten_B_2026-11", {
+      tenantId: "ten_B",
+      month: "2026-11",
+      meters: { model_tokens: { total: 1000, calls: 1, lostCalls: 0, byPurpose: { product_map: 1000 }, byModel: { "gemini-3.8-flash": 400, "gemini-3.8-pro": 600 } } },
+      updatedAt: "2026-11-20T00:00:00.000Z",
+    });
+    // Beta's meter in the wrong region's database must never count.
+    us.seed("usage_meters", "um_ten_B_2026-11", { tenantId: "ten_B", month: "2026-11", meters: { model_tokens: { total: 99999, calls: 1, lostCalls: 0, byPurpose: {} } }, updatedAt: T0 });
+
+    const s = await organisationUsage(ctxOf("ten_A", "us", "usr_owner"), deps);
+    const row = (f: string) => s.monthly.find((r) => r.feature === f);
+    expect(row("model_tokens")).toMatchObject({ label: "AI model use", used: 9000, limit: null, from: null, unit: "tokens", byModel: { "gemini-3.8-flash": 9000 } });
+    expect(row("images")).toMatchObject({ label: "Images made", used: 3, limit: 100_000, from: "default", byPurpose: { blog_hero: 3 } });
+    expect(row("next_up")).toMatchObject({ used: 1, byPurpose: { get_from_google: 1 } });
+    // google_lookups is shown on Next up, never as a row of its own.
+    expect(row("google_lookups")).toBeUndefined();
+
+    // The owner sees each resource across the organisation's brands, each read in its own region.
+    expect(s.organisationResources?.find((r) => r.resource === "model_tokens")).toMatchObject({ used: 10_000 });
+    expect(s.organisationResources?.find((r) => r.resource === "images")).toMatchObject({ used: 3 });
+
+    // A brand that can't be read makes the totals unknown, never low.
+    const broken: UsageDeps = { ...deps, dataDb: (r: Region) => (r === "eu" ? failingFirestore(eu, { collections: ["usage_meters"] }) : us) };
+    const unread = await organisationUsage(ctxOf("ten_A", "us", "usr_owner"), broken);
+    expect(unread.organisationResources?.every((r) => r.used === null)).toBe(true);
+  });
+
   it("lists what the plan includes, and a brand's own grants", async () => {
     control.seed("tenants", "ten_A", brand("Acme", "us", { organisationId: "org_ten_A", orgPlan: "pro", grantedFeatures: ["competitors", "article_autopilot"] }));
     const s = await organisationUsage(ctxOf("ten_A", "us", "usr_owner"), deps);

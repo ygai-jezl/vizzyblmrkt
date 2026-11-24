@@ -6,6 +6,7 @@ import { forTenant } from "@/lib/tenant";
 import { activeBrandVoiceText } from "@/lib/content/create/activeBrandVoice";
 import { getTemplate, createTemplate } from "@/lib/tenant/workspaceContent";
 import { deconstructTemplate } from "@/lib/content/deconstruct";
+import { aiUsage } from "@/lib/plans/meter";
 import { isChannel } from "@/lib/content/channels";
 import type { ModuleSizeId, Template } from "@/lib/types/template";
 
@@ -49,6 +50,7 @@ export async function POST(
     channels,
     brandVoice: await activeBrandVoiceText(ctx.tenantId, ws.brandVoice),
     audience: ws.audience ?? null,
+    usage: aiUsage(ctx, "templates"),
   });
 
   const created: Template[] = [];

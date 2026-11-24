@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { anglesBlock, competitorContext } from "@/lib/competitors/planning";
 import { generateTextWithDeadline, isGeminiConfigured } from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import { retrieveSemanticKnowledgeContext } from "@/lib/agents/knowledgeRetrieval";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { clean, fence, hasAddress, hasEmail, hasPhone, oneLine } from "@/lib/brandMap/lineChecks";
@@ -196,7 +197,12 @@ export async function suggestAngle(
       : "",
   });
 
-  const answer = await (deps.generate ?? generateTextWithDeadline)(prompt, { timeoutMs: SUGGEST_MS, temperature: input.previous ? 0.9 : 0.6, thinkingBudget: 256 }).catch(() => null);
+  const answer = await (deps.generate ?? generateTextWithDeadline)(prompt, {
+    timeoutMs: SUGGEST_MS,
+    temperature: input.previous ? 0.9 : 0.6,
+    thinkingBudget: 256,
+    usage: aiUsage(ctx, "content_write", { db: deps.db }),
+  }).catch(() => null);
   if (answer === null) return { ok: false, status: 502, error: "suggest_failed" };
   const spark = parseAngle(answer);
   if (!spark) return { ok: false, status: 502, error: "suggest_failed" };

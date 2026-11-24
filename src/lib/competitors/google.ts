@@ -1,4 +1,4 @@
-import { readUrlsWithGoogle, type UrlReadResult } from "@/lib/agents/gemini";
+import { readUrlsWithGoogle, type AiUsage, type UrlReadResult } from "@/lib/agents/gemini";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { normalizeUrl } from "@/lib/content/blog/brief";
 import { asHttps, onSite } from "./sitemap";
@@ -17,7 +17,7 @@ import { cleanTitle } from "./titles";
  *   address we asked about.
  */
 
-export type ReadWithGoogle = (prompt: string, opts: { timeoutMs: number; thinkingBudget?: number }) => Promise<UrlReadResult | null>;
+export type ReadWithGoogle = (prompt: string, opts: { timeoutMs: number; thinkingBudget?: number; usage: AiUsage }) => Promise<UrlReadResult | null>;
 
 export interface GoogleDeps {
   readWithGoogle?: ReadWithGoogle;
@@ -71,8 +71,8 @@ function linesOf(text: string): string[] {
 const CANNOT = /^CANNOT_READ\b/;
 
 /** Their robots.txt as Google read it, or null when Google couldn't read it. */
-export async function googleReadRobots(url: string, timeoutMs: number, deps: GoogleDeps = {}): Promise<string | null> {
-  const res = await readerOf(deps)(renderPrompt("competitors.read_robots", { url }), { timeoutMs, thinkingBudget: THINKING });
+export async function googleReadRobots(url: string, timeoutMs: number, usage: AiUsage, deps: GoogleDeps = {}): Promise<string | null> {
+  const res = await readerOf(deps)(renderPrompt("competitors.read_robots", { url }), { timeoutMs, thinkingBudget: THINKING, usage });
   if (!res || !wasRead(res, url)) return null;
   const text = linesOf(res.text).join("\n");
   if (!text || CANNOT.test(text) || /^<(!doctype|html)\b/i.test(text)) return null;
@@ -92,11 +92,11 @@ export interface GoogleSitemap {
  */
 export async function googleReadSitemap(
   url: string,
-  opts: { site: string; max: number },
+  opts: { site: string; max: number; usage: AiUsage },
   timeoutMs: number,
   deps: GoogleDeps = {},
 ): Promise<GoogleSitemap | "no_answer" | null> {
-  const res = await readerOf(deps)(renderPrompt("competitors.read_sitemap", { url, max: opts.max }), { timeoutMs, thinkingBudget: THINKING });
+  const res = await readerOf(deps)(renderPrompt("competitors.read_sitemap", { url, max: opts.max }), { timeoutMs, thinkingBudget: THINKING, usage: opts.usage });
   if (!res) return "no_answer";
   if (!wasRead(res, url)) return null;
   const lines = linesOf(res.text);
@@ -138,11 +138,11 @@ export interface GooglePost {
  * call. Keyed by the address we asked about; a line naming any other address is dropped, and so is
  * a page Google says it couldn't read.
  */
-export async function googleReadPosts(urls: string[], timeoutMs: number, deps: GoogleDeps = {}): Promise<Map<string, GooglePost>> {
+export async function googleReadPosts(urls: string[], timeoutMs: number, usage: AiUsage, deps: GoogleDeps = {}): Promise<Map<string, GooglePost>> {
   const out = new Map<string, GooglePost>();
   const asked = urls.slice(0, GOOGLE_POSTS_MAX);
   if (!asked.length) return out;
-  const res = await readerOf(deps)(renderPrompt("competitors.read_posts", { urls: asked.join("\n") }), { timeoutMs, thinkingBudget: THINKING });
+  const res = await readerOf(deps)(renderPrompt("competitors.read_posts", { urls: asked.join("\n") }), { timeoutMs, thinkingBudget: THINKING, usage });
   if (!res) return out;
   for (const l of linesOf(res.text)) {
     const [rawUrl = "", rawTitle = "", rawDate = ""] = l.split("\t").map((p) => p.trim());

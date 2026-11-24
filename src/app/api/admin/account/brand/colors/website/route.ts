@@ -4,6 +4,7 @@ import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { isBrandColorsEnabled } from "@/lib/content/brandKit";
 import { getTenantById } from "@/lib/tenant";
 import { extractPaletteFromDomain } from "@/lib/content/create/paletteFromWebsite";
+import { aiUsage } from "@/lib/plans/meter";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +25,7 @@ export async function POST(req: Request) {
   const domain = tenant?.rootDomain?.trim();
   if (!domain) return NextResponse.json({ error: "no_primary_domain" }, { status: 400 });
 
-  const candidates = await extractPaletteFromDomain(domain);
+  const candidates = await extractPaletteFromDomain(domain, { usage: aiUsage(ctx, "brand_kit", { tenant }) });
   if (!candidates) return NextResponse.json({ error: "extraction_failed" }, { status: 502 });
 
   return NextResponse.json({ candidates, label: domain, source: "website" });

@@ -69,6 +69,35 @@ function stripUndefined(data: Doc): Doc {
 
 const isDeleteSentinel = (v: unknown) => v instanceof FieldValue && v.isEqual(FieldValue.delete());
 
+/** FieldValue.increment(n): its amount, or null for anything else. */
+function incrementOf(v: unknown): number | null {
+  if (!(v instanceof FieldValue)) return null;
+  const t = v as unknown as { methodName?: string; operand?: unknown };
+  return t.methodName === "FieldValue.increment" && typeof t.operand === "number" ? t.operand : null;
+}
+
+/**
+ * set(data, { merge: true }), like Firestore's: nested maps merge into what is stored, an
+ * increment adds to the stored number (0 when there is none), anything else replaces it.
+ */
+function mergeInto(cur: Doc | undefined, data: Doc): Doc {
+  const next: Doc = { ...(cur ?? {}) };
+  for (const [key, value] of Object.entries(data)) {
+    if (value === undefined) continue;
+    const add = incrementOf(value);
+    if (add !== null) {
+      const was = next[key];
+      next[key] = (typeof was === "number" ? was : 0) + add;
+    } else if (value && typeof value === "object" && !Array.isArray(value) && !(value instanceof FieldValue) && Object.getPrototypeOf(value) === Object.prototype) {
+      const was = next[key];
+      next[key] = mergeInto(was && typeof was === "object" && !Array.isArray(was) ? (was as Doc) : {}, value as Doc);
+    } else {
+      put(next, key, value);
+    }
+  }
+  return next;
+}
+
 /** Store `value` at `key`, or remove the field when it's FieldValue.delete() (as Firestore does). */
 function put(obj: Doc, key: string, value: unknown): void {
   if (isDeleteSentinel(value)) delete obj[key];
@@ -237,8 +266,8 @@ class FakeCollection extends FakeQuery implements CollectionLike {
         store.set(docId, stripUndefined(data));
         bump();
       },
-      async set(data: Doc) {
-        store.set(docId, stripUndefined(data));
+      async set(data: Doc, opts?: { merge?: boolean }) {
+        store.set(docId, opts?.merge ? mergeInto(store.get(docId), data) : stripUndefined(data));
         bump();
       },
       async update(data: Doc) {

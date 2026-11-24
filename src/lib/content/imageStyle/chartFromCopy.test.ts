@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { NO_USAGE } from "@/lib/agents/gemini";
 import { chartFromCopy, figureFromCopy, labelInText, verifyChart } from "./chartFromCopy";
 import type { Chart } from "@/lib/types/imageStyle";
 
@@ -64,18 +65,18 @@ describe("chartFromCopy", () => {
     const generate = vi.fn(async (_prompt: string) =>
       JSON.stringify({ kind: "line", unit: "%", points: [{ label: "Before 10 Sep", value: 0 }, { label: "28 Sep", value: 100 }, { label: "Nov", value: 55 }] }),
     );
-    const out = await chartFromCopy({ text: COPY }, { generate });
+    const out = await chartFromCopy({ text: COPY }, NO_USAGE, { generate });
     expect(out?.points.map((p) => p.label)).toEqual(["Before 10 Sep", "28 Sep"]);
     expect(generate.mock.calls[0]![0]).toContain("<copy>");
   });
 
   it("null when the copy has too few numbers, the model says none, or it fails", async () => {
     const generate = vi.fn(async (_prompt: string) => JSON.stringify({ none: true }));
-    expect(await chartFromCopy({ text: "We grew a lot this year." }, { generate })).toBeNull();
+    expect(await chartFromCopy({ text: "We grew a lot this year." }, NO_USAGE, { generate })).toBeNull();
     expect(generate).not.toHaveBeenCalled();
-    expect(await chartFromCopy({ text: COPY }, { generate })).toBeNull();
-    expect(await chartFromCopy({ text: COPY }, { generate: async () => null })).toBeNull();
-    expect(await chartFromCopy({ text: COPY }, { generate: async () => "not json" })).toBeNull();
+    expect(await chartFromCopy({ text: COPY }, NO_USAGE, { generate })).toBeNull();
+    expect(await chartFromCopy({ text: COPY }, NO_USAGE, { generate: async () => null })).toBeNull();
+    expect(await chartFromCopy({ text: COPY }, NO_USAGE, { generate: async () => "not json" })).toBeNull();
   });
 });
 

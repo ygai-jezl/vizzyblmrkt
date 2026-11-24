@@ -1,4 +1,5 @@
-import { generateGroundedJson } from "./gemini";
+import { generateGroundedJson, isSearchLimited } from "./gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import { renderPrompt } from "./prompts/registry";
 import { embedQuery } from "./embeddings";
 import {
@@ -58,13 +59,16 @@ export async function refreshTrendingTopics(
       if (Number.isFinite(age) && age < REFRESH_MS) return 0; // still fresh — don't re-spend
     }
     const date = new Date(nowMs).toISOString().slice(0, 10);
-    const res = await generateGroundedJson(
+    const answer = await generateGroundedJson(
       renderPrompt("content.trending_topics", {
         date,
         industry: profile.industry.slice(0, 200),
         audience: (profile.audience ?? "a general professional audience").slice(0, 200),
       }),
+      { usage: aiUsage(ctx, "trending", { db }) },
     );
+    // At the month's web search cap nothing is searched: the empty snapshot below waits 48 hours.
+    const res = isSearchLimited(answer) ? null : answer;
     const rawTopics = (res?.json as { topics?: unknown } | null)?.topics;
     const topics: TrendingTopic[] = Array.isArray(rawTopics)
       ? rawTopics.flatMap((t) => {

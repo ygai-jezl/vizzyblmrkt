@@ -1,5 +1,5 @@
 import type { MeteredFeature } from "./brandAccess";
-import type { LimitedFeature } from "./limits";
+import type { CapKey } from "./limits";
 import { ENTERPRISE_FEATURES, ENTERPRISE_FEATURE_IDS, type EnterpriseFeature } from "@/lib/enterprise/features";
 import { PLAN_IDS, type PlanId } from "@/lib/types/organisation";
 import type { Tenant } from "@/lib/types/tenant";
@@ -15,13 +15,14 @@ import { isPlansEnabled } from "./flags";
  *   GRANTED_ONLY_FEATURES still holds one back (decision 18).
  * - allowances: what the organisation shares across its brands (live launches are per brand).
  *   null means no limit.
- * - monthlyCaps: a per brand cap for a LIMITED_FEATURE, between the brand's own cap and this
- *   copy's FEATURE_MONTHLY_LIMITS (src/lib/plans/limits.ts). Unset: the copy's cap applies. No
- *   plan sets one today.
+ * - monthlyCaps: a per brand cap for a LIMITED_FEATURE or a paid resource, between the brand's
+ *   own cap and this copy's FEATURE_MONTHLY_LIMITS (src/lib/plans/limits.ts). Unset: the copy's
+ *   cap applies. Free and Pro cap web searches for research (the owner, 2026-11-23); no plan caps
+ *   a feature.
  *
  * The numbers follow the signed off tiers table (decision 17), with the article autopilot on
  * Ultra only (the owner, 2026-11-20). Ultra sets no caps, so moving a brand to Ultra changes
- * neither its access nor its spend (decision 20). Enterprise limits, caps and price are set by
+ * neither its access nor its spend (decision 20): its web searches follow this copy's cap. Enterprise limits, caps and price are set by
  * agreement: the catalog leaves them open, and a brand's own cap (scripts/grant-feature.ts
  * --limit) carries the agreed number.
  *
@@ -60,7 +61,7 @@ export interface Plan {
   /** Allowances given per user: the organisation's limit is the number times its users. */
   perUser: readonly Allowance[];
   /** Per brand, each month. Unset: the copy's cap (FEATURE_MONTHLY_LIMITS), else the default. */
-  monthlyCaps: Partial<Record<LimitedFeature, number>>;
+  monthlyCaps: Partial<Record<CapKey, number>>;
   /** Limits and price are agreed per organisation ("Custom" on the tiers table). */
   byAgreement: boolean;
   /** What a plan says in place of a number, for an allowance it leaves to something else. */
@@ -110,7 +111,7 @@ export const PLANS: readonly Plan[] = [
     features: [],
     allowances: { brands: 1, users: 2, liveIdeas: 1, people: 1_000, emailsPerMonth: 1_000, aiCreditsPerMonth: 50 },
     perUser: [],
-    monthlyCaps: {},
+    monthlyCaps: { web_searches: 300 },
     byAgreement: false,
     allowanceNotes: {},
   },
@@ -124,7 +125,7 @@ export const PLANS: readonly Plan[] = [
     features: ["edit_vizzy", "brand_search"],
     allowances: { brands: 3, users: null, liveIdeas: 5, people: 10_000, emailsPerMonth: 5_000, aiCreditsPerMonth: 250 },
     perUser: ["aiCreditsPerMonth"],
-    monthlyCaps: {},
+    monthlyCaps: { web_searches: 1_500 },
     byAgreement: false,
     allowanceNotes: {},
   },

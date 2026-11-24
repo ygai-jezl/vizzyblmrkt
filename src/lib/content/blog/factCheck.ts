@@ -1,5 +1,5 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
-import { generateTextWithDeadline } from "@/lib/agents/gemini";
+import { generateTextWithDeadline, type AiUsage } from "@/lib/agents/gemini";
 import {
   BlogArticleMetaSchema,
   type BlogArticleMeta,
@@ -48,6 +48,8 @@ export interface FactCheckInput {
   timeoutMs?: number;
   /** The brand map the article was written from; its statements count as the brand's own material. */
   map?: ArticleMap | null;
+  /** The brand's usage: the check's tokens are counted. */
+  usage: AiUsage;
 }
 
 export interface FactCheckDeps {
@@ -192,7 +194,7 @@ export async function checkBlogFacts(input: FactCheckInput, deps: FactCheckDeps 
       material,
       article: copy.replace(/<\/?\s*(material|article)\s*>/gi, " "),
     }),
-    { timeoutMs: input.timeoutMs ?? 75_000, temperature: 0, thinkingBudget: blogCheckerThinkingBudget() },
+    { timeoutMs: input.timeoutMs ?? 75_000, temperature: 0, thinkingBudget: blogCheckerThinkingBudget(), usage: input.usage },
   ).catch(() => null);
   if (raw === null) return { body: node.body, meta: current, corrected: 0, checked: false };
 

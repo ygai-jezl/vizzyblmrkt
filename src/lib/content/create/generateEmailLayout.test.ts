@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/agents/gemini", () => ({
   generateText: vi.fn(),
+  NO_USAGE: {},
   parseFirstJson: (text: string): unknown | null => {
     const s = text.indexOf("{");
     const e = text.lastIndexOf("}");
@@ -15,11 +16,11 @@ vi.mock("@/lib/agents/gemini", () => ({
 }));
 
 import { generateEmailLayout } from "./generateEmailLayout";
-import { generateText } from "@/lib/agents/gemini";
+import { generateText, NO_USAGE } from "@/lib/agents/gemini";
 
 const mocked = vi.mocked(generateText);
 
-const base = { brief: "welcome email", subject: "Welcome", currentBody: "<p>Hi there</p>" };
+const base = { brief: "welcome email", subject: "Welcome", currentBody: "<p>Hi there</p>", usage: NO_USAGE };
 
 describe("generateEmailLayout", () => {
   beforeEach(() => mocked.mockReset());

@@ -4,6 +4,7 @@ import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { verifyWorkspace, getContentPlan } from "@/lib/tenant/workspaceContent";
 import { buildCarousel, isCarouselEnabled } from "@/lib/distribute/carousel/build";
+import { IMAGE_LIMIT_MESSAGE } from "@/lib/plans/resources";
 import {
   getEditablePost,
   setPostCarousel,
@@ -70,10 +71,12 @@ export async function POST(req: Request, { params }: RouteParams) {
     const status =
       built.reason === "no_slides"
         ? 409
+        : built.reason === "image_limit"
+          ? 429
         : built.reason === "store_failed"
           ? 503 // usually an unprovisioned bucket → server misconfig, not a bad gateway
           : 502; // generation_failed (or a mid-request flag flip)
-    return NextResponse.json({ error: built.reason }, { status });
+    return NextResponse.json(built.reason === "image_limit" ? { error: built.reason, message: IMAGE_LIMIT_MESSAGE } : { error: built.reason }, { status });
   }
 
   try {

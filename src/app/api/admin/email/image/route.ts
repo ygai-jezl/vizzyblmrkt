@@ -6,10 +6,12 @@ import { originFromHeaders } from "@/lib/http/origin";
 import { platformOrigin } from "@/lib/platform/origin";
 import { forTenant } from "@/lib/tenant";
 import { generateHeroImage } from "@/lib/agents";
+import { aiUsage } from "@/lib/plans/meter";
 import { activeBrandVoiceText } from "@/lib/content/create/activeBrandVoice";
 import { getTenantById } from "@/lib/tenant";
 import { styleForImage } from "@/lib/content/imageStyle/forImage";
 import { isBrandImageStyleEnabled } from "@/lib/content/imageStyle/flags";
+import { IMAGE_LIMIT_MESSAGE } from "@/lib/plans/resources";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,7 +59,9 @@ export async function POST(req: Request) {
     baseUrl,
     brandVoice: await activeBrandVoiceText(ctx.tenantId),
     direction: choice.model.direction,
+    usage: aiUsage(ctx, "email_hero"),
   });
+  if (result.reason === "image_limit") return NextResponse.json({ ...result, error: "image_limit", message: IMAGE_LIMIT_MESSAGE }, { status: 429 });
   return NextResponse.json(
     choice.enabled ? { ...result, imageStyleId: choice.ownPick, styleId: choice.model.styleId } : result,
   );

@@ -1,5 +1,6 @@
 import { FEATURE_LABELS, allowanceText, planById, type Allowance, type Plan } from "@/lib/plans/catalog";
-import type { LimitedFeature } from "@/lib/plans/limits";
+import type { CapKey } from "@/lib/plans/limits";
+import { PURPOSE_LABELS, type ResourcePurpose } from "@/lib/plans/resources";
 import type { AllowanceRow, FeatureRow, MonthlyRow, UsageBrandRow, UsageSummary } from "@/lib/plans/usage";
 import type { Region } from "@/lib/types/tenant";
 import { peopleArea } from "@/lib/nav/terms";
@@ -50,11 +51,34 @@ const PILL = "inline-flex items-center gap-1 rounded-full border border-neutral-
 const REGION: Record<Region, string> = { us: "United States", eu: "Europe", asia: "Asia" };
 
 /** What each monthly count measures, for "This month". */
-const MONTHLY_LABELS: Record<LimitedFeature, string> = {
+const MONTHLY_LABELS: Partial<Record<CapKey, string>> = {
   next_up: "Google lookups for Next up",
   competitor_articles: "Competitor articles read",
   article_autopilot: "Autopilot drafts",
 };
+
+/** "12,345 tokens": a resource's count, in its own unit where the label doesn't already say it. */
+function withUnit(text: string, unit: string | undefined): string {
+  return unit === "tokens" ? text.replace(/^(\d{1,3}(?:,\d{3})*(?: or more)?)/, "$1 tokens") : text;
+}
+
+/** AI model use by model: "gemini-3.8-flash 120,000 · gemini-3.1-flash-image 8,000". */
+function byModelText(byModel: Record<string, number> | undefined): string | null {
+  const parts = Object.entries(byModel ?? {})
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([m, n]) => `${m} ${fmt(n)}`);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+/** A resource's use this month by the feature that used it: "Blog research 120 · Brand map research 18". */
+function byFeature(byPurpose: Record<string, number> | undefined): string | null {
+  const parts = Object.entries(byPurpose ?? {})
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([p, n]) => `${PURPOSE_LABELS[p as ResourcePurpose] ?? p} ${fmt(n)}`);
+  return parts.length ? parts.join(" · ") : null;
+}
 
 /** Under "This month" the allowances drop their "a month". */
 const MONTH_ALLOWANCE_LABELS: Partial<Record<Allowance, string>> = {
@@ -118,10 +142,19 @@ function AllowanceMeter({ row, plan, label }: { row: AllowanceRow; plan: Plan | 
 }
 
 function MonthlyMeter({ row }: { row: MonthlyRow }) {
-  const label = MONTHLY_LABELS[row.feature];
+  const label = MONTHLY_LABELS[row.feature as CapKey] ?? row.label;
   if (!row.included) return <Meter label={label} value={row.needs ? needsText(row.needs) : PLAN_AND_USAGE_COPY.notInPlan} />;
   if (row.used === null) return <Meter label={label} value={PLAN_AND_USAGE_COPY.couldNotCount} />;
-  return <Meter label={label} value={usedText(row.used, row.limit)} used={row.used} limit={row.limit} />;
+  const notes = [byFeature(row.byPurpose), byModelText(row.byModel)].filter((n): n is string => Boolean(n));
+  return (
+    <Meter
+      label={label}
+      value={withUnit(usedText(row.used, row.limit), row.unit)}
+      used={row.used}
+      limit={row.limit}
+      note={notes.length ? notes.join(" | ") : null}
+    />
+  );
 }
 
 function BrandPill({ brand }: { brand: UsageBrandRow }) {
@@ -243,11 +276,18 @@ export function PlanAndUsage({ summary, people = false }: { summary: UsageSummar
                   <AllowanceMeter key={row.key} row={row} plan={plan} label={row.label} />
                 ))}
               </div>
-              {orgMonth.length ? (
+              {orgMonth.length || summary.organisationResources?.length ? (
                 <div className="space-y-3">
                   <h3 className={LABEL}>This month</h3>
                   {orgMonth.map((row) => (
                     <AllowanceMeter key={row.key} row={row} plan={plan} label={MONTH_ALLOWANCE_LABELS[row.key] ?? row.label} />
+                  ))}
+                  {(summary.organisationResources ?? []).map((row) => (
+                    <Meter
+                      key={row.resource}
+                      label={row.label}
+                      value={row.used === null ? PLAN_AND_USAGE_COPY.couldNotCount : withUnit(fmt(row.used), row.unit)}
+                    />
                   ))}
                 </div>
               ) : null}

@@ -1,5 +1,6 @@
 import { readWorkspaceAsset } from "@/lib/workspace/assetStore";
-import { generateText, generateTextWithImage, parseFirstJson } from "@/lib/agents/gemini";
+import { generateText, generateTextWithImage, parseFirstJson, type AiUsage } from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { EBOOK_IMAGE_INLINE_MAX_BYTES } from "@/lib/content/create/ebook";
 import { StyleProfileSchema, type StyleProfile } from "@/lib/types/styleProfile";
@@ -37,6 +38,8 @@ export async function extractStyleProfile(input: {
   tenantId: string;
   workspaceId: string;
   filename: string;
+  /** The brand's usage: the call's tokens are counted. */
+  usage: AiUsage;
 }): Promise<StyleProfile | null> {
   const asset = await readWorkspaceAsset(input.tenantId, input.workspaceId, input.filename).catch(
     () => null,
@@ -47,6 +50,7 @@ export async function extractStyleProfile(input: {
     renderPrompt("content.style_profile_extract", {}),
     asset.bytes.toString("base64"),
     asset.contentType,
+    { usage: input.usage },
   );
   if (!raw) return null;
   const json = parseFirstJson(raw);
@@ -68,6 +72,7 @@ export async function refreshExemplarStyle(ctx: TenantContext, assetId: string):
     tenantId: ctx.tenantId,
     workspaceId: asset.workspaceId,
     filename: asset.filename,
+    usage: aiUsage(ctx, "images"),
   });
   if (profile) {
     await updateImageAsset(ctx, assetId, { styleProfile: profile }).catch(() => {});
@@ -107,7 +112,7 @@ export async function refreshLearnedImageStyle(ctx: TenantContext): Promise<void
       listBrandExemplars(ctx, { limit: MAX_EXEMPLARS_FOR_SYNTHESIS }),
       listBrandNegatives(ctx, { limit: MAX_NEGATIVES_FOR_SYNTHESIS }),
     ]);
-    const next = await synthesizeDirective(exemplars, negatives);
+    const next = await synthesizeDirective(exemplars, negatives, aiUsage(ctx, "images"));
     if (next === "keep") return;
     await persistLearnedStyle(ctx, next.directive, next.sampleCount);
   } catch (err) {
@@ -135,7 +140,7 @@ export async function refreshLearnedStyleBucket(ctx: TenantContext, styleId: Ima
     const inStyle = (a: ImageAsset) => canonicalStyleId(a.style) === styleId;
     const exemplars = pool.filter(inStyle).slice(0, MAX_EXEMPLARS_FOR_SYNTHESIS);
     const negatives = negativePool.filter(inStyle).slice(0, MAX_NEGATIVES_FOR_SYNTHESIS);
-    const next = await synthesizeDirective(exemplars, negatives);
+    const next = await synthesizeDirective(exemplars, negatives, aiUsage(ctx, "images"));
     if (next === "keep") return;
     await setTenantStyleLearned(ctx.tenantId, styleId, next);
   } catch (err) {
@@ -150,6 +155,7 @@ export async function refreshLearnedStyleBucket(ctx: TenantContext, styleId: Ima
 async function synthesizeDirective(
   exemplars: ImageAsset[],
   negatives: ImageAsset[],
+  usage: AiUsage,
 ): Promise<{ directive: string | null; sampleCount: number } | "keep"> {
   const rated = exemplars
     .map((a) => ({ line: profileLine(a), rating: a.brandRating ?? 5 }))
@@ -178,6 +184,7 @@ async function synthesizeDirective(
       exemplars: exemplarBlock,
       negatives: negativeBlock,
     }),
+    { usage },
   );
   // Deterministic fallback: if the model is unavailable, use the top-rated exemplar's
   // line + a merged palette so the loop still improves generation.

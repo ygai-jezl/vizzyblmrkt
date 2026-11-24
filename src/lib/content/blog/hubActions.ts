@@ -10,6 +10,7 @@ import { briefOf } from "./brief";
 import { evaluateCitable } from "./citable";
 import { BLOG_WARNINGS, blogWarnings } from "./draft";
 import { checkBlogFacts, type FactCheckDeps } from "./factCheck";
+import { aiUsage } from "@/lib/plans/meter";
 import { isBlogCitableEnabled } from "./flags";
 import { researchBlogBrief, type BlogResearchDeps, type BlogResearchResult } from "./research";
 import { askOfPlan, fileArticleSuggestions, loadArticleMap, type MapDeps } from "./mapActions";
@@ -60,13 +61,13 @@ export type BlogResearchOutcome =
       brief: BlogBrief;
       /** With a brand map: how many names were respelled its way, and how many new ones were suggested for it. */
       map?: { respelled: number; suggested: number };
-    } & Pick<BlogResearchResult, "searched" | "found">)
+    } & Pick<BlogResearchResult, "searched" | "found" | "searchLimited">)
   | BlogActionError;
 
 /** Research a blog plan's brief and save it on the plan. */
 export async function researchPlanBlog(
   ctx: TenantContext,
-  args: { workspace: WorkspaceBits; plan: ContentPlan; timeoutMs?: number },
+  args: { workspace: WorkspaceBits; plan: ContentPlan; timeoutMs?: number; searchPurpose?: "blog_research" | "autopilot_research" },
   deps: BlogResearchDeps & MapDeps = {},
 ): Promise<BlogResearchOutcome> {
   const { workspace, plan } = args;
@@ -78,7 +79,7 @@ export async function researchPlanBlog(
   // At any size, research matches the questions it found against the whole map.
   const mapWords = deps.mapWords ?? (map && isBrandMapScaleEnabled() ? (texts: string[]) => mapQuestionsByWords(ctx, texts, { db: deps.db }) : undefined);
   const result = await researchBlogBrief(
-    { ctx, workspace, plan, brandName: brand.name, ownSites: brand.sites, timeoutMs: args.timeoutMs, map },
+    { ctx, workspace, plan, brandName: brand.name, ownSites: brand.sites, timeoutMs: args.timeoutMs, map, ...(args.searchPurpose ? { searchPurpose: args.searchPurpose } : {}) },
     { ...deps, ...(mapWords ? { mapWords } : {}) },
   );
   // An author named before has their role, bio and page filled in; what is typed now is kept for next time.
@@ -87,7 +88,8 @@ export async function researchPlanBlog(
   await updateContentPlan(ctx, workspace.id, plan.id, { blog: result.brief }, deps.db);
   // Its questions, subject and names are the page's facts on the brand map.
   await syncPlanPageSoftly(ctx, { workspaceId: workspace.id, planId: plan.id }, { db: deps.db });
-  if (!result.mapFindings) return { ok: true, brief: result.brief, searched: result.searched, found: result.found };
+  const limited = result.searchLimited ? { searchLimited: true as const } : {};
+  if (!result.mapFindings) return { ok: true, brief: result.brief, searched: result.searched, found: result.found, ...limited };
   // Names this article uses that the map does not have go to the map as suggestions.
   const suggested = await fileArticleSuggestions(
     ctx,
@@ -99,6 +101,7 @@ export async function researchPlanBlog(
     brief: result.brief,
     searched: result.searched,
     found: result.found,
+    ...limited,
     map: { respelled: result.mapFindings.respelled.length, suggested },
   };
 }
@@ -161,6 +164,7 @@ export async function checkPlanBlogFacts(
       knowledgeUrls: (rag?.chunks ?? []).map((c) => c.sourceUri).filter(Boolean),
       proofBlock: fenceProof(plan.knowledge.proofAssets ?? []),
       timeoutMs: args.timeoutMs,
+      usage: aiUsage(ctx, "fact_check", { db: deps.db }),
     },
     deps,
   );

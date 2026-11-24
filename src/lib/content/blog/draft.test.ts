@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ContentNode, ContentPlan } from "@/lib/types/contentPlan";
 import { draftBlogArticle, enforceLinks, parseDraft, stampLastUpdated, type BlogDraftInput } from "./draft";
+import { NO_USAGE } from "@/lib/agents/gemini";
 import { SAMPLE_ARTICLE, SAMPLE_BRIEF } from "./testing/sampleArticle";
 import { BrandMapDecidedSchema } from "@/lib/types/brandMap";
 import { projectArticleMap } from "./articleMap";
@@ -25,6 +26,7 @@ const input = (over: Partial<BlogDraftInput> = {}): BlogDraftInput => ({
   knowledgeContext: KNOWLEDGE,
   knowledgeUrls: ["https://acme.example/customers/harbor", "https://github.com/acme/app/blob/HEAD/README.md"],
   proofBlock: "",
+  usage: NO_USAGE,
   ...over,
 });
 

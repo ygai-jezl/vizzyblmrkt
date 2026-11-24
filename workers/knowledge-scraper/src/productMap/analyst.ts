@@ -29,9 +29,12 @@ export interface FunctionDecl {
 }
 export interface ModelTurn {
   parts: Part[];
-  usage: { input: number; output: number };
+  /** total: the tokens the call was billed for, when the model says (prompt, answer, thinking and tools). */
+  usage: { input: number; output: number; total?: number };
 }
 export interface ModelClient {
+  /** The model id, for the usage meter. */
+  name?: string;
   /** tools: [] with json → a plain JSON answer (used for the synthesis turn). */
   generate(req: { system: string; contents: Content[]; tools: FunctionDecl[]; forceTool?: string; json?: boolean }): Promise<ModelTurn>;
 }

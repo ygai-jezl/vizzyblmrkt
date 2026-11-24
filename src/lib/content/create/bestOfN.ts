@@ -1,6 +1,6 @@
-import { generateTextWithImage, parseFirstJson } from "@/lib/agents/gemini";
+import { generateTextWithImage, isUsageLimited, parseFirstJson } from "@/lib/agents/gemini";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
-import type { GeneratedImage } from "@/lib/agents/gemini";
+import type { AiUsage, GeneratedImage, UsageLimited } from "@/lib/agents/gemini";
 
 /**
  * Layer 3 of the brand-style feedback loop — the "reward model" step. Generate N
@@ -17,6 +17,8 @@ export async function judgeBrandFit(input: {
   /** Assembled brand context (palette/tone/learned style/avoid) — the on-brand reference. */
   styleReference: string;
   brief: string;
+  /** The brand's usage: the judging call's tokens are counted. */
+  usage: AiUsage;
 }): Promise<number | null> {
   const raw = await generateTextWithImage(
     renderPrompt("content.brand_fit_judge", {
@@ -25,6 +27,7 @@ export async function judgeBrandFit(input: {
     }),
     input.candidate.bytes.toString("base64"),
     input.candidate.mimeType,
+    { usage: input.usage },
   );
   if (!raw) return null;
   const json = parseFirstJson(raw) as { score?: unknown } | null;
@@ -37,20 +40,23 @@ export async function judgeBrandFit(input: {
  * Produce N candidates via `generate`, judge each, and return the highest-scoring image.
  * - N is clamped to ≥1 by the caller (bestOfNCount()).
  * - Candidates that fail to generate are dropped; if none succeed, returns null.
+ * - Candidates the image cap stopped are dropped too; if none succeed and one was stopped,
+ *   returns that limit so the caller can say so.
  * - If every judge call fails, returns the first successful candidate (degrades to N=1)
  *   so best-of-N never does WORSE than a single generation.
  */
 export async function generateBestOfN(input: {
   n: number;
-  generate: () => Promise<GeneratedImage | null>;
+  generate: () => Promise<GeneratedImage | UsageLimited | null>;
   styleReference: string;
   brief: string;
-}): Promise<GeneratedImage | null> {
+  /** The brand's usage: the judging calls' tokens are counted. */
+  usage: AiUsage;
+}): Promise<GeneratedImage | UsageLimited | null> {
   const n = Math.max(1, input.n);
-  const candidates = (await Promise.all(Array.from({ length: n }, () => input.generate()))).filter(
-    (c): c is GeneratedImage => c != null,
-  );
-  if (candidates.length === 0) return null;
+  const made = await Promise.all(Array.from({ length: n }, () => input.generate()));
+  const candidates = made.filter((c): c is GeneratedImage => c != null && !isUsageLimited(c));
+  if (candidates.length === 0) return made.find(isUsageLimited) ?? null;
   if (candidates.length === 1) return candidates[0]!;
 
   const scored = await Promise.all(
@@ -60,6 +66,7 @@ export async function generateBestOfN(input: {
         candidate,
         styleReference: input.styleReference,
         brief: input.brief,
+        usage: input.usage,
       }),
     })),
   );

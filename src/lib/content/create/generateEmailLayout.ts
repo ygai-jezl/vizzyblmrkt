@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { composePrompt, brandVoiceSection, audienceSection } from "@/lib/agents/prompts/compose";
-import { generateText, parseFirstJson } from "@/lib/agents/gemini";
+import { generateText, parseFirstJson, type AiUsage } from "@/lib/agents/gemini";
 import { WRITING_RULES } from "@/lib/content/writingRules";
 import {
   EmailLayoutSchema,
@@ -31,6 +31,8 @@ export interface GenerateLayoutInput {
   brandKit?: BrandKit | null;
   brandTypography?: BrandTypography | null;
   knowledgeContext?: string;
+  /** The brand's usage: the call's tokens are counted. */
+  usage: AiUsage;
 }
 
 function copyHtmlFrom(body: string): string {
@@ -95,7 +97,7 @@ export async function generateEmailLayout(input: GenerateLayoutInput): Promise<E
     userProfile: audienceSection(input.audience),
     task,
   });
-  const raw = await generateText(prompt);
+  const raw = await generateText(prompt, { usage: input.usage });
   const j = raw ? parseFirstJson(raw) : null;
   if (!j) return null;
   const parsed = EmailLayoutSchema.safeParse(j);

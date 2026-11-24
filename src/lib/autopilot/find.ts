@@ -54,7 +54,7 @@ export async function subjectNamesNear(ctx: TenantContext, text: string, deps: F
 /** The find step: ask Google (or reuse a lookup from the last 90 days). Never fails the run. */
 export async function findStep(ctx: TenantContext, run: AutopilotRun, deps: FindDeps = {}): Promise<StepPatch> {
   const q = run.question!;
-  const got = await lookUpQuestion(ctx, { query: q.text, questionId: q.questionId, subjectId: q.subjectId }, deps).catch(() => null);
+  const got = await lookUpQuestion(ctx, { query: q.text, questionId: q.questionId, subjectId: q.subjectId, purpose: "autopilot" }, deps).catch(() => null);
   if (!got || !got.ok) return { step: "sort", googleSkipped: got && !got.ok ? got.error : "lookup_failed" };
   if (got.signal.status === "ready") return { step: "sort", signalId: got.signal.id };
   return { step: "waiting", signalId: got.signal.id, nextAt: got.signal.dueAt };

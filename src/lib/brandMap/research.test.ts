@@ -175,6 +175,22 @@ describe("research for the brand map", () => {
     );
     expect(r).toEqual({ ok: false, status: 502, error: "research_failed" });
   });
+
+  it("files nothing at the month's web search cap, and says so", async () => {
+    const r = await proposeBrandMap(
+      { tenantId: "ten_acme", region: "us", source: "idtoken" },
+      { current: BrandMapDecidedSchema.parse({}) },
+      {
+        grounded: (async () => ({ limited: true, used: 300, limit: 300 })) as never,
+        modelReady: () => true,
+        retrieve: (async () => ({ formatted: "Acme.", chunks: [] })) as never,
+        sitePages: async () => ({ pages: [], repoPaths: [] }),
+        fetchHome: async () => null,
+        plans: (async () => []) as never,
+      },
+    );
+    expect(r).toEqual({ ok: false, status: 429, error: "search_limit" });
+  });
 });
 
 describe("research on a map at any size", () => {

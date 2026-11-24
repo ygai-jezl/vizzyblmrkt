@@ -5,7 +5,16 @@ import { updateBlogHero } from "@/lib/tenant/workspaceContent";
 import { storeWorkspaceImage } from "@/lib/workspace/assetStore";
 import { recordImageAsset } from "@/lib/admin/brandKit";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
-import { generateImageWithDeadline, generateTextWithDeadline, generateTextWithImage, type GeneratedImage } from "@/lib/agents/gemini";
+import {
+  generateImageWithDeadline,
+  generateTextWithDeadline,
+  generateTextWithImage,
+  isUsageLimited,
+  type AiUsage,
+  type GeneratedImage,
+  type UsageLimited,
+} from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import { resolveImageModel } from "@/lib/agents/modelConfig";
 import { styleForImage } from "@/lib/content/imageStyle/forImage";
 import { canonicalStyleId } from "@/lib/content/imageStyle/catalogue";
@@ -51,14 +60,14 @@ const RESERVE_MS = 6_000;
 export interface HeroDeps {
   now: () => number;
   render: (req: StyleImageRequest) => Promise<StyleImageResult | null>;
-  brief: (prompt: string, timeoutMs: number) => Promise<string | null>;
-  paint: (prompt: string, timeoutMs: number) => Promise<GeneratedImage | null>;
-  alt: (prompt: string, image: GeneratedImage, timeoutMs: number) => Promise<string | null>;
+  brief: (prompt: string, timeoutMs: number, usage: AiUsage) => Promise<string | null>;
+  paint: (prompt: string, timeoutMs: number, usage: AiUsage) => Promise<GeneratedImage | UsageLimited | null>;
+  alt: (prompt: string, image: GeneratedImage, timeoutMs: number, usage: AiUsage) => Promise<string | null>;
   store: typeof storeWorkspaceImage;
   record: typeof recordImageAsset;
   update: typeof updateBlogHero;
   /** Data story's numbers from the article (checked in code). */
-  chart: (copy: CopyText) => Promise<Chart | null>;
+  chart: (copy: CopyText, usage: AiUsage) => Promise<Chart | null>;
   /** A format's painted scene. */
   scene: (req: SceneRequest) => Promise<GeneratedImage | null>;
 }
@@ -66,18 +75,18 @@ export interface HeroDeps {
 const defaultDeps: HeroDeps = {
   now: () => Date.now(),
   render: renderStyleImage,
-  brief: (prompt, timeoutMs) => generateTextWithDeadline(prompt, { timeoutMs }),
-  paint: (prompt, timeoutMs) =>
-    generateImageWithDeadline({ prompt, aspectRatio: "16:9", imageSize: "2K", model: resolveImageModel("full"), timeoutMs }),
-  alt: (prompt, image, timeoutMs) =>
+  brief: (prompt, timeoutMs, usage) => generateTextWithDeadline(prompt, { timeoutMs, usage }),
+  paint: (prompt, timeoutMs, usage) =>
+    generateImageWithDeadline({ prompt, aspectRatio: "16:9", imageSize: "2K", model: resolveImageModel("full"), timeoutMs, usage }),
+  alt: (prompt, image, timeoutMs, usage) =>
     Promise.race([
-      generateTextWithImage(prompt, image.bytes.toString("base64"), image.mimeType),
+      generateTextWithImage(prompt, image.bytes.toString("base64"), image.mimeType, { usage }),
       new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
     ]),
   store: storeWorkspaceImage,
   record: recordImageAsset,
   update: updateBlogHero,
-  chart: (copy) => chartFromCopy(copy),
+  chart: (copy, usage) => chartFromCopy(copy, usage),
   scene: (req) => paintFormatScene(req),
 };
 
@@ -139,6 +148,7 @@ export async function makeBlogHero(input: MakeHeroInput, deps: HeroDeps = defaul
   const started = deps.now();
   const runId = new Date(started).toISOString();
   const left = () => input.budgetMs - (deps.now() - started);
+  const usage = aiUsage(ctx, "blog_hero", { tenant });
 
   // 1. The lease.
   let article = true;
@@ -197,13 +207,17 @@ export async function makeBlogHero(input: MakeHeroInput, deps: HeroDeps = defaul
         }),
         // Leave enough for one painting try: in a short Vizzy turn the brief gives way first.
         Math.min(BRIEF_MS, Math.max(3_000, left() - RESERVE_MS - 20_000)),
+        usage,
       ))?.trim() || `${title}. Visual style: ${direction.keywords}.`;
     let art: GeneratedImage | null = null;
     for (let i = 0; i < (input.retry ? 2 : 1) && !art; i++) {
       const timeout = Math.min(MODEL_TRY_MS, left() - RESERVE_MS);
       if (timeout < MIN_TRY_MS) break;
       attempts++;
-      art = await deps.paint(prompt, timeout);
+      const painted = await deps.paint(prompt, timeout, usage);
+      // The brand has used its images for the month: no second try, and no art (as when painting fails).
+      if (isUsageLimited(painted)) break;
+      art = painted;
     }
     return art;
   };
@@ -231,7 +245,9 @@ export async function makeBlogHero(input: MakeHeroInput, deps: HeroDeps = defaul
       const direction = choice.model.direction ?? { label: resolved.label, keywords: "" };
       const scene =
         format !== "report_cover" || resolved.engine === "model"
-          ? await deps.scene({ format, inputs, headline: title, direction, brandContext: brandContext(), aspectRatio: "16:9", timeoutMs: Math.min(60_000, left() - RESERVE_MS) }).catch(() => null)
+          ? await deps
+              .scene({ format, inputs, headline: title, direction, brandContext: brandContext(), aspectRatio: "16:9", timeoutMs: Math.min(60_000, left() - RESERVE_MS), usage })
+              .catch(() => null)
           : null;
       const drawn = await draw({ template: format, formatInputs: inputs, skin: resolved.id, ...(scene ? { art: scene.bytes } : {}) });
       const altText =
@@ -251,7 +267,7 @@ export async function makeBlogHero(input: MakeHeroInput, deps: HeroDeps = defaul
     let chart: Chart | null = null;
     let figure: Figure | null = null;
     if (tpl === "data_story") {
-      chart = claim.hero?.chart ?? (await deps.chart(copy).catch(() => null));
+      chart = claim.hero?.chart ?? (await deps.chart(copy, usage).catch(() => null));
       if (!chart) {
         note = "no_numbers";
         tpl = "type_poster";
@@ -299,7 +315,7 @@ export async function makeBlogHero(input: MakeHeroInput, deps: HeroDeps = defaul
     // With too little time left, the title stands in (a person can edit it on the card).
     const altMs = Math.min(ALT_MS, left() - 3_000);
     if (altMs >= 3_000) {
-      made.alt = cleanAlt(await deps.alt(renderPrompt("content.image_alt_text", { title }), made.art, altMs).catch(() => null), title);
+      made.alt = cleanAlt(await deps.alt(renderPrompt("content.image_alt_text", { title }), made.art, altMs, usage).catch(() => null), title);
     }
   }
 
@@ -408,7 +424,10 @@ export async function heroFromUpload(
       : storedHero
     : null;
   if (!storedHero.ok || !storedShare?.ok) return { ok: false, status: 502, error: "store_failed" };
-  const alt = cleanAlt(await deps.alt(renderPrompt("content.image_alt_text", { title }), upload, ALT_MS).catch(() => null), title);
+  const alt = cleanAlt(
+    await deps.alt(renderPrompt("content.image_alt_text", { title }), upload, ALT_MS, aiUsage(ctx, "blog_hero", { tenant })).catch(() => null),
+    title,
+  );
   const now = new Date(deps.now()).toISOString();
   const saved = await deps.update(ctx, workspaceId, planId, nodeId, (stored) =>
     BlogHeroSchema.parse({

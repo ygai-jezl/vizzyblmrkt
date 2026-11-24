@@ -6,6 +6,7 @@ import { skinFor } from "./templates/skins";
 import { formatTemplate } from "./styleImage";
 import { IMAGE_STYLE_IDS } from "@/lib/types/imageStyle";
 import { paintFormatScene, sceneWords } from "../formatScene";
+import { NO_USAGE } from "@/lib/agents/gemini";
 
 const PIXEL = { src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", width: 1, height: 1 };
 
@@ -40,7 +41,7 @@ describe("formats", () => {
 });
 
 describe("a format's painted scene", () => {
-  const req = { format: "portrait" as const, inputs: { quote: "Ship small, ship often." }, headline: "H", direction: { label: "Soft 3D", keywords: "soft clay" }, aspectRatio: "1:1", timeoutMs: 60_000 };
+  const req = { format: "portrait" as const, inputs: { quote: "Ship small, ship often." }, headline: "H", direction: { label: "Soft 3D", keywords: "soft clay" }, aspectRatio: "1:1", timeoutMs: 60_000, usage: NO_USAGE };
 
   it("pictures what the card says, never with too little time", async () => {
     expect(sceneWords(req)).toBe("Ship small, ship often.");
@@ -57,5 +58,10 @@ describe("a format's painted scene", () => {
     const paint = vi.fn(async (_p: string, _a: string, _t: number) => null);
     expect(await paintFormatScene(req, { brief: async () => null, paint })).toBeNull();
     expect(paint.mock.calls[0]![0]).toContain("No people, no logos, no text.");
+  });
+
+  it("is null when the brand has used its images for the month", async () => {
+    const paint = vi.fn(async () => ({ limited: true as const, used: 50, limit: 50 }));
+    expect(await paintFormatScene(req, { brief: async () => "A tidy workbench at dawn", paint })).toBeNull();
   });
 });

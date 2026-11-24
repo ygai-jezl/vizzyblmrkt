@@ -21,6 +21,7 @@ import { learnedDirectiveFor } from "@/lib/content/imageStyle/learning";
 import { isBrandImageStyleEnabled as isBrandImageStyleOn } from "@/lib/content/imageStyle/flags";
 import { IMAGE_MODEL_SLUGS } from "@/lib/content/create/imageModels";
 import { resolveImageModel } from "@/lib/agents/modelConfig";
+import { aiUsage } from "@/lib/plans/meter";
 import { htmlToText } from "@/lib/email/emailRender";
 import { formatTemplate, renderStyleImage, templateFor, type StyleImageResult } from "@/lib/content/imageStyle/render/styleImage";
 import { paintFormatScene } from "@/lib/content/imageStyle/formatScene";
@@ -31,6 +32,7 @@ import { ChartSchema, FigureSchema, FormatInputsSchema, ImageFormatIdSchema, typ
 import { headlineFrom, SOCIAL_RENDER_SIZE } from "@/lib/content/imageStyle/render/socialText";
 import { storeWorkspaceImage } from "@/lib/workspace/assetStore";
 import { recordImageAsset } from "@/lib/admin/brandKit";
+import { IMAGE_LIMIT_MESSAGE } from "@/lib/plans/resources";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,6 +67,7 @@ const BodySchema = z.object({
 });
 
 const IMAGE_ERRORS: Record<string, string> = {
+  image_limit: IMAGE_LIMIT_MESSAGE,
   image_model_unavailable: "The image model isn't available right now.",
   no_asset_bucket: "Image storage isn't configured.",
   store_failed: "Couldn't save the image — try again.",
@@ -104,6 +107,7 @@ export async function POST(req: Request, { params }: RouteParams) {
   if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
 
   const tenant = await getTenantById(ctx.tenantId);
+  const usage = aiUsage(ctx, "post_image", { tenant });
   const useBrandStyle = parsed.data.useBrandStyle !== false;
   // The image's own pick, else the brand's style for this channel, else its default. With the
   // image style off, only the old preset counts: exactly as before.
@@ -145,7 +149,7 @@ export async function POST(req: Request, { params }: RouteParams) {
   const postText = htmlToText(node.body || "");
   let chart: Chart | null = null;
   if (drawnId === "data_story") {
-    chart = parsed.data.chart ?? (await chartFromCopy({ text: postText }));
+    chart = parsed.data.chart ?? (await chartFromCopy({ text: postText }, usage));
     if (!chart) {
       return NextResponse.json(
         {
@@ -244,6 +248,7 @@ export async function POST(req: Request, { params }: RouteParams) {
             direction,
             aspectRatio: SOCIAL_ASPECT_TO_GEMINI[parsed.data.aspect],
             timeoutMs: 60_000,
+            usage,
           })
         : null;
     const drawn = await renderStyleImage({
@@ -339,6 +344,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       // Learning per style (image style on): what was learned for this image's style.
       learnedImageStyle: useBrandStyle ? (choice.enabled ? learnedDirectiveFor(tenant?.imageStyle, learnBucket) : undefined) : null,
     }),
+    usage,
   });
 
   // Split card without its photo (painting failed): the panel fills the frame.
@@ -350,7 +356,7 @@ export async function POST(req: Request, { params }: RouteParams) {
   if (!result.imageAssetRef) {
     return NextResponse.json(
       { error: result.reason, message: IMAGE_ERRORS[result.reason ?? ""] ?? "Image generation failed." },
-      { status: 502 },
+      { status: result.reason === "image_limit" ? 429 : 502 },
     );
   }
 

@@ -1,5 +1,5 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
-import { generateTextWithDeadline } from "@/lib/agents/gemini";
+import { generateTextWithDeadline, type AiUsage } from "@/lib/agents/gemini";
 import { BRAND_NOTE_LIMITS, BrandNoteKind } from "@/lib/types/brandNote";
 
 /**
@@ -38,6 +38,7 @@ export function parseFoundNotes(raw: string): FoundNote[] {
 export async function extractNotes(
   text: string,
   brandName: string,
+  usage: AiUsage,
   deps: { generate?: typeof generateTextWithDeadline } = {},
 ): Promise<FoundNote[] | null> {
   const raw = await (deps.generate ?? generateTextWithDeadline)(
@@ -45,7 +46,7 @@ export async function extractNotes(
       brand_name: brandName.replace(/["\n]/g, " ").slice(0, 120) || "the brand",
       text: text.slice(0, MAX_PASTE).replace(/<\/?\s*pasted[^>]*>/gi, " "),
     }),
-    { timeoutMs: 50_000, temperature: 0.2, thinkingBudget: 1024 },
+    { timeoutMs: 50_000, temperature: 0.2, thinkingBudget: 1024, usage },
   ).catch(() => null);
   if (raw === null) return null;
   return parseFoundNotes(raw);

@@ -95,5 +95,7 @@ describe("what people in a situation ask", () => {
     const sit = await createSituation(ctx, { text: "We're setting next year's search budget" }, deps);
     const empty = vi.fn(async () => ({ text: "Nothing.", model: "m", sources: [], supports: [] }));
     expect(await askSituationQuestions(ctx, sit.ok ? sit.value.id : "", { ...deps, modelReady: () => true, grounded: empty as never })).toEqual({ ok: false, status: 502, error: "research_failed" });
+    const limited = async () => ({ limited: true, used: 300, limit: 300 });
+    expect(await askSituationQuestions(ctx, sit.ok ? sit.value.id : "", { ...deps, modelReady: () => true, grounded: limited as never })).toEqual({ ok: false, status: 429, error: "search_limit" });
   });
 });

@@ -4,6 +4,7 @@ import type { ContentNode, ContentPlan } from "@/lib/types/contentPlan";
 import { evaluateCitable } from "./citable";
 import { draftBlogArticle } from "./draft";
 import { checkBlogFacts } from "./factCheck";
+import { NO_USAGE } from "@/lib/agents/gemini";
 import { researchBlogBrief } from "./research";
 import { suggestBlogSchema } from "./schema";
 import { SAMPLE_ARTICLE, SAMPLE_BRIEF } from "./testing/sampleArticle";
@@ -90,7 +91,7 @@ describe("what the blog hub sends and shows today (no brand map)", () => {
       return `META_TITLE: T\nMETA_DESCRIPTION: D\nSLUG: s\n---\n${prompts.length === 1 ? firstDraft : SAMPLE_ARTICLE}`;
     });
     await draftBlogArticle(
-      { plan, node, brief: SAMPLE_BRIEF, brandName: "Acme", knowledgeContext: KNOWLEDGE, knowledgeUrls: [], proofBlock: "" },
+      { plan, node, brief: SAMPLE_BRIEF, brandName: "Acme", knowledgeContext: KNOWLEDGE, knowledgeUrls: [], proofBlock: "", usage: NO_USAGE },
       { generate: generate as never, now: NOW },
     );
     expect(prompts).toHaveLength(2);
@@ -101,7 +102,7 @@ describe("what the blog hub sends and shows today (no brand map)", () => {
   it("gives the fact check the same material", async () => {
     const generate = vi.fn(async () => "OK");
     await checkBlogFacts(
-      { plan, node, brief: SAMPLE_BRIEF, brandName: "Acme", knowledgeContext: KNOWLEDGE, knowledgeUrls: [], proofBlock: "" },
+      { plan, node, brief: SAMPLE_BRIEF, brandName: "Acme", knowledgeContext: KNOWLEDGE, knowledgeUrls: [], proofBlock: "", usage: NO_USAGE },
       { generate: generate as never, now: NOW },
     );
     expect(digest(String((generate.mock.calls[0] as unknown[])[0]))).toBe("7149d8caf9815dbc");

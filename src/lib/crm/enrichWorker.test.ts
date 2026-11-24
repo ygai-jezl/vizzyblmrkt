@@ -101,6 +101,17 @@ describe("processContactEnrichJob", () => {
     expect(contact?.enrichment.confidence).toBe(0.9);
   });
 
+  it("puts the company back in line at the month's web search cap", async () => {
+    const db = new FakeFirestore();
+    await seedContact(db);
+    getTenantById.mockResolvedValue(tenantWith({ enrichmentEnabled: true } as never));
+    enrichCompany.mockResolvedValue({ profile: null, source: "unavailable", model: null, groundingUsed: false, reason: "search_limit" });
+    expect(await processContactEnrichJob(ctx, enrichJob(), db)).toBe("drop");
+    const company = await forTenant(ctx, db).companies.getById(companyId);
+    expect(company).toMatchObject({ enrichmentStatus: "pending", lastError: "search_limit" });
+    expect(enrichCompany.mock.calls[0]![0]).toHaveProperty("usage");
+  });
+
   it("materialises a pending company and associates WITHOUT spending when not opted in", async () => {
     const db = new FakeFirestore();
     const contactId = await seedContact(db);

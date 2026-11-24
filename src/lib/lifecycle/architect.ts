@@ -3,7 +3,7 @@ import type { ConnectionCatalog, ProductConnection } from "@/lib/types/productCo
 import type { ContentPool, LifecycleDraft, LifecycleJourney, LifecycleSettings, PoolItem } from "@/lib/types/lifecycle";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { fencedContext } from "@/lib/agents/prompts/compose";
-import { generateTextWithDeadline } from "@/lib/agents/gemini";
+import { generateTextWithDeadline, type AiUsage } from "@/lib/agents/gemini";
 import { draftEmailCopy } from "@/lib/content/create/emailCopy";
 import { buildProductOnboardingDraft } from "./templates/productOnboarding";
 import { buildFollowOnDraft, startingAfter } from "./templates/followOn";
@@ -183,6 +183,7 @@ async function writeItem(
     brief: string;
     brandVoice: string | null;
     generate: Generate;
+    usage: AiUsage;
     /** The journey this one continues from, when it does. */
     after?: ArchitectAfter | null;
   },
@@ -215,7 +216,7 @@ async function writeItem(
       ? `This email MUST include these blocks, each on its own line:\n${required.map((b) => `- ${BLOCK_HELP[b] ?? `{{${b}}}`}`).join("\n")}`
       : "",
   });
-  const drafted = await draftEmailCopy({ task, brandVoice: a.brandVoice, generate: a.generate });
+  const drafted = await draftEmailCopy({ task, brandVoice: a.brandVoice, generate: a.generate, usage: a.usage });
   if (!drafted || !drafted.subject) return { item, fellBack: true };
   return {
     item: {
@@ -247,6 +248,8 @@ export async function architectLifecycleDraft(a: {
   brandVoice?: string | null;
   generate?: Generate;
   after?: ArchitectAfter | null;
+  /** The brand's usage: every email's tokens are counted. */
+  usage: AiUsage;
 }): Promise<{ draft: LifecycleDraft; notes: string[] } | { error: "invalid_options"; detail: string }> {
   const parsed = ArchitectOptionsSchema.safeParse(a.options ?? {});
   if (!parsed.success) return { error: "invalid_options", detail: parsed.error.issues[0]?.message ?? "invalid" };
@@ -268,7 +271,7 @@ export async function architectLifecycleDraft(a: {
         : applyOptions(buildProductOnboardingDraft(a.connection.catalog as ConnectionCatalog), options);
   if (!options.writeCopy) return { draft, notes: [] };
 
-  const generate: Generate = a.generate ?? ((prompt) => generateTextWithDeadline(prompt, { timeoutMs: 25_000, json: true }));
+  const generate: Generate = a.generate ?? ((prompt) => generateTextWithDeadline(prompt, { timeoutMs: 25_000, json: true, usage: a.usage }));
   const items = draft.pools.flatMap((p) => p.items.map((item) => ({ poolId: p.id, item })));
   const written = new Map<string, PoolItem>();
   const notes: string[] = [];
@@ -282,6 +285,7 @@ export async function architectLifecycleDraft(a: {
         brief: a.brief ?? "",
         brandVoice: a.brandVoice ?? null,
         generate,
+        usage: a.usage,
         after: a.template === "follow_on" ? after : null,
       }).catch(() => ({ item, fellBack: true }));
       written.set(`${poolId}:${item.id}`, r.item);

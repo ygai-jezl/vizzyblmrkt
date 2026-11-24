@@ -47,20 +47,23 @@ describe("plan change previews", () => {
     const c = accessChanges(brand({ orgPlan: "pro" }), "ultra");
     expect(c.features.filter((f) => f.after).map((f) => f.feature).sort()).toEqual(["article_autopilot", "competitor_articles", "competitors", "edit_vizzy_learning", "next_up"]);
     expect(c.features.every((f) => !f.before && f.hidden === undefined)).toBe(true);
-    expect(c.caps).toEqual([]);
+    // Pro caps web searches for research; Ultra sets no caps, so this copy's applies.
+    expect(c.caps).toEqual([{ feature: "web_searches", before: 1500, after: DEFAULT_MONTHLY_LIMITS.web_searches, beforeFrom: "plan", afterFrom: "default" }]);
     expect(c.wider).toBe(true);
     expect(c.narrower).toBe(false);
     const lines = accessChangeLines(c);
     expect(lines).toContain("gains Next up (next_up)");
     expect(lines).toContain("gains Article autopilot (article_autopilot)");
-    expect(lines.join("\n")).not.toMatch(/ cap /);
+    // Only web searches change cap: no feature's does.
+    expect(lines.filter((l) => / cap /.test(l))).toEqual([`web_searches cap raised from 1500 to ${DEFAULT_MONTHLY_LIMITS.web_searches} a month (from the default)`]);
   });
 
   it("lists what Ultra to Pro loses, the autopilot with what it keeps, never as a lower cap", () => {
     const c = accessChanges(brand({ orgPlan: "ultra" }), "pro");
     expect(c.features.filter((f) => f.before && !f.after).map((f) => f.feature).sort()).toEqual(["article_autopilot", "competitor_articles", "competitors", "edit_vizzy_learning", "next_up"]);
     expect(c.features.find((f) => f.feature === "article_autopilot")?.hidden).toBe(EXCLUDED_EFFECT.article_autopilot);
-    expect(c.caps).toEqual([]);
+    // Web searches drop to Pro's cap; no feature's cap is listed.
+    expect(c.caps.map((x) => x.feature)).toEqual(["web_searches"]);
     expect(c.narrower).toBe(true);
     expect(c.wider).toBe(false);
     const lines = accessChangeLines(c);
@@ -77,7 +80,7 @@ describe("plan change previews", () => {
     const c = accessChanges(brand({ orgPlan: "ultra", grantedFeatures: ["article_autopilot"] }), "pro");
     const autopilot = c.features.find((f) => f.feature === "article_autopilot");
     expect(autopilot).toEqual({ feature: "article_autopilot", before: true, after: false, hidden: "It needs Next up (next_up), which is lost too." });
-    expect(c.caps).toEqual([]);
+    expect(c.caps.map((x) => x.feature)).toEqual(["web_searches"]);
     const lines = accessChangeLines(c);
     expect(lines).toContain("loses Article autopilot (article_autopilot): It needs Next up (next_up), which is lost too.");
     expect(lines.join("\n")).not.toMatch(/article_autopilot cap/);

@@ -2,7 +2,7 @@ import type { PlanId } from "@/lib/types/organisation";
 import type { Tenant } from "@/lib/types/tenant";
 import { FEATURE_NEEDS, METERED_FEATURES, mayReachWith, mayUseWith, type MeteredFeature } from "./brandAccess";
 import { FEATURE_LABELS } from "./catalog";
-import { LIMITED_FEATURES, monthlyLimitWith, type CapSource, type LimitedFeature } from "./limits";
+import { LIMITED_FEATURES, monthlyLimitWith, type CapSource, type CapKey, LIMITED_RESOURCES } from "./limits";
 
 /**
  * What would change for a brand if its organisation moved to another plan: the dry run behind
@@ -46,7 +46,7 @@ export interface FeatureChange {
 }
 
 export interface CapChange {
-  feature: LimitedFeature;
+  feature: CapKey;
   before: number;
   after: number;
   beforeFrom: CapSource;
@@ -89,6 +89,12 @@ export function accessChanges(tenant: PreviewFields | null, nextPlan: PlanId | n
     const was = monthlyLimitWith(before, feature, true);
     const will = monthlyLimitWith(after, feature, true);
     if (was.limit !== will.limit) caps.push({ feature, before: was.limit, after: will.limit, beforeFrom: was.from, afterFrom: will.from });
+  }
+  // Paid resources are used by every brand, so a cap change always counts.
+  for (const resource of LIMITED_RESOURCES) {
+    const was = monthlyLimitWith(before, resource, true);
+    const will = monthlyLimitWith(after, resource, true);
+    if (was.limit !== will.limit) caps.push({ feature: resource, before: was.limit, after: will.limit, beforeFrom: was.from, afterFrom: will.from });
   }
 
   return {

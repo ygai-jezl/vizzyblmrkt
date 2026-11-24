@@ -5,9 +5,11 @@ import { describe, it, expect, vi } from "vitest";
 vi.mock("@/lib/agents/gemini", () => ({
   generateText: vi.fn().mockResolvedValue(""),
   parseFirstJson: () => null,
+  NO_USAGE: {},
 }));
 
 import { architectSequence } from "./architect";
+import { NO_USAGE } from "@/lib/agents/gemini";
 import { _validateBlueprints } from "./sequenceBlueprints";
 
 describe("architectSequence", () => {
@@ -17,6 +19,7 @@ describe("architectSequence", () => {
       spark: "founders who write",
       topicLabels: [],
       knowledgeContext: "",
+      usage: NO_USAGE,
     });
     const emails = g.nodes.filter((n) => n.type === "email");
     expect(g.nodes.filter((n) => n.type === "trigger")).toHaveLength(1);
@@ -42,6 +45,7 @@ describe("architectSequence", () => {
       spark: "",
       topicLabels: [],
       knowledgeContext: "",
+      usage: NO_USAGE,
     });
     const cond = g.nodes.find((n) => n.type === "condition");
     expect(cond).toBeTruthy();

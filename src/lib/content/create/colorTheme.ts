@@ -1,4 +1,4 @@
-import { generateText, parseFirstJson } from "@/lib/agents/gemini";
+import { generateText, parseFirstJson, type AiUsage } from "@/lib/agents/gemini";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { clampColors, normalizeHex } from "./colorPalette";
 import type { PaletteColor } from "@/lib/types/tenant";
@@ -16,6 +16,8 @@ export interface ColorThemeInput {
   brandVoice?: string | null;
   domain?: string | null;
   tenantName?: string | null;
+  /** The brand's usage: the call's tokens are counted. */
+  usage: AiUsage;
 }
 
 export async function generateColorTheme(input: ColorThemeInput): Promise<PaletteColor[] | null> {
@@ -31,7 +33,7 @@ export async function generateColorTheme(input: ColorThemeInput): Promise<Palett
     domain: input.domain?.trim() || "(none)",
     tenant_name: input.tenantName?.trim() || "(none)",
   });
-  const raw = await generateText(prompt);
+  const raw = await generateText(prompt, { usage: input.usage });
   if (!raw) return null;
   const json = parseFirstJson(raw);
   if (!json || typeof json !== "object") return null;

@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts`. Don't edit this file: change the 
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one.
 
-93 types: 72 built and 21 planned.
+94 types: 73 built and 21 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -1359,6 +1359,20 @@ One record per suggestion an agent makes for the brand: what it proposes and on 
 ## Platform
 
 A rail beside the spine: the brand record, members, organisations and their plans, queues, limits, audit, search and outside providers.
+
+### Usage meter (`usage_meter`)
+
+What a brand used of each paid resource this month, such as web searches for research, by the feature that used it.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `usage_meters`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per brand per month, counts only.
+- Erase: none. Counts only, kept as the record of what the brand used.
+- Export: none. The brand's own work, with no one's personal data.
+- Search: none. Counts, read on Plan and usage.
+- Numbers: `usedThisMonth`, `monthlyLimit`, `leftThisMonth`, through `get_usage`
 
 ### Brand (`brand`)
 

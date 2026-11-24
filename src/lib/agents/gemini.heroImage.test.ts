@@ -35,8 +35,9 @@ describe("generateImage", () => {
     generateContent.mockResolvedValue({
       candidates: [{ content: { parts: [{ text: "here it is" }, { inlineData: { data: PNG, mimeType: "image/png" } }] } }],
     });
-    const { generateImage } = await fresh();
-    const img = await generateImage("a calm launch hero");
+    const { generateImage, NO_USAGE, isUsageLimited } = await fresh();
+    const made = await generateImage("a calm launch hero", { usage: NO_USAGE });
+    const img = isUsageLimited(made) ? null : made;
 
     expect(img?.mimeType).toBe("image/png");
     expect(img?.bytes.toString("base64")).toBe(PNG);
@@ -53,19 +54,19 @@ describe("generateImage", () => {
     generateContent.mockResolvedValue({
       candidates: [{ content: { parts: [{ inlineData: { data: PNG, mimeType: "image/png" } }] } }],
     });
-    const { generateImage } = await fresh();
-    await generateImage("hero");
+    const { generateImage, NO_USAGE } = await fresh();
+    await generateImage("hero", { usage: NO_USAGE });
     expect(generateContent.mock.calls[0]![0].model).toBe("gemini-3.1-flash-image");
   });
 
   it("is null when the model sends no image, and null when the call fails", async () => {
-    const { generateImage } = await fresh();
+    const { generateImage, NO_USAGE } = await fresh();
     generateContent.mockResolvedValueOnce({ candidates: [{ content: { parts: [{ text: "no image today" }] } }] });
-    expect(await generateImage("hero")).toBeNull();
+    expect(await generateImage("hero", { usage: NO_USAGE })).toBeNull();
 
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     generateContent.mockRejectedValueOnce(new Error("model not found"));
-    expect(await generateImage("hero")).toBeNull();
+    expect(await generateImage("hero", { usage: NO_USAGE })).toBeNull();
     warn.mockRestore();
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { BlogArticleMetaSchema, type ContentNode, type ContentPlan } from "@/lib/types/contentPlan";
 import { applyCorrections, checkBlogFacts, parseCorrections, type FactCheckInput } from "./factCheck";
+import { NO_USAGE } from "@/lib/agents/gemini";
 import { SAMPLE_BRIEF } from "./testing/sampleArticle";
 import { BrandMapDecidedSchema } from "@/lib/types/brandMap";
 import { projectArticleMap } from "./articleMap";
@@ -42,6 +43,7 @@ const input = (over: Partial<FactCheckInput> = {}): FactCheckInput => ({
   knowledgeContext: "[Source: Pricing — https://acme.example/pricing]\nAcme Visibility has four plans. Every plan has a trial.",
   knowledgeUrls: ["https://acme.example/pricing"],
   proofBlock: "",
+  usage: NO_USAGE,
   ...over,
 });
 const now = () => new Date("2026-10-07T10:00:00.000Z");

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { composePrompt, brandVoiceSection, audienceSection } from "@/lib/agents/prompts/compose";
-import { generateText, parseFirstJson, generateTextWithDeadline } from "@/lib/agents/gemini";
+import { generateText, parseFirstJson, generateTextWithDeadline, type AiUsage } from "@/lib/agents/gemini";
 import { isChannel, channelBlueprint } from "@/lib/content/channels";
 import { isBlogCitableEnabled } from "@/lib/content/blog/flags";
 import { isBlockType } from "@/lib/content/blocks";
@@ -77,6 +77,8 @@ export interface ArchitectInput {
   templates?: TemplateRef[];
   /** A time (ms since epoch) the model call must finish by; past it, the fixed graph is used. Unattended runs set it. */
   deadlineMs?: number;
+  /** The brand's usage: the call's tokens are counted. */
+  usage: AiUsage;
 }
 
 export interface ArchitectGraph {
@@ -198,8 +200,8 @@ async function callArchitect(input: ArchitectInput): Promise<ArchitectResult> {
     task,
   });
   const raw = input.deadlineMs
-    ? await generateTextWithDeadline(prompt, { timeoutMs: Math.max(1_000, input.deadlineMs - Date.now()) })
-    : await generateText(prompt);
+    ? await generateTextWithDeadline(prompt, { timeoutMs: Math.max(1_000, input.deadlineMs - Date.now()), usage: input.usage })
+    : await generateText(prompt, { usage: input.usage });
   const j = raw ? parseFirstJson(raw) : null;
   if (!j || typeof j !== "object") return { nodes: [], angles: [] };
   const obj = j as Record<string, unknown>;
@@ -466,6 +468,8 @@ export interface SequenceArchitectInput {
   knowledgeContext: string;
   brandVoice?: string | null;
   audience?: string | null;
+  /** The brand's usage: the call's tokens are counted. */
+  usage: AiUsage;
 }
 
 /** One Gemini call → a map of {email index (1-based) → enriched brief}. */
@@ -494,7 +498,7 @@ async function callSequenceArchitect(
     userProfile: audienceSection(input.audience),
     task,
   });
-  const raw = await generateText(prompt);
+  const raw = await generateText(prompt, { usage: input.usage });
   const j = raw ? parseFirstJson(raw) : null;
   const map = new Map<number, string>();
   if (j && typeof j === "object") {

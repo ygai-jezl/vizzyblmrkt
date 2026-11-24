@@ -14,6 +14,7 @@ import { learnedDirectiveFor } from "@/lib/content/imageStyle/learning";
 import { isBrandImageStyleEnabled } from "@/lib/content/imageStyle/flags";
 import { IMAGE_MODEL_SLUGS } from "@/lib/content/create/imageModels";
 import { resolveImageModel } from "@/lib/agents/modelConfig";
+import { aiUsage } from "@/lib/plans/meter";
 
 import { deleteImageAsset } from "@/lib/admin/brandKit";
 import { EbookAspect } from "@/lib/types/contentPlan";
@@ -24,6 +25,7 @@ import { renderStyleImage } from "@/lib/content/imageStyle/render/styleImage";
 import { deleteWorkspaceAsset, storeWorkspaceImage } from "@/lib/workspace/assetStore";
 import { recordImageAsset } from "@/lib/admin/brandKit";
 import { FormatInputsSchema, ImageFormatIdSchema } from "@/lib/types/imageStyle";
+import { IMAGE_LIMIT_MESSAGE } from "@/lib/plans/resources";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,6 +58,7 @@ const BodySchema = z.object({
 });
 
 const IMAGE_ERRORS: Record<string, string> = {
+  image_limit: IMAGE_LIMIT_MESSAGE,
   image_model_unavailable: "The image model isn't available right now.",
   no_asset_bucket: "Image storage isn't configured.",
   store_failed: "Couldn't save the image — try again.",
@@ -188,6 +191,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     imageModel: parsed.data.model ? resolveImageModel(parsed.data.model) : undefined,
     // Best-of-N is reserved for the hero surface (cover) to bound cost on long eBooks.
     heroSurface: target.kind === "cover",
+    usage: aiUsage(ctx, "ebook_image", { tenant }),
     brandContext: assembleBrandContext({
       brandVoice: resolveBrandVoiceText({
         tenantBrandVoice: tenant?.brandVoice,
@@ -202,7 +206,7 @@ export async function POST(req: Request, { params }: RouteParams) {
   });
 
   if (!result.imageAssetRef) {
-    const status = result.reason === "prior_too_large" ? 400 : 502;
+    const status = result.reason === "image_limit" ? 429 : result.reason === "prior_too_large" ? 400 : 502;
     return NextResponse.json(
       { error: result.reason, message: IMAGE_ERRORS[result.reason ?? ""] ?? "Image generation failed." },
       { status },

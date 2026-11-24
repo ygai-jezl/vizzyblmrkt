@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { UrlReadResult } from "@/lib/agents/gemini";
+import { NO_USAGE, type UrlReadResult } from "@/lib/agents/gemini";
 import { googleReadPosts, googleReadRobots, googleReadSitemap, titleFromSlug, wasRead, withoutSiteName, type ReadWithGoogle } from "./google";
 
 const OK = "URL_RETRIEVAL_STATUS_SUCCESS";
@@ -13,11 +13,11 @@ const reads = (text: string, retrieved: Array<[string, string]>): ReadWithGoogle
 describe("reading through Google", () => {
   it("trusts an answer only for an address Google says it read", async () => {
     const robots = "User-agent: *\nAllow: /\nSitemap: https://www.blocked.example/sitemap.xml";
-    expect(await googleReadRobots(`${B}/robots.txt`, 5000, { readWithGoogle: reads(`\`\`\`\n${robots}\n\`\`\``, [[`${B}/robots.txt`, OK]]) })).toBe(robots);
+    expect(await googleReadRobots(`${B}/robots.txt`, 5000, NO_USAGE, { readWithGoogle: reads(`\`\`\`\n${robots}\n\`\`\``, [[`${B}/robots.txt`, OK]]) })).toBe(robots);
     // The model may still write an answer when Google couldn't read the file: never used.
-    expect(await googleReadRobots(`${B}/robots.txt`, 5000, { readWithGoogle: reads(robots, [[`${B}/robots.txt`, ERROR]]) })).toBeNull();
-    expect(await googleReadRobots(`${B}/robots.txt`, 5000, { readWithGoogle: reads("CANNOT_READ", [[`${B}/robots.txt`, OK]]) })).toBeNull();
-    expect(await googleReadRobots(`${B}/robots.txt`, 5000, { readWithGoogle: vi.fn(async () => null) })).toBeNull();
+    expect(await googleReadRobots(`${B}/robots.txt`, 5000, NO_USAGE, { readWithGoogle: reads(robots, [[`${B}/robots.txt`, ERROR]]) })).toBeNull();
+    expect(await googleReadRobots(`${B}/robots.txt`, 5000, NO_USAGE, { readWithGoogle: reads("CANNOT_READ", [[`${B}/robots.txt`, OK]]) })).toBeNull();
+    expect(await googleReadRobots(`${B}/robots.txt`, 5000, NO_USAGE, { readWithGoogle: vi.fn(async () => null) })).toBeNull();
     // One address asked and one read counts, even named after a redirect.
     expect(wasRead({ text: "", retrieved: [{ url: "https://www.blocked.example/robots.txt", status: OK }], model: "m" }, `${B}/robots.txt`)).toBe(true);
   });
@@ -35,7 +35,7 @@ describe("reading through Google", () => {
       `${B}/blog/six\tyesterday`,
       "/blog/seven\t2026-11-09",
     ].join("\n");
-    const got = await googleReadSitemap(`${B}/blog/post-sitemap.xml`, { site: "blocked.example", max: 300 }, 5000, {
+    const got = await googleReadSitemap(`${B}/blog/post-sitemap.xml`, { site: "blocked.example", max: 300, usage: NO_USAGE }, 5000, {
       readWithGoogle: reads(text, [[`${B}/blog/post-sitemap.xml`, OK]]),
     });
     expect(got).toEqual({
@@ -49,22 +49,22 @@ describe("reading through Google", () => {
   });
 
   it("tells an index from a list of pages, caps the lines, and gives nothing for a file Google couldn't read", async () => {
-    const index = await googleReadSitemap(`${B}/sitemap.xml`, { site: "blocked.example", max: 300 }, 5000, {
+    const index = await googleReadSitemap(`${B}/sitemap.xml`, { site: "blocked.example", max: 300, usage: NO_USAGE }, 5000, {
       readWithGoogle: reads(`${B}/blog/post-sitemap.xml\n${B}/page-sitemap.xml`, [[`${B}/sitemap.xml`, OK]]),
     });
     expect(index).toMatchObject({ kind: "index" });
     const many = Array.from({ length: 50 }, (_, i) => `${B}/blog/p${i}\t2026-11-01`).join("\n");
-    const capped = await googleReadSitemap(`${B}/blog/post-sitemap.xml`, { site: "blocked.example", max: 30 }, 5000, {
+    const capped = await googleReadSitemap(`${B}/blog/post-sitemap.xml`, { site: "blocked.example", max: 30, usage: NO_USAGE }, 5000, {
       readWithGoogle: reads(`KIND: urlset\n${many}`, [[`${B}/blog/post-sitemap.xml`, OK]]),
     });
     expect(capped !== "no_answer" && capped?.entries).toHaveLength(30);
     expect(
-      await googleReadSitemap(`${B}/sitemap.xml`, { site: "blocked.example", max: 300 }, 5000, {
+      await googleReadSitemap(`${B}/sitemap.xml`, { site: "blocked.example", max: 300, usage: NO_USAGE }, 5000, {
         readWithGoogle: reads(`KIND: urlset\n${B}/blog/one`, [[`${B}/sitemap.xml`, ERROR]]),
       }),
     ).toBeNull();
     // The call failing (a timeout) is not the same as Google failing to read the file: worth asking again.
-    expect(await googleReadSitemap(`${B}/sitemap.xml`, { site: "blocked.example", max: 300 }, 5000, { readWithGoogle: vi.fn(async () => null) })).toBe("no_answer");
+    expect(await googleReadSitemap(`${B}/sitemap.xml`, { site: "blocked.example", max: 300, usage: NO_USAGE }, 5000, { readWithGoogle: vi.fn(async () => null) })).toBe("no_answer");
   });
 
   it("keeps a post's title only for an address we asked about that Google read", async () => {
@@ -75,7 +75,7 @@ describe("reading through Google", () => {
       `${B}/blog/three\tA post Google couldn't read\t2026-11-15`,
       `${B}/blog/made-up\tA post nobody asked about\t2026-11-14`,
     ].join("\n");
-    const got = await googleReadPosts(asked, 5000, {
+    const got = await googleReadPosts(asked, 5000, NO_USAGE, {
       readWithGoogle: reads(text, [
         [`${B}/blog/one`, OK],
         [`${B}/blog/two`, OK],

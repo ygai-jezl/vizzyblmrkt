@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { generateTextWithDeadline, parseFirstJson } from "@/lib/agents/gemini";
+import { generateTextWithDeadline, parseFirstJson, type AiUsage } from "@/lib/agents/gemini";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import type { ArticleMap } from "@/lib/content/blog/articleMap";
 import {
@@ -338,7 +338,7 @@ export function checkFindings(raw: unknown, page: ArticlePage | null, cand: Read
 export async function readArticle(
   page: ArticlePage,
   cand: ReadCandidates,
-  opts: { name: string; timeoutMs: number },
+  opts: { name: string; timeoutMs: number; usage: AiUsage },
   deps: ReadDeps = {},
 ): Promise<ArticleFindings | null> {
   const clock = deps.clock ?? Date.now;
@@ -350,9 +350,9 @@ export async function readArticle(
     ...mapVars(cand),
   });
   const generate = deps.generate ?? generateTextWithDeadline;
-  let raw = await generate(prompt, { timeoutMs: Math.max(1, end - clock() - RETRY_MS), json: true, thinkingBudget: THINKING });
+  let raw = await generate(prompt, { timeoutMs: Math.max(1, end - clock() - RETRY_MS), json: true, thinkingBudget: THINKING, usage: opts.usage });
   // A slow or empty answer: once more, while there's time.
-  if (!raw && end - clock() >= RETRY_MS) raw = await generate(prompt, { timeoutMs: end - clock(), json: true, thinkingBudget: THINKING });
+  if (!raw && end - clock() >= RETRY_MS) raw = await generate(prompt, { timeoutMs: end - clock(), json: true, thinkingBudget: THINKING, usage: opts.usage });
   return raw ? checkFindings(parseFirstJson(raw), page, cand) : null;
 }
 
@@ -360,11 +360,11 @@ export async function readArticle(
 export async function readArticleWithGoogle(
   url: string,
   cand: ReadCandidates,
-  opts: { name: string; timeoutMs: number },
+  opts: { name: string; timeoutMs: number; usage: AiUsage },
   deps: ReadDeps = {},
 ): Promise<ArticleFindings | null> {
   const prompt = renderPrompt("competitors.read_article_google", { url, name: fenced(opts.name), ...mapVars(cand) });
-  const res = await readerOf(deps)(prompt, { timeoutMs: opts.timeoutMs, thinkingBudget: THINKING });
+  const res = await readerOf(deps)(prompt, { timeoutMs: opts.timeoutMs, thinkingBudget: THINKING, usage: opts.usage });
   if (!res || !wasRead(res, url)) return null;
   const parsed = parseFirstJson(res.text) as { unread?: unknown } | null;
   if (!parsed || parsed.unread) return null;

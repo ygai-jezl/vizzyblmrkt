@@ -4,6 +4,7 @@ import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant } from "@/lib/tenant";
 import { draftCopy } from "@/lib/agents";
+import { aiUsage } from "@/lib/plans/meter";
 import { activeBrandVoiceText } from "@/lib/content/create/activeBrandVoice";
 import { retrieveSemanticKnowledgeContext } from "@/lib/agents/knowledgeRetrieval";
 import type { Broadcast } from "@/lib/types/broadcast";
@@ -63,6 +64,7 @@ export async function POST(req: Request) {
     knowledgeContext,
     // Tenant-global authored brand voice (no workspace on the launch path) — null ⇒ tone enum only.
     brandVoice: await activeBrandVoiceText(ctx.tenantId),
+    usage: aiUsage(ctx, "email_copy"),
   });
   return NextResponse.json(result);
 }

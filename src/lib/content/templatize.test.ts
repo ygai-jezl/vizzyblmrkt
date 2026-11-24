@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // per stage (analyze → templatize → optional repair), so tests sequence the mock.
 vi.mock("@/lib/agents/gemini", () => ({
   generateText: vi.fn(),
+  NO_USAGE: {},
   generateTextWithImage: vi.fn(),
   parseFirstJson: (text: string): unknown | null => {
     const s = text.indexOf("{");
@@ -18,7 +19,7 @@ vi.mock("@/lib/agents/gemini", () => ({
 }));
 
 import { templatizeIdea } from "./templatize";
-import { generateText } from "@/lib/agents/gemini";
+import { generateText, NO_USAGE } from "@/lib/agents/gemini";
 
 const mocked = vi.mocked(generateText);
 
@@ -48,7 +49,7 @@ describe("templatizeIdea (two-stage modular pipeline)", () => {
           placeholders: [{ token: "Thing", kind: "list-item" }],
         }),
       );
-    const r = await templatizeIdea({ text: "do x, do y", knownGroups: [] });
+    const r = await templatizeIdea({ text: "do x, do y", knownGroups: [], usage: NO_USAGE });
     expect(r.source).toBe("agent3");
     expect(r.framework).toBe("listicle");
     expect(r.blockType).toBe("takeaway-list");
@@ -65,7 +66,7 @@ describe("templatizeIdea (two-stage modular pipeline)", () => {
       .mockResolvedValueOnce(
         JSON.stringify({ title: "T", body: "{{Hook}}", placeholders: [{ token: "Hook" }] }),
       );
-    const r = await templatizeIdea({ text: "x", knownGroups: [], framework: "story-pas" });
+    const r = await templatizeIdea({ text: "x", knownGroups: [], framework: "story-pas", usage: NO_USAGE });
     expect(r.framework).toBe("story-pas");
   });
 
@@ -75,7 +76,7 @@ describe("templatizeIdea (two-stage modular pipeline)", () => {
       .mockResolvedValueOnce(
         JSON.stringify({ title: "T", body: "{{A}} and {{B}}", placeholders: [{ token: "A" }] }),
       );
-    const r = await templatizeIdea({ text: "x", knownGroups: [] });
+    const r = await templatizeIdea({ text: "x", knownGroups: [], usage: NO_USAGE });
     expect(r.placeholders.map((p) => p.token).sort()).toEqual(["A", "B"]);
   });
 
@@ -86,14 +87,14 @@ describe("templatizeIdea (two-stage modular pipeline)", () => {
       .mockResolvedValueOnce(
         JSON.stringify({ title: "T", body: "now {{X}} works", placeholders: [{ token: "X" }] }),
       );
-    const r = await templatizeIdea({ text: "x", knownGroups: [] });
+    const r = await templatizeIdea({ text: "x", knownGroups: [], usage: NO_USAGE });
     expect(r.body).toContain("{{X}}");
     expect(mocked).toHaveBeenCalledTimes(3);
   });
 
   it("falls back deterministically when the templatize stage fails", async () => {
     mocked.mockResolvedValueOnce(analyzeJson()).mockResolvedValueOnce(null);
-    const r = await templatizeIdea({ text: "raw idea content", knownGroups: [] });
+    const r = await templatizeIdea({ text: "raw idea content", knownGroups: [], usage: NO_USAGE });
     expect(r.source).toBe("fallback");
     expect(r.body).toContain("raw idea");
   });
@@ -104,7 +105,7 @@ describe("templatizeIdea (two-stage modular pipeline)", () => {
       .mockResolvedValueOnce(
         JSON.stringify({ title: "T", body: "{{X}}", placeholders: [{ token: "X" }] }),
       );
-    const r = await templatizeIdea({ text: "x", knownGroups: [] });
+    const r = await templatizeIdea({ text: "x", knownGroups: [], usage: NO_USAGE });
     expect(r.source).toBe("agent3");
     expect(r.framework).toBeTruthy();
     expect(r.category).toBe("educate");

@@ -100,6 +100,8 @@ export interface ProductMapJobVars {
   region: Region;
   /** This app takes date facts (CONNECT_DATE_FACTS): the analysis may propose them. */
   dateFacts?: boolean;
+  /** The usage meter is on (USAGE_METER_ENABLED): the job records the model use it spends. */
+  usageMeter?: boolean;
 }
 
 /** Build the runJob request for a repo analysis (pure — unit-tested). */
@@ -116,6 +118,7 @@ export function buildProductMapRunRequest(vars: ProductMapJobVars): ReturnType<t
             { name: "REGION", value: vars.region },
             // Only sent when on, so a job image from before date facts sees nothing new.
             ...(vars.dateFacts ? [{ name: "DATE_FACTS", value: "true" }] : []),
+            ...(vars.usageMeter ? [{ name: "USAGE_METER_ENABLED", value: "true" }] : []),
           ],
         },
       ],

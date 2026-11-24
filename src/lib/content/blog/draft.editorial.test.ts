@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ContentNode, ContentPlan } from "@/lib/types/contentPlan";
 import { authorBox, bylineOf, draftBlogArticle, splitAuthorBox, stampDateLine, type BlogDraftInput } from "./draft";
 import { checkBlogFacts } from "./factCheck";
+import { NO_USAGE } from "@/lib/agents/gemini";
 import { outlineArticle } from "./outline";
 import { EDITORIAL_ARTICLE, EDITORIAL_BRIEF } from "./testing/editorialArticle";
 import { SAMPLE_BRIEF } from "./testing/sampleArticle";
@@ -26,6 +27,7 @@ const input = (over: Partial<BlogDraftInput> = {}): BlogDraftInput => ({
   knowledgeUrls: ["https://acme.example/product"],
   proofBlock: "",
   quick: true,
+  usage: NO_USAGE,
   ...over,
 });
 
@@ -103,6 +105,7 @@ describe("the fact check on an editorial article", () => {
         knowledgeContext: "",
         knowledgeUrls: [],
         proofBlock: "",
+        usage: NO_USAGE,
       },
       { generate, now: NOW },
     );
@@ -170,6 +173,7 @@ describe("the brand's notes in an editorial article", () => {
         knowledgeContext: "",
         knowledgeUrls: [],
         proofBlock: "",
+        usage: NO_USAGE,
       },
       { generate, now: NOW },
     );

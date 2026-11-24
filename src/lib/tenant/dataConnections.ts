@@ -25,7 +25,14 @@ import {
  * - Each activity row carries `ttlAt` as a Date, 90 days on, for the TTL policy that
  *   infra/lifecycle/setup.sh ttl turns on.
  * - The record keeps the last 20 changes, newest first, for the Connected view.
- * - id, tenantId, connectorId, method and createdAt never change after a connection is made.
+ * - id, tenantId, connectorId, method, createdAt and source never change after a connection is made.
+ * - A brand's part of an organisation's connection (Connectors 3, ADR-0014) carries a `source`. Only
+ *   src/lib/tenant/organisationConnections.ts makes one, through the stage variant below; its
+ *   `account` changes only through that file's part change; and it never holds a secret or an
+ *   address, whatever a plan returns.
+ * - The stage variants (stageDataConnectionCreate, prepareDataConnectionChange) take a transaction,
+ *   so a writer in src/lib/tenant can compose a connection's change with another write in the same
+ *   database (a part and its settings version). They are not exported from @/lib/tenant.
  *
  * forTenant gives the records read only (find, getById, count) and the activity a count, so a
  * write that skips this file fails typecheck.
@@ -59,7 +66,7 @@ export interface ActivityWrite {
 export type NewDataConnection = Omit<DataConnection, "tenantId" | "recent">;
 
 /** What a change may set. The identity fields are stripped whatever a plan returns. */
-export type DataConnectionPatch = Partial<Omit<DataConnection, "id" | "tenantId" | "connectorId" | "method" | "createdAt" | "recent">>;
+export type DataConnectionPatch = Partial<Omit<DataConnection, "id" | "tenantId" | "connectorId" | "method" | "createdAt" | "recent" | "source">>;
 
 export type ChangePlan = { patch: DataConnectionPatch; activity: ActivityWrite[] } | null;
 
@@ -68,7 +75,12 @@ export type ChangeResult =
   | { ok: false; why: "not_found" }
   | { ok: false; why: "unchanged"; connection: DataConnection };
 
-const FIXED = ["id", TENANT_FIELD, "connectorId", "method", "createdAt", "recent"] as const;
+const FIXED = ["id", TENANT_FIELD, "connectorId", "method", "createdAt", "recent", "source"] as const;
+
+/** How a stage variant was called: by the part writer, which alone makes parts and changes their account. */
+export interface PartWrite {
+  part?: boolean;
+}
 
 function invalid(message: string): never {
   throw new TenantValidationError(`bad_data_connection:${message}`);
@@ -135,29 +147,110 @@ function parseStored(tenantId: string, id: string, data: Record<string, unknown>
   return parsed.data;
 }
 
-/**
- * Create a connection with its first activity (connected, verified...) in one transaction.
- * An id that already exists, in any brand, is refused (TenantIsolationError), never overwritten.
- */
-export async function createDataConnection(ctx: TenantContext, input: NewDataConnection, activity: ActivityWrite[], db?: FirestoreLike): Promise<DataConnection> {
+/** The record to create, checked, with the tenant stamped and its recent list built. */
+function checkedNew(ctx: TenantContext, input: NewDataConnection, activity: ActivityWrite[], opts: PartWrite): DataConnection {
   if (!DATA_CONNECTION_ID_RE.test(input.id)) invalid("id");
   for (const a of activity) checkActivity(a);
   const { tenantId: _t, recent: _r, ...rest } = input as NewDataConnection & { tenantId?: unknown; recent?: unknown };
+  if (rest.source !== undefined) {
+    // Only the part writer makes a part, and a part keeps no secret and no address.
+    if (!opts.part) invalid("source");
+    if (Object.keys(rest.secrets).length || rest.serviceAccount) invalid("source_secrets");
+  }
   const record: DataConnection = { ...rest, tenantId: ctx.tenantId, recent: withRecent([], activity) };
   const parsed = DataConnectionSchema.safeParse(record);
   if (!parsed.success) invalid(parsed.error.issues[0]?.path.join(".") ?? "record");
+  return parsed.data;
+}
+
+/**
+ * Stage a new connection and its first activity in a transaction the caller runs, after all its
+ * reads. The atomic create refuses an id that exists, in any brand, when the transaction commits.
+ * For writers in src/lib/tenant only.
+ */
+export function stageDataConnectionCreate(
+  ctx: TenantContext,
+  input: NewDataConnection,
+  activity: ActivityWrite[],
+  txn: TransactionLike,
+  store: FirestoreLike,
+  opts: PartWrite = {},
+): DataConnection {
+  const record = checkedNew(ctx, input, activity, opts);
+  const { id, ...doc } = record;
+  txn.create(store.collection(DATA_CONNECTIONS).doc(id), doc);
+  stageActivity(txn, store, ctx.tenantId, record, activity);
+  return record;
+}
+
+/**
+ * Create a connection with its first activity (connected, verified...) in one transaction.
+ * An id that already exists, in any brand, is refused (TenantIsolationError), never overwritten.
+ * A part of an organisation's connection is made only by src/lib/tenant/organisationConnections.ts.
+ */
+export async function createDataConnection(ctx: TenantContext, input: NewDataConnection, activity: ActivityWrite[], db?: FirestoreLike): Promise<DataConnection> {
+  const checked = checkedNew(ctx, input, activity, {});
   const store = regionalStoreFor(ctx, db);
-  const { id, ...doc } = parsed.data;
   try {
     await store.runTransaction(async (txn) => {
-      txn.create(store.collection(DATA_CONNECTIONS).doc(id), doc);
-      stageActivity(txn, store, ctx.tenantId, parsed.data, activity);
+      stageDataConnectionCreate(ctx, checked, activity, txn, store);
     });
   } catch (err) {
-    if (isAlreadyExists(err)) throw new TenantIsolationError(`${DATA_CONNECTIONS}/${id} already exists; refusing to overwrite`);
+    if (isAlreadyExists(err)) throw new TenantIsolationError(`${DATA_CONNECTIONS}/${checked.id} already exists; refusing to overwrite`);
     throw err;
   }
-  return parsed.data;
+  return checked;
+}
+
+/** A change read and planned in the caller's transaction: what it comes to, and the writes to stage. */
+export interface PreparedChange {
+  result: ChangeResult;
+  /** Stage the writes; call it after every read of the transaction. Does nothing when nothing changes. */
+  stage: () => void;
+}
+
+/**
+ * Read a connection in the caller's transaction and plan its change, staging nothing yet. `plan`
+ * sees the freshest record. A part's account changes only for the part writer (`part`), and a part
+ * never takes a secret or an address. For writers in src/lib/tenant only; changeDataConnection is
+ * this in a transaction of its own.
+ */
+export async function prepareDataConnectionChange(
+  ctx: TenantContext,
+  id: string,
+  plan: (current: DataConnection) => ChangePlan,
+  txn: TransactionLike,
+  store: FirestoreLike,
+  opts: PartWrite = {},
+): Promise<PreparedChange> {
+  const nothing = () => undefined;
+  if (!DATA_CONNECTION_ID_RE.test(id)) return { result: { ok: false, why: "not_found" }, stage: nothing };
+  const ref = store.collection(DATA_CONNECTIONS).doc(id);
+  const snap = await txn.get(ref);
+  const current = snap.exists ? parseStored(ctx.tenantId, id, snap.data()) : null;
+  if (!current) return { result: { ok: false, why: "not_found" }, stage: nothing };
+  const planned = plan(current);
+  if (!planned) return { result: { ok: false, why: "unchanged", connection: current }, stage: nothing };
+  for (const a of planned.activity) checkActivity(a);
+  const patch: Record<string, unknown> = { ...planned.patch };
+  for (const k of FIXED) delete patch[k];
+  if (current.source) {
+    if (!opts.part && patch.account !== undefined && patch.account !== current.account) delete patch.account;
+    if (patch.secrets !== undefined) patch.secrets = {};
+    if (patch.serviceAccount !== undefined) patch.serviceAccount = null;
+  }
+  const last = planned.activity.at(-1);
+  if (patch.updatedAt === undefined && last) patch.updatedAt = last.at;
+  if (planned.activity.some((a) => a.recent !== false)) patch.recent = withRecent(current.recent, planned.activity);
+  const next = DataConnectionSchema.safeParse({ ...current, ...patch });
+  if (!next.success) invalid(next.error.issues[0]?.path.join(".") ?? "patch");
+  return {
+    result: { ok: true, connection: next.data },
+    stage: () => {
+      txn.update(ref, patch);
+      stageActivity(txn, store, ctx.tenantId, current, planned.activity);
+    },
+  };
 }
 
 /**
@@ -174,24 +267,10 @@ export async function changeDataConnection(
 ): Promise<ChangeResult> {
   if (!DATA_CONNECTION_ID_RE.test(id)) return { ok: false, why: "not_found" };
   const store = regionalStoreFor(ctx, db);
-  const ref = store.collection(DATA_CONNECTIONS).doc(id);
   return store.runTransaction(async (txn): Promise<ChangeResult> => {
-    const snap = await txn.get(ref);
-    const current = snap.exists ? parseStored(ctx.tenantId, id, snap.data()) : null;
-    if (!current) return { ok: false, why: "not_found" };
-    const planned = plan(current);
-    if (!planned) return { ok: false, why: "unchanged", connection: current };
-    for (const a of planned.activity) checkActivity(a);
-    const patch: Record<string, unknown> = { ...planned.patch };
-    for (const k of FIXED) delete patch[k];
-    const last = planned.activity.at(-1);
-    if (patch.updatedAt === undefined && last) patch.updatedAt = last.at;
-    if (planned.activity.some((a) => a.recent !== false)) patch.recent = withRecent(current.recent, planned.activity);
-    const next = DataConnectionSchema.safeParse({ ...current, ...patch });
-    if (!next.success) invalid(next.error.issues[0]?.path.join(".") ?? "patch");
-    txn.update(ref, patch);
-    stageActivity(txn, store, ctx.tenantId, current, planned.activity);
-    return { ok: true, connection: next.data };
+    const prepared = await prepareDataConnectionChange(ctx, id, plan, txn, store);
+    prepared.stage();
+    return prepared.result;
   });
 }
 

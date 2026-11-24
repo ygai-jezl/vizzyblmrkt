@@ -21,6 +21,7 @@ const REPO = "src/lib/tenant/repository.ts";
 const CONTROL = "src/lib/tenant/control.ts";
 const TENANT_LOOKUP = "src/lib/tenant/registry.ts";
 const ORGS = "src/lib/tenant/organisations.ts";
+const ORG_CONNECTIONS = "src/lib/tenant/organisationConnections.ts";
 const WORKSPACE_CONTENT = "src/lib/tenant/workspaceContent.ts";
 const KNOWLEDGE = "src/lib/tenant/knowledge.ts";
 const SCRAPER = "workers/knowledge-scraper/src/pipeline.ts";
@@ -1323,6 +1324,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { to: "brand", via: "brandIds, each brand pointing back with organisationId and keeping a copy of the plan in orgPlan", many: true },
       { to: "member", via: "ownerIds and createdBy, as user ids; its users are the members of its brands, counted once", many: true },
       { to: "organisation_change", via: "organisation_changes.organisationId", many: true },
+      { to: "organisation_connection", via: "organisation_connections.organisationId, in the region each was connected from", many: true },
     ],
     events: [],
     erase: {
@@ -1843,7 +1845,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "data_connection",
     name: "Data connection",
     description:
-      "A brand's link to an outside source of numbers, such as a Cloudflare zone, a Search Console site or a Google Analytics property: which connector, how it signs in, its health, who may read it live, and its secrets (a pasted token, or a Google sign in's access and refresh tokens), sealed with the brand, connection and slot bound in. A shared connection keeps no secret, only the Google address made for it. Each change goes into an activity log kept 90 days.",
+      "A brand's link to an outside source of numbers, such as a Cloudflare zone, a Search Console site or a Google Analytics property: which connector, how it signs in, its health, who may read it live, and its secrets (a pasted token, or a Google sign in's access and refresh tokens), sealed with the brand, connection and slot bound in. A shared connection keeps no secret, only the Google address made for it. It may also be a part its organisation gave it (Connectors 3): then `source` names the organisation's connection and the region it is kept in, it keeps no secret and no address, and its token is read through the organisation's. Each change goes into an activity log kept 90 days.",
     place: "signals",
     status: "built",
     home: "brand",
@@ -1862,6 +1864,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { to: "brand", via: "tenantId", many: false },
       { to: "member", via: "ownerUid, and by on each activity row", many: false },
       { to: "connector_manifest", via: "connectorId", many: false },
+      { to: "organisation_connection", via: "source, on a part its organisation gave it", many: false },
     ],
     events: [],
     states: ["connected", "disconnected"],
@@ -1895,6 +1898,46 @@ export const ONTOLOGY: readonly OntologyType[] = [
       ],
       tool: "read_connected_live",
     },
+  },
+  {
+    id: "organisation_connection",
+    name: "Organisation connection",
+    description:
+      "An organisation's own link to an outside source of numbers (Connectors 3, ADR-0014): one Google sign in, one Google address made for the organisation, or one pasted token, whose owners give each of the organisation's brands one part of it (a site, a property or a zone). Kept in the regional database of the brand it was connected from, and never moved; its parts can go to the organisation's brands in any region. It holds the sealed secrets, with the organisation, connection and slot bound in, its health, pause and collect hold, the owner who signed in, and for each part the brand's id and region, the part and the brand record's id: what the sign in reads for each brand, never what was collected. Each part is a data connection in its brand's own region, where everything collected stays. Written only through `src/lib/tenant/organisationConnections.ts`; each change goes into an activity log kept 90 days.",
+    place: "signals",
+    status: "built",
+    home: "organisation",
+    personal: "team",
+    stores: [
+      side("organisation_connections", ORG_CONNECTIONS, {
+        note: "one record per organisation connection, read by id and by equality on organisationId (with connectorId) or status, in every provisioned region; its secrets are sealed and never leave the server",
+        residencyGap:
+          "kept in the region of the brand it was connected from, which may not be the region of every brand it serves: only the sign in (its token, read into server memory) and each part's brand id, region and name cross; collected numbers stay in each brand's region",
+      }),
+      side("organisation_connection_activity", ORG_CONNECTIONS, {
+        note: "each change to an organisation connection and who made it, by user id, and the brand a part change is about; written with its change, never queried, deleted 90 days on by a time to live on ttlAt",
+      }),
+    ],
+    links: [
+      { to: "organisation", via: "organisationId", many: false },
+      { to: "data_connection", via: "parts[].useId, each brand record pointing back with source", many: true },
+      { to: "brand", via: "parts[].tenantId, and connectedFromTenantId", many: true },
+      { to: "member", via: "createdBy, signerUid, givenBy and endedBy, and by on each activity row", many: true },
+      { to: "connector_manifest", via: "connectorId", many: false },
+    ],
+    events: [],
+    states: ["connected", "disconnected"],
+    erase: {
+      paths: [
+        brandPath("disconnectOrganisationConnectionRecord", ORG_CONNECTIONS, "Disconnect at the organisation empties the sealed secrets and ends every part; the record stays, marked disconnected"),
+        brandPath("purgeOrganisationConnection", ORG_CONNECTIONS, "the organisation purge removes the secrets, the recent list, the parts and the activity, whatever any switch says"),
+        retention("ORGANISATION_CONNECTION_ACTIVITY", ORG_CONNECTIONS, "activity rows go 90 days on, through the TTL on ttlAt"),
+      ],
+      gaps: ["an owner's user id in createdBy, signerUid, givenBy and by stays after they stop being an owner, as settings history does"],
+    },
+    export: { none: "a sealed secret and the parts it serves, never exported" },
+    search: { none: "credentials and settings, never searched" },
+    numbers: { none: "its parts' numbers are each brand's data connection's" },
   },
   {
     id: "connector_stream",

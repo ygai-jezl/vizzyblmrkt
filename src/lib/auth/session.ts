@@ -199,7 +199,7 @@ export async function getHomeAdminContext(): Promise<TenantContext | null> {
  * would otherwise disappear once they switch away from it).
  */
 export async function getAdminContextWithHome(): Promise<
-  { ctx: TenantContext; homeTenantId: string } | null
+  { ctx: TenantContext; homeTenantId: string; homeRole: TenantRole | undefined } | null
 > {
   const home = await getHomeAdminContext();
   if (!home) return null;
@@ -212,7 +212,9 @@ export async function getAdminContextWithHome(): Promise<
   // risk), so fail closed (null → re-auth) instead.
   try {
     const ctx = await resolveActiveTenant(home, active);
-    return { ctx, homeTenantId: home.tenantId };
+    // The home brand's role is the verified claims' (it has no tenant_users row): organisation
+    // checks need it for the home brand even while another brand is active (isBrandAdminLive).
+    return { ctx, homeTenantId: home.tenantId, homeRole: home.role };
   } catch {
     return null;
   }

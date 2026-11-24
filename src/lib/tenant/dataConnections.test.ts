@@ -197,3 +197,50 @@ describe("forTenant's view of connected data", () => {
     expectTypeOf(repo.dataConnectionActivity).toHaveProperty("count");
   });
 });
+
+describe("a brand's part of an organisation's connection (Connectors 3)", () => {
+  const SOURCE = { organisationId: "org_ten_a", connectionId: "ocn_aaaaaaaaaaaaaaaaaaaa", region: "eu" as const };
+  const part = (over: Partial<NewDataConnection> = {}) => fresh(ID, { method: "oauth_pkce", connectorId: "search-console", account: "sc-domain:a.example", secrets: {}, source: SOURCE, ...over });
+
+  it("is never made outside the part writer", async () => {
+    await expect(createDataConnection(A, part(), [], db)).rejects.toBeInstanceOf(TenantValidationError);
+    expect(db.raw(DATA_CONNECTIONS, ID)).toBeUndefined();
+  });
+
+  it("is made by the stage variant only with no secret and no address, beside another write in one transaction", async () => {
+    const { stageDataConnectionCreate } = await import("./dataConnections");
+    await expect(db.runTransaction(async (txn) => stageDataConnectionCreate(A, part({ secrets: fresh().secrets }), [], txn, db, { part: true }))).rejects.toBeInstanceOf(TenantValidationError);
+    await db.runTransaction(async (txn) => {
+      stageDataConnectionCreate(A, part(), [{ kind: "connected", by: "usr_admin", at: T0, code: "part_given" }], txn, db, { part: true });
+      txn.create(db.collection("probe").doc("p"), { tenantId: "ten_a" });
+    });
+    expect(db.raw(DATA_CONNECTIONS, ID)).toMatchObject({ tenantId: "ten_a", source: SOURCE, secrets: {} });
+    expect(db.raw("probe", "p")).toBeDefined();
+  });
+
+  it("keeps its source, its account and no secret whatever a change plans", async () => {
+    const { stageDataConnectionCreate, prepareDataConnectionChange } = await import("./dataConnections");
+    await db.runTransaction(async (txn) => void stageDataConnectionCreate(A, part(), [], txn, db, { part: true }));
+    await changeDataConnection(A, ID, () => ({ patch: { account: "sc-domain:b.example", secrets: fresh().secrets, serviceAccount: { email: "x", uniqueId: "1", createdAt: T0, deletedAt: null }, ...({ source: { ...SOURCE, region: "us" } } as object) }, activity: [] }), db);
+    expect(db.raw(DATA_CONNECTIONS, ID)).toMatchObject({ account: "sc-domain:a.example", secrets: {}, serviceAccount: null, source: SOURCE });
+    // The part writer alone changes its account, in its own transaction.
+    await db.runTransaction(async (txn) => {
+      const p = await prepareDataConnectionChange(A, ID, () => ({ patch: { account: "sc-domain:b.example" }, activity: [] }), txn, db, { part: true });
+      p.stage();
+    });
+    expect(db.raw(DATA_CONNECTIONS, ID)?.account).toBe("sc-domain:b.example");
+  });
+
+  it("parses with the current schema, and its source is dropped by a parse that doesn't know it", async () => {
+    const { DataConnectionSchema } = await import("@/lib/types/dataConnection");
+    const { stageDataConnectionCreate } = await import("./dataConnections");
+    await db.runTransaction(async (txn) => void stageDataConnectionCreate(A, part(), [{ kind: "connected", by: "usr_admin", at: T0, code: "part_given" }], txn, db, { part: true }));
+    const stored = { ...db.raw(DATA_CONNECTIONS, ID)!, id: ID };
+    expect(DataConnectionSchema.parse(stored).source).toEqual(SOURCE);
+    // An older build's schema (no source): its recent kinds are ones it knows, and the source goes.
+    const older = DataConnectionSchema.omit({ source: true });
+    const parsed = older.parse(stored) as Record<string, unknown>;
+    expect(parsed.source).toBeUndefined();
+    expect(parsed.secrets).toEqual({});
+  });
+});

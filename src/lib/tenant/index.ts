@@ -206,6 +206,52 @@ export {
   RECENT_LIMIT,
 } from "./dataConnections";
 export type { ActivityWrite, NewDataConnection, DataConnectionPatch, ChangePlan, ChangeResult, PurgeCounts } from "./dataConnections";
+// Organisation connections (Connectors 3): an organisation's sign in in the region it was
+// connected from, and each brand's part as a brand record in its own region, given, changed and
+// ended in three steps over two databases. The stage variants stay in src/lib/tenant.
+export {
+  ORGANISATION_CONNECTIONS,
+  ORGANISATION_CONNECTION_ACTIVITY,
+  REPAIR_AFTER_MS,
+  provisionedRegions,
+  newOrganisationConnectionId,
+  createOrganisationConnection,
+  getOrganisationConnection,
+  findOrganisationConnection,
+  listOrganisationConnections,
+  listRegionOrganisationConnections,
+  changeOrganisationConnection,
+  countOrganisationConnectionActivity,
+  purgeOrganisationConnection,
+  givePart,
+  changePart,
+  endPart,
+  removePartEntry,
+  disconnectOrganisationConnectionRecord,
+  repairParts,
+} from "./organisationConnections";
+export type {
+  OrganisationStores,
+  OrgActivityWrite,
+  NewOrganisationConnection,
+  OrganisationConnectionPatch,
+  OrgChangePlan,
+  OrgChangeResult,
+  OrganisationPurgeCounts,
+  SourceRef,
+  BrandRef,
+  StepTwoStage,
+  GivePartInput,
+  GivePartResult,
+  ChangePartInput,
+  ChangePartResult,
+  EndPartInput,
+  EndPartResult,
+  RepairOutcome,
+} from "./organisationConnections";
+// Who may act for an organisation, read live.
+export { organisationContextFor, verifiedPersonOf, isBrandAdminLive, isBrandAdminByRow } from "./organisationContext";
+export type { OrganisationContext, VerifiedPerson } from "./organisationContext";
 // Connected data sign in states: made at Sign in, claimed once by the callback, then deleted.
 export { createConnectionState, consumeConnectionState, STATE_VALID_MS } from "./dataConnectionStates";
 export type { NewConnectionState, StoredConnectionState, ConsumeOutcome } from "./dataConnectionStates";

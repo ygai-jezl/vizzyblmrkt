@@ -209,6 +209,7 @@ case "$CMD" in
       ttl_on "$db" data_connection_states ttlAt
       ttl_on "$db" metric_snapshots ttlAt
       ttl_on "$db" data_signals ttlAt
+      ttl_on "$db" organisation_connection_activity ttlAt
     done
     ttl_on "(default)" rate_limits ttl
     echo "Requested. TTL policies take a few minutes to become ACTIVE. Check with: ./setup.sh verify $PROJECT"

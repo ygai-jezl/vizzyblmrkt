@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { signInWithPopup } from "firebase/auth";
+import { signInWithPopup, signOut } from "firebase/auth";
 import { getClientAuth, googleProvider } from "@/lib/auth/firebaseClient";
 import { accessDeniedMessage, WORKSPACE_NOT_SET_UP_MESSAGE } from "@/lib/auth/accessDenied";
+import { AUTH_MESSAGES } from "@/lib/auth/messages";
+import { authErrorCode } from "@/lib/auth/passwordClient";
 import {
   installSessionFetchInterceptor,
   mintSession,
@@ -66,15 +68,24 @@ export function SessionKeeper() {
         setBusy(false);
         return;
       }
+      // The door removed an account it couldn't trust: drop the sign-in so the next try starts fresh.
+      if (result === "sign_in_again") await signOut(getClientAuth()).catch(() => undefined);
       setError(
         result === "forbidden"
           ? accessDeniedMessage()
           : result === "not_set_up"
             ? WORKSPACE_NOT_SET_UP_MESSAGE
-            : "Sign-in failed. Please try again.",
+            : result === "sign_in_again"
+              ? AUTH_MESSAGES.signInAgainBody
+              : "Sign-in failed. Please try again.",
       );
-    } catch {
-      setError("Sign-in failed. Please try again.");
+    } catch (err) {
+      // A password account's address: Google can't sign it in here, the sign-in page can.
+      setError(
+        authErrorCode(err) === "auth/account-exists-with-different-credential"
+          ? AUTH_MESSAGES.usePasswordInstead
+          : "Sign-in failed. Please try again.",
+      );
     }
     setBusy(false);
   }

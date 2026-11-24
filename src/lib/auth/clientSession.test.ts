@@ -48,6 +48,16 @@ describe("safeNextPath", () => {
     expect(safeNextPath(null)).toBeNull();
     expect(safeNextPath(undefined)).toBeNull();
   });
+
+  it("rejects paths a browser reads as another origin: backslashes, tabs, newlines and other controls", () => {
+    for (const raw of ["/\\evil.test/login", "/\\/evil.test", "/\t/evil.test", "/\n/evil.test", "/\r//evil.test", "/ /evil.test", "/admin\u0000x", "/admin/\\x"]) {
+      expect(safeNextPath(raw), JSON.stringify(raw)).toBeNull();
+    }
+    // As they arrive in ?next=, decoded by URLSearchParams.
+    for (const query of ["?next=/%5Cevil.test/login", "?next=/%09/evil.test", "?next=/%0A/evil.test"]) {
+      expect(safeNextPath(new URLSearchParams(query).get("next")), query).toBeNull();
+    }
+  });
 });
 
 describe("mint stamp without a browser environment", () => {
@@ -76,5 +86,40 @@ describe("mintSession", () => {
     await expect(mintSession(user)).resolves.toBe("error");
     respond(200, { ok: true });
     await expect(mintSession(user)).resolves.toBe("ok");
+  });
+
+  it("tells an unconfirmed password account, and one that must use Google, apart from a refusal", async () => {
+    respond(403, { error: "email_not_verified" });
+    await expect(mintSession(user)).resolves.toBe("email_not_verified");
+    respond(403, { error: "google_only" });
+    await expect(mintSession(user)).resolves.toBe("google_only");
+    respond(403, {});
+    await expect(mintSession(user)).resolves.toBe("forbidden");
+  });
+
+  it("asks for a fresh sign in when the door removed the account, and only then", async () => {
+    respond(409, { error: "sign_in_again" });
+    await expect(mintSession(user)).resolves.toBe("sign_in_again");
+    respond(409, { error: "conflict" });
+    await expect(mintSession(user)).resolves.toBe("error");
+    respond(500, { error: "sign_in_again" });
+    await expect(mintSession(user)).resolves.toBe("error");
+  });
+
+  it("reads the door's answer after the first sign-in's refresh too", async () => {
+    const tokens: boolean[] = [];
+    const refreshing = {
+      getIdToken: async (force?: boolean) => {
+        tokens.push(force === true);
+        return "id-token";
+      },
+    } as unknown as User;
+    const answers = [
+      new Response(JSON.stringify({ needsRefresh: true }), { status: 200 }),
+      new Response(JSON.stringify({ error: "sign_in_again" }), { status: 409 }),
+    ];
+    vi.stubGlobal("fetch", vi.fn(async () => answers.shift()!));
+    await expect(mintSession(refreshing)).resolves.toBe("sign_in_again");
+    expect(tokens).toEqual([false, true]);
   });
 });

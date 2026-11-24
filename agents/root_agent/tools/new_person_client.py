@@ -31,6 +31,7 @@ _ERRORS = {
     "invalid_phone": "That phone number doesn't look right. Use digits, with + and spaces if you like.",
     "consent_not_allowed": "I can't record that someone agreed to emails: the admin says how they agreed in the form.",
     "rate_limited": "I've filled in a lot of forms in the last hour. Please try again a bit later.",
+    "too_large": "That form is too big to save. Fill in fewer fields, or shorter text.",
     "invalid_input": "The form was missing something",
 }
 

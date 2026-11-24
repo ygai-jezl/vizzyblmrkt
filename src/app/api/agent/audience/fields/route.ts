@@ -5,9 +5,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * For Vizzy: the brand's People fields of the seven types it may read (select, multi select,
- * status, checkbox, number, currency and date), with their options and no values. Auth: the
- * signed canvas token in `X-Canvas-Context`; gated by AUDIENCE_VIZZY_FIELDS_ENABLED.
+ * For Vizzy: the brand's People fields it may read (select, multi select, status, checkbox, number,
+ * currency and date, and text fields an admin let it read while AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED
+ * is on), with their options and no values. Auth: the signed canvas token in `X-Canvas-Context`;
+ * gated by AUDIENCE_VIZZY_FIELDS_ENABLED.
  */
 export async function GET(req: Request) {
   const gate = vizzyFieldsAgentGate(req);

@@ -342,7 +342,10 @@ def test_the_fields_rules_say_what_vizzy_sees_and_that_a_person_confirms():
     for tool in ("people_fields_list", "person_fields_read", "person_fields_propose"):
         assert tool in text
     assert "select, multi select, status, checkbox, number, currency and date" in text
-    assert "never text, email, phone, link or team member fields" in text
+    assert "and text fields the brand lets you read" in text
+    assert "never other text fields, never email, phone, link or\nteam member fields" in text
+    assert "Never write those marks in a value" in text
+    assert "500 characters" in text
     assert "Nothing\nchanges until they confirm it" in text
     assert "never that the change is made" in text
     assert "You\nnever record consent" in text

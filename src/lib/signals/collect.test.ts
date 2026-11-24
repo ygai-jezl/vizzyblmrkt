@@ -7,6 +7,7 @@ import type { DataForSeoFetch } from "./dataforseo";
 import { FIRST_LOOK_MS, getSignal, lookupsThisMonth, recordPosted } from "./store";
 import { runSignals } from "./tick";
 import { envelope, SERP_RESULT } from "./testing/serpFixture";
+import { usageThisMonth } from "@/lib/plans/meter";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "system" };
 const ENV = { DATAFORSEO_USERNAME: "api-user@example.com", DATAFORSEO_PASSWORD: "not-a-real-password" };
@@ -74,6 +75,19 @@ describe("looking a question up", () => {
     expect(await lookUpQuestion(A, { ...ASK, query: "Another question" }, deps)).toMatchObject({ ok: false, status: 429, error: "monthly_limit" });
     expect(await lookupsThisMonth(A, deps)).toBe(1);
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("puts each paid lookup on the usage meter by who asked, never a reused one", async () => {
+    vi.stubEnv("USAGE_METER_ENABLED", "true");
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const { deps } = setup();
+    await lookUpQuestion(A, ASK, deps);
+    await lookUpQuestion(A, ASK, deps);
+    await lookUpQuestion(A, { ...ASK, query: "Another question", purpose: "autopilot" }, deps);
+    const m = await usageThisMonth(A, { db: deps.db, now: deps.now });
+    expect(m.google_lookups).toMatchObject({ total: 2, calls: 2, byPurpose: { get_from_google: 1, autopilot: 1 } });
+    // The purpose is the meter's: it isn't stored on the lookup.
+    expect(JSON.stringify(deps.db.dump("brand_signals"))).not.toContain('"purpose"');
   });
 
   it("reports a refused lookup without storing anything", async () => {

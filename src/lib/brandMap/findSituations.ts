@@ -1,5 +1,6 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
-import { generateGroundedText, isGeminiConfigured } from "@/lib/agents/gemini";
+import { generateGroundedText, isGeminiConfigured, isSearchLimited } from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import type { RetrievedChunk } from "@/lib/agents/knowledgeRetrieval";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import type { TenantContext } from "@/lib/tenant/types";
@@ -182,7 +183,8 @@ export async function findSituations(ctx: TenantContext, input: { customers?: st
   });
   const left = deadline - clock().getTime() - 3_000;
   if (left < 15_000) return { ok: false, status: 504, error: "research_failed" };
-  const answer = await (deps.grounded ?? generateGroundedText)(prompt, { timeoutMs: left, thinkingBudget: blogResearchThinkingBudget() }).catch(() => null);
+  const answer = await (deps.grounded ?? generateGroundedText)(prompt, { timeoutMs: left, thinkingBudget: blogResearchThinkingBudget(), usage: deps.usage ?? aiUsage(ctx, "situations", { db: deps.db }) }).catch(() => null);
+  if (isSearchLimited(answer)) return { ok: false, status: 429, error: "search_limit" };
   const lines = parseSituationLines(answer?.text ?? "");
   if (!answer || !lines.length) return { ok: false, status: 502, error: "research_failed" };
 

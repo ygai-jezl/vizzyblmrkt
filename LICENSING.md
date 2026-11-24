@@ -23,6 +23,7 @@ they came from. This page says which licence covers each part. The `license` fie
 | `sdk/node/**` | MIT | [sdk/node/LICENSE](sdk/node/LICENSE) |
 | The font files listed under Fonts | SIL Open Font Licence 1.1 | the notice beside each font |
 | `src/lib/brandMap/packSiblings.ts` | ISC (adapted from d3-hierarchy) | the notice in the file |
+| `public/marks/**`, and the brand marks drawn in `src/components/site/BrandIcons.tsx` | None from YouGrow: trademarks of their owners | [public/marks/NOTICE.md](public/marks/NOTICE.md) |
 | npm dependencies | their own licences | each package's own files |
 
 ### Fonts
@@ -42,6 +43,17 @@ Each font file is under the SIL Open Font Licence 1.1, with its notice in the sa
 | `src/components/site/fonts/noto-sans-arabic.woff2` | [NotoSansArabic-OFL.txt](src/components/site/fonts/NotoSansArabic-OFL.txt) |
 | `src/components/site/fonts/unbounded-latin.woff2` | [Unbounded-OFL.txt](src/components/site/fonts/Unbounded-OFL.txt) |
 | `src/components/marketing/fonts/sora-latin.woff2` | [Sora-OFL.txt](src/components/marketing/fonts/Sora-OFL.txt) |
+
+### Third-party marks
+
+The logos and buttons of the services YouGrow connects to (Google Analytics, Google Search
+Console and the Sign in with Google button from Google LLC, the Cloudflare cloud from Cloudflare,
+Inc., and the GitHub, GitLab, LinkedIn and X marks on the Accounts tab), and the Mailchimp, Gemini,
+Instagram and Node.js marks on the site's "The stack" section, belong to their owners.
+YouGrow shows them only to name those services, which doesn't mean any owner endorses YouGrow.
+They are not covered by the AGPL-3.0, the YouGrow Enterprise Licence or the MIT licence, and this
+repository grants no rights in them. [public/marks/NOTICE.md](public/marks/NOTICE.md) lists each
+file with its owner and source, and what to check before you show them in your own copy.
 
 ## Additional permission under GNU AGPL version 3 section 7
 

@@ -100,6 +100,9 @@ def test_relays_refusals_plainly(monkeypatch):
     assert "Only an admin" in bm.suggest(STATE, "add", "x", subjects=["x"])["message"]
     _capture(monkeypatch, 503, {"error": "unavailable"})
     assert bm.get_map(STATE)["message"] == "The brand map isn't switched on in this environment yet."
+    _capture(monkeypatch, 429, {"error": "search_limit"})
+    out = bm.suggest(STATE, "research", "research my brand")
+    assert out["code"] == "search_limit" and "web searches for research this month" in out["message"]
 
 
 def test_needs_the_link_to_the_app(monkeypatch):

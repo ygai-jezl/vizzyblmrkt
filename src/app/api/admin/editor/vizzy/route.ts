@@ -5,6 +5,7 @@ import { readRequestTextCapped } from "@/lib/http/readBody";
 import { forTenant, isRateLimited } from "@/lib/tenant";
 import type { RateLimitConfig } from "@/lib/tenant/rateLimit";
 import { generateTextStream, isGeminiConfigured } from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import { activeBrandVoiceText } from "@/lib/content/create/activeBrandVoice";
 import { isEditModeVizzyEnabled } from "@/lib/content/editor/flags";
 import { VizzyRequestSchema, extractVizzyResult, replyBoundary, type VizzyEvent } from "@/lib/content/editor/vizzyOps";
@@ -95,6 +96,7 @@ export async function POST(req: Request) {
         for await (const chunk of generateTextStream(prompt, {
           signal,
           thinkingBudget: body.mode === "selection" ? 512 : 2048,
+          usage: aiUsage(ctx, "edit_mode"),
         })) {
           full += chunk;
           if (held) continue;

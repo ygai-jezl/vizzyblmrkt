@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { NO_USAGE } from "@/lib/agents/gemini";
 import type { ConnectionCatalog } from "@/lib/types/productConnection";
 import { buildProductOnboardingDraft } from "./templates/productOnboarding";
 import { validateLifecycleDraft } from "./graph";
@@ -71,7 +72,7 @@ describe("architectLifecycleDraft", () => {
       prompts.push(prompt);
       return JSON.stringify({ subject: "Hello {{user.first_name|there}}", previewText: "A quick note", body: "<p>Hi {{user.first_name|there}}!</p>" });
     };
-    const r = await architectLifecycleDraft({ connection, brief: "Friendly, founder voice", brandVoice: "Plain and warm", generate });
+    const r = await architectLifecycleDraft({ connection, usage: NO_USAGE, brief: "Friendly, founder voice", brandVoice: "Plain and warm", generate });
     if ("error" in r) throw new Error(r.detail);
     expect(prompts).toHaveLength(9);
     expect(prompts[0]).toContain("Vizzybl");
@@ -88,7 +89,7 @@ describe("architectLifecycleDraft", () => {
   });
 
   it("keeps the template copy where the model fails, and says so", async () => {
-    const r = await architectLifecycleDraft({ connection, generate: async () => null });
+    const r = await architectLifecycleDraft({ connection, usage: NO_USAGE, generate: async () => null });
     if ("error" in r) throw new Error(r.detail);
     expect(r.notes).toHaveLength(9);
     expect(r.draft.pools[0]!.items[0]!.subject).toBe("Welcome to {{product.name}}, {{user.first_name|there}}");
@@ -107,7 +108,7 @@ describe("architectLifecycleDraft", () => {
       prompts.push(prompt);
       return JSON.stringify({ subject: "One more thing", previewText: "", body: "<p>Hi {{user.first_name|there}}</p>" });
     };
-    const r = await architectLifecycleDraft({ connection, template: "follow_on", after, options: { emails: 3, gapDays: 2 }, brief: "Useful, short", generate });
+    const r = await architectLifecycleDraft({ connection, usage: NO_USAGE, template: "follow_on", after, options: { emails: 3, gapDays: 2 }, brief: "Useful, short", generate });
     if ("error" in r) throw new Error(r.detail);
     expect(r.draft.settings.trigger).toMatchObject({ event: JOURNEY_COMPLETED_EVENT, afterJourneyId: "lcj_first" });
     // The earlier journey's window carries on; the days between emails are the ones asked for.
@@ -122,11 +123,11 @@ describe("architectLifecycleDraft", () => {
 
     // The onboarding prompt reads as it always has.
     const onboarding: string[] = [];
-    await architectLifecycleDraft({ connection, generate: async (p) => (onboarding.push(p), null) });
+    await architectLifecycleDraft({ connection, usage: NO_USAGE, generate: async (p) => (onboarding.push(p), null) });
     expect(onboarding[0]).toContain("as part of a short post-signup onboarding journey.");
     // A follow-on needs the journey it follows; an onboarding sequence can simply start after one.
-    expect(await architectLifecycleDraft({ connection, template: "follow_on", options: { writeCopy: false } })).toMatchObject({ error: "invalid_options" });
-    const started = await architectLifecycleDraft({ connection, after, options: { writeCopy: false } });
+    expect(await architectLifecycleDraft({ connection, usage: NO_USAGE, template: "follow_on", options: { writeCopy: false } })).toMatchObject({ error: "invalid_options" });
+    const started = await architectLifecycleDraft({ connection, usage: NO_USAGE, after, options: { writeCopy: false } });
     if ("error" in started) throw new Error(started.detail);
     expect(started.draft.settings.trigger.afterJourneyId).toBe("lcj_first");
     expect(started.draft.pools.map((p) => p.id)).toContain("welcome");
@@ -134,9 +135,9 @@ describe("architectLifecycleDraft", () => {
 
   it("can skip the copy entirely, and rejects bad options", async () => {
     let called = false;
-    const r = await architectLifecycleDraft({ connection, options: { writeCopy: false }, generate: async () => ((called = true), null) });
+    const r = await architectLifecycleDraft({ connection, usage: NO_USAGE, options: { writeCopy: false }, generate: async () => ((called = true), null) });
     expect(called).toBe(false);
     expect("draft" in r).toBe(true);
-    expect(await architectLifecycleDraft({ connection, options: { days: 40 } })).toMatchObject({ error: "invalid_options" });
+    expect(await architectLifecycleDraft({ connection, usage: NO_USAGE, options: { days: 40 } })).toMatchObject({ error: "invalid_options" });
   });
 });

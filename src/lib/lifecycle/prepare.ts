@@ -3,7 +3,8 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import type { AiDraft, FallbackReason } from "@/lib/types/lifecycle";
 import type { ProductContext } from "@/lib/connect/protocol";
 import { fetchProductContext } from "@/lib/connect/contextClient";
-import { generateTextWithDeadline, parseFirstJson } from "@/lib/agents/gemini";
+import { generateTextWithDeadline, parseFirstJson, type AiUsage } from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { brandVoiceSection, fencedContext } from "@/lib/agents/prompts/compose";
 import { resolveBrandVoiceText } from "@/lib/content/create/brandContext";
@@ -40,7 +41,7 @@ const PREPARE_LEASE_MS = 3 * 60_000;
 export interface PrepareDeps {
   db?: FirestoreLike;
   now?: () => number;
-  generate?: (prompt: string, opts: { timeoutMs: number; json?: boolean }) => Promise<string | null>;
+  generate?: (prompt: string, opts: { timeoutMs: number; json?: boolean; usage: AiUsage }) => Promise<string | null>;
   fetchContext?: typeof fetchProductContext;
   deadlineAt?: number;
   limit?: number;
@@ -233,7 +234,11 @@ export async function prepareDraft(ctx: TenantContext, draftId: string, deps: Pr
     plan: plan ? `\n${fencedContext("What your team wants for this person, and how to put it (follow it where the rules below allow)", "plan", planGuidance(plan, personScrubber(stored)))}` : "",
   });
 
-  const raw = await (deps.generate ?? generateTextWithDeadline)(prompt, { timeoutMs: GENERATION_TIMEOUT_MS, json: true });
+  const raw = await (deps.generate ?? generateTextWithDeadline)(prompt, {
+    timeoutMs: GENERATION_TIMEOUT_MS,
+    json: true,
+    usage: aiUsage(ctx, "lifecycle_lines", { db: deps.db, tenant }),
+  });
   const parsed = raw ? (parseFirstJson(raw) as { line?: unknown; subject?: unknown } | null) : null;
   const line = typeof parsed?.line === "string" ? parsed.line.trim().slice(0, 400) : "";
   const subject = typeof parsed?.subject === "string" ? parsed.subject.trim().slice(0, 120) : "";

@@ -126,16 +126,34 @@ export async function indexSource(ctx: Ctx, source: SearchSource, deps: IndexDep
   }
 }
 
-/** Remove one record from the index (its record was deleted). */
-export async function removeFromIndex(ctx: Ctx, kind: SearchKind, ref: string, deps: IndexDeps = {}): Promise<IndexOutcome> {
+export interface RemoveDeps extends Pick<IndexDeps, "store"> {
+  /**
+   * Remove it even while SEARCH_INDEX_ENABLED is off: erasing what a connection left behind
+   * (Disconnect, Change property and the purge, ADR-0013) must not depend on a switch. It is still
+   * only this brand's own path, through searchStoreFor.
+   */
+  force?: boolean;
+}
+
+/** Firestore's answer when a database doesn't exist: a copy without the search databases. */
+function isMissingDatabase(err: unknown): boolean {
+  return typeof err === "object" && err !== null && (err as { code?: unknown }).code === 5;
+}
+
+/**
+ * Remove one record from the index (its record was deleted). Off does nothing, unless forced.
+ * A copy that never made the search databases has nothing indexed, so that counts as removed.
+ */
+export async function removeFromIndex(ctx: Ctx, kind: SearchKind, ref: string, deps: RemoveDeps = {}): Promise<IndexOutcome> {
   // A delete clears the index even when the brand has since lost access: nothing is left behind.
-  if (!isSearchIndexEnabled()) return "off";
+  if (!deps.force && !isSearchIndexEnabled()) return "off";
   try {
     const store = deps.store ?? searchStoreFor(ctx);
     // Under every name the kind may be stored as, so nothing is left whichever name was in use.
     for (const name of storedKindsFor([kind])) await store.removeSource(sourceKeyOf(name, ref));
     return "removed";
   } catch (err) {
+    if (isMissingDatabase(err)) return "removed";
     console.warn("[search] removing failed:", kind, err instanceof Error ? err.message.slice(0, 200) : "error");
     return "failed";
   }

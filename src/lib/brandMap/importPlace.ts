@@ -1,5 +1,6 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { generateTextWithDeadline, isGeminiConfigured } from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { BRAND_MAP_RECORD_LIMITS as LIMITS, type ImportItem } from "@/lib/types/brandMapRecords";
@@ -154,7 +155,7 @@ export async function placeImport(ctx: TenantContext, importId: string, deps: Pl
       themes_task: askThemes ? "- For each heading above, say which group on the map it matches, by number, or NEW.\n" : "",
       themes_format: askThemes ? "\nTHEME: <a heading from the list> | <G number, or NEW>" : "",
     });
-    const answer = await (deps.generate ?? ((p: string) => generateTextWithDeadline(p, { timeoutMs: PLACE_MS })))(prompt).catch(() => null);
+    const answer = await (deps.generate ?? ((p: string) => generateTextWithDeadline(p, { timeoutMs: PLACE_MS, usage: aiUsage(ctx, "brand_map_research", { db: deps.db }) })))(prompt).catch(() => null);
     if (answer === null) return { ok: false, status: 502, error: "research_failed" };
     const lines = parsePlaceLines(answer, { items: batch.length, subjects: subjects.length, groups: groups.length, situations: situations.length });
 

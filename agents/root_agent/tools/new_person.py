@@ -36,7 +36,8 @@ def new_person_propose(
         fields: The brand's own fields the operator mentioned, by field name: an option's name
             for a select or status, a list of option names for a multi select, true or false,
             a number, whole minor units for currency (1250 is 12.50 in GBP, and 1250 yen in JPY,
-            which has no minor unit), or a day as YYYY-MM-DD.
+            which has no minor unit), a day as YYYY-MM-DD, or plain text of at most 500
+            characters for a text field the brand lets you fill in.
             Other fields are left for the admin to type.
 
     Returns:

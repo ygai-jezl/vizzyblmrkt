@@ -8,6 +8,7 @@ import {
 } from "@/lib/content/create/ebookChapter";
 import { activeBrandVoiceText } from "@/lib/content/create/activeBrandVoice";
 import { generateTextStream } from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import { retrieveSemanticKnowledgeContext } from "@/lib/agents/knowledgeRetrieval";
 
 export const runtime = "nodejs";
@@ -82,7 +83,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       const emit = (e: unknown) => controller.enqueue(sse(e));
       let full = "";
       try {
-        for await (const chunk of generateTextStream(prompt)) {
+        for await (const chunk of generateTextStream(prompt, { usage: aiUsage(ctx, "ebook") })) {
           full += chunk;
           emit({ type: "text", text: chunk });
         }

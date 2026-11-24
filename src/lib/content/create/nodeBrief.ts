@@ -1,6 +1,7 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { composePrompt, brandVoiceSection, audienceSection } from "@/lib/agents/prompts/compose";
 import { generateText, parseFirstJson } from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import { channelBlueprint, channelLabel } from "@/lib/content/channels";
 import { getFramework, frameworkLabel } from "@/lib/content/frameworks";
 import { WRITING_RULES } from "@/lib/content/writingRules";
@@ -179,7 +180,7 @@ export async function generateNodeBrief(
     task,
   });
 
-  const raw = await generateText(prompt).catch(() => null);
+  const raw = await generateText(prompt, { usage: aiUsage(ctx, "content_write") }).catch(() => null);
   const j = raw ? parseFirstJson(raw) : null;
   const modelBrief =
     j && typeof j === "object" && typeof (j as Record<string, unknown>).brief === "string"

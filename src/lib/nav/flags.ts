@@ -26,7 +26,7 @@ export function isNavV2Phase2Enabled(): boolean {
 
 /**
  * Nav v2 phase 3, "one home per noun": Brand, Settings (General · Sending ·
- * Integrations · Billing), Audience across sources, one Journeys list for both
+ * Connections · Billing), Audience across sources, one Journeys list for both
  * engines, launch Emails, the Products setup checklist and environments, and
  * Content's Overview + Programme naming. Needs phase 2.
  */

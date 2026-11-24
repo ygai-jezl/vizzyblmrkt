@@ -6,7 +6,8 @@ import { fetchGitToken } from "../gitToken";
 import { RepoReader, type RepoFile } from "./reader";
 import { analyseRepo, type AnalysisPass, type ModelClient } from "./analyst";
 import { verifyProductMap } from "./verify";
-import { vertexModel } from "./vertex";
+import { vertexModel, modelFor } from "./vertex";
+import { countingModel, recordModelSpend, type ModelSpend } from "./usage";
 
 /**
  * "Learn from your repo": clone the connection's repos READ-ONLY, let the
@@ -30,6 +31,8 @@ export interface ProductMapEnv {
    * false: the analysis is exactly as before, so this image and the app can deploy in either order.
    */
   dateFacts?: boolean;
+  /** The app's usage meter is on (USAGE_METER_ENABLED=true with the run): record the model use. */
+  usageMeter?: boolean;
 }
 
 interface AnalysisRepo {
@@ -47,7 +50,7 @@ export function readProductMapEnv(env: NodeJS.ProcessEnv = process.env): Product
   };
   const region = need("REGION") as Region;
   if (!["us", "eu", "asia"].includes(region)) throw new Error(`invalid REGION '${region}'`);
-  return { analysisId: need("ANALYSIS_ID"), tenantId: need("TENANT_ID"), region, project: need("GOOGLE_CLOUD_PROJECT"), dateFacts: env.DATE_FACTS === "true" };
+  return { analysisId: need("ANALYSIS_ID"), tenantId: need("TENANT_ID"), region, project: need("GOOGLE_CLOUD_PROJECT"), dateFacts: env.DATE_FACTS === "true", usageMeter: env.USAGE_METER_ENABLED === "true" };
 }
 
 export interface ProductMapDeps {
@@ -73,6 +76,7 @@ export async function runProductMap(env: ProductMapEnv = readProductMapEnv(), de
   if (doc.status !== "queued") throw new Error(`analysis_not_queued:${doc.status}`);
   await ref.update({ status: "running", startedAt: now(), error: null });
 
+  let metered: { name: string; spend: ModelSpend } | null = null;
   try {
     const repos = (doc.repos ?? []).slice(0, MAX_REPOS);
     if (repos.length === 0) throw new Error("no_repos");
@@ -92,8 +96,10 @@ export async function runProductMap(env: ProductMapEnv = readProductMapEnv(), de
     if (files.length === 0) throw new Error("no_readable_files");
 
     const reader = new RepoReader(files);
-    const model = deps.model ?? vertexModel({ project: env.project, region: env.region });
-    const result = await analyseRepo(reader, model, {
+    const base = deps.model ?? vertexModel({ project: env.project, region: env.region });
+    const counted = env.usageMeter ? countingModel(base) : null;
+    if (counted) metered = { name: base.name ?? modelFor(env.region), spend: counted.spend };
+    const result = await analyseRepo(reader, counted?.model ?? base, {
       productName: doc.productName ?? "the product",
       passes: deps.passes,
       dateFacts: env.dateFacts,
@@ -112,5 +118,8 @@ export async function runProductMap(env: ProductMapEnv = readProductMapEnv(), de
     const msg = scrubCredentials(err instanceof Error ? err.message : "error").slice(0, 300);
     await ref.update({ status: "failed", error: msg, finishedAt: now() }).catch(() => {});
     throw new Error(msg);
+  } finally {
+    // A run that failed part way still spent what it spent.
+    if (metered) await recordModelSpend(db, { tenantId: env.tenantId, model: metered.name, spend: metered.spend, now: new Date(now()) });
   }
 }

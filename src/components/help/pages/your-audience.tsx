@@ -1,10 +1,18 @@
 import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
-import { isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled, isTimelineEnabled, isVizzyAddPersonEnabled, isVizzyFieldsEnabled } from "@/lib/audience/peopleFlags";
+import {
+  isAddPersonEnabled,
+  isFieldFiltersEnabled,
+  isFieldsEnabled,
+  isTimelineEnabled,
+  isVizzyAddPersonEnabled,
+  isVizzyFieldsEnabled,
+  isVizzyTextFieldsEnabled,
+} from "@/lib/audience/peopleFlags";
 import { SUGGESTION_MESSAGES, SUGGESTION_NOTES } from "@/lib/audience/suggestionWords";
 import { TIMELINE_EMPTY } from "@/lib/audience/timelineWords";
-import { FIELD_MESSAGES } from "@/components/admin/audience/fieldsApi";
+import { FIELD_MESSAGES, VIZZY_READS_HINT } from "@/components/admin/audience/fieldsApi";
 import { CONSENT_WAYS, NEW_PERSON_MESSAGES, NEW_PERSON_NOTES } from "@/lib/audience/newPerson";
 import type { HelpBodyProps } from "@/lib/help/pages";
 import { peopleArea } from "@/lib/nav/terms";
@@ -15,7 +23,8 @@ import { peopleArea } from "@/lib/nav/terms";
  * fields sections show while AUDIENCE_FIELDS_ENABLED is on, and the filters section while
  * AUDIENCE_FIELD_FILTERS_ENABLED is too. Adding someone by hand shows while
  * AUDIENCE_ADD_PERSON_ENABLED is on, and the timeline while AUDIENCE_TIMELINE_ENABLED is. Vizzy
- * and their fields shows while AUDIENCE_VIZZY_FIELDS_ENABLED is on, and Vizzy filling in New person
+ * and their fields shows while AUDIENCE_VIZZY_FIELDS_ENABLED is on, with "Vizzy can read this field"
+ * for text fields while AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED is too, and Vizzy filling in New person
  * while AUDIENCE_VIZZY_ADD_PERSON_ENABLED is.
  */
 export default function YourAudienceHelp({
@@ -25,9 +34,12 @@ export default function YourAudienceHelp({
   addPerson = isAddPersonEnabled(),
   timeline = isTimelineEnabled(),
   vizzyFields = isVizzyFieldsEnabled(),
+  vizzyTextFields = isVizzyTextFieldsEnabled(),
   vizzyAddPerson = isVizzyAddPersonEnabled(),
 }: HelpBodyProps = {}) {
   const area = peopleArea(people);
+  // Text fields Vizzy may read need Vizzy's fields, which need fields.
+  const vizzyText = fields && vizzyFields && vizzyTextFields;
   // Vizzy's New person drafts need New person.
   const vizzyAdds = addPerson && vizzyAddPerson;
   return (
@@ -260,6 +272,15 @@ export default function YourAudienceHelp({
             <strong>Archive field</strong> hides a field and keeps every value on each person; <strong>Bring back</strong> under{" "}
             <strong>Archived</strong> returns it, values and all. Nothing is ever deleted.
           </P>
+          {vizzyText ? (
+            <P>
+              For a text field on People, such as a job title, an admin can tick <strong>Vizzy can read this field</strong> in{" "}
+              <strong>Add field</strong> or under <strong>Edit</strong>, so <Open href="/help/your-audience#vizzy">Vizzy</Open> reads
+              it and can suggest values. It starts unticked, and beside it Data model says: &quot;{VIZZY_READS_HINT}&quot; The{" "}
+              <strong>Vizzy reads</strong> column shows every field Vizzy can read. Bring back and restoring an older
+              list never tick it again; an admin ticks it again if it should be.
+            </P>
+          ) : null}
           <P>
             <strong>Changes</strong> lists every change to the list, with who made it and when. Someone who has left your team shows as
             Former team member. Restoring an older list comes with settings history.
@@ -309,10 +330,19 @@ export default function YourAudienceHelp({
             out of date, or what a field should be.
           </P>
           <UL>
-            <li>
-              Vizzy reads only your select, multi select, status, checkbox, number, currency and date fields. It never sees text,
-              email, phone, link or team member fields, or the person&apos;s name or address.
-            </li>
+            {vizzyText ? (
+              <li>
+                Vizzy reads your select, multi select, status, checkbox, number, currency and date fields, and text fields an admin
+                ticked <strong>Vizzy can read this field</strong> in <Open href="/help/your-audience#fields">Data model</Open>. It
+                never sees other text fields, or email, phone, link or team member fields, whatever is ticked, or the person&apos;s
+                name or address: they are taken out of any text it reads, and it reads at most 500 characters of each value.
+              </li>
+            ) : (
+              <li>
+                Vizzy reads only your select, multi select, status, checkbox, number, currency and date fields. It never sees text,
+                email, phone, link or team member fields, or the person&apos;s name or address.
+              </li>
+            )}
             <li>It works for anyone in People, including people who only joined a launch or were added by hand.</li>
           </UL>
           <Steps>
@@ -329,7 +359,9 @@ export default function YourAudienceHelp({
             </li>
           </Steps>
           <P>
-            If someone changed one of its fields since Vizzy made it, confirming sets the suggestion aside and changes nothing. A newer
+            If someone changed one of its fields since Vizzy made it
+            {vizzyText ? ", or an admin unticked Vizzy can read this field for one of them," : ","} confirming sets the suggestion aside
+            and changes nothing. A newer
             suggestion for a field replaces the one waiting, and one nobody decides is set aside after 30 days. Only admins can ask
             Vizzy for a suggestion, or confirm, dismiss or undo one; everyone else on your team can read them. Suggestions are in the
             person&apos;s export and go when they are erased.{timeline ? " Each step shows on their timeline." : ""}
@@ -412,7 +444,10 @@ export default function YourAudienceHelp({
           ...(timeline ? ([[TIMELINE_EMPTY, "Nothing to fix. Their timeline fills as things happen to them."]] as Array<[string, string]>) : []),
           ...(vizzyFields
             ? ([
-                [SUGGESTION_MESSAGES.stale, "Nothing changed. Ask Vizzy again if a change still fits what their fields say now."],
+                [
+                  SUGGESTION_MESSAGES.stale,
+                  "Nothing changed. Ask Vizzy again if a change still fits what their fields say now. If Vizzy can no longer read the field, set the value yourself under Fields.",
+                ],
                 [SUGGESTION_MESSAGES.edited_since, "Someone changed the field after the confirm. Set the value you want under Fields."],
                 [SUGGESTION_MESSAGES.too_old, "Undo lasts 7 days after the confirm. Set the value you want under Fields."],
                 [SUGGESTION_MESSAGES.changed, "Reload the page. Another admin confirmed or dismissed it first."],

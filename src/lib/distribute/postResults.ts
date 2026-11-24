@@ -83,10 +83,10 @@ function stoppedMessage(channel: string, lastError: string | null | undefined): 
   const name = CHANNEL_NAME[channel] ?? "The platform";
   const reason = lastError ?? "";
   if (reason === "linkedin_not_connected") {
-    return "YouGrow couldn't read this post's numbers because your LinkedIn page isn't connected. Reconnect it in Settings › Integrations so your next posts get results.";
+    return "YouGrow couldn't read this post's numbers because your LinkedIn page isn't connected. Reconnect it in Settings › Connections so your next posts get results.";
   }
   if (reason === "x_not_connected") {
-    return "YouGrow couldn't read this post's numbers because your X account isn't connected. Reconnect it in Settings › Integrations so your next posts get results.";
+    return "YouGrow couldn't read this post's numbers because your X account isn't connected. Reconnect it in Settings › Connections so your next posts get results.";
   }
   if (reason === "social_disabled") return "YouGrow couldn't read this post's numbers while posting to social accounts is off.";
   if (reason === "no_snapshot") return `${name} gave no numbers for this post.`;

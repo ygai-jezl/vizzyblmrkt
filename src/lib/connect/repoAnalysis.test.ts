@@ -87,6 +87,10 @@ describe("starting an analysis", () => {
     const dated = buildProductMapRunRequest({ analysisId: "ra_1", tenantId: "ten_A", region: "eu", dateFacts: true });
     expect(dated.overrides.containerOverrides[0]!.env.at(-1)).toEqual({ name: "DATE_FACTS", value: "true" });
     expect(buildProductMapRunRequest({ analysisId: "ra_1", tenantId: "ten_A", region: "eu", dateFacts: false })).toEqual(req);
+    // The usage meter on: the job records its model use. Off: the request is unchanged.
+    const metered = buildProductMapRunRequest({ analysisId: "ra_1", tenantId: "ten_A", region: "eu", usageMeter: true });
+    expect(metered.overrides.containerOverrides[0]!.env.at(-1)).toEqual({ name: "USAGE_METER_ENABLED", value: "true" });
+    expect(buildProductMapRunRequest({ analysisId: "ra_1", tenantId: "ten_A", region: "eu", usageMeter: false })).toEqual(req);
   });
 
   it("refuses bad input, other accounts' connections, a second run and the daily cap", async () => {

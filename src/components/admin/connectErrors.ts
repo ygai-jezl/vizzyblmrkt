@@ -1,5 +1,5 @@
 /**
- * Why a connection attempt failed, in plain words, for the banner on Settings › Integrations.
+ * Why a connection attempt failed, in plain words, for the banner on Settings › Connections.
  * The reason comes from the start or callback route's redirect (?status=error&reason=...),
  * and the label names the service it was for, so a LinkedIn failure never says GitHub.
  */

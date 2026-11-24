@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getTenantById, isRateLimited } from "@/lib/tenant";
 import { notesAdmin } from "@/lib/brandNotes/api";
 import { extractNotes, MAX_PASTE } from "@/lib/brandNotes/extract";
+import { aiUsage } from "@/lib/plans/meter";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,7 +24,7 @@ export async function POST(req: Request) {
   if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
   if (await isRateLimited(`tenant:${g.ctx.tenantId}`, EXTRACT_LIMIT)) return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   const tenant = await getTenantById(g.ctx.tenantId).catch(() => null);
-  const found = await extractNotes(parsed.data.text, tenant?.tenantName?.trim() ?? "");
+  const found = await extractNotes(parsed.data.text, tenant?.tenantName?.trim() ?? "", aiUsage(g.ctx, "brand_notes", { tenant }));
   if (found === null) return NextResponse.json({ error: "extract_failed" }, { status: 502 });
   return NextResponse.json({ found });
 }

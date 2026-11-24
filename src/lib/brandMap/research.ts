@@ -1,5 +1,6 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
-import { generateGroundedText, isGeminiConfigured } from "@/lib/agents/gemini";
+import { generateGroundedText, isGeminiConfigured, isSearchLimited, type AiUsage } from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import { retrieveSemanticKnowledgeContext, type KnowledgeContext } from "@/lib/agents/knowledgeRetrieval";
 import { forTenant, getTenantById } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
@@ -303,6 +304,8 @@ export interface ProposeDeps {
   fetchHome?: (domain: string) => Promise<Homepage | null>;
   plans?: typeof listContentPlans;
   now?: () => Date;
+  /** The usage (tests); otherwise the brand's own. */
+  usage?: AiUsage;
 }
 
 export type ProposeResult =
@@ -435,7 +438,9 @@ export async function proposeBrandMap(
   });
   const left = deadline - clock().getTime() - 3_000;
   if (left < 15_000) return { ok: false, status: 504, error: "research_failed" };
-  const answer = await (deps.grounded ?? generateGroundedText)(prompt, { timeoutMs: left, thinkingBudget: blogResearchThinkingBudget() }).catch(() => null);
+  const usage = deps.usage ?? aiUsage(ctx, "brand_map_research", { tenant, db: deps.db });
+  const answer = await (deps.grounded ?? generateGroundedText)(prompt, { timeoutMs: left, thinkingBudget: blogResearchThinkingBudget(), usage }).catch(() => null);
+  if (isSearchLimited(answer)) return { ok: false, status: 429, error: "search_limit" };
   const proposal = parseMapProposal(answer?.text ?? "");
   const found = proposal.is || proposal.category || proposal.subjects.length || proposal.names.length;
   if (!found) return { ok: false, status: 502, error: "research_failed" };

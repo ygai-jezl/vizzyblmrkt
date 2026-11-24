@@ -38,8 +38,14 @@ export function HowToDrawer() {
   const addPerson = useShell()?.addPerson ?? false;
   const timeline = useShell()?.timeline ?? false;
   const vizzyFields = useShell()?.vizzyFields ?? false;
+  const vizzyTextFields = useShell()?.vizzyTextFields ?? false;
   const vizzyAddPerson = useShell()?.vizzyAddPerson ?? false;
   const catalogHistory = useShell()?.catalogHistory ?? false;
+  const connectorsChat = useShell()?.connectorsChat ?? false;
+  const connectorsCollect = useShell()?.connectorsCollect ?? false;
+  const connectorsSearchText = useShell()?.connectorsSearchText ?? false;
+  const connectorSignals = useShell()?.connectorSignals ?? false;
+  const brandMapScale = useShell()?.brandMapScale ?? false;
   const [steps, setSteps] = useState<GuideStep[] | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -190,7 +196,22 @@ export function HowToDrawer() {
         ) : null}
         {Body ? (
           <div className="text-sm [&_h1]:text-xl [&_h2]:mt-8 [&_h2]:text-base">
-            <Body people={people} fields={fields} fieldFilters={fieldFilters} addPerson={addPerson} timeline={timeline} vizzyFields={vizzyFields} vizzyAddPerson={vizzyAddPerson} catalogHistory={catalogHistory} />
+            <Body
+              people={people}
+              fields={fields}
+              fieldFilters={fieldFilters}
+              addPerson={addPerson}
+              timeline={timeline}
+              vizzyFields={vizzyFields}
+              vizzyTextFields={vizzyTextFields}
+              vizzyAddPerson={vizzyAddPerson}
+              catalogHistory={catalogHistory}
+              connectorsChat={connectorsChat}
+              connectorsCollect={connectorsCollect}
+              connectorsSearchText={connectorsSearchText}
+              connectorSignals={connectorSignals}
+              brandMapScale={brandMapScale}
+            />
           </div>
         ) : (
           <p className="text-sm text-shell-muted">Loading…</p>

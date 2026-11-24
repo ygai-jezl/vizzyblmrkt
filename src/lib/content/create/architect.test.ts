@@ -2,6 +2,7 @@ import { afterEach, describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/agents/gemini", () => ({
   generateText: vi.fn(),
+  NO_USAGE: {},
   parseFirstJson: (text: string): unknown | null => {
     const s = text.indexOf("{");
     const e = text.lastIndexOf("}");
@@ -15,7 +16,7 @@ vi.mock("@/lib/agents/gemini", () => ({
 }));
 
 import { architectPlan, type ArchitectInput } from "./architect";
-import { generateText } from "@/lib/agents/gemini";
+import { generateText, NO_USAGE } from "@/lib/agents/gemini";
 import { CORE_ANGLES } from "@/lib/content/frameworks";
 
 const mocked = vi.mocked(generateText);
@@ -29,6 +30,7 @@ const baseInput: ArchitectInput = {
   knowledgeContext: "",
   brandVoice: null,
   audience: null,
+  usage: NO_USAGE,
 };
 
 describe("architectPlan", () => {

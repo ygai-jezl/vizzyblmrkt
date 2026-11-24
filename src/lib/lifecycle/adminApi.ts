@@ -6,6 +6,7 @@ import type { ConnectionCatalog, ProductConnection } from "@/lib/types/productCo
 import type { Tenant } from "@/lib/types/tenant";
 import { ConsentBasis } from "@/lib/types/productConnection";
 import { zodReason } from "@/lib/connect/protocol";
+import { aiUsage } from "@/lib/plans/meter";
 import { productUserDocId } from "@/lib/connect/profile";
 import { fireSandboxEvent } from "@/lib/connect/sandbox";
 import { environmentOf, productNameOf } from "@/lib/connect/environments";
@@ -779,6 +780,7 @@ export async function generateJourneyDraft(
     brief: parsed.data.brief,
     brandVoice: resolveBrandVoiceText({ tenantBrandVoice: tenant?.brandVoice }),
     generate: deps.generate,
+    usage: aiUsage(ctx, "journeys", { db: deps.db, tenant }),
   });
   if ("error" in built) return fail(422, "invalid_options", built.detail);
   // A rebuilt draft keeps the journey's style.

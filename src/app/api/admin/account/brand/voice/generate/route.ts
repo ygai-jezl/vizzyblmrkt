@@ -4,6 +4,7 @@ import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { isBrandVoiceEnabled } from "@/lib/content/brandKit";
 import { getTenantById } from "@/lib/tenant";
 import { generateBrandVoiceFromDomain } from "@/lib/content/create/brandVoiceGen";
+import { aiUsage } from "@/lib/plans/meter";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,7 +27,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "no_primary_domain" }, { status: 400 });
   }
 
-  const voice = await generateBrandVoiceFromDomain(domain);
+  const voice = await generateBrandVoiceFromDomain(domain, { usage: aiUsage(ctx, "brand_voice", { tenant }) });
   if (!voice) {
     return NextResponse.json({ error: "generation_failed" }, { status: 502 });
   }

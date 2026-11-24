@@ -3,14 +3,15 @@
 import { SubjectCompetitors } from "./SubjectCompetitors";
 import { FLAG_TEXT } from "./CompetitorCoverage";
 import type { CoverageFlag } from "@/lib/competitors/coverage";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import type { BrandMapGroup, BrandMapQuestionRecord, BrandMapSubjectRecord, GroupTotals } from "@/lib/types/brandMapRecords";
 import type { Coverage, SubjectCoverage } from "@/lib/content/blog/coverage";
 import { api, errorText, type ApiResponse } from "@/components/admin/connect/api";
-import { Banner, Button, inputClass } from "@/components/admin/connect/ui";
+import { Badge, Banner, Button, inputClass } from "@/components/admin/connect/ui";
 import { PageLink, QuestionStatus, WriteNext } from "./BrandMapCoverage";
 import { matchSubjects, type SubjectName } from "./MapSubjectSearch";
 import { useMapMove } from "./brandMapMove";
+import { questionReason } from "@/lib/connectors/signals/words";
 import type { SubjectListItem } from "@/lib/brandMap/records";
 
 /**
@@ -465,6 +466,98 @@ export function BrandMapSubjectsTab({
   );
 }
 
+/** The tag on a question a rising Google search proposed (CONNECTOR_SIGNALS_ENABLED). */
+const FROM_SEARCHES = "From Google searches";
+/** A proposed question: Add, Edit (change its words before adding it) and Dismiss. */
+function ProposedQuestion({
+  q,
+  canEdit,
+  busy,
+  decide,
+  act,
+  refocus,
+}: {
+  q: BrandMapQuestionRecord;
+  canEdit: boolean;
+  busy: boolean;
+  decide: (kind: "subjects" | "questions", id: string, accept: boolean) => Promise<boolean>;
+  act: (run: () => Promise<{ ok: boolean; data: unknown }>, done?: string) => Promise<boolean>;
+  /** The question whose Edit just closed: its Edit button takes the focus back, also after a saved edit remounts the row. */
+  refocus: MutableRefObject<string | null>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(q.text);
+  const editButton = useRef<HTMLButtonElement>(null);
+  const words = draft.replace(/\s+/g, " ").trim();
+  const close = () => {
+    refocus.current = q.id;
+    setEditing(false);
+  };
+  useEffect(() => {
+    // A disabled button can't take the focus: wait until the save has finished.
+    if (editing || busy || refocus.current !== q.id) return;
+    refocus.current = null;
+    editButton.current?.focus();
+  }, [editing, busy, q.id, refocus]);
+  const save = () => {
+    if (!words) return;
+    if (words === q.text) return close();
+    void act(() => api(`${MAP}/questions/${encodeURIComponent(q.id)}`, { method: "PATCH", body: JSON.stringify({ baseRev: q.rev, text: words }) })).then((ok) => ok && close());
+  };
+  const cancel = () => {
+    setDraft(q.text);
+    close();
+  };
+  return (
+    <li className="rounded-md border border-dashed border-neutral-400 p-2">
+      {editing ? (
+        <div className="flex gap-1.5">
+          <input
+            aria-label="Question"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                save();
+              } else if (e.key === "Escape") cancel();
+            }}
+            maxLength={200}
+            className={`${inputClass} text-xs`}
+            autoFocus
+          />
+          <button type="button" disabled={busy || !words} onClick={save} className={SMALL}>
+            Save
+          </button>
+          <button type="button" disabled={busy} onClick={cancel} className={SMALL}>
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <div className="text-sm">{q.text}</div>
+      )}
+      {q.from === "search_console" ? <p className="mt-1 text-[11px] text-neutral-500 dark:text-neutral-400">{questionReason(q)}</p> : null}
+      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+        {q.from === "search_console" ? <Badge>{FROM_SEARCHES}</Badge> : <span>{questionReason(q)}</span>}
+        <span className="flex-1" />
+        {canEdit && !editing ? (
+          <>
+            <button type="button" disabled={busy} onClick={() => void decide("questions", q.id, true)} className={SMALL}>
+              Add
+            </button>
+            <button ref={editButton} type="button" disabled={busy} onClick={() => setEditing(true)} className={SMALL}>
+              Edit
+            </button>
+            <button type="button" disabled={busy} onClick={() => void decide("questions", q.id, false)} className={SMALL}>
+              Dismiss
+            </button>
+          </>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
 function SubjectDetail({
   read,
   groups,
@@ -495,6 +588,8 @@ function SubjectDetail({
   const [name, setName] = useState(subject.name);
   const [home, setHome] = useState(subject.home ?? "");
   const [question, setQuestion] = useState("");
+  // A proposed question whose Edit just closed, so its Edit button gets the focus back.
+  const refocus = useRef<string | null>(null);
   const [mergeQuery, setMergeQuery] = useState("");
   const path = `${MAP}/subjects/${encodeURIComponent(subject.id)}`;
   const patch = (body: Record<string, unknown>, done?: string) => act(() => api(path, { method: "PATCH", body: JSON.stringify({ baseRev: subject.rev, ...body }) }), done);
@@ -609,26 +704,14 @@ function SubjectDetail({
                   </button>
                 ) : null}
               </div>
-              <QuestionStatus q={states.get(q.id)} action={programmes ? <WriteNext questionId={q.id} programmes={programmes} /> : null} />
+              <div className="flex flex-wrap items-center gap-1.5">
+                <QuestionStatus q={states.get(q.id)} action={programmes ? <WriteNext questionId={q.id} programmes={programmes} /> : null} />
+                {q.from === "search_console" ? <Badge>{FROM_SEARCHES}</Badge> : null}
+              </div>
             </li>
           ))}
           {proposed.map((q) => (
-            <li key={q.id} className="rounded-md border border-dashed border-neutral-400 p-2">
-              <div className="text-sm">{q.text}</div>
-              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-neutral-500">
-                <span className="flex-1">{q.evidence || q.reason || `Proposed by ${q.from}`}</span>
-                {canEdit ? (
-                  <>
-                    <button type="button" disabled={busy} onClick={() => void decide("questions", q.id, true)} className={SMALL}>
-                      Add
-                    </button>
-                    <button type="button" disabled={busy} onClick={() => void decide("questions", q.id, false)} className={SMALL}>
-                      Dismiss
-                    </button>
-                  </>
-                ) : null}
-              </div>
-            </li>
+            <ProposedQuestion key={`${q.id}:${q.rev}`} q={q} canEdit={canEdit} busy={busy} decide={decide} act={act} refocus={refocus} />
           ))}
         </ul>
         {canEdit ? (

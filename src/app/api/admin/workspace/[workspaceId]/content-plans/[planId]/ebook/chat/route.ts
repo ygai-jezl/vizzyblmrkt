@@ -4,6 +4,7 @@ import { guardEbookRoute } from "@/lib/content/create/ebookRoute";
 import { mutateContentPlanEbookDraft } from "@/lib/tenant/workspaceContent";
 import { applyEbookOps, extractEbookOps } from "@/lib/content/create/ebookOps";
 import { generateTextStream } from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import type { EbookDoc } from "@/lib/types/contentPlan";
 
@@ -85,7 +86,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       let displayed = 0; // chars of `full` already streamed to the UI
       let fenceHit = false;
       try {
-        for await (const chunk of generateTextStream(prompt)) {
+        for await (const chunk of generateTextStream(prompt, { usage: aiUsage(ctx, "ebook") })) {
           full += chunk;
           if (fenceHit) continue; // everything from the ops block on is machine-only
           // Boundary = the ```ops fence OR a bare `{"ops"` object (the model sometimes skips

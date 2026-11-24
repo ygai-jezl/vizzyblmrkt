@@ -108,6 +108,19 @@ describe("a Draft run", () => {
     expect((await listContentPlans(A, "ws1", 100, deps.db)).length).toBe(1);
   });
 
+  it("puts each draft on the usage meter once, also after a crash and retry", async () => {
+    vi.stubEnv("USAGE_METER_ENABLED", "true");
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const { deps } = setup();
+    const id = await draftRun(deps);
+    await step(id, deps);
+    await forTenant(A, deps.db).autopilotRuns.update(id, { step: "create", active: true });
+    await step(id, deps);
+    const { usageThisMonth } = await import("@/lib/plans/meter");
+    expect((await usageThisMonth(A, { db: deps.db })).autopilot_drafts).toMatchObject({ total: 1, calls: 1, byPurpose: { autopilot: 1 } });
+    vi.unstubAllEnvs();
+  });
+
   it("stops when a person takes over, and when the article was approved meanwhile", async () => {
     const { deps } = setup();
     const id = await draftRun(deps);
@@ -121,6 +134,15 @@ describe("a Draft run", () => {
     const plan = (await getContentPlan(A, "ws1", "ap_aaaaaaaaaaaaaaaaaaaaaaaa", second.deps.db))!;
     await updateContentPlan(A, "ws1", plan.id, { graph: { ...plan.graph, nodes: plan.graph.nodes.map((n) => (n.type === "hub" ? { ...n, status: "approved" as const } : n)) } }, second.deps.db);
     expect(await step(id2, second.deps)).toMatchObject({ step: "stopped", error: "approved" });
+  });
+
+  it("stays a suggestion at the month's web search cap, before any plan is made", async () => {
+    vi.stubEnv("USAGE_METER_ENABLED", "true");
+    const { deps } = setup({ featureLimits: { web_searches: 0 } });
+    const id = await draftRun(deps);
+    expect(await step(id, deps)).toMatchObject({ step: "sorted", error: "search_limit" });
+    expect(await getContentPlan(A, "ws1", "ap_aaaaaaaaaaaaaaaaaaaaaaaa", deps.db)).toBeNull();
+    vi.unstubAllEnvs();
   });
 
   it("stays a suggestion at the brand's monthly cap, or without the Draft feature", async () => {
@@ -223,6 +245,8 @@ describe("Review rows", () => {
       now,
     );
     expect(two.map((i) => i.title)).toEqual(["Next article ready to write: “How do I get cited by AI answers?”", "Next article ready to write: “Another one?”"]);
+    const searches = nextArticleItems([{ ...(base as object), id: "run_5", mode: "draft", step: "sorted", error: "search_limit" } as never], now);
+    expect(searches[0]!.detail).toBe("This month's web searches for research are used up, so autopilot found and sorted it for you to write. Open Next up to write it.");
     expect(two[1]!.detail).toMatch(/drafts are used up/);
   });
 });

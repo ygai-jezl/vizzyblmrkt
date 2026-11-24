@@ -23,6 +23,8 @@ interface ProposeBase {
   dismissedKeys?: Set<string>;
   /** Someone asked for it outright (Vizzy, on a person's word): one dismissed before is proposed again. */
   revive?: boolean;
+  /** A question proposed from a Search Console connection's rising search: that connection. */
+  fromConnectionId?: string | null;
 }
 
 const clip = (s: string | undefined, n: number) => (s ?? "").replace(/\s+/g, " ").trim().slice(0, n);
@@ -98,6 +100,7 @@ export async function proposedQuestion(
     intent: input.intent ?? "other",
     situationIds: input.situationIds ?? [],
     order: input.order ?? 0,
+    fromConnectionId: input.fromConnectionId ?? null,
   });
   const { id, tenantId: _t, ...data } = record;
   void _t;

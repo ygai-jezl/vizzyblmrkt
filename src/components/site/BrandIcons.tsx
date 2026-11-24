@@ -1,7 +1,8 @@
 /**
- * Brand logos for "The stack", drawn once per page as SVG symbols and used by reference.
- * Paths from Simple Icons (CC0, https://simpleicons.org), LinkedIn's from its own mark.
- * Shown only to name the services YouGrow works with.
+ * Brand logos for "The stack", drawn once per page as SVG symbols and used by reference, and one
+ * at a time on the Accounts tab (BrandMark). Paths from Simple Icons (CC0, https://simpleicons.org),
+ * LinkedIn's from its own mark. The marks themselves belong to their owners and aren't covered by
+ * YouGrow's licences (public/marks/NOTICE.md). Shown only to name the services YouGrow works with.
  */
 
 export type BrandId = "linkedin" | "github" | "gitlab" | "mailchimp" | "gemini" | "x" | "instagram" | "node";
@@ -30,6 +31,23 @@ export const BRAND_STYLE: Record<BrandId, { glyph?: string; tile?: string }> = {
 };
 
 const GRADIENT: Partial<Record<BrandId, string>> = { gemini: "url(#gr-gemini)", instagram: "url(#gr-insta)" };
+
+/** The brands drawn in one colour, so a mark can stand on its own without the sprite's gradients. */
+export type FlatBrandId = Exclude<BrandId, "gemini" | "instagram">;
+
+/**
+ * One brand's mark on its own, for small places such as the Accounts tab: its own colour, or the
+ * text colour for a black mark (GitHub, X), so it turns white in the dark theme. Decorative: the
+ * brand's name is always beside it.
+ */
+export function BrandMark({ id, size = 16, className }: { id: FlatBrandId; size?: number; className?: string }) {
+  const glyph = BRAND_STYLE[id].glyph;
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true" focusable="false" className={className} style={glyph ? { color: glyph } : undefined}>
+      <path d={PATHS[id]} fill="currentColor" />
+    </svg>
+  );
+}
 
 export function isBrand(id: string): id is BrandId {
   return id in PATHS;

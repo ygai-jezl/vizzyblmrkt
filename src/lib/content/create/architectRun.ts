@@ -8,6 +8,7 @@ import { architectEbookPlan, architectPlan, architectSequence } from "./architec
 import { isEbookEnabled } from "./ebook";
 import { retrieveSemanticKnowledgeContext } from "@/lib/agents/knowledgeRetrieval";
 import { contentMatrixLabel } from "@/lib/content/contentMatrix";
+import { aiUsage } from "@/lib/plans/meter";
 
 /**
  * The Architect: a plan's graph skeleton (one grounded Gemini call). Shared by the
@@ -71,6 +72,7 @@ export async function runArchitect(
         knowledgeContext: rag?.formatted ?? "",
         brandVoice,
         audience: ws.audience ?? null,
+        usage: aiUsage(ctx, "architect"),
       }),
     };
   }
@@ -87,6 +89,7 @@ export async function runArchitect(
       audience: ws.audience ?? null,
       templates: await templates(),
       ...(args.deadlineMs ? { deadlineMs: args.deadlineMs } : {}),
+      usage: aiUsage(ctx, "architect"),
     }),
   };
 }

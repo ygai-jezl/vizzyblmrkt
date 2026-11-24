@@ -1,5 +1,5 @@
 import { readBrandPdf } from "@/lib/tenant/brandAsset";
-import { generateTextWithFile, parseFirstJson } from "@/lib/agents/gemini";
+import { generateTextWithFile, parseFirstJson, type AiUsage } from "@/lib/agents/gemini";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { clampColors } from "./colorPalette";
 import type { PaletteColor } from "@/lib/types/tenant";
@@ -14,6 +14,7 @@ import type { PaletteColor } from "@/lib/types/tenant";
 export async function extractPaletteFromPdf(
   tenantId: string,
   pdfPath: string,
+  opts: { usage: AiUsage },
 ): Promise<PaletteColor[] | null> {
   const pdf = await readBrandPdf(tenantId, pdfPath);
   if (!pdf) return null;
@@ -21,6 +22,7 @@ export async function extractPaletteFromPdf(
     renderPrompt("brand.extract_palette", {}),
     pdf.toString("base64"),
     "application/pdf",
+    { usage: opts.usage },
   );
   if (!raw) return null;
   const json = parseFirstJson(raw);

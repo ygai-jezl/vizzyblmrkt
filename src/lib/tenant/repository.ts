@@ -1,3 +1,4 @@
+import { FieldValue } from "firebase-admin/firestore";
 import { getDb, isAlreadyExists, isNotFound } from "./firestore";
 import { databaseIdForRegion } from "./region";
 import { TenantIsolationError, TenantValidationError } from "./errors";
@@ -55,11 +56,15 @@ import type { SiteKey } from "@/lib/types/siteKey";
 import type { Competitor, CompetitorArticle, CompetitorChange, CompetitorPagesChunk, CompetitorPost } from "@/lib/types/competitor";
 import type { BrandSignal } from "@/lib/types/brandSignal";
 import type { AutopilotRun, LearnedEntry, NextUpDoc } from "@/lib/types/autopilot";
+import type { UsageMeterDoc } from "@/lib/types/usageMeter";
 import type { LiveWatchDoc, LiveWatchSeen } from "@/lib/types/liveWatch";
 import type { StoredEvent } from "@/lib/types/ontologyEvent";
 import type { AgentAction } from "@/lib/types/agentAction";
 import type { SettingsVersion } from "@/lib/types/settingsVersion";
 import type { RecordFieldListDoc } from "@/lib/types/recordField";
+import type { DataConnection, DataConnectionActivity } from "@/lib/types/dataConnection";
+import type { MetricSnapshot } from "@/lib/types/metricSnapshot";
+import type { DataSignal } from "@/lib/types/dataSignal";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -249,6 +254,29 @@ export class TenantCollection<T extends TenantScoped> {
    * TenantIsolationError — it is never overwritten or re-homed. Identity fields
    * (tenantId/id) are stamped/stripped, and createdAt is never rewritten on update.
    */
+  /**
+   * Add to numbers in a document without reading it first: `deltas` is a nested map whose
+   * leaves are amounts to add (a missing field starts at 0), merged in one write with
+   * FieldValue.increment, so many writers at once never wait on a transaction. `fields` are
+   * set as given. The id must carry this tenant's id (the caller builds it from ctx), and the
+   * tenant field is stamped, so a write can never land in another tenant's document. Keys are
+   * nested map keys, never dotted paths, so a key may contain dots (a model id).
+   */
+  async increment(id: string, deltas: Record<string, unknown>, fields: Record<string, unknown> = {}): Promise<void> {
+    // "um_<tenantId>_<month>": the tenant's id whole, between separators, never a longer one's prefix.
+    if (!id || !(id.includes(`_${this.tenantId}_`) || id.startsWith(`${this.tenantId}_`))) {
+      throw new TenantValidationError("increment() requires an id that carries the tenant's id");
+    }
+    const toIncrements = (obj: Record<string, unknown>): Record<string, unknown> =>
+      Object.fromEntries(
+        Object.entries(obj)
+          .filter(([, v]) => v !== undefined && v !== 0)
+          .map(([k, v]) => [k, typeof v === "number" ? FieldValue.increment(v) : toIncrements(v as Record<string, unknown>)]),
+      );
+    const { tenantId: _t, id: _i, ...rest } = fields;
+    await this.db.collection(this.name).doc(id).set({ ...rest, ...toIncrements(deltas), [TENANT_FIELD]: this.tenantId }, { merge: true });
+  }
+
   async upsert(
     id: string,
     create: () => CreateInput<T>,
@@ -424,6 +452,15 @@ export type HistoryCollection<T extends TenantScoped> = Pick<TenantCollection<T>
  */
 export type VersionCollection<T extends TenantScoped> = Pick<TenantCollection<T>, "find" | "getById" | "count">;
 
+/**
+ * Connected data's records through forTenant: reads only. A connection and the activity that
+ * records each change are written together by ./dataConnections.ts, its only writer.
+ */
+export type ConnectionRecords<T extends TenantScoped> = Pick<TenantCollection<T>, "find" | "getById" | "count">;
+
+/** Connected data's activity log through forTenant: a count only. The app writes it and never queries it. */
+export type ActivityLog<T extends TenantScoped> = Pick<TenantCollection<T>, "count">;
+
 /** The set of tenant-scoped repositories available within a request context. */
 export interface TenantRepositories {
   campaigns: TenantCollection<Campaign>;
@@ -546,6 +583,8 @@ export interface TenantRepositories {
   nextUp: TenantCollection<NextUpDoc>;
   /** Autopilot runs: one question found, sorted and (Draft mode) written (src/lib/autopilot/runs.ts). */
   autopilotRuns: TenantCollection<AutopilotRun>;
+  /** Paid resources used per brand per month, such as web searches for research (src/lib/plans/meter.ts). */
+  usageMeters: TenantCollection<UsageMeterDoc>;
   /** Found live: when to look next and which addresses it checks (src/lib/content/blog/liveWatch.ts). */
   liveWatch: TenantCollection<LiveWatchDoc>;
   /** Found live: the brand's pages it already opened, hashed (src/lib/content/blog/liveWatch.ts). */
@@ -564,6 +603,20 @@ export interface TenantRepositories {
    * only here: a list changes only with its settings version (./settingsLog.ts).
    */
   recordFieldLists: VersionCollection<RecordFieldListDoc>;
+  /** Connected data (CONNECTORS_ENABLED): one record per connection, its secrets sealed (./dataConnections.ts writes them). */
+  dataConnections: ConnectionRecords<DataConnection>;
+  /** Each change to a connection, kept 90 days by a TTL on ttlAt (./dataConnections.ts writes them). */
+  dataConnectionActivity: ActivityLog<DataConnectionActivity>;
+  /**
+   * Collected numbers (CONNECTORS_COLLECT_ENABLED): a connection's day, rolled and planning docs, by
+   * fixed id, kept 90 days by a TTL on ttlAt (src/lib/connectors/snapshots.ts writes them).
+   */
+  metricSnapshots: TenantCollection<MetricSnapshot>;
+  /**
+   * What collected numbers suggest (CONNECTOR_SIGNALS_ENABLED): one row per connection, rule and
+   * key, by fixed id, kept 30 days by a TTL on ttlAt (src/lib/connectors/signals/store.ts writes them).
+   */
+  dataSignals: TenantCollection<DataSignal>;
 }
 
 /**
@@ -706,6 +759,8 @@ export function forTenant(
     autopilotLearned: new TenantCollection<LearnedEntry>(regionalDb, "autopilot_learned", t),
     nextUp: new TenantCollection<NextUpDoc>(regionalDb, "next_up", t),
     autopilotRuns: new TenantCollection<AutopilotRun>(regionalDb, "autopilot_runs", t),
+    // What the brand used of paid resources this month: counts only, beside the work that used them.
+    usageMeters: new TenantCollection<UsageMeterDoc>(regionalDb, "usage_meters", t),
     // Found live's working state about the brand's own site and articles: regional, beside them.
     liveWatch: new TenantCollection<LiveWatchDoc>(regionalDb, "live_watch", t),
     liveWatchSeen: new TenantCollection<LiveWatchSeen>(regionalDb, "live_watch_seen", t),
@@ -714,5 +769,14 @@ export function forTenant(
     agentActions: new TenantCollection<AgentAction>(regionalDb, "agent_actions", t),
     settingsVersions: new TenantCollection<SettingsVersion>(regionalDb, "settings_versions", t),
     recordFieldLists: new TenantCollection<RecordFieldListDoc>(regionalDb, "record_field_lists", t),
+    // A connection holds a brand's sealed tokens and settings, kept in its region beside the data
+    // it reads; its activity names team members by id only. Both regional, like launch_site_keys.
+    dataConnections: new TenantCollection<DataConnection>(regionalDb, "data_connections", t),
+    dataConnectionActivity: new TenantCollection<DataConnectionActivity>(regionalDb, "data_connection_activity", t),
+    // Numbers collected from a brand's connections, with Search Console's searches and page paths
+    // (Google's aggregates, decision 37): regional, beside the connection that read them.
+    metricSnapshots: new TenantCollection<MetricSnapshot>(regionalDb, "metric_snapshots", t),
+    // What those numbers suggest, with the search words or page path it fired on: regional too.
+    dataSignals: new TenantCollection<DataSignal>(regionalDb, "data_signals", t),
   };
 }

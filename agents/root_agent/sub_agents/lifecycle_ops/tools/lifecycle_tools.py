@@ -221,10 +221,11 @@ def save_person_plan(
 def people_fields_list(tool_context: ToolContext) -> dict:
     """List the brand's own People fields you can read and suggest, with their options.
 
-    Only select, multi select, status, checkbox, number, currency and date fields, the
-    ones in use: never text, email, phone, link or team member fields. No values. Each
-    has an id, a label, a type, its options (each with an id) and, for currency, its
-    code. The note says how each type's value is written.
+    Only select, multi select, status, checkbox, number, currency and date fields, and
+    text fields the brand lets you read, the ones in use: never other text fields, or
+    email, phone, link or team member fields. No values. Each has an id, a label, a
+    type, its options (each with an id) and, for currency, its code. The note says how
+    each type's value is written.
     """
     return fields_client.list_fields(_state(tool_context))
 
@@ -234,9 +235,11 @@ def person_fields_read(tool_context: ToolContext, person_id: str = "") -> dict:
 
     Returns each field with its value (null when unset) and the value in words, and
     `waiting`: the fields that already have a suggestion for someone to confirm. It
-    never holds their name, their email address or a text, email, phone, link or team
-    member value. Works for anyone in the list of people, including people who only
-    joined a launch or were added by hand.
+    never holds their name, their email address or an email, phone, link or team member
+    value. A text value, only for a field the brand lets you read, has their name and
+    address taken out ([name], [email], [id]) and is at most 500 characters, with
+    "cut": true when it was longer. Works for anyone in the list of people, including
+    people who only joined a launch or were added by hand.
 
     Args:
         person_id: Leave empty for the person whose page the operator is on.
@@ -254,7 +257,9 @@ def person_fields_propose(changes: dict, why: str, tool_context: ToolContext, pe
     Args:
         changes: Field id to the suggested value, written as the fields read says
             (an option id, a list of option ids, true or false, a number, whole minor
-            units for currency, or a day as YYYY-MM-DD). null clears a value.
+            units for currency, a day as YYYY-MM-DD, or plain text of at most 500
+            characters with no [name], [email] or [id] in it). null clears a value.
+            A text value the read marked "cut" can only be cleared with null.
         why: One sentence on what you saw that supports it. No name or email address.
         person_id: Leave empty for the person whose page the operator is on.
 

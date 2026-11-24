@@ -195,6 +195,19 @@ export type { SettingsChange, SettingsCommit, StoredSetting } from "./settingsLo
 // Field values: the one writer, with their events, tags and an agent action's decision in one transaction.
 export { setRecordFieldValues, repairFieldTags, moveRecordFieldValues, RECORD_BYTE_BUDGET } from "./recordFieldWrites";
 export type { SetFieldValuesInput, SetFieldValuesResult, SetFieldValuesError } from "./recordFieldWrites";
-export type { VersionCollection } from "./repository";
+export type { VersionCollection, ConnectionRecords, ActivityLog } from "./repository";
+// Connected data: a connection and its activity in one transaction (read the records through forTenant).
+export {
+  createDataConnection,
+  changeDataConnection,
+  purgeDataConnection,
+  countDataConnectionActivity,
+  ACTIVITY_KEEP_DAYS,
+  RECENT_LIMIT,
+} from "./dataConnections";
+export type { ActivityWrite, NewDataConnection, DataConnectionPatch, ChangePlan, ChangeResult, PurgeCounts } from "./dataConnections";
+// Connected data sign in states: made at Sign in, claimed once by the callback, then deleted.
+export { createConnectionState, consumeConnectionState, STATE_VALID_MS } from "./dataConnectionStates";
+export type { NewConnectionState, StoredConnectionState, ConsumeOutcome } from "./dataConnectionStates";
 export type { SendClaimArgs, SendClaimOutcome } from "./lifecycleSend";
 export type { RateLimitConfig } from "./rateLimit";

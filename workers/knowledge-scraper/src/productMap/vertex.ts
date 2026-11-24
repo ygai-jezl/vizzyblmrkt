@@ -46,6 +46,7 @@ export function vertexModel(opts: { project: string; region: Region; model?: str
   const model = opts.model ?? modelFor(opts.region);
   const url = endpointUrl(opts.project, modelLocation(opts.region), model);
   return {
+    name: model,
     async generate(req: { system: string; contents: Content[]; tools: FunctionDecl[]; forceTool?: string; json?: boolean }): Promise<ModelTurn> {
       const client = await auth.getClient();
       const body = {
@@ -70,11 +71,17 @@ export function vertexModel(opts: { project: string; region: Region; model?: str
         try {
           const res = await client.request<{
             candidates?: { content?: { parts?: Part[] } }[];
-            usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+            usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number; totalTokenCount?: number };
           }>({ url, method: "POST", data: body, timeout: opts.timeoutMs ?? 120_000 });
+          const u = res.data.usageMetadata;
           return {
             parts: res.data.candidates?.[0]?.content?.parts ?? [],
-            usage: { input: res.data.usageMetadata?.promptTokenCount ?? 0, output: res.data.usageMetadata?.candidatesTokenCount ?? 0 },
+            // Thinking tokens are billed as output.
+            usage: {
+              input: u?.promptTokenCount ?? 0,
+              output: (u?.candidatesTokenCount ?? 0) + (u?.thoughtsTokenCount ?? 0),
+              ...(u?.totalTokenCount !== undefined ? { total: u.totalTokenCount } : {}),
+            },
           };
         } catch (err) {
           lastErr = err;

@@ -63,6 +63,10 @@ _ERRORS = {
         "knowledge to a programme, first."
     ),
     "research_failed": "Research didn't finish this time. Please try again in a minute.",
+    "search_limit": (
+        "This brand has used its web searches for research this month, so I can't research the "
+        "brand map now. It starts again next month, or whoever runs your copy of YouGrow can raise it."
+    ),
     "map_unreadable": "The saved brand map can't be read. An admin needs to look at it on Brand › Brand map.",
     "map_too_large": "The brand map is full. An admin needs to dismiss some suggestions on Brand › Brand map first.",
     "situations_disabled": "Buying situations aren't switched on in this environment yet.",

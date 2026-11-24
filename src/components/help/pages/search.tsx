@@ -1,7 +1,14 @@
 import { H1, H2, Lead, P, Pairs, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
+import { isConnectorsSearchTextEnabled } from "@/lib/connectors/flags";
+import { SEARCH_TEXT_HELP } from "@/lib/connectors/helpText";
+import type { HelpBodyProps } from "@/lib/help/pages";
 
-export default function SearchHelp() {
+/**
+ * /help/search. `connectorsSearchText` is whether Search Console's searches are in brand search
+ * (CONNECTORS_SEARCH_TEXT_ENABLED, ADR-0013); the How to drawer passes what the server said.
+ */
+export default function SearchHelp({ connectorsSearchText = isConnectorsSearchTextEnabled() }: HelpBodyProps = {}) {
   return (
     <article>
       <H1>Search</H1>
@@ -65,11 +72,22 @@ export default function SearchHelp() {
         <li>Your brand voice, brand kit and author bios</li>
         <li>Your brand map: subjects, questions, buying situations, research you imported, and What we&apos;ve seen notes</li>
         <li>Knowledge sources, your product map, competitors and what their articles cover, and image prompts</li>
+        {connectorsSearchText ? (
+          <li>
+            Google searches from your <Open href="/help/connected-data#search-text">Search Console connection</Open>: the
+            top searches of the last 28 days, with their clicks, impressions and position
+          </li>
+        ) : null}
       </UL>
       <P>
         It leaves out people&apos;s own words: sign-up answers, voice conversations, social comments and person plans. It
         also leaves out notes marked as naming a customer, and competitors&apos; quotes and authors.
       </P>
+      {connectorsSearchText ? (
+        <P>
+          {SEARCH_TEXT_HELP.why} {SEARCH_TEXT_HELP.who} {SEARCH_TEXT_HELP.vizzy} {SEARCH_TEXT_HELP.when}
+        </P>
+      ) : null}
       <P>
         New and changed things are found within about 10 minutes. An article you save is usually found straight away. Each
         brand&apos;s search is kept apart from every other brand&apos;s, in the same region as the rest of your data.

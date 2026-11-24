@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { identityScrubber } from "./identityScrubber";
+import { holdsScrubbedMark, identityScrubber } from "./identityScrubber";
 
 describe("identityScrubber", () => {
   it("takes out each part of the name, however it is written, and anything shaped like an address", () => {
@@ -94,5 +94,15 @@ describe("identityScrubber", () => {
   it("is safe with a name full of pattern characters", () => {
     const scrub = identityScrubber({ name: "A.*(b)+ [x] $^", email: "(a+b)*@weird.test", userId: "id(1)+" });
     expect(scrub("plain text stays plain, id(1)+ goes")).toBe("plain text stays plain, [id] goes");
+  });
+});
+
+describe("holdsScrubbedMark", () => {
+  it("finds each mark the scrubber leaves, in any case, and nothing else", () => {
+    const scrub = identityScrubber({ name: "Jo Okafor", email: "jo@okafor.example.com", userId: "user_123456" });
+    expect(holdsScrubbedMark(scrub("Jo Okafor, jo@okafor.example.com"))).toBe(true);
+    expect(holdsScrubbedMark(scrub("account user_123456"))).toBe(true);
+    for (const mark of ["[name]", "[Email]", "[ID]"]) expect(holdsScrubbedMark(`before ${mark} after`), mark).toBe(true);
+    for (const plain of ["Head of Sales", "name, email and id", "[names]", "[ id ]"]) expect(holdsScrubbedMark(plain), plain).toBe(false);
   });
 });

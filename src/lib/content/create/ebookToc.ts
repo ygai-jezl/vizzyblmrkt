@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { composePrompt, brandVoiceSection, audienceSection } from "@/lib/agents/prompts/compose";
-import { generateText, parseFirstJson } from "@/lib/agents/gemini";
+import { generateText, parseFirstJson, type AiUsage } from "@/lib/agents/gemini";
 import { WRITING_RULES } from "@/lib/content/writingRules";
 import { CONTENT_PLAN_LIMITS, type EbookChapter, type EbookDoc } from "@/lib/types/contentPlan";
 
@@ -29,6 +29,8 @@ export interface EbookTocInput {
   audience?: string | null;
   /** Used as the book title if the model returns none (the plan/workflow name). */
   fallbackTitle: string;
+  /** The brand's usage: the call's tokens are counted. */
+  usage: AiUsage;
 }
 
 function newChapter(title: string, summary: string): EbookChapter {
@@ -76,7 +78,7 @@ export async function generateEbookToc(input: EbookTocInput): Promise<EbookDoc> 
     task,
   });
 
-  const raw = await generateText(prompt).catch(() => null);
+  const raw = await generateText(prompt, { usage: input.usage }).catch(() => null);
   const j = raw ? (parseFirstJson(raw) as Record<string, unknown> | null) : null;
   if (!j || typeof j !== "object") return fallbackToc(input);
 

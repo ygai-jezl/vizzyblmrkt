@@ -40,5 +40,5 @@ export async function POST(req: Request, { params }: RouteParams) {
 
   const r = await researchPlanBlog(ctx, { workspace: ws, plan });
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
-  return NextResponse.json({ brief: r.brief, searched: r.searched, found: r.found, ...(r.map ? { map: r.map } : {}) });
+  return NextResponse.json({ brief: r.brief, searched: r.searched, found: r.found, ...(r.searchLimited ? { searchLimited: true } : {}), ...(r.map ? { map: r.map } : {}) });
 }

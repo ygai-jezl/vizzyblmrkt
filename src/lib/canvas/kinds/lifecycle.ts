@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { forTenant, getTenantById, isRateLimited } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
+import { aiUsage } from "@/lib/plans/meter";
 import {
   continuesFromId,
   dateStartOf,
@@ -185,6 +186,7 @@ export async function authorLifecycleDraft(
       brief,
       brandVoice: resolveBrandVoiceText({ tenantBrandVoice: tenant?.brandVoice }),
       generate: deps.generate,
+      usage: aiUsage(ctx, "journeys", { db: deps.db, tenant }),
     });
     if ("error" in built) return { ok: false, status: 422, error: "invalid_options", issues: [built.detail] };
     draft = built.draft;

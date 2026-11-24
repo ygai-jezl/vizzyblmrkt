@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { parseSSE } from "./streamTypes";
 import { type ChatMode, DEFAULT_CHAT_MODE } from "./chatModes";
 import { asCard, type CanvasCardData } from "./cardData";
+import { connectorSourceOf, withSource } from "./sourceData";
 
 export type { CanvasCardData } from "./cardData";
 
@@ -24,6 +25,8 @@ export interface ChatExchange {
   thoughtText?: string;
   isStreaming?: boolean;
   artifacts?: CanvasCardData[];
+  /** The connectors this answer read, by id ("<id>:collected" for get_connected_numbers), for its source line. */
+  sources?: string[];
 }
 
 export interface DashboardChatOptions {
@@ -173,6 +176,8 @@ export function useDashboardChat(options: DashboardChatOptions = {}): UseDashboa
                 break;
               case "tool_result": {
                 setToolStatus("Processing…");
+                const source = connectorSourceOf(event.toolName, event.result);
+                if (source) setExchange((prev) => withSource(prev, source));
                 const card = asCard(event.result);
                 if (card) {
                   setExchange((prev) => {

@@ -23,9 +23,21 @@ import { isDevelopersDocsEnabled } from "@/lib/developers/flags";
 import { isEmailJourneyStyleEnabled, isEmailStyleEnabled } from "@/lib/email/flags";
 import { isNavV2Enabled, isNavV2Phase2Enabled, isThemeSwitchEnabled } from "@/lib/nav/flags";
 import { isOneViewEnabled, isPeopleNameEnabled, isPersonBriefEnabled } from "@/lib/audience/flags";
-import { canAddPeople, isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled, isTimelineEnabled, isPersonInContextEnabled, isVizzyAddPersonEnabled, isVizzyFieldsEnabled } from "@/lib/audience/peopleFlags";
+import {
+  canAddPeople,
+  isAddPersonEnabled,
+  isFieldFiltersEnabled,
+  isFieldsEnabled,
+  isTimelineEnabled,
+  isPersonInContextEnabled,
+  isVizzyAddPersonEnabled,
+  isVizzyFieldsEnabled,
+  isVizzyTextFieldsEnabled,
+} from "@/lib/audience/peopleFlags";
 import { parseThemePreference, THEME_COOKIE } from "@/lib/theme";
 import { isCatalogHistoryEnabled } from "@/lib/connect/v2/flags";
+import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsSearchTextEnabled } from "@/lib/connectors/flags";
+import { isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -176,8 +188,14 @@ export default async function AdminLayout({
             addPerson={isAddPersonEnabled()}
             timeline={isTimelineEnabled()}
             vizzyFields={isVizzyFieldsEnabled()}
+            vizzyTextFields={isVizzyTextFieldsEnabled()}
             vizzyAddPerson={isVizzyAddPersonEnabled()}
             catalogHistory={isCatalogHistoryEnabled()}
+            connectorsChat={isConnectorsChatEnabled()}
+            connectorsCollect={isConnectorsCollectEnabled()}
+            connectorsSearchText={isConnectorsSearchTextEnabled()}
+            connectorSignals={isConnectorSignalsEnabled()}
+            brandMapScale={isBrandMapScaleEnabled()}
           >
             {shell}
           </ShellProvider>

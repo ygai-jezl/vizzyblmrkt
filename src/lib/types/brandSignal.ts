@@ -2,9 +2,12 @@ import { z } from "zod";
 
 /**
  * Outside numbers about a brand (BRAND_SIGNALS_ENABLED), one record per thing measured, in
- * `brand_signals` (the brand's regional database). Today: Google's results for one question in one
- * market, looked up through DataForSEO (SIGNALS_DATAFORSEO_ENABLED). Search Console and GA4 join
- * later. Public search results only: no end user's data.
+ * `brand_signals` (the brand's regional database): Google's results for one question in one
+ * market, looked up through DataForSEO (SIGNALS_DATAFORSEO_ENABLED). Public search results only: no
+ * end user's data. It stays DataForSEO's alone: its queue, lease and cost fields are DataForSEO's,
+ * and readySignals feeds the Get from Google screens. What a brand's own connected Search Console
+ * and Google Analytics numbers suggest lives in `data_signals` instead (src/lib/types/dataSignal.ts,
+ * CONNECTOR_SIGNALS_ENABLED, ADR-0012).
  *
  * The id comes from the brand, the question's words and the market, so looking the same question
  * up again overwrites the same record: the store never grows past one record per question and

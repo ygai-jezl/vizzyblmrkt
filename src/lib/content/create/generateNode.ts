@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { composePrompt, brandVoiceSection, audienceSection } from "@/lib/agents/prompts/compose";
 import { generateText, parseFirstJson, generateTextWithDeadline } from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import { draftEmailCopy } from "@/lib/content/create/emailCopy";
 import { channelBlueprint } from "@/lib/content/channels";
 import { transformFor } from "@/lib/content/transformationMatrix";
@@ -225,6 +226,7 @@ export async function generateNode(
     node.type === "hub" && node.channel === "blog" && !input.skeletonBody?.trim() && isBlogCitableEnabled();
   // The answers to its questions are read live: one changed on Brand › What we've seen wins.
   const brief = citableBlog ? await refreshAnswers(ctx, briefOf(plan), {}, `${workspaceId}/${plan.id}`) : briefOf(plan);
+  const usage = aiUsage(ctx, citableBlog ? "blog_write" : "content_write");
 
   // Ground: scoped → pre-filter by the first scope topic (findNearest takes one).
   const scopedTopic =
@@ -270,6 +272,7 @@ export async function generateNode(
       map: input.brandMap ?? null,
       competitorAngles: anglesBlock(theirs),
       contextPack: packPromptBlock(pack, "writer"),
+      usage,
     }).catch(() => null);
     if (!drafted) {
       return { body: "", placeholderValues: {}, status: "error", warnings: ["generation_failed"], format };
@@ -327,7 +330,7 @@ export async function generateNode(
       proof_assets: proofBlock,
       exemplars: exemplarsBlock,
     });
-    const drafted = await draftEmailCopy({ task, brandVoice: input.brandVoice, audience: input.audience });
+    const drafted = await draftEmailCopy({ task, brandVoice: input.brandVoice, audience: input.audience, usage });
     if (!drafted) {
       return {
         body: "",
@@ -469,8 +472,8 @@ export async function generateNode(
   }
 
   const raw = input.deadlineMs
-    ? await generateTextWithDeadline(prompt, { timeoutMs: Math.max(1_000, input.deadlineMs - Date.now() - 3_000) })
-    : await generateText(prompt);
+    ? await generateTextWithDeadline(prompt, { timeoutMs: Math.max(1_000, input.deadlineMs - Date.now() - 3_000), usage })
+    : await generateText(prompt, { usage });
   const drafted = coerceBody(raw);
   if (!drafted) {
     return { body: "", placeholderValues: {}, status: "error", warnings: ["generation_failed"], format };

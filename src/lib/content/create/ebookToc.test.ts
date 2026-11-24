@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/agents/gemini", () => ({
   generateText: vi.fn(),
+  NO_USAGE: {},
   parseFirstJson: (text: string): unknown | null => {
     const s = text.indexOf("{");
     const e = text.lastIndexOf("}");
@@ -15,7 +16,7 @@ vi.mock("@/lib/agents/gemini", () => ({
 }));
 
 import { generateEbookToc, type EbookTocInput } from "./ebookToc";
-import { generateText } from "@/lib/agents/gemini";
+import { generateText, NO_USAGE } from "@/lib/agents/gemini";
 import { CONTENT_PLAN_LIMITS } from "@/lib/types/contentPlan";
 
 const mocked = vi.mocked(generateText);
@@ -28,6 +29,7 @@ const baseInput: EbookTocInput = {
   brandVoice: null,
   audience: null,
   fallbackTitle: "My Workflow",
+  usage: NO_USAGE,
 };
 
 describe("generateEbookToc", () => {

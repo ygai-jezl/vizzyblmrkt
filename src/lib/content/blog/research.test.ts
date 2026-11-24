@@ -72,6 +72,7 @@ const REDIRECT = "https://vertexaisearch.cloud.google.com/grounding-api-redirect
 const attributed: GroundedTextResult = {
   text: FACTS,
   model: "m",
+  queries: [],
   sources: [
     { uri: `${REDIRECT}a`, title: "research.example.org", domain: "research.example.org" },
     { uri: `${REDIRECT}b`, title: "press.example.net", domain: "press.example.net" },
@@ -83,7 +84,7 @@ const attributed: GroundedTextResult = {
     { text: `FACT: ${FACT_OWN}`, start: null, end: null, sourceIndexes: [2] },
   ],
 };
-const unattributed: GroundedTextResult = { text: FACTS, model: "m", sources: [], supports: [] };
+const unattributed: GroundedTextResult = { text: FACTS, model: "m", sources: [], supports: [], queries: [] };
 
 const page = (over: Partial<FetchedPage>): FetchedPage => ({ url: "", title: "", siteName: "", year: null, text: "", ...over });
 
@@ -184,6 +185,16 @@ describe("blog research", () => {
     expect(readPostMeta(html, new Date("2026-11-16"))).toEqual({ title: "A new clinic in Leeds", description: "We open in Leeds in December.", publishedAt: "2026-11-14" });
     expect(readPostMeta('<time datetime="2026-11-02">2 Nov</time>', new Date("2026-11-16")).publishedAt).toBe("2026-11-02");
     expect(readPostMeta('<meta name="date" content="2099-01-01">', new Date("2026-11-16")).publishedAt).toBeNull();
+  });
+
+  it("at the month's web search cap, researches from the brand's own material and says Google wasn't searched", async () => {
+    const d = deps({ grounded: vi.fn(async () => ({ limited: true, used: 300, limit: 300 })) as never });
+    const r = await researchBlogBrief({ ctx, workspace, plan: plan(), brandName: "Acme" }, d);
+    expect(r.searchLimited).toBe(true);
+    expect(r.searched).toBe(false);
+    // The facts search isn't asked twice at the cap.
+    expect((d.grounded as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(2);
+    expect(r.brief.links.length).toBeGreaterThan(0);
   });
 
   it("builds the brief: questions, live link targets, and sources checked on the page", async () => {
@@ -367,6 +378,7 @@ describe("blog research", () => {
       model: "m",
       sources: [],
       supports: [],
+      queries: [],
     });
     expect(untied.brief.sources).toEqual([]);
 
@@ -374,6 +386,7 @@ describe("blog research", () => {
     const tied = await run({
       text: text(claims, "https://research.example.org/buyers-2026"),
       model: "m",
+      queries: [],
       sources: [{ uri: `${REDIRECT}a`, title: "research.example.org", domain: "research.example.org" }],
       supports: [{ text: `FACT: ${claims}`, start: null, end: null, sourceIndexes: [0] }],
     });

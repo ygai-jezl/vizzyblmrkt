@@ -4,6 +4,823 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0013 · Search Console queries are Google's aggregates, so they may enter brand search (decision 37) (2026-11-23)
+
+Context: Connectors 2 group 3 (ADR-0012) puts each Search Console connection's top searches into
+brand search, so the team and Vizzy can find what people search for beside what the brand wrote.
+Brand search keeps people's own words out (sign up answers, AI conversations, social comments,
+person plans, notes that may name a customer) until the data processing agreement covers a new
+store of personal data (`src/lib/search/types.ts`, `src/lib/search/feeders.ts`). Search queries are
+words people typed, so the build plan asked whether they count.
+
+Decided (build plan decision 37, the owner's, before wave 3): **no, they are Google's aggregates.**
+- A Search Console row is a count over everyone who searched those words in a day: clicks,
+  impressions, click rate and position for the site, never who searched, when or from where.
+- Google keeps very rare queries out of the query rows, to protect the privacy of the people who
+  searched them, and counts them only in the totals (anonymized queries,
+  https://developers.google.com/search/blog/2022/10/performance-data-deep-dive). What reaches YouGrow
+  is only words many people searched.
+- So they are not one person's own words, may enter brand search before the DPA line, and are not
+  personal data in the ontology registry (`metric_snapshot` stays `personal: "none"`).
+
+What follows (group 3, behind `CONNECTORS_SEARCH_TEXT_ENABLED`, which needs collected numbers,
+`SEARCH_INDEX_ENABLED` and the brand's `brand_search` access):
+- **One `research` source per Search Console connection,** ref `gsc:<connectionId>`, titled
+  "Google searches: <site>". Its parts are the top 200 searches by clicks, then impressions, over the
+  28 days to the last collected day (the rolled `topic` doc), each with its clicks, impressions and
+  position. Never a page: page and query together is Search Console's most expensive load, and a
+  search alone says what people want. No new search kind, so Vizzy's tool and its list of kinds
+  don't change.
+- **Refreshed weekly.** The version is the ISO week of the last collected day, so daily numbers don't
+  re-embed 200 parts every day. Listed once 28 days are collected (or all the site has), so the first
+  week isn't a partial window. Its link opens the Connected view with that connection selected.
+- **Who finds them follows each viewer's access,** as the connection's grants say
+  (`src/lib/connectors/grants.ts`). `searchBrand` takes an optional viewer: a person (`role`, `uid`)
+  or Vizzy reading for one (`forRole`). With no viewer every `gsc:` hit is dropped, so a caller that
+  doesn't say who is looking (Next up, the autopilot, the context pack, which are stored or shared
+  with the whole team) never shows them. A hit stays only while its connection is connected and
+  `can(viewer, "read_live", grants)` holds; with the switch off, none shows.
+- **Erase reaches the index whatever any switch says.** `removeFromIndex` takes `{ force: true }`,
+  which skips `SEARCH_INDEX_ENABLED` but still goes through `searchStoreFor`, the brand's own path.
+  Disconnect, Change property and the purge remove the source with it; a failed removal leaves the
+  erase pending for the lane, and a copy without the search databases has nothing to remove.
+- **Switch off:** the feeder stops listing `gsc:` sources and the next sweep removes them (research
+  is read in full). With indexing off too, the purge removes them.
+
+Rejected: a new search kind (Vizzy's kinds list and a redeploy for no gain); each search with its
+page (the costly query, and the page adds little to finding the words); and leaving the searches
+out until the DPA (they hold no one's own words).
+
+---
+
+## ADR-0012 · Collected numbers: where they live, how long, and what they feed (Connectors 2) (2026-11-23)
+
+Context: wave 3's Connectors 2 (build plan decisions 25, 35, 36 and 37; piece 2 of the Connectors
+plan v5) turns the live reads Connectors 1 built into numbers YouGrow keeps. Every connected Search
+Console site, Google Analytics 4 property and Cloudflare zone is collected once a day into metric
+snapshots in the brand's region, kept 90 days, and erased by Disconnect. Vizzy gets a number tool,
+Search Console searches go into brand search, and the numbers suggest articles. It ships as one pull
+request, `feat/connectors-collect`, in four commit groups: 1 collect, keep and erase; 2 numbers for
+Vizzy; 3 searches in brand search; 4 signals. This record covers all four; each group's own notes
+follow as it lands.
+
+### Decided before the plan (binding)
+
+- **Decision 35: collected numbers live in regional Firestore with a time to live, not BigQuery.**
+  Kept 90 days, about 500 rows per grouping per day. Older figures come from a live read.
+  Disconnect deletes at once, the emulators and self-hosted copies need no BigQuery add-on, and
+  BigQuery can't delete rows still in its streaming buffer. The build plan's gate "BigQuery tables
+  for connectors 2" goes.
+- **Decision 36: Connectors 2 has its own switches,** not `BRAND_SIGNALS_ENABLED` and
+  `SIGNALS_DATAFORSEO_ENABLED`, which are on in prod: reusing them would turn collecting on at the
+  promotion. `CONNECTOR_SIGNALS_ENABLED` needs only collect, so a copy without DataForSEO still gets
+  Search Console signals.
+- **Decision 37: Search Console queries are Google's aggregates,** counts over everyone who searched,
+  not one person's own words, so they may enter brand search before the data processing agreement
+  line. Its own entry is ADR-0013.
+- **Decision 25: values are cleared when a suggestion closes.** Admins approve for now (decision 28).
+  `agent_actions` has no time to live (decision 22) and clears values only on `acted` or `declined`,
+  so every way a suggestion closes ends in one of those.
+
+### Where the numbers live (group 1)
+
+- **`metric_snapshots`, regional, through `forTenant`.** One doc per connection, generation, stream,
+  grouping and day: `${connectionId}_${gen}_${stream}_${by}_${day}`, with `by` one of `day`, `page`,
+  `topic` and `landing`. Rolled docs, `_r28` and `_r90`, are rewritten once a day from the day docs,
+  so no hot path adds up 90 day docs on a server already near its memory limit; Search Console also
+  gets planning docs (`_question_r28`, and `_subject_r28` from group 4) with a ready line per brand
+  map question. Every read is by id; erase reads by equality on `connectionId`. No composite index.
+- **A doc holds** the provider's own day and time zone (Search Console: Pacific time; GA4: the
+  property's zone; Cloudflare: UTC), whether the day is final, `totals` by meaning key (day docs
+  only: a range's totals come from day totals, never from adding page rows), and at most 500 `rows`
+  `{ key, host?, m }` ranked by the main measure, with `rowsSeen`, `rowsDropped`, `more` and a `floor`
+  (the last kept row's numbers) when rows were cut. A row missing from a cut day is "at most the
+  floor", never a zero. A key longer than 500 characters is dropped and counted, and a doc that would
+  pass 900 KB loses rows from the bottom.
+- **The provider's day stays the provider's.** A daily total can't be moved into another zone, so
+  "day, in the brand's time zone" (plan v5, section 6) doesn't hold, and every doc stores its zone.
+- **Counts of people don't add up across days.** GA4 active users and Cloudflare unique visitors are
+  left empty in every multi day total and row, with a note to read live.
+- **GA4 sessions are added up across days, with a note.** Google estimates sessions (HLL++) and a
+  session past midnight counts on both days, so the sum of daily sessions can run slightly above
+  GA4's own figure for the range. Asking GA4 for each range's own total would take a report per
+  window per day; instead every multi day sessions figure says it adds each day's, and that GA4's
+  own report for the same days can be slightly lower. Pages losing clicks compare two such sums, so
+  the comparison holds.
+- **The generation.** `collect.gen` is part of every snapshot id and goes on every row with the
+  account (site, property or zone). Change property bumps it, so an old site's numbers can never
+  share an id with the new site's, even if an erase fails or races a run.
+- **Kept 90 days.** `ttlAt`, a Date, is the day plus the stream's `keepDays` (90, a number in the
+  manifest's new `collect` block that the lane enforces) plus a 7 day margin. The keep window is
+  counted back from the last collected day, which trails today by the provider's lag (Search
+  Console about 3 Pacific days), so a time to live of only the day plus 90 would let Firestore
+  delete the window's oldest days while they are still in it; the margin, longer than any lag,
+  keeps the time to live a backstop. Firestore deletes expired docs "typically within 24 hours" and
+  shows them until then, so writing day D also deletes D minus 90 by id, and readers read by day.
+  Explicit reads never reach before the oldest day whose doc can still be there, and a rolled
+  period that is missing days says how many, so its sums are never silently short.
+- **Index changes: three field exemptions, no composite.** `metric_snapshots.rows`, an array of up
+  to 500 maps, and the two `ttlAt` fields (`metric_snapshots`, `data_signals`), as Google advises for
+  large unqueried fields and for TTL fields. The `ttlAt` entries leave out `ttl`, so an index deploy
+  only touches their index settings. firebase-tools offers to delete every field override missing
+  from `firestore.indexes.json`, and that delete clears its time to live; every TTL here comes from
+  `infra/lifecycle/setup.sh ttl`, so an index deploy runs `--non-interactive` with no `--force`, then
+  `setup.sh verify`. `setup.sh ttl` gains `metric_snapshots ttlAt` and `data_signals ttlAt`.
+
+### How a day is collected (group 1)
+
+- **Only numbers that won't change, with how final each day is.**
+  - Search Console: a small query grouped by date with `dataState: "final"` over the last 10
+    Pacific days (Google's own presence check) lists the days that are final; only those are
+    collected, once. A missing date at or before the newest listed one had no data and gets a zero
+    doc. An empty probe writes nothing and holds collection until the next day. Its rows are the
+    property's daily totals, so the `day` doc needs no extra call. Then one query by page and one by
+    search per new day, one day each, 1,000 rows asked, 500 kept with the floor.
+  - GA4: one report per grouping per day (page, `unifiedPagePathScreen`; landing, `landingPage`),
+    `limit` 500 (the rows a day keeps) ordered by the main measure, with `metricAggregations: TOTAL`
+    for the day's totals, at most 5 reports per `batchRunReports` (2 days a call), and
+    `returnPropertyQuota` on every call. Calls ask for compact JSON (`prettyPrint=false`): Google
+    pretty prints by default, which more than doubles a batch answer and passes the manifest's
+    512 KiB cap for a property with a few hundred pages a day. An answer still past the cap is asked
+    again one day a call, then that day with 250 rows; still too big, the collector holds itself
+    until the next day (its own hold, never the connection's health) and the cursor waits on that
+    day. A report that answers with no rows and leaves out its totals stores zeros, not unknown. A
+    first pass two days after the day, at 06:00 property time, is marked not final; a second pass
+    on day 8 marks it final (Google: "some data can arrive late, potentially up to 7 days").
+    `finalThrough` moves only over days that are all final with no gap, and days waiting for their
+    second pass are read ahead of new days, so a connection back from a pause or a break finishes
+    them before newer final days could move the line past them. Until an answer names the
+    property's zone, the first run plans in the westernmost zone, so it never gets ahead of the
+    property's own day. `(other)` rows are left out; `dataLossFromOtherRow`, sampling and
+    thresholding become notes.
+  - Cloudflare: zone totals only, two UTC days after the day (the Free plan's 24 hour delay). End
+    user numbers as far back as the adaptive dataset reaches; the daily totals before that, clamped
+    to the `httpRequests1dGroups.notOlderThan` its settings node gives, with `basis` set. A recent
+    day only the daily totals list is kept from them (all traffic), never as zero end users.
+- **Backfill.** The first collect fills 90 days, one slice per run, newest first: Search Console 5
+  days a run after one 90 day totals call, GA4 6 days a run, Cloudflare all in one. A paused or
+  broken connection resumes from its last day; out longer than 90 days, it starts again.
+- **The lane.** Every 15th tick of the 2 minute lifecycle tick, at offset 7
+  (`Math.floor(now / 120_000) % 15 === 7`), so it never shares a tick with the competitor scan, the
+  search sweep or Found live, with its own 25 second budget inside the scheduler's 105 seconds.
+  Brands take turns from a rotating offset, one `data_connections` query each, skipping suspended
+  brands; one connection at a time, under a 60 second lease held through `changeDataConnection`; no
+  new day starts with under 10 seconds left. Each run logs how far behind it is (the oldest
+  `collect.nextAt` it saw). Its housekeeping (erase retries now; `connector_signals` expiry and the
+  brand map reconcile in group 4) runs whenever `CONNECTORS_ENABLED` is on; collecting only with
+  `CONNECTORS_COLLECT_ENABLED`.
+- **Collecting is not reading.** The collector opens a connection's token as a system job (the share
+  access mint, the sign in keeper or the vault), with no grant check: grants say who may see
+  numbers, not whether the brand keeps them. Every way out checks grants.
+- **No collect toggle, and the collector's holds stay out of health.** Pause already stops every
+  call. Quota backoff for collection lives in `collect.holdUntil` and `collect.holdReason`, so a
+  collect backoff never blocks Vizzy's live reads; `health.pausedUntil` stays for real provider
+  failures under today's rules. Search Console's first `quotaExceeded` holds collection 15 minutes, a
+  second the same Pacific day holds it to the next Pacific midnight; GA4 holds for an hour when its
+  project tokens for the hour drop under 20% or after 2 server errors; 3 failed tries hold any
+  connection to the next day. Every other outcome goes through the same `outcomePlan` a live read
+  uses: a refused token marks the connection broken.
+- **Rollback safety.** `collected` and `erased` activity rows stay off the record's recent list, as
+  Vizzy's `read` rows do, because an older build's parse throws on an unknown kind there. The
+  `collect` block is optional, and an older build's parse drops it.
+
+### Erase (group 1)
+
+- **Disconnect and Change property erase everything that came from the connection:** its snapshots
+  now; its `data_signals` rows, its brand search source, its open suggestions (declined as `stale`,
+  values cleared) and the undecided brand map questions it proposed (removed, not dismissed) as
+  groups 3 and 4 add them. Decided questions stay: a person adopted them.
+- **Disconnect** sets `collect.erasePending`, then erases after the disconnect is saved. **Change
+  property** takes the collect lease, sets `erasePending` and bumps `gen` in one change, erases the
+  old generation, clears `erasePending` and starts the new backfill. **The operator purge** first
+  marks the connection disconnected with everything pending, in one change, then erases, whatever
+  any switch says. Each erase is idempotent and records one `erased` activity row; the lane retries
+  any connection with `erasePending` set whenever `CONNECTORS_ENABLED` is on.
+- **Work in flight marks what it wrote.** A collect run that finds the connection disconnected or on
+  a newer generation when it gives its lease back marks what it wrote for erasing, whoever holds the
+  lease by then (Disconnect clears it; Change property takes its own). A look for suggestions, which
+  holds no lease, does the same in its last change, even when it failed half way.
+- **Open suggestions are found from the agent actions,** whose proposal names the connection and
+  generation (at most 15 open a brand), not only from the connection's `data_signals` rows, so none
+  is missed however many rows it holds. A question it proposed that someone dismissed keeps its own
+  words (so the search isn't proposed again) but loses the search's words and numbers (`evidence`,
+  `reason`). Plan an article keeps a link with no search words or page on the acted action (the full
+  one goes only to the person who pressed it), and metric signals carry meaning keys without values:
+  agent actions have no time to live.
+
+### What people see (group 1)
+
+- **Review, "Data sources that need you"** (kind `data_source`: `connection` is the product context
+  endpoint's): a link item, admins only, for a connection that is broken, needs a property, has
+  failed collecting since 3 or more days ago (`collect.failedSince`; `health.failures` counts calls,
+  not days) or was paused by an admin 7 days ago. It links to the Connected view with that connection
+  selected (`?c=<id>`). The Connected view uses the same 3 days: only then, or when the connection is
+  broken, does it say "Stopped"; a younger failure is a note that YouGrow tries again on its own.
+  Titles name the product as the screens do ("Google Analytics", "Search Console").
+- **Say when access was lost.** A shared connection that had worked and whose Google address was
+  removed from the property shows `share_access_lost` ("YouGrow lost access to this property on 19
+  Nov. ...") instead of the first time message. Health keeps `since`, when the failures in a row
+  began, for that date.
+- **The Connected view** gets a Collected column and a Collected numbers block on the Manage card
+  (last day, days kept, rows a day, filling progress), hidden while collect is off. The manifests'
+  `where` lines lose "Nothing is stored."; each collected stream says it is kept 90 days in the
+  brand's region and Disconnect deletes it, on the Listing and the help page only while collect is
+  on.
+
+### Numbers, searches and signals (groups 2 to 4)
+
+- **Planning uses a connection only when both members and Vizzy may read it.** Next up is stored once
+  per brand and read by everyone and by Vizzy; brand map proposals are seen by the whole team. None
+  can follow one viewer's access, so signals, Next up lines and pack numbers come only from such
+  connections, and the Connected view says which ones feed planning. No third grant. When a grant
+  goes and a Search Console connection stops feeding planning, its open suggestions are declined as
+  stale (values cleared), the questions it proposed that nobody decided are withdrawn, and stored
+  Next up picks that weighed it are taken off, at once in Set grants and again by the lane's
+  housekeeping. In a copy without `CONNECTORS_CHAT_ENABLED` no connection can be shared with Vizzy,
+  so nothing is suggested: Connected says so instead of asking for a grant it can't offer, and Next
+  up says nothing about Search Console.
+- **Vizzy's numbers** (`get_connected_numbers`) read snapshots by id behind their own limit,
+  `connectors_numbers` (burst 10, 120 an hour), with the canvas token giving the brand and role and
+  the connection's Vizzy grant checked; every number carries its meaning. The server works out the
+  period; Vizzy never computes dates.
+- **Searches in brand search** are one `research` source per Search Console connection
+  (`gsc:<connectionId>`), refreshed weekly, and a hit shows only to a viewer who may read that
+  connection.
+- **The decision lives on the agent action; `data_signals` only indexes it.** Plan an article moves
+  the action to `acted` with its link; Dismiss to `declined` (`dismissed`), values cleared and the
+  row blanked, kept 30 days so it doesn't come back. A rising search becomes a proposed brand map
+  question with the map at scale (`RecordFrom` gains `search_console`; older builds read it as
+  `person`), else a Review suggestion. The lane reconciles brand map proposals once a day instead of
+  hooking every decision path. Strict starting thresholds, row cuts respected, at most 5 new and 15
+  open per brand.
+- **Open to every plan.** Collect, numbers and signals cost about 2 to 3 cents a brand a month, so
+  there is no per brand check. Next up lines appear only where Next up is already allowed (Ultra).
+- **`BrandSignal` stays DataForSEO only:** its queue, lease and cost fields are DataForSEO's, and
+  `readySignals` feeds the Get from Google screens.
+- **Out of scope:** DataForSEO as a connector (piece 5), Cloudflare AI crawlers by bot and page (a
+  later card: other datasets, some paid only), and YouGrow's own form view and product event counts,
+  whose registry gaps move from "(connectors 2)" to "(semantic layer)".
+
+### Signals (group 4)
+
+- **`data_signals` is its own store, not `brand_signals`.** `BrandSignal` stays DataForSEO's: its
+  queue, lease and cost fields are DataForSEO's, and `readySignals` feeds the Get from Google
+  screens. A `data_signals` row, regional and through `forTenant`, is one per connection,
+  generation, rule and key under a fixed id (`dsg_` and 24 hex of a hash of the brand, connection,
+  generation, rule and key, never the words), so each detection overwrites its own row. Reads are
+  by id or by equality on the connection; no composite index. Its `ttlAt` is a Date 30 days after
+  detection, and never before `dismissedUntil`.
+- **The rules, from Search Console's final days, once a day per connection after a day lands.**
+  Constants in `src/lib/connectors/signals/detect.ts`, tuned on dev:
+  - rising search: at least 50 impressions in the last 14 days, on 4 days or more, and at least
+    double the 14 days before (80 when it is new), with no question on the brand map with the same
+    words or close to it in meaning (cosine 0.85 between the search and the questions of its nearest
+    subject, in one embedding call; all its meaningful words in one question when meaning can't be
+    had);
+  - page losing clicks: at least 40 clicks in the 28 days before, then down 40% or more and by at
+    least 20 clicks, with all 56 days collected; a page that is also a planning Google Analytics
+    property's landing page adds its sessions as a second line (no Google Analytics signal of its
+    own), marked as may still change while those days aren't final;
+  - within reach: a decided question whose search (the planning doc's exact words) averages
+    position 5 to 20 with at least 100 impressions over 28 days.
+- **Cuts are not zeros.** On a day whose rows were cut, a missing search or page counts as at most
+  that day's floor, and each rule takes the side that makes it fire less: a missing day counts as
+  nothing in the numbers that have to be high (a rising search's last 14 days, a page's 28 days
+  before) and at its floor in the ones that have to be low (the 14 days before a rising search, a
+  page's last 28 days). The floor is the last kept row, ranked by clicks then impressions, and Google
+  sends rows by clicks with ties in no fixed order. So a floor bounds a missing row's clicks, but a
+  missing search's impressions only on a day whose floor had no clicks and whose rows Google sent in
+  full; a rising search missing from any other cut day in the 14 before has an unknown earlier
+  figure and never fires. A question's search that fell under a cut has an average position from
+  its best days only, so it is never within reach, and its lines in Next up, the context pack and
+  brand search say "at least" and leave the position out. Rolled rows keep `cutDays`, and `merged`
+  (Search Console addresses of one page added together) as the most any day merged, with its note.
+- **Caps and repeats.** At most 5 new suggestions a brand a day and 15 open at once, strongest
+  first (how far past its threshold each is). While a suggestion is open nothing new is proposed for
+  it. Plan an article and Dismiss blank the row and keep it away 30 days (`dismissedUntil`). Each
+  new proposal for a row is a new round, and the round is the last part of its dedupe key
+  (`data_signal.suggest|<signalId>|r<n>`, `brand_map.propose_question|<questionId>|r<n>`): no ISO
+  week, no words or paths, and a closed suggestion's key is never reused. An open suggestion whose
+  rule was checked again and no longer holds is declined as stale, values cleared.
+- **Each suggestion is an agent action** by `connector_signals`, with no person, expiring in 30
+  days, its values cleared when it closes, and its signals a `data_signal` reference plus up to 4
+  metric references with meaning keys. `AGENT_TARGET_TYPES` gains `data_signal` and
+  `brand_question`, each a type in the registry.
+- **Where a rising search goes.** With the brand map at any size, a proposed question in the
+  search's own words under its nearest decided subject (`from: "search_console"`, the connection in
+  `fromConnectionId`, the search's words as its evidence and their numbers as its reason), counted by
+  the brand map's Review row; people press Edit to change the words before Add. With the map's
+  scale switch off, a Review suggestion. Pages losing clicks and questions within reach are always
+  Review suggestions: "What your numbers suggest", admins only, with Plan an article (proposed to
+  acted, its result the Create link with the question, page or search filled in) and Dismiss
+  (declined as dismissed). Both forget the cached Review count.
+- **The lane keeps brand map proposals in step** instead of hooking every path that decides a
+  question: decided means acted, dismissed means declined (dismissed), merged away or gone means
+  declined (superseded). A question still undecided when its action expires is withdrawn with
+  `removeQuestion`, also when another expiry closed its action first (found by
+  `fromConnectionId`). This housekeeping, and the expiry of `connector_signals` suggestions, run in
+  the lane for every brand with Search Console whenever `CONNECTORS_ENABLED` is on, whatever the
+  signals switch says.
+- **Planning and Vizzy.** Next up gets up to two `num` chips labelled "Search Console" (the
+  search with the question's words, and the searches near its subject, from the `subject_r28`
+  planning doc the detector writes by mapping the top 100 searches to their nearest decided subject
+  with `nearestSubjectsMany`), every number in the line so `reasonHolds` keeps the pick, each line
+  naming its site when there are several, and "Not weighed" when no Search Console connection is
+  shared with the team and Vizzy. The context pack gets the same lines (source "Search Console
+  (collected)") and `figures` gains `searchClicks`, `searchImpressions` and `searchPosition`.
+  `get_number_suggestions` lists the open suggestions read only, behind the signals switch and the
+  `connectors_numbers` limit; Vizzy sends people to Review or the brand map to act.
+- **The approve and dismiss routes** check the origin, the switch (404 while off), sign in and the
+  admin role (`integrationsAdmin`), then the id (`^dsg_[0-9a-f]{24}$`) and a strict body; the brand
+  is the session's.
+
+### Switches
+
+All server side, `"false"` in the "== Connectors ==" group of `apphosting.yaml`, empty in
+`.env.example`, and kept off by `npm run selfhost`.
+
+| Switch | Group | Needs | Self-host |
+| --- | --- | --- | --- |
+| `CONNECTORS_COLLECT_ENABLED` | 1 | `CONNECTORS_ENABLED`. Erase and housekeeping never depend on it | `KEPT_OFF`, addon null |
+| (none) | 2 | `CONNECTORS_CHAT_ENABLED` and collect, else 503 | |
+| `CONNECTORS_SEARCH_TEXT_ENABLED` | 3 | collect, `SEARCH_INDEX_ENABLED`, `brand_search` | `KEPT_OFF`, addon `search` |
+| `CONNECTOR_SIGNALS_ENABLED` | 4 | collect, and 0e's indexes READY | `KEPT_OFF`, addon null |
+
+`CONNECTOR_SIGNALS_ENABLED` itself needs only collect, as the plan says; its suggestions come only
+from connections Vizzy may read, so without `CONNECTORS_CHAT_ENABLED` it suggests nothing and the
+screens say why.
+
+A connector manifest may never claim a platform switch: a refine refuses `CONNECTOR_SIGNALS_ENABLED`
+and `CONNECTOR_GOOGLE_REVOKE_ENABLED` as a connector's `switch` or a sign in method's, and `signals`
+joins the reserved connector ids.
+
+**What each switch leaves behind when turned off:**
+
+| Off | Stops | Stays until |
+| --- | --- | --- |
+| `CONNECTORS_COLLECT_ENABLED` | collecting, the Review row, the Connected column, the numbers route | snapshots expire within 90 days, or Disconnect or the purge removes them |
+| `CONNECTORS_SEARCH_TEXT_ENABLED` | new `gsc:` sources | the next sweep removes them, or the purge if indexing is off |
+| `CONNECTOR_SIGNALS_ENABLED` | detection, Review suggestions, chips, pack lines, the suggestions route | open suggestions expire within 30 days (the lane still expires them); undecided proposals are withdrawn at expiry |
+| `CONNECTORS_ENABLED` | everything | erase still runs from the purge, whatever any switch says |
+
+**Reverting the whole pull request takes one step first.** The build before it can't read an agent
+action about a `data_signal` or a `brand_question`, and its expiry stops at the first such action
+still open (`TenantValidationError`), which would block the brand's other expiries, person
+suggestions included. So before the revert, close every open suggestion from collected numbers:
+`npx tsx scripts/connectors-collect.ts --close-suggestions` (dry run), then with `--apply`, for every
+brand (no `--tenant`). Each is declined with its values cleared and its proposed question withdrawn;
+closed actions are never read by the older build's expiry or Review. Then snapshots and signals
+leave through their time to live, and the sweep removes `gsc:` sources once the feeder stops listing
+them. A brand that wants its data gone at once runs the purge before the revert. From this pull
+request on, the expiry logs and skips a row it can't read instead of stopping, so a later rollback
+can't block it this way.
+
+### Owner gates
+
+The TTL policies (`setup.sh ttl`, then `setup.sh verify`) before collect or signals go on in an
+environment; the index deploy with no `--force`; 0e's indexes READY before `CONNECTOR_SIGNALS_ENABLED`;
+a published consent screen before the dev soak (Testing mode sign ins end after 7 days; share access
+is unaffected); the three switches added as `"false"` to a deployment's own file before its sync;
+and a Vizzy redeploy after groups 2 and 4.
+
+---
+
+## ADR-0011 · Connected data: the connector core and Cloudflare (Connectors 1) (2026-11-21)
+
+Context: wave 2's Connectors 1 (build plan decisions 13, 32 and 33; the Connectors plan v5, whose
+nine decisions were all accepted) builds a shared connector core and the first three connectors:
+Cloudflare with an API token, then Google Search Console and Google Analytics 4. It ships as one
+pull request in three commit groups. This record covers group 1, the core and Cloudflare; groups 2
+(sign in with Google, Search Console) and 3 (share access, GA4, Vizzy) have their own sections below. The
+Browse, Listing and Connected screens wait for the owner's OK on their mockups. No dependency, index,
+rules or infra project change. Switches, all `"false"` in a new "== Connectors ==" group in
+`apphosting.yaml`, empty in `.env.example` and kept off by `npm run selfhost`: `CONNECTORS_ENABLED`,
+`NEXT_PUBLIC_CONNECTORS_ENABLED` and `CONNECTOR_CLOUDFLARE_ENABLED`.
+
+Decisions:
+
+- **Names.** A connection's record is `data_connections` (ids `dcn_`), its activity
+  `data_connection_activity` (ids `dca_`), and people read "Connected data". "Connection" already
+  means a connected product (`product_connections`, `pcn_`) and a Review kind.
+- **A manifest is pure data** (`src/lib/connectors/manifest.ts`): connect methods, fields, api
+  hosts and limits, one verify request, shares, produces, uses and hooks. Code a connector needs is
+  named by a hook id (`cloudflare.zoneProbe`) and lives in `src/lib/connectors/handlers`, so the
+  same file could come from a contributor or a vendor later. A test proves every manifest survives
+  a JSON round trip. The ids `browse`, `callback`, `connections` and `connected` are reserved
+  because routes and pages sit beside `[connectorId]`. Every permission or scope a sign-in asks for
+  needs a shares line that names it, and shares must say what is never read or written.
+- **The registry** (`src/lib/connectors/registry.ts`) offers a connector only while its own switch
+  is on (each needs `CONNECTORS_ENABLED`), refuses a sign-in method not built yet (token_fields now,
+  oauth_pkce with group 2, share_access with group 3) and any stream marked personal until the data
+  processing agreement covers it.
+- **Switch off and rollback.** With `CONNECTORS_ENABLED` off every connector route answers 404
+  before it reads the session, nothing calls a provider, and sealed tokens stay sealed, working
+  again when the switch is turned back on. Rolling back means turning the switch off; removing the
+  data means `scripts/connectors-purge.ts` (dry run first, then `--apply --by <label>`), which works
+  whatever the switches say.
+- **The vault** (decision 32, `src/lib/connectors/vault.ts`). Its own root key,
+  `CONNECTORS_VAULT_KEY` (core secret `connectors-vault-key`), AES-256-GCM through `secretBox`, with
+  AAD `tenant:connection:slot` so a blob opens nowhere else. `secretBox` gains `keyId(label)`: the
+  first 8 bytes, in hex, of an HMAC of the root. Each blob stores `encKeyId`, because `keyId`
+  already means a ygk_ connection key id. Saving with no root is refused.
+  - Rotation: set the old root as `CONNECTORS_VAULT_KEY_PREVIOUS` and a new current root, roll out,
+    run `scripts/reseal-connector-secrets.ts` as a dry run, then with `--apply`, then the dry run
+    again. Remove the previous root only when it counts 0 off the current key, or every token still
+    on it is lost. API tokens never refresh, so "reseal on the next refresh" would never reach them.
+  - The reseal works per connection in a transaction, opens and compares each new blob before it
+    replaces the old one, reports a blob that won't open and never replaces it, and runs on the
+    emulators with `--local` as the organisation scripts do.
+- **Tokens live per connection in the brand's regional database.** Social and git tokens stay on
+  the control plane brand record without AAD, so two patterns sit side by side until Connectors 5
+  moves them.
+- **One writer, one transaction.** `src/lib/tenant/dataConnections.ts` writes a connection and the
+  activity row of each change together. Activity rows carry `ttlAt` as a Date, 90 days on, deleted
+  by the TTL that `infra/lifecycle/setup.sh ttl` turns on. The record keeps the last 20 changes for
+  the Connected view, so the activity log is written and never queried. `forTenant` gives the records
+  read only and the activity a count. Every query is by id or equality with no sort (a shape test
+  holds it), so no composite index is needed.
+- **Safe fetch** (`src/lib/connectors/safeFetch.ts`), the one outbound call for connector APIs:
+  the exact host must be declared in the manifest, over https on 443, before any request; a paused
+  connection is refused; rate limits per connection and per brand for the connector
+  (`isRateLimited`); `security/ssrf.ts` `safeFetch` with `maxRedirects: 0` and `allowedPorts: [443]`.
+  That helper copies the same init, Authorization included, into every redirect hop, so with 0 any
+  3xx ends the call after one request, and a 3xx that comes back anyway is refused: a token is never
+  sent to a second address. Its own timeout; the body read up to the manifest's cap, 512 KB at most
+  (`readBytesUpTo`, which tells an empty body from one cut short); logs name the host and the code,
+  never the path, query, body or token.
+- **Health.** ok, check, broken and paused. A refused token, an account the token can't read or a
+  token that won't open sets broken. A provider's rate limit pauses calls for its Retry-After (1 to
+  60 minutes, 15 when it gives none) and five failures in a row pause them for an hour. Because
+  `isRateLimited` fails open, that pause on the record is the hard stop. Each code has plain words
+  (`src/lib/connectors/messages.ts`); a provider's own words are never stored.
+- **Grants** (`src/lib/connectors/grants.ts`, tested cell by cell):
+
+  | Who | Sees name and health | Sees details | Reads live | Manages |
+  | --- | --- | --- | --- | --- |
+  | Admin | yes | yes | yes | yes |
+  | Member | yes | no | with `{to: "members", can: "read"}` | no |
+  | Vizzy | with `{to: "agent:vizzy", can: "read"}` | no | with its grant, and the members grant when reading for a member | never |
+
+  Only admins change grants, and a new connection starts with none. "Manage" is the admin role, not
+  a grant. The admin who connected (`ownerUid`) gets nothing extra, and the connection stays when
+  they leave. Grants don't fit the settings log's fixed subjects and archive only model, so they live
+  on the record and each change goes into the activity log; piece O part 2 can move them.
+- **Routes** under `/api/admin/connectors` check the switch, then go through `integrationsAdmin`
+  (origin check, sign-in, role). Only the list, one connection and its live read let a member in;
+  the grants table decides the rest. `src/lib/connectors/routesGate.test.ts` fails when a route
+  skips the switch or the gate. Connect runs the manifest's verify request before anything is
+  saved, and one account is connected once per brand.
+- **Cloudflare.** The token is checked with a GraphQL zone query, not `user/tokens/verify`, which
+  may refuse account tokens and doesn't prove the token reads this zone. GraphQL answers HTTP 200 on
+  errors, so the `errors` array is read first. Requests and page views come from
+  `httpRequests1dGroups`; visits only from `httpRequestsAdaptiveGroups` (`sum.visits`, sampled,
+  about 31 days on every plan), so when only that part fails the totals come back with a note. The
+  token needs Zone Analytics Read, and Zone Read to list the zones it can see (see Cloudflare's
+  Listing under Screens). It is also asked for Account Analytics Read (see Screens). A pre-filled
+  link fills in all three (keys `analytics`, `zone` and `account_analytics`).
+  Disconnect deletes the stored token; Cloudflare can't cancel it for us, so the answer says to
+  delete it there.
+- **Live reads** are bounded: at most 93 days and 100 rows, a fixed list of dimensions per stream,
+  page paths without query strings, and every number with its meaning. A number with no meaning is
+  dropped.
+- **Meaning keys are namespaced** (`cfRequests`, `cfPageViews`, `cfVisits`), because plain
+  impressions and clicks already mean social post numbers.
+- **The ontology.** `data_connection` (personal: the team's; a secret, never exported or searched)
+  is built. As finally built (with groups 2 and 3) it has three stores, `data_connections`,
+  `data_connection_activity` and `data_connection_states`, and claims all 11 meanings (cf, search
+  and ga4) through Vizzy's number tool, `read_connected_live`; group 1 first claimed the cf
+  meanings through `readLive`. `connector_manifest` stays planned: manifests live in code, with no
+  store.
+- **Not metered** (owner, 21 Nov): every plan can connect. A plan hook comes later if a connector
+  gets costly.
+- **Self-hosted copies.** `connectors-vault-key` is a core secret. The `backend` step now reads each
+  core secret's IAM policy and gives the backend access to any added since it last ran, which before
+  failed the next rollout with `Error resolving secret version`. `docs/self-host.md` has Connected
+  data and the upgrade note: existing copies run `--apply core`, then `setup.sh ttl` once.
+
+### Group 2: Sign in with Google and Search Console
+
+Switches, `"false"` in the Connectors group, empty in `.env.example` and kept off by
+`npm run selfhost`: `CONNECTOR_SEARCH_CONSOLE_ENABLED` (needs `CONNECTORS_ENABLED` and a Google
+client) and `CONNECTOR_GOOGLE_REVOKE_ENABLED`. Settings, by name only in the public repo:
+`CONNECTOR_GOOGLE_CLIENT_ID`, `CONNECTORS_OAUTH_ORIGIN` and the secret `CONNECTOR_GOOGLE_CLIENT_SECRET`.
+The screens (Listing, Connected, the site picker) wait for the mockups; everything they call is
+built. Grounded in Google's "Using OAuth 2.0 for Web Server Applications" and the Search Console
+API reference, read through the Developer Knowledge MCP.
+
+- **The client lives in an identities project of its own**, never the app project, so the app's own
+  admin sign in (Firebase Auth) is never put through Google's app verification or limited to test
+  users. While that project's consent screen is in testing, Google ends each sign in after 7 days,
+  so dev connections need reconnecting weekly until it is published. `webmasters.readonly` is non
+  sensitive (checked in the console on 21 Nov), so Search Console's Sign in can go on in prod after
+  Google's brand check alone.
+- **The flow:** authorization code with `access_type=offline` and `prompt=consent` (a refresh token
+  on every sign in), one scope per connection, no `include_granted_scopes`, PKCE S256 (documented by
+  Google for installed apps; the dev check confirms the web client accepts it, and the bindings
+  below hold without it).
+- **Four bindings, all checked before a code is swapped:** a state signed with the vault's own state
+  key (`connector-state-v1`) naming brand, connector, admin and a nonce, 10 minutes; this attempt's
+  httpOnly cookie, its name from the nonce so two tabs never clash, holding the nonce and the PKCE
+  verifier, SameSite=Lax (Strict would drop it on Google's redirect back) and path scoped to
+  `/api/admin/connectors/callback`; a single use record in the new regional
+  `data_connection_states` (id the nonce's SHA-256, `usedAt` set in a transaction, then deleted,
+  `ttlAt` a Date for the TTL that `setup.sh ttl` turns on); and PKCE. The X and LinkedIn flows never
+  consume their state; this one does. Another brand's state, another admin's, another browser's
+  cookie, an expired or replayed state are each refused and tested.
+- **Routes.** `POST /api/admin/connectors/[connectorId]/start` is a same-origin admin request
+  (`integrationsAdmin`) answering Google's address and setting the cookie. `GET
+  /api/admin/connectors/callback` has no origin check because Google's redirect is cross-site; it
+  uses `integrationsHopAdmin` (admins only), and sends people back by path only, never built from the
+  request's host, to the connector's Listing page with `status` and `reason`, with no code or token.
+  `CONNECTORS_OAUTH_ORIGIN` pins the redirect address; a production server without it refuses to
+  start (fail closed), and a local run uses the request's origin.
+- **After the swap** the granted scope must be exactly the one asked for (one missing or one extra
+  is refused), a refresh token must have come, and the connector's verify request must pass, before
+  anything is saved. Every refusal has plain words (`SIGNIN_REASONS`).
+- **A site is picked after signing in.** A sign in reaches every site the Google account sees, so a
+  new connection is saved with no account and reads nothing until an admin picks one from
+  `sites.list` (unverified sites left out, at most 200), through `GET` and `PUT
+  .../connections/[id]/accounts`. The pick is checked against what the sign in sees then, refused
+  when another of the brand's connections reads that site, and recorded as `account_picked`.
+  Signing in again for a connection (`start` with its id) keeps its site, grants and history.
+- **The token keeper** (`src/lib/connectors/tokenKeeper.ts`), modelled on GitLab's refresh: refresh
+  5 minutes early, only under a 30 second lease on the record (as `claimSignal`); compare-and-set on
+  the sealed access token; keep the refresh token when Google sends none; on `invalid_grant`, read
+  the record again inside the write and mark it broken (`signin_refused`) only if nobody saved a new
+  token meanwhile; a 5xx, 429, timeout or network error is soft and the current token is used while
+  it works; `invalid_client` is this copy's setup and marks nothing.
+- **Disconnect deletes the tokens; revoking at Google sits behind
+  `CONNECTOR_GOOGLE_REVOKE_ENABLED`, off** (owner, decision 2): Google's revoke ends every grant that
+  Google account gave the app, so it can cut off another brand, the problem ADR-0006 found with X.
+  The purge revokes behind the same switch. The help words say how to remove access in a Google
+  account.
+- **Search Console.** Hosts `searchconsole.googleapis.com` and `oauth2.googleapis.com` only. Google's
+  reference writes the paths under `www.googleapis.com/webmasters/v3`; the same paths answer on the
+  API's own host, which the dev check confirms. Live reads: `searchAnalytics.query`, web results,
+  finalized data, by date, page or query, at most 93 days and 100 rows; pages cut to their paths and
+  rows for one path added together. Lag 3 days, Pacific time dates. Meanings `searchClicks`,
+  `searchImpressions`, `searchCtr` and `searchPosition`, claimed by `data_connection`. Google's error
+  reasons tell this copy's setup (API not on), a quota and a site the account can't read apart.
+- **Help.** Generated words now cover signing in: which account, the unverified warning, the 7 day
+  testing limit, Google's limit of 100 sign ins per Google account for one app (the 101st quietly
+  ends the oldest), reconnecting, removing access, and every reason a sign in didn't finish.
+- **No index change**: states and connections are read by id or equality (shape tests). Self-hosted
+  copies follow "Connect Google data on your own copy" in `docs/self-host.md`; there is no selfhost
+  step for the identities project yet.
+
+### Group 3: Share access, Google Analytics 4 and Vizzy
+
+Switches, `"false"` in the Connectors group, empty in `.env.example` and kept off by
+`npm run selfhost`: `CONNECTOR_GA4_ENABLED` (needs `CONNECTORS_ENABLED`, and the identities project
+or GA4's Sign in), `CONNECTOR_GA4_SIGNIN_ENABLED` (GA4 by Sign in, with the Google client) and
+`CONNECTORS_CHAT_ENABLED` (needs `CONNECTORS_ENABLED`; addon `vizzy`). One
+new setting, by name only in the public repo: `CONNECTORS_IDENTITIES_PROJECT`. No new collection,
+index, rules or dependency. The screens (Share access steps on the Listing, Check access, the
+property picker) wait for the mockups; every route they call is built. Grounded in Google's IAM docs
+(projects.serviceAccounts create, delete and list; iamcredentials generateAccessToken; the IAM roles
+reference; service account quotas) and the Analytics Admin and Data API references, read through the
+Developer Knowledge MCP.
+
+- **One Google address per connection** (`src/lib/connectors/shareAccess.ts`). Share access makes a
+  service account for that one connection in the identities project, so removing one brand's access
+  never touches another's, and Disconnect can delete it outright. Its account id is `ygc-` and 20
+  random characters (Google's rule: 6 to 30 characters, `[a-z]([-a-z0-9]*[a-z0-9])`); it never holds
+  the brand, because the admin pastes the address into their property. The description names the
+  connection, a one way brand tag and a one way copy tag (SHA-256 prefixes of the tenant id and of
+  `GOOGLE_CLOUD_PROJECT`), so the operator purge can find a brand's leftovers and never takes
+  another copy's addresses for them when two copies share an identities project; an address with no
+  copy tag is never deleted as a leftover. Only the identities project's operators can read it.
+  Each copy should still have an identities project of its own, because the quota is per project.
+- **Least privilege.** The app's runtime account holds three roles on the identities project only:
+  Create Service Accounts (`iam.serviceAccounts.create`, `get`, `list`), Delete Service Accounts and
+  a custom role with only `iam.serviceAccounts.getAccessToken`; not Service Account Admin or Token
+  Creator. The addresses get no roles of their own. Calls are the app's own, with its token from
+  `google-auth-library`, through `security/ssrf.ts` safeFetch to `iam.googleapis.com` and
+  `iamcredentials.googleapis.com` only, with no redirects, on 443, a timeout and a capped body.
+- **Tokens last 300 seconds and are never stored.** `generateAccessToken` with the connector's one
+  read scope and `lifetime: "300s"`, on `projects/-/serviceAccounts/{email}` (the wildcard Google
+  requires), kept in the server's memory until a minute before they run out and forgotten on
+  disconnect. A shared connection keeps no sealed secret; its record holds the address
+  (`serviceAccount {email, uniqueId, createdAt, deletedAt}`).
+- **Check access retries.** IAM reads are eventually consistent and Google says a new account can
+  take 60 seconds or more to work, so minting a token for an account younger than 10 minutes retries
+  after 1, 2 and 4 seconds, then answers `share_pending` ("Google is still setting up this
+  connection's address"), which leaves health alone. `POST .../connections/[id]/access` lists what
+  the address sees for the picker and checks the picked one, recorded as `access_checked`. Nothing
+  visible is `share_not_visible` ("We can't see your property yet"), which marks it broken.
+- **Starting share access** is `POST /api/admin/connectors/[connectorId]/share`, admins only. A brand
+  with a shared connection still waiting for its property gets that one back, and making addresses
+  is limited per brand (3 a minute, 10 an hour), so the project's quota isn't spent by double
+  clicks. That limit lets a request through when its store fails, so a brand also holds at most 5
+  addresses per connector (`SHARE_ADDRESS_CAP`: connected ones, plus disconnected ones a failed
+  delete left at Google), counted by equality queries; past it, `share_limit` says to disconnect one
+  or sign in with Google. One brand can't fill the project every brand shares. A shared connection's failures read in its own words: a refused token or property is
+  `share_not_visible`, an API or permission missing in the identities project `share_unconfigured`.
+- **Quota plan and fallback.** A project holds a limited number of service accounts (100 by
+  default; deleted ones don't count). The owner asks Google for more on the identities project. A
+  full project answers `share_quota`, which says so plainly and offers Sign in with Google.
+- **Self-hosted copies.** Without `CONNECTORS_IDENTITIES_PROJECT` the share access method is not
+  offered (the registry's readiness check), which is how a copy without one behaves; Sign in with
+  Google still works. `docs/self-host.md` says how to set one up. A selfhost add-on is a follow up.
+- **Disconnect deletes the address** at Google after the disconnect is saved, by its unique id, so a
+  later account with the same name is never touched; already gone counts as done. A failed delete is
+  recorded as `cleanup_failed` and the address stays on the record. The address's entry in the
+  property's users stays until the admin removes it; the help says it does no harm.
+- **The purge reconciles.** `scripts/connectors-purge.ts` deletes each purged connection's address,
+  lists YouGrow's addresses in the identities project and deletes the brand's that no live
+  connection owns (a crash between making an address and saving its connection, or a failed
+  delete). `--addresses` does only that, plus disconnected connections' leftover addresses, and
+  leaves every record and its history alone; `--local` never reaches a real identities project.
+- **Search Console by share access**: the admin adds the address as a Restricted user. Google
+  documents service accounts as Search Console users only for the Indexing API; the dev check proves
+  it reads search analytics before prod turns it on.
+- **Google Analytics 4** (`google-analytics`, `analytics.readonly`, which Google classes as
+  sensitive: Sign in waits for Google's sensitive scope review, share access as a Viewer doesn't).
+  The Google client that Search Console's Sign in uses would otherwise bring GA4's Sign in with it
+  as soon as GA4 goes on for share access, through an unverified app (Google's warning, the 100 user
+  cap, and a risk to the client every Search Console sign in shares). So the manifest's `oauth_pkce`
+  names a switch of its own, `CONNECTOR_GA4_SIGNIN_ENABLED`, off, which the registry's readiness
+  check and the start and callback routes read; the registry refuses a method switch nothing reads.
+  The picker is the Admin API's `accountSummaries.list` (3 pages of 200 at most). Live reads are the
+  Data API's `runReport` by `date` or `pagePath` (the path without its query string), at most 93
+  days and 100 rows, with `returnPropertyQuota`; metrics are matched by Google's header names;
+  `(other)` and `(not set)` rows are left out; thresholding, sampling, a property low on tokens and
+  days not yet final each become a note. Lag 2 days, in the property's time zone. Meanings
+  `ga4Sessions`, `ga4ActiveUsers`, `ga4Views` and `ga4KeyEvents`, claimed by `data_connection`.
+- **Vizzy reads, never manages.** `GET /api/agent/connectors` and `POST /api/agent/connectors/live`
+  go through `src/lib/connectors/agentGate.ts`, a copy of `resultsAgentGate`: the switch (503 when
+  off), the signed canvas token (the brand comes only from it) and 10 a minute, 60 an hour per brand,
+  because each read spends the provider's quota. Vizzy reads for the token's person: anything but
+  admin reads as a member, so a connection needs `{to: "agent:vizzy", can: "read"}` (403
+  `no_agent_grant` without it) and, for a member, the members grant (403 `no_read_grant`). The list
+  shows only granted connections and says only that others aren't shared. A read is the people's
+  bounded read; every number comes with its meaning and nothing else in an answer is a number. Each
+  read is logged as `read` by `agent:vizzy`, kept off the record's recent list
+  (`ActivityWrite.recent: false`) so Vizzy never pushes an admin's changes off the Connected view.
+- **Vizzy's tools** `list_connections` and `read_connected_live`: a pure client and a thin ADK
+  wrapper, the brand only from the session token, input checked before any call, and a system
+  instruction to read numbers by their meaning and lag, say plainly when it has no access and that an
+  admin can allow it, and never claim a change. Tools change only with a Vizzy redeploy (ask first);
+  the ontology names `read_connected_live` as `data_connection`'s number tool.
+- **Help.** Generated words cover share access (what is kept, Check access, why it may be hidden,
+  what Disconnect leaves, the Workspace sharing message), Google Analytics and letting Vizzy read,
+  and the troubleshooting quotes.
+
+### Screens
+
+Built from the approved Design canvas (Browse, the Search Console and Cloudflare Listings, the
+picker and Connected), in the app's own Tailwind. Every screen calls the routes above, and
+Cloudflare's Listing adds one, the token check below.
+Hidden while `NEXT_PUBLIC_CONNECTORS_ENABLED` is off; a connector's card and Listing only while its
+own switch is on and a way to connect is ready (the list route already decides that).
+
+- **The Settings tab is Connections again** (owner, 21 Nov), not Integrations: the tab list, the
+  breadcrumbs, places, the help pages and the post messages that point there. The rename isn't
+  switched, because every message names the tab. Inside it, with the switch on, a layout adds the
+  sub-tabs **Accounts** (the GitHub, GitLab, LinkedIn and X panel, unchanged, on the base route every
+  callback returns to), **Browse** and **Connected**. `connected` joins the reserved ids. Email
+  sending stays under Sending.
+- **Tiles show two letters, as the approved screens** (owner, 22 Nov): SC, GA and CF. A manifest
+  may give its own (`initials`, two capitals or digits), which a one word name such as Cloudflare
+  needs; without it the screens take its words' first letters, leaving out a version number and
+  Google in a longer name, and a one word name gives its first two letters.
+- **One server read per request** (`src/lib/connectors/screens.ts`, through `listForActor`, so a
+  member gets name and health only) feeds the layout's Connected count and the page; changes go
+  through the routes and the page refreshes.
+- **The Listing** follows the manifest's order: Sign in with Google first, then share access (Make
+  the address, Copy, the manifest's steps and role, Check access), or the token fields. Sign in comes
+  back to the Listing; a new one goes on to the picker. A token can't be replaced in place (connect
+  refuses an account already connected), so Reconnect on a turned down token disconnects it, connects
+  the new one and copies its grants.
+- **Cloudflare's Listing is token first, as its approved mockup** (owner, 22 Nov; the first build
+  typed the Zone ID beside the token). The admin pastes the token and presses Check:
+  `POST /api/admin/connectors/[connectorId]/check` (admins only, behind the switch and gate connect
+  uses, the vault checked, rate limited per brand) runs the manifest's `accounts` hook,
+  `cloudflare.zones` (`GET /client/v4/zones`, which needs Zone Read, at most 4 pages of 50), with the
+  token for that one call. Nothing is saved, sealed or logged beyond safe fetch's host and code, and
+  the token is never sent back. The admin picks a zone from the list, and Connect checks the token
+  against it with the zone probe before saving, as before. A token Cloudflare refuses outright
+  (401, or codes 1000, 6003 and 6111) is turned down; one that may not list zones (403, or none
+  listed) falls back to a typed Zone ID with a short note, and so does a zone past the 200 listed. A
+  token method picks from a list when its manifest gives `pick` (the list's label and that note),
+  which needs `hooks.accounts`. Each way to a typed Zone ID has its own words (owner, 22 Nov): the
+  manifest's note when the token can't list zones, and "Cloudflare listed more than fit here, so type
+  the Zone ID of the one you want" after Type the Zone ID; the field's own hint says only where to
+  find it, and the help page says it is typed only when Check doesn't list your zone.
+- **Account Analytics Read is asked for too** (owner, 22 Nov, as the approved Listing), beside Zone
+  Read and Zone Analytics Read, so later features that read account analytics don't need every
+  admin to make a new token. Nothing reads with it today. The manifest rule still holds: its shares
+  line says it is asked for now and that nothing is read with it, the steps say the same, and the
+  link fills it in with Cloudflare's template key `account_analytics` (from Cloudflare's token
+  template docs). The steps also say to include only the site's account under Account Resources.
+- **The picker** lists what the sign in or address sees and marks, never blocks, one whose website
+  isn't the brand's root domain; with no root domain, or a property whose name doesn't say its
+  website, nothing is marked. Cancel on a new connection disconnects it.
+- **Connected** shows who connected each connection as You or Someone else, because the record holds
+  only a user id and there is no name lookup per brand yet, and a sign in as "Signed in with Google",
+  because the Google account's email isn't kept.
+- **The help page** `/help/connected-data` (`onlyWhen: "connectors"`) renders the generated words.
+  The How to drawer renders it in the browser, so the words now read a pure catalog
+  (`src/lib/connectors/catalog.ts`) and `lag.ts`, and a test walks their imports; the Vizzy section
+  shows only with `CONNECTORS_CHAT_ENABLED`, passed to the drawer like the other server switches.
+
+### Follow-ups: reads match the provider's own report (2026-11-23)
+
+The owner's dev check found Vizzy's Search Console impressions for "the last 28 days" off the Pages
+report, for the home page and for one other page. A read-only review traced
+it to the days read and to merging page rows, and found the same kind of gap in GA4 and Cloudflare.
+No new switch: these ride the connector switches.
+
+- **The server picks the days, not Vizzy.** A live read asks for a `period` (`yesterday`,
+  `last_7_days`, `last_28_days`, `last_90_days`) or explicit `from` and `to`, never both. Each hook
+  resolves a period the way its provider's report does, in the provider's time zone
+  (`src/lib/connectors/period.ts`; a stream's `timeZone` in its manifest where it is fixed, and
+  "today" from `Intl.DateTimeFormat` in that zone). Explicit days are capped at the provider's last
+  complete day with a dated note. Every answer returns `period {from, to, timeZone, finalThrough,
+  words}`, `totals` where the provider gives them, `more` when rows were left out, each note once,
+  and the connector's id and name for a source line. The stream's lag stays in `list_connections`
+  and on the screens, no longer repeated in each answer. A read by day keeps the latest days when it
+  cuts. An optional `page` filter (one path) works where a stream lists it (`liveFilters`): GA4
+  matches it exactly, and Search Console on every host of the site, keeping each host a row of its
+  own.
+  Vizzy's read row in the activity log keeps the stream, grouping, days read, limit, period and
+  whether a page filter was used, never a number or the page.
+- **Search Console.** A probe grouped by date over the last 10 days with `dataState: "all"` reads
+  `metadata.first_incomplete_date` (either spelling); the day before it is the last complete Pacific
+  day (the newest day listed without it, yesterday with nothing listed). Google documents that date
+  as the first day still being collected, not as the report's boundary, so the dev check compares
+  the days read with the report's Dates tab. Reads use `dataState: "all"` ending on that day, as the
+  report does, and `rowLimit` 1,000 before page rows for the same host and path are added together;
+  different hosts stay apart (`host` beside `page`, which stays the path and the join key), and a
+  merged row says how many addresses it adds up (`merged`, a meaning of its own that no manifest
+  lists). A read for one page asks for `page` beside its grouping, so a read by day or search for
+  `/` gives a row per host too, never www and the bare host added together. The report's headline
+  totals (clicks, impressions, click rate, position for the site) come from the same query with no
+  dimensions, except for one page (its rows are by host) and settled reads; if that query fails,
+  the rows stand with a note. Google finishes a day 2 to 3 days later and the read doesn't ask
+  which, so the note on those days says they "may not be final yet". `settledOnly` reads final
+  numbers only, for Connectors 2.
+- **GA4.** A period goes to Google as its relative dates (`28daysAgo` to `yesterday`), which Google
+  resolves in the property's time zone; the answer's `metadata.timeZone` names it. Explicit days whose
+  last one isn't over there are read again ending yesterday. `metricAggregations: TOTAL` and
+  `rowCount` give the totals (users counted once) and a "lists N, shows the top M" note. Pages group
+  by `unifiedPagePathScreen` with views, active users and key events (Pages and screens), web paths
+  only: an app's screen class (`MainActivity`) isn't a page, so it is left out with a note. A new
+  `landing` grouping by `landingPage` with sessions sends no filter, as the Landing page report's
+  table doesn't (only its chart leaves out `(not set)`), so its totals and `rowCount` are the
+  report's; the `(not set)` row is left out of the rows instead. It joins on page
+  (`LIVE_BY_JOINS`). Days ask for every day with `keepEmptyRows`, and a read by day for one page
+  asks for that page's views, active users and key events, never sessions, which by page match no
+  report (one page's sessions come from `landing`).
+- **Cloudflare.** Requests, page views (successful HTML responses) and visits come from end users
+  (`requestSource: "eyeball"` on `httpRequestsAdaptiveGroups`), as the dashboard's Traffic tab shows,
+  for the days the zone's settings node (`notOlderThan`, `maxDuration`) allows, with Cloudflare's
+  documented floor (31 days kept, 30 a request) when the settings can't be read. Older days come
+  from `httpRequests1dGroups`, which count all traffic, with a note naming them. Unique visitors
+  (`uniq.uniques`, what the Free plan's dashboard shows) come from the daily totals. Totals for the
+  period come from the same datasets with no dimensions, as the dashboard's: unique visitors always
+  (daily visitors can't be added up), and end user requests, page views and visits when every day
+  read is within their reach. Days are UTC, ending yesterday, and a read that reaches yesterday
+  notes the Free plan's 24 hour delay, so `finalThrough` stops the day before. The page
+  view filter (`edgeResponseContentTypeName: "html"`, status 200 to 299) and the settings field
+  names come from Cloudflare's docs and public queries; the dev check compares a read with the
+  Traffic tab set to UTC.
+
+### Follow-ups: Vizzy's connected answers (2026-11-23)
+
+The same dev check showed Vizzy's table as raw pipes on one line, and an answer padded with the
+dates it asked for, the freshness fact twice and a line of filler.
+
+- **Tables in the chat.** `MarkdownMessage` reads pipe tables with the blog's own reader, moved to
+  `src/lib/content/markdownTable.ts` so the two can't disagree. No new dependency (react-markdown
+  and remark-gfm stay out). Unswitched, like the earlier canonical fix: it fixes every chat.
+- **Answers in a few lines.** `read_connected_live` takes a `period` and an optional `page`, with
+  dates only for days the person named. The connected-data rule says the order: the answer in one or
+  two sentences, the period as `period.words` gives it, then a short list or a small table only when
+  3 or more rows are compared on 2 or more numbers, a note once, `totals` for totals, and never
+  zeros for rows left out when `more` is true. The general format line says the same for numbers.
+- **A source line.** The chat reads the connector id from a successful `read_connected_live`
+  result on the stream and shows that connector's mark and name, linked to its dashboard (a
+  manifest's new optional `home`). Google Analytics shows its linked wide logo, as its branding
+  policy asks of a commercial app that shows its data. Names, marks and links come from the
+  manifests, never from the stream, and Vizzy's payloads still carry no icon data.
+
+### Follow-ups: connector marks (2026-11-23)
+
+- **Official marks now (owner, 22 Nov),** knowing Google's and Cloudflare's published rules ask for
+  permission first. The files, owners, sources and hashes are in `public/marks/NOTICE.md`, and
+  `LICENSING.md` keeps them out of YouGrow's licences, with the site's other brand marks.
+- **The Cloudflare cloud is a crop, for the owner to clear.** The press kit's `Logos.zip` holds only
+  the full logo with the word Cloudflare, no cloud on its own. The icon is that logo cut to its
+  cloud with its colours unchanged, and Cloudflare's trademark guidelines say not to modify its
+  marks. The crop goes to Cloudflare with the permission request; until then, deleting the
+  manifest's `icon` shows CF.
+- **The Google Analytics logo links into Google Analytics** (`analytics.google.com`), which its
+  branding policy allows, so every source line under a Vizzy answer leads to where the numbers can
+  be checked.
+
+---
+
 ## ADR-0010 · People (piece B) (2026-11-21)
 
 Context: piece B of the CRM and tiers plan turns Audience into People and adds what a CRM
@@ -325,6 +1142,24 @@ Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
     unavailable.
   - Export and erase cover suggestions whatever the switch says, with no code change: piece 0's
     history export and erase find agent actions by person.
+  - **Text fields Vizzy may read (owner's choice, 2026-11-21).** On dev the owner asked Vizzy for
+    a Job Title text field and it couldn't see it. A per-field opt-in: an admin ticks "Vizzy can
+    read this field" (`vizzyReads`, only on a People text field, off by default) in Data model, and
+    Vizzy reads and suggests it like the seven types, always confirmed by a person.
+    `vizzyReadsField` (`src/lib/types/recordField.ts`) is the one rule for the reads, suggestions
+    and New person drafts. A text value is scrubbed of the person's name and address as stored and
+    in words, and cut to 500 characters; Vizzy's text over 500 characters, or holding `[name]`,
+    `[email]` or `[id]`, is refused, so a scrubbed value never goes back over the real one. A
+    value Vizzy read cut can be cleared, never written over. A proposal over the agent action
+    limits answers `too_large`. A restore or Bring back can untick it, never tick it. Once it is
+    unticked, confirming sets a waiting text suggestion aside (checked inside the write's own
+    transaction), and a New person draft no longer fills the field in.
+    Email, phone, link (web addresses often name someone and the scrubber doesn't know them) and
+    team member fields stay hidden whatever is set. `AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED` (RUNTIME,
+    `"false"`, needs Vizzy's fields) is a kill switch for free text alone: off, the tick can't be
+    changed, the checkbox and "Vizzy reads" column are hidden and every text field stays hidden.
+    Off in production with the other Vizzy switches until the DPA line. Vizzy needs a redeploy for
+    its new words.
 
 - **Vizzy fills in the New person form (group 11, decisions 29 and 31, answer 9).**
   `AUDIENCE_VIZZY_ADD_PERSON_ENABLED` (RUNTIME, `"false"`) needs New person, not Vizzy's fields.
@@ -340,10 +1175,10 @@ Owner decisions (build plan decisions 27 to 31, and the answers of 2026-11-20):
     page.
   - **Never consent:** the request has no place for it and one that tries is refused
     (`consent_not_allowed`); the form starts at Not yet and the admin says how they agreed.
-  - **Field values** only of the seven types Vizzy may read, named by label or id, options by
-    label or id; anything else comes back to Vizzy as a warning for the admin to type. Names and
-    addresses typed into chat pass through Vizzy to fill the form, as they already did whenever
-    someone typed them.
+  - **Field values** only of fields Vizzy may read (the seven types, or text fields Vizzy may
+    read: see Text fields Vizzy may read), named by label or id, options by label or id; anything
+    else comes back to Vizzy as a warning for the admin to type. Names and addresses typed into
+    chat pass through Vizzy to fill the form, as they already did whenever someone typed them.
   - **Confirming runs group 7's create:** the card and Review link to `/admin/crm?draft=<id>`,
     the id only. The form loads the draft from the admin-only drafts route and posts to the New
     person route with `draftId` and `via: "vizzy"` (refused without a draft id); after the create,
@@ -377,7 +1212,9 @@ off stops Vizzy being told who is open (unless the brief is on), makes its field
 unavailable and hides suggestions; open ones stay, expire on the tick, and are exported and
 erased. Turning `AUDIENCE_VIZZY_ADD_PERSON_ENABLED` off stops new drafts and hides their links; open
 drafts still expire on the tick with their details cleared, and erase still finds them. Keep the
-tick's expiry once any draft exists.
+tick's expiry once any draft exists. Turning `AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED` off hides every
+text field from Vizzy at once; the ticks stay on the fields, Data model can't change them while
+it is off, and they count again once it is on.
 
 ---
 

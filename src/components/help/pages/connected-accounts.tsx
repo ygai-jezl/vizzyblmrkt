@@ -1,6 +1,7 @@
 import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
 import { isConnectorRevokeEnabled, isConnectorRevokeXEnabled } from "@/lib/integrations/flags";
+import { isConnectorsScreenEnabled } from "@/lib/connectors/flags";
 
 export default function ConnectedAccountsHelp() {
   return (
@@ -15,6 +16,12 @@ export default function ConnectedAccountsHelp() {
         Only admins connect or disconnect accounts. Everyone else on your team sees what&apos;s connected, and asks an admin
         when something needs connecting.
       </P>
+      {isConnectorsScreenEnabled() ? (
+        <P>
+          These accounts are under <strong>Accounts</strong> in Settings › Connections. To bring in numbers from Cloudflare,
+          Google Search Console or Google Analytics instead, see <Open href="/help/connected-data">Connected data</Open>.
+        </P>
+      ) : null}
 
       <BeforeAndUnlocks
         before={
@@ -41,7 +48,7 @@ export default function ConnectedAccountsHelp() {
       <H2 id="social">Connect LinkedIn or X</H2>
       <Steps>
         <li>
-          Open <Open href="/admin/account/connections">Settings › Integrations</Open>.
+          Open <Open href="/admin/account/connections">Settings › Connections</Open>.
         </li>
         <li>
           Find the account you post from: <strong>LinkedIn</strong> for your own profile, <strong>LinkedIn Pages</strong> for a
@@ -65,7 +72,7 @@ export default function ConnectedAccountsHelp() {
       </P>
       <Steps>
         <li>
-          Open <Open href="/admin/account/connections">Settings › Integrations</Open>.
+          Open <Open href="/admin/account/connections">Settings › Connections</Open>.
         </li>
         <li>
           Next to <strong>GitHub</strong>, press <strong>Install on GitHub (read-only)</strong>.
@@ -166,7 +173,7 @@ export default function ConnectedAccountsHelp() {
           ],
           [
             "Ask an admin to reconnect it.",
-            "A connection needs reconnecting and you're a member, so you can't do it yourself. An admin presses Reconnect in Settings › Integrations.",
+            "A connection needs reconnecting and you're a member, so you can't do it yourself. An admin presses Reconnect in Settings › Connections.",
           ],
         ]}
       />

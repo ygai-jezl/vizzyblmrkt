@@ -1,12 +1,15 @@
 import { H1, H2, Lead, P, Pairs, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Messages, Meta, NextPage, Open } from "@/components/help/blocks";
 import { PLANS } from "@/lib/plans/catalog";
+import { isUsageMeterUiEnabled } from "@/lib/plans/flags";
+import { IMAGE_LIMIT_MESSAGE, WEB_SEARCH_LIMIT_MESSAGE } from "@/lib/plans/resources";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
 import { isAddPersonEnabled } from "@/lib/audience/peopleFlags";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
 /** /help/plan-and-usage (NEXT_PUBLIC_PLANS_ENABLED): Settings › Plan and usage. No prices: they may change. */
 export default function PlanAndUsageHelp({ people = isPeopleNameEnabled(), addPerson = isAddPersonEnabled() }: HelpBodyProps = {}) {
+  const meter = isUsageMeterUiEnabled();
   return (
     <article>
       <H1>Plan and usage</H1>
@@ -92,6 +95,31 @@ export default function PlanAndUsageHelp({ people = isPeopleNameEnabled(), addPe
           Per brand, the monthly allowances its features use: Google lookups for Next up, competitor articles read and
           autopilot drafts. See <Open href="/help/brand-map">Brand map</Open> for what each one does.
         </li>
+        {meter ? (
+          <>
+            <li>
+              <strong>Web searches for research</strong>: the Google searches Gemini runs for your brand when it researches,
+              with a line for each feature that used them (brand map research, buying situations, blog research and the
+              autopilot, finding a competitor&apos;s sitemap). Free and Pro set how many a brand may use in a month; on other
+              plans your copy of YouGrow sets it.
+            </li>
+            <li>
+              <strong>AI model use</strong>: the tokens the AI models read and write for your brand, with a line for each
+              feature and each model, Vizzy&apos;s chat and Learn from your repo included. It has no limit yet. It shows what
+              each feature uses.
+            </li>
+            <li>
+              <strong>Images made</strong>: every image the AI makes for your brand, with a line for each feature (blog
+              heroes, post images, email images, ebook images, customised images and carousels). Your copy of YouGrow sets how
+              many a brand may make in a month.
+            </li>
+            <li>
+              Not counted: the model Google runs for Vizzy&apos;s memory, the voice chat in your browser, and turning your
+              knowledge into search.
+            </li>
+            <li>Ask Vizzy how much your brand has used this month, and what is left.</li>
+          </>
+        ) : null}
         <li>
           Emails and AI credits show as <strong>Not counted yet</strong>, with the allowance your plan gives. AI credits are
           given per user on some plans.
@@ -102,6 +130,20 @@ export default function PlanAndUsageHelp({ people = isPeopleNameEnabled(), addPe
       <P>Nobody and nothing is removed, and new sign-ups, launches and teammates still come in for now.</P>
       <UL>
         <li>A monthly allowance that runs out stops that feature for the rest of the month. It starts again on the 1st.</li>
+        {meter ? (
+          <li>
+            When web searches for research run out, research stops searching Google for the rest of the month. Brand map
+            research and buying situations say so and file nothing. Blog research carries on from your own sources and says
+            Google wasn&apos;t searched. The autopilot finds and sorts the next article for you to write instead of drafting
+            it.
+          </li>
+        ) : null}
+        {meter ? (
+          <li>
+            When images run out, the AI makes no more images for the rest of the month. A blog article keeps its title card,
+            post cards are drawn without art, and the other image tools say so.
+          </li>
+        ) : null}
         <li>A plan that has all the brands it allows takes no more until there is room.</li>
         <li>Over a shared allowance, owners see it in the Your organisation box on Plan and usage.</li>
         {addPerson ? (
@@ -165,6 +207,18 @@ export default function PlanAndUsageHelp({ people = isPeopleNameEnabled(), addPe
             "Check Plan and usage. Ask whoever runs your copy of YouGrow to add Competitors to your plan or grant it to your brand.",
           ],
           ["Draft isn't part of this brand's plan. Suggest is.", "Choose Suggest, or ask whoever runs your copy of YouGrow about Draft."],
+          ...(meter
+            ? ([
+                [
+                  WEB_SEARCH_LIMIT_MESSAGE,
+                  "Research starts searching Google again on the 1st. Until then, add what you know by hand, or ask whoever runs your copy of YouGrow to raise your brand's web searches.",
+                ],
+                [
+                  IMAGE_LIMIT_MESSAGE,
+                  "Images start again on the 1st. Until then, upload your own, or ask whoever runs your copy of YouGrow to raise your brand's images.",
+                ],
+              ] as Array<[string, string]>)
+            : []),
           [
             "Google wasn't asked: lookups aren't part of this brand's plan.",
             "Lookups come with Next up. Ask whoever runs your copy of YouGrow to add Next up to your plan or grant it to your brand.",

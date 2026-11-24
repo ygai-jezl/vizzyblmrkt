@@ -31,6 +31,7 @@ import {
   reason,
   rest,
   secretNames,
+  secretsReadableBy,
   webAppConfig,
 } from "./cloud.mjs";
 import {
@@ -104,6 +105,22 @@ const secrets = (ctx) => memo(ctx, "secrets", () => secretNames(ctx.project));
 function backend(ctx) {
   const r = backends(ctx);
   return r.ok ? (r.backends.find((b) => b.id === ctx.backendId) ?? null) : undefined;
+}
+
+/**
+ * The app's secrets that exist but the backend's service account can't read: a core secret added
+ * since the backend step last ran (connectors-vault-key, say). A rollout that names one fails with
+ * "Error resolving secret version". { ok, missing, why }.
+ */
+function secretsWithoutAccess(ctx, serviceAccount) {
+  return memo(ctx, `secretAccess:${serviceAccount}`, async () => {
+    const have = secrets(ctx).names;
+    if (!have) return { ok: false, missing: [], why: secrets(ctx).why };
+    const names = [...CORE_SECRETS.map((s) => s.name), WEB_API_KEY_SECRET.name].filter((n) => have.has(n));
+    if (!names.length) return { ok: true, missing: [], why: "" };
+    const r = await secretsReadableBy(ctx.project, names, serviceAccount);
+    return r.ok ? { ok: true, missing: names.filter((n) => !r.readable.has(n)), why: "" } : { ok: false, missing: [], why: r.why };
+  });
 }
 
 /** The app's https origin: --app-url, else the backend's URL once it exists. */
@@ -488,16 +505,25 @@ export const CORE_STEPS = [
       const b = backend(ctx);
       if (!b) return todo(`No App Hosting backend "${ctx.backendId}" yet.`);
       if (b.environment !== ctx.envName) return todo(`Backend ${b.id} exists, but its environment name is "${b.environment || "(none)"}", not "${ctx.envName}".`);
+      const access = await secretsWithoutAccess(ctx, b.serviceAccount || runtimeServiceAccount(ctx.project));
+      if (!access.ok) return unknown(`Can't read which secrets the backend may use: ${access.why}`);
+      ctx.state.secretsWithoutAccess = access.missing;
+      if (access.missing.length) {
+        return todo(`Backend ${b.id} can't read ${access.missing.length} of the app's secrets yet: ${access.missing.join(", ")}. A rollout that names one fails with "Error resolving secret version".`);
+      }
       return done(`${b.uri}, environment "${b.environment}", ${b.repository ? "rolls out from GitHub" : "deploys from this folder"}`);
     },
     changes(ctx) {
       const b = backend(ctx);
       const sa = (b && b.serviceAccount) || runtimeServiceAccount(ctx.project);
+      const added = ctx.state.secretsWithoutAccess ?? [];
       return [
         ...(b ? [] : [`Create the App Hosting backend "${ctx.backendId}" in ${ctx.region}, linked to the web app`]),
         ...RUNTIME_ROLES.map((r) => `Grant ${sa} ${r.role} (${r.why})`),
         `Grant ${sa} roles/storage.objectUser on gs://${assetBucketName(ctx.project)}`,
-        "Give the backend access to the app's secrets (firebase apphosting:secrets:grantaccess)",
+        b && added.length
+          ? `Give the backend access to the app's secrets, including ${added.length} added since it was set up: ${added.join(", ")} (firebase apphosting:secrets:grantaccess)`
+          : "Give the backend access to the app's secrets (firebase apphosting:secrets:grantaccess)",
         `Set the backend's environment name to "${ctx.envName}", so it reads apphosting.${ctx.envName}.yaml`,
       ];
     },

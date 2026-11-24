@@ -10,8 +10,13 @@ import { isNewsletterMarkdownEmailUiEnabled } from "@/lib/email/flags";
 import { isSignalsDataForSeoEnabled } from "@/lib/signals/flags";
 import { isAutopilotEnabled } from "@/lib/autopilot/flags";
 import { isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
+import { isConnectorSignalsEnabled } from "@/lib/connectors/flags";
+import type { HelpBodyProps } from "@/lib/help/pages";
+import { isUsageMeterUiEnabled } from "@/lib/plans/flags";
+import { WEB_SEARCH_LIMIT_MESSAGE } from "@/lib/plans/resources";
 
-export default function WriteAndScheduleHelp() {
+/** The How to drawer passes the server's switches (connectorSignals): it can't read them itself. */
+export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSignalsEnabled() }: HelpBodyProps = {}) {
   return (
     <article>
       <H1>Write and schedule</H1>
@@ -79,6 +84,14 @@ export default function WriteAndScheduleHelp() {
         saved. Under <strong>Export</strong>, press <strong>Copy Markdown</strong> or <strong>Copy HTML</strong> to put it on
         your site.
       </P>
+      {connectorSignals ? (
+        <P>
+          From <Open href="/help/review-and-approvals#numbers">Review</Open>, <strong>Plan an article</strong> on a suggestion
+          your numbers made opens the wizard with a line such as &quot;Writing next from your numbers: fewer Google clicks to
+          /pricing.&quot; and its page or search as the <strong>Workflow name</strong>. For a page losing clicks, its address is
+          filled in as the <strong>Hub URL</strong>; for a question on your brand map, the wizard starts from that question.
+        </P>
+      ) : null}
       {isEditModeEnabled() ? (
         <P>
           To edit an article or a newsletter the way readers will see it, click the hub and press <strong>Edit mode</strong>{" "}
@@ -208,7 +221,7 @@ export default function WriteAndScheduleHelp() {
       <H2 id="schedule">Schedule posts</H2>
       <Steps>
         <li>
-          An admin connects LinkedIn or X in <Open href="/admin/account/connections">Settings › Integrations</Open>.
+          An admin connects LinkedIn or X in <Open href="/admin/account/connections">Settings › Connections</Open>.
         </li>
         <li>
           Open your programme, then <strong>Calendar</strong>.
@@ -315,12 +328,20 @@ export default function WriteAndScheduleHelp() {
             "Research didn't finish. You can still write the article, or try again.",
             "Try again in a minute, or let the article be written without it.",
           ],
+          ...(isUsageMeterUiEnabled()
+            ? ([
+                [
+                  WEB_SEARCH_LIMIT_MESSAGE,
+                  "Research used your own sources only, and Google wasn't searched. Add pages and facts to the brief by hand, or research again after the 1st.",
+                ],
+              ] as Array<[string, string]>)
+            : []),
           ["That item isn't generated yet", "Open it in Drafts and generate it first."],
           [
-            "Connect LinkedIn in Settings › Integrations first",
-            "Ask an admin to connect it in Settings › Integrations, then press Schedule again.",
+            "Connect LinkedIn in Settings › Connections first",
+            "Ask an admin to connect it in Settings › Connections, then press Schedule again.",
           ],
-          ["Connect X in Settings › Integrations first", "Ask an admin to connect it in Settings › Integrations, then press Schedule again."],
+          ["Connect X in Settings › Connections first", "Ask an admin to connect it in Settings › Connections, then press Schedule again."],
           [
             "That LinkedIn Page isn't connected.",
             "A YouGrow admin who is also an admin of the Page on LinkedIn connects LinkedIn Pages. Or choose to post as yourself.",
@@ -367,7 +388,7 @@ export default function WriteAndScheduleHelp() {
                   "Results are read for company page posts. Choose your page in Post as when you schedule.",
                 ],
                 [
-                  "Reconnect it in Settings › Integrations so your next posts get results.",
+                  "Reconnect it in Settings › Connections so your next posts get results.",
                   "An admin reconnects the LinkedIn page or X account. This post's numbers aren't read again, but your next posts get results.",
                 ],
                 [

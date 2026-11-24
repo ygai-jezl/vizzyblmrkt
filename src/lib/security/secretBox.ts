@@ -52,6 +52,13 @@ export interface SecretBox {
   /** Verify a signed state. Fails closed (null, never throws), including when the
    *  root key was unset or rotated between signing and verifying. */
   verifyState(token: string): Record<string, unknown> | null;
+  /**
+   * A short public id for the root key: the first 8 bytes, in hex, of an HMAC of the root
+   * under `label`. Stored beside a blob, it says which root sealed it, so a rotation can open
+   * blobs under the previous root and a reseal can count what is left on it. It reveals
+   * nothing about the root. Throws the unconfigured error when the root is unset.
+   */
+  keyId(label: string): string;
 }
 
 export function createSecretBox(cfg: SecretBoxConfig): SecretBox {
@@ -108,6 +115,12 @@ export function createSecretBox(cfg: SecretBoxConfig): SecretBox {
     signState(payload) {
       const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
       return `${body}.${stateSig(body)}`;
+    },
+
+    keyId(label) {
+      const root = rootKey();
+      if (!root) throw new Error(cfg.unconfiguredError);
+      return createHmac("sha256", root).update(label).digest().subarray(0, 8).toString("hex");
     },
 
     verifyState(token) {

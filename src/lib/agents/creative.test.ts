@@ -5,9 +5,11 @@ import { describe, it, expect, vi } from "vitest";
 vi.mock("./gemini", () => ({
   generateText: vi.fn(async () => null),
   generateImage: vi.fn(async () => null),
+  NO_USAGE: {},
 }));
 
 import { draftCopy } from "./creative";
+import { NO_USAGE } from "./gemini";
 import type { Campaign } from "@/lib/types/campaign";
 
 function campaign(overrides: Partial<Campaign> = {}): Campaign {
@@ -25,7 +27,7 @@ function allText(variants: { subject: string; body: string }[]): string {
 
 describe("draftCopy fallback (model unavailable)", () => {
   it("names the product by productName, not the headline", async () => {
-    const result = await draftCopy({ campaign: campaign({ productName: "Acme Pro" }), brief: "" });
+    const result = await draftCopy({ campaign: campaign({ productName: "Acme Pro" }), brief: "", usage: NO_USAGE });
     expect(result.source).toBe("fallback");
     const text = allText(result.variants);
     expect(text).toContain("Acme Pro");
@@ -33,7 +35,7 @@ describe("draftCopy fallback (model unavailable)", () => {
   });
 
   it("falls back to the waitlist name when productName is unset", async () => {
-    const result = await draftCopy({ campaign: campaign(), brief: "" });
+    const result = await draftCopy({ campaign: campaign(), brief: "", usage: NO_USAGE });
     expect(result.source).toBe("fallback");
     expect(allText(result.variants)).toContain("Be the first to get access");
   });

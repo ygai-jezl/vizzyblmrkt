@@ -49,17 +49,26 @@ describe("GET /api/admin/search", () => {
   it("lets a member search their own brand, with the kinds asked for", async () => {
     const res = await GET(get("?q=FL-204%20kit&kinds=article,post&limit=5"));
     expect(res.status).toBe(200);
-    expect(query.searchBrand).toHaveBeenCalledWith(member, "FL-204 kit", { kinds: ["article", "post"], limit: 5 });
+    expect(query.searchBrand).toHaveBeenCalledWith(member, "FL-204 kit", { kinds: ["article", "post"], limit: 5, viewer: { role: "member", uid: "usr_member" } });
   });
 
   it("accepts the old name idea and passes it on as idea_board, each kind once", async () => {
     expect((await GET(get("?q=repot&kinds=idea"))).status).toBe(200);
-    expect(query.searchBrand).toHaveBeenLastCalledWith(member, "repot", { kinds: ["idea_board"], limit: undefined });
+    expect(query.searchBrand).toHaveBeenLastCalledWith(member, "repot", { kinds: ["idea_board"], limit: undefined, viewer: { role: "member", uid: "usr_member" } });
     expect((await GET(get("?q=repot&kinds=idea_board"))).status).toBe(200);
-    expect(query.searchBrand).toHaveBeenLastCalledWith(member, "repot", { kinds: ["idea_board"], limit: undefined });
+    expect(query.searchBrand).toHaveBeenLastCalledWith(member, "repot", { kinds: ["idea_board"], limit: undefined, viewer: { role: "member", uid: "usr_member" } });
     expect((await GET(get("?q=repot&kinds=idea,idea_board"))).status).toBe(200);
-    expect(query.searchBrand).toHaveBeenLastCalledWith(member, "repot", { kinds: ["idea_board"], limit: undefined });
+    expect(query.searchBrand).toHaveBeenLastCalledWith(member, "repot", { kinds: ["idea_board"], limit: undefined, viewer: { role: "member", uid: "usr_member" } });
     expect((await GET(get("?q=repot&kinds=idea,people"))).status).toBe(400);
+  });
+
+  it("searches as the signed-in person, so a connection's searches follow their access", async () => {
+    session.getAdminContext.mockResolvedValue(admin);
+    await GET(get("?q=repot&role=admin"));
+    expect(query.searchBrand.mock.calls[0]?.[2]).toMatchObject({ viewer: { role: "admin", uid: "usr_admin" } });
+    session.getAdminContext.mockResolvedValue(member);
+    await GET(get("?q=repot&role=admin&uid=usr_admin"));
+    expect(query.searchBrand.mock.calls[1]?.[2]).toMatchObject({ viewer: { role: "member", uid: "usr_member" } });
   });
 
   it("never takes the brand from the request", async () => {

@@ -5,7 +5,8 @@ import { languageDirective, resolveCampaignLocale } from "@/lib/i18n/locale";
 import { getMessage } from "@/lib/i18n/messages";
 import { renderPrompt } from "./prompts/registry";
 import { brandVoiceSection } from "./prompts/compose";
-import { generateText, generateImage, generateBlockImage, generateEbookImage } from "./gemini";
+import { generateText, generateImage, generateBlockImage, generateEbookImage, isUsageLimited, type AiUsage, type UsageLimited } from "./gemini";
+import { BLOCK_IMAGE_MODEL } from "./modelConfig";
 import { storeEmailImage } from "./imageStore";
 import { storeWorkspaceImage, readWorkspaceAsset, deleteWorkspaceAsset } from "@/lib/workspace/assetStore";
 import { SOCIAL_ASPECT_TO_GEMINI, socialImageStyle, type SocialAspect } from "@/lib/content/create/socialImage";
@@ -66,6 +67,8 @@ export interface DraftCopyInput {
    * campaign's tone enum only, exactly as before.
    */
   brandVoice?: string | null;
+  /** The brand's usage: the call's tokens are counted. */
+  usage: AiUsage;
 }
 
 export interface DraftCopyResult {
@@ -99,7 +102,7 @@ export async function draftCopy(input: DraftCopyInput): Promise<DraftCopyResult>
     variant_count: count,
   });
 
-  const raw = await generateText(prompt);
+  const raw = await generateText(prompt, { usage: input.usage });
   const parsed = raw ? parseVariants(raw) : null;
   if (parsed && parsed.length > 0) {
     return { variants: parsed.slice(0, count), source: "agent3" };
@@ -124,11 +127,14 @@ export interface GenerateHeroImageInput {
    * with the brand image model (Nano Banana lite) instead of the hero model. Absent = exactly as before.
    */
   direction?: ArtDirection | null;
+  /** The brand's usage: the brief and the image are counted, and the image cap is checked first. */
+  usage: AiUsage;
 }
 
 /** Why an image couldn't be produced — surfaced verbatim to the operator. */
 export type HeroImageFailure =
   | "image_model_unavailable" // image model unconfigured or errored
+  | "image_limit" // the brand has used its images for the month
   | "no_asset_bucket" // EMAIL_ASSET_BUCKET not set
   | "store_failed"; // upload to the bucket threw
 
@@ -141,14 +147,21 @@ export interface GenerateHeroImageResult {
 export async function generateHeroImage(
   input: GenerateHeroImageInput,
 ): Promise<GenerateHeroImageResult> {
+  // At the image cap nothing is spent, the brief included.
+  if (await input.usage.check("images")) return { imageUrl: null, source: "unavailable", reason: "image_limit" };
   const expandPrompt = renderPrompt("creative.image_brief", {
     brand_tone: strategyVars(input.campaign).brand_tone,
     brand_voice: brandVoiceSection(input.brandVoice),
     brief: briefWithDirection(input.brief, input.direction ?? null),
   });
   // Expand the brief into a richer image prompt; fall back to the raw brief.
-  const imagePrompt = (await generateText(expandPrompt)) ?? input.brief;
-  const img = input.direction ? await generateBlockImage(imagePrompt) : await generateImage(imagePrompt);
+  const imagePrompt = (await generateText(expandPrompt, { usage: input.usage })) ?? input.brief;
+  const img = input.direction
+    ? await generateBlockImage(imagePrompt, "1:1", BLOCK_IMAGE_MODEL, { usage: input.usage })
+    : await generateImage(imagePrompt, { usage: input.usage });
+  if (isUsageLimited(img)) {
+    return { imageUrl: null, source: "unavailable", reason: "image_limit" };
+  }
   if (!img) {
     return { imageUrl: null, source: "unavailable", reason: "image_model_unavailable" };
   }
@@ -175,6 +188,8 @@ export interface GenerateBlockImageInput {
   imageModel?: string;
   /** The image style (BRAND_IMAGE_STYLE_ENABLED), written into the brief. Absent = as before. */
   direction?: ArtDirection | null;
+  /** The brand's usage: the brief and the image are counted, and the image cap is checked first. */
+  usage: AiUsage;
 }
 
 export interface GenerateBlockImageResult {
@@ -192,6 +207,7 @@ export interface GenerateBlockImageResult {
 export async function generateEmailBlockImage(
   input: GenerateBlockImageInput,
 ): Promise<GenerateBlockImageResult> {
+  if (await input.usage.check("images")) return { imageUrl: null, source: "unavailable", reason: "image_limit" };
   const expandPrompt = renderPrompt("content.email_image_brief", {
     brief: briefWithDirection(input.brief, input.direction ?? null),
     subject: input.subject || "(none)",
@@ -199,9 +215,10 @@ export async function generateEmailBlockImage(
     brand_context: input.brandContext,
     knowledge_context: input.knowledgeContext ?? "",
   });
-  const imagePrompt = (await generateText(expandPrompt)) ?? input.brief;
-  // undefined aspect → the function's 1:1 default; input.imageModel overrides the model per gen.
-  const img = await generateBlockImage(imagePrompt, undefined, input.imageModel);
+  const imagePrompt = (await generateText(expandPrompt, { usage: input.usage })) ?? input.brief;
+  // 1:1 as before; input.imageModel overrides the model per gen.
+  const img = await generateBlockImage(imagePrompt, "1:1", input.imageModel ?? BLOCK_IMAGE_MODEL, { usage: input.usage });
+  if (isUsageLimited(img)) return { imageUrl: null, source: "unavailable", reason: "image_limit" };
   if (!img) return { imageUrl: null, source: "unavailable", reason: "image_model_unavailable" };
   const stored = await storeEmailImage(input.tenantId, input.ownerId, img);
   if (!stored.ok) return { imageUrl: null, source: "unavailable", reason: stored.reason };
@@ -254,6 +271,8 @@ export interface GenerateSocialImageInput {
    * headline and logo laid over the art). Returns the image to store; on failure, the art as is.
    */
   finish?: (img: GeneratedImage) => Promise<GeneratedImage>;
+  /** The brand's usage: the brief, the image(s) and any best-of-N judging are counted, and the image cap is checked first. */
+  usage: AiUsage;
 }
 
 export interface GenerateSocialImageResult {
@@ -275,6 +294,7 @@ export interface GenerateSocialImageResult {
 export async function generateSocialPostImage(
   input: GenerateSocialImageInput,
 ): Promise<GenerateSocialImageResult> {
+  if (await input.usage.check("images")) return { imageAssetRef: null, imagePrompt: null, source: "unavailable", reason: "image_limit" };
   const style = input.direction ?? socialImageStyle(input.style);
   const expandPrompt = renderPrompt("content.social_image_brief", {
     brief: input.brief,
@@ -286,7 +306,7 @@ export async function generateSocialPostImage(
     brand_context: input.brandContext,
     knowledge_context: input.knowledgeContext ?? "",
   });
-  const imagePrompt = (await generateText(expandPrompt)) ?? input.brief;
+  const imagePrompt = (await generateText(expandPrompt, { usage: input.usage })) ?? input.brief;
 
   // Brand-style loop (L2): fetch on-brand style references. When present, HYBRID-switch
   // this generation from the lite/text-only model to the FULL model so it can SEE the
@@ -309,7 +329,7 @@ export async function generateSocialPostImage(
       : [];
   const refs = [...styleRefs, ...assetRefs];
   const refDirective = refDirectiveFor(styleRefs.length, assetRefs.length);
-  const produceImage = (): Promise<GeneratedImage | null> =>
+  const produceImage = (): Promise<GeneratedImage | UsageLimited | null> =>
     refs.length > 0
       ? generateEbookImage({
           prompt: `${imagePrompt}\n\n${refDirective}`,
@@ -317,18 +337,26 @@ export async function generateSocialPostImage(
           styleRefImages: refs,
           // Operator override wins; else undefined keeps the ref path's full-model default.
           model: input.imageModel,
+          usage: input.usage,
         })
-      : generateBlockImage(imagePrompt, SOCIAL_ASPECT_TO_GEMINI[input.aspect], input.imageModel);
+      : generateBlockImage(imagePrompt, SOCIAL_ASPECT_TO_GEMINI[input.aspect], input.imageModel ?? BLOCK_IMAGE_MODEL, {
+          usage: input.usage,
+        });
   // Best-of-N (L3): when enabled, generate several and auto-pick the most on-brand.
-  let img =
+  const made =
     input.useBrandStyle !== false && isBestOfNEnabled()
       ? await generateBestOfN({
           n: bestOfNCount(),
           generate: produceImage,
           styleReference: input.brandContext,
           brief: input.brief,
+          usage: input.usage,
         })
       : await produceImage();
+  if (isUsageLimited(made)) {
+    return { imageAssetRef: null, imagePrompt: null, source: "unavailable", reason: "image_limit" };
+  }
+  let img = made;
   if (!img) {
     return { imageAssetRef: null, imagePrompt: null, source: "unavailable", reason: "image_model_unavailable" };
   }
@@ -401,6 +429,8 @@ export interface GenerateEbookImageInput {
   heroSurface?: boolean;
   /** Operator-selected image model id (resolveImageModel). Omit to use the default full model. */
   imageModel?: string;
+  /** The brand's usage: the brief, the image(s) and any best-of-N judging are counted, and the image cap is checked first. */
+  usage: AiUsage;
 }
 
 export interface GenerateEbookImageResult {
@@ -412,6 +442,7 @@ export interface GenerateEbookImageResult {
   imageAssetId?: string | null;
   reason?:
     | "image_model_unavailable"
+    | "image_limit"
     | "bad_type"
     | "too_large"
     | "no_asset_bucket"
@@ -431,6 +462,7 @@ export interface GenerateEbookImageResult {
 export async function generateEbookSlotImage(
   input: GenerateEbookImageInput,
 ): Promise<GenerateEbookImageResult> {
+  if (await input.usage.check("images")) return { imageAssetRef: null, imagePrompt: null, source: "unavailable", reason: "image_limit" };
   const style = input.direction ?? ebookImageStyle(input.style);
 
   // Iterative edit: load the prior image (clamped) as the model input. If it can't be read,
@@ -465,6 +497,7 @@ export async function generateEbookSlotImage(
           brand_context: input.brandContext,
           knowledge_context: input.knowledgeContext ?? "",
         }),
+        { usage: input.usage },
       )) ?? input.brief;
 
   // Brand-style loop (L2): on CREATE only (never during an edit — that would confuse the
@@ -487,13 +520,14 @@ export async function generateEbookSlotImage(
   const refs = [...styleRefs, ...assetRefs];
   const refDirective = refDirectiveFor(styleRefs.length, assetRefs.length);
 
-  const produceImage = (): Promise<GeneratedImage | null> =>
+  const produceImage = (): Promise<GeneratedImage | UsageLimited | null> =>
     generateEbookImage({
       prompt: refs.length > 0 ? `${imagePrompt}\n\n${refDirective}` : imagePrompt,
       aspectRatio: EBOOK_ASPECT_TO_GEMINI[input.aspect],
       inputImages,
       styleRefImages: refs,
       model: input.imageModel,
+      usage: input.usage,
     });
   // Best-of-N (L3) on CREATE + HERO surface only (the eBook cover) — never on an edit, and
   // never on every chapter illustration (that would multiply a long eBook's build cost).
@@ -504,8 +538,12 @@ export async function generateEbookSlotImage(
           generate: produceImage,
           styleReference: input.brandContext,
           brief: input.brief,
+          usage: input.usage,
         })
       : await produceImage();
+  if (isUsageLimited(img)) {
+    return { imageAssetRef: null, imagePrompt: null, source: "unavailable", reason: "image_limit" };
+  }
   if (!img) {
     return { imageAssetRef: null, imagePrompt: null, source: "unavailable", reason: "image_model_unavailable" };
   }
@@ -551,6 +589,7 @@ export async function generateEbookSlotImage(
 /** Why a Customise (image-to-image edit) couldn't be produced — surfaced to the operator. */
 export type CustomizeImageFailure =
   | "image_model_unavailable"
+  | "image_limit"
   | "bad_type"
   | "too_large"
   | "no_asset_bucket"
@@ -568,6 +607,8 @@ export interface CustomizeImageInput {
   instruction: string;
   /** Operator-selected image model id (resolveImageModel). Omit to use the default full model. */
   imageModel?: string;
+  /** The brand's usage: the image is counted, and the image cap is checked first. */
+  usage: AiUsage;
 }
 
 export interface CustomizeImageResult {
@@ -611,7 +652,9 @@ export async function customizeImageAsset(
     aspectRatio,
     inputImages: [{ base64: prior.bytes.toString("base64"), mimeType: prior.contentType }],
     model: input.imageModel,
+    usage: input.usage,
   });
+  if (isUsageLimited(img)) return { asset: null, reason: "image_limit" };
   if (!img) return { asset: null, reason: "image_model_unavailable" };
 
   // 4. Store as a NEW asset under the SAME workspaceId (auth proxy works; non-destructive).

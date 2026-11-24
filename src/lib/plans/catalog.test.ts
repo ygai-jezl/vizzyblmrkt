@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FEATURE_NEEDS, METERED_FEATURES } from "./brandAccess";
-import { DEFAULT_MONTHLY_LIMITS, LIMITED_FEATURES, MAX_MONTHLY_LIMIT } from "./limits";
+import { DEFAULT_MONTHLY_LIMITS, LIMITED_FEATURES, MAX_MONTHLY_LIMIT, LIMITED_RESOURCES, isLimitedResource } from "./limits";
 import {
   ALLOWANCES,
   ALLOWANCE_LABELS,
@@ -55,7 +55,10 @@ describe("plan catalog", () => {
     expect(plan("free").features).toEqual([]);
     expect([...plan("pro").features].sort()).toEqual(["brand_search", "edit_vizzy"]);
     expect([...plan("ultra").features].sort()).toEqual([...METERED_FEATURES].sort());
-    for (const p of PLANS) expect(p.monthlyCaps, p.id).toEqual({});
+    // Free and Pro cap web searches for research; Ultra sets no caps (decision 20), Enterprise by agreement.
+    expect(plan("free").monthlyCaps).toEqual({ web_searches: 300 });
+    expect(plan("pro").monthlyCaps).toEqual({ web_searches: 1500 });
+    for (const id of ["self_hosted", "ultra", "enterprise"] as const) expect(plan(id).monthlyCaps, id).toEqual({});
     expect(PLANS.map((p) => p.pricePerUserMonthUsd)).toEqual([0, 0, 9, 35, null]);
   });
 
@@ -126,13 +129,26 @@ describe("plan catalog", () => {
     expect(plan("ultra").features).toContain("article_autopilot");
   });
 
-  it("sets caps only for limited features the plan includes, within the most a cap may be", () => {
+  it("sets caps only for limited features the plan includes, or paid resources, within the most a cap may be", () => {
     for (const p of PLANS) {
       for (const [f, cap] of Object.entries(p.monthlyCaps)) {
-        expect(LIMITED_FEATURES as readonly string[]).toContain(f);
-        expect(p.features).toContain(f);
+        if (isLimitedResource(f)) {
+          // A resource is used by every feature: no grant, so no feature to include.
+        } else {
+          expect(LIMITED_FEATURES as readonly string[]).toContain(f);
+          expect(p.features).toContain(f);
+        }
         expect(Number.isInteger(cap) && cap! >= 0 && cap! <= MAX_MONTHLY_LIMIT).toBe(true);
       }
+    }
+  });
+
+  it("never lowers a resource's cap up the ladder", () => {
+    const ladder = ["free", "pro", "ultra"] as const;
+    for (const r of LIMITED_RESOURCES) {
+      // A plan with no cap of its own follows this copy's cap, which is at least any plan's.
+      const caps = ladder.map((id) => plan(id).monthlyCaps[r] ?? Infinity);
+      for (let i = 1; i < caps.length; i += 1) expect(caps[i]!, `${r}: ${ladder[i]}`).toBeGreaterThanOrEqual(caps[i - 1]!);
     }
   });
 

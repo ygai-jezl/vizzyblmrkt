@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { isGeminiConfigured } from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
+import { isGeminiConfigured, type AiUsage } from "@/lib/agents/gemini";
 import { forTenant } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import { allowedFor, robotsSitemaps } from "@/lib/content/blog/crawlers";
@@ -65,6 +66,13 @@ import {
 export interface StepDeps extends StoreDeps, FetchDeps, AnalyseDeps, GoogleDeps {
   /** Milliseconds now (deadlines). */
   clock?: () => number;
+  /** The usage (tests); otherwise the brand's own. */
+  usage?: AiUsage;
+}
+
+/** What a step's model calls count against: the brand's own usage, or the one a test gave. */
+function usageFor(ctx: TenantContext, purpose: "competitor_site" | "competitor_analysis", deps: StepDeps): AiUsage {
+  return deps.usage ?? aiUsage(ctx, purpose, { db: deps.db });
 }
 
 /** Time a step needs before it starts: fetching one file, or asking the model. */
@@ -173,7 +181,7 @@ async function runStep(step: Step, c: Competitor, ctx: TenantContext, deadlineMs
     case "find_plain":
       return findPlain(c, deps);
     case "find_search":
-      return findSearch(c, deadlineMs, deps);
+      return findSearch(c, ctx, deadlineMs, deps);
     case "find_google":
       return findGoogle(c, ctx, deadlineMs, deps);
     case "read":
@@ -275,9 +283,9 @@ function startReadLater(roots: string[], foundBy: SitemapFoundBy): Partial<Compe
   };
 }
 
-async function findSearch(c: Competitor, deadlineMs: number, deps: StepDeps): Promise<Partial<Competitor>> {
+async function findSearch(c: Competitor, ctx: TenantContext, deadlineMs: number, deps: StepDeps): Promise<Partial<Competitor>> {
   const timeoutMs = deadlineMs - clockOf(deps)() - MARGIN_MS;
-  const found = await searchForSite({ name: c.name, website: c.website, site: c.site }, timeoutMs, deps);
+  const found = await searchForSite({ name: c.name, website: c.website, site: c.site }, timeoutMs, usageFor(ctx, "competitor_site", deps), deps);
   const news: CompetitorNews | null = found?.news ? { url: found.news, feedUrl: null, chosenBy: "search", baselineAt: null, checkedAt: null } : null;
   if (c.reader === "google") {
     // We can't fetch it ourselves: Google reads their robots.txt and these files, one a step.
@@ -346,7 +354,7 @@ async function findGoogle(c: Competitor, ctx: TenantContext, deadlineMs: number,
   const gf: GoogleFind = c.googleFind ?? { queue: googleQueue(c, null, c.news?.url ?? null), robotsRead: false, robots: null, reads: 0 };
 
   if (!gf.robotsRead) {
-    const robots = await googleReadRobots(`${c.website}/robots.txt`, timeoutMs, deps);
+    const robots = await googleReadRobots(`${c.website}/robots.txt`, timeoutMs, usageFor(ctx, "competitor_site", deps), deps);
     const allowed = (url: string) => !robots || allowedFor(robots, ROBOTS_TOKEN, pathOf(url));
     if (c.news && !allowed(c.news.url)) return { ...stuck, problem: "blocked" };
     const named = robots ? robotsSitemaps(robots).map(asHttps).filter((u) => onSite(u, c.site)) : [];
@@ -357,7 +365,7 @@ async function findGoogle(c: Competitor, ctx: TenantContext, deadlineMs: number,
   const allowed = (url: string) => !gf.robots || allowedFor(gf.robots, ROBOTS_TOKEN, pathOf(url));
   const [url, ...rest] = gf.queue;
   if (!url || gf.reads >= GOOGLE_READS_MAX) return stuck;
-  const file = await googleReadSitemap(url, { site: c.site, max: GOOGLE_SITEMAP_MAX }, timeoutMs, deps);
+  const file = await googleReadSitemap(url, { site: c.site, max: GOOGLE_SITEMAP_MAX, usage: usageFor(ctx, "competitor_site", deps) }, timeoutMs, deps);
   // No answer in time: the same file again next step (the cap on reads still ends it).
   if (file === "no_answer") return { googleFind: { ...gf, reads: gf.reads + 1 } };
   const next: GoogleFind = { ...gf, queue: rest, reads: gf.reads + 1 };
@@ -398,7 +406,12 @@ async function checkPostsGoogle(c: Competitor, ctx: TenantContext, deadlineMs: n
   if (!googleReady(deps)) return failed(c, "turned_away", "posts", nowMs);
   // A news page a person gave us: find the sitemap file that lists its posts first.
   if (!news.sitemapUrl) return { status: "finding", stage: "google", googleFind: null };
-  const file = await googleReadSitemap(news.sitemapUrl, { site: c.site, max: GOOGLE_CHECK_POSTS }, deadlineMs - nowMs - MARGIN_MS, deps);
+  const file = await googleReadSitemap(
+    news.sitemapUrl,
+    { site: c.site, max: GOOGLE_CHECK_POSTS, usage: usageFor(ctx, "competitor_analysis", deps) },
+    deadlineMs - nowMs - MARGIN_MS,
+    deps,
+  );
   if (!file || file === "no_answer" || file.kind !== "urlset") return failed(c, "turned_away", "posts", nowMs);
   const known = new Set((await listPosts(ctx, c.id, deps)).map((p) => normalizeUrl(p.url) || p.url));
   // A post dated well before we last looked isn't new, however it came back (a guard on a copy).
@@ -426,7 +439,9 @@ async function googleTitles(c: Competitor, ctx: TenantContext, deadlineMs: numbe
   const pending = c.googlePending ?? [];
   const asked = pending.slice(0, GOOGLE_POSTS_MAX).map((p) => p.url);
   // Leave a little time for the summary; without it the headline is written by code.
-  const titles = googleReady(deps) ? await googleReadPosts(asked, Math.max(1_000, deadlineMs - nowMs - MARGIN_MS - 3_000), deps) : new Map();
+  const titles = googleReady(deps)
+    ? await googleReadPosts(asked, Math.max(1_000, deadlineMs - nowMs - MARGIN_MS - 3_000), usageFor(ctx, "competitor_analysis", deps), deps)
+    : new Map();
   const read = pending.map((p) => {
     const t = titles.get(p.url);
     return { url: p.url, title: t?.title || titleFromSlug(p.url), publishedAt: p.publishedAt ?? t?.publishedAt ?? null, description: "" };
@@ -533,7 +548,11 @@ async function finishRead(c: Competitor, read: CompetitorRead, ctx: TenantContex
   await dropOtherGenerations(ctx, c.id, read.generation, deps);
   if (diff.added.count || diff.removed.count) {
     const remaining = deadlineMs - clockOf(deps)() - MARGIN_MS;
-    const words = await summariseSiteChange({ name: c.name, website: c.website, before: before.length, after: diff.next.length, diff }, remaining, deps);
+    const words = await summariseSiteChange(
+      { name: c.name, website: c.website, before: before.length, after: diff.next.length, diff, usage: usageFor(ctx, "competitor_analysis", deps) },
+      remaining,
+      deps,
+    );
     await addChange(
       ctx,
       {
@@ -581,7 +600,11 @@ async function label(c: Competitor, ctx: TenantContext, deadlineMs: number, deps
   const sections = sectionTree(pages);
   const candidates = newsCandidates(sections);
   const labels = pages.length
-    ? await labelSite({ name: c.name, website: c.website, pages, sections, candidates }, deadlineMs - clockOf(deps)() - MARGIN_MS, deps)
+    ? await labelSite(
+        { name: c.name, website: c.website, pages, sections, candidates, usage: usageFor(ctx, "competitor_analysis", deps) },
+        deadlineMs - clockOf(deps)() - MARGIN_MS,
+        deps,
+      )
     : null;
   // The news page: a person's choice stands; else the model's pick, the biggest news-like section, or what search found.
   let news = c.news;
@@ -773,7 +796,11 @@ async function checkPosts(c: Competitor, ctx: TenantContext, deadlineMs: number,
 /** New posts: kept, put into words while there is time (else by code), and shown as what changed. */
 async function recordNewPosts(ctx: TenantContext, c: Competitor, read: Array<FeedItem & { description: string }>, nowMs: number, deadlineMs: number, deps: StepDeps): Promise<void> {
   await keepPosts(ctx, c, read, false, nowMs, deps);
-  const words = await summarisePosts({ name: c.name, posts: read.map((p) => ({ title: p.title, description: p.description, url: p.url })) }, deadlineMs - clockOf(deps)() - MARGIN_MS, deps);
+  const words = await summarisePosts(
+    { name: c.name, posts: read.map((p) => ({ title: p.title, description: p.description, url: p.url })), usage: usageFor(ctx, "competitor_analysis", deps) },
+    deadlineMs - clockOf(deps)() - MARGIN_MS,
+    deps,
+  );
   await addChange(
     ctx,
     {

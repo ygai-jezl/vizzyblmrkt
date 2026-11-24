@@ -14,6 +14,7 @@ export const HELP_LOADERS: Record<string, () => Promise<{ default: ComponentType
   "brand-map": () => import("./pages/brand-map"),
   "write-and-schedule": () => import("./pages/write-and-schedule"),
   "connected-accounts": () => import("./pages/connected-accounts"),
+  "connected-data": () => import("./pages/connected-data"),
   "connect-your-product": () => import("./pages/connect-your-product"),
   "invite-your-waitlist": () => import("./pages/invite-your-waitlist"),
   "onboarding-journeys": () => import("./pages/onboarding-journeys"),

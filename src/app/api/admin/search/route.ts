@@ -20,7 +20,10 @@ const QuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).optional(),
 });
 
-/** Search what the signed-in brand wrote, by words and meaning (SEARCH_ENABLED). Any member may search. */
+/**
+ * Search what the signed-in brand wrote, by words and meaning (SEARCH_ENABLED). Any member may
+ * search; a connection's searches (ADR-0013) show only when this person may read the connection.
+ */
 export async function GET(req: Request) {
   const blocked = sameOriginGuard(req);
   if (blocked) return blocked;
@@ -34,7 +37,7 @@ export async function GET(req: Request) {
     limit: url.searchParams.get("limit") ?? undefined,
   });
   if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
-  const out = await searchBrand(ctx, parsed.data.q, { kinds: parsed.data.kinds, limit: parsed.data.limit });
+  const out = await searchBrand(ctx, parsed.data.q, { kinds: parsed.data.kinds, limit: parsed.data.limit, viewer: { role: ctx.role, uid: ctx.userId ?? "" } });
   if (!out.ok) {
     return out.error === "not_granted"
       ? NextResponse.json({ error: "search_not_granted" }, { status: 403 })

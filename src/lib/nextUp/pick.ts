@@ -1,4 +1,5 @@
 import { generateTextWithDeadline, isGeminiConfigured, parseFirstJson } from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { fence, oneLine } from "@/lib/brandMap/lineChecks";
 import { readBrandMap } from "@/lib/brandMap/store";
@@ -12,16 +13,18 @@ import { marketLabel } from "@/lib/signals/markets";
 import { queryKey, readySignals } from "@/lib/signals/store";
 import { forTenant, getTenantById } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
-import type { NextUpChip, NextUpDoc, NextUpPick } from "@/lib/types/autopilot";
+import { nextUpDocId, type NextUpChip, type NextUpDoc, type NextUpPick } from "@/lib/types/autopilot";
 import type { BrandSignal } from "@/lib/types/brandSignal";
 import type { Tenant } from "@/lib/types/tenant";
+import { NOT_SHARED_NEXT_UP, readSearchPlanning, SEARCH_CONSOLE_CHIP, searchConsoleLines, type SearchConsoleLine, type SearchPlanning } from "@/lib/connectors/signals/planning";
 import { nextUpCandidates, type Candidate } from "./candidates";
 
 /**
  * Next up: the brand's three best next articles. Code narrows the brand map's open questions
  * (candidates.ts), gathers a few lines of what is known about each (the map, the brand's own
  * content and competitors from one brand search, the competitors' flag on the subject, Google's
- * numbers), and one Gemini call chooses three and says why. Code then checks every number and
+ * numbers, and Search Console's demand for the question and its subject from connections members
+ * and Vizzy may both read), and one Gemini call chooses three and says why. Code then checks every number and
  * competitor a reason names is in that question's own lines, and builds the chips from the lines
  * the model says it used. The result is kept per brand (`next_up`).
  */
@@ -39,6 +42,8 @@ export interface PickDeps {
   configured?: () => boolean;
   /** Questions in an active autopilot run (not offered again). */
   activeQuestionIds?: (ctx: TenantContext) => Promise<string[]>;
+  /** Search Console's collected demand (CONNECTOR_SIGNALS_ENABLED); null while off. */
+  searchPlanning?: (ctx: TenantContext) => Promise<SearchPlanning | null>;
 }
 
 const PICKS = 3;
@@ -76,7 +81,7 @@ const daysSince = (iso: string | null, now: Date) => (iso ? Math.floor((now.getT
 export function linesFor(
   n: number,
   c: Candidate,
-  read: { search: SearchOutcome | null; flag?: { they: number; flag: CoverageFlag }; signal?: BrandSignal; now: Date },
+  read: { search: SearchOutcome | null; flag?: { they: number; flag: CoverageFlag }; signal?: BrandSignal; searchConsole?: SearchConsoleLine[]; now: Date },
 ): CandidateLine[] {
   const out: CandidateLine[] = [];
   const add = (text: string, chip: Omit<NextUpChip, "text">, chipText = text) => out.push({ id: `${n}.${out.length + 1}`, text: oneLine(text), chip: { ...chip, text: cut(oneLine(chipText), 90) } });
@@ -105,6 +110,8 @@ export function linesFor(
       nums.googlePosition ? `ranks ${nums.googlePosition}` : "not in the top 10",
     );
   }
+  // Search Console (collected): the search with the question's words, and the searches near its subject.
+  for (const line of (read.searchConsole ?? []).slice(0, 2)) add(line.text, { kind: "num", label: SEARCH_CONSOLE_CHIP }, line.chip);
   return out;
 }
 
@@ -177,7 +184,7 @@ async function eachLimited<T, R>(items: T[], limit: number, fn: (t: T) => Promis
   return out;
 }
 
-export const nextUpDocId = (tenantId: string) => `nu_${tenantId}`;
+export { nextUpDocId };
 
 /** The brand's stored Next up, if any. */
 export async function readNextUp(ctx: TenantContext, deps: Pick<PickDeps, "db"> = {}): Promise<NextUpDoc | null> {
@@ -216,12 +223,14 @@ export async function pickNextUp(
   if (!candidates.length) return { ok: false, error: "no_questions" };
 
   // Read once for all candidates.
-  const [flags, signals, names, notOnMap] = await Promise.all([
+  const [flags, signals, names, notOnMap, planning] = await Promise.all([
     (deps.flags ?? ((c) => competitorSubjectFlags(c, { db: deps.db })))(ctx).catch(() => null),
     isBrandSignalsEnabled() ? readySignals(ctx, 500, { db: deps.db }).catch(() => [] as BrandSignal[]) : Promise.resolve([] as BrandSignal[]),
     (deps.competitorNames ?? (async (c) => (await listCompetitors(c, { db: deps.db })).map((x) => x.name)))(ctx).catch(() => [] as string[]),
     (deps.notOnMap ?? (async (c) => stillToAdd(await competitorCoverage(c, { db: deps.db }))))(ctx).catch(() => null),
+    (deps.searchPlanning ?? ((c) => readSearchPlanning(c, { db: deps.db })))(ctx).catch(() => null),
   ]);
+  if (planning?.notShared) missing.push(NOT_SHARED_NEXT_UP);
   if (!flags) missing.push("Competitor articles aren't on for this brand.");
   const byQuery = new Map(signals.map((s) => [queryKey(s.about.query), s] as const));
   const search = deps.search ?? ((c, q, o) => searchBrand(c, q, o));
@@ -234,7 +243,13 @@ export async function pickNextUp(
   });
   const weighed: Weighed[] = rows.map((r, i) => ({
     candidate: r.candidate,
-    lines: linesFor(i + 1, r.candidate, { search: r.found, flag: flags?.[r.candidate.subjectId], signal: byQuery.get(queryKey(r.candidate.question)), now }),
+    lines: linesFor(i + 1, r.candidate, {
+      search: r.found,
+      flag: flags?.[r.candidate.subjectId],
+      signal: byQuery.get(queryKey(r.candidate.question)),
+      searchConsole: searchConsoleLines(r.candidate, planning),
+      now,
+    }),
   }));
   if (!searched) missing.push("Brand search isn't on for this brand, so what it already made wasn't weighed.");
 
@@ -255,7 +270,13 @@ export async function pickNextUp(
       candidates: untag(weighed.map((w, k) => [`${k + 1}. "${w.candidate.question}" (subject: ${w.candidate.subjectName})`, ...w.lines.map((l) => `${l.id} ${l.text}`)].join("\n")).join("\n\n")),
     });
     const timeoutMs = Math.min(PICK_MS, opts.deadlineMs - Date.now() - 2_000);
-    const raw = await (deps.generate ?? generateTextWithDeadline)(prompt, { timeoutMs, json: true, temperature: 0.3, thinkingBudget: 512 }).catch(() => null);
+    const raw = await (deps.generate ?? generateTextWithDeadline)(prompt, {
+      timeoutMs,
+      json: true,
+      temperature: 0.3,
+      thinkingBudget: 512,
+      usage: aiUsage(ctx, "next_up", { db: deps.db, tenant }),
+    }).catch(() => null);
     picks = readPicks(raw, weighed, names);
   }
   // Too few that hold: fill with the least answered, said plainly.

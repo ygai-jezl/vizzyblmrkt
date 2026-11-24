@@ -5,6 +5,7 @@ import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { isBrandColorsEnabled, isBrandKitLogosEnabled } from "@/lib/content/brandKit";
 import { getLogo, getPrimaryLogo, listLogos } from "@/lib/admin/brandLogos";
 import { readBrandLogo } from "@/lib/tenant/brandLogo";
+import { aiUsage } from "@/lib/plans/meter";
 import {
   extractPaletteFromImageBytes,
   IMAGE_PALETTE_MIME,
@@ -50,6 +51,7 @@ export async function POST(req: Request) {
   const candidates = await extractPaletteFromImageBytes(
     asset.bytes.toString("base64"),
     asset.contentType,
+    { usage: aiUsage(ctx, "brand_kit") },
   );
   if (!candidates) return NextResponse.json({ error: "extraction_failed" }, { status: 502 });
 

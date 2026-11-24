@@ -19,6 +19,7 @@ import type { BrandMapPage } from "@/lib/types/brandMapPage";
 import type { BrandSignal } from "@/lib/types/brandSignal";
 import type { Tenant } from "@/lib/types/tenant";
 import { learnedLines } from "@/lib/autopilot/learned";
+import { readSearchPlanning, searchConsoleLines, type SearchPlanning } from "@/lib/connectors/signals/planning";
 
 /**
  * The context pack (BRAND_CONTEXT_ENABLED): everything the brand knows about one question,
@@ -31,7 +32,8 @@ import { learnedLines } from "@/lib/autopilot/learned";
  *   yours     what the brand already made that is closest (brand search: words and meaning)
  *   theirs    what competitors wrote: the subject's flag, angles taken, whether any answers it
  *   research  earlier Google lookups and PDF research near the question
- *   numbers   what Google shows for it (DataForSEO)
+ *   numbers   what Google shows for it (DataForSEO), and Search Console's collected demand for its
+ *             words and its subject, from connections members and Vizzy may both read
  *   learned   what the brand skipped or changed before (next PR)
  *
  * Text under `theirs` and `research` comes from other people's pages: data, never instructions.
@@ -54,7 +56,15 @@ export interface ContextPack {
   numbers: PackLine[];
   learned: PackLine[];
   /** The numbers on their own, each with a meaning in src/lib/metrics/meanings.ts. */
-  figures: { googlePosition?: number | null; peopleAlsoAsk?: number; aiOverviewSources?: number };
+  figures: {
+    googlePosition?: number | null;
+    peopleAlsoAsk?: number;
+    aiOverviewSources?: number;
+    /** Search Console (collected), for the search with the question's own words, over 28 days. */
+    searchClicks?: number;
+    searchImpressions?: number;
+    searchPosition?: number;
+  };
   /** What the pack couldn't see, in words. */
   missing: string[];
 }
@@ -73,6 +83,8 @@ export interface PackDeps {
   flags?: (ctx: TenantContext) => Promise<Record<string, { they: number; flag: CoverageFlag }> | null>;
   competitors?: (ctx: TenantContext, ask: { subjectId?: string | null; text?: string | null }) => Promise<CompetitorContext | null>;
   uncovered?: (ctx: TenantContext, qs: Array<{ id: string; text: string }>, minSim: number) => Promise<string[] | null>;
+  /** Search Console's collected demand (CONNECTOR_SIGNALS_ENABLED); null while off. */
+  searchPlanning?: (ctx: TenantContext) => Promise<SearchPlanning | null>;
 }
 
 /** Lines per part, at most: the pack stays a few hundred words. */
@@ -200,6 +212,24 @@ function numberLines(sig: BrandSignal | null): { lines: PackLine[]; figures: Con
   return { lines, figures: { googlePosition: n.googlePosition, peopleAlsoAsk: n.peopleAlsoAsk, aiOverviewSources: n.aiOverviewSources } };
 }
 
+/** Where Search Console's lines say they came from. */
+export const SEARCH_CONSOLE_SOURCE = "Search Console (collected)";
+/** What the pack says when Search Console isn't used for planning. */
+export const NOT_SHARED_PACK = "Search Console isn't shared with the team and Vizzy, so its numbers aren't here.";
+
+/** Search Console's lines for a question and its subject, and the exact search's numbers as figures. */
+export function searchConsolePart(ask: { questionId: string | null; subjectId: string | null }, planning: SearchPlanning | null): { lines: PackLine[]; figures: ContextPack["figures"] } {
+  const lines = searchConsoleLines(ask, planning);
+  const exact = lines.find((l) => l.kind === "exact");
+  const figures: ContextPack["figures"] = {};
+  if (exact) {
+    if (typeof exact.m.searchClicks === "number") figures.searchClicks = exact.m.searchClicks;
+    if (typeof exact.m.searchImpressions === "number") figures.searchImpressions = exact.m.searchImpressions;
+    if (typeof exact.m.searchPosition === "number") figures.searchPosition = Math.round(exact.m.searchPosition * 10) / 10;
+  }
+  return { lines: lines.map((l) => ({ text: l.text, source: SEARCH_CONSOLE_SOURCE })), figures };
+}
+
 /** The context pack for a question (by map id, or just its words) or a subject. */
 export async function contextPack(ctx: TenantContext, ask: PackAsk, deps: PackDeps = {}): Promise<ContextPack> {
   const missing: string[] = [];
@@ -225,7 +255,7 @@ export async function contextPack(ctx: TenantContext, ask: PackAsk, deps: PackDe
   }
 
   const tenantP = (deps.loadTenant ?? getTenantById)(ctx.tenantId).catch(() => null);
-  const [found, flags, theirs, uncovered, signal] = await Promise.all([
+  const [found, flags, theirs, uncovered, signal, planning] = await Promise.all([
     query ? (deps.search ?? ((c, q, o) => searchBrand(c, q, o)))(ctx, query, { limit: SEARCH_LIMIT }).catch(() => null) : Promise.resolve(null),
     subjectId ? (deps.flags ?? ((c) => competitorSubjectFlags(c, { db: deps.db })))(ctx).catch(() => null) : Promise.resolve(null),
     (deps.competitors ?? ((c, a) => competitorContext(c, a, { db: deps.db })))(ctx, { subjectId, text: query || null }).catch(() => null),
@@ -233,6 +263,7 @@ export async function contextPack(ctx: TenantContext, ask: PackAsk, deps: PackDe
     query && isBrandSignalsEnabled()
       ? tenantP.then((t) => signalFor(ctx, query, brandMarket(t?.searchMarket), { db: deps.db })).catch(() => null)
       : Promise.resolve(null),
+    (deps.searchPlanning ?? ((c) => readSearchPlanning(c, { db: deps.db })))(ctx).catch(() => null),
   ]);
 
   // Yours and research: one brand search answers both (and adds competitor articles to theirs).
@@ -271,11 +302,13 @@ export async function contextPack(ctx: TenantContext, ask: PackAsk, deps: PackDe
   // Learned: what the brand's people skipped, moved or added back before (CREATE_AUTOPILOT_LEARNING_ENABLED).
   pack.learned = (await learnedLines(ctx, { text: query, limit: PART_MAX }, { db: deps.db }).catch(() => [] as string[])).map((text) => ({ text, source: "Learned list" }));
 
-  // Numbers.
+  // Numbers: Search Console's collected demand first (at most two lines), then Google's results.
   const nums = numberLines(signal);
-  pack.numbers = nums.lines.slice(0, PART_MAX);
-  pack.figures = nums.figures;
-  if (!pack.numbers.length) missing.push(isBrandSignalsEnabled() ? "This question hasn't been looked up on Google yet." : "Google lookups aren't on.");
+  const sc = searchConsolePart({ questionId, subjectId }, planning);
+  pack.numbers = [...sc.lines, ...nums.lines].slice(0, PART_MAX);
+  pack.figures = { ...nums.figures, ...sc.figures };
+  if (!nums.lines.length) missing.push(isBrandSignalsEnabled() ? "This question hasn't been looked up on Google yet." : "Google lookups aren't on.");
+  if (planning?.notShared) missing.push(NOT_SHARED_PACK);
   return pack;
 }
 

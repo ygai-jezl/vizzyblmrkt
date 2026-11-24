@@ -59,6 +59,7 @@ export const CORE_SECRETS = [
   { name: "unsubscribe-signing-key", env: "UNSUBSCRIBE_SIGNING_KEY", encoding: "base64" },
   { name: "invite-link-signing-key", env: "INVITE_LINK_SIGNING_KEY", encoding: "base64" },
   { name: "canvas-context-signing-key", env: "CANVAS_CONTEXT_SIGNING_KEY", encoding: "base64" },
+  { name: "connectors-vault-key", env: "CONNECTORS_VAULT_KEY", encoding: "base64" },
 ];
 
 /**
@@ -133,6 +134,32 @@ export const KEPT_OFF = {
   SEARCH_RERANK_ENABLED: { addon: null, why: "reorders US brands' results with Google's Ranking API; needs the Discovery Engine API and discoveryengine.rankingConfigs.rank for the runtime service account" },
   NEXT_PUBLIC_SEARCH_ENABLED: { addon: "search", why: "needs the search databases (Firestore Enterprise)" },
   VIZZY_SEARCH_ENABLED: { addon: "search", why: "Vizzy searching the brand needs the search databases and the agent" },
+  CONNECTORS_ENABLED: { addon: null, why: "connected data is new: turn it on by hand" },
+  NEXT_PUBLIC_CONNECTORS_ENABLED: { addon: null, why: "connected data is new: turn it on by hand" },
+  CONNECTOR_CLOUDFLARE_ENABLED: { addon: null, why: "connected data is new: turn it on by hand" },
+  CONNECTOR_SEARCH_CONSOLE_ENABLED: { addon: null, why: "needs a Google OAuth client or the identities project (docs/self-host.md, Connect Google data on your own copy)" },
+  CONNECTOR_GA4_ENABLED: { addon: null, why: "needs the identities project, or a Google OAuth client with CONNECTOR_GA4_SIGNIN_ENABLED (docs/self-host.md, Google Analytics and share access)" },
+  CONNECTOR_GA4_SIGNIN_ENABLED: {
+    addon: null,
+    why: "Google Analytics by Sign in needs Google's review of your app's sensitive permission first (docs/self-host.md, Google Analytics and share access)",
+  },
+  CONNECTORS_CHAT_ENABLED: { addon: "vizzy", why: "Vizzy reading connected data needs the agent, redeployed with its connector tools" },
+  CONNECTOR_GOOGLE_REVOKE_ENABLED: {
+    addon: null,
+    why: "Disconnect would end every connection the same Google account made, for every brand; turn it on after checking that",
+  },
+  CONNECTORS_COLLECT_ENABLED: {
+    addon: null,
+    why: "collects each connection's numbers once a day; run infra/lifecycle/setup.sh ttl and deploy the index file without --force first (docs/self-host.md, Upgrading to collected numbers)",
+  },
+  CONNECTORS_SEARCH_TEXT_ENABLED: {
+    addon: "search",
+    why: "Search Console's searches in brand search need the search databases, and do nothing until CONNECTORS_COLLECT_ENABLED is on",
+  },
+  CONNECTOR_SIGNALS_ENABLED: {
+    addon: null,
+    why: "suggestions from collected numbers do nothing until CONNECTORS_COLLECT_ENABLED is on, need the agent action indexes READY and the data_signals time to live, and come only from connections Vizzy may read (docs/self-host.md, Upgrading to collected numbers)",
+  },
   ANALYTICS_BQ_ENABLED: { addon: "bigquery", why: "needs the BigQuery datasets and export extensions" },
   NEXT_PUBLIC_ANALYTICS_BQ_ENABLED: { addon: "bigquery", why: "needs the BigQuery datasets and export extensions" },
 };

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 
 interface Status {
   label: string;
@@ -93,9 +94,9 @@ export function GitConnectHint({ provider }: { provider: "github" | "gitlab" }) 
               {canEdit ? (
                 <>
                   :{" "}
-                  <a href="/admin/account/connections" className="underline">
+                  <Link href="/admin/account/connections" className="underline">
                     choose repositories
-                  </a>{" "}
+                  </Link>{" "}
                   to ingest private ones
                 </>
               ) : null}

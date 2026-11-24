@@ -60,6 +60,17 @@ const EVERYDAY = new Set(
   ).split(" "),
 );
 
+/** What the scrubber puts in place of what it takes out: `[name]`, `[email]` and `[id]`. */
+const SCRUBBED_MARK = /\[(?:name|email|id)\]/i;
+
+/**
+ * Whether a string holds one of the scrubber's marks. A value Vizzy writes back with one is refused,
+ * so a scrubbed value it read can never be saved over the real one.
+ */
+export function holdsScrubbedMark(value: string): boolean {
+  return SCRUBBED_MARK.test(value);
+}
+
 export interface IdentityScrubber {
   /** The string with the person taken out. `hidden` collects the words that went as their name. */
   (value: string, hidden?: Set<string>): string;

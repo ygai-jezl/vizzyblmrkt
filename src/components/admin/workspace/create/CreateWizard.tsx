@@ -44,6 +44,21 @@ const NO_SUBJECT = "none";
 /** "Not one situation" in the buying situations list. */
 const NO_SITUATION = "none";
 
+/**
+ * Plan an article from a suggestion your numbers made (CONNECTOR_SIGNALS_ENABLED): a page losing
+ * Google clicks (its path, and its address as the hub), or a search more people make.
+ */
+export interface NumbersPrefill {
+  kind: "page" | "search";
+  text: string;
+  hub: string | null;
+}
+
+/** The line above the wizard for it. */
+export function numbersBanner(p: NumbersPrefill): string {
+  return p.kind === "page" ? `Writing next from your numbers: fewer Google clicks to ${p.text}.` : `Writing next from your numbers: more people search “${p.text}”.`;
+}
+
 /** A buying situation a new article can be for. */
 type SituationChoice = { id: string; text: string; who: string; focus: boolean };
 
@@ -57,6 +72,7 @@ export function CreateWizard({
   situations: situationsOn = false,
   prefillSituation = null,
   prefillAsks = null,
+  prefillNumbers = null,
   suggestAngle = false,
   onCreated,
   onCancel,
@@ -72,6 +88,8 @@ export function CreateWizard({
   prefill?: WriteNext | null;
   /** What buyers ask, from Next up's sort. */
   prefillAsks?: string | null;
+  /** Plan an article from a suggestion your numbers made. */
+  prefillNumbers?: NumbersPrefill | null;
   /** Buying situations are on: a blog article can be for one. */
   situations?: boolean;
   /** "Write this next" from a buying situation: the article is for it. */
@@ -82,10 +100,10 @@ export function CreateWizard({
   onCancel: () => void;
 }) {
   const [step, setStep] = useState(0);
-  const [name, setName] = useState(prefill ? prefill.question.slice(0, 200) : "");
-  const [objective, setObjective] = useState<ContentObjective>(prefill ? "brand_visibility" : "newsletter_signups");
+  const [name, setName] = useState(prefill ? prefill.question.slice(0, 200) : (prefillNumbers?.text.slice(0, 200) ?? ""));
+  const [objective, setObjective] = useState<ContentObjective>(prefill || prefillNumbers ? "brand_visibility" : "newsletter_signups");
   const [sequenceType, setSequenceType] = useState<SequenceType>("welcome");
-  const [hubUrl, setHubUrl] = useState("");
+  const [hubUrl, setHubUrl] = useState(prefillNumbers?.hub ?? "");
   const [subscriberCount, setSubscriberCount] = useState("");
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
   const [spark, setSpark] = useState("");
@@ -98,11 +116,11 @@ export function CreateWizard({
   const autoSuggested = useRef(false);
   const [groundingScope, setGroundingScope] = useState<"global" | "scoped">("global");
   const [proof, setProof] = useState("");
-  const [hubChannel, setHubChannel] = useState<"newsletter" | "blog">(prefill ? "blog" : "newsletter");
+  const [hubChannel, setHubChannel] = useState<"newsletter" | "blog">(prefill || prefillNumbers ? "blog" : "newsletter");
   const [spokeChannels, setSpokeChannels] = useState<string[]>(["linkedin", "x"]);
   const [isEbook, setIsEbook] = useState(false);
   const [industryLens, setIndustryLens] = useState("");
-  const [blogQuestion, setBlogQuestion] = useState(prefill?.question ?? "");
+  const [blogQuestion, setBlogQuestion] = useState(prefill?.question ?? (prefillNumbers?.kind === "search" ? prefillNumbers.text : ""));
   const [blogBuyerQuestions, setBlogBuyerQuestions] = useState(prefillAsks ?? "");
   // The brand map subject: "" = research picks one, NO_SUBJECT = none of them. And the map
   // question the article answers ("Write this next"), kept while it is on that subject.
@@ -324,6 +342,8 @@ export function CreateWizard({
           <p className="rounded-md bg-neutral-50 p-3 text-xs text-neutral-600 dark:bg-neutral-900/40 dark:text-neutral-300">
             Writing next from your brand map: “{prefill.question}” ({prefill.subjectName}).
           </p>
+        ) : prefillNumbers ? (
+          <p className="rounded-md bg-neutral-50 p-3 text-xs text-neutral-600 dark:bg-neutral-900/40 dark:text-neutral-300">{numbersBanner(prefillNumbers)}</p>
         ) : null}
         {/* Step 0 — Strategy */}
         {step === 0 ? (

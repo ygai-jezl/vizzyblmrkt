@@ -1,4 +1,5 @@
 import { forTenant, getTenantById } from "@/lib/tenant";
+import { aiUsage } from "@/lib/plans/meter";
 import type { TenantContext, FirestoreLike } from "@/lib/tenant/types";
 import type { EmailJob } from "@/lib/types/emailJob";
 import type { Company } from "@/lib/types/company";
@@ -127,7 +128,15 @@ export async function processContactEnrichJob(
     // Localize the enrichment prose to the brand's default content language
     // (independent of `region`); unset ⇒ English.
     language: tenant?.defaultLocale ?? null,
+    usage: aiUsage(ctx, "enrichment", { tenant }),
   });
+
+  // The brand's web searches for research are used up this month: back in line, and tried again later.
+  if (result.reason === "search_limit") {
+    await repo.companies.update(companyId, { enrichmentStatus: "pending", lastError: "search_limit" });
+    await associateContacts(repo, company);
+    return "drop";
+  }
 
   if (result.source === "agent1" && result.profile) {
     const profile = result.profile;

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { generateGroundedText, generateTextWithDeadline, parseFirstJson } from "@/lib/agents/gemini";
+import { generateGroundedText, generateTextWithDeadline, isSearchLimited, parseFirstJson, type AiUsage, type SearchLimited } from "@/lib/agents/gemini";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { stripFenceDelimiters } from "@/lib/content/create/siteText";
 import { aiTellsIn } from "@/lib/content/writingRules";
@@ -17,8 +17,8 @@ import type { SiteDiff } from "./diff";
  */
 
 export interface AnalyseDeps {
-  generate?: (prompt: string, opts: { timeoutMs: number; json: boolean; thinkingBudget?: number }) => Promise<string | null>;
-  grounded?: (prompt: string, opts: { timeoutMs: number; thinkingBudget?: number }) => Promise<{ text: string } | null>;
+  generate?: (prompt: string, opts: { timeoutMs: number; json: boolean; thinkingBudget?: number; usage: AiUsage }) => Promise<string | null>;
+  grounded?: (prompt: string, opts: { timeoutMs: number; thinkingBudget?: number; usage: AiUsage }) => Promise<{ text: string } | SearchLimited | null>;
 }
 
 /** Thinking is capped so a call fits the step's time. */
@@ -68,11 +68,13 @@ export function readFoundLines(text: string, site: string): SearchFound {
 export async function searchForSite(
   input: { name: string; website: string; site: string },
   timeoutMs: number,
+  usage: AiUsage,
   deps: AnalyseDeps = {},
 ): Promise<SearchFound | null> {
   const prompt = renderPrompt("competitors.find_site", { name: input.name, website: input.website, site: input.site });
-  const res = await (deps.grounded ?? generateGroundedText)(prompt, { timeoutMs, thinkingBudget: THINKING });
-  if (!res) return null;
+  const res = await (deps.grounded ?? generateGroundedText)(prompt, { timeoutMs, thinkingBudget: THINKING, usage });
+  // At the month's web search cap, nothing was found: the usual fallbacks ask the person.
+  if (!res || isSearchLimited(res)) return null;
   return readFoundLines(res.text ?? "", input.site);
 }
 
@@ -110,7 +112,7 @@ export function plainAnalysis(stats: CompetitorStats, now: Date): CompetitorAnal
 }
 
 export async function labelSite(
-  input: { name: string; website: string; pages: BaselinePage[]; sections: SectionCount[]; candidates: NewsCandidate[] },
+  input: { name: string; website: string; pages: BaselinePage[]; sections: SectionCount[]; candidates: NewsCandidate[]; usage: AiUsage },
   timeoutMs: number,
   deps: AnalyseDeps = {},
 ): Promise<SiteLabels | null> {
@@ -125,7 +127,7 @@ export async function labelSite(
     samples: fenced([...samples].map(([s, keys]) => `${s}\n${keys.map((k) => `  ${k}`).join("\n")}`).join("\n")),
     news_candidates: fenced(input.candidates.map((c) => `${c.path}: ${c.pages}`).join("\n") || "(none)"),
   });
-  const raw = await (deps.generate ?? generateTextWithDeadline)(prompt, { timeoutMs, json: true, thinkingBudget: THINKING });
+  const raw = await (deps.generate ?? generateTextWithDeadline)(prompt, { timeoutMs, json: true, thinkingBudget: THINKING, usage: input.usage });
   if (!raw) return null;
   const parsed = Labels.safeParse(parseFirstJson(raw));
   if (!parsed.success) return null;
@@ -201,7 +203,7 @@ export function plainPostsHeadline(posts: PostForSummary[]): string {
 }
 
 export async function summarisePosts(
-  input: { name: string; posts: PostForSummary[] },
+  input: { name: string; posts: PostForSummary[]; usage: AiUsage },
   timeoutMs: number,
   deps: AnalyseDeps = {},
 ): Promise<ChangeWords> {
@@ -211,7 +213,7 @@ export async function summarisePosts(
     name: input.name,
     posts: fenced(input.posts.map((p) => `- ${p.title || p.url}${p.description ? `\n  ${p.description}` : ""}`).join("\n")),
   });
-  return words(await (deps.generate ?? generateTextWithDeadline)(prompt, { timeoutMs, json: true, thinkingBudget: THINKING })) ?? fallback;
+  return words(await (deps.generate ?? generateTextWithDeadline)(prompt, { timeoutMs, json: true, thinkingBudget: THINKING, usage: input.usage })) ?? fallback;
 }
 
 /** The headline when no model wrote one: pages added and removed, and where most were added. */
@@ -226,7 +228,7 @@ export function plainSiteHeadline(diff: Pick<SiteDiff, "added" | "removed">): st
 }
 
 export async function summariseSiteChange(
-  input: { name: string; website: string; before: number; after: number; diff: SiteDiff },
+  input: { name: string; website: string; before: number; after: number; diff: SiteDiff; usage: AiUsage },
   timeoutMs: number,
   deps: AnalyseDeps = {},
 ): Promise<ChangeWords> {
@@ -244,5 +246,5 @@ export async function summariseSiteChange(
     added: fenced(list(input.diff.added.sections)),
     removed: fenced(list(input.diff.removed.sections)),
   });
-  return words(await (deps.generate ?? generateTextWithDeadline)(prompt, { timeoutMs, json: true, thinkingBudget: THINKING })) ?? fallback;
+  return words(await (deps.generate ?? generateTextWithDeadline)(prompt, { timeoutMs, json: true, thinkingBudget: THINKING, usage: input.usage })) ?? fallback;
 }

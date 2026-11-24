@@ -40,6 +40,13 @@ env:
     value: global
     availability:
       - RUNTIME
+  # More memory for the build only. The type check in `next build` needs a little over the
+  # build machine's default 2 GB Node heap, and without this the build stops with "JavaScript
+  # heap out of memory". The running app is unchanged.
+  - variable: NODE_OPTIONS
+    value: --max-old-space-size=4096
+    availability:
+      - BUILD
 
   # ===== What your environment file sets =====
   # Nothing below is set here, because each value names one deployment. Put the ones you
@@ -95,6 +102,12 @@ env:
   #     GIT_TOKEN_ENC_KEY, SOCIAL_TOKEN_ENC_KEY                     secrets
   #     X_OAUTH_*, LINKEDIN_OAUTH_*, LINKEDIN_CM_*                  secrets
   #     MAILCHIMP_*                                                 secrets and settings
+  #     CONNECTORS_VAULT_KEY                                        secret, seals connected data tokens
+  #     CONNECTORS_VAULT_KEY_PREVIOUS                               secret, only while rotating it
+  #     CONNECTOR_GOOGLE_CLIENT_ID                                  your connectors Google client id
+  #     CONNECTOR_GOOGLE_CLIENT_SECRET                              secret, that client's secret
+  #     CONNECTORS_OAUTH_ORIGIN                                     https://app.example.com
+  #     CONNECTORS_IDENTITIES_PROJECT                               your identities project, for share access
   #   Analytics and the voice chat
   #     NEXT_PUBLIC_GA_MEASUREMENT_ID                               with NEXT_PUBLIC_GA_ENABLED
   #     GEMINI_LIVE_API_KEY                                         secret, for the voice chat
@@ -226,6 +239,19 @@ env:
       - RUNTIME
   # Settings, Plan and usage, and its help page.
   - variable: NEXT_PUBLIC_PLANS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # The usage meter: every paid resource a brand uses (web searches for research, AI model use,
+  # images, older counters) is counted per brand per month, and a capped one stops at its cap
+  # (src/lib/plans/meter.ts). Off: nothing is counted or capped.
+  - variable: USAGE_METER_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Its rows on Plan and usage, and their help.
+  - variable: NEXT_PUBLIC_USAGE_METER_ENABLED
     value: "false"
     availability:
       - BUILD
@@ -423,6 +449,13 @@ env:
   # and suggests changes that an admin confirms (needs AUDIENCE_FIELDS_ENABLED). Off in production
   # until the DPA.
   - variable: AUDIENCE_VIZZY_FIELDS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Vizzy also reads and suggests People text fields an admin ticked "Vizzy can read this field",
+  # scrubbed and cut to 500 characters; a kill switch for free text alone (needs
+  # AUDIENCE_VIZZY_FIELDS_ENABLED). Off in production until the DPA.
+  - variable: AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED
     value: "false"
     availability:
       - RUNTIME
@@ -1028,6 +1061,82 @@ env:
     availability:
       - RUNTIME
   - variable: TRENDING_TOPICS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+
+  # == Connectors ==
+  # Connected data (ADR-0011): the connector core, its routes and connection records, and
+  # every call to a provider. Off, every connector route answers 404 and sealed tokens stay
+  # sealed. Needs CONNECTORS_VAULT_KEY (a secret, by name in your environment file) to save.
+  - variable: CONNECTORS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # The Browse, Listing and Connected views (needs CONNECTORS_ENABLED).
+  - variable: NEXT_PUBLIC_CONNECTORS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Cloudflare with an API token (needs CONNECTORS_ENABLED).
+  - variable: CONNECTOR_CLOUDFLARE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Google Search Console by signing in with Google or by sharing access (needs
+  # CONNECTORS_ENABLED, plus CONNECTOR_GOOGLE_CLIENT_ID and the secret
+  # CONNECTOR_GOOGLE_CLIENT_SECRET, or CONNECTORS_IDENTITIES_PROJECT, in your environment file:
+  # a Google project of its own, docs/self-host.md).
+  - variable: CONNECTOR_SEARCH_CONSOLE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Google Analytics 4, by signing in with Google or by sharing access (needs CONNECTORS_ENABLED,
+  # plus the Google client above or CONNECTORS_IDENTITIES_PROJECT in your environment file).
+  - variable: CONNECTOR_GA4_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Google Analytics 4 by signing in with Google too (needs CONNECTOR_GA4_ENABLED and the Google
+  # client). Its permission is one Google treats as sensitive: leave it off until Google has
+  # reviewed your app, or people see Google's unverified app warning. Share access needs no review.
+  - variable: CONNECTOR_GA4_SIGNIN_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Vizzy lists connections and reads them live, only those an admin let Vizzy read (needs
+  # CONNECTORS_ENABLED and Vizzy, the agent, redeployed with its connector tools).
+  - variable: CONNECTORS_CHAT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Disconnect also revokes a Google sign in at Google. Leave it off unless you know no Google
+  # account signs in for two brands: Google's revoke ends every grant that account gave the app.
+  - variable: CONNECTOR_GOOGLE_REVOKE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Collected numbers (ADR-0012): each connection's numbers collected once a day and kept 90 days
+  # in the brand's region (needs CONNECTORS_ENABLED). Before turning it on, run
+  # infra/lifecycle/setup.sh ttl for the metric_snapshots time to live, and deploy the index file
+  # without --force (docs/self-host.md). Disconnect erases collected numbers whatever it says.
+  - variable: CONNECTORS_COLLECT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Search Console's top searches in brand search, found only by those who may read the
+  # connection (ADR-0013; needs CONNECTORS_COLLECT_ENABLED and SEARCH_INDEX_ENABLED).
+  - variable: CONNECTORS_SEARCH_TEXT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # What collected numbers suggest: rising searches, pages losing clicks and questions just off
+  # Google's first page, as brand map proposals, Review suggestions, Next up lines and context
+  # pack lines, from connections members and Vizzy may both read (needs CONNECTORS_COLLECT_ENABLED,
+  # the agent action indexes READY, infra/lifecycle/setup.sh ttl for data_signals, and
+  # CONNECTORS_CHAT_ENABLED so a connection can be shared with Vizzy).
+  - variable: CONNECTOR_SIGNALS_ENABLED
     value: "false"
     availability:
       - RUNTIME

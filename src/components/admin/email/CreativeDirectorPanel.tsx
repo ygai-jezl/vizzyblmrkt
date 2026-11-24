@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ImageStylePicker } from "@/components/admin/imageStyle/ImageStylePicker";
 import { isBrandImageStyleUiEnabled } from "@/lib/content/imageStyle/flags";
+import { IMAGE_LIMIT_MESSAGE } from "@/lib/plans/resources";
 
 /**
  * Agent 3 — Creative Director side-panel docked beside the email preview. Lets
@@ -20,6 +21,7 @@ const IMAGE_ERRORS: Record<string, string> = {
   no_asset_bucket: "Image storage isn't configured (EMAIL_ASSET_BUCKET).",
   store_failed: "The image was generated but couldn't be saved to storage. Try again.",
   image_model_unavailable: IMAGE_ERROR_DEFAULT,
+  image_limit: IMAGE_LIMIT_MESSAGE,
 };
 
 export function CreativeDirectorPanel({

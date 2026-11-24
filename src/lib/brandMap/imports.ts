@@ -1,5 +1,6 @@
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { generateTextWithFile, isGeminiConfigured } from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import { MAX_BRAND_PDF_BYTES, sniffPdf } from "@/lib/tenant/brandAsset";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
@@ -158,7 +159,7 @@ export async function readImport(ctx: TenantContext, input: { fileName: string; 
     category: identity?.category ? `, in the category "${identity.category.replace(/["\n]/g, " ").slice(0, 80)}"` : "",
     max: MAX_LINES,
   });
-  const text = await (deps.read ?? ((p: string, b64: string) => generateTextWithFile(p, b64, "application/pdf", { timeoutMs: READ_MS })))(prompt, input.bytes.toString("base64")).catch(
+  const text = await (deps.read ?? ((p: string, b64: string) => generateTextWithFile(p, b64, "application/pdf", { timeoutMs: READ_MS, usage: aiUsage(ctx, "brand_map_research", { db: deps.db }) })))(prompt, input.bytes.toString("base64")).catch(
     () => null,
   );
   const found = parseImportLines(text ?? "");

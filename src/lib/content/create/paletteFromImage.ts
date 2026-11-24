@@ -1,4 +1,4 @@
-import { generateTextWithImage, parseFirstJson } from "@/lib/agents/gemini";
+import { generateTextWithImage, parseFirstJson, type AiUsage } from "@/lib/agents/gemini";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { clampColors } from "./colorPalette";
 import type { PaletteColor } from "@/lib/types/tenant";
@@ -18,11 +18,13 @@ export const IMAGE_PALETTE_MAX_BYTES = 4 * 1024 * 1024;
 export async function extractPaletteFromImageBytes(
   base64: string,
   mimeType: string,
+  opts: { usage: AiUsage },
 ): Promise<PaletteColor[] | null> {
   const raw = await generateTextWithImage(
     renderPrompt("brand.extract_image_palette", {}),
     base64,
     mimeType,
+    { usage: opts.usage },
   );
   if (!raw) return null;
   const json = parseFirstJson(raw);

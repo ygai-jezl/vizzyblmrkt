@@ -31,6 +31,20 @@ import type { FirestoreLike } from "./types";
  *   day has passed.
  * - `ttl` is a Date a day after its last entry, for the TTL policy infra/lifecycle/setup.sh ttl
  *   turns on.
+ *
+ * Control plane collection `email_confirm_links`, one document per account, its id the Firebase
+ * user id: the emailed link that confirms the address instead of a code ("Email me a link
+ * instead", offered once the address is shut out of codes):
+ *
+ * - Only the SHA-256 of `uid:address:token` is stored (src/lib/auth/emailCode.ts), never the token
+ *   or the address, so a link works only for the account and address it was made for.
+ * - One live link per account: a new link replaces the old one. Codes and links don't touch each
+ *   other.
+ * - Valid for 30 minutes and used once: the caller deletes it once the account is confirmed, and a
+ *   check that finds it expired deletes it. It has 32 random bytes, so it needs no count of wrong
+ *   tries, and the wrong tries cap on codes never stops it. Its sends count toward the address's
+ *   6 sends an hour all the same (claimEmailCodeSend with via "link").
+ * - `ttl` is a Date at the expiry for the TTL policy infra/lifecycle/setup.sh ttl turns on.
  */
 
 export const EMAIL_CODES = "email_codes";
@@ -45,6 +59,10 @@ export const EMAIL_CODE_SENDS_PER_HOUR = 6;
 /** Wrong tries one address can make in a day, across codes and accounts, before it is shut out. */
 export const EMAIL_CODE_WRONG_PER_DAY = 15;
 
+export const EMAIL_LINKS = "email_confirm_links";
+/** How long an emailed link works after it is sent. */
+export const EMAIL_LINK_VALID_MS = 30 * 60_000;
+
 const HOUR_MS = 60 * 60_000;
 const DAY_MS = 24 * HOUR_MS;
 const HASH_RE = /^[0-9a-f]{64}$/;
@@ -52,7 +70,15 @@ const HASH_RE = /^[0-9a-f]{64}$/;
 export type EmailCodeCheck =
   | { ok: true }
   | { ok: false; why: "wrong"; attemptsLeft: number }
-  | { ok: false; why: "missing" | "expired" | "too_many" };
+  | { ok: false; why: "missing" | "expired" | "too_many" }
+  /**
+   * The address is shut out of codes for the day (EMAIL_CODE_WRONG_PER_DAY wrong tries).
+   * `justLocked` is true only for the wrong try that shut it out, so the caller logs each lock once.
+   */
+  | { ok: false; why: "locked"; justLocked: boolean };
+
+/** What checkEmailLink answers. The route says link_invalid for every refusal. */
+export type EmailLinkCheck = { ok: true } | { ok: false; why: "missing" | "expired" | "wrong" };
 
 interface Opts {
   now?: Date;
@@ -99,10 +125,14 @@ function guardDoc(sends: number[], wrong: number[], now: number): Record<string,
 
 /**
  * Count a send for an address (its SHA-256), in one transaction: refused once it has had
- * EMAIL_CODE_SENDS_PER_HOUR in the last hour, or EMAIL_CODE_WRONG_PER_DAY wrong tries in the last
- * day. Throws when the database does; the caller refuses the send then.
+ * EMAIL_CODE_SENDS_PER_HOUR in the last hour, codes and links together. A code is also refused
+ * ("shut_out") after EMAIL_CODE_WRONG_PER_DAY wrong tries in the last day; a link (`via: "link"`)
+ * isn't, since it can't be guessed. Throws when the database does; the caller refuses the send then.
  */
-export async function claimEmailCodeSend(addressKey: string, opts: Opts = {}): Promise<EmailCodeSendClaim> {
+export async function claimEmailCodeSend(
+  addressKey: string,
+  opts: Opts & { via?: "code" | "link" } = {},
+): Promise<EmailCodeSendClaim> {
   checkHash(addressKey);
   const now = (opts.now ?? new Date()).getTime();
   const db = opts.db ?? defaultDb();
@@ -110,7 +140,7 @@ export async function claimEmailCodeSend(addressKey: string, opts: Opts = {}): P
   return db.runTransaction(async (txn): Promise<EmailCodeSendClaim> => {
     const snap = await txn.get(ref);
     const { sends, wrong } = guardFields(snap.exists ? (snap.data() ?? null) : null, now);
-    if (wrong.length >= EMAIL_CODE_WRONG_PER_DAY) return "shut_out";
+    if (opts.via !== "link" && wrong.length >= EMAIL_CODE_WRONG_PER_DAY) return "shut_out";
     if (sends.length >= EMAIL_CODE_SENDS_PER_HOUR) return "too_many_sends";
     txn.set(ref, guardDoc([...sends, now], wrong, now));
     return "ok";
@@ -140,11 +170,12 @@ function sameHash(stored: string, candidate: string): boolean {
 
 /**
  * Check a typed code's hash against the account's live code, in one transaction:
+ *  - locked    the address (addressKey, its SHA-256) has had EMAIL_CODE_WRONG_PER_DAY wrong tries
+ *              in the last day, this one included when `justLocked`; any code is deleted
  *  - missing   no code (never sent, already used or deleted)
  *  - expired   past its 10 minutes; deleted
  *  - wrong     counted, with the tries left
- *  - too_many  this was the last wrong try, or the address (addressKey, its SHA-256) has had
- *              EMAIL_CODE_WRONG_PER_DAY wrong tries in the last day; deleted
+ *  - too_many  this was the code's last wrong try; deleted
  *  - ok        it matches. The code stays until the caller has confirmed the account and calls
  *              deleteEmailCode, so a failure in between can be retried with the same code.
  * Every wrong try is also counted against the address, whichever code or account it was for.
@@ -165,12 +196,12 @@ export async function checkEmailCode(
     const snap = await txn.get(ref);
     const guardSnap = await txn.get(guardRef);
     const data = snap.exists ? (snap.data() ?? null) : null;
-    if (!data || typeof data.hash !== "string" || !HASH_RE.test(data.hash)) return { ok: false, why: "missing" };
     const guard = guardFields(guardSnap.exists ? (guardSnap.data() ?? null) : null, now);
     if (guard.wrong.length >= EMAIL_CODE_WRONG_PER_DAY) {
-      txn.delete(ref);
-      return { ok: false, why: "too_many" };
+      if (snap.exists) txn.delete(ref);
+      return { ok: false, why: "locked", justLocked: false };
     }
+    if (!data || typeof data.hash !== "string" || !HASH_RE.test(data.hash)) return { ok: false, why: "missing" };
     const expiresAt = typeof data.expiresAt === "string" ? Date.parse(data.expiresAt) : Number.NaN;
     if (!(expiresAt > now)) {
       txn.delete(ref);
@@ -183,8 +214,12 @@ export async function checkEmailCode(
     }
     if (sameHash(data.hash, candidateHash)) return { ok: true };
     txn.set(guardRef, guardDoc(guard.sends, [...guard.wrong, now], now));
+    if (guard.wrong.length + 1 >= EMAIL_CODE_WRONG_PER_DAY) {
+      txn.delete(ref);
+      return { ok: false, why: "locked", justLocked: true };
+    }
     const tries = attempts + 1;
-    if (tries >= EMAIL_CODE_MAX_TRIES || guard.wrong.length + 1 >= EMAIL_CODE_WRONG_PER_DAY) {
+    if (tries >= EMAIL_CODE_MAX_TRIES) {
       txn.delete(ref);
       return { ok: false, why: "too_many" };
     }
@@ -198,4 +233,54 @@ export async function deleteEmailCode(uid: string, opts: Pick<Opts, "db"> = {}):
   checkUid(uid);
   const db = opts.db ?? defaultDb();
   await db.collection(EMAIL_CODES).doc(uid).delete();
+}
+
+/** Store a fresh link's hash for an account, replacing any link it had. Its code, if any, stays. */
+export async function putEmailLink(uid: string, hash: string, opts: Opts = {}): Promise<void> {
+  checkUid(uid);
+  checkHash(hash);
+  const now = opts.now ?? new Date();
+  const expiresAt = new Date(now.getTime() + EMAIL_LINK_VALID_MS);
+  const db = opts.db ?? defaultDb();
+  await db.collection(EMAIL_LINKS).doc(uid).set({
+    hash,
+    createdAt: now.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+    ttl: expiresAt,
+  });
+}
+
+/**
+ * Check an opened link's hash against the account's live link, in one transaction:
+ *  - missing  no link (never sent, already used, replaced by a newer one's hash, or deleted)
+ *  - expired  past its 30 minutes; deleted
+ *  - wrong    another link, or this link for another account or address; nothing changes
+ *  - ok       it matches. The link stays until the caller has confirmed the account and calls
+ *             deleteEmailLink, so a failure in between can be retried with the same link.
+ * The wrong tries cap on codes plays no part: a link can't be guessed.
+ */
+export async function checkEmailLink(uid: string, candidateHash: string, opts: Opts = {}): Promise<EmailLinkCheck> {
+  checkUid(uid);
+  checkHash(candidateHash);
+  const now = (opts.now ?? new Date()).getTime();
+  const db = opts.db ?? defaultDb();
+  const ref = db.collection(EMAIL_LINKS).doc(uid);
+  return db.runTransaction(async (txn): Promise<EmailLinkCheck> => {
+    const snap = await txn.get(ref);
+    const data = snap.exists ? (snap.data() ?? null) : null;
+    if (!data || typeof data.hash !== "string" || !HASH_RE.test(data.hash)) return { ok: false, why: "missing" };
+    const expiresAt = typeof data.expiresAt === "string" ? Date.parse(data.expiresAt) : Number.NaN;
+    if (!(expiresAt > now)) {
+      txn.delete(ref);
+      return { ok: false, why: "expired" };
+    }
+    return sameHash(data.hash, candidateHash) ? { ok: true } : { ok: false, why: "wrong" };
+  });
+}
+
+/** Remove an account's link (after it confirmed the account). Nothing there is fine. */
+export async function deleteEmailLink(uid: string, opts: Pick<Opts, "db"> = {}): Promise<void> {
+  checkUid(uid);
+  const db = opts.db ?? defaultDb();
+  await db.collection(EMAIL_LINKS).doc(uid).delete();
 }

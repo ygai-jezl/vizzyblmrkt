@@ -177,6 +177,8 @@ export async function newPasswordProblem(password: string, validate: PasswordVal
 export type SendCodeResult =
   | { kind: "sent"; resendAfter: number }
   | { kind: "already_verified" }
+  /** The address had too many wrong codes today: offer the link instead. */
+  | { kind: "locked" }
   | { kind: "rate_limited" }
   | { kind: "unavailable" }
   | { kind: "error" };
@@ -187,7 +189,30 @@ export type CheckCodeResult =
   | { kind: "wrong"; attemptsLeft: number | null }
   | { kind: "expired" }
   | { kind: "too_many" }
+  /** The address had too many wrong codes today: offer the link instead. */
+  | { kind: "locked" }
   | { kind: "invalid" }
+  | { kind: "rate_limited" }
+  | { kind: "unavailable" }
+  | { kind: "error" };
+
+/** The answer to "Email me a link instead" (POST /api/auth/email-code with via "link"). */
+export type SendLinkResult =
+  | { kind: "sent" }
+  | { kind: "already_verified" }
+  | { kind: "rate_limited" }
+  /** This copy has no address to put in a link (no platform origin). */
+  | { kind: "link_unavailable" }
+  | { kind: "unavailable" }
+  | { kind: "error" };
+
+/** The answer to opening a link on /login/confirm (PUT /api/auth/email-code with link). */
+export type CheckLinkResult =
+  | { kind: "ok" }
+  /** Expired, used, replaced, or for another account or address. */
+  | { kind: "invalid" }
+  /** The browser's sign-in can't use a link (not a password sign-in, or it has lapsed): sign in again. */
+  | { kind: "sign_in" }
   | { kind: "rate_limited" }
   | { kind: "unavailable" }
   | { kind: "error" };
@@ -214,7 +239,7 @@ export async function requestEmailCode(idToken: string): Promise<SendCodeResult>
       const after = typeof body.resendAfter === "number" && body.resendAfter >= 0 ? body.resendAfter : DEFAULT_RESEND_AFTER;
       return { kind: "sent", resendAfter: after };
     }
-    if (status === 429) return { kind: "rate_limited" };
+    if (status === 429) return body.error === "code_locked" ? { kind: "locked" } : { kind: "rate_limited" };
     if (status === 503) return { kind: "unavailable" };
     return { kind: "error" };
   } catch {
@@ -237,9 +262,42 @@ export async function checkEmailCode(idToken: string, code: string): Promise<Che
           return { kind: "expired" };
         case "code_too_many":
           return { kind: "too_many" };
+        case "code_locked":
+          return { kind: "locked" };
         case "invalid_input":
           return { kind: "invalid" };
       }
+    }
+    return { kind: "error" };
+  } catch {
+    return { kind: "error" };
+  }
+}
+
+/** Asks the server to email a link that confirms the signed-in password account. Never throws. */
+export async function requestEmailLink(idToken: string): Promise<SendLinkResult> {
+  try {
+    const { status, body } = await callEmailCode("POST", { idToken, via: "link" });
+    if (status === 200 && body.ok === true) return body.alreadyVerified === true ? { kind: "already_verified" } : { kind: "sent" };
+    if (status === 429) return { kind: "rate_limited" };
+    if (status === 503) return body.error === "link_unavailable" ? { kind: "link_unavailable" } : { kind: "unavailable" };
+    return { kind: "error" };
+  } catch {
+    return { kind: "error" };
+  }
+}
+
+/** Sends an opened link's token to the server to confirm the signed-in account. Never throws. */
+export async function checkEmailLink(idToken: string, link: string): Promise<CheckLinkResult> {
+  try {
+    const { status, body } = await callEmailCode("PUT", { idToken, link });
+    if (status === 200 && body.ok === true) return { kind: "ok" };
+    if (status === 401) return { kind: "sign_in" };
+    if (status === 429) return { kind: "rate_limited" };
+    if (status === 503) return { kind: "unavailable" };
+    if (status === 400) {
+      if (body.error === "link_invalid" || body.error === "invalid_input") return { kind: "invalid" };
+      if (body.error === "not_a_password_account") return { kind: "sign_in" };
     }
     return { kind: "error" };
   } catch {
@@ -274,6 +332,8 @@ export function sendCodeMessage(result: SendCodeResult): string | null {
     case "sent":
     case "already_verified":
       return null;
+    case "locked":
+      return AUTH_MESSAGES.codeLocked;
     case "rate_limited":
       return AUTH_MESSAGES.codeRateLimited;
     case "unavailable":
@@ -294,10 +354,29 @@ export function checkCodeMessage(result: CheckCodeResult): string | null {
       return AUTH_MESSAGES.codeExpired;
     case "too_many":
       return AUTH_MESSAGES.codeTooMany;
+    case "locked":
+      return AUTH_MESSAGES.codeLocked;
     case "invalid":
       return AUTH_MESSAGES.codeIncomplete;
     case "rate_limited":
       return AUTH_MESSAGES.tooManyTriesWait;
+    case "unavailable":
+      return AUTH_MESSAGES.passwordUnavailable;
+    case "error":
+      return AUTH_MESSAGES.somethingWentWrong;
+  }
+}
+
+/** What the code screen says after "Email me a link instead", or null when the link is on its way. */
+export function sendLinkMessage(result: SendLinkResult): string | null {
+  switch (result.kind) {
+    case "sent":
+    case "already_verified":
+      return null;
+    case "rate_limited":
+      return AUTH_MESSAGES.linkRateLimited;
+    case "link_unavailable":
+      return AUTH_MESSAGES.linkUnavailable;
     case "unavailable":
       return AUTH_MESSAGES.passwordUnavailable;
     case "error":
@@ -335,6 +414,23 @@ export function readResetLink(search: string): ResetLink {
   if (mode && mode !== "resetPassword") return { kind: "wrong_mode" };
   if (mode !== "resetPassword" || !oobCode) return { kind: "bad" };
   return { kind: "reset", oobCode };
+}
+
+/** The link's token, read from /login/confirm's fragment (#t=...). */
+export type ConfirmLink = { kind: "link"; token: string } | { kind: "bad" } | { kind: "empty" };
+
+const LINK_TOKEN_RE = /^[A-Za-z0-9_-]{20,100}$/;
+
+/**
+ * Reads the emailed link's token from the fragment (#t=...). The server never sees a fragment, so
+ * the token stays out of its logs and every Referer. "empty" is no fragment at all: the page took
+ * it out of the address bar, so a reload lands here while the link in the email still works.
+ */
+export function readConfirmLink(hash: string): ConfirmLink {
+  const raw = hash.startsWith("#") ? hash.slice(1) : hash;
+  if (!raw) return { kind: "empty" };
+  const token = new URLSearchParams(raw).get("t") ?? "";
+  return LINK_TOKEN_RE.test(token) ? { kind: "link", token } : { kind: "bad" };
 }
 
 /** Where a fresh sign-in goes: the checked ?next= path, else the admin home. */

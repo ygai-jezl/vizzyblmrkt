@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { isPasswordSigninAvailable } from "@/lib/auth/flags";
-import { confirmEmailCode, requestEmailCode, type EmailCodeAnswer } from "@/lib/auth/emailCode";
+import {
+  confirmEmailCode,
+  confirmEmailLink,
+  LINK_TOKEN_RE,
+  requestEmailCode,
+  requestEmailLink,
+  type EmailCodeAnswer,
+} from "@/lib/auth/emailCode";
 import { clientIp } from "@/lib/http/clientIp";
 import { readRequestTextCapped } from "@/lib/http/readBody";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
@@ -10,12 +17,17 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * The emailed code that confirms a password account (src/lib/auth/emailCode.ts).
- *  - POST { idToken }        send a code: 200 { ok: true, resendAfter: 30 } whether or not the
- *                            address may get in, or 200 { ok: true, alreadyVerified: true }
- *  - PUT  { idToken, code }  check it: 200 { ok: true }, or 400 code_wrong (with attemptsLeft),
- *                            code_expired or code_too_many
- * Both: 403 from the same-origin check, 503 password_signin_disabled while password sign-in is
+ * The emailed code, or link, that confirms a password account (src/lib/auth/emailCode.ts).
+ *  - POST { idToken }               send a code: 200 { ok: true, resendAfter: 30 } whether or not
+ *                                   the address may get in, or 200 { ok: true, alreadyVerified: true };
+ *                                   429 code_locked once the address had 15 wrong codes in a day
+ *  - POST { idToken, via: "link" }  send a link instead: 200 { ok: true, via: "link" } (or
+ *                                   alreadyVerified), even while codes are locked; 503
+ *                                   link_unavailable when this copy has no platform origin
+ *  - PUT  { idToken, code }         check a code: 200 { ok: true }, or 400 code_wrong (with
+ *                                   attemptsLeft), code_expired, code_too_many or code_locked
+ *  - PUT  { idToken, link }         open a link: 200 { ok: true }, or 400 link_invalid
+ * All: 403 from the same-origin check, 503 password_signin_disabled while password sign-in is
  * unavailable, 400 invalid_input, 401 invalid_id_token, 400 not_a_password_account,
  * 429 rate_limited.
  */
@@ -24,8 +36,12 @@ export const dynamic = "force-dynamic";
 const MAX_BODY_BYTES = 16_384;
 
 const IdToken = z.string().min(1).max(10_000);
-const SendBody = z.object({ idToken: IdToken });
-const CheckBody = z.object({ idToken: IdToken, code: z.string().regex(/^\d{6}$/) });
+const SendBody = z.object({ idToken: IdToken, via: z.enum(["code", "link"]).optional() });
+/** A code or a link, never both. */
+const CheckBody = z.union([
+  z.object({ idToken: IdToken, code: z.string().regex(/^\d{6}$/) }).strict(),
+  z.object({ idToken: IdToken, link: z.string().regex(LINK_TOKEN_RE) }).strict(),
+]);
 
 async function parse<T>(req: Request, schema: z.ZodType<T>): Promise<T | null> {
   const text = await readRequestTextCapped(req, MAX_BODY_BYTES);
@@ -60,20 +76,26 @@ async function answer(work: () => Promise<EmailCodeAnswer>): Promise<NextRespons
   }
 }
 
-/** Send a code to the signed-in password account's address. */
+/** Send a code, or a link, to the signed-in password account's address. */
 export async function POST(req: Request) {
   const stop = gate(req);
   if (stop) return stop;
   const body = await parse(req, SendBody);
   if (!body) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
-  return answer(() => requestEmailCode({ idToken: body.idToken, ip: clientIp(req.headers) }));
+  const input = { idToken: body.idToken, ip: clientIp(req.headers) };
+  return answer(() => (body.via === "link" ? requestEmailLink(input) : requestEmailCode(input)));
 }
 
-/** Check the code the account holder typed. */
+/** Check the code the account holder typed, or the link they opened. */
 export async function PUT(req: Request) {
   const stop = gate(req);
   if (stop) return stop;
   const body = await parse(req, CheckBody);
   if (!body) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
-  return answer(() => confirmEmailCode({ idToken: body.idToken, code: body.code, ip: clientIp(req.headers) }));
+  const ip = clientIp(req.headers);
+  return answer(() =>
+    "link" in body
+      ? confirmEmailLink({ idToken: body.idToken, link: body.link, ip })
+      : confirmEmailCode({ idToken: body.idToken, code: body.code, ip }),
+  );
 }

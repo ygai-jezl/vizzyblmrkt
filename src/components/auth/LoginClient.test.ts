@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AUTH_LABELS, AUTH_MESSAGES, codeSentMessage, resendInMessage, resetSentMessage } from "@/lib/auth/messages";
+import { AUTH_LABELS, AUTH_MESSAGES, codeSentMessage, linkSentMessage, resendInMessage, resetSentMessage, sendLinkInMessage } from "@/lib/auth/messages";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
 const { LoginClient } = await import("./LoginClient");
@@ -191,6 +191,52 @@ describe("the password screens", () => {
     const ready = html(createElement(CodeView, { ...props, resendIn: 0, selfServeSignup: true }));
     expect(ready).toContain(`>${AUTH_LABELS.resendCode}<`);
     expect(ready).toContain(AUTH_MESSAGES.codeHelpOpen);
+  });
+
+  it("the code screen, once codes are locked, offers only the link, then says where it went", () => {
+    const props = {
+      email: "alex@example.com", code: "", onCode: noop, busy: null, error: AUTH_MESSAGES.codeLocked, notice: null,
+      resendIn: 0, selfServeSignup: false, codesLocked: true, onSubmit: noop, onResend: noop, onEmailLink: noop, onStartAgain: noop,
+    } as const;
+    const view = html(createElement(CodeView, props));
+    expect(view).toContain(AUTH_MESSAGES.codeLocked);
+    expect(view).toMatch(/<button type="submit" disabled=""[^>]*>Email me a link instead<\/button>/);
+    // No code field and no Resend code: any code would be refused today.
+    expect(view).not.toContain("one-time-code");
+    expect(view).not.toContain(`>${AUTH_LABELS.resendCode}<`);
+    expect(view).not.toContain(codeSentMessage("alex@example.com"));
+    expect(view).toContain(AUTH_LABELS.startAgain);
+    expect(view).toContain(AUTH_MESSAGES.codeHelp);
+    const sentView = html(createElement(CodeView, { ...props, error: null, notice: linkSentMessage("alex@example.com") }));
+    expect(sentView).toContain(linkSentMessage("alex@example.com"));
+    expect(sentView).toContain(AUTH_MESSAGES.codeHelp);
+    // The link is unavailable here: say so, and the code help line stays.
+    const unavailable = html(createElement(CodeView, { ...props, error: AUTH_MESSAGES.linkUnavailable }));
+    expect(unavailable).toContain(AUTH_MESSAGES.linkUnavailable);
+    expect(unavailable).toContain(AUTH_MESSAGES.codeHelp);
+    // Without a way to send a link, the code screen stays as it was.
+    const noLink = html(createElement(CodeView, { ...props, onEmailLink: undefined }));
+    expect(noLink).toContain("one-time-code");
+  });
+
+  it("after a link is sent, waits before offering another, since a new link replaces it", () => {
+    const props = {
+      email: "alex@example.com", code: "", onCode: noop, busy: null, error: null, notice: linkSentMessage("alex@example.com"),
+      resendIn: 28, selfServeSignup: false, codesLocked: true, linkSent: true, onSubmit: noop, onResend: noop, onEmailLink: noop, onStartAgain: noop,
+    } as const;
+    const waiting = html(createElement(CodeView, props));
+    expect(waiting).toContain(sendLinkInMessage(28));
+    expect(waiting).toContain("Send another link in 0:28");
+    expect(waiting).not.toContain('type="submit"');
+    expect(waiting).not.toContain(AUTH_LABELS.emailLinkInstead);
+    expect(waiting).toContain(linkSentMessage("alex@example.com"));
+    expect(waiting).toContain(AUTH_LABELS.startAgain);
+    const ready = html(createElement(CodeView, { ...props, resendIn: 0 }));
+    expect(ready).toMatch(/<button type="submit" disabled=""[^>]*>Send another link<\/button>/);
+    expect(ready).not.toContain(AUTH_LABELS.emailLinkInstead);
+    // The wait before the first link is the code's, not the link's: the first link goes at once.
+    const first = html(createElement(CodeView, { ...props, linkSent: false, notice: null }));
+    expect(first).toMatch(/<button type="submit" disabled=""[^>]*>Email me a link instead<\/button>/);
   });
 
   it("forgot password shows the same answer for any address once sent", () => {

@@ -5,6 +5,8 @@ import {
   AUTH_LABELS,
   AUTH_MESSAGES,
   codeSentMessage,
+  EMAIL_LINK_EMAIL,
+  linkSentMessage,
   resendInMessage,
   resetForMessage,
   resetSentMessage,
@@ -16,6 +18,7 @@ import {
   authErrorMessage,
   checkCodeMessage,
   checkEmailCode,
+  checkEmailLink,
   cleanCode,
   DEFAULT_RESEND_AFTER,
   emailCodeChecker,
@@ -24,10 +27,13 @@ import {
   looksLikeEmail,
   newPasswordProblem,
   passwordLengthProblem,
+  readConfirmLink,
   readResetLink,
   requestEmailCode,
+  requestEmailLink,
   resetContinueUrl,
   sendCodeMessage,
+  sendLinkMessage,
   startPasswordBotChecks,
 } from "./passwordClient";
 
@@ -186,6 +192,8 @@ describe("the email code route", () => {
     await expect(requestEmailCode("t")).resolves.toEqual({ kind: "sent", resendAfter: DEFAULT_RESEND_AFTER });
     respond(429, { error: "rate_limited" });
     await expect(requestEmailCode("t")).resolves.toEqual({ kind: "rate_limited" });
+    respond(429, { error: "code_locked" });
+    await expect(requestEmailCode("t")).resolves.toEqual({ kind: "locked" });
     respond(503, { error: "password_signin_disabled" });
     await expect(requestEmailCode("t")).resolves.toEqual({ kind: "unavailable" });
     respond(400, { error: "not_a_password_account" });
@@ -212,6 +220,8 @@ describe("the email code route", () => {
     await expect(checkEmailCode("t", "000000")).resolves.toEqual({ kind: "expired" });
     respond(400, { error: "code_too_many" });
     await expect(checkEmailCode("t", "000000")).resolves.toEqual({ kind: "too_many" });
+    respond(400, { error: "code_locked" });
+    await expect(checkEmailCode("t", "000000")).resolves.toEqual({ kind: "locked" });
     respond(400, { error: "invalid_input" });
     await expect(checkEmailCode("t", "1")).resolves.toEqual({ kind: "invalid" });
     respond(429, { error: "rate_limited" });
@@ -258,6 +268,89 @@ describe("the email code route", () => {
     expect(checkCodeMessage({ kind: "too_many" })).toBe(AUTH_MESSAGES.codeTooMany);
     expect(checkCodeMessage({ kind: "invalid" })).toBe(AUTH_MESSAGES.codeIncomplete);
     expect(checkCodeMessage({ kind: "rate_limited" })).toBe(AUTH_MESSAGES.tooManyTriesWait);
+    expect(sendCodeMessage({ kind: "locked" })).toBe(AUTH_MESSAGES.codeLocked);
+    expect(checkCodeMessage({ kind: "locked" })).toBe(AUTH_MESSAGES.codeLocked);
+  });
+});
+
+describe("the email link", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const respond = (status: number, body: unknown) => {
+    const fetchMock = vi.fn(async () => new Response(typeof body === "string" ? body : JSON.stringify(body), { status }));
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  };
+  const TOKEN = "Zm9vYmFyYmF6cXV4cXV1eGNvcmdlZ3JhdWx0Z2FycGx5";
+
+  it("posts the ID token and via link to ask for one", async () => {
+    const fetchMock = respond(200, { ok: true, via: "link" });
+    await expect(requestEmailLink("id-token")).resolves.toEqual({ kind: "sent" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/auth/email-code",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ idToken: "id-token", via: "link" }) }),
+    );
+  });
+
+  it("reads each answer to a send", async () => {
+    respond(200, { ok: true, alreadyVerified: true });
+    await expect(requestEmailLink("t")).resolves.toEqual({ kind: "already_verified" });
+    respond(429, { error: "rate_limited" });
+    await expect(requestEmailLink("t")).resolves.toEqual({ kind: "rate_limited" });
+    respond(503, { error: "link_unavailable" });
+    await expect(requestEmailLink("t")).resolves.toEqual({ kind: "link_unavailable" });
+    respond(503, { error: "password_signin_disabled" });
+    await expect(requestEmailLink("t")).resolves.toEqual({ kind: "unavailable" });
+    respond(500, "not json");
+    await expect(requestEmailLink("t")).resolves.toEqual({ kind: "error" });
+    vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(new TypeError("offline"))));
+    await expect(requestEmailLink("t")).resolves.toEqual({ kind: "error" });
+  });
+
+  it("puts the ID token and the link to open one", async () => {
+    const fetchMock = respond(200, { ok: true });
+    await expect(checkEmailLink("id-token", TOKEN)).resolves.toEqual({ kind: "ok" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/auth/email-code",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ idToken: "id-token", link: TOKEN }) }),
+    );
+  });
+
+  it("reads each answer to opening one", async () => {
+    respond(400, { error: "link_invalid" });
+    await expect(checkEmailLink("t", TOKEN)).resolves.toEqual({ kind: "invalid" });
+    respond(400, { error: "invalid_input" });
+    await expect(checkEmailLink("t", TOKEN)).resolves.toEqual({ kind: "invalid" });
+    // Signed in some other way, or the sign-in lapsed: sign in with the password, then open it again.
+    respond(400, { error: "not_a_password_account" });
+    await expect(checkEmailLink("t", TOKEN)).resolves.toEqual({ kind: "sign_in" });
+    respond(401, { error: "invalid_id_token" });
+    await expect(checkEmailLink("t", TOKEN)).resolves.toEqual({ kind: "sign_in" });
+    respond(429, { error: "rate_limited" });
+    await expect(checkEmailLink("t", TOKEN)).resolves.toEqual({ kind: "rate_limited" });
+    respond(503, { error: "password_signin_disabled" });
+    await expect(checkEmailLink("t", TOKEN)).resolves.toEqual({ kind: "unavailable" });
+    respond(500, "not json");
+    await expect(checkEmailLink("t", TOKEN)).resolves.toEqual({ kind: "error" });
+  });
+
+  it("says the matching message for each send answer", () => {
+    expect(sendLinkMessage({ kind: "sent" })).toBeNull();
+    expect(sendLinkMessage({ kind: "already_verified" })).toBeNull();
+    expect(sendLinkMessage({ kind: "rate_limited" })).toBe(AUTH_MESSAGES.linkRateLimited);
+    expect(sendLinkMessage({ kind: "link_unavailable" })).toBe(AUTH_MESSAGES.linkUnavailable);
+    expect(sendLinkMessage({ kind: "unavailable" })).toBe(AUTH_MESSAGES.passwordUnavailable);
+    expect(sendLinkMessage({ kind: "error" })).toBe(AUTH_MESSAGES.somethingWentWrong);
+  });
+
+  it("reads the token from the fragment only", () => {
+    expect(readConfirmLink(`#t=${TOKEN}`)).toEqual({ kind: "link", token: TOKEN });
+    expect(readConfirmLink(`t=${TOKEN}`)).toEqual({ kind: "link", token: TOKEN });
+    expect(readConfirmLink("")).toEqual({ kind: "empty" });
+    expect(readConfirmLink("#")).toEqual({ kind: "empty" });
+    for (const hash of ["#t=", "#t=short", `#x=${TOKEN}`, `#t=${TOKEN}+`, `#t=${"a".repeat(101)}`]) {
+      expect(readConfirmLink(hash), hash).toEqual({ kind: "bad" });
+    }
   });
 });
 
@@ -303,6 +396,8 @@ describe("sign-in copy", () => {
     resetSentMessage("alex@example.com"),
     resetForMessage("alex@example.com"),
     resendInMessage(28),
+    linkSentMessage("alex@example.com"),
+    ...Object.values(EMAIL_LINK_EMAIL).map((v) => (typeof v === "function" ? v(30) : v)),
   ];
 
   it("keeps to house style: no dashes as punctuation, no AI tells", () => {

@@ -4,15 +4,20 @@ import { FakeFirestore } from "./testing/fakeFirestore";
 import { TenantValidationError } from "./errors";
 import {
   checkEmailCode,
+  checkEmailLink,
   claimEmailCodeSend,
   deleteEmailCode,
+  deleteEmailLink,
   EMAIL_CODE_GUARDS,
   EMAIL_CODE_MAX_TRIES,
   EMAIL_CODE_SENDS_PER_HOUR,
   EMAIL_CODE_VALID_MS,
   EMAIL_CODE_WRONG_PER_DAY,
   EMAIL_CODES,
+  EMAIL_LINK_VALID_MS,
+  EMAIL_LINKS,
   putEmailCode,
+  putEmailLink,
 } from "./emailCodes";
 
 const UID = "uidAlexExample0001";
@@ -145,15 +150,27 @@ describe("the per address guard", () => {
       for (let i = 0; i < 4 && wrong < EMAIL_CODE_WRONG_PER_DAY; i += 1) {
         const r = await checkEmailCode(uid, WRONG, { addressKey: ADDR, now: at(round * 60_000 + 1000), db });
         wrong += 1;
-        if (wrong === EMAIL_CODE_WRONG_PER_DAY) expect(r).toEqual({ ok: false, why: "too_many" });
+        // The wrong try that shuts the address out says so, once.
+        if (wrong === EMAIL_CODE_WRONG_PER_DAY) expect(r).toEqual({ ok: false, why: "locked", justLocked: true });
       }
     }
     expect(db.raw(EMAIL_CODE_GUARDS, ADDR)!.wrong).toHaveLength(15);
     // Shut out: no new code, and a code already stored can't be checked, even the right one.
     expect(await claimEmailCodeSend(ADDR, { now: at(2 * 60 * 60_000), db })).toBe("shut_out");
     await putEmailCode(UID, RIGHT, { now: at(2 * 60 * 60_000), db });
-    expect(await checkEmailCode(UID, RIGHT, { addressKey: ADDR, now: at(2 * 60 * 60_000 + 1000), db })).toEqual({ ok: false, why: "too_many" });
+    expect(await checkEmailCode(UID, RIGHT, { addressKey: ADDR, now: at(2 * 60 * 60_000 + 1000), db })).toEqual({
+      ok: false,
+      why: "locked",
+      justLocked: false,
+    });
     expect(db.raw(EMAIL_CODES, UID)).toBeUndefined();
+    // With no code stored at all, the answer is still locked, not missing.
+    expect(await checkEmailCode(UID, RIGHT, { addressKey: ADDR, now: at(2 * 60 * 60_000 + 2000), db })).toEqual({
+      ok: false,
+      why: "locked",
+      justLocked: false,
+    });
+    expect(db.raw(EMAIL_CODE_GUARDS, ADDR)!.wrong).toHaveLength(15);
     // Another address is untouched, and a day later this one can ask again.
     expect(await claimEmailCodeSend(hash("sam@example.com"), { now: at(2 * 60 * 60_000), db })).toBe("ok");
     expect(await claimEmailCodeSend(ADDR, { now: at(25 * 60 * 60_000), db })).toBe("ok");
@@ -185,7 +202,7 @@ describe("the per address guard", () => {
       for (let i = 1; i <= 4; i += 1) {
         const r = await checkEmailCode(UID, WRONG, { addressKey: ADDR, now: at(start + i * 10), db });
         checks += 1;
-        if (r.ok === false && r.why === "too_many") shutOut = true;
+        if (r.ok === false && r.why === "locked") shutOut = true;
       }
       if (round < 3) expect(await claimEmailCodeSend(ADDR, { now: at(start), db })).toBe("ok");
       else expect(await claimEmailCodeSend(ADDR, { now: at(start), db })).not.toBe("ok");
@@ -201,5 +218,125 @@ describe("the per address guard", () => {
     await putEmailCode(UID, RIGHT, { now: T0, db });
     expect(await checkEmailCode(UID, RIGHT, { addressKey: ADDR, now: at(1000), db })).toEqual({ ok: true });
     expect(db.raw(EMAIL_CODE_GUARDS, ADDR)).toBeUndefined();
+  });
+});
+
+describe("the lock and links", () => {
+  /** Shuts the address out with 15 wrong tries over 4 codes, each a minute apart. */
+  async function lockOut(): Promise<void> {
+    for (let i = 0; i < EMAIL_CODE_WRONG_PER_DAY; i += 1) {
+      if (i % 4 === 0) await putEmailCode(UID, RIGHT, { now: at(i * 1000), db });
+      await checkEmailCode(UID, WRONG, { addressKey: ADDR, now: at(i * 1000 + 500), db });
+    }
+  }
+
+  it("says justLocked for exactly one wrong try per lock, even with tries racing", async () => {
+    let justLocked = 0;
+    for (let i = 0; i < EMAIL_CODE_WRONG_PER_DAY - 1; i += 1) {
+      if (i % 4 === 0) await putEmailCode(UID, RIGHT, { now: at(i * 1000), db });
+      await checkEmailCode(UID, WRONG, { addressKey: ADDR, now: at(i * 1000 + 500), db });
+    }
+    await putEmailCode(UID, RIGHT, { now: at(20_000), db });
+    // Two tries race for the fifteenth: one commits first, the other runs again and finds the lock.
+    db.onBeforeCommit = async () => {
+      db.onBeforeCommit = undefined;
+      const r = await checkEmailCode(UID, WRONG, { addressKey: ADDR, now: at(21_000), db });
+      if (!r.ok && r.why === "locked" && r.justLocked) justLocked += 1;
+    };
+    const r = await checkEmailCode(UID, WRONG, { addressKey: ADDR, now: at(21_000), db });
+    if (!r.ok && r.why === "locked" && r.justLocked) justLocked += 1;
+    expect(r).toMatchObject({ ok: false, why: "locked" });
+    expect(justLocked).toBe(1);
+    expect(db.raw(EMAIL_CODE_GUARDS, ADDR)!.wrong).toHaveLength(15);
+  });
+
+  it("lets a link be sent while the address is shut out of codes", async () => {
+    await lockOut();
+    expect(await claimEmailCodeSend(ADDR, { now: at(60_000), db })).toBe("shut_out");
+    expect(await claimEmailCodeSend(ADDR, { now: at(60_000), db, via: "link" })).toBe("ok");
+    expect(await claimEmailCodeSend(ADDR, { now: at(61_000), db, via: "code" })).toBe("shut_out");
+  });
+
+  it("counts link sends toward the address's 6 sends an hour, with codes", async () => {
+    for (let i = 0; i < 3; i += 1) expect(await claimEmailCodeSend(ADDR, { now: at(i * 1000), db })).toBe("ok");
+    for (let i = 3; i < 6; i += 1) expect(await claimEmailCodeSend(ADDR, { now: at(i * 1000), db, via: "link" })).toBe("ok");
+    expect(await claimEmailCodeSend(ADDR, { now: at(10_000), db, via: "link" })).toBe("too_many_sends");
+    expect(await claimEmailCodeSend(ADDR, { now: at(10_000), db })).toBe("too_many_sends");
+    expect(db.raw(EMAIL_CODE_GUARDS, ADDR)!.sends).toHaveLength(6);
+  });
+
+  it("store only the link's hash, with a 30 minute expiry and a Date time to live", async () => {
+    expect(EMAIL_LINK_VALID_MS).toBe(30 * 60_000);
+    await putEmailLink(UID, RIGHT, { now: T0, db });
+    expect(db.raw(EMAIL_LINKS, UID)).toEqual({
+      hash: RIGHT,
+      createdAt: "2026-11-24T10:00:00.000Z",
+      expiresAt: "2026-11-24T10:30:00.000Z",
+      ttl: new Date("2026-11-24T10:30:00.000Z"),
+    });
+  });
+
+  it("accept the matching link until it is deleted, so it works once", async () => {
+    await putEmailLink(UID, RIGHT, { now: T0, db });
+    expect(await checkEmailLink(UID, RIGHT, { now: at(29 * 60_000), db })).toEqual({ ok: true });
+    expect(db.raw(EMAIL_LINKS, UID)).toBeDefined();
+    await deleteEmailLink(UID, { db });
+    expect(await checkEmailLink(UID, RIGHT, { now: at(29 * 60_000), db })).toEqual({ ok: false, why: "missing" });
+  });
+
+  it("refuse another link and change nothing, with no count of tries", async () => {
+    await putEmailLink(UID, RIGHT, { now: T0, db });
+    for (let i = 0; i < 20; i += 1) expect(await checkEmailLink(UID, WRONG, { now: at(1000), db })).toEqual({ ok: false, why: "wrong" });
+    expect(await checkEmailLink(UID, RIGHT, { now: at(2000), db })).toEqual({ ok: true });
+    expect(db.raw(EMAIL_CODE_GUARDS, ADDR)).toBeUndefined();
+  });
+
+  it("refuse an expired link and delete it", async () => {
+    await putEmailLink(UID, RIGHT, { now: T0, db });
+    expect(await checkEmailLink(UID, RIGHT, { now: at(EMAIL_LINK_VALID_MS), db })).toEqual({ ok: false, why: "expired" });
+    expect(db.raw(EMAIL_LINKS, UID)).toBeUndefined();
+  });
+
+  it("replace the old link on a new send", async () => {
+    await putEmailLink(UID, RIGHT, { now: T0, db });
+    const next = hash("next");
+    await putEmailLink(UID, next, { now: at(60_000), db });
+    expect(await checkEmailLink(UID, RIGHT, { now: at(61_000), db })).toEqual({ ok: false, why: "wrong" });
+    expect(await checkEmailLink(UID, next, { now: at(61_000), db })).toEqual({ ok: true });
+  });
+
+  it("keep codes and links apart: neither a new code nor a new link touches the other", async () => {
+    const link = hash("link");
+    await putEmailCode(UID, RIGHT, { now: T0, db });
+    await putEmailLink(UID, link, { now: at(1000), db });
+    await putEmailCode(UID, RIGHT, { now: at(2000), db });
+    expect(await checkEmailLink(UID, link, { now: at(3000), db })).toEqual({ ok: true });
+    expect(await checkEmailCode(UID, RIGHT, { addressKey: ADDR, now: at(3000), db })).toEqual({ ok: true });
+    await deleteEmailLink(UID, { db });
+    expect(db.raw(EMAIL_CODES, UID)).toBeDefined();
+  });
+
+  it("work while the address is shut out of codes", async () => {
+    await lockOut();
+    await putEmailLink(UID, RIGHT, { now: at(60_000), db });
+    expect(await checkEmailLink(UID, RIGHT, { now: at(61_000), db })).toEqual({ ok: true });
+  });
+
+  it("keep accounts apart, and treat a malformed stored link as none", async () => {
+    await putEmailLink(UID, RIGHT, { now: T0, db });
+    expect(await checkEmailLink("uidSamExample0002", RIGHT, { now: at(1000), db })).toEqual({ ok: false, why: "missing" });
+    db.seed(EMAIL_LINKS, UID, { hash: "not-a-hash", expiresAt: at(60_000).toISOString() });
+    expect(await checkEmailLink(UID, RIGHT, { now: T0, db })).toEqual({ ok: false, why: "missing" });
+  });
+
+  it("refuse a bad user id or hash", async () => {
+    for (const uid of ["", "a/b", "..", "__x__", "x".repeat(129)]) {
+      await expect(putEmailLink(uid, RIGHT, { db })).rejects.toBeInstanceOf(TenantValidationError);
+      await expect(checkEmailLink(uid, RIGHT, { db })).rejects.toBeInstanceOf(TenantValidationError);
+      await expect(deleteEmailLink(uid, { db })).rejects.toBeInstanceOf(TenantValidationError);
+    }
+    await expect(putEmailLink(UID, "a-plain-token", { db })).rejects.toBeInstanceOf(TenantValidationError);
+    await expect(checkEmailLink(UID, RIGHT.toUpperCase(), { db })).rejects.toBeInstanceOf(TenantValidationError);
+    expect(db.dump(EMAIL_LINKS)).toEqual([]);
   });
 });

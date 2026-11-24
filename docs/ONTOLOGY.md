@@ -1522,7 +1522,7 @@ Short lived counters that keep each brand and caller within its limits, keyed by
 
 ### Email code (`email_code`)
 
-The 6-digit code emailed to confirm a password account's address: one per account, kept as a hash with its count of tries for 10 minutes.
+The 6-digit code emailed to confirm a password account's address: one per account, kept as a hash with its count of tries for 10 minutes. Once an address is locked out of codes, a link emailed in its place, kept as a hash for 30 minutes.
 
 - Status: built
 - Home: the control plane
@@ -1530,7 +1530,8 @@ The 6-digit code emailed to confirm a password account's address: one per accoun
 - Stores:
   - `email_codes`, control plane Firestore, in `src/lib/tenant/emailCodes.ts`. Keyed by the account's Firebase user id; the code's SHA-256 and its tries, never the code or the address; deleted when used, on the fifth wrong try or when found expired, and removed by a time to live on ttl.
   - `email_code_guards`, control plane Firestore, in `src/lib/tenant/emailCodes.ts`. Keyed by the SHA-256 of the address, never the address; the times of its sends in the last hour and its wrong tries in the last day, across codes and accounts; removed by a time to live on ttl a day after the last.
-- Erase: none. Hashes with no address, removed by a time to live after 10 minutes, or a day for the per address counts.
+  - `email_confirm_links`, control plane Firestore, in `src/lib/tenant/emailCodes.ts`. Keyed by the account's Firebase user id; the SHA-256 of the emailed link sent in place of a code once the address is locked, never the link or the address; deleted when used or found expired, and removed by a time to live on ttl after 30 minutes.
+- Erase: none. Hashes with no address, removed by a time to live after 10 minutes (30 for a link), or a day for the per address counts.
 - Export: none. Hashes with no address.
 - Search: none. Codes.
 - Numbers: none. No numbers an agent reads.

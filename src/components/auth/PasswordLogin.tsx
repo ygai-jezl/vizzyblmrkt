@@ -14,7 +14,7 @@ import {
 import { accessDeniedMessage, WORKSPACE_NOT_SET_UP_MESSAGE } from "@/lib/auth/accessDenied";
 import { mintSession } from "@/lib/auth/clientSession";
 import { getClientAuth, googleProvider } from "@/lib/auth/firebaseClient";
-import { AUTH_MESSAGES, resetSentMessage } from "@/lib/auth/messages";
+import { AUTH_MESSAGES, linkSentMessage, resetSentMessage } from "@/lib/auth/messages";
 import {
   afterSignInPath,
   authErrorCode,
@@ -29,8 +29,10 @@ import {
   looksLikeEmail,
   newPasswordProblem,
   requestEmailCode,
+  requestEmailLink,
   resetContinueUrl,
   sendCodeMessage,
+  sendLinkMessage,
   startPasswordBotChecks,
   type SendCodeResult,
 } from "@/lib/auth/passwordClient";
@@ -62,6 +64,10 @@ export function PasswordLogin({ selfServeSignup, legal }: { selfServeSignup: boo
   const [codeFrom, setCodeFrom] = useState<"create" | "sign_in">("create");
   const [resendAt, setResendAt] = useState(0);
   const [now, setNow] = useState(0);
+  // The address had too many wrong codes today: the code screen offers a link instead.
+  const [codesLocked, setCodesLocked] = useState(false);
+  // A link is on its way: another waits as long as another code would, since a new link replaces it.
+  const [linkSent, setLinkSent] = useState(false);
   // Remembers an accepted code, so a retry after the door failed doesn't hear "expired".
   const [codeCheck] = useState(() => emailCodeChecker());
 
@@ -130,6 +136,12 @@ export function PasswordLogin({ selfServeSignup, legal }: { selfServeSignup: boo
         show("sign_in_again");
         setBusy(null);
         return;
+      case "address_updated":
+        // A renamed Google address: the move revoked this sign-in, so the next Google sign-in gets in.
+        await signOut(getClientAuth()).catch(() => undefined);
+        setPassword("");
+        show("sign_in");
+        return fail(AUTH_MESSAGES.googleAddressChanged);
       default:
         return fail(AUTH_MESSAGES.somethingWentWrong);
     }
@@ -145,6 +157,8 @@ export function PasswordLogin({ selfServeSignup, legal }: { selfServeSignup: boo
     setCodeEmail(user.email ?? email.trim());
     setCodeFrom(from);
     setCode("");
+    setCodesLocked(result.kind === "locked");
+    setLinkSent(false);
     waitBeforeResend(result.kind === "sent" ? result.resendAfter : DEFAULT_RESEND_AFTER);
     setView("code");
     setError(sendCodeMessage(result));
@@ -223,10 +237,12 @@ export function PasswordLogin({ selfServeSignup, legal }: { selfServeSignup: boo
       const result = await codeCheck.check(user.uid, () => user.getIdToken(), digits);
       if (result.kind !== "ok") {
         // A code that is used up can't be retried: clear it and offer a new one at once.
-        if (result.kind === "expired" || result.kind === "too_many") {
+        if (result.kind === "expired" || result.kind === "too_many" || result.kind === "locked") {
           setCode("");
           setResendAt(0);
         }
+        // No more codes today: offer the link in their place.
+        if (result.kind === "locked") setCodesLocked(true);
         return fail(checkCodeMessage(result));
       }
       // The check marked the account confirmed; a fresh token carries that to the door.
@@ -250,8 +266,33 @@ export function PasswordLogin({ selfServeSignup, legal }: { selfServeSignup: boo
         return await finish(user, true);
       }
       waitBeforeResend(result.kind === "sent" ? result.resendAfter : DEFAULT_RESEND_AFTER);
+      if (result.kind === "locked") setCodesLocked(true);
       setNotice(result.kind === "sent" ? AUTH_MESSAGES.codeResent : null);
       fail(sendCodeMessage(result));
+    } catch {
+      fail(AUTH_MESSAGES.somethingWentWrong);
+    }
+  }
+
+  /** Emails a link that confirms the address, once codes are locked for it. */
+  async function emailLink() {
+    const user = codeUser();
+    if (!user) return;
+    setBusy("form");
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await requestEmailLink(await user.getIdToken());
+      if (result.kind === "already_verified") {
+        await user.getIdToken(true);
+        return await finish(user, true);
+      }
+      if (result.kind === "sent") {
+        setLinkSent(true);
+        waitBeforeResend(DEFAULT_RESEND_AFTER);
+      }
+      setNotice(result.kind === "sent" ? linkSentMessage(codeEmail) : null);
+      fail(sendLinkMessage(result));
     } catch {
       fail(AUTH_MESSAGES.somethingWentWrong);
     }
@@ -264,6 +305,8 @@ export function PasswordLogin({ selfServeSignup, legal }: { selfServeSignup: boo
     setCode("");
     setPassword("");
     setResendAt(0);
+    setCodesLocked(false);
+    setLinkSent(false);
     show(codeFrom);
     setBusy(null);
   }
@@ -333,8 +376,11 @@ export function PasswordLogin({ selfServeSignup, legal }: { selfServeSignup: boo
             notice={notice}
             resendIn={resendIn}
             selfServeSignup={selfServeSignup}
+            codesLocked={codesLocked}
+            linkSent={linkSent}
             onSubmit={confirmCode}
             onResend={resendCode}
+            onEmailLink={emailLink}
             onStartAgain={startAgain}
           />
         );

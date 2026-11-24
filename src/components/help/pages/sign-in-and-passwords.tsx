@@ -82,6 +82,16 @@ export default function SignInAndPasswordsHelp() {
         private. Ask your admin to add your address, then press <strong>{AUTH_LABELS.resendCode}</strong>.
       </P>
 
+      <H2 id="link">{AUTH_LABELS.emailLinkInstead}</H2>
+      <P>
+        After 15 wrong codes for one address in a day, codes stop for that address for a day, whoever typed them. The code
+        screen then offers <strong>{AUTH_LABELS.emailLinkInstead}</strong>. Open the link in the email within 30 minutes, in
+        a browser where you&apos;re signed in to YouGrow with that address. If you aren&apos;t, the page asks for your email
+        and password first. The link works once, and only for your own account. A new link replaces the one before, so
+        the screen waits 30 seconds before it offers <strong>{AUTH_LABELS.sendAnotherLink}</strong>: give the first one a
+        moment to arrive.
+      </P>
+
       <H2 id="forgot">Forgot your password</H2>
       <Steps>
         <li>
@@ -163,7 +173,13 @@ export default function SignInAndPasswordsHelp() {
           [AUTH_MESSAGES.codeWrong, <>Check the latest email: a new code replaces the one before.</>],
           [AUTH_MESSAGES.codeExpired, <>Press {AUTH_LABELS.resendCode} and type the new code within 10 minutes.</>],
           [AUTH_MESSAGES.codeTooMany, <>Press {AUTH_LABELS.resendCode} for a new code.</>],
-          [AUTH_MESSAGES.codeRateLimited, <>Wait a few minutes, then ask for one more code. After 15 wrong codes in a day, an address gets no new code until a day has passed.</>],
+          [AUTH_MESSAGES.codeRateLimited, <>Wait a few minutes, then ask for one more code.</>],
+          [AUTH_MESSAGES.codeLocked, <>Press {AUTH_LABELS.emailLinkInstead}. See <Open href="/help/sign-in-and-passwords#link">{AUTH_LABELS.emailLinkInstead}</Open>.</>],
+          [AUTH_MESSAGES.linkRateLimited, <>Wait a few minutes, then press {AUTH_LABELS.emailLinkInstead} again. Codes and links together are limited to 6 an hour for each address.</>],
+          [AUTH_MESSAGES.linkUnavailable, <>Whoever runs your copy hasn&apos;t set its web address for links. Ask them, or wait a day and use a code.</>],
+          [AUTH_MESSAGES.confirmSignIn, <>The link works only in a browser signed in to your account. Type the email and password you created it with.</>],
+          [AUTH_MESSAGES.linkInvalid, <>Use the newest link, within 30 minutes, signed in with the address it was sent to. Or sign in and press {AUTH_LABELS.emailLinkInstead} for a new one.</>],
+          [AUTH_MESSAGES.linkReopen, <>The page takes the link out of the address bar, so reloading it loses the link. Open the link in the email again.</>],
           [AUTH_MESSAGES.resetLinkBad, <>Press {AUTH_LABELS.forgotPassword} on the sign-in page again, and use the newest email.</>],
           [AUTH_MESSAGES.resetLinkWrongMode, <>Press {AUTH_LABELS.forgotPassword} on the sign-in page for a new reset link.</>],
           [AUTH_MESSAGES.recoverLinkBad, <>You opened an older email telling you your sign-in email changed. If you didn&apos;t change it, your admin can put it back.</>],
@@ -176,6 +192,7 @@ export default function SignInAndPasswordsHelp() {
           [AUTH_MESSAGES.passwordUnavailable, <>Sign in with Google for now, or try again in a few minutes.</>],
           [AUTH_MESSAGES.passwordSigninOff, <>Whoever runs your copy hasn&apos;t turned password sign-in on. Use {AUTH_LABELS.google}.</>],
           [AUTH_MESSAGES.signInAgainTitle, <>See <Open href="/help/sign-in-and-passwords#sign-in-again">Please sign in again</Open>.</>],
+          [AUTH_MESSAGES.googleAddressChanged, <>Your team renamed your Google address. Moving your account to it signs you out on every device, so press {AUTH_LABELS.google} once more. Your brands and settings stay as they were.</>],
         ]}
       />
 

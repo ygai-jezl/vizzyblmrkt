@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, type ReactNode } from "react";
-import { AUTH_LABELS, AUTH_MESSAGES, codeSentMessage, resendInMessage } from "@/lib/auth/messages";
+import { AUTH_LABELS, AUTH_MESSAGES, codeSentMessage, resendInMessage, sendLinkInMessage } from "@/lib/auth/messages";
 import {
   AuthCard,
   CodeField,
@@ -167,28 +167,58 @@ export function CodeView(props: {
   /** Seconds until another code can be sent; 0 shows the Resend code button. */
   resendIn: number;
   selfServeSignup: boolean;
+  /**
+   * The address had too many wrong codes today (code_locked): no code field and no Resend code,
+   * only Email me a link instead. The error says why (AUTH_MESSAGES.codeLocked).
+   */
+  codesLocked?: boolean;
+  /**
+   * A link was sent: the button becomes Send another link, and waits resendIn seconds first,
+   * because a new link replaces the one on its way.
+   */
+  linkSent?: boolean;
   onSubmit: () => void;
   onResend: () => void;
+  /** Emails a link that confirms the address in place of a code. */
+  onEmailLink?: () => void;
   onStartAgain: () => void;
 }) {
   const locked = props.busy !== null;
+  const linkOnly = props.codesLocked === true && props.onEmailLink !== undefined;
   return (
-    <AuthCard title={AUTH_LABELS.codeTitle} lead={codeSentMessage(props.email)}>
-      <Form onSubmit={props.onSubmit}>
-        <CodeField value={props.code} onChange={props.onCode} disabled={locked} />
-        <PrimaryButton busy={props.busy === "form"} busyLabel={AUTH_LABELS.confirming} label={AUTH_LABELS.confirmEmail} disabled={locked} />
-      </Form>
+    <AuthCard title={AUTH_LABELS.codeTitle} lead={linkOnly ? undefined : codeSentMessage(props.email)}>
+      {linkOnly ? (
+        props.linkSent === true && props.resendIn > 0 ? (
+          <p className="text-center text-sm text-neutral-500 dark:text-neutral-400">{sendLinkInMessage(props.resendIn)}</p>
+        ) : (
+          <Form onSubmit={props.onEmailLink!}>
+            <PrimaryButton
+              busy={props.busy === "form"}
+              busyLabel={AUTH_LABELS.sending}
+              label={props.linkSent === true ? AUTH_LABELS.sendAnotherLink : AUTH_LABELS.emailLinkInstead}
+              disabled={locked}
+            />
+          </Form>
+        )
+      ) : (
+        <Form onSubmit={props.onSubmit}>
+          <CodeField value={props.code} onChange={props.onCode} disabled={locked} />
+          <PrimaryButton busy={props.busy === "form"} busyLabel={AUTH_LABELS.confirming} label={AUTH_LABELS.confirmEmail} disabled={locked} />
+        </Form>
+      )}
       <Messages error={props.error} notice={props.notice} />
       <Foot>
-        <p>
-          {props.resendIn > 0 ? (
-            resendInMessage(props.resendIn)
-          ) : (
-            <LinkButton onClick={props.onResend} disabled={locked}>
-              {AUTH_LABELS.resendCode}
-            </LinkButton>
-          )}
-        </p>
+        {linkOnly ? null : (
+          <p>
+            {props.resendIn > 0 ? (
+              resendInMessage(props.resendIn)
+            ) : (
+              <LinkButton onClick={props.onResend} disabled={locked}>
+                {AUTH_LABELS.resendCode}
+              </LinkButton>
+            )}
+          </p>
+        )}
         <p>
           {AUTH_LABELS.wrongAddress}{" "}
           <LinkButton onClick={props.onStartAgain} disabled={locked}>

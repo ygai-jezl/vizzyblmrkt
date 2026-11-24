@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isPasswordSigninEnabled } from "@/lib/auth/flags";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { workerSecretMatches } from "@/lib/http/workerSecret";
@@ -37,6 +38,9 @@ export const dynamic = "force-dynamic";
  * Each job's code is loaded inside the branch that runs it, so a job whose switch is off never
  * loads (and never holds memory on the instance). Only the switches are read up front. A job's
  * deadline is set before its code loads, so loading counts against its own budget.
+ *
+ * The clean-up of unconfirmed password accounts (PASSWORD_SIGNIN_ENABLED) rides it beside them, at
+ * most once an hour across instances (src/lib/auth/cleanup.ts).
  */
 const SCHEDULER_LIMIT_MS = 105_000;
 const COMPETITORS_BUDGET_MS = 25_000;
@@ -54,6 +58,8 @@ const LIVE_WATCH_BUDGET_MS = 25_000;
 const CONNECTORS_BUDGET_MS = 25_000;
 /** Article freshness (BLOG_FRESHNESS_ENABLED): each brand's live articles once a day, a few brands a tick. */
 const FRESHNESS_BUDGET_MS = 20_000;
+/** Unconfirmed password accounts (PASSWORD_SIGNIN_ENABLED): once an hour, a short run. */
+const AUTH_CLEANUP_BUDGET_MS = 10_000;
 
 export async function POST(req: Request) {
   const started = Date.now();
@@ -68,8 +74,9 @@ export async function POST(req: Request) {
   const liveWatch = isBlogLiveWatchEnabled();
   const connectors = isConnectorsEnabled();
   const freshness = isBlogFreshnessEnabled();
+  const authCleanup = isPasswordSigninEnabled();
   const journeys = product || waitlist || people;
-  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors || freshness))) {
+  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors || freshness || authCleanup))) {
     return machine
       ? NextResponse.json({ ok: true, skipped: "lifecycle_disabled" })
       : NextResponse.json({ error: "not_found" }, { status: 404 });
@@ -136,6 +143,16 @@ export async function POST(req: Request) {
             return null;
           })
         : Promise.resolve(null);
+      const authCleanupRun = authCleanup
+        ? timedTickJob("auth-cleanup", async () => {
+            const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + AUTH_CLEANUP_BUDGET_MS);
+            const { runAuthCleanup } = await import("@/lib/auth/cleanup");
+            return runAuthCleanup({ deadlineMs });
+          }).catch((err: unknown) => {
+            console.warn(`[auth] clean-up failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+            return null;
+          })
+        : Promise.resolve(null);
       const connectorsRun = connectors
         ? timedTickJob("connectors", async () => {
             const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + CONNECTORS_BUDGET_MS);
@@ -177,6 +194,7 @@ export async function POST(req: Request) {
       const liveWatchResult = await liveWatchRun;
       const connectorsResult = await connectorsRun;
       const freshnessResult = await freshnessRun;
+      const authCleanupResult = await authCleanupRun;
       return NextResponse.json({
         ok: true,
         mode: "all_tenants",
@@ -189,6 +207,7 @@ export async function POST(req: Request) {
         ...(liveWatchResult?.brands ? { liveWatch: liveWatchResult } : {}),
         ...(connectorsResult?.brands ? { connectors: connectorsResult } : {}),
         ...(freshnessResult?.brands ? { freshness: freshnessResult } : {}),
+        ...(authCleanupResult ? { authCleanup: authCleanupResult } : {}),
       });
     } finally {
       logTickMemory();

@@ -149,6 +149,8 @@ export const SIGN_IN_SECURITY_COPY = {
   devices: "Devices",
   devicesNote: "Signs out everywhere, including here.",
   signOutEverywhere: "Sign out everywhere",
+  signOutEverywhereConfirm: "Sign out on every device, this one included? You'll need to sign in again everywhere.",
+  signOutEverywhereYes: "Yes, sign out everywhere",
   signingOut: "Signing out…",
   loading: "Loading…",
 } as const;

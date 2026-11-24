@@ -182,6 +182,16 @@ export function SignInSecurity({ user }: { user: User | null | undefined }) {
   }, [changing]);
   const [leaving, setLeaving] = useState(false);
   const [leaveError, setLeaveError] = useState<string | null>(null);
+  // Sign out everywhere asks first, in the card (no browser dialog); Cancel puts focus back.
+  const [confirmingLeave, setConfirmingLeave] = useState(false);
+  const leaveButton = useRef<HTMLButtonElement>(null);
+  const focusLeaveButton = useRef(false);
+  useEffect(() => {
+    if (!confirmingLeave && focusLeaveButton.current) {
+      focusLeaveButton.current = false;
+      leaveButton.current?.focus();
+    }
+  }, [confirmingLeave]);
 
   const everywhere = async () => {
     setLeaving(true);
@@ -265,9 +275,21 @@ export function SignInSecurity({ user }: { user: User | null | undefined }) {
             <p>{c.devices}</p>
             <p className={NOTE}>{c.devicesNote}</p>
           </div>
-          <button type="button" className={BUTTON} disabled={leaving} onClick={() => void everywhere()}>
-            {leaving ? c.signingOut : c.signOutEverywhere}
-          </button>
+          {confirmingLeave ? null : (
+            <button ref={leaveButton} type="button" className={BUTTON} onClick={() => setConfirmingLeave(true)}>
+              {c.signOutEverywhere}
+            </button>
+          )}
+          {confirmingLeave ? (
+            <SignOutEverywhereConfirm
+              leaving={leaving}
+              onYes={() => void everywhere()}
+              onCancel={() => {
+                focusLeaveButton.current = true;
+                setConfirmingLeave(false);
+              }}
+            />
+          ) : null}
           {leaveError ? (
             <p role="alert" className={`w-full ${ERROR}`}>
               {leaveError}
@@ -276,6 +298,24 @@ export function SignInSecurity({ user }: { user: User | null | undefined }) {
         </div>
       </div>
     </section>
+  );
+}
+
+/** "Sign out on every device, this one included?" with Yes and Cancel, before anything is revoked. */
+export function SignOutEverywhereConfirm({ leaving, onYes, onCancel }: { leaving: boolean; onYes: () => void; onCancel: () => void }) {
+  const c = SIGN_IN_SECURITY_COPY;
+  return (
+    <div role="group" aria-label={c.signOutEverywhere} className="w-full space-y-2">
+      <p>{c.signOutEverywhereConfirm}</p>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className={PRIMARY} disabled={leaving} onClick={onYes} autoFocus>
+          {leaving ? c.signingOut : c.signOutEverywhereYes}
+        </button>
+        <button type="button" className={BUTTON} disabled={leaving} onClick={onCancel}>
+          {c.cancel}
+        </button>
+      </div>
+    </div>
   );
 }
 

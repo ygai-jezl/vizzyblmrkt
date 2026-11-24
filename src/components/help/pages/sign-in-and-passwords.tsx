@@ -117,7 +117,8 @@ export default function SignInAndPasswordsHelp() {
       <H2 id="everywhere">Sign out everywhere</H2>
       <P>
         Left YouGrow signed in on a shared or lost computer? In <Open href={SETTINGS}>Settings</Open>, under{" "}
-        <strong>{SECURITY_CARD}</strong>, press <strong>{SIGN_OUT_EVERYWHERE}</strong>. Every device is signed out,
+        <strong>{SECURITY_CARD}</strong>, press <strong>{SIGN_OUT_EVERYWHERE}</strong>, then{" "}
+        <strong>{SIGN_IN_SECURITY_COPY.signOutEverywhereYes}</strong> to confirm. Every device is signed out,
         including this one, and you go back to the sign-in page. Signing in again works as before.
       </P>
 

@@ -33,6 +33,7 @@ const {
   SIGN_OUT_EVERYWHERE_URL,
   SignInSecurity,
   SignInSecurityCard,
+  SignOutEverywhereConfirm,
   changePassword,
   changePasswordMessage,
   hasPasswordSignIn,
@@ -263,6 +264,29 @@ describe("changePassword", () => {
     expect(changePasswordMessage(null)).toBe(AUTH_MESSAGES.somethingWentWrong);
     expect(changePasswordMessage("auth/requires-recent-login")).toBe(AUTH_MESSAGES.somethingWentWrong);
     expect(changePasswordMessage("auth/user-mismatch")).toBe(AUTH_MESSAGES.somethingWentWrong);
+  });
+});
+
+describe("Sign out everywhere asks first", () => {
+  const noop = () => {};
+  it("shows only the button at first: nothing is revoked on the first click", () => {
+    const out = html(createElement(SignInSecurity, { user: fakeUser(["password"]) }));
+    expect(out).toContain(`>${COPY.signOutEverywhere}</button>`);
+    expect(out).not.toContain(COPY.signOutEverywhereConfirm);
+  });
+
+  it("then asks, with Yes and Cancel, in the card rather than a browser dialog", () => {
+    const out = html(createElement(SignOutEverywhereConfirm, { leaving: false, onYes: noop, onCancel: noop }));
+    expect(out).toContain(COPY.signOutEverywhereConfirm);
+    expect(out).toContain(`>${COPY.signOutEverywhereYes}</button>`);
+    expect(out).toContain(`>${COPY.cancel}</button>`);
+    expect(out).toContain('role="group"');
+  });
+
+  it("says it is signing out, with both buttons disabled, while it works", () => {
+    const out = html(createElement(SignOutEverywhereConfirm, { leaving: true, onYes: noop, onCancel: noop }));
+    expect(out).toContain(COPY.signingOut);
+    expect(out.match(/disabled=""/g)).toHaveLength(2);
   });
 });
 

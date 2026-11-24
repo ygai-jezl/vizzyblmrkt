@@ -20,6 +20,8 @@ import type { BrandSignal } from "@/lib/types/brandSignal";
 import type { Tenant } from "@/lib/types/tenant";
 import { learnedLines } from "@/lib/autopilot/learned";
 import { readSearchPlanning, searchConsoleLines, type SearchPlanning } from "@/lib/connectors/signals/planning";
+import { readDueArticles } from "@/lib/content/blog/freshnessPages";
+import type { FreshnessDueItem } from "@/lib/types/freshness";
 
 /**
  * The context pack (BRAND_CONTEXT_ENABLED): everything the brand knows about one question,
@@ -29,7 +31,8 @@ import { readSearchPlanning, searchConsoleLines, type SearchPlanning } from "@/l
  * seen, so nothing guesses past it.
  *
  *   map       where the question sits on the brand map, and how far along it is
- *   yours     what the brand already made that is closest (brand search: words and meaning)
+ *   yours     what the brand already made that is closest (brand search: words and meaning), led by
+ *             any of its live articles on the subject that is due a refresh (BLOG_FRESHNESS_ENABLED)
  *   theirs    what competitors wrote: the subject's flag, angles taken, whether any answers it
  *   research  earlier Google lookups and PDF research near the question
  *   numbers   what Google shows for it (DataForSEO), and Search Console's collected demand for its
@@ -85,7 +88,10 @@ export interface PackDeps {
   uncovered?: (ctx: TenantContext, qs: Array<{ id: string; text: string }>, minSim: number) => Promise<string[] | null>;
   /** Search Console's collected demand (CONNECTOR_SIGNALS_ENABLED); null while off. */
   searchPlanning?: (ctx: TenantContext) => Promise<SearchPlanning | null>;
+  /** The freshness watch's due list (BLOG_FRESHNESS_ENABLED); empty while off. */
+  dueArticles?: (ctx: TenantContext) => Promise<FreshnessDueItem[]>;
 }
+
 
 /** Lines per part, at most: the pack stays a few hundred words. */
 export const PART_MAX = 5;
@@ -119,6 +125,24 @@ const FLAG_WORD: Record<CoverageFlag, string> = {
 
 const day = (iso: string | null | undefined) => (iso ? iso.slice(0, 10) : undefined);
 const cut = (s: string, n = 220) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
+
+export const FRESHNESS_SOURCE = "Freshness watch";
+
+/** The brand's own live articles on the subject that are due, or soon due, a refresh, as lines. */
+export function dueArticleLines(subjectId: string | null, due: FreshnessDueItem[]): PackLine[] {
+  if (!subjectId) return [];
+  return due
+    .filter((d) => d.subjectId === subjectId)
+    .slice(0, 2)
+    .map((d) => {
+      const why = d.reasons.map((r) => r.detail).join(". ");
+      return {
+        text: cut(`Your live article "${d.title}" is ${d.state === "due" ? "due a refresh" : "due a refresh soon"}.${why ? ` ${why}.` : ""} Refreshing it may serve this better than a new article.`),
+        source: FRESHNESS_SOURCE,
+        ...(d.url ? { url: d.url } : {}),
+      };
+    });
+}
 
 interface MapRead {
   lines: PackLine[];
@@ -255,7 +279,7 @@ export async function contextPack(ctx: TenantContext, ask: PackAsk, deps: PackDe
   }
 
   const tenantP = (deps.loadTenant ?? getTenantById)(ctx.tenantId).catch(() => null);
-  const [found, flags, theirs, uncovered, signal, planning] = await Promise.all([
+  const [found, flags, theirs, uncovered, signal, planning, due] = await Promise.all([
     query ? (deps.search ?? ((c, q, o) => searchBrand(c, q, o)))(ctx, query, { limit: SEARCH_LIMIT }).catch(() => null) : Promise.resolve(null),
     subjectId ? (deps.flags ?? ((c) => competitorSubjectFlags(c, { db: deps.db })))(ctx).catch(() => null) : Promise.resolve(null),
     (deps.competitors ?? ((c, a) => competitorContext(c, a, { db: deps.db })))(ctx, { subjectId, text: query || null }).catch(() => null),
@@ -264,19 +288,27 @@ export async function contextPack(ctx: TenantContext, ask: PackAsk, deps: PackDe
       ? tenantP.then((t) => signalFor(ctx, query, brandMarket(t?.searchMarket), { db: deps.db })).catch(() => null)
       : Promise.resolve(null),
     (deps.searchPlanning ?? ((c) => readSearchPlanning(c, { db: deps.db })))(ctx).catch(() => null),
+    subjectId ? (deps.dueArticles ?? ((c) => readDueArticles(c, { db: deps.db })))(ctx).catch(() => [] as FreshnessDueItem[]) : Promise.resolve([] as FreshnessDueItem[]),
   ]);
+
+  // Yours leads with the brand's own live article on the subject when it is due a refresh.
+  pack.yours.push(...dueArticleLines(subjectId, due));
 
   // Yours and research: one brand search answers both (and adds competitor articles to theirs).
   if (found?.ok) {
     for (const h of found.result.hits) {
-      if (OWN_KINDS.has(h.kind) && pack.yours.length < PART_MAX) pack.yours.push(hitLine(h, `Brand search: ${KIND_WORD[h.kind] ?? h.kind}`));
-      else if (h.kind === "research" && pack.research.length < PART_MAX) pack.research.push(hitLine(h, "Brand search: your research"));
+      if (OWN_KINDS.has(h.kind)) {
+        const line = hitLine(h, `Brand search: ${KIND_WORD[h.kind] ?? h.kind}`);
+        // The due article itself, found again by brand search, is listed once.
+        if (pack.yours.length < PART_MAX && !(line.url && pack.yours.some((l) => l.source === FRESHNESS_SOURCE && l.url === line.url))) pack.yours.push(line);
+      } else if (h.kind === "research" && pack.research.length < PART_MAX) pack.research.push(hitLine(h, "Brand search: your research"));
     }
     if (!pack.yours.length) pack.yours.push({ text: "Nothing you've made is close to this question.", source: "Brand search" });
   } else {
     missing.push(found && !found.ok && found.error === "not_granted" ? "Brand search isn't part of this brand's plan." : "Brand search isn't on, so only brand map pages are known.");
-    pack.yours.push(...map.pages.slice(0, PART_MAX));
+    pack.yours.push(...map.pages);
   }
+  pack.yours = pack.yours.slice(0, PART_MAX);
 
   // Theirs.
   const flag = subjectId ? flags?.[subjectId] : undefined;

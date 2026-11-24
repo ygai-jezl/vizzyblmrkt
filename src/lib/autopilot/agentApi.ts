@@ -36,7 +36,15 @@ export async function agentNextUp(ctx: TenantContext, deps: { db?: FirestoreLike
   return {
     status: 200,
     body: {
-      picks: (doc?.picks ?? []).map((p) => ({ questionId: p.questionId, question: p.question, subject: p.subjectName, because: p.because, chips: p.chips.map((c) => `${c.label}: ${c.text}`) })),
+      // A refresh pick (BLOG_FRESHNESS_ENABLED) is a live article to improve, with where it is.
+      picks: (doc?.picks ?? []).map((p) => ({
+        questionId: p.questionId,
+        question: p.question,
+        subject: p.subjectName,
+        because: p.because,
+        chips: p.chips.map((c) => `${c.label}: ${c.text}`),
+        ...(p.kind === "refresh" && p.planId && p.workspaceId ? { kind: "refresh", article: { planId: p.planId, workspaceId: p.workspaceId } } : {}),
+      })),
       notOnMap: doc?.notOnMap ?? [],
       missing: doc?.missing ?? [],
       chosenAt: doc?.at ?? null,

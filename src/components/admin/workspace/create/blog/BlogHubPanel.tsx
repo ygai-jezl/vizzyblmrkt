@@ -5,6 +5,7 @@ import { BlogAddress } from "./BlogAddress";
 import { BlogBriefPanel } from "./BlogBriefPanel";
 import { BlogExport } from "./BlogExport";
 import { BlogHeroCard } from "./BlogHeroCard";
+import { FreshnessCard } from "./FreshnessCard";
 import { CitableChecklist } from "./CitableChecklist";
 import type { BlogHubControls } from "./types";
 
@@ -89,6 +90,15 @@ export function BlogHubReview({
           liveWatch={controls.liveWatch === true}
           onLive={controls.onLive ? (action, day) => controls.onLive!(node.id, action, day) : undefined}
           // While the article is written or checked, its meta is about to be replaced: wait.
+          disabled={disabled || controls.busy !== null}
+        />
+      ) : null}
+
+      {controls.onChecked ? (
+        <FreshnessCard
+          live={node.blog?.live ?? null}
+          freshness={node.blog?.freshness}
+          onChecked={() => controls.onChecked!(node.id)}
           disabled={disabled || controls.busy !== null}
         />
       ) : null}

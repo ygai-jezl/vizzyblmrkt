@@ -9,7 +9,7 @@ import { isCompetitorArticlesEnabled, isCompetitorsEnabled } from "@/lib/competi
 import { isSearchIndexEnabled } from "@/lib/search/flags";
 import { isSignalsDataForSeoEnabled } from "@/lib/signals/flags";
 import { isAutopilotEnabled } from "@/lib/autopilot/flags";
-import { isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
+import { isBlogFreshnessEnabled, isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
 import { isConnectorsEnabled } from "@/lib/connectors/flags";
 import { logTickMemory, timedTickJob } from "@/lib/lifecycle/tickLog";
 
@@ -52,6 +52,8 @@ const AUTOPILOT_BUDGET_MS = 90_000;
 const LIVE_WATCH_BUDGET_MS = 25_000;
 /** Connected data's lane (CONNECTORS_ENABLED): every 15th tick, at offset 7. */
 const CONNECTORS_BUDGET_MS = 25_000;
+/** Article freshness (BLOG_FRESHNESS_ENABLED): each brand's live articles once a day, a few brands a tick. */
+const FRESHNESS_BUDGET_MS = 20_000;
 
 export async function POST(req: Request) {
   const started = Date.now();
@@ -65,8 +67,9 @@ export async function POST(req: Request) {
   const autopilot = isAutopilotEnabled();
   const liveWatch = isBlogLiveWatchEnabled();
   const connectors = isConnectorsEnabled();
+  const freshness = isBlogFreshnessEnabled();
   const journeys = product || waitlist || people;
-  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors))) {
+  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors || freshness))) {
     return machine
       ? NextResponse.json({ ok: true, skipped: "lifecycle_disabled" })
       : NextResponse.json({ error: "not_found" }, { status: 404 });
@@ -123,6 +126,16 @@ export async function POST(req: Request) {
             return null;
           })
         : Promise.resolve(null);
+      const freshnessRun = freshness
+        ? timedTickJob("freshness", async () => {
+            const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + FRESHNESS_BUDGET_MS);
+            const { runFreshness } = await import("@/lib/content/blog/freshnessWatch");
+            return runFreshness({ deadlineMs });
+          }).catch((err: unknown) => {
+            console.warn(`[freshness] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+            return null;
+          })
+        : Promise.resolve(null);
       const connectorsRun = connectors
         ? timedTickJob("connectors", async () => {
             const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + CONNECTORS_BUDGET_MS);
@@ -163,6 +176,7 @@ export async function POST(req: Request) {
       const autopilotResult = await autopilotRun;
       const liveWatchResult = await liveWatchRun;
       const connectorsResult = await connectorsRun;
+      const freshnessResult = await freshnessRun;
       return NextResponse.json({
         ok: true,
         mode: "all_tenants",
@@ -174,6 +188,7 @@ export async function POST(req: Request) {
         ...(autopilotResult?.tenants ? { autopilot: autopilotResult } : {}),
         ...(liveWatchResult?.brands ? { liveWatch: liveWatchResult } : {}),
         ...(connectorsResult?.brands ? { connectors: connectorsResult } : {}),
+        ...(freshnessResult?.brands ? { freshness: freshnessResult } : {}),
       });
     } finally {
       logTickMemory();

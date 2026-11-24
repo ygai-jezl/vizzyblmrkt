@@ -9,6 +9,8 @@ import { isEbookUiEnabled } from "@/lib/content/create/ebook";
 import type { WriteNext } from "@/lib/content/blog/articleMap";
 import type { IngestionTicket } from "@/lib/types/ingestionTicket";
 import type { ContentPlan } from "@/lib/types/contentPlan";
+import { isBlogFreshnessUiEnabled } from "@/lib/brandMap/flags";
+import { FRESHNESS_STATE } from "./blog/FreshnessCard";
 
 /**
  * Create pillar landing — lists the workspace's saved content workflows and hosts
@@ -60,6 +62,12 @@ export function CreatePanel({
 }) {
   const router = useRouter();
   const [plans] = useState<ContentPlan[]>(initialPlans);
+  // Article freshness (BLOG_FRESHNESS_ENABLED): a pill on live articles, and a filter for the due ones.
+  const freshnessOf = (p: ContentPlan) => p.graph.nodes.find((n) => n.type === "hub" && n.channel === "blog")?.blog?.freshness;
+  const freshnessOn = isBlogFreshnessUiEnabled();
+  const dueCount = freshnessOn ? plans.filter((p) => freshnessOf(p)?.state === "due").length : 0;
+  const [onlyDue, setOnlyDue] = useState(false);
+  const shown = onlyDue ? plans.filter((p) => freshnessOf(p)?.state === "due") : plans;
   const [showWizard, setShowWizard] = useState(initialPlans.length === 0 || Boolean(prefill) || Boolean(prefillNumbers));
 
   function onCreated(plan: ContentPlan) {
@@ -111,9 +119,30 @@ export function CreatePanel({
         />
       ) : null}
 
-      {plans.length > 0 ? (
+      {dueCount > 0 ? (
+        <div className="flex flex-wrap gap-2 text-xs">
+          <button
+            type="button"
+            aria-pressed={!onlyDue}
+            onClick={() => setOnlyDue(false)}
+            className={`rounded-full border px-2.5 py-0.5 ${!onlyDue ? "border-blue-500 text-blue-700 dark:text-blue-300" : "border-neutral-300 dark:border-neutral-700"}`}
+          >
+            All {plans.length}
+          </button>
+          <button
+            type="button"
+            aria-pressed={onlyDue}
+            onClick={() => setOnlyDue(true)}
+            className={`rounded-full border px-2.5 py-0.5 ${onlyDue ? "border-blue-500 text-blue-700 dark:text-blue-300" : "border-neutral-300 dark:border-neutral-700"}`}
+          >
+            Due a refresh {dueCount}
+          </button>
+        </div>
+      ) : null}
+
+      {shown.length > 0 ? (
         <ul className="divide-y divide-neutral-200 rounded-md border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-800">
-          {plans.map((p) => {
+          {shown.map((p) => {
             const nodes = p.graph.nodes.length;
             const done = p.graph.nodes.filter(
               (n) => n.status === "generated" || n.status === "approved",
@@ -146,12 +175,17 @@ export function CreatePanel({
                       )}
                     </div>
                   </div>
-                  <span
-                    className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
-                      STATUS_STYLE[p.status] ?? STATUS_STYLE.draft
-                    }`}
-                  >
-                    {p.status}
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    {freshnessOn && freshnessOf(p) && freshnessOf(p)!.state !== "fresh" ? (
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${FRESHNESS_STATE[freshnessOf(p)!.state].tone}`}>{FRESHNESS_STATE[freshnessOf(p)!.state].label}</span>
+                    ) : null}
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
+                        STATUS_STYLE[p.status] ?? STATUS_STYLE.draft
+                      }`}
+                    >
+                      {p.status}
+                    </span>
                   </span>
                 </Link>
               </li>

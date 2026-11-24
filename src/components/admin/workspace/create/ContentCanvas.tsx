@@ -125,6 +125,8 @@ export function ContentCanvas({
   pagesOn = false,
   liveWatchOn = false,
   datesTimeZone,
+  freshnessOn = false,
+  openHub = false,
   editorialOn = false,
   seenOn = false,
   seenQuestionsOn = false,
@@ -150,6 +152,10 @@ export function ContentCanvas({
   liveWatchOn?: boolean;
   /** True dates (BLOG_DATES_ENABLED): the brand's time zone; absent = the "Last updated" line as before. */
   datesTimeZone?: string;
+  /** Article freshness (BLOG_FRESHNESS_ENABLED): the Freshness card and its check. */
+  freshnessOn?: boolean;
+  /** Open with the hub selected (a link to an article's Freshness card). */
+  openHub?: boolean;
   /** Blog articles are written in the editorial shape (CREATE_BLOG_EDITORIAL_ENABLED). */
   editorialOn?: boolean;
   /** Articles draw on the brand's notes (BRAND_NOTES_ENABLED with the editorial writer). */
@@ -191,7 +197,7 @@ export function ContentCanvas({
   const [nodes, setNodes, onNodesChange] = useNodesState(seeded.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(seeded.edges);
   const [name, setName] = useState(initial.name);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(() => (openHub ? (initial.graph.nodes.find((n) => n.type === "hub")?.id ?? null) : null));
   const [layoutEditorFor, setLayoutEditorFor] = useState<string | null>(null);
   // Edit mode (NEXT_PUBLIC_EDIT_MODE_ENABLED): the hub whose Markdown is open in the rich editor.
   const [editModeFor, setEditModeFor] = useState<string | null>(null);
@@ -683,6 +689,30 @@ export function ContentCanvas({
     }
   }
 
+  /** "Checked, nothing to change" (BLOG_FRESHNESS_ENABLED): the clock starts again; the freshness comes back. */
+  async function markChecked(id: string): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const res = await fetch(`/api/admin/workspace/${workspaceId}/content-plans/${planId}/nodes/${id}/blog/live`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "checked" }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { node?: ContentNode; error?: string };
+      if (!res.ok || !data.node) return { ok: false, error: data.error ?? "failed" };
+      const freshness = data.node.blog?.freshness;
+      applyNodes((nds) =>
+        nds.map((n) => {
+          if (n.id !== id) return n;
+          const cur = (n.data as ContentNodeData).cn;
+          return { ...n, data: { ...n.data, cn: { ...cur, blog: { ...(cur.blog ?? BlogArticleMetaSchema.parse({})), ...(freshness ? { freshness } : {}) } } } };
+        }),
+      );
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "failed" };
+    }
+  }
+
   /** Check, mark or clear that the article is live; the server saves it on the hub's meta. */
   async function setLive(id: string, action: LiveAction, day?: string): Promise<LiveResult> {
     try {
@@ -1024,6 +1054,7 @@ export function ContentCanvas({
           ...(brandMap ? { map: brandMap } : {}),
           ...(pagesOn ? { onSetAddress: saveAddress, onLive: setLive, ...(liveWatchOn ? { liveWatch: true } : {}) } : {}),
           ...(datesTimeZone ? { datesTimeZone } : {}),
+          ...(freshnessOn && pagesOn ? { onChecked: markChecked } : {}),
           ...(editorialOn ? { editorial: true } : {}),
           ...(seenOn ? { onFindSeen: () => void onBlogFindSeen() } : {}),
           ...(seenOn && seenQuestionsOn ? { answers: { save: answers.save, done: answers.done, state: answers.state } } : {}),

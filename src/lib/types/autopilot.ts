@@ -66,6 +66,11 @@ export interface NextUpPick {
   chips: NextUpChip[];
   /** gemini: chosen and explained by the model. code: filled in by code when the model gave too few. */
   from: "gemini" | "code";
+  /** refresh (BLOG_FRESHNESS_ENABLED): improve a live article (`planId` in `workspaceId`) rather than write a
+   *  new one; its questionId is "refresh:<planId>". Absent: write, as before. */
+  kind?: "write" | "refresh";
+  planId?: string;
+  workspaceId?: string;
 }
 
 /** The brand's one Next up doc (`next_up`). */

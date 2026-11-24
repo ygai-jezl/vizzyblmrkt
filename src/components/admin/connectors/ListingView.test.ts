@@ -9,9 +9,9 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: unknown }) => createElement("a", { href, ...rest }, children as never),
 }));
-const { ListingView, TypedWhy } = await import("./ListingView");
+const { ConnectFor, ListingView, TypedWhy } = await import("./ListingView");
 const { listingBanner } = await import("./listingBanner");
-const { LISTING_COPY, chosenAtFirst, limitsOf, moreListedWords, readsOf, replaceableOf, signInReasonWords, tokenCheckedWords, typedWhyWords, waitingShareOf, youNeedOf } = await import("./words");
+const { CONNECT_FOR_COPY, LISTING_COPY, chosenAtFirst, limitsOf, moreListedWords, readsOf, replaceableOf, signInReasonWords, tokenCheckedWords, typedWhyWords, waitingShareOf, youNeedOf } = await import("./words");
 const { checkPastedToken, secretsOf } = await import("./tokenConnect");
 
 type Props = Parameters<typeof ListingView>[0];
@@ -357,6 +357,48 @@ describe("the Listing as people read it", () => {
       const text = textOf(page);
       expect(dashesIn(text), text.slice(0, 80)).toEqual([]);
       expect(aiTellsIn(text), text.slice(0, 80)).toEqual([]);
+    }
+  });
+});
+
+describe("Connect for, for an owner of the brand's organisation (Connectors 3)", () => {
+  const ORG = { id: "org_ten_fernhill", name: "Fernhill Group", brandName: "Harbour Blooms", regionName: "Europe", shareable: true, waitingShare: null };
+
+  it("offers this brand or the organisation above the ways to connect, this brand chosen first", () => {
+    const out = html({ listing: SC, organisation: ORG });
+    const text = textOf(out);
+    expect(text).toContain("Connect for This brand (Harbour Blooms) Fernhill Group (all its brands) Choose how to connect");
+    expect(out).toMatch(/<input type="radio" name="connect-for"[^>]*checked=""[^>]*value="brand"/);
+    // Until the organisation is chosen, nothing says where it is kept, and the consent line waits.
+    expect(text).not.toContain("Kept in Europe");
+    expect(text).not.toContain("Only you see the list");
+  });
+
+  it("says where the organisation's sign in is kept once it is chosen", () => {
+    const text = textOf(renderToStaticMarkup(createElement(ConnectFor, { brand: "Harbour Blooms", org: ORG, forOrg: true, onChange: () => {} })));
+    expect(text).toContain("Fernhill Group (all its brands) Kept in Europe, where Harbour Blooms keeps its data. Each brand's numbers stay in its own region.");
+    expect(CONNECT_FOR_COPY.consent("YouGrow.AI", "site")).toBe(
+      "You can give each brand in YouGrow.AI one site this Google account can see. Only you see the list. Each brand's team sees only its own site, and the other owners see which brand has which.",
+    );
+  });
+
+  it("is not offered to a member, without an organisation, or for a connector that can't be shared", () => {
+    expect(textOf(html({ listing: SC, organisation: ORG, isAdmin: false }))).not.toContain("Connect for");
+    expect(textOf(html({ listing: SC }))).not.toContain("Connect for");
+    expect(textOf(html({ listing: SC, organisation: { ...ORG, shareable: false } }))).not.toContain("Connect for");
+  });
+
+  it("writes its words in house style", () => {
+    const lines = [
+      CONNECT_FOR_COPY.consent("Fernhill Group", "property"),
+      CONNECT_FOR_COPY.keptIn("Europe", "Harbour Blooms"),
+      CONNECT_FOR_COPY.tokenHint("Fernhill Group"),
+      CONNECT_FOR_COPY.checkedGoOn,
+      textOf(html({ listing: CF, organisation: ORG })),
+    ];
+    for (const line of lines) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
     }
   });
 });

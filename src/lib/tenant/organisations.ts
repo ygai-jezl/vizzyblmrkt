@@ -6,6 +6,7 @@ import {
   MAX_ORGANISATION_BRANDS,
   MAX_ORGANISATION_NAME,
   MAX_ORGANISATION_OWNERS,
+  OrganisationChangeSchema,
   OrganisationSchema,
   PlanIdSchema,
   type Organisation,
@@ -440,6 +441,32 @@ export async function organisationUserIds(
     }
   }
   return users;
+}
+
+/** The kinds an organisation's own connection records on its organisation's change log. */
+export type OrganisationConnectionChangeKind = Extract<OrganisationChange["kind"], `connection.${string}`>;
+
+/**
+ * Record a change to an organisation's own connection (Connectors 3, ADR-0014) on its change log:
+ * connected, signed in again, paused, resumed or disconnected, naming the organisation, the
+ * connection and the brand it was connected from, by id only. organisation_changes is in
+ * (default) and can't join a transaction in another region's database, so this is written after
+ * the change itself, best effort, like the activity log: a failure is logged and changes nothing
+ * else. Returns whether the row was written.
+ */
+export async function recordOrganisationConnectionChange(
+  change: { organisationId: string; kind: OrganisationConnectionChangeKind; connectionId: string; tenantId: string; actor: string; at: string },
+  db: FirestoreLike = defaultDb(),
+): Promise<boolean> {
+  try {
+    const row = OrganisationChangeSchema.parse(change);
+    const id = `${row.organisationId}_${row.tenantId ?? "org"}_${row.at}_${row.kind}_${randomUUID().slice(0, 8)}`.replace(/[^\w.-]/g, "_");
+    await db.collection(ORGANISATION_CHANGES).doc(id).create(Object.fromEntries(Object.entries(row).filter(([, v]) => v !== undefined)));
+    return true;
+  } catch (err) {
+    console.warn(`[organisations] recording ${change.kind} for ${change.connectionId} failed:`, err instanceof Error ? err.message.slice(0, 200) : "error");
+    return false;
+  }
 }
 
 /**

@@ -5,14 +5,16 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { HowToLink } from "@/components/help/HowToLink";
 import type { ConnectorAccount } from "@/lib/connectors/handlers/types";
+import type { OrganisationListing } from "@/lib/connectors/organisationConnect";
 import type { ConnectionView, ConnectorListing } from "@/lib/connectors/service";
-import { callApi, ROUTES, startSignIn } from "./api";
+import { callApi, ORG_ROUTES, ROUTES, startOrganisationSignIn, startSignIn } from "./api";
 import { ConnectorLockup, ConnectorTile, GoogleSignInArt } from "./ConnectorTile";
 import { checkPastedToken, connectWithToken, secretsOf } from "./tokenConnect";
 import {
   BUTTON,
   BUTTON_PRIMARY,
   CARD,
+  CONNECT_FOR_COPY,
   CONNECTED_PATH,
   HELP_PATH,
   HINT,
@@ -20,6 +22,7 @@ import {
   NOTE_ERR,
   NOTE_OK,
   NOTE_WARN,
+  ORGANISATION_PATH,
   TAG,
   TONE_CLASS,
   categoryLabel,
@@ -28,6 +31,7 @@ import {
   limitsOf,
   moreListedWords,
   numbersOf,
+  partUnit,
   pickPath,
   readsOf,
   shareMethodOf,
@@ -51,6 +55,12 @@ export interface ListingProps {
   banner: { tone: "ok" | "err"; text: string } | null;
   /** A token connection that was turned down, which connecting again replaces. */
   replace: ConnectionView | null;
+  /**
+   * For an owner of the brand's organisation, while sharing is on (Connectors 3): "Connect for"
+   * this brand or the organisation, where a sign in would be kept, and a Google address made for
+   * the organisation still waiting for its first property. Null for everyone else.
+   */
+  organisation?: OrganisationListing | null;
 }
 
 const H3 = "text-sm font-semibold";
@@ -62,8 +72,10 @@ type CardHeading = "h3" | "h4";
  * A connector's Listing (Settings › Connections › Browse › one connector): how to connect, in the
  * manifest's order (Sign in with Google first, then share access, or an API token), what it reads
  * and the numbers it gives, from its manifest. Only admins connect; members read the same page.
+ * An owner of the brand's organisation chooses first whether to connect for this brand or for the
+ * organisation, whose owners then give each brand its part on Settings › Organisation.
  */
-export function ListingView({ listing, connections, isAdmin, chat, banner, replace }: ListingProps) {
+export function ListingView({ listing, connections, isAdmin, chat, banner, replace, organisation = null }: ListingProps) {
   const signIn = listing.ready.includes("oauth_pkce");
   const share = listing.ready.includes("share_access") && shareMethodOf(listing) !== null;
   const token = listing.ready.includes("token_fields") && tokenMethodOf(listing) !== null;
@@ -71,6 +83,9 @@ export function ListingView({ listing, connections, isAdmin, chat, banner, repla
   const heading: CardHeading = ways > 1 ? "h4" : "h3";
   const status = connectorStatus(listing.id, connections);
   const live = connections.filter((c) => c.status === "connected");
+  const canShare = Boolean(isAdmin && organisation?.shareable);
+  const [forOrg, setForOrg] = useState(false);
+  const org = canShare && forOrg ? organisation : null;
 
   return (
     <div className="space-y-5">
@@ -108,10 +123,13 @@ export function ListingView({ listing, connections, isAdmin, chat, banner, repla
 
       <div className="grid items-start gap-5 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
         <div className="space-y-4">
+          {canShare && organisation ? <ConnectFor brand={organisation.brandName} org={organisation} forOrg={forOrg} onChange={setForOrg} /> : null}
           {ways > 1 ? <h3 className={H3}>{LISTING_COPY.chooseHow}</h3> : null}
-          {signIn ? <SignInCard listing={listing} isAdmin={isAdmin} alone={ways === 1} heading={heading} waiting={waitingSignInOf(connections, listing.id)} /> : null}
-          {share ? <ShareCard listing={listing} isAdmin={isAdmin} afterSignIn={signIn} heading={heading} waiting={waitingShareOf(connections, listing.id)} /> : null}
-          {token ? <TokenCard listing={listing} isAdmin={isAdmin} chat={chat} heading={heading} replace={replace} /> : null}
+          {signIn ? <SignInCard listing={listing} isAdmin={isAdmin} alone={ways === 1} heading={heading} waiting={org ? null : waitingSignInOf(connections, listing.id)} org={org} /> : null}
+          {share ? (
+            <ShareCard key={org ? "org" : "brand"} listing={listing} isAdmin={isAdmin} afterSignIn={signIn} heading={heading} waiting={org ? null : waitingShareOf(connections, listing.id)} org={org} />
+          ) : null}
+          {token ? org ? <OrgTokenCard listing={listing} heading={heading} org={org} /> : <TokenCard listing={listing} isAdmin={isAdmin} chat={chat} heading={heading} replace={replace} /> : null}
         </div>
         <div className="space-y-4">
           <ReadsCard listing={listing} />
@@ -122,18 +140,43 @@ export function ListingView({ listing, connections, isAdmin, chat, banner, repla
   );
 }
 
+/** "Connect for": this brand, or the organisation and all its brands, saying where a sign in is kept. */
+export function ConnectFor({ brand, org, forOrg, onChange }: { brand: string; org: OrganisationListing; forOrg: boolean; onChange: (forOrg: boolean) => void }) {
+  const option = (on: boolean) =>
+    `flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 text-sm ${on ? "border-sky-400 bg-sky-50 dark:border-sky-700 dark:bg-sky-950/40" : "border-neutral-200 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"}`;
+  return (
+    <fieldset className="space-y-2">
+      <legend className={`${H3} mb-2`}>{CONNECT_FOR_COPY.legend}</legend>
+      <label className={option(!forOrg)}>
+        <input type="radio" name="connect-for" value="brand" checked={!forOrg} onChange={() => onChange(false)} className="mt-0.5" />
+        <span>{CONNECT_FOR_COPY.thisBrand(brand)}</span>
+      </label>
+      <label className={option(forOrg)}>
+        <input type="radio" name="connect-for" value="organisation" checked={forOrg} onChange={() => onChange(true)} className="mt-0.5" />
+        <span>
+          {CONNECT_FOR_COPY.organisation(org.name)}
+          {forOrg ? <span className={`mt-0.5 block ${HINT}`}>{CONNECT_FOR_COPY.keptIn(org.regionName, brand)}</span> : null}
+        </span>
+      </label>
+    </fieldset>
+  );
+}
+
 function SignInCard({
   listing,
   isAdmin,
   alone,
   heading: Title,
   waiting,
+  org = null,
 }: {
   listing: ConnectorListing;
   isAdmin: boolean;
   alone: boolean;
   heading: CardHeading;
   waiting: ConnectionView | null;
+  /** Connecting for the organisation: its consent line shows before Google's screen. */
+  org?: OrganisationListing | null;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -141,7 +184,7 @@ function SignInCard({
   async function go() {
     setBusy(true);
     setError(null);
-    const r = await startSignIn(listing.id);
+    const r = org ? await startOrganisationSignIn(listing.id) : await startSignIn(listing.id);
     if (r.ok) {
       window.location.assign(r.data.url);
       return;
@@ -161,6 +204,11 @@ function SignInCard({
       <p className="text-sm leading-relaxed text-neutral-700 dark:text-neutral-300">
         Pick the Google account that can see your property. YouGrow asks only to read your {listing.name} data.
       </p>
+      {org ? (
+        <p id="connect-consent" className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-700 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
+          {CONNECT_FOR_COPY.consent(org.name, partUnit(listing.id).one)}
+        </p>
+      ) : null}
       {waiting && isAdmin ? (
         <p className={NOTE_WARN}>
           {LISTING_COPY.signInWaiting}{" "}
@@ -177,6 +225,7 @@ function SignInCard({
             className="inline-flex rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:opacity-50"
             onClick={go}
             disabled={busy}
+            aria-describedby={org ? "connect-consent" : undefined}
           >
             <GoogleSignInArt alt={LISTING_COPY.signInTitle} />
           </button>
@@ -205,17 +254,20 @@ function ShareCard({
   afterSignIn,
   heading: Title,
   waiting,
+  org = null,
 }: {
   listing: ConnectorListing;
   isAdmin: boolean;
   afterSignIn: boolean;
   heading: CardHeading;
   waiting: ConnectionView | null;
+  /** Making the address for the organisation: its own, then Settings › Organisation gives each brand its part. */
+  org?: OrganisationListing | null;
 }) {
   const router = useRouter();
   const method = shareMethodOf(listing)!;
   const [made, setMade] = useState<{ id: string; email: string } | null>(() =>
-    waiting?.details?.serviceAccount ? { id: waiting.id, email: waiting.details.serviceAccount.email } : null,
+    org ? (org.waitingShare ? { ...org.waitingShare } : null) : waiting?.details?.serviceAccount ? { id: waiting.id, email: waiting.details.serviceAccount.email } : null,
   );
   const [busy, setBusy] = useState<"make" | "check" | null>(null);
   const [note, setNote] = useState<{ tone: "warn" | "err"; text: string } | null>(null);
@@ -224,6 +276,16 @@ function ShareCard({
   async function make() {
     setBusy("make");
     setNote(null);
+    if (org) {
+      const o = await callApi<{ connectionId: string; share: { email: string } }>(ORG_ROUTES.list, { method: "POST", body: { connectorId: listing.id, method: "share_access" } });
+      setBusy(null);
+      if (!o.ok) {
+        setNote({ tone: "err", text: o.message });
+        return;
+      }
+      setMade({ id: o.data.connectionId, email: o.data.share.email });
+      return;
+    }
     const r = await callApi<{ connection: ConnectionView; share: { email: string } }>(ROUTES.share(listing.id), { method: "POST", body: {} });
     setBusy(null);
     if (!r.ok) {
@@ -238,14 +300,14 @@ function ShareCard({
     if (!made) return;
     setBusy("check");
     setNote(null);
-    const r = await callApi<{ visible: boolean; message: string | null }>(ROUTES.access(made.id), { method: "POST" });
+    const r = await callApi<{ visible: boolean; message: string | null }>(org ? ORG_ROUTES.access(made.id) : ROUTES.access(made.id), { method: "POST" });
     setBusy(null);
     if (!r.ok) {
       setNote({ tone: r.status === 409 ? "warn" : "err", text: r.message });
       return;
     }
     if (r.data.visible) {
-      router.push(pickPath(listing.id, made.id));
+      router.push(org ? `${ORGANISATION_PATH}?${new URLSearchParams({ status: "connected", connection: made.id })}` : pickPath(listing.id, made.id));
       return;
     }
     setNote({ tone: "warn", text: r.data.message ?? LISTING_COPY.checkHint });
@@ -511,6 +573,88 @@ function TokenCard({
       ) : (
         <p className={HINT}>{LISTING_COPY.adminsOnly}</p>
       )}
+    </form>
+  );
+}
+
+/**
+ * A pasted token for the organisation: only its secret fields, since each brand gets its own zone
+ * later. YouGrow checks it by listing the zones it reaches, then seals it for the organisation.
+ */
+function OrgTokenCard({ listing, heading: Title, org }: { listing: ConnectorListing; heading: CardHeading; org: OrganisationListing }) {
+  const router = useRouter();
+  const method = tokenMethodOf(listing)!;
+  const secretFields = method.fields.filter((f) => f.secret);
+  const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(secretFields.map((f) => [f.key, ""])));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(true), []);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    const r = await callApi<{ connectionId: string }>(ORG_ROUTES.list, { method: "POST", body: { connectorId: listing.id, method: "token_fields", fields: secretsOf(method.fields, values) } });
+    if (r.ok) {
+      router.push(`${ORGANISATION_PATH}?${new URLSearchParams({ status: "connected", connection: r.data.connectionId })}`);
+      return;
+    }
+    setBusy(false);
+    setError(r.message);
+  }
+
+  const input = "h-9 w-full rounded-md border border-neutral-300 bg-transparent px-3 font-mono text-sm dark:border-neutral-700";
+  return (
+    <form method="post" aria-labelledby="connect-token" className={`${CARD} space-y-4`} onSubmit={submit}>
+      <Title id="connect-token" className={H3}>
+        {LISTING_COPY.tokenTitle}
+      </Title>
+      <ol className="list-decimal space-y-1.5 pl-5 text-sm leading-relaxed text-neutral-700 dark:text-neutral-300">
+        {method.steps.map((step) => (
+          <li key={step}>{step}</li>
+        ))}
+      </ol>
+      <p className={NOTE_WARN}>{CONNECT_FOR_COPY.tokenHint(org.name)}</p>
+      {method.tokenLink ? (
+        <a href={method.tokenLink} target="_blank" rel="noreferrer" className="inline-block text-sm font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-400">
+          Open {listing.name} with the form filled in
+        </a>
+      ) : null}
+      {secretFields.map((f) => (
+        <div key={f.key} className="space-y-1">
+          <label htmlFor={`org-field-${f.key}`} className="block text-sm font-medium">
+            {f.label}
+          </label>
+          <input
+            id={`org-field-${f.key}`}
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            required
+            minLength={f.minLength}
+            maxLength={f.maxLength}
+            value={values[f.key] ?? ""}
+            onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+            className={input}
+          />
+          {f.help ? <p className={HINT}>{f.help}</p> : null}
+        </div>
+      ))}
+      <p className={HINT}>{LISTING_COPY.tokenCheck}</p>
+      {error ? (
+        <p role="alert" className={NOTE_ERR}>
+          {error}
+        </p>
+      ) : null}
+      <div className="flex flex-wrap gap-2">
+        <button type="submit" className={BUTTON_PRIMARY} disabled={busy || !ready}>
+          {busy ? CONNECT_FOR_COPY.connecting : CONNECT_FOR_COPY.tokenConnect}
+        </button>
+        <Link href="/admin/account/connections/browse" className={BUTTON}>
+          Cancel
+        </Link>
+      </div>
     </form>
   );
 }

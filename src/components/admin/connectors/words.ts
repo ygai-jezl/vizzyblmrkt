@@ -791,3 +791,196 @@ export function healthLine(c: Pick<ConnectionView, "health" | "connectorOn" | "s
   if (c.health.message) return c.health.message;
   return c.health.lastOkAt ? `Last worked ${whenWords(c.health.lastOkAt, now)}.` : null;
 }
+
+// --- Organisations share connections (Connectors 3, CONNECTORS_SHARING_ENABLED) -----------------
+
+export const ORGANISATION_PATH = "/admin/account/organisation";
+export const SHARED_HELP_PATH = "/help/shared-connections";
+
+/** What one part of a connector is called: a site, a property or a zone. */
+export function partUnit(connectorId: string): { one: string; many: string } {
+  if (connectorId === "search-console") return { one: "site", many: "sites" };
+  if (connectorId === "google-analytics") return { one: "property", many: "properties" };
+  if (connectorId === "cloudflare") return { one: "zone", many: "zones" };
+  return { one: "part", many: "parts" };
+}
+
+const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
+/** "Vizzybl's", "Fernhill US's", but "Harbour Blooms'". */
+export const whoseWords = (name: string) => (/s$/.test(name) ? `${name}'` : `${name}'s`);
+/** "the United States" in a sentence, other regions as they are. */
+export const regionInSentence = (region: string) => (region === "United States" ? "the United States" : region);
+const joinAnd = (xs: readonly string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+
+/**
+ * A part as its owners read it: a Search Console site as Google names it, a GA4 property with its
+ * name, a Cloudflare zone by its name. `label` is the brand record's (the name it was given with).
+ */
+export function partWords(account: string, label?: string | null): string {
+  const property = /^properties\/(\d+)$/.exec(account);
+  if (property) return label && label !== account && !/^Google /.test(label) ? `Property ${property[1]} (${label})` : `Property ${property[1]}`;
+  if (/^[0-9a-f]{32}$/.test(account)) return label && label !== "Cloudflare" ? label : accountWords(account);
+  return account;
+}
+
+export const CONNECT_FOR_COPY = {
+  legend: "Connect for",
+  /** The consent line before Google's screen, for an organisation (pick 6). */
+  consent: (org: string, unit: string) =>
+    `You can give each brand in ${org} one ${unit} this Google account can see. Only you see the list. Each brand's team sees only its own ${unit}, and the other owners see which brand has which.`,
+  thisBrand: (brand: string) => `This brand (${brand})`,
+  organisation: (org: string) => `${org} (all its brands)`,
+  keptIn: (region: string, brand: string) => `Kept in ${region}, where ${brand} keeps its data. Each brand's numbers stay in its own region.`,
+  tokenHint: (org: string) => `For ${org}, include every zone its brands use under Zone Resources. YouGrow lists them, and you give each brand its own.`,
+  tokenConnect: "Connect for the organisation",
+  connecting: "Checking the token…",
+  checkedGoOn: "The address can see what it needs. Give each brand its part on Settings › Organisation.",
+  openOrganisation: "Open Settings › Organisation",
+} as const;
+
+export const SHARED_COPY = {
+  title: "Shared connections",
+  lead: "Connect once for the organisation, then give each brand its own site, property or zone. Each brand's team sees only its own.",
+  none: "Nothing is shared yet. Connect Search Console, Google Analytics 4 or Cloudflare for the organisation from Settings › Connections › Browse, then give each brand its part.",
+  browse: "Open Browse",
+  part: "Part",
+  givenTo: "Given to",
+  since: "Since",
+  collected: "Collected",
+  readers: "Readers",
+  actions: "Actions",
+  change: "Change",
+  takeBack: "Take back",
+  pause: "Pause",
+  resume: "Resume",
+  signInAgain: "Sign in again",
+  disconnect: "Disconnect",
+  address: "Google address",
+  copy: "Copy",
+  copied: "Copied",
+  working: "Working",
+  attention: "Needs attention",
+  paused: "Paused",
+  lastGone: "No brand uses this any more. Disconnect it?",
+  starting: "Starts within the hour",
+  ending: "Being taken back",
+  giving: "Being given",
+  notCollected: "Not collected in this copy",
+  unreadable: "Can't read it now",
+  failed: "This screen didn't load. Reload the page in a minute.",
+} as const;
+
+/** "Cloudflare, API token.", "Search Console, a Google address made for YouGrow.AI.", "Google Analytics 4, signed in with Google by you." */
+export function sharedHowWords(c: { method: ConnectMethodName; signer: "you" | "other" | "gone" | null }, org: string): string {
+  if (c.method === "token_fields") return ", API token.";
+  if (c.method === "share_access") return `, a Google address made for ${org}.`;
+  return c.signer === "you" ? ", signed in with Google by you." : c.signer === "other" ? ", signed in with Google by another owner." : ", signed in with Google.";
+}
+
+/** The product people name for a connector, as the approved screens write it. */
+export const productWords = (name: string) => name.replace(/^Google (Search Console)$/, "$1");
+
+/** Who reads a part for a brand, in the give dialog's line. */
+export function readerWords(method: ConnectMethodName): string {
+  return method === "oauth_pkce" ? "Your Google account" : method === "share_access" ? "The Google address" : "The API token";
+}
+
+export const notSignerWords = (many: string) => `Only the owner who signed in can give its ${many}. You can take one back, pause, disconnect, or sign in again yourself.`;
+export const notSignerDialogWords = (many: string) => `Only the owner who signed in can give its ${many} to more brands. You can take one back, pause, disconnect, or sign in again yourself.`;
+export const signerLeftWords = (many: string) => `Signed in by someone who is no longer an owner. Sign in again to keep giving ${many}.`;
+export const noPartsWords = (one: string) => `Nothing is collected until you give a brand a ${one}.`;
+export const pausedOrgWords = (day: string, byYou: boolean) => `Paused on ${day} by ${byYou ? "you" : "another owner"}. No brand reads it live or collects it. Numbers already collected stay readable.`;
+export const stoppedUsingWords = (brand: string, day: string) => `${brand} stopped using it on ${day}.`;
+export const everyBrandHasWords = (one: string, method: ConnectMethodName) => `Each brand has a ${one} from this ${method === "token_fields" ? "token" : method === "share_access" ? "address" : "sign-in"}.`;
+export const cantReadCountWords = (n: number) => (n === 1 ? "1 brand can't read its part" : `${n} brands can't read their parts`);
+export const holdWords = (until: string, name: string) =>
+  `Collecting paused until ${new Date(until).toISOString().slice(11, 16)} UTC because ${productWords(name)}'s limit was reached. Live reads go on.`;
+
+/** Why a whole organisation connection needs attention, and how many brands it stopped. */
+export function sharedBrokenWords(c: { method: ConnectMethodName; connectorName: string; health: { lastErrorCode: string | null; since: string | null; lastCheckedAt: string | null } }, brands: number): string {
+  const when = (c.health.since ?? c.health.lastCheckedAt ?? "").slice(0, 10);
+  const on = when ? ` on ${dayWords(when)}` : "";
+  const who = brands === 0 ? "" : brands === 1 ? " Its brand stopped collecting." : brands === 2 ? " Both brands stopped collecting." : ` All ${brands} brands stopped collecting.`;
+  const fix = brands === 2 ? "both" : brands > 2 ? "all of them" : "it";
+  if (c.health.lastErrorCode === "secret_unopenable") return `YouGrow can't open this connection's saved token any more.${who} Disconnect it and connect again.`;
+  if (c.method === "oauth_pkce") return `Google ended this sign-in${on}.${who} Sign in again to fix it for ${fix}.`;
+  if (c.method === "share_access") return `This Google address stopped working${on}.${who} Disconnect it and make a new one.`;
+  return `${productWords(c.connectorName)} turned this token down${on}.${who} Disconnect it and connect a new token.`;
+}
+
+/** A part its brand can't read, with what fixes it: the row's main line and its hint. */
+export function cantReadWords(method: ConnectMethodName, account: string, connectorName: string, since: string | null): { main: string; hint: string } {
+  const main = since ? `Can't read since ${dayWords(since.slice(0, 10))}.` : "Can't read it now.";
+  if (method === "share_access") return { main, hint: `Add the address to ${account} again.` };
+  if (method === "oauth_pkce") return { main, hint: "Sign in again with a Google account that can read it, or take it back." };
+  return { main, hint: `Add it to the token in ${productWords(connectorName)}, or take it back.` };
+}
+
+/** The codes on a brand's record that say its own part can't be read (pick 12), not its sign in. */
+export const PART_UNREADABLE_CODES: ReadonlySet<string> = new Set(["account_refused", "share_access_lost", "share_not_visible"]);
+
+export const GIVE_COPY = {
+  brand: "Brand",
+  readersHint: "Choose who can read it. Admins always can.",
+  members: "Members can read it",
+  vizzy: "Vizzy can read it when someone asks",
+  listMine: "Only you see this list.",
+  listAny: "Any owner can give from this list.",
+  loading: "Listing what it can see…",
+  none: "It can't see anything yet.",
+  cancel: "Cancel",
+  close: "Close",
+  give: "Give",
+  done: "Done",
+  signInWithGoogle: "Sign in with Google",
+  signedInAgain: "Signed in again",
+  working: "Working…",
+} as const;
+
+export const giveTitleWords = (one: string) => `Give a brand a ${one}`;
+export const giveButtonWords = (brand: string | null) => (brand ? `Give to ${brand}` : GIVE_COPY.give);
+export const notAdminWords = (brand: string) => `You're not an admin of ${brand}.`;
+export const hasPartWords = (part: string) => `Has ${part}`;
+export const givenToWords = (brand: string) => `Given to ${brand}`;
+export const otherRegionWords = (brand: string, brandRegion: string, signInRegion: string) =>
+  `${brand} keeps its numbers in ${regionInSentence(brandRegion)}. The sign in stays in ${signInRegion}.`;
+export const insideWords = (domain: string, brand: string) => `Inside ${domain}, which ${brand} has. Both brands would see these pages.`;
+export const coversWords = (site: string, brand: string) => `Covers ${site}, which ${brand} has. Both brands would see these pages.`;
+export const notOnWords = (domain: string) => `Not on ${domain}.`;
+export const otherOwnWords = (org: string, one: string) => `Another brand in ${org} already reads this ${one} with its own connection.`;
+export const readsForWords = (method: ConnectMethodName, one: string, brand: string) => `${readerWords(method)} reads this ${one} for ${brand}. ${whoseWords(brand)} team sees only this ${one}.`;
+export const readersForWords = (brand: string) => `Readers for ${brand}`;
+
+export const changeTitleWords = (brand: string, one: string) => `Change ${whoseWords(brand)} ${one}`;
+export const changeButtonWords = (one: string) => `Change ${one}`;
+export const changeTextWords = (brand: string, part: string, one: string) => `${whoseWords(brand)} numbers from ${part} are deleted, and 90 days fill again from the new ${one} within a day.`;
+
+export const takeBackTitleWords = (brand: string) => `Take back from ${brand}`;
+export function takeBackTextWords(brand: string, one: string, method: ConnectMethodName, connectorName: string): string {
+  const base = `${brand} stops reading this ${one} now. What YouGrow collected for it is deleted, with its suggestions.`;
+  return method === "share_access" ? `${base} YouGrow's address can still read the ${one}: remove it in ${productWords(connectorName)} if no brand uses it.` : base;
+}
+export const addressStillReadsWords = (part: string, connectorName: string, one: string) =>
+  `YouGrow's address can still read ${part}. Remove it in ${productWords(connectorName)} if no brand uses that ${one}.`;
+
+export const disconnectTitleWords = (connectorName: string, org: string) => `Disconnect ${connectorName} for ${org}`;
+export function disconnectTextWords(brands: number): string {
+  if (brands === 0) return "YouGrow deletes what it stored for it, and it reads nothing more.";
+  return brands === 1 ? "1 brand stops reading it now, and what YouGrow collected for it is deleted." : `${brands} brands stop reading it now, and what YouGrow collected for them is deleted.`;
+}
+export const REVOKE_WARNING = "Google also ends your other YouGrow connections that use the same Google account. They need signing in again.";
+
+export const signInAgainTitleWords = (connectorName: string) => `Sign in again to ${connectorName}`;
+export function signInAgainTextWords(serves: ReadonlyArray<{ brand: string; part: string }>): string {
+  const n = serves.length;
+  if (n === 0) return "No brand uses this sign-in yet. Signing in again uses your Google account, and makes you the one who signed in.";
+  const all = n === 1 ? "it" : n === 2 ? "both" : "all of them";
+  return `This sign-in serves ${n} ${n === 1 ? "brand" : "brands"}: ${joinAnd(serves.map((s) => `${s.brand} reads ${s.part}`))}. Signing in again uses your Google account for ${all}, and makes you the one who signed in.`;
+}
+export const afterSignInWords = (part: string, brand: string) =>
+  `Your Google account can't read ${part}, so ${brand} stops reading it until someone who can signs in again, or an owner takes it back.`;
+export const connectedForWords = (org: string) => `Connected for ${org}. Give each brand its part below.`;
+export const signedInAgainWords = (n: number) =>
+  n ? `Signed in again. ${n === 1 ? "1 brand's part" : `${n} brands' parts`} can't be read with this Google account: see below.` : "Signed in again. Every brand's part reads with your Google account.";
+export const ownConnectionWords = (brand: string, connectorName: string, one: string) => `${brand} already has its own ${productWords(connectorName)} connection to this ${one}. Disconnect that one first.`;
+export const unitOf = (connectorId: string) => cap(partUnit(connectorId).one);

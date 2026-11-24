@@ -3,7 +3,7 @@ import { integrationsHopAdmin } from "@/lib/integrations/admin";
 import { isConnectorsEnabled } from "@/lib/connectors/flags";
 import { humanActor } from "@/lib/connectors/grants";
 import { connectorsOff } from "@/lib/connectors/http";
-import { CALLBACK_PATH, finishSignIn, signInReturnPath } from "@/lib/connectors/signIn";
+import { CALLBACK_PATH, finishSignIn, organisationReturnPath, signInReturnPath } from "@/lib/connectors/signIn";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,7 +13,9 @@ export const dynamic = "force-dynamic";
  * so there is no origin check here: the signed state, this attempt's cookie, the single use
  * server record, the admin match and PKCE do that job (src/lib/connectors/signIn.ts). Admins
  * only. Every answer is a redirect into the app by path (never built from the request's host),
- * with no code or token in it, and clears this attempt's cookie when the state names it.
+ * with no code or token in it, and clears this attempt's cookie when the state names it. A sign in
+ * made for an organisation (Connectors 3) comes back here too, and goes on to Settings ›
+ * Organisation; one that fails goes back to its connector's Listing, as a brand's does.
  */
 function redirect(path: string, cookieName: string | null): NextResponse {
   const res = new NextResponse(null, { status: 303, headers: { location: path, "cache-control": "no-store", "referrer-policy": "no-referrer" } });
@@ -32,6 +34,10 @@ export async function GET(req: Request) {
     headers: req.headers,
   });
   if (!done.ok) return redirect(signInReturnPath(done.connectorId, { status: "error", reason: done.reason }), done.cookieName);
+  if (done.organisation) {
+    const params = done.reconnected ? { status: "signed_in_again", connection: done.connectionId, ...(done.unreadable ? { unreadable: String(done.unreadable) } : {}) } : { status: "connected", connection: done.connectionId };
+    return redirect(organisationReturnPath(params), done.cookieName);
+  }
   return redirect(
     signInReturnPath(done.connectorId, { status: "connected", connection: done.connectionId, ...(done.reconnected ? { reconnected: "1" } : {}) }),
     done.cookieName,

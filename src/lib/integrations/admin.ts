@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { getAdminContext } from "@/lib/auth/session";
+import { getAdminContext, getAdminContextWithHome } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import type { AdminGate } from "@/lib/connect/admin";
 import type { TenantContext } from "@/lib/tenant";
+import type { TenantRole } from "@/lib/types/tenantUser";
 
 /**
  * The one gate for every route under /api/admin/integrations: connecting, disconnecting
@@ -11,15 +12,25 @@ import type { TenantContext } from "@/lib/tenant";
  * Order: origin check, sign-in, then the admin role for anything that changes state.
  * Members can see which accounts are connected, but only admins change them.
  * src/lib/integrations/routesGate.test.ts fails when a route skips this file.
+ *
+ * `withHome` also answers the person's home brand and its claims' role from the same session
+ * check, for the organisation routes (Connectors 3), which ask whether the person is an admin of
+ * a brand they reach only as their home brand (isBrandAdminLive in src/lib/tenant).
  */
-export async function integrationsAdmin(req: Request, opts: { adminOnly: boolean }): Promise<AdminGate> {
+export type AdminGateWithHome = { ok: true; ctx: TenantContext; home: { tenantId: string; role: TenantRole | undefined } } | { ok: false; response: Response };
+
+export async function integrationsAdmin(req: Request, opts: { adminOnly: boolean; withHome: true }): Promise<AdminGateWithHome>;
+export async function integrationsAdmin(req: Request, opts: { adminOnly: boolean; withHome?: false }): Promise<AdminGate>;
+export async function integrationsAdmin(req: Request, opts: { adminOnly: boolean; withHome?: boolean }): Promise<AdminGate | AdminGateWithHome> {
   const blocked = sameOriginGuard(req);
   if (blocked) return { ok: false, response: blocked };
-  const ctx = await getAdminContext();
+  const session = opts.withHome ? await getAdminContextWithHome() : null;
+  const ctx = opts.withHome ? (session?.ctx ?? null) : await getAdminContext();
   if (!ctx) return { ok: false, response: NextResponse.json({ error: "unauthorized" }, { status: 401 }) };
   if (opts.adminOnly && ctx.role !== "admin") {
     return { ok: false, response: NextResponse.json({ error: "forbidden" }, { status: 403 }) };
   }
+  if (session) return { ok: true, ctx, home: { tenantId: session.homeTenantId, role: session.homeRole } };
   return { ok: true, ctx };
 }
 

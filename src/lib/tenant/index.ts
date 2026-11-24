@@ -104,12 +104,13 @@ export {
   setOrganisationName,
   setOrganisationOwners,
   organisationUserIds,
+  recordOrganisationConnectionChange,
   OPERATOR_LABEL,
   scriptActor,
   organisationDrift,
   hasDrift,
 } from "./organisations";
-export type { DriftBrand, EnsureOrganisationOptions, EnsureOrganisationResult, OrganisationDrift, SetPlanResult } from "./organisations";
+export type { DriftBrand, EnsureOrganisationOptions, EnsureOrganisationResult, OrganisationConnectionChangeKind, OrganisationDrift, SetPlanResult } from "./organisations";
 export { countLiveLaunches } from "./liveLaunches";
 export {
   appendPatternVersion,

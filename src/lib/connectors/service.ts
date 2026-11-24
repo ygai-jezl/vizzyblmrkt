@@ -417,7 +417,8 @@ export function checkFields(
   return labels.length ? { ok: false, labels } : { ok: true, values };
 }
 
-function cleanLabel(label: string | undefined, fallback: string): string {
+/** A label as typed, with control characters and angle brackets taken out; the fallback when nothing is left. */
+export function cleanLabel(label: string | undefined, fallback: string): string {
   const cleaned = (label ?? "").replace(/[\u0000-\u001f\u007f<>]/g, "").trim();
   return cleaned || fallback;
 }

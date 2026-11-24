@@ -12,8 +12,9 @@ import { z } from "zod";
  *   organisations/{id}/settings_versions beside it.
  * - Legal entities and founder profiles (Phase 2): subcollections of the organisation, only after
  *   a residency decision, because (default) is the US database (docs/DECISIONS.md ADR-0002).
- * - Connections owned by an organisation (connectors piece 3): an `organisationId` on each
- *   connection record, not a list here.
+ * - Connections owned by an organisation (Connectors 3, ADR-0014) are kept in
+ *   `organisation_connections`, in the region each was connected from, never as a list here: an
+ *   older build's write of this record would drop a field it doesn't know.
  * - The Enterprise licence (piece P) belongs to the deployment, not the organisation, and is
  *   never stored here.
  */
@@ -31,6 +32,12 @@ export const ORGANISATION_CHANGE_KINDS = [
   "brand.left",
   "organisation.renamed",
   "owners.changed",
+  // An organisation's own connections (Connectors 3, ADR-0014): ids only, written after the commit.
+  "connection.connected",
+  "connection.signed_in_again",
+  "connection.paused",
+  "connection.resumed",
+  "connection.disconnected",
 ] as const;
 export const OrganisationChangeKindSchema = z.enum(ORGANISATION_CHANGE_KINDS);
 export type OrganisationChangeKind = z.infer<typeof OrganisationChangeKindSchema>;
@@ -80,7 +87,9 @@ export type Organisation = z.infer<typeof OrganisationSchema>;
 /**
  * organisation_changes/{orgId_tenantId_at_kind_rand}, append only. `actor` is a Firebase UID,
  * `script:<label>`, `backfill:<label>`, "seed" or "selfhost": staff data only, never an end user.
- * `from` and `to` hold plan ids, names, or the owners added and removed.
+ * `from` and `to` hold plan ids, names, or the owners added and removed. A `connection.*` row names
+ * the organisation's connection (`connectionId`, an `ocn_` id) and, in `tenantId`, the brand it
+ * was connected from: ids only, never a part, a token or an address.
  */
 const ChangeValue = z.union([z.string().max(200), z.array(Id).max(MAX_ORGANISATION_OWNERS)]);
 export const OrganisationChangeSchema = z.object({
@@ -89,6 +98,7 @@ export const OrganisationChangeSchema = z.object({
   from: ChangeValue.optional(),
   to: ChangeValue.optional(),
   tenantId: Id.optional(),
+  connectionId: z.string().regex(/^ocn_[a-z2-7]{20}$/).optional(),
   actor: z.string().min(1).max(200),
   at: z.string().min(1),
 });

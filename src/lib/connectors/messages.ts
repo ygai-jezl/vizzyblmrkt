@@ -123,6 +123,9 @@ export const SIGNIN_REASONS = {
   no_refresh_token: "Google didn't give YouGrow a lasting sign in. Start again, and if it happens again, remove YouGrow in your Google account first.",
   check_failed: "You signed in, but the first check didn't go through, so nothing was saved. Try again in a minute.",
   site_not_visible: "This Google account can't see the site this connection reads. Sign in with the account that has access to it.",
+  // Connecting for an organisation (Connectors 3): checked again, live, when Google sends you back.
+  not_owner: "Only an owner of your organisation can connect for it. Ask an owner, or connect for this brand instead.",
+  sharing_off: "Sharing connections across brands is off in this copy, so nothing was connected.",
 } as const;
 
 export type SignInReason = keyof typeof SIGNIN_REASONS;

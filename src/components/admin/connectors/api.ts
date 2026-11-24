@@ -29,7 +29,7 @@ export function refusalWords(status: number, error: string): string {
   return API_WORDS.other;
 }
 
-export async function callApi<T>(url: string, init: { method?: "GET" | "POST" | "PUT" | "DELETE"; body?: unknown } = {}): Promise<ApiResult<T>> {
+export async function callApi<T>(url: string, init: { method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; body?: unknown } = {}): Promise<ApiResult<T>> {
   let res: Response;
   try {
     res = await fetch(url, {
@@ -64,6 +64,29 @@ export const ROUTES = {
   pause: (id: string) => `${ROOT}/connections/${encodeURIComponent(id)}/pause`,
   grants: (id: string) => `${ROOT}/connections/${encodeURIComponent(id)}/grants`,
 } as const;
+
+const ORG_ROOT = "/api/admin/organisation/connections";
+
+/** The organisation's routes (Connectors 3): its connections, found by id on the server. */
+export const ORG_ROUTES = {
+  list: ORG_ROOT,
+  connection: (id: string) => `${ORG_ROOT}/${encodeURIComponent(id)}`,
+  start: (id: string) => `${ORG_ROOT}/${encodeURIComponent(id)}/start`,
+  access: (id: string) => `${ORG_ROOT}/${encodeURIComponent(id)}/access`,
+  pause: (id: string) => `${ORG_ROOT}/${encodeURIComponent(id)}/pause`,
+  accounts: (id: string) => `${ORG_ROOT}/${encodeURIComponent(id)}/accounts`,
+  parts: (id: string) => `${ORG_ROOT}/${encodeURIComponent(id)}/parts`,
+} as const;
+
+/** Google's address must be Google's own, over https. */
+const googleUrl = (r: ApiResult<{ url: string }>): ApiResult<{ url: string }> =>
+  r.ok && (typeof r.data.url !== "string" || !r.data.url.startsWith("https://")) ? { ok: false, status: 502, error: "bad_response", message: API_WORDS.other } : r;
+
+/** Start Sign in with Google for the organisation (a new connection, or again for one of its own). */
+export async function startOrganisationSignIn(connectorId: string, sourceId?: string): Promise<ApiResult<{ url: string }>> {
+  if (sourceId) return googleUrl(await callApi<{ url: string }>(ORG_ROUTES.start(sourceId), { method: "POST" }));
+  return googleUrl(await callApi<{ url: string }>(ORG_ROUTES.list, { method: "POST", body: { connectorId, method: "oauth_pkce" } }));
+}
 
 /** Start Sign in with Google (a new connection, or again for one): the browser goes to Google next. */
 export async function startSignIn(connectorId: string, connectionId?: string): Promise<ApiResult<{ url: string }>> {

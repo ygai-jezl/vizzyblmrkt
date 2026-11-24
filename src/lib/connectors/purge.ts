@@ -1,9 +1,9 @@
 import { sourceKeyOf } from "@/lib/search/types";
-import { countDataConnectionActivity, forTenant, OPERATOR_LABEL, purgeDataConnection, type PurgeCounts, type TenantContext } from "@/lib/tenant";
+import { changeDataConnection, countDataConnectionActivity, forTenant, OPERATOR_LABEL, purgeDataConnection, type PurgeCounts, type TenantContext } from "@/lib/tenant";
 import { searchStoreFor } from "@/lib/tenant/searchIndex";
 import type { FirestoreLike } from "@/lib/tenant/types";
-import type { DataConnection } from "@/lib/types/dataConnection";
-import { eraseConnectionData, type SearchIndexOf } from "./erase";
+import { freshCollect, type DataConnection } from "@/lib/types/dataConnection";
+import { eraseConnectionData, pendingWith, type SearchIndexOf } from "./erase";
 import { isGoogleRevokeEnabled } from "./flags";
 import { revokeGoogleToken, type GoogleDeps } from "./google";
 import { searchTextRef } from "./keys";
@@ -212,7 +212,16 @@ export async function purgeConnections(
       continue;
     }
     const signIn = toRevoke(ctx, c);
-    // Everything it collected goes first, with no row of its own: the purged row is the trace.
+    // Stopped first, in one change: marked disconnected with everything it collected pending, so a
+    // collect run, a look for suggestions or a search sweep that starts now writes nothing, and one
+    // already going marks what it wrote for the lane to erase (Disconnect's order).
+    await changeDataConnection(
+      ctx,
+      c.id,
+      (cur) => ({ patch: { status: "disconnected", disconnectedAt: cur.disconnectedAt ?? at, collect: { ...(cur.collect ?? freshCollect()), erasePending: pendingWith(cur.collect?.erasePending ?? null, "all"), nextAt: null } }, activity: [] }),
+      opts.db,
+    );
+    // Everything it collected goes next, with no row of its own: the purged row is the trace.
     const erased = await eraseConnectionData(ctx, c.id, "all", { by, now: opts.now, db: opts.db, record: false, searchIndex: opts.searchIndex });
     const snapshotsDeleted = erased.snapshots;
     const searchRemoved = erased.search === "skipped" ? null : erased.search === "removed";

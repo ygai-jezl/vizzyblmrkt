@@ -122,8 +122,10 @@ export async function runConnectorsLane(opts: { deadlineMs: number }, deps: Lane
 
 /**
  * The housekeeping the lane runs for every brand whatever collect or signals say: erases still
- * pending, then, where the brand has Search Console, its suggestions past their 30 days, and its
- * brand map proposals in step with their questions (withdrawn ones count as expired).
+ * pending, then, where the brand has Search Console, its suggestions past their 30 days, its brand
+ * map proposals in step with their questions (withdrawn ones count as expired), and whatever a
+ * connection that no longer feeds planning (members or Vizzy lost the grant) still has open:
+ * declined, and its undecided proposals withdrawn.
  */
 export async function laneHousekeeping(
   ctx: TenantContext,
@@ -134,9 +136,10 @@ export async function laneHousekeeping(
   let expired = 0;
   const searchConsole = connections.filter((c) => c.connectorId === searchConsoleManifest.id);
   if (searchConsole.length) {
+    const notPlanning = new Set(searchConsole.filter((c) => c.status === "connected" && !feedsPlanning(c.grants)).map((c) => c.id));
     try {
-      expired = (await expireConnectorSignals(ctx, { db: deps.db, now: deps.now })).expired;
-      const r = await reconcileProposals(ctx, searchConsole.map((c) => c.id), { db: deps.db, now: deps.now });
+      expired = (await expireConnectorSignals(ctx, { db: deps.db, now: deps.now, notPlanning })).expired;
+      const r = await reconcileProposals(ctx, searchConsole.map((c) => c.id), { db: deps.db, now: deps.now, notPlanning });
       expired += r.withdrawn;
     } catch (err) {
       console.warn(`[connectors] expiring suggestions for ${ctx.tenantId} failed:`, err instanceof Error ? err.message.slice(0, 200) : "error");

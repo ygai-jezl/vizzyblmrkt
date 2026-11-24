@@ -273,6 +273,7 @@ describe("query shape", () => {
     await setPaused(A, admin, ID, true, deps());
     await disconnect(A, admin, ID, deps());
     expect(ops.length).toBeGreaterThan(0);
-    for (const op of ops) expect(op, op).toMatch(/^where \w+ ==$/);
+    // Equality, in document id order at most (open suggestions are paged by id): no composite index.
+    for (const op of ops) expect(op, op).toMatch(/^(where \w+ ==|orderBy __name__|startAfter)$/);
   });
 });

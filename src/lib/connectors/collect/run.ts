@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { changeDataConnection, type ActivityWrite, type DataConnectionPatch, type TenantContext } from "@/lib/tenant";
 import { CollectStateSchema, type CollectState, type DataConnection } from "@/lib/types/dataConnection";
+import { pendingWith } from "../erase";
 import { COLLECT_HOOKS } from "../handlers";
 import type { CollectResult, HookFailure } from "../handlers/types";
 import { countsAsFailure, isCallPaused } from "../health";
@@ -257,9 +258,11 @@ export async function collectConnection(ctx: TenantContext, id: string, opts: { 
 }
 
 /**
- * Give the lease back with the run's state, in one change. A lease that ran out (another run holds
- * it) leaves everything alone. A connection disconnected meanwhile, or whose generation moved on
- * (Change property), gets what this run wrote marked for erasing.
+ * Give the lease back with the run's state, in one change. A connection disconnected meanwhile, or
+ * whose generation moved on (Change property), gets what this run wrote marked for erasing first,
+ * whoever holds the lease now: Disconnect clears it, and Change property takes its own, and either
+ * may have erased before this run's last write. Otherwise a lease that ran out (another run holds
+ * it) leaves everything alone.
  */
 async function release(
   ctx: TenantContext,
@@ -274,12 +277,13 @@ async function release(
     id,
     (cur) => {
       const c = collectOf(cur);
-      if (c.leaseId !== leaseId) return null;
-      const free = { ...c, leaseId: null, leaseUntil: null };
+      const mine = c.leaseId === leaseId;
       if (cur.status !== "connected" || c.gen !== gen) {
-        const pending = c.erasePending === "all" || cur.status !== "connected" ? "all" : [...new Set([...(c.erasePending ?? []), gen])];
-        return { patch: { collect: { ...free, erasePending: pending } }, activity: [] };
+        const erasePending = pendingWith(c.erasePending, cur.status !== "connected" ? "all" : [gen]);
+        return { patch: { collect: { ...c, ...(mine ? { leaseId: null, leaseUntil: null } : {}), erasePending } }, activity: [] };
       }
+      if (!mine) return null;
+      const free = { ...c, leaseId: null, leaseUntil: null };
       const p = plan(cur, free);
       return { patch: { ...p.patch, collect: { ...p.collect, leaseId: null, leaseUntil: null } }, activity: p.activity };
     },

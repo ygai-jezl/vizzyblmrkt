@@ -100,10 +100,11 @@ describe("Google Analytics' collect", () => {
     const r = await result;
     expect(calls).toHaveLength(3);
     for (const c of calls) {
-      expect(c.url).toBe("https://analyticsdata.googleapis.com/v1beta/properties/123456789:batchRunReports");
+      // Compact JSON: Google pretty prints by default, which would double the answer.
+      expect(c.url).toBe("https://analyticsdata.googleapis.com/v1beta/properties/123456789:batchRunReports?prettyPrint=false");
       const requests = c.body.requests as Array<{ dateRanges: Array<{ startDate: string; endDate: string }>; limit: number; returnPropertyQuota: boolean; metricAggregations: string[] }>;
       expect(requests.length).toBeLessThanOrEqual(5);
-      for (const q of requests) expect(q).toMatchObject({ limit: 1000, returnPropertyQuota: true, metricAggregations: ["TOTAL"], dateRanges: [{ startDate: q.dateRanges[0]!.endDate }] });
+      for (const q of requests) expect(q).toMatchObject({ limit: 500, returnPropertyQuota: true, metricAggregations: ["TOTAL"], dateRanges: [{ startDate: q.dateRanges[0]!.endDate }] });
     }
     // At 12:00 in London on 23 Nov: 21 Nov is the newest day; days up to 15 Nov are final.
     expect(r.days.map((d) => `${d.day}:${d.final}`)).toEqual(["2026-11-21:false", "2026-11-20:false", "2026-11-19:false", "2026-11-18:false", "2026-11-17:false", "2026-11-16:false"]);
@@ -129,15 +130,56 @@ describe("Google Analytics' collect", () => {
     expect((await result).days.map((d) => `${d.day}:${d.final}`)).toEqual(["2026-11-14:true", "2026-11-15:true"]);
   });
 
-  it("asks again with half the rows when an answer is too big, once", async () => {
+  const tooBig = () => new Response("x".repeat(600 * 1024), { status: 200, headers: { "content-type": "application/json" } });
+  const twoNew = { ...EMPTY_CURSOR, lastDay: "2026-11-19", backfilledTo: "2026-08-24", finalThrough: "2026-11-15", filled: true, timeZone: "Europe/London" };
+
+  it("asks one day a call when two days are too big, then that day with half the rows", async () => {
     let n = 0;
     const { calls, result } = run(ga4Manifest, PROPERTY, (c) => {
       n += 1;
-      return n === 1 ? new Response("x".repeat(600 * 1024), { status: 200, headers: { "content-type": "application/json" } }) : batch(c);
-    }, { ...EMPTY_CURSOR, lastDay: "2026-11-20", backfilledTo: "2026-08-24", finalThrough: "2026-11-15", filled: true, timeZone: "Europe/London" });
+      return n === 1 || n === 3 ? tooBig() : batch(c);
+    }, twoNew);
     const r = await result;
     expect(r.failure).toBeNull();
-    expect((calls[1]!.body.requests as Array<{ limit: number }>)[0]!.limit).toBe(500);
+    expect(r.hold).toBeNull();
+    expect(r.days.map((d) => d.day)).toEqual(["2026-11-20", "2026-11-21"]);
+    const asked = calls.map((c) => (c.body.requests as Array<{ limit: number; dateRanges: Array<{ startDate: string }> }>).map((q) => `${q.dateRanges[0]!.startDate}:${q.limit}`));
+    expect(asked).toEqual([
+      ["2026-11-20:500", "2026-11-20:500", "2026-11-21:500", "2026-11-21:500"],
+      ["2026-11-20:500", "2026-11-20:500"],
+      ["2026-11-21:500", "2026-11-21:500"],
+      ["2026-11-21:250", "2026-11-21:250"],
+    ]);
+  });
+
+  it("holds itself until the next day when one day is too big even with half the rows, leaving health alone", async () => {
+    let n = 0;
+    const { result } = run(ga4Manifest, PROPERTY, (c) => {
+      n += 1;
+      return n === 2 ? batch(c) : tooBig();
+    }, twoNew);
+    const r = await result;
+    expect(r.failure).toBeNull();
+    expect(r.hold).toMatchObject({ reason: "too_big" });
+    // The day before it landed; the cursor waits on the one too big.
+    expect(r.days.map((d) => d.day)).toEqual(["2026-11-20"]);
+  });
+
+  it("stores zeros for a day with no rows and no totals, never an empty total", async () => {
+    const empty = (metrics: string[]) => ({ dimensionHeaders: [{ name: "x" }], metricHeaders: metrics.map((name) => ({ name, type: "TYPE_INTEGER" })), metadata: { timeZone: "Europe/London" }, kind: "analyticsData#runReport" });
+    const day = () => [empty(["screenPageViews", "activeUsers", "keyEvents"]), empty(["sessions", "activeUsers", "keyEvents"])];
+    const { result } = run(ga4Manifest, PROPERTY, (c) => answer({ reports: (c.body.requests as unknown[]).length === 4 ? [...day(), ...day()] : day() }), twoNew);
+    const r = await result;
+    expect(r.days[0]!.docs.find((d) => d.by === "day")!.totals).toEqual({ ga4Sessions: 0, ga4ActiveUsers: 0, ga4Views: 0, ga4KeyEvents: 0 });
+  });
+
+  it("plans a first run in the westernmost zone, so the property's own day never finds the cursor ahead", async () => {
+    // 06:30 UTC on 24 Nov: in UTC the newest day would be 22 Nov, a day ahead of a Los Angeles property.
+    const { result } = run(ga4Manifest, PROPERTY, (c) => batch(c, { timeZone: "America/Los_Angeles" }), EMPTY_CURSOR, new Date("2026-11-24T06:30:00.000Z"));
+    const r = await result;
+    expect(r.newest).toBe("2026-11-21");
+    expect(r.days[0]!.day).toBe("2026-11-21");
+    expect(r.timeZone).toBe("America/Los_Angeles");
   });
 
   it("holds itself for an hour when the project's tokens for the property run low", async () => {
@@ -186,6 +228,18 @@ describe("Cloudflare's collect", () => {
     expect(calls[1]!.body.variables).toMatchObject({ from: "2026-11-14", to: "2026-11-21" });
     // Days with nothing listed, two days on, had no traffic.
     expect(r.days[0]!.docs[0]!.totals).toMatchObject({ cfRequests: 0, cfUniqueVisitors: 0 });
+  });
+
+  it("keeps a recent day only the daily totals list from them, never as zero end users", async () => {
+    const all = Array.from({ length: 90 }, (_, i) => new Date(Date.parse("2026-08-24") + i * 86_400_000).toISOString().slice(0, 10));
+    // The adaptive dataset lists the last 30 days but 20 Nov.
+    const endUsers = all.slice(-30).filter((d) => d !== "2026-11-20");
+    const { result } = run(cloudflareManifest, ZONE, (c) => (String(c.body.query).includes("settings") ? answer(cfSettings()) : answer(cfDays(all, endUsers))), EMPTY_CURSOR, now);
+    const r = await result;
+    const day = r.days.find((d) => d.day === "2026-11-20")!.docs[0]!;
+    expect(day).toMatchObject({ basis: "all_traffic", totals: { cfVisits: null } });
+    expect((day.totals as Record<string, number>).cfRequests).toBeGreaterThan(0);
+    expect(r.days.find((d) => d.day === "2026-11-21")!.docs[0]).toMatchObject({ basis: "end_users" });
   });
 
   it("stops when the token is turned down", async () => {

@@ -8,6 +8,7 @@ import { NO_AGENT_GRANT, NO_MEMBER_READ } from "./agentApi";
 import { can, type ConnectorActor } from "./grants";
 import { olderDaysNote } from "./handlers/cloudflare";
 import { APP_SCREENS_NOTE, OTHER_NOTE, SAMPLED_NOTE, THRESHOLD_NOTE } from "./handlers/googleAnalytics";
+import { MERGED_NOTE } from "./handlers/searchConsole";
 import { rolledId, snapshotId } from "./keys";
 import { PagePathSchema, READ_COUNTS } from "./live";
 import { LIVE_LIMITS, streamOf, type ConnectorManifest, type ProducedStream, type StreamCollect } from "./manifest";
@@ -17,7 +18,7 @@ import { addDays, daysIn, daysWords, dayWords, isDay, laterDay, LIVE_PERIODS, pe
 import { getConnector } from "./registry";
 import { PEOPLE_KEYS, RowRoller, rollTotals } from "./rollups";
 import type { ServiceDeps } from "./service";
-import { KEEP_ROWS, readDayDocs, readSnapshot } from "./snapshots";
+import { KEEP_ROWS, oldestAlive, readDayDocs, readSnapshot } from "./snapshots";
 
 /**
  * Vizzy's collected numbers (Connectors 2, ADR-0012): get_connected_numbers, through
@@ -70,13 +71,15 @@ export type AgentNumbersRequest = z.infer<typeof AgentNumbersSchema>;
 // --- Words (house style: no dashes) ------------------------------------------------------------
 
 export const NOT_COLLECTED_YET =
-  "Nothing has been collected for this connection yet. Collecting starts within a day of connecting and fills 90 days over the next few hours, so read it live meanwhile.";
+  "Nothing has been collected for this connection yet. Collecting starts within the hour of connecting and fills 90 days over the next few hours, so read it live meanwhile.";
 export const NOT_ROLLED_YET = "The 28 and 90 day numbers are added up once a day after collecting, and aren't ready for this connection yet. Ask for the last 7 days, or read it live.";
 export const STREAM_NOT_COLLECTED = "That stream isn't collected, so it can only be read live.";
 export const PAGE_NEEDS_GROUPING = "Collected numbers for one page come by page or landing page. Ask by page with the page, or read it live for its days.";
 export const MIXED_BASIS_NOTE =
   "Cloudflare keeps end user numbers only for recent days, so for the older days here requests and page views count all traffic, bots included, and visits are empty.";
 export const CUT_ROWS_NOTE = "Each day keeps its top 500 rows, so a row that fell below them on some days counts only the days it was kept, and may be a little low.";
+export const SESSIONS_SUM_NOTE =
+  "Google Analytics sessions here add up each day's sessions. Google Analytics estimates sessions, and counts a session that runs past midnight on both days, so its own report for the same days can be slightly lower.";
 
 /** Explicit days that reach too far for the grouping. */
 export function rangeTooLong(by: SnapshotBy, max: number): string {
@@ -136,8 +139,9 @@ export function fillingNote(oldest: string, days: number, wanted: number): strin
   return `Collected numbers start on ${dayWords(oldest)}, so this period covers ${days} of its ${wanted} days.`;
 }
 
-/** Days in the window with no collected doc. */
-export function missingNote(days: readonly string[]): string {
+/** Days in the window with no collected doc: the days themselves, or how many (a rolled doc knows only that). */
+export function missingNote(days: readonly string[] | number): string {
+  if (typeof days === "number") return days === 1 ? "One of these days has no collected numbers, so it isn't counted." : `${days} of these days have no collected numbers, so they aren't counted.`;
   return days.length === 1 ? `${dayWords(days[0]!)} has no collected numbers, so it isn't counted.` : `${days.length} of these days have no collected numbers, so they aren't counted.`;
 }
 
@@ -168,6 +172,8 @@ interface Read {
   notFinal: string[];
   allTraffic: string[];
   missing: string[];
+  /** A rolled doc's days with no doc: it knows how many, not which. */
+  missingCount: number;
 }
 
 /** The row key a grouping's rows carry, as a live read names it: Search Console's searches are `query`. */
@@ -208,6 +214,7 @@ async function readRolled(ctx: TenantContext, conn: DataConnection, gen: number,
     notFinal: [],
     allTraffic: [],
     missing: [],
+    missingCount: Math.max(0, daysIn(day.window.from, day.window.to) - (day.days ?? 0)),
   };
 }
 
@@ -253,6 +260,7 @@ async function readDays(ctx: TenantContext, conn: DataConnection, gen: number, s
     notFinal: ordered.filter((d) => !d.final).map((d) => d.day!),
     allTraffic: ordered.filter((d) => d.basis === "all_traffic").map((d) => d.day!),
     missing: daysFrom(from, to).filter((d) => !dayDocs.has(d)),
+    missingCount: 0,
   };
 }
 
@@ -340,7 +348,7 @@ export async function agentCollectedNumbers(ctx: TenantContext, actor: Connector
   const today = todayIn(now, zone ?? "UTC");
   const lastDay = c.lastDay;
   // Days older than the keep window leave by their time to live, counted from the day itself.
-  const oldest = laterDay(laterDay(c.backfilledTo, addDays(lastDay, -(keep - 1))), addDays(todayIn(now, "UTC"), -(keep - 1)));
+  const oldest = laterDay(laterDay(c.backfilledTo, addDays(lastDay, -(keep - 1))), oldestAlive(now, keep));
   if (oldest > lastDay) return refuse(409, "not_collected_yet", NOT_COLLECTED_YET);
 
   const notes: string[] = [];
@@ -382,6 +390,7 @@ export async function agentCollectedNumbers(ctx: TenantContext, actor: Connector
     else if (read.to < yesterday) notes.push(notInYetNote(addDays(read.to, 1), yesterday));
   }
   if (read.missing.length) notes.push(missingNote(read.missing));
+  else if (read.missingCount) notes.push(missingNote(read.missingCount));
   if (read.days > 0 && !read.final) {
     const span = spanOf(read.notFinal) ?? [laterDay(c.finalThrough ? addDays(c.finalThrough, 1) : read.from, read.from), read.to];
     if (span[0] <= span[1]) notes.push(notFinalNote(span[0], span[1]));
@@ -402,12 +411,15 @@ export async function agentCollectedNumbers(ctx: TenantContext, actor: Connector
   if (page !== undefined && !matching.length) notes.push(pageNotKeptNote(page, q.by));
   const shown = q.by === "day" ? matching.slice(-q.limit) : matching.slice(0, q.limit);
   if (shown.some((r) => (r.cutDays ?? 0) > 0)) notes.push(CUT_ROWS_NOTE);
+  if (shown.some((r) => typeof r.m.merged === "number")) notes.push(MERGED_NOTE);
   const keyName = rowKeyOf(stream, q.by);
   const peopleEmpty = multi && q.by !== "day";
   const rows = shown.map((r) => shapeRow(r, keyName, stream.measures, peopleEmpty));
   const dropped = (page !== undefined ? 0 : read.dropped) + (matching.length - shown.length);
   // One page's numbers have no site totals beside them: the site's are for every page.
   const totals = page !== undefined ? null : shapeTotals(read.totals, stream.measures, multi);
+  // Sessions over more than one day are each day's added up, which Google Analytics' own range doesn't do.
+  if (multi && (typeof totals?.ga4Sessions === "number" || (q.by !== "day" && rows.some((r) => typeof r.ga4Sessions === "number")))) notes.push(SESSIONS_SUM_NOTE);
   const result = answer(conn, manifest, stream, q, { from: read.from, to: read.to, timeZone: read.timeZone ?? zone, finalThrough: c.finalThrough }, totals, rows, dropped, notes);
   return logged(ctx, conn, q, read.from, read.to, read.timeZone ?? zone, now, deps, result);
 }

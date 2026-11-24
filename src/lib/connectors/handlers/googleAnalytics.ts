@@ -337,13 +337,27 @@ export const runReport: LiveHook = async (input, deps) => {
 
 // --- Collecting (Connectors 2, ADR-0012) ----------------------------------------------------------
 
-const batchUrl = (property: string) => `https://analyticsdata.googleapis.com/v1beta/${property}:batchRunReports`;
+/**
+ * Compact JSON: Google pretty prints by default ("prettyPrint ... true (default)", its system
+ * parameters), which more than doubles a batch answer and would pass the manifest's 512 KiB cap.
+ */
+const batchUrl = (property: string) => `https://analyticsdata.googleapis.com/v1beta/${property}:batchRunReports?prettyPrint=false`;
 /** Days a collect run reads: 3 calls of 2 days, each day a page and a landing report. */
 export const COLLECT_DAYS_PER_RUN = 6;
 /** Days in one batchRunReports call: 4 reports, under Google's 5. */
 export const DAYS_PER_BATCH = 2;
-/** Rows asked of each report before the cut to 500; halved once when an answer is too big. */
-export const COLLECT_ROWS = 1000;
+/**
+ * Rows asked of each report: the 500 a day keeps, in the main measure's order, while rowCount
+ * still says when Google has more. An answer past the byte cap is asked again one day a call, then
+ * that day with half the rows; still too big, the collector holds itself until the next day.
+ */
+export const COLLECT_ROWS = 500;
+/**
+ * Before the first answer names the property's zone, days are planned in the westernmost one, so
+ * the first run never gets ahead of the property's own day and the next run (in its zone) never
+ * finds the cursor past its newest day.
+ */
+const WESTMOST_ZONE = "Etc/GMT+12";
 /** A day is first read 2 days later and read again on day 8, both from 06:00 in the property's zone. */
 export const FIRST_PASS_DAYS = 2;
 export const FINAL_PASS_DAYS = 8;
@@ -406,9 +420,13 @@ function reportRows(by: "page" | "landing", body: ReportBody): CollectReport {
   if (Array.isArray(meta.samplingMetadatas) && meta.samplingMetadatas.length) notes.add("sampled");
   const rowCount = typeof body.rowCount === "number" && Number.isInteger(body.rowCount) ? body.rowCount : null;
   const quota = (body.propertyQuota ?? {}) as { tokensPerProjectPerHour?: unknown; tokensPerDay?: unknown };
+  // A report that answered with no rows may leave its empty totals out (JSON drops an empty list):
+  // the day had none, so its totals are zeros, not unknown.
+  const empty = !listed.length && !rowCount;
+  const names = headers.some((h) => KEY_OF.has(h)) ? headers : [...METRICS_BY[by]];
   return {
     rows: [...merged.entries()].map(([key, v]) => ({ key, m: v.m })),
-    totals: totalsRow ? valuesOf(headers, totalsRow.metricValues) : null,
+    totals: totalsRow ? valuesOf(names, totalsRow.metricValues) : empty ? valuesOf(names, names.map(() => ({ value: "0" }))) : null,
     more: rowCount !== null && rowCount > listed.length,
     notes,
     timeZone: isTimeZone(meta.timeZone) ? meta.timeZone : null,
@@ -430,17 +448,20 @@ function dayTotals(page: CollectReport, landing: CollectReport): Record<string, 
  * Collect a property's days (ADR-0012). A day D is first read 2 days later from 06:00 in the
  * property's zone and marked not final; it is read again from day 8, when Google Analytics no
  * longer changes it ("some data can arrive late, potentially up to 7 days delayed"), and marked
- * final. Each day is two reports, one by page and one by landing page, that day alone, 1,000 rows
- * asked in the main measure's order with the day's totals; two days go in one batchRunReports call
- * (4 reports, under Google's 5), at most 3 calls a run, one at a time. An answer past the byte cap
- * is asked again once with half the rows. Every call returns the property's quota: under 20% of the
- * project's tokens for the hour, the collector holds itself for an hour.
+ * final. Each day is two reports, one by page and one by landing page, that day alone, 500 rows
+ * asked in the main measure's order with the day's totals, as compact JSON; two days go in one
+ * batchRunReports call (4 reports, under Google's 5), at most 3 calls a run, one at a time. An
+ * answer past the byte cap is asked again one day a call, then that day with half the rows; still
+ * too big, the collector holds itself until the next day (never the connection's health). Every
+ * call returns the property's quota: under 20% of the project's tokens for the hour, the collector
+ * holds itself for an hour. Until an answer names the property's zone, days are planned in the
+ * westernmost zone.
  */
 export const collectDays: CollectHook = async (input, deps) => {
   const { ask } = input;
   const keepDays = ask.stream.collect.keepDays;
   let timeZone = ask.cursor.timeZone;
-  const zone = timeZone ?? "UTC";
+  const zone = timeZone ?? WESTMOST_ZONE;
   const base: CollectResult = { days: [], newest: null, moreDue: false, nextDueMs: nextAt(ask.now, zone, PASS_HOUR, 0).getTime(), reachFrom: null, timeZone, probed: false, hold: null, failure: null };
   if (!input.account) return { ...base, failure: { ok: false, code: "account_needed", retryAfterSec: null } };
   if (!PROPERTY_RE.test(input.account)) return { ...base, failure: { ok: false, code: "account_refused", retryAfterSec: null } };
@@ -451,29 +472,23 @@ export const collectDays: CollectHook = async (input, deps) => {
   const plan = planned.slice(0, COLLECT_DAYS_PER_RUN);
   out.moreDue = planned.length > plan.length;
 
-  for (let i = 0; i < plan.length; i += DAYS_PER_BATCH) {
-    if (!ask.canStart()) {
-      out.moreDue = true;
-      break;
-    }
-    const days = plan.slice(i, i + DAYS_PER_BATCH).map((p) => p.day);
-    const call = (rows: number) =>
-      connectorFetch(
-        {
-          manifest: input.manifest,
-          connection: input.connection,
-          url: batchUrl(input.account),
-          method: "POST",
-          json: { requests: days.flatMap((d) => (["page", "landing"] as const).map((by) => reportBody(by, { startDate: d, endDate: d }, rows, undefined))) },
-          token: input.token,
-        },
-        deps,
-      );
-    let res = await call(COLLECT_ROWS);
-    if (!res.ok && res.code === "body_too_large") res = await call(COLLECT_ROWS / 2);
-    if (!res.ok) return { ...out, failure: googleFailure(res) };
-    const reports = (res.body as { reports?: unknown } | null)?.reports;
-    if (!Array.isArray(reports) || reports.length !== days.length * 2) return { ...out, failure: { ok: false, code: "bad_response", retryAfterSec: null } };
+  const call = (days: readonly string[], rows: number) =>
+    connectorFetch(
+      {
+        manifest: input.manifest,
+        connection: input.connection,
+        url: batchUrl(input.account),
+        method: "POST",
+        json: { requests: days.flatMap((d) => (["page", "landing"] as const).map((by) => reportBody(by, { startDate: d, endDate: d }, rows, undefined))) },
+        token: input.token,
+      },
+      deps,
+    );
+
+  /** Land the days of one answer, in order; "low" when the project's tokens run low. */
+  const land = (days: readonly string[], body: unknown): "ok" | "low" | "bad" => {
+    const reports = (body as { reports?: unknown } | null)?.reports;
+    if (!Array.isArray(reports) || reports.length !== days.length * 2) return "bad";
     let low = false;
     days.forEach((day, j) => {
       const page = reportRows("page", (reports[j * 2] ?? {}) as ReportBody);
@@ -492,7 +507,40 @@ export const collectDays: CollectHook = async (input, deps) => {
       for (const q of [page.quota, landing.quota]) if ((q.projectHour !== null && q.projectHour < LOW_PROJECT_TOKENS) || (q.day !== null && q.day < LOW_TOKENS.day)) low = true;
     });
     out.timeZone = timeZone;
-    if (low) return { ...out, hold: { untilMs: ask.now.getTime() + HOUR_MS, reason: "tokens_low" } };
+    return low ? "low" : "ok";
+  };
+  const BAD: HookFailure = { ok: false, code: "bad_response", retryAfterSec: null };
+  const lowHold = { untilMs: ask.now.getTime() + HOUR_MS, reason: "tokens_low" as const };
+
+  batches: for (let i = 0; i < plan.length; i += DAYS_PER_BATCH) {
+    if (!ask.canStart()) {
+      out.moreDue = true;
+      break;
+    }
+    const batch = plan.slice(i, i + DAYS_PER_BATCH).map((p) => p.day);
+    const res = await call(batch, COLLECT_ROWS);
+    if (res.ok) {
+      const landed = land(batch, res.body);
+      if (landed === "bad") return { ...out, failure: BAD };
+      if (landed === "low") return { ...out, hold: lowHold };
+      continue;
+    }
+    if (res.code !== "body_too_large") return { ...out, failure: googleFailure(res) };
+    // Too big for one call: each day alone, then that day with half the rows.
+    for (const day of batch) {
+      if (!ask.canStart()) {
+        out.moreDue = true;
+        break batches;
+      }
+      let one = await call([day], COLLECT_ROWS);
+      if (!one.ok && one.code === "body_too_large") one = await call([day], COLLECT_ROWS / 2);
+      // Still too big: the collector's own hold until the next day; the cursor waits on this day.
+      if (!one.ok && one.code === "body_too_large") return { ...out, hold: { untilMs: nextAt(ask.now, timeZone ?? zone, PASS_HOUR, 0).getTime(), reason: "too_big" } };
+      if (!one.ok) return { ...out, failure: googleFailure(one) };
+      const landed = land([day], one.body);
+      if (landed === "bad") return { ...out, failure: BAD };
+      if (landed === "low") return { ...out, hold: lowHold };
+    }
   }
   return out;
 };

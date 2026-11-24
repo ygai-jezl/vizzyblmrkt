@@ -226,6 +226,7 @@ describe("reading Search Console demand", () => {
     vi.stubEnv("CONNECTORS_ENABLED", "true");
     vi.stubEnv("CONNECTORS_COLLECT_ENABLED", "true");
     vi.stubEnv("CONNECTOR_SIGNALS_ENABLED", "true");
+    vi.stubEnv("CONNECTORS_CHAT_ENABLED", "true");
   });
   afterEach(() => vi.unstubAllEnvs());
 
@@ -240,6 +241,9 @@ describe("reading Search Console demand", () => {
     expect(read!.sites[0]!.questions.get("q_aaaaaaa1")).toMatchObject({ label: "track brand in chatgpt" });
     await changeDataConnection(A, SC, () => ({ patch: { grants: [{ to: "members", can: "read" }] }, activity: [] }), db);
     expect(await readSearchPlanning(A, { db })).toEqual({ sites: [], notShared: true });
+    // With Vizzy's reads off in this copy nobody could share it with Vizzy, so Next up says nothing of it.
+    vi.stubEnv("CONNECTORS_CHAT_ENABLED", "false");
+    expect(await readSearchPlanning(A, { db })).toEqual({ sites: [], notShared: false });
     vi.stubEnv("CONNECTOR_SIGNALS_ENABLED", "false");
     expect(await readSearchPlanning(A, { db })).toBeNull();
   });

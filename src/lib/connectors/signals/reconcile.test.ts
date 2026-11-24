@@ -3,7 +3,11 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { forTenant, proposeAgentAction, type TenantContext } from "@/lib/tenant";
 import { agentDedupeKey, AgentActionSchema, type AgentAction } from "@/lib/types/agentAction";
 import { DATA_SIGNAL_ACTION, SIGNALS_AGENT, SIGNALS_REVIEW_HREF } from "./names";
-import { expireConnectorSignals, reconcileProposals, withdrawProposedBy } from "./reconcile";
+import { blankDismissedFrom, closeAllSuggestions, expireConnectorSignals, reconcileProposals, withdrawProposedBy } from "./reconcile";
+import { setGrants } from "../service";
+import { laneHousekeeping } from "../collect/tick";
+import { nextUpDocId } from "@/lib/types/autopilot";
+import { NOT_SHARED_NEXT_UP } from "./planning";
 import { detectConnection } from "./detect";
 import { seedSearchConsole, search, writeDays } from "../testing/signals";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
@@ -63,6 +67,20 @@ describe("expiring suggestions from collected numbers", () => {
   });
 });
 
+describe("closing every suggestion before a revert", () => {
+  it("counts in a dry run, then declines each with its values cleared", async () => {
+    await suggestion(A, db, 4, 2);
+    await suggestion(A, db, 5, 3);
+    await suggestion(A, db, 6, 3, "vizzy");
+    expect(await closeAllSuggestions(A, { db, now: NOW, apply: false })).toEqual({ open: 2, closed: 0, withdrawn: 0 });
+    expect((await actions()).filter((a) => a.state === "proposed")).toHaveLength(3);
+    expect(await closeAllSuggestions(A, { db, now: NOW, apply: true })).toEqual({ open: 2, closed: 2, withdrawn: 0 });
+    const mine = (await actions()).filter((a) => a.agent === SIGNALS_AGENT);
+    expect(mine.every((a) => a.state === "declined" && a.proposal === null)).toBe(true);
+    expect(await closeAllSuggestions(A, { db, now: NOW, apply: false })).toEqual({ open: 0, closed: 0, withdrawn: 0 });
+  });
+});
+
 describe("brand map proposals from rising searches", () => {
   const CONN = "dcn_ssssssssssssssssssss";
   beforeEach(() => {
@@ -116,6 +134,66 @@ describe("brand map proposals from rising searches", () => {
     expect(await question(q1!)).toBeNull();
     expect(await question(q2!)).toBeNull();
     expect(await actionFor(q1!)).toMatchObject({ state: "declined", declined: { reason: "expired" }, proposal: null });
+  });
+
+  it("withdraws what a connection fed planning once members can't read it: proposals, suggestions and Next up picks", async () => {
+    const [q1, q2] = await proposed(2);
+    const { decideProposals } = await import("@/lib/brandMap/proposals");
+    await decideProposals(A, { accept: { questions: [q1!] } }, { db, nowMs: NOW.getTime() });
+    await suggestion(A, db, 7, 1);
+    // A stored Next up pick that weighed Search Console, and one that didn't.
+    await forTenant(A, db).nextUp.upsert(
+      nextUpDocId(A.tenantId),
+      () => ({
+        picks: [
+          { questionId: "q_sc000000000000000", question: "How often should I water a monstera?", subjectId: "sub_water0000000", subjectName: "Watering", because: "It has 1,900 impressions.", chips: [{ kind: "num", label: "Search Console", text: "1,900 impressions, position 8.6" }], from: "gemini" },
+          { questionId: "q_other00000000000", question: "Which plants are safe for cats?", subjectId: "sub_pets00000000", subjectName: "Pet safe plants", because: "No article answers it yet.", chips: [{ kind: "map", label: "Brand map", text: "1 of 4 answered" }], from: "gemini" },
+        ],
+        notOnMap: [],
+        missing: [],
+        candidates: 2,
+        at: NOW.toISOString(),
+        by: "schedule",
+      }),
+      () => null,
+    );
+    const admin = { kind: "human" as const, uid: "usr_admin", role: "admin" as const };
+    // Admins and Vizzy only: members lose the grant, so the whole team's views must drop it.
+    const r = await setGrants(A, admin, CONN, { grants: [{ to: "agent:vizzy", can: "read" }] }, { db, now: NOW, log: () => {} });
+    expect(r.ok).toBe(true);
+    expect(await question(q1!)).toMatchObject({ status: "decided" });
+    expect(await question(q2!)).toBeNull();
+    expect(await actionFor(q2!)).toMatchObject({ state: "declined", declined: { reason: "stale" }, proposal: null });
+    expect((await actions()).find((a) => a.target.id === SIG(7))).toMatchObject({ state: "declined", declined: { reason: "stale" }, proposal: null });
+    const stored = await forTenant(A, db).nextUp.getById(nextUpDocId(A.tenantId));
+    expect(stored!.picks.map((p) => p.questionId)).toEqual(["q_other00000000000"]);
+    expect(stored!.missing).toContain(NOT_SHARED_NEXT_UP);
+  });
+
+  it("lets the lane withdraw what a connection not feeding planning still has open, if the first try failed", async () => {
+    const [q1] = await proposed(1);
+    await suggestion(A, db, 8, 1);
+    // The grant went by a path that didn't withdraw anything.
+    await forTenant(A, db).dataConnections.getById(CONN);
+    const { changeDataConnection } = await import("@/lib/tenant");
+    await changeDataConnection(A, CONN, () => ({ patch: { grants: [] }, activity: [] }), db);
+    const conn = (await forTenant(A, db).dataConnections.getById(CONN))!;
+    await laneHousekeeping(A, [conn], { db, now: NOW });
+    expect(await question(q1!)).toBeNull();
+    expect((await actions()).find((a) => a.target.id === SIG(8))).toMatchObject({ state: "declined", declined: { reason: "stale" } });
+  });
+
+  it("takes the search's words and numbers off a dismissed question on erase, keeping its own words", async () => {
+    const [q1, q2] = await proposed(2);
+    const { decideProposals } = await import("@/lib/brandMap/proposals");
+    await decideProposals(A, { accept: { questions: [q1!] }, dismiss: { questions: [q2!] } }, { db, nowMs: NOW.getTime() });
+    const before = await question(q2!);
+    expect(before).toMatchObject({ status: "dismissed" });
+    expect(String(before!.reason)).not.toBe("");
+    expect(await blankDismissedFrom(A, CONN, { db, now: NOW })).toBe(1);
+    expect(await question(q2!)).toMatchObject({ status: "dismissed", reason: "", evidence: "", text: before!.text });
+    // A decided question keeps its tag and its reason.
+    expect(String((await question(q1!))!.reason)).not.toBe("");
   });
 
   it("withdraws a connection's undecided questions on erase and keeps the decided ones", async () => {

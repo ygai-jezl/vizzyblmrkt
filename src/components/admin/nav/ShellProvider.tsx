@@ -51,6 +51,8 @@ interface Shell {
   connectorsSearchText: boolean;
   /** Collected numbers suggest what to write (isConnectorSignalsEnabled(), from the server), for the How to drawer. */
   connectorSignals: boolean;
+  /** The brand map is kept at any size (isBrandMapScaleEnabled(), from the server), for the How to drawer. */
+  brandMapScale: boolean;
   /**
    * Hear about each draft Vizzy saves in this chat (returns the unsubscribe), so a page whose
    * data isn't the server's render (the journey editor, a person's page) can reload it. Null
@@ -101,6 +103,7 @@ export function ShellProvider({
   connectorsCollect = false,
   connectorsSearchText = false,
   connectorSignals = false,
+  brandMapScale = false,
   children,
 }: {
   names: CrumbNames;
@@ -138,6 +141,8 @@ export function ShellProvider({
   connectorsSearchText?: boolean;
   /** Collected numbers suggest what to write (isConnectorSignalsEnabled(), from the server): the How to drawer says so. */
   connectorSignals?: boolean;
+  /** The brand map is kept at any size (isBrandMapScaleEnabled(), from the server): the How to drawer says where proposals wait. */
+  brandMapScale?: boolean;
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? "/admin";
@@ -214,9 +219,10 @@ export function ShellProvider({
       connectorsCollect,
       connectorsSearchText,
       connectorSignals,
+      brandMapScale,
       onCanvasSaved: journeyInContext || personInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, saved],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, brandMapScale, saved],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

@@ -13,7 +13,9 @@ import {
   KEEP_ROWS,
   MAX_DOC_BYTES,
   MAX_KEY_LENGTH,
+  oldestAlive,
   readDayDocs,
+  TTL_MARGIN_DAYS,
   ttlFor,
   writeDayDoc,
   type DayDocInput,
@@ -86,9 +88,21 @@ describe("the snapshot store", () => {
     expect(raw).toMatchObject({ tenantId: "ten_a", connectionId: OWNER.id, gen: 0, account: "sc-domain:example.com", by: "page", day: "2026-11-20", timeZone: "America/Los_Angeles", final: true, rowsSeen: 1 });
     expect(raw.rows).toEqual([{ key: "/a", host: "example.com", m: { searchClicks: 6, searchImpressions: 60 } }]);
     expect(raw.ttlAt).toBeInstanceOf(Date);
-    expect((raw.ttlAt as Date).toISOString()).toBe("2027-02-18T00:00:00.000Z");
-    expect(ttlFor("2026-11-20", 90).toISOString()).toBe("2027-02-18T00:00:00.000Z");
+    expect((raw.ttlAt as Date).toISOString()).toBe("2027-02-25T00:00:00.000Z");
+    expect(ttlFor("2026-11-20", 90).toISOString()).toBe("2027-02-25T00:00:00.000Z");
     expect(db.dump("metric_snapshots")).toHaveLength(1);
+  });
+
+  it("never writes a day of the keep window already past its time to live", async () => {
+    // Search Console's last day trails today by about 3 Pacific days: the window's oldest day is
+    // lastDay minus 89, and its doc must still be alive when it is written.
+    const lastDay = "2026-11-21";
+    const oldest = "2026-08-24";
+    const r = await writeDayDoc(A, input({ day: oldest }), { db, now: new Date("2026-11-24T10:00:00.000Z") });
+    expect((db.raw("metric_snapshots", r.id)!.ttlAt as Date).getTime()).toBeGreaterThan(new Date("2026-11-24T10:00:00.000Z").getTime());
+    expect(oldestAlive(new Date("2026-11-24T10:00:00.000Z"), 90) <= oldest).toBe(true);
+    expect(lastDay > oldest).toBe(true);
+    expect(TTL_MARGIN_DAYS).toBeGreaterThanOrEqual(4);
   });
 
   it("reads a range by id, by day, leaving out days not collected", async () => {

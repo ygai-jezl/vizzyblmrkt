@@ -101,13 +101,24 @@ follow as it lands.
   "day, in the brand's time zone" (plan v5, section 6) doesn't hold, and every doc stores its zone.
 - **Counts of people don't add up across days.** GA4 active users and Cloudflare unique visitors are
   left empty in every multi day total and row, with a note to read live.
+- **GA4 sessions are added up across days, with a note.** Google estimates sessions (HLL++) and a
+  session past midnight counts on both days, so the sum of daily sessions can run slightly above
+  GA4's own figure for the range. Asking GA4 for each range's own total would take a report per
+  window per day; instead every multi day sessions figure says it adds each day's, and that GA4's
+  own report for the same days can be slightly lower. Pages losing clicks compare two such sums, so
+  the comparison holds.
 - **The generation.** `collect.gen` is part of every snapshot id and goes on every row with the
   account (site, property or zone). Change property bumps it, so an old site's numbers can never
   share an id with the new site's, even if an erase fails or races a run.
 - **Kept 90 days.** `ttlAt`, a Date, is the day plus the stream's `keepDays` (90, a number in the
-  manifest's new `collect` block that the lane enforces). Firestore deletes expired docs "typically
-  within 24 hours" and shows them until then, so writing day D also deletes D minus 90 by id, and
-  readers read by day.
+  manifest's new `collect` block that the lane enforces) plus a 7 day margin. The keep window is
+  counted back from the last collected day, which trails today by the provider's lag (Search
+  Console about 3 Pacific days), so a time to live of only the day plus 90 would let Firestore
+  delete the window's oldest days while they are still in it; the margin, longer than any lag,
+  keeps the time to live a backstop. Firestore deletes expired docs "typically within 24 hours" and
+  shows them until then, so writing day D also deletes D minus 90 by id, and readers read by day.
+  Explicit reads never reach before the oldest day whose doc can still be there, and a rolled
+  period that is missing days says how many, so its sums are never silently short.
 - **Index changes: three field exemptions, no composite.** `metric_snapshots.rows`, an array of up
   to 500 maps, and the two `ttlAt` fields (`metric_snapshots`, `data_signals`), as Google advises for
   large unqueried fields and for TTL fields. The `ttlAt` entries leave out `ttl`, so an index deploy
@@ -126,15 +137,26 @@ follow as it lands.
     property's daily totals, so the `day` doc needs no extra call. Then one query by page and one by
     search per new day, one day each, 1,000 rows asked, 500 kept with the floor.
   - GA4: one report per grouping per day (page, `unifiedPagePathScreen`; landing, `landingPage`),
-    `limit` 1,000 ordered by the main measure, with `metricAggregations: TOTAL` for the day's totals,
-    at most 5 reports per `batchRunReports` (2 days a call), and `returnPropertyQuota` on every call.
-    A first pass two days after the day, at 06:00 property time, is marked not final; a second pass
-    on day 8 marks it final (Google: "some data can arrive late, potentially up to 7 days"). An
-    answer past 512 KiB halves the limit and is retried once. `(other)` rows are left out;
-    `dataLossFromOtherRow`, sampling and thresholding become notes.
+    `limit` 500 (the rows a day keeps) ordered by the main measure, with `metricAggregations: TOTAL`
+    for the day's totals, at most 5 reports per `batchRunReports` (2 days a call), and
+    `returnPropertyQuota` on every call. Calls ask for compact JSON (`prettyPrint=false`): Google
+    pretty prints by default, which more than doubles a batch answer and passes the manifest's
+    512 KiB cap for a property with a few hundred pages a day. An answer still past the cap is asked
+    again one day a call, then that day with 250 rows; still too big, the collector holds itself
+    until the next day (its own hold, never the connection's health) and the cursor waits on that
+    day. A report that answers with no rows and leaves out its totals stores zeros, not unknown. A
+    first pass two days after the day, at 06:00 property time, is marked not final; a second pass
+    on day 8 marks it final (Google: "some data can arrive late, potentially up to 7 days").
+    `finalThrough` moves only over days that are all final with no gap, and days waiting for their
+    second pass are read ahead of new days, so a connection back from a pause or a break finishes
+    them before newer final days could move the line past them. Until an answer names the
+    property's zone, the first run plans in the westernmost zone, so it never gets ahead of the
+    property's own day. `(other)` rows are left out; `dataLossFromOtherRow`, sampling and
+    thresholding become notes.
   - Cloudflare: zone totals only, two UTC days after the day (the Free plan's 24 hour delay). End
     user numbers as far back as the adaptive dataset reaches; the daily totals before that, clamped
-    to the `httpRequests1dGroups.notOlderThan` its settings node gives, with `basis` set.
+    to the `httpRequests1dGroups.notOlderThan` its settings node gives, with `basis` set. A recent
+    day only the daily totals list is kept from them (all traffic), never as zero end users.
 - **Backfill.** The first collect fills 90 days, one slice per run, newest first: Search Console 5
   days a run after one 90 day totals call, GA4 6 days a run, Cloudflare all in one. A paused or
   broken connection resumes from its last day; out longer than 90 days, it starts again.
@@ -170,9 +192,21 @@ follow as it lands.
   groups 3 and 4 add them. Decided questions stay: a person adopted them.
 - **Disconnect** sets `collect.erasePending`, then erases after the disconnect is saved. **Change
   property** takes the collect lease, sets `erasePending` and bumps `gen` in one change, erases the
-  old generation, clears `erasePending` and starts the new backfill. **The operator purge** erases
-  too, whatever any switch says. Each erase is idempotent and records one `erased` activity row; the
-  lane retries any connection with `erasePending` set whenever `CONNECTORS_ENABLED` is on.
+  old generation, clears `erasePending` and starts the new backfill. **The operator purge** first
+  marks the connection disconnected with everything pending, in one change, then erases, whatever
+  any switch says. Each erase is idempotent and records one `erased` activity row; the lane retries
+  any connection with `erasePending` set whenever `CONNECTORS_ENABLED` is on.
+- **Work in flight marks what it wrote.** A collect run that finds the connection disconnected or on
+  a newer generation when it gives its lease back marks what it wrote for erasing, whoever holds the
+  lease by then (Disconnect clears it; Change property takes its own). A look for suggestions, which
+  holds no lease, does the same in its last change, even when it failed half way.
+- **Open suggestions are found from the agent actions,** whose proposal names the connection and
+  generation (at most 15 open a brand), not only from the connection's `data_signals` rows, so none
+  is missed however many rows it holds. A question it proposed that someone dismissed keeps its own
+  words (so the search isn't proposed again) but loses the search's words and numbers (`evidence`,
+  `reason`). Plan an article keeps a link with no search words or page on the acted action (the full
+  one goes only to the person who pressed it), and metric signals carry meaning keys without values:
+  agent actions have no time to live.
 
 ### What people see (group 1)
 
@@ -180,7 +214,9 @@ follow as it lands.
   endpoint's): a link item, admins only, for a connection that is broken, needs a property, has
   failed collecting since 3 or more days ago (`collect.failedSince`; `health.failures` counts calls,
   not days) or was paused by an admin 7 days ago. It links to the Connected view with that connection
-  selected (`?c=<id>`).
+  selected (`?c=<id>`). The Connected view uses the same 3 days: only then, or when the connection is
+  broken, does it say "Stopped"; a younger failure is a note that YouGrow tries again on its own.
+  Titles name the product as the screens do ("Google Analytics", "Search Console").
 - **Say when access was lost.** A shared connection that had worked and whose Google address was
   removed from the property shows `share_access_lost` ("YouGrow lost access to this property on 19
   Nov. ...") instead of the first time message. Health keeps `since`, when the failures in a row
@@ -196,7 +232,13 @@ follow as it lands.
 - **Planning uses a connection only when both members and Vizzy may read it.** Next up is stored once
   per brand and read by everyone and by Vizzy; brand map proposals are seen by the whole team. None
   can follow one viewer's access, so signals, Next up lines and pack numbers come only from such
-  connections, and the Connected view says which ones feed planning. No third grant.
+  connections, and the Connected view says which ones feed planning. No third grant. When a grant
+  goes and a Search Console connection stops feeding planning, its open suggestions are declined as
+  stale (values cleared), the questions it proposed that nobody decided are withdrawn, and stored
+  Next up picks that weighed it are taken off, at once in Set grants and again by the lane's
+  housekeeping. In a copy without `CONNECTORS_CHAT_ENABLED` no connection can be shared with Vizzy,
+  so nothing is suggested: Connected says so instead of asking for a grant it can't offer, and Next
+  up says nothing about Search Console.
 - **Vizzy's numbers** (`get_connected_numbers`) read snapshots by id behind their own limit,
   `connectors_numbers` (burst 10, 120 an hour), with the canvas token giving the brand and role and
   the connection's Vizzy grant checked; every number carries its meaning. The server works out the
@@ -245,8 +287,14 @@ follow as it lands.
   that day's floor, and each rule takes the side that makes it fire less: a missing day counts as
   nothing in the numbers that have to be high (a rising search's last 14 days, a page's 28 days
   before) and at its floor in the ones that have to be low (the 14 days before a rising search, a
-  page's last 28 days). The floor is the last kept row, ranked by clicks then impressions, so for a
-  search's impressions it is the plan's approximation, not a bound Google promises.
+  page's last 28 days). The floor is the last kept row, ranked by clicks then impressions, and Google
+  sends rows by clicks with ties in no fixed order. So a floor bounds a missing row's clicks, but a
+  missing search's impressions only on a day whose floor had no clicks and whose rows Google sent in
+  full; a rising search missing from any other cut day in the 14 before has an unknown earlier
+  figure and never fires. A question's search that fell under a cut has an average position from
+  its best days only, so it is never within reach, and its lines in Next up, the context pack and
+  brand search say "at least" and leave the position out. Rolled rows keep `cutDays`, and `merged`
+  (Search Console addresses of one page added together) as the most any day merged, with its note.
 - **Caps and repeats.** At most 5 new suggestions a brand a day and 15 open at once, strongest
   first (how far past its threshold each is). While a suggestion is open nothing new is proposed for
   it. Plan an article and Dismiss blank the row and keep it away 30 days (`dismissedUntil`). Each
@@ -298,6 +346,10 @@ All server side, `"false"` in the "== Connectors ==" group of `apphosting.yaml`,
 | `CONNECTORS_SEARCH_TEXT_ENABLED` | 3 | collect, `SEARCH_INDEX_ENABLED`, `brand_search` | `KEPT_OFF`, addon `search` |
 | `CONNECTOR_SIGNALS_ENABLED` | 4 | collect, and 0e's indexes READY | `KEPT_OFF`, addon null |
 
+`CONNECTOR_SIGNALS_ENABLED` itself needs only collect, as the plan says; its suggestions come only
+from connections Vizzy may read, so without `CONNECTORS_CHAT_ENABLED` it suggests nothing and the
+screens say why.
+
 A connector manifest may never claim a platform switch: a refine refuses `CONNECTOR_SIGNALS_ENABLED`
 and `CONNECTOR_GOOGLE_REVOKE_ENABLED` as a connector's `switch` or a sign in method's, and `signals`
 joins the reserved connector ids.
@@ -311,9 +363,17 @@ joins the reserved connector ids.
 | `CONNECTOR_SIGNALS_ENABLED` | detection, Review suggestions, chips, pack lines, the suggestions route | open suggestions expire within 30 days (the lane still expires them); undecided proposals are withdrawn at expiry |
 | `CONNECTORS_ENABLED` | everything | erase still runs from the purge, whatever any switch says |
 
-Reverting the whole pull request is safe: snapshots and signals leave through their time to live,
-the sweep removes `gsc:` sources once the feeder stops listing them, and agent actions are left
-declined or expired. A brand that wants its data gone at once runs the purge before the revert.
+**Reverting the whole pull request takes one step first.** The build before it can't read an agent
+action about a `data_signal` or a `brand_question`, and its expiry stops at the first such action
+still open (`TenantValidationError`), which would block the brand's other expiries, person
+suggestions included. So before the revert, close every open suggestion from collected numbers:
+`npx tsx scripts/connectors-collect.ts --close-suggestions` (dry run), then with `--apply`, for every
+brand (no `--tenant`). Each is declined with its values cleared and its proposed question withdrawn;
+closed actions are never read by the older build's expiry or Review. Then snapshots and signals
+leave through their time to live, and the sweep removes `gsc:` sources once the feeder stops listing
+them. A brand that wants its data gone at once runs the purge before the revert. From this pull
+request on, the expiry logs and skips a row it can't read instead of stopping, so a later rollback
+can't block it this way.
 
 ### Owner gates
 

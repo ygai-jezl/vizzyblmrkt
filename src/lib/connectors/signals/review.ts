@@ -22,7 +22,8 @@ import { signalLines, signalTitle } from "./words";
  *
  * - Plan an article: the suggestion moves to acted with its link (the Create step with the
  *   question, the page or the search filled in), its values cleared, and its row blanked and kept
- *   away 30 days.
+ *   away 30 days. The link kept on the action has no search words or page in it (agent actions
+ *   have no time to live); the full one goes only to the person who pressed it.
  * - Dismiss: declined (dismissed), values cleared, the row blanked and kept away 30 days.
  * Both forget the cached Review count. The decision lives on the agent action only.
  */
@@ -106,6 +107,15 @@ async function programmeFor(ctx: TenantContext, wanted: string | null, deps: Sug
   return active.length === 1 ? active[0]!.id : null;
 }
 
+/**
+ * The link kept on the acted action: the same Create step with no outside text in it (the map
+ * question's own link holds only ids).
+ */
+export function keptHref(workspaceId: string, row: Pick<DataSignal, "rule" | "questionId">): string {
+  if (row.rule === "within_reach" && row.questionId) return writeNextHref(workspaceId, row.questionId);
+  return `/admin/workspace/${encodeURIComponent(workspaceId)}/create?numbers=${row.rule === "losing_page" ? "page" : "search"}`;
+}
+
 /** The Create step for a suggestion: its map question, its page or its search, filled in. */
 export function planHref(workspaceId: string, row: Pick<DataSignal, "rule" | "label" | "questionId" | "key">): string {
   if (row.rule === "within_reach" && row.questionId) return writeNextHref(workspaceId, row.questionId);
@@ -137,7 +147,7 @@ export async function planFromSignal(
   if (!workspaceId) return { ok: false, error: "no_programme" };
   const href = planHref(workspaceId, open.row);
   const now = deps.now ?? new Date();
-  const r = await transitionAgentAction(ctx, open.action.id, { to: "acted", by: memberOf(ctx), at: now.toISOString(), expectRev: open.action.rev, result: { href }, clearDetails: true }, { db: deps.db });
+  const r = await transitionAgentAction(ctx, open.action.id, { to: "acted", by: memberOf(ctx), at: now.toISOString(), expectRev: open.action.rev, result: { href: keptHref(workspaceId, open.row) }, clearDetails: true }, { db: deps.db });
   if (!r.ok) return { ok: false, error: r.error === "not_found" ? "not_found" : "changed" };
   await blankSignal(ctx, open.row.id, { db: deps.db, now, quietDays: QUIET_DAYS });
   forgetReviewCount(ctx.tenantId);

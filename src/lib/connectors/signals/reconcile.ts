@@ -5,6 +5,8 @@ import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { AgentAction } from "@/lib/types/agentAction";
 import { DATA_SIGNAL_ACTION, EXPIRY_DAYS, PROPOSE_QUESTION_ACTION, SIGNALS_AGENT } from "./names";
+import { dropSearchConsolePicks } from "./planning";
+import { blankSignal } from "./store";
 
 /**
  * Keeping suggestions from collected numbers in step (Connectors 2 group 4, ADR-0012): the lane's
@@ -21,6 +23,11 @@ import { DATA_SIGNAL_ACTION, EXPIRY_DAYS, PROPOSE_QUESTION_ACTION, SIGNALS_AGENT
  *   withdrawn with removeQuestion, not dismissed, so its words don't stay and don't block a later
  *   proposal. One whose action someone else already closed (the lifecycle tick's expiry) is found
  *   by its connection (`fromConnectionId`) and withdrawn too.
+ * - Planning (pick 6): a Search Console connection that no longer lets both members and Vizzy read
+ *   it stops feeding planning at once. Its open suggestions are declined as stale with their values
+ *   cleared, the questions it proposed that nobody has decided are withdrawn, and Next up picks
+ *   that weighed its numbers are taken off (setGrants does this when the grant goes; the lane does
+ *   it again for any connection it finds not feeding planning, so a failed first try is caught).
  */
 
 /** Pages of one action read in a run, at most. Open suggestions are capped at 15 a brand. */
@@ -52,15 +59,70 @@ export async function declineAs(ctx: TenantContext, a: AgentAction, reason: "exp
   return r.ok;
 }
 
-/** Decline this agent's Review suggestions past their expiry. Returns how many. */
-export async function expireConnectorSignals(ctx: TenantContext, deps: ReconcileDeps = {}): Promise<{ expired: number }> {
+/** The connection an open suggestion came from, and its generation, from its proposal. */
+function sourceOf(a: AgentAction): { connectionId: string | null; gen: number | null } {
+  const p = (a.proposal ?? {}) as { connectionId?: unknown; gen?: unknown };
+  return { connectionId: typeof p.connectionId === "string" ? p.connectionId : null, gen: typeof p.gen === "number" ? p.gen : null };
+}
+
+/**
+ * Decline this agent's Review suggestions past their expiry, and any still open from a connection
+ * that no longer feeds planning (`notPlanning`) as stale. Returns how many.
+ */
+export async function expireConnectorSignals(ctx: TenantContext, deps: ReconcileDeps & { notPlanning?: ReadonlySet<string> } = {}): Promise<{ expired: number }> {
   const now = (deps.now ?? new Date()).toISOString();
   let expired = 0;
   for (const a of await proposedOf(ctx, DATA_SIGNAL_ACTION, deps)) {
-    if (a.expiresAt > now) continue;
-    if (await declineAs(ctx, a, "expired", deps)) expired += 1;
+    if (a.expiresAt <= now) {
+      if (await declineAs(ctx, a, "expired", deps)) expired += 1;
+      continue;
+    }
+    const from = sourceOf(a).connectionId;
+    if (from && deps.notPlanning?.has(from) && (await declineAs(ctx, a, "stale", deps))) {
+      await blankSignal(ctx, a.target.id, { db: deps.db });
+      expired += 1;
+    }
   }
   return { expired };
+}
+
+/**
+ * This agent's open suggestions of both kinds from one connection (for `gens`, only those
+ * generations'), found from the agent actions themselves: bounded (15 open a brand at most) and by
+ * equality, so none is missed however many rows the connection's signals hold.
+ */
+export async function openSuggestionsOf(ctx: TenantContext, connectionId: string, gens: "all" | readonly number[], deps: ReconcileDeps = {}): Promise<AgentAction[]> {
+  const out: AgentAction[] = [];
+  for (const action of [DATA_SIGNAL_ACTION, PROPOSE_QUESTION_ACTION]) {
+    for (const a of await proposedOf(ctx, action, deps)) {
+      const from = sourceOf(a);
+      if (from.connectionId !== connectionId) continue;
+      if (gens !== "all" && (from.gen === null || !gens.includes(from.gen))) continue;
+      out.push(a);
+    }
+  }
+  return out;
+}
+
+/**
+ * A Search Console connection stopped feeding planning (members or Vizzy lost the grant): its open
+ * suggestions declined as stale with their values cleared, the questions it proposed that nobody
+ * has decided withdrawn, and Next up picks that weighed Search Console taken off. Returns how many
+ * of each.
+ */
+export async function stopPlanningFrom(ctx: TenantContext, connectionId: string, deps: ReconcileDeps = {}): Promise<{ declined: number; withdrawn: number; picks: number }> {
+  let declined = 0;
+  let withdrawn = 0;
+  for (const a of await openSuggestionsOf(ctx, connectionId, "all", deps)) {
+    if (a.action === PROPOSE_QUESTION_ACTION && (await withdrawQuestion(ctx, a.target.id, deps))) withdrawn += 1;
+    if (await declineAs(ctx, a, "stale", deps)) {
+      declined += 1;
+      if (a.action === DATA_SIGNAL_ACTION) await blankSignal(ctx, a.target.id, { db: deps.db });
+    }
+  }
+  withdrawn += await withdrawProposedBy(ctx, connectionId, "all", deps);
+  const picks = await dropSearchConsolePicks(ctx, { db: deps.db });
+  return { declined, withdrawn, picks };
 }
 
 const DAY_MS = 86_400_000;
@@ -73,6 +135,29 @@ export async function withdrawQuestion(ctx: TenantContext, id: string, deps: Rec
 }
 
 /**
+ * Before reverting Connectors 2 (ADR-0012): every open suggestion from collected numbers closed,
+ * declined as stale with its values cleared, its row blanked and an undecided question it proposed
+ * withdrawn. An older build can't read an agent action about a `data_signal` or a `brand_question`,
+ * and its expiry stops at the first one it can't read, so none may stay open across a revert.
+ * Counts only with `apply` false.
+ */
+export async function closeAllSuggestions(ctx: TenantContext, deps: ReconcileDeps & { apply: boolean }): Promise<{ open: number; closed: number; withdrawn: number }> {
+  const out = { open: 0, closed: 0, withdrawn: 0 };
+  for (const action of [DATA_SIGNAL_ACTION, PROPOSE_QUESTION_ACTION]) {
+    for (const a of await proposedOf(ctx, action, deps)) {
+      out.open += 1;
+      if (!deps.apply) continue;
+      if (action === PROPOSE_QUESTION_ACTION && (await withdrawQuestion(ctx, a.target.id, deps))) out.withdrawn += 1;
+      if (await declineAs(ctx, a, "stale", deps)) {
+        out.closed += 1;
+        if (action === DATA_SIGNAL_ACTION) await blankSignal(ctx, a.target.id, { db: deps.db });
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Put this agent's brand map proposals in step with their questions, then withdraw any question
  * proposed from these Search Console connections that is still undecided after 30 days. Returns
  * how many actions moved and questions were withdrawn.
@@ -80,7 +165,7 @@ export async function withdrawQuestion(ctx: TenantContext, id: string, deps: Rec
 export async function reconcileProposals(
   ctx: TenantContext,
   connectionIds: readonly string[],
-  deps: ReconcileDeps = {},
+  deps: ReconcileDeps & { notPlanning?: ReadonlySet<string> } = {},
 ): Promise<{ acted: number; declined: number; withdrawn: number }> {
   const nowDate = deps.now ?? new Date();
   const now = nowDate.toISOString();
@@ -98,14 +183,19 @@ export async function reconcileProposals(
     } else if (a.expiresAt <= now) {
       if (await withdrawQuestion(ctx, q.id, deps)) out.withdrawn += 1;
       if (await declineAs(ctx, a, "expired", deps)) out.declined += 1;
+    } else if (deps.notPlanning?.has(sourceOf(a).connectionId ?? "")) {
+      // Its connection no longer feeds planning: the whole team sees the map, so it goes now.
+      if (await withdrawQuestion(ctx, q.id, deps)) out.withdrawn += 1;
+      if (await declineAs(ctx, a, "stale", deps)) out.declined += 1;
     }
   }
   const cutoff = new Date(nowDate.getTime() - EXPIRY_DAYS * DAY_MS).toISOString();
   for (const id of connectionIds) {
     const proposed = await store.find("q", { where: [["fromConnectionId", "==", id]], limit: 500 }).catch(() => []);
+    const stopped = deps.notPlanning?.has(id) ?? false;
     for (const raw of proposed) {
       const q = parseQuestion(raw);
-      if (q?.status === "proposed" && q.createdAt && q.createdAt <= cutoff && (await withdrawQuestion(ctx, q.id, deps))) out.withdrawn += 1;
+      if (q?.status === "proposed" && (stopped || (q.createdAt && q.createdAt <= cutoff)) && (await withdrawQuestion(ctx, q.id, deps))) out.withdrawn += 1;
     }
   }
   return out;
@@ -123,5 +213,24 @@ export async function withdrawProposedBy(ctx: TenantContext, connectionId: strin
       : [...questionIds];
   let n = 0;
   for (const id of new Set(ids)) if (await withdrawQuestion(ctx, id, deps)) n += 1;
+  return n;
+}
+
+/**
+ * The questions a connection proposed that someone dismissed keep their own words (so the same
+ * search isn't proposed again), but lose the search's words and numbers they came with (`evidence`
+ * and `reason`) when the connection's data is erased. Decided ones keep theirs: a person adopted
+ * them. Returns how many.
+ */
+export async function blankDismissedFrom(ctx: TenantContext, connectionId: string, deps: ReconcileDeps = {}): Promise<number> {
+  const store = brandMapRecords(ctx, deps.db);
+  const found = await store.find("q", { where: [["fromConnectionId", "==", connectionId]], limit: 500 }).catch(() => []);
+  let n = 0;
+  for (const raw of found) {
+    const q = parseQuestion(raw);
+    if (!q || q.status !== "dismissed" || q.from !== "search_console" || (!q.reason && !q.evidence)) continue;
+    const done = await store.claim("q", q.id, (cur) => (cur.status === "dismissed" ? { reason: "", evidence: "" } : null)).catch(() => null);
+    if (done) n += 1;
+  }
   return n;
 }

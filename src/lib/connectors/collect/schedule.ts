@@ -10,6 +10,9 @@ import { addDays, daysIn, earlierDay, laterDay, todayIn } from "../period";
  * - Days are planned newest first while a connection fills its 90 days, and oldest first after a
  *   gap, so the cursor only ever moves over days that landed: `lastDay` forward, `backfilledTo`
  *   back. A connection out longer than its keep starts again from the newest day.
+ * - `finalThrough` moves only over days that are all final with no gap, and days read before they
+ *   were final are read again ahead of new days, so a connection back from a pause or a break
+ *   finishes its second passes before newer days can move the line past them.
  */
 
 const HOUR_MS = 3_600_000;
@@ -40,8 +43,9 @@ export interface PlannedDay {
 /**
  * The days to collect this run, at most `maxDays`:
  * - starting (nothing collected, or out longer than the keep): the newest days, newest first;
- * - else the new days after lastDay, oldest first; then days collected before they were final, up
- *   to `rereadThrough`; then, while it isn't filled, the backfill below backfilledTo, newest first.
+ * - else days collected before they were final, up to `rereadThrough`, oldest first; then the new
+ *   days after lastDay, oldest first; then, while it isn't filled, the backfill below backfilledTo,
+ *   newest first.
  * `reachFrom` is the oldest day the provider can give (a Cloudflare plan's limit).
  */
 export function planDays(
@@ -57,12 +61,12 @@ export function planDays(
     for (let d = newest; d >= oldest && room(); d = addDays(d, -1)) out.push({ day: d, kind: "backfill" });
     return out;
   }
-  for (let d = addDays(cursor.lastDay!, 1); d <= newest && room(); d = addDays(d, 1)) out.push({ day: d, kind: "forward" });
   if (opts.rereadThrough) {
     const from = laterDay(cursor.finalThrough ? addDays(cursor.finalThrough, 1) : (cursor.backfilledTo ?? cursor.lastDay!), cursor.backfilledTo ?? cursor.lastDay!);
     const to = earlierDay(opts.rereadThrough, cursor.lastDay!);
     for (let d = from; d <= to && room(); d = addDays(d, 1)) out.push({ day: d, kind: "reread" });
   }
+  for (let d = addDays(cursor.lastDay!, 1); d <= newest && room(); d = addDays(d, 1)) out.push({ day: d, kind: "forward" });
   if (!cursor.filled) {
     for (let d = addDays(cursor.backfilledTo ?? cursor.lastDay!, -1); d >= oldest && room(); d = addDays(d, -1)) out.push({ day: d, kind: "backfill" });
   }
@@ -76,8 +80,10 @@ export function restarts(cursor: Pick<CollectCursor, "lastDay">, newest: string,
 
 /**
  * The cursor after a run's days landed. lastDay moves forward and backfilledTo back only over
- * days that landed with no gap; finalThrough is the newest final day that landed or was final
- * before. `reachFrom` and `keepDays` say when it is filled.
+ * days that landed with no gap. finalThrough moves only over days that are all final: from the day
+ * after it (or the oldest day kept, when nothing is final yet), up while each next day landed final
+ * this run, so a final day past days still waiting for their second read never moves it over them.
+ * `reachFrom` and `keepDays` say when it is filled.
  */
 export function advance(
   cursor: CollectCursor,
@@ -100,11 +106,13 @@ export function advance(
     while (days.has(addDays(lastDay, 1))) lastDay = addDays(lastDay, 1);
   }
   while (days.has(addDays(backfilledTo, -1))) backfilledTo = addDays(backfilledTo, -1);
-  for (const [day, final] of days) if (final && day <= lastDay && day >= backfilledTo && (!finalThrough || day > finalThrough)) finalThrough = day;
   const oldest = laterDay(addDays(lastDay, -(opts.keepDays - 1)), opts.reachFrom ?? "0000-01-01");
   // Days older than the keep window have left, so the oldest kept day moves up with lastDay.
   backfilledTo = laterDay(backfilledTo, addDays(lastDay, -(opts.keepDays - 1)));
-  if (finalThrough && finalThrough < backfilledTo) finalThrough = null;
+  // Every day from backfilledTo to finalThrough is final: walk up from there over final days only.
+  let next = finalThrough && finalThrough >= backfilledTo ? addDays(finalThrough, 1) : backfilledTo;
+  while (next <= lastDay && days.get(next) === true) next = addDays(next, 1);
+  finalThrough = next > backfilledTo ? addDays(next, -1) : null;
   return { lastDay, finalThrough, backfilledTo, filled: backfilledTo <= oldest, timeZone };
 }
 

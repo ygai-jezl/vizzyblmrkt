@@ -409,7 +409,7 @@ function ManageCard({
   const sa = c.details?.method === "share_access" && c.details.serviceAccount && !c.details.serviceAccount.deletedAt ? c.details.serviceAccount.email : null;
   const picks = c.details?.method === "oauth_pkce" || c.details?.method === "share_access";
   const any = busy !== null;
-  const lines = collect ? collectedLines(c, { planning }) : [];
+  const lines = collect ? collectedLines(c, { planning, chat }) : [];
 
   return (
     // scroll-mt-16 clears the admin header (sticky, 48px), so a pick on a narrow screen shows the card's heading.

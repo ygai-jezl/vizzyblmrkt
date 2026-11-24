@@ -1,7 +1,8 @@
 import { forTenant, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
+import { nextUpDocId } from "@/lib/types/autopilot";
 import type { SnapshotRow } from "@/lib/types/metricSnapshot";
-import { isConnectorSignalsEnabled } from "../flags";
+import { isConnectorsChatEnabled, isConnectorSignalsEnabled } from "../flags";
 import { feedsPlanning } from "../grants";
 import { planningId, siteName } from "../keys";
 import { searchConsoleManifest } from "../manifests/searchConsole";
@@ -35,12 +36,34 @@ export interface SearchPlanningSite {
 
 export interface SearchPlanning {
   sites: SearchPlanningSite[];
-  /** The brand has Search Console, but no connection that members and Vizzy may both read. */
+  /**
+   * The brand has Search Console, but no connection that members and Vizzy may both read, in a
+   * copy where Vizzy can be let in (CONNECTORS_CHAT_ENABLED): otherwise nobody could share it.
+   */
   notShared: boolean;
 }
 
 /** The line Next up says when Search Console isn't used for planning. */
 export const NOT_SHARED_NEXT_UP = "Search Console isn't shared with your team and Vizzy, so its numbers weren't weighed.";
+
+/** The chip label Next up gives a Search Console line. */
+export const SEARCH_CONSOLE_CHIP = "Search Console";
+
+/**
+ * Take off the stored Next up picks that weighed Search Console (a chip of its own), once a
+ * connection stops feeding planning: the stored list is seen by the whole team and by Vizzy, and a
+ * pick's reason may rest on those numbers. The next pick weighs what is left. Returns how many.
+ */
+export async function dropSearchConsolePicks(ctx: TenantContext, deps: { db?: FirestoreLike } = {}): Promise<number> {
+  let dropped = 0;
+  await forTenant(ctx, deps.db).nextUp.claim(nextUpDocId(ctx.tenantId), (cur) => {
+    const keep = cur.picks.filter((p) => !p.chips.some((c) => c.label === SEARCH_CONSOLE_CHIP));
+    dropped = cur.picks.length - keep.length;
+    if (!dropped) return null;
+    return { picks: keep, missing: cur.missing.includes(NOT_SHARED_NEXT_UP) ? cur.missing : [...cur.missing, NOT_SHARED_NEXT_UP] };
+  });
+  return dropped;
+}
 
 /** The brand's Search Console demand, or null while signals are off. */
 export async function readSearchPlanning(ctx: TenantContext, deps: { db?: FirestoreLike } = {}): Promise<SearchPlanning | null> {
@@ -63,7 +86,7 @@ export async function readSearchPlanning(ctx: TenantContext, deps: { db?: Firest
       subjects: new Map((s?.rows ?? []).map((r) => [r.key, r] as const)),
     });
   }
-  return { sites, notShared: conns.length > 0 && !conns.some((c) => feedsPlanning(c.grants)) };
+  return { sites, notShared: conns.length > 0 && !conns.some((c) => feedsPlanning(c.grants)) && isConnectorsChatEnabled() };
 }
 
 const n = (v: number | undefined) => Math.round(v ?? 0).toLocaleString("en-GB");
@@ -80,7 +103,9 @@ export interface SearchConsoleLine {
 
 /**
  * Up to two lines for a question: the search with its exact words (the busiest site's), and the
- * searches near its subject. With more than one Search Console site, each names its site.
+ * searches near its subject. With more than one Search Console site, each names its site. A search
+ * that fell under a day's top 500 on some days (`cutDays`) counts only the days it was kept, so its
+ * numbers say "at least" and its position, from those days only, is left out.
  */
 export function searchConsoleLines(q: { questionId?: string | null; subjectId?: string | null }, planning: SearchPlanning | null): SearchConsoleLine[] {
   if (!planning?.sites.length) return [];
@@ -96,23 +121,27 @@ export function searchConsoleLines(q: { questionId?: string | null; subjectId?: 
   const exact = q.questionId ? busiest((s) => s.questions.get(q.questionId!)) : undefined;
   if (exact) {
     const m = exact.r.m;
+    const cut = (exact.r.cutDays ?? 0) > 0;
     out.push({
       kind: "exact",
       site: exact.s.site,
-      m,
-      text: `${head(exact.s)}: the search "${exact.r.label ?? ""}" had ${n(m.searchImpressions)} impressions and ${n(m.searchClicks)} clicks, average position ${position(m.searchPosition)}.`,
-      chip: chipOf(exact.s, `${n(m.searchImpressions)} impressions, position ${position(m.searchPosition)}`),
+      m: cut ? { searchImpressions: m.searchImpressions ?? 0, searchClicks: m.searchClicks ?? 0 } : m,
+      text: cut
+        ? `${head(exact.s)}: the search "${exact.r.label ?? ""}" had at least ${n(m.searchImpressions)} impressions and ${n(m.searchClicks)} clicks.`
+        : `${head(exact.s)}: the search "${exact.r.label ?? ""}" had ${n(m.searchImpressions)} impressions and ${n(m.searchClicks)} clicks, average position ${position(m.searchPosition)}.`,
+      chip: chipOf(exact.s, cut ? `at least ${n(m.searchImpressions)} impressions` : `${n(m.searchImpressions)} impressions, position ${position(m.searchPosition)}`),
     });
   }
   const near = q.subjectId ? busiest((s) => s.subjects.get(q.subjectId!)) : undefined;
   if (near && (near.r.m.nearbySearches ?? 0) > 0) {
     const m = near.r.m;
+    const least = (near.r.cutDays ?? 0) > 0 ? "at least " : "";
     out.push({
       kind: "subject",
       site: near.s.site,
       m,
-      text: `${head(near.s)}: ${n(m.nearbySearches)} search${m.nearbySearches === 1 ? "" : "es"} near this subject had ${n(m.searchImpressions)} impressions and ${n(m.searchClicks)} clicks.`,
-      chip: chipOf(near.s, `${n(m.nearbySearches)} nearby search${m.nearbySearches === 1 ? "" : "es"}, ${n(m.searchImpressions)} impressions`),
+      text: `${head(near.s)}: ${n(m.nearbySearches)} search${m.nearbySearches === 1 ? "" : "es"} near this subject had ${least}${n(m.searchImpressions)} impressions and ${n(m.searchClicks)} clicks.`,
+      chip: chipOf(near.s, `${n(m.nearbySearches)} nearby search${m.nearbySearches === 1 ? "" : "es"}, ${least}${n(m.searchImpressions)} impressions`),
     });
   }
   return out;

@@ -1105,7 +1105,8 @@ env:
   # What collected numbers suggest: rising searches, pages losing clicks and questions just off
   # Google's first page, as brand map proposals, Review suggestions, Next up lines and context
   # pack lines, from connections members and Vizzy may both read (needs CONNECTORS_COLLECT_ENABLED,
-  # the agent action indexes READY, and infra/lifecycle/setup.sh ttl for data_signals).
+  # the agent action indexes READY, infra/lifecycle/setup.sh ttl for data_signals, and
+  # CONNECTORS_CHAT_ENABLED so a connection can be shared with Vizzy).
   - variable: CONNECTOR_SIGNALS_ENABLED
     value: "false"
     availability:

@@ -103,7 +103,7 @@ export interface CollectedDay {
 }
 
 /** Why the collector holds itself back, in its own state (never the connection's health). */
-export type CollectHoldReason = "quota" | "quota_day" | "tokens_low" | "server_errors" | "failed_today" | "no_data";
+export type CollectHoldReason = "quota" | "quota_day" | "tokens_low" | "server_errors" | "failed_today" | "no_data" | "too_big";
 
 /** What a collect run asks of a hook. */
 export interface CollectAsk {

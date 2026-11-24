@@ -7,7 +7,7 @@ import { DATA_SIGNAL_ID, type DataSignal } from "@/lib/types/dataSignal";
 import type { MetricSnapshot } from "@/lib/types/metricSnapshot";
 import { planningId } from "../keys";
 import { addDays } from "../period";
-import { putSnapshot, ttlFor } from "../snapshots";
+import { cutRows, putSnapshot, ttlFor } from "../snapshots";
 import { LAST_DAY, page, search, seedSearchConsole, writeDays, writePlanning } from "../testing/signals";
 import { addDay, CAPS, detectConnection, losingPages, newTally, pageOf, risingSearches, topicOf, withinReach, type MapView } from "./detect";
 import { DATA_SIGNAL_ACTION, SIGNALS_REVIEW_HREF } from "./names";
@@ -130,6 +130,31 @@ describe("the rules", () => {
     expect(rising(before, fill(14, 15))).toMatchObject([{ before: 70 }]);
     expect(rising(before, fill(14, 15), cut, 10)).toEqual([]);
     expect(rising(before, fill(14, 25), cut, 10)).toMatchObject([{ before: 140, atMost: true }]);
+  });
+
+  it("never fires for a steady search missing from cut days whose floor doesn't bound its impressions", () => {
+    // Every day 600 one-click searches, plus a steady search with no clicks and 30 impressions a
+    // day; on the recent days fewer of the others, so it makes the cut there. Before, it fell under
+    // floors with a click, which say nothing of its impressions: its earlier figure is unknown.
+    const steady = (bounded: boolean) => {
+      const t = newTally(LAST_DAY, 14, 14);
+      t.days.forEach((day, i) => {
+        const filler = Array.from({ length: i < 14 ? 600 : 300 }, (_, j) => search(`made up filler ${j}`, 5, bounded && i < 14 ? 0 : 1));
+        const cut = cutRows([...filler, search("steady widget query", 30, 0)]);
+        addDay(t, { day, rows: cut.rows, rowsDropped: cut.rowsDropped, more: false, floor: cut.floor }, topicOf);
+      });
+      return (risingSearches(t) ?? []).filter((h) => h.label === "steady widget query");
+    };
+    expect(steady(false)).toEqual([]);
+    // With floors of no clicks Google ranked the rest by impressions, so 5 a day bounds it: still not double.
+    expect(steady(true)).toEqual([]);
+    // Nor when Google had more rows than it sent: rows past them are in no fixed order.
+    const t = newTally(LAST_DAY, 14, 14);
+    t.days.forEach((day, i) => {
+      const rows = i < 14 ? [] : [search("pet safe hanging plants", 20)];
+      addDay(t, { day, rows, rowsDropped: 0, more: i < 14, floor: i < 14 ? null : null }, topicOf);
+    });
+    expect(risingSearches(t)).toEqual([]);
   });
 
   it("can't be checked without every day collected", () => {

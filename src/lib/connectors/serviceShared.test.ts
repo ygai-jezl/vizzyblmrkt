@@ -384,6 +384,7 @@ describe("query shape", () => {
     await disconnect(A, admin, id, deps());
     await purgeConnections(A, { apply: true, by: "ops", addressesOnly: true, db, transport, appToken: async () => "made-up-app-token", log: () => {} });
     expect(ops.length).toBeGreaterThan(0);
-    for (const op of ops) expect(op, op).toMatch(/^where \w+ ==$/);
+    // Equality, in document id order at most (open suggestions are paged by id): no composite index.
+    for (const op of ops) expect(op, op).toMatch(/^(where \w+ ==|orderBy __name__|startAfter)$/);
   });
 });

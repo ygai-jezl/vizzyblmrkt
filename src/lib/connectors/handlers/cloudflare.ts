@@ -436,8 +436,10 @@ export function oldestDay(now: Date, seconds: number): string {
  * it reaches, and the daily totals before that, which count all traffic and have no visits, each
  * day marked with its basis. Unique visitors always come from the daily totals. The zone's settings
  * node gives both datasets' reach: the backfill is clamped to the daily totals' notOlderThan and
- * maxDuration. A day neither dataset lists, two days on, had no traffic. Zone totals only: AI
- * crawlers by bot and page need other datasets, some paid only.
+ * maxDuration. A day neither dataset lists, two days on, had no traffic. A recent day the daily
+ * totals list but the adaptive dataset doesn't is kept from the daily totals (all traffic), never
+ * as zero end users. Zone totals only: AI crawlers by bot and page need other datasets, some paid
+ * only.
  */
 export const collectDays: CollectHook = async (input, deps) => {
   const { ask } = input;
@@ -489,8 +491,10 @@ export const collectDays: CollectHook = async (input, deps) => {
 
   for (const p of [...plan].sort((a, b) => a.day.localeCompare(b.day))) {
     const d = days.get(p.day);
-    const recent = endUsers && p.day >= afrom!;
     const t = traffic.get(p.day);
+    // End users where the adaptive dataset lists the day, or where neither dataset does (no
+    // traffic); a day only the daily totals list comes from them, all traffic.
+    const recent = endUsers && p.day >= afrom! && (t !== undefined || d === undefined);
     out.days.push({
       day: p.day,
       final: true,

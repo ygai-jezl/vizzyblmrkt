@@ -16,13 +16,18 @@
  *   GOOGLE_CLOUD_PROJECT=<your-project> npx tsx scripts/connectors-collect.ts --tenant <tenantId> --apply
  * Optional:  --connection <dcn_id>   --local (the emulators only)   no --tenant: every brand
  *
+ * --close-suggestions, before reverting Connectors 2 (ADR-0012): instead of collecting, it counts
+ * (dry run) or closes (--apply) every open suggestion from collected numbers, declined with its
+ * values cleared, so an older build never meets an agent action it can't read. Run it for every
+ * brand (no --tenant), with --apply, before the revert.
+ *
  * Auth = Application Default Credentials (`gcloud auth application-default login`).
  */
 
 import { parseOperatorArgs, printHeader, refuse, settleEnvironment } from "./lib/operatorCli";
 
 const TOOL = "connectors-collect";
-const args = parseOperatorArgs(TOOL, process.argv.slice(2), ["tenant", "connection"], ["apply", "local"]);
+const args = parseOperatorArgs(TOOL, process.argv.slice(2), ["tenant", "connection"], ["apply", "local", "close-suggestions"]);
 const APPLY = args.has("apply");
 /** Slices one connection may take in one go: a 90 day backfill is at most about 18. */
 const MAX_SLICES = 30;
@@ -46,6 +51,17 @@ async function main() {
 
   const tenants = only ? [await getTenantById(only)].filter((t): t is NonNullable<typeof t> => t !== null) : await listAllTenants();
   if (only && !tenants.length) refuse(TOOL, `No brand ${only}.`);
+  if (args.has("close-suggestions")) {
+    const { closeAllSuggestions } = await import("@/lib/connectors/signals/reconcile");
+    let open = 0;
+    for (const t of tenants) {
+      const r = await closeAllSuggestions({ tenantId: t.id, region: t.region, source: "system" }, { apply: APPLY });
+      open += r.open;
+      if (r.open) console.log(`[${TOOL}] ${t.id}: ${r.open} open suggestions from collected numbers${APPLY ? `, ${r.closed} closed, ${r.withdrawn} proposed questions withdrawn` : ""}`);
+    }
+    console.log(`[${TOOL}] ${open} open suggestions in all.${APPLY ? "" : " Dry run: nothing was closed. Run again with --apply to close them."}`);
+    process.exit(0);
+  }
   let failed = 0;
   let listed = 0;
   for (const t of tenants) {

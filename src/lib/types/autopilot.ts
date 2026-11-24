@@ -68,6 +68,9 @@ export interface NextUpPick {
   from: "gemini" | "code";
 }
 
+/** The brand's one Next up doc (`next_up`). */
+export const nextUpDocId = (tenantId: string) => `nu_${tenantId}`;
+
 export interface NextUpDoc {
   id: string;
   tenantId: string;

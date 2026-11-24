@@ -5,7 +5,7 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import type { CollectState, DataConnection } from "@/lib/types/dataConnection";
 import { searchTextRef } from "./keys";
 import { searchConsoleManifest } from "./manifests/searchConsole";
-import { declineAs, withdrawProposedBy } from "./signals/reconcile";
+import { blankDismissedFrom, declineAs, openSuggestionsOf, withdrawProposedBy } from "./signals/reconcile";
 import { eraseSignals, signalsOfConnection } from "./signals/store";
 import { getAgentAction } from "@/lib/ontology/agentActions";
 import { isAgentActionId } from "@/lib/types/agentAction";
@@ -63,11 +63,11 @@ async function eraseSearchText(ctx: TenantContext, connectionId: string, deps: {
 }
 
 /**
- * A connection's suggestions from collected numbers, whatever any switch says: the open one each
- * of its rows names declined as stale with its values cleared, then the rows deleted. For listed
- * generations, only theirs. A row outlives its suggestion (it is refreshed while its rule holds,
- * and its suggestion expires 30 days after it was proposed), so the rows find every open one, by
- * equality on the connection and then by id.
+ * A connection's suggestions from collected numbers, whatever any switch says: every open one
+ * declined as stale with its values cleared, then the rows deleted. For listed generations, only
+ * theirs. The open ones are found from the agent actions (at most 15 open a brand, by equality),
+ * whose proposal names the connection and generation, so none is missed however many rows the
+ * connection holds; the rows' own actions are added for any older one.
  */
 async function eraseSuggestions(
   ctx: TenantContext,
@@ -76,14 +76,22 @@ async function eraseSuggestions(
   deps: { db?: FirestoreLike; now?: Date },
 ): Promise<{ signals: number; declined: number; withdrawn: number }> {
   const rows = (await signalsOfConnection(ctx, connectionId, deps)).filter((r) => gens === "all" || gens.includes(r.gen));
+  const open = await openSuggestionsOf(ctx, connectionId, gens, deps);
   let declined = 0;
+  const seen = new Set<string>();
+  for (const a of open) {
+    seen.add(a.id);
+    if (await declineAs(ctx, a, "stale", deps)) declined += 1;
+  }
   for (const id of new Set(rows.map((r) => r.agentActionId))) {
-    if (!isAgentActionId(id)) continue;
+    if (!isAgentActionId(id) || seen.has(id)) continue;
     const a = await getAgentAction(ctx, id, deps);
     if (a && (a.state === "proposed" || a.state === "approved") && (await declineAs(ctx, a, "stale", deps))) declined += 1;
   }
-  const proposed = rows.filter((r) => r.shownIn === "brand_map" && r.questionId).map((r) => r.questionId!);
+  const proposed = [...rows.filter((r) => r.shownIn === "brand_map" && r.questionId).map((r) => r.questionId!), ...open.filter((a) => a.target.type === "brand_question").map((a) => a.target.id)];
   const withdrawn = await withdrawProposedBy(ctx, connectionId, gens === "all" ? "all" : proposed, deps);
+  // Dismissed ones keep their own words, so the search isn't proposed again, but not the search's.
+  await blankDismissedFrom(ctx, connectionId, deps);
   const signals = await eraseSignals(ctx, connectionId, gens, deps);
   return { signals, declined, withdrawn };
 }

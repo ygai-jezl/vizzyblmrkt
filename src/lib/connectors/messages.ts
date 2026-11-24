@@ -6,6 +6,14 @@ import { dayWords } from "./period";
  * query). The screens and the help page quote these messages. House style: no dashes.
  */
 
+/**
+ * The product people name, as the approved screens write it: "Search Console" for Google Search
+ * Console, "Google Analytics" for Google Analytics 4; any other tool by its own name.
+ */
+export function productName(name: string): string {
+  return name.replace(/^Google (Search Console)$/, "$1").replace(/^(Google Analytics) 4$/, "$1");
+}
+
 export const CONNECTOR_ERRORS = {
   token_refused: "The provider turned the token down. Make a new one with the same read permissions and connect again.",
   account_refused: "The token can't read that account. Check the ID you pasted, and that the token includes it.",

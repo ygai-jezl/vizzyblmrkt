@@ -64,7 +64,10 @@ describe("Plan an article", () => {
     const { signalId, actionId } = await seedSuggestion(A, db, ID, "losing");
     const r = await planFromSignal(A, signalId, {}, { db, now: NOW, loadTenant: async () => null });
     expect(r).toEqual({ ok: true, value: { href: "/admin/workspace/ws_blog/create?numbers=page&text=%2Fcare%2Ffiddle-leaf-fig&hub=https%3A%2F%2Ffernhill.example%2Fcare%2Ffiddle-leaf-fig" } });
-    expect(await action(actionId)).toMatchObject({ state: "acted", proposal: null, basis: null, result: { href: r.ok ? r.value.href : "" }, decidedBy: { type: "member", id: "usr_admin" } });
+    // The action keeps a link with no page or search words in it; the full one went to the person.
+    expect(await action(actionId)).toMatchObject({ state: "acted", proposal: null, basis: null, result: { href: "/admin/workspace/ws_blog/create?numbers=page" }, decidedBy: { type: "member", id: "usr_admin" } });
+    expect(JSON.stringify((await action(actionId)).result)).not.toContain("fiddle");
+    expect(JSON.stringify((await action(actionId)).signals)).not.toContain('"value"');
     expect(await getSignal(A, signalId, { db })).toMatchObject({ label: null, numbers: null, dismissedUntil: new Date(NOW.getTime() + 30 * DAY).toISOString() });
     expect(await signalReviewItems(A, { db, now: NOW })).toEqual([]);
     // Decided already: a second press changes nothing.

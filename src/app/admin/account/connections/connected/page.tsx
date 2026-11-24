@@ -21,6 +21,8 @@ export default async function ConnectedPage({ searchParams }: { searchParams?: P
   const wanted = typeof c === "string" && DATA_CONNECTION_ID_RE.test(c) ? c : null;
   return (
     <ConnectedView
+      // A new `c` (a Review link or a search result, opened while already here) selects it afresh.
+      key={wanted ?? "none"}
       connections={screen.connections}
       isAdmin={screen.isAdmin}
       uid={screen.uid}

@@ -27,7 +27,10 @@ import { compareRows, cutRows, putSnapshot, readDayDocs, ttlFor, type SnapshotOw
  * - range totals come only from the day docs' totals (Search Console adds days by property and
  *   pages by page, so page rows never add up to the total);
  * - a row missing from a day whose rows were cut may have been there below the floor: `cutDays`
- *   counts those days, so a rule can treat each as "at most the floor".
+ *   counts those days, so a rule can treat each as "at most the floor", and a reader says "at least";
+ * - `merged` (Search Console addresses of one page added together) keeps the most any day merged;
+ * - Google Analytics sessions add up here, though Google Analytics estimates them and counts a
+ *   session past midnight on both days: readers say its own range can be slightly lower (ADR-0012).
  */
 
 /** Counts of people: never added across days. */
@@ -70,6 +73,8 @@ interface RowAcc {
   weighted: number;
   shown: number;
   seenOn: Set<string>;
+  /** The most addresses any one day merged into this row (Search Console pages). */
+  merged: number;
 }
 
 /** Adds one grouping's day docs into rows, one doc at a time. */
@@ -99,8 +104,9 @@ export class RowRoller {
     if (doc.rowsDropped > 0 || doc.more) this.cutDays.push(doc.day ?? "");
     for (const r of doc.rows) {
       const id = `${r.host ?? ""}\u0000${r.key}`;
-      const acc = this.rows.get(id) ?? { key: r.key, ...(r.host ? { host: r.host } : {}), sums: {}, weighted: 0, shown: 0, seenOn: new Set<string>() };
+      const acc = this.rows.get(id) ?? { key: r.key, ...(r.host ? { host: r.host } : {}), sums: {}, weighted: 0, shown: 0, seenOn: new Set<string>(), merged: 0 };
       acc.seenOn.add(doc.day ?? "");
+      if (typeof r.m.merged === "number" && r.m.merged > acc.merged) acc.merged = r.m.merged;
       for (const [k, v] of Object.entries(r.m)) {
         if (PEOPLE_KEYS.has(k) || RATE_KEYS.has(k)) continue;
         acc.sums[k] = (acc.sums[k] ?? 0) + v;
@@ -127,6 +133,7 @@ export class RowRoller {
       const m: Record<string, number> = { ...a.sums };
       if (typeof m.searchImpressions === "number" && "searchClicks" in m) m.searchCtr = m.searchImpressions ? m.searchClicks! / m.searchImpressions : 0;
       if (a.shown > 0) m.searchPosition = a.weighted / a.shown;
+      if (a.merged > 0) m.merged = a.merged;
       const cut = this.cutDays.filter((d) => !a.seenOn.has(d)).length;
       return { key: a.key, ...(a.host ? { host: a.host } : {}), m, ...(cut ? { cutDays: cut } : {}) };
     });
@@ -237,7 +244,8 @@ async function questionsByKey(ctx: TenantContext, keys: string[], deps: StoreDep
 /**
  * The questions' planning doc: for each decided question whose words people searched (the same
  * words as the brand map keys them), the search's own words and its 28 day clicks, impressions,
- * click rate and position. Written even when nothing matches, so a reader knows it was looked at.
+ * click rate and position, with the days it fell under a cut (`cutDays`), when its numbers are only
+ * a lower bound. Written even when nothing matches, so a reader knows it was looked at.
  */
 async function writeQuestionLines(ctx: TenantContext, input: RollInput, window: { from: string; to: string }, days: number, searches: SnapshotRow[], deps: StoreDeps): Promise<number> {
   const byKey = new Map<string, SnapshotRow>();
@@ -251,7 +259,8 @@ async function writeQuestionLines(ctx: TenantContext, input: RollInput, window: 
       const s = byKey.get(q.key)!;
       const m: Record<string, number> = {};
       for (const k of ["searchClicks", "searchImpressions", "searchCtr", "searchPosition"]) if (typeof s.m[k] === "number") m[k] = s.m[k]!;
-      return { key: q.id, label: s.key, subjectId: q.subjectId, m };
+      // Days the search fell under a cut day's top 500: its numbers are then at least these.
+      return { key: q.id, label: s.key, subjectId: q.subjectId, m, ...(s.cutDays ? { cutDays: s.cutDays } : {}) };
     })
     .sort(compareRows);
   await putSnapshot(

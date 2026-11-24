@@ -379,6 +379,15 @@ With brand search too (`addon:search`, which turns it on), `CONNECTORS_SEARCH_TE
 each Search Console connection's top searches into brand search, found only by those who may read
 the connection (ADR-0013). It does nothing until collected numbers are on.
 
+`CONNECTOR_SIGNALS_ENABLED` turns collected Search Console numbers into suggestions in the brand map,
+Review, Next up and the context pack; `npm run selfhost` keeps it off. Turn it on only after
+`CONNECTORS_COLLECT_ENABLED`, and only once the agent action indexes in `firestore.indexes.json`
+(the `agent_actions` composites, deployed by step 2 above) show READY in every database:
+`firebase firestore:indexes --project <id>` (with `--database signups-eu` and
+`--database signups-asia` for the regions add-on) or the console's Indexes page. Its suggestions
+come only from connections both members and Vizzy may read, so they also need
+`CONNECTORS_CHAT_ENABLED` (the Vizzy add-on).
+
 ### Enterprise features
 
 Merging upstream brings `src/ee`, the Enterprise code. Its features stay off without a

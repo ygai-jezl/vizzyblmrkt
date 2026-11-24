@@ -35,6 +35,8 @@ import { isConnectorsCollectEnabled, isConnectorSignalsEnabled } from "@/lib/con
 import { signalReviewItems } from "@/lib/connectors/signals/review";
 import { dayWords } from "@/lib/connectors/period";
 import { getConnector, knownConnector } from "@/lib/connectors/registry";
+import { COLLECT_FAILED_DAYS } from "@/lib/connectors/health";
+import { productName } from "@/lib/connectors/messages";
 import type { DataConnection } from "@/lib/types/dataConnection";
 
 /**
@@ -368,8 +370,8 @@ export function connectionItem(
   };
 }
 
-/** Collecting has failed this many days before a connection shows in Review. */
-export const COLLECT_FAILED_DAYS = 3;
+/** Collecting has failed this many days before a connection shows in Review (the Connected view's own rule). */
+export { COLLECT_FAILED_DAYS };
 /** An admin's pause this many days old shows in Review. */
 export const PAUSED_DAYS = 7;
 const DAY_MS = 86_400_000;
@@ -389,8 +391,10 @@ const dayOf = (iso: string) => dayWords(iso.slice(0, 10));
  */
 export function dataSourceItem(c: DataConnection, now: Date = new Date()): ReviewItem | null {
   if (c.status !== "connected" || !getConnector(c.connectorId)) return null;
-  const tool = knownConnector(c.connectorId)?.name ?? c.connectorId;
-  const name = c.label && c.label !== tool ? `${tool} for ${c.label}` : tool;
+  const full = knownConnector(c.connectorId)?.name ?? c.connectorId;
+  // The product people name: "Google Analytics", "Search Console".
+  const tool = productName(full);
+  const name = c.label && c.label !== full && c.label !== tool ? `${tool} for ${c.label}` : tool;
   const base = { id: `data_source:${c.id}`, kind: "data_source" as const, href: connectedHref(c.id) };
   if (c.health.state === "broken") {
     const since = dayOf(c.health.since ?? c.health.lastCheckedAt ?? now.toISOString());

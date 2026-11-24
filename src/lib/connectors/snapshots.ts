@@ -3,7 +3,7 @@ import { TenantIsolationError } from "@/lib/tenant/errors";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { MetricSnapshot, SnapshotBasis, SnapshotBy, SnapshotNote, SnapshotRow } from "@/lib/types/metricSnapshot";
 import { snapshotId } from "./keys";
-import { addDays, daysIn } from "./period";
+import { addDays, daysIn, todayIn } from "./period";
 
 /**
  * The snapshot store (Connectors 2, ADR-0012): the only code that writes `metric_snapshots`, the
@@ -15,7 +15,8 @@ import { addDays, daysIn } from "./period";
  * floor when rows were cut: a row missing from a cut day is "at most the floor", never a zero. A key
  * longer than 500 characters is dropped and counted, and a doc that would pass 900 KB (Firestore
  * allows 1 MiB) loses rows from the bottom. Writing a day also deletes the day keepDays before it,
- * by id: the time to live is the backstop.
+ * by id: the time to live is the backstop, set TTL_MARGIN_DAYS later than that, so a day still in
+ * the keep window (which ends on the last collected day, days behind today) is never past it.
  */
 
 /** Rows kept per doc (decision 35). */
@@ -68,8 +69,24 @@ export function fitDoc(doc: Omit<MetricSnapshot, "id">): Omit<MetricSnapshot, "i
   return out;
 }
 
-/** Midnight UTC of a day, as a Date: the time to live. */
-export const ttlFor = (lastDay: string, keepDays: number): Date => new Date(`${addDays(lastDay, keepDays)}T00:00:00.000Z`);
+/**
+ * Days the time to live waits past the keep window. The window is counted back from the last
+ * collected day, which trails today by the provider's lag (Search Console about 3 Pacific days), so
+ * a time to live of the day plus keepDays would let Firestore delete the window's oldest days while
+ * they are still in it. Longer than any lag, so the time to live stays a backstop.
+ */
+export const TTL_MARGIN_DAYS = 7;
+
+/** Midnight UTC of a day plus keepDays and the margin, as a Date: the time to live. */
+export const ttlFor = (lastDay: string, keepDays: number): Date => new Date(`${addDays(lastDay, keepDays + TTL_MARGIN_DAYS)}T00:00:00.000Z`);
+
+/**
+ * The oldest day whose doc can still be there at `now`: older ones are past their time to live,
+ * whatever the cursor says (a connection that stopped collecting weeks ago).
+ */
+export function oldestAlive(now: Date, keepDays: number): string {
+  return addDays(todayIn(now, "UTC"), -(keepDays + TTL_MARGIN_DAYS - 1));
+}
 
 /** What a connection's snapshots carry about it. */
 export interface SnapshotOwner {

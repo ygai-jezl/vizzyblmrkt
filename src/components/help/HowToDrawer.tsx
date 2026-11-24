@@ -45,6 +45,7 @@ export function HowToDrawer() {
   const connectorsCollect = useShell()?.connectorsCollect ?? false;
   const connectorsSearchText = useShell()?.connectorsSearchText ?? false;
   const connectorSignals = useShell()?.connectorSignals ?? false;
+  const brandMapScale = useShell()?.brandMapScale ?? false;
   const [steps, setSteps] = useState<GuideStep[] | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -209,6 +210,7 @@ export function HowToDrawer() {
               connectorsCollect={connectorsCollect}
               connectorsSearchText={connectorsSearchText}
               connectorSignals={connectorSignals}
+              brandMapScale={brandMapScale}
             />
           </div>
         ) : (

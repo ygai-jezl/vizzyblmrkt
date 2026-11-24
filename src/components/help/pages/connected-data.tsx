@@ -280,7 +280,7 @@ export default function ConnectedDataHelp({
             ))}
           </UL>
           <P>
-            {SIGNALS_HELP.planning} <Open href="/help/connected-data#who-can-read">Who can read it</Open> explains how to choose.
+            {SIGNALS_HELP.planning} <Open href="/help/connected-data#who-can-read">Who can read it</Open> explains how to choose. {SIGNALS_HELP.noChat}
           </P>
           <P>{SIGNALS_HELP.strict}</P>
           <UL>

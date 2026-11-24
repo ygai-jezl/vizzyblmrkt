@@ -468,7 +468,8 @@ describe("data sources that need you", () => {
     expect(dataSourceItem(lost, NOW)).toEqual({
       id: "data_source:dcn_aaaaaaaaaaaaaaaaaaaa",
       kind: "data_source",
-      title: "Google Analytics 4 needs you",
+      // The product people name, as the approved Review screen writes it.
+      title: "Google Analytics needs you",
       detail: "It can't read its property since 19 Nov, so no new numbers are collected. Add YouGrow's address to the property again.",
       href: "/admin/account/connections/connected?c=dcn_aaaaaaaaaaaaaaaaaaaa",
       action: "Fix",
@@ -480,7 +481,7 @@ describe("data sources that need you", () => {
     const failing = (since: string) => conn({ collect: { ...freshCollect(), failedSince: since } });
     expect(dataSourceItem(failing("2026-11-20T09:00:00.000Z"), NOW)?.detail).toBe("Collecting its numbers has failed since 20 Nov, so the newest are missing. Press Check now on it to see why.");
     expect(dataSourceItem(failing("2026-11-21T09:00:00.000Z"), NOW)).toBeNull();
-    expect(dataSourceItem(conn({ pausedAt: "2026-11-12T09:00:00.000Z", pausedBy: "usr_admin" }), NOW)).toMatchObject({ title: "Google Analytics 4 is paused", detail: expect.stringContaining("Paused since 12 Nov") });
+    expect(dataSourceItem(conn({ pausedAt: "2026-11-12T09:00:00.000Z", pausedBy: "usr_admin" }), NOW)).toMatchObject({ title: "Google Analytics is paused", detail: expect.stringContaining("Paused since 12 Nov") });
     expect(dataSourceItem(conn({ pausedAt: "2026-11-20T09:00:00.000Z", pausedBy: "usr_admin" }), NOW)).toBeNull();
     expect(dataSourceItem(conn(), NOW)).toBeNull();
     // A connector this copy turned off reads nothing on purpose.

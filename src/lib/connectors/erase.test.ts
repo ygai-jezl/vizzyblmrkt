@@ -212,6 +212,29 @@ describe("suggestions from collected numbers", () => {
     expect(purgeLines(done).join("\n")).toContain("1 suggestions removed (1 open, declined)");
     expect(db.dump("data_signals")).toEqual([]);
   });
+
+  it("are erased by the purge only once the connection is stopped, so nothing new lands after", async () => {
+    await seed();
+    await collected(0);
+    const system = { ...A, source: "system" as const };
+    const seen: string[] = [];
+    // The erase's last step (brand search): the connection is already disconnected with everything pending.
+    const watching = (ctx: { tenantId: string }) => {
+      const store = index.storeFor(ctx);
+      return {
+        ...store,
+        removeSource: async (...a: Parameters<typeof store.removeSource>) => {
+          const c = await load();
+          seen.push(`${c.status}:${JSON.stringify(c.collect?.erasePending)}`);
+          return store.removeSource(...a);
+        },
+      };
+    };
+    await purgeConnections(system, { apply: true, by: "ops", now: NOW, db, searchIndex: watching });
+    expect(seen).toEqual(['disconnected:"all"']);
+    expect((await load()).collect?.erasePending).toBeNull();
+    expect(snapshotsOf()).toEqual([]);
+  });
 });
 
 describe("Change property", () => {

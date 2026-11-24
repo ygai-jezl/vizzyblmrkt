@@ -515,9 +515,11 @@ export const COLLECTED_COPY = {
   nothingYet: "Nothing collected yet. The first days arrive within the hour, newest first.",
   pausedHint: "Nothing is collected until you resume.",
   stoppedHint: "Nothing new is collected until YouGrow can read the property again.",
+  failedHintEnd: "YouGrow tries again on its own.",
   restArrive: "The rest arrive over the next few hours, newest first.",
   planningLead: "Used for planning:",
   planningYes: " yes. Members and Vizzy can read it, so its numbers feed Next up, Review and the brand map.",
+  planningNoChat: " no. Suggestions need Vizzy to read connected data, which is off in this copy.",
   losingNeeds: "A page losing clicks needs 56 collected days, so that check starts once they are in.",
   manageHint: "Disconnect deletes what YouGrow stored for it, including its collected numbers. Pause stops every read until you resume.",
   manageHintPlanning:
@@ -531,11 +533,17 @@ const providerOf = (c: Pick<ConnectionView, "connectorName">) => (c.connectorNam
 /** "Search Console" for "Google Search Console": the product people name. */
 const productOf = (c: Pick<ConnectionView, "connectorName">) => c.connectorName.replace(/^Google (Search Console)$/, "$1");
 
-/** When collecting stopped: the provider turning it down, or failing every day since. */
+/**
+ * When collecting stopped: the provider turning it down, or failing every day for 3 days or more
+ * since (the server sets failedSince only then, Review's own rule). A younger failure is a hint.
+ */
 function stoppedOn(c: Pick<ConnectionView, "health" | "details">): string | null {
   if (c.health.state === "broken") return c.health.since ?? c.health.lastCheckedAt;
   return c.details?.collect?.failedSince ?? null;
 }
+
+/** "Collecting failed on 23 Nov. YouGrow tries again on its own.", for a failure under 3 days old. */
+export const failedWords = (iso: string) => `Collecting failed on ${dayWords(iso.slice(0, 10))}. ${COLLECTED_COPY.failedHintEnd}`;
 
 /**
  * The Collected cell on Connected (admins): paused, stopped, filling its 90 days (with a bar), or
@@ -553,7 +561,7 @@ export function collectedCell(
   if (c.needsAccount || !k.lastDay) return { main: c.needsAccount ? "Waits for a property" : COLLECTED_COPY.startsSoon, hint: null, progress: null };
   if (!k.filled) return { main: `Filling ${k.keepDays} days: ${k.days} of ${k.keepDays}`, hint: null, progress: { value: k.days, max: k.keepDays } };
   const final = k.finalThrough && k.finalThrough < k.lastDay ? ` (final to ${dayWords(k.finalThrough)})` : "";
-  const hint = k.waitingFor ? waitingWords(productOf(c), k.waitingFor) : k.holdReason === "no_data" ? `${productOf(c)} listed no data in the last 10 days.` : null;
+  const hint = k.failedOn ? failedWords(k.failedOn) : k.waitingFor ? waitingWords(productOf(c), k.waitingFor) : k.holdReason === "no_data" ? `${productOf(c)} listed no data in the last 10 days.` : null;
   return { main: `To ${dayWords(k.lastDay)}${final}, ${k.days} days`, hint, progress: null };
 }
 
@@ -572,7 +580,7 @@ export interface CollectedLine {
  */
 export function collectedLines(
   c: Pick<ConnectionView, "connectorName" | "health" | "details" | "needsAccount">,
-  opts: { planning?: boolean } = {},
+  opts: { planning?: boolean; chat?: boolean } = {},
 ): CollectedLine[] {
   const k = c.details?.collect;
   if (!k) return [];
@@ -591,6 +599,7 @@ export function collectedLines(
   } else if (k.lastDay) {
     const lag = k.finalThrough && k.finalThrough < k.lastDay ? `Days after ${dayWords(k.finalThrough)} may still change a little, so each is read again a week later.` : k.lag;
     L(`Collected to ${dayWords(k.lastDay, true)}, ${zone}. ${lag}`);
+    if (k.failedOn) H(failedWords(k.failedOn));
     if (k.waitingFor) H(waitingWords(productOf(c), k.waitingFor));
     if (k.holdReason === "no_data") H(`${productOf(c)} listed no data in the last 10 days.`);
   } else {
@@ -610,6 +619,9 @@ export function collectedLines(
     if (members && vizzy) {
       L(COLLECTED_COPY.planningYes, { lead: COLLECTED_COPY.planningLead });
       if (!k.filled && c.connectorName === "Google Search Console") H(COLLECTED_COPY.losingNeeds);
+    } else if (opts.chat === false) {
+      // No Vizzy grant can be given in this copy, so don't ask for one.
+      L(COLLECTED_COPY.planningNoChat, { lead: COLLECTED_COPY.planningLead });
     } else {
       const ask = members ? "Let Vizzy read it too" : vizzy ? "Let members read it too" : "Let members and Vizzy read it";
       L(` no. ${ask}, and its numbers will feed Next up, Review and the brand map.`, { lead: COLLECTED_COPY.planningLead });

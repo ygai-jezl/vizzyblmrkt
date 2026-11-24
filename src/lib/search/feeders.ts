@@ -222,14 +222,17 @@ export { siteName } from "@/lib/connectors/keys";
 const counted = (n: number, one: string, many: string) => `${Math.round(n).toLocaleString("en-US")} ${Math.round(n) === 1 ? one : many}`;
 
 /** One search with its numbers: "repot a fig: 120 impressions, 4 clicks, position 8.2 in the 28 days to 20 Nov". */
-export function searchLine(row: Pick<SnapshotRow, "key" | "m">, window: { from: string; to: string }): string | null {
+export function searchLine(row: Pick<SnapshotRow, "key" | "m" | "cutDays">, window: { from: string; to: string }): string | null {
   const words = row.key.replace(/\s+/g, " ").trim();
   if (!words) return null;
   const m = row.m;
+  // A search under a day's top 500 on some days counts only its kept days: at least these, and no
+  // position, which would come from its best days alone.
+  const cut = (row.cutDays ?? 0) > 0;
   const numbers = [
-    typeof m.searchImpressions === "number" ? counted(m.searchImpressions, "impression", "impressions") : "",
-    typeof m.searchClicks === "number" ? counted(m.searchClicks, "click", "clicks") : "",
-    typeof m.searchPosition === "number" && m.searchPosition > 0 ? `position ${m.searchPosition.toFixed(1)}` : "",
+    typeof m.searchImpressions === "number" ? `${cut ? "at least " : ""}${counted(m.searchImpressions, "impression", "impressions")}` : "",
+    typeof m.searchClicks === "number" ? `${cut ? "at least " : ""}${counted(m.searchClicks, "click", "clicks")}` : "",
+    !cut && typeof m.searchPosition === "number" && m.searchPosition > 0 ? `position ${m.searchPosition.toFixed(1)}` : "",
   ].filter(Boolean);
   if (!numbers.length) return words;
   const days = daysIn(window.from, window.to);

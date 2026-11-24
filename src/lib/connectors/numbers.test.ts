@@ -14,6 +14,7 @@ import {
   agentCollectedNumbers,
   CUT_ROWS_NOTE,
   fillingNote,
+  missingNote,
   MIXED_BASIS_NOTE,
   NOT_COLLECTED_YET,
   NOT_ROLLED_YET,
@@ -24,12 +25,16 @@ import {
   peopleNote,
   rangeTooLong,
   rowKeyOf,
+  SESSIONS_SUM_NOTE,
   startsNote,
   STREAM_NOT_COLLECTED,
 } from "./numbers";
+import { MERGED_NOTE } from "./handlers/searchConsole";
+import { deleteSnapshot } from "./snapshots";
+import { snapshotId } from "./keys";
 import { addDays } from "./period";
 import { rollConnection } from "./rollups";
-import { writeDayDoc, type SnapshotOwner } from "./snapshots";
+import { TTL_MARGIN_DAYS, writeDayDoc, type SnapshotOwner } from "./snapshots";
 
 // Collected numbers as Vizzy reads them, below the route: made-up numbers for made-up sites, read
 // only by id from the brand's own snapshots. No provider is ever called (there is no transport).
@@ -342,7 +347,8 @@ describe("collected numbers for Vizzy", () => {
   it("reads one page by page, its hosts apart and no site totals, and says when it isn't kept", async () => {
     const page = (await ask({ connectionId: SC, stream: SC_STREAM, period: "last_90_days", by: "page", page: "/pricing" })).body;
     expect(page.rows).toEqual([
-      { page: "/pricing", host: "example.com", searchClicks: 120, searchImpressions: 1600, searchCtr: 0.075, searchPosition: 4 },
+      // The most addresses any one day added together for it stays on the row.
+      { page: "/pricing", host: "example.com", searchClicks: 120, searchImpressions: 1600, searchCtr: 0.075, searchPosition: 4, merged: 2 },
       { page: "/pricing", host: "www.example.com", searchClicks: 40, searchImpressions: 400, searchCtr: 0.1, searchPosition: 9 },
     ]);
     expect(page.totals).toBeNull();
@@ -395,6 +401,36 @@ describe("collected numbers for Vizzy", () => {
     expect(after.updatedAt).toBe(before.updatedAt);
   });
 
+  it("says a page row adds Search Console addresses together, over one day and over several", async () => {
+    const one = (await ask({ connectionId: SC, stream: SC_STREAM, period: "yesterday", by: "page" })).body;
+    expect(one.notes).toContain(MERGED_NOTE);
+    const week = (await ask({ connectionId: SC, stream: SC_STREAM, period: "last_7_days", by: "page" })).body;
+    expect(week.rows).toContainEqual(expect.objectContaining({ page: "/pricing", host: "example.com", merged: 2 }));
+    expect(week.notes).toContain(MERGED_NOTE);
+    const rolled = (await ask({ connectionId: SC, stream: SC_STREAM, period: "last_28_days", by: "page" })).body;
+    expect(rolled.notes).toContain(MERGED_NOTE);
+    explainsEveryNumber(rolled);
+  });
+
+  it("says sessions over several days add each day's, and not for one day", async () => {
+    const week = (await ask({ connectionId: GA, stream: GA_STREAM, period: "last_7_days", by: "landing" })).body;
+    expect(week.notes).toContain(SESSIONS_SUM_NOTE);
+    const month = (await ask({ connectionId: GA, stream: GA_STREAM, period: "last_28_days" })).body;
+    expect(month.notes).toContain(SESSIONS_SUM_NOTE);
+    const one = (await ask({ connectionId: GA, stream: GA_STREAM, period: "yesterday", by: "landing" })).body;
+    expect(one.notes).not.toContain(SESSIONS_SUM_NOTE);
+  });
+
+  it("says how many days a rolled period is missing, so its sums are never silently short", async () => {
+    const owner = ownerOf(SC, "search-console", "sc-domain:example.com");
+    for (const by of ["day", "page", "topic"] as const) await deleteSnapshot(A, snapshotId(SC, 0, SC_STREAM, by, "2026-11-01"), { db });
+    await rollConnection(A, { owner, stream: SC_STREAM, by: ["day", "page", "topic"], keepDays: 90, lastDay: "2026-11-20", backfilledTo: "2026-10-12", timeZone: "America/Los_Angeles" }, { db, now: NOW });
+    const body = (await ask({ connectionId: SC, stream: SC_STREAM, period: "last_28_days" })).body;
+    expect(body.notes).toContain(missingNote(1));
+    expect(body.totals).toMatchObject({ searchClicks: 270 });
+    expect(TTL_MARGIN_DAYS).toBeGreaterThan(0);
+  });
+
   it("writes every note in house style", async () => {
     const notes = [
       NOT_COLLECTED_YET,
@@ -403,6 +439,9 @@ describe("collected numbers for Vizzy", () => {
       PAGE_NEEDS_GROUPING,
       MIXED_BASIS_NOTE,
       CUT_ROWS_NOTE,
+      SESSIONS_SUM_NOTE,
+      missingNote(1),
+      missingNote(3),
       rangeTooLong("day", 90),
       rangeTooLong("landing", 14),
       peopleNote(["ga4ActiveUsers", "cfUniqueVisitors"], true),

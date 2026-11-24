@@ -534,6 +534,7 @@ describe("collected numbers on Connected", () => {
     kept: { day: "2026-11-20", by: "topic", seen: 1000, rows: 500, more: true },
     waitingFor: "2026-11-21",
     failedSince: null,
+    failedOn: null,
     holdReason: null,
     feedsPlanning: true,
     ...over,
@@ -548,6 +549,24 @@ describe("collected numbers on Connected", () => {
     expect(collectedCell(site({}, { pausedAt: "2026-11-12T10:00:00.000Z" }))).toMatchObject({ main: "Paused on 12 Nov", hint: "Collected to 20 Nov" });
     expect(collectedCell(site({ lastDay: "2026-11-18" }, {}, { health: { ...SC.health, state: "broken", since: "2026-11-19T09:00:00.000Z" } }))).toMatchObject({ main: "Stopped on 19 Nov", hint: "Collected to 18 Nov" });
     expect(collectedCell({ ...SC, details: { ...SC.details!, collect: null } })).toBeNull();
+  });
+
+  it("says Stopped only after 3 days of failing, and before that notes the failure beside the usual cell", () => {
+    // The server sets failedOn for a failure under 3 days old, failedSince only after: Review's own rule.
+    const recent = site({ failedOn: "2026-11-23T08:00:00.000Z", waitingFor: null });
+    expect(collectedCell(recent)).toEqual({ main: "To 20 Nov, 90 days", hint: "Collecting failed on 23 Nov. YouGrow tries again on its own.", progress: null });
+    expect(collectedLines(recent).map((l) => l.text)).toContain("Collecting failed on 23 Nov. YouGrow tries again on its own.");
+    expect(collectedLines(recent).map((l) => l.text).join(" ")).not.toContain("Stopped");
+    const long = site({ failedSince: "2026-11-19T08:00:00.000Z", waitingFor: null });
+    expect(collectedCell(long)?.main).toBe("Stopped on 19 Nov");
+  });
+
+  it("doesn't ask for a Vizzy grant the copy can't give: suggestions need Vizzy to read connected data", () => {
+    const membersOnly = site({}, { grants: [{ to: "members", can: "read" }] });
+    const off = collectedLines(membersOnly, { planning: true, chat: false }).at(-1)!;
+    expect(`${off.lead}${off.text}`).toBe("Used for planning: no. Suggestions need Vizzy to read connected data, which is off in this copy.");
+    const on = collectedLines(membersOnly, { planning: true, chat: true }).at(-1)!;
+    expect(on.text).toContain("Let Vizzy read it too");
   });
 
   it("writes the Manage card's block as the approved screen, the planning line only while numbers suggest articles", () => {

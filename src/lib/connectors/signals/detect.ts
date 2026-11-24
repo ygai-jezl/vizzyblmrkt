@@ -13,6 +13,7 @@ import { agentDedupeKey, type AgentAction, type SignalRef } from "@/lib/types/ag
 import type { DataConnection } from "@/lib/types/dataConnection";
 import type { DataSignal, DataSignalRule } from "@/lib/types/dataSignal";
 import type { MetricSnapshot, SnapshotRow } from "@/lib/types/metricSnapshot";
+import { pendingWith } from "../erase";
 import { feedsPlanning } from "../grants";
 import { collectedStream } from "../manifest";
 import { planningId, rolledId, topicKey } from "../keys";
@@ -44,7 +45,11 @@ import { blankSignal, getSignal, linkAction, saveDetection, signalIdFor, type De
  * fire less: the recent numbers count a missing day as nothing where more would help the rule (a
  * rising search's last 14 days, a page's 28 days before), and as its floor where more would stop it
  * (the 14 days before a rising search, a page's last 28 days). So a row that only slipped under the
- * cut never fires.
+ * cut never fires. Rows are ranked by clicks first (Google sends them that way, ties in no fixed
+ * order), so a floor's clicks bound a missing row's clicks, but its impressions bound a missing
+ * search's impressions only on a day whose floor had no clicks and whose rows Google sent in full:
+ * a rising search missing from any other cut day in the 14 before has an unknown earlier figure and
+ * never fires.
  *
  * Caps: at most 5 new suggestions a brand a day and 15 open at once, strongest first (how far past
  * its threshold each is). Each one is an agent action (agent `connector_signals`, no person,
@@ -99,6 +104,11 @@ export interface Tally {
   split: number;
   present: boolean[];
   cut: boolean[];
+  /**
+   * A cut day whose floor bounds a missing search's impressions: Google sent every row (no `more`)
+   * and the floor had no clicks, so every row left out had none and no more impressions than it.
+   */
+  bounded: boolean[];
   floors: Array<Record<string, number>>;
   keys: Map<string, KeyTally>;
 }
@@ -107,7 +117,7 @@ export interface Tally {
 export function newTally(to: string, beforeDays: number, nowDays: number): Tally {
   const total = beforeDays + nowDays;
   const days = Array.from({ length: total }, (_, i) => addDays(to, i - total + 1));
-  return { days, split: beforeDays, present: days.map(() => false), cut: days.map(() => false), floors: days.map(() => ({})), keys: new Map() };
+  return { days, split: beforeDays, present: days.map(() => false), cut: days.map(() => false), bounded: days.map(() => false), floors: days.map(() => ({})), keys: new Map() };
 }
 
 /** The key a row is tallied under, and its label: a search's topic, or a page on its host. */
@@ -124,6 +134,7 @@ export function addDay(t: Tally, doc: Pick<MetricSnapshot, "day" | "rows" | "row
   if (i < 0) return;
   t.present[i] = true;
   t.cut[i] = doc.rowsDropped > 0 || doc.more;
+  t.bounded[i] = !doc.more && (!doc.floor || doc.floor.searchClicks === 0);
   t.floors[i] = doc.floor ?? (doc.rows.length ? { ...doc.rows[doc.rows.length - 1]!.m } : {});
   const recent = i >= t.split;
   const bit = 1 << (recent ? i - t.split : i);
@@ -159,6 +170,20 @@ function atFloors(t: Tally, k: KeyTally, recent: boolean, measure: string): numb
   return add;
 }
 
+/**
+ * A search's impressions in the 14 days before, its missing cut days at their floors: null when a
+ * cut day's floor can't bound them (see `bounded`), so the earlier figure is unknown.
+ */
+function impressionsBefore(t: Tally, k: KeyTally): { before: number; add: number } | null {
+  let add = 0;
+  for (let i = 0; i < t.split; i++) {
+    if (!t.cut[i] || k.beforeDays & (1 << i)) continue;
+    if (!t.bounded[i]) return null;
+    add += t.floors[i]?.searchImpressions ?? 0;
+  }
+  return { before: (k.before.searchImpressions ?? 0) + add, add };
+}
+
 /** Every day of the window has its doc (a day the provider listed nothing has a doc too). */
 export const isComplete = (t: Tally) => t.present.every(Boolean);
 
@@ -183,8 +208,9 @@ export function risingSearches(t: Tally): RisingHit[] | null {
     const impressions = k.now.searchImpressions ?? 0;
     const daysSeen = bits(k.nowDays);
     if (impressions < r.minImpressions || daysSeen < r.minDaysSeen) continue;
-    const add = atFloors(t, k, false, "searchImpressions");
-    const before = (k.before.searchImpressions ?? 0) + add;
+    const earlier = impressionsBefore(t, k);
+    if (!earlier) continue;
+    const { before, add } = earlier;
     if (before === 0 ? impressions < r.newImpressions : impressions < r.factor * before) continue;
     out.push({ key, label: k.label, impressions, clicks: k.now.searchClicks ?? 0, before, atMost: add > 0, daysSeen, strength: (impressions - before) / r.minImpressions });
   }
@@ -228,11 +254,16 @@ export interface ReachHit {
   strength: number;
 }
 
-/** Decided questions within reach, from the questions' planning doc, strongest first. */
+/**
+ * Decided questions within reach, from the questions' planning doc, strongest first. A search that
+ * fell under a day's cut has an average position from its best days only, which can't be bounded,
+ * so it never fires.
+ */
 export function withinReach(doc: Pick<MetricSnapshot, "rows"> | null): ReachHit[] {
   const r = RULES.reach;
   const out: ReachHit[] = [];
   for (const row of doc?.rows ?? []) {
+    if ((row.cutDays ?? 0) > 0) continue;
     const p = row.m.searchPosition;
     const i = row.m.searchImpressions ?? 0;
     if (typeof p !== "number" || p < r.minPosition || p > r.maxPosition || i < r.minImpressions || !row.label) continue;
@@ -373,14 +404,18 @@ export async function openConnectorSuggestions(ctx: TenantContext, deps: { db?: 
   return lists.flat().filter((a) => a.agent === SIGNALS_AGENT);
 }
 
-/** Up to 4 metric signals for an action: references with meaning keys, never words. */
+/**
+ * Up to 4 metric signals for an action: references with meaning keys, never words, and never the
+ * numbers themselves, which sit in the proposal and are cleared when it closes (decision 25):
+ * signals outlive the decision, and agent actions have no time to live.
+ */
 function metricSignals(d: Detection, at: string): SignalRef[] {
   const ref = `${d.connectionId}:${d.window.to}`;
   const keys = d.rule === "within_reach" ? ["searchPosition", "searchImpressions"] : d.rule === "losing_page" ? ["searchClicks", "ga4Sessions"] : ["searchImpressions", "searchClicks"];
   return keys
     .filter((k) => typeof d.numbers[k] === "number")
     .slice(0, 4)
-    .map((k) => ({ kind: "metric" as const, ref, meaning: k as SignalRef["meaning"], value: d.numbers[k]!, at }));
+    .map((k) => ({ kind: "metric" as const, ref, meaning: k as SignalRef["meaning"], at }));
 }
 
 /** Propose a Review suggestion for a row: a new round, so a closed one's key is never reused. */
@@ -457,9 +492,55 @@ async function setStale(ctx: TenantContext, a: AgentAction, at: string, deps: Pi
  * Look at one Search Console connection's collected days for suggestions, once a day after a day
  * lands. `others` are the brand's other connections, for a Google Analytics line on a page losing
  * clicks. Never throws for missing days: a rule whose days aren't all collected is not checked.
+ *
+ * Detection holds no lease, so Disconnect or Change property can land while it writes. Its last
+ * change looks again: a connection no longer connected, or on a newer generation, gets what this
+ * look wrote (rows, suggestions, proposed questions, the subject planning doc) marked for erasing,
+ * which the lane's housekeeping does on its next run. That happens even when the look failed half
+ * way.
  */
 export async function detectConnection(ctx: TenantContext, conn: DataConnection, others: readonly DataConnection[], deps: DetectDeps = {}): Promise<DetectResult> {
   const now = deps.now ?? new Date(deps.clock?.() ?? Date.now());
+  const c = conn.collect;
+  let done = false;
+  try {
+    const result = await detectNow(ctx, conn, others, deps, now);
+    done = result.status === "detected";
+    return result;
+  } finally {
+    if (c) await settle(ctx, conn.id, c.gen, done ? todayIn(now, "UTC") : null, deps).catch((err) => console.warn(`[connectors] settling a look at ${conn.id} failed:`, err instanceof Error ? err.message.slice(0, 200) : "error"));
+  }
+}
+
+/**
+ * After a look: record the day it was done, and mark for erasing what it wrote when the connection
+ * was disconnected or changed property meanwhile. Nothing to do otherwise.
+ */
+async function settle(ctx: TenantContext, id: string, gen: number, detectedOn: string | null, deps: Pick<DetectDeps, "db">): Promise<void> {
+  await changeDataConnection(
+    ctx,
+    id,
+    (cur) => {
+      const k = cur.collect;
+      if (!k) return null;
+      const moved = cur.status !== "connected" || k.gen !== gen;
+      if (!moved && !detectedOn) return null;
+      return {
+        patch: {
+          collect: {
+            ...k,
+            ...(detectedOn && !moved ? { detectedOn } : {}),
+            ...(moved ? { erasePending: pendingWith(k.erasePending, cur.status !== "connected" ? "all" : [gen]) } : {}),
+          },
+        },
+        activity: [],
+      };
+    },
+    deps.db,
+  );
+}
+
+async function detectNow(ctx: TenantContext, conn: DataConnection, others: readonly DataConnection[], deps: DetectDeps, now: Date): Promise<DetectResult> {
   const store = { db: deps.db, now };
   const c = conn.collect;
   if (conn.connectorId !== searchConsoleManifest.id || conn.status !== "connected" || !conn.account) return skipped("not_search_console");
@@ -630,8 +711,6 @@ export async function detectConnection(ctx: TenantContext, conn: DataConnection,
     if (!row || row.connectionId !== conn.id || !result.checked.includes(row.rule)) continue;
     if (await setStale(ctx, a, at, deps)) result.stale += 1;
   }
-
-  await changeDataConnection(ctx, conn.id, (cur) => (cur.collect ? { patch: { collect: { ...cur.collect, detectedOn: todayIn(now, "UTC") } }, activity: [] } : null), deps.db);
   return result;
 }
 
@@ -674,6 +753,7 @@ async function writeSubjectLines(
   deps: { db?: FirestoreLike; now: Date },
 ): Promise<void> {
   const by = new Map<string, Record<string, number>>();
+  const cut = new Map<string, number>();
   top.forEach((row, i) => {
     const n = near[i];
     if (!n || n.sim < NEAR_SUBJECT) return;
@@ -682,8 +762,10 @@ async function writeSubjectLines(
     m.searchImpressions! += row.m.searchImpressions ?? 0;
     m.searchClicks! += row.m.searchClicks ?? 0;
     by.set(n.ref, m);
+    // A search that fell under a day's cut makes the subject's sums a lower bound.
+    if ((row.cutDays ?? 0) > 0) cut.set(n.ref, (cut.get(n.ref) ?? 0) + 1);
   });
-  const rows: SnapshotRow[] = [...by.entries()].map(([key, m]) => ({ key, m })).sort((a, b) => (b.m.searchImpressions ?? 0) - (a.m.searchImpressions ?? 0) || a.key.localeCompare(b.key));
+  const rows: SnapshotRow[] = [...by.entries()].map(([key, m]) => ({ key, m, ...(cut.get(key) ? { cutDays: cut.get(key)! } : {}) })).sort((a, b) => (b.m.searchImpressions ?? 0) - (a.m.searchImpressions ?? 0) || a.key.localeCompare(b.key));
   await putSnapshot(
     ctx,
     planningId(conn.id, conn.collect!.gen, SEARCH_STREAM, "subject"),

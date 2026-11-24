@@ -1,4 +1,5 @@
 import { ConnectorLockup, ConnectorTile } from "@/components/admin/connectors/ConnectorTile";
+import { productName } from "@/lib/connectors/messages";
 import { chatSourceOf, COLLECTED_SUFFIX, type ChatSource } from "./sourceData";
 
 /**
@@ -28,7 +29,8 @@ function Source({ s }: { s: ChatSource }) {
   const label = (
     <>
       <ConnectorTile id={s.id} name={s.name} initials={s.initials} icon={s.icon} size="sm" />
-      <span>{s.collected ? `${s.name} ${SOURCE_COPY.collected}` : s.name}</span>
+      {/* Collected numbers name the product, as the approved chat does: "Search Console (collected)". */}
+      <span>{s.collected ? `${productName(s.name)} ${SOURCE_COPY.collected}` : s.name}</span>
     </>
   );
   const look = "inline-flex items-center gap-1.5 font-medium text-neutral-700 dark:text-neutral-200";

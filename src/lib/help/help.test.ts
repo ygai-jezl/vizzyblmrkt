@@ -699,6 +699,26 @@ describe("What your numbers suggest (CONNECTOR_SIGNALS_ENABLED)", () => {
     expect(helpPageMarkdown("write-and-schedule", "https://app.example.com")).toContain("Writing next from your numbers: fewer Google clicks to /pricing.");
   });
 
+  it("draws the brand map and Write and schedule sections from the switches the How to drawer passes", () => {
+    // The drawer is a client: it can't read the server's switches, so it passes them as props.
+    const was = { signals: process.env.CONNECTOR_SIGNALS_ENABLED, scale: process.env.BRAND_MAP_SCALE_ENABLED };
+    process.env.CONNECTOR_SIGNALS_ENABLED = "false";
+    process.env.BRAND_MAP_SCALE_ENABLED = "false";
+    try {
+      const map = (connectorSignals: boolean, brandMapScale: boolean) => docToMarkdown(HELP_BODIES["brand-map"]!({ connectorSignals, brandMapScale }), "https://app.example.com");
+      expect(map(true, true)).toContain("Press **Edit** to put the search into your own words");
+      expect(map(true, true)).toContain("a **Search Console** chip gives the numbers");
+      expect(map(true, false)).toContain("it waits in Review under **What your numbers suggest**");
+      expect(map(false, true)).not.toContain("Questions from Google searches");
+      const write = (connectorSignals: boolean) => docToMarkdown(HELP_BODIES["write-and-schedule"]!({ connectorSignals }), "https://app.example.com");
+      expect(write(true)).toContain("Writing next from your numbers: fewer Google clicks to /pricing.");
+      expect(write(false)).not.toContain("Writing next from your numbers");
+    } finally {
+      process.env.CONNECTOR_SIGNALS_ENABLED = was.signals;
+      process.env.BRAND_MAP_SCALE_ENABLED = was.scale;
+    }
+  });
+
   it("keeps the section other pages link to with the brand map's scale switch off, sending rising searches to Review", () => {
     const was = process.env.BRAND_MAP_SCALE_ENABLED;
     process.env.BRAND_MAP_SCALE_ENABLED = "false";
@@ -713,7 +733,7 @@ describe("What your numbers suggest (CONNECTOR_SIGNALS_ENABLED)", () => {
   });
 
   it("uses no dashes as punctuation and none of the AI tells", () => {
-    for (const line of [SIGNALS_HELP.what, ...SIGNALS_HELP.rules, SIGNALS_HELP.planning, SIGNALS_HELP.strict, SIGNALS_HELP.review, SIGNALS_HELP.map, SIGNALS_HELP.nextUp, SIGNALS_HELP.vizzy, SIGNALS_HELP.erase]) {
+    for (const line of [SIGNALS_HELP.what, ...SIGNALS_HELP.rules, SIGNALS_HELP.planning, SIGNALS_HELP.noChat, SIGNALS_HELP.strict, SIGNALS_HELP.review, SIGNALS_HELP.map, SIGNALS_HELP.nextUp, SIGNALS_HELP.vizzy, SIGNALS_HELP.erase]) {
       expect(dashesIn(line), line).toEqual([]);
       expect(aiTellsIn(line), line).toEqual([]);
     }

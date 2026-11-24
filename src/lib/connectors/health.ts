@@ -20,6 +20,12 @@ import type { ConnectorErrorCode } from "./messages";
  */
 
 export const FAILURES_BEFORE_PAUSE = 5;
+/**
+ * Collecting has failed this many days in a row before a connection counts as stopped: on
+ * Connected ("Stopped on 19 Nov") and in Review (Data sources that need you) alike. A failure
+ * younger than that is retried on its own and only noted.
+ */
+export const COLLECT_FAILED_DAYS = 3;
 const MIN = 60_000;
 const RATE_PAUSE_MS = 15 * MIN;
 const FAILURE_PAUSE_MS = 60 * MIN;

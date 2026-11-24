@@ -5,8 +5,10 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import { meaningsOf } from "@/lib/metrics/meanings";
 import { ConnectionGrantSchema, freshCollect, type ActivityKind, type ConnectionGrant, type ConnectionServiceAccount, type DataConnection } from "@/lib/types/dataConnection";
 import { eraseConnectionData, pendingWith, type SearchIndexOf } from "./erase";
-import { can, grantsCode, normaliseGrants, type ConnectorActor } from "./grants";
-import { healthAfterFailure, healthAfterSuccess, healthyAt, isCallPaused, shownState } from "./health";
+import { can, feedsPlanning, grantsCode, normaliseGrants, type ConnectorActor } from "./grants";
+import { searchConsoleManifest } from "./manifests/searchConsole";
+import { stopPlanningFrom } from "./signals/reconcile";
+import { COLLECT_FAILED_DAYS, healthAfterFailure, healthAfterSuccess, healthyAt, isCallPaused, shownState } from "./health";
 import { ACCOUNT_HOOKS, VERIFY_HOOKS } from "./handlers";
 import type { ConnectorAccount, HookFailure } from "./handlers/types";
 import { checkLiveRequest, lagWords, readLive, type LiveAnswer } from "./live";
@@ -192,7 +194,10 @@ export interface CollectView {
   kept: { day: string; by: string; seen: number; rows: number; more: boolean } | null;
   /** A day the provider hasn't finished yet though it usually has by now (Search Console). */
   waitingFor: string | null;
+  /** Collecting has failed every day since then, for COLLECT_FAILED_DAYS or more: it counts as stopped. */
   failedSince: string | null;
+  /** Collecting failed then, less than COLLECT_FAILED_DAYS ago: it is retried on its own, only noted. */
+  failedOn: string | null;
   holdReason: string | null;
   /** Its numbers can suggest articles (pages or searches), when members and Vizzy may read it. */
   feedsPlanning: boolean;
@@ -209,6 +214,8 @@ export function collectViewOf(conn: DataConnection, now: Date): CollectView | nu
   const zone = c.timeZone ?? stream.timeZone ?? null;
   const today = zone ? todayIn(now, zone) : null;
   const waitingFor = stream.collect.waitsForFinal && c.filled && c.lastDay && today && daysIn(c.lastDay, today) - 1 >= 3 ? addDays(c.lastDay, 1) : null;
+  // One rule with Review: stopped only after COLLECT_FAILED_DAYS of failing; before that, a note.
+  const failedLong = c.failedSince !== null && now.getTime() - Date.parse(c.failedSince) >= COLLECT_FAILED_DAYS * 86_400_000;
   return {
     lastDay: c.lastDay,
     finalThrough: c.finalThrough,
@@ -221,7 +228,8 @@ export function collectViewOf(conn: DataConnection, now: Date): CollectView | nu
     keeps: keepsWords(stream.collect),
     kept: c.kept,
     waitingFor,
-    failedSince: c.failedSince,
+    failedSince: failedLong ? c.failedSince : null,
+    failedOn: c.failedSince && !failedLong ? c.failedSince : null,
     holdReason: c.holdUntil && Date.parse(c.holdUntil) > now.getTime() ? c.holdReason : c.holdReason === "no_data" ? "no_data" : null,
     feedsPlanning: stream.collect.by.some((b) => b !== "day"),
   };
@@ -1018,22 +1026,39 @@ export async function setPaused(ctx: TenantContext, actor: ConnectorActor, id: s
 
 export const GrantsBodySchema = z.object({ grants: z.array(ConnectionGrantSchema).max(10) }).strict();
 
-/** Set who beyond admins may read a connection live. Admins only. */
+/**
+ * Set who beyond admins may read a connection live. Admins only. A Search Console connection that
+ * stops letting both members and Vizzy read it stops feeding planning at once (pick 6): its open
+ * suggestions are declined, the questions it proposed that nobody decided are withdrawn and Next up
+ * picks that weighed it are taken off, whatever any switch says; the lane's housekeeping catches a
+ * failed try.
+ */
 export async function setGrants(ctx: TenantContext, actor: ConnectorActor, id: string, body: unknown, deps: ServiceDeps = {}): Promise<ServiceResult<ConnectionView>> {
   const parsed = GrantsBodySchema.safeParse(body);
   if (!parsed.success) return refuse(400, "invalid_input");
   const grants = normaliseGrants(parsed.data.grants);
-  return manage(
+  let stopped = false;
+  const r = await manage(
     ctx,
     actor,
     id,
     "change_grants",
     (cur, at) => {
+      stopped = false;
       if (cur.status !== "connected" || grantsCode(cur.grants) === grantsCode(grants)) return null;
+      stopped = cur.connectorId === searchConsoleManifest.id && feedsPlanning(cur.grants) && !feedsPlanning(grants);
       return { patch: { grants }, activity: [{ kind: "grants_changed", by: byOf(actor), at, code: grantsCode(grants) }] };
     },
     deps,
   );
+  if (r.ok && stopped) {
+    try {
+      await stopPlanningFrom(ctx, id, { db: deps.db, now: nowOf(deps) });
+    } catch (err) {
+      console.warn(`[connectors] withdrawing what ${id} fed planning failed; the lane tries again:`, err instanceof Error ? err.message.slice(0, 200) : "error");
+    }
+  }
+  return r;
 }
 
 export interface DisconnectOutcome {

@@ -218,6 +218,7 @@ export const SIGNALS_HELP = {
     "A question on your brand map whose search sits just off Google's first page, at an average position of 5 to 20.",
   ],
   planning: "Only a connection both members and Vizzy may read is used, because Next up, Review and the brand map are seen by your whole team and can't follow one person's access. Connected says which connections are used for planning.",
+  noChat: "So suggestions need Vizzy to read connected data. In a copy where that is off, Connected says so and nothing is suggested.",
   strict: "It starts strict, so small numbers make no noise: a search needs at least 50 impressions on 4 days or more, and a page at least 40 clicks before. A search or page that only slipped below a day's top 500 never counts as gone. At most 5 new suggestions a day, and 15 waiting at once.",
   review: "In Review, What your numbers suggest lists each one with its numbers. Plan an article opens Drafts with the question, page or search filled in. Dismiss takes it away, and it won't come back for 30 days.",
   map: "On the brand map's Subjects tab, a proposed question shows From Google searches with its numbers. Press Edit to put the search into your own words, then Add. Once added it keeps its tag.",
@@ -240,12 +241,13 @@ export const COLLECT_HELP = {
   ],
   keeps:
     "Each day keeps the tool's totals and the top 500 rows of each grouping: pages, searches or landing pages. Counts of people, such as active users and unique visitors, can't be added across days, so totals over several days leave them out.",
-  filling: "A new connection fills its 90 days over the next few hours, newest first.",
+  filling: "A new connection starts collecting within the hour and fills its 90 days over the next few hours, newest first.",
   states: [
     ["To 20 Nov, 90 days", "Collected every day, up to that day."],
     ["Filling 90 days: 34 of 90", "Just connected: the rest arrive over the next few hours, newest first."],
     ["Paused on 12 Nov", "An admin paused it. Nothing is collected until someone presses Resume."],
-    ["Stopped on 19 Nov", "YouGrow can't read it since then. It shows in Review under Data sources that need you."],
+    ["Stopped on 19 Nov", "YouGrow can't read it since then, or collecting has failed every day since then for 3 days. It shows in Review under Data sources that need you."],
+    ["Collecting failed on 23 Nov", "A try failed, for example while the tool was down. YouGrow tries again on its own, and after 3 days of failing it shows as stopped."],
   ] as const,
   card: "Press a connection's row to see Collected numbers on its card: the last day collected and its time zone, the days kept, and what each day keeps.",
   erase:

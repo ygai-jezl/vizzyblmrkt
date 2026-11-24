@@ -15,9 +15,9 @@ describe("planning a run's days", () => {
     expect(days(planDays({ ...c, filled: true }, "2026-11-20", { keepDays: 90, maxDays: 4 }))).toEqual(["11-19:f", "11-20:f"]);
   });
 
-  it("reads again days that weren't final, up to the line", () => {
+  it("reads again days that weren't final, up to the line, ahead of new days", () => {
     const c = cursor({ lastDay: "2026-11-20", backfilledTo: "2026-10-01", finalThrough: "2026-11-12", filled: true });
-    expect(days(planDays(c, "2026-11-21", { keepDays: 90, maxDays: 6, rereadThrough: "2026-11-15" }))).toEqual(["11-21:f", "11-13:r", "11-14:r", "11-15:r"]);
+    expect(days(planDays(c, "2026-11-21", { keepDays: 90, maxDays: 6, rereadThrough: "2026-11-15" }))).toEqual(["11-13:r", "11-14:r", "11-15:r", "11-21:f"]);
   });
 
   it("stops at the provider's reach, and starts again after a gap longer than the keep", () => {
@@ -40,6 +40,25 @@ describe("moving the cursor", () => {
     expect(advance(EMPTY_CURSOR, landed, { newest: "2026-11-20", keepDays: 3 })).toMatchObject({ filled: true });
     expect(advance(EMPTY_CURSOR, landed, { newest: "2026-11-20", keepDays: 90, reachFrom: "2026-11-18" })).toMatchObject({ filled: true });
     expect(keptDays({ lastDay: "2026-11-20", backfilledTo: "2026-11-18" }, 90)).toBe(3);
+  });
+
+  it("never moves finalThrough past days still waiting for their second read, after a 12 day gap", () => {
+    // Collected to 10 Nov and final to 4 Nov, then out for 12 days; on 24 Nov days to 16 Nov are final.
+    let c = cursor({ lastDay: "2026-11-10", finalThrough: "2026-11-04", backfilledTo: "2026-08-13", filled: true });
+    const newest = "2026-11-22";
+    const line = "2026-11-16";
+    const seen: string[][] = [];
+    for (let run = 0; run < 4; run++) {
+      const plan = planDays(c, newest, { keepDays: 90, maxDays: 7, rereadThrough: line }).slice(0, 6);
+      seen.push(days(plan));
+      c = advance(c, plan.map((p) => ({ day: p.day, final: p.day <= line })), { newest, keepDays: 90 });
+    }
+    expect(seen[0]).toEqual(["11-05:r", "11-06:r", "11-07:r", "11-08:r", "11-09:r", "11-10:r"]);
+    expect(seen[1]).toEqual(["11-11:f", "11-12:f", "11-13:f", "11-14:f", "11-15:f", "11-16:f"]);
+    expect(c).toMatchObject({ lastDay: "2026-11-22", finalThrough: "2026-11-16" });
+    // A final day landing past a day still waiting doesn't move the line over it.
+    const gap = advance(cursor({ lastDay: "2026-11-10", finalThrough: "2026-11-04", backfilledTo: "2026-08-13", filled: true }), [{ day: "2026-11-11", final: true }], { newest, keepDays: 90 });
+    expect(gap).toMatchObject({ lastDay: "2026-11-11", finalThrough: "2026-11-04" });
   });
 
   it("keeps how far the numbers are final when newer days aren't yet", () => {

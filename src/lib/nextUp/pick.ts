@@ -12,10 +12,10 @@ import { marketLabel } from "@/lib/signals/markets";
 import { queryKey, readySignals } from "@/lib/signals/store";
 import { forTenant, getTenantById } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
-import type { NextUpChip, NextUpDoc, NextUpPick } from "@/lib/types/autopilot";
+import { nextUpDocId, type NextUpChip, type NextUpDoc, type NextUpPick } from "@/lib/types/autopilot";
 import type { BrandSignal } from "@/lib/types/brandSignal";
 import type { Tenant } from "@/lib/types/tenant";
-import { NOT_SHARED_NEXT_UP, readSearchPlanning, searchConsoleLines, type SearchConsoleLine, type SearchPlanning } from "@/lib/connectors/signals/planning";
+import { NOT_SHARED_NEXT_UP, readSearchPlanning, SEARCH_CONSOLE_CHIP, searchConsoleLines, type SearchConsoleLine, type SearchPlanning } from "@/lib/connectors/signals/planning";
 import { nextUpCandidates, type Candidate } from "./candidates";
 
 /**
@@ -110,7 +110,7 @@ export function linesFor(
     );
   }
   // Search Console (collected): the search with the question's words, and the searches near its subject.
-  for (const line of (read.searchConsole ?? []).slice(0, 2)) add(line.text, { kind: "num", label: "Search Console" }, line.chip);
+  for (const line of (read.searchConsole ?? []).slice(0, 2)) add(line.text, { kind: "num", label: SEARCH_CONSOLE_CHIP }, line.chip);
   return out;
 }
 
@@ -183,7 +183,7 @@ async function eachLimited<T, R>(items: T[], limit: number, fn: (t: T) => Promis
   return out;
 }
 
-export const nextUpDocId = (tenantId: string) => `nu_${tenantId}`;
+export { nextUpDocId };
 
 /** The brand's stored Next up, if any. */
 export async function readNextUp(ctx: TenantContext, deps: Pick<PickDeps, "db"> = {}): Promise<NextUpDoc | null> {

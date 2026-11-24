@@ -6,7 +6,8 @@ import { healthyAt } from "../health";
 import { answer, cfDays, cfSettings, routedTransport, SC_QUOTA, scDays, scRows, type SeenCall } from "../testing/providers";
 import { ACCESS_SLOT, REFRESH_SLOT } from "../tokenKeeper";
 import { sealConnectorSecret } from "../vault";
-import { listForActor } from "../service";
+import { disconnect, listForActor } from "../service";
+import { laneHousekeeping } from "./tick";
 import { collectConnection, isDue } from "./run";
 
 // One connection's daily collect against stub providers: Cloudflare with a pasted token, and
@@ -113,6 +114,12 @@ describe("collecting one connection", () => {
     const member = await listForActor(A, { kind: "human", uid: "usr_member", role: "member" }, { db, now: NOW });
     expect(member.ok && member.value.connections[0]).toMatchObject({ collectedTo: "2026-11-21" });
     expect(member.ok && member.value.connections[0]!.details).toBeUndefined();
+    // A failure under 3 days old is only noted; from 3 days it counts as stopped, as in Review.
+    await changeDataConnection(A, CF, (cur) => ({ patch: { collect: { ...cur.collect!, failedSince: "2026-11-22T12:00:00.000Z" } }, activity: [] }), db);
+    const recent = await listForActor(A, { kind: "human", uid: "usr_admin", role: "admin" }, { db, now: NOW });
+    expect(recent.ok && recent.value.connections[0]!.details?.collect).toMatchObject({ failedSince: null, failedOn: "2026-11-22T12:00:00.000Z" });
+    const long = await listForActor(A, { kind: "human", uid: "usr_admin", role: "admin" }, { db, now: new Date("2026-11-25T12:00:00.000Z") });
+    expect(long.ok && long.value.connections[0]!.details?.collect).toMatchObject({ failedSince: "2026-11-22T12:00:00.000Z", failedOn: null });
     vi.stubEnv("CONNECTORS_COLLECT_ENABLED", "false");
     const off = await listForActor(A, { kind: "human", uid: "usr_admin", role: "admin" }, { db, now: NOW });
     expect(off.ok && off.value.connections[0]).toMatchObject({ collectedTo: null, details: { collect: null } });
@@ -209,5 +216,23 @@ describe("collecting one connection", () => {
     };
     await collectConnection(A, CF, { deadlineMs: DEADLINE }, { db, transport: slow, limit: async () => false, log: () => {}, now: NOW });
     expect((await load(CF)).collect).toMatchObject({ erasePending: "all", leaseId: null });
+  });
+
+  it("leaves nothing after a real Disconnect lands while a run is reading the provider", async () => {
+    await seedCloudflare();
+    const { transport } = routedTransport((c) => (String(c.body.query).includes("settings") ? answer(cfSettings()) : answer(cfDays(ALL_DAYS, ALL_DAYS.slice(-30)))));
+    const admin = { kind: "human" as const, uid: "usr_admin", role: "admin" as const };
+    // Disconnect clears the lease and erases before this run writes its days.
+    const during = async (url: string, init: RequestInit) => {
+      if (!String(init.body).includes("settings")) expect((await disconnect(A, admin, CF, { db, now: NOW, log: () => {} })).ok).toBe(true);
+      return transport(url, init, { maxRedirects: 0, allowedPorts: [443], timeoutMs: 1000 });
+    };
+    await collectConnection(A, CF, { deadlineMs: DEADLINE }, { db, transport: during, limit: async () => false, log: () => {}, now: NOW });
+    expect(db.dump("metric_snapshots").length).toBeGreaterThan(0);
+    expect((await load(CF)).collect).toMatchObject({ erasePending: "all" });
+    // Cloudflare puts nothing in brand search, so the erase needs no index.
+    await laneHousekeeping(A, [await load(CF)], { db, now: NOW });
+    expect(db.dump("metric_snapshots")).toEqual([]);
+    expect((await load(CF)).collect?.erasePending).toBeNull();
   });
 });

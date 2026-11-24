@@ -11,8 +11,10 @@ import { isSignalsDataForSeoEnabled } from "@/lib/signals/flags";
 import { isAutopilotEnabled } from "@/lib/autopilot/flags";
 import { isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
 import { isConnectorSignalsEnabled } from "@/lib/connectors/flags";
+import type { HelpBodyProps } from "@/lib/help/pages";
 
-export default function WriteAndScheduleHelp() {
+/** The How to drawer passes the server's switches (connectorSignals): it can't read them itself. */
+export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSignalsEnabled() }: HelpBodyProps = {}) {
   return (
     <article>
       <H1>Write and schedule</H1>
@@ -80,7 +82,7 @@ export default function WriteAndScheduleHelp() {
         saved. Under <strong>Export</strong>, press <strong>Copy Markdown</strong> or <strong>Copy HTML</strong> to put it on
         your site.
       </P>
-      {isConnectorSignalsEnabled() ? (
+      {connectorSignals ? (
         <P>
           From <Open href="/help/review-and-approvals#numbers">Review</Open>, <strong>Plan an article</strong> on a suggestion
           your numbers made opens the wizard with a line such as &quot;Writing next from your numbers: fewer Google clicks to

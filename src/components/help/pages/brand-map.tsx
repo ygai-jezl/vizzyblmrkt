@@ -3,13 +3,15 @@ import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warnin
 import { isBlogLiveWatchEnabled, isBrandMapScaleEnabled, isBrandMapSituationAskUiEnabled } from "@/lib/brandMap/flags";
 import { isConnectorSignalsEnabled } from "@/lib/connectors/flags";
 import { SIGNALS_HELP } from "@/lib/connectors/helpText";
+import type { HelpBodyProps } from "@/lib/help/pages";
 import { isCompetitorsUiEnabled } from "@/lib/competitors/flags";
 import { isAutopilotEnabled, isNextUpEnabled } from "@/lib/autopilot/flags";
 
-export default function BrandMapHelp() {
+export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnabled(), brandMapScale = isBrandMapScaleEnabled() }: HelpBodyProps = {}) {
   // Linked from Review and Connected data whenever signals are on; at any size the questions wait here.
-  const fromSearches = isConnectorSignalsEnabled();
-  const atScale = isBrandMapScaleEnabled();
+  // The How to drawer passes the server's switches: it can't read them itself.
+  const fromSearches = connectorSignals;
+  const atScale = brandMapScale;
   return (
     <article>
       <H1>Brand map</H1>
@@ -185,7 +187,7 @@ export default function BrandMapHelp() {
             behind it: how far along its subject is, what you already made, what competitors wrote, and what Google shows.
             Press <strong>Choose again</strong> for a fresh look.
           </P>
-          {isConnectorSignalsEnabled() ? (
+          {fromSearches ? (
             <P>
               With Search Console used for planning, a <strong>Search Console</strong> chip gives the numbers for the search
               with the question&apos;s own words, such as &quot;880 impressions, position 11.3&quot;, and another the searches

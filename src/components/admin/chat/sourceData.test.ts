@@ -106,7 +106,8 @@ describe("SourceLine", () => {
 
   it("says (collected) after the name for numbers YouGrow collected", () => {
     const out = line(["search-console:collected"]);
-    expect(out).toContain(`<span>Google Search Console ${SOURCE_COPY.collected}</span>`);
+    // The product's name, as the approved chat writes it.
+    expect(out).toContain(`<span>Search Console ${SOURCE_COPY.collected}</span>`);
     expect(out).toContain('<a href="https://search.google.com/search-console" target="_blank" rel="noopener noreferrer"');
     expect(line(["search-console"])).not.toContain(SOURCE_COPY.collected);
     // Google Analytics keeps its logo alone, as its owner asks; screen readers hear it was collected.

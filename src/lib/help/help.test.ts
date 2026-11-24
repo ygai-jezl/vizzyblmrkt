@@ -699,6 +699,19 @@ describe("What your numbers suggest (CONNECTOR_SIGNALS_ENABLED)", () => {
     expect(helpPageMarkdown("write-and-schedule", "https://app.example.com")).toContain("Writing next from your numbers: fewer Google clicks to /pricing.");
   });
 
+  it("keeps the section other pages link to with the brand map's scale switch off, sending rising searches to Review", () => {
+    const was = process.env.BRAND_MAP_SCALE_ENABLED;
+    process.env.BRAND_MAP_SCALE_ENABLED = "false";
+    try {
+      const text = helpPageMarkdown("brand-map", "https://app.example.com")!;
+      expect(text).toContain("## Questions from Google searches");
+      expect(text).toContain("it waits in Review under **What your numbers suggest**");
+      expect(text).not.toContain("Press **Edit**");
+    } finally {
+      process.env.BRAND_MAP_SCALE_ENABLED = was;
+    }
+  });
+
   it("uses no dashes as punctuation and none of the AI tells", () => {
     for (const line of [SIGNALS_HELP.what, ...SIGNALS_HELP.rules, SIGNALS_HELP.planning, SIGNALS_HELP.strict, SIGNALS_HELP.review, SIGNALS_HELP.map, SIGNALS_HELP.nextUp, SIGNALS_HELP.vizzy, SIGNALS_HELP.erase]) {
       expect(dashesIn(line), line).toEqual([]);

@@ -7,7 +7,9 @@ import { isCompetitorsUiEnabled } from "@/lib/competitors/flags";
 import { isAutopilotEnabled, isNextUpEnabled } from "@/lib/autopilot/flags";
 
 export default function BrandMapHelp() {
-  const fromSearches = isConnectorSignalsEnabled() && isBrandMapScaleEnabled();
+  // Linked from Review and Connected data whenever signals are on; at any size the questions wait here.
+  const fromSearches = isConnectorSignalsEnabled();
+  const atScale = isBrandMapScaleEnabled();
   return (
     <article>
       <H1>Brand map</H1>
@@ -88,7 +90,17 @@ export default function BrandMapHelp() {
         </li>
       </Steps>
 
-      {fromSearches ? (
+      {fromSearches && !atScale ? (
+        <>
+          <H2 id="from-searches">Questions from Google searches</H2>
+          <P>
+            When a search people make on Google is rising and nothing on your map asks it yet, it waits in Review under{" "}
+            <strong>What your numbers suggest</strong>, with <strong>Plan an article</strong> and <strong>Dismiss</strong> (
+            <Open href="/help/review-and-approvals#numbers">Plan or dismiss them</Open>). {SIGNALS_HELP.planning}
+          </P>
+        </>
+      ) : null}
+      {fromSearches && atScale ? (
         <>
           <H2 id="from-searches">Questions from Google searches</H2>
           <P>

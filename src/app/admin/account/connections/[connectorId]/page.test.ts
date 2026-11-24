@@ -18,6 +18,8 @@ const { default: ConnectorListingPage } = await import("./page");
 const base = (over: Partial<ConnectionsScreen> = {}): ConnectionsScreen => ({
   core: true,
   chat: false,
+  collect: false,
+  planning: false,
   isAdmin: true,
   uid: "usr_alex",
   connectors: [listingFor("search-console", ["oauth_pkce", "share_access"])],

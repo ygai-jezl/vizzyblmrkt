@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { MEANINGS } from "@/lib/metrics/meanings";
-import { ConnectorManifestSchema, oauthMethod, parseManifest, RESERVED_CONNECTOR_IDS, shareMethod, streamOf, tokenMethod, type ConnectorManifestInput } from "./manifest";
+import { collectedStream, ConnectorManifestSchema, oauthMethod, parseManifest, PLATFORM_SWITCHES, RESERVED_CONNECTOR_IDS, shareMethod, streamOf, tokenMethod, type ConnectorManifestInput } from "./manifest";
 import { cloudflareManifest } from "./manifests/cloudflare";
 import { ga4Manifest } from "./manifests/ga4";
 import { searchConsoleManifest } from "./manifests/searchConsole";
@@ -53,6 +53,34 @@ describe("connector manifests", () => {
     for (const id of RESERVED_CONNECTOR_IDS) expect(issues({ ...base(), id }).join()).toContain("reserved");
     expect(issues({ ...base(), id: "Cloud Flare" }).length).toBeGreaterThan(0);
     expect(issues({ ...base(), hooks: { live: "github.zoneDaily" } }).join()).toContain("connector's own name");
+  });
+
+  it("refuses the platform's own switches, as a connector's switch or a sign in method's", () => {
+    for (const name of PLATFORM_SWITCHES) {
+      expect(issues({ ...base(), switch: name }).join()).toContain("platform switch");
+      const ga4 = clone(ga4Manifest) as ConnectorManifestInput;
+      const signIn = { ...ga4.connect[0]!, switch: name };
+      expect(issues({ ...ga4, connect: [signIn, ...ga4.connect.slice(1)] }).join()).toContain("platform switch");
+    }
+    expect(RESERVED_CONNECTOR_IDS).toContain("signals");
+  });
+
+  it("collects at most one stream, through its own collect hook, by groupings it can read, for at most 90 days", () => {
+    for (const m of MANIFESTS) {
+      const parsed = parseManifest(m);
+      const stream = collectedStream(parsed)!;
+      expect(stream.collect.keepDays).toBe(90);
+      expect(stream.collect.rowsPerDay).toBe(500);
+      expect(parsed.hooks.collect).toBeDefined();
+    }
+    const m = base();
+    const stream = m.produces[0]!;
+    expect(issues({ ...m, hooks: { live: m.hooks.live, accounts: m.hooks.accounts } }).join()).toContain("needs hooks.collect");
+    expect(issues({ ...m, produces: [{ ...stream, collect: undefined }] }).join()).toContain("hooks.collect needs a stream");
+    expect(issues({ ...m, produces: [{ ...stream, collect: { ...stream.collect!, by: ["page"] } }] }).join()).toContain("not one of its liveBy");
+    expect(issues({ ...m, produces: [{ ...stream, collect: { ...stream.collect!, keepDays: 120 } }] }).length).toBeGreaterThan(0);
+    expect(issues({ ...m, produces: [stream, { ...stream, stream: "zone_other" }] }).join()).toContain("at most one stream is collected");
+    expect(issues({ ...m, hooks: { ...m.hooks, collect: "github.collectDays" } }).join()).toContain("connector's own name");
   });
 
   it("refuses an undeclared verify host, a host with a scheme or port, and an http link", () => {

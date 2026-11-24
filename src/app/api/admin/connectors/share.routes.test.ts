@@ -3,6 +3,14 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { __resetRateLimitState } from "@/lib/tenant/rateLimit";
 import { __resetShareTokens } from "@/lib/connectors/shareAccess";
 
+// The search databases: an in-memory index, since every erase removes a Search Console
+// connection's searches from brand search whatever SEARCH_INDEX_ENABLED says (ADR-0013).
+vi.mock("@/lib/tenant/searchIndex", async () => {
+  const { MemorySearchIndex } = await import("@/lib/search/memoryStore");
+  const index = new MemorySearchIndex();
+  return { searchStoreFor: (ctx: { tenantId: string }) => index.storeFor(ctx) };
+});
+
 // The share access routes: start share access (make the connection's Google address) and Check
 // access. Switch off answers 404 before the session is read; members, signed out and cross-site
 // requests are refused. Google is never called: the app's own token is a stub and the global fetch

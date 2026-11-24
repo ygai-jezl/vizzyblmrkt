@@ -67,3 +67,51 @@ export function isConnectorsChatEnabled(): boolean {
 export function isGoogleRevokeEnabled(): boolean {
   return process.env.CONNECTOR_GOOGLE_REVOKE_ENABLED === "true";
 }
+
+/**
+ * Collected numbers (Connectors 2, ADR-0012): every connected Search Console site, Google
+ * Analytics property and Cloudflare zone collected once a day into metric snapshots, kept 90 days;
+ * the Review row for a data source that needs someone, and the Connected view's Collected column.
+ * Needs CONNECTORS_ENABLED. Off, nothing new is collected and those screens look as before; what
+ * was collected leaves through its time to live. Erasing never depends on it: Disconnect, Change
+ * property, the purge and the lane's erase retries run whenever CONNECTORS_ENABLED is on.
+ */
+export function isConnectorsCollectEnabled(): boolean {
+  return isConnectorsEnabled() && process.env.CONNECTORS_COLLECT_ENABLED === "true";
+}
+
+/**
+ * Search Console searches in brand search (Connectors 2, ADR-0013): each Search Console
+ * connection's top 200 searches over 28 days, with their numbers, as one research source, found
+ * only by viewers who may read that connection. Needs collected numbers (CONNECTORS_COLLECT_ENABLED);
+ * the index itself needs SEARCH_INDEX_ENABLED and the brand's brand_search access. Off, the feeder
+ * lists none, so the next sweep removes them, and searches hide them at once. Removing them on
+ * Disconnect, Change property and the purge never depends on it.
+ */
+export function isConnectorsSearchTextEnabled(): boolean {
+  return isConnectorsCollectEnabled() && process.env.CONNECTORS_SEARCH_TEXT_ENABLED === "true";
+}
+
+/**
+ * Vizzy reading collected numbers: POST /api/agent/connectors/numbers, which its
+ * get_connected_numbers tool calls (Connectors 2, ADR-0012). No switch of its own: it needs Vizzy
+ * reading connected data (CONNECTORS_CHAT_ENABLED) and collected numbers (CONNECTORS_COLLECT_ENABLED),
+ * and answers 503 while either is off, as the results routes do.
+ */
+export function isConnectorsNumbersEnabled(): boolean {
+  return isConnectorsChatEnabled() && isConnectorsCollectEnabled();
+}
+
+/**
+ * What collected numbers suggest (Connectors 2 group 4, ADR-0012): rising searches, pages losing
+ * clicks and brand map questions just off Google's first page, from Search Console's final days,
+ * as proposed brand map questions, Review suggestions with Plan an article and Dismiss, Search
+ * Console lines in Next up and the context pack, and Vizzy's get_number_suggestions. Only
+ * connections both members and Vizzy may read feed it. Needs collected numbers
+ * (CONNECTORS_COLLECT_ENABLED) and the agent action indexes READY; never BRAND_SIGNALS_ENABLED
+ * (decision 36). Off, detection stops and every one of those hides; open suggestions still expire
+ * within 30 days, as the lane's housekeeping runs whenever CONNECTORS_ENABLED is on.
+ */
+export function isConnectorSignalsEnabled(): boolean {
+  return isConnectorsCollectEnabled() && process.env.CONNECTOR_SIGNALS_ENABLED === "true";
+}

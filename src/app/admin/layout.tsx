@@ -36,7 +36,8 @@ import {
 } from "@/lib/audience/peopleFlags";
 import { parseThemePreference, THEME_COOKIE } from "@/lib/theme";
 import { isCatalogHistoryEnabled } from "@/lib/connect/v2/flags";
-import { isConnectorsChatEnabled } from "@/lib/connectors/flags";
+import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsSearchTextEnabled } from "@/lib/connectors/flags";
+import { isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -191,6 +192,10 @@ export default async function AdminLayout({
             vizzyAddPerson={isVizzyAddPersonEnabled()}
             catalogHistory={isCatalogHistoryEnabled()}
             connectorsChat={isConnectorsChatEnabled()}
+            connectorsCollect={isConnectorsCollectEnabled()}
+            connectorsSearchText={isConnectorsSearchTextEnabled()}
+            connectorSignals={isConnectorSignalsEnabled()}
+            brandMapScale={isBrandMapScaleEnabled()}
           >
             {shell}
           </ShellProvider>

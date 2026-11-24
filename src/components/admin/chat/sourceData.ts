@@ -5,11 +5,16 @@ import { MANIFESTS } from "@/lib/connectors/manifests";
  * Which connected tools a Vizzy answer read, for the source line under it. Pure and client safe:
  * the tool result comes off the agent stream, so only its connector id is used, and only when a
  * manifest in this repo has that id. The name, mark and link always come from the manifest
- * (src/lib/connectors/manifests), never from the stream.
+ * (src/lib/connectors/manifests), never from the stream. Numbers read from what YouGrow collected
+ * (get_connected_numbers, Connectors 2) are a source of their own, "<id>:collected", so the line
+ * says which numbers were collected and which were read live.
  */
 
-/** The tools whose answer reads a connection, and carries `connection.connectorId`. */
-const READS_A_CONNECTION: ReadonlySet<string> = new Set(["read_connected_live"]);
+/** The tools whose answer reads a connection, and carries `connection.connectorId`: live or collected. */
+const READS_A_CONNECTION: Readonly<Record<string, "live" | "collected">> = { read_connected_live: "live", get_connected_numbers: "collected" };
+
+/** What a source id ends with when its numbers were collected rather than read live. */
+export const COLLECTED_SUFFIX = ":collected";
 
 const WRITTEN: readonly ConnectorManifestInput[] = MANIFESTS;
 
@@ -21,21 +26,27 @@ export interface ChatSource {
   icon: ConnectorIcon | null;
   /** The provider's own dashboard, or null when its manifest names none. */
   home: string | null;
+  /** Numbers YouGrow collected, rather than read live. */
+  collected: boolean;
 }
 
-/** The connector a tool result read, or null when it didn't read one (or failed). */
+/** The connector a tool result read, or null when it didn't read one (or failed); collected numbers end in COLLECTED_SUFFIX. */
 export function connectorSourceOf(toolName: string, result: Record<string, unknown> | undefined): string | null {
-  if (!READS_A_CONNECTION.has(toolName) || !result || result.status !== "success") return null;
+  const how = Object.prototype.hasOwnProperty.call(READS_A_CONNECTION, toolName) ? READS_A_CONNECTION[toolName] : undefined;
+  if (!how || !result || result.status !== "success") return null;
   const connection = result.connection;
   const id = connection && typeof connection === "object" ? (connection as { connectorId?: unknown }).connectorId : undefined;
-  return typeof id === "string" && WRITTEN.some((m) => m.id === id) ? id : null;
+  if (typeof id !== "string" || !WRITTEN.some((m) => m.id === id)) return null;
+  return how === "collected" ? `${id}${COLLECTED_SUFFIX}` : id;
 }
 
 /** The source line's view of a connector, from its manifest; null for an id no manifest has. */
-export function chatSourceOf(id: string): ChatSource | null {
+export function chatSourceOf(source: string): ChatSource | null {
+  const collected = source.endsWith(COLLECTED_SUFFIX);
+  const id = collected ? source.slice(0, -COLLECTED_SUFFIX.length) : source;
   const m = WRITTEN.find((w) => w.id === id);
   if (!m) return null;
-  return { id: m.id, name: m.name, ...(m.initials ? { initials: m.initials } : {}), icon: m.icon ?? null, home: m.home ?? null };
+  return { id: m.id, name: m.name, ...(m.initials ? { initials: m.initials } : {}), icon: m.icon ?? null, home: m.home ?? null, collected };
 }
 
 /**

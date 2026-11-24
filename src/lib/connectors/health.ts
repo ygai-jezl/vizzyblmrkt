@@ -6,8 +6,10 @@ import type { ConnectorErrorCode } from "./messages";
  *
  * - A call that works sets ok and clears any failure count and pause.
  * - The provider turning the connection down (a refused token, an account it can't read, a token
- *   YouGrow can't open, Google ending a sign in, a shared address that can't see the property)
- *   sets broken: it needs connecting again or sharing again.
+ *   YouGrow can't open, Google ending a sign in, a shared address that can't see the property, or
+ *   no longer can) sets broken: it needs connecting again or sharing again.
+ * - `since` says when the failures in a row began, so the screens can date them ("lost access to
+ *   this property on 19 Nov"); a call that works clears it.
  * - A provider's rate limit pauses calls for its Retry-After (15 minutes when it gives none,
  *   between 1 and 60 minutes), and FAILURES_BEFORE_PAUSE failures in a row pause them for an hour.
  *   isRateLimited fails open (src/lib/tenant/rateLimit.ts), so this pause is the hard stop.
@@ -18,11 +20,17 @@ import type { ConnectorErrorCode } from "./messages";
  */
 
 export const FAILURES_BEFORE_PAUSE = 5;
+/**
+ * Collecting has failed this many days in a row before a connection counts as stopped: on
+ * Connected ("Stopped on 19 Nov") and in Review (Data sources that need you) alike. A failure
+ * younger than that is retried on its own and only noted.
+ */
+export const COLLECT_FAILED_DAYS = 3;
 const MIN = 60_000;
 const RATE_PAUSE_MS = 15 * MIN;
 const FAILURE_PAUSE_MS = 60 * MIN;
 
-const BROKEN: ReadonlySet<ConnectorErrorCode> = new Set(["token_refused", "account_refused", "secret_unopenable", "signin_refused", "share_not_visible"]);
+const BROKEN: ReadonlySet<ConnectorErrorCode> = new Set(["token_refused", "account_refused", "secret_unopenable", "signin_refused", "share_not_visible", "share_access_lost"]);
 const OURS: ReadonlySet<ConnectorErrorCode> = new Set([
   "busy",
   "paused",
@@ -76,7 +84,8 @@ export function healthAfterFailure(
 ): { health: ConnectionHealth; pausedNow: boolean } | null {
   if (!countsAsFailure(code)) return null;
   const failures = h.failures + 1;
-  const base = { ...h, lastCheckedAt: now.toISOString(), lastErrorCode: code, failures };
+  const since = h.failures > 0 && h.since ? h.since : now.toISOString();
+  const base = { ...h, lastCheckedAt: now.toISOString(), lastErrorCode: code, failures, since };
   if (BROKEN.has(code)) return { health: { ...base, state: "broken", pausedUntil: null }, pausedNow: false };
   let pauseMs = 0;
   if (code === "rate_limited") pauseMs = retryAfterSec ? Math.min(60 * MIN, Math.max(MIN, retryAfterSec * 1000)) : RATE_PAUSE_MS;

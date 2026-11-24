@@ -73,8 +73,12 @@ export const ImportId = Id("imp");
 export const RecordStatus = z.enum(["decided", "proposed", "dismissed"]);
 export type RecordStatus = z.infer<typeof RecordStatus>;
 
-/** Where a record came from. */
-export const RecordFrom = z.enum(["person", "move", "research", "situations", "import", "article", "vizzy", "competitors", "autopilot"]);
+/**
+ * Where a record came from. `search_console`: a question proposed from a search rising in a
+ * connection's collected Search Console numbers (CONNECTOR_SIGNALS_ENABLED); an older build reads
+ * it as `person`.
+ */
+export const RecordFrom = z.enum(["person", "move", "research", "situations", "import", "article", "vizzy", "competitors", "autopilot", "search_console"]);
 export type RecordFrom = z.infer<typeof RecordFrom>;
 
 /** What every record carries besides its own fields. `rev` moves on each edit, for conflicts. */
@@ -174,6 +178,12 @@ export const BrandMapQuestionRecordSchema = z.object({
   leads: z.array(OptionalLine(80)).max(8).catch([]).default([]),
   /** Merged away (the subject it was on went into another that asks it too): links lead here. */
   mergedInto: QuestionId.nullable().catch(null).default(null),
+  /**
+   * The Search Console connection whose rising search proposed it (`from: "search_console"`), so
+   * Disconnect and expiry find it by equality. Its `evidence` holds the search's own words and its
+   * `reason` their numbers.
+   */
+  fromConnectionId: z.string().regex(/^dcn_[a-z2-7]{20}$/).nullable().catch(null).default(null),
 });
 export type BrandMapQuestionRecord = z.infer<typeof BrandMapQuestionRecordSchema>;
 

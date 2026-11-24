@@ -246,7 +246,9 @@ describe("live reads, grants and disconnect", () => {
     expect(await readLiveFor(A, admin, ID, q, deps())).toMatchObject({ status: 409, error: "disconnected" });
     const list = await listForActor(A, admin, deps());
     expect(list.ok && list.value.connections.map((c) => c.status)).toEqual(["disconnected"]);
-    expect(activity()).toEqual(["connected", "disconnected"]);
+    // What it collected is erased too, whatever the collect switch says, with one row in the log.
+    expect(activity()).toEqual(["connected", "disconnected", "erased:all"]);
+    expect(raw().collect).toMatchObject({ erasePending: null });
   });
 
   it("keeps the connection but refuses reads while its connector is switched off", async () => {
@@ -271,6 +273,7 @@ describe("query shape", () => {
     await setPaused(A, admin, ID, true, deps());
     await disconnect(A, admin, ID, deps());
     expect(ops.length).toBeGreaterThan(0);
-    for (const op of ops) expect(op, op).toMatch(/^where \w+ ==$/);
+    // Equality, in document id order at most (open suggestions are paged by id): no composite index.
+    for (const op of ops) expect(op, op).toMatch(/^(where \w+ ==|orderBy __name__|startAfter)$/);
   });
 });

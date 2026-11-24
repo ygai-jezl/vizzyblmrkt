@@ -7,6 +7,14 @@ import { check, disconnect, getForActor, listAccounts, listForActor, pickAccount
 import { ACCESS_SLOT, REFRESH_SLOT } from "./tokenKeeper";
 import { openConnectorSecret, sealConnectorSecret } from "./vault";
 
+// The search databases: an in-memory index, since every erase removes a Search Console
+// connection's searches from brand search whatever SEARCH_INDEX_ENABLED says (ADR-0013).
+vi.mock("@/lib/tenant/searchIndex", async () => {
+  const { MemorySearchIndex } = await import("@/lib/search/memoryStore");
+  const index = new MemorySearchIndex();
+  return { searchStoreFor: (ctx: { tenantId: string }) => index.storeFor(ctx) };
+});
+
 // A Search Console connection signed in with Google, through the service: the token keeper's
 // refresh, the site picker and the live read. Google is never called: every request goes to a
 // stub transport that answers by address.
@@ -206,7 +214,7 @@ describe("disconnecting a signed in connection", () => {
     expect(calls()).toEqual([REVOKE_URL]);
     expect(String((transport.mock.calls[0]![1] as RequestInit).body)).toBe("token=made-up-refresh");
     expect((await load()).secrets).toEqual({});
-    expect(activity()).toEqual(["connected", "disconnected"]);
+    expect(activity()).toEqual(["connected", "disconnected", "erased:all"]);
   });
 
   it("still disconnects when Google's revoke fails, and never revokes twice or for a member", async () => {

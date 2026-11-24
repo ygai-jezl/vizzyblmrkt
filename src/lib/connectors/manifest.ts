@@ -21,8 +21,11 @@ import { isTimeZone } from "./period";
  * - produces: each stream for people and agents: its shape, keys, the meaning of every number
  *   (a MEANINGS key) and the shared keys it joins on.
  * - uses: what it plugs into in YouGrow.
- * - hooks: named handler ids, never functions: live reads a stream, and accounts lists what a
- *   signed in connection or a pasted token can see, for the picker.
+ * - hooks: named handler ids, never functions: live reads a stream, accounts lists what a signed
+ *   in connection or a pasted token can see, for the picker, and collect reads a stream's days for
+ *   keeping (Connectors 2).
+ * - each stream's collect block (Connectors 2): what is kept each day and for how long, as data the
+ *   collector enforces (rule 3 of the Connectors plan: vendor terms travel with the data).
  * - icon: the connector's own mark, as files on YouGrow's own site under
  *   public/marks/connectors/<id>/ (never a link to the vendor's host), with whoever owns it.
  *   Without one, the screens show the two letters.
@@ -34,7 +37,20 @@ import { isTimeZone } from "./period";
  * Ids the routes and pages use beside /connectors/[connectorId] and the Settings pages beside
  * /admin/account/connections/[connectorId] (Browse and Connected), so no connector may take them.
  */
-export const RESERVED_CONNECTOR_IDS = ["browse", "callback", "connections", "connected"] as const;
+export const RESERVED_CONNECTOR_IDS = ["browse", "callback", "connections", "connected", "signals"] as const;
+
+/**
+ * The platform's own switches that look like a connector's (CONNECTOR_*_ENABLED): no manifest may
+ * claim one, as its own switch or a sign in method's, or turning a connector on would turn on
+ * something else.
+ */
+export const PLATFORM_SWITCHES = ["CONNECTOR_SIGNALS_ENABLED", "CONNECTOR_GOOGLE_REVOKE_ENABLED"] as const;
+
+/** A connector's switch: CONNECTOR_<NAME>_ENABLED, never one of the platform's own. */
+const ConnectorSwitch = z
+  .string()
+  .regex(/^CONNECTOR_[A-Z0-9_]+_ENABLED$/)
+  .refine((name) => !(PLATFORM_SWITCHES as readonly string[]).includes(name), "a platform switch, not a connector's");
 
 export const CONNECT_METHODS = ["token_fields", "oauth_pkce", "share_access"] as const;
 export type ConnectMethodName = (typeof CONNECT_METHODS)[number];
@@ -198,10 +214,7 @@ const OAuthMethodSchema = z
      * Sign in waits for Google's review of the app while share access can go on. Read through
      * src/lib/connectors/flags.ts; the registry refuses a switch nothing reads.
      */
-    switch: z
-      .string()
-      .regex(/^CONNECTOR_[A-Z0-9_]+_ENABLED$/)
-      .optional(),
+    switch: ConnectorSwitch.optional(),
   })
   .strict();
 
@@ -245,6 +258,34 @@ export const ShareSchema = z
   })
   .strict();
 
+/** The most days of collected numbers any stream keeps (decision 35). */
+export const MAX_KEEP_DAYS = 90;
+/** The most rows a collected grouping keeps for one day (decision 35). */
+export const MAX_ROWS_PER_DAY = 500;
+
+/**
+ * What the collector keeps of a stream (Connectors 2): the groupings it collects each day, the
+ * rows it keeps of each, and for how many days, which the lane enforces by deleting older days.
+ * `where` says so for the Listing and the help page, `lag` says when a day arrives, and `keeps`
+ * says what a day holds when it isn't the top rows of each grouping.
+ */
+export const CollectSchema = z
+  .object({
+    by: z.array(z.enum(LIVE_BY)).min(1).max(LIVE_BY.length),
+    rowsPerDay: z.number().int().min(1).max(MAX_ROWS_PER_DAY),
+    keepDays: z.number().int().min(1).max(MAX_KEEP_DAYS),
+    where: Copy(160),
+    lag: Copy(160),
+    keeps: Copy(200).optional(),
+    /**
+     * True when a day is collected once the provider lists it final, so it can come late (Search
+     * Console): the Connected view says which day it waits for.
+     */
+    waitsForFinal: z.boolean().optional(),
+  })
+  .strict();
+export type StreamCollect = z.infer<typeof CollectSchema>;
+
 export const ProduceSchema = z
   .object({
     stream: z.string().regex(/^[a-z][a-z0-9_]{1,39}$/),
@@ -272,6 +313,8 @@ export const ProduceSchema = z
     liveBy: z.array(z.enum(LIVE_BY)).min(1).max(LIVE_BY.length),
     /** The filters a live read of this stream may use. */
     liveFilters: z.array(z.enum(LIVE_FILTERS)).max(LIVE_FILTERS.length).optional(),
+    /** Collected once a day and kept (Connectors 2); without it the stream is read live only. */
+    collect: CollectSchema.optional(),
   })
   .strict()
   .superRefine((p, ctx) => {
@@ -287,6 +330,11 @@ export const ProduceSchema = z
       if (!Object.values(p.joins).includes(f)) ctx.addIssue({ code: "custom", message: `liveFilters ${f} has no key that joins on it` });
     }
     if (new Set(p.measures).size !== p.measures.length) ctx.addIssue({ code: "custom", message: "a measure is listed twice" });
+    for (const by of p.collect?.by ?? []) {
+      if (!p.liveBy.includes(by)) ctx.addIssue({ code: "custom", message: `collect.by ${by} is not one of its liveBy groupings` });
+    }
+    if (p.collect && p.shape !== "numbers") ctx.addIssue({ code: "custom", message: "only a numbers stream is collected" });
+    if (p.collect && p.personal) ctx.addIssue({ code: "custom", message: "a personal stream is never collected" });
   });
 
 export const ConnectorManifestSchema = z
@@ -314,8 +362,8 @@ export const ConnectorManifestSchema = z
     summary: Copy(160),
     category: z.enum(CONNECTOR_CATEGORIES),
     publisher: z.literal("yougrow"),
-    /** The switch that lists it (src/lib/connectors/flags.ts reads it). */
-    switch: z.string().regex(/^CONNECTOR_[A-Z0-9_]+_ENABLED$/),
+    /** The switch that lists it (src/lib/connectors/flags.ts reads it); never a platform switch. */
+    switch: ConnectorSwitch,
     connect: z.array(ConnectMethodSchema).min(1).max(3),
     api: z
       .object({
@@ -334,7 +382,7 @@ export const ConnectorManifestSchema = z
      * it is saved, can see (sites, properties, zones), for the picker. A connection that signs in
      * needs accounts, and so does a token method that picks from a list.
      */
-    hooks: z.object({ live: HookId, accounts: HookId.optional() }).strict(),
+    hooks: z.object({ live: HookId, accounts: HookId.optional(), collect: HookId.optional() }).strict(),
     /** What Disconnect can and can't do at the provider, for the screen and help. */
     disconnect: Copy(),
   })
@@ -345,7 +393,7 @@ export const ConnectorManifestSchema = z
       if (!file.startsWith(`/marks/connectors/${m.id}/`)) ctx.addIssue({ code: "custom", path: ["icon"], message: `${file} is not in the connector's own folder, /marks/connectors/${m.id}/` });
     }
     if (!m.api.hosts.includes(hostOf(m.verify.url))) ctx.addIssue({ code: "custom", message: "verify.url is not on a declared host" });
-    for (const hook of [m.verify.hook, m.hooks.live, ...(m.hooks.accounts ? [m.hooks.accounts] : [])]) {
+    for (const hook of [m.verify.hook, m.hooks.live, ...(m.hooks.accounts ? [m.hooks.accounts] : []), ...(m.hooks.collect ? [m.hooks.collect] : [])]) {
       if (!hook.startsWith(`${m.id.replace(/-([a-z0-9])/g, (_, c: string) => c.toUpperCase())}.`)) {
         ctx.addIssue({ code: "custom", message: `hook ${hook} must start with the connector's own name` });
       }
@@ -378,6 +426,11 @@ export const ConnectorManifestSchema = z
     if (!m.shares.some((s) => s.direction === "never")) ctx.addIssue({ code: "custom", message: "shares needs a line saying what is never read or written" });
     const streams = m.produces.map((p) => p.stream);
     if (new Set(streams).size !== streams.length) ctx.addIssue({ code: "custom", message: "a stream is listed twice" });
+    // A connection keeps one collect cursor, so at most one stream is collected, through hooks.collect.
+    const collected = m.produces.filter((p) => p.collect);
+    if (collected.length > 1) ctx.addIssue({ code: "custom", message: "at most one stream is collected" });
+    if (collected.length && !m.hooks.collect) ctx.addIssue({ code: "custom", message: "a collected stream needs hooks.collect" });
+    if (!collected.length && m.hooks.collect) ctx.addIssue({ code: "custom", message: "hooks.collect needs a stream with a collect block" });
   });
 
 export type ConnectorManifest = z.infer<typeof ConnectorManifestSchema>;
@@ -423,4 +476,19 @@ export function tokenMethod(m: ConnectorManifest): TokenFieldsMethod | null {
 /** A stream of a manifest by name. */
 export function streamOf(m: ConnectorManifest, stream: string): ProducedStream | null {
   return m.produces.find((p) => p.stream === stream) ?? null;
+}
+
+/** The stream a manifest collects each day, with its collect block, or null when it collects none. */
+export function collectedStream(m: Pick<ConnectorManifest, "produces">): (ProducedStream & { collect: StreamCollect }) | null {
+  return (m.produces.find((p) => p.collect) as (ProducedStream & { collect: StreamCollect }) | undefined) ?? null;
+}
+
+/** The rows a grouping keeps, in words. */
+const ROW_NOUNS: Readonly<Record<string, string>> = { page: "pages", topic: "searches", landing: "landing pages" };
+
+/** What each kept day holds, from a stream's collect block, as the Connected view and help say it. */
+export function keepsWords(collect: StreamCollect): string {
+  if (collect.keeps) return collect.keeps;
+  const parts = collect.by.filter((b) => ROW_NOUNS[b]).map((b) => `the top ${collect.rowsPerDay} ${ROW_NOUNS[b]}`);
+  return parts.length ? `Each day keeps ${parts.join(" and ")}.` : "Each day keeps its totals.";
 }

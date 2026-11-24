@@ -50,7 +50,7 @@ export type AutopilotSettings = z.infer<typeof AutopilotSettingsSchema>;
 // ---- Next up (next_up, one doc per brand) ----------------------------------------------------------
 
 export interface NextUpChip {
-  /** map: the brand map. you: the brand's own content. them: competitors. num: Google's numbers. */
+  /** map: the brand map. you: the brand's own content. them: competitors. num: numbers (Google through DataForSEO, Search Console collected). */
   kind: "map" | "you" | "them" | "num";
   label: string;
   text: string;
@@ -67,6 +67,9 @@ export interface NextUpPick {
   /** gemini: chosen and explained by the model. code: filled in by code when the model gave too few. */
   from: "gemini" | "code";
 }
+
+/** The brand's one Next up doc (`next_up`). */
+export const nextUpDocId = (tenantId: string) => `nu_${tenantId}`;
 
 export interface NextUpDoc {
   id: string;

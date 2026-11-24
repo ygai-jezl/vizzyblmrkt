@@ -87,7 +87,9 @@ describe("the Cloudflare Listing", () => {
 
   it("says what it reads and never does, every number's meaning and the lag, from the manifest", () => {
     const text = textOf(html({ listing: CF }));
-    expect(text).toContain("From Cloudflare What In YouGrow Daily totals for the zone requests, page views, visits and unique visitors Read live when you or Vizzy ask. Nothing is stored.");
+    expect(text).toContain("From Cloudflare What In YouGrow Daily totals for the zone requests, page views, visits and unique visitors Read live when you or Vizzy ask.");
+    // Nothing about keeping numbers while collected numbers are off.
+    expect(text).not.toContain("kept 90 days");
     expect(text).toContain("Your zones their names Listed when you press Check, so you can pick one. Not stored.");
     // Account Analytics Read has its own line, which says nothing reads with it today.
     expect(text).toContain("Your account's analytics Asked for now so later features don't need a new token. Nothing is read with it today.");
@@ -97,6 +99,17 @@ describe("the Cloudflare Listing", () => {
     expect(text).toContain(CF.disconnect);
     expect(text).toContain("a token with these permissions: Zone Read, Zone Analytics Read and Account Analytics Read.");
     expect(html({ listing: CF })).toContain('href="/help/connected-data#cloudflare"');
+  });
+
+  it("says each day is kept 90 days in the brand's region only while collected numbers are on", () => {
+    vi.stubEnv("CONNECTORS_ENABLED", "true");
+    vi.stubEnv("CONNECTORS_COLLECT_ENABLED", "true");
+    try {
+      const text = textOf(html({ listing: listingFor("cloudflare", ["token_fields"]) }));
+      expect(text).toContain("A day's numbers are final the next day. Collected once a day and kept 90 days in your brand's region; Disconnect deletes them.");
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("explains a reconnect, and starts on the zone of the connection it replaces once the token is checked", () => {

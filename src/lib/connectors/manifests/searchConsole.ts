@@ -5,7 +5,8 @@ const SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
 /**
  * Google Search Console, by signing in with Google (Connectors 1b) or by sharing access (1c). Read
  * only: search clicks, impressions, click rate and position for one site, read live when someone
- * asks. Collecting them every day is Connectors 2.
+ * asks, and collected once a day (Connectors 2, ADR-0012): a day is collected once Search Console
+ * lists it final, by day, page and search, the top 500 rows of each, kept 90 days.
  *
  * - One scope, webmasters.readonly, which Google's console classes as non sensitive.
  * - Sign in gives a token for every site the Google account can see, so an admin then picks one
@@ -64,7 +65,7 @@ export const searchConsoleManifest = {
       what: "Search numbers for the site you pick",
       detail: "clicks, impressions, click rate and position, by day, page or search",
       direction: "read",
-      where: "Read live when you or Vizzy ask. Nothing is stored.",
+      where: "Read live when you or Vizzy ask.",
       needs: [SCOPE],
     },
     {
@@ -93,9 +94,17 @@ export const searchConsoleManifest = {
       personal: false,
       liveBy: ["day", "page", "topic"],
       liveFilters: ["page"],
+      collect: {
+        by: ["day", "page", "topic"],
+        rowsPerDay: 500,
+        keepDays: 90,
+        where: "Collected once a day and kept 90 days in your brand's region; Disconnect deletes them.",
+        lag: "Search Console finishes a day 2 to 3 days later.",
+        waitsForFinal: true,
+      },
     },
   ],
   uses: ["vizzy.read"],
-  hooks: { live: "searchConsole.searchAnalytics", accounts: "searchConsole.sites" },
+  hooks: { live: "searchConsole.searchAnalytics", accounts: "searchConsole.sites", collect: "searchConsole.collectDays" },
   disconnect: "Disconnecting deletes the sign in YouGrow keeps. To end access at Google too, remove YouGrow from your Google account's third party connections.",
 } satisfies ConnectorManifestInput;

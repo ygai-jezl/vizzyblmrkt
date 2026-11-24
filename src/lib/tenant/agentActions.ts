@@ -330,7 +330,9 @@ export const EXPIRE_PAGE = { default: 100, max: 300 } as const;
  * Decline every proposed action past its expiry, whatever its agent, with reason "expired", by
  * the system. A row that moved meanwhile counts as changed. The lifecycle tick calls it through
  * expireDueAgentActions (src/lib/ontology/agentActions.ts) whenever person links are on, not
- * behind any Vizzy switch, so typed details always expire (piece B, group 11).
+ * behind any Vizzy switch, so typed details always expire (piece B, group 11). A stored row this
+ * build can't read (one a newer build wrote, after a rollback) is logged and skipped as changed,
+ * so it never stops the expiry of the brand's other actions.
  */
 export async function expireAgentActions(
   ctx: TenantContext,
@@ -348,12 +350,20 @@ export async function expireAgentActions(
   });
   const out = { declined: 0, changed: 0, more: due.length === limit };
   for (const a of due) {
-    const r = await transitionAgentAction(
-      ctx,
-      a.id,
-      { to: "declined", reason: "expired", by: { type: "system", id: "agent_action_expiry" }, at: opts.now, expectRev: a.rev },
-      { db: opts.db },
-    );
+    let r: Awaited<ReturnType<typeof transitionAgentAction>>;
+    try {
+      r = await transitionAgentAction(
+        ctx,
+        a.id,
+        { to: "declined", reason: "expired", by: { type: "system", id: "agent_action_expiry" }, at: opts.now, expectRev: a.rev },
+        { db: opts.db },
+      );
+    } catch (err) {
+      if (!(err instanceof TenantValidationError) || !err.message.startsWith("bad_stored_agent_action")) throw err;
+      console.warn(`[agent-actions] ${a.id} can't be read by this build, left for a newer one:`, err.message.slice(0, 200));
+      out.changed += 1;
+      continue;
+    }
     if (r.ok) out.declined += 1;
     else out.changed += 1;
   }

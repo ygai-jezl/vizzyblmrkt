@@ -42,6 +42,10 @@ export function HowToDrawer() {
   const vizzyAddPerson = useShell()?.vizzyAddPerson ?? false;
   const catalogHistory = useShell()?.catalogHistory ?? false;
   const connectorsChat = useShell()?.connectorsChat ?? false;
+  const connectorsCollect = useShell()?.connectorsCollect ?? false;
+  const connectorsSearchText = useShell()?.connectorsSearchText ?? false;
+  const connectorSignals = useShell()?.connectorSignals ?? false;
+  const brandMapScale = useShell()?.brandMapScale ?? false;
   const [steps, setSteps] = useState<GuideStep[] | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -203,6 +207,10 @@ export function HowToDrawer() {
               vizzyAddPerson={vizzyAddPerson}
               catalogHistory={catalogHistory}
               connectorsChat={connectorsChat}
+              connectorsCollect={connectorsCollect}
+              connectorsSearchText={connectorsSearchText}
+              connectorSignals={connectorSignals}
+              brandMapScale={brandMapScale}
             />
           </div>
         ) : (

@@ -363,6 +363,31 @@ Google data on your own copy above. Run
 `signups-eu signups-asia` added for the regions add-on), for the sign in states' time to live; it
 is safe to run again.
 
+**Upgrading to collected numbers.** `CONNECTORS_COLLECT_ENABLED` collects each connection's numbers
+once a day and keeps them 90 days (ADR-0012); `npm run selfhost` keeps it off. Before you turn it on:
+
+1. Run `FIRESTORE_DATABASES='(default)' bash infra/lifecycle/setup.sh ttl <id>` once more (with
+   `signups-eu signups-asia` added for the regions add-on). It adds the time to live on
+   `metric_snapshots.ttlAt` and `data_signals.ttlAt`; `setup.sh verify <id>` shows both ACTIVE.
+2. Deploy the index file, which exempts `metric_snapshots.rows` and both `ttlAt` fields from
+   indexing: `firebase deploy --only firestore:indexes --non-interactive --project <id>`, then
+   `setup.sh verify <id>` again. **Never add `--force`, and never answer yes to deleting field
+   overrides:** every time to live comes from `setup.sh ttl`, not the index file, so that delete
+   removes all of them.
+
+With brand search too (`addon:search`, which turns it on), `CONNECTORS_SEARCH_TEXT_ENABLED` puts
+each Search Console connection's top searches into brand search, found only by those who may read
+the connection (ADR-0013). It does nothing until collected numbers are on.
+
+`CONNECTOR_SIGNALS_ENABLED` turns collected Search Console numbers into suggestions in the brand map,
+Review, Next up and the context pack; `npm run selfhost` keeps it off. Turn it on only after
+`CONNECTORS_COLLECT_ENABLED`, and only once the agent action indexes in `firestore.indexes.json`
+(the `agent_actions` composites, deployed by step 2 above) show READY in every database:
+`firebase firestore:indexes --project <id>` (with `--database signups-eu` and
+`--database signups-asia` for the regions add-on) or the console's Indexes page. Its suggestions
+come only from connections both members and Vizzy may read, so they also need
+`CONNECTORS_CHAT_ENABLED` (the Vizzy add-on).
+
 ### Enterprise features
 
 Merging upstream brings `src/ee`, the Enterprise code. Its features stay off without a

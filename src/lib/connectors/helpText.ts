@@ -2,7 +2,7 @@ import { meaningsOf } from "@/lib/metrics/meanings";
 import { HEALTH_STATES, type HealthState } from "@/lib/types/dataConnection";
 import { allConnectors } from "./catalog";
 import { lagWords } from "./lag";
-import { oauthMethod, shareMethod, type ConnectorIcon, type ConnectorManifest } from "./manifest";
+import { collectedStream, keepsWords, oauthMethod, shareMethod, type ConnectorIcon, type ConnectorManifest } from "./manifest";
 import { CONNECTOR_ERRORS, SIGNIN_REASONS } from "./messages";
 
 /**
@@ -41,7 +41,10 @@ export interface ConnectorHelp {
   /** How to connect by sharing access, when it can: the role to give, the steps and what it reads. */
   share: { role: string; steps: string[]; reads: string[] } | null;
   disconnect: string;
+  /** What is collected each day and kept, from its stream's collect block (shown while collected numbers are on). */
+  collect: { where: string; lag: string; keeps: string } | null;
 }
+
 
 /** The steps of a sign in, from the manifest: its name, and whether a site is picked after. */
 function signInSteps(m: ConnectorManifest): string[] {
@@ -93,6 +96,10 @@ export function connectorHelp(m: ConnectorManifest): ConnectorHelp {
       ? { role: share.role, steps: shareSteps(m, share.steps), reads: m.shares.filter((s) => s.direction === "read" && s.needs.some((n) => share.scopes.includes(n))).map((s) => s.what) }
       : null,
     disconnect: m.disconnect,
+    collect: (() => {
+      const stream = collectedStream(m);
+      return stream ? { where: stream.collect.where, lag: stream.collect.lag, keeps: keepsWords(stream.collect) } : null;
+    })(),
   };
 }
 
@@ -169,6 +176,85 @@ export const VIZZY_HELP: readonly string[] = [
   "Vizzy only reads. It never connects, changes, pauses or disconnects anything, and every number it gives comes with what the number means.",
   "Each time Vizzy reads a connection, its activity log records it.",
 ];
+
+/**
+ * Vizzy reading collected numbers (get_connected_numbers, Connectors 2): shown while Vizzy reads
+ * connected data (CONNECTORS_CHAT_ENABLED) and numbers are collected (CONNECTORS_COLLECT_ENABLED).
+ */
+export const VIZZY_COLLECTED_HELP = {
+  what: "Vizzy answers questions about the last 28 or 90 days, what grew or fell, and what to write next from the numbers YouGrow collected. Those days no longer change, so the answer still matches the tool's own report when you check it there.",
+  reach:
+    "Every answer from collected numbers says which days it covers, in the tool's own time zone, and how far collecting reaches, for example: Collected numbers, 24 Oct to 20 Nov 2026, Pacific time. Search Console finishes a day 2 to 3 days later, so 21 and 22 Nov aren't in yet.",
+  live: "For today, days older than the 90 kept, or one page day by day, Vizzy reads live instead. Active users and unique visitors can't be added across days, so for more than a day Vizzy reads those live too.",
+  source: "Under an answer from collected numbers, the chat puts (collected) after the tool's name. Google Analytics shows its logo only.",
+  grants:
+    "Collected numbers follow the same rules as live reads: Vizzy reads a connection's numbers only when an admin allows Vizzy to read it, and for a member only when members may read it too. They come from YouGrow's own copy, so asking never uses the tool's allowance.",
+  ask: "Ask in your own words, such as which searches brought the most Google clicks in the last 28 days, or which landing pages started the most sessions this month.",
+} as const;
+
+/**
+ * Search Console's searches in brand search (CONNECTORS_SEARCH_TEXT_ENABLED, ADR-0013), for the
+ * Connected data and Search help pages.
+ */
+export const SEARCH_TEXT_HELP = {
+  what: "Each Search Console connection also puts the top 200 searches of its last 28 collected days into brand search, each with its clicks, impressions and position. Press Ctrl K to find them: they show as one result, such as \"Google searches: example.com\", labelled Research.",
+  why: "Search Console's searches are Google's counts over everyone who searched those words, never one person's words, and never which page a search led to.",
+  who: "Only people who may read the connection find them: admins always, and members when it lets members read it.",
+  vizzy: "Vizzy finds them only when it may read the connection, and for a member only when members may read it too.",
+  when: "They appear once 28 days are collected, and are updated once a week. The result opens the connection on Connected.",
+  erase: "Disconnect and Change property take them out of brand search at once, whatever any switch says.",
+} as const;
+
+/**
+ * What collected numbers suggest (CONNECTOR_SIGNALS_ENABLED, ADR-0012), for the help pages: the
+ * three rules, which connections feed them, where each suggestion waits and what ends it. The
+ * thresholds are the detector's own (src/lib/connectors/signals/detect.ts).
+ */
+export const SIGNALS_HELP = {
+  what: "While suggestions from collected numbers are on in your copy, YouGrow looks at each Search Console site's final days once a day and suggests what to write.",
+  rules: [
+    "A search with clearly more impressions in the last 14 days than in the 14 before, that nothing on your brand map asks yet. It becomes a proposed question on your brand map, or a suggestion in Review when your brand map isn't kept at any size.",
+    "A page with clearly fewer Google clicks in the last 28 days than in the 28 before. It needs 56 days collected, so a new connection suggests none at first. When Google Analytics feeds planning too, the page's sessions as a landing page come as a second line.",
+    "A question on your brand map whose search sits just off Google's first page, at an average position of 5 to 20.",
+  ],
+  planning: "Only a connection both members and Vizzy may read is used, because Next up, Review and the brand map are seen by your whole team and can't follow one person's access. Connected says which connections are used for planning.",
+  noChat: "So suggestions need Vizzy to read connected data. In a copy where that is off, Connected says so and nothing is suggested.",
+  strict: "It starts strict, so small numbers make no noise: a search needs at least 50 impressions on 4 days or more, and a page at least 40 clicks before. A search or page that only slipped below a day's top 500 never counts as gone. At most 5 new suggestions a day, and 15 waiting at once.",
+  review: "In Review, What your numbers suggest lists each one with its numbers. Plan an article opens Drafts with the question, page or search filled in. Dismiss takes it away, and it won't come back for 30 days.",
+  map: "On the brand map's Subjects tab, a proposed question shows From Google searches with its numbers. Press Edit to put the search into your own words, then Add. Once added it keeps its tag.",
+  nextUp: "Next up and Vizzy's context for a question weigh Search Console too: the search with the question's own words, and the searches near its subject.",
+  vizzy: "Vizzy can list the suggestions waiting, with their numbers, but never plans or dismisses one: it sends you to Review or the brand map.",
+  erase: "A suggestion nobody decides goes after 30 days, and a question it proposed that nobody added comes off the map. Disconnect and Change property take them all away at once.",
+} as const;
+
+/**
+ * Collected numbers (CONNECTORS_COLLECT_ENABLED, ADR-0012), for the help page: when each tool's
+ * days are collected, what is kept and for how long, what the Connected view says and what
+ * erases them.
+ */
+export const COLLECT_HELP = {
+  what: "While collected numbers are on in your copy, YouGrow collects each connection's numbers once a day and keeps them 90 days in your brand's region. Decisions rest on days that no longer change; a live read is still there for exploring.",
+  when: [
+    "Google Search Console: each Pacific day once Google lists it as final, usually 2 to 3 days later. Until then Connected says which day it is waiting for.",
+    "Google Analytics 4: each day of the property's own time zone two days later, then again a week later, once Google Analytics no longer changes it. Connected says how far the days are final.",
+    "Cloudflare: each UTC day two days later. Visits by people reach back about 31 days; older days count all traffic, bots included.",
+  ],
+  keeps:
+    "Each day keeps the tool's totals and the top 500 rows of each grouping: pages, searches or landing pages. Counts of people, such as active users and unique visitors, can't be added across days, so totals over several days leave them out.",
+  filling: "A new connection starts collecting within the hour and fills its 90 days over the next few hours, newest first.",
+  states: [
+    ["To 20 Nov, 90 days", "Collected every day, up to that day."],
+    ["Filling 90 days: 34 of 90", "Just connected: the rest arrive over the next few hours, newest first."],
+    ["Paused on 12 Nov", "An admin paused it. Nothing is collected until someone presses Resume."],
+    ["Stopped on 19 Nov", "YouGrow can't read it since then, or collecting has failed every day since then for 3 days. It shows in Review under Data sources that need you."],
+    ["Collecting failed on 23 Nov", "A try failed, for example while the tool was down. YouGrow tries again on its own, and after 3 days of failing it shows as stopped."],
+  ] as const,
+  card: "Press a connection's row to see Collected numbers on its card: the last day collected and its time zone, the days kept, and what each day keeps.",
+  erase:
+    "Disconnect deletes everything YouGrow collected for a connection, at once, whatever any switch says. Change property deletes the old property's numbers and fills 90 days for the new one. Pause stops collecting until you resume. If your copy turns collected numbers off, no new days arrive and the kept ones leave after 90 days.",
+  review:
+    "A connection that can't be read, has no property chosen, has failed to collect for 3 days, or was paused a week ago shows in Review under Data sources that need you. Its link opens it on Connected.",
+} as const;
 
 /** Messages the troubleshooting page quotes, word for word. */
 export const TROUBLESHOOTING_QUOTES = {

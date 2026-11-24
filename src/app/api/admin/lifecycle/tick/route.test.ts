@@ -15,6 +15,8 @@ const signals = vi.hoisted(() => ({ runSignals: vi.fn(async () => ({ tenants: 1,
 vi.mock("@/lib/signals/tick", () => signals);
 const autopilot = vi.hoisted(() => ({ runAutopilot: vi.fn(async () => ({ tenants: 1, started: 1, advanced: 2 })) }));
 vi.mock("@/lib/autopilot/tick", () => autopilot);
+const lane = vi.hoisted(() => ({ runConnectorsLane: vi.fn(async () => ({ brands: 2, connections: 1, days: 3, failed: 0, erased: 0, behindMin: 4 })) }));
+vi.mock("@/lib/connectors/collect/tick", () => lane);
 
 const { POST } = await import("./route");
 
@@ -113,5 +115,27 @@ describe("the lifecycle tick with Competitors", () => {
     const [{ deadlineMs }] = autopilot.runAutopilot.mock.calls[0] as unknown as [{ deadlineMs: number }];
     expect(deadlineMs - before).toBeLessThanOrEqual(90_000 + 50);
   });
-});
 
+  it("runs connected data's lane with CONNECTORS_ENABLED alone, within its own time, and never fails the call", async () => {
+    vi.stubEnv("CONNECTORS_ENABLED", "true");
+    const before = Date.now();
+    let res = await POST(machine());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, mode: "all_tenants", connectors: { brands: 2, days: 3 } });
+    const [{ deadlineMs }] = lane.runConnectorsLane.mock.calls[0] as unknown as [{ deadlineMs: number }];
+    expect(deadlineMs - before).toBeLessThanOrEqual(25_000 + 50);
+
+    lane.runConnectorsLane.mockRejectedValueOnce(new Error("down"));
+    res = await POST(machine());
+    expect(res.status).toBe(200);
+    expect(await res.json()).not.toHaveProperty("connectors");
+  });
+
+  it("still answers 200 with every switch off, and never runs the lane", async () => {
+    vi.stubEnv("CONNECTORS_COLLECT_ENABLED", "true");
+    const res = await POST(machine());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, skipped: "lifecycle_disabled" });
+    expect(lane.runConnectorsLane).not.toHaveBeenCalled();
+  });
+});

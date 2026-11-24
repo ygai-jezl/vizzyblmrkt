@@ -4,6 +4,9 @@ import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { loadReview, REVIEW_ORDER, REVIEW_SECTIONS, type ReviewItem, type ReviewKind } from "@/lib/review/summary";
 import { ApprovalQueue } from "../approvals/ApprovalQueue";
 import { MarkSeenButton } from "./MarkSeenButton";
+import { SignalRow } from "./SignalActions";
+import { forTenant } from "@/lib/tenant";
+import { programmeWord } from "@/lib/nav/terms";
 
 /**
  * Review (nav v2 phase 2): every decision waiting on a person, grouped by what
@@ -19,6 +22,10 @@ export async function ReviewHub() {
   const countOf = (kind: ReviewKind) => (kind === "ai_line" ? review.aiLines : (byKind.get(kind)?.length ?? 0));
   const total = review.aiLines + review.items.length;
   const withItems = REVIEW_ORDER.filter((k) => countOf(k) > 0);
+  // Suggestions from collected numbers are planned in a programme: the brand's active ones.
+  const programmes = review.items.some((i) => i.signal)
+    ? (await forTenant(ctx).workspaces.find({ limit: 200 }).catch(() => [])).filter((w) => !w.archivedAt).map((w) => ({ id: w.id, name: w.name }))
+    : [];
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 text-shell-ink">
@@ -67,24 +74,28 @@ export async function ReviewHub() {
               <ApprovalQueue canEdit={ctx.role === "admin"} embedded />
             ) : (
               <ul className="space-y-2">
-                {items.map((item) => (
-                  <li
-                    key={item.id}
-                    className="flex items-center gap-3 rounded-lg border border-shell-line bg-shell-card px-4 py-3"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium">{item.title}</p>
-                      <p className="truncate text-xs text-shell-muted">{item.detail}</p>
-                    </div>
-                    {item.markSeen && ctx.role === "admin" ? <MarkSeenButton competitorId={item.markSeen.competitorId} /> : null}
-                    <Link
-                      href={item.href}
-                      className="shrink-0 rounded-md border border-shell-line px-3 py-1.5 text-sm font-medium hover:bg-shell-hover"
+                {items.map((item) =>
+                  item.signal && ctx.role === "admin" ? (
+                    <SignalRow key={item.id} item={{ ...item, signal: item.signal }} programmes={programmes} programmeWord={programmeWord().one} />
+                  ) : (
+                    <li
+                      key={item.id}
+                      className="flex items-center gap-3 rounded-lg border border-shell-line bg-shell-card px-4 py-3"
                     >
-                      {item.action}
-                    </Link>
-                  </li>
-                ))}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium">{item.title}</p>
+                        <p className="truncate text-xs text-shell-muted">{item.detail}</p>
+                      </div>
+                      {item.markSeen && ctx.role === "admin" ? <MarkSeenButton competitorId={item.markSeen.competitorId} /> : null}
+                      <Link
+                        href={item.href}
+                        className="shrink-0 rounded-md border border-shell-line px-3 py-1.5 text-sm font-medium hover:bg-shell-hover"
+                      >
+                        {item.action}
+                      </Link>
+                    </li>
+                  ),
+                )}
               </ul>
             )}
           </section>

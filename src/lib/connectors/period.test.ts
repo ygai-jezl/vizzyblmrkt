@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
-import { addDays, cappedNote, daysIn, daysWords, isDay, isTimeZone, nothingYetNote, periodWords, rangeWords, resolveWindow, todayIn, zoneWords } from "./period";
+import { addDays, cappedNote, daysIn, daysWords, isDay, isoWeekOf, isTimeZone, nothingYetNote, periodWords, rangeWords, resolveWindow, todayIn, zoneWords } from "./period";
 
 describe("days in a time zone", () => {
   it("works out today in the provider's zone, not the server's", () => {
@@ -66,5 +66,15 @@ describe("period words", () => {
       expect(dashesIn(t), t).toEqual([]);
       expect(aiTellsIn(t), t).toEqual([]);
     }
+  });
+});
+
+describe("the ISO week of a day", () => {
+  it("starts on Monday, and puts days around new year in the week of that Thursday", () => {
+    expect(isoWeekOf("2026-11-16")).toBe("2026-W47");
+    expect(isoWeekOf("2026-11-22")).toBe("2026-W47");
+    expect(isoWeekOf("2026-11-23")).toBe("2026-W48");
+    expect(isoWeekOf("2027-01-01")).toBe("2026-W53");
+    expect(isoWeekOf("2025-12-29")).toBe("2026-W01");
   });
 });

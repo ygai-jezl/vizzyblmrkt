@@ -1,5 +1,7 @@
 import type { DataConnection } from "@/lib/types/dataConnection";
-import type { ConnectorManifest, LiveBy } from "../manifest";
+import type { SnapshotBasis, SnapshotBy, SnapshotNote, SnapshotRow } from "@/lib/types/metricSnapshot";
+import type { CollectCursor } from "../collect/schedule";
+import type { ConnectorManifest, LiveBy, ProducedStream } from "../manifest";
 import type { ConnectorErrorCode } from "../messages";
 import type { LivePeriod, ReadPeriod } from "../period";
 import type { ConnectorFetchDeps } from "../safeFetch";
@@ -79,3 +81,57 @@ export type VerifyHook = (input: HookInput, deps: ConnectorFetchDeps) => Promise
 export type AccountsHook = (input: HookInput, deps: ConnectorFetchDeps) => Promise<AccountsResult>;
 /** `today` is the day it is now in the stream's time zone (UTC for a stream without one). */
 export type LiveHook = (input: HookInput & { query: LiveQuery; today: string }, deps: ConnectorFetchDeps) => Promise<LiveHookResult>;
+
+// --- Collecting (Connectors 2, ADR-0012) ----------------------------------------------------------
+
+/** One grouping of one collected day: its totals (the day doc only), its rows and what was cut. */
+export interface CollectedDoc {
+  by: SnapshotBy;
+  totals: Record<string, number | null> | null;
+  rows: SnapshotRow[];
+  /** The provider had more rows than it sent. */
+  more: boolean;
+  basis?: SnapshotBasis | null;
+  notes?: SnapshotNote[];
+}
+
+/** One day a collect hook read: final when the provider no longer changes it. */
+export interface CollectedDay {
+  day: string;
+  final: boolean;
+  docs: CollectedDoc[];
+}
+
+/** Why the collector holds itself back, in its own state (never the connection's health). */
+export type CollectHoldReason = "quota" | "quota_day" | "tokens_low" | "server_errors" | "failed_today" | "no_data" | "too_big";
+
+/** What a collect run asks of a hook. */
+export interface CollectAsk {
+  /** The stream collected, with its collect block. */
+  stream: ProducedStream & { collect: NonNullable<ProducedStream["collect"]> };
+  cursor: CollectCursor;
+  now: Date;
+  /** False once too little of the lane's time is left to start another day or call. */
+  canStart: () => boolean;
+}
+
+/**
+ * A collect hook's answer: the days it read (in the order read), the newest day the provider has
+ * (Search Console's final frontier; null when it didn't say), the oldest it can give (a Cloudflare
+ * plan's reach), the provider's zone, whether it probed, a hold it asks for, and the failure that
+ * stopped it, if any. Days read before a failure are kept. `moreDue` says days are still due now
+ * (the backfill, or a slice cut short); `nextDueMs`, when the next new day is due.
+ */
+export interface CollectResult {
+  days: CollectedDay[];
+  newest: string | null;
+  moreDue: boolean;
+  nextDueMs: number | null;
+  reachFrom: string | null;
+  timeZone: string | null;
+  probed: boolean;
+  hold: { untilMs: number; reason: CollectHoldReason } | null;
+  failure: HookFailure | null;
+}
+
+export type CollectHook = (input: HookInput & { ask: CollectAsk }, deps: ConnectorFetchDeps) => Promise<CollectResult>;

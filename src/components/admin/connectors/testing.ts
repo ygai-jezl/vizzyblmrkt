@@ -31,6 +31,7 @@ export function connectionView(over: Omit<Partial<ConnectionView>, "details"> & 
     health: { state: "ok", lastOkAt: "2026-11-21T09:00:00.000Z", lastCheckedAt: "2026-11-21T09:00:00.000Z", message: null, pausedUntil: null },
     needsAccount: false,
     canReadLive: true,
+    collectedTo: null,
     details: {
       method: "token_fields",
       account: "0123456789abcdef0123456789abcdef",
@@ -44,6 +45,7 @@ export function connectionView(over: Omit<Partial<ConnectionView>, "details"> & 
       createdAt: "2026-11-20T09:00:00.000Z",
       updatedAt: "2026-11-20T09:00:00.000Z",
       disconnectedAt: null,
+      collect: null,
       ...details,
     },
     ...rest,

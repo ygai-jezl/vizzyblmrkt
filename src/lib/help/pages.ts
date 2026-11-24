@@ -55,6 +55,14 @@ export interface HelpBodyProps {
   catalogHistory?: boolean;
   /** Vizzy reads connected data (isConnectorsChatEnabled()). */
   connectorsChat?: boolean;
+  /** Connected data is collected daily and kept 90 days (isConnectorsCollectEnabled()). */
+  connectorsCollect?: boolean;
+  /** Search Console's searches are in brand search (isConnectorsSearchTextEnabled()). */
+  connectorsSearchText?: boolean;
+  /** Collected numbers suggest what to write (isConnectorSignalsEnabled()). */
+  connectorSignals?: boolean;
+  /** The brand map is kept at any size (isBrandMapScaleEnabled()): proposed questions wait on its Subjects tab. */
+  brandMapScale?: boolean;
 }
 
 /** Navigation headings, matching Home's stages. */

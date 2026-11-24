@@ -297,6 +297,36 @@ export const MEANINGS = {
     source: "Google Analytics 4, Data API",
     caveat: "Which events count is set in the property, and marking a new one counts only from then on.",
   },
+  // How YouGrow kept a connected source's numbers (Connectors 2, collected numbers), never a number
+  // of the provider's own.
+  rowsDropped: {
+    name: "Rows left out",
+    definition:
+      "Rows of collected numbers this answer doesn't list: those past the number of rows asked for, and those the collected days didn't keep, as each day keeps only its top 500 rows of each grouping.",
+    grain: "one answer from collected numbers",
+    unit: "count",
+    source: "YouGrow's collected numbers",
+    caveat:
+      "The rows listed are the top ones, so never say the others had none. When a tool listed more rows than YouGrow fetched for a day, more were left out than this counts.",
+  },
+  // What collected numbers suggest (Connectors 2 group 4): Search Console's searches mapped to the
+  // brand map, never a number of Google's own.
+  nearbySearches: {
+    name: "Nearby searches",
+    definition: "Different searches, among the site's top 100 in Search Console over the days read, whose nearest decided brand map subject is this one.",
+    grain: "one brand map subject over the days read (Pacific time)",
+    unit: "count",
+    source: "YouGrow's reading of Google Search Console's searches against the brand map",
+    caveat: "Matched by meaning, so a search can sit near a subject without asking its exact question. Only the top 100 searches are matched.",
+  },
+  lagDays: {
+    name: "Days to settle",
+    definition: "How many days after a day the tool usually takes to finish that day's numbers.",
+    grain: "one stream of a connected tool",
+    unit: "count",
+    source: "the connector's manifest",
+    caveat: "A usual delay, not a promise: the answer's period says which days are collected and how far they are final.",
+  },
 } as const satisfies Record<string, Meaning>;
 
 export type MeaningKey = keyof typeof MEANINGS;

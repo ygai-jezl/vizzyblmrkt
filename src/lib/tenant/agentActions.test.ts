@@ -303,6 +303,18 @@ describe("expireAgentActions", () => {
     expect(trail(fake, due).map((r) => r.kind)).toEqual(["agent.proposed", "agent.declined"]);
   });
 
+  it("skips a row this build can't read, so a rollback never stops the brand's other expiries", async () => {
+    const { fake, db } = world();
+    const first = (await proposeAgentAction(ctx, proposal({ dedupeKey: agentDedupeKey("person_fields.suggest", "first"), expiresAt: "2026-11-24T10:00:00.000Z" }), { db })).action.id;
+    const next = (await proposeAgentAction(ctx, proposal({ dedupeKey: agentDedupeKey("person_fields.suggest", "next"), expiresAt: "2026-11-25T10:00:00.000Z" }), { db })).action.id;
+    // A newer build's target type, unknown here: the oldest due row.
+    fake.seed("agent_actions", first, { ...fake.raw("agent_actions", first)!, target: { type: "made_up_target", id: "x_1" } });
+    const out = await expireAgentActions(ctx, { now: "2026-11-26T00:00:00.000Z", db });
+    expect(out).toEqual({ declined: 1, changed: 1, more: false });
+    expect(fake.raw("agent_actions", next)).toMatchObject({ state: "declined" });
+    expect(fake.raw("agent_actions", first)).toMatchObject({ state: "proposed" });
+  });
+
   it("honours the limit, says there may be more, and counts a row that moved meanwhile", async () => {
     const { fake, db } = world();
     const ids: AgentActionId[] = [];

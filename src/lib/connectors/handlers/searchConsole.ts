@@ -1,8 +1,10 @@
+import type { SnapshotRow } from "@/lib/types/metricSnapshot";
+import { nextAt, planDays } from "../collect/schedule";
 import type { ConnectorErrorCode } from "../messages";
 import { cleanPagePath } from "../paths";
-import { addDays, cappedNote, daysIn, dayWords, daysWords, earlierDay, isDay, laterDay, nothingYetNote, resolveWindow } from "../period";
+import { addDays, cappedNote, daysIn, dayWords, daysWords, earlierDay, isDay, laterDay, nothingYetNote, resolveWindow, todayIn } from "../period";
 import { connectorFetch, type ConnectorResponse } from "../safeFetch";
-import type { AccountsHook, ConnectorAccount, HookFailure, LiveHook, LiveRow, VerifyHook } from "./types";
+import type { AccountsHook, CollectHook, CollectResult, ConnectorAccount, HookFailure, LiveHook, LiveRow, VerifyHook } from "./types";
 
 /**
  * Google Search Console's hooks (developers.google.com/webmaster-tools/v1), called with a signed
@@ -339,4 +341,119 @@ export const searchAnalytics: LiveHook = async (input, deps) => {
   if (rows.some((r) => typeof r.merged === "number")) notes.push(MERGED_NOTE);
   if (wantsTotals && !totals) notes.push(NO_TOTALS_NOTE);
   return { ok: true, rows, notes, period, ...(totals ? { totals } : {}), more: googleFull };
+};
+
+// --- Collecting (Connectors 2, ADR-0012) ----------------------------------------------------------
+
+/** Days a collect run reads page and search rows for (two calls each): 11 calls with the probe. */
+export const COLLECT_DAYS_PER_RUN = 5;
+/** Days the probe reads past the keep window while filling, so the oldest kept day is listed too. */
+const PROBE_SPARE_DAYS = 9;
+/** The hour, in UTC, of a day's first probe. */
+export const FIRST_PROBE_HOUR_UTC = 9;
+
+/** A day's totals from a probe row: the property's own numbers for the day (Google's byProperty). */
+function dayTotalsOf(r: Row): Record<string, number | null> {
+  return { searchClicks: num(r.clicks) ?? 0, searchImpressions: num(r.impressions) ?? 0, searchCtr: num(r.ctr), searchPosition: num(r.position) };
+}
+
+/** A day Google lists nothing for had no impressions: its totals are zeros. */
+const ZERO_TOTALS: Record<string, number | null> = { searchClicks: 0, searchImpressions: 0, searchCtr: null, searchPosition: null };
+
+/** A row's numbers by meaning key, leaving out any Google didn't send. */
+function measuresOf(r: LiveRow): Record<string, number> {
+  const m: Record<string, number> = {};
+  for (const k of ["searchClicks", "searchImpressions", "searchCtr", "searchPosition", "merged"]) {
+    const v = r[k];
+    if (typeof v === "number" && Number.isFinite(v)) m[k] = v;
+  }
+  return m;
+}
+
+/**
+ * Collect Search Console's final days (ADR-0012), each once:
+ * 1. a probe grouped by date with dataState final, over the last 10 Pacific days (while filling,
+ *    over the keep window and 9 days more), lists the days Google has finished, which are the
+ *    newest day's frontier, and gives each day's totals for the property (no extra call);
+ * 2. the days to read are planned from the cursor: new days oldest first, then the backfill newest
+ *    first, at most 5 a run;
+ * 3. each listed day gets one query by page and one by search, that day alone, final numbers,
+ *    1,000 rows asked; a day at or before the frontier that the probe doesn't list had no data and
+ *    gets zeros with no further call.
+ * An empty probe writes nothing and asks for a hold until the next day. Every call goes through
+ * safe fetch; the first failure stops the run, keeping the days already read.
+ */
+export const collectDays: CollectHook = async (input, deps) => {
+  const { ask } = input;
+  const keepDays = ask.stream.collect.keepDays;
+  // The first probe of a day comes at 09:00 UTC, after Pacific midnight in summer and winter.
+  const base: CollectResult = { days: [], newest: null, moreDue: false, nextDueMs: nextAt(ask.now, "UTC", FIRST_PROBE_HOUR_UTC, 0).getTime(), reachFrom: null, timeZone: PACIFIC, probed: false, hold: null, failure: null };
+  if (!input.account) return { ...base, failure: { ok: false, code: "account_needed", retryAfterSec: null } };
+  const today = todayIn(ask.now, PACIFIC);
+  const post = (json: unknown) => connectorFetch({ manifest: input.manifest, connection: input.connection, url: queryUrl(input.account), method: "POST", json, token: input.token }, deps);
+
+  const widest = addDays(today, -(keepDays + PROBE_SPARE_DAYS));
+  const from = ask.cursor.filled && ask.cursor.lastDay ? laterDay(widest, earlierDay(addDays(ask.cursor.lastDay, 1), addDays(today, -(PROBE_DAYS - 1)))) : widest;
+  const probe = await post({ startDate: from, endDate: today, dimensions: ["date"], type: "web", dataState: "final", rowLimit: daysIn(from, today) });
+  if (!probe.ok) return { ...base, failure: googleFailure(probe) };
+  const listed = (probe.body as { rows?: unknown } | null)?.rows;
+  if (listed !== undefined && !Array.isArray(listed)) return { ...base, probed: true, failure: { ok: false, code: "bad_response", retryAfterSec: null } };
+  const totals = new Map<string, Record<string, number | null>>();
+  for (const r of (listed ?? []) as Row[]) {
+    const day = Array.isArray(r?.keys) ? r.keys[0] : null;
+    if (isDay(day) && day >= from && day <= today) totals.set(day, dayTotalsOf(r));
+  }
+  if (!totals.size) return { ...base, probed: true, hold: { untilMs: 0, reason: "no_data" } };
+  const newest = [...totals.keys()].sort().at(-1)!;
+  const out: CollectResult = { ...base, probed: true, newest };
+
+  const planned = planDays(ask.cursor, newest, { keepDays, maxDays: COLLECT_DAYS_PER_RUN + 1 }).filter((p) => p.day >= from);
+  const plan = planned.slice(0, COLLECT_DAYS_PER_RUN);
+  out.moreDue = planned.length > plan.length;
+  const rowsOf = async (day: string, by: "page" | "topic"): Promise<{ ok: true; rows: SnapshotRow[]; more: boolean } | HookFailure> => {
+    const res = await post({ startDate: day, endDate: day, dimensions: [DIMENSION[by]], type: "web", dataState: "final", rowLimit: FETCH_ROWS });
+    if (!res.ok) return googleFailure(res);
+    const raw = (res.body as { rows?: unknown } | null)?.rows;
+    if (raw !== undefined && !Array.isArray(raw)) return { ok: false, code: "bad_response", retryAfterSec: null };
+    let rows: LiveRow[] = [];
+    for (const r of (raw ?? []) as Row[]) {
+      const value = Array.isArray(r?.keys) && typeof r.keys[0] === "string" ? r.keys[0] : null;
+      if (value === null || value.length > 2000) continue;
+      rows.push({ [KEY[by]]: value, searchClicks: num(r.clicks), searchImpressions: num(r.impressions), searchCtr: num(r.ctr), searchPosition: num(r.position) });
+    }
+    if (by === "page") rows = mergePages(rows);
+    const key = KEY[by];
+    return {
+      ok: true,
+      more: (raw ?? []).length >= FETCH_ROWS,
+      rows: rows.map((r): SnapshotRow => ({ key: String(r[key]), ...(typeof r.host === "string" && r.host ? { host: r.host } : {}), m: measuresOf(r) })),
+    };
+  };
+
+  for (const p of plan) {
+    if (!ask.canStart()) {
+      out.moreDue = true;
+      break;
+    }
+    const dayTotals = totals.get(p.day);
+    if (!dayTotals) {
+      // At or before the frontier and not listed: no impressions that day.
+      out.days.push({ day: p.day, final: true, docs: [{ by: "day", totals: ZERO_TOTALS, rows: [], more: false }, { by: "page", totals: null, rows: [], more: false }, { by: "topic", totals: null, rows: [], more: false }] });
+      continue;
+    }
+    const page = await rowsOf(p.day, "page");
+    if (!page.ok) return { ...out, failure: page };
+    const topic = await rowsOf(p.day, "topic");
+    if (!topic.ok) return { ...out, failure: topic };
+    out.days.push({
+      day: p.day,
+      final: true,
+      docs: [
+        { by: "day", totals: dayTotals, rows: [], more: false },
+        { by: "page", totals: null, rows: page.rows, more: page.more },
+        { by: "topic", totals: null, rows: topic.rows, more: topic.more },
+      ],
+    });
+  }
+  return out;
 };

@@ -151,6 +151,35 @@ describe("the context pack", () => {
     expect(pack.numbers[0]!.source).toBe("Google, through DataForSEO (Google United Kingdom, English, 2026-11-18)");
   });
 
+  it("adds Search Console's collected demand for the question and its subject, with its figures", async () => {
+    const deps = await setup(false);
+    const site = {
+      connectionId: "dcn_aaaaaaaaaaaaaaaaaaaa",
+      site: "acme.example",
+      window: { from: "2026-10-24", to: "2026-11-20" },
+      days: 28,
+      timeZone: "America/Los_Angeles",
+      questions: new Map([["q_aaaaaaaa", { key: "q_aaaaaaaa", label: "what is share of voice", m: { searchImpressions: 3100, searchClicks: 96, searchPosition: 6.84 } }]]),
+      subjects: new Map([["sub_aaaaaaaa", { key: "sub_aaaaaaaa", m: { nearbySearches: 9, searchImpressions: 7200, searchClicks: 240 } }]]),
+    };
+    deps.searchPlanning = async () => ({ sites: [site], notShared: false });
+    const pack = await contextPack(A, { questionId: "q_aaaaaaaa" }, deps);
+    expect(pack.numbers.slice(0, 2)).toEqual([
+      { text: 'Search Console (28 days to 20 Nov, Pacific time): the search "what is share of voice" had 3,100 impressions and 96 clicks, average position 6.8.', source: "Search Console (collected)" },
+      { text: "Search Console (28 days to 20 Nov, Pacific time): 9 searches near this subject had 7,200 impressions and 240 clicks.", source: "Search Console (collected)" },
+    ]);
+    expect(pack.figures).toEqual({ searchClicks: 96, searchImpressions: 3100, searchPosition: 6.8 });
+    // Its figures' meanings go with them to Vizzy.
+    const { meaningsOf } = await import("@/lib/metrics/meanings");
+    expect(Object.keys(meaningsOf(Object.keys(pack.figures)))).toEqual(["searchClicks", "searchImpressions", "searchPosition"]);
+    // A subject's own pack gets the subject's line only.
+    expect((await contextPack(A, { subjectId: "sub_aaaaaaaa" }, deps)).numbers[0]!.text).toContain("9 searches near this subject");
+    deps.searchPlanning = async () => ({ sites: [], notShared: true });
+    const unshared = await contextPack(A, { questionId: "q_aaaaaaaa" }, deps);
+    expect(unshared.numbers).toEqual([]);
+    expect(unshared.missing).toContain("Search Console isn't shared with the team and Vizzy, so its numbers aren't here.");
+  });
+
   it("works from words alone, and never reads another brand's map", async () => {
     const deps = await setup(false);
     const pack = await contextPack(A, { text: "  How do agencies report share of voice?  " }, deps);

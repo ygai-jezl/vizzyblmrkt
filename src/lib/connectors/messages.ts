@@ -1,8 +1,18 @@
+import { dayWords } from "./period";
+
 /**
  * What went wrong with a connection, as a code and the words people see. Codes are stored on a
  * connection's health and activity; a provider's own words never are (they can echo a token or a
  * query). The screens and the help page quote these messages. House style: no dashes.
  */
+
+/**
+ * The product people name, as the approved screens write it: "Search Console" for Google Search
+ * Console, "Google Analytics" for Google Analytics 4; any other tool by its own name.
+ */
+export function productName(name: string): string {
+  return name.replace(/^Google (Search Console)$/, "$1").replace(/^(Google Analytics) 4$/, "$1");
+}
 
 export const CONNECTOR_ERRORS = {
   token_refused: "The provider turned the token down. Make a new one with the same read permissions and connect again.",
@@ -26,6 +36,7 @@ export const CONNECTOR_ERRORS = {
   account_needed: "Pick which site or property this connection reads first.",
   share_not_visible:
     "We can't see your property yet. Check that you added the address exactly as shown, with the role shown, then press Check access again. A new address can take a few minutes to start working.",
+  share_access_lost: "YouGrow lost access to this property. Add the Google address again with the role shown, then press Check access.",
   share_pending: "Google is still setting up this connection's address. Wait a minute, then press Check access again.",
   share_unconfigured:
     "This copy of YouGrow can't use shared access right now (CONNECTORS_IDENTITIES_PROJECT, or an API or permission in that project). Ask whoever runs it to check, or sign in with Google instead.",
@@ -54,11 +65,21 @@ export function tokenRefusedMessage(name: string, when: "connected" | "connectin
 }
 
 /**
- * The words for a code, or a plain fallback for one this build doesn't know. With `about`, the
- * connection's tool and whether Vizzy reads connected data, a turned down token names its tool.
+ * A shared connection that had worked, whose Google address was taken off the property later
+ * (Connectors 2: the daily collect notices it the next day), dated when the failures began.
  */
-export function connectorMessage(code: string | null | undefined, about?: { name: string; chat: boolean }): string {
+export function accessLostMessage(since: string): string {
+  return `YouGrow lost access to this property on ${dayWords(since.slice(0, 10))}. Add the Google address again with the role shown, then press Check access.`;
+}
+
+/**
+ * The words for a code, or a plain fallback for one this build doesn't know. With `about`, the
+ * connection's tool and whether Vizzy reads connected data, a turned down token names its tool,
+ * and lost access is dated by `since`, when the failures began.
+ */
+export function connectorMessage(code: string | null | undefined, about?: { name: string; chat: boolean; since?: string | null }): string {
   if (code === "token_refused" && about) return tokenRefusedMessage(about.name, "connected", about.chat);
+  if (code === "share_access_lost" && about?.since) return accessLostMessage(about.since);
   return isConnectorErrorCode(code) ? CONNECTOR_ERRORS[code] : "Something went wrong with this connection. Check it again, or connect it again.";
 }
 

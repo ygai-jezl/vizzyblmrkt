@@ -39,6 +39,8 @@
 #   lifecycle_drafts.ttlAt    AI-line drafts, 90 days after their send
 #   data_connection_activity.ttlAt  connected data activity, 90 days (ADR-0011)
 #   data_connection_states.ttlAt    connected data sign ins, 10 minutes (ADR-0011)
+#   metric_snapshots.ttlAt    collected numbers, about 97 days after their day (ADR-0012)
+#   data_signals.ttlAt        suggestions from collected numbers, 30 days (ADR-0012)
 #   rate_limits.ttl           ingest rate-limit counters, 2 hours (control plane only)
 
 set -euo pipefail
@@ -205,6 +207,8 @@ case "$CMD" in
       ttl_on "$db" lifecycle_drafts ttlAt
       ttl_on "$db" data_connection_activity ttlAt
       ttl_on "$db" data_connection_states ttlAt
+      ttl_on "$db" metric_snapshots ttlAt
+      ttl_on "$db" data_signals ttlAt
     done
     ttl_on "(default)" rate_limits ttl
     echo "Requested. TTL policies take a few minutes to become ACTIVE. Check with: ./setup.sh verify $PROJECT"

@@ -31,6 +31,7 @@ const {
   withGrant,
 } = await import("./words");
 const { connectedActions, revealManage, NARROW_SCREEN } = await import("./connectedActions");
+const wordsModule = await import("./words");
 
 const broken = (message: string) => ({ state: "broken" as const, lastOkAt: "2026-11-20T08:00:00.000Z", lastCheckedAt: "2026-11-21T09:12:00.000Z", message, pausedUntil: null });
 
@@ -514,6 +515,120 @@ describe("Connected as people read it", () => {
       const text = textOf(page);
       expect(dashesIn(text), text.slice(0, 80)).toEqual([]);
       expect(aiTellsIn(text), text.slice(0, 80)).toEqual([]);
+    }
+  });
+});
+
+describe("collected numbers on Connected", () => {
+  const { COLLECTED_COPY, collectedCell, collectedLines, manageHintOf, readingWords } = wordsModule;
+  const collect = (over: Partial<NonNullable<NonNullable<ConnectionView["details"]>["collect"]>> = {}) => ({
+    lastDay: "2026-11-20",
+    finalThrough: "2026-11-20",
+    keptFrom: "2026-08-23",
+    days: 90,
+    keepDays: 90,
+    filled: true,
+    timeZone: "America/Los_Angeles",
+    lag: "Search Console finishes a day 2 to 3 days later.",
+    keeps: "Each day keeps the top 500 pages and the top 500 searches.",
+    kept: { day: "2026-11-20", by: "topic", seen: 1000, rows: 500, more: true },
+    waitingFor: "2026-11-21",
+    failedSince: null,
+    failedOn: null,
+    holdReason: null,
+    feedsPlanning: true,
+    ...over,
+  });
+  const site = (over: Parameters<typeof collect>[0] = {}, details: Partial<NonNullable<ConnectionView["details"]>> = {}, rest: Partial<ConnectionView> = {}) =>
+    ({ ...SC, ...rest, details: { ...SC.details!, collect: collect(over), ...details } }) as ConnectionView;
+
+  it("says how far it is collected, how far final, and when a day is late", () => {
+    expect(collectedCell(site())).toEqual({ main: "To 20 Nov, 90 days", hint: "Waiting for Search Console to finish 21 Nov.", progress: null });
+    expect(collectedCell(site({ lastDay: "2026-11-21", finalThrough: "2026-11-15", waitingFor: null }))?.main).toBe("To 21 Nov (final to 15 Nov), 90 days");
+    expect(collectedCell(site({ filled: false, days: 34, keptFrom: "2026-10-18" }))).toEqual({ main: "Filling 90 days: 34 of 90", hint: null, progress: { value: 34, max: 90 } });
+    expect(collectedCell(site({}, { pausedAt: "2026-11-12T10:00:00.000Z" }))).toMatchObject({ main: "Paused on 12 Nov", hint: "Collected to 20 Nov" });
+    expect(collectedCell(site({ lastDay: "2026-11-18" }, {}, { health: { ...SC.health, state: "broken", since: "2026-11-19T09:00:00.000Z" } }))).toMatchObject({ main: "Stopped on 19 Nov", hint: "Collected to 18 Nov" });
+    expect(collectedCell({ ...SC, details: { ...SC.details!, collect: null } })).toBeNull();
+  });
+
+  it("says Stopped only after 3 days of failing, and before that notes the failure beside the usual cell", () => {
+    // The server sets failedOn for a failure under 3 days old, failedSince only after: Review's own rule.
+    const recent = site({ failedOn: "2026-11-23T08:00:00.000Z", waitingFor: null });
+    expect(collectedCell(recent)).toEqual({ main: "To 20 Nov, 90 days", hint: "Collecting failed on 23 Nov. YouGrow tries again on its own.", progress: null });
+    expect(collectedLines(recent).map((l) => l.text)).toContain("Collecting failed on 23 Nov. YouGrow tries again on its own.");
+    expect(collectedLines(recent).map((l) => l.text).join(" ")).not.toContain("Stopped");
+    const long = site({ failedSince: "2026-11-19T08:00:00.000Z", waitingFor: null });
+    expect(collectedCell(long)?.main).toBe("Stopped on 19 Nov");
+  });
+
+  it("doesn't ask for a Vizzy grant the copy can't give: suggestions need Vizzy to read connected data", () => {
+    const membersOnly = site({}, { grants: [{ to: "members", can: "read" }] });
+    const off = collectedLines(membersOnly, { planning: true, chat: false }).at(-1)!;
+    expect(`${off.lead}${off.text}`).toBe("Used for planning: no. Suggestions need Vizzy to read connected data, which is off in this copy.");
+    const on = collectedLines(membersOnly, { planning: true, chat: true }).at(-1)!;
+    expect(on.text).toContain("Let Vizzy read it too");
+  });
+
+  it("writes the Manage card's block as the approved screen, the planning line only while numbers suggest articles", () => {
+    const text = collectedLines(site()).map((l) => `${l.lead ?? ""}${l.text}`);
+    expect(text).toEqual([
+      "Collected to 20 Nov 2026, Pacific time. Search Console finishes a day 2 to 3 days later.",
+      "Waiting for Search Console to finish 21 Nov.",
+      "Kept: 23 Aug to 20 Nov (90 days).",
+      "Each day keeps the top 500 pages and the top 500 searches. On 20 Nov Google listed at least 1,000 searches and 500 were kept.",
+    ]);
+    const planned = collectedLines(site(), { planning: true }).at(-1)!;
+    expect(`${planned.lead}${planned.text}`).toBe("Used for planning: yes. Members and Vizzy can read it, so its numbers feed Next up, Review and the brand map.");
+    const membersOnly = collectedLines(site({}, { grants: [{ to: "members", can: "read" }] }), { planning: true }).at(-1)!;
+    expect(membersOnly.text).toBe(" no. Let Vizzy read it too, and its numbers will feed Next up, Review and the brand map.");
+    const filling = collectedLines(site({ filled: false, days: 34, keptFrom: "2026-10-18", waitingFor: null }));
+    expect(filling.map((l) => l.text)).toContain("Kept: 18 Oct to 20 Nov so far (34 of 90 days).");
+    expect(filling.find((l) => l.progress)?.progress).toEqual({ value: 34, max: 90 });
+    expect(filling.map((l) => l.text)).toContain(COLLECTED_COPY.restArrive);
+    const paused = collectedLines(site({ lastDay: "2026-11-10" }, { pausedAt: "2026-11-12T10:00:00.000Z" })).map((l) => l.text);
+    expect(paused.slice(0, 2)).toEqual(["Paused on 12 Nov. Nothing is collected until you resume.", "Collected to 10 Nov 2026, Pacific time."]);
+    expect(paused).toContain("Each day still leaves after 90 days.");
+  });
+
+  it("says Disconnect deletes collected numbers, and the suggestions only while they make some", () => {
+    expect(manageHintOf(site(), { collect: false })).toBe(CONNECTED_COPY.manageHint);
+    expect(manageHintOf(site(), { collect: true })).toBe(COLLECTED_COPY.manageHint);
+    expect(manageHintOf(site(), { collect: true, planning: true })).toBe(COLLECTED_COPY.manageHintPlanning);
+    // Not used for planning (members or Vizzy can't read it): it made no suggestions to delete.
+    for (const grants of [[], [{ to: "members" as const, can: "read" as const }], [{ to: "agent:vizzy" as const, can: "read" as const }]]) {
+      expect(manageHintOf(site({}, { grants }), { collect: true, planning: true })).toBe(COLLECTED_COPY.manageHint);
+    }
+    expect(manageHintOf(site({ feedsPlanning: false }), { collect: true, planning: true })).toBe(COLLECTED_COPY.manageHint);
+    expect(readingWords({ canReadLive: true, collectedTo: "2026-11-20" }, true)).toBe("You can read it, collected to 20 Nov");
+    expect(readingWords({ canReadLive: true, collectedTo: "2026-11-20" }, false)).toBe("You can read it");
+    expect(readingWords({ canReadLive: false, collectedTo: null }, true)).toBe("Admins only");
+  });
+
+  it("shows the Collected column and block only while collected numbers are on, and opens on the connection asked for", () => {
+    const withCollect = site();
+    const on = textOf(renderToStaticMarkup(createElement(ConnectedView, { connections: [CF, withCollect], isAdmin: true, uid: "usr_alex", chat: true, collect: true, selected: withCollect.id, now: NOW.toISOString() })));
+    expect(on).toContain("Who can read Collected Status");
+    expect(on).toContain("To 20 Nov, 90 days");
+    expect(on).toContain("Collected numbers Collected to 20 Nov 2026, Pacific time.");
+    expect(on).toContain(COLLECTED_COPY.manageHint);
+    const off = textOf(renderToStaticMarkup(createElement(ConnectedView, { connections: [CF, withCollect], isAdmin: true, uid: "usr_alex", chat: true, now: NOW.toISOString() })));
+    expect(off).not.toContain("Collected");
+    expect(firstSelected([CF, withCollect], withCollect.id)).toBe(withCollect.id);
+    expect(firstSelected([CF, withCollect], "dcn_zzzzzzzzzzzzzzzzzzzz")).toBe(CF.id);
+    const member = textOf(renderToStaticMarkup(createElement(ConnectedView, { connections: [{ ...withCollect, details: undefined, collectedTo: "2026-11-20" }], isAdmin: false, uid: "usr_sam", chat: true, collect: true, now: NOW.toISOString() })));
+    expect(member).toContain("You can read it, collected to 20 Nov");
+    expect(member).not.toContain("Collected numbers");
+  });
+
+  it("writes every collected line in house style", () => {
+    const all = [
+      ...Object.values(COLLECTED_COPY),
+      ...collectedLines(site(), { planning: true }).map((l) => l.text),
+      ...collectedLines(site({ filled: false, days: 2 }), { planning: true }).map((l) => l.text),
+    ];
+    for (const text of all) {
+      expect(dashesIn(text), text).toEqual([]);
+      expect(aiTellsIn(text), text).toEqual([]);
     }
   });
 });

@@ -20,14 +20,19 @@ import {
   SCREEN_COPY,
   TAG,
   TONE_CLASS,
+  COLLECTED_COPY,
   accountWords,
   activityOf,
   bannerWords,
+  collectedCell,
+  collectedLines,
   firstSelected,
   healthLine,
   listingPath,
+  manageHintOf,
   needsAttention,
   pickPath,
+  readingWords,
   readsWords,
   selectedOf,
   stateOf,
@@ -43,6 +48,12 @@ export interface ConnectedProps {
   uid: string;
   /** Vizzy reads connected data (CONNECTORS_CHAT_ENABLED): only then is the Vizzy grant offered. */
   chat: boolean;
+  /** Collected numbers (CONNECTORS_COLLECT_ENABLED): the Collected column and the Manage card's block. */
+  collect?: boolean;
+  /** Collected numbers suggest articles: the Manage card says whether each is used for planning. */
+  planning?: boolean;
+  /** The connection to open on (`?c=<id>`, from a Review row), when it is listed. */
+  selected?: string | null;
   /** The server's clock when the page was drawn, so server and browser write the same times. */
   now: string;
 }
@@ -57,11 +68,11 @@ const td = "border-b border-neutral-100 px-3 py-2.5 align-top dark:border-neutra
  * Pause or Resume, Disconnect, and the recent activity. Every change goes through the routes under
  * /api/admin/connectors; members see names and states, read only.
  */
-export function ConnectedView({ connections: initial, isAdmin, uid, chat, now: drawnAt }: ConnectedProps) {
+export function ConnectedView({ connections: initial, isAdmin, uid, chat, collect = false, planning = false, selected: wanted = null, now: drawnAt }: ConnectedProps) {
   const router = useRouter();
   const [connections, setConnections] = useState(initial);
   // Chosen once, explicitly, then only by a click or an action: never worked out again from state.
-  const [selectedId, setSelectedId] = useState<string | null>(() => firstSelected(initial));
+  const [selectedId, setSelectedId] = useState<string | null>(() => firstSelected(initial, wanted));
   const [now, setNow] = useState(() => new Date(drawnAt));
   const [note, setNote] = useState<ConnectedNote>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -156,6 +167,7 @@ export function ConnectedView({ connections: initial, isAdmin, uid, chat, now: d
                     <th className={th}>Connected by</th>
                     <th className={th}>Last activity</th>
                     <th className={th}>Who can read</th>
+                    {collect ? <th className={th}>{COLLECTED_COPY.column}</th> : null}
                   </>
                 ) : (
                   <th className={th}>Reading</th>
@@ -165,7 +177,7 @@ export function ConnectedView({ connections: initial, isAdmin, uid, chat, now: d
             </thead>
             <tbody>
               {live.map((c) => (
-                <ConnectionRow key={c.id} c={c} isAdmin={isAdmin} on={isAdmin && selected?.id === c.id} uid={uid} chat={chat} now={now} onPick={pick} />
+                <ConnectionRow key={c.id} c={c} isAdmin={isAdmin} on={isAdmin && selected?.id === c.id} uid={uid} chat={chat} collect={collect} now={now} onPick={pick} />
               ))}
             </tbody>
           </table>
@@ -175,7 +187,7 @@ export function ConnectedView({ connections: initial, isAdmin, uid, chat, now: d
       {isAdmin ? (
         <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))]">
           {selected ? (
-            <ManageCard c={selected} chat={chat} now={now} busy={busy} actions={actions} cardRef={manageRef} />
+            <ManageCard c={selected} chat={chat} collect={collect} planning={planning} now={now} busy={busy} actions={actions} cardRef={manageRef} />
           ) : live.length ? (
             <p className={NOTE_PLAIN}>{CONNECTED_COPY.chooseRow}</p>
           ) : null}
@@ -212,12 +224,30 @@ export const ROW_CLASS = {
  * handler of its own, so its click reaches the row once; any other button or link a row holds does
  * its own job and the same click picks its row. No hooks, so a test can draw it as a plain function.
  */
+/** A thin bar for days collected out of the days kept. */
+export function CollectBar({ value, max }: { value: number; max: number }) {
+  const width = `${Math.max(0, Math.min(100, (value / max) * 100)).toFixed(1)}%`;
+  return (
+    <span
+      role="progressbar"
+      aria-label={COLLECTED_COPY.progress}
+      aria-valuemin={0}
+      aria-valuemax={max}
+      aria-valuenow={value}
+      className="mb-0.5 mt-1.5 block h-1 w-full max-w-[160px] overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800"
+    >
+      <span className="block h-full rounded-full bg-blue-600 dark:bg-blue-400" style={{ width }} />
+    </span>
+  );
+}
+
 export function ConnectionRow({
   c,
   isAdmin,
   on,
   uid,
   chat,
+  collect = false,
   now,
   onPick,
 }: {
@@ -227,11 +257,14 @@ export function ConnectionRow({
   on: boolean;
   uid: string;
   chat: boolean;
+  /** Collected numbers are on: admins see the Collected column, members how far it is collected. */
+  collect?: boolean;
   now: Date;
   onPick: (id: string) => void;
 }) {
   const state = stateOf(c);
   const last = c.details?.recent[0];
+  const cell = collect ? collectedCell(c) : null;
   return (
     <tr
       className={isAdmin ? (on ? ROW_CLASS.picked : ROW_CLASS.pickable) : undefined}
@@ -260,11 +293,22 @@ export function ConnectionRow({
           <td className={td}>{c.details.ownerUid === uid ? "You" : "Someone else"}</td>
           <td className={td}>{last ? `${whoWords(last.by, uid)} · ${whenWords(last.at, now)}` : ""}</td>
           <td className={td}>{whoCanReadOf(c, chat)}</td>
+          {collect ? (
+            <td className={td}>
+              {cell ? (
+                <>
+                  <span className="block">{cell.main}</span>
+                  {cell.progress ? <CollectBar value={cell.progress.value} max={cell.progress.max} /> : null}
+                  {cell.hint ? <span className={`block ${HINT}`}>{cell.hint}</span> : null}
+                </>
+              ) : null}
+            </td>
+          ) : null}
         </>
       ) : isAdmin ? (
-        <td className={td} colSpan={4} />
+        <td className={td} colSpan={collect ? 5 : 4} />
       ) : (
-        <td className={td}>{c.canReadLive ? CONNECTED_COPY.readsYou : CONNECTED_COPY.readsAdmins}</td>
+        <td className={td}>{readingWords(c, collect)}</td>
       )}
       <td className={td}>
         <span className={`${TAG} ${TONE_CLASS[state.tone]}`}>{state.label}</span>
@@ -334,6 +378,8 @@ function AttentionBanner({
 function ManageCard({
   c,
   chat,
+  collect,
+  planning,
   now,
   busy,
   actions,
@@ -341,6 +387,8 @@ function ManageCard({
 }: {
   c: ConnectionView;
   chat: boolean;
+  collect: boolean;
+  planning: boolean;
   now: Date;
   busy: string | null;
   /** So a row pick on a narrow screen can bring the card into view. */
@@ -361,6 +409,7 @@ function ManageCard({
   const sa = c.details?.method === "share_access" && c.details.serviceAccount && !c.details.serviceAccount.deletedAt ? c.details.serviceAccount.email : null;
   const picks = c.details?.method === "oauth_pkce" || c.details?.method === "share_access";
   const any = busy !== null;
+  const lines = collect ? collectedLines(c, { planning, chat }) : [];
 
   return (
     // scroll-mt-16 clears the admin header (sticky, 48px), so a pick on a narrow screen shows the card's heading.
@@ -389,6 +438,20 @@ function ManageCard({
             </label>
           ) : null}
         </fieldset>
+      ) : null}
+      {lines.length ? (
+        <div className="space-y-1.5 border-t border-neutral-200 pt-3 dark:border-neutral-800">
+          <h4 className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{COLLECTED_COPY.block}</h4>
+          {lines.map((l) => (
+            <div key={`${l.lead ?? ""}${l.text}`}>
+              <p className={l.hint ? HINT : "text-sm"}>
+                {l.lead ? <span className="font-semibold">{l.lead}</span> : null}
+                {l.text}
+              </p>
+              {l.progress ? <CollectBar value={l.progress.value} max={l.progress.max} /> : null}
+            </div>
+          ))}
+        </div>
       ) : null}
       {sa ? (
         <div className="space-y-1">
@@ -428,7 +491,7 @@ function ManageCard({
           {busy === `disconnect:${c.id}` ? "Disconnecting…" : CONNECTED_COPY.disconnect}
         </button>
       </div>
-      <p className={HINT}>{CONNECTED_COPY.manageHint}</p>
+      <p className={HINT}>{manageHintOf(c, { collect, planning })}</p>
     </section>
   );
 }

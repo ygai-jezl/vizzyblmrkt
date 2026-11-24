@@ -10,10 +10,12 @@ import { SETUP_HOW_TO } from "@/lib/connect/setupChecklist";
 import { computeGrowth, type GrowthSignals } from "@/lib/nav/growth";
 import { launchChecklist } from "@/lib/nav/launchChecklist";
 import { docToMarkdown } from "@/lib/developers/markdown";
+import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { STATE_LABELS } from "@/components/admin/connectors/words";
-import { HEALTH_HELP } from "@/lib/connectors/helpText";
+import { SOURCE_COPY } from "@/components/admin/chat/SourceLine";
+import { HEALTH_HELP, SEARCH_TEXT_HELP, SIGNALS_HELP, VIZZY_COLLECTED_HELP } from "@/lib/connectors/helpText";
 import { allConnectors } from "@/lib/connectors/catalog";
-import { tokenRefusedMessage } from "@/lib/connectors/messages";
+import { CONNECTOR_ERRORS, tokenRefusedMessage } from "@/lib/connectors/messages";
 import { helpLlmsTxt, helpPageMarkdown } from "./agentFiles";
 import { HELP_PAGES, helpPage, shownHelpPages } from "./pages";
 import { HELP_PLACES, helpFor, parseHelpPath } from "./places";
@@ -64,6 +66,10 @@ vi.hoisted(() => {
   process.env.NEXT_PUBLIC_CONNECTORS_ENABLED = "true";
   process.env.CONNECTORS_ENABLED = "true";
   process.env.CONNECTORS_CHAT_ENABLED = "true";
+  process.env.CONNECTORS_COLLECT_ENABLED = "true";
+  process.env.CONNECTORS_SEARCH_TEXT_ENABLED = "true";
+  process.env.CONNECTOR_SIGNALS_ENABLED = "true";
+  process.env.BRAND_MAP_SCALE_ENABLED = "true";
 });
 
 const SRC = join(process.cwd(), "src");
@@ -470,6 +476,13 @@ describe("Vizzy filling in New person", () => {
     expect(md("review-and-approvals", true)).toContain("New person forms Vizzy filled in");
   });
 
+  it("lists data sources that need you only while collected numbers are on", () => {
+    const review = (on: boolean) => docToMarkdown(HELP_BODIES["review-and-approvals"]!({ connectorsCollect: on }), "https://app.example.com");
+    expect(review(true)).toContain("**Data sources that need you**: a connected tool that can't be read");
+    expect(review(true)).toContain("([Collected numbers](https://app.example.com/help/connected-data.md))");
+    expect(review(false)).not.toContain("Data sources that need you");
+  });
+
   it("stays hidden while it, or New person, is off", () => {
     expect(md("your-audience", false)).not.toContain("Vizzy never records");
     expect(md("your-audience", true, false)).not.toContain("Vizzy never records");
@@ -563,9 +576,167 @@ describe("Connected data", () => {
     expect(md(false)).not.toContain("Vizzy can read it when someone asks");
   });
 
+  it("says what is collected, when, for how long and what erases it, only while collected numbers are on", () => {
+    const collected = (on: boolean) => docToMarkdown(HELP_BODIES["connected-data"]!({ connectorsChat: true, connectorsCollect: on }), "https://app.example.com");
+    const text = collected(true);
+    expect(text).toContain("## Collected numbers");
+    expect(text).toContain("keeps them 90 days in your brand's region");
+    expect(text).toContain("Collected once a day and kept 90 days in your brand's region; Disconnect deletes them. Search Console finishes a day 2 to 3 days later. Each day keeps the top 500 pages and the top 500 searches.");
+    expect(text).toContain("Each day keeps the zone's totals. Visits by people reach back about 31 days, and older days count all traffic.");
+    expect(text).toMatch(/^\| Filling 90 days: 34 of 90 \|/m);
+    expect(text).toContain("Disconnect deletes everything YouGrow collected for a connection, at once, whatever any switch says.");
+    expect(text).toContain("Data sources that need you");
+    const off = collected(false);
+    expect(off).not.toContain("Collected numbers");
+    expect(off).not.toContain("kept 90 days");
+    // Lost access is quoted whatever collect says: Check access can find it too.
+    expect(off).toContain(CONNECTOR_ERRORS.share_access_lost);
+  });
+
+  it("explains Vizzy and collected numbers only while Vizzy reads connected data and numbers are collected", () => {
+    const page = (connectorsChat: boolean, connectorsCollect: boolean) => docToMarkdown(HELP_BODIES["connected-data"]!({ connectorsChat, connectorsCollect }), "https://app.example.com");
+    const text = page(true, true);
+    expect(text).toContain("## Vizzy and your collected numbers");
+    expect(text).toContain(VIZZY_COLLECTED_HELP.what);
+    expect(text).toContain("Collected numbers, 24 Oct to 20 Nov 2026, Pacific time. Search Console finishes a day 2 to 3 days later, so 21 and 22 Nov aren't in yet.");
+    expect(text).toContain("Active users and unique visitors can't be added across days, so for more than a day Vizzy reads those live too.");
+    // The source line's own words, and the grant that allows it, as Connected names it.
+    expect(text).toContain(`the chat puts ${SOURCE_COPY.collected} after the tool's name`);
+    expect(text).toContain("tick **Vizzy can read it when someone asks**");
+    expect(text).toContain("as [Who can read it](https://app.example.com/help/connected-data.md) explains.");
+    for (const [chat, collect] of [
+      [false, true],
+      [true, false],
+      [false, false],
+    ] as const) {
+      expect(page(chat, collect), `${chat} ${collect}`).not.toContain("Vizzy and your collected numbers");
+    }
+    for (const line of Object.values(VIZZY_COLLECTED_HELP)) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
+  });
+
+  it("says what Search Console puts into brand search, who finds it and what removes it, only while both switches are on", () => {
+    const page = (connectorsChat: boolean, connectorsCollect: boolean, connectorsSearchText: boolean) =>
+      docToMarkdown(HELP_BODIES["connected-data"]!({ connectorsChat, connectorsCollect, connectorsSearchText }), "https://app.example.com");
+    const text = page(true, true, true);
+    expect(text).toContain("## Google searches in brand search");
+    expect(text).toContain("puts the top 200 searches of its last 28 collected days into brand search");
+    expect(text).toContain("labelled Research");
+    expect(text).toContain(SEARCH_TEXT_HELP.why);
+    expect(text).toContain(SEARCH_TEXT_HELP.vizzy);
+    expect(text).toContain("Disconnect and Change property take them out of brand search at once, whatever any switch says.");
+    expect(text).toContain("[What search covers](https://app.example.com/help/search.md)");
+    // Vizzy's line only while Vizzy reads connected data.
+    expect(page(false, true, true)).not.toContain(SEARCH_TEXT_HELP.vizzy);
+    expect(page(false, true, true)).toContain(SEARCH_TEXT_HELP.who);
+    for (const [collect, searchText] of [
+      [true, false],
+      [false, true],
+    ] as const) {
+      expect(page(true, collect, searchText), `${collect} ${searchText}`).not.toContain("Google searches in brand search");
+    }
+    for (const line of Object.values(SEARCH_TEXT_HELP)) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
+  });
+
   it("is listed after Connected accounts, and Connected accounts points to it", () => {
     const slugs = shownHelpPages().map((p) => p.slug);
     expect(slugs.indexOf("connected-data")).toBe(slugs.indexOf("connected-accounts") + 1);
     expect(helpPageMarkdown("connected-accounts", "https://app.example.com")).toContain("[Connected data](https://app.example.com/help/connected-data.md)");
   });
 });
+
+describe("Search", () => {
+  it("lists Search Console's searches under What search covers, and who finds them, only while they go into brand search", () => {
+    const md = (connectorsSearchText: boolean) => docToMarkdown(HELP_BODIES.search!({ connectorsSearchText }), "https://app.example.com");
+    const on = md(true);
+    expect(on).toContain("Google searches from your [Search Console connection](https://app.example.com/help/connected-data.md)");
+    expect(on).toContain(SEARCH_TEXT_HELP.why);
+    expect(on).toContain(SEARCH_TEXT_HELP.who);
+    // People's own words stay out either way.
+    expect(on).toContain("It leaves out people's own words");
+    const off = md(false);
+    expect(off).not.toContain("Google searches");
+    expect(off).not.toContain(SEARCH_TEXT_HELP.why);
+  });
+});
+
+describe("What your numbers suggest (CONNECTOR_SIGNALS_ENABLED)", () => {
+  const connected = (connectorsCollect: boolean, connectorSignals: boolean, connectorsChat = true) =>
+    docToMarkdown(HELP_BODIES["connected-data"]!({ connectorsChat, connectorsCollect, connectorSignals }), "https://app.example.com");
+  const review = (connectorsCollect: boolean, connectorSignals: boolean) =>
+    docToMarkdown(HELP_BODIES["review-and-approvals"]!({ connectorsCollect, connectorSignals }), "https://app.example.com");
+
+  it("says on Connected data what the numbers suggest, from which connections, and what ends them, only while collect and signals are on", () => {
+    const text = connected(true, true);
+    expect(text).toContain("## What your numbers suggest");
+    for (const line of [SIGNALS_HELP.what, ...SIGNALS_HELP.rules, SIGNALS_HELP.planning, SIGNALS_HELP.strict, SIGNALS_HELP.review, SIGNALS_HELP.map, SIGNALS_HELP.nextUp, SIGNALS_HELP.vizzy, SIGNALS_HELP.erase]) {
+      expect(text, line).toContain(line);
+    }
+    expect(connected(true, true, false)).not.toContain(SIGNALS_HELP.vizzy);
+    expect(connected(true, false)).not.toContain("What your numbers suggest");
+    expect(connected(false, true)).not.toContain("What your numbers suggest");
+  });
+
+  it("lists What your numbers suggest in Review, with Plan an article and Dismiss, only while both are on", () => {
+    const text = review(true, true);
+    expect(text).toContain("**What your numbers suggest**: searches and pages from Search Console worth an article");
+    expect(text).toContain("## Plan or dismiss what your numbers suggest");
+    expect(text).toContain("It won't come back for 30 days.");
+    expect(review(true, false)).not.toContain("What your numbers suggest");
+    expect(review(false, true)).not.toContain("What your numbers suggest");
+  });
+
+  it("explains questions from Google searches on the brand map, Edit included, and the Search Console chip in Next up", () => {
+    const text = helpPageMarkdown("brand-map", "https://app.example.com")!;
+    expect(text).toContain("## Questions from Google searches");
+    expect(text).toContain("Press **Edit** to put the search into your own words");
+    expect(text).toContain('a **Search Console** chip gives the numbers for the search with the question\'s own words, such as "880 impressions, position 11.3"');
+    expect(helpPageMarkdown("write-and-schedule", "https://app.example.com")).toContain("Writing next from your numbers: fewer Google clicks to /pricing.");
+  });
+
+  it("draws the brand map and Write and schedule sections from the switches the How to drawer passes", () => {
+    // The drawer is a client: it can't read the server's switches, so it passes them as props.
+    const was = { signals: process.env.CONNECTOR_SIGNALS_ENABLED, scale: process.env.BRAND_MAP_SCALE_ENABLED };
+    process.env.CONNECTOR_SIGNALS_ENABLED = "false";
+    process.env.BRAND_MAP_SCALE_ENABLED = "false";
+    try {
+      const map = (connectorSignals: boolean, brandMapScale: boolean) => docToMarkdown(HELP_BODIES["brand-map"]!({ connectorSignals, brandMapScale }), "https://app.example.com");
+      expect(map(true, true)).toContain("Press **Edit** to put the search into your own words");
+      expect(map(true, true)).toContain("a **Search Console** chip gives the numbers");
+      expect(map(true, false)).toContain("it waits in Review under **What your numbers suggest**");
+      expect(map(false, true)).not.toContain("Questions from Google searches");
+      const write = (connectorSignals: boolean) => docToMarkdown(HELP_BODIES["write-and-schedule"]!({ connectorSignals }), "https://app.example.com");
+      expect(write(true)).toContain("Writing next from your numbers: fewer Google clicks to /pricing.");
+      expect(write(false)).not.toContain("Writing next from your numbers");
+    } finally {
+      process.env.CONNECTOR_SIGNALS_ENABLED = was.signals;
+      process.env.BRAND_MAP_SCALE_ENABLED = was.scale;
+    }
+  });
+
+  it("keeps the section other pages link to with the brand map's scale switch off, sending rising searches to Review", () => {
+    const was = process.env.BRAND_MAP_SCALE_ENABLED;
+    process.env.BRAND_MAP_SCALE_ENABLED = "false";
+    try {
+      const text = helpPageMarkdown("brand-map", "https://app.example.com")!;
+      expect(text).toContain("## Questions from Google searches");
+      expect(text).toContain("it waits in Review under **What your numbers suggest**");
+      expect(text).not.toContain("Press **Edit**");
+    } finally {
+      process.env.BRAND_MAP_SCALE_ENABLED = was;
+    }
+  });
+
+  it("uses no dashes as punctuation and none of the AI tells", () => {
+    for (const line of [SIGNALS_HELP.what, ...SIGNALS_HELP.rules, SIGNALS_HELP.planning, SIGNALS_HELP.noChat, SIGNALS_HELP.strict, SIGNALS_HELP.review, SIGNALS_HELP.map, SIGNALS_HELP.nextUp, SIGNALS_HELP.vizzy, SIGNALS_HELP.erase]) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
+  });
+});
+

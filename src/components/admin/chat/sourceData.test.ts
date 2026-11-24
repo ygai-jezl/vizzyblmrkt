@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { MANIFESTS } from "@/lib/connectors/manifests";
-import { chatSourceOf, connectorSourceOf, withSource } from "./sourceData";
+import { chatSourceOf, COLLECTED_SUFFIX, connectorSourceOf, withSource } from "./sourceData";
 import { SOURCE_COPY, SourceLine } from "./SourceLine";
 import { MessageThread } from "./MessageThread";
 import type { ChatExchange } from "./useDashboardChat";
@@ -26,6 +26,19 @@ describe("which connectors an answer read", () => {
     expect(connectorSourceOf("read_connected_live", read("search-console"))).toBe("search-console");
     expect(connectorSourceOf("read_connected_live", read("google-analytics"))).toBe("google-analytics");
     expect(connectorSourceOf("read_connected_live", read("cloudflare"))).toBe("cloudflare");
+  });
+
+  it("marks numbers read from what YouGrow collected, apart from live reads", () => {
+    expect(connectorSourceOf("get_connected_numbers", read("search-console"))).toBe("search-console:collected");
+    expect(connectorSourceOf("get_connected_numbers", read("search-console", "error"))).toBeNull();
+    expect(connectorSourceOf("get_connected_numbers", read("evil.example"))).toBeNull();
+    expect(connectorSourceOf("toString", read("search-console"))).toBeNull();
+    expect(chatSourceOf("search-console:collected")).toMatchObject({ id: "search-console", name: "Google Search Console", collected: true });
+    expect(chatSourceOf("search-console")).toMatchObject({ collected: false });
+    expect(chatSourceOf(`evil.example${COLLECTED_SUFFIX}`)).toBeNull();
+    // Read both ways in one answer, each is listed once.
+    const exchange: ChatExchange[] = [{ role: "agent", text: "" }];
+    expect(withSource(withSource(exchange, "search-console"), "search-console:collected")[0]!.sources).toEqual(["search-console", "search-console:collected"]);
   });
 
   it("ignores other tools, failed reads, ids no manifest has and odd shapes", () => {
@@ -89,6 +102,20 @@ describe("SourceLine", () => {
     expect(lockup.height).toBeGreaterThanOrEqual(50);
     // The logo has the words in it: no second name beside it.
     expect(out).not.toContain("Google Analytics 4");
+  });
+
+  it("says (collected) after the name for numbers YouGrow collected", () => {
+    const out = line(["search-console:collected"]);
+    // The product's name, as the approved chat writes it.
+    expect(out).toContain(`<span>Search Console ${SOURCE_COPY.collected}</span>`);
+    expect(out).toContain('<a href="https://search.google.com/search-console" target="_blank" rel="noopener noreferrer"');
+    expect(line(["search-console"])).not.toContain(SOURCE_COPY.collected);
+    // Google Analytics keeps its logo alone, as its owner asks; screen readers hear it was collected.
+    const ga = line(["google-analytics:collected"]);
+    expect(ga).toContain('alt="Google Analytics"');
+    expect(ga).toContain(`<span class="sr-only"> ${SOURCE_COPY.collected}</span>`);
+    // Its logo shows once, however its numbers were read.
+    expect(line(["google-analytics", "google-analytics:collected"]).match(/alt="Google Analytics"/g)).toHaveLength(2);
   });
 
   it("shows nothing for ids no manifest has", () => {

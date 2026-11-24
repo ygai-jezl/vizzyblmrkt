@@ -148,6 +148,18 @@ export const KEPT_OFF = {
     addon: null,
     why: "Disconnect would end every connection the same Google account made, for every brand; turn it on after checking that",
   },
+  CONNECTORS_COLLECT_ENABLED: {
+    addon: null,
+    why: "collects each connection's numbers once a day; run infra/lifecycle/setup.sh ttl and deploy the index file without --force first (docs/self-host.md, Upgrading to collected numbers)",
+  },
+  CONNECTORS_SEARCH_TEXT_ENABLED: {
+    addon: "search",
+    why: "Search Console's searches in brand search need the search databases, and do nothing until CONNECTORS_COLLECT_ENABLED is on",
+  },
+  CONNECTOR_SIGNALS_ENABLED: {
+    addon: null,
+    why: "suggestions from collected numbers do nothing until CONNECTORS_COLLECT_ENABLED is on, need the agent action indexes READY and the data_signals time to live, and come only from connections Vizzy may read (docs/self-host.md, Upgrading to collected numbers)",
+  },
   ANALYTICS_BQ_ENABLED: { addon: "bigquery", why: "needs the BigQuery datasets and export extensions" },
   NEXT_PUBLIC_ANALYTICS_BQ_ENABLED: { addon: "bigquery", why: "needs the BigQuery datasets and export extensions" },
 };

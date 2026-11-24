@@ -29,7 +29,11 @@ export type HealthState = (typeof HEALTH_STATES)[number];
  * - shared: an admin started share access, and YouGrow made the connection's Google address;
  * - access_checked: an admin pressed Check access on a shared connection (code ok, or why not);
  * - read: Vizzy read the connection live (kept in the log, not on the record's recent list);
- * - cleanup_failed: deleting a shared connection's Google address failed; the purge tries again.
+ * - cleanup_failed: deleting a shared connection's Google address failed; the purge tries again;
+ * - collected: the daily collect landed days (Connectors 2; in the log only, never on the recent
+ *   list, so an older build that doesn't know the kind can still read the record);
+ * - erased: what came from the connection was erased, after Disconnect, Change property (the old
+ *   site's) or the purge (Connectors 2; in the log only, as collected).
  */
 export const ACTIVITY_KINDS = [
   "connected",
@@ -42,6 +46,8 @@ export const ACTIVITY_KINDS = [
   "shared",
   "access_checked",
   "read",
+  "collected",
+  "erased",
   "disconnected",
   "cleanup_failed",
   "purged",
@@ -96,6 +102,8 @@ export const ConnectionHealthSchema = z.object({
   failures: z.number().int().min(0),
   /** Calls stop until then: after a provider's rate limit or repeated failures. */
   pausedUntil: z.string().nullable(),
+  /** When the failures in a row began; unset once a call works (Connectors 2: "lost access on 19 Nov"). */
+  since: z.string().nullable().optional(),
 });
 export type ConnectionHealth = z.infer<typeof ConnectionHealthSchema>;
 
@@ -108,6 +116,53 @@ export const ActivityEntrySchema = z.object({
   code: z.string().nullable(),
 });
 export type ActivityEntry = z.infer<typeof ActivityEntrySchema>;
+
+/**
+ * The daily collect's state (Connectors 2, ADR-0012), on the connection, written by the collector
+ * under its lease and by the actions that start or end collecting. Optional: an older build's
+ * parse drops it, and a connection without one is collected from the start.
+ * - gen: the generation every snapshot id carries; Change property bumps it.
+ * - nextAt: when the lane looks at it next. lastDay, finalThrough and backfilledTo: the cursor, in
+ *   the provider's zone; filled once its keep window (or the provider's reach, reachFrom) is full.
+ * - leaseId, leaseUntil: a run holding it, for 60 seconds at most.
+ * - holdUntil, holdReason: the collector holding itself back (a quota, low tokens, no data, a day
+ *   of failed tries), never the connection's health, so live reads go on.
+ * - failedSince: when collecting first failed in a row; cleared by a run that works.
+ * - erasePending: collected rows still to erase: "all" after Disconnect, or the old generations
+ *   after Change property. The lane retries it whenever CONNECTORS_ENABLED is on.
+ * - kept: the newest day's busiest grouping, how many rows the provider listed and how many were kept.
+ * - probes: Search Console's probes on its current Pacific day (at most 6).
+ * - strikes: quota answers and failed tries on the provider's current day.
+ * - rolledOn: the day the rolled docs were last written.
+ */
+export const CollectStateSchema = z.object({
+  gen: z.number().int().min(0).default(0),
+  nextAt: z.string().nullable().default(null),
+  lastDay: z.string().nullable().default(null),
+  finalThrough: z.string().nullable().default(null),
+  backfilledTo: z.string().nullable().default(null),
+  filled: z.boolean().default(false),
+  reachFrom: z.string().nullable().default(null),
+  leaseId: z.string().nullable().default(null),
+  leaseUntil: z.string().nullable().default(null),
+  holdUntil: z.string().nullable().default(null),
+  holdReason: z.string().nullable().default(null),
+  failedSince: z.string().nullable().default(null),
+  erasePending: z.union([z.literal("all"), z.array(z.number().int().min(0)).max(100)]).nullable().default(null),
+  kept: z.object({ day: z.string(), by: z.string(), seen: z.number().int().min(0), rows: z.number().int().min(0), more: z.boolean() }).nullable().default(null),
+  probes: z.object({ day: z.string(), count: z.number().int().min(0) }).nullable().default(null),
+  strikes: z.object({ day: z.string(), quota: z.number().int().min(0), errors: z.number().int().min(0) }).nullable().default(null),
+  timeZone: z.string().nullable().default(null),
+  rolledOn: z.string().nullable().default(null),
+  /** The UTC day its numbers were last looked at for suggestions (CONNECTOR_SIGNALS_ENABLED), once a day. */
+  detectedOn: z.string().nullable().default(null),
+});
+export type CollectState = z.infer<typeof CollectStateSchema>;
+
+/** A connection's collect state as it starts: generation 0, due now. */
+export function freshCollect(nextAt: string | null = null, gen = 0): CollectState {
+  return CollectStateSchema.parse({ gen, nextAt });
+}
 
 export const DataConnectionSchema = z.object({
   id: z.string().regex(DATA_CONNECTION_ID_RE),
@@ -144,6 +199,8 @@ export const DataConnectionSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   disconnectedAt: z.string().nullable(),
+  /** The daily collect's state (Connectors 2). */
+  collect: CollectStateSchema.optional(),
 });
 export type DataConnection = z.infer<typeof DataConnectionSchema>;
 

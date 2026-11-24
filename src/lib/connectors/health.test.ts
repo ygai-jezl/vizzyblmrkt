@@ -16,7 +16,7 @@ describe("connection health", () => {
   it("marks a refused token, an account it can't read and a token that won't open as broken", () => {
     for (const code of ["token_refused", "account_refused", "secret_unopenable"] as const) {
       expect(healthAfterFailure(ok, code, NOW)).toEqual({
-        health: { ...ok, state: "broken", lastCheckedAt: NOW.toISOString(), lastErrorCode: code, failures: 1, pausedUntil: null },
+        health: { ...ok, state: "broken", lastCheckedAt: NOW.toISOString(), lastErrorCode: code, failures: 1, pausedUntil: null, since: NOW.toISOString() },
         pausedNow: false,
       });
     }
@@ -37,6 +37,18 @@ describe("connection health", () => {
       h = r.health;
     }
     expect(healthAfterFailure(h, "provider_error", NOW)).toMatchObject({ pausedNow: true, health: { state: "paused", pausedUntil: "2026-11-21T11:00:00.000Z" } });
+  });
+
+  it("dates the failures in a row from the first, and a lost shared address is broken", () => {
+    const first = healthAfterFailure(ok, "share_access_lost", NOW)!.health;
+    expect(first).toMatchObject({ state: "broken", since: NOW.toISOString() });
+    const later = healthAfterFailure(first, "share_access_lost", new Date("2026-11-22T10:00:00.000Z"))!.health;
+    expect(later.since).toBe(NOW.toISOString());
+    expect(healthAfterSuccess(later, NOW)).not.toHaveProperty("since");
+    expect(connectorMessage("share_access_lost", { name: "Google Analytics 4", chat: true, since: "2026-11-19T09:12:00.000Z" })).toBe(
+      "YouGrow lost access to this property on 19 Nov. Add the Google address again with the role shown, then press Check access.",
+    );
+    expect(connectorMessage("share_access_lost")).toBe(CONNECTOR_ERRORS.share_access_lost);
   });
 
   it("leaves health alone for YouGrow's own refusals", () => {

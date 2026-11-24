@@ -3,17 +3,22 @@ import { z } from "zod";
 import { changeDataConnection, createDataConnection, forTenant, isRateLimited, type ActivityWrite, type ChangePlan, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { meaningsOf } from "@/lib/metrics/meanings";
-import { ConnectionGrantSchema, type ActivityKind, type ConnectionGrant, type ConnectionServiceAccount, type DataConnection } from "@/lib/types/dataConnection";
-import { can, grantsCode, normaliseGrants, type ConnectorActor } from "./grants";
-import { healthAfterFailure, healthAfterSuccess, healthyAt, isCallPaused, shownState } from "./health";
+import { ConnectionGrantSchema, freshCollect, type ActivityKind, type ConnectionGrant, type ConnectionServiceAccount, type DataConnection } from "@/lib/types/dataConnection";
+import { eraseConnectionData, pendingWith, type SearchIndexOf } from "./erase";
+import { can, feedsPlanning, grantsCode, normaliseGrants, type ConnectorActor } from "./grants";
+import { searchConsoleManifest } from "./manifests/searchConsole";
+import { stopPlanningFrom } from "./signals/reconcile";
+import { COLLECT_FAILED_DAYS, healthAfterFailure, healthAfterSuccess, healthyAt, isCallPaused, shownState } from "./health";
 import { ACCOUNT_HOOKS, VERIFY_HOOKS } from "./handlers";
 import type { ConnectorAccount, HookFailure } from "./handlers/types";
 import { checkLiveRequest, lagWords, readLive, type LiveAnswer } from "./live";
-import { shareMethod, tokenMethod, type ConnectMethodName, type ConnectorIcon, type ConnectorManifest } from "./manifest";
+import { collectedStream, keepsWords, shareMethod, tokenMethod, type ConnectMethodName, type ConnectorIcon, type ConnectorManifest } from "./manifest";
+import { addDays, daysIn, laterDay, todayIn } from "./period";
+import { oldestAlive } from "./snapshots";
 import { connectorMessage, tokenRefusedMessage, type ConnectorErrorCode } from "./messages";
 import { getConnector, knownConnector, listConnectors, readyMethods } from "./registry";
 import type { ConnectorFetchDeps } from "./safeFetch";
-import { isConnectorsChatEnabled, isGoogleRevokeEnabled } from "./flags";
+import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isGoogleRevokeEnabled } from "./flags";
 import { revokeGoogleToken } from "./google";
 import { createShareAccount, deleteShareAccount, forgetShareTokens, identitiesProject, projectOfShareAccount, shareAccessToken, type ShareDeps, type ShareResult } from "./shareAccess";
 import { freshAccessToken, REFRESH_SLOT, type KeeperDeps } from "./tokenKeeper";
@@ -30,6 +35,8 @@ import { isVaultConfigured, openConnectorSecret, sealConnectorSecret, VaultOpenE
 export interface ServiceDeps extends ConnectorFetchDeps, KeeperDeps, ShareDeps {
   db?: FirestoreLike;
   newId?: () => string;
+  /** The brand's search index, for erasing a connection's searches (tests pass an in-memory one). */
+  searchIndex?: SearchIndexOf;
 }
 
 export type ServiceResult<T> = { ok: true; status: 200 | 201; value: T } | { ok: false; status: 400 | 403 | 404 | 409 | 429 | 502 | 503; error: string; message?: string };
@@ -50,7 +57,7 @@ function refuse(status: 400 | 403 | 404 | 409 | 429 | 502 | 503, error: string, 
   return { ok: false, status, error, ...(message ? { message } : {}) };
 }
 
-const CONFLICTS: ReadonlySet<ConnectorErrorCode> = new Set(["paused", "secret_unopenable", "disconnected", "signin_refused", "account_needed", "share_not_visible", "share_pending", "share_limit"]);
+const CONFLICTS: ReadonlySet<ConnectorErrorCode> = new Set(["paused", "secret_unopenable", "disconnected", "signin_refused", "account_needed", "share_not_visible", "share_access_lost", "share_pending", "share_limit"]);
 const UNCONFIGURED: ReadonlySet<ConnectorErrorCode> = new Set(["vault_unconfigured", "signin_unconfigured", "share_unconfigured", "share_quota"]);
 
 /**
@@ -90,14 +97,22 @@ const SHARE_CODES: Partial<Record<ConnectorErrorCode, ConnectorErrorCode>> = {
   signin_unconfigured: "share_unconfigured",
 };
 
-export function codeFor(method: DataConnection["method"], code: ConnectorErrorCode): ConnectorErrorCode {
-  return method === "share_access" ? (SHARE_CODES[code] ?? code) : code;
+/**
+ * A failure in the connection's own words. A shared connection that had read its property before
+ * (a property picked, and a call that worked) and now can't see it lost its access: its address
+ * was taken off the property, which the daily collect notices the next day. Before it ever worked,
+ * it can't see the property yet.
+ */
+export function codeFor(conn: Pick<DataConnection, "method" | "account" | "health">, code: ConnectorErrorCode): ConnectorErrorCode {
+  if (conn.method !== "share_access") return code;
+  const mapped = SHARE_CODES[code] ?? code;
+  return mapped === "share_not_visible" && conn.account && conn.health.lastOkAt ? "share_access_lost" : mapped;
 }
 
-function forMethod<T extends { ok: boolean }>(method: DataConnection["method"], r: T): T {
-  if (r.ok || method !== "share_access") return r;
+function forMethod<T extends { ok: boolean }>(conn: Pick<DataConnection, "method" | "account" | "health">, r: T): T {
+  if (r.ok || conn.method !== "share_access") return r;
   const failed = r as T & { code: ConnectorErrorCode };
-  return { ...failed, code: codeFor(method, failed.code) };
+  return { ...failed, code: codeFor(conn, failed.code) };
 }
 
 const nowOf = (deps: ServiceDeps) => deps.now ?? new Date();
@@ -118,7 +133,16 @@ export interface ConnectorListing {
   /** The sign-in methods this copy can use now (Sign in with Google needs its client). */
   ready: ConnectMethodName[];
   shares: ConnectorManifest["shares"];
-  produces: Array<{ stream: string; description: string; shape: string; measures: Array<{ key: string; name: string; definition: string; caveat?: string }>; lag: string; liveBy: string[] }>;
+  produces: Array<{
+    stream: string;
+    description: string;
+    shape: string;
+    measures: Array<{ key: string; name: string; definition: string; caveat?: string }>;
+    lag: string;
+    liveBy: string[];
+    /** What is kept of it each day and for how long, while collected numbers are on; else null. */
+    collect: string | null;
+  }>;
   uses: ConnectorManifest["uses"];
   disconnect: string;
 }
@@ -142,9 +166,76 @@ export function listingOf(m: ConnectorManifest): ConnectorListing {
       measures: Object.entries(meaningsOf(p.measures)).map(([key, mm]) => ({ key, name: mm!.name, definition: mm!.definition, ...(mm!.caveat ? { caveat: mm!.caveat } : {}) })),
       lag: lagWords(p.lagDays),
       liveBy: p.liveBy,
+      collect: p.collect && isConnectorsCollectEnabled() ? p.collect.where : null,
     })),
     uses: m.uses,
     disconnect: m.disconnect,
+  };
+}
+
+/**
+ * How far a connection's numbers are collected (CONNECTORS_COLLECT_ENABLED), for its admins: the
+ * days kept, in the provider's zone, how final they are, what each day keeps, and whether a day is
+ * late or collecting is failing or held.
+ */
+export interface CollectView {
+  lastDay: string | null;
+  finalThrough: string | null;
+  /** The oldest day kept now: never one past its time to live (null when none is left). */
+  keptFrom: string | null;
+  days: number;
+  keepDays: number;
+  filled: boolean;
+  timeZone: string | null;
+  /** When a day arrives, from the manifest. */
+  lag: string;
+  /** What each kept day holds. */
+  keeps: string;
+  /** The newest day's busiest grouping: how many rows the provider listed and how many were kept. */
+  kept: { day: string; by: string; seen: number; rows: number; more: boolean } | null;
+  /** A day the provider hasn't finished yet though it usually has by now (Search Console). */
+  waitingFor: string | null;
+  /** Collecting has failed every day since then, for COLLECT_FAILED_DAYS or more: it counts as stopped. */
+  failedSince: string | null;
+  /** Collecting failed then, less than COLLECT_FAILED_DAYS ago: it is retried on its own, only noted. */
+  failedOn: string | null;
+  holdReason: string | null;
+  /** Its numbers can suggest articles (pages or searches), when members and Vizzy may read it. */
+  feedsPlanning: boolean;
+}
+
+/** A connection's collect state as its admins see it, or null when its connector collects nothing. */
+export function collectViewOf(conn: DataConnection, now: Date): CollectView | null {
+  const m = knownConnector(conn.connectorId);
+  const stream = m ? collectedStream(m) : null;
+  if (!stream) return null;
+  const c = conn.collect ?? freshCollect();
+  const keepDays = stream.collect.keepDays;
+  // As explicit reads do: never a day already past its time to live (a connection that stopped
+  // collecting weeks ago keeps fewer days, and none once its last day is gone too).
+  const oldest = c.lastDay && c.backfilledTo ? laterDay(laterDay(c.backfilledTo, addDays(c.lastDay, -(keepDays - 1))), oldestAlive(now, keepDays)) : null;
+  const keptFrom = oldest && c.lastDay && oldest <= c.lastDay ? oldest : null;
+  const zone = c.timeZone ?? stream.timeZone ?? null;
+  const today = zone ? todayIn(now, zone) : null;
+  const waitingFor = stream.collect.waitsForFinal && c.filled && c.lastDay && today && daysIn(c.lastDay, today) - 1 >= 3 ? addDays(c.lastDay, 1) : null;
+  // One rule with Review: stopped only after COLLECT_FAILED_DAYS of failing; before that, a note.
+  const failedLong = c.failedSince !== null && now.getTime() - Date.parse(c.failedSince) >= COLLECT_FAILED_DAYS * 86_400_000;
+  return {
+    lastDay: c.lastDay,
+    finalThrough: c.finalThrough,
+    keptFrom,
+    days: keptFrom && c.lastDay ? daysIn(keptFrom, c.lastDay) : 0,
+    keepDays,
+    filled: c.filled,
+    timeZone: zone,
+    lag: stream.collect.lag,
+    keeps: keepsWords(stream.collect),
+    kept: c.kept,
+    waitingFor,
+    failedSince: failedLong ? c.failedSince : null,
+    failedOn: c.failedSince && !failedLong ? c.failedSince : null,
+    holdReason: c.holdUntil && Date.parse(c.holdUntil) > now.getTime() ? c.holdReason : c.holdReason === "no_data" ? "no_data" : null,
+    feedsPlanning: stream.collect.by.some((b) => b !== "day"),
   };
 }
 
@@ -159,10 +250,13 @@ export interface ConnectionView {
   connectorOn: boolean;
   label: string;
   status: DataConnection["status"];
-  health: { state: ReturnType<typeof shownState>; lastOkAt: string | null; lastCheckedAt: string | null; message: string | null; pausedUntil: string | null };
+  /** `since`: when the failures in a row began, or null. */
+  health: { state: ReturnType<typeof shownState>; lastOkAt: string | null; lastCheckedAt: string | null; message: string | null; pausedUntil: string | null; since?: string | null };
   /** True after a sign in until an admin picks the site or property it reads. */
   needsAccount: boolean;
   canReadLive: boolean;
+  /** The last day collected, for anyone who may read it, while collected numbers are on; else null. */
+  collectedTo: string | null;
   /** Admins only. */
   details?: {
     method: DataConnection["method"];
@@ -179,6 +273,8 @@ export interface ConnectionView {
     createdAt: string;
     updatedAt: string;
     disconnectedAt: string | null;
+    /** How far its numbers are collected, while collected numbers are on; null otherwise. */
+    collect: CollectView | null;
   };
 }
 
@@ -198,12 +294,16 @@ export function viewOf(conn: DataConnection, actor: ConnectorActor, now: Date): 
       state: shownState(conn, now),
       lastOkAt: conn.health.lastOkAt,
       lastCheckedAt: conn.health.lastCheckedAt,
-      message: conn.health.lastErrorCode ? connectorMessage(conn.health.lastErrorCode, aboutOf(conn.connectorId)) : null,
+      message: conn.health.lastErrorCode ? connectorMessage(conn.health.lastErrorCode, { ...aboutOf(conn.connectorId), since: conn.health.since ?? null }) : null,
       pausedUntil: conn.health.pausedUntil,
+      since: conn.health.since ?? null,
     },
     needsAccount: conn.status === "connected" && !conn.account,
     canReadLive: conn.status === "connected" && !!conn.account && can(actor, "read_live", conn.grants),
+    collectedTo: null,
   };
+  const collect = isConnectorsCollectEnabled() && conn.status === "connected" ? collectViewOf(conn, now) : null;
+  if (collect && view.canReadLive) view.collectedTo = collect.lastDay;
   if (can(actor, "see_details", conn.grants)) {
     view.details = {
       method: conn.method,
@@ -218,6 +318,7 @@ export function viewOf(conn: DataConnection, actor: ConnectorActor, now: Date): 
       createdAt: conn.createdAt,
       updatedAt: conn.updatedAt,
       disconnectedAt: conn.disconnectedAt,
+      collect,
     };
   }
   return view;
@@ -340,6 +441,8 @@ export async function connect(ctx: TenantContext, actor: ConnectorActor, connect
       createdAt: at,
       updatedAt: at,
       disconnectedAt: null,
+      // Collected numbers start on the lane's next run (CONNECTORS_COLLECT_ENABLED).
+      collect: freshCollect(at),
     },
     [{ kind: "connected", by: byOf(actor), at }],
     deps.db,
@@ -406,8 +509,21 @@ export async function checkToken(ctx: TenantContext, actor: ConnectorActor, conn
 
 // --- Calls that use the stored secret ---------------------------------------------------------
 
-/** The activity and health patch for a call's outcome. */
-function outcomePlan(
+/** Who a system job acts as: its activity rows say "system". */
+export const SYSTEM: ConnectorActor = { kind: "human", uid: "", role: undefined };
+
+/**
+ * Activity kinds kept in the log only, off the record's recent list: Vizzy's reads and the daily
+ * collect's rows (the Connected view shows people's changes). Kinds a newer build adds go here too,
+ * because an older build's parse throws on a kind it doesn't know on the recent list.
+ */
+const LOG_ONLY: ReadonlySet<ActivityWrite["kind"]> = new Set(["read", "collected", "erased"]);
+
+/**
+ * The activity and health patch for a call's outcome: a live read's, a check's, or the daily
+ * collect's (actor SYSTEM), so collect failures land on health exactly as live read failures do.
+ */
+export function outcomePlan(
   cur: DataConnection,
   outcome: { ok: true } | HookFailure,
   actor: ConnectorActor,
@@ -423,7 +539,7 @@ function outcomePlan(
     // with what was asked and the days read, never a number or a page.
     return {
       patch: { health: healthAfterSuccess(cur.health, now) },
-      activity: onSuccess ? [{ kind: onSuccess, by: byOf(actor), at, ...(onSuccess === "read" ? { recent: false, ...(read ? { read } : {}) } : {}) }] : [],
+      activity: onSuccess ? [{ kind: onSuccess, by: byOf(actor), at, ...(LOG_ONLY.has(onSuccess) ? { recent: false, ...(read ? { read } : {}) } : {}) }] : [],
     };
   }
   const next = healthAfterFailure(cur.health, outcome.code, now, outcome.retryAfterSec);
@@ -434,6 +550,36 @@ function outcomePlan(
 }
 
 type Usable = { ok: true; conn: DataConnection; manifest: ConnectorManifest; token: string } | { ok: false; result: ServiceResult<never> };
+
+/** A connection's token, or why not; `recorded` when the token keeper already wrote the failure on the connection. */
+export type TokenResult = { ok: true; token: string } | { ok: false; code: ConnectorErrorCode; retryAfterSec: number | null; recorded: boolean };
+
+/**
+ * The token for a call on a connection, whoever asks: a shared connection's minted for its address
+ * (300 seconds, kept only in this server's memory), a Google sign in's kept fresh by the token
+ * keeper under its lease, a pasted token opened from the vault. No grant is checked here: the
+ * caller checks its own (usable for people and Vizzy; none for the daily collect, a system job).
+ * Nothing is written, except by the token keeper when Google ended a sign in.
+ */
+export async function connectionToken(ctx: TenantContext, conn: DataConnection, manifest: ConnectorManifest, by: string, deps: ServiceDeps = {}): Promise<TokenResult> {
+  if (conn.method === "share_access") {
+    const kept = await shareToken(conn, manifest, deps);
+    return kept.ok ? { ok: true, token: kept.token } : { ok: false, code: kept.code, retryAfterSec: kept.retryAfterSec, recorded: false };
+  }
+  if (conn.method === "oauth_pkce") {
+    const kept = await freshAccessToken(ctx, conn, by, deps);
+    return kept.ok ? { ok: true, token: kept.token } : { ok: false, code: kept.code, retryAfterSec: kept.retryAfterSec, recorded: Boolean(kept.recorded) };
+  }
+  const method = tokenMethod(manifest);
+  const sealed = method ? conn.secrets[method.auth.field] : undefined;
+  try {
+    if (!sealed) throw new VaultOpenError("unopenable");
+    return { ok: true, token: openConnectorSecret(ctx.tenantId, conn.id, method!.auth.field, sealed) };
+  } catch (err) {
+    if (!(err instanceof VaultOpenError)) throw err;
+    return { ok: false, code: "secret_unopenable", retryAfterSec: null, recorded: false };
+  }
+}
 
 /** A token for a shared connection's address, with the connector's one read scope. */
 async function shareToken(conn: DataConnection, manifest: ConnectorManifest, deps: ServiceDeps): Promise<ShareResult<{ token: string }>> {
@@ -459,34 +605,12 @@ async function usable(ctx: TenantContext, actor: ConnectorActor, id: string, act
   const now = nowOf(deps);
   if (isCallPaused(conn, now)) return { ok: false, result: providerRefusal("paused") };
   if (action === "read_live" && !conn.account) return { ok: false, result: providerRefusal("account_needed") };
-  if (conn.method === "share_access") {
-    // A shared address: a 300 second token minted for it, kept only in this server's memory.
-    const kept = await shareToken(conn, manifest, deps);
-    if (kept.ok) return { ok: true, conn, manifest, token: kept.token };
+  const kept = await connectionToken(ctx, conn, manifest, byOf(actor), deps);
+  if (kept.ok) return { ok: true, conn, manifest, token: kept.token };
+  if (!kept.recorded) {
     await changeDataConnection(ctx, conn.id, (cur) => outcomePlan(cur, { ok: false, code: kept.code, retryAfterSec: kept.retryAfterSec }, actor, now, null), deps.db);
-    return { ok: false, result: connectionRefusal(conn, kept.code) };
   }
-  if (conn.method === "oauth_pkce") {
-    // A Google sign in: the token keeper refreshes the access token under its lease when it is due.
-    const kept = await freshAccessToken(ctx, conn, byOf(actor), deps);
-    if (kept.ok) return { ok: true, conn, manifest, token: kept.token };
-    if (!kept.recorded) {
-      await changeDataConnection(ctx, conn.id, (cur) => outcomePlan(cur, { ok: false, code: kept.code, retryAfterSec: kept.retryAfterSec }, actor, now, null), deps.db);
-    }
-    return { ok: false, result: connectionRefusal(conn, kept.code) };
-  }
-  const method = tokenMethod(manifest);
-  const sealed = method ? conn.secrets[method.auth.field] : undefined;
-  let token: string;
-  try {
-    if (!sealed) throw new VaultOpenError("unopenable");
-    token = openConnectorSecret(ctx.tenantId, conn.id, method!.auth.field, sealed);
-  } catch (err) {
-    if (!(err instanceof VaultOpenError)) throw err;
-    await changeDataConnection(ctx, conn.id, (cur) => outcomePlan(cur, { ok: false, code: "secret_unopenable", retryAfterSec: null }, actor, now, null), deps.db);
-    return { ok: false, result: providerRefusal("secret_unopenable") };
-  }
-  return { ok: true, conn, manifest, token };
+  return { ok: false, result: kept.code === "secret_unopenable" ? providerRefusal("secret_unopenable") : connectionRefusal(conn, kept.code) };
 }
 
 export interface CheckOutcome {
@@ -501,7 +625,7 @@ export async function check(ctx: TenantContext, actor: ConnectorActor, id: strin
   const now = nowOf(deps);
   const verify = VERIFY_HOOKS[u.manifest.verify.hook];
   if (!verify) return refuse(503, "connector_unavailable");
-  const outcome = forMethod(u.conn.method, await verify({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token }, deps));
+  const outcome = forMethod(u.conn, await verify({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token }, deps));
   if (!outcome.ok && outcome.code === "busy") return providerRefusal("busy");
   const r = await changeDataConnection(ctx, id, (cur) => outcomePlan(cur, outcome, actor, now, "verified"), deps.db);
   const conn = r.ok ? r.connection : r.why === "unchanged" ? r.connection : u.conn;
@@ -533,7 +657,7 @@ export async function readLiveFor(
   const checked = checkLiveRequest(u.manifest, rawQuery, now);
   if (!checked.ok) return refuse(400, checked.error);
   const q = checked.query;
-  const r = forMethod(u.conn.method, await readLive({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token, query: q }, deps));
+  const r = forMethod(u.conn, await readLive({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token, query: q }, deps));
   if (!r.ok && r.code === "busy") return providerRefusal("busy");
   const read = r.ok
     ? { stream: q.stream, by: q.by, from: r.answer.period.from, to: r.answer.period.to, timeZone: r.answer.period.timeZone, limit: q.limit, period: q.period ?? null, pageFilter: q.page !== undefined }
@@ -564,7 +688,7 @@ export async function listAccounts(ctx: TenantContext, actor: ConnectorActor, id
   // A token connection picks its account before it is saved (checkToken) and never changes it here.
   if (!hook || u.conn.method === "token_fields") return refuse(400, "method_not_supported");
   const now = nowOf(deps);
-  const r = forMethod(u.conn.method, await hook({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token }, deps));
+  const r = forMethod(u.conn, await hook({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token }, deps));
   if (!r.ok) {
     if (r.code !== "busy") await changeDataConnection(ctx, id, (cur) => outcomePlan(cur, r, actor, now, null), deps.db);
     return connectionRefusal(u.conn, r.code);
@@ -595,7 +719,7 @@ export async function pickAccount(ctx: TenantContext, actor: ConnectorActor, id:
   const checked = await verify({ manifest: u.manifest, connection: u.conn, account, token: u.token }, deps);
   if (!checked.ok) {
     if (checked.code === "account_refused") return refuse(400, "account_refused", "That site or property isn't one this connection can read. Pick one from the list.");
-    return connectionRefusal(u.conn, codeFor(u.conn.method, checked.code));
+    return connectionRefusal(u.conn, codeFor(u.conn, checked.code));
   }
   const existing = await forTenant(ctx, deps.db).dataConnections.find({
     where: [
@@ -608,18 +732,50 @@ export async function pickAccount(ctx: TenantContext, actor: ConnectorActor, id:
   if (existing.some((c) => c.id !== id)) return refuse(409, "already_connected", "Another connection reads this already. Check or disconnect it there.");
   const now = nowOf(deps);
   const at = now.toISOString();
+  // Change property (a picked one replaced): take the collect lease, bump the generation and mark
+  // the old one for erasing, in this one change, so the new site's numbers never share an id with
+  // the old site's; then erase the old generation and start the new 90 days. A first pick starts
+  // collecting on the lane's next run.
+  let leased = false;
+  let erase: number[] | null = null;
+  const changeLease = randomBytes(12).toString("hex");
   const r = await changeDataConnection(
     ctx,
     id,
     (cur) => {
+      leased = false;
+      erase = null;
       if (cur.status !== "connected" || cur.account === account) return null;
-      return { patch: { account, health: healthAfterSuccess(cur.health, now) }, activity: [{ kind: "account_picked", by: byOf(actor), at }] };
+      const c = cur.collect ?? freshCollect();
+      if (cur.account && c.leaseId && c.leaseUntil && Date.parse(c.leaseUntil) > now.getTime()) {
+        leased = true;
+        return null;
+      }
+      const collect = cur.account
+        ? { ...freshCollect(at, c.gen + 1), erasePending: pendingWith(c.erasePending, [c.gen]), leaseId: changeLease, leaseUntil: new Date(now.getTime() + CHANGE_LEASE_MS).toISOString() }
+        : { ...c, nextAt: at };
+      if (cur.account) erase = [c.gen];
+      return { patch: { account, health: healthAfterSuccess(cur.health, now), collect }, activity: [{ kind: "account_picked", by: byOf(actor), at }] };
     },
     deps.db,
   );
   if (!r.ok && r.why === "not_found") return refuse(404, "not_found");
-  return { ok: true, status: 200, value: viewOf(r.ok ? r.connection : r.connection, actor, now) };
+  if (leased) return providerRefusal("busy");
+  const old = erase as number[] | null;
+  if (r.ok && old) {
+    try {
+      await eraseConnectionData(ctx, id, r.connection.collect?.erasePending ?? old, { by: byOf(actor), now, db: deps.db, searchIndex: deps.searchIndex });
+    } catch (err) {
+      console.warn(`[connectors] erase after Change property failed for ${id}; the lane tries again:`, err instanceof Error ? err.message.slice(0, 200) : "error");
+    }
+    await changeDataConnection(ctx, id, (cur) => (cur.collect?.leaseId === changeLease ? { patch: { collect: { ...cur.collect, leaseId: null, leaseUntil: null, nextAt: at } }, activity: [] } : null), deps.db);
+  }
+  const after = r.ok && old ? await load(ctx, id, deps) : null;
+  return { ok: true, status: 200, value: viewOf(after ?? (r.ok ? r.connection : r.connection), actor, now) };
 }
+
+/** How long Change property holds the collect lease while it erases the old site's numbers. */
+const CHANGE_LEASE_MS = 60_000;
 
 // --- Share access (Connectors 1c) --------------------------------------------------------------
 
@@ -772,11 +928,11 @@ export async function checkAccess(ctx: TenantContext, actor: ConnectorActor, id:
   const verify = VERIFY_HOOKS[u.manifest.verify.hook];
   if (!hook || !verify) return refuse(503, "connector_unavailable");
   const input = { manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token };
-  const listed = forMethod(u.conn.method, await hook(input, deps));
+  const listed = forMethod(u.conn, await hook(input, deps));
   if (!listed.ok && listed.code === "busy") return providerRefusal("busy");
   let outcome: { ok: true } | HookFailure = listed.ok ? { ok: true } : listed;
-  if (listed.ok && !listed.accounts.length) outcome = { ok: false, code: "share_not_visible", retryAfterSec: null };
-  else if (listed.ok && u.conn.account) outcome = forMethod(u.conn.method, await verify(input, deps));
+  if (listed.ok && !listed.accounts.length) outcome = { ok: false, code: codeFor(u.conn, "share_not_visible"), retryAfterSec: null };
+  else if (listed.ok && u.conn.account) outcome = forMethod(u.conn, await verify(input, deps));
   if (!outcome.ok && outcome.code === "busy") return providerRefusal("busy");
 
   const now = nowOf(deps);
@@ -787,14 +943,15 @@ export async function checkAccess(ctx: TenantContext, actor: ConnectorActor, id:
     (cur) => {
       if (cur.status !== "connected") return null;
       const activity: ActivityWrite[] = [{ kind: "access_checked", by: byOf(actor), at, code: outcome.ok ? "ok" : outcome.code }];
-      if (outcome.ok) return { patch: { health: healthAfterSuccess(cur.health, now) }, activity };
+      // Access works again: collecting goes on from the lane's next run.
+      if (outcome.ok) return { patch: { health: healthAfterSuccess(cur.health, now), ...(cur.account ? { collect: { ...(cur.collect ?? freshCollect()), nextAt: at } } : {}) }, activity };
       const next = healthAfterFailure(cur.health, outcome.code, now, outcome.retryAfterSec);
       if (next?.pausedNow) activity.push({ kind: "paused", by: "system", at, code: outcome.code });
       return { patch: next ? { health: next.health } : {}, activity };
     },
     deps.db,
   );
-  if (!outcome.ok && outcome.code !== "share_not_visible") return connectionRefusal(u.conn, outcome.code);
+  if (!outcome.ok && outcome.code !== "share_not_visible" && outcome.code !== "share_access_lost") return connectionRefusal(u.conn, outcome.code);
   const saved = r.ok ? r.connection : r.why === "unchanged" ? r.connection : u.conn;
   return {
     ok: true,
@@ -873,22 +1030,39 @@ export async function setPaused(ctx: TenantContext, actor: ConnectorActor, id: s
 
 export const GrantsBodySchema = z.object({ grants: z.array(ConnectionGrantSchema).max(10) }).strict();
 
-/** Set who beyond admins may read a connection live. Admins only. */
+/**
+ * Set who beyond admins may read a connection live. Admins only. A Search Console connection that
+ * stops letting both members and Vizzy read it stops feeding planning at once (pick 6): its open
+ * suggestions are declined, the questions it proposed that nobody decided are withdrawn and Next up
+ * picks that weighed it are taken off, whatever any switch says; the lane's housekeeping catches a
+ * failed try.
+ */
 export async function setGrants(ctx: TenantContext, actor: ConnectorActor, id: string, body: unknown, deps: ServiceDeps = {}): Promise<ServiceResult<ConnectionView>> {
   const parsed = GrantsBodySchema.safeParse(body);
   if (!parsed.success) return refuse(400, "invalid_input");
   const grants = normaliseGrants(parsed.data.grants);
-  return manage(
+  let stopped = false;
+  const r = await manage(
     ctx,
     actor,
     id,
     "change_grants",
     (cur, at) => {
+      stopped = false;
       if (cur.status !== "connected" || grantsCode(cur.grants) === grantsCode(grants)) return null;
+      stopped = cur.connectorId === searchConsoleManifest.id && feedsPlanning(cur.grants) && !feedsPlanning(grants);
       return { patch: { grants }, activity: [{ kind: "grants_changed", by: byOf(actor), at, code: grantsCode(grants) }] };
     },
     deps,
   );
+  if (r.ok && stopped) {
+    try {
+      await stopPlanningFrom(ctx, id, { db: deps.db, now: nowOf(deps) });
+    } catch (err) {
+      console.warn(`[connectors] withdrawing what ${id} fed planning failed; the lane tries again:`, err instanceof Error ? err.message.slice(0, 200) : "error");
+    }
+  }
+  return r;
 }
 
 export interface DisconnectOutcome {
@@ -927,6 +1101,7 @@ export const REVOKED_MESSAGE =
 export async function disconnect(ctx: TenantContext, actor: ConnectorActor, id: string, deps: ServiceDeps = {}): Promise<ServiceResult<DisconnectOutcome>> {
   let signIn: SealedSecret | null = null;
   let address: ConnectionServiceAccount | null = null;
+  let changed = false;
   const r = await manage(
     ctx,
     actor,
@@ -935,14 +1110,26 @@ export async function disconnect(ctx: TenantContext, actor: ConnectorActor, id: 
     (cur, at) => {
       signIn = null;
       address = null;
+      changed = false;
       if (cur.status === "disconnected") return null;
+      changed = true;
       signIn = cur.method === "oauth_pkce" ? (cur.secrets[REFRESH_SLOT] ?? null) : null;
       address = cur.method === "share_access" && cur.serviceAccount && !cur.serviceAccount.deletedAt ? cur.serviceAccount : null;
-      return { patch: { secrets: {}, status: "disconnected", disconnectedAt: at, pausedAt: null, pausedBy: null }, activity: [{ kind: "disconnected", by: byOf(actor), at }] };
+      // What it collected is marked for erasing in the same change, so a failed erase is retried.
+      const collect = { ...(cur.collect ?? freshCollect()), erasePending: "all" as const, nextAt: null, leaseId: null, leaseUntil: null };
+      return { patch: { secrets: {}, status: "disconnected", disconnectedAt: at, pausedAt: null, pausedBy: null, collect }, activity: [{ kind: "disconnected", by: byOf(actor), at }] };
     },
     deps,
   );
   if (!r.ok) return r;
+  if (changed) {
+    // Whatever any collect switch says: Disconnect deletes what YouGrow stored for it.
+    try {
+      await eraseConnectionData(ctx, id, "all", { by: byOf(actor), now: nowOf(deps), db: deps.db, searchIndex: deps.searchIndex });
+    } catch (err) {
+      console.warn(`[connectors] erase after Disconnect failed for ${id}; the lane tries again:`, err instanceof Error ? err.message.slice(0, 200) : "error");
+    }
+  }
   let revoked = false;
   const sealed = signIn as SealedSecret | null;
   if (sealed && isGoogleRevokeEnabled()) {

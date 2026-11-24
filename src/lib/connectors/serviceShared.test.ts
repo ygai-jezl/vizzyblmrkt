@@ -10,6 +10,14 @@ import { ADDRESS_DELETED_MESSAGE, ADDRESS_KEPT_MESSAGE, check, checkAccess, disc
 import { CONNECTOR_ERRORS } from "./messages";
 import { __resetShareTokens, brandTag } from "./shareAccess";
 
+// The search databases: an in-memory index, since every erase removes a Search Console
+// connection's searches from brand search whatever SEARCH_INDEX_ENABLED says (ADR-0013).
+vi.mock("@/lib/tenant/searchIndex", async () => {
+  const { MemorySearchIndex } = await import("@/lib/search/memoryStore");
+  const index = new MemorySearchIndex();
+  return { searchStoreFor: (ctx: { tenantId: string }) => index.storeFor(ctx) };
+});
+
 // Search Console by share access, through the service: a Google address made per connection,
 // Check access, the picker, a live read with a minted token, and Disconnect deleting the address.
 // Google is never called: one stub transport plays IAM, IAM Credentials and Search Console.
@@ -297,12 +305,20 @@ describe("Check access, picking and reading", () => {
 
   it("tells a property no longer shared from a provider error, in shared access words", async () => {
     const id = await shared();
+    // Before it ever worked: it can't see the property yet.
+    sitesAnswer = () => answer({ siteEntry: [] });
+    expect(await checkAccess(A, admin, id, deps())).toMatchObject({ ok: true, value: { visible: false, message: CONNECTOR_ERRORS.share_not_visible } });
+    sitesAnswer = () => answer(SITES);
     await checkAccess(A, admin, id, deps());
     await pickAccount(A, admin, id, { account: "sc-domain:example.com" }, deps());
+    // After it worked: YouGrow lost access, dated from the first failure (pick 24).
     sitesAnswer = () => answer({ siteEntry: [] });
     expect(await checkAccess(A, admin, id, deps())).toMatchObject({ ok: true, value: { visible: false } });
     sitesAnswer = () => answer({ error: { status: "PERMISSION_DENIED" } }, 403);
-    expect(await check(A, admin, id, deps())).toMatchObject({ ok: true, value: { check: { ok: false, code: "share_not_visible" } } });
+    expect(await check(A, admin, id, deps())).toMatchObject({ ok: true, value: { check: { ok: false, code: "share_access_lost" } } });
+    expect((await load(id)).health).toMatchObject({ state: "broken", lastErrorCode: "share_access_lost", since: NOW.toISOString() });
+    const view = (await listForActor(A, admin, deps())).ok ? (await listForActor(A, admin, deps()) as { value: { connections: Array<{ health: { message: string | null } }> } }).value.connections[0]! : null;
+    expect(view?.health.message).toBe("YouGrow lost access to this property on 21 Nov. Add the Google address again with the role shown, then press Check access.");
     sitesAnswer = () => answer({}, 503);
     expect(await checkAccess(A, admin, id, deps())).toMatchObject({ ok: false, status: 502, error: "provider_error" });
   });
@@ -346,7 +362,7 @@ describe("disconnecting a shared connection", () => {
     const conn = await load(made.value.connection.id);
     expect(conn.status).toBe("disconnected");
     expect(conn.serviceAccount?.deletedAt).toBeNull();
-    expect(activity()).toEqual(["shared", "disconnected", "cleanup_failed:provider_error"]);
+    expect(activity().sort()).toEqual(["cleanup_failed:provider_error", "disconnected", "erased:all", "shared"]);
     expect(accounts.size).toBe(1);
   });
 });
@@ -368,6 +384,7 @@ describe("query shape", () => {
     await disconnect(A, admin, id, deps());
     await purgeConnections(A, { apply: true, by: "ops", addressesOnly: true, db, transport, appToken: async () => "made-up-app-token", log: () => {} });
     expect(ops.length).toBeGreaterThan(0);
-    for (const op of ops) expect(op, op).toMatch(/^where \w+ ==$/);
+    // Equality, in document id order at most (open suggestions are paged by id): no composite index.
+    for (const op of ops) expect(op, op).toMatch(/^(where \w+ ==|orderBy __name__|startAfter)$/);
   });
 });

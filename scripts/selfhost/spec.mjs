@@ -162,6 +162,19 @@ export const KEPT_OFF = {
   },
   ANALYTICS_BQ_ENABLED: { addon: "bigquery", why: "needs the BigQuery datasets and export extensions" },
   NEXT_PUBLIC_ANALYTICS_BQ_ENABLED: { addon: "bigquery", why: "needs the BigQuery datasets and export extensions" },
+  PASSWORD_SIGNIN_ENABLED: {
+    addon: "password",
+    why: "needs Identity Platform's Email/Password provider set up safely first (addon:password), and an email provider for the codes (addon:email)",
+  },
+  PASSWORD_CLEANUP_DELETE_ENABLED: {
+    addon: null,
+    why: "deletes password accounts still unconfirmed after 7 days; read the would_delete lines in your logs for a while first (docs/self-host.md, Email and password sign-in)",
+  },
+  SELF_SERVE_SIGNUP_ENABLED: { addon: null, why: "does nothing yet: it waits for self-serve brand creation" },
+  TRUSTED_CLIENT_IP_ENABLED: {
+    addon: null,
+    why: "measure the X-Forwarded-For shape your copy receives first (docs/self-host.md, Email and password sign-in)",
+  },
 };
 
 /**
@@ -209,4 +222,304 @@ export function switchesForAddon(addon) {
   return Object.entries(KEPT_OFF)
     .filter(([, k]) => k.addon === addon || (social && k.addon === "x"))
     .map(([name]) => name);
+}
+
+// ---------------------------------------------------------------------------
+// Email and password sign-in (addon:password)
+// ---------------------------------------------------------------------------
+
+/**
+ * The shortest password Identity Platform accepts, enforced by its password policy (it allows
+ * 6 to 30). Must match PASSWORD_MIN_LENGTH in src/lib/auth/messages.ts, which the screens say.
+ */
+export const PASSWORD_MIN_LENGTH = 12;
+
+/** Where Firebase's email links (password reset) land in the app: <app url>/auth/reset. */
+export const RESET_PATH = "/auth/reset";
+
+/** The APIs addon:password needs beyond the core ones: bot protection and the two alerts. */
+export const PASSWORD_APIS = [
+  { id: "recaptchaenterprise.googleapis.com", why: "reCAPTCHA Enterprise, for bot protection" },
+  { id: "logging.googleapis.com", why: "Cloud Logging, for the log metrics" },
+  { id: "monitoring.googleapis.com", why: "Cloud Monitoring, for the alerts" },
+];
+
+/**
+ * One way a project's Identity Toolkit config differs from what password sign-in needs: what
+ * is wrong, what the add-on sets instead, and the PATCH (updateMask and body) that sets it.
+ * @typedef {{
+ *   id: string,
+ *   what: string,
+ *   fix: string,
+ *   level: "fail" | "warn" | "info",
+ *   batch: "accounts" | "policy" | "bots" | "logging" | "reset" | "provider",
+ *   mask: string,
+ *   body: Record<string, unknown>,
+ * }} PasswordDiff
+ */
+
+const PASSWORD_POLICY_KINDS = ["containsLowercaseCharacter", "containsUppercaseCharacter", "containsNumericCharacter", "containsNonAlphanumericCharacter"];
+
+/**
+ * How a project's Identity Toolkit config (admin v2 `projects/<id>/config`) differs from what
+ * password sign-in needs. Empty means it is ready. `level` says how much it matters: "fail"
+ * leaves an account unsafe or the provider off, "warn" leaves protection or an alert off, and
+ * "info" is advice only (the reset link's address: some projects refuse template changes).
+ * The reset link is checked only when the app's address is known.
+ * @param {any} config
+ * @param {string} [appUrl] the app's https origin, no path
+ * @returns {PasswordDiff[]}
+ */
+export function passwordConfigDiff(config, appUrl = "") {
+  const c = config && typeof config === "object" ? config : {};
+  const signIn = c.signIn ?? {};
+  const email = signIn.email ?? {};
+  /** @type {PasswordDiff[]} */
+  const out = [];
+  if (signIn.allowDuplicateEmails === true) {
+    out.push({
+      id: "duplicates",
+      what: "several accounts may share one email address",
+      fix: "one account per email address",
+      level: "fail",
+      batch: "accounts",
+      mask: "signIn.allowDuplicateEmails",
+      body: { signIn: { allowDuplicateEmails: false } },
+    });
+  }
+  if (email.passwordRequired !== true) {
+    out.push({
+      id: "password-required",
+      what: "email sign-in doesn't ask for a password (email links only)",
+      fix: "email sign-in asks for a password",
+      level: "fail",
+      batch: "accounts",
+      mask: "signIn.email.passwordRequired",
+      body: { signIn: { email: { passwordRequired: true } } },
+    });
+  }
+  if (c.emailPrivacyConfig?.enableImprovedEmailPrivacy !== true) {
+    out.push({
+      id: "privacy",
+      what: "email enumeration protection is off",
+      fix: "email enumeration protection on",
+      level: "fail",
+      batch: "accounts",
+      mask: "emailPrivacyConfig.enableImprovedEmailPrivacy",
+      body: { emailPrivacyConfig: { enableImprovedEmailPrivacy: true } },
+    });
+  }
+
+  const policy = c.passwordPolicyConfig ?? {};
+  const options = (Array.isArray(policy.passwordPolicyVersions) ? policy.passwordPolicyVersions[0] : null)?.customStrengthOptions ?? {};
+  const policyProblems = [
+    ...(policy.passwordPolicyEnforcementState === "ENFORCE" ? [] : ["the password policy isn't enforced"]),
+    ...(policy.passwordPolicyEnforcementState === "ENFORCE" && Number(options.minPasswordLength) !== PASSWORD_MIN_LENGTH
+      ? [`the password policy asks for ${options.minPasswordLength ?? 6} characters, not ${PASSWORD_MIN_LENGTH}`]
+      : []),
+    ...(PASSWORD_POLICY_KINDS.some((k) => options[k] === true) ? ["the password policy asks for kinds of character the sign-in screens don't explain"] : []),
+    ...(policy.forceUpgradeOnSignin === true ? ["the password policy forces a new password at sign-in"] : []),
+  ];
+  if (policyProblems.length) {
+    const max = Number(options.maxPasswordLength);
+    out.push({
+      id: "policy",
+      what: policyProblems.join("; "),
+      fix: `a password policy of ${PASSWORD_MIN_LENGTH} characters or more, enforced, with no forced upgrade at sign-in`,
+      level: "fail",
+      batch: "policy",
+      mask: "passwordPolicyConfig",
+      body: {
+        passwordPolicyConfig: {
+          passwordPolicyEnforcementState: "ENFORCE",
+          passwordPolicyVersions: [{ customStrengthOptions: { minPasswordLength: PASSWORD_MIN_LENGTH, ...(max >= PASSWORD_MIN_LENGTH ? { maxPasswordLength: max } : {}) } }],
+          forceUpgradeOnSignin: false,
+        },
+      },
+    });
+  }
+
+  const bots = c.recaptchaConfig?.emailPasswordEnforcementState;
+  if (bots !== "AUDIT" && bots !== "ENFORCE") {
+    out.push({
+      id: "recaptcha",
+      what: "reCAPTCHA bot protection for passwords is off",
+      fix: "reCAPTCHA bot protection for passwords in audit mode (it records, blocks nothing)",
+      level: "warn",
+      batch: "bots",
+      mask: "recaptchaConfig.emailPasswordEnforcementState",
+      body: { recaptchaConfig: { emailPasswordEnforcementState: "AUDIT" } },
+    });
+  }
+  if (c.monitoring?.requestLogging?.enabled !== true) {
+    out.push({
+      id: "logging",
+      what: "Identity Platform's request logging is off (the sign-up alert counts it)",
+      fix: "request logging on (the sign-up alert counts it; Cloud Logging bills past its free monthly allowance)",
+      level: "warn",
+      batch: "logging",
+      mask: "monitoring.requestLogging.enabled",
+      body: { monitoring: { requestLogging: { enabled: true } } },
+    });
+  }
+  if (appUrl) {
+    const want = `${appUrl.replace(/\/+$/, "")}${RESET_PATH}`;
+    const now = c.notification?.sendEmail?.callbackUri ?? "";
+    if (now !== want) {
+      out.push({
+        id: "reset-link",
+        what: `password reset links open ${now || "Firebase's own page"}, not ${want}`,
+        fix: `password reset links open ${want}`,
+        level: "info",
+        batch: "reset",
+        mask: "notification.sendEmail.callbackUri",
+        body: { notification: { sendEmail: { callbackUri: want } } },
+      });
+    }
+  }
+  if (email.enabled !== true) {
+    out.push({
+      id: "provider",
+      what: "the Email/Password provider is off",
+      fix: "the Email/Password provider on",
+      level: "fail",
+      batch: "provider",
+      mask: "signIn.email.enabled",
+      body: { signIn: { email: { enabled: true } } },
+    });
+  }
+  return out;
+}
+
+/** The PATCH batches, in the order they are sent. The provider goes last and alone. */
+const PATCH_ORDER = [
+  { batch: "accounts", label: "account rules", soft: false },
+  { batch: "policy", label: "password policy", soft: false },
+  { batch: "bots", label: "reCAPTCHA bot protection", soft: false },
+  { batch: "logging", label: "request logging", soft: false },
+  { batch: "reset", label: "reset link address", soft: true },
+  { batch: "provider", label: "Email/Password provider", soft: false },
+];
+
+function deepMerge(a, b) {
+  const out = { ...a };
+  for (const [k, v] of Object.entries(b)) {
+    out[k] = v && typeof v === "object" && !Array.isArray(v) && out[k] && typeof out[k] === "object" ? deepMerge(out[k], v) : v;
+  }
+  return out;
+}
+
+/**
+ * The PATCHes that turn a diff into the wanted config: small batches, each with an explicit
+ * updateMask, so every protection is on before the provider is. `soft` means a refusal is a
+ * warning, not a failure (the reset link: some projects refuse template changes).
+ * @param {PasswordDiff[]} diff
+ * @returns {{ label: string, soft: boolean, mask: string, body: Record<string, unknown>, items: PasswordDiff[] }[]}
+ */
+export function passwordPatchPlan(diff) {
+  return PATCH_ORDER.map((p) => {
+    const items = diff.filter((d) => d.batch === p.batch);
+    return {
+      label: p.label,
+      soft: p.soft,
+      mask: items.map((d) => d.mask).join(","),
+      body: items.reduce((acc, d) => deepMerge(acc, d.body), {}),
+      items,
+    };
+  }).filter((p) => p.items.length);
+}
+
+/** More password sign-ups than this in an hour raises the sign-up alert. */
+export const SIGNUP_ALERT_PER_HOUR = 20;
+
+/**
+ * The two log based metrics the sign-in alerts count. Each filter names its resource type:
+ * Cloud Monitoring needs one to alert on a log based metric.
+ * `appEvent` is the `event` field of the app's own structured log line.
+ */
+export const AUTH_LOG_METRICS = [
+  {
+    name: "yougrow_auth_signups",
+    resourceType: "identitytoolkit_project",
+    description: "Password sign-ups at Identity Platform (needs its request logging on). Made by npm run selfhost, addon:password.",
+    filter:
+      'resource.type="identitytoolkit_project" AND (jsonPayload.methodName="google.cloud.identitytoolkit.v1.AuthenticationService.SignUp" OR protoPayload.methodName="google.cloud.identitytoolkit.v1.AuthenticationService.SignUp")',
+  },
+  {
+    name: "yougrow_auth_accounts_removed",
+    resourceType: "cloud_run_revision",
+    appEvent: "auth_account_removed",
+    description: "Accounts the app removed at the sign-in door (a first sign-in it could not trust). Made by npm run selfhost, addon:password.",
+    filter: 'resource.type="cloud_run_revision" AND jsonPayload.event="auth_account_removed"',
+  },
+];
+
+/** A log metric's create body: a plain counter. */
+export function logMetricBody(metric) {
+  return {
+    name: metric.name,
+    description: metric.description,
+    filter: metric.filter,
+    metricDescriptor: { metricKind: "DELTA", valueType: "INT64", unit: "1" },
+  };
+}
+
+/**
+ * The two alert policies, by display name. Each counts its log metric over an hour. A condition
+ * on a log based metric names the resource type, and evaluationMissingData needs a non-zero
+ * duration, so both are set.
+ * @param {string[]} channels notification channel names (projects/<id>/notificationChannels/<n>)
+ */
+export function authAlertPolicies(channels = []) {
+  const condition = (metric, displayName, threshold) => ({
+    displayName,
+    conditionThreshold: {
+      filter: `metric.type="logging.googleapis.com/user/${metric.name}" AND resource.type="${metric.resourceType}"`,
+      aggregations: [{ alignmentPeriod: "3600s", perSeriesAligner: "ALIGN_SUM", crossSeriesReducer: "REDUCE_SUM" }],
+      comparison: "COMPARISON_GT",
+      thresholdValue: threshold,
+      duration: "60s",
+      trigger: { count: 1 },
+      evaluationMissingData: "EVALUATION_MISSING_DATA_INACTIVE",
+    },
+  });
+  const [signups, removed] = AUTH_LOG_METRICS;
+  return [
+    {
+      displayName: "YouGrow: many password sign-ups",
+      documentation: {
+        mimeType: "text/markdown",
+        content: [
+          `More than ${SIGNUP_ALERT_PER_HOUR} password sign-ups reached Identity Platform in an hour.`,
+          "Only addresses on ADMIN_ALLOWED_EMAILS can get in, so a burst usually means someone is scripting sign-ups.",
+          "Check Logs Explorer (resource Identity Toolkit Project, method SignUp) for where they come from.",
+          "Unconfirmed accounts are removed after 7 days once PASSWORD_CLEANUP_DELETE_ENABLED is on.",
+          "If it keeps happening, set reCAPTCHA bot protection for passwords to ENFORCE.",
+        ].join(" "),
+      },
+      userLabels: { app: "yougrow", feature: "password-signin" },
+      combiner: "OR",
+      conditions: [condition(signups, `More than ${SIGNUP_ALERT_PER_HOUR} password sign-ups in an hour`, SIGNUP_ALERT_PER_HOUR)],
+      alertStrategy: { autoClose: "86400s" },
+      notificationChannels: channels,
+    },
+    {
+      displayName: "YouGrow: accounts removed at sign-in",
+      documentation: {
+        mimeType: "text/markdown",
+        content: [
+          "The app removed at least one account on its first sign-in, because it couldn't trust it:",
+          "the address wasn't confirmed by its code, or the account had been changed before it first signed in.",
+          "The person sees Please sign in again and loses nothing.",
+          "One now and then is normal. Several in an hour can mean someone is creating accounts with other people's addresses:",
+          'check Logs Explorer for jsonPayload.event="auth_account_removed", which gives the address\'s domain only.',
+        ].join(" "),
+      },
+      userLabels: { app: "yougrow", feature: "password-signin" },
+      combiner: "OR",
+      conditions: [condition(removed, "An account removed at sign-in in the last hour", 0)],
+      alertStrategy: { autoClose: "86400s" },
+      notificationChannels: channels,
+    },
+  ];
 }

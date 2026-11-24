@@ -1,6 +1,6 @@
 ---
 name: deploy-your-own
-description: Host YouGrow on the user's own Google Cloud project with npm run selfhost. Show the read-only plan, get the user's go-ahead for each step, apply it with --yes, and verify with npm run doctor -- --cloud. Use it when someone wants to deploy, host or self-host their own copy, add an add-on (email, Vizzy, knowledge, GitHub App, LinkedIn, X, regions, BigQuery, reCAPTCHA), or fix a self-hosted copy.
+description: Host YouGrow on the user's own Google Cloud project with npm run selfhost. Show the read-only plan, get the user's go-ahead for each step, apply it with --yes, and verify with npm run doctor -- --cloud. Use it when someone wants to deploy, host or self-host their own copy, add an add-on (email, Vizzy, knowledge, GitHub App, LinkedIn, X, regions, BigQuery, reCAPTCHA, password sign-in), or fix a self-hosted copy.
 ---
 
 # Deploy your own copy
@@ -88,8 +88,10 @@ npm run selfhost -- --project <id> --apply addon:<name>
 ```
 
 Names: `email`, `vizzy`, `knowledge`, `github-app`, `linkedin`, `x`, `regions`, `bigquery`,
-`recaptcha`. Same rules: explain, get a yes, apply. `email`, `linkedin` and `x` ask for keys,
-so give the user the exact command to run in their own terminal. Afterwards roll out:
+`recaptcha`, `password`. Same rules: explain, get a yes, apply. `email`, `linkedin` and `x` ask for keys,
+so give the user the exact command to run in their own terminal. `password` (email and password
+sign-in) needs `email` first and changes the project's Identity Platform settings; its section in
+`docs/self-host.md` says what it sets. Afterwards roll out:
 `--apply rollout` (ask first). Product journeys stay in test mode until the user adds
 `LIFECYCLE_MODE_CEILING: "live"` to their settings file.
 

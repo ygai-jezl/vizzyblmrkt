@@ -5,6 +5,7 @@ import type { HelpBodyProps } from "@/lib/help/pages";
 export const HELP_LOADERS: Record<string, () => Promise<{ default: ComponentType<HelpBodyProps> }>> = {
   "": () => import("./pages/get-set-up"),
   "plan-and-usage": () => import("./pages/plan-and-usage"),
+  "sign-in-and-passwords": () => import("./pages/sign-in-and-passwords"),
   "email-sending": () => import("./pages/email-sending"),
   "your-brand": () => import("./pages/your-brand"),
   "email-style": () => import("./pages/email-style"),

@@ -10,10 +10,12 @@ import {
 import {
   addSendingDomain,
   applyRecordValidity,
+  checkPublishedRecords,
   checkSendingDomain,
   senderDnsRecords,
   mandrillConfigured,
 } from "@/lib/email/senderDomains";
+import { isDomainRecordChecksEnabled } from "@/lib/email/flags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +25,8 @@ const VerifySchema = z.object({ domain: z.string(), background: z.boolean().opti
 
 /**
  * Re-run the provider's DKIM/SPF checks for a domain and persist the verdict.
+ * With EMAIL_DOMAIN_RECORD_CHECKS_ENABLED, SPF and DMARC are also looked up in DNS
+ * so each row gets a real tick (the domain's status stays the provider's verdict).
  * When the provider isn't configured, returns the domain unchanged with a clear
  * reason so the UI can explain why live verification is unavailable.
  */
@@ -43,6 +47,7 @@ export async function POST(req: Request) {
   if (!target) {
     return NextResponse.json({ error: "domain_not_found" }, { status: 404 });
   }
+  const recordChecks = isDomainRecordChecksEnabled();
 
   if (!mandrillConfigured()) {
     return NextResponse.json({
@@ -50,6 +55,7 @@ export async function POST(req: Request) {
       reason: "provider_not_configured",
       domains: config.domains,
       providerConfigured: false,
+      recordChecks,
     });
   }
 
@@ -64,7 +70,10 @@ export async function POST(req: Request) {
     verifyTxtKey = added.verifyTxtKey;
   }
 
-  const checked = await checkSendingDomain(domain);
+  const [checked, published] = await Promise.all([
+    checkSendingDomain(domain),
+    recordChecks ? checkPublishedRecords(domain) : Promise.resolve(undefined),
+  ]);
   verifyTxtKey = verifyTxtKey ?? checked.verifyTxtKey;
   const now = new Date().toISOString();
 
@@ -80,7 +89,7 @@ export async function POST(req: Request) {
       dkimValid: checked.dkimValid,
       spfValid: checked.spfValid,
       // Regenerate from scratch so legacy single-TXT DKIM rows heal to the CNAME set.
-      records: applyRecordValidity(senderDnsRecords(domain, verifyTxtKey), checked),
+      records: applyRecordValidity(senderDnsRecords(domain, verifyTxtKey), checked, published),
       lastCheckedAt: now,
       ...(verifyTxtKey ? { verifyTxtKey } : {}),
       ...(checked.detail ? { detail: checked.detail } : { detail: undefined }),
@@ -93,5 +102,6 @@ export async function POST(req: Request) {
     reason: checked.detail,
     domains: next.domains,
     providerConfigured: true,
+    recordChecks,
   });
 }

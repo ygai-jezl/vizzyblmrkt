@@ -37,7 +37,10 @@ export default function EmailSendingHelp() {
           Under <strong>Your domains</strong>, type the domain you&apos;ll send from and press <strong>Add domain</strong>. A
           subdomain such as mail.yourbrand.com keeps email separate from your website.
         </li>
-        <li>Copy each DNS record it shows into your DNS provider. Each one has a copy button.</li>
+        <li>
+          Copy each DNS record it shows into your DNS provider. Each one has a copy button. Add every record in the list,
+          even if the domain already says Verified: it can say that before the last records are in.
+        </li>
         <li>
           Press <strong>Verify</strong>. If a record isn&apos;t valid yet, DNS hasn&apos;t updated: wait a while and press it
           again.

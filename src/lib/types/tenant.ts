@@ -70,13 +70,19 @@ export type CrmTenantConfig = z.infer<typeof CrmTenantConfigSchema>;
 /**
  * One DNS record a tenant must publish to authenticate a custom sending domain
  * (SPF / DKIM / DMARC). `valid` reflects what the email provider (Mandrill) last
- * observed — see src/lib/email/senderDomains.ts.
+ * observed, or, with EMAIL_DOMAIN_RECORD_CHECKS_ENABLED, what our own DNS lookup
+ * found for SPF and DMARC. See src/lib/email/senderDomains.ts.
  */
 export const SenderDnsRecordSchema = z.object({
   type: z.enum(["TXT", "CNAME", "MX"]),
   host: z.string(),
   value: z.string(),
   valid: z.boolean().default(false),
+  /**
+   * DMARC row only: the parent domain whose DMARC record covers this subdomain
+   * (mail servers fall back to it when the subdomain has none of its own).
+   */
+  inheritedFrom: z.string().optional(),
 });
 export type SenderDnsRecord = z.infer<typeof SenderDnsRecordSchema>;
 

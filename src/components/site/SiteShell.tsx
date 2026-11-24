@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import "./site.css";
+import { legalLinks } from "@/lib/legal/pages";
 import { FEATURES, FEATURE_TAGS, STAGES, STAGE_IDS, type StageId } from "@/lib/site/content";
 import { isDevelopersDocsEnabled } from "@/lib/developers/flags";
 import { isHelpPagesEnabled } from "@/lib/help/flags";
@@ -58,6 +59,7 @@ export async function SiteShell({ lang, page, children, around, withFaq }: {
   const languages = isSiteLanguagesEnabled()
     ? SITE_LANGS.map((l) => ({ code: l, name: LANG_INFO[l].name, href: sitePath(l, page), current: l === lang }))
     : [];
+  const legal = legalLinks();
   const seo = isSiteSeoEnabled();
   // Light, system or dark: an explicit choice is in a cookie, so the first paint is already right.
   const theme = parseThemePreference((await cookies()).get(SITE_THEME_COOKIE)?.value);
@@ -86,6 +88,15 @@ export async function SiteShell({ lang, page, children, around, withFaq }: {
           {isDevelopersDocsEnabled() ? <Link href="/developers">{t("Developers")}</Link> : null}
           {isHelpPagesEnabled() ? <Link href="/help">{t("Help")}</Link> : null}
         </div>
+        {legal.length ? (
+          <nav className="legal" aria-label="Legal">
+            {legal.map((l) => (
+              <Link key={l.href} href={l.href}>
+                {l.label}
+              </Link>
+            ))}
+          </nav>
+        ) : null}
         {seo ? (
           <span className="files">
             <a href="/sitemap.xml">sitemap.xml</a>

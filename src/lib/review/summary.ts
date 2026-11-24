@@ -1,4 +1,4 @@
-import { forTenant } from "@/lib/tenant";
+import { forTenant, organisationContextFor } from "@/lib/tenant";
 import { isAutopilotEnabled } from "@/lib/autopilot/flags";
 import { readyToWrite, recentRuns } from "@/lib/autopilot/runs";
 import { MAX_PER_WEEK, type AutopilotRun } from "@/lib/types/autopilot";
@@ -37,6 +37,7 @@ import { dayWords } from "@/lib/connectors/period";
 import { getConnector, knownConnector } from "@/lib/connectors/registry";
 import { COLLECT_FAILED_DAYS } from "@/lib/connectors/health";
 import { productName } from "@/lib/connectors/messages";
+import { PartCache, partFactsOf, type PartFacts, type SourceDeps } from "@/lib/connectors/sources";
 import type { DataConnection } from "@/lib/types/dataConnection";
 
 /**
@@ -378,6 +379,8 @@ const DAY_MS = 86_400_000;
 
 /** The Connected view with this connection selected. */
 export const connectedHref = (id: string) => `/admin/account/connections/connected?c=${encodeURIComponent(id)}`;
+/** Settings › Organisation, where an owner fixes a connection the organisation shares. */
+export const ORGANISATION_HREF = "/admin/account/organisation";
 
 /** "19 Nov", from an instant. */
 const dayOf = (iso: string) => dayWords(iso.slice(0, 10));
@@ -389,8 +392,10 @@ const dayOf = (iso: string) => dayWords(iso.slice(0, 10));
  * or more days ago. Each links to the Connected view with that connection selected. A connection
  * whose connector this copy has turned off reads nothing on purpose, so it isn't listed.
  */
-export function dataSourceItem(c: DataConnection, now: Date = new Date()): ReviewItem | null {
+export function dataSourceItem(c: DataConnection, now: Date = new Date(), part?: PartReview | null): ReviewItem | null {
   if (c.status !== "connected" || !getConnector(c.connectorId)) return null;
+  // A brand's part is fixed by its organisation's owners: never "sign in again" here.
+  if (c.source) return partSourceItem(c, part ?? null, now);
   const full = knownConnector(c.connectorId)?.name ?? c.connectorId;
   // The product people name: "Google Analytics", "Search Console".
   const tool = productName(full);
@@ -417,10 +422,75 @@ export function dataSourceItem(c: DataConnection, now: Date = new Date()): Revie
   return null;
 }
 
-/** The brand's connected data sources that need someone: equality on status only. */
-async function dataSourceItems(ctx: TenantContext, db?: FirestoreLike): Promise<ReviewItem[]> {
-  const connections = await forTenant(ctx, db).dataConnections.find({ where: [["status", "==", "connected"]], limit: 50 });
-  return connections.map((c) => dataSourceItem(c)).filter((i): i is ReviewItem => !!i);
+/** A brand's part as Review reads it: what partFactsOf found, and whether this person owns its organisation. */
+export interface PartReview {
+  facts: PartFacts;
+  /** An owner of the brand's organisation (read live), who fixes it on Settings › Organisation. */
+  owner: boolean;
+}
+
+/**
+ * A brand's part of its organisation's connection that needs someone (Connectors 3): its
+ * organisation's sign in needing attention, or its own part that can't be read, naming the
+ * organisation and who can fix it, as the approved Review screen; one failing to collect for 3
+ * days, or that the brand's admins paused a week ago, as any connection. An owner gets Fix, to
+ * Settings › Organisation; any other admin See it, to the part on Connected. A part that reads
+ * nothing on purpose (sharing or plans off, a give not finished, no longer given) or that couldn't
+ * be checked is skipped quietly, and so is one its owners paused.
+ */
+export function partSourceItem(c: DataConnection, part: PartReview | null, now: Date = new Date()): ReviewItem | null {
+  if (!part) return null;
+  const { facts } = part;
+  if (facts.reads !== "live" && facts.reads !== "source" && facts.reads !== "paused") return null;
+  const full = knownConnector(c.connectorId)?.name ?? c.connectorId;
+  // As the approved screen names it: "Google Analytics 4", "Search Console", "Cloudflare".
+  const tool = full.replace(/^Google (Search Console)$/, "$1");
+  const org = facts.organisation ?? "your organisation";
+  const base = { id: `data_source:${c.id}`, kind: "data_source" as const };
+  const fix = part.owner ? { href: ORGANISATION_HREF, action: "Fix" } : { href: connectedHref(c.id), action: "See it" };
+  const cantRead = (since: string) => ({ ...base, ...fix, title: `${tool} from ${org} can't be read since ${dayOf(since)}`, detail: `An owner of ${org} can fix it.` });
+  if (facts.reads === "source") return cantRead(facts.since ?? now.toISOString());
+  if (c.health.state === "broken") return cantRead(c.health.since ?? c.health.lastCheckedAt ?? now.toISOString());
+  if (facts.reads === "paused") return null;
+  const failedSince = c.collect?.failedSince;
+  if (failedSince && now.getTime() - Date.parse(failedSince) >= COLLECT_FAILED_DAYS * DAY_MS) {
+    return { ...base, href: connectedHref(c.id), title: `${tool} from ${org} needs you`, detail: `Collecting its numbers has failed since ${dayOf(failedSince)}, so the newest are missing. Press Check now on it to see why.`, action: "Fix" };
+  }
+  if (c.pausedAt && now.getTime() - Date.parse(c.pausedAt) >= PAUSED_DAYS * DAY_MS) {
+    return { ...base, href: connectedHref(c.id), title: `${tool} from ${org} is paused`, detail: `Paused since ${dayOf(c.pausedAt)}, so no new numbers are collected. Resume it, or stop using it if you no longer need it.`, action: "Open" };
+  }
+  return null;
+}
+
+export interface DataSourceDeps extends Pick<SourceDeps, "controlDb" | "regionDb"> {
+  db?: FirestoreLike;
+  now?: Date;
+}
+
+/**
+ * The brand's connected data sources that need someone: equality on status only. A brand's part is
+ * checked live first (partLive, then its source's state, one cache for the read), and whether this
+ * person owns the brand's organisation is read live only when a part needs someone.
+ */
+export async function dataSourceItems(ctx: TenantContext, deps: DataSourceDeps = {}): Promise<ReviewItem[]> {
+  const now = deps.now ?? new Date();
+  const connections = await forTenant(ctx, deps.db).dataConnections.find({ where: [["status", "==", "connected"]], limit: 50 });
+  const facts = new Map<string, PartFacts>();
+  const shared = { db: deps.db, controlDb: deps.controlDb, regionDb: deps.regionDb, partCache: new PartCache() };
+  for (const c of connections) {
+    if (!c.source) continue;
+    const f = await partFactsOf(ctx, c, shared).catch(() => null);
+    if (f) facts.set(c.id, f);
+  }
+  const items = (owner: boolean) =>
+    connections.map((c) => dataSourceItem(c, now, c.source ? (facts.has(c.id) ? { facts: facts.get(c.id)!, owner } : null) : undefined)).filter((i): i is ReviewItem => !!i);
+  const first = items(false);
+  if (!first.some((i) => i.action === "See it")) return first;
+  const control = deps.controlDb ?? deps.db;
+  const owner = await organisationContextFor(ctx, control)
+    .then((o) => o?.isOwner === true)
+    .catch(() => false);
+  return owner ? items(true) : first;
 }
 
 /**
@@ -616,7 +686,7 @@ export async function loadReview(
   const people = { fields: isVizzyFieldsEnabled(), drafts: isVizzyAddPersonEnabled() && canAddPeople(ctx.role) };
   const personSuggestions = people.fields || people.drafts ? await soft("person suggestions", personSuggestionItems(ctx, people, db), [] as ReviewItem[]) : [];
   // Data sources that need someone: admins only, while collected numbers are on.
-  const dataSources = isConnectorsCollectEnabled() && ctx.role === "admin" ? await soft("data sources", dataSourceItems(ctx, db), [] as ReviewItem[]) : [];
+  const dataSources = isConnectorsCollectEnabled() && ctx.role === "admin" ? await soft("data sources", dataSourceItems(ctx, { db }), [] as ReviewItem[]) : [];
   // What collected numbers suggest: admins only, while signals are on, from planning connections.
   const numberSuggestions = isConnectorSignalsEnabled() && ctx.role === "admin" ? await soft("number suggestions", signalReviewItems(ctx, { db }), [] as ReviewItem[]) : [];
   const liveConnections = connections.filter((c) => c.kind === "custom" && c.status !== "revoked");

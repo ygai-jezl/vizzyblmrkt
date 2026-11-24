@@ -10,9 +10,9 @@ const nextConfig: NextConfig = {
   // loaded by Node as is.
   // @google-cloud/firestore (9.x, pipelines) is the brand search index's own client.
   serverExternalPackages: ["firebase-admin", "@google-cloud/firestore", "@google-cloud/bigquery", "wawoff2"],
-  // The image renderer reads the bundled open-licence fonts from disk; make sure every server
-  // bundle carries them.
-  outputFileTracingIncludes: { "/**": ["./public/email-fonts/*.woff"] },
+  // The image renderer reads the bundled open-licence fonts from disk, and the legal pages read a
+  // deployment's own legal/*.md; make sure every server bundle carries them.
+  outputFileTracingIncludes: { "/**": ["./public/email-fonts/*.woff", "./legal/*.md"] },
   // Put every page's <title>, description, canonical and hreflang tags in <head> for
   // every visitor. By default Next streams them into <body> on dynamic pages unless the
   // user agent is on its short bot list, which misses AI crawlers (GPTBot, ClaudeBot,

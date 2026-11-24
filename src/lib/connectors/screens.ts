@@ -23,6 +23,12 @@ export interface ConnectionsScreen {
   planning: boolean;
   /** Admins connect and change things; everyone else sees read only states. */
   isAdmin: boolean;
+  /**
+   * The person owns this brand's organisation and is an admin here, read live (as the Settings ›
+   * Organisation tab is): a part that needs its organisation then offers Fix there. False while
+   * sharing is off.
+   */
+  owner: boolean;
   /** The signed in person, so activity can say "You". */
   uid: string;
   /** The connectors offered now: each one's switch on and a way to connect ready on this copy. */
@@ -35,15 +41,16 @@ export interface ConnectionsScreen {
 
 /**
  * The screen data for one person in one brand. Pages read it through loadConnectionsScreen
- * (src/lib/connectors/screenLoader.ts), once per request.
+ * (src/lib/connectors/screenLoader.ts), once per request; `owner` is worked out there.
  */
-export async function connectionsScreenFor(ctx: TenantContext, deps: ServiceDeps = {}): Promise<ConnectionsScreen> {
+export async function connectionsScreenFor(ctx: TenantContext, deps: ServiceDeps = {}, opts: { owner?: boolean } = {}): Promise<ConnectionsScreen> {
   const base: ConnectionsScreen = {
     core: isConnectorsEnabled(),
     chat: isConnectorsChatEnabled(),
     collect: isConnectorsCollectEnabled(),
     planning: isConnectorSignalsEnabled(),
     isAdmin: ctx.role === "admin",
+    owner: ctx.role === "admin" && opts.owner === true,
     uid: ctx.userId ?? "",
     connectors: [],
     connections: [],

@@ -187,6 +187,58 @@ export async function readableOnly<C extends DataConnection>(ctx: Pick<TenantCon
   return out;
 }
 
+/**
+ * What a brand's own screens say about one of its parts (the Connected view, Review): `live`, it
+ * reads; `off`, sharing is off in this copy; `source`, its organisation's sign in needs attention;
+ * `paused`, its organisation's owners paused it; `pending`, a give not finished yet; `ended`, its
+ * organisation no longer gives it (housekeeping ends it at the next run) or it was ended already;
+ * `unknown`, it couldn't be checked just now (a read failed, or the brand and its organisation
+ * disagree), so it reads nothing this time.
+ */
+export type PartReads = "live" | "off" | "source" | "paused" | "pending" | "ended" | "unknown";
+
+export interface PartFacts {
+  reads: PartReads;
+  /** partLive's answer: every way out reads it. */
+  live: boolean;
+  /** When its organisation's sign in stopped working (`source`). */
+  since: string | null;
+  /** The organisation that gives it, and this brand, by name: null when they can't be read. */
+  organisation: string | null;
+  brand: string | null;
+}
+
+/**
+ * A part as its brand's screens show it: partLive's answer, then whether its organisation's sign in
+ * works and whether its owners paused it. The names are read whatever any switch says (the
+ * organisation the brand record names, which the server wrote at the give), so a part from an
+ * organisation the brand has left still says which one. A read error names nobody and reads nothing.
+ * Reads go through the PartCache, so one request reads each record once.
+ */
+export async function partFactsOf(ctx: Pick<TenantContext, "tenantId" | "region">, conn: DataConnection, deps: SourceDeps = {}): Promise<PartFacts | null> {
+  const src = conn.source;
+  if (!src) return null;
+  const cache = deps.partCache ?? new PartCache();
+  const shared = { ...deps, partCache: cache };
+  const control = controlOf(deps);
+  const names = async () => {
+    const [organisation, brand] = await Promise.all([
+      cached(cache.organisations, src.organisationId, () => (control ? getOrganisation(src.organisationId, control) : getOrganisation(src.organisationId))).catch(() => null),
+      cached(cache.tenants, ctx.tenantId, () => (control ? getTenantById(ctx.tenantId, control) : getTenantById(ctx.tenantId))).catch(() => null),
+    ]);
+    return { organisation: organisation?.name ?? null, brand: brand?.tenantName ?? null };
+  };
+  const facts = async (reads: PartReads, live = false, since: string | null = null): Promise<PartFacts> => ({ reads, live, since, ...(await names()) });
+  if (conn.status !== "connected") return facts("ended");
+  if (!isConnectorsSharingEnabled()) return facts("off");
+  const check = await checkPart(ctx, conn, shared);
+  if (!check.live) return facts(check.why === "pending" ? "pending" : check.ended ? "ended" : "unknown");
+  const s = check.source;
+  if (s.health.state === "broken") return facts("source", true, s.health.since ?? s.health.lastCheckedAt);
+  if (s.pausedAt) return facts("paused", true);
+  return facts("live", true);
+}
+
 const refOf = (s: OrganisationConnection): SourceRef => ({ organisationId: s.organisationId, connectionId: s.id, region: s.region });
 
 /**

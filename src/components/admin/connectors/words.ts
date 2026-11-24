@@ -1,5 +1,5 @@
 import { LIVE_LIMITS, type ConnectMethodName, type ConnectorCategory, type ShareAccessMethod, type TokenFieldsMethod } from "@/lib/connectors/manifest";
-import { SIGNIN_REASONS } from "@/lib/connectors/messages";
+import { CONNECTOR_ERRORS, SIGNIN_REASONS } from "@/lib/connectors/messages";
 import { dayWords, zoneWords } from "@/lib/connectors/period";
 import type { SharedConnectionsScreen, SharedConnectionView } from "@/lib/connectors/organisationConnect";
 import type { OrganisationAccount } from "@/lib/connectors/organisationParts";
@@ -307,7 +307,8 @@ export function waitingSignInOf(connections: readonly ConnectionView[], connecto
 /** The token connection a Reconnect replaces: this connector's, connected, by token, turned down. */
 export function replaceableOf(connections: readonly ConnectionView[], connectorId: string, id: string | null | undefined): ConnectionView | null {
   if (!id) return null;
-  return connections.find((c) => c.id === id && c.connectorId === connectorId && c.status === "connected" && c.details?.method === "token_fields" && c.health.state === "broken") ?? null;
+  // A brand's part is never reconnected here: its organisation's owners manage its token.
+  return connections.find((c) => c.id === id && !c.part && c.connectorId === connectorId && c.status === "connected" && c.details?.method === "token_fields" && c.health.state === "broken") ?? null;
 }
 
 // --- The property picker ---------------------------------------------------------------------
@@ -458,9 +459,19 @@ export function accountWords(account: string): string {
 }
 
 /** A connection's state in the table and on Browse's Connected tab. */
-export function stateOf(c: Pick<ConnectionView, "status" | "connectorOn" | "needsAccount" | "health">): { label: string; tone: Tone } {
+export function stateOf(c: Pick<ConnectionView, "status" | "connectorOn" | "needsAccount" | "health" | "part">): { label: string; tone: Tone } {
   if (c.status === "disconnected") return { label: "Disconnected", tone: "muted" };
   if (!c.connectorOn) return { label: "Turned off here", tone: "muted" };
+  if (c.part) {
+    // A part: sharing off reads nothing here; one its organisation no longer gives, or is still
+    // giving, says so; its own pause and its owners' pause are Paused; anything that stops it
+    // reading names who can fix it.
+    if (c.part.reads === "off") return { label: "Turned off here", tone: "muted" };
+    if (c.part.reads === "ended") return { label: PART_COPY.ended, tone: "muted" };
+    if (c.part.reads === "pending") return { label: PART_COPY.pending, tone: "muted" };
+    if (c.health.state === "paused") return { label: "Paused", tone: "muted" };
+    if (c.health.state === "broken") return { label: needsWords(c.part.organisation), tone: "warn" };
+  }
   if (c.needsAccount) return { label: "Choose a property", tone: "warn" };
   if (c.health.state === "ok") return { label: "Working", tone: "ok" };
   if (c.health.state === "paused") return { label: "Paused", tone: "muted" };
@@ -482,18 +493,24 @@ export const STATE_LABELS = ["Working", "Check failed", "Needs attention", "Paus
  * which ("Cloudflare for acme.example turned the token down.").
  */
 export function bannerWords(
-  c: Pick<ConnectionView, "id" | "connectorId" | "connectorName" | "label" | "details" | "needsAccount" | "health">,
+  c: Pick<ConnectionView, "id" | "connectorId" | "connectorName" | "label" | "details" | "needsAccount" | "health" | "part">,
   among: ReadonlyArray<Pick<ConnectionView, "id" | "connectorId">> = [],
 ): string {
   const name = nameAmong(c, among);
   if (c.needsAccount) return `${name} is connected, but reads nothing until a property is chosen.`;
+  // A part's problem names its organisation; one with its sign in names the tool itself.
+  if (c.part && c.part.reads === "source") return partSourceWords(c.connectorName, c.part.organisation);
+  if (c.part) return `${name}: ${partCantReadWords(c)}`;
   const message = c.health.message ?? "it needs connecting again.";
   return message.startsWith(`${c.connectorName} `) ? `${name}${message.slice(c.connectorName.length)}` : `${name}: ${message}`;
 }
 
-/** The connections whose banner asks for something: turned down, or waiting for a property. */
+/**
+ * The connections whose banner asks for something: turned down, or waiting for a property. A part
+ * that reads nothing on purpose (sharing off, no longer given, a give not finished) has none.
+ */
 export function needsAttention(connections: readonly ConnectionView[]): ConnectionView[] {
-  return connections.filter((c) => c.status === "connected" && c.connectorOn && (c.health.state === "broken" || c.needsAccount));
+  return connections.filter((c) => c.status === "connected" && c.connectorOn && !partQuiet(c) && (c.health.state === "broken" || c.needsAccount));
 }
 
 /**
@@ -552,8 +569,11 @@ export const failedWords = (iso: string) => `Collecting failed on ${dayWords(iso
  * collected to a day, with a hint when a day is late or the provider listed nothing.
  */
 export function collectedCell(
-  c: Pick<ConnectionView, "connectorName" | "health" | "details" | "needsAccount">,
+  c: Pick<ConnectionView, "connectorName" | "health" | "details" | "needsAccount" | "part">,
 ): { main: string; hint: string | null; progress: { value: number; max: number } | null } | null {
+  // A part that reads nothing shows nothing it collected, only why.
+  const quiet = c.part ? partCellWords(c.part.reads) : null;
+  if (quiet) return { main: quiet, hint: null, progress: null };
   const k = c.details?.collect;
   if (!k) return null;
   const to = k.lastDay ? `Collected to ${dayWords(k.lastDay)}` : null;
@@ -650,7 +670,8 @@ export function manageHintOf(c: Pick<ConnectionView, "details">, opts: { collect
 }
 
 /** A member's Reading cell: whether they can read it, and how far it is collected while collected numbers are on. */
-export function readingWords(c: Pick<ConnectionView, "canReadLive" | "collectedTo">, collect: boolean): string {
+export function readingWords(c: Pick<ConnectionView, "canReadLive" | "collectedTo" | "part">, collect: boolean): string {
+  if (c.part && partQuiet(c)) return PART_COPY.readsNothing;
   if (!c.canReadLive) return CONNECTED_COPY.readsAdmins;
   return collect && c.collectedTo ? `${CONNECTED_COPY.readsYou}, collected to ${dayWords(c.collectedTo)}` : CONNECTED_COPY.readsYou;
 }
@@ -713,6 +734,10 @@ const SHORT: Readonly<Record<string, string>> = {
   network: "the provider couldn't be reached",
   secret_unopenable: "its saved token can't be opened",
   query_refused: "the provider refused the question",
+  source_broken: "the sign-in at its organisation needs attention",
+  source_paused: "its organisation paused it",
+  part_ended: "its organisation doesn't give it now",
+  sharing_off: "sharing is off in this copy",
 };
 const shortWhy = (code: string | null) => (code && SHORT[code]) || "it didn't go through";
 
@@ -723,10 +748,20 @@ const GRANT_WORDS: Readonly<Record<string, string>> = {
   none: "Only admins may read",
 };
 
-/** One activity line: what happened to which connection. */
-export function activityWords(e: { kind: string; code: string | null }, name: string, method: ConnectMethodName | undefined): string {
+/**
+ * One activity line: what happened to which connection. `part` names the organisation that gives a
+ * brand's part, and the brand, for the lines only a part has (given, changed, ended).
+ */
+export function activityWords(
+  e: { kind: string; code: string | null },
+  name: string,
+  method: ConnectMethodName | undefined,
+  part?: Pick<NonNullable<ConnectionView["part"]>, "organisation" | "brand"> | null,
+): string {
+  const org = orgOf(part?.organisation);
   switch (e.kind) {
     case "connected":
+      if (e.code === "part_given") return `${name} given by ${org}`;
       if (e.code === "signed_in_again") return `${name} signed in again`;
       return method === "oauth_pkce" ? `${name} connected by signing in with Google` : method === "share_access" ? `${name} connected by sharing access` : `${name} connected`;
     case "verified":
@@ -740,6 +775,7 @@ export function activityWords(e: { kind: string; code: string | null }, name: st
     case "grants_changed":
       return `${GRANT_WORDS[e.code ?? "none"] ?? GRANT_WORDS.none} ${name}`;
     case "account_picked":
+      if (e.code === "part_changed") return `${name} changed by ${org}`;
       return `Property chosen for ${name}`;
     case "shared":
       return `Google address made for ${name}`;
@@ -752,6 +788,10 @@ export function activityWords(e: { kind: string; code: string | null }, name: st
     case "erased":
       return e.code === "old_site" ? `Collected numbers for the old property of ${name} deleted` : `Collected numbers for ${name} deleted`;
     case "disconnected":
+      if (e.code === "left") return `${name} ended: ${part?.brand ?? "this brand"} left ${org}`;
+      if (e.code === "part_ended") return `${name} taken back by ${org}`;
+      if (e.code === "stopped_using") return `Stopped using ${name}`;
+      if (part && e.code === "disconnected") return `${name} ended: ${org} disconnected it`;
       return `${name} disconnected`;
     case "cleanup_failed":
       return `The Google address for ${name} couldn't be deleted yet. YouGrow tries again.`;
@@ -771,7 +811,7 @@ export function activityOf(connections: readonly ConnectionView[], limit = 12): 
     .flatMap((c) =>
       (c.details?.recent ?? []).map((e, i) => ({
         at: e.at,
-        text: activityWords(e, nameAmong(c, connections), c.details?.method),
+        text: activityWords(e, nameAmong(c, connections), c.details?.method, c.part),
         by: e.kind === "purged" ? "operator" : e.by,
         key: `${c.id}:${i}`,
       })),
@@ -781,9 +821,14 @@ export function activityOf(connections: readonly ConnectionView[], limit = 12): 
 }
 
 /** The line under a connection's state: paused and why, the problem in its own words, or when it last worked. */
-export function healthLine(c: Pick<ConnectionView, "health" | "connectorOn" | "status" | "details">, now: Date): string | null {
+export function healthLine(c: Pick<ConnectionView, "health" | "connectorOn" | "status" | "details" | "part" | "connectorName" | "label">, now: Date): string | null {
   if (c.status !== "connected") return null;
   if (!c.connectorOn) return CONNECTED_COPY.turnedOff;
+  if (c.part) {
+    const quiet = partLineWords(c.part.reads);
+    if (quiet) return quiet;
+    if (!c.details?.pausedAt && c.health.state === "broken") return c.part.reads === "source" ? partSourceWords(c.connectorName, c.part.organisation) : partCantReadWords(c);
+  }
   if (c.details?.pausedAt) return CONNECTED_COPY.pausedByAdmin;
   if (c.health.state === "paused" && c.health.pausedUntil && Date.parse(c.health.pausedUntil) > now.getTime()) {
     const min = Math.max(1, Math.ceil((Date.parse(c.health.pausedUntil) - now.getTime()) / 60_000));
@@ -798,6 +843,104 @@ export function healthLine(c: Pick<ConnectionView, "health" | "connectorOn" | "s
 
 export const ORGANISATION_PATH = "/admin/account/organisation";
 export const SHARED_HELP_PATH = "/help/shared-connections";
+
+// --- A part from the organisation, on the brand's Connected view (Connectors 3) -------------------
+
+export const PART_COPY = {
+  yourOrganisation: "your organisation",
+  ended: "Ended",
+  pending: "Being given",
+  off: CONNECTOR_ERRORS.sharing_off,
+  endedLine: CONNECTOR_ERRORS.part_ended,
+  pendingLine: "Your organisation is still giving this brand this part. It reads once that finishes.",
+  unknownLine: "YouGrow couldn't check this part with your organisation just now, so it reads nothing this time. Reload the page in a minute.",
+  readsNothing: "Reads nothing now",
+  unknownCell: "Can't be checked just now",
+  fix: "Fix",
+  needsOwner: "Needs an owner",
+} as const;
+
+/** A soft note, as the approved Connected screen draws "Managed by" and an ended part. */
+export const NOTE_SOFT = "rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-700 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300";
+
+/** The organisation by name, or "your organisation" when its name couldn't be read. */
+const orgOf = (org: string | null | undefined) => org || PART_COPY.yourOrganisation;
+
+/** A part that reads nothing on purpose (sharing off, no longer given, a give not finished, or not checked just now). */
+export const partQuiet = (c: Pick<ConnectionView, "part">) => Boolean(c.part && (c.part.reads === "off" || c.part.reads === "ended" || c.part.reads === "pending" || c.part.reads === "unknown"));
+
+/** "From YouGrow.AI": a part's How. */
+export const fromWords = (org: string | null) => `From ${orgOf(org)}`;
+/** "Needs YouGrow.AI": a part its brand's admins can't fix themselves. */
+export const needsWords = (org: string | null) => (org ? `Needs ${org}` : PART_COPY.needsOwner);
+/** The Manage card's note on a part. */
+export const managedWords = (org: string | null) => `Managed by ${orgOf(org)}. Its owners can change it.`;
+
+/** A part whose organisation's sign in needs attention, in the approved screen's words: "Google Analytics 4 comes from YouGrow.AI, …". */
+export function partSourceWords(connectorName: string, org: string | null): string {
+  const who = orgOf(org);
+  return `${productWords(connectorName)} comes from ${who}, and its sign-in needs attention. An owner of ${who} can fix it.`;
+}
+
+/**
+ * A part its brand can't read (its own record says so): which part and since when, for admins;
+ * members, who aren't shown the part, read the same without it.
+ */
+export function partCantReadWords(c: Pick<ConnectionView, "health" | "details" | "part" | "label" | "connectorName">): string {
+  const who = orgOf(c.part?.organisation);
+  const when = c.health.since ?? c.health.lastCheckedAt;
+  const since = when ? ` since ${dayWords(when.slice(0, 10))}` : " now";
+  const what = c.details ? partWords(c.details.account, c.label !== c.connectorName ? c.label : null) : null;
+  return `${what ? `Can't read ${what}` : "It can't be read"}${since}. An owner of ${who} can fix it.`;
+}
+
+/** The health line of a part that reads nothing on purpose, or null. */
+function partLineWords(reads: NonNullable<ConnectionView["part"]>["reads"]): string | null {
+  if (reads === "off") return PART_COPY.off;
+  if (reads === "ended") return PART_COPY.endedLine;
+  if (reads === "pending") return PART_COPY.pendingLine;
+  if (reads === "unknown") return PART_COPY.unknownLine;
+  return null;
+}
+
+/** The Collected cell of a part that reads nothing on purpose, or null. */
+function partCellWords(reads: NonNullable<ConnectionView["part"]>["reads"]): string | null {
+  if (reads === "off") return PART_COPY.off;
+  if (reads === "ended") return PART_COPY.readsNothing;
+  if (reads === "pending") return PART_COPY.pending;
+  if (reads === "unknown") return PART_COPY.unknownCell;
+  return null;
+}
+
+/** The Manage card's line under "Managed by" for a brand kept in another region than the sign in. */
+export function partRegionWords(c: Pick<ConnectionView, "part">): string | null {
+  const p = c.part;
+  return p && p.region !== p.keptIn ? otherRegionWords(p.brand ?? "This brand", p.region, p.keptIn) : null;
+}
+
+/** "Ended on 24 Nov: Vizzybl left YouGrow.AI." */
+export const endedLeftWords = (day: string, brand: string | null, org: string | null) => `Ended on ${day}: ${brand ?? "this brand"} left ${orgOf(org)}.`;
+
+/** How long the note about parts that ended when the brand left its organisation stays on Connected. */
+export const ENDED_NOTE_DAYS = 7;
+
+/**
+ * The notes above Connected's table for parts that ended because the brand left their organisation
+ * in the last ENDED_NOTE_DAYS days: one per organisation and day, newest first, as the approved
+ * screen's "Ended after a move out". The parts themselves have left the table.
+ */
+export function endedNotesOf(connections: readonly ConnectionView[], now: Date): string[] {
+  const out = new Map<string, { at: string; text: string }>();
+  for (const c of connections) {
+    const end = c.status === "disconnected" ? c.part?.ended : null;
+    if (!end || end.why !== "left" || now.getTime() - Date.parse(end.at) > ENDED_NOTE_DAYS * 86_400_000) continue;
+    const day = dayWords(end.at.slice(0, 10));
+    const key = `${c.part!.organisation ?? ""}|${day}`;
+    const seen = out.get(key);
+    if (!seen || seen.at < end.at) out.set(key, { at: end.at, text: endedLeftWords(day, c.part!.brand, c.part!.organisation) });
+  }
+  return [...out.values()].sort((a, b) => b.at.localeCompare(a.at)).map((n) => n.text);
+}
 
 /** What one part of a connector is called: a site, a property or a zone. */
 export function partUnit(connectorId: string): { one: string; many: string } {
@@ -945,7 +1088,7 @@ export const notAdminWords = (brand: string) => `You're not an admin of ${brand}
 export const hasPartWords = (part: string) => `Has ${part}`;
 export const givenToWords = (brand: string) => `Given to ${brand}`;
 export const otherRegionWords = (brand: string, brandRegion: string, signInRegion: string) =>
-  `${brand} keeps its numbers in ${regionInSentence(brandRegion)}. The sign in stays in ${signInRegion}.`;
+  `${brand} keeps its numbers in ${regionInSentence(brandRegion)}. The sign in stays in ${regionInSentence(signInRegion)}.`;
 export const insideWords = (domain: string, brand: string) => `Inside ${domain}, which ${brand} has. Both brands would see these pages.`;
 export const coversWords = (site: string, brand: string) => `Covers ${site}, which ${brand} has. Both brands would see these pages.`;
 export const notOnWords = (domain: string) => `Not on ${domain}.`;

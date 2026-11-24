@@ -21,16 +21,23 @@ import {
   TAG,
   TONE_CLASS,
   COLLECTED_COPY,
+  NOTE_SOFT,
+  ORGANISATION_PATH,
+  PART_COPY,
   accountWords,
   activityOf,
   bannerWords,
   collectedCell,
   collectedLines,
+  endedNotesOf,
   firstSelected,
+  fromWords,
   healthLine,
   listingPath,
+  managedWords,
   manageHintOf,
   needsAttention,
+  partRegionWords,
   pickPath,
   readingWords,
   readsWords,
@@ -54,6 +61,11 @@ export interface ConnectedProps {
   planning?: boolean;
   /** The connection to open on (`?c=<id>`, from a Review row), when it is listed. */
   selected?: string | null;
+  /**
+   * The person owns this brand's organisation and is an admin here (read live on the server, as the
+   * Organisation tab is): a part that needs its organisation then offers Fix, to Settings › Organisation.
+   */
+  owner?: boolean;
   /** The server's clock when the page was drawn, so server and browser write the same times. */
   now: string;
 }
@@ -68,7 +80,7 @@ const td = "border-b border-neutral-100 px-3 py-2.5 align-top dark:border-neutra
  * Pause or Resume, Disconnect, and the recent activity. Every change goes through the routes under
  * /api/admin/connectors; members see names and states, read only.
  */
-export function ConnectedView({ connections: initial, isAdmin, uid, chat, collect = false, planning = false, selected: wanted = null, now: drawnAt }: ConnectedProps) {
+export function ConnectedView({ connections: initial, isAdmin, uid, chat, collect = false, planning = false, selected: wanted = null, owner = false, now: drawnAt }: ConnectedProps) {
   const router = useRouter();
   const [connections, setConnections] = useState(initial);
   // Chosen once, explicitly, then only by a click or an action: never worked out again from state.
@@ -95,6 +107,12 @@ export function ConnectedView({ connections: initial, isAdmin, uid, chat, collec
   const live = connections.filter((c) => c.status === "connected");
   const attention = needsAttention(live);
   const selected = selectedOf(live, selectedId);
+  // Parts that ended because this brand left their organisation: they left the table, so say why.
+  const endedNotes = endedNotesOf(connections, now).map((text) => (
+    <p key={text} role="status" className={NOTE_SOFT}>
+      {text}
+    </p>
+  ));
 
   const act = connectedActions({
     replace: (view) => {
@@ -132,6 +150,7 @@ export function ConnectedView({ connections: initial, isAdmin, uid, chat, collec
   if (!live.length && !note) {
     return (
       <div className="space-y-3">
+        {endedNotes}
         <p className={NOTE_PLAIN}>
           {CONNECTED_COPY.none}{" "}
           <Link href="/admin/account/connections/browse" className="font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-400">
@@ -150,8 +169,9 @@ export function ConnectedView({ connections: initial, isAdmin, uid, chat, collec
           {note.text}
         </p>
       ) : null}
+      {endedNotes}
       {attention.map((c) => (
-        <AttentionBanner key={c.id} c={c} among={live} isAdmin={isAdmin} busy={busy} onReconnect={actions.reconnect} onCheckAccess={actions.checkAccess} />
+        <AttentionBanner key={c.id} c={c} among={live} isAdmin={isAdmin} owner={owner} busy={busy} onReconnect={actions.reconnect} onCheckAccess={actions.checkAccess} />
       ))}
       {!isAdmin ? <p className={HINT}>{SCREEN_COPY.membersOnly}</p> : null}
 
@@ -289,7 +309,7 @@ export function ConnectionRow({
       </td>
       {isAdmin && c.details ? (
         <>
-          <td className={td}>{HOW_LABELS[c.details.method]}</td>
+          <td className={td}>{c.part ? fromWords(c.part.organisation) : HOW_LABELS[c.details.method]}</td>
           <td className={td}>{c.details.ownerUid === uid ? "You" : "Someone else"}</td>
           <td className={td}>{last ? `${whoWords(last.by, uid)} · ${whenWords(last.at, now)}` : ""}</td>
           <td className={td}>{whoCanReadOf(c, chat)}</td>
@@ -347,10 +367,16 @@ function ReconnectAction({ c, busy, onReconnect, onCheckAccess }: { c: Connectio
   );
 }
 
-function AttentionBanner({
+/**
+ * A banner for a connection that needs something, with the way to fix it. A brand's part is fixed
+ * by its organisation's owners, never here: its words say so, an owner gets Fix (to Settings ›
+ * Organisation) and everyone else nothing to press, never Reconnect or Sign in again.
+ */
+export function AttentionBanner({
   c,
   among,
   isAdmin,
+  owner = false,
   busy,
   onReconnect,
   onCheckAccess,
@@ -359,18 +385,26 @@ function AttentionBanner({
   /** The connections shown, so a banner says which one when two connect to the same tool. */
   among: readonly ConnectionView[];
   isAdmin: boolean;
+  /** An owner of this brand's organisation who is an admin here. */
+  owner?: boolean;
   busy: string | null;
   onReconnect: (c: ConnectionView) => void;
   onCheckAccess: (c: ConnectionView) => void;
 }) {
   const words = bannerWords(c, among);
+  const fix =
+    owner && isAdmin ? (
+      <Link href={ORGANISATION_PATH} className={BUTTON_PRIMARY}>
+        {PART_COPY.fix}
+      </Link>
+    ) : null;
   return (
     <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-900 dark:bg-amber-950/40">
       <p className="text-sm text-amber-900 dark:text-amber-200">
         {words}
-        {!isAdmin ? ` ${CONNECTED_COPY.askAdmin}` : ""}
+        {!isAdmin && !c.part ? ` ${CONNECTED_COPY.askAdmin}` : ""}
       </p>
-      {isAdmin ? <ReconnectAction c={c} busy={busy} onReconnect={onReconnect} onCheckAccess={onCheckAccess} /> : null}
+      {c.part ? fix : isAdmin ? <ReconnectAction c={c} busy={busy} onReconnect={onReconnect} onCheckAccess={onCheckAccess} /> : null}
     </div>
   );
 }
@@ -403,13 +437,19 @@ function ManageCard({
 }) {
   const grants = c.details?.grants ?? [];
   const has = (to: "members" | "agent:vizzy") => grants.some((g) => g.to === to);
-  const paused = Boolean(c.details?.pausedAt) || c.health.state === "paused";
+  // A brand's part has no Google address, no Check access, no picker and no Sign in again here: its
+  // organisation's owners manage all of that. With sharing off it reads nothing, so offers nothing.
+  const part = c.part ?? null;
+  const acts = !part || part.reads !== "off";
+  // Its own pause: a part its organisation's owners paused shows Paused too, but only they resume it.
+  const paused = Boolean(c.details?.pausedAt) || (c.health.state === "paused" && part?.reads !== "paused");
   const state = stateOf(c);
   const line = healthLine(c, now);
-  const sa = c.details?.method === "share_access" && c.details.serviceAccount && !c.details.serviceAccount.deletedAt ? c.details.serviceAccount.email : null;
-  const picks = c.details?.method === "oauth_pkce" || c.details?.method === "share_access";
+  const sa = !part && c.details?.method === "share_access" && c.details.serviceAccount && !c.details.serviceAccount.deletedAt ? c.details.serviceAccount.email : null;
+  const picks = !part && (c.details?.method === "oauth_pkce" || c.details?.method === "share_access");
   const any = busy !== null;
-  const lines = collect ? collectedLines(c, { planning, chat }) : [];
+  const lines = collect && acts ? collectedLines(c, { planning, chat }) : [];
+  const region = part ? partRegionWords(c) : null;
 
   return (
     // scroll-mt-16 clears the admin header (sticky, 48px), so a pick on a narrow screen shows the card's heading.
@@ -424,7 +464,15 @@ function ManageCard({
         <span className={`${TAG} ${TONE_CLASS[state.tone]}`}>{state.label}</span>
         {line ? <span className={`ml-2 ${HINT}`}>{line}</span> : null}
       </p>
-      {c.connectorOn ? (
+      {part ? (
+        <div className="space-y-1">
+          <p role="note" className={NOTE_SOFT}>
+            {managedWords(part.organisation)}
+          </p>
+          {region ? <p className={HINT}>{region}</p> : null}
+        </div>
+      ) : null}
+      {c.connectorOn && acts ? (
         <fieldset className="space-y-2" disabled={any}>
           <legend className={HINT}>{CONNECTED_COPY.grantsLead}</legend>
           <label className="flex items-center gap-2 text-sm">
@@ -459,39 +507,43 @@ function ManageCard({
           <code className="block break-all rounded-md border border-neutral-300 bg-neutral-50 px-2 py-1 text-xs dark:border-neutral-700 dark:bg-neutral-900">{sa}</code>
         </div>
       ) : null}
-      <div className="flex flex-wrap gap-2">
-        {c.connectorOn ? (
-          <>
-            {sa ? (
-              <button type="button" className={BUTTON} disabled={any} onClick={() => actions.checkAccess(c)}>
-                {busy === `access:${c.id}` ? "Checking…" : "Check access"}
+      {acts ? (
+        <div className="flex flex-wrap gap-2">
+          {c.connectorOn ? (
+            <>
+              {sa ? (
+                <button type="button" className={BUTTON} disabled={any} onClick={() => actions.checkAccess(c)}>
+                  {busy === `access:${c.id}` ? "Checking…" : "Check access"}
+                </button>
+              ) : null}
+              {!c.needsAccount ? (
+                <button type="button" className={BUTTON} disabled={any || paused} onClick={() => actions.check(c)}>
+                  {busy === `check:${c.id}` ? "Checking…" : CONNECTED_COPY.checkNow}
+                </button>
+              ) : null}
+              <button type="button" className={BUTTON} disabled={any} onClick={() => actions.pause(c, !paused)}>
+                {paused ? CONNECTED_COPY.resume : CONNECTED_COPY.pause}
               </button>
-            ) : null}
-            {!c.needsAccount ? (
-              <button type="button" className={BUTTON} disabled={any || paused} onClick={() => actions.check(c)}>
-                {busy === `check:${c.id}` ? "Checking…" : CONNECTED_COPY.checkNow}
-              </button>
-            ) : null}
-            <button type="button" className={BUTTON} disabled={any} onClick={() => actions.pause(c, !paused)}>
-              {paused ? CONNECTED_COPY.resume : CONNECTED_COPY.pause}
+              {picks ? (
+                <Link href={pickPath(c.connectorId, c.id)} className={BUTTON}>
+                  {c.needsAccount ? "Choose a property" : "Change property"}
+                </Link>
+              ) : null}
+            </>
+          ) : null}
+          {!part ? (
+            <button
+              type="button"
+              className={`${BUTTON} border-red-300 text-red-700 dark:border-red-900 dark:text-red-400`}
+              disabled={any}
+              onClick={() => actions.disconnect(c)}
+            >
+              {busy === `disconnect:${c.id}` ? "Disconnecting…" : CONNECTED_COPY.disconnect}
             </button>
-            {picks ? (
-              <Link href={pickPath(c.connectorId, c.id)} className={BUTTON}>
-                {c.needsAccount ? "Choose a property" : "Change property"}
-              </Link>
-            ) : null}
-          </>
-        ) : null}
-        <button
-          type="button"
-          className={`${BUTTON} border-red-300 text-red-700 dark:border-red-900 dark:text-red-400`}
-          disabled={any}
-          onClick={() => actions.disconnect(c)}
-        >
-          {busy === `disconnect:${c.id}` ? "Disconnecting…" : CONNECTED_COPY.disconnect}
-        </button>
-      </div>
-      <p className={HINT}>{manageHintOf(c, { collect, planning })}</p>
+          ) : null}
+        </div>
+      ) : null}
+      {!part ? <p className={HINT}>{manageHintOf(c, { collect, planning })}</p> : null}
     </section>
   );
 }

@@ -2,6 +2,8 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { changeDataConnection, createDataConnection, endPart, forTenant, isRateLimited, type ActivityWrite, type ChangePlan, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
+import { REGION_CONFIGS } from "@/lib/tenant/region";
+import type { Region } from "@/lib/types/tenant";
 import { meaningsOf } from "@/lib/metrics/meanings";
 import { ConnectionGrantSchema, freshCollect, type ActivityKind, type ConnectionGrant, type ConnectionServiceAccount, type DataConnection } from "@/lib/types/dataConnection";
 import { eraseConnectionData, pendingWith, type SearchIndexOf } from "./erase";
@@ -21,7 +23,7 @@ import type { ConnectorFetchDeps } from "./safeFetch";
 import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isGoogleRevokeEnabled } from "./flags";
 import { revokeGoogleToken } from "./google";
 import { createShareAccount, deleteShareAccount, forgetShareTokens, identitiesProject, projectOfShareAccount, shareAccessToken, type ShareDeps, type ShareResult } from "./shareAccess";
-import { PartCache, partFailure, readable, sourceToken, storesOf, type SourceDeps } from "./sources";
+import { PartCache, partFactsOf, partFailure, sourceToken, storesOf, type PartFacts, type PartReads, type SourceDeps } from "./sources";
 import { freshAccessToken, REFRESH_SLOT } from "./tokenKeeper";
 import { isVaultConfigured, openConnectorSecret, sealConnectorSecret, VaultOpenError, type SealedSecret } from "./vault";
 
@@ -283,6 +285,12 @@ export interface ConnectionView {
   canReadLive: boolean;
   /** The last day collected, for anyone who may read it, while collected numbers are on; else null. */
   collectedTo: string | null;
+  /**
+   * A brand's part of its organisation's connection (Connectors 3, a record with a `source`): who
+   * gives it, and whether it reads now. It names only this brand and its own organisation, never
+   * the sign in, its Google address, what it can see or another brand's part.
+   */
+  part?: PartView;
   /** Admins only. */
   details?: {
     method: DataConnection["method"];
@@ -304,13 +312,68 @@ export interface ConnectionView {
   };
 }
 
+export interface PartView {
+  /** The organisation that gives it, and this brand, by name; null when they couldn't be read. */
+  organisation: string | null;
+  brand: string | null;
+  reads: PartReads;
+  /** When its organisation's sign in stopped working (`source`). */
+  since: string | null;
+  /** Where the sign in is kept, and where this brand keeps its numbers, by name. */
+  keptIn: string;
+  region: string;
+  /**
+   * How it ended, from its own activity, once it is disconnected: `left` (the brand left the
+   * organisation), `part_ended` (taken back), `stopped_using`, or `disconnected` (the organisation
+   * disconnected its connection).
+   */
+  ended: { why: string; at: string } | null;
+}
+
+const regionLabel = (r: Region): string => REGION_CONFIGS[r]?.displayName ?? r;
+
+/** Codes a part records while its organisation's connection can't serve it; stale once it reads again. */
+const SOURCE_CODES: ReadonlySet<string> = new Set(["source_broken", "source_paused", "sharing_off", "part_ended"]);
+
+/** A part's view from what partFactsOf read: the brand's region is the server's, never a request's. */
+export function partViewOf(conn: DataConnection, brandRegion: Region, facts: PartFacts): PartView {
+  const end = conn.status === "connected" ? null : (conn.recent.find((e) => e.kind === "disconnected") ?? null);
+  return {
+    organisation: facts.organisation,
+    brand: facts.brand,
+    reads: facts.reads,
+    since: facts.since,
+    keptIn: regionLabel(conn.source?.region ?? brandRegion),
+    region: regionLabel(brandRegion),
+    ended: end ? { why: end.code ?? "disconnected", at: end.at } : conn.status === "connected" ? null : conn.disconnectedAt ? { why: "disconnected", at: conn.disconnectedAt } : null,
+  };
+}
+
+/**
+ * The health a part shows: its organisation's sign in needing attention reads as broken from then,
+ * its owners' pause as paused, and a code the part recorded while its source couldn't serve it is
+ * dropped once it reads again. The brand's own pause, and a failure of its own part, stay as they are.
+ */
+function partHealth(conn: DataConnection, part: PartView, health: ConnectionView["health"]): ConnectionView["health"] {
+  if (health.state === "paused" || health.state === "broken") return health;
+  if (part.reads === "source") return { ...health, state: "broken", since: part.since, message: connectorMessage("source_broken") };
+  if (part.reads === "paused") return { ...health, state: "paused", message: connectorMessage("source_paused") };
+  if ((part.reads === "live" || part.reads === "off") && health.state === "check" && conn.health.lastErrorCode && SOURCE_CODES.has(conn.health.lastErrorCode)) {
+    return { ...health, state: "ok", message: null, since: null };
+  }
+  return health;
+}
+
 /**
  * A connection as this actor may see it: name and health for anyone allowed to see it, the rest for
- * admins. `partLive` false (a brand's part its organisation no longer gives it, or sharing off)
- * reads nothing: no live read, and no collected line, before the erase.
+ * admins. A brand's part (`part`, from partFactsOf) that partLive refuses (its organisation no
+ * longer gives it, sharing is off, a give not finished, or a read that failed) reads nothing: no
+ * live read, and no collected line, before the erase. `partLive: false` alone says the same
+ * without the part's words.
  */
-export function viewOf(conn: DataConnection, actor: ConnectorActor, now: Date, opts: { partLive?: boolean } = {}): ConnectionView {
-  const live = opts.partLive !== false;
+export function viewOf(conn: DataConnection, actor: ConnectorActor, now: Date, opts: { partLive?: boolean; part?: PartView | null } = {}): ConnectionView {
+  const part = conn.source ? (opts.part ?? null) : null;
+  const live = opts.partLive !== false && (!part || part.reads === "live" || part.reads === "source" || part.reads === "paused");
   const known = knownConnector(conn.connectorId);
   const view: ConnectionView = {
     id: conn.id,
@@ -333,7 +396,12 @@ export function viewOf(conn: DataConnection, actor: ConnectorActor, now: Date, o
     canReadLive: live && conn.status === "connected" && !!conn.account && can(actor, "read_live", conn.grants),
     collectedTo: null,
   };
-  const collect = isConnectorsCollectEnabled() && conn.status === "connected" ? collectViewOf(conn, now) : null;
+  if (part) {
+    view.part = part;
+    view.health = partHealth(conn, part, view.health);
+  }
+  // A part that reads nothing shows nothing it collected, to anyone, until the erase.
+  const collect = isConnectorsCollectEnabled() && conn.status === "connected" && live ? collectViewOf(conn, now) : null;
   if (collect && view.canReadLive) view.collectedTo = collect.lastDay;
   if (can(actor, "see_details", conn.grants)) {
     view.details = {
@@ -355,20 +423,33 @@ export function viewOf(conn: DataConnection, actor: ConnectorActor, now: Date, o
   return view;
 }
 
-/** Whether each part partLive honours (a brand's own connection always reads), with one cache for the request. */
-async function partsLive(ctx: TenantContext, rows: readonly DataConnection[], deps: ServiceDeps): Promise<Map<string, boolean>> {
-  const out = new Map<string, boolean>();
+/** Each part's view (partLive, then its source's state and the names), with one cache for the request. */
+async function partViews(ctx: TenantContext, rows: readonly DataConnection[], deps: ServiceDeps): Promise<Map<string, PartView>> {
+  const out = new Map<string, PartView>();
   const shared = { ...deps, partCache: deps.partCache ?? new PartCache() };
-  for (const c of rows) if (c.source && c.status === "connected") out.set(c.id, await readable(ctx, c, shared));
+  for (const c of rows) {
+    if (!c.source) continue;
+    const facts = await partFactsOf(ctx, c, shared);
+    if (facts) out.set(c.id, partViewOf(c, ctx.region, facts));
+  }
   return out;
+}
+
+/** One connection as this actor may see it, with its part's words when it is a brand's part. */
+async function viewFor(ctx: TenantContext, conn: DataConnection, actor: ConnectorActor, deps: ServiceDeps): Promise<ConnectionView> {
+  if (!conn.source) return viewOf(conn, actor, nowOf(deps));
+  const parts = await partViews(ctx, [conn], deps);
+  return viewOf(conn, actor, nowOf(deps), { part: parts.get(conn.id) ?? null, partLive: parts.has(conn.id) ? undefined : false });
 }
 
 /** Browse and the brand's connections, newest first, as this actor may see them. */
 export async function listForActor(ctx: TenantContext, actor: ConnectorActor, deps: ServiceDeps = {}): Promise<ServiceResult<{ connectors: ConnectorListing[]; connections: ConnectionView[] }>> {
   const now = nowOf(deps);
   const rows = (await forTenant(ctx, deps.db).dataConnections.find({ limit: LIST_LIMIT })).filter((c) => can(actor, "see", c.grants));
-  const live = await partsLive(ctx, rows, deps);
-  const connections = rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((c) => viewOf(c, actor, now, { partLive: live.get(c.id) }));
+  const parts = await partViews(ctx, rows, deps);
+  const connections = rows
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .map((c) => viewOf(c, actor, now, { part: parts.get(c.id) ?? null, partLive: c.source && !parts.has(c.id) ? false : undefined }));
   return { ok: true, status: 200, value: { connectors: listConnectors().map(listingOf), connections } };
 }
 
@@ -380,8 +461,7 @@ async function load(ctx: TenantContext, id: string, deps: ServiceDeps): Promise<
 export async function getForActor(ctx: TenantContext, actor: ConnectorActor, id: string, deps: ServiceDeps = {}): Promise<ServiceResult<ConnectionView>> {
   const conn = await load(ctx, id, deps);
   if (!conn || !can(actor, "see", conn.grants)) return refuse(404, "not_found");
-  const live = await partsLive(ctx, [conn], deps);
-  return { ok: true, status: 200, value: viewOf(conn, actor, nowOf(deps), { partLive: live.get(conn.id) }) };
+  return { ok: true, status: 200, value: await viewFor(ctx, conn, actor, deps) };
 }
 
 // --- Connect -----------------------------------------------------------------------------------
@@ -683,12 +763,19 @@ export async function check(ctx: TenantContext, actor: ConnectorActor, id: strin
   const outcome = verified.ok ? verified : { ...verified, code: await partFailure(u.conn, verified.code, byOf(actor), deps) };
   const r = await changeDataConnection(ctx, id, (cur) => outcomePlan(cur, outcome, actor, now, "verified"), deps.db);
   const conn = r.ok ? r.connection : r.why === "unchanged" ? r.connection : u.conn;
+  const view = await viewFor(ctx, conn, actor, { ...deps, now });
+  // A part whose organisation's sign in needs attention says who can fix it, by name.
+  const names = view.part?.organisation && view.part.brand ? { organisation: view.part.organisation, brand: view.part.brand } : null;
+  const message = (code: ConnectorErrorCode) => {
+    const refusal = connectionRefusal(u.conn, code, names);
+    return !refusal.ok && refusal.message ? refusal.message : connectorMessage(code, aboutOf(u.conn.connectorId));
+  };
   return {
     ok: true,
     status: 200,
     value: {
-      connection: viewOf(conn, actor, now),
-      check: outcome.ok ? { ok: true, code: null, message: null } : { ok: false, code: outcome.code, message: connectorMessage(outcome.code, aboutOf(u.conn.connectorId)) },
+      connection: view,
+      check: outcome.ok ? { ok: true, code: null, message: null } : { ok: false, code: outcome.code, message: message(outcome.code) },
     },
   };
 }
@@ -1099,7 +1186,7 @@ async function manage(
   const at = now.toISOString();
   const r = await changeDataConnection(ctx, id, (cur) => plan(cur, at), deps.db);
   if (!r.ok && r.why === "not_found") return refuse(404, "not_found");
-  return { ok: true, status: 200, value: viewOf(r.ok ? r.connection : r.connection, actor, now) };
+  return { ok: true, status: 200, value: await viewFor(ctx, r.ok ? r.connection : r.connection, actor, { ...deps, now }) };
 }
 
 /** Pause or resume a connection's calls. Resuming also ends a timed pause. Admins only. */
@@ -1275,5 +1362,7 @@ async function stopUsing(ctx: TenantContext, actor: ConnectorActor, conn: DataCo
     }
   }
   const after = (await load(ctx, conn.id, deps)) ?? conn;
-  return { ok: true, status: 200, value: { connection: viewOf(after, actor, now, { partLive: false }), revoked: false, addressDeleted: null, message: STOPPED_USING_MESSAGE } };
+  // Its view says it ended (and who gave it), so its activity keeps its organisation's name.
+  const view = after.status === "connected" ? viewOf(after, actor, now, { partLive: false }) : await viewFor(ctx, after, actor, { ...deps, now });
+  return { ok: true, status: 200, value: { connection: view, revoked: false, addressDeleted: null, message: STOPPED_USING_MESSAGE } };
 }

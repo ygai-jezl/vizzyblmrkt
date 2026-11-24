@@ -63,6 +63,13 @@ describe("what the Connections screens start from", () => {
     expect(await connectionsScreenFor(ADMIN, broken)).toMatchObject({ core: true, failed: true, connections: [] });
   });
 
+  it("offers Fix on a part only to an admin the server found to own the organisation", async () => {
+    expect((await connectionsScreenFor(ADMIN, deps())).owner).toBe(false);
+    expect((await connectionsScreenFor(ADMIN, deps(), { owner: true })).owner).toBe(true);
+    // A member who owns the organisation still can't act here.
+    expect((await connectionsScreenFor(MEMBER, deps(), { owner: true })).owner).toBe(false);
+  });
+
   it("counts only connected connections", () => {
     expect(connectedCount({ connections: [{ status: "connected" }, { status: "disconnected" }] as never })).toBe(1);
   });

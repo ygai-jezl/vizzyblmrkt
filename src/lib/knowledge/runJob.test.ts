@@ -22,6 +22,20 @@ const vars: IngestionJobVars = {
 
 afterEach(() => vi.unstubAllEnvs());
 
+// @google-cloud/run, recording when it loads and how many clients are made.
+const cloudRun = vi.hoisted(() => ({ loads: 0, made: 0, runJob: vi.fn(async () => [{}]) }));
+vi.mock("@google-cloud/run", () => {
+  cloudRun.loads++;
+  return {
+    JobsClient: class {
+      runJob = cloudRun.runJob;
+      constructor() {
+        cloudRun.made++;
+      }
+    },
+  };
+});
+
 describe("runJob configuration", () => {
   it("isIngestionJobConfigured needs both project and job name", () => {
     vi.stubEnv("GOOGLE_CLOUD_PROJECT", "proj");
@@ -107,5 +121,21 @@ describe("triggerIngestionJob", () => {
     await triggerIngestionJob(vars, { runJob });
     expect(runJob).toHaveBeenCalledTimes(1);
     expect(runJob.mock.calls[0]![0].name).toContain("/jobs/knowledge-scraper");
+  });
+});
+
+describe("the Cloud Run client", () => {
+  it("loads only when a job starts with no runner given, and is made once", async () => {
+    vi.stubEnv("GOOGLE_CLOUD_PROJECT", "proj");
+    vi.stubEnv("KNOWLEDGE_JOB_NAME", "knowledge-scraper");
+    expect(cloudRun.loads).toBe(0);
+    await triggerIngestionJob(vars, { runJob: vi.fn().mockResolvedValue([{}]) });
+    expect(cloudRun.loads).toBe(0);
+
+    await Promise.all([triggerIngestionJob(vars), triggerIngestionJob({ ...vars, ticketId: "tkt_2" })]);
+    expect(cloudRun.loads).toBe(1);
+    expect(cloudRun.made).toBe(1);
+    expect(cloudRun.runJob).toHaveBeenCalledTimes(2);
+    expect((cloudRun.runJob.mock.calls[0] as unknown as [{ name: string }])[0].name).toContain("/jobs/knowledge-scraper");
   });
 });

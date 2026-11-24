@@ -60,6 +60,20 @@ export function isBlogDatesUiEnabled(): boolean {
 }
 
 /**
+ * Article freshness: each live blog article gets a clock (20, 30 or 45 days, tested), a daily state
+ * (fresh, review soon, due) with its reasons, and due articles show in Review, Next up, Search
+ * Console's rows and for Vizzy. Needs true dates and the article's live mark. Off = as before.
+ */
+export function isBlogFreshnessEnabled(): boolean {
+  return isBlogDatesEnabled() && isBrandMapPagesEnabled() && process.env.BLOG_FRESHNESS_ENABLED === "true";
+}
+
+/** The same, for screens: the Freshness card, the clock setting, the article list's pills. */
+export function isBlogFreshnessUiEnabled(): boolean {
+  return isBlogDatesUiEnabled() && process.env.NEXT_PUBLIC_BLOG_FRESHNESS_ENABLED === "true";
+}
+
+/**
  * The map at any size: subjects and their questions move out of the one record into their
  * own (once per brand, on its first write), in groups, with no fixed count; the Subjects and
  * Who you are tabs, the content map by levels, coverage by subject, and articles reading only

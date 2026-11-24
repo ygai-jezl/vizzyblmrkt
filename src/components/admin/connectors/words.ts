@@ -1,6 +1,8 @@
 import { LIVE_LIMITS, type ConnectMethodName, type ConnectorCategory, type ShareAccessMethod, type TokenFieldsMethod } from "@/lib/connectors/manifest";
 import { SIGNIN_REASONS } from "@/lib/connectors/messages";
 import { dayWords, zoneWords } from "@/lib/connectors/period";
+import type { SharedConnectionsScreen, SharedConnectionView } from "@/lib/connectors/organisationConnect";
+import type { OrganisationAccount } from "@/lib/connectors/organisationParts";
 import type { ConnectionView, ConnectorListing } from "@/lib/connectors/service";
 
 /**
@@ -982,5 +984,137 @@ export const afterSignInWords = (part: string, brand: string) =>
 export const connectedForWords = (org: string) => `Connected for ${org}. Give each brand its part below.`;
 export const signedInAgainWords = (n: number) =>
   n ? `Signed in again. ${n === 1 ? "1 brand's part" : `${n} brands' parts`} can't be read with this Google account: see below.` : "Signed in again. Every brand's part reads with your Google account.";
-export const ownConnectionWords = (brand: string, connectorName: string, one: string) => `${brand} already has its own ${productWords(connectorName)} connection to this ${one}. Disconnect that one first.`;
 export const unitOf = (connectorId: string) => cap(partUnit(connectorId).one);
+
+// The rows, options and notes Settings › Organisation shows, worked out without a browser.
+
+type SharedConnection = SharedConnectionView;
+type SharedPart = SharedConnection["parts"][number];
+type SharedScreen = SharedConnectionsScreen;
+type OrgAccount = OrganisationAccount;
+
+/** The card's state tag: paused, needing attention (its sign in broken), turned off here, or working. */
+export function sharedStateOf(c: Pick<SharedConnection, "pausedAt" | "health" | "connectorOn">): { label: string; tone: Tone } {
+  if (!c.connectorOn) return { label: "Turned off here", tone: "muted" };
+  if (c.pausedAt) return { label: SHARED_COPY.paused, tone: "muted" };
+  if (c.health.state === "broken") return { label: SHARED_COPY.attention, tone: "warn" };
+  return { label: SHARED_COPY.working, tone: "ok" };
+}
+
+/** A part its brand can't read now (its own record says so), not its organisation's sign in. */
+export const partUnreadable = (p: SharedPart) => Boolean(p.record && p.record.status === "connected" && p.record.health.state === "broken" && p.record.health.lastErrorCode && PART_UNREADABLE_CODES.has(p.record.health.lastErrorCode));
+
+/** Who may read a part beyond admins, from its brand's own ticks (Vizzy only while Vizzy reads connected data). */
+export function partReadersWords(p: SharedPart, chat: boolean): string {
+  const g = p.record?.grants ?? [];
+  const who = ["Admins"];
+  if (g.some((x) => x.to === "members")) who.push("members");
+  if (chat && g.some((x) => x.to === "agent:vizzy")) who.push("Vizzy");
+  return who.join(", ");
+}
+
+/** A part's Collected cell: being given or taken back, can't be read, stopped with its sign in, paused, filling or collected to a day. */
+export function partCollectedWords(p: SharedPart, c: Pick<SharedConnection, "method" | "connectorName" | "health" | "pausedAt">): { main: string; hint: string | null; warn: boolean; progress: { value: number; max: number } | null } {
+  const plain = (main: string, hint: string | null = null) => ({ main, hint, warn: false, progress: null });
+  if (p.state === "pending") return plain(SHARED_COPY.giving);
+  if (p.state === "ending") return plain(SHARED_COPY.ending);
+  const k = p.record?.collect ?? null;
+  const to = k?.lastDay ? `Collected to ${dayWords(k.lastDay)}` : null;
+  if (!p.record) return plain(SHARED_COPY.unreadable);
+  if (partUnreadable(p)) {
+    const w = cantReadWords(c.method, p.account, c.connectorName, p.record.health.since ?? p.record.health.lastCheckedAt);
+    return { main: w.main, hint: w.hint, warn: true, progress: null };
+  }
+  if (c.health.state === "broken") {
+    const since = (c.health.since ?? c.health.lastCheckedAt ?? "").slice(0, 10);
+    return plain(since ? `Stopped on ${dayWords(since)}` : "Stopped", to);
+  }
+  if (c.pausedAt) return plain(`Paused on ${dayWords(c.pausedAt.slice(0, 10))}`, to);
+  if (!k || !k.lastDay) return plain(SHARED_COPY.starting);
+  if (!k.filled) return { main: `Filling: ${k.days} of ${k.keepDays} days`, hint: null, warn: false, progress: { value: k.days, max: k.keepDays } };
+  const final = k.finalThrough && k.finalThrough < k.lastDay ? ` (final to ${dayWords(k.finalThrough)})` : `, ${k.days} days`;
+  return plain(`To ${dayWords(k.lastDay)}${final}`);
+}
+
+/** The notes above a card's table, in the order the approved screen shows them. */
+export function sharedNotesOf(c: SharedConnection, now: Date): Array<{ tone: "plain" | "hint" | "warn"; text: string }> {
+  const unit = partUnit(c.connectorId);
+  const out: Array<{ tone: "plain" | "hint" | "warn"; text: string }> = [];
+  if (c.pausedAt) out.push({ tone: "plain", text: pausedOrgWords(dayWords(c.pausedAt.slice(0, 10)), c.pausedByYou) });
+  if (c.collectHold && Date.parse(c.collectHold.until) > now.getTime()) out.push({ tone: "hint", text: holdWords(c.collectHold.until, c.connectorName) });
+  if (c.health.state === "broken") out.push({ tone: "warn", text: sharedBrokenWords(c, c.parts.length) });
+  if (c.signer === "other") out.push({ tone: "hint", text: notSignerWords(unit.many) });
+  if (c.signer === "gone") out.push({ tone: "warn", text: signerLeftWords(unit.many) });
+  return out;
+}
+
+/** Whether every brand in the organisation has a part from this connection, so Give gives way to a hint. */
+export const everyBrandHasPart = (c: Pick<SharedConnection, "parts">, brands: SharedScreen["brands"]) => brands.length > 0 && brands.every((b) => c.parts.some((p) => p.tenantId === b.id));
+
+/** A brand as the give dialog offers it: greyed when the owner isn't its admin or it has a part, with its region when it isn't the sign in's. */
+export function brandOptionsFor(c: SharedConnection, brands: SharedScreen["brands"]): Array<{ id: string; name: string; off: boolean; note: string | null }> {
+  return brands.map((b) => {
+    const held = c.parts.find((p) => p.tenantId === b.id);
+    if (!b.isAdmin) return { id: b.id, name: b.name, off: true, note: notAdminWords(b.name) };
+    if (held) return { id: b.id, name: b.name, off: true, note: hasPartWords(partWords(held.account, held.record?.label)) };
+    return { id: b.id, name: b.name, off: false, note: b.region !== c.region ? otherRegionWords(b.name, b.regionName, c.regionName) : null };
+  });
+}
+
+const DOMAIN_PREFIX = "sc-domain:";
+
+/** A part as the give dialog offers it to brand `to`: greyed when given, and warned about overlaps, other brands' own connections and other sites. */
+export function accountOptionsFor(
+  c: SharedConnection,
+  accounts: readonly OrgAccount[],
+  brands: SharedScreen["brands"],
+  to: string | null,
+  org: string,
+  opts: { changing?: string } = {},
+): Array<{ id: string; label: string; off: boolean; note: string | null; warn: boolean }> {
+  const unit = partUnit(c.connectorId);
+  const nameOf = (id: string) => brands.find((b) => b.id === id)?.name ?? "another brand";
+  const receiving = to ? brands.find((b) => b.id === to) ?? null : null;
+  // What is given already, here or through another of the organisation's connections, by account.
+  const given = accounts.flatMap((a) => (a.givenTo ? [{ id: a.id, tenantId: a.givenTo.tenantId }] : a.givenElsewhere ? [{ id: a.id, tenantId: a.givenElsewhere.tenantId }] : []));
+  return accounts.map((a) => {
+    const label = partWords(a.id, a.label);
+    const held = a.givenTo ?? a.givenElsewhere;
+    const mine = Boolean(opts.changing && held && held.tenantId === to);
+    if (held && !mine) return { id: a.id, label, off: true, note: givenToWords(nameOf(held.tenantId)), warn: false };
+    if (mine) return { id: a.id, label, off: false, note: null, warn: false };
+    // A Search Console domain property includes every subdomain: two brands on one can't be split.
+    if (c.connectorId === "search-console") {
+      const host = accountHost(a);
+      const others = given.filter((g) => g.tenantId !== to);
+      if (/^https?:\/\//i.test(a.id) && host) {
+        const over = others.find((g) => g.id.startsWith(DOMAIN_PREFIX) && sameSite(host, g.id.slice(DOMAIN_PREFIX.length)) && host.endsWith(bareHost(g.id.slice(DOMAIN_PREFIX.length))));
+        if (over) return { id: a.id, label, off: false, note: insideWords(over.id, nameOf(over.tenantId)), warn: true };
+      }
+      if (a.id.startsWith(DOMAIN_PREFIX)) {
+        const root = bareHost(a.id.slice(DOMAIN_PREFIX.length));
+        const covered = others.find((g) => /^https?:\/\//i.test(g.id) && (accountHost({ id: g.id, label: g.id }) ?? "").endsWith(root));
+        if (covered) return { id: a.id, label, off: false, note: coversWords(covered.id, nameOf(covered.tenantId)), warn: true };
+      }
+    }
+    if (a.ownBrandIds.some((id) => id !== to)) return { id: a.id, label, off: false, note: otherOwnWords(org, unit.one), warn: true };
+    const host = accountHost(a);
+    if (receiving?.rootDomain && host && !sameSite(host, receiving.rootDomain)) return { id: a.id, label, off: false, note: notOnWords(bareHost(receiving.rootDomain)), warn: true };
+    return { id: a.id, label, off: false, note: null, warn: false };
+  });
+}
+
+/** Which part starts chosen for a brand: the one it has (a change), else the first on its own site, else the only one left. */
+export function firstPartFor(options: ReadonlyArray<{ id: string; off: boolean }>, accounts: readonly OrgAccount[], rootDomain: string | null, current?: string): string | null {
+  if (current && options.some((o) => o.id === current)) return current;
+  const free = options.filter((o) => !o.off);
+  if (rootDomain) {
+    const own = free.find((o) => {
+      const a = accounts.find((x) => x.id === o.id);
+      const host = a ? accountHost(a) : null;
+      return host !== null && sameSite(host, rootDomain);
+    });
+    if (own) return own.id;
+  }
+  return free.length === 1 ? free[0]!.id : null;
+}

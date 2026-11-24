@@ -336,6 +336,8 @@ export interface SharedPartView {
   /** The brand record, read in its region: null when it can't be read now. */
   record: {
     status: DataConnection["status"];
+    /** The name it was given with (a zone's or a property's). */
+    label: string;
     health: { state: DataConnection["health"]["state"]; lastErrorCode: string | null; since: string | null; lastCheckedAt: string | null };
     grants: ConnectionGrant[];
     pausedAt: string | null;
@@ -369,6 +371,8 @@ export interface SharedConnectionView {
   parts: SharedPartView[];
   /** The last brand that stopped using it, by name, and when, from its recent list. */
   stoppedUsing: { brandName: string; at: string } | null;
+  /** It has served a brand before (its recent list shows a part given or ended), so no parts now asks to disconnect it. */
+  hadParts: boolean;
   createdAt: string;
 }
 
@@ -460,6 +464,7 @@ export async function sharedConnectionView(owner: OrganisationOwner, c: Organisa
         rec && rec.source?.connectionId === c.id
           ? {
               status: rec.status,
+              label: rec.label,
               health: { state: rec.health.state, lastErrorCode: rec.health.lastErrorCode, since: rec.health.since ?? null, lastCheckedAt: rec.health.lastCheckedAt },
               grants: rec.grants,
               pausedAt: rec.pausedAt,
@@ -490,6 +495,7 @@ export async function sharedConnectionView(owner: OrganisationOwner, c: Organisa
     serviceAccount: c.method === "share_access" && c.serviceAccount && !c.serviceAccount.deletedAt ? { email: c.serviceAccount.email } : null,
     parts,
     stoppedUsing: stopped ? { brandName: (stopped.tenantId && named.get(stopped.tenantId)) || "A brand", at: stopped.at } : null,
+    hadParts: c.recent.some((e) => e.kind === "part_given" || e.kind === "part_ended"),
     createdAt: c.createdAt,
   };
 }

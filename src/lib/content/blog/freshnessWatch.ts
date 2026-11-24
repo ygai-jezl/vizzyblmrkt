@@ -3,7 +3,8 @@ import { listBrandMapPages } from "@/lib/brandMap/pages";
 import { subjectCoverage } from "@/lib/brandMap/recount";
 import { readBrandMap } from "@/lib/brandMap/store";
 import { mayFetch, robotsFor } from "@/lib/competitors/fetch";
-import { pageKey, rolledId } from "@/lib/connectors/keys";
+import { rolledId } from "@/lib/connectors/keys";
+import { articlePageKey, bareHost, freshnessWatchId, signalPageKey } from "./freshnessPages";
 import { searchConsoleManifest } from "@/lib/connectors/manifests/searchConsole";
 import { openSuggestions, planningConnections } from "@/lib/connectors/signals/review";
 import { RULES } from "@/lib/connectors/signals/detect";
@@ -46,28 +47,7 @@ export const FRESHNESS_WATCH = {
   OPEN_QUESTIONS: 2,
 } as const;
 
-export const freshnessWatchId = (tenantId: string) => `fw_${tenantId}`;
-
-/** A Search Console host or a site address as a bare host: no scheme, "sc-domain:", "www." or path. */
-export function bareHost(host: string): string {
-  return host
-    .trim()
-    .toLowerCase()
-    .replace(/^sc-domain:/, "")
-    .replace(/^https?:\/\//, "")
-    .replace(/\/.*$/, "")
-    .replace(/^www\./, "");
-}
-
-/** An article's live address as Search Console keys pages, or null when it isn't an address. */
-export function articlePageKey(url: string): string | null {
-  try {
-    const u = new URL(url);
-    return pageKey(bareHost(u.hostname), u.pathname);
-  } catch {
-    return null;
-  }
-}
+export { articlePageKey, bareHost, freshnessWatchId } from "./freshnessPages";
 
 export type LinkState = "ok" | "dead" | "unknown";
 
@@ -89,7 +69,7 @@ async function defaultLosing(ctx: TenantContext, db?: FirestoreLike): Promise<Ma
   const out = new Map<string, string>();
   for (const s of await openSuggestions(ctx, {}, { db }).catch(() => [])) {
     if (s.row.rule !== "losing_page" || !s.row.label) continue;
-    const key = pageKey(bareHost(s.row.key?.host ?? s.connection.account), s.row.key?.page ?? s.row.label);
+    const key = signalPageKey(s.row.key?.host, s.connection.account, s.row.key?.page ?? s.row.label);
     out.set(key, signalLines(s.row)[0] ?? "Search Console: fewer clicks than in the 28 days before.");
   }
   return out;
@@ -107,7 +87,7 @@ async function defaultReach(ctx: TenantContext, db?: FirestoreLike): Promise<Map
       const p = row.m.searchPosition;
       const i = row.m.searchImpressions ?? 0;
       if (typeof p !== "number" || p < r.minPosition || p > r.maxPosition || i < r.minImpressions) continue;
-      const key = pageKey(bareHost(row.host ?? conn.account), row.key);
+      const key = signalPageKey(row.host, conn.account, row.key);
       out.set(key, `Search Console: position ${Math.round(p)} on average, ${i.toLocaleString("en-US")} impressions in 28 days. A refresh could lift it onto page one.`);
     }
   }

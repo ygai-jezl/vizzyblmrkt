@@ -6,7 +6,7 @@ import { getContentPlan, updateContentPlanNode } from "@/lib/tenant/workspaceCon
 import type { ContentNode } from "@/lib/types/contentPlan";
 import type { Tenant } from "@/lib/types/tenant";
 import { articleFreshness, nextEvents } from "./freshness";
-import { freshnessWatchId } from "./freshnessWatch";
+import { freshnessWatchId } from "./freshnessPages";
 
 /**
  * Article freshness's settings and a person's check (BLOG_FRESHNESS_ENABLED): the brand's refresh

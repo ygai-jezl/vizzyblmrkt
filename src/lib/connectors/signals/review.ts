@@ -40,7 +40,7 @@ export interface SuggestionDeps {
 }
 
 /** The brand's connected Search Console connections that feed planning, by id. */
-async function planningConnections(ctx: TenantContext, deps: SuggestionDeps): Promise<Map<string, DataConnection>> {
+export async function planningConnections(ctx: TenantContext, deps: SuggestionDeps): Promise<Map<string, DataConnection>> {
   const conns = await forTenant(ctx, deps.db).dataConnections.find({ where: [["status", "==", "connected"]], limit: 50 });
   return new Map(conns.filter((c) => c.connectorId === searchConsoleManifest.id && feedsPlanning(c.grants)).map((c) => [c.id, c] as const));
 }

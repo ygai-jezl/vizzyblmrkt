@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts`. Don't edit this file: change the 
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one.
 
-94 types: 73 built and 21 planned.
+95 types: 74 built and 21 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -1179,6 +1179,21 @@ Found live's working state: when to look at the brand's site next, which article
 - Erase: none. Worked out again each time; what it finds is the article's live mark.
 - Export: none. The brand's own work, with no one's personal data.
 - Search: none. Working state; what it finds is searched as the article.
+- Numbers: none. No numbers an agent reads.
+
+### Freshness watch (`freshness_watch`)
+
+Article freshness's daily record per brand: its live articles' counts by state and by clock, their pages, and the articles due a refresh. Each article's own clock and state live on the article.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `freshness_watch`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `content_plan` through the live articles it looks at (many)
+- Erase: none. Worked out again each day; each article's freshness is on the article.
+- Export: none. The brand's own work, with no one's personal data.
+- Search: none. Working state; the articles are searched as themselves.
 - Numbers: none. No numbers an agent reads.
 
 ## Company

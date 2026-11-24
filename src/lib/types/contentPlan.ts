@@ -535,6 +535,9 @@ export const BlogArticleFreshnessSchema = z.object({
     .default([]),
   dueAt: z.string().max(40),
   sweptAt: z.string().max(40),
+  /** The article's outbound links that answered 404 or 410 at the last weekly check. */
+  deadLinks: z.array(z.string().max(2000)).max(10).default([]),
+  linksCheckedAt: z.string().max(40).nullable().default(null),
   events: z
     .array(z.object({ at: z.string().max(40), kind: z.enum(["due", "checked", "updated"]), clockDays: z.number().int().min(1).max(365) }))
     .max(20)

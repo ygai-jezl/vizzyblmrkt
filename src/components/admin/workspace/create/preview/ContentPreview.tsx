@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo } from "react";
+import { articleDateline } from "@/lib/content/blog/dates";
 import { channelLabel } from "@/lib/content/channels";
 import { truncateSeeMore } from "@/lib/distribute/preview/linkedin";
 import { truncateCaption } from "@/lib/distribute/preview/instagram";
@@ -52,6 +53,8 @@ interface FrameProps {
    *  ToC skeleton (empty chapter bodies) to keep the plan doc small, so the eBook preview reads
    *  the real prose + images from here instead. */
   fullEbook?: EbookDoc | null;
+  /** True dates (BLOG_DATES_ENABLED): the brand's time zone; the article shows Published and Updated. */
+  datesTimeZone?: string;
 }
 
 /** The node's generated post image (if any), served by the authenticated workspace-asset
@@ -414,7 +417,7 @@ function InstagramFrame({ node, view, brandName, workspaceId }: FrameProps) {
 }
 
 // ── Blog (SEO/GEO) ───────────────────────────────────────────────────────────
-function BlogFrame({ node, view, brandName }: FrameProps) {
+function BlogFrame({ node, view, brandName, datesTimeZone }: FrameProps) {
   const { title, body } = splitBlogTitle(node);
   const brand = brandName || "Your Brand";
   // CITABLE blog (flag on): the search result shows the meta title and description the
@@ -451,7 +454,7 @@ function BlogFrame({ node, view, brandName }: FrameProps) {
         {node.body.trim() ? (
           body.trim() ? (
             citable ? (
-              <ArticleMarkdown markdown={body} />
+              <ArticleMarkdown markdown={body} dateline={datesTimeZone ? articleDateline(node.blog, datesTimeZone, new Date()) : null} />
             ) : (
               <MarkdownMessage content={body} />
             )
@@ -672,7 +675,17 @@ const FRAMES: Record<PreviewKind, (p: FrameProps) => React.ReactElement> = {
 };
 
 /** Render a node as its channel-native post, in the requested feed/opened state. */
-export function ContentPreview({ node, view, brandName, emailStyle, workspaceId, fullEbook }: FrameProps) {
+export function ContentPreview({ node, view, brandName, emailStyle, workspaceId, fullEbook, datesTimeZone }: FrameProps) {
   const Frame = FRAMES[previewKind(node)];
-  return <Frame node={node} view={view} brandName={brandName} emailStyle={emailStyle} workspaceId={workspaceId} fullEbook={fullEbook} />;
+  return (
+    <Frame
+      node={node}
+      view={view}
+      brandName={brandName}
+      emailStyle={emailStyle}
+      workspaceId={workspaceId}
+      fullEbook={fullEbook}
+      {...(datesTimeZone ? { datesTimeZone } : {})}
+    />
+  );
 }

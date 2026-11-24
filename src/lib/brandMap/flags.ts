@@ -46,6 +46,20 @@ export function isBlogLiveWatchEnabled(): boolean {
 }
 
 /**
+ * True article dates: Published (when the page went up) and Updated (a real change) are stored on
+ * each blog article, with the brand's time zone, and the date line, the copy and the markup come
+ * from them. Off = the day the article was drafted, as before.
+ */
+export function isBlogDatesEnabled(): boolean {
+  return process.env.BLOG_DATES_ENABLED === "true";
+}
+
+/** The same, for screens: the canvas date line, the export, Settings › General's time zone. */
+export function isBlogDatesUiEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_BLOG_DATES_ENABLED === "true";
+}
+
+/**
  * The map at any size: subjects and their questions move out of the one record into their
  * own (once per brand, on its first write), in groups, with no fixed count; the Subjects and
  * Who you are tabs, the content map by levels, coverage by subject, and articles reading only

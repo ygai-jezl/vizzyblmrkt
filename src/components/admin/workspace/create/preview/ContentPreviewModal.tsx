@@ -25,9 +25,12 @@ export function ContentPreviewModal({
   emailStyle,
   workspaceId,
   fullEbook,
+  datesTimeZone,
   onClose,
 }: {
   node: ContentNode;
+  /** True dates (BLOG_DATES_ENABLED): the brand's time zone. */
+  datesTimeZone?: string;
   brandName?: string;
   /** The tenant's Email style, for the email frame; null = today's look. */
   emailStyle?: ResolvedEmailStyle | null;
@@ -125,7 +128,15 @@ export function ContentPreviewModal({
           style={{ maxWidth: width, width: "100%" }}
           onClick={(e) => e.stopPropagation()}
         >
-          <ContentPreview node={node} view={view} brandName={brandName} emailStyle={emailStyle} workspaceId={workspaceId} fullEbook={fullEbook} />
+          <ContentPreview
+            node={node}
+            view={view}
+            brandName={brandName}
+            emailStyle={emailStyle}
+            workspaceId={workspaceId}
+            fullEbook={fullEbook}
+            {...(datesTimeZone ? { datesTimeZone } : {})}
+          />
           <p className="mt-3 text-center text-[11px] text-neutral-600 dark:text-neutral-400">
             Approximate {channelLabel(node.channel)} rendering · ~{width}px ·{" "}
             {view === "feed" ? "as seen in the feed" : "opened / full view"}

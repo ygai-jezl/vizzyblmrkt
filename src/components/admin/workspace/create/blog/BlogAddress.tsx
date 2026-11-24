@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import type { BlogArticleLive } from "@/lib/types/contentPlan";
+import type { BlogArticleDates, BlogArticleLive } from "@/lib/types/contentPlan";
 import { ADDRESS_PROBLEM, articleAddressProblem, type AddressSaved } from "@/lib/content/blog/address";
 import { normalizeUrl } from "@/lib/content/blog/brief";
 import type { LiveAction, LiveCheck } from "@/lib/content/blog/live";
 import type { LiveResult } from "./types";
+import { isBlogDatesUiEnabled } from "@/lib/brandMap/flags";
 
 const LABEL = "text-xs font-medium text-neutral-600 dark:text-neutral-300";
 const HINT = "text-[11px] text-neutral-500 dark:text-neutral-400";
@@ -53,25 +54,40 @@ function liveLine(live: BlogArticleLive): string {
 const LIVE_ERROR: Record<string, string> = {
   rate_limited: "Too many checks just now. Try again in a few minutes.",
   no_address: "Give the article its own address first: a full https:// link that isn't the home page.",
+  invalid_day: "Give the day it went up: today or earlier.",
 };
 
+/** Today in the browser's own zone, as YYYY-MM-DD (the date field's default and its latest day). */
+function todayHere(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 /** Is it live at this address? A check, or a person's word for it. */
+/** Said under a live article whose page carries no date of its own (BLOG_DATES_ENABLED). */
+export const NO_PAGE_DATE = "Your page shows no date. Paste the date line, or let your site show its own.";
+
 function LiveRow({
   live,
+  dates,
   onLive,
   disabled,
 }: {
   live: BlogArticleLive | null;
-  onLive: (action: LiveAction) => Promise<LiveResult>;
+  dates?: BlogArticleDates;
+  onLive: (action: LiveAction, day?: string) => Promise<LiveResult>;
   disabled: boolean;
 }) {
   const [busy, setBusy] = useState<LiveAction | null>(null);
   const [said, setSaid] = useState<{ text: string; error: boolean } | null>(null);
+  // True dates (BLOG_DATES_ENABLED): "It's live" says the day it went up.
+  const dated = isBlogDatesUiEnabled();
+  const [day, setDay] = useState(todayHere);
 
   async function run(action: LiveAction) {
     setBusy(action);
     setSaid(null);
-    const r = await onLive(action).catch((): LiveResult => ({ ok: false, error: "failed" }));
+    const r = await onLive(action, dated && action === "mark" ? day : undefined).catch((): LiveResult => ({ ok: false, error: "failed" }));
     setBusy(null);
     if (!r.ok) setSaid({ text: LIVE_ERROR[r.error] ?? "That didn't work. Try again.", error: true });
     else if (r.check) setSaid({ text: checkSaid(r.check), error: false });
@@ -101,9 +117,25 @@ function LiveRow({
             Not live
           </button>
         ) : (
-          <button type="button" onClick={() => void run("mark")} disabled={disabled || busy !== null} title="For a site that turns the check away" className={SMALL_BUTTON}>
-            It&apos;s live
-          </button>
+          <>
+            {dated ? (
+              <label className="text-xs text-neutral-500 dark:text-neutral-400">
+                <span className="sr-only">Day it went up</span>
+                <input
+                  id="live-day"
+                  type="date"
+                  value={day}
+                  max={todayHere()}
+                  onChange={(e) => setDay(e.target.value)}
+                  disabled={disabled || busy !== null}
+                  className="rounded-md border border-neutral-300 px-1.5 py-0.5 text-xs dark:border-neutral-700 dark:bg-neutral-900"
+                />
+              </label>
+            ) : null}
+            <button type="button" onClick={() => void run("mark")} disabled={disabled || busy !== null} title="For a site that turns the check away" className={SMALL_BUTTON}>
+              It&apos;s live
+            </button>
+          </>
         )}
       </div>
       {said ? (
@@ -111,6 +143,7 @@ function LiveRow({
           {said.text}
         </p>
       ) : null}
+      {dated && live && dates?.page && !dates.page.published && !dates.page.modified ? <p className={HINT}>{NO_PAGE_DATE}</p> : null}
     </div>
   );
 }
@@ -124,6 +157,7 @@ export function BlogAddress({
   pageUrl,
   onSave,
   live = null,
+  dates,
   onLive,
   disabled = false,
   liveWatch = false,
@@ -132,7 +166,9 @@ export function BlogAddress({
   onSave: (url: string | null) => Promise<AddressSaved>;
   /** The hub's live mark, if any. It counts only at the address it was made for. */
   live?: BlogArticleLive | null;
-  onLive?: (action: LiveAction) => Promise<LiveResult>;
+  /** True dates (BLOG_DATES_ENABLED), for the note when the page shows none. */
+  dates?: BlogArticleDates;
+  onLive?: (action: LiveAction, day?: string) => Promise<LiveResult>;
   /** Something else is running on the article. */
   disabled?: boolean;
   /** Found live (BLOG_LIVE_WATCH_ENABLED): YouGrow checks the address on its own, or finds the article on the sitemap. */
@@ -245,7 +281,7 @@ export function BlogAddress({
           {liveWatch ? " YouGrow checks it for you every few hours for two weeks. Leave it empty and YouGrow finds the article on your site's sitemap." : null}
         </p>
       ) : null}
-      {!open && onLive ? <LiveRow live={liveHere} onLive={onLive} disabled={disabled} /> : null}
+      {!open && onLive ? <LiveRow live={liveHere} {...(dates ? { dates } : {})} onLive={onLive} disabled={disabled} /> : null}
     </div>
   );
 }

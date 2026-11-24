@@ -281,6 +281,25 @@ export async function setTenantAutopilot(
 }
 
 /**
+ * Set the brand's time zone (BLOG_DATES_ENABLED), or with `null` go back to UTC. The caller checks
+ * the zone is a real one.
+ */
+export async function setTenantTimeZone(
+  id: string,
+  timeZone: string | null,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<boolean> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return false;
+    // null reads as "not set" (TenantSchema's timeZone falls back to undefined).
+    tx.update(ref, { timeZone, updatedAt: new Date().toISOString() });
+    return true;
+  });
+}
+
+/**
  * Set where a brand's questions are looked up on Google (BRAND_SIGNALS_ENABLED), or with `null`
  * go back to the default (United States, English). The caller checks the market is one we list.
  */

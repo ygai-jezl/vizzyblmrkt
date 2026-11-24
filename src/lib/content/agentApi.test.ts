@@ -103,4 +103,44 @@ describe("content agent API", () => {
     expect((await agentContentPlan(ctx, "wsB", "p1", db)).status).toBe(404);
     expect((await agentContentPlan(ctx, "ws1", "missing", db)).status).toBe(404);
   });
+
+  it("gives a live blog article's true dates with true dates on, and nothing more with them off", async () => {
+    const db = world();
+    db.seed("workspaces/ws1/content_plans", "pb", {
+      id: "pb",
+      tenantId: "ten_A",
+      workspaceId: "ws1",
+      name: "Aligners",
+      status: "ready",
+      authoredBy: "human",
+      strategy: { objective: "brand_visibility" },
+      scope: {},
+      knowledge: {},
+      topology: { hubChannel: "blog", spokeChannels: [] },
+      graph: {
+        nodes: [
+          {
+            id: "hub",
+            type: "hub",
+            channel: "blog",
+            role: "Hub",
+            position: { x: 0, y: 0 },
+            body: "# How long do aligner results last?",
+            status: "approved",
+            blog: {
+              live: { url: "https://clinic.example/blog/aligners", at: "2026-11-02T09:00:00.000Z", by: "check" },
+              dates: { published: { at: "2026-11-01", source: "page" }, updated: { at: "2026-11-20T10:00:00.000Z", source: "page" } },
+            },
+          },
+        ],
+        edges: [],
+      },
+      createdAt: T,
+      updatedAt: T,
+    });
+    const hub = async () => ((await agentContentPlan(ctx, "ws1", "pb", db)).body as { pieces: Array<Record<string, unknown>> }).pieces[0]!;
+    expect(await hub()).not.toHaveProperty("published");
+    vi.stubEnv("BLOG_DATES_ENABLED", "true");
+    expect(await hub()).toMatchObject({ published: { at: "2026-11-01", from: "page" }, updated: { at: "2026-11-20T10:00:00.000Z", from: "page" } });
+  });
 });

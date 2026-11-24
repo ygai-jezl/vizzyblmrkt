@@ -9,7 +9,7 @@ import { isLearnFromPostEditsEnabled, isPostResultsEnabled } from "@/lib/distrib
 import { isNewsletterMarkdownEmailUiEnabled } from "@/lib/email/flags";
 import { isSignalsDataForSeoEnabled } from "@/lib/signals/flags";
 import { isAutopilotEnabled } from "@/lib/autopilot/flags";
-import { isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
+import { isBlogDatesUiEnabled, isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
 import { isConnectorSignalsEnabled } from "@/lib/connectors/flags";
 import type { HelpBodyProps } from "@/lib/help/pages";
 import { isUsageMeterUiEnabled } from "@/lib/plans/flags";
@@ -218,6 +218,30 @@ export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSig
         </>
       ) : null}
 
+      {isBlogDatesUiEnabled() ? (
+        <>
+          <H2 id="dates">Article dates</H2>
+          <P>
+            A blog article shows two dates under its title: <strong>Published</strong>, the day the page went up, and{" "}
+            <strong>Updated</strong>, the day it last changed for real. Copy Markdown, Copy HTML and the markup carry the same
+            dates, and the markup adds the time in your brand&apos;s time zone, as Google asks.
+          </P>
+          <P>
+            Published comes from your page&apos;s own date when it shows one. Otherwise it is the day YouGrow first saw the
+            article live, or the day you give with <strong>It&apos;s live</strong>. Until the article is live, the date line
+            says today, the day you copy it.
+          </P>
+          <P>
+            Updated moves only for a real change, never to make a page look new. When your page carries its own updated
+            date, a later day shows here too.
+          </P>
+          <P>
+            Set your time zone in <Open href="/admin/account/settings">Settings › General</Open>. Until you do, dates are in
+            UTC.
+          </P>
+        </>
+      ) : null}
+
       <H2 id="schedule">Schedule posts</H2>
       <Steps>
         <li>
@@ -358,6 +382,15 @@ export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSig
                   "Most of the article's text isn't on that page. Check the address, or wait until the article is up. If it is the right page, press It's live.",
                 ],
                 ["Your site turned the check away. If the article is up, say so.", "Your site doesn't let checks read it. Press It's live once the article is up."],
+              ] as Array<[string, string]>)
+            : []),
+          ...(isBlogDatesUiEnabled()
+            ? ([
+                [
+                  "Your page shows no date. Paste the date line, or let your site show its own.",
+                  "Your live page carries no Published date. Copy the article again and paste its date line, or turn on your site's own post dates.",
+                ],
+                ["Give the day it went up: today or earlier.", "The day for It's live can't be in the future. Pick the day the page went up."],
               ] as Array<[string, string]>)
             : []),
           ...(isSignalsDataForSeoEnabled()

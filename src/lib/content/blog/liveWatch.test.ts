@@ -140,6 +140,22 @@ describe("the live watch lane", () => {
     expect(Date.parse((await watchDoc(db))!.nextAt)).toBe(T0 + LIVE_WATCH.IDLE_MS);
   });
 
+  it("with true dates on, takes Published from the page it finds, and writes none with them off", async () => {
+    vi.stubEnv("BLOG_DATES_ENABLED", "true");
+    const db = new FakeFirestore();
+    seed(db, draft());
+    await run(db, { fetch: standardSite().fetch });
+    expect((await hub(db)).blog?.dates).toEqual({
+      published: { at: "2026-11-20", source: "page" },
+      page: { published: "2026-11-20", modified: null, readAt: new Date(T0).toISOString() },
+    });
+    vi.stubEnv("BLOG_DATES_ENABLED", "");
+    const off = new FakeFirestore();
+    seed(off, draft());
+    await run(off, { fetch: standardSite().fetch });
+    expect((await hub(off)).blog?.dates).toBeUndefined();
+  });
+
   it("never opens a page it already opened, until its lastmod changes", async () => {
     const db = new FakeFirestore();
     seed(db, draft({}, sampleHub({ blog: hubMeta({ slug: "a-different-slug" }) })));

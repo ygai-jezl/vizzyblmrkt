@@ -8,6 +8,7 @@ import type { ArticleMap } from "./articleMap";
 import { avoidedUses, countName, mentionsName } from "./names";
 import { aiTellsIn } from "@/lib/content/writingRules";
 import { focusedBrief, isChoosingQuestion, isSloganLabel } from "./focus";
+import { isBlogDatesUiEnabled } from "@/lib/brandMap/flags";
 import { hasAsciiTable } from "./asciiTables";
 import { fold } from "@/lib/brandMap/changes";
 
@@ -561,12 +562,18 @@ export function evaluateCitable(markdown: string, context: CitableContext = {}):
   );
 
   // ── L — Latest & consistent ──
+  // With true dates (BLOG_DATES_ENABLED) the line becomes Published and Updated when it is copied.
+  const trueDates = isBlogDatesUiEnabled();
   add(
     "l_updated",
     "L",
-    "Shows when it was last updated",
+    trueDates ? "Shows its dates" : "Shows when it was last updated",
     o.lastUpdated ? "pass" : "fail",
-    o.lastUpdated ? `Last updated ${o.lastUpdated}.` : "No “Last updated: YYYY-MM-DD” line under the title.",
+    o.lastUpdated
+      ? trueDates
+        ? "Its date line shows Published, and Updated after a real change."
+        : `Last updated ${o.lastUpdated}.`
+      : "No “Last updated: YYYY-MM-DD” line under the title.",
   );
 
   // With a brand map: the article's own sentences use none of the names it avoids, and its

@@ -2,8 +2,8 @@ import { H1, H2, H3, Lead, P, Pairs, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
 import { ConnectorTile } from "@/components/admin/connectors/ConnectorTile";
 import { CONNECTED_COPY, PICKER_COPY, SCREEN_COPY, activityWords } from "@/components/admin/connectors/words";
-import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isConnectorsSearchTextEnabled } from "@/lib/connectors/flags";
-import { COLLECT_HELP, connectedDataHelp, SEARCH_TEXT_HELP, VIZZY_COLLECTED_HELP, type ConnectorHelp } from "@/lib/connectors/helpText";
+import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsSearchTextEnabled } from "@/lib/connectors/flags";
+import { COLLECT_HELP, connectedDataHelp, SEARCH_TEXT_HELP, SIGNALS_HELP, VIZZY_COLLECTED_HELP, type ConnectorHelp } from "@/lib/connectors/helpText";
 import { tokenRefusedMessage } from "@/lib/connectors/messages";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
@@ -113,12 +113,14 @@ function ConnectorSection({ c, collect }: { c: ConnectorHelp; collect: boolean }
  * connected data (CONNECTORS_CHAT_ENABLED) and `connectorsCollect` whether its numbers are collected
  * daily (CONNECTORS_COLLECT_ENABLED), and with both on, how Vizzy reads the collected numbers;
  * `connectorsSearchText` whether Search Console's searches go into brand search
- * (CONNECTORS_SEARCH_TEXT_ENABLED, ADR-0013). The How to drawer passes what the server said.
+ * (CONNECTORS_SEARCH_TEXT_ENABLED, ADR-0013), and `connectorSignals` whether collected numbers
+ * suggest what to write (CONNECTOR_SIGNALS_ENABLED). The How to drawer passes what the server said.
  */
 export default function ConnectedDataHelp({
   connectorsChat = isConnectorsChatEnabled(),
   connectorsCollect = isConnectorsCollectEnabled(),
   connectorsSearchText = isConnectorsSearchTextEnabled(),
+  connectorSignals = isConnectorSignalsEnabled(),
 }: HelpBodyProps = {}) {
   const help = connectedDataHelp();
   const google = help.connectors.filter((c) => c.signIn || c.share);
@@ -265,6 +267,33 @@ export default function ConnectedDataHelp({
           <P>
             <Open href="/help/search#whats-in">What search covers</Open> lists everything else it finds.
           </P>
+        </>
+      ) : null}
+
+      {connectorsCollect && connectorSignals ? (
+        <>
+          <H2 id="suggestions">What your numbers suggest</H2>
+          <P>{SIGNALS_HELP.what}</P>
+          <UL>
+            {SIGNALS_HELP.rules.map((r) => (
+              <li key={r}>{r}</li>
+            ))}
+          </UL>
+          <P>
+            {SIGNALS_HELP.planning} <Open href="/help/connected-data#who-can-read">Who can read it</Open> explains how to choose.
+          </P>
+          <P>{SIGNALS_HELP.strict}</P>
+          <UL>
+            <li>
+              {SIGNALS_HELP.review} See <Open href="/help/review-and-approvals#numbers">Review and approvals</Open>.
+            </li>
+            <li>
+              {SIGNALS_HELP.map} See <Open href="/help/brand-map#from-searches">Brand map</Open>.
+            </li>
+            <li>{SIGNALS_HELP.nextUp}</li>
+            {connectorsChat ? <li>{SIGNALS_HELP.vizzy}</li> : null}
+          </UL>
+          <P>{SIGNALS_HELP.erase}</P>
         </>
       ) : null}
 

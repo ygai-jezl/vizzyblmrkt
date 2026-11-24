@@ -206,6 +206,27 @@ export const SEARCH_TEXT_HELP = {
 } as const;
 
 /**
+ * What collected numbers suggest (CONNECTOR_SIGNALS_ENABLED, ADR-0012), for the help pages: the
+ * three rules, which connections feed them, where each suggestion waits and what ends it. The
+ * thresholds are the detector's own (src/lib/connectors/signals/detect.ts).
+ */
+export const SIGNALS_HELP = {
+  what: "While suggestions from collected numbers are on in your copy, YouGrow looks at each Search Console site's final days once a day and suggests what to write.",
+  rules: [
+    "A search with clearly more impressions in the last 14 days than in the 14 before, that nothing on your brand map asks yet. It becomes a proposed question on your brand map, or a suggestion in Review when your brand map isn't kept at any size.",
+    "A page with clearly fewer Google clicks in the last 28 days than in the 28 before. It needs 56 days collected, so a new connection suggests none at first. When Google Analytics feeds planning too, the page's sessions as a landing page come as a second line.",
+    "A question on your brand map whose search sits just off Google's first page, at an average position of 5 to 20.",
+  ],
+  planning: "Only a connection both members and Vizzy may read is used, because Next up, Review and the brand map are seen by your whole team and can't follow one person's access. Connected says which connections are used for planning.",
+  strict: "It starts strict, so small numbers make no noise: a search needs at least 50 impressions on 4 days or more, and a page at least 40 clicks before. A search or page that only slipped below a day's top 500 never counts as gone. At most 5 new suggestions a day, and 15 waiting at once.",
+  review: "In Review, What your numbers suggest lists each one with its numbers. Plan an article opens Drafts with the question, page or search filled in. Dismiss takes it away, and it won't come back for 30 days.",
+  map: "On the brand map's Subjects tab, a proposed question shows From Google searches with its numbers. Press Edit to put the search into your own words, then Add. Once added it keeps its tag.",
+  nextUp: "Next up and Vizzy's context for a question weigh Search Console too: the search with the question's own words, and the searches near its subject.",
+  vizzy: "Vizzy can list the suggestions waiting, with their numbers, but never plans or dismisses one: it sends you to Review or the brand map.",
+  erase: "A suggestion nobody decides goes after 30 days, and a question it proposed that nobody added comes off the map. Disconnect and Change property take them all away at once.",
+} as const;
+
+/**
  * Collected numbers (CONNECTORS_COLLECT_ENABLED, ADR-0012), for the help page: when each tool's
  * days are collected, what is kept and for how long, what the Connected view says and what
  * erases them.

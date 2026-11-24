@@ -2,20 +2,24 @@ import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { isAutopilotEnabled } from "@/lib/autopilot/flags";
 import { isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
 import { isVizzyAddPersonEnabled, isVizzyFieldsEnabled } from "@/lib/audience/peopleFlags";
-import { isConnectorsCollectEnabled } from "@/lib/connectors/flags";
+import { isConnectorsCollectEnabled, isConnectorSignalsEnabled } from "@/lib/connectors/flags";
+import { SIGNALS_HELP } from "@/lib/connectors/helpText";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
 /**
  * Vizzy's suggestions about people show while AUDIENCE_VIZZY_FIELDS_ENABLED or
- * AUDIENCE_VIZZY_ADD_PERSON_ENABLED is on, and data sources that need someone while
- * CONNECTORS_COLLECT_ENABLED is (the How to drawer passes the shell's answers).
+ * AUDIENCE_VIZZY_ADD_PERSON_ENABLED is on, data sources that need someone while
+ * CONNECTORS_COLLECT_ENABLED is, and what your numbers suggest while CONNECTOR_SIGNALS_ENABLED is
+ * too (the How to drawer passes the shell's answers).
  */
 export default function ReviewAndApprovalsHelp({
   vizzyFields = isVizzyFieldsEnabled(),
   vizzyAddPerson = isVizzyAddPersonEnabled(),
   connectorsCollect = isConnectorsCollectEnabled(),
+  connectorSignals = isConnectorSignalsEnabled(),
 }: HelpBodyProps = {}) {
+  const numbers = connectorsCollect && connectorSignals;
   return (
     <article>
       <H1>Review and approvals</H1>
@@ -90,6 +94,12 @@ export default function ReviewAndApprovalsHelp({
             your team, and a run that couldn&apos;t finish (<Open href="/help/brand-map#autopilot">Autopilot</Open>).
           </li>
         ) : null}
+        {numbers ? (
+          <li>
+            <strong>What your numbers suggest</strong>: searches and pages from Search Console worth an article, with Plan an
+            article and Dismiss. Admins only (<Open href="/help/review-and-approvals#numbers">Plan or dismiss them</Open>).
+          </li>
+        ) : null}
       </UL>
 
       <H2 id="drafts">Check Vizzy&apos;s drafts</H2>
@@ -108,6 +118,33 @@ export default function ReviewAndApprovalsHelp({
           A blog article you publish on your own site doesn&apos;t need approving here: once YouGrow finds it live, it is
           approved and its rows leave Review on their own (<Open href="/help/write-and-schedule#live">Check it&apos;s live</Open>).
         </P>
+      ) : null}
+
+      {numbers ? (
+        <>
+          <H2 id="numbers">Plan or dismiss what your numbers suggest</H2>
+          <P>
+            Once a day YouGrow looks at your Search Console numbers for pages losing Google clicks, questions on your brand
+            map that sit just off Google&apos;s first page, and searches more people make. Each suggestion says what it saw,
+            with its numbers and days.
+          </P>
+          <Steps>
+            <li>
+              Under <strong>What your numbers suggest</strong>, read the suggestion and its numbers.
+            </li>
+            <li>
+              Press <strong>Plan an article</strong>. With more than one programme, choose which one. Drafts opens with the
+              question, the page or the search filled in.
+            </li>
+            <li>
+              Or press <strong>Dismiss</strong>. It won&apos;t come back for 30 days.
+            </li>
+          </Steps>
+          <P>
+            {SIGNALS_HELP.planning} A search more people make waits on your brand map as a proposed question instead, when
+            your map is kept at any size (<Open href="/help/brand-map#from-searches">Questions from Google searches</Open>).
+          </P>
+        </>
       ) : null}
 
       <H2 id="ai-lines">Approve AI lines</H2>
@@ -167,6 +204,16 @@ export default function ReviewAndApprovalsHelp({
             "Your product's context endpoint keeps failing",
             "Open the product from Connection problems and fix the endpoint with your developer. Until then, AI lines fall back to the standard version.",
           ],
+          ...(numbers
+            ? ([
+                ["Dismissed. It won't come back for 30 days.", "The suggestion left Review. If its numbers still say the same after 30 days, it can come back."],
+                [
+                  "That suggestion was decided already. Refresh Review to see what is waiting.",
+                  "Someone on your team planned or dismissed it a moment ago. Refresh Review.",
+                ],
+                ["Choose the programme to write it in, or add one first.", "Press Plan an article again and choose a programme, or add one under Content first."],
+              ] as Array<[string, string]>)
+            : []),
           [
             "AI lines are switched off",
             "Whoever runs your YouGrow has switched AI lines off. Emails send as the standard version until they're back on.",

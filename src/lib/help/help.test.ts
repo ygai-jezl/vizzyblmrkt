@@ -13,7 +13,7 @@ import { docToMarkdown } from "@/lib/developers/markdown";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { STATE_LABELS } from "@/components/admin/connectors/words";
 import { SOURCE_COPY } from "@/components/admin/chat/SourceLine";
-import { HEALTH_HELP, SEARCH_TEXT_HELP, VIZZY_COLLECTED_HELP } from "@/lib/connectors/helpText";
+import { HEALTH_HELP, SEARCH_TEXT_HELP, SIGNALS_HELP, VIZZY_COLLECTED_HELP } from "@/lib/connectors/helpText";
 import { allConnectors } from "@/lib/connectors/catalog";
 import { CONNECTOR_ERRORS, tokenRefusedMessage } from "@/lib/connectors/messages";
 import { helpLlmsTxt, helpPageMarkdown } from "./agentFiles";
@@ -68,6 +68,8 @@ vi.hoisted(() => {
   process.env.CONNECTORS_CHAT_ENABLED = "true";
   process.env.CONNECTORS_COLLECT_ENABLED = "true";
   process.env.CONNECTORS_SEARCH_TEXT_ENABLED = "true";
+  process.env.CONNECTOR_SIGNALS_ENABLED = "true";
+  process.env.BRAND_MAP_SCALE_ENABLED = "true";
 });
 
 const SRC = join(process.cwd(), "src");
@@ -662,3 +664,46 @@ describe("Search", () => {
     expect(off).not.toContain(SEARCH_TEXT_HELP.why);
   });
 });
+
+describe("What your numbers suggest (CONNECTOR_SIGNALS_ENABLED)", () => {
+  const connected = (connectorsCollect: boolean, connectorSignals: boolean, connectorsChat = true) =>
+    docToMarkdown(HELP_BODIES["connected-data"]!({ connectorsChat, connectorsCollect, connectorSignals }), "https://app.example.com");
+  const review = (connectorsCollect: boolean, connectorSignals: boolean) =>
+    docToMarkdown(HELP_BODIES["review-and-approvals"]!({ connectorsCollect, connectorSignals }), "https://app.example.com");
+
+  it("says on Connected data what the numbers suggest, from which connections, and what ends them, only while collect and signals are on", () => {
+    const text = connected(true, true);
+    expect(text).toContain("## What your numbers suggest");
+    for (const line of [SIGNALS_HELP.what, ...SIGNALS_HELP.rules, SIGNALS_HELP.planning, SIGNALS_HELP.strict, SIGNALS_HELP.review, SIGNALS_HELP.map, SIGNALS_HELP.nextUp, SIGNALS_HELP.vizzy, SIGNALS_HELP.erase]) {
+      expect(text, line).toContain(line);
+    }
+    expect(connected(true, true, false)).not.toContain(SIGNALS_HELP.vizzy);
+    expect(connected(true, false)).not.toContain("What your numbers suggest");
+    expect(connected(false, true)).not.toContain("What your numbers suggest");
+  });
+
+  it("lists What your numbers suggest in Review, with Plan an article and Dismiss, only while both are on", () => {
+    const text = review(true, true);
+    expect(text).toContain("**What your numbers suggest**: searches and pages from Search Console worth an article");
+    expect(text).toContain("## Plan or dismiss what your numbers suggest");
+    expect(text).toContain("It won't come back for 30 days.");
+    expect(review(true, false)).not.toContain("What your numbers suggest");
+    expect(review(false, true)).not.toContain("What your numbers suggest");
+  });
+
+  it("explains questions from Google searches on the brand map, Edit included, and the Search Console chip in Next up", () => {
+    const text = helpPageMarkdown("brand-map", "https://app.example.com")!;
+    expect(text).toContain("## Questions from Google searches");
+    expect(text).toContain("Press **Edit** to put the search into your own words");
+    expect(text).toContain('a **Search Console** chip gives the numbers for the search with the question\'s own words, such as "880 impressions, position 11.3"');
+    expect(helpPageMarkdown("write-and-schedule", "https://app.example.com")).toContain("Writing next from your numbers: fewer Google clicks to /pricing.");
+  });
+
+  it("uses no dashes as punctuation and none of the AI tells", () => {
+    for (const line of [SIGNALS_HELP.what, ...SIGNALS_HELP.rules, SIGNALS_HELP.planning, SIGNALS_HELP.strict, SIGNALS_HELP.review, SIGNALS_HELP.map, SIGNALS_HELP.nextUp, SIGNALS_HELP.vizzy, SIGNALS_HELP.erase]) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
+  });
+});
+

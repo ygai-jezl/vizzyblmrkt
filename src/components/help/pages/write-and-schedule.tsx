@@ -10,6 +10,7 @@ import { isNewsletterMarkdownEmailUiEnabled } from "@/lib/email/flags";
 import { isSignalsDataForSeoEnabled } from "@/lib/signals/flags";
 import { isAutopilotEnabled } from "@/lib/autopilot/flags";
 import { isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
+import { isConnectorSignalsEnabled } from "@/lib/connectors/flags";
 
 export default function WriteAndScheduleHelp() {
   return (
@@ -79,6 +80,14 @@ export default function WriteAndScheduleHelp() {
         saved. Under <strong>Export</strong>, press <strong>Copy Markdown</strong> or <strong>Copy HTML</strong> to put it on
         your site.
       </P>
+      {isConnectorSignalsEnabled() ? (
+        <P>
+          From <Open href="/help/review-and-approvals#numbers">Review</Open>, <strong>Plan an article</strong> on a suggestion
+          your numbers made opens the wizard with a line such as &quot;Writing next from your numbers: fewer Google clicks to
+          /pricing.&quot; and its page or search as the <strong>Workflow name</strong>. For a page losing clicks, its address is
+          filled in as the <strong>Hub URL</strong>; for a question on your brand map, the wizard starts from that question.
+        </P>
+      ) : null}
       {isEditModeEnabled() ? (
         <P>
           To edit an article or a newsletter the way readers will see it, click the hub and press <strong>Edit mode</strong>{" "}

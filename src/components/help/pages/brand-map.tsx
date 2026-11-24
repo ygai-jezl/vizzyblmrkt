@@ -1,10 +1,13 @@
 import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
-import { isBlogLiveWatchEnabled, isBrandMapSituationAskUiEnabled } from "@/lib/brandMap/flags";
+import { isBlogLiveWatchEnabled, isBrandMapScaleEnabled, isBrandMapSituationAskUiEnabled } from "@/lib/brandMap/flags";
+import { isConnectorSignalsEnabled } from "@/lib/connectors/flags";
+import { SIGNALS_HELP } from "@/lib/connectors/helpText";
 import { isCompetitorsUiEnabled } from "@/lib/competitors/flags";
 import { isAutopilotEnabled, isNextUpEnabled } from "@/lib/autopilot/flags";
 
 export default function BrandMapHelp() {
+  const fromSearches = isConnectorSignalsEnabled() && isBrandMapScaleEnabled();
   return (
     <article>
       <H1>Brand map</H1>
@@ -85,6 +88,34 @@ export default function BrandMapHelp() {
         </li>
       </Steps>
 
+      {fromSearches ? (
+        <>
+          <H2 id="from-searches">Questions from Google searches</H2>
+          <P>
+            When a search people make on Google is rising and nothing on your map asks it yet, it waits on the{" "}
+            <strong>Subjects</strong> tab as a proposed question under its nearest subject, in the search&apos;s own words. It
+            shows <strong>From Google searches</strong> and its numbers, such as &quot;410 impressions in the 14 days to 20
+            Nov, up from 60&quot;, and counts in Review&apos;s brand map row.
+          </P>
+          <Steps>
+            <li>Open the subject it is proposed for.</li>
+            <li>
+              Press <strong>Edit</strong> to put the search into your own words, then <strong>Save</strong>. The line then
+              names the search it came from.
+            </li>
+            <li>
+              Press <strong>Add</strong> to put it on your map, or <strong>Dismiss</strong>. Once added, it keeps its tag.
+            </li>
+          </Steps>
+          <P>
+            {SIGNALS_HELP.planning} When Search Console isn&apos;t shared with your team and Vizzy, its searches aren&apos;t
+            proposed here. A proposed question nobody adds within 30 days comes off the map, and so do all of a connection&apos;s
+            proposed questions when it is disconnected (
+            <Open href="/help/connected-data#suggestions">What your numbers suggest</Open>).
+          </P>
+        </>
+      ) : null}
+
       <H2 id="situations">Add buying situations</H2>
       <P>A buying situation is the moment that sends someone looking for something like you. Articles open by meeting the reader there.</P>
       <Steps>
@@ -142,6 +173,14 @@ export default function BrandMapHelp() {
             behind it: how far along its subject is, what you already made, what competitors wrote, and what Google shows.
             Press <strong>Choose again</strong> for a fresh look.
           </P>
+          {isConnectorSignalsEnabled() ? (
+            <P>
+              With Search Console used for planning, a <strong>Search Console</strong> chip gives the numbers for the search
+              with the question&apos;s own words, such as &quot;880 impressions, position 11.3&quot;, and another the searches
+              near its subject. When Search Console isn&apos;t shared with your team and Vizzy, <strong>Not weighed</strong>{" "}
+              says so.
+            </P>
+          ) : null}
           <Steps>
             <li>
               <strong>Find what they ask</strong> looks the question up on Google and reads the questions your

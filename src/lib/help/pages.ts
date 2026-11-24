@@ -59,6 +59,8 @@ export interface HelpBodyProps {
   connectorsCollect?: boolean;
   /** Search Console's searches are in brand search (isConnectorsSearchTextEnabled()). */
   connectorsSearchText?: boolean;
+  /** Collected numbers suggest what to write (isConnectorSignalsEnabled()). */
+  connectorSignals?: boolean;
 }
 
 /** Navigation headings, matching Home's stages. */

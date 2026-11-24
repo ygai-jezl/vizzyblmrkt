@@ -692,6 +692,18 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # True article dates: Published and Updated stored on each blog article, with the brand's time
+  # zone (Settings › General), in the date line, the copy and the markup. Off: the draft day.
+  - variable: BLOG_DATES_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Their screens: the canvas date line, the export and the time zone card.
+  - variable: NEXT_PUBLIC_BLOG_DATES_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
   - variable: BRAND_MAP_CHAT_ENABLED
     value: "false"
     availability:

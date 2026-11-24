@@ -2,7 +2,7 @@ import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { isAutopilotEnabled } from "@/lib/autopilot/flags";
 import { isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
 import { isVizzyAddPersonEnabled, isVizzyFieldsEnabled } from "@/lib/audience/peopleFlags";
-import { isConnectorsCollectEnabled, isConnectorSignalsEnabled } from "@/lib/connectors/flags";
+import { isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsSharingEnabled } from "@/lib/connectors/flags";
 import { SIGNALS_HELP } from "@/lib/connectors/helpText";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
 import type { HelpBodyProps } from "@/lib/help/pages";
@@ -11,13 +11,16 @@ import type { HelpBodyProps } from "@/lib/help/pages";
  * Vizzy's suggestions about people show while AUDIENCE_VIZZY_FIELDS_ENABLED or
  * AUDIENCE_VIZZY_ADD_PERSON_ENABLED is on, data sources that need someone while
  * CONNECTORS_COLLECT_ENABLED is, and what your numbers suggest while CONNECTOR_SIGNALS_ENABLED is
- * too (the How to drawer passes the shell's answers).
+ * too (the How to drawer passes the shell's answers). While organisations share connections
+ * (CONNECTORS_SHARING_ENABLED, a server switch), a data source your organisation gives your brand
+ * names the organisation and who can fix it.
  */
 export default function ReviewAndApprovalsHelp({
   vizzyFields = isVizzyFieldsEnabled(),
   vizzyAddPerson = isVizzyAddPersonEnabled(),
   connectorsCollect = isConnectorsCollectEnabled(),
   connectorSignals = isConnectorSignalsEnabled(),
+  sharing = isConnectorsSharingEnabled(),
 }: HelpBodyProps = {}) {
   const numbers = connectorsCollect && connectorSignals;
   return (
@@ -65,6 +68,15 @@ export default function ReviewAndApprovalsHelp({
             <strong>Data sources that need you</strong>: a connected tool that can&apos;t be read, has no property chosen, has
             failed to collect for 3 days, or was paused a week ago, so no new numbers are collected for it. Admins only. Its
             link opens it on Connected (<Open href="/help/connected-data#collected">Collected numbers</Open>).
+            {sharing ? (
+              <>
+                {" "}
+                A site, property or zone your organisation gives your brand names the organisation instead, as in &quot;Search
+                Console from Acme Group can&apos;t be read since 21 Nov&quot;, because only its owners can fix it. An owner
+                gets <strong>Fix</strong>, which opens Settings › Organisation, and any other admin <strong>See it</strong>, which
+                opens it on Connected (<Open href="/help/connected-data#from-organisation">A part from your organisation</Open>).
+              </>
+            ) : null}
           </li>
         ) : null}
         <li>

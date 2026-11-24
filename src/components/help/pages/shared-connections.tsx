@@ -107,7 +107,8 @@ export default function SharedConnectionsHelp() {
       />
       <P>
         Any owner can take a part back. A brand&apos;s own admins can stop using theirs too; the connection&apos;s card then says
-        when they stopped. Every part given, changed or ended is kept in that brand&apos;s settings history.
+        when they stopped. Every part given, changed or ended is kept in that brand&apos;s settings history. What a brand&apos;s
+        own team sees of its part, and what it can do with it, is in <Open href="/help/connected-data">Connected data</Open>.
       </P>
 
       <H2 id="sign-in-again">Sign in again</H2>
@@ -141,7 +142,10 @@ export default function SharedConnectionsHelp() {
       <H2 id="check">Check it worked</H2>
       <Checks>
         <li>The connection&apos;s card on Settings › Organisation lists the brand under Given to.</li>
-        <li>The brand&apos;s own Connected view lists the connection, and its Collected column fills within a day.</li>
+        <li>
+          The brand&apos;s own Connected view lists the connection From your organisation, and its Collected column fills within
+          a day.
+        </li>
         <li>Another brand&apos;s screens, search and Vizzy never show this brand&apos;s part.</li>
       </Checks>
 

@@ -22,6 +22,8 @@ const autopilot = vi.hoisted(() => ({ runAutopilot: vi.fn(async () => ({ tenants
 vi.mock("@/lib/autopilot/tick", () => (loaded.add("autopilot"), autopilot));
 const liveWatch = vi.hoisted(() => ({ runLiveWatch: vi.fn(async () => ({ brands: 1, opened: 1, found: 0, approved: 0 })) }));
 vi.mock("@/lib/content/blog/liveWatch", () => (loaded.add("live-watch"), liveWatch));
+const freshness = vi.hoisted(() => ({ runFreshness: vi.fn(async () => ({ brands: 1, articles: 3, due: 1 })) }));
+vi.mock("@/lib/content/blog/freshnessWatch", () => (loaded.add("freshness"), freshness));
 const lane = vi.hoisted(() => ({ runConnectorsLane: vi.fn(async () => ({ brands: 2, connections: 1, days: 3, failed: 0, erased: 0, behindMin: 4 })) }));
 vi.mock("@/lib/connectors/collect/tick", () => (loaded.add("connectors"), lane));
 
@@ -231,6 +233,7 @@ describe("each job's code loads only when its switch is on", () => {
     ["signals", "@/lib/signals/tick", signals],
     ["autopilot", "@/lib/autopilot/tick", autopilot],
     ["live-watch", "@/lib/content/blog/liveWatch", liveWatch],
+    ["freshness", "@/lib/content/blog/freshnessWatch", freshness],
     ["connectors", "@/lib/connectors/collect/tick", lane],
   ];
 
@@ -286,6 +289,39 @@ describe("each job's code loads only when its switch is on", () => {
     expect(searchDeadline - before).toBeLessThanOrEqual(30_000 + 50);
     const [{ deadlineMs: watchDeadline }] = liveWatch.runLiveWatch.mock.calls[0] as unknown as [{ deadlineMs: number }];
     expect(watchDeadline - before).toBeLessThanOrEqual(25_000 + 50);
+  });
+
+  it("runs article freshness from its own code only with its switches on, within its own time", async () => {
+    vi.stubEnv("BLOG_DATES_ENABLED", "true");
+    vi.stubEnv("BRAND_MAP_ENABLED", "true");
+    vi.stubEnv("BRAND_MAP_PAGES_ENABLED", "true");
+    vi.stubEnv("BLOG_FRESHNESS_ENABLED", "true");
+    const post = await freshRoute();
+    const before = Date.now();
+    const res = await post(machine());
+    expect(await res.json()).toMatchObject({ ok: true, freshness: { brands: 1, due: 1 } });
+    expect([...loaded]).toEqual(["freshness"]);
+    const [{ deadlineMs }] = freshness.runFreshness.mock.calls[0] as unknown as [{ deadlineMs: number }];
+    expect(deadlineMs - before).toBeLessThanOrEqual(20_000 + 50);
+    expect(jobLines().map((line) => line.split(" ")[1])).toEqual(["freshness"]);
+  });
+
+  it("never fails the scheduler's call when article freshness fails", async () => {
+    vi.stubEnv("BLOG_DATES_ENABLED", "true");
+    vi.stubEnv("BRAND_MAP_ENABLED", "true");
+    vi.stubEnv("BRAND_MAP_PAGES_ENABLED", "true");
+    vi.stubEnv("BLOG_FRESHNESS_ENABLED", "true");
+    freshness.runFreshness.mockRejectedValueOnce(new Error("boom"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const post = await freshRoute();
+      const res = await post(machine());
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true, mode: "all_tenants" });
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("[freshness] tick failed: boom"));
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("loads every job that is on, and starts the others only once the journeys are done", async () => {

@@ -493,6 +493,21 @@ export const BlogHeroSchema = z.object({
 });
 export type BlogHero = z.infer<typeof BlogHeroSchema>;
 
+/**
+ * A blog article's true dates (BLOG_DATES_ENABLED). Server-owned, like `live`: set by the live
+ * check, Found live or a person's word, and kept through every other write. Each `at` is an ISO
+ * instant, or a day ("2026-04-28") when its source gave only a day.
+ */
+export const BlogArticleDatesSchema = z.object({
+  /** When the page went up: the page's own date, else when Found live first saw it, else a person's word. */
+  published: z.object({ at: z.string().max(40), source: z.enum(["page", "found", "person"]) }).optional(),
+  /** The last real change, a later day than Published: the page's own dateModified, or (later) an applied refresh. */
+  updated: z.object({ at: z.string().max(40), source: z.enum(["page", "person", "change"]) }).optional(),
+  /** The dates the live page itself carries, as last read (null = it carries none). */
+  page: z.object({ published: z.string().max(40).nullable(), modified: z.string().max(40).nullable(), readAt: z.string().max(40) }).optional(),
+});
+export type BlogArticleDates = z.infer<typeof BlogArticleDatesSchema>;
+
 /** What the writer proposed for a blog hub, and what the checks found. On the hub node. */
 export const BlogArticleMetaSchema = z.object({
   metaTitle: z.string().max(120).default(""),
@@ -515,6 +530,8 @@ export const BlogArticleMetaSchema = z.object({
   style: z.enum(["editorial"]).optional(),
   /** The hero image (BLOG_HERO_ENABLED). Optional with no default, so old metas parse exactly as they did. */
   hero: BlogHeroSchema.optional(),
+  /** True Published and Updated dates (BLOG_DATES_ENABLED). Optional with no default, like `hero`. */
+  dates: BlogArticleDatesSchema.optional(),
   /** Where the client put the hero / share card on their own site (https). Our hosted addresses
    *  never go into client markup, so the image is in the export only once one is set. */
   imageUrl: z.string().max(2000).optional(),

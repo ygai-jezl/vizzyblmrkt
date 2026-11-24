@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
-import { BlogArticleMetaSchema, type ContentPlan } from "@/lib/types/contentPlan";
-import { updateContentPlan, updateContentPlanNode } from "@/lib/tenant/workspaceContent";
+import { BlogArticleMetaSchema, BlogHeroSchema, type ContentPlan } from "@/lib/types/contentPlan";
+import { updateBlogHero, updateContentPlan, updateContentPlanNode } from "@/lib/tenant/workspaceContent";
 import { checkLive, setArticleLive, titlesMatch } from "./live";
 import { sampleHub, samplePlan } from "./testing/samplePlan";
 
@@ -129,3 +129,75 @@ describe("is the article live?", () => {
     expect(r.ok && r.node.blog?.live).toMatchObject({ by: "check", shareImage: false });
   });
 });
+
+describe("true dates with the live mark (BLOG_DATES_ENABLED)", () => {
+  type Stored = { graph: { nodes: Array<{ body: string; blog: { metaTitle: string; dates?: unknown; live?: unknown } }> } };
+  const hub = (db: FakeFirestore) => (db.raw(PLANS, "plan_1") as Stored).graph.nodes[0]!;
+  const dated = (title: string, dates: { published: string | null; modified: string | null }) => async () => ({ title, dates });
+
+  beforeEach(() => vi.stubEnv("BLOG_DATES_ENABLED", "true"));
+
+  it("takes Published and Updated from the page a check finds, and writes nothing with the switch off", async () => {
+    const db = new FakeFirestore();
+    const plan = seed(db);
+    const r = await setArticleLive(
+      ctx,
+      { workspaceId: "ws1", plan, nodeId: "hub", action: "check" },
+      { db, now, fetchPage: dated(`${TITLE} | Acme`, { published: "2026-10-01T09:00:00+01:00", modified: "2026-10-12" }) },
+    );
+    expect(r.ok && r.node.blog?.dates).toEqual({
+      published: { at: "2026-10-01T08:00:00.000Z", source: "page" },
+      updated: { at: "2026-10-12", source: "page" },
+      page: { published: "2026-10-01T09:00:00+01:00", modified: "2026-10-12", readAt: "2026-10-15T10:00:00.000Z" },
+    });
+
+    vi.stubEnv("BLOG_DATES_ENABLED", "");
+    const off = new FakeFirestore();
+    const plain = seed(off);
+    const o = await setArticleLive(ctx, { workspaceId: "ws1", plan: plain, nodeId: "hub", action: "check" }, { db: off, now, fetchPage: dated(TITLE, { published: "2026-10-01", modified: null }) });
+    expect(o.ok && o.node.blog?.dates).toBeUndefined();
+  });
+
+  it("takes the day a person gives with It's live, never one still to come, and when first seen without one", async () => {
+    const db = new FakeFirestore();
+    const plan = seed(db);
+    for (const day of ["2026-10-30", "15/10/2026", "2026-02-30"]) {
+      expect(await setArticleLive(ctx, { workspaceId: "ws1", plan, nodeId: "hub", action: "mark", day }, { db, now })).toEqual({ ok: false, status: 400, error: "invalid_day" });
+    }
+    expect(await setArticleLive(ctx, { workspaceId: "ws1", plan, nodeId: "hub", action: "check", day: "2026-10-01" }, { db, now })).toEqual({ ok: false, status: 400, error: "invalid_day" });
+    const marked = await setArticleLive(ctx, { workspaceId: "ws1", plan, nodeId: "hub", action: "mark", day: "2026-10-03" }, { db, now });
+    expect(marked.ok && marked.node.blog?.dates).toEqual({ published: { at: "2026-10-03", source: "person" } });
+
+    const other = new FakeFirestore();
+    const p2 = seed(other);
+    const seen = await setArticleLive(ctx, { workspaceId: "ws1", plan: p2, nodeId: "hub", action: "check" }, { db: other, now, fetchPage: page(TITLE) });
+    // A page read with no dates of its own is recorded as carrying none.
+    expect(seen.ok && seen.node.blog?.dates).toEqual({
+      published: { at: "2026-10-15T10:00:00.000Z", source: "found" },
+      page: { published: null, modified: null, readAt: "2026-10-15T10:00:00.000Z" },
+    });
+  });
+
+  it("keeps the dates through a rewrite, a canvas save and a hero, and Not live takes them away for good", async () => {
+    const db = new FakeFirestore();
+    const plan = seed(db, samplePlan({}, sampleHub({ status: "approved" })));
+    await setArticleLive(ctx, { workspaceId: "ws1", plan, nodeId: "hub", action: "mark", day: "2026-10-03" }, { db, now });
+    const want = { published: { at: "2026-10-03", source: "person" as const } };
+    // A fact check or a rewrite writes the meta afresh.
+    await updateContentPlanNode(ctx, "ws1", "plan_1", "hub", { blog: BlogArticleMetaSchema.parse({ metaTitle: "New title" }) }, db);
+    expect(hub(db)).toMatchObject({ blog: { metaTitle: "New title", dates: want } });
+    // A canvas save sends its own copy of the meta, without them.
+    await updateContentPlan(ctx, "ws1", "plan_1", { graph: samplePlan({}, sampleHub({ status: "approved", body: "edited" })).graph }, db);
+    expect(hub(db)).toMatchObject({ body: "edited", blog: { dates: want } });
+    // The hero's own write.
+    await updateBlogHero(ctx, "ws1", "plan_1", "hub", () => BlogHeroSchema.parse({ status: "pending", startedAt: now().toISOString() }), db);
+    expect(hub(db).blog.dates).toEqual(want);
+    // Not live: gone, and a stale canvas carrying them can't bring them back.
+    await setArticleLive(ctx, { workspaceId: "ws1", plan, nodeId: "hub", action: "clear" }, { db, now });
+    expect(hub(db).blog.dates).toBeUndefined();
+    const stale = samplePlan({}, sampleHub({ status: "approved", blog: { ...BlogArticleMetaSchema.parse({}), dates: want } }));
+    await updateContentPlan(ctx, "ws1", "plan_1", { graph: stale.graph }, db);
+    expect(hub(db).blog.dates).toBeUndefined();
+  });
+});
+

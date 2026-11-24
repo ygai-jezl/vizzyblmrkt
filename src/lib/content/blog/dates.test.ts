@@ -1,0 +1,76 @@
+import { describe, expect, it } from "vitest";
+import { isDayOnly, nextDates, normaliseDate, readableDay, zonedDay, zonedIso } from "./dates";
+import { readPageDates } from "./research";
+
+const NOW = new Date("2026-11-24T12:00:00.000Z");
+
+describe("article dates", () => {
+  it("keeps a day as a day, turns anything else into an instant, and refuses the future", () => {
+    expect(normaliseDate("2026-04-28", NOW)).toBe("2026-04-28");
+    expect(normaliseDate("2026-04-28T10:12:00+01:00", NOW)).toBe("2026-04-28T09:12:00.000Z");
+    expect(normaliseDate(" 2026-11-25 ", NOW)).toBe("2026-11-25"); // a day's grace for zones ahead
+    expect(normaliseDate("2026-11-27", NOW)).toBeNull();
+    expect(normaliseDate("2027-01-01T00:00:00Z", NOW)).toBeNull();
+    expect(normaliseDate("last Tuesday", NOW)).toBeNull();
+    expect(normaliseDate(null, NOW)).toBeNull();
+    expect(isDayOnly("2026-04-28")).toBe(true);
+    expect(isDayOnly("2026-04-28T00:00:00Z")).toBe(false);
+  });
+
+  it("writes markup times with the zone's offset, daylight saving included", () => {
+    expect(zonedIso("2026-04-28T09:12:00.000Z", "Europe/London")).toBe("2026-04-28T10:12:00+01:00");
+    expect(zonedIso("2026-01-15T09:12:00.000Z", "Europe/London")).toBe("2026-01-15T09:12:00+00:00");
+    expect(zonedIso("2026-07-01T16:00:00.000Z", "America/New_York")).toBe("2026-07-01T12:00:00-04:00");
+    expect(zonedIso("2026-12-01T16:00:00.000Z", "America/New_York")).toBe("2026-12-01T11:00:00-05:00");
+    expect(zonedIso("2026-03-10T00:00:00.000Z", "Asia/Kolkata")).toBe("2026-03-10T05:30:00+05:30");
+    expect(zonedIso("2026-04-28", "Europe/London")).toBe("2026-04-28");
+    expect(zonedDay("2026-04-28T23:30:00.000Z", "Europe/London")).toBe("2026-04-29");
+    expect(zonedDay("2026-04-28T23:30:00.000Z", "UTC")).toBe("2026-04-28");
+    expect(readableDay("2026-04-28")).toBe("28 Apr 2026");
+  });
+
+  it("takes Published from the page, else a person, else what was stored, else when first seen", () => {
+    const seen = "2026-11-20T08:00:00.000Z";
+    expect(nextDates(undefined, { liveAt: seen, now: NOW }).published).toEqual({ at: seen, source: "found" });
+    expect(nextDates(undefined, { liveAt: seen, personDay: "2026-11-18", now: NOW }).published).toEqual({ at: "2026-11-18", source: "person" });
+    const page = { published: "2026-11-17T10:00:00+00:00", modified: null };
+    expect(nextDates(undefined, { page, liveAt: seen, personDay: "2026-11-18", now: NOW }).published).toEqual({ at: "2026-11-17T10:00:00.000Z", source: "page" });
+    // A later check without a page date keeps what was stored, not the newer sighting.
+    const stored = { published: { at: "2026-11-18", source: "person" as const } };
+    expect(nextDates(stored, { liveAt: "2026-11-24T08:00:00.000Z", now: NOW }).published).toEqual({ at: "2026-11-18", source: "person" });
+    // A person's day in the future, or not a day, is ignored.
+    expect(nextDates(undefined, { liveAt: seen, personDay: "2026-12-30", now: NOW }).published).toEqual({ at: seen, source: "found" });
+  });
+
+  it("keeps Updated only when the page says a later day than Published, and records what the page carries", () => {
+    const same = nextDates(undefined, { page: { published: "2026-11-17", modified: "2026-11-17T18:00:00Z" }, now: NOW });
+    expect(same.updated).toBeUndefined();
+    const later = nextDates(undefined, { page: { published: "2026-11-17", modified: "2026-11-23T09:00:00Z" }, now: NOW });
+    expect(later.updated).toEqual({ at: "2026-11-23T09:00:00.000Z", source: "page" });
+    expect(later.page).toEqual({ published: "2026-11-17", modified: "2026-11-23T09:00:00Z", readAt: NOW.toISOString() });
+    // No page read this time: the page dates and Updated stored before stay.
+    expect(nextDates(later, { liveAt: "2026-11-24T08:00:00.000Z", now: NOW })).toEqual(later);
+    // A page with no dates is recorded as carrying none.
+    expect(nextDates(undefined, { page: { published: null, modified: null }, liveAt: "2026-11-20T08:00:00.000Z", now: NOW }).page).toEqual({
+      published: null,
+      modified: null,
+      readAt: NOW.toISOString(),
+    });
+  });
+});
+
+describe("the dates a page gives itself", () => {
+  it("reads meta tags, JSON-LD or a time element, and says none when it has none", () => {
+    expect(readPageDates('<meta property="article:published_time" content="2026-04-28T10:12:00+01:00"><meta property="article:modified_time" content="2026-05-02">')).toEqual({
+      published: "2026-04-28T10:12:00+01:00",
+      modified: "2026-05-02",
+    });
+    expect(readPageDates('<script type="application/ld+json">{"@type":"BlogPosting","datePublished":"2026-04-28","dateModified":"2026-05-02T08:00:00Z"}</script>')).toEqual({
+      published: "2026-04-28",
+      modified: "2026-05-02T08:00:00Z",
+    });
+    expect(readPageDates('<p>Posted <time datetime="2026-04-28">28 April</time></p>')).toEqual({ published: "2026-04-28", modified: null });
+    expect(readPageDates("<h1>No dates here</h1>")).toEqual({ published: null, modified: null });
+  });
+});
+

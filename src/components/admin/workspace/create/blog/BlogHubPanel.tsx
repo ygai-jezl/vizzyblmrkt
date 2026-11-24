@@ -86,7 +86,7 @@ export function BlogHubReview({
           onSave={controls.onSetAddress}
           live={node.blog?.live ?? null}
           liveWatch={controls.liveWatch === true}
-          onLive={controls.onLive ? (action) => controls.onLive!(node.id, action) : undefined}
+          onLive={controls.onLive ? (action, day) => controls.onLive!(node.id, action, day) : undefined}
           // While the article is written or checked, its meta is about to be replaced: wait.
           disabled={disabled || controls.busy !== null}
         />

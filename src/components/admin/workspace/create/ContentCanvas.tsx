@@ -681,26 +681,30 @@ export function ContentCanvas({
   }
 
   /** Check, mark or clear that the article is live; the server saves it on the hub's meta. */
-  async function setLive(id: string, action: LiveAction): Promise<LiveResult> {
+  async function setLive(id: string, action: LiveAction, day?: string): Promise<LiveResult> {
     try {
       const res = await fetch(`/api/admin/workspace/${workspaceId}/content-plans/${planId}/nodes/${id}/blog/live`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify(day ? { action, day } : { action }),
       });
       const data = (await res.json().catch(() => ({}))) as { node?: ContentNode; check?: LiveCheck | null; error?: string };
       if (!res.ok || !data.node) return { ok: false, error: data.error ?? (res.status === 429 ? "rate_limited" : "failed") };
       // Only the live mark comes back into the canvas: an edit not saved yet stays as it is.
       // (The server keeps its own mark whatever a save sends, so nothing here can undo it.)
       // Found live approves the article: the canvas takes that too, unless its text was changed here since.
+      // Its dates (BLOG_DATES_ENABLED) come with the mark, and go with it.
       const live = data.node.blog?.live ?? null;
+      const dates = data.node.blog?.dates;
       const approved = data.node.status === "approved";
       applyNodes((nds) =>
         nds.map((n) => {
           if (n.id !== id) return n;
           const cur = (n.data as ContentNodeData).cn;
           const status = approved && cur.body === data.node!.body ? "approved" : cur.status;
-          return { ...n, data: { ...n.data, cn: { ...cur, status, blog: { ...(cur.blog ?? BlogArticleMetaSchema.parse({})), live } } } };
+          const { dates: _old, ...blog } = cur.blog ?? BlogArticleMetaSchema.parse({});
+          void _old;
+          return { ...n, data: { ...n.data, cn: { ...cur, status, blog: { ...blog, live, ...(dates ? { dates } : {}) } } } };
         }),
       );
       return { ok: true, check: data.check ?? null };

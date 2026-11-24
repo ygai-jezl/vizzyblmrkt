@@ -6,7 +6,8 @@ import { outlineArticle } from "./outline";
 import { fetchSourcePage } from "./research";
 import { writeLiveMark } from "./foundLive";
 import { isBlogHeroEnabled } from "@/lib/content/imageStyle/flags";
-import { isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
+import { isBlogDatesEnabled, isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
+import { nextDates } from "./dates";
 import { markdownToText } from "@/lib/search/text";
 
 /**
@@ -37,10 +38,14 @@ export interface LiveCheck {
   heading?: boolean;
   /** How much of the article's text is on the page, 0 to 1 (the text check only). */
   textShare?: number;
+  /** The dates the page gives itself, as written (BLOG_DATES_ENABLED reads them). */
+  pageDates?: { published: string | null; modified: string | null };
 }
 
 /** What a check opens a page with: its title, first heading and text, when it could read them. */
-export type PageReader = (url: string) => Promise<{ title: string; refused?: boolean; ogImage?: string; h1?: string; text?: string } | null>;
+export type PageReader = (
+  url: string,
+) => Promise<{ title: string; refused?: boolean; ogImage?: string; h1?: string; text?: string; dates?: { published: string | null; modified: string | null } } | null>;
 
 export type LiveOutcome =
   | { ok: true; node: ContentNode; check: LiveCheck | null }
@@ -166,15 +171,16 @@ export async function checkLive(
   if (!page) return { reachable: false, refused: false, title: "", matched: false };
   if (page.refused) return { reachable: true, refused: true, title: "", matched: false };
   const image = opts.shareImage ? { shareImage: Boolean(page.ogImage) } : {};
-  if (opts.body == null) return { reachable: true, refused: false, title: page.title, matched: titlesMatch(page.title, articleTitles), ...image };
+  const dated = page.dates ? { pageDates: page.dates } : {};
+  if (opts.body == null) return { reachable: true, refused: false, title: page.title, matched: titlesMatch(page.title, articleTitles), ...image, ...dated };
   const m = pageMatches(page, { titles: articleTitles, body: opts.body }, { strict: opts.strict });
-  return { reachable: true, refused: false, title: page.title, matched: m.matched, heading: m.heading, textShare: m.textShare, ...image };
+  return { reachable: true, refused: false, title: page.title, matched: m.matched, heading: m.heading, textShare: m.textShare, ...image, ...dated };
 }
 
 /** Check, mark or clear that a blog article is live at its address, and save it on the hub. */
 export async function setArticleLive(
   ctx: TenantContext,
-  args: { workspaceId: string; plan: ContentPlan; nodeId: string; action: LiveAction },
+  args: { workspaceId: string; plan: ContentPlan; nodeId: string; action: LiveAction; day?: string },
   deps: { db?: FirestoreLike; fetchPage?: PageReader; now?: () => Date } = {},
 ): Promise<LiveOutcome> {
   const { plan } = args;
@@ -186,8 +192,13 @@ export async function setArticleLive(
   const url = plan.strategy.hubUrl?.trim() ?? "";
   if (args.action !== "clear" && (!url || articleAddressProblem(url))) return { ok: false, status: 409, error: "no_address" };
 
+  // "It's live" can say the day it went up (BLOG_DATES_ENABLED): a day, never one still to come.
+  const nowDate = (deps.now ?? (() => new Date()))();
+  if (args.day !== undefined && (args.action !== "mark" || !isBlogDatesEnabled() || !validLiveDay(args.day, nowDate))) {
+    return { ok: false, status: 400, error: "invalid_day" };
+  }
   const meta = node.blog ?? BlogArticleMetaSchema.parse({});
-  const at = (deps.now ?? (() => new Date()))().toISOString();
+  const at = nowDate.toISOString();
   let check: LiveCheck | null = null;
   if (args.action === "check") {
     const title = node.body.trim() ? outlineArticle(node.body).title : null;
@@ -203,12 +214,42 @@ export async function setArticleLive(
   try {
     // Only the live mark is written (and, Found live on, the approval it brings), in the node's own
     // transaction: the rest of its meta is whatever is stored then, never this request's copy of it.
-    written = await writeLiveMark(ctx, { workspaceId: args.workspaceId, plan, nodeId: node.id, mark, approve: isBlogLiveWatchEnabled() && args.action !== "clear" }, { db: deps.db });
+    written = await writeLiveMark(
+      ctx,
+      {
+        workspaceId: args.workspaceId,
+        plan,
+        nodeId: node.id,
+        mark,
+        approve: isBlogLiveWatchEnabled() && args.action !== "clear",
+        // Its dates come with the mark; "Not live" takes them away with it.
+        ...(isBlogDatesEnabled()
+          ? {
+              dates: (stored: Parameters<typeof nextDates>[0], live: BlogArticleLive | null) =>
+                live ? nextDates(stored, { page: pageDatesOf(check), liveAt: live.at, personDay: args.day ?? null, now: nowDate }) : undefined,
+            }
+          : {}),
+      },
+      { db: deps.db },
+    );
   } catch {
     return { ok: false, status: 422, error: "invalid_node" };
   }
   if (!written) return { ok: false, status: 404, error: "node_not_found" };
   return { ok: true, node: written.node, check };
+}
+
+/** The dates a check read on the page: none recorded as none, and nothing when no page was read. */
+export function pageDatesOf(check: LiveCheck | null): { published: string | null; modified: string | null } | null {
+  if (!check?.reachable || check.refused) return null;
+  return check.pageDates ?? { published: null, modified: null };
+}
+
+/** A day a person gives for "It's live": YYYY-MM-DD, and not after today (a day's grace for zones ahead of UTC). */
+export function validLiveDay(day: string, now: Date): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
+  const ms = Date.parse(`${day}T00:00:00Z`);
+  return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 10) === day && ms <= now.getTime() + 86_400_000;
 }
 
 /**

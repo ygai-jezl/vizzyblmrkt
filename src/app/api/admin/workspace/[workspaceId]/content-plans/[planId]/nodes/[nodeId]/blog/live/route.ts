@@ -17,7 +17,8 @@ type RouteParams = {
 /** A check opens a page on the brand's site: keep it bounded per tenant. */
 const CHECK_LIMIT = { prefix: "blog_live", burstLimit: 6, hourlyLimit: 60 };
 
-const BodySchema = z.strictObject({ action: z.enum(["check", "mark", "clear"]) });
+/** `day`: with "mark", the day it went up (BLOG_DATES_ENABLED); checked in setArticleLive. */
+const BodySchema = z.strictObject({ action: z.enum(["check", "mark", "clear"]), day: z.string().max(10).optional() });
 
 /**
  * Is a blog article live at its address? "check" opens the page and compares its title;
@@ -42,7 +43,13 @@ export async function POST(req: Request, { params }: RouteParams) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
 
-  const r = await setArticleLive(ctx, { workspaceId, plan, nodeId, action: parsed.data.action });
+  const r = await setArticleLive(ctx, {
+    workspaceId,
+    plan,
+    nodeId,
+    action: parsed.data.action,
+    ...(parsed.data.day !== undefined ? { day: parsed.data.day } : {}),
+  });
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
   return NextResponse.json({ node: r.node, check: r.check });
 }

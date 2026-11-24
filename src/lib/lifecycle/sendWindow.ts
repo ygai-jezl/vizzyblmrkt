@@ -78,7 +78,7 @@ function localParts(utcMs: number, tz: string): Parts {
 }
 
 /** Local wall clock minus UTC, in ms, at the given instant. */
-function offsetMs(tz: string, utcMs: number): number {
+export function offsetMs(tz: string, utcMs: number): number {
   const p = localParts(utcMs, tz);
   return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(utcMs / 1000) * 1000;
 }

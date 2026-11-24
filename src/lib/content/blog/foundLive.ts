@@ -1,5 +1,5 @@
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
-import type { BlogArticleLive, ContentNode, ContentPlan } from "@/lib/types/contentPlan";
+import type { BlogArticleDates, BlogArticleLive, ContentNode, ContentPlan } from "@/lib/types/contentPlan";
 import { getContentPlan, updateContentPlanNode } from "@/lib/tenant/workspaceContent";
 import { autopilotHolds } from "@/lib/autopilot/planLock";
 import { closeDraftRows } from "@/lib/autopilot/answers";
@@ -27,11 +27,19 @@ export interface LiveMarkDeps {
 /**
  * Write an article's live mark (`mark` makes it from the one stored) and, with `approve`, approve
  * the article in the same transaction when it may be (decided there, from the plan as stored).
+ * With `dates` (BLOG_DATES_ENABLED), its Published and Updated are written with the mark.
  * Returns the hub as saved, or null when the plan or node is gone.
  */
 export async function writeLiveMark(
   ctx: TenantContext,
-  args: { workspaceId: string; plan: ContentPlan; nodeId: string; mark: (stored: BlogArticleLive | null) => BlogArticleLive | null; approve: boolean },
+  args: {
+    workspaceId: string;
+    plan: ContentPlan;
+    nodeId: string;
+    mark: (stored: BlogArticleLive | null) => BlogArticleLive | null;
+    approve: boolean;
+    dates?: (stored: BlogArticleDates | undefined, live: BlogArticleLive | null) => BlogArticleDates | undefined;
+  },
   deps: LiveMarkDeps = {},
 ): Promise<{ node: ContentNode; approved: boolean } | null> {
   const { workspaceId, plan, nodeId } = args;
@@ -45,6 +53,7 @@ export async function writeLiveMark(
       const next = args.mark(stored);
       return next && approved ? { ...next, approvedOnLive: true } : next;
     },
+    ...(args.dates ? { setDates: args.dates } : {}),
   });
   if (!node) return null;
   if (!approved) {

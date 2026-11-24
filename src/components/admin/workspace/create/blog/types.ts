@@ -63,7 +63,7 @@ export interface BlogHubControls {
   /** Articles are written in the editorial shape (CREATE_BLOG_EDITORIAL_ENABLED): the author's role and bio can be set. */
   editorial?: boolean;
   /** Check, mark or clear that the article is live at its address. Present with onSetAddress. */
-  onLive?: (nodeId: string, action: LiveAction) => Promise<LiveResult>;
+  onLive?: (nodeId: string, action: LiveAction, day?: string) => Promise<LiveResult>;
   /** Found live (BLOG_LIVE_WATCH_ENABLED): YouGrow checks the address on its own, or finds the article on the sitemap. */
   liveWatch?: boolean;
   /** The hero image (BLOG_HERO_ENABLED); absent = no hero card. */

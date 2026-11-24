@@ -858,6 +858,12 @@ export const PART_COPY = {
   unknownCell: "Can't be checked just now",
   fix: "Fix",
   needsOwner: "Needs an owner",
+  stopUsing: "Stop using",
+  stopping: "Stopping…",
+  cancel: "Cancel",
+  hint: "Stop using deletes what YouGrow stored for it. Pause stops every read until you resume.",
+  hintCollect: "Stop using deletes what YouGrow collected for it. Pause stops every read until you resume.",
+  hintPlanning: "Stop using deletes what YouGrow collected for it, and the suggestions those numbers made. Pause stops every read until you resume.",
 } as const;
 
 /** A soft note, as the approved Connected screen draws "Managed by" and an ended part. */
@@ -916,6 +922,36 @@ function partCellWords(reads: NonNullable<ConnectionView["part"]>["reads"]): str
 export function partRegionWords(c: Pick<ConnectionView, "part">): string | null {
   const p = c.part;
   return p && p.region !== p.keptIn ? otherRegionWords(p.brand ?? "This brand", p.region, p.keptIn) : null;
+}
+
+/**
+ * The Manage card's last line on a part: what Stop using deletes, with the suggestions its numbers
+ * made only when it is used for planning (members and Vizzy read it), as manageHintOf for Disconnect.
+ */
+export function partHintOf(c: Pick<ConnectionView, "details">, opts: { collect: boolean; planning?: boolean }): string {
+  if (!opts.collect || !c.details?.collect) return PART_COPY.hint;
+  const g = c.details.grants;
+  const planning = opts.planning && c.details.collect.feedsPlanning && g.some((x) => x.to === "members") && g.some((x) => x.to === "agent:vizzy");
+  return planning ? PART_COPY.hintPlanning : PART_COPY.hintCollect;
+}
+
+/** "Stop using Google Analytics 4": the confirm's title. */
+export const stopUsingTitleWords = (connectorName: string) => `${PART_COPY.stopUsing} ${connectorName}`;
+
+/** What the part reads, in the confirm: "Property 987654321 (Fernhill US web)", a site, a zone. */
+export const stopUsingWhatWords = (c: Pick<ConnectionView, "details" | "label" | "connectorName">) =>
+  c.details ? partWords(c.details.account, c.label !== c.connectorName ? c.label : null) : "";
+
+/** The confirm's words: who stops reading what, what is deleted, and that the owners are told. */
+export function stopUsingTextWords(c: Pick<ConnectionView, "connectorId" | "part">, collect: boolean): string {
+  const brand = c.part?.brand ?? "This brand";
+  return `${brand} stops reading this ${partUnit(c.connectorId).one}, and what YouGrow ${collect ? "collected" : "stored"} for it is deleted. ${cap(whoseWords(orgOf(c.part?.organisation)))} owners are told.`;
+}
+
+/** The note after Stop using: "Fernhill US stopped using Google Analytics 4 from Fernhill Group. Fernhill Group's owners are told." */
+export function stoppedUsingNoteWords(c: Pick<ConnectionView, "connectorName" | "part">): string {
+  const org = orgOf(c.part?.organisation);
+  return `${c.part?.brand ?? "This brand"} stopped using ${c.connectorName} from ${org}. ${cap(whoseWords(org))} owners are told.`;
 }
 
 /** "Ended on 24 Nov: Vizzybl left YouGrow.AI." */

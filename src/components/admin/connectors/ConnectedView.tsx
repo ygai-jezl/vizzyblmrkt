@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import type { ConnectionView } from "@/lib/connectors/service";
 import { connectedActions, revealManage, type ConnectedActions, type ConnectedNote } from "./connectedActions";
 import { ConnectorTile } from "./ConnectorTile";
+import { DialogFrame } from "./GivePartDialog";
 import {
   BUTTON,
   BUTTON_PRIMARY,
@@ -37,12 +38,16 @@ import {
   managedWords,
   manageHintOf,
   needsAttention,
+  partHintOf,
   partRegionWords,
   pickPath,
   readingWords,
   readsWords,
   selectedOf,
   stateOf,
+  stopUsingTextWords,
+  stopUsingTitleWords,
+  stopUsingWhatWords,
   whenWords,
   whoCanReadOf,
   whoWords,
@@ -88,6 +93,8 @@ export function ConnectedView({ connections: initial, isAdmin, uid, chat, collec
   const [now, setNow] = useState(() => new Date(drawnAt));
   const [note, setNote] = useState<ConnectedNote>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // The part whose Stop using is being confirmed, if any.
+  const [stopping, setStopping] = useState<ConnectionView | null>(null);
   // Each row pick, counted, so the Manage card is brought into view after it is drawn.
   const [picks, setPicks] = useState(0);
   const manageRef = useRef<HTMLElement | null>(null);
@@ -145,6 +152,7 @@ export function ConnectedView({ connections: initial, isAdmin, uid, chat, collec
     pause: (c, paused) => run(`pause:${c.id}`, () => act.pause(c, paused)),
     grant: (c, to, on) => run(`grant:${c.id}`, () => act.grant(c, to, on)),
     disconnect: (c) => run(`disconnect:${c.id}`, () => act.disconnect(c)),
+    stopUsing: (c) => run(`stop:${c.id}`, () => act.stopUsing(c)),
   };
 
   if (!live.length && !note) {
@@ -207,12 +215,25 @@ export function ConnectedView({ connections: initial, isAdmin, uid, chat, collec
       {isAdmin ? (
         <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))]">
           {selected ? (
-            <ManageCard c={selected} chat={chat} collect={collect} planning={planning} now={now} busy={busy} actions={actions} cardRef={manageRef} />
+            <ManageCard c={selected} chat={chat} collect={collect} planning={planning} now={now} busy={busy} actions={actions} onStopUsing={setStopping} cardRef={manageRef} />
           ) : live.length ? (
             <p className={NOTE_PLAIN}>{CONNECTED_COPY.chooseRow}</p>
           ) : null}
           <ActivityCard connections={connections} uid={uid} now={now} />
         </div>
+      ) : null}
+      {stopping ? (
+        <StopUsingDialog
+          c={stopping}
+          collect={collect}
+          busy={busy !== null}
+          onClose={() => setStopping(null)}
+          onConfirm={() => {
+            const c = stopping;
+            setStopping(null);
+            actions.stopUsing(c);
+          }}
+        />
       ) : null}
     </div>
   );
@@ -417,6 +438,7 @@ function ManageCard({
   now,
   busy,
   actions,
+  onStopUsing,
   cardRef,
 }: {
   c: ConnectionView;
@@ -434,6 +456,8 @@ function ManageCard({
     grant: (c: ConnectionView, to: "members" | "agent:vizzy", on: boolean) => void;
     disconnect: (c: ConnectionView) => void;
   };
+  /** Ask to stop using a brand's part: its dialog confirms first. */
+  onStopUsing?: (c: ConnectionView) => void;
 }) {
   const grants = c.details?.grants ?? [];
   const has = (to: "members" | "agent:vizzy") => grants.some((g) => g.to === to);
@@ -531,20 +555,58 @@ function ManageCard({
               ) : null}
             </>
           ) : null}
-          {!part ? (
-            <button
-              type="button"
-              className={`${BUTTON} border-red-300 text-red-700 dark:border-red-900 dark:text-red-400`}
-              disabled={any}
-              onClick={() => actions.disconnect(c)}
-            >
+          {part ? (
+            <button type="button" className={DANGER} disabled={any} onClick={() => onStopUsing?.(c)}>
+              {busy === `stop:${c.id}` ? PART_COPY.stopping : PART_COPY.stopUsing}
+            </button>
+          ) : (
+            <button type="button" className={DANGER} disabled={any} onClick={() => actions.disconnect(c)}>
               {busy === `disconnect:${c.id}` ? "Disconnecting…" : CONNECTED_COPY.disconnect}
             </button>
-          ) : null}
+          )}
         </div>
       ) : null}
-      {!part ? <p className={HINT}>{manageHintOf(c, { collect, planning })}</p> : null}
+      {acts ? <p className={HINT}>{part ? partHintOf(c, { collect, planning }) : manageHintOf(c, { collect, planning })}</p> : null}
     </section>
+  );
+}
+
+const DANGER = `${BUTTON} border-red-300 text-red-700 dark:border-red-900 dark:text-red-400`;
+
+/**
+ * Stop using a brand's part, confirmed first, as the approved Connected screen: which part, that
+ * the brand stops reading it and what YouGrow collected for it is deleted, and that the
+ * organisation's owners are told. It never revokes a sign in or deletes a Google address.
+ */
+export function StopUsingDialog({ c, collect, busy, onClose, onConfirm }: { c: ConnectionView; collect: boolean; busy: boolean; onClose: () => void; onConfirm: () => void }) {
+  const what = stopUsingWhatWords(c);
+  return (
+    <DialogFrame
+      open
+      onClose={onClose}
+      title={stopUsingTitleWords(c.connectorName)}
+      about={
+        <p className="flex items-start gap-2">
+          <Tile c={c} />
+          <span className="min-w-0 break-words">
+            <span className="font-medium">{c.connectorName}</span>
+            {what ? `, ${what}` : ""}
+          </span>
+        </p>
+      }
+      footer={
+        <div className="ml-auto flex flex-wrap gap-2">
+          <button type="button" className={BUTTON} onClick={onClose}>
+            {PART_COPY.cancel}
+          </button>
+          <button type="button" className={DANGER} disabled={busy} onClick={onConfirm}>
+            {PART_COPY.stopUsing}
+          </button>
+        </div>
+      }
+    >
+      <p className="text-sm text-neutral-700 dark:text-neutral-300">{stopUsingTextWords(c, collect)}</p>
+    </DialogFrame>
   );
 }
 

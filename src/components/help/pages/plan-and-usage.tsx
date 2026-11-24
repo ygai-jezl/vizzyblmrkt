@@ -5,10 +5,11 @@ import { isUsageMeterUiEnabled } from "@/lib/plans/flags";
 import { IMAGE_LIMIT_MESSAGE, WEB_SEARCH_LIMIT_MESSAGE } from "@/lib/plans/resources";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
 import { isAddPersonEnabled } from "@/lib/audience/peopleFlags";
+import { isConnectorsSharingEnabled } from "@/lib/connectors/flags";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
 /** /help/plan-and-usage (NEXT_PUBLIC_PLANS_ENABLED): Settings › Plan and usage. No prices: they may change. */
-export default function PlanAndUsageHelp({ people = isPeopleNameEnabled(), addPerson = isAddPersonEnabled() }: HelpBodyProps = {}) {
+export default function PlanAndUsageHelp({ people = isPeopleNameEnabled(), addPerson = isAddPersonEnabled(), sharing = isConnectorsSharingEnabled() }: HelpBodyProps = {}) {
   const meter = isUsageMeterUiEnabled();
   return (
     <article>
@@ -72,6 +73,12 @@ export default function PlanAndUsageHelp({ people = isPeopleNameEnabled(), addPe
           When it holds other brands, everyone else sees their own brand&apos;s figures, and a line saying the plan is
           shared.
         </li>
+        {sharing ? (
+          <li>
+            Owners can connect Search Console, Google Analytics 4 or Cloudflare once for every brand on the plan, on every plan,
+            and give each brand its own part, as <Open href="/help/shared-connections">Shared connections</Open> explains.
+          </li>
+        ) : null}
       </UL>
 
       <H2 id="use">What is counted</H2>

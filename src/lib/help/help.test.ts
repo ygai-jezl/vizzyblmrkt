@@ -71,6 +71,9 @@ vi.hoisted(() => {
   process.env.CONNECTORS_SEARCH_TEXT_ENABLED = "true";
   process.env.CONNECTOR_SIGNALS_ENABLED = "true";
   process.env.BRAND_MAP_SCALE_ENABLED = "true";
+  // Shared connections (Connectors 3) need plans on too.
+  process.env.PLANS_ENABLED = "true";
+  process.env.CONNECTORS_SHARING_ENABLED = "true";
 });
 
 const SRC = join(process.cwd(), "src");

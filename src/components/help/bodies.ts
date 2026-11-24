@@ -12,6 +12,7 @@ import BrandMapHelp from "./pages/brand-map";
 import WriteAndScheduleHelp from "./pages/write-and-schedule";
 import ConnectedAccountsHelp from "./pages/connected-accounts";
 import ConnectedDataHelp from "./pages/connected-data";
+import SharedConnectionsHelp from "./pages/shared-connections";
 import ConnectYourProductHelp from "./pages/connect-your-product";
 import InviteYourWaitlistHelp from "./pages/invite-your-waitlist";
 import OnboardingJourneysHelp from "./pages/onboarding-journeys";
@@ -35,6 +36,7 @@ export const HELP_BODIES: Record<string, (props?: HelpBodyProps) => ReactNode> =
   "write-and-schedule": WriteAndScheduleHelp,
   "connected-accounts": ConnectedAccountsHelp,
   "connected-data": ConnectedDataHelp,
+  "shared-connections": SharedConnectionsHelp,
   "connect-your-product": ConnectYourProductHelp,
   "invite-your-waitlist": InviteYourWaitlistHelp,
   "onboarding-journeys": OnboardingJourneysHelp,

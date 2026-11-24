@@ -57,6 +57,9 @@ const RULES: Array<[RegExp, string]> = [
   [/^\/admin\/account\/connections/, "/help/connected-accounts"],
   // Settings › Data model exists only with fields on, which needs the one People list, so the page is shown.
   [/^\/admin\/account\/data-model/, "/help/your-audience#fields"],
+  // Settings › Organisation exists only while sharing is on (CONNECTORS_SHARING_ENABLED, a server
+  // switch), and so does its page: the rule can't read the switch here, and needs no switch.
+  [/^\/admin\/account\/organisation/, "/help/shared-connections"],
   [/^\/admin\/account\/?$/, "/help/email-sending"],
 ];
 

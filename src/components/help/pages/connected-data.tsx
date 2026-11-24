@@ -2,7 +2,7 @@ import { H1, H2, H3, Lead, P, Pairs, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
 import { ConnectorTile } from "@/components/admin/connectors/ConnectorTile";
 import { CONNECTED_COPY, PICKER_COPY, SCREEN_COPY, activityWords } from "@/components/admin/connectors/words";
-import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsSearchTextEnabled } from "@/lib/connectors/flags";
+import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsSearchTextEnabled, isConnectorsSharingEnabled } from "@/lib/connectors/flags";
 import { COLLECT_HELP, connectedDataHelp, SEARCH_TEXT_HELP, SIGNALS_HELP, VIZZY_COLLECTED_HELP, type ConnectorHelp } from "@/lib/connectors/helpText";
 import { tokenRefusedMessage } from "@/lib/connectors/messages";
 import type { HelpBodyProps } from "@/lib/help/pages";
@@ -121,6 +121,7 @@ export default function ConnectedDataHelp({
   connectorsCollect = isConnectorsCollectEnabled(),
   connectorsSearchText = isConnectorsSearchTextEnabled(),
   connectorSignals = isConnectorSignalsEnabled(),
+  sharing = isConnectorsSharingEnabled(),
 }: HelpBodyProps = {}) {
   const help = connectedDataHelp();
   const google = help.connectors.filter((c) => c.signIn || c.share);
@@ -169,6 +170,14 @@ export default function ConnectedDataHelp({
         <Open href="/help/connected-accounts">Connected accounts</Open> explains. Email sending is set up under{" "}
         <Open href="/admin/account">Settings › Sending</Open>.
       </P>
+      {sharing ? (
+        <P>
+          When your brands share an organisation, its owners can connect Search Console, Google Analytics 4 or Cloudflare once
+          for all of them and give each brand its own site, property or zone, as{" "}
+          <Open href="/help/shared-connections">Shared connections</Open> explains. A part given to your brand shows on Connected
+          like any other connection.
+        </P>
+      ) : null}
 
       {help.connectors.map((c) => (
         <ConnectorSection key={c.id} c={c} collect={connectorsCollect} />

@@ -3,7 +3,7 @@ import { isOneViewEnabled, isPeopleNameEnabled } from "@/lib/audience/flags";
 import { isFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { isSearchUiEnabled } from "@/lib/search/flags";
 import { isPlansUiEnabled } from "@/lib/plans/flags";
-import { isConnectorsScreenEnabled } from "@/lib/connectors/flags";
+import { isConnectorsScreenEnabled, isConnectorsSharingEnabled } from "@/lib/connectors/flags";
 
 /**
  * The /help pages, in reading order: one list for the help navigation, the
@@ -26,7 +26,7 @@ export interface HelpPage {
    * A page about a switched-off feature: listed and served only while its switch is on.
    * The switches are read on the server, so client lists (⌘K) leave these pages out.
    */
-  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors";
+  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing";
 }
 
 /**
@@ -63,6 +63,8 @@ export interface HelpBodyProps {
   connectorSignals?: boolean;
   /** The brand map is kept at any size (isBrandMapScaleEnabled()): proposed questions wait on its Subjects tab. */
   brandMapScale?: boolean;
+  /** Organisations share connections (isConnectorsSharingEnabled(), a server switch: the drawer reads it off). */
+  sharing?: boolean;
 }
 
 /** Navigation headings, matching Home's stages. */
@@ -118,6 +120,13 @@ export const HELP_PAGES: HelpPage[] = [
     "connectors",
   ),
   page(
+    "shared-connections",
+    "Shared connections",
+    "grow",
+    "Connect Search Console, Google Analytics 4 or Cloudflare once for your organisation and give each brand its own site, property or zone.",
+    "sharing",
+  ),
+  page(
     "your-audience",
     "Your audience",
     "grow",
@@ -139,6 +148,7 @@ export function isHelpPageShown(p: Pick<HelpPage, "onlyWhen">): boolean {
   if (p.onlyWhen === "search") return isSearchUiEnabled();
   if (p.onlyWhen === "plans") return isPlansUiEnabled();
   if (p.onlyWhen === "connectors") return isConnectorsScreenEnabled();
+  if (p.onlyWhen === "sharing") return isConnectorsSharingEnabled();
   return true;
 }
 

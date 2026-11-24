@@ -219,6 +219,73 @@ follow as it lands.
   later card: other datasets, some paid only), and YouGrow's own form view and product event counts,
   whose registry gaps move from "(connectors 2)" to "(semantic layer)".
 
+### Signals (group 4)
+
+- **`data_signals` is its own store, not `brand_signals`.** `BrandSignal` stays DataForSEO's: its
+  queue, lease and cost fields are DataForSEO's, and `readySignals` feeds the Get from Google
+  screens. A `data_signals` row, regional and through `forTenant`, is one per connection,
+  generation, rule and key under a fixed id (`dsg_` and 24 hex of a hash of the brand, connection,
+  generation, rule and key, never the words), so each detection overwrites its own row. Reads are
+  by id or by equality on the connection; no composite index. Its `ttlAt` is a Date 30 days after
+  detection, and never before `dismissedUntil`.
+- **The rules, from Search Console's final days, once a day per connection after a day lands.**
+  Constants in `src/lib/connectors/signals/detect.ts`, tuned on dev:
+  - rising search: at least 50 impressions in the last 14 days, on 4 days or more, and at least
+    double the 14 days before (80 when it is new), with no question on the brand map with the same
+    words or close to it in meaning (cosine 0.85 between the search and the questions of its nearest
+    subject, in one embedding call; all its meaningful words in one question when meaning can't be
+    had);
+  - page losing clicks: at least 40 clicks in the 28 days before, then down 40% or more and by at
+    least 20 clicks, with all 56 days collected; a page that is also a planning Google Analytics
+    property's landing page adds its sessions as a second line (no Google Analytics signal of its
+    own), marked as may still change while those days aren't final;
+  - within reach: a decided question whose search (the planning doc's exact words) averages
+    position 5 to 20 with at least 100 impressions over 28 days.
+- **Cuts are not zeros.** On a day whose rows were cut, a missing search or page counts as at most
+  that day's floor, and each rule takes the side that makes it fire less: a missing day counts as
+  nothing in the numbers that have to be high (a rising search's last 14 days, a page's 28 days
+  before) and at its floor in the ones that have to be low (the 14 days before a rising search, a
+  page's last 28 days). The floor is the last kept row, ranked by clicks then impressions, so for a
+  search's impressions it is the plan's approximation, not a bound Google promises.
+- **Caps and repeats.** At most 5 new suggestions a brand a day and 15 open at once, strongest
+  first (how far past its threshold each is). While a suggestion is open nothing new is proposed for
+  it. Plan an article and Dismiss blank the row and keep it away 30 days (`dismissedUntil`). Each
+  new proposal for a row is a new round, and the round is the last part of its dedupe key
+  (`data_signal.suggest|<signalId>|r<n>`, `brand_map.propose_question|<questionId>|r<n>`): no ISO
+  week, no words or paths, and a closed suggestion's key is never reused. An open suggestion whose
+  rule was checked again and no longer holds is declined as stale, values cleared.
+- **Each suggestion is an agent action** by `connector_signals`, with no person, expiring in 30
+  days, its values cleared when it closes, and its signals a `data_signal` reference plus up to 4
+  metric references with meaning keys. `AGENT_TARGET_TYPES` gains `data_signal` and
+  `brand_question`, each a type in the registry.
+- **Where a rising search goes.** With the brand map at any size, a proposed question in the
+  search's own words under its nearest decided subject (`from: "search_console"`, the connection in
+  `fromConnectionId`, the search's words as its evidence and their numbers as its reason), counted by
+  the brand map's Review row; people press Edit to change the words before Add. With the map's
+  scale switch off, a Review suggestion. Pages losing clicks and questions within reach are always
+  Review suggestions: "What your numbers suggest", admins only, with Plan an article (proposed to
+  acted, its result the Create link with the question, page or search filled in) and Dismiss
+  (declined as dismissed). Both forget the cached Review count.
+- **The lane keeps brand map proposals in step** instead of hooking every path that decides a
+  question: decided means acted, dismissed means declined (dismissed), merged away or gone means
+  declined (superseded). A question still undecided when its action expires is withdrawn with
+  `removeQuestion`, also when another expiry closed its action first (found by
+  `fromConnectionId`). This housekeeping, and the expiry of `connector_signals` suggestions, run in
+  the lane for every brand with Search Console whenever `CONNECTORS_ENABLED` is on, whatever the
+  signals switch says.
+- **Planning and Vizzy.** Next up gets up to two `num` chips labelled "Search Console" (the
+  search with the question's words, and the searches near its subject, from the `subject_r28`
+  planning doc the detector writes by mapping the top 100 searches to their nearest decided subject
+  with `nearestSubjectsMany`), every number in the line so `reasonHolds` keeps the pick, each line
+  naming its site when there are several, and "Not weighed" when no Search Console connection is
+  shared with the team and Vizzy. The context pack gets the same lines (source "Search Console
+  (collected)") and `figures` gains `searchClicks`, `searchImpressions` and `searchPosition`.
+  `get_number_suggestions` lists the open suggestions read only, behind the signals switch and the
+  `connectors_numbers` limit; Vizzy sends people to Review or the brand map to act.
+- **The approve and dismiss routes** check the origin, the switch (404 while off), sign in and the
+  admin role (`integrationsAdmin`), then the id (`^dsg_[0-9a-f]{24}$`) and a strict body; the brand
+  is the session's.
+
 ### Switches
 
 All server side, `"false"` in the "== Connectors ==" group of `apphosting.yaml`, empty in

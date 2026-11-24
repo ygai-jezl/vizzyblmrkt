@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { shapeRecordingFirestore } from "@/lib/tenant/testing/queryShape";
+import { isStoredTimestamp, timestampFirestore } from "@/lib/tenant/testing/timestampFirestore";
 import type { TenantContext } from "@/lib/tenant";
 import { DATA_SIGNAL_ID } from "@/lib/types/dataSignal";
-import { blankSignal, countSignals, eraseSignals, getSignal, isQuiet, linkAction, saveDetection, signalIdFor, signalsOfConnection, type Detection } from "./store";
+import { blankSignal, countSignals, eraseSignals, getSignal, isQuiet, keptUntil, linkAction, saveDetection, signalIdFor, signalsOfConnection, type Detection } from "./store";
 import { BrandMapQuestionRecordSchema } from "@/lib/types/brandMapRecords";
 import { proposalReason, questionReason, signalLines, signalTitle } from "./words";
 
@@ -85,6 +86,56 @@ describe("saving a detection", () => {
     const { row: other } = await saveDetection(A, detection({ rule: "within_reach", key: { topic: "water a monstera" }, label: "water a monstera" }), { db, now: NOW });
     await blankSignal(A, other.id, { db, now: NOW });
     expect((await getSignal(A, other.id, { db }))!).toMatchObject({ label: null, dismissedUntil: null });
+  });
+});
+
+describe("rows as Firestore hands them back", () => {
+  // Firestore stores a Date as a Timestamp and reads it back as one: the time to live is never a Date then.
+  const stored = (id: string) => db.raw("data_signals", id)!;
+  const ttlOf = (id: string) => {
+    const ttl = stored(id).ttlAt;
+    if (!isStoredTimestamp(ttl)) throw new Error("ttlAt was not stored as a Timestamp");
+    return ttl.toDate().toISOString();
+  };
+
+  it("dismiss or plan a row whose time to live is a Timestamp, keeping it at least until dismissedUntil", async () => {
+    const ts = timestampFirestore(db, ["data_signals"]);
+    const { row } = await saveDetection(A, detection(), { db: ts, now: NOW });
+    await linkAction(A, row.id, "aa_" + "3".repeat(40), 1, { db: ts });
+    expect(isStoredTimestamp((await getSignal(A, row.id, { db: ts }))!.ttlAt)).toBe(true);
+    expect(await blankSignal(A, row.id, { db: ts, now: new Date(NOW.getTime() + 20 * DAY), quietDays: 30 })).toBe(true);
+    expect(await getSignal(A, row.id, { db: ts })).toMatchObject({ label: null, numbers: null, agentActionId: "aa_" + "3".repeat(40), dismissedUntil: new Date(NOW.getTime() + 50 * DAY).toISOString() });
+    expect(ttlOf(row.id)).toBe(new Date(NOW.getTime() + 50 * DAY).toISOString());
+    // Quiet: a new detection leaves it alone, and the Timestamp it reads back is never written as a date.
+    expect((await saveDetection(A, detection(), { db: ts, now: new Date(NOW.getTime() + 30 * DAY) })).quiet).toBe(true);
+    expect(ttlOf(row.id)).toBe(new Date(NOW.getTime() + 50 * DAY).toISOString());
+    const back = await saveDetection(A, detection(), { db: ts, now: new Date(NOW.getTime() + 51 * DAY) });
+    expect(back).toMatchObject({ quiet: false, row: { label: "/care/fiddle-leaf-fig", round: 1 } });
+    expect(ttlOf(row.id)).toBe(new Date(NOW.getTime() + 81 * DAY).toISOString());
+  });
+
+  it("never moves the time to live earlier, and a stale blank leaves it alone", async () => {
+    const ts = timestampFirestore(db, ["data_signals"]);
+    const { row } = await saveDetection(A, detection(), { db: ts, now: NOW });
+    await blankSignal(A, row.id, { db: ts, now: NOW, quietDays: 1 });
+    expect(stored(row.id).dismissedUntil).toBe(new Date(NOW.getTime() + DAY).toISOString());
+    expect(ttlOf(row.id)).toBe(new Date(NOW.getTime() + 30 * DAY).toISOString());
+    const { row: other } = await saveDetection(A, detection({ rule: "within_reach", key: { topic: "water a monstera" }, label: "water a monstera" }), { db: ts, now: NOW });
+    expect(await blankSignal(A, other.id, { db: ts, now: NOW })).toBe(true);
+    expect(stored(other.id)).toMatchObject({ label: null, dismissedUntil: null });
+    expect(ttlOf(other.id)).toBe(new Date(NOW.getTime() + 30 * DAY).toISOString());
+  });
+
+  it("falls back to the quiet end when the row's own dates don't read, and never writes an invalid date", async () => {
+    const ts = timestampFirestore(db, ["data_signals"]);
+    const { row } = await saveDetection(A, detection(), { db: ts, now: NOW });
+    Object.assign(stored(row.id), { freshUntil: "not a date", dismissedUntil: null });
+    expect(await blankSignal(A, row.id, { db: ts, now: NOW, quietDays: 30 })).toBe(true);
+    expect(ttlOf(row.id)).toBe(new Date(NOW.getTime() + 30 * DAY).toISOString());
+    const until = new Date(NOW.getTime() + 5 * DAY);
+    expect(keptUntil(until, {})).toEqual(until);
+    expect(keptUntil(until, { freshUntil: "", dismissedUntil: "soon" })).toEqual(until);
+    expect(keptUntil(until, { freshUntil: new Date(NOW.getTime() + 9 * DAY).toISOString(), dismissedUntil: new Date(NOW.getTime() + 7 * DAY).toISOString() })).toEqual(new Date(NOW.getTime() + 9 * DAY));
   });
 });
 

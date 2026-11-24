@@ -160,7 +160,7 @@ describe("Search Console demand (CONNECTOR_SIGNALS_ENABLED)", () => {
     questions: new Map([["q_aaaaaaa1", { key: "q_aaaaaaa1", label: "track brand in chatgpt", subjectId: "sub_aaaaaaaa", m: { searchImpressions: 880, searchClicks: 21, searchPosition: 11.32 } }]]),
     subjects: new Map([["sub_aaaaaaaa", { key: "sub_aaaaaaaa", m: { nearbySearches: 14, searchImpressions: 6400, searchClicks: 210 } }]]),
   });
-  const planning = { sites: [site("vizzybl.example", "dcn_aaaaaaaaaaaaaaaaaaaa")], notShared: false };
+  const planning = { sites: [site("brand.example", "dcn_aaaaaaaaaaaaaaaaaaaa")], notShared: false };
 
   it("adds the search with the question's words and the searches near its subject, as Search Console chips", () => {
     const lines = linesFor(1, cand(1), { search: null, searchConsole: searchConsoleLines(cand(1), planning), now: NOW });
@@ -181,11 +181,11 @@ describe("Search Console demand (CONNECTOR_SIGNALS_ENABLED)", () => {
   });
 
   it("names the site when the brand has more than one Search Console site", () => {
-    const two = { sites: [site("vizzybl.example", "dcn_aaaaaaaaaaaaaaaaaaaa"), { ...site("docs.vizzybl.example", "dcn_bbbbbbbbbbbbbbbbbbbb"), questions: new Map() }], notShared: false };
+    const two = { sites: [site("brand.example", "dcn_aaaaaaaaaaaaaaaaaaaa"), { ...site("docs.brand.example", "dcn_bbbbbbbbbbbbbbbbbbbb"), questions: new Map() }], notShared: false };
     const [exact, near] = searchConsoleLines(cand(1), two);
-    expect(exact!.text).toMatch(/^Search Console, vizzybl\.example \(28 days to 20 Nov, Pacific time\): the search "track brand in chatgpt"/);
-    expect(exact!.chip).toBe("vizzybl.example: 880 impressions, position 11.3");
-    expect(near!.site).toBe("vizzybl.example");
+    expect(exact!.text).toMatch(/^Search Console, brand\.example \(28 days to 20 Nov, Pacific time\): the search "track brand in chatgpt"/);
+    expect(exact!.chip).toBe("brand.example: 880 impressions, position 11.3");
+    expect(near!.site).toBe("brand.example");
   });
 
   it("reads the planning docs once per pick, and says when Search Console isn't used for planning", async () => {

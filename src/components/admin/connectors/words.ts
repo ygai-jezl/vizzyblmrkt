@@ -613,9 +613,7 @@ export function collectedLines(
     if (pausedAt || stopped) H(`Each day still leaves after ${k.keepDays} days.`);
   }
   if (opts.planning && k.feedsPlanning) {
-    const grants = c.details?.grants ?? [];
-    const members = grants.some((g) => g.to === "members");
-    const vizzy = grants.some((g) => g.to === "agent:vizzy");
+    const { members, vizzy } = readersOf(c);
     if (members && vizzy) {
       L(COLLECTED_COPY.planningYes, { lead: COLLECTED_COPY.planningLead });
       if (!k.filled && c.connectorName === "Google Search Console") H(COLLECTED_COPY.losingNeeds);
@@ -633,10 +631,20 @@ export function collectedLines(
 /** The rows a grouping keeps, in words. */
 const ROW_WORDS: Readonly<Record<string, string>> = { page: "pages", topic: "searches", landing: "landing pages" };
 
-/** The Manage card's last line: what Disconnect deletes, with collected numbers when they are on. */
+/** Whether members and Vizzy may read a connection: both, and its numbers are used for planning. */
+function readersOf(c: Pick<ConnectionView, "details">): { members: boolean; vizzy: boolean } {
+  const grants = c.details?.grants ?? [];
+  return { members: grants.some((g) => g.to === "members"), vizzy: grants.some((g) => g.to === "agent:vizzy") };
+}
+
+/**
+ * The Manage card's last line: what Disconnect deletes, with collected numbers when they are on, and
+ * the suggestions they made only when the connection is used for planning (members and Vizzy read it).
+ */
 export function manageHintOf(c: Pick<ConnectionView, "details">, opts: { collect: boolean; planning?: boolean }): string {
   if (!opts.collect || !c.details?.collect) return CONNECTED_COPY.manageHint;
-  return opts.planning && c.details.collect.feedsPlanning ? COLLECTED_COPY.manageHintPlanning : COLLECTED_COPY.manageHint;
+  const { members, vizzy } = readersOf(c);
+  return opts.planning && c.details.collect.feedsPlanning && members && vizzy ? COLLECTED_COPY.manageHintPlanning : COLLECTED_COPY.manageHint;
 }
 
 /** A member's Reading cell: whether they can read it, and how far it is collected while collected numbers are on. */

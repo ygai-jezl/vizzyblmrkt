@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
+import { isStoredTimestamp, timestampFirestore } from "@/lib/tenant/testing/timestampFirestore";
 import { forTenant, transitionAgentAction, type TenantContext } from "@/lib/tenant";
 import { listOpenAgentActions } from "@/lib/ontology/agentActions";
 import { AgentActionSchema, type AgentAction } from "@/lib/types/agentAction";
@@ -11,6 +12,7 @@ import { cutRows, putSnapshot, ttlFor } from "../snapshots";
 import { LAST_DAY, page, search, seedSearchConsole, writeDays, writePlanning } from "../testing/signals";
 import { addDay, CAPS, detectConnection, losingPages, newTally, pageOf, risingSearches, topicOf, withinReach, type MapView } from "./detect";
 import { DATA_SIGNAL_ACTION, SIGNALS_REVIEW_HREF } from "./names";
+import { dismissSignal } from "./review";
 import { blankSignal } from "./store";
 
 // Detecting what collected numbers suggest: the rules on made-up days, cuts and floors, caps,
@@ -328,6 +330,43 @@ describe("looking at a connection", () => {
     const r = await detectConnection(A, await load(), [], { db, now: NOW, map: async () => mapView() });
     expect(r.checked).toEqual(["rising_search"]);
     expect(r.fired.losing_page).toBe(0);
+  });
+});
+
+describe("with dates stored as Firestore stores them", () => {
+  // Every Date is kept as a Timestamp and read back as one, as on Firestore: day docs, planning
+  // docs and the rows' own time to live.
+  beforeEach(async () => {
+    db = timestampFirestore(new FakeFirestore());
+    await seedSearchConsole(A, db, ID);
+  });
+
+  it("looks, refreshes, is dismissed, stays away 30 days and comes back as a new round", async () => {
+    await topics();
+    await pages();
+    await questions();
+    await rolledTopics();
+    expect(await detectConnection(A, await load(), [], { db, now: NOW, map: async () => mapView() })).toMatchObject({ status: "detected", proposed: 3 });
+    expect(db.dump("data_signals").every((d) => isStoredTimestamp(d.ttlAt))).toBe(true);
+    expect(isStoredTimestamp(db.raw("metric_snapshots", planningId(ID, 0, "search_performance", "subject"))!.ttlAt)).toBe(true);
+    const losing = (await rows()).find((x) => x.rule === "losing_page")!;
+    expect(await dismissSignal(A, losing.id, { db, now: NOW })).toEqual({ ok: true, value: { dismissedUntil: new Date(NOW.getTime() + 30 * DAY).toISOString() } });
+    const next = await detectConnection(A, await load(), [], { db, now: new Date(NOW.getTime() + DAY), map: async () => mapView() });
+    expect(next).toMatchObject({ status: "detected", proposed: 0, refreshed: 2 });
+    expect((await rows()).find((x) => x.id === losing.id)).toMatchObject({ label: null, dismissedUntil: new Date(NOW.getTime() + 30 * DAY).toISOString() });
+    const later = await detectConnection(A, await load(), [], { db, now: new Date(NOW.getTime() + 31 * DAY), map: async () => mapView() });
+    expect(later.status).toBe("detected");
+    expect((await rows()).find((x) => x.id === losing.id)).toMatchObject({ round: 2, label: "/care/fiddle-leaf-fig" });
+    expect(db.dump("data_signals").every((d) => isStoredTimestamp(d.ttlAt))).toBe(true);
+  });
+
+  it("declines a suggestion that no longer holds and blanks its row", async () => {
+    await pages();
+    await detectConnection(A, await load(), [], { db, now: NOW, map: async () => mapView() });
+    await writeDays(A, db, ID, "page", 56, () => [page("/care/fiddle-leaf-fig", 4)]);
+    expect(await detectConnection(A, await load(), [], { db, now: new Date(NOW.getTime() + DAY), map: async () => mapView() })).toMatchObject({ stale: 1, proposed: 0 });
+    expect((await rows())[0]).toMatchObject({ label: null, numbers: null, dismissedUntil: null });
+    expect(isStoredTimestamp(db.dump("data_signals")[0]!.ttlAt)).toBe(true);
   });
 });
 

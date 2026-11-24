@@ -14,6 +14,7 @@ import type { ConnectorAccount, HookFailure } from "./handlers/types";
 import { checkLiveRequest, lagWords, readLive, type LiveAnswer } from "./live";
 import { collectedStream, keepsWords, shareMethod, tokenMethod, type ConnectMethodName, type ConnectorIcon, type ConnectorManifest } from "./manifest";
 import { addDays, daysIn, laterDay, todayIn } from "./period";
+import { oldestAlive } from "./snapshots";
 import { connectorMessage, tokenRefusedMessage, type ConnectorErrorCode } from "./messages";
 import { getConnector, knownConnector, listConnectors, readyMethods } from "./registry";
 import type { ConnectorFetchDeps } from "./safeFetch";
@@ -180,7 +181,7 @@ export function listingOf(m: ConnectorManifest): ConnectorListing {
 export interface CollectView {
   lastDay: string | null;
   finalThrough: string | null;
-  /** The oldest day kept now. */
+  /** The oldest day kept now: never one past its time to live (null when none is left). */
   keptFrom: string | null;
   days: number;
   keepDays: number;
@@ -210,7 +211,10 @@ export function collectViewOf(conn: DataConnection, now: Date): CollectView | nu
   if (!stream) return null;
   const c = conn.collect ?? freshCollect();
   const keepDays = stream.collect.keepDays;
-  const keptFrom = c.lastDay && c.backfilledTo ? laterDay(c.backfilledTo, addDays(c.lastDay, -(keepDays - 1))) : null;
+  // As explicit reads do: never a day already past its time to live (a connection that stopped
+  // collecting weeks ago keeps fewer days, and none once its last day is gone too).
+  const oldest = c.lastDay && c.backfilledTo ? laterDay(laterDay(c.backfilledTo, addDays(c.lastDay, -(keepDays - 1))), oldestAlive(now, keepDays)) : null;
+  const keptFrom = oldest && c.lastDay && oldest <= c.lastDay ? oldest : null;
   const zone = c.timeZone ?? stream.timeZone ?? null;
   const today = zone ? todayIn(now, zone) : null;
   const waitingFor = stream.collect.waitsForFinal && c.filled && c.lastDay && today && daysIn(c.lastDay, today) - 1 >= 3 ? addDays(c.lastDay, 1) : null;

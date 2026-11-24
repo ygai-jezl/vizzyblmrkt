@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
+import { isStoredTimestamp, timestampFirestore } from "@/lib/tenant/testing/timestampFirestore";
 import { changeDataConnection, createDataConnection, forTenant, type NewDataConnection, type TenantContext } from "@/lib/tenant";
 import { DataConnectionSchema } from "@/lib/types/dataConnection";
 import { healthyAt } from "../health";
 import { answer, cfDays, cfSettings, routedTransport, SC_QUOTA, scDays, scRows, type SeenCall } from "../testing/providers";
 import { ACCESS_SLOT, REFRESH_SLOT } from "../tokenKeeper";
 import { sealConnectorSecret } from "../vault";
-import { disconnect, listForActor } from "../service";
+import { collectViewOf, disconnect, listForActor } from "../service";
+import { oldestAlive } from "../snapshots";
 import { laneHousekeeping } from "./tick";
 import { collectConnection, isDue } from "./run";
 
@@ -125,6 +127,18 @@ describe("collecting one connection", () => {
     expect(off.ok && off.value.connections[0]).toMatchObject({ collectedTo: null, details: { collect: null } });
   });
 
+  it("never names a kept day already past its time to live, as explicit reads don't", async () => {
+    await seedCloudflare({ collect: { ...DataConnectionSchema.shape.collect.unwrap().parse({}), lastDay: "2026-11-21", backfilledTo: "2026-08-24", finalThrough: "2026-11-21", filled: true, timeZone: "UTC" } });
+    const conn = await load(CF);
+    expect(collectViewOf(conn, NOW)).toMatchObject({ keptFrom: "2026-08-24", days: 90 });
+    // Collecting stopped weeks ago: the oldest days are gone by their time to live.
+    const weeksOn = new Date("2026-12-20T12:00:00.000Z");
+    expect(oldestAlive(weeksOn, 90)).toBe("2026-09-15");
+    expect(collectViewOf(conn, weeksOn)).toMatchObject({ lastDay: "2026-11-21", keptFrom: "2026-09-15", days: 68 });
+    // Every day gone, the last one too: nothing is kept.
+    expect(collectViewOf(conn, new Date("2027-03-30T12:00:00.000Z"))).toMatchObject({ lastDay: "2026-11-21", keptFrom: null, days: 0 });
+  });
+
   it("rolls the 28 and 90 days once a day after a day lands, never adding day docs on a read", async () => {
     await seedCloudflare();
     await run(cloudflare().transport);
@@ -234,5 +248,51 @@ describe("collecting one connection", () => {
     await laneHousekeeping(A, [await load(CF)], { db, now: NOW });
     expect(db.dump("metric_snapshots")).toEqual([]);
     expect((await load(CF)).collect?.erasePending).toBeNull();
+  });
+});
+
+describe("with dates stored as Firestore stores them", () => {
+  // Every Date is kept as a Timestamp and read back as one, as on Firestore. The collect block holds
+  // ISO strings only, so each run reads back what the last one wrote.
+  const admin = { kind: "human" as const, uid: "usr_admin", role: "admin" as const };
+  const stringsOnly = (id: string) => {
+    const raw = db.raw("data_connections", id)!;
+    const c = raw.collect as Record<string, unknown>;
+    for (const k of ["nextAt", "leaseUntil", "holdUntil", "failedSince"]) expect(c[k] === null || typeof c[k] === "string", k).toBe(true);
+    expect(DataConnectionSchema.safeParse({ ...raw, id }).success).toBe(true);
+    return c;
+  };
+  beforeEach(() => {
+    db = timestampFirestore(new FakeFirestore());
+  });
+
+  it("collects, rolls and collects the next day, and the Manage card reads it back", async () => {
+    await seedCloudflare();
+    expect(await run(cloudflare().transport)).toEqual({ status: "collected", days: 90 });
+    const tomorrow = new Date("2026-11-24T12:00:00.000Z");
+    const next = routedTransport((c) => (String(c.body.query).includes("settings") ? answer(cfSettings()) : answer(cfDays(["2026-11-22"], ["2026-11-22"]))));
+    expect(await run(next.transport, { now: tomorrow })).toEqual({ status: "collected", days: 1 });
+    expect(typeof stringsOnly(CF).nextAt).toBe("string");
+    for (const d of db.dump("metric_snapshots")) expect(isStoredTimestamp(d.ttlAt)).toBe(true);
+    for (const d of db.dump("data_connection_activity")) expect(isStoredTimestamp(d.ttlAt)).toBe(true);
+    const view = await listForActor(A, admin, { db, now: tomorrow });
+    expect(view.ok && view.value.connections[0]!.details?.collect).toMatchObject({ lastDay: "2026-11-22", keptFrom: "2026-08-25", days: 90, filled: true });
+  });
+
+  it("holds on a quota answer and notes a failure, each run reading back the last one's state", async () => {
+    await seedSearchConsole({ collect: { ...DataConnectionSchema.shape.collect.unwrap().parse({}), lastDay: "2026-11-17", backfilledTo: "2026-08-20", finalThrough: "2026-11-17", filled: true } });
+    const quota = routedTransport((c) => ((c.body.dimensions as string[])[0] === "date" ? answer(scDays([{ day: "2026-11-20", clicks: 3, impressions: 90 }])) : answer(SC_QUOTA, 403)));
+    expect(await collectConnection(A, SC, { deadlineMs: DEADLINE }, { db, transport: quota.transport, limit: async () => false, log: () => {}, now: NOW })).toMatchObject({ status: "held" });
+    expect(stringsOnly(SC)).toMatchObject({ holdReason: "quota", holdUntil: new Date(NOW.getTime() + 15 * 60_000).toISOString() });
+    const later = new Date(NOW.getTime() + 20 * 60_000);
+    await collectConnection(A, SC, { deadlineMs: later.getTime() + 25_000 }, { db, transport: quota.transport, limit: async () => false, log: () => {}, now: later });
+    expect(stringsOnly(SC)).toMatchObject({ holdReason: "quota_day", holdUntil: "2026-11-24T08:00:00.000Z" });
+    const refused = routedTransport(() => answer({ error: { status: "PERMISSION_DENIED" } }, 403));
+    const after = new Date("2026-11-24T09:00:00.000Z");
+    expect(await collectConnection(A, SC, { deadlineMs: after.getTime() + 25_000 }, { db, transport: refused.transport, limit: async () => false, log: () => {}, now: after })).toMatchObject({ status: "failed" });
+    expect(stringsOnly(SC).failedSince).toBe(after.toISOString());
+    expect((await load(SC)).health.since).toEqual(expect.any(String));
+    const view = await listForActor(A, admin, { db, now: after });
+    expect(view.ok && view.value.connections[0]!.details?.collect).toMatchObject({ failedOn: after.toISOString(), failedSince: null });
   });
 });

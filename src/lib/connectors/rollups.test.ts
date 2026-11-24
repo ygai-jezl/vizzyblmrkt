@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { shapeRecordingFirestore } from "@/lib/tenant/testing/queryShape";
+import { isStoredTimestamp, timestampFirestore } from "@/lib/tenant/testing/timestampFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import { saveBrandMap } from "@/lib/brandMap/store";
 import { BrandMapDecidedSchema } from "@/lib/types/brandMap";
@@ -90,6 +91,20 @@ describe("rolling a connection", () => {
     expect(page90.rows).toEqual([{ key: "/pricing", host: "example.com", m: { searchClicks: 120, searchImpressions: 1600, searchCtr: 0.075 } }]);
     // With the brand map off, the questions' planning doc is written empty.
     expect(db.raw("metric_snapshots", planningId(OWNER.id, 0, "search_performance", "question"))).toMatchObject({ by: "question", rows: [] });
+  });
+
+  it("rolls day docs whose time to live is a Timestamp, twice, with the same numbers", async () => {
+    db = timestampFirestore(db);
+    await collected(30);
+    const input = { owner: OWNER, stream: "search_performance", by: ["day", "page", "topic"] as const, keepDays: 90, lastDay: "2026-11-20", backfilledTo: "2026-10-22", timeZone: "America/Los_Angeles" };
+    expect(await rollConnection(A, input, { db, now: NOW })).toBe(7);
+    const id = rolledId(OWNER.id, 0, "search_performance", "page", "r28");
+    const first = db.raw("metric_snapshots", id)!;
+    expect(isStoredTimestamp(first.ttlAt)).toBe(true);
+    expect(first).toMatchObject({ window: { from: "2026-10-24", to: "2026-11-20" }, days: 28, rows: [{ key: "/pricing", host: "example.com", m: { searchClicks: 84, searchImpressions: 1120 } }] });
+    expect(await rollConnection(A, input, { db, now: NOW })).toBe(7);
+    expect(db.raw("metric_snapshots", id)).toMatchObject({ days: 28, rows: first.rows });
+    for (const d of db.dump("metric_snapshots")) expect(isStoredTimestamp(d.ttlAt)).toBe(true);
   });
 
   it("writes a ready line for each decided question people searched in its own words", async () => {

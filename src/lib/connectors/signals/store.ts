@@ -129,19 +129,27 @@ export async function linkAction(ctx: TenantContext, id: string, agentActionId: 
 export async function blankSignal(ctx: TenantContext, id: string, opts: { quietDays?: number } & SignalStoreDeps = {}): Promise<boolean> {
   const now = nowOf(opts);
   const until = opts.quietDays ? plusDays(now, opts.quietDays) : null;
-  const done = await repoOf(ctx, opts).claim(id, (cur) => {
-    const ttl = cur.ttlAt instanceof Date ? cur.ttlAt : new Date(String(cur.ttlAt));
-    return {
-      key: null,
-      label: null,
-      question: null,
-      numbers: null,
-      before: null,
-      window: null,
-      ...(until ? { dismissedUntil: until.toISOString(), ttlAt: until.getTime() > ttl.getTime() ? until : ttl } : {}),
-    };
-  });
+  const done = await repoOf(ctx, opts).claim(id, (cur) => ({
+    key: null,
+    label: null,
+    question: null,
+    numbers: null,
+    before: null,
+    window: null,
+    ...(until ? { dismissedUntil: until.toISOString(), ttlAt: keptUntil(until, cur) } : {}),
+  }));
   return done !== null;
+}
+
+/**
+ * The time to live of a row kept away until `until`: the later of that and the row's own end, as
+ * its ISO strings say (freshUntil, and an earlier dismissedUntil). The stored ttlAt is never read:
+ * Firestore hands it back as a Timestamp, not a Date. A string that doesn't parse counts for
+ * nothing, so the answer is always a valid date, `until` at the least.
+ */
+export function keptUntil(until: Date, row: Partial<Pick<DataSignal, "freshUntil" | "dismissedUntil">>): Date {
+  const ends = [row.freshUntil, row.dismissedUntil].map((v) => (typeof v === "string" ? Date.parse(v) : Number.NaN)).filter(Number.isFinite);
+  return new Date(Math.max(until.getTime(), ...ends));
 }
 
 /** A connection's rows (every generation), by equality on the connection. */

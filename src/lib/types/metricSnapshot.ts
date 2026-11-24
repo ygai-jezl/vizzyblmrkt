@@ -12,9 +12,10 @@
  *
  * `gen` is the connection's collect generation, bumped by Change property, so an old site's numbers
  * never share an id with the new site's. Every number is keyed by its meaning
- * (src/lib/metrics/meanings.ts). `ttlAt` is a Date, the day plus the stream's keepDays, for the time
- * to live `infra/lifecycle/setup.sh ttl` turns on; readers read by day, as expired docs stay until
- * Firestore deletes them.
+ * (src/lib/metrics/meanings.ts). `ttlAt` is written as a Date, the day plus the stream's keepDays,
+ * for the time to live `infra/lifecycle/setup.sh ttl` turns on; Firestore hands it back as a
+ * Timestamp, so it is never read. Readers read by day, as expired docs stay until Firestore deletes
+ * them (oldestAlive in src/lib/connectors/snapshots.ts says which can still be there).
  */
 
 /** The groupings a day is kept by: the live read's own (src/lib/connectors/manifest.ts LIVE_BY). */
@@ -93,6 +94,6 @@ export interface MetricSnapshot {
   basis: SnapshotBasis | null;
   notes: SnapshotNote[];
   collectedAt: string;
-  /** The time to live: a Date, the last day plus the stream's keepDays. */
-  ttlAt: Date;
+  /** The time to live: written as a Date, the last day plus the stream's keepDays. Read back it is a Firestore Timestamp, so it is typed unknown: never read it as a date. */
+  ttlAt: unknown;
 }

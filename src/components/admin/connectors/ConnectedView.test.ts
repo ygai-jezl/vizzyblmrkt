@@ -594,6 +594,11 @@ describe("collected numbers on Connected", () => {
     expect(manageHintOf(site(), { collect: false })).toBe(CONNECTED_COPY.manageHint);
     expect(manageHintOf(site(), { collect: true })).toBe(COLLECTED_COPY.manageHint);
     expect(manageHintOf(site(), { collect: true, planning: true })).toBe(COLLECTED_COPY.manageHintPlanning);
+    // Not used for planning (members or Vizzy can't read it): it made no suggestions to delete.
+    for (const grants of [[], [{ to: "members" as const, can: "read" as const }], [{ to: "agent:vizzy" as const, can: "read" as const }]]) {
+      expect(manageHintOf(site({}, { grants }), { collect: true, planning: true })).toBe(COLLECTED_COPY.manageHint);
+    }
+    expect(manageHintOf(site({ feedsPlanning: false }), { collect: true, planning: true })).toBe(COLLECTED_COPY.manageHint);
     expect(readingWords({ canReadLive: true, collectedTo: "2026-11-20" }, true)).toBe("You can read it, collected to 20 Nov");
     expect(readingWords({ canReadLive: true, collectedTo: "2026-11-20" }, false)).toBe("You can read it");
     expect(readingWords({ canReadLive: false, collectedTo: null }, true)).toBe("Admins only");

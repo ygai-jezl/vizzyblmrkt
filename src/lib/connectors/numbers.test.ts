@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { shapeRecordingFirestore } from "@/lib/tenant/testing/queryShape";
+import { isStoredTimestamp, timestampFirestore } from "@/lib/tenant/testing/timestampFirestore";
 import { createDataConnection, type TenantContext } from "@/lib/tenant";
 import { MEANINGS, numberKeys } from "@/lib/metrics/meanings";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
@@ -520,5 +521,30 @@ describe("who may read collected numbers", () => {
   it("names searches by the stream's own key", () => {
     expect(rowKeyOf({ joins: { day: "day", page: "page", query: "topic" } }, "topic")).toBe("query");
     expect(rowKeyOf({ joins: { day: "day", landing: "page" } }, "landing")).toBe("landing");
+  });
+});
+
+describe("collected numbers stored as Firestore stores them", () => {
+  it("answers the same when every stored time to live reads back as a Timestamp", async () => {
+    const asks = [
+      { connectionId: SC, stream: SC_STREAM, period: "last_28_days", by: "topic" },
+      { connectionId: SC, stream: SC_STREAM, period: "last_7_days" },
+      { connectionId: SC, stream: SC_STREAM, from: "2026-11-10", to: "2026-11-20", by: "page" },
+      { connectionId: GA, stream: GA_STREAM, period: "last_7_days", by: "landing" },
+      { connectionId: CF, stream: CF_STREAM, period: "last_90_days" },
+    ];
+    const plain = [];
+    for (const body of asks) plain.push(await ask(body));
+    db = timestampFirestore(new FakeFirestore());
+    await seed(A, SC, { connectorId: "search-console", account: "sc-domain:example.com", collect: await searchConsole() });
+    await seed(A, GA, { connectorId: "google-analytics", account: "properties/1234", collect: await analytics() });
+    await seed(A, CF, { connectorId: "cloudflare", account: "0123456789abcdef0123456789abcdef", collect: await cloudflare() });
+    expect(db.dump("metric_snapshots").every((d) => isStoredTimestamp(d.ttlAt))).toBe(true);
+    for (const [i, body] of asks.entries()) {
+      const r = await ask(body);
+      expect(r.status, JSON.stringify(body)).toBe(200);
+      expect(r).toEqual(plain[i]);
+      expect(JSON.stringify(r.body)).not.toContain("_seconds");
+    }
   });
 });

@@ -13,8 +13,10 @@
  *
  * Every detection overwrites its own row. A dismissed or planned row is blanked (only its id,
  * rule and `dismissedUntil` stay), which is enough to stop the same suggestion coming back before
- * then; erase deletes rows by connection. `ttlAt` is a Date, 30 days after detection (and at least
- * `dismissedUntil`), for the time to live `infra/lifecycle/setup.sh ttl` turns on.
+ * then; erase deletes rows by connection. `ttlAt` is written as a Date, 30 days after detection (and
+ * at least `dismissedUntil`), for the time to live `infra/lifecycle/setup.sh ttl` turns on. Firestore
+ * hands it back as a Timestamp, so it is never read: work a new one out from `freshUntil` and
+ * `dismissedUntil`, which are ISO strings.
  *
  * Pure: plain data and patterns only, so client components can import it.
  */
@@ -85,6 +87,9 @@ export interface DataSignal {
   freshUntil: string;
   /** Not suggested again before this (30 days after a dismissal or a plan). */
   dismissedUntil: string | null;
-  /** The time to live: a Date, 30 days after detection and never before dismissedUntil. */
-  ttlAt: Date;
+  /**
+   * The time to live: written as a Date, 30 days after detection and never before dismissedUntil.
+   * Read back it is a Firestore Timestamp, so it is typed unknown: never read it as a date.
+   */
+  ttlAt: unknown;
 }

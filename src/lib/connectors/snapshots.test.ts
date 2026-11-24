@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { shapeRecordingFirestore } from "@/lib/tenant/testing/queryShape";
+import { isStoredTimestamp, timestampFirestore } from "@/lib/tenant/testing/timestampFirestore";
 import { forTenant, type TenantContext } from "@/lib/tenant";
 import type { SnapshotRow } from "@/lib/types/metricSnapshot";
 import { snapshotId } from "./keys";
@@ -14,7 +15,9 @@ import {
   MAX_DOC_BYTES,
   MAX_KEY_LENGTH,
   oldestAlive,
+  putSnapshot,
   readDayDocs,
+  readSnapshot,
   TTL_MARGIN_DAYS,
   ttlFor,
   writeDayDoc,
@@ -144,5 +147,26 @@ describe("the snapshot store", () => {
     expect(await eraseSnapshots(B, OWNER.id, "all", { db })).toBe(0);
     expect(await countSnapshots(B, OWNER.id, { db })).toBe(0);
     expect(db.raw("metric_snapshots", snapshotId(OWNER.id, 0, "search_performance", "page", "2026-11-20"))?.tenantId).toBe("ten_a");
+  });
+});
+
+describe("snapshots as Firestore hands them back", () => {
+  it("rewrite and read a day whose time to live is a Timestamp, the numbers unchanged", async () => {
+    const ts = timestampFirestore(db, ["metric_snapshots"]);
+    const r = await writeDayDoc(A, input(), { db: ts, now: NOW });
+    await writeDayDoc(A, input({ rows: [row("/a", 6)] }), { db: ts, now: NOW });
+    const ttl = db.raw("metric_snapshots", r.id)!.ttlAt;
+    expect(isStoredTimestamp(ttl)).toBe(true);
+    expect((ttl as { toDate(): Date }).toDate().toISOString()).toBe("2027-02-25T00:00:00.000Z");
+    const days = await readDayDocs(A, OWNER, "search_performance", "page", "2026-11-19", "2026-11-20", { db: ts });
+    expect([...days.keys()]).toEqual(["2026-11-20"]);
+    expect(days.get("2026-11-20")).toMatchObject({ day: "2026-11-20", rows: [{ key: "/a", host: "example.com", m: { searchClicks: 6, searchImpressions: 60 } }], collectedAt: NOW.toISOString() });
+    // A whole doc written over one whose time to live is a Timestamp.
+    const doc = (await readSnapshot(A, r.id, { db: ts }))!;
+    const { id: _id, tenantId: _t, ...rest } = doc;
+    await putSnapshot(A, r.id, { ...rest, final: false, ttlAt: ttlFor("2026-11-21", 90) }, { db: ts });
+    expect(await readSnapshot(A, r.id, { db: ts })).toMatchObject({ final: false, rows: doc.rows });
+    expect((db.raw("metric_snapshots", r.id)!.ttlAt as { toDate(): Date }).toDate().toISOString()).toBe("2027-02-26T00:00:00.000Z");
+    expect(await dropAgedDay(A, OWNER, "search_performance", ["page"], "2027-02-18", 90, { db: ts })).toBe(1);
   });
 });

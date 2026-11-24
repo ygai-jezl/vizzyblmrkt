@@ -128,7 +128,7 @@ npm run selfhost -- --project <your-project-id> --apply addon:<name>
 | `addon:bigquery` | Analytics breakdowns from BigQuery | Automated. The extensions deploy may ask you to accept their permissions |
 | `addon:search` | Search that finds what a brand wrote by its words and its meaning, for people and Vizzy | Automated. Makes a Firestore Enterprise database per region you use, which bills by data read and written. Needs the `gcloud beta` component. Fill it afterwards with `npx tsx scripts/search-backfill.ts` |
 | `addon:recaptcha` | reCAPTCHA on waitlist sign-ups | Automated |
-| `addon:password` | Email and password sign-in for the people on your admin list, with two alerts | Automated. Needs an email provider (`addon:email`) for the confirmation codes. See [Email and password sign-in](#email-and-password-sign-in-optional) |
+| `addon:password` | Email and password sign-in for the people on your admin list, with three alerts | Automated. Needs an email provider (`addon:email`) for the confirmation codes. See [Email and password sign-in](#email-and-password-sign-in-optional) |
 
 **Reranking search results.** `SEARCH_RERANK_ENABLED` reorders a US brand's search results with
 Google's Ranking API (it runs only in the US and global locations, so EU and Asia brands keep the
@@ -346,7 +346,7 @@ help page people read is `/help/sign-in-and-passwords`, shown while the switch i
      (Authentication, Templates, Password reset, Customize action URL);
    - the Email/Password provider, last and on its own.
 
-   It reads the settings back, makes the two alerts below, and sets `PASSWORD_SIGNIN_ENABLED` to
+   It reads the settings back, makes the three alerts below, and sets `PASSWORD_SIGNIN_ENABLED` to
    `"true"` in your settings file. If anything before the provider is refused, it stops there and
    leaves the provider and the switch as they were. Roll out afterwards.
 3. **Check it:** `npm run doctor -- --cloud --project <your-project-id>`. While the switch is on, it
@@ -366,14 +366,36 @@ Enforced, a request without a reCAPTCHA token is refused. To also refuse low sco
 rule as [Google's reCAPTCHA guide](https://cloud.google.com/identity-platform/docs/recaptcha-enterprise)
 shows.
 
-**The two alerts.** Both email the first address on `ADMIN_ALLOWED_EMAILS`, or the address you
+**The three alerts.** Each emails the first address on `ADMIN_ALLOWED_EMAILS`, or the address you
 pass with `--alert-email` when you run the add-on. Change who they email, or their thresholds, in
-Cloud Monitoring, Alerting. Running the add-on again leaves them as you left them.
+Cloud Monitoring, Alerting. Running the add-on again leaves the alerts you have as you left them
+and makes only the ones missing, so a copy set up before the third alert gets just that one.
 
 | Alert | What it counts | Fires when |
 | --- | --- | --- |
 | YouGrow: many password sign-ups | Log metric `yougrow_auth_signups`: sign-ups in Identity Platform's request logs | More than 20 in an hour |
 | YouGrow: accounts removed at sign-in | Log metric `yougrow_auth_accounts_removed`: the app's `auth_account_removed` log line, written when it removes an account on its first sign-in because it can't trust it | Any in an hour |
+| YouGrow: sign-in codes locked | Log metric `yougrow_auth_codes_locked`: the app's `auth_code_locked` log line, written when an address reaches 15 wrong codes in a day and its codes lock. It gives the address's domain only | Any in an hour |
+
+**Too many wrong codes.** After 15 wrong codes in a day for one address, that address gets no new
+code and no check until a day has passed, so nobody can guess one. Anyone who creates a password
+account with an address can type wrong codes for it and lock its owner out, so the code screen
+then offers **Email me a link instead**. The link can't be guessed, works once, for 30 minutes,
+and only in a browser signed in to that account. It needs `NEXT_PUBLIC_PLATFORM_ORIGIN` set to your app's address: the `envfile`
+step sets it to your backend's URL, and you change it if you add a custom domain. Without it,
+asking for the link sends nothing.
+
+**A renamed Google address.** When an admin's Google address changes, for example after a rename
+in Google Workspace, they keep access, with password sign-in on or off. The app remembers each
+admin's Google account by its permanent id, which a rename keeps, and moves the account to the
+new address. The new address must be on your admin list, by exact address or domain. Moving the
+address signs the admin out on every device, as Firebase does for any email change, so their first
+Google sign-in after the rename says the address changed and asks them to sign in with Google
+once more, which then gets in. A different Google account is still refused, even one linked to
+the admin's account. The id is recorded at an
+admin's first sign-in, or at their next Google sign-in if they got in before this was added: until
+then a rename is refused, and the app logs `jsonPayload.event="auth_sign_in_refused"` with the
+reason `provider_email_changed`.
 
 **Unconfirmed accounts.** Anyone holding your web app's public key can start a sign-up at Identity
 Platform, so unconfirmed password accounts can collect. Once an hour the journey tick (the
@@ -484,8 +506,8 @@ come only from connections both members and Vizzy may read, so they also need
 **Upgrading to email and password sign-in.** Nothing changes until you run `addon:password`
 (Email and password sign-in above). Before you do, run
 `FIRESTORE_DATABASES='(default)' bash infra/lifecycle/setup.sh ttl <id>` once more, for the time to
-live on `email_codes.ttl` and `email_code_guards.ttl` that removes old sign-in codes and their
-counts; it is safe to run again.
+live on `email_codes.ttl`, `email_code_guards.ttl` and `email_confirm_links.ttl` that removes old
+sign-in codes, their counts and the links sent in place of a code; it is safe to run again.
 
 ### Enterprise features
 

@@ -925,6 +925,11 @@ function alertEmail(ctx) {
   return envValue(ctx, "ADMIN_ALLOWED_EMAILS").split(",").map((s) => s.trim()).find(Boolean) ?? "";
 }
 
+/** "a", "a and b", "a, b and c". */
+function andList(items) {
+  return items.length > 1 ? `${items.slice(0, -1).join(", ")} and ${items.at(-1)}` : items.join("");
+}
+
 /** Every page of a list call (Monitoring's alert policies or channels). { ok, items, why }. */
 async function listAll(ctx, url, field) {
   const items = [];
@@ -960,10 +965,11 @@ function authAlertsState(ctx) {
 }
 
 /**
- * Make the two log metrics, the two alert policies, and an email channel for the first admin
- * when a policy is made. Each is made only when missing (a metric whose filter changed is
- * updated); an alert policy that exists is left as its owner may have changed it, recipients
- * included. True when all are there.
+ * Make the log metrics, the alert policies, and an email channel for the alerts' recipient
+ * (alertEmail) when a policy is made. Each is made only when missing (a metric whose filter
+ * changed is updated); an alert policy that exists is left as its owner may have changed it,
+ * recipients included, so a copy that has the older alerts gets only the new one. True when all
+ * are there.
  */
 async function ensureAuthAlerts(ctx) {
   const p = ctx.project;
@@ -1052,8 +1058,8 @@ async function passwordState(ctx) {
   return state;
 }
 
-/** The collections holding sign-in codes and their per-address guards, each with a `ttl` field. */
-const CODE_TTL_COLLECTIONS = ["email_codes", "email_code_guards"];
+/** The collections holding sign-in codes, their per-address guards and the links sent in place of a code, each with a `ttl` field. */
+const CODE_TTL_COLLECTIONS = ["email_codes", "email_code_guards", "email_confirm_links"];
 
 const EMAIL_PROVIDER_NOTE = [
   "Note: password sign-in needs an email provider for its confirmation codes (MANDRILL_API_KEY or",
@@ -1389,13 +1395,20 @@ export const ADDONS = [
         ),
         ...(s.diff.some((d) => d.batch === "provider") ? ["The Email/Password provider goes on last, after every protection above"] : []),
         `Make Identity Platform's service agent and give it ${IDENTITY_AGENT_ROLE}, so reCAPTCHA can make its keys (safe to repeat)`,
-        `Turn on Firestore TTL clean-up for sign-in codes on (default): ${CODE_TTL_COLLECTIONS.join(" and ")} (safe to repeat; copies set up before these existed lack it)`,
+        `Turn on Firestore TTL clean-up for sign-in codes on (default): ${andList(CODE_TTL_COLLECTIONS)} (safe to repeat; copies set up before these existed lack it)`,
         ...(!s.alerts.ok || s.alerts.missing.length
           ? [
-              `Make the sign-in alerts where missing: log metrics ${AUTH_LOG_METRICS.map((m) => m.name).join(" and ")}, and alerts for many password sign-ups and for accounts removed at sign-in${email ? `, emailed to ${email}` : ""}`,
+              `Make the sign-in alerts where missing: log metrics ${andList(AUTH_LOG_METRICS.map((m) => m.name))}, and alerts for many password sign-ups, for accounts removed at sign-in and for sign-in codes locked${email ? `, emailed to ${email}` : ""}`,
             ]
           : []),
-        `Turn on PASSWORD_SIGNIN_ENABLED in apphosting.${ctx.envName}.yaml`,
+        // apply() only writes the switch when it is off and there is an email provider.
+        ...(s.switchOn
+          ? []
+          : [
+              s.emailProvider
+                ? `Turn on PASSWORD_SIGNIN_ENABLED in apphosting.${ctx.envName}.yaml`
+                : `Leave PASSWORD_SIGNIN_ENABLED off in apphosting.${ctx.envName}.yaml: no email provider yet (addon:email)`,
+            ]),
       ];
     },
     async apply(ctx) {
@@ -1449,7 +1462,10 @@ export const ADDONS = [
       if (!(await ensureAuthAlerts(ctx))) {
         return fail([
           "Making the sign-in alerts failed (see above). Identity Platform is set; run this add-on again to finish the alerts.",
-          `PASSWORD_SIGNIN_ENABLED is still off in apphosting.${ctx.envName}.yaml.`,
+          // A copy that already has password sign-in on re-runs this for a newer alert: it stays on.
+          s.switchOn
+            ? `PASSWORD_SIGNIN_ENABLED is still on in apphosting.${ctx.envName}.yaml, as it was: only the alerts are unfinished.`
+            : `PASSWORD_SIGNIN_ENABLED is still off in apphosting.${ctx.envName}.yaml.`,
         ]);
       }
 
@@ -1457,6 +1473,13 @@ export const ADDONS = [
       // and Settings describe passwords. Leave the switch off; the check keeps the add-on to do.
       if (!hasEmailProvider(ctx)) {
         for (const w of warnings) ctx.say(`  Warning: ${w}`);
+        // A copy whose switch is already on (its provider removed since) keeps it: say so, not "stays off".
+        if (s.switchOn) {
+          ctx.say(`  Identity Platform and the alerts are ready. PASSWORD_SIGNIN_ENABLED is on in apphosting.${ctx.envName}.yaml,`);
+          ctx.say("  but nobody gets a confirmation code until there is an email provider (MANDRILL_API_KEY or RESEND_API_KEY).");
+          ctx.say(`  Run ${selfhostCommand(ctx, "--apply addon:email")} to add one.`);
+          return ok();
+        }
         ctx.say("  Identity Platform and the alerts are ready. PASSWORD_SIGNIN_ENABLED stays off: password sign-in");
         ctx.say("  needs an email provider for its confirmation codes (MANDRILL_API_KEY or RESEND_API_KEY).");
         ctx.say(`  Run ${selfhostCommand(ctx, "--apply addon:email")}, then this add-on again to turn it on.`);

@@ -531,7 +531,9 @@ describe("npm run selfhost: addon:password", { timeout: SLOW }, () => {
       "the password policy isn't enforced",
       "reCAPTCHA bot protection for passwords is off",
       "no log metric yougrow_auth_signups",
+      "no log metric yougrow_auth_codes_locked",
       'no alert "YouGrow: accounts removed at sign-in"',
+      'no alert "YouGrow: sign-in codes locked"',
       "PASSWORD_SIGNIN_ENABLED is off",
       "no email provider yet (addon:email)",
       `password reset links open Firebase's own page, not ${appUrl()}/auth/reset`,
@@ -562,6 +564,8 @@ describe("npm run selfhost: addon:password", { timeout: SLOW }, () => {
     expect(r.out).toContain("ok   read back: Email/Password on, 12 characters or more");
     expect(r.out).toContain("PASSWORD_SIGNIN_ENABLED stays off: password sign-in");
     expect(r.out).toContain(`--apply addon:email`);
+    expect(r.out).toContain("Leave PASSWORD_SIGNIN_ENABLED off in apphosting.live.yaml: no email provider yet (addon:email)");
+    expect(r.out).not.toContain("Turn on PASSWORD_SIGNIN_ENABLED");
     expect(envFile().has("PASSWORD_SIGNIN_ENABLED")).toBe(false);
     expect(r.out).not.toContain("Done: Email/Password on");
     expect(r.out).not.toMatch(/[–—]/);
@@ -574,6 +578,7 @@ describe("npm run selfhost: addon:password", { timeout: SLOW }, () => {
     expect(r.code).toBe(0);
     expect(r.out).toContain("It will:");
     expect(r.out).toContain("The Email/Password provider goes on last, after every protection above");
+    expect(r.out).toContain("Turn on PASSWORD_SIGNIN_ENABLED in apphosting.live.yaml");
     const s = readState() as FakeCloudState & { apis: string[] };
     expect(s.patches).toEqual([
       ACCOUNT_RULES,
@@ -587,14 +592,15 @@ describe("npm run selfhost: addon:password", { timeout: SLOW }, () => {
     expect(r.out).toContain("ok   read back: Email/Password on, 12 characters or more");
     for (const api of ["recaptchaenterprise.googleapis.com", "logging.googleapis.com", "monitoring.googleapis.com"]) expect(s.apis).toContain(api);
 
-    // Two log metrics and two alerts, each naming its resource type, emailing the first admin.
-    expect(Object.keys(s.logMetrics ?? {}).sort()).toEqual(["yougrow_auth_accounts_removed", "yougrow_auth_signups"]);
+    // Three log metrics and three alerts, each naming its resource type, emailing the first admin.
+    expect(Object.keys(s.logMetrics ?? {}).sort()).toEqual(["yougrow_auth_accounts_removed", "yougrow_auth_codes_locked", "yougrow_auth_signups"]);
     expect(s.logMetrics?.yougrow_auth_signups?.filter).toContain('resource.type="identitytoolkit_project"');
     expect(s.logMetrics?.yougrow_auth_accounts_removed?.filter).toBe('resource.type="cloud_run_revision" AND jsonPayload.event="auth_account_removed"');
+    expect(s.logMetrics?.yougrow_auth_codes_locked?.filter).toBe('resource.type="cloud_run_revision" AND jsonPayload.event="auth_code_locked"');
     expect(s.notificationChannels).toEqual([expect.objectContaining({ type: "email", labels: { email_address: "owner@example.com" } })]);
     const channel = (s.notificationChannels?.[0] as { name: string }).name;
     const policies = s.alertPolicies as { displayName: string; notificationChannels: string[]; conditions: { conditionThreshold: { filter: string; duration: string; evaluationMissingData: string } }[] }[];
-    expect(policies.map((p) => p.displayName)).toEqual(["YouGrow: many password sign-ups", "YouGrow: accounts removed at sign-in"]);
+    expect(policies.map((p) => p.displayName)).toEqual(["YouGrow: many password sign-ups", "YouGrow: accounts removed at sign-in", "YouGrow: sign-in codes locked"]);
     for (const p of policies) {
       expect(p.notificationChannels).toEqual([channel]);
       const t = p.conditions[0]!.conditionThreshold;
@@ -615,7 +621,7 @@ describe("npm run selfhost: addon:password", { timeout: SLOW }, () => {
     expect(r.out).toContain("Make Identity Platform's service agent and give it roles/identitytoolkit.serviceAgent");
     expect(s.serviceIdentities).toEqual(["identitytoolkit.googleapis.com"]);
     // The codes' TTL clean-up, for copies set up before these collections existed.
-    for (const group of ["email_codes", "email_code_guards"]) {
+    for (const group of ["email_codes", "email_code_guards", "email_confirm_links"]) {
       expect(calls()).toContainEqual({
         tool: "gcloud",
         args: ["firestore", "fields", "ttls", "update", "ttl", `--collection-group=${group}`, "--enable-ttl", "--database=(default)", `--project=${PROJECT}`, "--async"],
@@ -633,7 +639,7 @@ describe("npm run selfhost: addon:password", { timeout: SLOW }, () => {
     expect(again.out).toContain("set up already");
     const after = readState() as FakeCloudState;
     expect(after.patches).toHaveLength(6);
-    expect(after.alertPolicies).toHaveLength(2);
+    expect(after.alertPolicies).toHaveLength(3);
     expect(after.notificationChannels).toHaveLength(1);
     expect(again.out).toContain('alert "YouGrow: many password sign-ups" (already there, left as it is)');
   });
@@ -650,6 +656,48 @@ describe("npm run selfhost: addon:password", { timeout: SLOW }, () => {
     const s = readState() as FakeCloudState;
     expect(s.notificationChannels).toHaveLength(1);
     expect(s.notificationChannels?.[0]).toMatchObject({ labels: { email_address: "owner@example.com" } });
+  });
+
+  it("gives a copy that has the two older alerts only the locked codes alert, and leaves the others' recipients", async () => {
+    await readyForAddons();
+    withEmailProvider();
+    expect((await password()).code).toBe(0);
+    // As a copy set up before the third alert left it, with its owner's own recipient on the two.
+    const set = readState() as FakeCloudState;
+    const { yougrow_auth_codes_locked: _locked, ...older } = set.logMetrics ?? {};
+    const theirs = { type: "email", displayName: "Security team", labels: { email_address: "security@example.com" }, name: `projects/${PROJECT}/notificationChannels/9` };
+    const kept = (set.alertPolicies ?? [])
+      .filter((p) => p.displayName !== "YouGrow: sign-in codes locked")
+      .map((p) => ({ ...p, notificationChannels: [theirs.name] }));
+    writeState({ logMetrics: older, alertPolicies: kept, notificationChannels: [theirs], patches: [] });
+
+    const plan = JSON.parse((await selfhost(["--json", "--app-url", appUrl()])).out);
+    const addon = plan.addons.find((a: { id: string }) => a.id === "addon:password");
+    expect(addon.state).toBe("todo");
+    expect(addon.detail).toBe('no log metric yougrow_auth_codes_locked; no alert "YouGrow: sign-in codes locked".');
+
+    const again = await password();
+    expect(again.code).toBe(0);
+    expect(again.out).toContain("ok   log metric yougrow_auth_signups (already there)");
+    expect(again.out).toContain("ok   log metric yougrow_auth_codes_locked");
+    expect(again.out).toContain('alert "YouGrow: accounts removed at sign-in" (already there, left as it is)');
+    expect(again.out).toContain('ok   alert "YouGrow: sign-in codes locked"');
+    const s = readState() as FakeCloudState;
+    expect(s.patches).toEqual([]);
+    expect(s.logMetrics?.yougrow_auth_codes_locked?.filter).toBe('resource.type="cloud_run_revision" AND jsonPayload.event="auth_code_locked"');
+    // The two older alerts keep their owner's recipient; only the new one gets the first admin.
+    const policies = s.alertPolicies as { displayName: string; notificationChannels: string[] }[];
+    expect(policies.slice(0, 2)).toEqual(kept);
+    const owner = (s.notificationChannels ?? []).find((c) => (c as { labels: { email_address: string } }).labels.email_address === "owner@example.com") as { name: string };
+    expect(owner).toBeDefined();
+    expect(policies[2]).toMatchObject({ displayName: "YouGrow: sign-in codes locked", notificationChannels: [owner.name] });
+    expect(s.notificationChannels).toHaveLength(2);
+
+    // Done now, and a third run makes nothing.
+    const third = await password();
+    expect(third.out).toContain("set up already");
+    expect((readState() as FakeCloudState).alertPolicies).toHaveLength(3);
+    expect((readState() as FakeCloudState).notificationChannels).toHaveLength(2);
   });
 
   it("emails the alerts to --alert-email when given, instead of the first admin", async () => {
@@ -727,8 +775,45 @@ describe("npm run selfhost: addon:password", { timeout: SLOW }, () => {
     const r = await password();
     expect(r.code).toBe(1);
     expect(r.out).toContain("Making the sign-in alerts failed (see above). Identity Platform is set; run this add-on again to finish the alerts.");
+    expect(r.out).toContain("PASSWORD_SIGNIN_ENABLED is still off in apphosting.live.yaml.");
     expect(getPath((readState() as FakeCloudState).identityConfig, "signIn.email.enabled")).toBe(true);
     expect(envFile().has("PASSWORD_SIGNIN_ENABLED")).toBe(false);
+  });
+
+  it("on a copy with password sign-in on, says the switch stayed on when only a newer alert fails", async () => {
+    await readyForAddons();
+    withEmailProvider();
+    expect((await password()).code).toBe(0);
+    expect(envFile().get("PASSWORD_SIGNIN_ENABLED")?.value).toBe("true");
+    // As a copy set up before the third alert, whose Monitoring then refuses the new one.
+    const set = readState() as FakeCloudState;
+    const { yougrow_auth_codes_locked: _locked, ...older } = set.logMetrics ?? {};
+    const kept = (set.alertPolicies ?? []).filter((p) => p.displayName !== "YouGrow: sign-in codes locked");
+    writeState({ logMetrics: older, alertPolicies: kept, patches: [], monitoringOff: true });
+    const r = await password();
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("Making the sign-in alerts failed (see above).");
+    expect(r.out).toContain("PASSWORD_SIGNIN_ENABLED is still on in apphosting.live.yaml, as it was: only the alerts are unfinished.");
+    expect(r.out).not.toContain("is still off");
+    expect(envFile().get("PASSWORD_SIGNIN_ENABLED")?.value).toBe("true");
+  });
+
+  it("on a copy with password sign-in on but no email provider, says the switch is on, not that it stays off", async () => {
+    await readyForAddons();
+    // The switch on by hand, or a provider removed since: the doctor flags it, and a re-run adds the newer alert.
+    const file = join(dir, "repo", "apphosting.live.yaml");
+    writeFileSync(file, `${readFileSync(file, "utf8").replace(/\n?$/, "\n")}  - variable: PASSWORD_SIGNIN_ENABLED\n    value: "true"\n    availability:\n      - RUNTIME\n`);
+    const r = await password();
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("ok   read back: Email/Password on, 12 characters or more");
+    expect(r.out).toContain("PASSWORD_SIGNIN_ENABLED is on in apphosting.live.yaml,");
+    expect(r.out).toContain("nobody gets a confirmation code until there is an email provider");
+    expect(r.out).toContain("--apply addon:email");
+    expect(r.out).not.toContain("stays off");
+    expect(r.out).not.toContain("Turn on PASSWORD_SIGNIN_ENABLED");
+    expect(r.out).not.toContain("Leave PASSWORD_SIGNIN_ENABLED off");
+    expect(r.out).not.toMatch(/[–—]/);
+    expect(envFile().get("PASSWORD_SIGNIN_ENABLED")?.value).toBe("true");
   });
 
   it("needs the core steps first", async () => {

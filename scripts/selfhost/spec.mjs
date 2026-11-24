@@ -237,7 +237,7 @@ export const PASSWORD_MIN_LENGTH = 12;
 /** Where Firebase's email links (password reset) land in the app: <app url>/auth/reset. */
 export const RESET_PATH = "/auth/reset";
 
-/** The APIs addon:password needs beyond the core ones: bot protection and the two alerts. */
+/** The APIs addon:password needs beyond the core ones: bot protection and the sign-in alerts. */
 export const PASSWORD_APIS = [
   { id: "recaptchaenterprise.googleapis.com", why: "reCAPTCHA Enterprise, for bot protection" },
   { id: "logging.googleapis.com", why: "Cloud Logging, for the log metrics" },
@@ -433,8 +433,14 @@ export function passwordPatchPlan(diff) {
 export const SIGNUP_ALERT_PER_HOUR = 20;
 
 /**
- * The two log based metrics the sign-in alerts count. Each filter names its resource type:
- * Cloud Monitoring needs one to alert on a log based metric.
+ * Wrong codes one address can type in a day before the app locks its codes and logs
+ * auth_code_locked. Must match EMAIL_CODE_WRONG_PER_DAY in src/lib/tenant/emailCodes.ts.
+ */
+export const CODE_LOCK_WRONG_PER_DAY = 15;
+
+/**
+ * The three log based metrics the sign-in alerts count, in the order of authAlertPolicies().
+ * Each filter names its resource type: Cloud Monitoring needs one to alert on a log based metric.
  * `appEvent` is the `event` field of the app's own structured log line.
  */
 export const AUTH_LOG_METRICS = [
@@ -452,6 +458,13 @@ export const AUTH_LOG_METRICS = [
     description: "Accounts the app removed at the sign-in door (a first sign-in it could not trust). Made by npm run selfhost, addon:password.",
     filter: 'resource.type="cloud_run_revision" AND jsonPayload.event="auth_account_removed"',
   },
+  {
+    name: "yougrow_auth_codes_locked",
+    resourceType: "cloud_run_revision",
+    appEvent: "auth_code_locked",
+    description: `Addresses whose sign-in codes the app locked after ${CODE_LOCK_WRONG_PER_DAY} wrong codes in a day. Made by npm run selfhost, addon:password.`,
+    filter: 'resource.type="cloud_run_revision" AND jsonPayload.event="auth_code_locked"',
+  },
 ];
 
 /** A log metric's create body: a plain counter. */
@@ -465,7 +478,7 @@ export function logMetricBody(metric) {
 }
 
 /**
- * The two alert policies, by display name. Each counts its log metric over an hour. A condition
+ * The three alert policies, by display name. Each counts its log metric over an hour. A condition
  * on a log based metric names the resource type, and evaluationMissingData needs a non-zero
  * duration, so both are set.
  * @param {string[]} channels notification channel names (projects/<id>/notificationChannels/<n>)
@@ -483,7 +496,7 @@ export function authAlertPolicies(channels = []) {
       evaluationMissingData: "EVALUATION_MISSING_DATA_INACTIVE",
     },
   });
-  const [signups, removed] = AUTH_LOG_METRICS;
+  const [signups, removed, locked] = AUTH_LOG_METRICS;
   return [
     {
       displayName: "YouGrow: many password sign-ups",
@@ -518,6 +531,23 @@ export function authAlertPolicies(channels = []) {
       userLabels: { app: "yougrow", feature: "password-signin" },
       combiner: "OR",
       conditions: [condition(removed, "An account removed at sign-in in the last hour", 0)],
+      alertStrategy: { autoClose: "86400s" },
+      notificationChannels: channels,
+    },
+    {
+      displayName: "YouGrow: sign-in codes locked",
+      documentation: {
+        mimeType: "text/markdown",
+        content: [
+          `At least one address had ${CODE_LOCK_WRONG_PER_DAY} wrong sign-in codes in a day, so the app locked its codes: it gets no new code and no check until a day has passed.`,
+          "That usually means someone is guessing codes for it, since anyone who creates a password account with an address can ask for its codes.",
+          "The person who owns the address can still confirm it: the code screen offers Email me a link instead, and the link needs no code.",
+          'Check Logs Explorer for jsonPayload.event="auth_code_locked", which gives the address\'s domain only.',
+        ].join(" "),
+      },
+      userLabels: { app: "yougrow", feature: "password-signin" },
+      combiner: "OR",
+      conditions: [condition(locked, "Sign-in codes locked for an address in the last hour", 0)],
       alertStrategy: { autoClose: "86400s" },
       notificationChannels: channels,
     },

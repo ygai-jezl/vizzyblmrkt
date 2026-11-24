@@ -1,14 +1,18 @@
 // The pure parts of addon:password (scripts/selfhost/spec.mjs): what differs in a project's
-// Identity Toolkit config, the order the fixes are sent in, and the two alerts. The add-on run
+// Identity Toolkit config, the order the fixes are sent in, and the sign-in alerts. The add-on run
 // against a fake cloud is in selfhost.test.ts.
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { PASSWORD_MIN_LENGTH as SCREENS_MIN_LENGTH } from "@/lib/auth/messages";
+import { AUTH_LABELS, PASSWORD_MIN_LENGTH as SCREENS_MIN_LENGTH } from "@/lib/auth/messages";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
+import { EMAIL_CODE_WRONG_PER_DAY } from "@/lib/tenant/emailCodes";
 import { baseSwitches } from "./envfile.mjs";
 import {
   AUTH_LOG_METRICS,
+  CODE_LOCK_WRONG_PER_DAY,
   KEPT_OFF,
   PASSWORD_MIN_LENGTH,
   authAlertPolicies,
@@ -109,8 +113,14 @@ describe("the sign-in alerts", () => {
     }
     expect(AUTH_LOG_METRICS[0]?.filter).toContain("google.cloud.identitytoolkit.v1.AuthenticationService.SignUp");
     expect(AUTH_LOG_METRICS[1]?.filter).toContain('jsonPayload.event="auth_account_removed"');
+    expect(AUTH_LOG_METRICS[2]?.filter).toBe('resource.type="cloud_run_revision" AND jsonPayload.event="auth_code_locked"');
     const policies = authAlertPolicies(["projects/p/notificationChannels/1"]);
-    expect(policies).toHaveLength(2);
+    expect(policies.map((p: { displayName: string }) => p.displayName)).toEqual([
+      "YouGrow: many password sign-ups",
+      "YouGrow: accounts removed at sign-in",
+      "YouGrow: sign-in codes locked",
+    ]);
+    expect(policies).toHaveLength(AUTH_LOG_METRICS.length);
     policies.forEach((p: { conditions: { conditionThreshold: Record<string, unknown> }[]; notificationChannels: string[] }, i: number) => {
       const t = p.conditions[0]!.conditionThreshold;
       expect(t.filter).toBe(`metric.type="logging.googleapis.com/user/${AUTH_LOG_METRICS[i]!.name}" AND resource.type="${AUTH_LOG_METRICS[i]!.resourceType}"`);
@@ -120,6 +130,32 @@ describe("the sign-in alerts", () => {
       expect(p.notificationChannels).toEqual(["projects/p/notificationChannels/1"]);
     });
     expect(authAlertPolicies()[0]!.notificationChannels).toEqual([]);
+  });
+
+  it("raise the locked codes alert on the first lock in an hour, counted from the app's own log line", () => {
+    const [, , locked] = authAlertPolicies();
+    const t = locked!.conditions[0]!.conditionThreshold;
+    expect(t.filter).toBe('metric.type="logging.googleapis.com/user/yougrow_auth_codes_locked" AND resource.type="cloud_run_revision"');
+    expect(t).toMatchObject({ comparison: "COMPARISON_GT", thresholdValue: 0, aggregations: [{ alignmentPeriod: "3600s", perSeriesAligner: "ALIGN_SUM" }] });
+    // The number the alert explains is the one the app locks at.
+    expect(CODE_LOCK_WRONG_PER_DAY).toBe(EMAIL_CODE_WRONG_PER_DAY);
+    expect(locked!.documentation.content).toContain(`${EMAIL_CODE_WRONG_PER_DAY} wrong sign-in codes in a day`);
+    expect(locked!.documentation.content).toContain('jsonPayload.event="auth_code_locked"');
+  });
+
+  it("count events the app really logs", () => {
+    // A typo on either side would leave an alert that never fires, so each app event's name must
+    // appear, quoted, in the app's own (non-test) source.
+    const src = fileURLToPath(new URL("../../src", import.meta.url));
+    const files = (readdirSync(src, { recursive: true }) as string[]).filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f));
+    const source = files.map((f) => readFileSync(join(src, f), "utf8")).join("\n");
+    const events = AUTH_LOG_METRICS.flatMap((m: { appEvent?: string }) => (m.appEvent ? [m.appEvent] : []));
+    expect(events).toEqual(["auth_account_removed", "auth_code_locked"]);
+    for (const event of events) {
+      expect(source.includes(`"${event}"`), event).toBe(true);
+      const m = AUTH_LOG_METRICS.find((x: { appEvent?: string }) => x.appEvent === event)!;
+      expect(m.filter).toBe(`resource.type="cloud_run_revision" AND jsonPayload.event="${event}"`);
+    }
   });
 
   it("explain themselves in house style", () => {
@@ -148,6 +184,68 @@ describe("the sign-in switches in a self-hosted copy", () => {
       expect(dashesIn((KEPT_OFF as Record<string, { why: string }>)[name]!.why), name).toEqual([]);
     }
     expect(switchesForAddon("password")).toEqual(["PASSWORD_SIGNIN_ENABLED"]);
+  });
+});
+
+describe("the self-host guide on the sign-in alerts, locked codes and renamed Google addresses", () => {
+  const doc = readFileSync(new URL("../../docs/self-host.md", import.meta.url), "utf8");
+  const paragraph = (start: string) => doc.split("\n\n").find((p) => p.startsWith(start));
+
+  it("has a row for every alert the add-on makes, naming its log metric", () => {
+    const rows = doc.split("\n").filter((line) => line.startsWith("| YouGrow: "));
+    expect(rows.map((r) => r.split(" | ")[0]!.slice(2))).toEqual(authAlertPolicies().map((p: { displayName: string }) => p.displayName));
+    rows.forEach((row, i) => expect(row).toContain(`\`${AUTH_LOG_METRICS[i]!.name}\``));
+    expect(rows[2]).toContain(`${EMAIL_CODE_WRONG_PER_DAY} wrong codes in a day`);
+    expect(paragraph("**The three alerts.**")).toBeDefined();
+  });
+
+  it("gives the same number of alerts everywhere it counts them", () => {
+    const words = ["one", "two", "three", "four", "five"];
+    const count = words[authAlertPolicies().length - 1]!;
+    const addonRow = doc.split("\n").find((line) => line.startsWith("| `addon:password` |"));
+    expect(addonRow).toBeDefined();
+    const counted = [...doc.matchAll(/\b(one|two|three|four|five) (?:sign-in )?alerts\b/gi)].map((m) => m[1]!.toLowerCase());
+    expect(counted.length).toBeGreaterThan(0);
+    expect(counted).toEqual(counted.map(() => count));
+    expect(addonRow).toContain(`with ${count} alerts`);
+  });
+
+  it("explains the link instead of a code, with the button's own words and the setting it needs", () => {
+    const text = paragraph("**Too many wrong codes.**");
+    expect(text).toBeDefined();
+    const flat = text!.replace(/\s+/g, " ");
+    // The screen's own label, so the guide and the button never drift apart.
+    const label = (AUTH_LABELS as Record<string, string>).emailLinkInstead;
+    expect(label, "AUTH_LABELS.emailLinkInstead").toBeTruthy();
+    expect(flat).toContain(`**${label}**`);
+    expect(flat).toContain(`After ${EMAIL_CODE_WRONG_PER_DAY} wrong codes in a day`);
+    expect(flat).toContain("`NEXT_PUBLIC_PLATFORM_ORIGIN`");
+    expect(flat).toContain("30 minutes");
+  });
+
+  it("says a renamed Google admin keeps access, and what is logged until their id is recorded", () => {
+    const text = paragraph("**A renamed Google address.**");
+    expect(text).toBeDefined();
+    const flat = text!.replace(/\s+/g, " ");
+    expect(flat).toContain("they keep access");
+    expect(flat).toContain("permanent id");
+    expect(flat).toContain('`jsonPayload.event="auth_sign_in_refused"`');
+    expect(flat).toContain("`provider_email_changed`");
+    // The move signs them out (Firebase revokes on an email change): one more Google sign-in.
+    expect(flat).toContain("signs the admin out on every device");
+    expect(flat).toContain("sign in with Google once more");
+  });
+
+  it("is in house style", () => {
+    for (const start of ["**The three alerts.**", "**Too many wrong codes.**", "**A renamed Google address.**"]) {
+      const text = paragraph(start)!;
+      expect(dashesIn(text), start).toEqual([]);
+      expect(aiTellsIn(text), start).toEqual([]);
+    }
+    for (const row of doc.split("\n").filter((line) => line.startsWith("| YouGrow: "))) {
+      expect(dashesIn(row), row).toEqual([]);
+      expect(aiTellsIn(row), row).toEqual([]);
+    }
   });
 });
 

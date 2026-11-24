@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { isDayOnly, nextDates, normaliseDate, readableDay, zonedDay, zonedIso } from "./dates";
+import { articleDateline, datelineText, isDayOnly, nextDates, normaliseDate, readableDay, withDateLine, zonedDay, zonedIso } from "./dates";
+import { renderArticleHtml } from "./markdown";
+import { suggestBlogSchema } from "./schema";
 import { readPageDates } from "./research";
 
 const NOW = new Date("2026-11-24T12:00:00.000Z");
@@ -71,6 +73,46 @@ describe("the dates a page gives itself", () => {
     });
     expect(readPageDates('<p>Posted <time datetime="2026-04-28">28 April</time></p>')).toEqual({ published: "2026-04-28", modified: null });
     expect(readPageDates("<h1>No dates here</h1>")).toEqual({ published: null, modified: null });
+  });
+});
+
+describe("the date line, the copy and the markup", () => {
+  const live = { url: "https://acme.example/blog/a", at: "2026-04-28T09:12:00.000Z", by: "check" as const, titleMatched: true };
+  const dates = { published: { at: "2026-04-28T09:12:00.000Z", source: "found" as const }, updated: { at: "2026-11-20", source: "page" as const } };
+  const ARTICLE = "# How do I track brand citations?\n\n*Last updated: 2026-04-20 · By Ana Ruiz, Head of Growth*\n\nBody copy.";
+
+  it("uses the stored dates once live, and today, the day it's copied, before that", () => {
+    const dl = articleDateline({ live, dates }, "Europe/London", NOW);
+    expect(dl).toEqual({
+      published: { iso: "2026-04-28T10:12:00+01:00", text: "28 Apr 2026" },
+      updated: { iso: "2026-11-20", text: "20 Nov 2026" },
+      known: true,
+    });
+    expect(articleDateline({ dates }, "Europe/London", NOW)).toEqual({
+      published: { iso: "2026-11-24T12:00:00+00:00", text: "24 Nov 2026" },
+      updated: null,
+      known: false,
+    });
+    expect(datelineText(dl, " · By Ana Ruiz, Head of Growth")).toBe("Published 28 Apr 2026 · Updated 20 Nov 2026 · By Ana Ruiz, Head of Growth");
+  });
+
+  it("puts the same dates in the copied Markdown, the HTML and the markup", () => {
+    const dl = articleDateline({ live, dates }, "Europe/London", NOW);
+    expect(withDateLine(ARTICLE, dl)).toBe("# How do I track brand citations?\n\n*Published 28 Apr 2026 · Updated 20 Nov 2026 · By Ana Ruiz, Head of Growth*\n\nBody copy.");
+    expect(withDateLine("# No date line", dl)).toBe("# No date line");
+    expect(renderArticleHtml(ARTICLE, { dateline: dl })).toContain(
+      '<p class="dateline">Published <time datetime="2026-04-28T10:12:00+01:00">28 Apr 2026</time> · Updated <time datetime="2026-11-20">20 Nov 2026</time> · By Ana Ruiz, Head of Growth</p>',
+    );
+    // Without a dateline the export is as before.
+    expect(renderArticleHtml(ARTICLE)).toContain('<p class="last-updated">Last updated: <time datetime="2026-04-20">2026-04-20</time> · By Ana Ruiz, Head of Growth</p>');
+    const post = (jsonLd: unknown) => (jsonLd as { "@graph": Array<Record<string, unknown>> })["@graph"].find((n) => n["@type"] === "BlogPosting")!;
+    const marked = suggestBlogSchema({ markdown: ARTICLE, dateline: dl });
+    expect(post(marked.jsonLd)).toMatchObject({ datePublished: "2026-04-28T10:12:00+01:00", dateModified: "2026-11-20" });
+    expect(marked.notes.join(" ")).toContain("datePublished is the day the page went up");
+    const before = suggestBlogSchema({ markdown: ARTICLE, dateline: articleDateline({}, "UTC", NOW) });
+    expect(post(before.jsonLd)).toMatchObject({ datePublished: "2026-11-24T12:00:00+00:00", dateModified: "2026-11-24T12:00:00+00:00" });
+    expect(before.notes.join(" ")).toContain("datePublished is today, the day you copy it.");
+    expect(post(suggestBlogSchema({ markdown: ARTICLE }).jsonLd)).toMatchObject({ datePublished: "2026-04-20", dateModified: "2026-04-20" });
   });
 });
 

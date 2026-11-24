@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { BlogArticleLive } from "@/lib/types/contentPlan";
+import type { BlogArticleDates, BlogArticleLive } from "@/lib/types/contentPlan";
 import { ADDRESS_PROBLEM, articleAddressProblem, type AddressSaved } from "@/lib/content/blog/address";
 import { normalizeUrl } from "@/lib/content/blog/brief";
 import type { LiveAction, LiveCheck } from "@/lib/content/blog/live";
@@ -64,12 +64,17 @@ function todayHere(): string {
 }
 
 /** Is it live at this address? A check, or a person's word for it. */
+/** Said under a live article whose page carries no date of its own (BLOG_DATES_ENABLED). */
+export const NO_PAGE_DATE = "Your page shows no date. Paste the date line, or let your site show its own.";
+
 function LiveRow({
   live,
+  dates,
   onLive,
   disabled,
 }: {
   live: BlogArticleLive | null;
+  dates?: BlogArticleDates;
   onLive: (action: LiveAction, day?: string) => Promise<LiveResult>;
   disabled: boolean;
 }) {
@@ -138,6 +143,7 @@ function LiveRow({
           {said.text}
         </p>
       ) : null}
+      {dated && live && dates?.page && !dates.page.published && !dates.page.modified ? <p className={HINT}>{NO_PAGE_DATE}</p> : null}
     </div>
   );
 }
@@ -151,6 +157,7 @@ export function BlogAddress({
   pageUrl,
   onSave,
   live = null,
+  dates,
   onLive,
   disabled = false,
   liveWatch = false,
@@ -159,6 +166,8 @@ export function BlogAddress({
   onSave: (url: string | null) => Promise<AddressSaved>;
   /** The hub's live mark, if any. It counts only at the address it was made for. */
   live?: BlogArticleLive | null;
+  /** True dates (BLOG_DATES_ENABLED), for the note when the page shows none. */
+  dates?: BlogArticleDates;
   onLive?: (action: LiveAction, day?: string) => Promise<LiveResult>;
   /** Something else is running on the article. */
   disabled?: boolean;
@@ -272,7 +281,7 @@ export function BlogAddress({
           {liveWatch ? " YouGrow checks it for you every few hours for two weeks. Leave it empty and YouGrow finds the article on your site's sitemap." : null}
         </p>
       ) : null}
-      {!open && onLive ? <LiveRow live={liveHere} onLive={onLive} disabled={disabled} /> : null}
+      {!open && onLive ? <LiveRow live={liveHere} {...(dates ? { dates } : {})} onLive={onLive} disabled={disabled} /> : null}
     </div>
   );
 }

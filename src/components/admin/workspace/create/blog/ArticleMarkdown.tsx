@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useMemo } from "react";
+import { datelineText, type Dateline } from "@/lib/content/blog/dates";
 import {
+  afterDateOf,
   lastUpdatedOf,
   parseArticle,
   parseInline,
@@ -65,7 +67,7 @@ function inline(nodes: Inline[], keyPrefix: string): React.ReactNode[] {
 
 const text = (markdown: string, key: string) => inline(parseInline(markdown), key);
 
-function block(b: ArticleBlock, key: string): React.ReactElement | null {
+function block(b: ArticleBlock, key: string, dateline: Dateline | null = null): React.ReactElement | null {
   switch (b.kind) {
     case "heading": {
       // The frame prints the article's title itself, so an H1 left in the body is a section.
@@ -77,6 +79,14 @@ function block(b: ArticleBlock, key: string): React.ReactElement | null {
       );
     }
     case "paragraph":
+      // True dates (BLOG_DATES_ENABLED): the line shows Published and Updated, as the copy will.
+      if (dateline && lastUpdatedOf(b.text)) {
+        return (
+          <p key={key} className="mt-2 text-xs text-neutral-500 first:mt-0 dark:text-neutral-400">
+            {datelineText(dateline, afterDateOf(b.text))}
+          </p>
+        );
+      }
       // The "Last updated" line is a dateline, not body copy.
       return lastUpdatedOf(b.text) ? (
         <p key={key} className="mt-2 text-xs text-neutral-500 first:mt-0 dark:text-neutral-400">
@@ -183,8 +193,8 @@ function block(b: ArticleBlock, key: string): React.ReactElement | null {
   }
 }
 
-export function ArticleMarkdown({ markdown }: { markdown: string }) {
+export function ArticleMarkdown({ markdown, dateline = null }: { markdown: string; dateline?: Dateline | null }) {
   const blocks = useMemo(() => parseArticle(markdown), [markdown]);
   if (!blocks.length) return null;
-  return <div className="break-words text-[15px] leading-7">{blocks.map((b, i) => block(b, `b${i}`))}</div>;
+  return <div className="break-words text-[15px] leading-7">{blocks.map((b, i) => block(b, `b${i}`, dateline))}</div>;
 }

@@ -124,6 +124,7 @@ export function ContentCanvas({
   brandMap = null,
   pagesOn = false,
   liveWatchOn = false,
+  datesTimeZone,
   editorialOn = false,
   seenOn = false,
   seenQuestionsOn = false,
@@ -147,6 +148,8 @@ export function ContentCanvas({
   pagesOn?: boolean;
   /** Found live (BLOG_LIVE_WATCH_ENABLED): the check reads the page's text, and YouGrow checks on its own. */
   liveWatchOn?: boolean;
+  /** True dates (BLOG_DATES_ENABLED): the brand's time zone; absent = the "Last updated" line as before. */
+  datesTimeZone?: string;
   /** Blog articles are written in the editorial shape (CREATE_BLOG_EDITORIAL_ENABLED). */
   editorialOn?: boolean;
   /** Articles draw on the brand's notes (BRAND_NOTES_ENABLED with the editorial writer). */
@@ -1020,6 +1023,7 @@ export function ContentCanvas({
           ...(isCiteSourcesUiEnabled() ? { onKeepSource: keepSource } : {}),
           ...(brandMap ? { map: brandMap } : {}),
           ...(pagesOn ? { onSetAddress: saveAddress, onLive: setLive, ...(liveWatchOn ? { liveWatch: true } : {}) } : {}),
+          ...(datesTimeZone ? { datesTimeZone } : {}),
           ...(editorialOn ? { editorial: true } : {}),
           ...(seenOn ? { onFindSeen: () => void onBlogFindSeen() } : {}),
           ...(seenOn && seenQuestionsOn ? { answers: { save: answers.save, done: answers.done, state: answers.state } } : {}),
@@ -1187,6 +1191,7 @@ export function ContentCanvas({
         return (
           <ContentPreviewModal
             node={previewNode}
+            {...(datesTimeZone ? { datesTimeZone } : {})}
             brandName={brandName}
             emailStyle={emailStyle}
             workspaceId={workspaceId}

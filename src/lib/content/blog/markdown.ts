@@ -12,6 +12,7 @@
  */
 
 import { isTableStart, readTable } from "../markdownTable";
+import type { Dateline } from "./dates";
 
 export type ArticleBlock =
   | { kind: "heading"; level: 1 | 2 | 3 | 4; text: string }
@@ -389,7 +390,13 @@ export function afterDateOf(text: string): string {
   return DATE_LINE.exec(plainInline(text))?.[2]?.trimEnd() ?? "";
 }
 
-function blockHtml(block: ArticleBlock, ids: Map<string, number>): string {
+/** The date line as HTML (BLOG_DATES_ENABLED): each date in a <time> with its time and offset. */
+function datelineHtml(dl: Dateline, after: string): string {
+  const time = (d: { iso: string; text: string }) => `<time datetime="${escapeHtml(d.iso)}">${escapeHtml(d.text)}</time>`;
+  return `<p class="dateline">Published ${time(dl.published)}${dl.updated ? ` · Updated ${time(dl.updated)}` : ""}${escapeHtml(after)}</p>`;
+}
+
+function blockHtml(block: ArticleBlock, ids: Map<string, number>, dateline: Dateline | null = null): string {
   switch (block.kind) {
     case "heading": {
       if (block.level === 1) return `<h1>${renderInlineHtml(block.text)}</h1>`;
@@ -403,6 +410,7 @@ function blockHtml(block: ArticleBlock, ids: Map<string, number>): string {
     case "paragraph": {
       const date = lastUpdatedOf(block.text);
       // The byline an editorial article carries on the same line stays with it.
+      if (date && dateline) return datelineHtml(dateline, afterDateOf(block.text));
       if (date) return `<p class="last-updated">Last updated: <time datetime="${date}">${date}</time>${escapeHtml(afterDateOf(block.text))}</p>`;
       return `<p>${renderInlineHtml(block.text)}</p>`;
     }
@@ -437,10 +445,10 @@ function blockHtml(block: ArticleBlock, ids: Map<string, number>): string {
 }
 
 /** The article as clean, semantic HTML to paste into a CMS. Everything is escaped. */
-export function renderArticleHtml(markdown: string): string {
+export function renderArticleHtml(markdown: string, opts: { dateline?: Dateline | null } = {}): string {
   const ids = new Map<string, number>();
   const body = parseArticle(markdown)
-    .map((b) => blockHtml(b, ids))
+    .map((b) => blockHtml(b, ids, opts.dateline ?? null))
     .join("\n");
   return `<article>\n${body}\n</article>`;
 }

@@ -1,5 +1,6 @@
 import { localDateKey, offsetMs } from "@/lib/lifecycle/sendWindow";
-import type { BlogArticleDates } from "@/lib/types/contentPlan";
+import type { BlogArticleDates, BlogArticleMeta } from "@/lib/types/contentPlan";
+import { afterDateOf, lastUpdatedOf } from "./markdown";
 
 /**
  * A blog article's true dates (BLOG_DATES_ENABLED), as Google's byline guidance asks: Published is
@@ -84,3 +85,38 @@ export function nextDates(stored: BlogArticleDates | undefined, input: DateInput
   const page = input.page ? { published: input.page.published?.slice(0, 40) ?? null, modified: input.page.modified?.slice(0, 40) ?? null, readAt: now.toISOString() } : stored?.page;
   return { ...(published ? { published } : {}), ...(updated ? { updated } : {}), ...(page ? { page } : {}) };
 }
+
+/** An article's date line, worked out once for the canvas, the copy and the markup. */
+export interface Dateline {
+  /** `iso` for markup (time and offset, or a day); `text` for readers ("28 Apr 2026"). */
+  published: { iso: string; text: string };
+  updated: { iso: string; text: string } | null;
+  /** Published is the stored day it went up; false = not live yet, so today stands in. */
+  known: boolean;
+}
+
+/**
+ * The article's dates in the brand's zone. Live with a stored Published: that, and Updated when
+ * there is one. Not live yet: today, the day it is copied, which is the day it most likely goes up.
+ */
+export function articleDateline(meta: Pick<BlogArticleMeta, "dates" | "live"> | null | undefined, tz: string, now: Date): Dateline {
+  const at = (v: string) => ({ iso: zonedIso(v, tz), text: readableDay(zonedDay(v, tz)) });
+  const stored = meta?.live ? meta.dates : undefined;
+  if (!stored?.published) return { published: at(now.toISOString()), updated: null, known: false };
+  return { published: at(stored.published.at), updated: stored.updated ? at(stored.updated.at) : null, known: true };
+}
+
+/** "Published 28 Apr 2026 · Updated 24 Nov 2026", then whatever followed the date (a byline). */
+export function datelineText(dl: Dateline, after = ""): string {
+  return `Published ${dl.published.text}${dl.updated ? ` · Updated ${dl.updated.text}` : ""}${after}`;
+}
+
+/** The article's Markdown with its "Last updated" line rewritten as the date line. The stored body keeps its own. */
+export function withDateLine(markdown: string, dl: Dateline): string {
+  const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
+  const i = lines.findIndex((l) => lastUpdatedOf(l) !== null);
+  if (i === -1) return markdown;
+  lines[i] = `*${datelineText(dl, afterDateOf(lines[i]!))}*`;
+  return lines.join("\n");
+}
+

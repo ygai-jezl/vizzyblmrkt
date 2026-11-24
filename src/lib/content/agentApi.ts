@@ -1,4 +1,5 @@
 import { forTenant, type TenantContext } from "@/lib/tenant";
+import { isBlogDatesEnabled } from "@/lib/brandMap/flags";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { ContentObjective, SequenceType, type ContentPlan } from "@/lib/types/contentPlan";
 import { verifyCanvasContext, isCanvasAuthConfigured, tenantContextFromCanvasToken } from "@/lib/canvas/auth";
@@ -182,6 +183,13 @@ export async function agentContentPlan(
           brief: clip(n.brief, 400),
           subject: n.subject ?? null,
           body: clip(n.body, 1200),
+          // A live blog article's true dates (BLOG_DATES_ENABLED), as stored: an ISO instant or a day.
+          ...(isBlogDatesEnabled() && n.channel === "blog" && n.blog?.live && n.blog.dates?.published
+            ? {
+                published: { at: n.blog.dates.published.at, from: n.blog.dates.published.source },
+                updated: n.blog.dates.updated ? { at: n.blog.dates.updated.at, from: n.blog.dates.updated.source } : null,
+              }
+            : {}),
         })),
     },
   };

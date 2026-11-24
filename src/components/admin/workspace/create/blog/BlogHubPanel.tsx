@@ -85,6 +85,7 @@ export function BlogHubReview({
           pageUrl={controls.pageUrl}
           onSave={controls.onSetAddress}
           live={node.blog?.live ?? null}
+          {...(controls.datesTimeZone && node.blog?.dates ? { dates: node.blog.dates } : {})}
           liveWatch={controls.liveWatch === true}
           onLive={controls.onLive ? (action, day) => controls.onLive!(node.id, action, day) : undefined}
           // While the article is written or checked, its meta is about to be replaced: wait.
@@ -110,6 +111,7 @@ export function BlogHubReview({
           map={controls.map ?? null}
           hero={controls.hero ? { assetUrl: controls.hero.assetUrl } : null}
           approved={node.status === "approved"}
+          {...(controls.datesTimeZone ? { datesTimeZone: controls.datesTimeZone } : {})}
         />
       </fieldset>
     </div>

@@ -69,7 +69,7 @@ describe("purgeConnections", () => {
 
   it("touches only the named connection of the named brand", async () => {
     const r = await purgeConnections(A, { connectionId: ONE, apply: true, by: "ops", now: new Date(T1), db });
-    expect(r.removed).toEqual([{ connectionId: ONE, found: true, activityDeleted: 2, secretsDeleted: 1, recentDeleted: 2, revoked: false, addressDeleted: null, snapshotsDeleted: 0, signalsDeleted: 0, suggestionsDeclined: 0, searchRemoved: null }]);
+    expect(r.removed).toEqual([{ connectionId: ONE, found: true, activityDeleted: 2, secretsDeleted: 1, recentDeleted: 2, revoked: false, addressDeleted: null, snapshotsDeleted: 0, signalsDeleted: 0, suggestionsDeclined: 0, questionsWithdrawn: 0, searchRemoved: null }]);
     expect(db.raw("data_connections", ONE)).toMatchObject({ secrets: {}, status: "disconnected", disconnectedAt: T1, recent: [{ kind: "purged", by: "purge:ops", at: T1, code: null }] });
     expect(activityOf("ten_a", ONE)).toEqual(["purged"]);
     // The brand's other connection and another brand's are left alone.
@@ -230,7 +230,7 @@ describe("purging shared connections and leftover Google addresses", () => {
     const before = activityOf("ten_a", ONE).length;
     const r = await purgeConnections(A, { apply: true, by: "ops", now: new Date(T1), db, addressesOnly: true, ...iam.deps });
     expect(r.items.map((i) => i.connectionId)).toEqual([GONE]);
-    expect(r.removed).toEqual([{ connectionId: GONE, found: true, activityDeleted: 0, secretsDeleted: 0, recentDeleted: 0, revoked: false, addressDeleted: true, snapshotsDeleted: 0, signalsDeleted: 0, suggestionsDeclined: 0, searchRemoved: null }]);
+    expect(r.removed).toEqual([{ connectionId: GONE, found: true, activityDeleted: 0, secretsDeleted: 0, recentDeleted: 0, revoked: false, addressDeleted: true, snapshotsDeleted: 0, signalsDeleted: 0, suggestionsDeclined: 0, questionsWithdrawn: 0, searchRemoved: null }]);
     expect(iam.accounts.size).toBe(0);
     expect(db.raw("data_connections", ONE)?.status).toBe("connected");
     expect(activityOf("ten_a", ONE)).toHaveLength(before);

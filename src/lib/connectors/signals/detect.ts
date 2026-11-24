@@ -1,6 +1,7 @@
 import { embedDocuments } from "@/lib/agents/embeddings";
 import { isBrandMapEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 import { nearestSubjectsMany } from "@/lib/brandMap/embed";
+import { proposedQuestion } from "@/lib/brandMap/proposals";
 import { subjectQuestions } from "@/lib/brandMap/records";
 import { readBrandMap } from "@/lib/brandMap/store";
 import { meaningWords } from "@/lib/content/blog/coverage";
@@ -19,6 +20,7 @@ import { ga4Manifest } from "../manifests/ga4";
 import { searchConsoleManifest } from "../manifests/searchConsole";
 import { addDays, daysIn, todayIn } from "../period";
 import { compareRows, putSnapshot, readDayDocs, readSnapshot, ttlFor } from "../snapshots";
+import { proposalReason } from "./words";
 import { DATA_SIGNAL_ACTION, EXPIRY_DAYS, PROPOSE_QUESTION_ACTION, SIGNALS_AGENT, SIGNALS_REVIEW_HREF } from "./names";
 import { blankSignal, getSignal, linkAction, saveDetection, signalIdFor, type Detection } from "./store";
 
@@ -273,6 +275,14 @@ export interface MapView {
   questionText: (ids: string[]) => Promise<Map<string, string>>;
   /** The nearest decided subject of each text, or null. */
   nearest: (texts: string[]) => Promise<Array<{ ref: string; sim: number } | null>>;
+  /**
+   * At any size: propose a question under a subject (from `search_console`, with the connection
+   * that found it), answering its id, or null when the map already has those words or had them
+   * dismissed.
+   */
+  propose?: (input: { subjectId: string; text: string; reason: string; evidence: string; connectionId: string; now: string }) => Promise<string | null>;
+  /** At any size: whether a question is still on the map, in any state. */
+  questionExists?: (id: string) => Promise<boolean>;
 }
 
 export interface DetectDeps {
@@ -313,6 +323,11 @@ export async function readMapView(ctx: TenantContext, deps: Pick<DetectDeps, "db
       questionText: async (ids) => new Map((await store.getMany("q", ids).catch(() => [])).map((r) => [r.ref, String(r.text ?? "")] as const)),
       nearest: async (texts) =>
         (await nearestSubjectsMany(ctx, texts, { limit: 1, statuses: ["decided"] }, { db: deps.db }).catch(() => texts.map(() => []))).map((n) => (n[0] ? { ref: n[0].ref, sim: n[0].sim } : null)),
+      propose: async (p) => {
+        const made = await proposedQuestion(ctx, store, { subjectId: p.subjectId, text: p.text, from: "search_console", reason: p.reason, evidence: p.evidence, now: p.now, fromConnectionId: p.connectionId });
+        return made ? String(made.ref) : null;
+      },
+      questionExists: async (id) => (await store.get("q", id).catch(() => null)) !== null,
     };
   }
   const subjects = map.subjects;
@@ -393,6 +408,41 @@ async function proposeSuggestion(ctx: TenantContext, row: DataSignal, d: Detecti
   );
   if (r.outcome !== "created") return false;
   await linkAction(ctx, row.id, r.action.id, round, { db: deps.db });
+  return true;
+}
+
+/**
+ * A rising search at any size: proposed as a question in the search's own words under its nearest
+ * subject, waiting on the brand map (no Review row of its own: the brand map row counts it), and
+ * recorded as an agent action about that question.
+ */
+async function proposeQuestion(ctx: TenantContext, row: DataSignal, d: Detection, map: MapView, now: Date, deps: Pick<DetectDeps, "db">): Promise<boolean> {
+  if (!d.subjectId || !map.propose) return false;
+  const at = now.toISOString();
+  const questionId = await map.propose({ subjectId: d.subjectId, text: d.label, reason: proposalReason({ ...d, before: d.before ?? null, atMost: d.atMost ?? false }), evidence: d.label, connectionId: d.connectionId, now: at });
+  if (!questionId) return false;
+  const round = (row.round ?? 0) + 1;
+  const r = await proposeAgentAction(
+    ctx,
+    {
+      dedupeKey: agentDedupeKey(PROPOSE_QUESTION_ACTION, questionId, `r${round}`),
+      agent: SIGNALS_AGENT,
+      action: PROPOSE_QUESTION_ACTION,
+      target: { type: "brand_question", id: questionId },
+      personId: null,
+      proposal: { rule: d.rule, connectionId: d.connectionId, gen: d.gen, questionId, subjectId: d.subjectId, label: d.label, numbers: d.numbers, before: d.before ?? null, window: d.window },
+      basis: null,
+      signals: [{ kind: "data_signal" as const, ref: row.id }, { kind: "brand_map" as const, ref: questionId }, ...metricSignals(d, at)],
+      review: null,
+      requestedBy: { type: "system", id: SIGNALS_AGENT },
+      expiresAt: new Date(now.getTime() + EXPIRY_DAYS * DAY_MS).toISOString(),
+      clearDetailsOnClose: true,
+      at,
+    },
+    { db: deps.db },
+  );
+  if (r.outcome !== "created") return false;
+  await linkAction(ctx, row.id, r.action.id, round, { db: deps.db, questionId });
   return true;
 }
 
@@ -481,7 +531,8 @@ export async function detectConnection(ctx: TenantContext, conn: DataConnection,
           before: { searchImpressions: h.before },
           atMost: h.atMost,
           window: { from: topics.days[r.days]!, to: last, beforeFrom: topics.days[0]!, beforeTo: topics.days[r.days - 1]! },
-          shownIn: "review",
+          // At any size, a proposed question under its nearest subject; else a Review suggestion.
+          shownIn: map.atScale && subject && map.propose ? "brand_map" : "review",
         },
       });
     }
@@ -553,6 +604,16 @@ export async function detectConnection(ctx: TenantContext, conn: DataConnection,
     if (quiet) continue;
     if (row.agentActionId && openIds.has(row.agentActionId)) {
       result.refreshed += 1;
+      continue;
+    }
+    if (row.shownIn === "brand_map") {
+      // A question it proposed is still on the map (proposed, edited, decided or dismissed): never again.
+      if (row.questionId && (await map.questionExists?.(row.questionId))) continue;
+      if (budget <= 0) continue;
+      if (await proposeQuestion(ctx, row, cand.detection, map, now, deps)) {
+        budget -= 1;
+        result.proposed += 1;
+      }
       continue;
     }
     if (budget <= 0) continue;

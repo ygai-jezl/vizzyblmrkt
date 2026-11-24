@@ -176,9 +176,18 @@ describe("suggestions from collected numbers", () => {
     await suggested(0);
     await suggested(1, "/care/monstera");
     expect(db.dump("data_signals")).toHaveLength(2);
+    // A question a rising search proposed, still undecided, and one a person adopted.
+    const { proposedQuestion } = await import("@/lib/brandMap/proposals");
+    const { brandMapRecords } = await import("@/lib/tenant/brandMapRecords");
+    const store = brandMapRecords(A, db);
+    const base = { subjectId: "sub_pets00000000", from: "search_console" as const, now: NOW.toISOString(), fromConnectionId: ID };
+    await proposedQuestion(A, store, { ...base, text: "pet safe hanging plants" });
+    const kept = await proposedQuestion(A, store, { ...base, text: "pet friendly ferns" });
+    await store.claim("q", String(kept!.ref), () => ({ status: "decided" }));
     expect((await disconnect(A, admin, ID, deps())).ok).toBe(true);
     expect(db.dump("data_signals")).toEqual([]);
     expect(await states()).toEqual(["declined:stale:cleared", "declined:stale:cleared"]);
+    expect(db.dump("brand_map_questions").map((q) => `${q.text}:${q.status}`)).toEqual(["pet friendly ferns:decided"]);
   });
 
   it("of the old site only on Change property", async () => {
@@ -314,7 +323,7 @@ describe("searches in brand search", () => {
     const untouched = vi.fn((): SearchStore => {
       throw new Error("not a Search Console connection");
     });
-    expect(await eraseConnectionData(A, ID, "all", { by: "system", now: NOW, db, searchIndex: untouched })).toEqual({ snapshots: 0, signals: 0, declined: 0, search: "skipped" });
+    expect(await eraseConnectionData(A, ID, "all", { by: "system", now: NOW, db, searchIndex: untouched })).toEqual({ snapshots: 0, signals: 0, declined: 0, withdrawn: 0, search: "skipped" });
     expect(untouched).not.toHaveBeenCalled();
   });
 

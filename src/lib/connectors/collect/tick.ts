@@ -9,7 +9,7 @@ import { feedsPlanning } from "../grants";
 import { searchConsoleManifest } from "../manifests/searchConsole";
 import { todayIn } from "../period";
 import { detectConnection, type DetectResult } from "../signals/detect";
-import { expireConnectorSignals } from "../signals/reconcile";
+import { expireConnectorSignals, reconcileProposals } from "../signals/reconcile";
 import { collectConnection, collectOf, isDue, MIN_START_MS, type CollectRunDeps, type CollectRunResult } from "./run";
 
 /**
@@ -22,7 +22,8 @@ import { collectConnection, collectOf, isDue, MIN_START_MS, type CollectRunDeps,
  * brand only), suspended brands skipped. For each brand:
  * - housekeeping, whenever CONNECTORS_ENABLED is on, whatever collect or signals say: retrying an
  *   erase a connection still has pending, and, for a brand with Search Console, declining its
- *   suggestions from collected numbers that are past their 30 days;
+ *   suggestions from collected numbers that are past their 30 days and putting the questions they
+ *   proposed on the brand map in step (src/lib/connectors/signals/reconcile.ts);
  * - collecting, only with CONNECTORS_COLLECT_ENABLED: each due connection, one at a time, under its
  *   lease, with no new day started under 10 seconds before the budget ends;
  * - suggestions, only with CONNECTOR_SIGNALS_ENABLED: each Search Console connection that feeds
@@ -121,7 +122,8 @@ export async function runConnectorsLane(opts: { deadlineMs: number }, deps: Lane
 
 /**
  * The housekeeping the lane runs for every brand whatever collect or signals say: erases still
- * pending, then, where the brand has Search Console, its suggestions past their 30 days.
+ * pending, then, where the brand has Search Console, its suggestions past their 30 days, and its
+ * brand map proposals in step with their questions (withdrawn ones count as expired).
  */
 export async function laneHousekeeping(
   ctx: TenantContext,
@@ -130,9 +132,12 @@ export async function laneHousekeeping(
 ): Promise<{ erased: number; expired: number }> {
   const { erased } = await retryPendingErases(ctx, connections, deps);
   let expired = 0;
-  if (connections.some((c) => c.connectorId === searchConsoleManifest.id)) {
+  const searchConsole = connections.filter((c) => c.connectorId === searchConsoleManifest.id);
+  if (searchConsole.length) {
     try {
       expired = (await expireConnectorSignals(ctx, { db: deps.db, now: deps.now })).expired;
+      const r = await reconcileProposals(ctx, searchConsole.map((c) => c.id), { db: deps.db, now: deps.now });
+      expired += r.withdrawn;
     } catch (err) {
       console.warn(`[connectors] expiring suggestions for ${ctx.tenantId} failed:`, err instanceof Error ? err.message.slice(0, 200) : "error");
     }

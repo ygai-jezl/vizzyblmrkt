@@ -1,3 +1,4 @@
+import type { BrandMapQuestionRecord } from "@/lib/types/brandMapRecords";
 import type { DataSignal } from "@/lib/types/dataSignal";
 import { daysIn, dayWords } from "../period";
 
@@ -54,4 +55,16 @@ export function proposalReason(s: Pick<DataSignal, "numbers" | "before" | "windo
   const w = s.window;
   if (!s.numbers || !w) return "";
   return `${n(s.numbers.searchImpressions)} impressions in the ${span(w.from, w.to)}, ${upFrom(s.before?.searchImpressions ?? 0, s.atMost)}`;
+}
+
+const sameWords = (a: string, b: string) => a.replace(/\s+/g, " ").trim().toLowerCase() === b.replace(/\s+/g, " ").trim().toLowerCase();
+
+/**
+ * Why a question on the brand map was proposed, as its proposal line says it. One from a rising
+ * Google search keeps the search's words as its evidence and their numbers as its reason; once a
+ * person changes the words, the line says which search they came from.
+ */
+export function questionReason(q: Pick<BrandMapQuestionRecord, "from" | "text" | "evidence" | "reason">): string {
+  if (q.from === "search_console") return q.evidence && !sameWords(q.evidence, q.text) ? `The search “${q.evidence}”: ${q.reason}` : q.reason;
+  return q.evidence || q.reason || `Proposed by ${q.from}`;
 }

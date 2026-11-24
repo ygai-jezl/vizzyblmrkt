@@ -88,7 +88,8 @@ export async function saveDetection(ctx: TenantContext, d: Detection, deps: Sign
     rule: d.rule,
     key: d.key,
     label: d.label,
-    questionId: d.questionId ?? null,
+    // A rising search's row keeps the question it proposed: only a rule about a question names one.
+    ...(d.questionId !== undefined ? { questionId: d.questionId } : {}),
     question: d.question ?? null,
     subjectId: d.subjectId ?? null,
     numbers: d.numbers,
@@ -103,7 +104,7 @@ export async function saveDetection(ctx: TenantContext, d: Detection, deps: Sign
   let quiet = false;
   const { doc } = await repoOf(ctx, deps).upsert(
     id,
-    () => ({ ...fields, agentActionId: null, round: 0, dismissedUntil: null, ttlAt: fresh }) as Omit<DataSignal, "id" | "tenantId">,
+    () => ({ questionId: null, ...fields, agentActionId: null, round: 0, dismissedUntil: null, ttlAt: fresh }) as Omit<DataSignal, "id" | "tenantId">,
     (cur) => {
       if (isQuiet(cur, now)) {
         quiet = true;
@@ -115,9 +116,9 @@ export async function saveDetection(ctx: TenantContext, d: Detection, deps: Sign
   return { row: doc, quiet };
 }
 
-/** Name the agent action proposed for a row, with its round. */
-export async function linkAction(ctx: TenantContext, id: string, agentActionId: string, round: number, deps: SignalStoreDeps = {}): Promise<void> {
-  await repoOf(ctx, deps).claim(id, () => ({ agentActionId, round }));
+/** Name the agent action proposed for a row, with its round (and the question it proposed, if any). */
+export async function linkAction(ctx: TenantContext, id: string, agentActionId: string, round: number, deps: SignalStoreDeps & { questionId?: string } = {}): Promise<void> {
+  await repoOf(ctx, deps).claim(id, () => ({ agentActionId, round, ...(deps.questionId ? { questionId: deps.questionId } : {}) }));
 }
 
 /**

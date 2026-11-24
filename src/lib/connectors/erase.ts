@@ -5,7 +5,7 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import type { CollectState, DataConnection } from "@/lib/types/dataConnection";
 import { searchTextRef } from "./keys";
 import { searchConsoleManifest } from "./manifests/searchConsole";
-import { declineAs } from "./signals/reconcile";
+import { declineAs, withdrawProposedBy } from "./signals/reconcile";
 import { eraseSignals, signalsOfConnection } from "./signals/store";
 import { getAgentAction } from "@/lib/ontology/agentActions";
 import { isAgentActionId } from "@/lib/types/agentAction";
@@ -25,7 +25,9 @@ import { eraseSnapshots } from "./snapshots";
  *
  * What goes: the connection's metric snapshots (every day, rolled and planning doc); its
  * data_signals rows (group 4), after their open suggestions are declined as stale with their
- * values cleared; and a Search Console connection's searches in brand search (ADR-0013), removed
+ * values cleared and the brand map questions they proposed that nobody has decided are withdrawn
+ * (removed, not dismissed, so their words don't stay; decided ones stay, a person adopted them);
+ * and a Search Console connection's searches in brand search (ADR-0013), removed
  * with indexing forced on, so they leave whatever SEARCH_INDEX_ENABLED or
  * CONNECTORS_SEARCH_TEXT_ENABLED says; a failed removal leaves the erase pending for the lane. Each
  * erase records one `erased` activity row, kept in the log only, never on the record's recent list.
@@ -36,9 +38,10 @@ export type SearchIndexOf = (ctx: Pick<TenantContext, "tenantId" | "region">) =>
 
 export interface EraseCounts {
   snapshots: number;
-  /** Its data_signals rows deleted, and its open suggestions declined as stale. */
+  /** Its data_signals rows deleted, its open suggestions declined as stale, and the undecided questions it proposed withdrawn. */
   signals: number;
   declined: number;
+  withdrawn: number;
   /**
    * Its searches in brand search: removed (or none were there), failed (the erase stays pending),
    * or skipped for a connection that puts none there.
@@ -71,7 +74,7 @@ async function eraseSuggestions(
   connectionId: string,
   gens: "all" | readonly number[],
   deps: { db?: FirestoreLike; now?: Date },
-): Promise<{ signals: number; declined: number }> {
+): Promise<{ signals: number; declined: number; withdrawn: number }> {
   const rows = (await signalsOfConnection(ctx, connectionId, deps)).filter((r) => gens === "all" || gens.includes(r.gen));
   let declined = 0;
   for (const id of new Set(rows.map((r) => r.agentActionId))) {
@@ -79,8 +82,10 @@ async function eraseSuggestions(
     const a = await getAgentAction(ctx, id, deps);
     if (a && (a.state === "proposed" || a.state === "approved") && (await declineAs(ctx, a, "stale", deps))) declined += 1;
   }
+  const proposed = rows.filter((r) => r.shownIn === "brand_map" && r.questionId).map((r) => r.questionId!);
+  const withdrawn = await withdrawProposedBy(ctx, connectionId, gens === "all" ? "all" : proposed, deps);
   const signals = await eraseSignals(ctx, connectionId, gens, deps);
-  return { signals, declined };
+  return { signals, declined, withdrawn };
 }
 
 /** What is still to erase after erasing `done`: nothing, or the generations left. */
@@ -112,9 +117,9 @@ export async function eraseConnectionData(
   opts: { by: string; now?: Date; db?: FirestoreLike; record?: boolean; searchIndex?: SearchIndexOf },
 ): Promise<EraseCounts> {
   const snapshots = await eraseSnapshots(ctx, connectionId, gens, { db: opts.db });
-  const { signals, declined } = await eraseSuggestions(ctx, connectionId, gens, { db: opts.db, now: opts.now });
+  const { signals, declined, withdrawn } = await eraseSuggestions(ctx, connectionId, gens, { db: opts.db, now: opts.now });
   const search = await eraseSearchText(ctx, connectionId, opts);
-  if (search === "failed") return { snapshots, signals, declined, search };
+  if (search === "failed") return { snapshots, signals, declined, withdrawn, search };
   const at = (opts.now ?? new Date()).toISOString();
   const record = opts.record !== false;
   await changeDataConnection(
@@ -127,7 +132,7 @@ export async function eraseConnectionData(
     },
     opts.db,
   );
-  return { snapshots, signals, declined, search };
+  return { snapshots, signals, declined, withdrawn, search };
 }
 
 /**

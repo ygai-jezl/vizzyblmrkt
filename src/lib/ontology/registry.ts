@@ -1089,9 +1089,18 @@ export const ONTOLOGY: readonly OntologyType[] = [
     home: "brand",
     personal: "none",
     stores: [regional("brand_map_questions")],
-    links: [{ to: "brand_map", via: "subject and situation ids", many: false }],
+    links: [
+      { to: "brand_map", via: "subject and situation ids", many: false },
+      { to: "data_connection", via: "fromConnectionId, on a question a rising Google search proposed", many: false },
+    ],
     events: [],
-    erase: { paths: [brandPath("removeQuestion", "src/lib/brandMap/records.ts")] },
+    erase: {
+      paths: [
+        brandPath("removeQuestion", "src/lib/brandMap/records.ts"),
+        brandPath("eraseConnectionData", "src/lib/connectors/erase.ts", "Disconnect and Change property withdraw the undecided questions a connection's rising searches proposed; decided ones stay"),
+        retention("reconcileProposals", "src/lib/connectors/signals/reconcile.ts", "a question a rising search proposed that is still undecided after 30 days is withdrawn"),
+      ],
+    },
     export: { none: NOT_PERSONAL },
     search: { kinds: ["question"] },
     numbers: { none: "its outside numbers are brand signals" },

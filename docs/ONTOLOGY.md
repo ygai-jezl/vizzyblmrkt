@@ -1078,9 +1078,11 @@ A question the brand's buyers ask, on the brand map, decided or still open.
 - Personal: no
 - Stores:
   - `brand_map_questions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
-- Links: `brand_map` through subject and situation ids
+- Links: `brand_map` through subject and situation ids; `data_connection` through fromConnectionId, on a question a rising Google search proposed
 - Erase:
   - `removeQuestion` in `src/lib/brandMap/records.ts`, on removing the record
+  - `eraseConnectionData` in `src/lib/connectors/erase.ts`, on removing the record (Disconnect and Change property withdraw the undecided questions a connection's rising searches proposed; decided ones stay)
+  - `reconcileProposals` in `src/lib/connectors/signals/reconcile.ts`, on retention (a question a rising search proposed that is still undecided after 30 days is withdrawn)
 - Export: none. The brand's own work, with no one's personal data.
 - Search: `question`
 - Numbers: none. Its outside numbers are brand signals.

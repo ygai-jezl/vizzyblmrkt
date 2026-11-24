@@ -305,3 +305,50 @@ describe("looking at a connection", () => {
     expect(r.fired.losing_page).toBe(0);
   });
 });
+
+describe("a rising search on a map at any size", () => {
+  beforeEach(() => {
+    vi.stubEnv("BRAND_MAP_ENABLED", "true");
+    vi.stubEnv("BRAND_MAP_SCALE_ENABLED", "true");
+  });
+
+  async function mapWithSubjects() {
+    const { ensureMoved } = await import("@/lib/brandMap/move");
+    const { createSubject } = await import("@/lib/brandMap/records");
+    await ensureMoved(A, { db, nowMs: NOW.getTime() });
+    const pets = await createSubject(A, { name: "Pet safe plants" }, { db, nowMs: NOW.getTime() });
+    await createSubject(A, { name: "Watering houseplants" }, { db, nowMs: NOW.getTime() });
+    return pets.ok ? pets.value.id : "";
+  }
+
+  it("is proposed as a question in the search's own words under its nearest subject, and counted on the brand map", async () => {
+    const pets = await mapWithSubjects();
+    await topics();
+    const r = await detectConnection(A, await load(), [], { db, now: NOW, embed: async (items) => items.map(() => null) });
+    expect(r).toMatchObject({ proposed: 1, fired: { rising_search: 1 } });
+    const { brandMapRecords } = await import("@/lib/tenant/brandMapRecords");
+    const [q] = (await brandMapRecords(A, db).find("q", { where: [["fromConnectionId", "==", ID]] })) as Array<Record<string, unknown>>;
+    expect(q).toMatchObject({ text: "pet safe hanging plants", status: "proposed", from: "search_console", fromConnectionId: ID, subjectId: pets, reason: "260 impressions in the 14 days to 20 Nov, up from 40", evidence: "pet safe hanging plants" });
+    const [a] = await actions();
+    expect(a).toMatchObject({ agent: "connector_signals", action: "brand_map.propose_question", personId: null, review: null, target: { type: "brand_question", id: q!.ref }, clearDetailsOnClose: true });
+    expect(a!.dedupeKey).toBe(`brand_map.propose_question|${String(q!.ref)}|r1`);
+    expect((await rows())[0]).toMatchObject({ rule: "rising_search", shownIn: "brand_map", questionId: q!.ref, agentActionId: a!.id });
+    const { proposalsWaiting } = await import("@/lib/brandMap/waiting");
+    expect(await proposalsWaiting(A, { db })).toBe(1);
+    // Never proposed again while it is on the map, in any state, words edited or not.
+    const { editQuestion } = await import("@/lib/brandMap/records");
+    await editQuestion(A, String(q!.ref), { baseRev: Number(q!.rev ?? 0), text: "Which hanging plants are safe for cats and dogs?" }, { db, nowMs: NOW.getTime() });
+    const again = await detectConnection(A, await load(), [], { db, now: new Date(NOW.getTime() + DAY), embed: async (items) => items.map(() => null) });
+    expect(again.proposed).toBe(0);
+    expect(await brandMapRecords(A, db).find("q", { where: [["fromConnectionId", "==", ID]] })).toHaveLength(1);
+  });
+
+  it("goes to Review instead with the map's scale switch off", async () => {
+    vi.stubEnv("BRAND_MAP_SCALE_ENABLED", "false");
+    await topics();
+    const r = await detectConnection(A, await load(), [], { db, now: NOW, map: async () => mapView() });
+    expect(r.proposed).toBe(1);
+    expect((await actions())[0]).toMatchObject({ action: DATA_SIGNAL_ACTION, target: { type: "data_signal" } });
+    expect((await rows())[0]).toMatchObject({ shownIn: "review", questionId: null });
+  });
+});

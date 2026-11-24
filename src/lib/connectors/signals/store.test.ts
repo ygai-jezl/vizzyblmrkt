@@ -4,7 +4,8 @@ import { shapeRecordingFirestore } from "@/lib/tenant/testing/queryShape";
 import type { TenantContext } from "@/lib/tenant";
 import { DATA_SIGNAL_ID } from "@/lib/types/dataSignal";
 import { blankSignal, countSignals, eraseSignals, getSignal, isQuiet, linkAction, saveDetection, signalIdFor, signalsOfConnection, type Detection } from "./store";
-import { proposalReason, signalLines, signalTitle } from "./words";
+import { BrandMapQuestionRecordSchema } from "@/lib/types/brandMapRecords";
+import { proposalReason, questionReason, signalLines, signalTitle } from "./words";
 
 // The signals store: fixed ids, refresh, blanking and erase, one brand never touching another's.
 // Every site, search and number is made up.
@@ -158,5 +159,21 @@ describe("what a suggestion says", () => {
   it("says nothing for a blanked row", () => {
     expect(signalTitle({ rule: "losing_page", label: null, question: null })).toBeNull();
     expect(signalLines({ rule: "losing_page", label: null, numbers: null, before: null, window: null, atMost: false, mayChange: false })).toEqual([]);
+  });
+
+  it("says why a question was proposed, naming the search once its words were changed", () => {
+    const q = { from: "search_console" as const, text: "pet safe hanging plants", evidence: "pet safe hanging plants", reason: "260 impressions in the 14 days to 20 Nov, up from 40" };
+    expect(questionReason(q)).toBe("260 impressions in the 14 days to 20 Nov, up from 40");
+    expect(questionReason({ ...q, text: "Which hanging plants are safe for cats and dogs?" })).toBe("The search “pet safe hanging plants”: 260 impressions in the 14 days to 20 Nov, up from 40");
+    expect(questionReason({ from: "research", text: "x", evidence: "", reason: "Seen in 4 situations" })).toBe("Seen in 4 situations");
+  });
+});
+
+describe("a question's record", () => {
+  it("reads search_console and its connection, and an older one without them", () => {
+    const base = { id: "q_aaaaaaaaaaaaaaaaaaaa", tenantId: "ten_a", subjectId: "sub_aaaaaaaaaaaaaaaaaaaa", text: "pet safe hanging plants", textKey: "pet safe hanging plants" };
+    expect(BrandMapQuestionRecordSchema.parse({ ...base, from: "search_console", fromConnectionId: CONN })).toMatchObject({ from: "search_console", fromConnectionId: CONN });
+    expect(BrandMapQuestionRecordSchema.parse(base)).toMatchObject({ from: "person", fromConnectionId: null });
+    expect(BrandMapQuestionRecordSchema.parse({ ...base, fromConnectionId: "not an id" }).fromConnectionId).toBeNull();
   });
 });

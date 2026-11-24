@@ -15,13 +15,15 @@ import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { NextUpChip, NextUpDoc, NextUpPick } from "@/lib/types/autopilot";
 import type { BrandSignal } from "@/lib/types/brandSignal";
 import type { Tenant } from "@/lib/types/tenant";
+import { NOT_SHARED_NEXT_UP, readSearchPlanning, searchConsoleLines, type SearchConsoleLine, type SearchPlanning } from "@/lib/connectors/signals/planning";
 import { nextUpCandidates, type Candidate } from "./candidates";
 
 /**
  * Next up: the brand's three best next articles. Code narrows the brand map's open questions
  * (candidates.ts), gathers a few lines of what is known about each (the map, the brand's own
  * content and competitors from one brand search, the competitors' flag on the subject, Google's
- * numbers), and one Gemini call chooses three and says why. Code then checks every number and
+ * numbers, and Search Console's demand for the question and its subject from connections members
+ * and Vizzy may both read), and one Gemini call chooses three and says why. Code then checks every number and
  * competitor a reason names is in that question's own lines, and builds the chips from the lines
  * the model says it used. The result is kept per brand (`next_up`).
  */
@@ -39,6 +41,8 @@ export interface PickDeps {
   configured?: () => boolean;
   /** Questions in an active autopilot run (not offered again). */
   activeQuestionIds?: (ctx: TenantContext) => Promise<string[]>;
+  /** Search Console's collected demand (CONNECTOR_SIGNALS_ENABLED); null while off. */
+  searchPlanning?: (ctx: TenantContext) => Promise<SearchPlanning | null>;
 }
 
 const PICKS = 3;
@@ -76,7 +80,7 @@ const daysSince = (iso: string | null, now: Date) => (iso ? Math.floor((now.getT
 export function linesFor(
   n: number,
   c: Candidate,
-  read: { search: SearchOutcome | null; flag?: { they: number; flag: CoverageFlag }; signal?: BrandSignal; now: Date },
+  read: { search: SearchOutcome | null; flag?: { they: number; flag: CoverageFlag }; signal?: BrandSignal; searchConsole?: SearchConsoleLine[]; now: Date },
 ): CandidateLine[] {
   const out: CandidateLine[] = [];
   const add = (text: string, chip: Omit<NextUpChip, "text">, chipText = text) => out.push({ id: `${n}.${out.length + 1}`, text: oneLine(text), chip: { ...chip, text: cut(oneLine(chipText), 90) } });
@@ -105,6 +109,8 @@ export function linesFor(
       nums.googlePosition ? `ranks ${nums.googlePosition}` : "not in the top 10",
     );
   }
+  // Search Console (collected): the search with the question's words, and the searches near its subject.
+  for (const line of (read.searchConsole ?? []).slice(0, 2)) add(line.text, { kind: "num", label: "Search Console" }, line.chip);
   return out;
 }
 
@@ -216,12 +222,14 @@ export async function pickNextUp(
   if (!candidates.length) return { ok: false, error: "no_questions" };
 
   // Read once for all candidates.
-  const [flags, signals, names, notOnMap] = await Promise.all([
+  const [flags, signals, names, notOnMap, planning] = await Promise.all([
     (deps.flags ?? ((c) => competitorSubjectFlags(c, { db: deps.db })))(ctx).catch(() => null),
     isBrandSignalsEnabled() ? readySignals(ctx, 500, { db: deps.db }).catch(() => [] as BrandSignal[]) : Promise.resolve([] as BrandSignal[]),
     (deps.competitorNames ?? (async (c) => (await listCompetitors(c, { db: deps.db })).map((x) => x.name)))(ctx).catch(() => [] as string[]),
     (deps.notOnMap ?? (async (c) => stillToAdd(await competitorCoverage(c, { db: deps.db }))))(ctx).catch(() => null),
+    (deps.searchPlanning ?? ((c) => readSearchPlanning(c, { db: deps.db })))(ctx).catch(() => null),
   ]);
+  if (planning?.notShared) missing.push(NOT_SHARED_NEXT_UP);
   if (!flags) missing.push("Competitor articles aren't on for this brand.");
   const byQuery = new Map(signals.map((s) => [queryKey(s.about.query), s] as const));
   const search = deps.search ?? ((c, q, o) => searchBrand(c, q, o));
@@ -234,7 +242,13 @@ export async function pickNextUp(
   });
   const weighed: Weighed[] = rows.map((r, i) => ({
     candidate: r.candidate,
-    lines: linesFor(i + 1, r.candidate, { search: r.found, flag: flags?.[r.candidate.subjectId], signal: byQuery.get(queryKey(r.candidate.question)), now }),
+    lines: linesFor(i + 1, r.candidate, {
+      search: r.found,
+      flag: flags?.[r.candidate.subjectId],
+      signal: byQuery.get(queryKey(r.candidate.question)),
+      searchConsole: searchConsoleLines(r.candidate, planning),
+      now,
+    }),
   }));
   if (!searched) missing.push("Brand search isn't on for this brand, so what it already made wasn't weighed.");
 

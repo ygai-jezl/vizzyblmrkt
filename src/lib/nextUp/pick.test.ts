@@ -8,6 +8,7 @@ import { addLearned, listLearned } from "@/lib/autopilot/learned";
 import { skipPick } from "@/lib/autopilot/adminApi";
 import type { Candidate } from "./candidates";
 import { linesFor, pickNextUp, readNextUp, readPicks, reasonHolds, type PickDeps } from "./pick";
+import { NOT_SHARED_NEXT_UP, readSearchPlanning, searchConsoleLines } from "@/lib/connectors/signals/planning";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
 const NOW = new Date("2026-11-18T12:00:00.000Z");
@@ -145,5 +146,101 @@ describe("choosing Next up", () => {
     await addLearned(A, { kind: "moved", text: "x", from: "person" }, d);
     await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d);
     expect(await readNextUp({ ...A, tenantId: "ten_B" }, d)).toBeNull();
+  });
+});
+
+describe("Search Console demand (CONNECTOR_SIGNALS_ENABLED)", () => {
+  // Made-up demand for a made-up site, as the planning docs hold it.
+  const site = (name: string, id: string) => ({
+    connectionId: id,
+    site: name,
+    window: { from: "2026-10-24", to: "2026-11-20" },
+    days: 28,
+    timeZone: "America/Los_Angeles",
+    questions: new Map([["q_aaaaaaa1", { key: "q_aaaaaaa1", label: "track brand in chatgpt", subjectId: "sub_aaaaaaaa", m: { searchImpressions: 880, searchClicks: 21, searchPosition: 11.32 } }]]),
+    subjects: new Map([["sub_aaaaaaaa", { key: "sub_aaaaaaaa", m: { nearbySearches: 14, searchImpressions: 6400, searchClicks: 210 } }]]),
+  });
+  const planning = { sites: [site("vizzybl.example", "dcn_aaaaaaaaaaaaaaaaaaaa")], notShared: false };
+
+  it("adds the search with the question's words and the searches near its subject, as Search Console chips", () => {
+    const lines = linesFor(1, cand(1), { search: null, searchConsole: searchConsoleLines(cand(1), planning), now: NOW });
+    expect(lines.slice(1).map((l) => l.text)).toEqual([
+      'Search Console (28 days to 20 Nov, Pacific time): the search "track brand in chatgpt" had 880 impressions and 21 clicks, average position 11.3.',
+      "Search Console (28 days to 20 Nov, Pacific time): 14 searches near this subject had 6,400 impressions and 210 clicks.",
+    ]);
+    expect(lines.slice(1).map((l) => l.chip)).toEqual([
+      { kind: "num", label: "Search Console", text: "880 impressions, position 11.3" },
+      { kind: "num", label: "Search Console", text: "14 nearby searches, 6,400 impressions" },
+    ]);
+    // Every number a reason takes from them is in the lines, so the pick holds.
+    expect(reasonHolds("It sits just off Google's first page at position 11.3, with 880 impressions and 6,400 nearby.", lines, [])).toBe(true);
+    expect(reasonHolds("It had 1,900 impressions.", lines, [])).toBe(false);
+    // Only the subject's line for a question whose words nobody searched.
+    expect(searchConsoleLines(cand(2), planning).map((l) => l.kind)).toEqual(["subject"]);
+    expect(searchConsoleLines(cand(2, { subjectId: "sub_bbbbbbbb" }), planning)).toEqual([]);
+  });
+
+  it("names the site when the brand has more than one Search Console site", () => {
+    const two = { sites: [site("vizzybl.example", "dcn_aaaaaaaaaaaaaaaaaaaa"), { ...site("docs.vizzybl.example", "dcn_bbbbbbbbbbbbbbbbbbbb"), questions: new Map() }], notShared: false };
+    const [exact, near] = searchConsoleLines(cand(1), two);
+    expect(exact!.text).toMatch(/^Search Console, vizzybl\.example \(28 days to 20 Nov, Pacific time\): the search "track brand in chatgpt"/);
+    expect(exact!.chip).toBe("vizzybl.example: 880 impressions, position 11.3");
+    expect(near!.site).toBe("vizzybl.example");
+  });
+
+  it("reads the planning docs once per pick, and says when Search Console isn't used for planning", async () => {
+    vi.stubEnv("BRAND_MAP_ENABLED", "true");
+    const db = new FakeFirestore();
+    await saveBrandMap(A, { baseRev: 0, decided: BrandMapDecidedSchema.parse({ identity: { name: "Acme" }, subjects: [] }) }, { db, nowMs: NOW.getTime() });
+    const searchPlanning = vi.fn(async () => planning);
+    let prompt = "";
+    const base: PickDeps = {
+      db,
+      now: () => NOW,
+      loadTenant: async () => null,
+      candidates: async () => [cand(1), cand(2)],
+      search: async () => searchWith([]),
+      flags: async () => null,
+      notOnMap: async () => [],
+      competitorNames: async () => [],
+      configured: () => true,
+      searchPlanning,
+      generate: vi.fn(async (p: string) => {
+        prompt = p;
+        return JSON.stringify({ picks: [{ n: 1, because: "Position 11.3 for a search with 880 impressions.", uses: ["1.3", "1.4"] }] });
+      }),
+    };
+    const got = await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, base);
+    expect(searchPlanning).toHaveBeenCalledTimes(1);
+    expect(prompt).toContain('the search "track brand in chatgpt" had 880 impressions');
+    expect(got.ok && got.doc.picks[0]).toMatchObject({ questionId: "q_aaaaaaa1", from: "gemini", chips: [{ label: "Search Console", text: "880 impressions, position 11.3" }, { label: "Search Console", text: "14 nearby searches, 6,400 impressions" }] });
+    expect(got.ok && got.doc.missing).not.toContain(NOT_SHARED_NEXT_UP);
+    const unshared = await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, { ...base, searchPlanning: async () => ({ sites: [], notShared: true }) });
+    expect(unshared.ok && unshared.doc.missing).toContain("Search Console isn't shared with your team and Vizzy, so its numbers weren't weighed.");
+  });
+});
+
+describe("reading Search Console demand", () => {
+  const SC = "dcn_ssssssssssssssssssss";
+  beforeEach(() => {
+    vi.stubEnv("CONNECTORS_ENABLED", "true");
+    vi.stubEnv("CONNECTORS_COLLECT_ENABLED", "true");
+    vi.stubEnv("CONNECTOR_SIGNALS_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("reads only connections members and Vizzy may both read, and nothing while signals are off", async () => {
+    const { seedSearchConsole, writePlanning } = await import("@/lib/connectors/testing/signals");
+    const { changeDataConnection } = await import("@/lib/tenant");
+    const db = new FakeFirestore();
+    await seedSearchConsole(A, db, SC);
+    await writePlanning(A, db, SC, "question", [{ key: "q_aaaaaaa1", label: "track brand in chatgpt", m: { searchImpressions: 880, searchClicks: 21, searchPosition: 11.3 } }]);
+    const read = await readSearchPlanning(A, { db });
+    expect(read).toMatchObject({ notShared: false, sites: [{ connectionId: SC, site: "fernhill.example", days: 28, window: { to: "2026-11-20" } }] });
+    expect(read!.sites[0]!.questions.get("q_aaaaaaa1")).toMatchObject({ label: "track brand in chatgpt" });
+    await changeDataConnection(A, SC, () => ({ patch: { grants: [{ to: "members", can: "read" }] }, activity: [] }), db);
+    expect(await readSearchPlanning(A, { db })).toEqual({ sites: [], notShared: true });
+    vi.stubEnv("CONNECTOR_SIGNALS_ENABLED", "false");
+    expect(await readSearchPlanning(A, { db })).toBeNull();
   });
 });

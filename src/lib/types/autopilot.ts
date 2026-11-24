@@ -50,7 +50,7 @@ export type AutopilotSettings = z.infer<typeof AutopilotSettingsSchema>;
 // ---- Next up (next_up, one doc per brand) ----------------------------------------------------------
 
 export interface NextUpChip {
-  /** map: the brand map. you: the brand's own content. them: competitors. num: Google's numbers. */
+  /** map: the brand map. you: the brand's own content. them: competitors. num: numbers (Google through DataForSEO, Search Console collected). */
   kind: "map" | "you" | "them" | "num";
   label: string;
   text: string;

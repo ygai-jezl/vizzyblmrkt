@@ -36,7 +36,8 @@ import { isVaultConfigured, sealConnectorSecret, signConnectorState, verifyConne
  * a local run uses the request's own origin. After the swap the scope granted must be exactly the
  * one asked for, Google must have sent a refresh token, and the connector's verify request must
  * pass before anything is saved. A new connection has no site picked; signing in again for a
- * connection keeps its site, grants and history.
+ * connection keeps its site, grants and history. A brand's part of its organisation's connection
+ * (Connectors 3) is never signed in again here, at the start or at the callback.
  */
 
 export const CALLBACK_PATH = "/api/admin/connectors/callback";
@@ -92,7 +93,7 @@ export interface StartedSignIn {
   cookie: StateCookie;
 }
 
-const refused = (status: 400 | 403 | 404 | 503, error: string, message?: string): ServiceResult<never> => ({ ok: false, status, error, ...(message ? { message } : {}) });
+const refused = (status: 400 | 403 | 404 | 409 | 503, error: string, message?: string): ServiceResult<never> => ({ ok: false, status, error, ...(message ? { message } : {}) });
 
 /**
  * Start a sign in with Google for a connector, or for one of its connections to sign in again.
@@ -124,6 +125,8 @@ export async function startSignIn(
   if (connectionId) {
     const conn = await forTenant(ctx, deps.db).dataConnections.getById(connectionId);
     if (!conn || conn.connectorId !== m.id || conn.status !== "connected") return refused(404, "not_found");
+    // A part's sign in is its organisation's: a brand admin's own Google tokens never go on it.
+    if (conn.source) return refused(409, "managed_by_organisation", connectorMessage("managed_by_organisation"));
     if (conn.method !== "oauth_pkce") return refused(400, "method_not_supported");
   }
 
@@ -249,6 +252,8 @@ export async function finishSignIn(
   if (!tokens.refreshToken) return fail("no_refresh_token");
 
   const prior = claimed.state.connectionId ? await forTenant(ctx, deps.db).dataConnections.getById(claimed.state.connectionId) : null;
+  // A part (a record with a source) is never signed in again here: its sign in is its organisation's.
+  if (prior?.source) return fail("bad_state");
   const again = prior && prior.connectorId === m.id && prior.method === "oauth_pkce" && prior.status === "connected" ? prior : null;
   const id = again ? again.id : (deps.newId ?? newDataConnectionId)();
   const account = again?.account ?? "";

@@ -1140,6 +1140,15 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Organisations share connections (ADR-0014): an organisation's owners connect once and give
+  # each of its brands one site, property or zone; each brand's numbers stay in its own region
+  # (needs CONNECTORS_ENABLED and PLANS_ENABLED). Before turning it on, run
+  # infra/lifecycle/setup.sh ttl for organisation_connection_activity and deploy the index file
+  # without --force. Off, every part reads nothing and nothing is ended for it.
+  - variable: CONNECTORS_SHARING_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Analytics from BigQuery ==
   # Breakdowns and widget views from BigQuery. Needs a dataset per region and the export

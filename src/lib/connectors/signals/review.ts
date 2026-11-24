@@ -8,6 +8,7 @@ import type { DataConnection } from "@/lib/types/dataConnection";
 import { isDataSignalId, type DataSignal } from "@/lib/types/dataSignal";
 import type { Tenant } from "@/lib/types/tenant";
 import { feedsPlanning } from "../grants";
+import { readableOnly, type SourceDeps } from "../sources";
 import { siteName } from "../keys";
 import { searchConsoleManifest } from "../manifests/searchConsole";
 import { DATA_SIGNAL_ACTION, PROPOSE_QUESTION_ACTION, SIGNALS_AGENT } from "./names";
@@ -34,15 +35,20 @@ export interface OpenSuggestion {
   connection: DataConnection;
 }
 
-export interface SuggestionDeps {
+export interface SuggestionDeps extends Pick<SourceDeps, "regionDb" | "controlDb"> {
   db?: FirestoreLike;
   now?: Date;
 }
 
-/** The brand's connected Search Console connections that feed planning, by id. */
+/**
+ * The brand's connected Search Console connections that feed planning, by id: its own, and the
+ * parts its organisation still gives it (partLive), so a brand that left sees none of its old
+ * part's suggestions before the erase.
+ */
 async function planningConnections(ctx: TenantContext, deps: SuggestionDeps): Promise<Map<string, DataConnection>> {
   const conns = await forTenant(ctx, deps.db).dataConnections.find({ where: [["status", "==", "connected"]], limit: 50 });
-  return new Map(conns.filter((c) => c.connectorId === searchConsoleManifest.id && feedsPlanning(c.grants)).map((c) => [c.id, c] as const));
+  const planning = await readableOnly(ctx, conns.filter((c) => c.connectorId === searchConsoleManifest.id && feedsPlanning(c.grants)), { db: deps.db, regionDb: deps.regionDb, controlDb: deps.controlDb });
+  return new Map(planning.map((c) => [c.id, c] as const));
 }
 
 /**

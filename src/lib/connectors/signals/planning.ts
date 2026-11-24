@@ -4,6 +4,7 @@ import { nextUpDocId } from "@/lib/types/autopilot";
 import type { SnapshotRow } from "@/lib/types/metricSnapshot";
 import { isConnectorsChatEnabled, isConnectorSignalsEnabled } from "../flags";
 import { feedsPlanning } from "../grants";
+import { readableOnly, type SourceDeps } from "../sources";
 import { planningId, siteName } from "../keys";
 import { searchConsoleManifest } from "../manifests/searchConsole";
 import { dayWords, zoneWords } from "../period";
@@ -66,10 +67,11 @@ export async function dropSearchConsolePicks(ctx: TenantContext, deps: { db?: Fi
 }
 
 /** The brand's Search Console demand, or null while signals are off. */
-export async function readSearchPlanning(ctx: TenantContext, deps: { db?: FirestoreLike } = {}): Promise<SearchPlanning | null> {
+export async function readSearchPlanning(ctx: TenantContext, deps: Pick<SourceDeps, "db" | "regionDb" | "controlDb"> = {}): Promise<SearchPlanning | null> {
   if (!isConnectorSignalsEnabled()) return null;
   const conns = (await forTenant(ctx, deps.db).dataConnections.find({ where: [["status", "==", "connected"]], limit: 50 })).filter((c) => c.connectorId === searchConsoleManifest.id);
-  const planning = conns.filter((c) => feedsPlanning(c.grants) && c.collect);
+  // A brand's part counts only while its organisation still gives it (partLive).
+  const planning = await readableOnly(ctx, conns.filter((c) => feedsPlanning(c.grants) && c.collect), deps);
   const sites: SearchPlanningSite[] = [];
   for (const c of planning) {
     const gen = c.collect!.gen;

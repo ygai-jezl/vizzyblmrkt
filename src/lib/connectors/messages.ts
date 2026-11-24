@@ -44,6 +44,12 @@ export const CONNECTOR_ERRORS = {
     "YouGrow can't make a new address for shared access right now, because its Google project holds as many as Google allows. Sign in with Google instead, or try again later.",
   share_limit:
     "This brand already has 5 shared Google addresses for this connector, the most one brand can have. Disconnect a shared connection you no longer use, or sign in with Google instead.",
+  // A brand's part of its organisation's connection (Connectors 3, ADR-0014).
+  managed_by_organisation: "Your organisation manages this connection. Its owners can change it.",
+  part_ended: "Your organisation doesn't give this brand this part right now, so it reads nothing.",
+  source_broken: "This connection comes from your organisation, and its sign in needs attention. An owner of your organisation can fix it.",
+  source_paused: "Your organisation paused this connection, so nobody reads it live and nothing new is collected. Numbers already collected stay readable.",
+  sharing_off: "Sharing is off in this copy, so this reads nothing.",
 } as const;
 
 export type ConnectorErrorCode = keyof typeof CONNECTOR_ERRORS;
@@ -70,6 +76,15 @@ export function tokenRefusedMessage(name: string, when: "connected" | "connectin
  */
 export function accessLostMessage(since: string): string {
   return `YouGrow lost access to this property on ${dayWords(since.slice(0, 10))}. Add the Google address again with the role shown, then press Check access.`;
+}
+
+/**
+ * A part whose organisation's sign in needs attention, naming the tool, the brand and the
+ * organisation (the brand's own organisation, so nothing crosses brands): what Vizzy and the
+ * screens say, and who can fix it.
+ */
+export function sourceBrokenMessage(tool: string, brand: string, organisation: string): string {
+  return `${tool} for ${brand} comes from ${organisation}, and its sign in needs attention. An owner of ${organisation} can fix it.`;
 }
 
 /**

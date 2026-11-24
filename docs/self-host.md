@@ -379,6 +379,24 @@ With brand search too (`addon:search`, which turns it on), `CONNECTORS_SEARCH_TE
 each Search Console connection's top searches into brand search, found only by those who may read
 the connection (ADR-0013). It does nothing until collected numbers are on.
 
+**Shared connections across your brands.** `CONNECTORS_SHARING_ENABLED` lets an organisation's
+owners connect Search Console, Google Analytics or Cloudflare once and give each of its brands one
+site, property or zone (ADR-0014). The sign in is kept in the region of the brand it was connected
+from, and each brand's numbers stay in that brand's own region. `npm run selfhost` keeps it off.
+Organisations count only with plans on, so a copy that wants sharing:
+
+1. turns plans on as above with `PLANS_NEW_ORGANISATION_PLAN` left empty, so every organisation is
+   on Self-hosted and nothing is limited, and runs `scripts/backfill-organisations.ts --plan self_hosted`;
+2. adds its owners with `scripts/set-plan.ts --organisation <orgId> --add-owner <uid>` and combines
+   brands with `scripts/move-brand.ts`;
+3. runs `setup.sh ttl <id>` once more (the time to live on `organisation_connection_activity.ttlAt`)
+   and deploys the index file without `--force`, as for collected numbers below;
+4. sets `CONNECTORS_SHARING_ENABLED` to `"true"` and rolls out.
+
+Before you turn it off for good, or roll back to a build from before it, disconnect every shared
+connection or run `npx tsx scripts/connectors-purge.ts --organisation all` (a dry run), then with
+`--apply --by <label>`: older builds can't remove an organisation's sign ins or Google addresses.
+
 `CONNECTOR_SIGNALS_ENABLED` turns collected Search Console numbers into suggestions in the brand map,
 Review, Next up and the context pack; `npm run selfhost` keeps it off. Turn it on only after
 `CONNECTORS_COLLECT_ENABLED`, and only once the agent action indexes in `firestore.indexes.json`

@@ -11,6 +11,7 @@ import { LIVE_PERIODS } from "./period";
 import { connectorMessage } from "./messages";
 import { getConnector, knownConnector } from "./registry";
 import { readLiveFor, type ServiceDeps } from "./service";
+import { PartCache, partLive } from "./sources";
 
 /**
  * What Vizzy's connector tools read (Connectors 1c, ADR-0011), through /api/agent/connectors. Reads
@@ -37,8 +38,9 @@ export const NO_MEMBER_READ =
   "Members aren't allowed to read this connection's numbers, so Vizzy can't read them for you. An admin can allow members to read it, or ask an admin to look.";
 
 /** Why Vizzy can't read a connection it can see right now, in words, or null when it can. */
-function cannotRead(c: DataConnection, actor: ConnectorActor, on: boolean, state: ReturnType<typeof shownState>): string | null {
+function cannotRead(c: DataConnection, actor: ConnectorActor, on: boolean, state: ReturnType<typeof shownState>, partRefused: string | null): string | null {
   if (!can(actor, "read_live", c.grants)) return NO_MEMBER_READ;
+  if (partRefused) return partRefused;
   if (!on) return "This connector is turned off in this copy of YouGrow.";
   if (!c.account) return connectorMessage("account_needed");
   if (state === "paused") return connectorMessage("paused");
@@ -46,15 +48,23 @@ function cannotRead(c: DataConnection, actor: ConnectorActor, on: boolean, state
 }
 
 /** list_connections: the brand's connections Vizzy may see, their health and what each gives. */
-export async function agentConnections(ctx: TenantContext, actor: ConnectorActor, deps: Pick<ServiceDeps, "db" | "now"> = {}): Promise<AgentApiResult> {
+export async function agentConnections(ctx: TenantContext, actor: ConnectorActor, deps: Pick<ServiceDeps, "db" | "now" | "regionDb" | "controlDb"> = {}): Promise<AgentApiResult> {
   const now = deps.now ?? new Date();
   const rows = await forTenant(ctx, deps.db).dataConnections.find({ where: [["status", "==", "connected"]], limit: LIST_LIMIT });
   const seen = rows.filter((c) => can(actor, "see", c.grants)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  // A brand's part reads only while its organisation still gives it (partLive).
+  const cache = new PartCache();
+  const refusedParts = new Map<string, string>();
+  for (const c of seen) {
+    if (!c.source) continue;
+    const check = await partLive(ctx, c, { ...deps, partCache: cache });
+    if (!check.live) refusedParts.set(c.id, connectorMessage(check.code));
+  }
   const connections = seen.map((c) => {
     const on = getConnector(c.connectorId);
     const m = on ?? knownConnector(c.connectorId);
     const state = shownState(c, now);
-    const why = cannotRead(c, actor, on !== null, state);
+    const why = cannotRead(c, actor, on !== null, state, refusedParts.get(c.id) ?? null);
     return {
       id: c.id,
       connector: m?.name ?? c.connectorId,

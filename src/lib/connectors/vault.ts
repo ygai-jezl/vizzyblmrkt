@@ -6,7 +6,9 @@ import { createSecretBox, type EncryptedBlob } from "@/lib/security/secretBox";
  * CONNECTORS_VAULT_KEY, never shared with the git, social, connection or Mailchimp keys.
  *
  * - AAD is `${tenantId}:${connectionId}:${slot}`, so a blob copied onto another brand, another
- *   connection or another slot will not open.
+ *   connection or another slot will not open. An organisation's connection (Connectors 3,
+ *   ADR-0014) binds `${organisationId}:${ocn id}:${slot}` in the same format: brand ids start
+ *   `ten_` and organisation ids `org_`, so a blob sealed for one never opens as the other.
  * - Each blob stores `encKeyId`, the root key's short id (secretBox keyId under the label
  *   connector-key-id). `keyId` already means a connection key's ygk_ id elsewhere, hence the name.
  * - Rotation: move the current root to CONNECTORS_VAULT_KEY_PREVIOUS and set a new one. Blobs

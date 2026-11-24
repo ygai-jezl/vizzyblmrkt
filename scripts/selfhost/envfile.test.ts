@@ -85,6 +85,14 @@ describe("the switches npm run selfhost leaves off", () => {
     }
   });
 
+  it("keep organisation sharing off on a new copy, and no add-on turns it on", () => {
+    // Sharing needs plans on (ADR-0014): a copy turns it on by hand once every organisation is on Self-hosted.
+    expect(KEPT_OFF.CONNECTORS_SHARING_ENABLED.addon).toBeNull();
+    for (const addon of ["x", "linkedin", "vizzy", "knowledge", "github-app", "bigquery", "recaptcha", "search"]) {
+      expect(switchesForAddon(addon), addon).not.toContain("CONNECTORS_SHARING_ENABLED");
+    }
+  });
+
   it("keep plans off on a new copy, and no add-on turns them on", () => {
     // Plans are the hosted service's (ADR-0009). Off, every brand may use every feature its
     // switch turns on, and GRANTED_ONLY_FEATURES still works.

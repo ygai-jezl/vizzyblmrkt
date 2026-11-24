@@ -2,6 +2,16 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  experimental: {
+    // Load each route when it is first asked for, not every route at start. Next 15 preloads
+    // them all by default, which filled a 512 MiB instance within seconds of "Ready". Measured on
+    // a production build with `next start`, 60 s after calling 5 routes: about 480 MiB with
+    // preloading on and 164 MiB with it off (heapUsed about 380 against 115 MiB; 2,144 modules
+    // loaded against 1,186). The cost: a route's first call is slower (an admin API took 330 to
+    // 390 ms against 7 to 12 ms). Read at build time for the standalone server, so a change here
+    // needs a new build.
+    preloadEntriesOnStart: false,
+  },
   // firebase-admin + the BigQuery client are server-only; never bundle them for
   // the browser. @google-cloud/bigquery is loaded lazily by the analytics layer
   // (only when ANALYTICS_BQ_ENABLED), but mark it external so the build never

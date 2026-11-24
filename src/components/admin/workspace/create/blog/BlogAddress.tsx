@@ -7,6 +7,7 @@ import { normalizeUrl } from "@/lib/content/blog/brief";
 import type { LiveAction, LiveCheck } from "@/lib/content/blog/live";
 import type { LiveResult } from "./types";
 import { isBlogDatesUiEnabled } from "@/lib/brandMap/flags";
+import { isDayOnly, readableDay } from "@/lib/content/blog/dates";
 
 const LABEL = "text-xs font-medium text-neutral-600 dark:text-neutral-300";
 const HINT = "text-[11px] text-neutral-500 dark:text-neutral-400";
@@ -37,8 +38,9 @@ function checkSaid(c: LiveCheck): string {
   return "Couldn't open the page. Check the address, or try again once it's published.";
 }
 
-/** "Live · found on your site 21 Nov 2026 · 96% of the text matches · approved" */
-function liveLine(live: BlogArticleLive): string {
+/** "Live · found on your site 21 Nov 2026 · 96% of the text matches · approved", and with true dates
+ *  the day it went up, which can be earlier than the day it was seen or said ("· published 20 Nov 2026"). */
+export function liveLine(live: BlogArticleLive, dates?: BlogArticleDates): string {
   const when =
     live.by !== "check"
       ? `you said so ${day(live.at)}`
@@ -48,7 +50,9 @@ function liveLine(live: BlogArticleLive): string {
           ? `found at this address ${day(live.at)}`
           : `checked ${day(live.checkedAt ?? live.at)}`;
   const share = live.textShare !== undefined ? ` · ${percent(live.textShare)} of the text matches` : "";
-  return `Live · ${when}${share}${live.approvedOnLive ? " · approved" : ""}`;
+  const at = dates?.published?.at;
+  const published = at ? ` · published ${isDayOnly(at) ? readableDay(at) : day(at)}` : "";
+  return `Live · ${when}${share}${published}${live.approvedOnLive ? " · approved" : ""}`;
 }
 
 const LIVE_ERROR: Record<string, string> = {
@@ -100,7 +104,7 @@ function LiveRow({
           {live ? (
             <>
               <span aria-hidden className="text-green-600 dark:text-green-400">● </span>
-              {liveLine(live)}
+              {liveLine(live, dated ? dates : undefined)}
             </>
           ) : (
             <>

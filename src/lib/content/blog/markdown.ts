@@ -377,10 +377,16 @@ export function renderInlineHtml(text: string): string {
   return inlineHtml(parseInline(text));
 }
 
+const DATE_LINE = /^last\s+updated\s*[:\-–]\s*(\d{4}-\d{2}-\d{2})\b(.*)$/i;
+
 /** The date in a "Last updated: 2026-10-07" line, or null when the line is something else. */
 export function lastUpdatedOf(text: string): string | null {
-  const m = /^last\s+updated\s*[:\-–]\s*(\d{4}-\d{2}-\d{2})\b/i.exec(plainInline(text));
-  return m?.[1] ?? null;
+  return DATE_LINE.exec(plainInline(text))?.[1] ?? null;
+}
+
+/** What follows the date on that line, such as " · By Ana Ruiz, Head of Growth" ("" when nothing). */
+export function afterDateOf(text: string): string {
+  return DATE_LINE.exec(plainInline(text))?.[2]?.trimEnd() ?? "";
 }
 
 function blockHtml(block: ArticleBlock, ids: Map<string, number>): string {
@@ -396,7 +402,8 @@ function blockHtml(block: ArticleBlock, ids: Map<string, number>): string {
     }
     case "paragraph": {
       const date = lastUpdatedOf(block.text);
-      if (date) return `<p class="last-updated">Last updated: <time datetime="${date}">${date}</time></p>`;
+      // The byline an editorial article carries on the same line stays with it.
+      if (date) return `<p class="last-updated">Last updated: <time datetime="${date}">${date}</time>${escapeHtml(afterDateOf(block.text))}</p>`;
       return `<p>${renderInlineHtml(block.text)}</p>`;
     }
     case "list": {

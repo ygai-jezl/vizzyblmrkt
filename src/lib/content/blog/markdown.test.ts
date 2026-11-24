@@ -156,6 +156,11 @@ describe("article markdown", () => {
     expect(renderArticleHtml("Hello <script>alert(1)</script> & [x](javascript:alert(1))")).toBe(
       "<article>\n<p>Hello &lt;script&gt;alert(1)&lt;/script&gt; &amp; x</p>\n</article>",
     );
+    // An editorial article's byline stays on its date line, escaped.
+    expect(renderArticleHtml("# T\n\n*Last updated: 2026-10-07 · By Ana Ruiz, Head of Growth*\n\nBody.")).toContain(
+      '<p class="last-updated">Last updated: <time datetime="2026-10-07">2026-10-07</time> · By Ana Ruiz, Head of Growth</p>',
+    );
+    expect(renderArticleHtml("*Last updated: 2026-10-07 · By <b>Ana</b> & co*")).toContain("· By &lt;b&gt;Ana&lt;/b&gt; &amp; co</p>");
     // Two sections with the same heading still get distinct ids.
     expect(renderArticleHtml("## Pricing\n\n## Pricing")).toContain('<h2 id="pricing-2">');
   });

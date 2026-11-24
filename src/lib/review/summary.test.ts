@@ -501,3 +501,29 @@ describe("data sources that need you", () => {
     expect(REVIEW_SECTIONS.data_source.title).toBe("Data sources that need you");
   });
 });
+
+describe("What your numbers suggest", () => {
+  const admin: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "usr_admin", role: "admin" };
+  const member: TenantContext = { ...admin, userId: "usr_member", role: "member" };
+  const SC = "dcn_ssssssssssssssssssss";
+  beforeEach(() => {
+    vi.stubEnv("CONNECTORS_ENABLED", "true");
+    vi.stubEnv("CONNECTORS_COLLECT_ENABLED", "true");
+    vi.stubEnv("CONNECTOR_SIGNALS_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("lists open suggestions to admins only, while signals are on, after Your next article", async () => {
+    const { seedSearchConsole, seedSuggestion } = await import("@/lib/connectors/testing/signals");
+    const db = new FakeFirestore();
+    await seedSearchConsole(admin, db, SC);
+    await seedSuggestion(admin, db, SC, "losing", { now: new Date() });
+    const items = (await loadReview(admin, { lifecycle: false, includeContent: false }, db)).items.filter((i) => i.kind === "data_signal");
+    expect(items).toEqual([expect.objectContaining({ title: "Fewer Google clicks to /care/fiddle-leaf-fig", action: "Plan an article", signal: { id: expect.stringMatching(/^dsg_[0-9a-f]{24}$/) } })]);
+    expect((await loadReview(member, { lifecycle: false, includeContent: false }, db)).items.filter((i) => i.kind === "data_signal")).toEqual([]);
+    vi.stubEnv("CONNECTOR_SIGNALS_ENABLED", "false");
+    expect((await loadReview(admin, { lifecycle: false, includeContent: false }, db)).items.filter((i) => i.kind === "data_signal")).toEqual([]);
+    expect(REVIEW_ORDER.indexOf("data_signal")).toBe(REVIEW_ORDER.indexOf("next_article") + 1);
+    expect(REVIEW_SECTIONS.data_signal).toEqual({ title: "What your numbers suggest", description: "Searches and pages from Search Console worth an article. Plan one, or dismiss it." });
+  });
+});

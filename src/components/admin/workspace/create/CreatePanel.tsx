@@ -4,7 +4,7 @@ import { useState } from "react";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { CreateWizard, type MapSubjectChoice } from "./CreateWizard";
+import { CreateWizard, type NumbersPrefill, type MapSubjectChoice } from "./CreateWizard";
 import { isEbookUiEnabled } from "@/lib/content/create/ebook";
 import type { WriteNext } from "@/lib/content/blog/articleMap";
 import type { IngestionTicket } from "@/lib/types/ingestionTicket";
@@ -34,6 +34,7 @@ export function CreatePanel({
   situations = false,
   prefillSituation = null,
   prefillAsks = null,
+  prefillNumbers = null,
   suggestAngle = false,
 }: {
   workspaceId: string;
@@ -52,12 +53,14 @@ export function CreatePanel({
   prefill?: WriteNext | null;
   /** What buyers ask, from Next up's sort. */
   prefillAsks?: string | null;
+  /** Plan an article from a suggestion your numbers made: a page losing clicks, or a search. */
+  prefillNumbers?: NumbersPrefill | null;
   /** "Suggest an angle" is on: the Spark can be suggested (and is, from "Write this next"). */
   suggestAngle?: boolean;
 }) {
   const router = useRouter();
   const [plans] = useState<ContentPlan[]>(initialPlans);
-  const [showWizard, setShowWizard] = useState(initialPlans.length === 0 || Boolean(prefill));
+  const [showWizard, setShowWizard] = useState(initialPlans.length === 0 || Boolean(prefill) || Boolean(prefillNumbers));
 
   function onCreated(plan: ContentPlan) {
     // eBook plans open the authoring studio first; everything else goes straight to the
@@ -99,6 +102,7 @@ export function CreatePanel({
           subjectSearch={subjectSearch}
           prefill={prefill}
           prefillAsks={prefillAsks}
+          prefillNumbers={prefillNumbers}
           situations={situations}
           prefillSituation={prefillSituation}
           suggestAngle={suggestAngle}

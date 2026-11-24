@@ -31,7 +31,8 @@ import { canAddPeople, isVizzyAddPersonEnabled, isVizzyFieldsEnabled } from "@/l
 import { PERSON_FIELDS_ACTION } from "@/lib/audience/fieldSuggestions";
 import { NEW_PERSON_ACTION } from "@/lib/audience/personDrafts";
 import { readFieldList } from "@/lib/audience/fieldList";
-import { isConnectorsCollectEnabled } from "@/lib/connectors/flags";
+import { isConnectorsCollectEnabled, isConnectorSignalsEnabled } from "@/lib/connectors/flags";
+import { signalReviewItems } from "@/lib/connectors/signals/review";
 import { dayWords } from "@/lib/connectors/period";
 import { getConnector, knownConnector } from "@/lib/connectors/registry";
 import type { DataConnection } from "@/lib/types/dataConnection";
@@ -70,6 +71,10 @@ export interface ReviewItem {
   action: string;
   /** A second button beside the link: mark one competitor's changes seen (admins only). */
   markSeen?: { competitorId: string };
+  /** A suggestion from collected numbers: Plan an article and Dismiss instead of the link (admins only). */
+  signal?: { id: string };
+  /** The detail as lines, each shown in full (a suggestion's numbers). */
+  details?: string[];
 }
 
 export const REVIEW_SECTIONS: Record<ReviewKind, { title: string; description: string }> = {
@@ -124,7 +129,7 @@ export const REVIEW_SECTIONS: Record<ReviewKind, { title: string; description: s
 };
 
 /** Order of sections on the page (AI lines are time-bound, so they come first). */
-export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "data_source", "next_article", "agent_draft", "person_suggestion", "repo_results", "brand_map", "competitor_news", "content_hub"];
+export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "data_source", "next_article", "data_signal", "agent_draft", "person_suggestion", "repo_results", "brand_map", "competitor_news", "content_hub"];
 
 // ---------------------------------------------------------------------------
 // Per-source rules (pure)
@@ -606,6 +611,8 @@ export async function loadReview(
   const personSuggestions = people.fields || people.drafts ? await soft("person suggestions", personSuggestionItems(ctx, people, db), [] as ReviewItem[]) : [];
   // Data sources that need someone: admins only, while collected numbers are on.
   const dataSources = isConnectorsCollectEnabled() && ctx.role === "admin" ? await soft("data sources", dataSourceItems(ctx, db), [] as ReviewItem[]) : [];
+  // What collected numbers suggest: admins only, while signals are on, from planning connections.
+  const numberSuggestions = isConnectorSignalsEnabled() && ctx.role === "admin" ? await soft("number suggestions", signalReviewItems(ctx, { db }), [] as ReviewItem[]) : [];
   const liveConnections = connections.filter((c) => c.kind === "custom" && c.status !== "revoked");
   const latestRuns = await Promise.all(
     liveConnections.map((c) => soft("repo analyses", listRepoAnalyses(ctx, c.id, db), [] as RepoAnalysis[])),
@@ -628,6 +635,7 @@ export async function loadReview(
     brandMapItem(brandMap, brandMapProposals),
     ...competitorItems(competitors, competitorNews),
     ...nextArticleItems(autopilotRuns),
+    ...numberSuggestions,
     ...(opts.includeContent ? await loadContentHubItems(ctx, activeWorkspaces) : []),
   ].filter((i): i is ReviewItem => !!i);
 

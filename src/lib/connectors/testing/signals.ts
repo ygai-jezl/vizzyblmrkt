@@ -114,3 +114,70 @@ export async function writePlanning(ctx: TenantContext, db: FirestoreLike, id: s
     { db },
   );
 }
+
+/** Open suggestions, as detection leaves them: a row and its Review suggestion (made-up numbers). */
+export const SUGGESTIONS = {
+  losing: {
+    rule: "losing_page" as const,
+    key: { page: "/care/fiddle-leaf-fig", host: "fernhill.example" },
+    label: "/care/fiddle-leaf-fig",
+    numbers: { searchClicks: 41 },
+    before: { searchClicks: 96 },
+    window: { from: "2026-10-24", to: LAST_DAY, beforeFrom: "2026-09-26", beforeTo: "2026-10-23" },
+  },
+  reach: {
+    rule: "within_reach" as const,
+    key: { topic: "how often to water monstera" },
+    label: "how often to water monstera",
+    questionId: "q_monstera000000000",
+    question: "How often should I water a monstera?",
+    numbers: { searchPosition: 8.6, searchImpressions: 1900, searchClicks: 40 },
+    window: { from: "2026-10-24", to: LAST_DAY },
+  },
+  rising: {
+    rule: "rising_search" as const,
+    key: { topic: "pet safe hanging plants" },
+    label: "pet safe hanging plants",
+    numbers: { searchImpressions: 260, searchClicks: 9 },
+    before: { searchImpressions: 40 },
+    window: { from: "2026-11-07", to: LAST_DAY, beforeFrom: "2026-10-24", beforeTo: "2026-11-06" },
+  },
+};
+
+/** Save a row and propose its Review suggestion, as the detector does. */
+export async function seedSuggestion(
+  ctx: TenantContext,
+  db: FirestoreLike,
+  connectionId: string,
+  which: keyof typeof SUGGESTIONS,
+  opts: { now?: Date; account?: string; gen?: number } = {},
+): Promise<{ signalId: string; actionId: string }> {
+  const { saveDetection, linkAction } = await import("../signals/store");
+  const { proposeAgentAction } = await import("@/lib/tenant");
+  const { agentDedupeKey } = await import("@/lib/types/agentAction");
+  const now = opts.now ?? new Date("2026-11-23T10:00:00.000Z");
+  const s = SUGGESTIONS[which];
+  const gen = opts.gen ?? 0;
+  const { row } = await saveDetection(ctx, { connectionId, gen, account: opts.account ?? "sc-domain:fernhill.example", connectorId: "search-console", shownIn: "review", ...s }, { db, now });
+  const { action } = await proposeAgentAction(
+    ctx,
+    {
+      dedupeKey: agentDedupeKey("data_signal.suggest", row.id, "r1"),
+      agent: "connector_signals",
+      action: "data_signal.suggest",
+      target: { type: "data_signal", id: row.id },
+      personId: null,
+      proposal: { rule: s.rule, connectionId, gen, label: s.label, numbers: s.numbers },
+      basis: null,
+      signals: [{ kind: "data_signal", ref: row.id }],
+      review: { kind: "data_signal", href: "/admin/approvals#data_signal" },
+      requestedBy: { type: "system", id: "connector_signals" },
+      expiresAt: new Date(now.getTime() + 30 * 86_400_000).toISOString(),
+      clearDetailsOnClose: true,
+      at: now.toISOString(),
+    },
+    { db },
+  );
+  await linkAction(ctx, row.id, action.id, 1, { db });
+  return { signalId: row.id, actionId: action.id };
+}

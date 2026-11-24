@@ -1194,7 +1194,7 @@ Article freshness's daily record per brand: its live articles' counts by state a
 - Erase: none. Worked out again each day; each article's freshness is on the article.
 - Export: none. The brand's own work, with no one's personal data.
 - Search: none. Working state; the articles are searched as themselves.
-- Numbers: none. No numbers an agent reads.
+- Numbers: `articlesDue`, `articlesReviewSoon`, `articlesFresh`, `clockDays`, `liveArticles`, through `list_articles_due`
 
 ## Company
 

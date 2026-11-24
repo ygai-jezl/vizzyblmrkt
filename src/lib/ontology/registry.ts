@@ -1234,7 +1234,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     erase: { none: "worked out again each day; each article's freshness is on the article" },
     export: { none: NOT_PERSONAL },
     search: { none: "working state; the articles are searched as themselves" },
-    numbers: { none: NO_NUMBERS },
+    numbers: { meanings: ["articlesDue", "articlesReviewSoon", "articlesFresh", "clockDays", "liveArticles"], tool: "list_articles_due" },
   },
 
   // ===== Partner and agent: who acts for the brand ===========================================

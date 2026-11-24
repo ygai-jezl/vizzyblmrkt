@@ -43,6 +43,7 @@ from .tools.connectors import get_connected_numbers, get_number_suggestions, lis
 from .tools.context_pack import get_brand_context
 from .tools.next_up import get_next_up
 from .tools.usage import get_usage
+from .tools.articles_due import list_articles_due
 from .tools.setup_help import get_setup_status, read_help_page
 from .tools.new_person import new_person_propose
 
@@ -76,6 +77,7 @@ root_agent = LlmAgent(
     # get_brand_context reads everything the brand knows about one question (read only);
     # get_next_up reads the brand's three best next articles, with why (read only);
     # get_usage reads what the brand used this month against its limits, each number explained;
+    # list_articles_due reads the brand's live articles due a refresh, with why (read only);
     # get_setup_status/read_help_page answer "what should I set up first?"
     # and "how do I…?" from the brand's setup progress and the help pages;
     # new_person_propose fills in the New person form for an admin to confirm (never
@@ -105,6 +107,7 @@ root_agent = LlmAgent(
         get_brand_context,
         get_next_up,
         get_usage,
+        list_articles_due,
         get_setup_status,
         read_help_page,
         new_person_propose,

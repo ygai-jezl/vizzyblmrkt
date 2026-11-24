@@ -19,7 +19,7 @@ import { isBlogBrandMapEnabled, isBlogEditorialEnabled } from "@/lib/content/blo
 import { isSeenOn, isSeenQuestionsOn, isSeenRestOn } from "@/lib/content/blog/hubActions";
 import { refreshAnswers } from "@/lib/content/blog/seen";
 import { askOfPlan, loadArticleMap } from "@/lib/content/blog/mapActions";
-import { isBlogDatesEnabled, isBlogLiveWatchEnabled, isBrandMapPagesEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
+import { isBlogDatesEnabled, isBlogFreshnessEnabled, isBlogLiveWatchEnabled, isBrandMapPagesEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 import { resolveTimezone } from "@/lib/lifecycle/sendWindow";
 
 export const dynamic = "force-dynamic";
@@ -27,8 +27,10 @@ export const dynamic = "force-dynamic";
 /** Canvas for one content workflow — the Architect's graph, filled progressively. */
 export default async function ContentPlanPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ workspaceId: string; planId: string }>;
+  searchParams?: Promise<{ freshness?: string }>;
 }) {
   const ctx = await requireAdminContext();
   const { workspaceId, planId } = await params;
@@ -118,6 +120,7 @@ export default async function ContentPlanPage({
         pagesOn={isBrandMapPagesEnabled()}
         liveWatchOn={isBlogLiveWatchEnabled()}
         {...(datesTimeZone ? { datesTimeZone } : {})}
+        {...(isBlogFreshnessEnabled() ? { freshnessOn: true, openHub: (await searchParams)?.freshness === "1" } : {})}
         editorialOn={isBlogEditorialEnabled()}
         seenOn={isSeenOn()}
         seenQuestionsOn={isSeenQuestionsOn()}

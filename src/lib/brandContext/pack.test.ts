@@ -9,7 +9,8 @@ import { ensureMoved } from "@/lib/brandMap/move";
 import { saveBrandMap } from "@/lib/brandMap/store";
 import type { SearchHit, SearchOutcome } from "@/lib/search/query";
 import { claimSignal, finishSignal, FIRST_LOOK_MS, recordPosted } from "@/lib/signals/store";
-import { contextPack, packOwnUrls, packPromptBlock, packText, PART_MAX, type PackDeps } from "./pack";
+import type { FreshnessDueItem } from "@/lib/types/freshness";
+import { contextPack, dueArticleLines, FRESHNESS_SOURCE, packOwnUrls, packPromptBlock, packText, PART_MAX, type PackDeps } from "./pack";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
 const NOW = Date.parse("2026-11-18T10:00:00.000Z");
@@ -178,6 +179,43 @@ describe("the context pack", () => {
     const unshared = await contextPack(A, { questionId: "q_aaaaaaaa" }, deps);
     expect(unshared.numbers).toEqual([]);
     expect(unshared.missing).toContain("Search Console isn't shared with the team and Vizzy, so its numbers aren't here.");
+  });
+
+  it("leads with the brand's own live article on the subject when it is due a refresh", async () => {
+    const deps = await setup(false);
+    const due: FreshnessDueItem = {
+      planId: "p_a",
+      workspaceId: "ws1",
+      title: "Share of voice, explained",
+      url: "https://acme.example/blog/sov",
+      state: "due",
+      reasons: [{ kind: "age", detail: "31 days since its last update or check, on a 30-day clock", hard: true }],
+      dueAt: "2026-10-01T00:00:00.000Z",
+      clockDays: 30,
+      subjectId: "sub_aaaaaaaa",
+    };
+    deps.dueArticles = async () => [due, { ...due, planId: "p_z", title: "Another subject", subjectId: "sub_other" }];
+    deps.search = async () => ({
+      ok: true,
+      result: { hits: [{ ...hit("article", "Share of voice, explained"), url: "https://acme.example/blog/sov" }, hit("newsletter", "October newsletter")], reranked: false, meaning: true },
+    });
+    const pack = await contextPack(A, { questionId: "q_aaaaaaaa" }, deps);
+    expect(pack.yours[0]).toEqual({
+      text: 'Your live article "Share of voice, explained" is due a refresh. 31 days since its last update or check, on a 30-day clock. Refreshing it may serve this better than a new article.',
+      source: FRESHNESS_SOURCE,
+      url: "https://acme.example/blog/sov",
+    });
+    // The same article, found again by brand search, isn't listed twice; another subject's never shows.
+    expect(pack.yours.map((l) => l.source)).toEqual([FRESHNESS_SOURCE, "Brand search: newsletter"]);
+  });
+
+  it("adds no due line without a subject, or while freshness is off", async () => {
+    const deps = await setup(false);
+    const pack = await contextPack(A, { questionId: "q_aaaaaaaa" }, deps);
+    expect(pack.yours.some((l) => l.source === FRESHNESS_SOURCE)).toBe(false);
+    const item = { planId: "p", workspaceId: "w", title: "T", url: "", state: "soon", reasons: [], dueAt: "", clockDays: 20, subjectId: "s" } as FreshnessDueItem;
+    expect(dueArticleLines(null, [item])).toEqual([]);
+    expect(dueArticleLines("s", [item])).toEqual([{ text: 'Your live article "T" is due a refresh soon. Refreshing it may serve this better than a new article.', source: FRESHNESS_SOURCE }]);
   });
 
   it("works from words alone, and never reads another brand's map", async () => {

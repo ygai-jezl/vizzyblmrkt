@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { BlogArticleFreshness, BlogArticleLive } from "@/lib/types/contentPlan";
 
 /**
@@ -30,14 +30,22 @@ export function FreshnessCard({
   freshness,
   onChecked,
   disabled = false,
+  focus = false,
 }: {
   live: BlogArticleLive | null;
   freshness: BlogArticleFreshness | undefined;
   onChecked?: () => Promise<{ ok: boolean; error?: string }>;
   disabled?: boolean;
+  /** Scroll the card into view once, when the article was opened to look at its freshness. */
+  focus?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<{ text: string; error: boolean } | null>(null);
+  const ref = useRef<HTMLElement>(null);
+  const shown = Boolean(live);
+  useEffect(() => {
+    if (focus && shown) ref.current?.scrollIntoView({ block: "center" });
+  }, [focus, shown]);
   if (!live) return null;
 
   async function check() {
@@ -50,7 +58,7 @@ export function FreshnessCard({
   }
 
   return (
-    <section id="freshness" aria-labelledby="freshness-h" className="space-y-2 rounded-md border border-neutral-200 p-3 text-xs dark:border-neutral-800">
+    <section ref={ref} id="freshness" aria-labelledby="freshness-h" className="space-y-2 rounded-md border border-neutral-200 p-3 text-xs dark:border-neutral-800">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 id="freshness-h" className="text-xs font-semibold">
           Freshness

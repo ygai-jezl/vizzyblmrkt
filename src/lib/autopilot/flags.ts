@@ -13,6 +13,16 @@ export function isNextUpEnabled(): boolean {
   return process.env.BRAND_MAP_NEXT_UP_ENABLED === "true";
 }
 
+/**
+ * Stop repeats (needs Next up): before a question is offered, it is matched by meaning against the
+ * brand's articles. One a live article already answers is linked as answered; one an article being
+ * written covers is left out; one close to a live article is offered as "Add to that article". Off:
+ * Next up picks exactly as before.
+ */
+export function isNextUpRepeatsEnabled(): boolean {
+  return isNextUpEnabled() && process.env.NEXT_UP_REPEATS_ENABLED === "true";
+}
+
 export function isResearchContextEnabled(): boolean {
   return process.env.CREATE_RESEARCH_CONTEXT_ENABLED === "true";
 }

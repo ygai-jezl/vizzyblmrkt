@@ -1,3 +1,4 @@
+import { syncPlanPageSoftly } from "./pageActions";
 import { pinOriginal } from "@/lib/content/create/aiOriginals";
 import { createHash } from "node:crypto";
 import { generateTextWithDeadline } from "@/lib/agents/gemini";
@@ -338,7 +339,16 @@ export async function applyReview(
 
   await saveVersion(ctx, { plan, node, reason: "apply" }, deps);
   // The brief keeps the sources the changes cite (so the fact check keeps their links); the canvas takes it back.
-  const brief = plan.blog ? { ...plan.blog, sources: sourcesAfter(plan.blog.sources, applied, review.evidence) } : null;
+  // The question the review was started for (Next up's Add to that article), once a change for it is
+  // applied, joins the brief's questions with its map id: the brand map counts it as answered here.
+  const asked = review.why.question ?? null;
+  const askedUsed =
+    asked && applied.some((p) => p.evidenceIds.some((id) => review.evidence.find((e) => e.id === id && e.kind === "open_question" && e.text === asked.text)));
+  const questions =
+    plan.blog && asked && askedUsed && !plan.blog.questions.some((q) => q.ref === asked.id) && plan.blog.questions.length < 10
+      ? [...plan.blog.questions, { question: asked.text, intent: "other" as const, by: "operator" as const, ref: asked.id }]
+      : null;
+  const brief = plan.blog ? { ...plan.blog, sources: sourcesAfter(plan.blog.sources, applied, review.evidence), ...(questions ? { questions } : {}) } : null;
   if (brief) await updateContentPlan(ctx, plan.workspaceId, plan.id, { blog: brief }, deps.db);
   const updated = await updateContentPlanNode(ctx, plan.workspaceId, plan.id, node.id, { body, status: "generated" }, deps.db, {
     ...(real ? { setDates: (stored) => (stored?.published ? { ...stored, updated: { at, source: "change" as const } } : stored) } : {}),
@@ -365,6 +375,8 @@ export async function applyReview(
   const fresh = await getContentPlan(ctx, plan.workspaceId, plan.id, deps.db);
   const checked = fresh ? await (deps.factCheck ?? checkPlanBlogFacts)(ctx, { workspace: args.workspace, plan: fresh, nodeId: node.id }).catch(() => null) : null;
   const finalNode = checked && checked.ok ? checked.node : updated;
+  // The fact check syncs the brand map row; when it didn't run, the new question still has to count there.
+  if (questions && !(checked && checked.ok)) await syncPlanPageSoftly(ctx, { workspaceId: plan.workspaceId, planId: plan.id }, { db: deps.db });
   await recordDecision(ctx, review, { outcome: "applied", accepted: applied.length, real, byUid: ctx.userId ?? null }, deps);
   return { ok: true, node: finalNode, applied: applied.length, skipped: skipped.length, real, checked: Boolean(checked?.ok), review: after, brief };
 }

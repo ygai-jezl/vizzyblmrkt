@@ -5,7 +5,7 @@ import { isConnectorSignalsEnabled } from "@/lib/connectors/flags";
 import { SIGNALS_HELP } from "@/lib/connectors/helpText";
 import type { HelpBodyProps } from "@/lib/help/pages";
 import { isCompetitorsUiEnabled } from "@/lib/competitors/flags";
-import { isAutopilotEnabled, isNextUpEnabled } from "@/lib/autopilot/flags";
+import { isAutopilotEnabled, isNextUpEnabled, isNextUpRepeatsEnabled } from "@/lib/autopilot/flags";
 import { isUsageMeterUiEnabled } from "@/lib/plans/flags";
 import { WEB_SEARCH_LIMIT_MESSAGE } from "@/lib/plans/resources";
 
@@ -241,6 +241,25 @@ export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnab
               reviews cost; an admin can use it, and a tenth of new articles keep testing.
             </P>
           ) : null}
+          {isNextUpRepeatsEnabled() ? (
+            <>
+              <P>
+                Before it offers a question, Next up matches it by meaning against every article you have, live or being
+                written. A question a live article already answers is marked <strong>Matched by meaning</strong> on your brand
+                map and counts as answered; if that article doesn&apos;t really answer it, an admin presses{" "}
+                <strong>Unlink</strong> and it is never matched to that article again. A question an article you&apos;re writing
+                already covers is left out. A question close to a live article says <strong>Close to your live article</strong>:
+                press <strong>Add to that article</strong> to start a refresh review that leads with the question, or{" "}
+                <strong>Write it anyway</strong> to write a new one. The autopilot never drafts a close question as a new
+                article; in Draft mode it adds it to the live article when it can.
+              </P>
+              <P>
+                When two live articles answer the same question, Next up says so. Keep one, fold the other in, and redirect
+                its address on your site. Next up also weighs a subject by its size, so a subject with one question no longer
+                goes first.
+              </P>
+            </>
+          ) : null}
           <P>
             <strong>Not now</strong> takes a pick off the list for 30 days; say why and it learns that too. When
             competitors write about something your map doesn&apos;t have, <strong>Add to my map</strong> adds it as a subject. <strong>What autopilot learned</strong> lists what your team skipped, moved and added back; admins
@@ -303,6 +322,13 @@ export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnab
             "Set your Primary domain in Settings › Sending, or add your website to a programme's Knowledge. Then research again.",
           ],
           ["Not saved yet: articles are written without it until you save.", "Press Save brand map."],
+          ...(isNextUpRepeatsEnabled()
+            ? ([
+                ["Two live articles answer one question. Keep one, fold the other in, and redirect its address.", "Open both, keep the better one, move anything the other says that it lacks, then redirect the other's address on your site."],
+                ["Unlinked. That article won't be matched to this question again, and Next up can offer it.", "Nothing to do. The question counts as open again."],
+                ["That didn't start. Try again in a moment.", "Press Add to that article again, or open the article and press Review for refresh."],
+              ] as Array<[string, string]>)
+            : []),
           ...(isUsageMeterUiEnabled()
             ? ([
                 [

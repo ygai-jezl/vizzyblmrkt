@@ -42,6 +42,16 @@ import {
   type StoredImageStyle,
 } from "@/lib/types/imageStyle";
 import { NotesRestSchema, type NotesRest } from "@/lib/types/brandNote";
+import {
+  BusinessProfileSchema,
+  PROFILE_KEYS,
+  ProfileAnswersInputSchema,
+  ProfileStatus,
+  ProfileVia,
+  type BusinessProfile,
+  type ProfileAnswers,
+  type ProfileAnswersInput,
+} from "@/lib/types/businessProfile";
 
 /**
  * Control-plane writes — the `tenants` registry lives in the (default) database,
@@ -602,6 +612,115 @@ export async function setTenantNotesRest(
   const next = NotesRestSchema.parse(rest);
   await db.collection("tenants").doc(id).update({ brandNotesRest: { ...next }, updatedAt: new Date().toISOString() });
   return next;
+}
+
+/**
+ * Home's first visit (ONBOARDING_ENABLED): mark the brand's profile `started`, only when it has
+ * none. True only for the call that wrote it, so the welcome shows once per brand, even when two
+ * admins open Home together. A damaged value counts as a profile: the welcome never shows twice.
+ */
+export async function startBusinessProfile(
+  id: string,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<boolean> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return false;
+    const raw = snap.data()?.businessProfile;
+    if (raw !== undefined && raw !== null) return false;
+    const now = new Date().toISOString();
+    const profile: BusinessProfile = { status: "started", answers: {}, rev: 0, startedAt: now };
+    tx.update(ref, { businessProfile: profile, updatedAt: now });
+    return true;
+  });
+}
+
+/** A change to the brand's profile, from the welcome, the questions, a call or Settings. */
+export interface BusinessProfilePatch {
+  answers?: ProfileAnswersInput;
+  status?: "done" | "skipped";
+  /** How the answers came. Kept only when this patch changes an answer or finishes the profile. */
+  via?: ProfileVia;
+}
+
+const storedProfile = (raw: unknown): BusinessProfile | null => {
+  const parsed = BusinessProfileSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+};
+
+/**
+ * Change the brand's profile in one transaction:
+ * - the answers merge (an answer is changed, never cleared), and `rev` goes up when one changes;
+ * - `skipped` only replaces `started`, and `done` never goes back;
+ * - a brand with no profile, or a damaged one, gets one: `done`, unless the patch skips. Answers
+ *   given outside the welcome (Settings) finish nothing, so they never start the welcome's flow.
+ * Returns the profile before (null when there was none) and after, or null when there's no such
+ * brand. Writes nothing when nothing changes.
+ */
+export async function setBusinessProfile(
+  id: string,
+  patch: BusinessProfilePatch,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<{ before: BusinessProfile | null; after: BusinessProfile } | null> {
+  const input = ProfileAnswersInputSchema.parse(patch.answers ?? {});
+  const status = patch.status === undefined ? undefined : ProfileStatus.extract(["done", "skipped"]).parse(patch.status);
+  const via = patch.via === undefined ? undefined : ProfileVia.parse(patch.via);
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return null;
+    const before = storedProfile(snap.data()?.businessProfile);
+    const answers: ProfileAnswers = { ...(before?.answers ?? {}) };
+    let answered = false;
+    for (const key of PROFILE_KEYS) {
+      const value = input[key];
+      if (value !== undefined && value !== answers[key]) {
+        (answers as Record<string, string>)[key] = value;
+        answered = true;
+      }
+    }
+    const nextStatus: ProfileStatus = !before
+      ? (status ?? "done")
+      : status === "done" || (status === "skipped" && before.status === "started")
+        ? status
+        : before.status;
+    const moved = !before || nextStatus !== before.status;
+    if (before && !answered && !moved) return { before, after: before };
+    const now = new Date().toISOString();
+    const nextVia = via && (answered || (moved && nextStatus === "done")) ? via : before?.via;
+    const after: BusinessProfile = {
+      status: nextStatus,
+      ...(nextVia ? { via: nextVia } : {}),
+      answers,
+      rev: (before?.rev ?? 0) + (answered ? 1 : 0),
+      startedAt: before?.startedAt ?? now,
+      updatedAt: now,
+    };
+    tx.update(ref, { businessProfile: JSON.parse(JSON.stringify(after)), updatedAt: now });
+    return { before, after };
+  });
+}
+
+/**
+ * Something Vizzy knows about the brand changed beside the answers (a kept or removed fact): bump
+ * the profile's `rev` so Vizzy reads it again. Returns the new rev, or null without a profile.
+ */
+export async function bumpBusinessProfileRev(
+  id: string,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<number | null> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return null;
+    const before = storedProfile(snap.data()?.businessProfile);
+    if (!before) return null;
+    const now = new Date().toISOString();
+    const rev = before.rev + 1;
+    tx.update(ref, { businessProfile: JSON.parse(JSON.stringify({ ...before, rev, updatedAt: now })), updatedAt: now });
+    return rev;
+  });
 }
 
 /** Record the fonts found on the brand's website (null = forget them). Everything else is kept. */

@@ -5,7 +5,6 @@ import { actorOf, SUBJECT_ID, systemFieldId } from "@/lib/ontology/events";
 import { fieldChangedEvent } from "@/lib/ontology/eventBuilders";
 import { IDEA_LIMITS, IdeaStatusSchema, type Campaign, type Idea, type IdeaStatus } from "@/lib/types/campaign";
 import type { EventWrite } from "@/lib/types/ontologyEvent";
-import { flagPeopleIn } from "@/lib/audience/personSync";
 
 /**
  * Change a launch's idea (LAUNCH_IDEAS_ENABLED): its hypothesis, status, outcome, hand-off and
@@ -16,7 +15,9 @@ import { flagPeopleIn } from "@/lib/audience/personSync";
  *
  * Closing the waitlist (only with the idea parked or killed) runs after the commit, so a close
  * that fails never undoes the status: the result says whether it closed. Ticking or unticking Just a
- * list flags the launch's people for a full sync, so "in more than one launch" follows it.
+ * list records, in the same commit, that the launch's people are owed a sync (`peopleResync`), so
+ * "in more than one launch" follows it: the lifecycle tick flags the ones whose tag can change, a
+ * page at a time (src/lib/ideas/people.ts), so a list of thousands never holds up the save.
  */
 
 /** What a change may set. Strict, so a typo is a 400 and never a stray field on the launch. */
@@ -123,8 +124,6 @@ export async function setIdea(ctx: TenantContext, campaignId: string, change: Id
   const who = { userId: userOf(ctx), actor: actor.id?.includes("@") ? { ...actor, id: null } : actor, nowIso };
 
   let written;
-  // Whether Just a list moved, as the committed plan saw it (a retried transaction plans again).
-  let listMoved = false;
   try {
     written = await writeRecordWithEvents(
       ctx,
@@ -134,8 +133,11 @@ export async function setIdea(ctx: TenantContext, campaignId: string, change: Id
         if (!current) return { reject: "not_found" };
         const planned = planIdea(current, change, who);
         if ("reject" in planned) return { reject: planned.reject };
-        listMoved = !!planned.idea.justAList !== !!current.idea?.justAList;
-        return planned.changed ? { patch: { idea: planned.idea }, events: planned.events } : null;
+        if (!planned.changed) return null;
+        // Just a list moved: its people are owed a sync, from the first page again.
+        const listMoved = !!planned.idea.justAList !== !!current.idea?.justAList;
+        const resync = listMoved ? { peopleResync: { owed: true as const, since: nowIso, cursor: null } } : {};
+        return { patch: { idea: planned.idea, ...resync }, events: planned.events };
       },
       { db: deps.db, nowIso },
     );
@@ -147,10 +149,6 @@ export async function setIdea(ctx: TenantContext, campaignId: string, change: Id
   if (!written.doc) return { ok: false, status: 404, error: "not_found" };
   const idea = written.doc.idea ?? {};
   const changed = written.outcome === "updated";
-  if (changed && listMoved) {
-    // Best effort, after the commit: a person missed is caught at their next sync.
-    await flagPeopleIn(ctx, `launch:${campaignId}`, deps.db).catch((err) => console.error(`[ideas] flagging the people of ${campaignId} failed`, err));
-  }
 
   let archived: boolean | null = null;
   if (change.closeWaitlist) {

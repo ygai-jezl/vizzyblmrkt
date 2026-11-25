@@ -2,11 +2,14 @@ import { forTenant, type WhereClause } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import { utcDayKey } from "@/lib/lifecycle/enrol";
+import { isIdeasEnabled } from "@/lib/ideas/flags";
+import { flagLaunchPeople } from "@/lib/ideas/people";
 import { loadPeopleConnections, syncPerson, syncProductLink, type PeopleConnections } from "./personSync";
 
 /**
  * The lifecycle tick's part in keeping person records right (AUDIENCE_PERSON_LINKS_ENABLED).
- * Every tick it rebuilds the people a write path couldn't sync (`needsSync`). Once a day,
+ * Every tick it rebuilds the people a write path couldn't sync (`needsSync`), after flagging those
+ * a launch's Just a list move owes one (LAUNCH_IDEAS_ENABLED, src/lib/ideas/people.ts). Once a day,
  * from PEOPLE_SWEEP_HOUR_UTC, it reads every product's people again, since a stage can
  * move with nothing written: New ends, Stuck and Quiet begin as the clocks pass.
  */
@@ -40,6 +43,11 @@ export async function sweepPeople(ctx: TenantContext, deps: PeopleSweepDeps): Pr
   const out: PeopleSweepResult = { synced: 0, checked: 0, failed: 0 };
   const repo = forTenant(ctx, deps.db);
   const connections = await loadPeopleConnections(ctx, deps.db);
+
+  // Launches whose Just a list moved: their people whose "in more than one launch" can change, synced below.
+  if (isIdeasEnabled()) {
+    await flagLaunchPeople(ctx, { db: deps.db, now: deps.now, deadlineMs: deps.deadlineMs }).catch((err) => warn("launch people flagging", ctx, err));
+  }
 
   // People a write path owed a sync. Each is tried once a tick, so one that keeps failing can't hold up the rest.
   const tried = new Set<string>();

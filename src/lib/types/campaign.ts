@@ -257,6 +257,10 @@ export const CampaignSchema = z.object({
   // OPTIONAL so every launch made before it reads cleanly. Written only by src/lib/ideas/service.ts,
   // never by the settings editor (toCampaignSettings leaves it out).
   idea: IdeaSchema.optional(),
+  // Just a list moved (LAUNCH_IDEAS_ENABLED): the people whose "in more than one launch" tag can
+  // change are owed a sync. The lifecycle tick flags them a page at a time from `cursor`, then clears
+  // this (src/lib/ideas/people.ts). `since` is when it moved, so a move meanwhile starts it over.
+  peopleResync: z.object({ owed: z.literal(true), since: z.string(), cursor: z.string().nullable() }).nullable().optional(),
 
   createdAt: z.string(),
 

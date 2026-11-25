@@ -183,16 +183,17 @@ describe("planIdea", () => {
 });
 
 describe("Just a list and People", () => {
-  it("flags the launch's people for a full sync when it moves, and not otherwise", async () => {
+  it("owes the launch's people a sync when it moves, in the same commit, and flags nobody before it answers", async () => {
     const db = world();
     db.seed("contacts", "ct_sam", { tenantId: "ten_A", memberOf: ["all", "launch:team-spaces", "launches:many"], sortKey: "2026-11-01|ct_sam", needsSync: false });
-    db.seed("contacts", "ct_kim", { tenantId: "ten_A", memberOf: ["all", "launch:offline-mode"], sortKey: "2026-11-02|ct_kim", needsSync: false });
-    await setIdea(admin, "team-spaces", { justAList: true }, { db });
-    expect(db.raw("contacts", "ct_sam")?.needsSync).toBe(true);
-    expect(db.raw("contacts", "ct_kim")?.needsSync).toBe(false);
-
-    db.seed("contacts", "ct_sam", { ...db.raw("contacts", "ct_sam"), needsSync: false });
-    await setIdea(admin, "team-spaces", { justAList: true, hypothesis: "Still a list." }, { db });
+    await setIdea(admin, "team-spaces", { justAList: true }, { db, nowIso: T1 });
+    expect(db.raw("campaigns", "team-spaces")?.peopleResync).toEqual({ owed: true, since: T1, cursor: null });
+    // The lifecycle tick flags them (src/lib/ideas/people.ts).
     expect(db.raw("contacts", "ct_sam")?.needsSync).toBe(false);
+
+    await setIdea(admin, "team-spaces", { justAList: true, hypothesis: "Still a list." }, { db, nowIso: T2 });
+    expect(db.raw("campaigns", "team-spaces")?.peopleResync).toMatchObject({ since: T1 });
+    await setIdea(admin, "team-spaces", { justAList: false }, { db, nowIso: T2 });
+    expect(db.raw("campaigns", "team-spaces")?.peopleResync).toEqual({ owed: true, since: T2, cursor: null });
   });
 });

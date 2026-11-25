@@ -39,9 +39,12 @@ Decided (the owner approved plan-piece-d with these picks):
    `launches:many` (`summarize` in `personLinks.ts`, through `derive()` in `personSync.ts`, so all
    three callers get it), while `LAUNCH_IDEAS_ENABLED` is on. It can't collide: launch ids have no
    colon, and no other tag starts `launches:`. A sync reads the brand's Just a list ids (an equality
-   read, no composite index) only for someone in two or more launches, and ticking or unticking Just
-   a list calls `flagPeopleIn(ctx, "launch:<id>")` so those people sync again. People filters by it
-   on both filter bars. Existing people get it from `backfill-person-links --contacts-only`.
+   read, no composite index) only for someone in two or more launches. Ticking or unticking Just a
+   list records `campaigns.peopleResync` in the same commit and answers; the lifecycle tick's person
+   sweep then flags, a page at a time from a cursor, only the people whose tag can change (ticked:
+   those with `launches:many` on that launch; unticked: those on it and another launch, without the
+   tag), so a newsletter of thousands never holds up the save. People filters by it on both filter
+   bars. Existing people get it from `backfill-person-links --contacts-only`.
    Rejected: counting every launch, which costs no read but shows someone on the newsletter and in
    one idea as "in more than one idea".
 4. **The words follow two switches.** The screens say idea only when nav v2 phase 3,

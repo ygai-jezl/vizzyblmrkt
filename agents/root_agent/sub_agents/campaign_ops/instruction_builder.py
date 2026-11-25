@@ -2,7 +2,8 @@
 
 Prepends the operator language directive (the shared session `locale`, set by the
 root agent's `[ctx:]` envelope callback) onto the static instruction so the
-specialist's relayed text matches the operator's language. Pure / ADK-free —
+specialist's relayed text matches the operator's language, and appends what the brand told Vizzy
+about its business when the root has it cached (context/business_profile.py). Pure / ADK-free —
 ReadonlyContext stays under TYPE_CHECKING — so it remains unit-testable without ADK.
 """
 
@@ -10,6 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ...context.business_profile import profile_block_for
 from ...context.language import language_directive
 from .prompts.instruction import CAMPAIGN_OPS_INSTRUCTION
 
@@ -22,6 +24,6 @@ def build_campaign_ops_instruction(ctx: "ReadonlyContext") -> str:
     state = getattr(ctx, "state", None) if ctx else None
     locale = state.get("locale") if state else None
     directive = language_directive(locale)
-    if directive:
-        return f"{directive}\n\n{CAMPAIGN_OPS_INSTRUCTION}"
-    return CAMPAIGN_OPS_INSTRUCTION
+    instruction = f"{directive}\n\n{CAMPAIGN_OPS_INSTRUCTION}" if directive else CAMPAIGN_OPS_INSTRUCTION
+    profile = profile_block_for(state)
+    return f"{instruction}\n\n{profile}" if profile else instruction

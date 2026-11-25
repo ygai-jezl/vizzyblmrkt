@@ -14,6 +14,7 @@ import { IMAGE_STYLES, imageStyleById, isStyleAvailable } from "@/lib/content/im
 import { isMoreStylesUiEnabled } from "@/lib/content/imageStyle/flags";
 import { isPreviewable } from "@/lib/content/imageStyle/preview";
 import { ImageStyleSwatch } from "./ImageStyleSwatch";
+import { useWords } from "../nav/WordsProvider";
 
 /** Vizzy's pending suggestion as the page shows it (who asked stays on the server). */
 export interface PendingImageStyleSuggestion {
@@ -32,6 +33,10 @@ const CHANNEL_LABELS: Record<ImageStyleChannel, string> = {
   ebook: "eBook images",
   launchEmail: "Launch email hero",
 };
+
+/** A channel's name. A launch's email is a waitlist email while launches are called ideas ("Idea email" reads oddly). */
+const channelLabel = (key: ImageStyleChannel, ideas: boolean): string =>
+  ideas && key === "launchEmail" ? "Waitlist email hero" : CHANNEL_LABELS[key];
 
 /** Channels a template style can be made for (the others take its model twin). */
 const TEMPLATE_CHANNELS: ReadonlySet<ImageStyleChannel> = new Set(["blogHero", "linkedin", "x", "instagram"]);
@@ -66,6 +71,7 @@ export function ImageStyleCard({
   canEdit: boolean;
 }) {
   const router = useRouter();
+  const { ideas } = useWords();
   const [saved, setSaved] = useState<StoredImageStyle | null>(initial);
   const [draft, setDraft] = useState<ImageStyleInput>(() => toDraft(initial));
   const [reviewing, setReviewing] = useState<string | null>(null);
@@ -277,7 +283,7 @@ export function ImageStyleCard({
             const choices = IMAGE_STYLES.filter((s) => isStyleAvailable(s, isMoreStylesUiEnabled()) && (s.engine === "model" || TEMPLATE_CHANNELS.has(key)));
             return (
               <label key={key} className="contents">
-                <span className="text-sm text-neutral-700 dark:text-neutral-300">{CHANNEL_LABELS[key]}</span>
+                <span className="text-sm text-neutral-700 dark:text-neutral-300">{channelLabel(key, ideas)}</span>
                 <select
                   value={draft.channels[key] ?? ""}
                   onChange={(e) => setChannel(key, e.target.value)}

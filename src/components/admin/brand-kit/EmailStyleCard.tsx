@@ -64,6 +64,8 @@ import { hasWhiteBackground } from "./logoCleanup";
 import { LogoCleanupPanel } from "./LogoCleanupPanel";
 import { HeaderImagePicker } from "./HeaderImagePicker";
 import type { EmailHeaderImageChoice } from "./headerImage";
+import { ideaWord, type IdeaWord } from "@/lib/nav/terms";
+import { useWords } from "../nav/WordsProvider";
 
 /**
  * Brand › Email style: the header band (logo, optional company name, header colour) and the
@@ -372,6 +374,7 @@ export function EmailStyleCard({
    */
   transactional?: boolean;
 }) {
+  const about = previewAbout(ideaWord(useWords().ideas));
   // Logos cleaned up here, and the primary the server kept in place when one was added.
   const [added, setAdded] = useState<EmailStyleLogoChoice[]>([]);
   const [pinned, setPinned] = useState<string | null>(null);
@@ -1176,12 +1179,12 @@ export function EmailStyleCard({
           <PreviewPills label="Preview as" options={FONT_VIEWS} value={fontView} onChange={setFontView} />
         ) : null}
         <iframe
-          title={PREVIEW_ABOUT[shown].title}
+          title={about[shown].title}
           sandbox=""
           srcDoc={previewHtml}
           className="h-[480px] w-full rounded-md border border-neutral-200 bg-white dark:border-neutral-800"
         />
-        <p className={HINT}>{PREVIEW_ABOUT[shown].caption}</p>
+        <p className={HINT}>{about[shown].caption}</p>
         {shown !== "welcome" && previewStyle?.headerImage ? (
           <p className={HINT}>This email shows the colour header, not your image, so it doesn&rsquo;t look like a campaign.</p>
         ) : null}
@@ -1201,7 +1204,8 @@ const PREVIEW_EMAILS = [
 ] as const;
 
 /** The preview's frame title and the line under it, for each email. */
-const PREVIEW_ABOUT: Record<PreviewEmail, { title: string; caption: string }> = {
+/** What each preview shows; `w` names a launch, or an idea while the words are on. */
+const previewAbout = (w: IdeaWord): Record<PreviewEmail, { title: string; caption: string }> => ({
   welcome: {
     title: "Preview of a branded email",
     caption: "A sample welcome email. Letters stay plain, with no header.",
@@ -1212,9 +1216,9 @@ const PREVIEW_ABOUT: Record<PreviewEmail, { title: string; caption: string }> = 
   },
   offboarding: {
     title: "Preview of the offboarding email",
-    caption: "A sample offboarding email, with the default words. Only its look changes: a launch's own words stay the same.",
+    caption: `A sample offboarding email, with the default words. Only its look changes: ${w.a}'s own words stay the same.`,
   },
-};
+});
 
 const FONT_VIEWS = [
   ["apple", "As Apple Mail sees it"],

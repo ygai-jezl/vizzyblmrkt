@@ -127,7 +127,7 @@ export function InvitesClient({
   const fail = (data: unknown) => {
     const d = (data ?? {}) as { error?: string; detail?: string };
     const lock = d.error === "invites_locked" && d.detail ? inviteLockText(d.detail as InviteLockReason, ideas) : null;
-    setMessage({ tone: "err", text: lock ?? errorText(data) });
+    setMessage({ tone: "err", text: lock ?? errorText(data, ideas) });
   };
 
   /** Save the draft (create or update) and return its id. */

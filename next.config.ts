@@ -50,11 +50,12 @@ const nextConfig: NextConfig = {
         value: "max-age=63072000; includeSubDomains; preload",
       },
     ];
-    // Permissions-Policy is per-surface: only the public waitlist pages and the
-    // embeddable widget may use the microphone (the optional Gemini Live voice
-    // conversation). Everything else keeps it disabled. Sources below are
-    // mutually exclusive so a single Permissions-Policy lands on every route
-    // (no duplicate/conflicting header).
+    // Permissions-Policy is per-surface: only the public waitlist pages, the
+    // embeddable widget and the admin welcome page (Talk with Vizzy) may use the
+    // microphone (Gemini Live voice). Everything else keeps it disabled. Sources
+    // below are mutually exclusive so a single Permissions-Policy lands on every
+    // route (no duplicate/conflicting header):
+    // scripts/config/permissions-policy.test.ts checks it with Next's own matcher.
     const noDevices = {
       key: "Permissions-Policy",
       value: "camera=(), microphone=(), geolocation=()",
@@ -109,11 +110,21 @@ const nextConfig: NextConfig = {
         headers: [...baseline, ...lockedFrame, micSelf],
       },
       {
+        // Talk with Vizzy: the only admin page that may use the microphone. The
+        // exact path only: the questions and Learned pages under it keep it off.
+        // The page loads itself once when it arrives by a soft navigation, since
+        // the header belongs to the document (WelcomeScreen.tsx).
+        source: "/admin/welcome",
+        headers: [...baseline, ...lockedFrame, micSelf],
+      },
+      {
         // Every route EXCEPT the embed widget, the waitlist pages, the admin
-        // preview frame, and the homepage (all handled above). The negative
-        // lookahead also skips /embed.js; the trailing `.+` (not `.*`) excludes the
-        // bare homepage `/`, which has its own mic-enabled rule above.
-        source: "/((?!embed|waitlist|admin-preview/[^/]+).+)",
+        // preview frame, the welcome page and the homepage (all handled above).
+        // The negative lookahead also skips /embed.js; `admin/welcome/?$` skips
+        // that exact page only (Next also matches it with a trailing slash); the
+        // trailing `.+` (not `.*`) excludes the bare homepage `/`, which has its
+        // own mic-enabled rule above.
+        source: "/((?!embed|waitlist|admin-preview/[^/]+|admin/welcome/?$).+)",
         headers: [...baseline, ...lockedFrame, noDevices],
       },
       {

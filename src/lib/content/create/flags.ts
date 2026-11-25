@@ -20,3 +20,13 @@ export function isSuggestAngleEnabled(): boolean {
 export function isAiDraftKeptEnabled(): boolean {
   return process.env.CONTENT_AI_DRAFT_KEPT_ENABLED === "true";
 }
+
+/**
+ * Keep the AI original of every piece a writer makes (the article, its teaser, promo and posts),
+ * with the prompt, model and sources that made it, and how a person changed it before approving
+ * it (ai_originals). Off: nothing is kept and nothing changes.
+ */
+export function isAiOriginalsEnabled(): boolean {
+  return process.env.CONTENT_AI_ORIGINALS_ENABLED === "true";
+}
+

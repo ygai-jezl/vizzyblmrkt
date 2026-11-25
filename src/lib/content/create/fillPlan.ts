@@ -10,6 +10,7 @@ import { askOfPlan, loadArticleMap, type MapDeps } from "@/lib/content/blog/mapA
 import { syncPlanPageSoftly } from "@/lib/content/blog/pageActions";
 import { wakeLiveWatch } from "@/lib/content/blog/liveWatchWake";
 import { saveVersion } from "@/lib/content/blog/versions";
+import { pinOriginal } from "./aiOriginals";
 
 /**
  * Fill plan nodes with copy. Shared by the Create canvas's per-node route and
@@ -114,6 +115,14 @@ export async function fillPlanNode(
     return { ok: false, status: 422, error: "invalid_node" };
   }
   if (!updated) return { ok: false, status: 404, error: "node_not_found" };
+  // The copy as the writer made it, kept beside the copy a person will edit (CONTENT_AI_ORIGINALS_ENABLED).
+  if (patch.made && updated.status === "generated") {
+    await pinOriginal(
+      ctx,
+      { plan, node: updated, body: updated.body, meta: { metaTitle: updated.blog?.metaTitle, metaDescription: updated.blog?.metaDescription }, made: patch.made },
+      { db: deps.db },
+    ).catch((err) => console.error("[ai originals] pinning a draft failed", err));
+  }
 
   // Flip to "ready" once nothing is left empty/generating. Read FRESH state after the
   // node transaction committed (not the pre-update snapshot) so concurrent per-node

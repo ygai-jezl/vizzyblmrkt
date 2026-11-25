@@ -856,4 +856,6 @@ export async function deleteContentPlan(
   if (kept && kept.workspaceId === workspaceId) await repo.articleVersions.delete(kept.id).catch(() => undefined);
   const review = await repo.articleReviews.getById(`ar_${planId}`).catch(() => null);
   if (review && review.workspaceId === workspaceId) await repo.articleReviews.delete(review.id).catch(() => undefined);
+  // Each piece's AI original goes with it too (CONTENT_AI_ORIGINALS_ENABLED). A plan written with it off has none.
+  await repo.aiOriginals.deleteWhere([["planId", "==", planId], ["workspaceId", "==", workspaceId]]).catch(() => 0);
 }

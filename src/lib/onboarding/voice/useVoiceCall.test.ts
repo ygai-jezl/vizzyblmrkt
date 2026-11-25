@@ -133,6 +133,7 @@ describe("a Talk with Vizzy call", () => {
   it("counts down from the open connection, says [Time] once with a minute left, and ends at 0", async () => {
     const h = harness({ end: { status: 200, body: { learned: true, answers: {} } } });
     await talking(h);
+    h.message(heard("member", "We sell plants"));
     h.later(239);
     h.tick();
     expect(h.ctl.view.secondsLeft).toBe(61);
@@ -306,5 +307,80 @@ describe("a Talk with Vizzy call", () => {
     expect(h.deps.connect).not.toHaveBeenCalled();
     expect(h.calls).toEqual([]);
     expect(h.track.stop).toHaveBeenCalled();
+  });
+
+  it("tries the end again with a wait when it fails, then shows what was learned", async () => {
+    const h = harness({ end: [{ status: 500, body: {} }, { status: 429, body: { error: "rate_limited" } }, { status: 200, body: { learned: true, answers: { who: "solo" }, kept: true } }] });
+    const waits: number[] = [];
+    h.deps.sleep = async (ms: number) => void waits.push(ms);
+    await talking(h);
+    h.message(heard("member", "Just me"));
+    h.ctl.end();
+    await h.settle();
+    expect(h.calls.filter((c) => c.url.endsWith("/end"))).toHaveLength(3);
+    expect(waits).toEqual([1000, 2000]);
+    expect(h.ctl.view).toMatchObject({ phase: "ended", ended: { learning: false, heard: { who: "solo" } } });
+  });
+
+  it("never links to what Vizzy learned when the end didn't reach the server: the call dropped, its words so far are kept", async () => {
+    const h = harness({ end: { status: 500, body: {} } });
+    await talking(h);
+    h.message(heard("member", "We sell plants"));
+    h.ctl.end();
+    await h.settle();
+    expect(h.calls.filter((c) => c.url.endsWith("/end"))).toHaveLength(4);
+    expect(h.ctl.view).toMatchObject({ phase: "mic", problem: "dropped", ended: null });
+
+    // Signed out or refused: trying again won't help, so once.
+    const out = harness({ end: { status: 401, body: { error: "unauthorized" } } });
+    await talking(out);
+    out.message(heard("member", "We sell plants"));
+    out.ctl.end();
+    await out.settle();
+    expect(out.calls.filter((c) => c.url.endsWith("/end"))).toHaveLength(1);
+    expect(out.ctl.view).toMatchObject({ phase: "mic", problem: "dropped" });
+  });
+
+  it("goes back to the welcome when End is pressed before they said anything: nothing is kept", async () => {
+    const h = harness({ end: { status: 200, body: { learned: false, answers: {}, kept: false } } });
+    await talking(h);
+    h.message(heard("vizzy", "Hi! Tell me about your shop.", true));
+    h.later(6);
+    h.ctl.end();
+    await h.settle();
+    expect(h.calls.at(-1)).toMatchObject({ url: "/api/admin/onboarding/conversations/oc_1/end", body: { reason: "person" } });
+    expect(h.ctl.view).toMatchObject({ phase: "first", ended: null, problem: null });
+    // And a new call can start.
+    h.ctl.start();
+    expect(h.ctl.view.phase).toBe("mic");
+  });
+
+  it("shows no review when the server kept nothing from the member", async () => {
+    const h = harness({ end: { status: 200, body: { learned: false, answers: {}, kept: false } } });
+    await talking(h);
+    h.message(heard("member", "Hello?"));
+    h.ctl.end();
+    await h.settle();
+    expect(h.ctl.view).toMatchObject({ phase: "mic", problem: "unavailable", ended: null });
+  });
+
+  it("ends a call whose start came back after the screen went, with keepalive", async () => {
+    const h = harness();
+    let answer: (r: Response) => void = () => {};
+    const real = h.deps.fetch;
+    h.deps.fetch = vi.fn((url: string, init: RequestInit) =>
+      url.endsWith("/voice/start")
+        ? new Promise<Response>((resolve) => {
+            answer = resolve;
+          })
+        : real(url, init),
+    );
+    h.ctl.start();
+    await h.settle();
+    h.ctl.leave();
+    answer(new Response(JSON.stringify({ conversationId: "oc_2", token: "tok", model: "m", callSeconds: 300 }), { status: 200 }));
+    await h.settle();
+    expect(h.deps.connect).not.toHaveBeenCalled();
+    expect(h.calls.at(-1)).toEqual({ url: "/api/admin/onboarding/conversations/oc_2/end", body: { reason: "error" }, keepalive: true });
   });
 });

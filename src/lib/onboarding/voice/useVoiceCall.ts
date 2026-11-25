@@ -36,8 +36,11 @@ import {
  */
 
 export type VoicePhase = "first" | "mic" | "talking" | "ended";
-/** Why a call couldn't start, or stopped before anyone spoke. */
-export type VoiceProblem = "blocked" | "used_today" | "full" | "unavailable";
+/**
+ * Why a call couldn't start, stopped before anyone spoke, or (`dropped`) ended without the server
+ * hearing of it: what was sent before is kept, and there is nothing to review yet.
+ */
+export type VoiceProblem = "blocked" | "used_today" | "full" | "unavailable" | "dropped";
 
 export interface EndedCall {
   conversationId: string;
@@ -140,6 +143,17 @@ const JSON_HEADERS = { "content-type": "application/json" };
 const SILENT = "SILENT" as FunctionResponseScheduling;
 /** Quiet this long after Vizzy's last sound counts as its goodbye being over. */
 const QUIET_MS = 1_200;
+/** Tries at sending the end, waiting 1, 2 then 4 seconds between them. Ending again is safe. */
+const END_TRIES = 4;
+const END_WAIT_MS = 1_000;
+
+/** What the end of a call came to on the server. */
+interface EndResult {
+  /** The member's words are kept (false: the member never spoke, so the server didn't keep it). */
+  kept: boolean;
+  learned: boolean;
+  heard: Partial<Record<ProfileKey, string>>;
+}
 
 function problemFor(status: number, error: unknown): VoiceProblem {
   if (error === "voice_used_today" || error === "voice_starts_used") return "used_today";
@@ -252,7 +266,8 @@ export class VoiceCallController {
     } catch {
       return this.refuse(gen, "unavailable");
     }
-    if (gen !== this.gen) return;
+    // The screen went while the start was on its way (Back, a link): end the call it made at once.
+    if (gen !== this.gen) return this.endUnused(started.conversationId);
     this.conversationId = started.conversationId;
     const seconds = Number(started.callSeconds);
     this.callSeconds = Number.isFinite(seconds) ? Math.min(600, Math.max(30, Math.floor(seconds))) : CALL_SECONDS;
@@ -447,20 +462,43 @@ export class VoiceCallController {
     }
   }
 
-  /** The rest of the words and the end, which learns. Null when it couldn't be sent. */
-  private async sendEnd(reason: EndReason): Promise<{ learned: boolean; heard: Partial<Record<ProfileKey, string>> } | null> {
+  /** A call started for a screen that has gone: ended now, as the page may be closing, so it is never left open. */
+  private endUnused(conversationId: string): void {
+    try {
+      void this.deps
+        .fetch(`${API}/conversations/${conversationId}/end`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ reason: "error" }), keepalive: true })
+        .catch(() => {});
+    } catch {
+      /* the page is gone */
+    }
+  }
+
+  /**
+   * The rest of the words and the end, which learns. A failed try (offline, a limit, the server)
+   * is tried again, up to 4 times; ending again is safe. Learning that gave nothing (502
+   * learn_failed) is tried once more, and the call is ended and kept either way. Null when the end
+   * never reached the server: the call is still open there, with the words sent before.
+   */
+  private async sendEnd(reason: EndReason): Promise<EndResult | null> {
     if (!this.conversationId) return null;
     const upload = nextUpload(turnsForUpload(this.view.transcript.lines), this.sentTurns, this.notes.slice(this.sentNotes));
     const body = JSON.stringify(this.uploadsStopped ? { reason } : { ...upload, reason });
-    // Learning that gave nothing (502) is tried once more: the server keeps the call either way.
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    let learnTried = false;
+    for (let attempt = 0; attempt < END_TRIES; attempt += 1) {
+      if (attempt > 0) await this.deps.sleep(END_WAIT_MS * 2 ** (attempt - 1));
       try {
         const res = await this.deps.fetch(`${API}/conversations/${this.conversationId}/end`, { method: "POST", headers: JSON_HEADERS, body });
         const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-        if (res.ok) return { learned: data.learned === true, heard: heardFrom(data.answers) };
-        if (res.status !== 502) return null;
+        if (res.ok) return { kept: data.kept !== false, learned: data.learned === true, heard: heardFrom(data.answers) };
+        if (res.status === 502 && data.error === "learn_failed") {
+          if (learnTried) return { kept: true, learned: false, heard: {} };
+          learnTried = true;
+          continue;
+        }
+        // Signed out, refused or gone: trying again won't change it.
+        if (res.status !== 429 && res.status < 500) return null;
       } catch {
-        if (attempt === 1) return null;
+        /* offline for a moment: try again */
       }
     }
     return null;
@@ -475,10 +513,12 @@ export class VoiceCallController {
     const spoke = transcript.lines.some((l) => l.who === "member");
     this.set({ transcript });
 
-    if (dropped && !spoke) {
-      await this.sendEnd("error");
+    // Nothing said: nothing is kept (the server deletes a call with no words from the member), so
+    // a dropped call says voice isn't available, and any other end goes back to the welcome.
+    if (!spoke) {
+      await this.sendEnd(dropped ? "error" : reason);
       this.busy = false;
-      this.set({ phase: "mic", problem: "unavailable" });
+      this.set(dropped ? { phase: "mic", problem: "unavailable" } : { ...INITIAL_VOICE_VIEW });
       return;
     }
 
@@ -495,8 +535,14 @@ export class VoiceCallController {
     }
     const result = await this.sendEnd(reason);
     this.busy = false;
+    // No review without an end the server has: the call dropped, its words so far are kept. And
+    // none when the server kept nothing from the member.
+    if (!result || !result.kept) {
+      this.set({ phase: "mic", problem: result ? "unavailable" : "dropped", ended: null });
+      return;
+    }
     const ended = this.view.ended!;
-    this.set({ ended: { ...ended, learning: false, heard: result?.learned ? result.heard : ended.heard } });
+    this.set({ ended: { ...ended, learning: false, heard: result.learned ? result.heard : ended.heard } });
   }
 
   /** The page is going away mid call: send what's left as it closes, and stop everything. */

@@ -83,7 +83,10 @@ export default function GetSetUpHelp({
                   [VOICE_WORDS.usedToday, "Answer the 4 quick questions now, or talk with Vizzy tomorrow (UTC)."],
                   [VOICE_WORDS.full, "Delete a conversation you no longer need in Settings, under About your business."],
                   [VOICE_WORDS.unavailable, "Answer the 4 quick questions, or try again later."],
-                  [VOICE_WORDS.dropped, "Choose See what I learned: Vizzy works from the words you said before it dropped."],
+                  [
+                    VOICE_WORDS.dropped,
+                    "Choose See what I learned when it shows: Vizzy works from the words you said before it dropped. When it doesn't, your words so far are in Settings, under About your business, and you can answer the 4 quick questions instead.",
+                  ],
                 ]}
               />
             </>

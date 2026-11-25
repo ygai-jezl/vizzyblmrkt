@@ -223,10 +223,13 @@ describe("kept conversations", () => {
     const long = await started(db);
     const late = await endConversation(A, long.id, { reason: "time" }, deps(db, T0 + 7 * 60_000));
     expect(late.ok && late.value.conversation.meteredSeconds).toBe(ONBOARDING_LIMITS.MAX_CALL_SEC);
-    // A call left open counts its token's whole life.
+    // A call left open counts what it evidently ran: its last line, or nothing without one.
     const open = await started(db);
-    const [closed] = await closeStaleConversations(A, deps(db, T0 + 30 * 60_000));
-    expect(closed).toMatchObject({ id: open.id, meteredSeconds: 360 });
+    await appendTurns(A, open.id, { from: 0, turns: [say("v", "Hi there", 1), say("m", "We sell plants", 140)] }, deps(db, T0 + 150_000));
+    const silent = await started(db);
+    const closed = await closeStaleConversations(A, deps(db, T0 + 30 * 60_000));
+    expect(closed.find((c) => c.id === open.id)).toMatchObject({ lengthSec: 140, meteredSeconds: 140 });
+    expect(closed.find((c) => c.id === silent.id)).toMatchObject({ lengthSec: 0, meteredSeconds: 0 });
     // A chat counts none.
     const chat = await startConversation(A, { model: "text-model", source: "chat" }, deps(db));
     const ended = chat.ok ? await endConversation(A, chat.value.id, { reason: "person" }, deps(db, T0 + 90_000)) : null;

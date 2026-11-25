@@ -44,7 +44,10 @@ questions, or Skip) and moved Home's next action card to PR B. ADR-0016 is piece
    minutes. The model is `GEMINI_ONBOARDING_LIVE_MODEL`. Each brand has one finished call and 3
    starts a UTC day (`claimVoiceStart`), kept on the brand record so deleting a conversation can't
    give the day back. `onboarding_voice` is a metered feature in every plan, counted as
-   `voice_seconds` once, when the call ends. `ONBOARDING_VOICE_ENABLED` stays off in prod until the
+   `voice_seconds` once, when the call ends. A call where the member never spoke is counted, then
+   deleted, so it never lists or counts toward the 20. A call left open (no end reached the
+   server) is closed by the brand's next start, counted by its last line, and leaves the day; the
+   browser tries the end 4 times and, failing, shows the call dropped with no review. `ONBOARDING_VOICE_ENABLED` stays off in prod until the
    owner checks AI Studio's terms (billing on, the DPA and privacy policy name the Gemini API).
 6. **What was learned fails closed.** One text model call in JSON mode, then zod and code checks: an
    answer or a fact survives only when its words are inside ONE member turn (ignoring case, spacing
@@ -105,6 +108,8 @@ Rejected:
 - A daily cap counted from kept conversations: deleting one would give the day back.
 - Metering a call on every upload: `record()` adds a call each time, so seconds are counted once, at
   the end, and a stale call is closed and counted by the brand's next start.
+- Metering a stale call's whole 6 minute window: nothing says how long a call nobody ended was open,
+  so it counts its last line.
 
 What it costs: no new service, no new dependency, no composite index; 2 collections, 3 tenant
 fields, 1 meter resource, 1 metered feature, 2 switches. One text model call per call learned
@@ -123,6 +128,9 @@ Gaps and follow-ups:
   to 10 minutes after the switch goes off.
 - Brands created but never used before switch day qualify for the welcome (say so in the release
   note).
+- A call ended by closing its tab, or left open (a crash), is kept, but nobody reviews what Vizzy
+  learned from it (a call left open isn't learned from at all): no screen leads back to an
+  unconfirmed call's review. Its words are in About your business.
 - Existing, not new: the `page` and `personId` instruction blocks lag one model call, because ADK
   builds the instruction before the envelope callback runs.
 

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { learnFromConversation } from "@/lib/onboarding/learn";
 import { badId, fail, invalidInput, limitPerUser, ok, onboardingAdmin, readJsonBody, refused } from "@/lib/onboarding/api";
 import { endConversation, mayLearn, saveLearned } from "@/lib/onboarding/store";
-import { afterCallEnded } from "@/lib/onboarding/voice/calls";
+import { afterCallEnded, dropIfSilent } from "@/lib/onboarding/voice/calls";
 import { heardAnswers } from "@/lib/onboarding/voice/topics";
 import { aiUsage } from "@/lib/plans/meter";
 import { getTenantById } from "@/lib/tenant";
@@ -35,8 +35,9 @@ const Body = z
  * End a Talk with Vizzy call (ONBOARDING_VOICE_ENABLED; admins; the admin who started it), then
  * learn from it. The call that ends it counts its seconds once and, when someone spoke, uses up
  * the brand's call for the day. Learning that gives nothing is 502; ending again tries it again,
- * up to 3 tries. Answers `{ lengthSec, covered, answers, learned }`: the topics heard (what was
- * learned, else Vizzy's notes), so the screen can say what it heard.
+ * up to 3 tries. Answers `{ lengthSec, covered, answers, learned, kept }`: the topics heard (what
+ * was learned, else Vizzy's notes), so the screen can say what it heard. A call where the member
+ * never spoke is counted, then deleted (`kept: false`): there is nothing to learn or keep.
  */
 export async function POST(req: Request, { params }: RouteParams) {
   const g = await onboardingAdmin(req, { need: "voice" });
@@ -57,6 +58,9 @@ export async function POST(req: Request, { params }: RouteParams) {
   if (!ended.ok) return refused(ended);
   let conversation = ended.value.conversation;
   if (!ended.value.already) await afterCallEnded(ctx, conversation);
+  if (await dropIfSilent(ctx, conversation)) {
+    return ok({ lengthSec: conversation.lengthSec ?? 0, covered: [], answers: {}, learned: false, kept: false });
+  }
 
   if (mayLearn(conversation)) {
     const tenant = await getTenantById(ctx.tenantId).catch(() => null);
@@ -76,5 +80,6 @@ export async function POST(req: Request, { params }: RouteParams) {
     covered: PROFILE_KEYS.filter((k): k is ProfileKey => answers[k] !== undefined),
     answers,
     learned: learned !== null,
+    kept: true,
   });
 }

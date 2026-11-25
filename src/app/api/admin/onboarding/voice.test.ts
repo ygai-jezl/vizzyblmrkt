@@ -223,16 +223,29 @@ describe("POST /api/admin/onboarding/voice/start", () => {
     warn.mockRestore();
   });
 
-  it("closes and counts a call left open before starting another", async () => {
+  it("closes and counts a call left open before starting another, by the seconds it evidently ran", async () => {
     const id = await started();
+    await postTurns(id, { from: 0, turns: [HELLO, SOLO, { ...SHOP, atSec: 95 }] });
     const startedAt = new Date(Date.now() - 20 * 60_000).toISOString();
     patchConversation(id, { startedAt, expiresAt: new Date(Date.parse(startedAt) + 8 * 60_000).toISOString() });
     expect((await postStart()).status).toBe(200);
     const closed = await store.getConversation(A, id, { db });
-    expect(closed).toMatchObject({ status: "ended", endReason: "closed", meteredSeconds: 360 });
-    expect((await usageThisMonth(A, { db })).voice_seconds).toMatchObject({ total: 360, calls: 1, byPurpose: { onboarding_voice: 360 } });
-    // Nobody spoke on it, so the day isn't used up.
+    // Its last line, not the whole window: nothing says how long a call nobody ended was open.
+    expect(closed).toMatchObject({ status: "ended", endReason: "closed", lengthSec: 95, meteredSeconds: 95 });
+    expect((await usageThisMonth(A, { db })).voice_seconds).toMatchObject({ total: 95, calls: 1, byPurpose: { onboarding_voice: 95 } });
+    // The member spoke, but the call never ended, so no one saw what Vizzy learned: the day isn't used up.
     expect((await getTenantById("ten_A", db))?.onboardingVoice).toMatchObject({ starts: 2, done: false });
+  });
+
+  it("deletes a call left open where the member never spoke, counting none of it", async () => {
+    const id = await started();
+    await postTurns(id, { from: 0, turns: [HELLO] });
+    const startedAt = new Date(Date.now() - 20 * 60_000).toISOString();
+    patchConversation(id, { startedAt, expiresAt: new Date(Date.parse(startedAt) + 8 * 60_000).toISOString() });
+    expect((await postStart()).status).toBe(200);
+    expect(await store.getConversation(A, id, { db })).toBeNull();
+    expect((await usageThisMonth(A, { db })).voice_seconds).toMatchObject({ total: 1 });
+    expect(await store.countConversations(A, { db })).toBe(1);
   });
 
   it("429s over the rate limit", async () => {
@@ -280,7 +293,8 @@ describe("POST /api/admin/onboarding/conversations/[id]/turns", () => {
 
   it("409s a call that has ended or whose time has passed", async () => {
     const id = await started();
-    await postEnd(id, { reason: "person" });
+    // Kept (the member spoke), and dropped, so the day still has its starts.
+    await postEnd(id, { from: 0, turns: [HELLO, SOLO], reason: "error" });
     let res = await postTurns(id, { from: 0, turns: [HELLO] });
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: "conversation_closed" });
@@ -332,7 +346,7 @@ describe("POST /api/admin/onboarding/conversations/[id]/end", () => {
     await postTurns(id, { from: 0, turns: [HELLO, SOLO] });
     let res = await postEnd(id, { from: 2, turns: [SHOP], notes: [{ topic: "run", choice: "shop" }], reason: "person" });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ lengthSec: expect.any(Number), covered: ["who", "run"], answers: { who: "solo", run: "shop" }, learned: true });
+    expect(await res.json()).toEqual({ lengthSec: expect.any(Number), covered: ["who", "run"], answers: { who: "solo", run: "shop" }, learned: true, kept: true });
     const c = await store.getConversation(A, id, { db });
     expect(c).toMatchObject({ status: "ended", endReason: "person", learnTries: 1 });
     expect(c!.turns).toHaveLength(3);
@@ -352,6 +366,29 @@ describe("POST /api/admin/onboarding/conversations/[id]/end", () => {
     expect((await res.json()).learned).toBe(true);
     expect((await usageThisMonth(A, { db })).voice_seconds).toMatchObject({ calls: 1 });
     expect(gemini.generate).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts, then deletes, a call where the member never spoke: it isn't kept, listed or learned from", async () => {
+    // It never connected: the browser ends it at once.
+    const never = await started();
+    let res = await postEnd(never, { reason: "error" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ lengthSec: 0, covered: [], answers: {}, learned: false, kept: false });
+    expect(await store.getConversation(A, never, { db })).toBeNull();
+
+    // Vizzy said hello and the person pressed End before saying anything.
+    const quiet = await started();
+    patchConversation(quiet, { startedAt: new Date(Date.now() - 40_000).toISOString() });
+    res = await postEnd(quiet, { from: 0, turns: [HELLO], reason: "person" });
+    expect((await res.json()).kept).toBe(false);
+    expect(await store.getConversation(A, quiet, { db })).toBeNull();
+    expect(await store.listConversations(A, { db })).toEqual([]);
+    expect(await store.countConversations(A, { db })).toBe(0);
+    // Its seconds still count (the Live call ran), and no model call was made.
+    expect((await usageThisMonth(A, { db })).voice_seconds?.total).toBeGreaterThanOrEqual(40);
+    expect(gemini.generate).not.toHaveBeenCalled();
+    // A repeat finds nothing.
+    expect((await postEnd(quiet, { reason: "person" })).status).toBe(404);
   });
 
   it("uses up the brand's day only when someone spoke and the call didn't drop", async () => {
@@ -386,7 +423,7 @@ describe("POST /api/admin/onboarding/conversations/[id]/end", () => {
     expect((await store.getConversation(A, id, { db }))!.learnTries).toBe(3);
     const res = await postEnd(id, body);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ lengthSec: expect.any(Number), covered: [], answers: {}, learned: false });
+    expect(await res.json()).toEqual({ lengthSec: expect.any(Number), covered: [], answers: {}, learned: false, kept: true });
     // Counted once, on the first end.
     expect((await usageThisMonth(A, { db })).voice_seconds).toMatchObject({ calls: 1 });
   });

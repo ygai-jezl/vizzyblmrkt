@@ -28,6 +28,7 @@ const PROBLEM_WORDS: Record<VoiceProblem, string> = {
   used_today: VOICE_WORDS.usedToday,
   full: VOICE_WORDS.full,
   unavailable: VOICE_WORDS.unavailable,
+  dropped: VOICE_WORDS.dropped,
 };
 
 /** Focus the screen's heading when it appears, so a screen reader starts there. */

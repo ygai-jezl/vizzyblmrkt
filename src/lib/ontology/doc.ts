@@ -1,11 +1,15 @@
+import type { CallSites } from "@/lib/loops/callSites";
+import { renderLearningSection } from "@/lib/loops/learningDoc";
 import { ONTOLOGY } from "./registry";
 import type { NumberDecision, OntologyType, PathDecision, PathTrigger, Place, SearchDecision, StoreDb, StoreRef } from "./types";
 import { PLACES } from "./types";
 
 /**
- * docs/ONTOLOGY.md, rendered from the registry (src/lib/ontology/registry.ts). Written by
- * `npm run ontology:doc` (scripts/ontology-doc.ts) and checked by doc.test.ts, so the file always
- * matches the registry. Registry order, no dates: the same registry gives the same file.
+ * docs/ONTOLOGY.md, rendered from the registry (src/lib/ontology/registry.ts), with the Learning
+ * section from the learning registry (src/lib/loops/registry.ts) and the call sites the script
+ * finds (src/lib/loops/callSites.ts). Written by `npm run ontology:doc` (scripts/ontology-doc.ts)
+ * and checked by doc.test.ts, so the file always matches both registries and the code. Registry
+ * order, no dates of its own: the same inputs give the same file. Pure: the call sites come in.
  * Repo paths go in code spans so npm run agents:check checks they exist.
  */
 
@@ -100,7 +104,9 @@ function typeSection(t: OntologyType): string[] {
   if (t.personFields?.length) {
     lines.push(`- Person fields: ${t.personFields.map((f) => `${code(f.field)} ${f.stampedAtWrite ? "(written with the row)" : "(not written with the row yet)"}`).join(", ")}`);
   }
-  lines.push(...pathLines("Erase", t.erase), ...pathLines("Export", t.export), searchLine(t.search), numbersLine(t.numbers), "");
+  lines.push(...pathLines("Erase", t.erase), ...pathLines("Export", t.export), searchLine(t.search), numbersLine(t.numbers));
+  if (t.madeBy.length) lines.push(`- Made by: ${t.madeBy.map(code).join(", ")} (see Learning)`);
+  lines.push("");
   return lines;
 }
 
@@ -115,16 +121,17 @@ function gapsOf(t: OntologyType): string[] {
   return out;
 }
 
-export function renderOntologyDoc(types: readonly OntologyType[] = ONTOLOGY): string {
+export function renderOntologyDoc(sites: CallSites, types: readonly OntologyType[] = ONTOLOGY): string {
   const built = types.filter((t) => t.status === "built").length;
   const lines: string[] = [
     "# The YouGrow ontology",
     "",
-    "Generated from `src/lib/ontology/registry.ts`. Don't edit this file: change the registry, then run `npm run ontology:doc`.",
+    "Generated from `src/lib/ontology/registry.ts` and `src/lib/loops/registry.ts`. Don't edit this file: change a registry, then run `npm run ontology:doc`.",
     "",
     "Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. " +
       "The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. " +
-      "A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one.",
+      "A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one. " +
+      "The Learning section at the end lists every place YouGrow makes a choice for a brand, and how that choice learns or why it doesn't.",
     "",
     `${types.length} types: ${built} built and ${types.length - built} planned.`,
     "",
@@ -151,6 +158,6 @@ export function renderOntologyDoc(types: readonly OntologyType[] = ONTOLOGY): st
       if (s.residencyGap) lines.push(`- ${t.name}: ${code(s.collection)} in ${code(s.definedIn)}. ${capitalise(s.residencyGap)}.`);
     }
   }
-  lines.push("");
+  lines.push("", ...renderLearningSection(sites));
   return lines.join("\n");
 }

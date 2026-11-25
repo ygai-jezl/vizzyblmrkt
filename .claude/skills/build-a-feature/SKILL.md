@@ -1,13 +1,32 @@
 ---
 name: build-a-feature
-description: Checklist for building a YouGrow feature, API route or screen the way this codebase expects. Behind a switch, tenant scoped through forTenant(ctx), admin routes with the origin check and sign-in like existing routes, tests with the fake Firestore, the matching help page, and the product copy rules. Use it before writing new behaviour, and when reviewing a change for what it missed.
+description: Checklist for building a YouGrow feature, API route or screen the way this codebase expects. Its line in the learning registry first, then behind a switch, tenant scoped through forTenant(ctx), admin routes with the origin check and sign-in like existing routes, tests with the fake Firestore, the matching help page, and the product copy rules. Use it before writing new behaviour, and when reviewing a change for what it missed.
 ---
 
 # Build a feature
 
 Work through the list in order. Keep it to one piece of work: one pull request against `dev`.
 
-## 1. Read the neighbours
+## 1. Say how it learns
+
+Before any code, answer one question for each choice the feature makes for a brand (a new AI
+purpose, a canvas Vizzy fills, a connector rule, or a rule that picks something): does it learn
+from people? Write the answer as its line in `src/lib/loops/registry.ts`, saying what is true
+today:
+
+- `own(store, why)`: it already learns from people in its own store (a `LEARNED_STORES` key).
+- `gap(why, revisit)`: it should learn and doesn't yet, with a date to look again at most 6
+  months ahead.
+- `none(why)`: it should never learn. A real reason makes this a good answer.
+- `learns(...)` and `fleetOnly(...)` come once the loops stamp and count what YouGrow makes
+  (ADR-0017 in `docs/DECISIONS.md`).
+
+The reason is one plain sentence about this choice that a brand owner could read. A new AI
+purpose goes in `src/lib/plans/resources.ts` with its label, and a new rule in `RULE_DECISIONS`;
+typecheck fails until the line is there. A file that reuses a purpose needs no new line, but it
+shows under that purpose in `docs/ONTOLOGY.md` once you run `npm run ontology:doc`.
+
+## 2. Read the neighbours
 
 Find two or three files that already do something similar and copy their shape: the area's
 logic in `src/lib/<area>/`, its routes in `src/app/api/admin/<area>/`, its page in
@@ -15,11 +34,11 @@ logic in `src/lib/<area>/`, its routes in `src/app/api/admin/<area>/`, its page 
 
 An Enterprise feature goes in `src/ee` and is asked about through `src/lib/enterprise/registry.ts`; core code never imports it.
 
-## 2. A switch, off
+## 3. A switch, off
 
 Use the `add-a-switch` skill. The feature does nothing until its switch is exactly `"true"`.
 
-## 3. Data only through forTenant(ctx)
+## 4. Data only through forTenant(ctx)
 
 ```ts
 import { forTenant } from "@/lib/tenant";
@@ -42,7 +61,7 @@ const signups = await repo.signups.find({ orderBy: [["createdAt", "desc"]], limi
 - A query with several filters or a sort may need a composite index. The emulator won't tell
   you. Add it to `firestore.indexes.json` (ask first).
 
-## 4. Admin API routes
+## 5. Admin API routes
 
 Copy `src/app/api/admin/settings/mailchimp/route.ts`, or a gate like
 `src/lib/email/emailStyleAdmin.ts`. The order: origin check, switch, sign-in, role, input.
@@ -70,7 +89,7 @@ export async function PUT(req: Request) {
   origin or a verified key, like their neighbours. Scheduled-work routes check the worker
   secret (`src/lib/http/workerSecret.ts`).
 
-## 5. Screens and words
+## 6. Screens and words
 
 - Admin pages are in `src/app/admin/<area>/`, components in `src/components/admin/`. Hide the
   way in while the switch is off.
@@ -81,13 +100,13 @@ export async function PUT(req: Request) {
   `src/components/help/pages/`; a new page also goes in `src/lib/help/pages.ts`.
   `src/lib/help/help.test.ts` checks the links, sections and quoted messages.
 
-## 6. Vizzy
+## 7. Vizzy
 
 If people would ask the chat to do this, add a tool: a route under `src/app/api/agent/` and a
 client in `agents/root_agent/tools/` (see `agents/root_agent/AGENTS.md`). Vizzy only writes
 drafts and suggestions that a person accepts.
 
-## 7. Tests
+## 8. Tests
 
 - Vitest, beside the code. Data through `FakeFirestore`
   (`src/lib/tenant/testing/fakeFirestore.ts`); route tests mock `@/lib/auth/session` (model:
@@ -96,6 +115,6 @@ drafts and suggestions that a person accepts.
   path, and another tenant's data left alone.
 - Made-up people only, with `example.com` or `.test` emails.
 
-## 8. Finish
+## 9. Finish
 
 Use the `check-my-change` skill, then fill in `.github/pull_request_template.md`.

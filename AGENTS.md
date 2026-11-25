@@ -69,6 +69,12 @@ Event history and agent actions (`ontology_events`, `agent_actions`) are written
 - `scripts/config/feature-switches.test.ts` (part of `npm test`) fails when a switch the code reads is missing from `apphosting.yaml`, isn't `"false"` there, or lacks `BUILD`.
 - `npm run local` turns on every `*_ENABLED` switch in `apphosting.yaml`, so restart it after adding one. Deployments turn switches on in their own `apphosting.<env>.yaml`.
 
+## Learning
+
+- Every place YouGrow makes a choice for a brand (an AI purpose, a canvas Vizzy fills, a connector rule or another rule) has one line in `src/lib/loops/registry.ts`. Typecheck fails until a new one has its line.
+- The line says learns, fleet only, own, none or gap, and what is true today. None and gap need a plain reason; a gap also needs a date to look again, at most 6 months ahead.
+- The Learning section of `docs/ONTOLOGY.md` is generated: run `npm run ontology:doc` after changing a line, or after adding, moving or renaming a file that makes one. `src/lib/ontology/doc.test.ts` fails while it is stale. Why: ADR-0017 in `docs/DECISIONS.md`.
+
 ## Secrets and settings
 
 - Secrets live in Secret Manager and are referenced by name (`secret: email-worker-secret`) from a deployment's `apphosting.<env>.yaml` only. Never print, log, paste or commit a value. Never ask the user to paste one into the chat: the scripts ask in the user's own terminal.

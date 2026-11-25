@@ -5,6 +5,36 @@ import { COMPARE_MAX, COMPARE_MIN } from "@/lib/ideas/list";
 import { ideaWord } from "@/lib/nav/terms";
 import { useWords } from "../nav/WordsProvider";
 
+type PickForm = Pick<HTMLFormElement, "querySelectorAll" | "addEventListener" | "removeEventListener">;
+type Observer = new (cb: () => void) => { observe(target: never, opts: MutationObserverInit): void; disconnect(): void };
+
+/**
+ * Count the form's ticked compare boxes now and whenever they change, and turn the other boxes off
+ * at four. A status pill or tab is a client navigation that swaps the rows under the bar without
+ * remounting it, so the rows changing counts again too. Returns the cleanup.
+ */
+export function watchComparePicks(form: PickForm, onCount: (picked: number) => void, MO: Observer | undefined = globalThis.MutationObserver): () => void {
+  const boxes = () => Array.from(form.querySelectorAll<HTMLInputElement>('input[type="checkbox"][name="compare"]'));
+  const update = () => {
+    const n = boxes().filter((b) => b.checked).length;
+    for (const b of boxes()) b.disabled = n >= COMPARE_MAX && !b.checked;
+    onCount(n);
+  };
+  // A reset clears the boxes after its event, so count once it has.
+  const afterReset = () => setTimeout(update);
+  update();
+  form.addEventListener("change", update);
+  form.addEventListener("reset", afterReset);
+  // Rows added or taken away only: turning a box off is an attribute change, so this never loops.
+  const rows = MO ? new MO(update) : null;
+  rows?.observe(form as never, { childList: true, subtree: true });
+  return () => {
+    form.removeEventListener("change", update);
+    form.removeEventListener("reset", afterReset);
+    rows?.disconnect();
+  };
+}
+
 /**
  * The bar above the launches list's compare boxes (LAUNCH_IDEAS_ENABLED). The boxes are plain
  * `compare` checkboxes in a GET form, so Compare side by side is the browser's own submit to
@@ -19,21 +49,7 @@ export function ComparePicks() {
   useEffect(() => {
     const form = ref.current?.closest("form");
     if (!form) return;
-    const boxes = () => Array.from(form.querySelectorAll<HTMLInputElement>('input[type="checkbox"][name="compare"]'));
-    const update = () => {
-      const n = boxes().filter((b) => b.checked).length;
-      for (const b of boxes()) b.disabled = n >= COMPARE_MAX && !b.checked;
-      setPicked(n);
-    };
-    // A reset clears the boxes after its event, so count once it has.
-    const afterReset = () => setTimeout(update);
-    update();
-    form.addEventListener("change", update);
-    form.addEventListener("reset", afterReset);
-    return () => {
-      form.removeEventListener("change", update);
-      form.removeEventListener("reset", afterReset);
-    };
+    return watchComparePicks(form, setPicked);
   }, []);
 
   const ready = picked >= COMPARE_MIN;

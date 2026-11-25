@@ -942,6 +942,13 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Stop repeats (needs BRAND_MAP_NEXT_UP_ENABLED): a question a live article already answers by
+  # meaning is linked as answered, one close to a live article is offered as "Add to that article",
+  # and Next up weighs a subject's size.
+  - variable: NEXT_UP_REPEATS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Blog research and the writer read the context pack (needs BRAND_CONTEXT_ENABLED), manual runs too.
   - variable: CREATE_RESEARCH_CONTEXT_ENABLED
     value: "false"

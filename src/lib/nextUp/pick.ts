@@ -20,6 +20,11 @@ import { NOT_SHARED_NEXT_UP, readSearchPlanning, SEARCH_CONSOLE_CHIP, searchCons
 import { nextUpCandidates, type Candidate } from "./candidates";
 import { isBlogFreshnessEnabled } from "@/lib/brandMap/flags";
 import { freshnessWatchId } from "@/lib/content/blog/freshnessPages";
+import { isBlogRefreshEnabled } from "@/lib/brandMap/flags";
+import { isNextUpRepeatsEnabled } from "@/lib/autopilot/flags";
+import { mayStartReview } from "@/lib/content/blog/refreshGate";
+import { MAX_CANDIDATES } from "./candidates";
+import { findRepeats, linkAnswered, NO_REPEATS, type Repeats } from "./repeats";
 
 /**
  * Next up: the brand's three best next articles. Code narrows the brand map's open questions
@@ -48,7 +53,16 @@ export interface PickDeps {
   searchPlanning?: (ctx: TenantContext) => Promise<SearchPlanning | null>;
   /** Live articles due a refresh (BLOG_FRESHNESS_ENABLED), as candidates. */
   refreshCandidates?: (ctx: TenantContext) => Promise<Candidate[]>;
+  /** Stop repeats (NEXT_UP_REPEATS_ENABLED): the questions matched against the brand's articles. */
+  repeats?: (ctx: TenantContext, args: { questions: Candidate[]; moved: boolean }) => Promise<Repeats>;
+  /** Keep the links found (tests inject a stub). */
+  link?: typeof linkAnswered;
+  /** Whether a close pick could start a refresh review now (tests inject it). */
+  reviewsOpen?: (ctx: TenantContext) => Promise<boolean>;
 }
+
+/** Extra candidates read with stop repeats on, so the ones it leaves out don't shorten the list. */
+const REPEAT_SPARE = 12;
 
 /** Refresh candidates offered beside the questions. */
 const MAX_REFRESH = 6;
@@ -128,6 +142,14 @@ export function linesFor(
   const out: CandidateLine[] = [];
   const add = (text: string, chip: Omit<NextUpChip, "text">, chipText = text) => out.push({ id: `${n}.${out.length + 1}`, text: oneLine(text), chip: { ...chip, text: cut(oneLine(chipText), 90) } });
   const days = daysSince(c.lastArticleAt, read.now);
+  if (c.closeTo) {
+    const since = c.closeTo.liveAt ? `, live since ${c.closeTo.liveAt.slice(0, 10)}` : "";
+    add(
+      `CLOSE to the brand's live article "${cut(c.closeTo.title, 120)}"${since}: it may be better added to that article than written again.`,
+      { kind: "you", label: "Your article" },
+      `close to "${c.closeTo.title}"`,
+    );
+  }
   add(
     `Brand map: ${c.answered} of ${c.total} questions on this subject answered; ${days === null ? "no live article on it yet" : `last article went live ${days} days ago`}.${c.focus ? " It is on a buying situation the brand focuses on." : ""}`,
     { kind: "map", label: "Brand map" },
@@ -195,6 +217,7 @@ export function readPicks(raw: string | null, weighed: Weighed[], competitorName
       chips: chips.length ? chips : w.lines[0] ? [w.lines[0].chip] : [],
       from: "gemini",
       ...(w.candidate.refresh ? { kind: "refresh" as const, planId: w.candidate.refresh.planId, workspaceId: w.candidate.refresh.workspaceId } : {}),
+      ...(w.candidate.closeTo ? { closeTo: w.candidate.closeTo } : {}),
     });
     if (out.length >= PICKS) break;
   }
@@ -212,6 +235,7 @@ function codePick(w: Weighed): NextUpPick {
     because: `${c.subjectName} has ${c.answered} of ${c.total} questions answered${c.lastArticleAt ? "" : " and no live article yet"}.`,
     chips: [w.lines[0]!.chip],
     from: "code",
+    ...(c.closeTo ? { closeTo: c.closeTo } : {}),
   };
 }
 
@@ -262,16 +286,28 @@ export async function pickNextUp(
     .map((e) => e.questionId!);
   const active = await (deps.activeQuestionIds ?? (async () => [] as string[]))(ctx).catch(() => [] as string[]);
   const excluded = new Set([...skipped, ...active]);
-  const questions = await (deps.candidates ?? nextUpCandidates)(ctx, { exclude: excluded }, { db: deps.db });
+  const repeatsOn = isNextUpRepeatsEnabled();
+  const listed = await (deps.candidates ?? nextUpCandidates)(ctx, { exclude: excluded, ...(repeatsOn ? { max: MAX_CANDIDATES + REPEAT_SPARE } : {}) }, { db: deps.db });
   // Live articles due a refresh join the questions, up to the brand's share of the three picks.
   const refreshShare = tenant?.refreshShare ?? DEFAULT_REFRESH_SHARE;
   const refreshes =
     refreshShare > 0
       ? (await (deps.refreshCandidates ?? ((c) => refreshCandidates(c, { db: deps.db })))(ctx).catch(() => [] as Candidate[])).filter((c) => !excluded.has(c.questionId))
       : [];
-  const candidates = [...questions, ...refreshes];
   const read = await readBrandMap(ctx, deps.db).catch(() => null);
   if (!read || read.state !== "ok") return { ok: false, error: "no_map" };
+  // Stop repeats: a question a live article answers is linked and left out, one an article being
+  // written covers is left out, and one close to a live article says so.
+  const repeats = repeatsOn
+    ? await (deps.repeats ?? ((c, a) => findRepeats(c, a, { db: deps.db, now: deps.now })))(ctx, { questions: listed, moved: Boolean(read.map.moved) }).catch(() => NO_REPEATS)
+    : NO_REPEATS;
+  if (repeats.linked.length && read.map.moved) await (deps.link ?? linkAnswered)(ctx, repeats.linked, { db: deps.db, now: deps.now }).catch(() => 0);
+  const dropped = new Set([...repeats.linked.map((l) => l.questionId), ...repeats.inProgress]);
+  const questions = listed
+    .filter((q) => !dropped.has(q.questionId))
+    .slice(0, MAX_CANDIDATES)
+    .map((q) => (repeats.close.has(q.questionId) ? { ...q, closeTo: repeats.close.get(q.questionId)! } : q));
+  const candidates = [...questions, ...refreshes];
   if (!candidates.length) return { ok: false, error: "no_questions" };
 
   // Read once for all candidates.
@@ -324,6 +360,9 @@ export async function pickNextUp(
       refresh: refreshes.length
         ? ` Candidates marked REFRESH are live articles of the brand's that are due a refresh: choosing one means improving that article, not writing a new one. Choose at most ${refreshShare} of them, and only when its lines show a real reason.`
         : "",
+      close: questions.some((q) => q.closeTo)
+        ? " A candidate whose lines say it is CLOSE to a live article of the brand's is better added to that article than written again: choose one only when its lines show it is worth it, and then say in its reason that it adds to that article, never that it is a new article."
+        : "",
       candidates: untag(
         weighed
           .map((w, k) =>
@@ -348,6 +387,10 @@ export async function pickNextUp(
     if (!w.candidate.refresh && !picks.some((p) => p.questionId === w.candidate.questionId)) picks.push(codePick(w));
   }
 
+  const closePicks = picks.some((p) => p.closeTo);
+  const reviewsOpen = closePicks
+    ? await (deps.reviewsOpen ?? (async (c) => isBlogRefreshEnabled() && (await mayStartReview(c, { db: deps.db, ...(deps.loadTenant ? { loadTenant: deps.loadTenant } : {}) })).ok))(ctx).catch(() => false)
+    : false;
   const doc = {
     picks,
     notOnMap: (notOnMap ?? []).slice(0, 3),
@@ -355,6 +398,9 @@ export async function pickNextUp(
     candidates: candidates.length,
     at: now.toISOString(),
     by: opts.by,
+    ...(repeatsOn
+      ? { leftOut: repeats.inProgress.length, linkedByMeaning: repeats.linked.length, repeatsLive: repeats.repeatsLive, reviewsOpen }
+      : {}),
   };
   const { doc: saved } = await forTenant(ctx, deps.db).nextUp.upsert(nextUpDocId(ctx.tenantId), () => doc, () => doc);
   return { ok: true, doc: saved };

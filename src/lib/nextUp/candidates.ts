@@ -8,6 +8,8 @@ import { computeCoverage, type QuestionCoverage } from "@/lib/content/blog/cover
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { BrandMapPage } from "@/lib/types/brandMapPage";
 import type { FreshnessReason } from "@/lib/types/contentPlan";
+import type { CloseTo } from "@/lib/types/autopilot";
+import { isNextUpRepeatsEnabled } from "@/lib/autopilot/flags";
 
 /**
  * Next up's candidates: the brand map's open questions worth weighing, narrowed in code so one
@@ -31,6 +33,8 @@ export interface Candidate {
   focus: boolean;
   /** A live article due a refresh (BLOG_FRESHNESS_ENABLED): its plan, programme and reasons. */
   refresh?: { planId: string; workspaceId: string; reasons: FreshnessReason[] };
+  /** Stop repeats (NEXT_UP_REPEATS_ENABLED): a live article it is close to in meaning. */
+  closeTo?: CloseTo;
 }
 
 export interface CandidateDeps {
@@ -55,6 +59,15 @@ function fromCoverage(subject: { id: string; name: string }, questions: Question
   return questions
     .filter((q) => q.state === "open")
     .map((q) => ({ questionId: q.id, question: q.text, subjectId: subject.id, subjectName: subject.name, answered, total: questions.length, lastArticleAt: last, focus: false }));
+}
+
+/**
+ * How much a subject needs writing (NEXT_UP_REPEATS_ENABLED): its unanswered share, weighed by the
+ * square root of its open questions, so a subject with one question no longer jumps the queue but a
+ * small one still gets its turn. Most first.
+ */
+export function subjectNeed(answeredShare: number, open: number): number {
+  return (1 - Math.min(1, Math.max(0, answeredShare))) * Math.sqrt(Math.max(0, open));
 }
 
 /** Take turns across subjects, so the list mixes them. */
@@ -94,7 +107,11 @@ export async function nextUpCandidates(ctx: TenantContext, opts: { exclude?: Set
   if (isBrandMapScaleEnabled() && map.moved) {
     const subjects = (await listSubjects(ctx, { status: "decided" }, { db: deps.db }).catch(() => []))
       .filter((s) => s.counts.open > 0)
-      .sort((a, b) => a.answeredShare - b.answeredShare || b.counts.open - a.counts.open)
+      .sort((a, b) =>
+        isNextUpRepeatsEnabled()
+          ? subjectNeed(b.answeredShare / 1000, b.counts.open) - subjectNeed(a.answeredShare / 1000, a.counts.open) || b.counts.open - a.counts.open
+          : a.answeredShare - b.answeredShare || b.counts.open - a.counts.open,
+      )
       .slice(0, MAX_SUBJECTS);
     const focus = await focusIds(ctx, deps);
     groups = [];
@@ -109,7 +126,11 @@ export async function nextUpCandidates(ctx: TenantContext, opts: { exclude?: Set
     groups = cov.subjects
       .map((s) => fromCoverage(s, s.questions, rows))
       .filter((g) => g.length)
-      .sort((a, b) => a[0]!.answered / a[0]!.total - b[0]!.answered / b[0]!.total);
+      .sort((a, b) =>
+        isNextUpRepeatsEnabled()
+          ? subjectNeed(b[0]!.answered / b[0]!.total, b.length) - subjectNeed(a[0]!.answered / a[0]!.total, a.length)
+          : a[0]!.answered / a[0]!.total - b[0]!.answered / b[0]!.total,
+      );
   }
 
   const kept = groups.map((g) => g.filter((c) => !exclude.has(c.questionId))).filter((g) => g.length);

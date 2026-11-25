@@ -83,6 +83,9 @@ const LINE: Record<LearnedKind, (e: LearnedEntry) => string> = {
   moved: (e) => `Moved: "${e.text}"${e.reason ? ` (${e.reason})` : ""}`,
   left_out: (e) => `Left out as not for this brand: "${e.text}"${e.reason ? `, ${e.reason}` : ""}`,
   added_back: (e) => `Added back after being left out: "${e.text}"${e.reason ? ` (${e.reason})` : ""}`,
+  added_to_article: (e) => `Added to a live article instead of a new one: "${e.text}"${e.reason ? ` (${e.reason})` : ""}`,
+  wrote_anyway: (e) => `Written as a new article although a live article was close: "${e.text}"${e.reason ? ` (${e.reason})` : ""}`,
+  unlinked: (e) => `Not answered by the article it was matched to: "${e.text}"${e.reason ? ` (${e.reason})` : ""}`,
 };
 
 /** One entry as a line a prompt or a person reads. */

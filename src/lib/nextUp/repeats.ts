@@ -5,7 +5,6 @@ import { recountSubject } from "@/lib/brandMap/recount";
 import { parseQuestion } from "@/lib/brandMap/records";
 import { QUESTION_TITLE } from "@/lib/brandNotes/store";
 import { matchQuestion } from "@/lib/content/blog/coverage";
-import { DUP_QUESTION_SIM } from "@/lib/content/blog/seen";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import { listAllBrandMapPages } from "@/lib/tenant/brandMapPages";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
@@ -17,7 +16,8 @@ import type { Candidate } from "./candidates";
  * Stop repeats (NEXT_UP_REPEATS_ENABLED): before Next up offers a brand map question, it is matched
  * by meaning against every article of the brand's, live or being written: their main question,
  * title and the questions they list. Both sides are embedded together, the way the brand's notes
- * measure a repeated question (src/lib/content/blog/seen.ts), so the same cut offs hold.
+ * measure a repeated question (src/lib/content/blog/seen.ts), with cut offs measured for buyer
+ * questions (scripts/measure-repeat-match.ts).
  *
  * - The same question as a live article's: linked as answered by it (on the map question), so it
  *   counts as answered and is never offered again, until a person unlinks it.
@@ -28,8 +28,16 @@ import type { Candidate } from "./candidates";
  * If the embedding fails, close wording (coverage's "probably") counts as close, never as the same.
  */
 
-/** The same question reworded: seen.ts measured 0.93 to drop seven of eight repeats and no different question. */
-export const SAME_SIM = DUP_QUESTION_SIM;
+/**
+ * The same question reworded, linked as answered with no one asked. Measured with
+ * scripts/measure-repeat-match.ts on text-embedding-005 (2026-11-25), re-run it before changing
+ * either: buyer questions reworded scored 0.953 to 0.992, while a different ask sharing a long
+ * phrase scored up to 0.942 ("What is AI search visibility tracking?" against "How much do AI
+ * search visibility tracking tools cost?" 0.939). The brand's notes use 0.93 for their questions
+ * (seen.ts); here a wrong link is silent, so the bar is higher, and a rewording it misses is only
+ * offered as close.
+ */
+export const SAME_SIM = 0.95;
 /** Close enough that adding to the article is worth offering first; a person can still write it anyway. */
 export const CLOSE_SIM = 0.88;
 /** A person who wrote one anyway isn't asked again about it for this long. */

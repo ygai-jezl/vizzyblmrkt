@@ -542,7 +542,7 @@ export const MEANINGS = {
   },
   repeatSimilarity: {
     name: "Closeness in meaning",
-    definition: "How close two questions are in meaning, from 0 to 1: a brand map question and what a live article answers, or the main questions of two live articles. 0.93 or more is the same question reworded; 0.88 or more is close.",
+    definition: "How close two questions are in meaning, from 0 to 1: a brand map question and what a live article answers, or the main questions of two live articles. 0.95 or more is the same question reworded; 0.88 or more is close.",
     grain: "one question against one article",
     unit: "ratio",
     source: "both texts embedded with Vertex AI's text embedding model",

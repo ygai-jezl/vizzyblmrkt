@@ -124,8 +124,8 @@ describe("findRepeats", () => {
     expect(embed).not.toHaveBeenCalled();
   });
 
-  it("keeps the cut offs where the brand's notes measured them", () => {
-    expect(SAME_SIM).toBe(0.93);
+  it("keeps the cut offs where scripts/measure-repeat-match.ts measured them", () => {
+    expect(SAME_SIM).toBe(0.95);
     expect(CLOSE_SIM).toBeLessThan(SAME_SIM);
     expect(pageTexts({ primaryQuestion: "A?", title: "a?", questions: [{ text: "B?", ref: null }] })).toEqual(["A?", "B?"]);
   });

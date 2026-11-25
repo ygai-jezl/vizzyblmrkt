@@ -1,6 +1,7 @@
 import { getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { addTenantMember } from "@/lib/tenant";
+import { GOOGLE_ID_CLAIM } from "@/lib/auth/trust";
 import { SEED_TENANT_ID } from "./seedDemo";
 
 /**
@@ -60,6 +61,8 @@ export async function seedAdminUser(): Promise<{ uid: string; email: string }> {
     tenant_id: SEED_TENANT_ID,
     region: "us",
     role: "admin",
+    // The linked Google account's permanent id, as the door records it at a first sign-in.
+    [GOOGLE_ID_CLAIM]: DEMO_ADMIN_GOOGLE_UID,
   });
   await addTenantMember(uid, SEED_TENANT_ID, "admin"); // idempotent
   return { uid, email: DEMO_ADMIN_EMAIL };

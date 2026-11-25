@@ -5,6 +5,7 @@ import { BlogAddress } from "./BlogAddress";
 import { BlogBriefPanel } from "./BlogBriefPanel";
 import { BlogExport } from "./BlogExport";
 import { BlogHeroCard } from "./BlogHeroCard";
+import { FreshnessCard } from "./FreshnessCard";
 import { CitableChecklist } from "./CitableChecklist";
 import type { BlogHubControls } from "./types";
 
@@ -85,10 +86,21 @@ export function BlogHubReview({
           pageUrl={controls.pageUrl}
           onSave={controls.onSetAddress}
           live={node.blog?.live ?? null}
+          {...(controls.datesTimeZone && node.blog?.dates ? { dates: node.blog.dates } : {})}
           liveWatch={controls.liveWatch === true}
-          onLive={controls.onLive ? (action) => controls.onLive!(node.id, action) : undefined}
+          onLive={controls.onLive ? (action, day) => controls.onLive!(node.id, action, day) : undefined}
           // While the article is written or checked, its meta is about to be replaced: wait.
           disabled={disabled || controls.busy !== null}
+        />
+      ) : null}
+
+      {controls.onChecked ? (
+        <FreshnessCard
+          live={node.blog?.live ?? null}
+          freshness={node.blog?.freshness}
+          onChecked={() => controls.onChecked!(node.id)}
+          disabled={disabled || controls.busy !== null}
+          focus={controls.focusFreshness === true}
         />
       ) : null}
 
@@ -110,6 +122,7 @@ export function BlogHubReview({
           map={controls.map ?? null}
           hero={controls.hero ? { assetUrl: controls.hero.assetUrl } : null}
           approved={node.status === "approved"}
+          {...(controls.datesTimeZone ? { datesTimeZone: controls.datesTimeZone } : {})}
         />
       </fieldset>
     </div>

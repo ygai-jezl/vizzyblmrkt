@@ -13,7 +13,7 @@ import { Region } from "./tenant";
 export { ORGANISATION_CONNECTION_ID_RE } from "./dataConnection";
 
 /**
- * An organisation's connection (Connectors 3, ADR-0014): one sign in, one Google address or one
+ * An organisation's connection (Connectors 3, ADR-0015): one sign in, one Google address or one
  * pasted token, connected once for an organisation, whose owners give each of its brands one part
  * of it (a site, a property or a zone). Kept in `organisation_connections` in the regional database
  * of the brand it was connected from, and never moved, even when that brand leaves; its parts can go

@@ -24,7 +24,7 @@ import {
 } from "@/lib/types/organisationConnection";
 
 /**
- * Organisation connections' only writer (Connectors 3, ADR-0014): `organisation_connections` and
+ * Organisation connections' only writer (Connectors 3, ADR-0015): `organisation_connections` and
  * `organisation_connection_activity`, and the writer for giving, changing and taking back a brand's
  * part, with the repairs housekeeping runs.
  *

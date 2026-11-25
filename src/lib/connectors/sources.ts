@@ -22,7 +22,7 @@ import { keepFresh, organisationKeeperPort, type KeeperDeps } from "./tokenKeepe
 import { openConnectorSecret, VaultOpenError } from "./vault";
 
 /**
- * A brand's part of its organisation's connection (Connectors 3, ADR-0014): the one check every
+ * A brand's part of its organisation's connection (Connectors 3, ADR-0015): the one check every
  * way out runs, and the token mint for brand records with a `source`.
  *
  * partLive checks, for a brand record with a source:

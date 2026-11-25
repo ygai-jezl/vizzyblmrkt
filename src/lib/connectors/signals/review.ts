@@ -1,4 +1,5 @@
 import { writeNextHref } from "@/lib/content/blog/articleMap";
+import { liveArticleAt, refreshHref, signalPageKey } from "@/lib/content/blog/freshnessPages";
 import { agentActionReviewItem, getAgentAction, listOpenAgentActions } from "@/lib/ontology/agentActions";
 import { forgetReviewCount, type ReviewItem } from "@/lib/review/summary";
 import { forTenant, getTenantById, transitionAgentAction, type TenantContext } from "@/lib/tenant";
@@ -45,7 +46,7 @@ export interface SuggestionDeps extends Pick<SourceDeps, "regionDb" | "controlDb
  * parts its organisation still gives it (partLive), so a brand that left sees none of its old
  * part's suggestions before the erase.
  */
-async function planningConnections(ctx: TenantContext, deps: SuggestionDeps): Promise<Map<string, DataConnection>> {
+export async function planningConnections(ctx: TenantContext, deps: SuggestionDeps): Promise<Map<string, DataConnection>> {
   const conns = await forTenant(ctx, deps.db).dataConnections.find({ where: [["status", "==", "connected"]], limit: 50 });
   const planning = await readableOnly(ctx, conns.filter((c) => c.connectorId === searchConsoleManifest.id && feedsPlanning(c.grants)), { db: deps.db, regionDb: deps.regionDb, controlDb: deps.controlDb });
   return new Map(planning.map((c) => [c.id, c] as const));
@@ -79,13 +80,24 @@ export function siteFor(s: OpenSuggestion, all: readonly OpenSuggestion[]): stri
   return sites.size > 1 ? siteName(s.connection.account) : undefined;
 }
 
-/** Review's "What your numbers suggest": one item per open suggestion, with Plan an article and Dismiss. */
+/**
+ * The brand's live article a "losing clicks" suggestion is about (BLOG_FRESHNESS_ENABLED), or null:
+ * then the suggestion is to refresh it, not to plan a new one.
+ */
+async function ownArticleFor(ctx: TenantContext, row: DataSignal, connection: DataConnection, deps: SuggestionDeps): Promise<{ planId: string; workspaceId: string } | null> {
+  if (row.rule !== "losing_page" || !row.label) return null;
+  return liveArticleAt(ctx, signalPageKey(row.key?.host, connection.account, row.key?.page ?? row.label), { db: deps.db });
+}
+
+/** Review's "What your numbers suggest": one item per open suggestion, with Plan an article (or Refresh this article) and Dismiss. */
 export async function signalReviewItems(ctx: TenantContext, deps: SuggestionDeps = {}): Promise<ReviewItem[]> {
   const open = await openSuggestions(ctx, {}, deps);
-  return open.flatMap((s) => {
+  const own = await Promise.all(open.map((s) => ownArticleFor(ctx, s.row, s.connection, deps).catch(() => null)));
+  return open.flatMap((s, i) => {
     const title = signalTitle(s.row);
     const details = signalLines(s.row, { site: siteFor(s, open) });
-    const item = title ? agentActionReviewItem(s.action, { title, detail: details.join(" "), action: "Plan an article" }) : null;
+    const action = own[i] ? "Refresh this article" : "Plan an article";
+    const item = title ? agentActionReviewItem(s.action, { title, detail: details.join(" "), action }) : null;
     return item ? [{ ...item, details, signal: { id: s.row.id } }] : [];
   });
 }
@@ -149,11 +161,15 @@ export async function planFromSignal(
 ): Promise<DecideResult<{ href: string }>> {
   const open = await openFor(ctx, signalId, deps);
   if (!open.ok) return open;
-  const workspaceId = await programmeFor(ctx, input.workspaceId ?? null, deps, deps.loadTenant ?? getTenantById);
+  // A page that is one of the brand's live articles is refreshed, not planned again.
+  const connection = (await planningConnections(ctx, deps).catch(() => new Map<string, DataConnection>())).get(open.row.connectionId);
+  const own = connection ? await ownArticleFor(ctx, open.row, connection, deps).catch(() => null) : null;
+  const workspaceId = own ? own.workspaceId : await programmeFor(ctx, input.workspaceId ?? null, deps, deps.loadTenant ?? getTenantById);
   if (!workspaceId) return { ok: false, error: "no_programme" };
-  const href = planHref(workspaceId, open.row);
+  const href = own ? refreshHref(own) : planHref(workspaceId, open.row);
   const now = deps.now ?? new Date();
-  const r = await transitionAgentAction(ctx, open.action.id, { to: "acted", by: memberOf(ctx), at: now.toISOString(), expectRev: open.action.rev, result: { href: keptHref(workspaceId, open.row) }, clearDetails: true }, { db: deps.db });
+  const kept = own ? refreshHref(own) : keptHref(workspaceId, open.row);
+  const r = await transitionAgentAction(ctx, open.action.id, { to: "acted", by: memberOf(ctx), at: now.toISOString(), expectRev: open.action.rev, result: { href: kept }, clearDetails: true }, { db: deps.db });
   if (!r.ok) return { ok: false, error: r.error === "not_found" ? "not_found" : "changed" };
   await blankSignal(ctx, open.row.id, { db: deps.db, now, quietDays: QUIET_DAYS });
   forgetReviewCount(ctx.tenantId);

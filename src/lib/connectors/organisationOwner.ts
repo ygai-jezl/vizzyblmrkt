@@ -13,7 +13,7 @@ import { keepFresh, organisationKeeperPort } from "./tokenKeeper";
 import { openConnectorSecret, VaultOpenError } from "./vault";
 
 /**
- * Who acts for an organisation, and with what (Connectors 3, ADR-0014): the owner check every
+ * Who acts for an organisation, and with what (Connectors 3, ADR-0015): the owner check every
  * organisation route makes after the integrations gate, and the organisation connection's own
  * token for the calls only its owners make (listing what it can see, checking a part before it is
  * given or changed, checking access).

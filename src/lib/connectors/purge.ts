@@ -58,7 +58,7 @@ import { openConnectorSecret, VaultOpenError } from "./vault";
  * Turning CONNECTORS_ENABLED off is the rollback; this is how the data goes. The dry run counts
  * and writes nothing.
  *
- * Shared connections (Connectors 3, ADR-0014): a brand's part keeps no secret and no address, so
+ * Shared connections (Connectors 3, ADR-0015): a brand's part keeps no secret and no address, so
  * its purge revokes and deletes nothing at Google; it also ends the part on its organisation's
  * record, in whatever region that is kept. An organisation's address is tagged for the
  * organisation, never for a brand, so a brand's leftover search never sees it. The organisation

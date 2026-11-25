@@ -19,7 +19,7 @@ import { currentVaultKeyId, previousVaultKeyId, resealConnectorSecret, type Seal
  *
  * Reports name connections, slots and key ids, never a secret.
  *
- * Organisation connections (Connectors 3, ADR-0014) keep their sealed secrets in the region each was
+ * Organisation connections (Connectors 3, ADR-0015) keep their sealed secrets in the region each was
  * connected from, bound to the organisation: resealOrganisationRegion covers one region, and the
  * script runs it for every provisioned region after the brands, so a "zero left" dry run is true for
  * them too before CONNECTORS_VAULT_KEY_PREVIOUS is removed.

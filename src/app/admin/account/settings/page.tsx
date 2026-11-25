@@ -6,6 +6,10 @@ import { SearchSettingsCard } from "@/components/admin/search/SearchSettingsCard
 import { isSearchUiEnabled } from "@/lib/search/flags";
 import { GoogleMarketCard } from "@/components/admin/signals/GoogleMarketCard";
 import { isBrandSignalsEnabled } from "@/lib/signals/flags";
+import { TimeZoneCard } from "@/components/admin/settings/TimeZoneCard";
+import { isBlogDatesEnabled } from "@/lib/brandMap/flags";
+import { SignInSecurityCard } from "@/components/admin/SignInSecurityCard";
+import { isPasswordSigninEnabled } from "@/lib/auth/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -14,18 +18,23 @@ const REGION: Record<string, string> = { us: "United States", eu: "Europe", asia
 /**
  * Account-wide settings: content-language defaults. With nav v2 phase 3 this is
  * Settings › General, and also shows the brand's details (the ids and data region
- * that used to sit in the sidebar footer).
+ * that used to sit in the sidebar footer). With PASSWORD_SIGNIN_ENABLED it also
+ * has Sign-in and security: how you sign in, change password, sign out everywhere.
  */
 export default async function AccountSettingsPage() {
   const ctx = await requireAdminContext();
   const search = isSearchUiEnabled() ? <SearchSettingsCard isAdmin={ctx.role === "admin"} /> : null;
   const market = isBrandSignalsEnabled() ? <GoogleMarketCard isAdmin={ctx.role === "admin"} /> : null;
+  const zone = isBlogDatesEnabled() ? <TimeZoneCard isAdmin={ctx.role === "admin"} /> : null;
+  const security = isPasswordSigninEnabled() ? <SignInSecurityCard /> : null;
   if (!isNavV2Phase3Enabled()) {
-    return search || market ? (
+    return search || market || zone || security ? (
       <div className="space-y-6">
         <AccountSettings />
+        {security}
         {search}
         {market}
+        {zone}
       </div>
     ) : (
       <AccountSettings />
@@ -51,8 +60,10 @@ export default async function AccountSettingsPage() {
           ))}
         </dl>
       </section>
+      {security}
       {search}
       {market}
+      {zone}
       <AccountSettings />
     </div>
   );

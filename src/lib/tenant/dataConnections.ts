@@ -26,7 +26,7 @@ import {
  *   infra/lifecycle/setup.sh ttl turns on.
  * - The record keeps the last 20 changes, newest first, for the Connected view.
  * - id, tenantId, connectorId, method, createdAt and source never change after a connection is made.
- * - A brand's part of an organisation's connection (Connectors 3, ADR-0014) carries a `source`. Only
+ * - A brand's part of an organisation's connection (Connectors 3, ADR-0015) carries a `source`. Only
  *   src/lib/tenant/organisationConnections.ts makes one, through the stage variant below; its
  *   `account` changes only through that file's part change; and it never holds a secret or an
  *   address, whatever a plan returns.

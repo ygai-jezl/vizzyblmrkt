@@ -59,7 +59,7 @@ import { isVaultConfigured, sealConnectorSecret, signConnectorState, verifyConne
  * connection keeps its site, grants and history. A brand's part of its organisation's connection
  * (Connectors 3) is never signed in again here, at the start or at the callback.
  *
- * Connecting for an organisation (Connectors 3, ADR-0014) uses the same callback, so the OAuth
+ * Connecting for an organisation (Connectors 3, ADR-0015) uses the same callback, so the OAuth
  * client needs no new redirect address: its state also names the organisation (`o`), its server
  * record names the organisation and, for a sign in again, the organisation's connection, and a
  * brand's sign in never finishes an organisation's or the other way round. At the callback the

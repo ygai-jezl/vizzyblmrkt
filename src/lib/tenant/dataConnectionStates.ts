@@ -20,7 +20,7 @@ import { DATA_CONNECTION_ID_RE, DATA_CONNECTION_STATE_ID_RE, ORGANISATION_CONNEC
  *
  * Read by id only, so no index is needed. Nothing else reads or writes the collection.
  *
- * A sign in for an organisation (Connectors 3, ADR-0014) is made the same way, in the acting
+ * A sign in for an organisation (Connectors 3, ADR-0015) is made the same way, in the acting
  * brand's region (the region the organisation's connection will be kept in), and names the
  * organisation and, for a sign in again, the organisation's connection. The callback checks the
  * owner and the organisation again, live; the state only says what was started.

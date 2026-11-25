@@ -19,15 +19,18 @@ import { isBlogBrandMapEnabled, isBlogEditorialEnabled } from "@/lib/content/blo
 import { isSeenOn, isSeenQuestionsOn, isSeenRestOn } from "@/lib/content/blog/hubActions";
 import { refreshAnswers } from "@/lib/content/blog/seen";
 import { askOfPlan, loadArticleMap } from "@/lib/content/blog/mapActions";
-import { isBlogLiveWatchEnabled, isBrandMapPagesEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
+import { isBlogDatesEnabled, isBlogFreshnessEnabled, isBlogLiveWatchEnabled, isBrandMapPagesEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
+import { resolveTimezone } from "@/lib/lifecycle/sendWindow";
 
 export const dynamic = "force-dynamic";
 
 /** Canvas for one content workflow — the Architect's graph, filled progressively. */
 export default async function ContentPlanPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ workspaceId: string; planId: string }>;
+  searchParams?: Promise<{ freshness?: string }>;
 }) {
   const ctx = await requireAdminContext();
   const { workspaceId, planId } = await params;
@@ -57,6 +60,11 @@ export default async function ContentPlanPage({
     plan.blog?.seen?.questions?.length && isSeenQuestionsOn()
       ? { ...plan, blog: await refreshAnswers(ctx, plan.blog, {}, `${workspaceId}/${planId}`).catch(() => plan.blog) }
       : plan;
+  // True dates (BLOG_DATES_ENABLED): the brand's time zone for an article's date line, copy and markup.
+  const datesTimeZone =
+    isBlogDatesEnabled() && plan.topology.hubChannel === "blog"
+      ? resolveTimezone((await getTenantById(ctx.tenantId).catch(() => null))?.timeZone)
+      : undefined;
 
   // An eBook that hasn't been finalized (no graph yet) has no canvas to show — send the
   // operator back into the authoring studio to resume (also covers a stale/bookmarked URL).
@@ -111,6 +119,8 @@ export default async function ContentPlanPage({
         brandMap={plan.topology.hubChannel === "blog" ? brandMap : null}
         pagesOn={isBrandMapPagesEnabled()}
         liveWatchOn={isBlogLiveWatchEnabled()}
+        {...(datesTimeZone ? { datesTimeZone } : {})}
+        {...(isBlogFreshnessEnabled() ? { freshnessOn: true, openHub: (await searchParams)?.freshness === "1" } : {})}
         editorialOn={isBlogEditorialEnabled()}
         seenOn={isSeenOn()}
         seenQuestionsOn={isSeenQuestionsOn()}

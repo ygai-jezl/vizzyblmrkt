@@ -219,7 +219,7 @@ export async function ensureBrandOrganisation(
 }
 
 /**
- * What may stop Bring in (Connectors 3 group 4, ADR-0014) inside the move's own transaction:
+ * What may stop Bring in (Connectors 3 group 4, ADR-0015) inside the move's own transaction:
  * - `expectFrom`: the organisation the brand must still be in, the one whose owners the caller
  *   checked; a brand moved meanwhile is refused as "changed";
  * - `narrower`: whether taking `plan` would narrow what the brand may use (the caller passes the
@@ -494,7 +494,7 @@ export async function organisationUserIds(
 export type OrganisationConnectionChangeKind = Extract<OrganisationChange["kind"], `connection.${string}`>;
 
 /**
- * Record a change to an organisation's own connection (Connectors 3, ADR-0014) on its change log:
+ * Record a change to an organisation's own connection (Connectors 3, ADR-0015) on its change log:
  * connected, signed in again, paused, resumed or disconnected, naming the organisation, the
  * connection and the brand it was connected from, by id only. organisation_changes is in
  * (default) and can't join a transaction in another region's database, so this is written after

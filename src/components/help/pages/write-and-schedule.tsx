@@ -9,7 +9,7 @@ import { isLearnFromPostEditsEnabled, isPostResultsEnabled } from "@/lib/distrib
 import { isNewsletterMarkdownEmailUiEnabled } from "@/lib/email/flags";
 import { isSignalsDataForSeoEnabled } from "@/lib/signals/flags";
 import { isAutopilotEnabled } from "@/lib/autopilot/flags";
-import { isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
+import { isBlogDatesUiEnabled, isBlogFreshnessUiEnabled, isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
 import { isConnectorSignalsEnabled } from "@/lib/connectors/flags";
 import type { HelpBodyProps } from "@/lib/help/pages";
 import { isUsageMeterUiEnabled } from "@/lib/plans/flags";
@@ -218,6 +218,63 @@ export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSig
         </>
       ) : null}
 
+      {isBlogDatesUiEnabled() ? (
+        <>
+          <H2 id="dates">Article dates</H2>
+          <P>
+            A blog article shows two dates under its title: <strong>Published</strong>, the day the page went up, and{" "}
+            <strong>Updated</strong>, the day it last changed for real. Copy Markdown, Copy HTML and the markup carry the same
+            dates, and the markup adds the time in your brand&apos;s time zone, as Google asks.
+          </P>
+          <P>
+            Published comes from your page&apos;s own date when it shows one. Otherwise it is the day YouGrow first saw the
+            article live, or the day you give with <strong>It&apos;s live</strong>. Until the article is live, the date line
+            says today, the day you copy it.
+          </P>
+          <P>
+            Updated moves only for a real change, never to make a page look new. When your page carries its own updated
+            date, a later day shows here too.
+          </P>
+          <P>
+            Set your time zone in <Open href="/admin/account/settings">Settings › General</Open>. Until you do, dates are in
+            UTC.
+          </P>
+        </>
+      ) : null}
+
+      {isBlogFreshnessUiEnabled() ? (
+        <>
+          <H2 id="freshness">Article freshness</H2>
+          <P>
+            Once a blog article is live, YouGrow looks at it once a day and gives it one of three states:{" "}
+            <strong>Fresh</strong>, <strong>Review soon</strong> or <strong>Due a refresh</strong>. The{" "}
+            <strong>Freshness</strong> card on the article&apos;s hub says which, and why.
+          </P>
+          <P>
+            Each live article has a clock of 20, 30 or 45 days, counted from the day it went live, was last updated or was last
+            checked. YouGrow spreads new articles across the three clocks, so you learn which works for your brand. To use one
+            clock for every article, an admin chooses it under <strong>Refresh clock</strong> on{" "}
+            <Open href="/admin/brand-kit/map">Brand › Brand map</Open>.
+          </P>
+          <P>
+            An article is due a refresh when it passes its clock, or sooner for a strong reason: fewer Google clicks to its page,
+            a link that no longer opens, or a figure from two or more years ago. Review soon means it is within 5 days of its
+            clock, or has a weaker reason: it sits just off Google&apos;s first page, it cites old sources, its subject has new
+            questions that no live page answers, or your page shows no date.
+          </P>
+          <P>
+            Due articles show in <Open href="/admin/approvals">Review</Open> under <strong>Articles due a refresh</strong>, and
+            with a pill in the programme&apos;s list of articles. Next up can offer one as a pick, and a Search Console
+            suggestion about one of your live articles says <strong>Refresh this article</strong>. Vizzy can list them too: ask
+            &quot;which articles need refreshing?&quot;
+          </P>
+          <P>
+            Looked, and nothing needs to change? Press <strong>Checked, nothing to change</strong> on the Freshness card. The
+            clock starts again from today, and Updated stays as it is, because the page didn&apos;t change.
+          </P>
+        </>
+      ) : null}
+
       <H2 id="schedule">Schedule posts</H2>
       <Steps>
         <li>
@@ -358,6 +415,25 @@ export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSig
                   "Most of the article's text isn't on that page. Check the address, or wait until the article is up. If it is the right page, press It's live.",
                 ],
                 ["Your site turned the check away. If the article is up, say so.", "Your site doesn't let checks read it. Press It's live once the article is up."],
+              ] as Array<[string, string]>)
+            : []),
+          ...(isBlogDatesUiEnabled()
+            ? ([
+                [
+                  "Your page shows no date. Paste the date line, or let your site show its own.",
+                  "Your live page carries no Published date. Copy the article again and paste its date line, or turn on your site's own post dates.",
+                ],
+                ["Give the day it went up: today or earlier.", "The day for It's live can't be in the future. Pick the day the page went up."],
+              ] as Array<[string, string]>)
+            : []),
+          ...(isBlogFreshnessUiEnabled()
+            ? ([
+                [
+                  "YouGrow looks at live articles once a day. This one gets its clock at the next look.",
+                  "Nothing to do. The article's clock and state show after the next daily look.",
+                ],
+                ["Checked. The clock starts again from today, and Updated stays as it is.", "Your check is saved. The article is fresh again until its clock runs out."],
+                ["Only admins can change the refresh clock.", "Ask an admin to choose the clock on Brand › Brand map."],
               ] as Array<[string, string]>)
             : []),
           ...(isSignalsDataForSeoEnabled()

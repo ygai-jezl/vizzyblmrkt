@@ -33,7 +33,7 @@ import { collectConnection, collectOf, isDue, MIN_START_MS, type CollectRunDeps,
  *   with no look started under 12 seconds before the budget ends.
  * Each run logs how far behind it is: the oldest nextAt among the due connections it saw.
  *
- * Shared connections (Connectors 3, ADR-0014), whenever CONNECTORS_ENABLED is on, whatever sharing
+ * Shared connections (Connectors 3, ADR-0015), whenever CONNECTORS_ENABLED is on, whatever sharing
  * or plans say: first a sweep of every region's connected organisation connections (those of an
  * organisation gone or with no brands are disconnected; half done gives, changes and take backs are
  * repaired on positive evidence), then for each brand its parts' housekeeping (a part ends only on

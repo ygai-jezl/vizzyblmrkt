@@ -15,7 +15,7 @@
  * a failed delete left behind, and leaves every record and its history alone. Your Application
  * Default Credentials need to list and delete service accounts in the identities project.
  *
- * Shared connections (Connectors 3, ADR-0014): a brand's purge also ends its parts on their
+ * Shared connections (Connectors 3, ADR-0015): a brand's purge also ends its parts on their
  * organisation's record, wherever that is kept. --organisation <orgId> (or --organisation all)
  * purges organisations' own connections instead, in every provisioned region, whatever any switch
  * says: each is disconnected (every brand's part ended and erased in its own region, its Google

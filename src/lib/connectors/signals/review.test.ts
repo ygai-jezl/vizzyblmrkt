@@ -74,6 +74,28 @@ describe("Plan an article", () => {
     expect(await planFromSignal(A, signalId, {}, { db, now: NOW, loadTenant: async () => null })).toEqual({ ok: false, error: "changed" });
   });
 
+  it("with article freshness on, offers to refresh a page that is one of the brand's live articles, never to plan it again", async () => {
+    for (const sw of ["BRAND_MAP_ENABLED", "BRAND_MAP_PAGES_ENABLED", "BLOG_DATES_ENABLED", "BLOG_FRESHNESS_ENABLED"]) vi.stubEnv(sw, "true");
+    await workspace("ws_blog", "Plant care blog");
+    await workspace("ws_news", "News");
+    await forTenant(A, db).freshnessWatch.create("fw_ten_a", {
+      nextAt: NOW.toISOString(),
+      counts: { fresh: 1, soon: 0, due: 0 },
+      byClock: { "20": 1, "30": 0, "45": 0 },
+      pages: [{ key: "fernhill.example/care/fiddle-leaf-fig", planId: "plan_fig", workspaceId: "ws_blog" }],
+      due: [],
+      linksDay: "2026-11-23",
+      linksToday: 0,
+      updatedAt: NOW.toISOString(),
+    } as never);
+    const { signalId, actionId } = await seedSuggestion(A, db, ID, "losing");
+    expect((await signalReviewItems(A, { db, now: NOW }))[0]).toMatchObject({ action: "Refresh this article" });
+    // Two programmes and none chosen would ask which: the article's own programme answers it.
+    const r = await planFromSignal(A, signalId, {}, { db, now: NOW, loadTenant: async () => null });
+    expect(r).toEqual({ ok: true, value: { href: "/admin/workspace/ws_blog/create/plan_fig?freshness=1" } });
+    expect(await action(actionId)).toMatchObject({ state: "acted", result: { href: "/admin/workspace/ws_blog/create/plan_fig?freshness=1" } });
+  });
+
   it("links a question within reach to Write this next, and a search to Create with its words", () => {
     expect(planHref("ws_blog", { rule: "within_reach", label: "how often to water monstera", questionId: "q_monstera000000000", key: { topic: "how often to water monstera" } })).toBe("/admin/workspace/ws_blog/create?question=q_monstera000000000");
     expect(planHref("ws_blog", { rule: "rising_search", label: "pet safe hanging plants", questionId: null, key: { topic: "pet safe hanging plants" } })).toBe("/admin/workspace/ws_blog/create?numbers=search&text=pet%20safe%20hanging%20plants");

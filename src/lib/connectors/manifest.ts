@@ -254,7 +254,7 @@ const RateLimitSchema = z
   .strict();
 
 /**
- * The third bucket, per organisation connection (Connectors 3, ADR-0014): one sign in, address or
+ * The third bucket, per organisation connection (Connectors 3, ADR-0015): one sign in, address or
  * token serves several brands, and the provider counts their calls together (Search Console per
  * user, Cloudflare per token), so their parts share one budget beside each brand's own. `holds`
  * says where a quota answer holds collecting: "connection" stops every part (Search Console,

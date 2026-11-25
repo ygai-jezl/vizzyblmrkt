@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts`. Don't edit this file: change the 
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one.
 
-95 types: 74 built and 21 planned.
+97 types: 76 built and 21 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -316,7 +316,7 @@ A brand's link to an outside source of numbers, such as a Cloudflare zone, a Sea
 
 ### Organisation connection (`organisation_connection`)
 
-An organisation's own link to an outside source of numbers (Connectors 3, ADR-0014): one Google sign in, one Google address made for the organisation, or one pasted token, whose owners give each of the organisation's brands one part of it (a site, a property or a zone). Kept in the regional database of the brand it was connected from, and never moved; its parts can go to the organisation's brands in any region. It holds the sealed secrets, with the organisation, connection and slot bound in, its health, pause and collect hold, the owner who signed in, and for each part the brand's id and region, the part and the brand record's id: what the sign in reads for each brand, never what was collected. Each part is a data connection in its brand's own region, where everything collected stays. Written only through `src/lib/tenant/organisationConnections.ts`; each change goes into an activity log kept 90 days.
+An organisation's own link to an outside source of numbers (Connectors 3, ADR-0015): one Google sign in, one Google address made for the organisation, or one pasted token, whose owners give each of the organisation's brands one part of it (a site, a property or a zone). Kept in the regional database of the brand it was connected from, and never moved; its parts can go to the organisation's brands in any region. It holds the sealed secrets, with the organisation, connection and slot bound in, its health, pause and collect hold, the owner who signed in, and for each part the brand's id and region, the part and the brand record's id: what the sign in reads for each brand, never what was collected. Each part is a data connection in its brand's own region, where everything collected stays. Written only through `src/lib/tenant/organisationConnections.ts`; each change goes into an activity log kept 90 days.
 
 - Status: built
 - Home: the region of the brand it was connected from, serving the organisation's brands in any region
@@ -1205,6 +1205,21 @@ Found live's working state: when to look at the brand's site next, which article
 - Search: none. Working state; what it finds is searched as the article.
 - Numbers: none. No numbers an agent reads.
 
+### Freshness watch (`freshness_watch`)
+
+Article freshness's daily record per brand: its live articles' counts by state and by clock, their pages, and the articles due a refresh. Each article's own clock and state live on the article.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `freshness_watch`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `content_plan` through the live articles it looks at (many)
+- Erase: none. Worked out again each day; each article's freshness is on the article.
+- Export: none. The brand's own work, with no one's personal data.
+- Search: none. Working state; the articles are searched as themselves.
+- Numbers: `articlesDue`, `articlesReviewSoon`, `articlesFresh`, `clockDays`, `liveArticles`, through `list_articles_due`
+
 ## Company
 
 A rail beside the spine: the company itself, on the organisation.
@@ -1527,6 +1542,22 @@ Short lived counters that keep each brand and caller within its limits, keyed by
 - Erase: none. Hashed keys, removed after two hours.
 - Export: none. Hashed keys with no person.
 - Search: none. Counters.
+- Numbers: none. No numbers an agent reads.
+
+### Email code (`email_code`)
+
+The 6-digit code emailed to confirm a password account's address: one per account, kept as a hash with its count of tries for 10 minutes. Once an address is locked out of codes, a link emailed in its place, kept as a hash for 30 minutes.
+
+- Status: built
+- Home: the control plane
+- Personal: the brand's own team
+- Stores:
+  - `email_codes`, control plane Firestore, in `src/lib/tenant/emailCodes.ts`. Keyed by the account's Firebase user id; the code's SHA-256 and its tries, never the code or the address; deleted when used, on the fifth wrong try or when found expired, and removed by a time to live on ttl.
+  - `email_code_guards`, control plane Firestore, in `src/lib/tenant/emailCodes.ts`. Keyed by the SHA-256 of the address, never the address; the times of its sends in the last hour and its wrong tries in the last day, across codes and accounts; removed by a time to live on ttl a day after the last.
+  - `email_confirm_links`, control plane Firestore, in `src/lib/tenant/emailCodes.ts`. Keyed by the account's Firebase user id; the SHA-256 of the emailed link sent in place of a code once the address is locked, never the link or the address; deleted when used or found expired, and removed by a time to live on ttl after 30 minutes.
+- Erase: none. Hashes with no address, removed by a time to live after 10 minutes (30 for a link), or a day for the per address counts.
+- Export: none. Hashes with no address.
+- Search: none. Codes.
 - Numbers: none. No numbers an agent reads.
 
 ### Email job (`email_job`)

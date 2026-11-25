@@ -47,7 +47,7 @@ export const CONNECTOR_ERRORS = {
   org_share_limit:
     "This organisation already has 5 Google addresses for this connector, the most one organisation can have. Disconnect one it no longer uses, or sign in with Google instead.",
   org_connection_limit: "This organisation already has 20 connections for this connector, the most one organisation can have. Disconnect one it no longer uses first.",
-  // A brand's part of its organisation's connection (Connectors 3, ADR-0014).
+  // A brand's part of its organisation's connection (Connectors 3, ADR-0015).
   managed_by_organisation: "Your organisation manages this connection. Its owners can change it.",
   part_ended: "Your organisation doesn't give this brand this part right now, so it reads nothing.",
   source_broken: "This connection comes from your organisation, and its sign in needs attention. An owner of your organisation can fix it.",

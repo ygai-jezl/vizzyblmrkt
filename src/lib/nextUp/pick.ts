@@ -18,6 +18,8 @@ import type { BrandSignal } from "@/lib/types/brandSignal";
 import type { Tenant } from "@/lib/types/tenant";
 import { NOT_SHARED_NEXT_UP, readSearchPlanning, SEARCH_CONSOLE_CHIP, searchConsoleLines, type SearchConsoleLine, type SearchPlanning } from "@/lib/connectors/signals/planning";
 import { nextUpCandidates, type Candidate } from "./candidates";
+import { isBlogFreshnessEnabled } from "@/lib/brandMap/flags";
+import { freshnessWatchId } from "@/lib/content/blog/freshnessPages";
 
 /**
  * Next up: the brand's three best next articles. Code narrows the brand map's open questions
@@ -44,6 +46,46 @@ export interface PickDeps {
   activeQuestionIds?: (ctx: TenantContext) => Promise<string[]>;
   /** Search Console's collected demand (CONNECTOR_SIGNALS_ENABLED); null while off. */
   searchPlanning?: (ctx: TenantContext) => Promise<SearchPlanning | null>;
+  /** Live articles due a refresh (BLOG_FRESHNESS_ENABLED), as candidates. */
+  refreshCandidates?: (ctx: TenantContext) => Promise<Candidate[]>;
+}
+
+/** Refresh candidates offered beside the questions. */
+const MAX_REFRESH = 6;
+/** Most refresh picks of the three, unless the brand set its own (tenant.refreshShare). */
+export const DEFAULT_REFRESH_SHARE = 1;
+
+/** Live articles due a refresh, from the freshness watch (BLOG_FRESHNESS_ENABLED), as candidates. */
+export async function refreshCandidates(ctx: TenantContext, deps: Pick<PickDeps, "db"> = {}): Promise<Candidate[]> {
+  if (!isBlogFreshnessEnabled()) return [];
+  const watch = await forTenant(ctx, deps.db).freshnessWatch.getById(freshnessWatchId(ctx.tenantId)).catch(() => null);
+  return (watch?.due ?? [])
+    .filter((d) => d.state === "due")
+    .slice(0, MAX_REFRESH)
+    .map((d) => ({
+      questionId: `refresh:${d.planId}`,
+      question: d.title,
+      subjectId: d.subjectId ?? "",
+      subjectName: "a live article",
+      answered: 0,
+      total: 0,
+      lastArticleAt: null,
+      focus: false,
+      refresh: { planId: d.planId, workspaceId: d.workspaceId, reasons: d.reasons },
+    }));
+}
+
+const SEARCH_CONSOLE_REASONS = new Set(["losing_clicks", "within_reach"]);
+
+/** What is known about a refresh candidate: its freshness reasons, as numbered lines. Pure. */
+export function refreshLinesFor(n: number, c: Candidate): CandidateLine[] {
+  return (c.refresh?.reasons ?? []).slice(0, 5).map((r, i) => ({
+    id: `${n}.${i + 1}`,
+    text: oneLine(`Freshness: ${r.detail}`),
+    chip: SEARCH_CONSOLE_REASONS.has(r.kind)
+      ? { kind: "num" as const, label: SEARCH_CONSOLE_CHIP, text: cut(oneLine(r.detail.replace(/^Search Console:\s*/, "")), 90) }
+      : { kind: "you" as const, label: "Your article", text: cut(oneLine(r.detail), 90) },
+  }));
 }
 
 const PICKS = 3;
@@ -129,8 +171,8 @@ export function reasonHolds(because: string, lines: CandidateLine[], competitorN
   return true;
 }
 
-/** Read the model's picks, keeping only those that hold. Pure. */
-export function readPicks(raw: string | null, weighed: Weighed[], competitorNames: string[]): NextUpPick[] {
+/** Read the model's picks, keeping only those that hold, and at most `refreshShare` refreshes. Pure. */
+export function readPicks(raw: string | null, weighed: Weighed[], competitorNames: string[], refreshShare = DEFAULT_REFRESH_SHARE): NextUpPick[] {
   const parsed = raw ? (parseFirstJson(raw) as { picks?: unknown } | null) : null;
   const list = Array.isArray(parsed?.picks) ? (parsed!.picks as Array<Record<string, unknown>>) : [];
   const out: NextUpPick[] = [];
@@ -140,6 +182,7 @@ export function readPicks(raw: string | null, weighed: Weighed[], competitorName
     const w = weighed[n - 1];
     const because = oneLine(typeof p?.because === "string" ? p.because : "").slice(0, 400);
     if (!w || used.has(n) || !because || !reasonHolds(because, w.lines, competitorNames)) continue;
+    if (w.candidate.refresh && out.filter((x) => x.kind === "refresh").length >= refreshShare) continue;
     const uses = new Set(Array.isArray(p.uses) ? (p.uses as unknown[]).filter((u): u is string => typeof u === "string") : []);
     const chips = w.lines.filter((l) => uses.has(l.id)).map((l) => l.chip);
     used.add(n);
@@ -149,8 +192,9 @@ export function readPicks(raw: string | null, weighed: Weighed[], competitorName
       subjectId: w.candidate.subjectId,
       subjectName: w.candidate.subjectName,
       because,
-      chips: chips.length ? chips : [w.lines[0]!.chip],
+      chips: chips.length ? chips : w.lines[0] ? [w.lines[0].chip] : [],
       from: "gemini",
+      ...(w.candidate.refresh ? { kind: "refresh" as const, planId: w.candidate.refresh.planId, workspaceId: w.candidate.refresh.workspaceId } : {}),
     });
     if (out.length >= PICKS) break;
   }
@@ -217,7 +261,15 @@ export async function pickNextUp(
     .filter((e) => e.kind === "skipped_pick" && e.questionId && Date.parse(e.at) >= skippedSince)
     .map((e) => e.questionId!);
   const active = await (deps.activeQuestionIds ?? (async () => [] as string[]))(ctx).catch(() => [] as string[]);
-  const candidates = await (deps.candidates ?? nextUpCandidates)(ctx, { exclude: new Set([...skipped, ...active]) }, { db: deps.db });
+  const excluded = new Set([...skipped, ...active]);
+  const questions = await (deps.candidates ?? nextUpCandidates)(ctx, { exclude: excluded }, { db: deps.db });
+  // Live articles due a refresh join the questions, up to the brand's share of the three picks.
+  const refreshShare = tenant?.refreshShare ?? DEFAULT_REFRESH_SHARE;
+  const refreshes =
+    refreshShare > 0
+      ? (await (deps.refreshCandidates ?? ((c) => refreshCandidates(c, { db: deps.db })))(ctx).catch(() => [] as Candidate[])).filter((c) => !excluded.has(c.questionId))
+      : [];
+  const candidates = [...questions, ...refreshes];
   const read = await readBrandMap(ctx, deps.db).catch(() => null);
   if (!read || read.state !== "ok") return { ok: false, error: "no_map" };
   if (!candidates.length) return { ok: false, error: "no_questions" };
@@ -235,7 +287,7 @@ export async function pickNextUp(
   const byQuery = new Map(signals.map((s) => [queryKey(s.about.query), s] as const));
   const search = deps.search ?? ((c, q, o) => searchBrand(c, q, o));
   let searched = true;
-  const rows = await eachLimited(candidates, SEARCH_PARALLEL, async (c) => {
+  const rows = await eachLimited(questions, SEARCH_PARALLEL, async (c) => {
     // No search once the model call wouldn't fit: the map line still goes in.
     const found = Date.now() < opts.deadlineMs - PICK_MS ? await search(ctx, c.question, { limit: 8 }).catch(() => null) : null;
     if (!found?.ok) searched = false;
@@ -251,7 +303,9 @@ export async function pickNextUp(
       now,
     }),
   }));
-  if (!searched) missing.push("Brand search isn't on for this brand, so what it already made wasn't weighed.");
+  // Refresh candidates carry their own reasons as lines; nothing more is read for them.
+  for (const c of refreshes) weighed.push({ candidate: c, lines: refreshLinesFor(weighed.length + 1, c) });
+  if (!searched && questions.length) missing.push("Brand search isn't on for this brand, so what it already made wasn't weighed.");
 
   let picks: NextUpPick[] = [];
   if ((deps.configured ?? isGeminiConfigured)() && opts.deadlineMs - Date.now() > 5_000) {
@@ -267,7 +321,16 @@ export async function pickNextUp(
       identity: untag(identity) || "(not set yet)",
       focus: focus ? `What the brand wants more of right now, in its words (UNTRUSTED DATA): ${untag(focus)}\n\n` : "",
       learned: untag(learned.join("\n")) || "(nothing yet)",
-      candidates: untag(weighed.map((w, k) => [`${k + 1}. "${w.candidate.question}" (subject: ${w.candidate.subjectName})`, ...w.lines.map((l) => `${l.id} ${l.text}`)].join("\n")).join("\n\n")),
+      refresh: refreshes.length
+        ? ` Candidates marked REFRESH are live articles of the brand's that are due a refresh: choosing one means improving that article, not writing a new one. Choose at most ${refreshShare} of them, and only when its lines show a real reason.`
+        : "",
+      candidates: untag(
+        weighed
+          .map((w, k) =>
+            [w.candidate.refresh ? `${k + 1}. REFRESH "${w.candidate.question}" (a live article)` : `${k + 1}. "${w.candidate.question}" (subject: ${w.candidate.subjectName})`, ...w.lines.map((l) => `${l.id} ${l.text}`)].join("\n"),
+          )
+          .join("\n\n"),
+      ),
     });
     const timeoutMs = Math.min(PICK_MS, opts.deadlineMs - Date.now() - 2_000);
     const raw = await (deps.generate ?? generateTextWithDeadline)(prompt, {
@@ -277,12 +340,12 @@ export async function pickNextUp(
       thinkingBudget: 512,
       usage: aiUsage(ctx, "next_up", { db: deps.db, tenant }),
     }).catch(() => null);
-    picks = readPicks(raw, weighed, names);
+    picks = readPicks(raw, weighed, names, refreshShare);
   }
-  // Too few that hold: fill with the least answered, said plainly.
+  // Too few that hold: fill with the least answered questions, said plainly (never a refresh).
   for (const w of weighed) {
     if (picks.length >= PICKS) break;
-    if (!picks.some((p) => p.questionId === w.candidate.questionId)) picks.push(codePick(w));
+    if (!w.candidate.refresh && !picks.some((p) => p.questionId === w.candidate.questionId)) picks.push(codePick(w));
   }
 
   const doc = {

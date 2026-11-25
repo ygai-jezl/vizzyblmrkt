@@ -1,4 +1,7 @@
 import { forTenant, organisationContextFor } from "@/lib/tenant";
+import { readDueArticles } from "@/lib/content/blog/freshnessPages";
+import { refreshHref } from "@/lib/content/blog/freshnessHref";
+import type { FreshnessDueItem } from "@/lib/types/freshness";
 import { isAutopilotEnabled } from "@/lib/autopilot/flags";
 import { readyToWrite, recentRuns } from "@/lib/autopilot/runs";
 import { MAX_PER_WEEK, type AutopilotRun } from "@/lib/types/autopilot";
@@ -16,7 +19,7 @@ import type { InviteWave } from "@/lib/types/invite";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
 import { isWaitlistEngineUiEnabled } from "@/lib/lifecycle/waitlist/flags";
 import type { BrandMap, BrandMapSuggestionFrom } from "@/lib/types/brandMap";
-import { isBrandMapEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
+import { isBlogFreshnessEnabled, isBrandMapEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 import { proposalsWaiting, suggestionsWaiting } from "@/lib/brandMap/waiting";
 import { readBrandMap } from "@/lib/brandMap/store";
 import { BRAND_KIT_COMPETITORS_ROUTE, BRAND_KIT_MAP_ROUTE } from "@/lib/content/brandKit";
@@ -62,6 +65,7 @@ export type ReviewKind =
   | "competitor_news"
   | "next_article"
   | "data_signal"
+  | "content_refresh"
   | "person_suggestion";
 
 export interface ReviewItem {
@@ -125,6 +129,10 @@ export const REVIEW_SECTIONS: Record<ReviewKind, { title: string; description: s
     title: "What your numbers suggest",
     description: "Searches and pages from Search Console worth an article. Plan one, or dismiss it.",
   },
+  content_refresh: {
+    title: "Articles due a refresh",
+    description: "Live articles past their refresh clock, or with a reason to look again. Open one to see why, or mark it checked.",
+  },
   person_suggestion: {
     title: "Suggestions about people",
     description: "Changes to people's fields, and people to add, that Vizzy suggested. Nothing changes until someone on your team confirms.",
@@ -132,7 +140,7 @@ export const REVIEW_SECTIONS: Record<ReviewKind, { title: string; description: s
 };
 
 /** Order of sections on the page (AI lines are time-bound, so they come first). */
-export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "data_source", "next_article", "data_signal", "agent_draft", "person_suggestion", "repo_results", "brand_map", "competitor_news", "content_hub"];
+export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "data_source", "next_article", "data_signal", "content_refresh", "agent_draft", "person_suggestion", "repo_results", "brand_map", "competitor_news", "content_hub"];
 
 // ---------------------------------------------------------------------------
 // Per-source rules (pure)
@@ -563,6 +571,25 @@ const RUN_FAILED: Record<string, string> = {
  * newest question sorted and ready to write (Suggest mode), questions a draft asks the team, and
  * the newest run that couldn't finish. The drafts themselves show as Vizzy's drafts, once done.
  */
+/** Most articles due a refresh listed in Review. */
+const MAX_REFRESH_ITEMS = 10;
+
+/** Live articles due a refresh (BLOG_FRESHNESS_ENABLED), from the freshness watch: one item each. */
+export function refreshItems(due: FreshnessDueItem[]): ReviewItem[] {
+  return due
+    .filter((d) => d.state === "due")
+    .slice(0, MAX_REFRESH_ITEMS)
+    .map((d) => ({
+      id: `content_refresh:${d.planId}`,
+      kind: "content_refresh" as const,
+      title: `Due a refresh: ${d.title}`,
+      detail: d.reasons.map((r) => r.detail).join(". "),
+      details: d.reasons.map((r) => r.detail),
+      href: refreshHref(d),
+      action: "Open article",
+    }));
+}
+
 export function nextArticleItems(runs: AutopilotRun[], nowMs = Date.now()): ReviewItem[] {
   const recent = runs.filter((r) => nowMs - Date.parse(r.updatedAt) < 14 * 86_400_000).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const out: ReviewItem[] = [];
@@ -680,6 +707,10 @@ export async function loadReview(
   ]);
 
   const autopilotRuns = isAutopilotEnabled() ? await soft("autopilot runs", recentRuns(ctx, 60, { db }), [] as AutopilotRun[]) : [];
+  // Articles due a refresh (BLOG_FRESHNESS_ENABLED): the freshness watch's list, one read.
+  const dueArticles = isBlogFreshnessEnabled()
+    ? await soft("articles due a refresh", readDueArticles(ctx, { db }), [] as FreshnessDueItem[])
+    : [];
   // New person drafts only where this user can open the form: admins, who alone add someone
   // (decision 28), with the People list on screen. Field suggestions show to everyone, since the
   // person's page tells a member that an admin confirms.
@@ -712,6 +743,7 @@ export async function loadReview(
     ...competitorItems(competitors, competitorNews),
     ...nextArticleItems(autopilotRuns),
     ...numberSuggestions,
+    ...refreshItems(dueArticles),
     ...(opts.includeContent ? await loadContentHubItems(ctx, activeWorkspaces) : []),
   ].filter((i): i is ReviewItem => !!i);
 

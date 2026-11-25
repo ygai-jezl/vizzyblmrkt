@@ -23,7 +23,7 @@
  *   ...the same with --apply
  * Optional:  --tenant <tenantId>   --local (the emulators only, with the keys from .env.local)
  *
- * Organisations' own connections (Connectors 3, ADR-0014) are covered too, in every provisioned
+ * Organisations' own connections (Connectors 3, ADR-0015) are covered too, in every provisioned
  * region, after the brands (skipped with --tenant), so the count of secrets off the current key
  * includes them.
  *

@@ -1,4 +1,4 @@
-import { JobsClient } from "@google-cloud/run";
+import type { JobsClient } from "@google-cloud/run";
 import type { Region } from "@/lib/types/tenant";
 import type {
   KnowledgeChunkSource,
@@ -10,11 +10,17 @@ import type {
  * coordinates as a per-execution override. Uses ADC — the App Hosting runtime SA
  * needs `run.jobs.runWithOverrides` on the job. Region in the resource name is
  * where the JOB is deployed (KNOWLEDGE_JOB_LOCATION), not the data region.
+ *
+ * @google-cloud/run brings its own Google API and gRPC stack, so it loads with the first job
+ * started, not with this file: an instance that never starts a job never loads it.
  */
 
 let _client: JobsClient | null = null;
-function client(): JobsClient {
-  if (!_client) _client = new JobsClient();
+async function client(): Promise<JobsClient> {
+  if (_client) return _client;
+  const { JobsClient } = await import("@google-cloud/run");
+  // Another call may have made the client while this one waited for the import.
+  _client ??= new JobsClient();
   return _client;
 }
 
@@ -88,7 +94,7 @@ export async function triggerIngestionJob(
   runner?: JobRunner,
 ): Promise<void> {
   const request = buildRunJobRequest(vars);
-  const c = runner ?? (client() as unknown as JobRunner);
+  const c = runner ?? ((await client()) as unknown as JobRunner);
   await c.runJob(request);
 }
 
@@ -128,7 +134,7 @@ export function buildProductMapRunRequest(vars: ProductMapJobVars): ReturnType<t
 
 export async function triggerProductMapJob(vars: ProductMapJobVars, runner?: JobRunner): Promise<void> {
   if (!isIngestionJobConfigured()) throw new Error("product_map_job_not_configured");
-  const c = runner ?? (client() as unknown as JobRunner);
+  const c = runner ?? ((await client()) as unknown as JobRunner);
   await c.runJob(buildProductMapRunRequest(vars));
 }
 

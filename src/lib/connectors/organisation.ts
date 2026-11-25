@@ -30,7 +30,7 @@ import { REFRESH_SLOT } from "./tokenKeeper";
 import { openConnectorSecret, VaultOpenError } from "./vault";
 
 /**
- * An organisation's own connections (Connectors 3, ADR-0014), at the organisation's level: what the
+ * An organisation's own connections (Connectors 3, ADR-0015), at the organisation's level: what the
  * organisation may hold and make, and how its connections end, whatever any switch says.
  *
  * - Google addresses: at most SHARE_ADDRESS_CAP (5) per organisation per connector, counting those

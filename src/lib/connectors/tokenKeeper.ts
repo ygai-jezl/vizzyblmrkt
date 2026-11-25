@@ -29,7 +29,7 @@ import { openConnectorSecret, sealConnectorSecret, VaultOpenError } from "./vaul
  *
  * Never throws for a provider or vault failure; a database error still throws.
  *
- * The keeper works over a record port (Connectors 3, ADR-0014): a brand's own connection, or an
+ * The keeper works over a record port (Connectors 3, ADR-0015): a brand's own connection, or an
  * organisation's connection, whose sign in serves the parts it gave its brands. Each port reads and
  * changes its own record in its own database, with its own lease and compare-and-set, and names
  * what the vault binds its secrets to (the brand, or the organisation). An organisation's lease and

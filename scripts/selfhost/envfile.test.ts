@@ -86,7 +86,7 @@ describe("the switches npm run selfhost leaves off", () => {
   });
 
   it("keep organisation sharing off on a new copy, and no add-on turns it on", () => {
-    // Sharing needs plans on (ADR-0014): a copy turns it on by hand once every organisation is on Self-hosted.
+    // Sharing needs plans on (ADR-0015): a copy turns it on by hand once every organisation is on Self-hosted.
     expect(KEPT_OFF.CONNECTORS_SHARING_ENABLED.addon).toBeNull();
     for (const addon of ["x", "linkedin", "vizzy", "knowledge", "github-app", "bigquery", "recaptcha", "search"]) {
       expect(switchesForAddon(addon), addon).not.toContain("CONNECTORS_SHARING_ENABLED");
@@ -94,7 +94,7 @@ describe("the switches npm run selfhost leaves off", () => {
   });
 
   it("keep the in-app join off on a new copy, and no add-on turns it on", () => {
-    // Bring in and Move out need plans on and owners added by hand (ADR-0014).
+    // Bring in and Move out need plans on and owners added by hand (ADR-0015).
     expect(KEPT_OFF.ORGANISATION_JOIN_ENABLED.addon).toBeNull();
     for (const addon of ["x", "linkedin", "vizzy", "knowledge", "github-app", "bigquery", "recaptcha", "search"]) {
       expect(switchesForAddon(addon), addon).not.toContain("ORGANISATION_JOIN_ENABLED");

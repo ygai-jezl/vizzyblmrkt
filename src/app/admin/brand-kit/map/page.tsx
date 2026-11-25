@@ -7,6 +7,7 @@ import { isBlogBrandMapEnabled } from "@/lib/content/blog/flags";
 import { BRAND_KIT_ROUTE } from "@/lib/content/brandKit";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import {
+  isBlogFreshnessEnabled,
   isBrandMapEnabled,
   isBrandMapImportEnabled,
   isBrandMapPagesEnabled,
@@ -27,6 +28,7 @@ import { brandCanUse } from "@/lib/plans/brandAccess";
 import { readBrandMap, type BrandMapRead } from "@/lib/brandMap/store";
 import { BrandMapEditor } from "@/components/admin/brand-kit/BrandMapEditor";
 import { AutopilotPanel } from "@/components/admin/autopilot/AutopilotPanel";
+import { RefreshClockCard } from "@/components/admin/autopilot/RefreshClockCard";
 import { isAutopilotEnabled, isNextUpEnabled } from "@/lib/autopilot/flags";
 import { BrandMapTabs } from "@/components/admin/brand-kit/BrandMapTabs";
 import { BrandMapContentMap } from "@/components/admin/brand-kit/BrandMapContentMap";
@@ -171,6 +173,7 @@ export default async function BrandMapPage() {
         <p className="text-sm text-neutral-500 dark:text-neutral-400">One set of names and subjects. Every article is written from it.</p>
       </div>
       {nextUp ? <AutopilotPanel isAdmin={ctx.role === "admin"} programmes={programmes} autopilot={isAutopilotEnabled()} /> : null}
+      {isBlogFreshnessEnabled() ? <RefreshClockCard isAdmin={ctx.role === "admin"} /> : null}
       {scale ? (
         // The first time an admin opens the page, whichever tab shows, the subjects move into their records;
         // until a read of the brand's pages and a count has run to the end, it starts again.

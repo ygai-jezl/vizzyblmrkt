@@ -261,5 +261,22 @@ export type { BrandMoveCheck, BrandMoveRefusal, OrganisationContext, VerifiedPer
 // Connected data sign in states: made at Sign in, claimed once by the callback, then deleted.
 export { createConnectionState, consumeConnectionState, STATE_VALID_MS } from "./dataConnectionStates";
 export type { NewConnectionState, StoredConnectionState, ConsumeOutcome } from "./dataConnectionStates";
+// Emailed codes and links for password sign-in: one hashed code and one hashed link per account,
+// each checked in a transaction.
+export {
+  putEmailCode,
+  checkEmailCode,
+  claimEmailCodeSend,
+  deleteEmailCode,
+  putEmailLink,
+  checkEmailLink,
+  deleteEmailLink,
+  EMAIL_CODE_VALID_MS,
+  EMAIL_CODE_MAX_TRIES,
+  EMAIL_CODE_SENDS_PER_HOUR,
+  EMAIL_CODE_WRONG_PER_DAY,
+  EMAIL_LINK_VALID_MS,
+} from "./emailCodes";
+export type { EmailCodeCheck, EmailCodeSendClaim, EmailLinkCheck } from "./emailCodes";
 export type { SendClaimArgs, SendClaimOutcome } from "./lifecycleSend";
 export type { RateLimitConfig } from "./rateLimit";

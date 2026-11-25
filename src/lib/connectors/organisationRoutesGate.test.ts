@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
-// Every organisation route (Connectors 3, ADR-0014) checks its switch first, then goes through the
+// Every organisation route (Connectors 3, ADR-0015) checks its switch first, then goes through the
 // integrations gate (origin check, sign in, the admin role of the brand the person is in), then the
 // live owner check, as routesGate.test.ts holds the connector routes to theirs. Connections answer
 // to CONNECTORS_SHARING_ENABLED, brands to ORGANISATION_JOIN_ENABLED. No organisation route lets a

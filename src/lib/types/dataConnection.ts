@@ -14,7 +14,7 @@ import { Region } from "./tenant";
 export const DATA_CONNECTION_ID_RE = /^dcn_[a-z2-7]{20}$/;
 
 /**
- * An organisation's own connection (Connectors 3, ADR-0014), `ocn_` and 20 base32 characters, in
+ * An organisation's own connection (Connectors 3, ADR-0015), `ocn_` and 20 base32 characters, in
  * `organisation_connections` (src/lib/types/organisationConnection.ts). Its own prefix, so it never
  * shares an id, a vault binding or a search ref with a brand's connection.
  */
@@ -173,7 +173,7 @@ export function freshCollect(nextAt: string | null = null, gen = 0): CollectStat
 }
 
 /**
- * Where a brand's part of an organisation's connection comes from (Connectors 3, ADR-0014): the
+ * Where a brand's part of an organisation's connection comes from (Connectors 3, ADR-0015): the
  * organisation, its connection, and the region that connection is kept in, which may not be the
  * brand's. Written by the server when the part is given and never changed after (it is FIXED in
  * src/lib/tenant/dataConnections.ts), so no request can point a brand at another record or region.

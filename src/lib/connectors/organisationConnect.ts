@@ -30,7 +30,7 @@ import { isVaultConfigured, sealConnectorSecret, type SealedSecret } from "./vau
 
 /**
  * Connecting for an organisation, and what its owners see of its connections (Connectors 3,
- * ADR-0014). Every function takes an owner the route checked live (src/lib/connectors/
+ * ADR-0015). Every function takes an owner the route checked live (src/lib/connectors/
  * organisationOwner.ts) and a connection id it finds on the server, in any provisioned region,
  * and refuses unless it is the owner's organisation's.
  *

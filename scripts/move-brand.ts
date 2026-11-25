@@ -22,7 +22,7 @@
  * After combining, add the people who should see the combined totals with scripts/set-plan.ts
  * --organisation <orgId> --add-owner <uid>.
  *
- * Shared connections (Connectors 3, ADR-0014), whatever any switch says: after a move, the brand's
+ * Shared connections (Connectors 3, ADR-0015), whatever any switch says: after a move, the brand's
  * parts from the organisation it left end, and what was collected through them is erased; when the
  * move leaves that organisation with no brands, every connection it holds is disconnected, in every
  * region. An empty org_<tenantId> taken up again (--to new) has its connections disconnected first,

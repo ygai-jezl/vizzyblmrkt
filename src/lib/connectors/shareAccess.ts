@@ -30,7 +30,7 @@ import { codeForThrow, defaultTransport, retryAfter, type Transport } from "./sa
  * - Deleted accounts don't count towards the project's service account quota; a full project says
  *   so plainly (share_quota) so the screen can offer Sign in with Google.
  *
- * - An organisation's connection (Connectors 3, ADR-0014) gets its own address from
+ * - An organisation's connection (Connectors 3, ADR-0015) gets its own address from
  *   createOrganisationShareAccount, described `connection=ocn_... org=<orgTag> copy=<copyTag>`. The
  *   brand maker (createShareAccount) takes only a `dcn_` id, and the brand purge's description
  *   match needs `connection=dcn_`, so a brand's purge never takes an organisation's address for

@@ -125,6 +125,32 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Email and password sign-in: create an account, confirm it with an emailed code, forgot
+  # password, change password and sign out everywhere. Needs the Email/Password provider on
+  # in Identity Platform (npm run selfhost -- --project <id> --apply addon:password) and an email provider. Only
+  # addresses on ADMIN_ALLOWED_EMAILS get in with a password.
+  - variable: PASSWORD_SIGNIN_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Delete password accounts still unconfirmed after 7 days (needs PASSWORD_SIGNIN_ENABLED).
+  # Off, the hourly sweep only logs what it would delete.
+  - variable: PASSWORD_CLEANUP_DELETE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Anyone may create an account and set up their own brand. Does nothing until self-serve
+  # brand creation exists: until then the sign-in door still refuses addresses not on the list.
+  - variable: SELF_SERVE_SIGNUP_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Per-visitor limits key on the address Google's load balancer adds to X-Forwarded-For
+  # (TRUSTED_PROXY_HOPS from the right, default 2), not the first entry a visitor can write.
+  - variable: TRUSTED_CLIENT_IP_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Off, / is a plain front page with a sign-in button; on, the marketing homepage.
   - variable: SITE_HOME_ENABLED
     value: "false"
@@ -243,7 +269,7 @@ env:
     availability:
       - BUILD
       - RUNTIME
-  # Brands in the organisation (ADR-0014): owners bring in a brand they run, or move one out to an
+  # Brands in the organisation (ADR-0015): owners bring in a brand they run, or move one out to an
   # organisation of its own on the same plan, on Settings > Organisation. Needs a real tenant_users
   # admin row for the brand and PLANS_ENABLED. Every move ends the brand's shared parts from the
   # organisation it leaves, whatever sharing says. Off, moves stay operator scripts.
@@ -700,6 +726,30 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # True article dates: Published and Updated stored on each blog article, with the brand's time
+  # zone (Settings › General), in the date line, the copy and the markup. Off: the draft day.
+  - variable: BLOG_DATES_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Their screens: the canvas date line, the export and the time zone card.
+  - variable: NEXT_PUBLIC_BLOG_DATES_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Article freshness: a clock per live article (20, 30 or 45 days, tested), a daily state with its
+  # reasons, and due articles in Review, Next up and Search Console's rows (needs BLOG_DATES_ENABLED).
+  - variable: BLOG_FRESHNESS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Its screens: the Freshness card, the clock setting and the article list's pills.
+  - variable: NEXT_PUBLIC_BLOG_FRESHNESS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
   - variable: BRAND_MAP_CHAT_ENABLED
     value: "false"
     availability:
@@ -1148,7 +1198,7 @@ env:
     value: "false"
     availability:
       - RUNTIME
-  # Organisations share connections (ADR-0014): an organisation's owners connect once and give
+  # Organisations share connections (ADR-0015): an organisation's owners connect once and give
   # each of its brands one site, property or zone; each brand's numbers stay in its own region
   # (needs CONNECTORS_ENABLED and PLANS_ENABLED). Before turning it on, run
   # infra/lifecycle/setup.sh ttl for organisation_connection_activity and deploy the index file

@@ -26,7 +26,7 @@ import type { ServiceResult } from "./service";
 import { storesOf } from "./sources";
 
 /**
- * Settings › Organisation › Brands (Connectors 3 group 4, ORGANISATION_JOIN_ENABLED, ADR-0014): the
+ * Settings › Organisation › Brands (Connectors 3 group 4, ORGANISATION_JOIN_ENABLED, ADR-0015): the
  * organisation's brands in every region, Bring in a brand you run, and Move out.
  *
  * - Who: an owner of the organisation of the brand they are in who is an admin of it (the routes'

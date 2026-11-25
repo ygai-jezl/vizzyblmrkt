@@ -119,7 +119,7 @@ export function isConnectorSignalsEnabled(): boolean {
 }
 
 /**
- * Organisations share connections (Connectors 3, ADR-0014): an organisation's owners connect once
+ * Organisations share connections (Connectors 3, ADR-0015): an organisation's owners connect once
  * and give each of its brands one part (a site, a property or a zone). Needs CONNECTORS_ENABLED
  * and PLANS_ENABLED (organisations count only with plans on). Off, the Shared connections section
  * is hidden and every part reads nothing, live or collected, and the lane skips parts quietly;

@@ -302,7 +302,7 @@ The candidates: each is a question from the brand's map, then numbered lines of 
 [[candidates]]
 </candidates>
 
-Choose the three that would do the most for the brand now. Weigh: a question nobody answers well yet (none of the brand's pages ranks, no competitor answers it); demand Google shows; the brand's focus; how long its subject has gone without an article; and what the brand already said (a newsletter or post on it is material to build on, while an article that already answers it is a reason not to). A subject competitors crowd can still be right with an angle they didn't take. Never choose something the learned lines say was skipped or is not for the brand.
+Choose the three that would do the most for the brand now. Weigh: a question nobody answers well yet (none of the brand's pages ranks, no competitor answers it); demand Google shows; the brand's focus; how long its subject has gone without an article; and what the brand already said (a newsletter or post on it is material to build on, while an article that already answers it is a reason not to). A subject competitors crowd can still be right with an angle they didn't take. Never choose something the learned lines say was skipped or is not for the brand.[[refresh]]
 
 For each pick write "because": one or two sentences, at most 45 words, plain words, saying why now. Use ONLY facts in that candidate's own lines: never a number, page, date or competitor its lines don't show. List the ids of the lines you used. ${NO_DASHES}
 

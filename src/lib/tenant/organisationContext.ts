@@ -6,7 +6,7 @@ import type { Tenant } from "@/lib/types/tenant";
 import type { TenantRole } from "@/lib/types/tenantUser";
 
 /**
- * Who may act for an organisation (Connectors 3, ADR-0014), read live on every action, never from
+ * Who may act for an organisation (Connectors 3, ADR-0015), read live on every action, never from
  * the session's claims and never from a request (ADR-0009's ADR-0003 P2 note):
  *
  * - The organisation is the one the session brand's own registry record names, and it must list
@@ -100,7 +100,7 @@ export type BrandMoveCheck = { ok: true; brand: Tenant; organisation: Organisati
  * must list it back, the person in that organisation's `ownerIds`, and a real `tenant_users` row
  * with role admin for the brand. The home brand's claims are not enough here, unlike giving a part
  * (isBrandAdminLive): claims last up to 5 days and no role can be lowered today, so a privileged
- * plan change takes the live row only (ADR-0003 P2, ADR-0014). The organisation the brand would go
+ * plan change takes the live row only (ADR-0003 P2, ADR-0015). The organisation the brand would go
  * into is the caller's to check. A read error throws, so nothing is decided on it.
  */
 export async function mayMoveBrand(person: VerifiedPerson, tenantId: string, db?: FirestoreLike): Promise<BrandMoveCheck> {

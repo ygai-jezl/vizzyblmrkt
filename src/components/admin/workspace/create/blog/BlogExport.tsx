@@ -7,6 +7,7 @@ import { hostOf } from "@/lib/content/blog/brief";
 import { isBlogAiSummaryUiEnabled } from "@/lib/content/blog/flags";
 import { crawlerLabel } from "@/lib/content/blog/crawlers";
 import { renderArticleHtml } from "@/lib/content/blog/markdown";
+import { articleDateline, withDateLine } from "@/lib/content/blog/dates";
 import { schemaScriptTag, suggestBlogSchema } from "@/lib/content/blog/schema";
 import type { ArticleMap } from "@/lib/content/blog/articleMap";
 import { isHttpsAddress, shareTags, withHeroHtml, withHeroMarkdown } from "@/lib/content/blog/shareTags";
@@ -156,6 +157,7 @@ export function BlogExport({
   map = null,
   hero = null,
   approved = false,
+  datesTimeZone,
 }: {
   markdown: string;
   meta: BlogArticleMeta | null | undefined;
@@ -172,11 +174,15 @@ export function BlogExport({
   hero?: { assetUrl: (ref: string) => string } | null;
   /** The article is approved: its Summarize with AI links can be made. */
   approved?: boolean;
+  /** True dates (BLOG_DATES_ENABLED): the brand's time zone; the copy and markup carry Published and Updated. */
+  datesTimeZone?: string;
 }) {
   const id = useId();
+  // Worked out once, so the date line in the copy and the markup's dates always match.
+  const dateline = useMemo(() => (datesTimeZone ? articleDateline(meta, datesTimeZone, new Date()) : null), [meta, datesTimeZone]);
   const schema = useMemo(
-    () => suggestBlogSchema({ markdown, meta, brief, pageUrl, brandName, logoUrl, map }),
-    [markdown, meta, brief, pageUrl, brandName, logoUrl, map],
+    () => suggestBlogSchema({ markdown, meta, brief, pageUrl, brandName, logoUrl, map, dateline }),
+    [markdown, meta, brief, pageUrl, brandName, logoUrl, map, dateline],
   );
   const [copied, setCopied] = useState<{ kind: CopyKind; ok: boolean } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -325,12 +331,26 @@ export function BlogExport({
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
-        <button type="button" onClick={() => void copy("markdown", () => (placed ? withHeroMarkdown(markdown, image) : markdown))} className={BUTTON}>
+        <button
+          type="button"
+          onClick={() =>
+            void copy("markdown", () => {
+              const dated = dateline ? withDateLine(markdown, dateline) : markdown;
+              return placed ? withHeroMarkdown(dated, image) : dated;
+            })
+          }
+          className={BUTTON}
+        >
           {copyLabel("markdown", "Copy Markdown")}
         </button>
         <button
           type="button"
-          onClick={() => void copy("html", () => (placed ? withHeroHtml(renderArticleHtml(markdown), image) : renderArticleHtml(markdown)))}
+          onClick={() =>
+            void copy("html", () => {
+              const html = renderArticleHtml(markdown, { dateline });
+              return placed ? withHeroHtml(html, image) : html;
+            })
+          }
           className={BUTTON}
         >
           {copyLabel("html", "Copy HTML")}

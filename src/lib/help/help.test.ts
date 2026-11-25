@@ -62,6 +62,8 @@ vi.hoisted(() => {
   process.env.BRAND_MAP_ENABLED = "true";
   process.env.BRAND_MAP_PAGES_ENABLED = "true";
   process.env.BLOG_LIVE_WATCH_ENABLED = "true";
+  process.env.NEXT_PUBLIC_BLOG_DATES_ENABLED = "true";
+  process.env.NEXT_PUBLIC_BLOG_FRESHNESS_ENABLED = "true";
   process.env.NEXT_PUBLIC_PLANS_ENABLED = "true";
   process.env.NEXT_PUBLIC_USAGE_METER_ENABLED = "true";
   process.env.NEXT_PUBLIC_CONNECTORS_ENABLED = "true";
@@ -76,6 +78,9 @@ vi.hoisted(() => {
   process.env.CONNECTORS_SHARING_ENABLED = "true";
   // Brands in your organisation (Connectors 3 group 4) needs plans on too.
   process.env.ORGANISATION_JOIN_ENABLED = "true";
+  process.env.PASSWORD_SIGNIN_ENABLED = "true";
+  // Password help shows only when a code can be delivered too (isPasswordSigninAvailable).
+  process.env.MANDRILL_API_KEY = "test-key-not-real";
 });
 
 const SRC = join(process.cwd(), "src");

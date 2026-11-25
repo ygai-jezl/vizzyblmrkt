@@ -1221,6 +1221,22 @@ export const ONTOLOGY: readonly OntologyType[] = [
     search: { none: "working state; what it finds is searched as the article" },
     numbers: { none: NO_NUMBERS },
   },
+  {
+    id: "freshness_watch",
+    name: "Freshness watch",
+    description: "Article freshness's daily record per brand: its live articles' counts by state and by clock, their pages, and the articles due a refresh. Each article's own clock and state live on the article.",
+    place: "content",
+    status: "built",
+    home: "brand",
+    personal: "none",
+    stores: [regional("freshness_watch")],
+    links: [{ to: "content_plan", via: "the live articles it looks at", many: true }],
+    events: [],
+    erase: { none: "worked out again each day; each article's freshness is on the article" },
+    export: { none: NOT_PERSONAL },
+    search: { none: "working state; the articles are searched as themselves" },
+    numbers: { meanings: ["articlesDue", "articlesReviewSoon", "articlesFresh", "clockDays", "liveArticles"], tool: "list_articles_due" },
+  },
 
   // ===== Partner and agent: who acts for the brand ===========================================
   {
@@ -1431,6 +1447,39 @@ export const ONTOLOGY: readonly OntologyType[] = [
     erase: { none: "hashed keys, removed after two hours" },
     export: { none: "hashed keys with no person" },
     search: { none: "counters" },
+    numbers: { none: NO_NUMBERS },
+  },
+  {
+    id: "email_code",
+    name: "Email code",
+    description:
+      "The 6-digit code emailed to confirm a password account's address: one per account, kept as a hash with its count of tries for 10 minutes. Once an address is locked out of codes, a link emailed in its place, kept as a hash for 30 minutes.",
+    place: "platform",
+    status: "built",
+    home: "control",
+    personal: "team",
+    stores: [
+      control(
+        "email_codes",
+        "src/lib/tenant/emailCodes.ts",
+        "keyed by the account's Firebase user id; the code's SHA-256 and its tries, never the code or the address; deleted when used, on the fifth wrong try or when found expired, and removed by a time to live on ttl",
+      ),
+      control(
+        "email_code_guards",
+        "src/lib/tenant/emailCodes.ts",
+        "keyed by the SHA-256 of the address, never the address; the times of its sends in the last hour and its wrong tries in the last day, across codes and accounts; removed by a time to live on ttl a day after the last",
+      ),
+      control(
+        "email_confirm_links",
+        "src/lib/tenant/emailCodes.ts",
+        "keyed by the account's Firebase user id; the SHA-256 of the emailed link sent in place of a code once the address is locked, never the link or the address; deleted when used or found expired, and removed by a time to live on ttl after 30 minutes",
+      ),
+    ],
+    links: [],
+    events: [],
+    erase: { none: "hashes with no address, removed by a time to live after 10 minutes (30 for a link), or a day for the per address counts" },
+    export: { none: "hashes with no address" },
+    search: { none: "codes" },
     numbers: { none: NO_NUMBERS },
   },
   {
@@ -1907,7 +1956,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "organisation_connection",
     name: "Organisation connection",
     description:
-      "An organisation's own link to an outside source of numbers (Connectors 3, ADR-0014): one Google sign in, one Google address made for the organisation, or one pasted token, whose owners give each of the organisation's brands one part of it (a site, a property or a zone). Kept in the regional database of the brand it was connected from, and never moved; its parts can go to the organisation's brands in any region. It holds the sealed secrets, with the organisation, connection and slot bound in, its health, pause and collect hold, the owner who signed in, and for each part the brand's id and region, the part and the brand record's id: what the sign in reads for each brand, never what was collected. Each part is a data connection in its brand's own region, where everything collected stays. Written only through `src/lib/tenant/organisationConnections.ts`; each change goes into an activity log kept 90 days.",
+      "An organisation's own link to an outside source of numbers (Connectors 3, ADR-0015): one Google sign in, one Google address made for the organisation, or one pasted token, whose owners give each of the organisation's brands one part of it (a site, a property or a zone). Kept in the regional database of the brand it was connected from, and never moved; its parts can go to the organisation's brands in any region. It holds the sealed secrets, with the organisation, connection and slot bound in, its health, pause and collect hold, the owner who signed in, and for each part the brand's id and region, the part and the brand record's id: what the sign in reads for each brand, never what was collected. Each part is a data connection in its brand's own region, where everything collected stays. Written only through `src/lib/tenant/organisationConnections.ts`; each change goes into an activity log kept 90 days.",
     place: "signals",
     status: "built",
     home: "organisation",

@@ -15,7 +15,7 @@ export function isPlansEnabled(): boolean {
 }
 
 /**
- * Brands in the organisation (Connectors 3 group 4, ADR-0014): the Brands section on Settings ›
+ * Brands in the organisation (Connectors 3 group 4, ADR-0015): the Brands section on Settings ›
  * Organisation, where an owner brings in a brand they run from another organisation they own, or
  * moves one out to an organisation of its own on the same plan. Both need a real tenant_users row
  * with role admin for the brand, never the session's claims. Needs PLANS_ENABLED. Ending the

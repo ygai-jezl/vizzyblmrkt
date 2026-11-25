@@ -4,7 +4,7 @@ import type { TenantRole } from "@/lib/types/tenantUser";
 import { organisationOwnerOf, type OrganisationOwner } from "./organisationOwner";
 
 /**
- * Responses for the organisation routes (Connectors 3, ADR-0014), under /api/admin/organisation.
+ * Responses for the organisation routes (Connectors 3, ADR-0015), under /api/admin/organisation.
  * Each route checks its switch first (CONNECTORS_SHARING_ENABLED for connections,
  * ORGANISATION_JOIN_ENABLED for brands), then the
  * integrations gate with the origin check and the admin role of the brand the person is in, then

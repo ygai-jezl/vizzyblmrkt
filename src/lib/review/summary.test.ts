@@ -17,9 +17,11 @@ import {
   loadReview,
   repoResultsItem,
   resetReviewCountCache,
+  refreshItems,
   REVIEW_ORDER,
   REVIEW_SECTIONS,
 } from "./summary";
+import type { FreshnessDueItem } from "@/lib/types/freshness";
 import type { RepoAnalysis } from "@/lib/types/repoAnalysis";
 import { freshCollect, type DataConnection } from "@/lib/types/dataConnection";
 
@@ -526,5 +528,58 @@ describe("What your numbers suggest", () => {
     expect((await loadReview(admin, { lifecycle: false, includeContent: false }, db)).items.filter((i) => i.kind === "data_signal")).toEqual([]);
     expect(REVIEW_ORDER.indexOf("data_signal")).toBe(REVIEW_ORDER.indexOf("next_article") + 1);
     expect(REVIEW_SECTIONS.data_signal).toEqual({ title: "What your numbers suggest", description: "Searches and pages from Search Console worth an article. Plan one, or dismiss it." });
+  });
+});
+
+describe("articles due a refresh, in Review", () => {
+  const due = (planId: string, state: FreshnessDueItem["state"] = "due"): FreshnessDueItem => ({
+    planId,
+    workspaceId: "ws1",
+    title: `Article ${planId}`,
+    url: `https://acme.example/blog/${planId}`,
+    state,
+    reasons: [
+      { kind: "age", detail: "21 days since its last update or check, on a 20-day clock", hard: true },
+      { kind: "old_source", detail: "Cites 1 source from 2022 or earlier", hard: false },
+    ],
+    dueAt: "2026-11-01T00:00:00.000Z",
+    clockDays: 20,
+    subjectId: null,
+  });
+  beforeEach(() => {
+    resetReviewCountCache();
+    vi.stubEnv("BRAND_MAP_ENABLED", "true");
+    vi.stubEnv("BRAND_MAP_PAGES_ENABLED", "true");
+    vi.stubEnv("BLOG_DATES_ENABLED", "true");
+    vi.stubEnv("BLOG_FRESHNESS_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("makes one item per due article, at most ten, leading to its Freshness card", () => {
+    const items = refreshItems([due("p1"), due("p2", "soon"), ...Array.from({ length: 12 }, (_, i) => due(`q${i}`))]);
+    expect(items).toHaveLength(10);
+    expect(items[0]).toEqual({
+      id: "content_refresh:p1",
+      kind: "content_refresh",
+      title: "Due a refresh: Article p1",
+      detail: "21 days since its last update or check, on a 20-day clock. Cites 1 source from 2022 or earlier",
+      details: ["21 days since its last update or check, on a 20-day clock", "Cites 1 source from 2022 or earlier"],
+      href: "/admin/workspace/ws1/create/p1?freshness=1",
+      action: "Open article",
+    });
+    expect(items.some((i) => i.id === "content_refresh:p2")).toBe(false);
+  });
+
+  it("reads the brand's own freshness watch, only while freshness is on", async () => {
+    const db = new FakeFirestore();
+    db.seed("freshness_watch", "fw_ten_A", { tenantId: "ten_A", due: [due("p1"), due("p2", "soon")] });
+    db.seed("freshness_watch", "fw_ten_B", { tenantId: "ten_B", due: [due("other")] });
+    const kinds = async () => (await loadReview(ctx, { lifecycle: false, includeContent: false }, db)).items.filter((i) => i.kind === "content_refresh").map((i) => i.id);
+    expect(await kinds()).toEqual(["content_refresh:p1"]);
+    expect(await countReview(ctx, { lifecycle: false, now: 1_000 }, db)).toBe(1);
+    vi.stubEnv("BLOG_FRESHNESS_ENABLED", "false");
+    expect(await kinds()).toEqual([]);
+    expect(REVIEW_ORDER.indexOf("content_refresh")).toBe(REVIEW_ORDER.indexOf("data_signal") + 1);
+    expect(REVIEW_SECTIONS.content_refresh.title).toBe("Articles due a refresh");
   });
 });

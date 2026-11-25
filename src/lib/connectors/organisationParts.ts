@@ -19,7 +19,7 @@ import { afterChangeProperty, changePropertyPlan, cleanLabel, newDataConnectionI
 import { storesOf } from "./sources";
 
 /**
- * Giving, changing and taking back a brand's part (Connectors 3, ADR-0014), for owners on
+ * Giving, changing and taking back a brand's part (Connectors 3, ADR-0015), for owners on
  * Settings › Organisation. The part a brand is given is YouGrow's own wall: one token can read
  * every part its identity sees, so the server checks everything itself.
  *

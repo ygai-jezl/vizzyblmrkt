@@ -12,7 +12,7 @@ import { z } from "zod";
  *   organisations/{id}/settings_versions beside it.
  * - Legal entities and founder profiles (Phase 2): subcollections of the organisation, only after
  *   a residency decision, because (default) is the US database (docs/DECISIONS.md ADR-0002).
- * - Connections owned by an organisation (Connectors 3, ADR-0014) are kept in
+ * - Connections owned by an organisation (Connectors 3, ADR-0015) are kept in
  *   `organisation_connections`, in the region each was connected from, never as a list here: an
  *   older build's write of this record would drop a field it doesn't know.
  * - The Enterprise licence (piece P) belongs to the deployment, not the organisation, and is
@@ -32,7 +32,7 @@ export const ORGANISATION_CHANGE_KINDS = [
   "brand.left",
   "organisation.renamed",
   "owners.changed",
-  // An organisation's own connections (Connectors 3, ADR-0014): ids only, written after the commit.
+  // An organisation's own connections (Connectors 3, ADR-0015): ids only, written after the commit.
   "connection.connected",
   "connection.signed_in_again",
   "connection.paused",

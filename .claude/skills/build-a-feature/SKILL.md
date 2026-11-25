@@ -14,7 +14,8 @@ purpose, a canvas Vizzy fills, a connector rule, or a rule that picks something)
 from people? Write the answer as its line in `src/lib/loops/registry.ts`, saying what is true
 today:
 
-- `own(store, why)`: it already learns from people in its own store (a `LEARNED_STORES` key).
+- `own(store, why)`: it already learns from people in its own store (a `LEARNED_STORES` key),
+  where the switches for that learning are on.
 - `gap(why, revisit)`: it should learn and doesn't yet, with a date to look again at most 6
   months ahead.
 - `none(why)`: it should never learn. A real reason makes this a good answer.

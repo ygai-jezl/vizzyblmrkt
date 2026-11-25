@@ -570,9 +570,11 @@ describe("the choices each Review section shows", () => {
     }
     expect(none.sort()).toEqual(["connection", "data_source", "failed_post"]);
     // Sections whose rows come from more than one choice name each one.
-    expect(REVIEW_SECTIONS.content_refresh.from).toEqual(["blog_refresh", "refresh_due"]);
-    expect(REVIEW_SECTIONS.next_article.from).toEqual(["next_up", "autopilot", "judge"]);
-    expect(REVIEW_SECTIONS.agent_draft.from).toEqual(["canvas.journey", "canvas.lifecycle", "canvas.journey_style", "canvas.invite_wave", "canvas.content_plan", "autopilot"]);
+    expect(REVIEW_SECTIONS.content_refresh.from).toEqual(["blog_refresh", "refresh_due", "freshness_clock"]);
+    expect(REVIEW_SECTIONS.next_article.from).toEqual(["next_up", "autopilot", "judge", "seen_notes"]);
+    expect(REVIEW_SECTIONS.agent_draft.from).toEqual(["canvas.journey", "canvas.lifecycle", "canvas.journey_style", "canvas.invite_wave", "canvas.content_plan", "autopilot", "email_copy", "email_hero"]);
+    expect(REVIEW_SECTIONS.brand_map.from).toEqual(["brand_map_research", "situations", "situation_questions", "canvas.brand_map", "blog_research", "autopilot_research", "competitor_topics", "judge", "rising_search"]);
+    expect(REVIEW_SECTIONS.content_hub.from).toEqual(["content_hub", "blog_write", "ebook", "blog_refresh"]);
   });
 });
 

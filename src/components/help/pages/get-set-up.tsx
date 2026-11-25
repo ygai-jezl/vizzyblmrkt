@@ -2,7 +2,7 @@ import { H1, H2, H3, Lead, P, UL } from "@/components/developers/Doc";
 import { Messages, NextPage, Open, Warning } from "@/components/help/blocks";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { isOnboardingEnabled, isOnboardingVoiceEnabled } from "@/lib/onboarding/flags";
-import { ABOUT_WORDS, BASICS_WORDS, FACT_WORDS, VOICE_WORDS, WELCOME_WORDS } from "@/lib/onboarding/words";
+import { ABOUT_WORDS, BASICS_WORDS, FACT_WORDS, HOME_WORDS, VOICE_WORDS, WELCOME_WORDS } from "@/lib/onboarding/words";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
 /**
@@ -12,7 +12,7 @@ import type { HelpBodyProps } from "@/lib/help/pages";
  * welcome asks, and Home starts where the brand is rather than at stage 1. With voice too
  * (`onboardingVoice`), it says how Talk with Vizzy works, what is kept and what isn't, and how
  * Here's what I learned works after a call. It also says where to change the answers later (Settings,
- * About your business).
+ * About your business) and how they order Home's Your next action.
  */
 export default function GetSetUpHelp({
   ideaWords = isIdeaWordsEnabled(),
@@ -107,6 +107,12 @@ export default function GetSetUpHelp({
               remove it. <strong>{ABOUT_WORDS.talkAgain}</strong> opens the welcome for another call.
             </P>
           ) : null}
+          <P>
+            Home&apos;s <strong>{HOME_WORDS.nextAction}</strong> starts with the stage that fits your answers: the waitlist
+            first for an idea, content first when you want an audience, and your product first for an app that wants
+            customers. A shop or a service never starts with connecting an app. With no answers, it starts at the first stage
+            not done.
+          </P>
         </>
       ) : null}
 

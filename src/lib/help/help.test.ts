@@ -23,7 +23,7 @@ import { helpMetadata } from "./metadata";
 import { HELP_PLACES, helpFor, parseHelpPath } from "./places";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
 import { VIZZY_READS_HINT } from "@/components/admin/audience/fieldsApi";
-import { ABOUT_WORDS, BASICS_WORDS, FACT_WORDS, LEARNED_WORDS, QUESTIONS_WORDS, VOICE_WORDS, WELCOME_WORDS } from "@/lib/onboarding/words";
+import { ABOUT_WORDS, BASICS_WORDS, FACT_WORDS, HOME_WORDS, LEARNED_WORDS, QUESTIONS_WORDS, VOICE_WORDS, WELCOME_WORDS } from "@/lib/onboarding/words";
 
 
 /**
@@ -1066,6 +1066,13 @@ describe("Tell Vizzy about your business (ONBOARDING_ENABLED)", () => {
     const voice = md({ onboarding: true, onboardingVoice: true });
     for (const w of [ABOUT_WORDS.view, ABOUT_WORDS.delete, ABOUT_WORDS.talkAgain]) expect(voice).toContain(`**${w}**`);
     expect(voice).toContain("What Vizzy learned from it stays until you remove it.");
+  });
+
+  it("says how the answers order Home's next action", () => {
+    const text = md({ onboarding: true, onboardingVoice: false });
+    expect(text).toContain(`**${HOME_WORDS.nextAction}**`);
+    expect(text).toContain("A shop or a service never starts with connecting an app.");
+    expect(md({ onboarding: false })).not.toContain(HOME_WORDS.nextAction);
   });
 
   it("counts voice conversations on Plan and usage only with voice", () => {

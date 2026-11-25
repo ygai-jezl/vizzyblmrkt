@@ -30,7 +30,8 @@ export function VizzyPanel() {
   const pathname = usePathname() ?? "/admin";
   const panelRef = useRef<HTMLElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const open = !!shell?.vizzyOpen && !isHome(pathname);
+  // Nor under the welcome's full screen pages, where ⌘J would open it out of sight.
+  const open = !!shell?.vizzyOpen && !isHome(pathname) && !pathname.startsWith("/admin/welcome");
   const exchange = shell?.chat.exchange;
 
   useEffect(() => {

@@ -13,9 +13,14 @@ import { baseSwitches } from "./envfile.mjs";
 import {
   AUTH_LOG_METRICS,
   CODE_LOCK_WRONG_PER_DAY,
+  IDENTITY_PLATFORM_UPGRADE,
   KEPT_OFF,
+  NEEDS_UPGRADE_NOTE,
   PASSWORD_MIN_LENGTH,
   authAlertPolicies,
+  authAlertPoliciesFor,
+  authLogMetricsFor,
+  isPlainFirebaseAuth,
   logMetricBody,
   passwordConfigDiff,
   passwordPatchPlan,
@@ -85,6 +90,34 @@ describe("passwordConfigDiff", () => {
   it("turns bot protection on in audit mode, never down from enforce", () => {
     expect(passwordConfigDiff({ ...READY, recaptchaConfig: {} }, APP)[0]?.body).toEqual({ recaptchaConfig: { emailPasswordEnforcementState: "AUDIT" } });
     expect(ids({ ...READY, recaptchaConfig: { emailPasswordEnforcementState: "OFF" } })).toEqual(["recaptcha"]);
+  });
+});
+
+describe("plain Firebase Authentication (no Identity Platform upgrade)", () => {
+  it("is only the FIREBASE_AUTH subtype; an upgraded or unknown subtype behaves as before", () => {
+    expect(isPlainFirebaseAuth({ subtype: "FIREBASE_AUTH" })).toBe(true);
+    for (const c of [{ subtype: "IDENTITY_PLATFORM" }, { subtype: "SUBTYPE_UNSPECIFIED" }, { subtype: "SOMETHING_NEW" }, {}, null]) expect(isPlainFirebaseAuth(c)).toBe(false);
+  });
+
+  it("leaves request logging out of the diff, since such a project refuses it", () => {
+    const { monitoring: _monitoring, ...rest } = READY;
+    expect(passwordConfigDiff({ ...rest, subtype: "FIREBASE_AUTH" }, APP)).toEqual([]);
+    expect(ids({ subtype: "FIREBASE_AUTH" })).toEqual(["password-required", "privacy", "policy", "recaptcha", "reset-link", "provider"]);
+    expect(ids({ ...rest, subtype: "IDENTITY_PLATFORM" })).toEqual(["logging"]);
+    expect(ids({ ...rest, subtype: "SOMETHING_NEW" })).toEqual(["logging"]);
+  });
+
+  it("leaves out the sign-ups metric and alert, which count Identity Platform's request logs", () => {
+    expect(authLogMetricsFor().map((m) => m.name)).toEqual(AUTH_LOG_METRICS.map((m) => m.name));
+    expect(authLogMetricsFor(false).map((m) => m.name)).toEqual(["yougrow_auth_accounts_removed", "yougrow_auth_codes_locked"]);
+    expect(authAlertPoliciesFor(["c"]).map((p: { displayName: string }) => p.displayName)).toEqual(authAlertPolicies().map((p: { displayName: string }) => p.displayName));
+    const plain = authAlertPoliciesFor(["c"], false);
+    expect(plain.map((p: { displayName: string }) => p.displayName)).toEqual(["YouGrow: accounts removed at sign-in", "YouGrow: sign-in codes locked"]);
+    expect(plain[0]!.notificationChannels).toEqual(["c"]);
+    for (const t of [IDENTITY_PLATFORM_UPGRADE, NEEDS_UPGRADE_NOTE]) {
+      expect(dashesIn(t), t).toEqual([]);
+      expect(aiTellsIn(t), t).toEqual([]);
+    }
   });
 });
 
@@ -207,7 +240,8 @@ describe("the self-host guide on the sign-in alerts, locked codes and renamed Go
     const counted = [...doc.matchAll(/\b(one|two|three|four|five) (?:sign-in )?alerts\b/gi)].map((m) => m[1]!.toLowerCase());
     expect(counted.length).toBeGreaterThan(0);
     expect(counted).toEqual(counted.map(() => count));
-    expect(addonRow).toContain(`with ${count} alerts`);
+    // Up to: plain Firebase Authentication goes without the sign-ups alert until it is upgraded.
+    expect(addonRow).toContain(`with up to ${count} alerts`);
   });
 
   it("explains the link instead of a code, with the button's own words and the setting it needs", () => {

@@ -295,6 +295,7 @@ export const ENV_NOT_SETTINGS = {
   SELFHOST_SECRETMANAGER_URL: "tests only: a fake Secret Manager API",
   SELFHOST_WORKSPACE_TOOL: "tests only: a stub for the workspace tool",
   SELFHOST_HEALTH_WAIT_MS: "tests only: a shorter wait between health checks",
+  SELFHOST_RETRY_WAIT_MS: "tests only: a shorter wait between tries of an IAM grant or a read back",
   // Code samples on the developer pages and in the setup prompt: a connected product reads these.
   YOUGROW_KEY_ID: "a connected product's setting, shown in code samples",
   YOUGROW_SECRET: "a connected product's setting, shown in code samples",

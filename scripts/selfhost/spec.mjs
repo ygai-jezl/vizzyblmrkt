@@ -269,11 +269,37 @@ export const PASSWORD_APIS = [
 const PASSWORD_POLICY_KINDS = ["containsLowercaseCharacter", "containsUppercaseCharacter", "containsNumericCharacter", "containsNonAlphanumericCharacter"];
 
 /**
+ * The config's `subtype` on a project still on plain Firebase Authentication. Upgraded projects
+ * ("Firebase Authentication with Identity Platform") say "IDENTITY_PLATFORM". Plain projects
+ * refuse request logging (OPERATION_NOT_ALLOWED, "activity logging can only be enabled in
+ * GCIP"), so the sign-up alert that counts its log lines can't work there either.
+ */
+export const PLAIN_FIREBASE_AUTH = "FIREBASE_AUTH";
+
+/**
+ * True when the project's Identity Toolkit config says plain Firebase Authentication. Only that
+ * exact subtype counts: an upgraded project, or a subtype this code doesn't know, is treated as
+ * able to log requests, as before.
+ * @param {any} config
+ */
+export function isPlainFirebaseAuth(config) {
+  return Boolean(config && typeof config === "object" && config.subtype === PLAIN_FIREBASE_AUTH);
+}
+
+/** What the upgrade is, in one line, for the plan and the notes. */
+export const IDENTITY_PLATFORM_UPGRADE =
+  "Upgrade to Firebase Authentication with Identity Platform: free up to 50,000 monthly active users, can't be undone";
+
+/** What a plain project goes without, for the notes. */
+export const NEEDS_UPGRADE_NOTE = "request logging and the many password sign-ups alert need the Identity Platform upgrade";
+
+/**
  * How a project's Identity Toolkit config (admin v2 `projects/<id>/config`) differs from what
  * password sign-in needs. Empty means it is ready. `level` says how much it matters: "fail"
  * leaves an account unsafe or the provider off, "warn" leaves protection or an alert off, and
  * "info" is advice only (the reset link's address: some projects refuse template changes).
- * The reset link is checked only when the app's address is known.
+ * The reset link is checked only when the app's address is known. Request logging is left out
+ * on plain Firebase Authentication (isPlainFirebaseAuth), which refuses it.
  * @param {any} config
  * @param {string} [appUrl] the app's https origin, no path
  * @returns {PasswordDiff[]}
@@ -359,7 +385,7 @@ export function passwordConfigDiff(config, appUrl = "") {
       body: { recaptchaConfig: { emailPasswordEnforcementState: "AUDIT" } },
     });
   }
-  if (c.monitoring?.requestLogging?.enabled !== true) {
+  if (!isPlainFirebaseAuth(c) && c.monitoring?.requestLogging?.enabled !== true) {
     out.push({
       id: "logging",
       what: "Identity Platform's request logging is off (the sign-up alert counts it)",
@@ -449,12 +475,15 @@ export const CODE_LOCK_WRONG_PER_DAY = 15;
 /**
  * The three log based metrics the sign-in alerts count, in the order of authAlertPolicies().
  * Each filter names its resource type: Cloud Monitoring needs one to alert on a log based metric.
- * `appEvent` is the `event` field of the app's own structured log line.
+ * `appEvent` is the `event` field of the app's own structured log line. `needsIdentityPlatform`
+ * marks a metric that counts Identity Platform's request logs, which plain Firebase
+ * Authentication doesn't write.
  */
 export const AUTH_LOG_METRICS = [
   {
     name: "yougrow_auth_signups",
     resourceType: "identitytoolkit_project",
+    needsIdentityPlatform: true,
     description: "Password sign-ups at Identity Platform (needs its request logging on). Made by npm run selfhost, addon:password.",
     filter:
       'resource.type="identitytoolkit_project" AND (jsonPayload.methodName="google.cloud.identitytoolkit.v1.AuthenticationService.SignUp" OR protoPayload.methodName="google.cloud.identitytoolkit.v1.AuthenticationService.SignUp")',
@@ -474,6 +503,24 @@ export const AUTH_LOG_METRICS = [
     filter: 'resource.type="cloud_run_revision" AND jsonPayload.event="auth_code_locked"',
   },
 ];
+
+/**
+ * The log metrics a project can have: all of them on Identity Platform, those that don't count
+ * its request logs on plain Firebase Authentication.
+ * @param {boolean} [identityPlatform]
+ */
+export function authLogMetricsFor(identityPlatform = true) {
+  return AUTH_LOG_METRICS.filter((m) => identityPlatform || !m.needsIdentityPlatform);
+}
+
+/**
+ * The alert policies a project can have, as authLogMetricsFor picks their metrics.
+ * @param {string[]} [channels]
+ * @param {boolean} [identityPlatform]
+ */
+export function authAlertPoliciesFor(channels = [], identityPlatform = true) {
+  return authAlertPolicies(channels).filter((_, i) => identityPlatform || !AUTH_LOG_METRICS[i]?.needsIdentityPlatform);
+}
 
 /** A log metric's create body: a plain counter. */
 export function logMetricBody(metric) {

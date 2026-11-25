@@ -78,7 +78,8 @@ that is to do:
 npm run doctor -- --cloud --project <id>
 ```
 
-Every line should start with `ok`. The app is at `https://<backend>--<project>.us-central1.hosted.app`:
+Every line should start with `ok`. An `info` line is advice, not a fault: its `fix:` starts with
+`optional`, and you act on it only when the user wants it. The app is at `https://<backend>--<project>.us-central1.hosted.app`:
 the user opens it and signs in with Google using the admin email.
 
 ## 5. Add-ons, when the user wants them
@@ -91,7 +92,14 @@ Names: `email`, `vizzy`, `knowledge`, `github-app`, `linkedin`, `x`, `regions`, 
 `recaptcha`, `password`. Same rules: explain, get a yes, apply. `email`, `linkedin` and `x` ask for keys,
 so give the user the exact command to run in their own terminal. `password` (email and password
 sign-in) needs `email` first and changes the project's Identity Platform settings; its section in
-`docs/self-host.md` says what it sets. Afterwards roll out:
+`docs/self-host.md` says what it sets. On a project still on plain Firebase Authentication it
+leaves out request logging and the sign-ups alert; `--upgrade-identity-platform` adds them by
+upgrading the project to Identity Platform first. The upgrade can't be undone and is charged past
+50,000 monthly active users, so add the flag only when the user asks for it after you explain that.
+If a step stops because the App Hosting backend list can't be read, it says why. Usually the
+Firebase CLI's sign-in has lapsed: the user runs `firebase login --reauth` (plain `firebase login`
+only says it is already logged in), or you pass `--app-url <the app's https address>`.
+Afterwards roll out:
 `--apply rollout` (ask first). Product journeys stay in test mode until the user adds
 `LIFECYCLE_MODE_CEILING: "live"` to their settings file.
 
@@ -102,7 +110,9 @@ values). It belongs in their fork, never in a pull request to the upstream repo.
 
 ## When something goes wrong
 
-Run `npm run doctor -- --cloud --project <id>` and follow its `fix:` lines. The table at the end
+Run `npm run doctor -- --cloud --project <id>` and follow its `fix:` lines, except one that starts
+with `optional`: that one needs the user's yes. The Identity Platform upgrade line is never a fix
+to apply unless the user asks for the upgrade. The table at the end
 of `docs/self-host.md` covers the common cases (`Error resolving secret version`, a sign-in
 domain that isn't authorised, "Access denied", scheduled jobs failing with 401). Build logs are
 in the Firebase console (App Hosting, the backend, Rollouts), or through the Firebase MCP tool

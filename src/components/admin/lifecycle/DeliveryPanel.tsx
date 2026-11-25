@@ -8,6 +8,8 @@ import { Badge, Banner, Button, Field, Section, inputClass } from "../connect/ui
 import type { JourneyDetail } from "./model";
 import { place } from "@/lib/nav/places";
 import { splitTestUsers } from "@/lib/lifecycle/testRecipients";
+import { ideaWord } from "@/lib/nav/terms";
+import { useWords } from "../nav/WordsProvider";
 
 /**
  * Who actually gets the emails: test (listed test users only), shadow (real
@@ -44,6 +46,7 @@ export function DeliveryPanel({
   const j = detail.journey;
   const [mode, setMode] = useState<DeliveryMode>(j.deliveryMode);
   const waitlist = detail.audience === "waitlist";
+  const w = ideaWord(useWords().ideas);
   // One list: the product's user ids and email addresses together (a waitlist has only addresses).
   const [testUsers, setTestUsers] = useState(
     (waitlist ? j.testRecipients.emails : [...j.testRecipients.userIds, ...j.testRecipients.emails]).join("\n"),
@@ -94,7 +97,7 @@ export function DeliveryPanel({
                 {m.title}
               </span>
               <span className="block text-xs text-neutral-500">
-                {waitlist && m.id === "live" ? "Real emails to everyone who joins, from the launch's sender." : m.body}
+                {waitlist && m.id === "live" ? `Real emails to everyone who joins, from the ${w.own} sender.` : m.body}
               </span>
             </label>
           ))}

@@ -15,6 +15,8 @@ import { Badge, Button, Field, inputClass } from "../connect/ui";
 import { EditModeSwitch } from "../editor/EditModeSwitch";
 import { EditModeView } from "../editor/EditModeView";
 import { isEditModeEmailsEnabled } from "@/lib/content/editor/flags";
+import { ideaWord, type IdeaWord } from "@/lib/nav/terms";
+import { useWords } from "../nav/WordsProvider";
 
 /**
  * Content pools: the emails each Email step can send. A step sends the FIRST
@@ -47,16 +49,19 @@ const TOKENS = [
   ["{{block.insight}}", "The product's insight for this person"],
 ] as const;
 
-const WAITLIST_TOKENS = [
-  ["{{first_name}}", "First name (blank if unknown)"],
-  ["{{last_name}}", "Last name"],
-  ["{{current_rank}}", "Their place on the waitlist"],
-  ["{{referral_count}}", "How many people they've referred"],
-  ["{{referral_link}}", "Their referral link"],
-  ["{{waitlist_name}}", "The launch's product name"],
-  ["{{voice_chat_link}}", "Link that opens the voice chat"],
-  ["{{metadata.company}}", "Anything captured at signup"],
-] as const;
+/** A welcome journey's tokens; `w` names the launch, or the idea while the words are on. */
+const waitlistTokens = (w: IdeaWord) =>
+  [
+    ["{{first_name}}", "First name (blank if unknown)"],
+    ["{{last_name}}", "Last name"],
+    ["{{current_rank}}", "Their place on the waitlist"],
+    ["{{referral_count}}", "How many people they've referred"],
+    ["{{referral_link}}", "Their referral link"],
+    ["{{waitlist_name}}", `The ${w.own} product name`],
+    ["{{voice_chat_link}}", "Link that opens the voice chat"],
+    ["{{metadata.company}}", "Anything captured at signup"],
+  ] as const;
+const WAITLIST_TOKENS = waitlistTokens(ideaWord(false));
 
 /** Every token a list above names, one by one, for Edit mode's Merge values. */
 function tokensOf(list: readonly (readonly [string, string])[]): string[] {
@@ -127,6 +132,7 @@ export function PoolsEditor({
   waitlist?: boolean;
 }) {
   const current = pools.find((p) => p.id === focusPoolId) ?? pools[0] ?? null;
+  const w = ideaWord(useWords().ideas);
   const values = useMemo(() => sampleValues(catalog, productName, brand, postalAddress), [catalog, productName, brand, postalAddress]);
 
   const setPool = (id: string, patch: Partial<ContentPool>) => onChange(pools.map((p) => (p.id === id ? { ...p, ...patch } : p)));
@@ -172,7 +178,7 @@ export function PoolsEditor({
         <details className="mt-4 rounded-md border border-neutral-200 p-2 text-xs dark:border-neutral-800">
           <summary className="cursor-pointer font-medium">Personalisation tokens</summary>
           <ul className="mt-2 space-y-1.5">
-            {(waitlist ? WAITLIST_TOKENS : TOKENS).map(([t, d]) => (
+            {(waitlist ? waitlistTokens(w) : TOKENS).map(([t, d]) => (
               <li key={t}>
                 <code className="break-all font-mono">{t}</code>
                 <div className="text-neutral-500">{d}</div>

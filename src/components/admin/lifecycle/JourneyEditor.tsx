@@ -17,6 +17,8 @@ import { GeneratePanel } from "./GeneratePanel";
 import { CopyJourneyPanel } from "./CopyJourneyPanel";
 import { LifecycleChatPanel } from "./LifecycleChatPanel";
 import { useShell } from "../nav/ShellProvider";
+import { useWords } from "../nav/WordsProvider";
+import { ideaWord } from "@/lib/nav/terms";
 import { fieldOptions, issueText, startLabel, waitlistFieldOptions, type GraphIssue, type JourneyDetail } from "./model";
 import {
   draftForSave,
@@ -58,6 +60,8 @@ const TABS: Array<{ id: Tab; label: string }> = [
 ];
 
 export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEdit: boolean }) {
+  const { ideas } = useWords();
+  const w = ideaWord(ideas);
   const [detail, setDetail] = useState<JourneyDetail | null>(null);
   const [draft, setDraft] = useState<LifecycleDraft | null>(null);
   const [issues, setIssues] = useState<GraphIssue[]>([]);
@@ -290,7 +294,7 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
                     {launch.name}
                   </Link>
                 ) : (
-                  "a removed launch"
+                  `a removed ${w.one}`
                 )}
               </span>
             ) : (
@@ -375,7 +379,7 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
           className="rounded-md border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
         >
           <p className="font-medium">
-            {askExisting.toLocaleString("en-GB")} {askExisting === 1 ? "person is" : "people are"} already on this launch&apos;s list.
+            {askExisting.toLocaleString("en-GB")} {askExisting === 1 ? "person is" : "people are"} already on this {w.own} list.
           </p>
           <p className="mt-0.5">Should they get this welcome email too? Everyone who joins from now gets it either way.</p>
           <div className="mt-2 flex flex-wrap gap-2">
@@ -396,7 +400,7 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
           {detail.held} {detail.held === 1 ? "person is" : "people are"} waiting while this is paused. They carry on when you resume it.
         </Banner>
       ) : null}
-      {waitlist && launch?.archived ? <Banner tone="info">This launch is archived, so nothing is sent until it&rsquo;s restored.</Banner> : null}
+      {waitlist && launch?.archived ? <Banner tone="info">This {w.one} is archived, so nothing is sent until it&rsquo;s restored.</Banner> : null}
       {staleFromChat ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
           Vizzy saved a new version of this draft. Reloading shows it (your unsaved edits here will be lost).
@@ -435,7 +439,7 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
           </summary>
           <ul className="mt-1 list-disc space-y-0.5 pl-5">
             {issues.map((i, k) => (
-              <li key={k}>{issueText(i)}</li>
+              <li key={k}>{issueText(i, ideas)}</li>
             ))}
           </ul>
         </details>
@@ -486,7 +490,7 @@ export function JourneyEditor({ journeyId, canEdit }: { journeyId: string; canEd
           pools={draft.pools}
           fields={fields}
           catalog={connection?.catalog}
-          productName={waitlist ? (launch?.name ?? "your launch") : (connection?.name ?? "your product")}
+          productName={waitlist ? (launch?.name ?? `your ${w.one}`) : (connection?.name ?? "your product")}
           waitlist={waitlist}
           // The footer's "sent by", resolved as the send does (a launch's journey uses the launch's sender).
           brand={(waitlist ? null : draft.settings.sender.fromName?.trim()) || detail.footerBrand}

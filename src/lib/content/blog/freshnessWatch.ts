@@ -28,7 +28,9 @@ import { outlineArticle } from "./outline";
 /**
  * The freshness watch (BLOG_FRESHNESS_ENABLED): once a day per brand it looks at every live blog
  * article, gives one without a clock its clock, works out its state from counted signals (no AI),
- * writes it on the article, and keeps the brand's due list in `fw_<tenantId>`.
+ * writes it on the article, and keeps the brand's due list in `fw_<tenantId>`. A look its tick's
+ * time cuts short is due again at the next tick and goes on with the articles it didn't reach; until
+ * then each keeps its last state, and its row on the due list.
  */
 
 const DAY_MS = 86_400_000;
@@ -196,12 +198,34 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
   const counts = { fresh: 0, soon: 0, due: 0 };
   const byClock: FreshnessWatchDoc["byClock"] = { "20": 0, "30": 0, "45": 0 };
   const due: FreshnessDueItem[] = [];
-  const pages: FreshnessWatchDoc["pages"] = [];
+  // Every live article's page, whether this tick reaches it or not.
+  const pages: FreshnessWatchDoc["pages"] = articles
+    .flatMap((a) => (a.key ? [{ key: a.key, planId: a.plan.id, workspaceId: a.plan.workspaceId }] : []))
+    .slice(0, FRESHNESS_WATCH.MAX_PAGES);
   const year = now.getUTCFullYear();
 
+  // A look its tick's time cut short goes on where it stopped, unless it began over a day ago.
+  const started = prior?.lookStartedAt ?? null;
+  const going = started && now.getTime() - Date.parse(started) < DAY_MS ? started : null;
+  const rows = new Map((prior?.due ?? []).map((d) => [d.planId, d]));
+  let cut = false;
+  // An article this tick doesn't work out counts as it last was, and keeps its row on the due list.
+  const keep = (planId: string, f: BlogArticleFreshness) => {
+    counts[f.state] += 1;
+    byClock[String(f.clockDays) as "20" | "30" | "45"] += 1;
+    const row = rows.get(planId);
+    if (row && f.state !== "fresh") due.push(row);
+  };
+
   for (const a of articles) {
-    if (deps.deadlineMs && Date.now() > deps.deadlineMs) break;
     const stored = a.hub.blog?.freshness;
+    // Looked at earlier in this look, or out of time: as it last was.
+    const looked = Boolean(going && stored && Date.parse(stored.sweptAt) >= Date.parse(going));
+    if (!looked && deps.deadlineMs && Date.now() > deps.deadlineMs) cut = true;
+    if (looked || cut) {
+      if (stored) keep(a.plan.id, stored);
+      continue;
+    }
     const subject = a.plan.blog?.subjectId ?? "";
     const setting = tenant.refreshClock;
     const fixed = setting === 20 || setting === 30 || setting === 45 ? setting : null;
@@ -279,7 +303,6 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
 
     counts[state.state] += 1;
     byClock[String(clock.clockDays) as "20" | "30" | "45"] += 1;
-    if (a.key && pages.length < FRESHNESS_WATCH.MAX_PAGES) pages.push({ key: a.key, planId: a.plan.id, workspaceId: a.plan.workspaceId });
     if (state.state !== "fresh") {
       due.push({
         planId: a.plan.id,
@@ -297,7 +320,9 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
 
   due.sort((x, y) => (x.state === y.state ? x.dueAt.localeCompare(y.dueAt) : x.state === "due" ? -1 : 1));
   const doc: Omit<FreshnessWatchDoc, "id" | "tenantId"> = {
-    nextAt: new Date(now.getTime() + DAY_MS).toISOString(),
+    // Cut short: due again at the next tick, to go on where it stopped.
+    nextAt: new Date(now.getTime() + (cut ? 0 : DAY_MS)).toISOString(),
+    lookStartedAt: cut ? (going ?? now.toISOString()) : null,
     counts,
     byClock,
     pages,

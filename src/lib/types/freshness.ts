@@ -22,8 +22,14 @@ export interface FreshnessDueItem {
 export interface FreshnessWatchDoc {
   id: string;
   tenantId: string;
-  /** When the brand is next looked at (once a day). */
+  /** When the brand is next looked at: once a day, or at the next tick while a look cut short goes on. */
   nextAt: string;
+  /**
+   * When the look still going on began: a look its tick's time cuts short sets it, the next tick goes
+   * on with the articles not looked at since, and the look that reaches the last one clears it.
+   * Missing or null: no look is going on.
+   */
+  lookStartedAt?: string | null;
   counts: { fresh: number; soon: number; due: number };
   /** Live articles on each clock. */
   byClock: Record<"20" | "30" | "45", number>;

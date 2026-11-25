@@ -2,7 +2,7 @@ import { H1, H2, H3, Lead, P, UL } from "@/components/developers/Doc";
 import { Messages, NextPage, Open, Warning } from "@/components/help/blocks";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { isOnboardingEnabled, isOnboardingVoiceEnabled } from "@/lib/onboarding/flags";
-import { VOICE_WORDS, WELCOME_WORDS } from "@/lib/onboarding/words";
+import { ABOUT_WORDS, BASICS_WORDS, FACT_WORDS, VOICE_WORDS, WELCOME_WORDS } from "@/lib/onboarding/words";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
 /**
@@ -11,7 +11,8 @@ import type { HelpBodyProps } from "@/lib/help/pages";
  * Launch product. With getting to know a new brand on (`onboarding`), #about-you says what the
  * welcome asks, and Home starts where the brand is rather than at stage 1. With voice too
  * (`onboardingVoice`), it says how Talk with Vizzy works, what is kept and what isn't, and how
- * Here's what I learned works after a call.
+ * Here's what I learned works after a call. It also says where to change the answers later (Settings,
+ * About your business).
  */
 export default function GetSetUpHelp({
   ideaWords = isIdeaWordsEnabled(),
@@ -91,6 +92,19 @@ export default function GetSetUpHelp({
               heard, each with your own words. Change an answer, or <strong>Remove</strong> anything that&apos;s off (
               <strong>Undo</strong> brings it back). <strong>Read the transcript</strong> shows the whole conversation. Nothing
               is saved until you choose <strong>Looks right</strong>.
+            </P>
+          ) : null}
+          <P>
+            Change your answers any time in <Open href="/admin/account/settings">Settings › General</Open>, under{" "}
+            <strong>{ABOUT_WORDS.title}</strong>. Each one saves as soon as you pick it, and a question you skipped reads{" "}
+            <strong>{BASICS_WORDS.notPicked}</strong> until you answer it. Only admins see it.
+          </P>
+          {onboardingVoice ? (
+            <P>
+              It also lists what Vizzy learned, each with your own words. <strong>{FACT_WORDS.remove}</strong> takes one out for
+              good. Under Conversations, <strong>{ABOUT_WORDS.view}</strong> reads a call again and{" "}
+              <strong>{ABOUT_WORDS.delete}</strong> removes its transcript for good. What Vizzy learned from it stays until you
+              remove it. <strong>{ABOUT_WORDS.talkAgain}</strong> opens the welcome for another call.
             </P>
           ) : null}
         </>

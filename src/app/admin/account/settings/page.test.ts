@@ -2,13 +2,18 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { requireAdminContext, getTenantById } = vi.hoisted(() => ({
+const { requireAdminContext, getTenantById, listBusinessFacts, listConversations, isLiveConfigured } = vi.hoisted(() => ({
   requireAdminContext: vi.fn(),
   getTenantById: vi.fn(),
+  listBusinessFacts: vi.fn(),
+  listConversations: vi.fn(),
+  isLiveConfigured: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/session", () => ({ requireAdminContext }));
 vi.mock("@/lib/tenant", () => ({ getTenantById }));
+vi.mock("@/lib/onboarding/store", () => ({ listBusinessFacts, listConversations }));
+vi.mock("@/lib/agents/gemini", () => ({ isLiveConfigured }));
 
 const { default: AccountSettingsPage } = await import("./page");
 const { SIGN_IN_SECURITY_COPY } = await import("@/components/admin/SignInSecurityCard");
@@ -88,5 +93,180 @@ describe("Settings › General, Sign-in and security", () => {
       expect(html).toContain(text);
     }
     expect(getTenantById).toHaveBeenCalledWith("ten_demo");
+  });
+});
+
+describe("Settings › General, About your business", () => {
+  const ABOUT = [
+    "ONBOARDING_ENABLED",
+    "ONBOARDING_VOICE_ENABLED",
+    "GRANTED_ONLY_FEATURES",
+    "NEXT_PUBLIC_NAV_V2_ENABLED",
+    "NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED",
+    "NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED",
+    "PASSWORD_SIGNIN_ENABLED",
+  ];
+  const thisYear = new Date().getUTCFullYear();
+  const PROFILE = { status: "done", via: "questions", answers: { who: "solo", run: "shop", want: "audience" }, rev: 2, startedAt: `${thisYear}-11-25T09:00:00.000Z` };
+  const FACT = {
+    id: "bf_0123456789abcdef",
+    tenantId: "ten_demo",
+    kind: "channel",
+    text: "Sells at three farmers' markets",
+    quote: "We sell at three farmers' markets most weekends.",
+    source: "voice",
+    conversationId: `oc_${"a".repeat(32)}`,
+    heardAt: `${thisYear}-11-25T10:00:00.000Z`,
+    confirmedAt: `${thisYear}-11-25T10:06:00.000Z`,
+    createdAt: `${thisYear}-11-25T10:06:00.000Z`,
+  };
+  const CALL = { id: `oc_${"a".repeat(32)}`, source: "voice", status: "ended", startedAt: `${thisYear}-11-25T10:00:00.000Z`, endedAt: `${thisYear}-11-25T10:04:12.000Z`, lengthSec: 252, turnCount: 9, waiting: false };
+
+  const brand = (over: Record<string, unknown> = {}) => ({ tenantName: "Acme", rootDomain: "acme.example.com", ...over });
+
+  beforeEach(() => {
+    for (const name of ABOUT) delete process.env[name];
+    requireAdminContext.mockResolvedValue(CTX);
+    getTenantById.mockResolvedValue(brand({ businessProfile: PROFILE }));
+    listBusinessFacts.mockResolvedValue([FACT]);
+    listConversations.mockResolvedValue([CALL]);
+    isLiveConfigured.mockReturnValue(true);
+  });
+  afterEach(() => {
+    for (const name of ABOUT) delete process.env[name];
+    vi.clearAllMocks();
+  });
+
+  it("isn't there with the switch off and no profile, and reads no lists", async () => {
+    phase3On();
+    getTenantById.mockResolvedValue(brand());
+    const html = await renderPage();
+    expect(html).toContain("Brand details");
+    expect(html).not.toContain("About your business");
+    expect(listBusinessFacts).not.toHaveBeenCalled();
+    expect(listConversations).not.toHaveBeenCalled();
+  });
+
+  it("comes first for an admin, above Brand details, with the answers, what Vizzy learned and the conversations", async () => {
+    process.env.ONBOARDING_ENABLED = "true";
+    process.env.PASSWORD_SIGNIN_ENABLED = "true";
+    phase3On();
+    const html = await renderPage();
+    const order = [
+      "About your business",
+      "Vizzy reads this in every chat. Only your admins and Vizzy see it.",
+      "The basics",
+      "What Vizzy learned",
+      "Conversations",
+      "Brand details",
+      SIGN_IN_SECURITY_COPY.title,
+    ];
+    const at = order.map((w) => html.indexOf(w));
+    expect(at.every((i) => i >= 0), JSON.stringify(at)).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+    // The chips open their menus; an unanswered one reads Not picked.
+    expect(html).toContain('aria-label="Who you are: A solo founder. Change"');
+    expect(html).toContain('aria-label="Where it is today: not picked. Change"');
+    expect(html).toMatch(/aria-haspopup="menu"/);
+    expect(html).toContain("Sells at three farmers' markets");
+    expect(html).toContain("From our call, 25 Nov");
+    expect(html).toContain('aria-label="Conversations with Vizzy"');
+    expect(html).toContain("Call with Vizzy");
+    expect(html).toContain("4 min 12 s");
+    expect(html).toContain('aria-label="View the transcript of the call on 25 Nov"');
+    expect(html).toContain('aria-label="Delete the call on 25 Nov"');
+    expect(html).toContain("Vizzy keeps the words, never the audio. Each one stays until you delete it.");
+    expect(listBusinessFacts).toHaveBeenCalledWith(CTX);
+    expect(listConversations).toHaveBeenCalledWith(CTX);
+    expect(getTenantById).toHaveBeenCalledTimes(1);
+  });
+
+  it("isn't there for a member, who reads neither list", async () => {
+    process.env.ONBOARDING_ENABLED = "true";
+    phase3On();
+    requireAdminContext.mockResolvedValue({ ...CTX, role: "member" });
+    const html = await renderPage();
+    expect(html).toContain("Brand details");
+    expect(html).not.toContain("About your business");
+    expect(listBusinessFacts).not.toHaveBeenCalled();
+    requireAdminContext.mockResolvedValue({ ...CTX, role: undefined });
+    expect(await renderPage()).not.toContain("About your business");
+  });
+
+  it("stays with the switch off while a profile exists, so kept words can be read and deleted, but nothing else changes", async () => {
+    phase3On();
+    const html = await renderPage();
+    expect(html).toContain("About your business");
+    expect(html).toContain("View transcript");
+    expect(html).toContain(">Remove<");
+    // The answers show without their menus (saving them needs the switch), and no Talk with Vizzy.
+    expect(html).toContain("A solo founder");
+    expect(html).not.toMatch(/aria-haspopup="menu"/);
+    expect(html).not.toContain('href="/admin/welcome"');
+  });
+
+  it("links Talk with Vizzy again, as a plain link, once a call is kept, and Talk with Vizzy before", async () => {
+    process.env.ONBOARDING_ENABLED = "true";
+    process.env.ONBOARDING_VOICE_ENABLED = "true";
+    phase3On();
+    const again = await renderPage();
+    expect(again).toMatch(/<a href="\/admin\/welcome"[^>]*>.*Talk with Vizzy again<\/a>/s);
+
+    listConversations.mockResolvedValue([]);
+    const first = await renderPage();
+    expect(first).toMatch(/<a href="\/admin\/welcome"[^>]*>.*Talk with Vizzy<\/a>/s);
+    expect(first).not.toContain("Talk with Vizzy again");
+    expect(first).toContain("No conversations kept.");
+  });
+
+  it("hides Talk with Vizzy with voice off, without a Live key, or kept from this brand", async () => {
+    process.env.ONBOARDING_ENABLED = "true";
+    phase3On();
+    expect(await renderPage()).not.toContain('href="/admin/welcome"');
+
+    process.env.ONBOARDING_VOICE_ENABLED = "true";
+    isLiveConfigured.mockReturnValue(false);
+    expect(await renderPage()).not.toContain('href="/admin/welcome"');
+
+    isLiveConfigured.mockReturnValue(true);
+    process.env.GRANTED_ONLY_FEATURES = "onboarding_voice";
+    expect(await renderPage()).not.toContain('href="/admin/welcome"');
+    getTenantById.mockResolvedValue(brand({ businessProfile: PROFILE, grantedFeatures: ["onboarding_voice"] }));
+    expect(await renderPage()).toContain('href="/admin/welcome"');
+  });
+
+  it("says a list didn't load rather than showing it empty", async () => {
+    process.env.ONBOARDING_ENABLED = "true";
+    phase3On();
+    listBusinessFacts.mockRejectedValue(new Error("unavailable"));
+    listConversations.mockRejectedValue(new Error("unavailable"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const html = await renderPage();
+    warn.mockRestore();
+    expect(html.split("This list didn't load. Try again in a moment.").length - 1).toBe(2);
+    expect(html).not.toContain("Nothing yet. Talk with Vizzy to add more.");
+    expect(html).not.toContain("No conversations kept.");
+  });
+
+  it("comes before the languages on the older Settings, and only with nav v2's palette", async () => {
+    process.env.ONBOARDING_ENABLED = "true";
+    process.env.NEXT_PUBLIC_NAV_V2_ENABLED = "true";
+    const html = await renderPage();
+    expect(html.indexOf("About your business")).toBeGreaterThan(-1);
+    expect(html.indexOf("About your business")).toBeLessThan(html.indexOf("Loading…"));
+    expect(html).not.toContain("Brand details");
+
+    delete process.env.NEXT_PUBLIC_NAV_V2_ENABLED;
+    getTenantById.mockClear();
+    expect(await renderPage()).not.toContain("About your business");
+    expect(getTenantById).not.toHaveBeenCalled();
+  });
+
+  it("says where to add a missing domain without a dash", async () => {
+    phase3On();
+    getTenantById.mockResolvedValue(brand({ rootDomain: "" }));
+    const html = await renderPage();
+    expect(html).toContain("Not set. Add it under Sending.");
+    expect(html).not.toContain("\u2014");
   });
 });

@@ -69,27 +69,40 @@ function AnswerMenu({ q, value, onPick }: { q: ProfileQuestion; value: string | 
   );
 }
 
+/** An answer that can't be changed here: the same chip, without its menu. */
+function AnswerChip({ q, value }: { q: ProfileQuestion; value: string | undefined }) {
+  const label = answerLabel(q.key, value);
+  return (
+    <span className={`${CHIP} pr-3 ${label ? "border-shell-line" : "border-dashed border-shell-faint text-shell-muted"}`}>
+      <span className="truncate">{label || BASICS_WORDS.notPicked}</span>
+    </span>
+  );
+}
+
 /**
  * The four answers, one row each, with a chip that opens its choices. An unanswered row asks:
  * on Learned (`blank="unsure"`) as "Not sure yet" with the member's unclear words and the three
  * choices; in Settings (`blank="notPicked"`) as a "Not picked" chip with the same menu.
+ * `readOnly` shows the chips without their menus (Settings while the switch is off).
  */
 export function BasicsGrid({
   answers,
   blank,
   words = {},
   onPick,
+  readOnly = false,
 }: {
   answers: ProfileAnswers;
   blank: "unsure" | "notPicked";
   words?: Partial<Record<ProfileKey, string>>;
   onPick: (key: ProfileKey, value: string) => void;
+  readOnly?: boolean;
 }) {
   return (
     <div className="mt-2.5 rounded-xl border border-shell-line bg-shell-card">
       {QUESTIONS.map((q) => {
         const value = answers[q.key];
-        const asks = !answerLabel(q.key, value) && blank === "unsure";
+        const asks = !answerLabel(q.key, value) && blank === "unsure" && !readOnly;
         const unclear = words[q.key]?.trim();
         return (
           <div
@@ -120,6 +133,8 @@ export function BasicsGrid({
                   </div>
                 </div>
               </>
+            ) : readOnly ? (
+              <AnswerChip q={q} value={value} />
             ) : (
               <AnswerMenu q={q} value={value} onPick={onPick} />
             )}
@@ -156,7 +171,7 @@ export interface FactRow {
  */
 export function FactList({ facts, onRemove, compact = false, busyId = null }: { facts: readonly FactRow[]; onRemove: (id: string) => void; compact?: boolean; busyId?: string | null }) {
   return (
-    <ul className="mt-2.5 overflow-hidden rounded-xl border border-shell-line bg-shell-card">
+    <ul className={`${compact ? "" : "mt-2.5 "}overflow-hidden rounded-xl border border-shell-line bg-shell-card`}>
       {facts.map((f) => {
         const look = KIND_LOOK[f.kind];
         const Icon = look.icon;

@@ -1,6 +1,14 @@
+import type { ReactElement } from "react";
 import { requireAdminContext } from "@/lib/auth/session";
 import { getTenantById } from "@/lib/tenant";
-import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
+import type { TenantContext } from "@/lib/tenant/types";
+import type { Tenant } from "@/lib/types/tenant";
+import { isNavV2Enabled, isNavV2Phase2Enabled, isNavV2Phase3Enabled } from "@/lib/nav/flags";
+import { isOnboardingEnabled } from "@/lib/onboarding/flags";
+import { aboutConversations, aboutFacts } from "@/lib/onboarding/aboutYourBusiness";
+import { listBusinessFacts, listConversations } from "@/lib/onboarding/store";
+import { mayTalkWithVizzy } from "@/lib/onboarding/voiceAccess";
+import { AboutYourBusiness } from "@/components/admin/onboarding/AboutYourBusiness";
 import { AccountSettings } from "@/components/admin/AccountSettings";
 import { SearchSettingsCard } from "@/components/admin/search/SearchSettingsCard";
 import { isSearchUiEnabled } from "@/lib/search/flags";
@@ -16,10 +24,50 @@ export const dynamic = "force-dynamic";
 const REGION: Record<string, string> = { us: "United States", eu: "Europe", asia: "Asia" };
 
 /**
+ * About your business is for admins, with the shell's palette (nav v2): shown while the switch is
+ * on, and after it while the brand has a profile, so kept words can always be read and deleted.
+ */
+function mayShowAbout(ctx: Pick<TenantContext, "role">): boolean {
+  return ctx.role === "admin" && isNavV2Enabled();
+}
+
+/**
+ * Settings › General › About your business (ONBOARDING_ENABLED): the brand's four answers, what
+ * Vizzy learned and the kept conversations. Two regional reads, for admins only; a list that
+ * fails shows as not loaded, never as empty.
+ */
+async function aboutYourBusiness(ctx: TenantContext, tenant: Tenant | null): Promise<ReactElement | null> {
+  const onboarding = isOnboardingEnabled();
+  const profile = tenant?.businessProfile;
+  if (!mayShowAbout(ctx) || (!onboarding && !profile)) return null;
+  const [facts, conversations] = await Promise.all([
+    listBusinessFacts(ctx).then(aboutFacts, () => {
+      console.warn("[settings] about your business: the facts didn't load");
+      return null;
+    }),
+    listConversations(ctx).then(aboutConversations, () => {
+      console.warn("[settings] about your business: the conversations didn't load");
+      return null;
+    }),
+  ]);
+  return (
+    <AboutYourBusiness
+      answers={profile?.answers ?? {}}
+      facts={facts}
+      conversations={conversations}
+      // The welcome needs nav v2 phase 2, so the link does too.
+      voice={isNavV2Phase2Enabled() && mayTalkWithVizzy(tenant)}
+      editable={onboarding}
+    />
+  );
+}
+
+/**
  * Account-wide settings: content-language defaults. With nav v2 phase 3 this is
  * Settings › General, and also shows the brand's details (the ids and data region
  * that used to sit in the sidebar footer). With PASSWORD_SIGNIN_ENABLED it also
  * has Sign-in and security: how you sign in, change password, sign out everywhere.
+ * With ONBOARDING_ENABLED an admin sees About your business first.
  */
 export default async function AccountSettingsPage() {
   const ctx = await requireAdminContext();
@@ -27,9 +75,14 @@ export default async function AccountSettingsPage() {
   const market = isBrandSignalsEnabled() ? <GoogleMarketCard isAdmin={ctx.role === "admin"} /> : null;
   const zone = isBlogDatesEnabled() ? <TimeZoneCard isAdmin={ctx.role === "admin"} /> : null;
   const security = isPasswordSigninEnabled() ? <SignInSecurityCard /> : null;
-  if (!isNavV2Phase3Enabled()) {
-    return search || market || zone || security ? (
+  const phase3 = isNavV2Phase3Enabled();
+  // One read of the brand, shared by Brand details and About your business.
+  const tenant = phase3 || mayShowAbout(ctx) ? await getTenantById(ctx.tenantId).catch(() => null) : null;
+  const about = await aboutYourBusiness(ctx, tenant);
+  if (!phase3) {
+    return about || search || market || zone || security ? (
       <div className="space-y-6">
+        {about}
         <AccountSettings />
         {security}
         {search}
@@ -40,15 +93,15 @@ export default async function AccountSettingsPage() {
       <AccountSettings />
     );
   }
-  const tenant = await getTenantById(ctx.tenantId).catch(() => null);
   const rows: Array<[string, string]> = [
     ["Brand", tenant?.tenantName ?? ctx.tenantId],
-    ["Primary domain", tenant?.rootDomain || "Not set — add it under Sending"],
+    ["Primary domain", tenant?.rootDomain || "Not set. Add it under Sending."],
     ["Data region", `${REGION[ctx.region] ?? ctx.region} (can't be changed)`],
     ["Brand ID", ctx.tenantId],
   ];
   return (
     <div className="space-y-6">
+      {about}
       <section className="max-w-2xl space-y-2">
         <h2 className="text-sm font-semibold">Brand details</h2>
         <dl className="divide-y divide-neutral-100 rounded-md border border-neutral-200 text-sm dark:divide-neutral-900 dark:border-neutral-800">

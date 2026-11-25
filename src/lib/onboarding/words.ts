@@ -139,6 +139,40 @@ export const DELETE_CONVERSATION_WORDS = {
   failed: "It didn't delete. Try again.",
 } as const;
 
+/** Settings, General, About your business (About.html, About.js). */
+export const ABOUT_WORDS = {
+  title: "About your business",
+  lead: "Vizzy reads this in every chat. Only your admins and Vizzy see it.",
+  /** With no call kept (an existing brand starting from Settings; not drawn in the mockups). */
+  talk: "Talk with Vizzy",
+  talkAgain: "Talk with Vizzy again",
+  deleted: "Conversation deleted.",
+  basics: "The basics",
+  learned: "What Vizzy learned",
+  noFacts: "Nothing yet. Talk with Vizzy to add more.",
+  conversations: "Conversations",
+  table: "Conversations with Vizzy",
+  conversation: "Conversation",
+  date: "Date",
+  length: "Length",
+  actions: "Actions",
+  view: "View transcript",
+  viewAria: (what: "call" | "chat", date: string) => `View the transcript of the ${what} on ${date}`,
+  delete: "Delete",
+  deleteAria: (what: "call" | "chat", date: string) => `Delete the ${what} on ${date}`,
+  noConversations: "No conversations kept.",
+  kept: "Vizzy keeps the words, never the audio. Each one stays until you delete it.",
+  /** When a change or a list fails (not drawn in the mockups). */
+  notSaved: "That didn't save. Try again.",
+  notRemoved: "It wasn't removed. Try again.",
+  notLoaded: "This list didn't load. Try again in a moment.",
+} as const;
+
+/** Home's card of steps, with getting to know you on (Home.html). */
+export const HOME_WORDS = {
+  nextAction: "Your next action",
+} as const;
+
 const DAY_MONTH = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 const DAY_MONTH_YEAR = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 

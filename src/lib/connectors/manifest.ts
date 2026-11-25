@@ -12,7 +12,9 @@ import { isTimeZone } from "./period";
  *
  * Fields, in the order of the plan's design:
  * - connect: the sign-in methods: token_fields (connectors 1a), oauth_pkce, Sign in with Google
- *   (1b), and share_access, a Google address made for the connection (1c).
+ *   (1b), share_access, a Google address made for the connection (1c), and mcp, the vendor's own
+ *   remote MCP server (ADR-0019), whose connector is data only: one engine in
+ *   src/lib/connectors/mcp runs every stream from the stream's own mcp block.
  * - api: every outbound call. Only these hosts are reachable, under these limits
  *   (src/lib/connectors/safeFetch.ts enforces them).
  * - verify: the one request that proves a connection works, run before anything is saved.
@@ -23,7 +25,7 @@ import { isTimeZone } from "./period";
  * - uses: what it plugs into in YouGrow.
  * - hooks: named handler ids, never functions: live reads a stream, accounts lists what a signed
  *   in connection or a pasted token can see, for the picker, and collect reads a stream's days for
- *   keeping (Connectors 2).
+ *   keeping (Connectors 2). An MCP connector names the engine's own hooks (MCP_HOOKS) instead.
  * - each stream's collect block (Connectors 2): what is kept each day and for how long, as data the
  *   collector enforces (rule 3 of the Connectors plan: vendor terms travel with the data).
  * - icon: the connector's own mark, as files on YouGrow's own site under
@@ -44,7 +46,7 @@ export const RESERVED_CONNECTOR_IDS = ["browse", "callback", "connections", "con
  * claim one, as its own switch or a sign in method's, or turning a connector on would turn on
  * something else.
  */
-export const PLATFORM_SWITCHES = ["CONNECTOR_SIGNALS_ENABLED", "CONNECTOR_GOOGLE_REVOKE_ENABLED"] as const;
+export const PLATFORM_SWITCHES = ["CONNECTOR_SIGNALS_ENABLED", "CONNECTOR_GOOGLE_REVOKE_ENABLED", "CONNECTOR_MCP_ENABLED", "CONNECTOR_AI_ANSWERS_ENABLED"] as const;
 
 /** A connector's switch: CONNECTOR_<NAME>_ENABLED, never one of the platform's own. */
 const ConnectorSwitch = z
@@ -52,7 +54,7 @@ const ConnectorSwitch = z
   .regex(/^CONNECTOR_[A-Z0-9_]+_ENABLED$/)
   .refine((name) => !(PLATFORM_SWITCHES as readonly string[]).includes(name), "a platform switch, not a connector's");
 
-export const CONNECT_METHODS = ["token_fields", "oauth_pkce", "share_access"] as const;
+export const CONNECT_METHODS = ["token_fields", "oauth_pkce", "share_access", "mcp"] as const;
 export type ConnectMethodName = (typeof CONNECT_METHODS)[number];
 
 /**
@@ -244,7 +246,80 @@ const ShareAccessMethodSchema = z
   })
   .strict();
 
-export const ConnectMethodSchema = z.discriminatedUnion("method", [TokenFieldsMethodSchema, OAuthMethodSchema, ShareAccessMethodSchema]);
+// --- MCP servers (ADR-0019) ------------------------------------------------------------------
+
+/** The hooks of the one MCP engine (src/lib/connectors/mcp): every MCP connector names these, and only these. */
+export const MCP_HOOKS = { verify: "mcp.verify", live: "mcp.live", collect: "mcp.collect" } as const;
+
+/** A tool's name, as MCP allows it: letters, digits, underscore, dot and hyphen. */
+const ToolName = z.string().regex(/^[A-Za-z0-9_.-]{1,128}$/, "an MCP tool name");
+/** An argument's name. */
+const ArgName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,63}$/, "an argument name");
+/**
+ * Where a value is in a tool's result: `$` for the value itself, or names joined by dots
+ * (`data`, `pagination.hasMore`, `metrics.totalCitations`). No indexes, no wildcards.
+ */
+export const JsonPath = z.string().regex(/^(?:\$|[A-Za-z_][A-Za-z0-9_]{0,63}(?:\.[A-Za-z_][A-Za-z0-9_]{0,63}){0,5})$/, "a path such as data or metrics.totalCitations");
+/** A fixed argument: a short string, a number, true or false, or a short list of strings. */
+const ArgValue = z.union([z.string().max(200), z.number().finite(), z.boolean(), z.array(z.string().max(100)).max(10)]);
+const McpArgs = z.record(ArgName, ArgValue).refine((a) => Object.keys(a).length <= 10, "at most 10 arguments");
+
+/**
+ * What an argument can be filled with on each read: the first and last day of the read (from, to,
+ * YYYY-MM-DD in the stream's zone), the rows asked for (limit, at most LIVE_LIMITS.maxRows), the
+ * connection's account, the page path asked for (page) or that page on the account's host
+ * (pageUrl, https://<account><page>). A stream whose fills name page or pageUrl is read for one
+ * page only.
+ */
+export const MCP_FILLS = ["from", "to", "limit", "account", "page", "pageUrl"] as const;
+export type McpFill = (typeof MCP_FILLS)[number];
+
+/**
+ * A connector's own remote MCP server, over Streamable HTTP. `url` is its endpoint, on one of the
+ * api hosts. `auth` says how YouGrow signs in to it: `bearer`, a key pasted as one sealed field and
+ * sent as `Authorization: Bearer <key>` (OAuth to an MCP server is a later kind of the same
+ * method). `verify` is the tool that proves a key works before anything is saved, and the path in
+ * its result to the account the key reads (and, where it has one, that account's name).
+ */
+const McpMethodSchema = z
+  .object({
+    method: z.literal("mcp"),
+    url: HttpsUrl,
+    auth: z.object({ kind: z.literal("bearer"), field: TokenFieldSchema }).strict(),
+    verify: z.object({ tool: ToolName, args: McpArgs.optional(), account: JsonPath, label: JsonPath.optional() }).strict(),
+    /** What the key must be allowed to do, in the provider's own words. */
+    permissions: z.array(Copy(80)).min(1).max(10),
+    tokenLink: HttpsUrl.optional(),
+    /** How to make the key, step by step. */
+    steps: z.array(Copy()).min(1).max(10),
+  })
+  .strict();
+
+/**
+ * How an MCP connector's stream is read: the tool it calls, its fixed arguments, the arguments
+ * filled on each read, where its rows are in the tool's result (`rows`, a path into the parsed text
+ * or structuredContent), where the tool says it has more (`more`), and where each of the stream's
+ * keys and numbers is in a row. No code per connector: the engine reads any stream from this.
+ */
+export const McpStreamSchema = z
+  .object({
+    tool: ToolName,
+    args: McpArgs.optional(),
+    fill: z.record(ArgName, z.enum(MCP_FILLS)).optional(),
+    rows: JsonPath,
+    more: JsonPath.optional(),
+    keys: z.record(z.string(), JsonPath),
+    measures: z.record(z.string(), JsonPath),
+  })
+  .strict()
+  .superRefine((s, ctx) => {
+    for (const name of Object.keys(s.fill ?? {})) if (s.args && name in s.args) ctx.addIssue({ code: "custom", message: `the argument ${name} is both fixed and filled` });
+    const fills = Object.values(s.fill ?? {});
+    if (new Set(fills).size !== fills.length) ctx.addIssue({ code: "custom", message: "a fill is used twice" });
+  });
+export type McpStream = z.infer<typeof McpStreamSchema>;
+
+export const ConnectMethodSchema = z.discriminatedUnion("method", [TokenFieldsMethodSchema, OAuthMethodSchema, ShareAccessMethodSchema, McpMethodSchema]);
 
 const RateLimitSchema = z
   .object({
@@ -342,6 +417,8 @@ export const ProduceSchema = z
     liveFilters: z.array(z.enum(LIVE_FILTERS)).max(LIVE_FILTERS.length).optional(),
     /** Collected once a day and kept (Connectors 2); without it the stream is read live only. */
     collect: CollectSchema.optional(),
+    /** How an MCP connector reads it (ADR-0019): its tool, arguments and where its rows are. */
+    mcp: McpStreamSchema.optional(),
   })
   .strict()
   .superRefine((p, ctx) => {
@@ -362,6 +439,14 @@ export const ProduceSchema = z
     }
     if (p.collect && p.shape !== "numbers") ctx.addIssue({ code: "custom", message: "only a numbers stream is collected" });
     if (p.collect && p.personal) ctx.addIssue({ code: "custom", message: "a personal stream is never collected" });
+    if (p.mcp) {
+      // Every key and every number has a place in a row, and nothing else is read.
+      const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((k) => b.includes(k));
+      if (!same(Object.keys(p.mcp.keys), p.keys)) ctx.addIssue({ code: "custom", message: "mcp.keys must name each of the stream's keys, and only those" });
+      if (!same(Object.keys(p.mcp.measures), p.measures)) ctx.addIssue({ code: "custom", message: "mcp.measures must name each of the stream's measures, and only those" });
+      // The engine collects a day's totals, one row a day, as Cloudflare's zone totals are kept.
+      if (p.collect && (p.collect.by.length !== 1 || p.collect.by[0] !== "day")) ctx.addIssue({ code: "custom", message: "an MCP stream is collected by day only" });
+    }
   });
 
 export const ConnectorManifestSchema = z
@@ -420,14 +505,31 @@ export const ConnectorManifestSchema = z
       if (!file.startsWith(`/marks/connectors/${m.id}/`)) ctx.addIssue({ code: "custom", path: ["icon"], message: `${file} is not in the connector's own folder, /marks/connectors/${m.id}/` });
     }
     if (!m.api.hosts.includes(hostOf(m.verify.url))) ctx.addIssue({ code: "custom", message: "verify.url is not on a declared host" });
-    for (const hook of [m.verify.hook, m.hooks.live, ...(m.hooks.accounts ? [m.hooks.accounts] : []), ...(m.hooks.collect ? [m.hooks.collect] : [])]) {
-      if (!hook.startsWith(`${m.id.replace(/-([a-z0-9])/g, (_, c: string) => c.toUpperCase())}.`)) {
-        ctx.addIssue({ code: "custom", message: `hook ${hook} must start with the connector's own name` });
+    const needs = new Set(m.shares.flatMap((s) => s.needs));
+    const mcp = mcpMethod(m);
+    if (mcp) {
+      // Data only (ADR-0019): the one MCP engine runs it, so it names the engine's hooks and no code of its own.
+      if (m.connect.length > 1) ctx.addIssue({ code: "custom", message: "an MCP connector connects by mcp alone" });
+      if (!m.api.hosts.includes(hostOf(mcp.url))) ctx.addIssue({ code: "custom", message: "the MCP server's url is not on a declared host" });
+      if (m.verify.url !== mcp.url || m.verify.method !== "POST" || m.verify.hook !== MCP_HOOKS.verify) ctx.addIssue({ code: "custom", message: `an MCP connector verifies with POST to its server's url and ${MCP_HOOKS.verify}` });
+      if (m.hooks.live !== MCP_HOOKS.live) ctx.addIssue({ code: "custom", message: `an MCP connector reads live with ${MCP_HOOKS.live}` });
+      if (m.hooks.collect && m.hooks.collect !== MCP_HOOKS.collect) ctx.addIssue({ code: "custom", message: `an MCP connector collects with ${MCP_HOOKS.collect}` });
+      if (m.hooks.accounts) ctx.addIssue({ code: "custom", message: "an MCP connector names its account from the verify tool, not hooks.accounts" });
+      if (!mcp.auth.field.secret) ctx.addIssue({ code: "custom", message: "an MCP key is a secret field" });
+      for (const p of mcp.permissions) if (!needs.has(p)) ctx.addIssue({ code: "custom", message: `the permission "${p}" has no shares line` });
+      for (const p of m.produces) if (!p.mcp) ctx.addIssue({ code: "custom", message: `${p.stream} needs an mcp block: the tool it calls and where its rows are` });
+      // Sharing one key across an organisation's brands (Connectors 3) isn't built for MCP servers.
+      if (m.api.limits.source) ctx.addIssue({ code: "custom", message: "an MCP connector is never shared (limits.source)" });
+    } else {
+      for (const hook of [m.verify.hook, m.hooks.live, ...(m.hooks.accounts ? [m.hooks.accounts] : []), ...(m.hooks.collect ? [m.hooks.collect] : [])]) {
+        if (!hook.startsWith(`${m.id.replace(/-([a-z0-9])/g, (_, c: string) => c.toUpperCase())}.`)) {
+          ctx.addIssue({ code: "custom", message: `hook ${hook} must start with the connector's own name` });
+        }
       }
+      for (const p of m.produces) if (p.mcp) ctx.addIssue({ code: "custom", message: `${p.stream} has an mcp block, but the connector doesn't connect by mcp` });
     }
     const methods = m.connect.map((c) => c.method);
     if (new Set(methods).size !== methods.length) ctx.addIssue({ code: "custom", message: "a sign-in method is listed twice" });
-    const needs = new Set(m.shares.flatMap((s) => s.needs));
     for (const c of m.connect) {
       if (c.method === "token_fields") {
         const keys = c.fields.map((f) => f.key);
@@ -468,6 +570,7 @@ export type ConnectMethod = z.infer<typeof ConnectMethodSchema>;
 export type TokenFieldsMethod = Extract<ConnectMethod, { method: "token_fields" }>;
 export type OAuthMethod = Extract<ConnectMethod, { method: "oauth_pkce" }>;
 export type ShareAccessMethod = Extract<ConnectMethod, { method: "share_access" }>;
+export type McpMethod = Extract<ConnectMethod, { method: "mcp" }>;
 export type TokenField = z.infer<typeof TokenFieldSchema>;
 export type ProducedStream = z.infer<typeof ProduceSchema>;
 
@@ -500,6 +603,24 @@ export function shareMethod(m: ConnectorManifest): ShareAccessMethod | null {
 /** The token_fields method of a manifest, when it has one. */
 export function tokenMethod(m: ConnectorManifest): TokenFieldsMethod | null {
   return (m.connect.find((c) => c.method === "token_fields") as TokenFieldsMethod | undefined) ?? null;
+}
+
+/** The mcp method of a manifest, when it has one (ADR-0019). */
+export function mcpMethod(m: Pick<ConnectorManifest, "connect">): McpMethod | null {
+  return (m.connect.find((c) => c.method === "mcp") as McpMethod | undefined) ?? null;
+}
+
+/**
+ * The fields a person pastes to connect, for a connector that connects with them: an API token's
+ * (token_fields), or an MCP server's key (mcp), with the secret that goes out as the bearer token
+ * and the field that names the account, when one is typed. An MCP key's account comes from its
+ * verify tool instead, so it has none.
+ */
+export function pastedFieldsOf(m: Pick<ConnectorManifest, "connect">): { fields: TokenField[]; bearer: string; account: string | null } | null {
+  const token = m.connect.find((c) => c.method === "token_fields") as TokenFieldsMethod | undefined;
+  if (token) return { fields: token.fields, bearer: token.auth.field, account: token.account };
+  const mcp = mcpMethod(m);
+  return mcp ? { fields: [mcp.auth.field], bearer: mcp.auth.field.key, account: null } : null;
 }
 
 /** A stream of a manifest by name. */

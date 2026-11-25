@@ -158,3 +158,31 @@ describe("the third bucket, per organisation connection (Connectors 3)", () => {
   });
 });
 
+
+describe("connectorFetch for a protocol that isn't plain JSON (an MCP server, ADR-0019)", () => {
+  it("reads the body as text, empty or not, with the headers asked for and its type", async () => {
+    fetchMock.mockResolvedValueOnce(new Response("event: message\ndata: {}\n\n", { status: 200, headers: { "content-type": "text/event-stream", "mcp-session-id": "made-up-1", "x-other": "kept out" } }));
+    const r = await connectorFetch(call({ accept: "application/json, text/event-stream", text: { headers: ["mcp-session-id"] } }), deps());
+    expect(r).toEqual({ ok: true, status: 200, body: "event: message\ndata: {}\n\n", headers: { "content-type": "text/event-stream", "mcp-session-id": "made-up-1" } });
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 202 }));
+    expect(await connectorFetch(call({ text: {} }), deps())).toMatchObject({ ok: true, status: 202, body: "" });
+  });
+
+  it("sends a protocol's own headers, but never lets one replace the token or the transport's", async () => {
+    await connectorFetch(call({ accept: "application/json, text/event-stream", headers: { "Mcp-Session-Id": "made-up-1", Authorization: "Bearer someone-else", Cookie: "a=b", Host: "evil.example", "X-Bad": "a\r\nb" }, text: {} }), deps());
+    const sent = (fetchMock.mock.calls[0]![1] as RequestInit).headers as Record<string, string>;
+    expect(sent).toEqual({ "mcp-session-id": "made-up-1", authorization: `Bearer ${TOKEN}`, accept: "application/json, text/event-stream", "content-type": "application/json" });
+  });
+
+  it("ends the read once enough came, and still caps the body", async () => {
+    const open = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("data: done\n\n"));
+      },
+    });
+    fetchMock.mockResolvedValueOnce(new Response(open, { status: 200, headers: { "content-type": "text/event-stream" } }));
+    expect(await connectorFetch(call({ text: { until: (t) => t.includes("done") } }), deps())).toMatchObject({ ok: true, body: "data: done\n\n" });
+    fetchMock.mockResolvedValueOnce(new Response("x".repeat(manifest.api.maxBytes + 10), { status: 200, headers: { "content-type": "text/event-stream" } }));
+    expect(await connectorFetch(call({ text: { until: () => false } }), deps())).toMatchObject({ ok: false, code: "body_too_large" });
+  });
+});

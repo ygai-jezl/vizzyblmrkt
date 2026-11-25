@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { MEANINGS } from "@/lib/metrics/meanings";
-import { collectedStream, ConnectorManifestSchema, oauthMethod, parseManifest, PLATFORM_SWITCHES, RESERVED_CONNECTOR_IDS, shareMethod, streamOf, tokenMethod, type ConnectorManifestInput } from "./manifest";
+import { collectedStream, ConnectorManifestSchema, MCP_HOOKS, mcpMethod, oauthMethod, parseManifest, pastedFieldsOf, PLATFORM_SWITCHES, RESERVED_CONNECTOR_IDS, shareMethod, streamOf, tokenMethod, type ConnectorManifestInput } from "./manifest";
 import { cloudflareManifest } from "./manifests/cloudflare";
 import { ga4Manifest } from "./manifests/ga4";
 import { searchConsoleManifest } from "./manifests/searchConsole";
 import { MANIFESTS } from "./registry";
+import { testMcpManifest } from "./testing/mcpServer";
 
 /** Every string anywhere in a value, for the house style check. */
 function stringsIn(value: unknown, out: string[] = []): string[] {
@@ -243,3 +244,60 @@ describe("sharing one connection across an organisation's brands (Connectors 3)"
   });
 });
 
+
+describe("connectors that read an MCP server (ADR-0019)", () => {
+  const mcp = (): ConnectorManifestInput => clone(testMcpManifest) as unknown as ConnectorManifestInput;
+  const method = (m: ConnectorManifestInput) => m.connect[0] as Extract<ConnectorManifestInput["connect"][number], { method: "mcp" }>;
+
+  it("parses a data only connector: the engine's hooks, every stream with its tool and rows", () => {
+    const m = parseManifest(mcp());
+    expect(mcpMethod(m)?.url).toBe("https://mcp.example.test/v1/mcp");
+    expect(m.hooks).toEqual({ live: MCP_HOOKS.live, collect: MCP_HOOKS.collect });
+    expect(pastedFieldsOf(m)).toEqual({ fields: [method(mcp()).auth.field], bearer: "apiKey", account: null });
+    expect(pastedFieldsOf(parseManifest(cloudflareManifest))).toMatchObject({ bearer: "token", account: "zoneId" });
+    expect(clone(mcp())).toEqual(mcp());
+  });
+
+  it("names only the engine's hooks, and verifies with POST to its own server", () => {
+    expect(issues({ ...mcp(), hooks: { live: "acmeAnswers.live", collect: MCP_HOOKS.collect } }).join()).toContain("reads live with mcp.live");
+    expect(issues({ ...mcp(), hooks: { live: MCP_HOOKS.live, collect: "acmeAnswers.collect" } }).join()).toContain("collects with mcp.collect");
+    expect(issues({ ...mcp(), hooks: { ...mcp().hooks, accounts: "mcp.accounts" } }).join()).toContain("not hooks.accounts");
+    expect(issues({ ...mcp(), verify: { ...mcp().verify, hook: "acmeAnswers.check" } }).join()).toContain("verifies with POST");
+    // The engine's hooks are only for a connector that connects by mcp.
+    expect(issues({ ...base(), hooks: { ...base().hooks, live: MCP_HOOKS.live } }).join()).toContain("connector's own name");
+  });
+
+  it("refuses a server off its hosts, a key that isn't secret, and a permission with no shares line", () => {
+    const m = mcp();
+    expect(issues({ ...m, connect: [{ ...method(m), url: "https://mcp.elsewhere.test/v1/mcp" }] }).join()).toContain("not on a declared host");
+    expect(issues({ ...m, connect: [{ ...method(m), auth: { kind: "bearer", field: { ...method(m).auth.field, secret: false } } }] }).join()).toContain("secret field");
+    expect(issues({ ...m, connect: [{ ...method(m), permissions: ["Write everything"] }] }).join()).toContain("has no shares line");
+    expect(issues({ ...m, connect: [{ ...method(m), auth: { kind: "oauth" } }] }).length).toBeGreaterThan(0);
+    expect(issues({ ...m, connect: [method(m), clone(cloudflareManifest).connect[0]!] }).join()).toContain("connects by mcp alone");
+    expect(issues({ ...m, api: { ...m.api, limits: { ...m.api.limits, source: { perMinute: 10, perHour: 100, holds: "connection" } } } }).join()).toContain("never shared");
+  });
+
+  it("maps every key and every number of a stream, and only those", () => {
+    const m = mcp();
+    const daily = m.produces[0]!;
+    const block = daily.mcp!;
+    expect(issues({ ...m, produces: [{ ...daily, mcp: undefined }, ...m.produces.slice(1)] }).join()).toContain("needs an mcp block");
+    expect(issues({ ...m, produces: [{ ...daily, mcp: { ...block, keys: {} } }, ...m.produces.slice(1)] }).join()).toContain("mcp.keys");
+    expect(issues({ ...m, produces: [{ ...daily, mcp: { ...block, measures: { cfRequests: "count", cfVisits: "visits" } } }, ...m.produces.slice(1)] }).join()).toContain("mcp.measures");
+    expect(issues({ ...m, produces: [{ ...daily, mcp: { ...block, rows: "data[0]" } }, ...m.produces.slice(1)] }).length).toBeGreaterThan(0);
+    expect(issues({ ...m, produces: [{ ...daily, mcp: { ...block, tool: "has space" } }, ...m.produces.slice(1)] }).length).toBeGreaterThan(0);
+    expect(issues({ ...m, produces: [{ ...daily, mcp: { ...block, args: { startDate: "2026-01-01" } } }, ...m.produces.slice(1)] }).join()).toContain("both fixed and filled");
+    expect(issues({ ...m, produces: [{ ...daily, mcp: { ...block, fill: { startDate: "from", since: "from" } } }, ...m.produces.slice(1)] }).join()).toContain("a fill is used twice");
+    expect(issues({ ...m, produces: [{ ...daily, mcp: { ...block, fill: { startDate: "yesterday" } } }, ...m.produces.slice(1)] }).length).toBeGreaterThan(0);
+    // A connector that doesn't connect by mcp has no mcp blocks.
+    const cf = base();
+    expect(issues({ ...cf, produces: [{ ...cf.produces[0]!, mcp: block }] }).join()).toContain("doesn't connect by mcp");
+  });
+
+  it("collects an MCP stream by day only, one row of totals a day", () => {
+    const m = mcp();
+    const daily = m.produces[0]!;
+    const byPage = { ...daily, keys: ["day", "page"], joins: { day: "day" as const, page: "page" as const }, liveBy: ["day" as const, "page" as const], collect: { ...daily.collect!, by: ["day" as const, "page" as const] }, mcp: { ...daily.mcp!, keys: { day: "date", page: "url" } } };
+    expect(issues({ ...m, produces: [byPage, ...m.produces.slice(1)] }).join()).toContain("collected by day only");
+  });
+});

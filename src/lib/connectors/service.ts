@@ -14,7 +14,7 @@ import { COLLECT_FAILED_DAYS, healthAfterFailure, healthAfterSuccess, healthyAt,
 import { ACCOUNT_HOOKS, VERIFY_HOOKS } from "./handlers";
 import type { ConnectorAccount, HookFailure } from "./handlers/types";
 import { checkLiveRequest, lagWords, readLive, type LiveAnswer } from "./live";
-import { collectedStream, keepsWords, shareMethod, tokenMethod, type ConnectMethodName, type ConnectorIcon, type ConnectorManifest } from "./manifest";
+import { collectedStream, keepsWords, pastedFieldsOf, shareMethod, tokenMethod, type ConnectMethodName, type ConnectorIcon, type ConnectorManifest } from "./manifest";
 import { addDays, daysIn, laterDay, todayIn } from "./period";
 import { oldestAlive } from "./snapshots";
 import { connectorMessage, productName, sourceBrokenMessage, tokenRefusedMessage, type ConnectorErrorCode, KEPT_AT_GOOGLE_MESSAGE } from "./messages";
@@ -484,9 +484,9 @@ export function checkFields(
   raw: Record<string, string>,
   which: "all" | "secrets" = "all",
 ): { ok: true; values: Record<string, string> } | { ok: false; labels: string[] } {
-  const method = tokenMethod(m);
-  if (!method) return { ok: false, labels: [] };
-  const fields = method.fields.filter((f) => which === "all" || f.secret);
+  const pasted = pastedFieldsOf(m);
+  if (!pasted) return { ok: false, labels: [] };
+  const fields = pasted.fields.filter((f) => which === "all" || f.secret);
   const labels: string[] = [];
   const values: Record<string, string> = {};
   for (const f of fields) {
@@ -505,43 +505,54 @@ export function cleanLabel(label: string | undefined, fallback: string): string 
 }
 
 /**
- * Connect with typed fields (token_fields). The token is checked with the manifest's one verify
- * request before anything is saved; then the record and its "connected" activity are written
- * together, with each secret sealed under the vault. Admins only.
+ * Connect with typed fields: an API token (token_fields), or an MCP server's key (mcp, ADR-0019),
+ * whose account comes from the verify tool rather than a field. The token is checked with the
+ * manifest's one verify request before anything is saved; then the record and its "connected"
+ * activity are written together, with each secret sealed under the vault. An MCP connection is
+ * kept as a token connection (method token_fields): the record says how YouGrow holds the secret,
+ * the manifest how it calls, so an older build reads it as one. Admins only.
  */
 export async function connect(ctx: TenantContext, actor: ConnectorActor, connectorId: string, body: unknown, deps: ServiceDeps = {}): Promise<ServiceResult<ConnectionView>> {
   const m = getConnector(connectorId);
   if (!m) return refuse(404, "not_found");
   if (!can(actor, "connect")) return refuse(403, "forbidden");
-  const method = tokenMethod(m);
-  if (!method) return refuse(400, "method_not_supported");
+  const pasted = pastedFieldsOf(m);
+  if (!pasted) return refuse(400, "method_not_supported");
   const parsed = ConnectBodySchema.safeParse(body);
   if (!parsed.success) return refuse(400, "invalid_input");
   const fields = checkFields(m, parsed.data.fields);
   if (!fields.ok) return { ok: false, status: 400, error: "invalid_fields", message: `Check ${fields.labels.join(", and ")}.` };
   if (!isVaultConfigured()) return providerRefusal("vault_unconfigured");
 
-  const account = fields.values[method.account]!;
-  const existing = await forTenant(ctx, deps.db).dataConnections.find({
-    where: [
-      ["connectorId", "==", m.id],
-      ["account", "==", account],
-      ["status", "==", "connected"],
-    ],
-    limit: 1,
-  });
-  if (existing.length) return refuse(409, "already_connected", "This account is connected already. Check or disconnect it there.");
+  const connected = async (account: string) =>
+    (
+      await forTenant(ctx, deps.db).dataConnections.find({
+        where: [
+          ["connectorId", "==", m.id],
+          ["account", "==", account],
+          ["status", "==", "connected"],
+        ],
+        limit: 1,
+      })
+    ).length > 0;
+  const ALREADY = refuse(409, "already_connected", "This account is connected already. Check or disconnect it there.");
+  const typed = pasted.account ? fields.values[pasted.account]! : "";
+  if (typed && (await connected(typed))) return ALREADY;
 
   const now = nowOf(deps);
   const id = (deps.newId ?? newDataConnectionId)();
   const health = healthyAt(now);
   const verify = VERIFY_HOOKS[m.verify.hook];
   if (!verify) return refuse(503, "connector_unavailable");
-  const result = await verify({ manifest: m, connection: { id, tenantId: ctx.tenantId, pausedAt: null, health }, account, token: fields.values[method.auth.field]! }, deps);
+  const result = await verify({ manifest: m, connection: { id, tenantId: ctx.tenantId, pausedAt: null, health }, account: typed, token: fields.values[pasted.bearer]! }, deps);
   if (!result.ok) return connectingRefusal(m, result.code);
+  // An MCP key names its account through its verify tool: one account is connected once per brand.
+  const account = typed || result.account || "";
+  if (!account) return providerRefusal("bad_response");
+  if (!typed && (await connected(account))) return ALREADY;
 
   const secrets: Record<string, SealedSecret> = {};
-  for (const f of method.fields) if (f.secret) secrets[f.key] = sealConnectorSecret(ctx.tenantId, id, f.key, fields.values[f.key]!, now);
+  for (const f of pasted.fields) if (f.secret) secrets[f.key] = sealConnectorSecret(ctx.tenantId, id, f.key, fields.values[f.key]!, now);
   const at = now.toISOString();
   const conn = await createDataConnection(
     ctx,
@@ -549,7 +560,7 @@ export async function connect(ctx: TenantContext, actor: ConnectorActor, connect
       id,
       connectorId: m.id,
       method: "token_fields",
-      label: cleanLabel(parsed.data.label, m.name),
+      label: cleanLabel(parsed.data.label ?? result.label?.slice(0, 60), m.name),
       account,
       ownerUid: byOf(actor),
       grants: [],
@@ -703,11 +714,12 @@ export async function connectionToken(ctx: TenantContext, conn: DataConnection, 
     const kept = await freshAccessToken(ctx, conn, by, deps);
     return kept.ok ? { ok: true, token: kept.token } : { ok: false, code: kept.code, retryAfterSec: kept.retryAfterSec, recorded: Boolean(kept.recorded) };
   }
-  const method = tokenMethod(manifest);
-  const sealed = method ? conn.secrets[method.auth.field] : undefined;
+  // A pasted token, or an MCP server's key: the secret field that goes out as the bearer token.
+  const bearer = pastedFieldsOf(manifest)?.bearer;
+  const sealed = bearer ? conn.secrets[bearer] : undefined;
   try {
     if (!sealed) throw new VaultOpenError("unopenable");
-    return { ok: true, token: openConnectorSecret(ctx.tenantId, conn.id, method!.auth.field, sealed) };
+    return { ok: true, token: openConnectorSecret(ctx.tenantId, conn.id, bearer!, sealed) };
   } catch (err) {
     if (!(err instanceof VaultOpenError)) throw err;
     return { ok: false, code: "secret_unopenable", retryAfterSec: null, recorded: false };

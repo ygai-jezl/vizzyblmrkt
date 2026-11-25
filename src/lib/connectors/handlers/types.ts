@@ -23,7 +23,11 @@ export interface HookInput {
 
 export type HookFailure = { ok: false; code: ConnectorErrorCode; retryAfterSec: number | null };
 
-export type VerifyResult = { ok: true } | HookFailure;
+/**
+ * A verify hook's answer. An MCP connector's verify tool also names the account the key reads (and
+ * its name, where it has one), since a pasted key has no account field (ADR-0019).
+ */
+export type VerifyResult = { ok: true; account?: string; label?: string } | HookFailure;
 
 /**
  * One live read, already checked against the manifest and the hard caps. It asks for either a

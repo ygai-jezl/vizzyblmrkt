@@ -55,7 +55,7 @@ function ConnectorSection({ c, collect }: { c: ConnectorHelp; collect: boolean }
       ) : null}
       {c.token ? (
         <>
-          <H3>With an API token</H3>
+          <H3>{c.token.kind === "key" ? "With an API key" : "With an API token"}</H3>
           <Steps>
             {c.token.steps.map((s) => (
               <li key={s}>{s}</li>
@@ -63,9 +63,9 @@ function ConnectorSection({ c, collect }: { c: ConnectorHelp; collect: boolean }
           </Steps>
           {c.token.link ? (
             <P>
-              The link on the {c.name} page opens {c.name}&apos;s token form with the {c.token.permissions.length === 1 ? "permission" : "permissions"} filled in:{" "}
+              The link on the {c.name} page opens {c.name}&apos;s {c.token.kind === "key" ? "key" : "token"} form with the {c.token.permissions.length === 1 ? "permission" : "permissions"} filled in:{" "}
               <a href={c.token.link} className="font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-400">
-                make a token
+                make a {c.token.kind === "key" ? "key" : "token"}
               </a>
               .
             </P>

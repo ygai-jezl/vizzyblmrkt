@@ -25,6 +25,15 @@ export function isCloudflareConnectorEnabled(): boolean {
 }
 
 /**
+ * The MCP way to connect (ADR-0019): a connector whose manifest connects to its vendor's own MCP
+ * server, with a pasted key, run by the one MCP engine. Needs CONNECTORS_ENABLED. Off, no MCP
+ * connector is offered, whatever its own switch says, and nothing calls an MCP server.
+ */
+export function isMcpConnectorsEnabled(): boolean {
+  return isConnectorsEnabled() && process.env.CONNECTOR_MCP_ENABLED === "true";
+}
+
+/**
  * Google Search Console in the catalogue (Connectors 1b). Needs CONNECTORS_ENABLED, and a Google
  * sign in client (CONNECTOR_GOOGLE_CLIENT_ID and its secret) before Sign in with Google is offered.
  */

@@ -1,4 +1,4 @@
-import { LIVE_LIMITS, type ConnectMethodName, type ConnectorCategory, type ShareAccessMethod, type TokenFieldsMethod } from "@/lib/connectors/manifest";
+import { LIVE_LIMITS, type ConnectMethodName, type ConnectorCategory, type McpMethod, type ShareAccessMethod, type TokenFieldsMethod } from "@/lib/connectors/manifest";
 import { CONNECTOR_ERRORS, SIGNIN_REASONS } from "@/lib/connectors/messages";
 import { dayWords, zoneWords } from "@/lib/connectors/period";
 import type { SharedConnectionsScreen, SharedConnectionView } from "@/lib/connectors/organisationConnect";
@@ -57,6 +57,7 @@ export const METHOD_LABELS: Readonly<Record<ConnectMethodName, string>> = {
   token_fields: "API token",
   oauth_pkce: "Sign in with Google",
   share_access: "Share access",
+  mcp: "API key",
 };
 
 /** The display groups the offered connectors fall in, in the order they first appear: Browse's chips. */
@@ -161,6 +162,10 @@ export const LISTING_COPY = {
   copied: "Copied",
   tokenTitle: "Connect with an API token",
   tokenCheck: "YouGrow checks the token before anything is saved.",
+  // An MCP server's key (ADR-0019): its account comes from the key, so nothing is picked.
+  keyTitle: "Connect with an API key",
+  keyCheck: "YouGrow checks the key before anything is saved, and reads which account it belongs to.",
+  checkingKey: "Checking the key…",
   check: "Check",
   checking: "Checking the token…",
   checkFirst: "Press Check: YouGrow checks the token and lists what it can read. Nothing is saved until you press Connect.",
@@ -255,7 +260,22 @@ export function numbersOf(listing: Pick<ConnectorListing, "produces">): { number
   return { numbers, lag: [...new Set(listing.produces.flatMap((p) => [p.lag, ...(p.collect ? [p.collect] : [])]))] };
 }
 
-export const tokenMethodOf = (listing: Pick<ConnectorListing, "connect">) => listing.connect.find((c): c is TokenFieldsMethod => c.method === "token_fields") ?? null;
+/**
+ * A Listing's pasted way to connect: an API token (token_fields), or an MCP server's key (mcp,
+ * ADR-0019), shown as the same form. An MCP key names its account through the connector's verify
+ * tool, so it has no account field (`account` null) and nothing to pick.
+ */
+export type TokenForm = Pick<TokenFieldsMethod, "fields" | "permissions" | "steps" | "tokenLink" | "organisationSteps" | "pick"> & { method: "token_fields" | "mcp"; account: string | null };
+
+export function tokenMethodOf(listing: Pick<ConnectorListing, "connect">): TokenForm | null {
+  const token = listing.connect.find((c): c is TokenFieldsMethod => c.method === "token_fields");
+  if (token) return token;
+  const mcp = listing.connect.find((c): c is McpMethod => c.method === "mcp");
+  return mcp ? { method: "mcp", fields: [mcp.auth.field], account: null, permissions: mcp.permissions, steps: mcp.steps, ...(mcp.tokenLink ? { tokenLink: mcp.tokenLink } : {}) } : null;
+}
+
+/** Whether a Listing can connect with a pasted token or key right now. */
+export const tokenReady = (listing: Pick<ConnectorListing, "connect" | "ready">) => (listing.ready.includes("token_fields") || listing.ready.includes("mcp")) && tokenMethodOf(listing) !== null;
 export const shareMethodOf = (listing: Pick<ConnectorListing, "connect">) => listing.connect.find((c): c is ShareAccessMethod => c.method === "share_access") ?? null;
 
 /** "A and B", or "A, B and C". */
@@ -263,10 +283,11 @@ const andList = (items: readonly string[]) => (items.length <= 1 ? (items[0] ?? 
 
 /** The "You need" line: the token's permissions, or access to the property for Google. */
 export function youNeedOf(listing: Pick<ConnectorListing, "name" | "connect" | "ready">): string {
-  const token = listing.ready.includes("token_fields") ? tokenMethodOf(listing) : null;
+  const token = tokenReady(listing) ? tokenMethodOf(listing) : null;
   if (token) {
     const which = token.permissions.length === 1 ? "this permission" : "these permissions";
-    return `A ${listing.name} account that can make API tokens, and a token with ${which}: ${andList(token.permissions)}.`;
+    const what = token.method === "mcp" ? "API keys, and a key" : "API tokens, and a token";
+    return `A ${listing.name} account that can make ${what} with ${which}: ${andList(token.permissions)}.`;
   }
   const share = listing.ready.includes("share_access");
   return share
@@ -447,6 +468,8 @@ export const HOW_LABELS: Readonly<Record<ConnectMethodName, string>> = {
   token_fields: "API token",
   oauth_pkce: "Signed in with Google",
   share_access: "Shared access",
+  // Kept as a token connection (ADR-0019), so Connected says API token for an MCP key too.
+  mcp: "API key",
 };
 
 /** What a connection reads, as people read it: a domain property, a URL, a GA4 property, a zone. */

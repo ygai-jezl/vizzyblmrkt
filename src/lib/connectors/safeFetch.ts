@@ -21,6 +21,9 @@ import type { ConnectorErrorCode } from "./messages";
  *   refused here, so a token is never sent to a second address.
  * - Its own timeout, and the body read up to the manifest's byte cap (512 KB at most).
  * - Logs name the host and the code, never the path, query, body or token.
+ * - A protocol that isn't plain JSON (an MCP server, ADR-0019, answers JSON or an event stream and
+ *   names its session in a header) asks for the body as text and the response headers it needs,
+ *   and may send headers of its own beside Authorization, never instead of it.
  */
 
 export interface ConnectorCall {
@@ -28,16 +31,29 @@ export interface ConnectorCall {
   /** The connection (or, while connecting, the one about to be saved). A part names its source. */
   connection: Pick<DataConnection, "id" | "tenantId" | "pausedAt" | "health"> & { source?: Pick<NonNullable<DataConnection["source"]>, "organisationId" | "connectionId"> };
   url: string;
-  method: "GET" | "POST";
+  method: "GET" | "POST" | "DELETE";
   /** A JSON body, sent as application/json. */
   json?: unknown;
   /** The bearer token, added as the Authorization header here and nowhere else. */
   token: string;
+  /** What to accept, when not JSON alone. */
+  accept?: string;
+  /** Headers a protocol needs (an MCP session id). Authorization, cookies and the host are never taken from here. */
+  headers?: Readonly<Record<string, string>>;
+  /**
+   * Read the body as text, whatever its type: an empty body is fine, and `until` may end the read
+   * early once what came is enough (an event stream left open). `headers` names the response
+   * headers to give back, in lower case; content-type always comes back.
+   */
+  text?: { headers?: readonly string[]; until?: (text: string) => boolean };
 }
 
 export type ConnectorResponse =
-  | { ok: true; status: number; body: unknown }
+  | { ok: true; status: number; body: unknown; headers?: Record<string, string> }
   | { ok: false; code: ConnectorErrorCode; status: number | null; body: unknown; retryAfterSec: number | null };
+
+/** Headers a call may never set for itself: safe fetch sets Authorization, and the rest belong to the transport. */
+const OWN_HEADERS = /^(?:authorization|proxy-authorization|cookie|host|content-length|transfer-encoding|connection)$/i;
 
 /** How a request goes out: src/lib/security/ssrf.ts safeFetch, or a stub in tests. */
 export type Transport = (url: string, init: RequestInit, opts: { maxRedirects: number; allowedPorts: number[]; timeoutMs: number }) => Promise<Response>;
@@ -118,7 +134,10 @@ export async function connectorFetch(call: ConnectorCall, deps: ConnectorFetchDe
     if (overSource) return fail("busy");
   }
 
-  const headers: Record<string, string> = { authorization: `Bearer ${call.token}`, accept: "application/json" };
+  const headers: Record<string, string> = {};
+  for (const [name, value] of Object.entries(call.headers ?? {})) if (!OWN_HEADERS.test(name) && !/[\r\n]/.test(value)) headers[name.toLowerCase()] = value;
+  headers.authorization = `Bearer ${call.token}`;
+  headers.accept = call.accept ?? "application/json";
   if (call.json !== undefined) headers["content-type"] = "application/json";
   let res: Response;
   try {
@@ -143,17 +162,71 @@ export async function connectorFetch(call: ConnectorCall, deps: ConnectorFetchDe
   let body: unknown = null;
   let readCode: ConnectorErrorCode | null = null;
   try {
-    const { bytes, truncated } = await readBytesUpTo(res, manifest.api.maxBytes);
-    if (truncated) readCode = "body_too_large";
-    else body = bytes.length ? JSON.parse(bytes.toString("utf8")) : null;
+    if (call.text) {
+      const { text, truncated } = await readTextUpTo(res, manifest.api.maxBytes, call.text.until);
+      if (truncated) readCode = "body_too_large";
+      else body = text;
+    } else {
+      const { bytes, truncated } = await readBytesUpTo(res, manifest.api.maxBytes);
+      if (truncated) readCode = "body_too_large";
+      else body = bytes.length ? JSON.parse(bytes.toString("utf8")) : null;
+    }
   } catch (err) {
     readCode = codeForThrow(err) === "timeout" ? "timeout" : "bad_response";
   }
 
   if (res.status < 200 || res.status >= 300) return fail(codeForStatus(res.status), res.status, readCode ? null : body, res.status === 429 ? retryAfter(res) : null);
   if (readCode) return fail(readCode, res.status);
+  if (call.text) {
+    const kept: Record<string, string> = { "content-type": res.headers.get("content-type") ?? "" };
+    for (const name of call.text.headers ?? []) {
+      const value = res.headers.get(name);
+      if (value !== null) kept[name.toLowerCase()] = value;
+    }
+    return { ok: true, status: res.status, body, headers: kept };
+  }
   if (body === null) return fail("bad_response", res.status);
   return { ok: true, status: res.status, body };
+}
+
+/**
+ * A body as UTF-8 text up to `maxBytes`, saying whether it was cut there. `until`, asked after each
+ * piece, ends the read once what came is enough, so a stream the server leaves open never waits
+ * for the timeout.
+ */
+async function readTextUpTo(res: Response, maxBytes: number, until?: (text: string) => boolean): Promise<{ text: string; truncated: boolean }> {
+  if (!until) {
+    const { bytes, truncated } = await readBytesUpTo(res, maxBytes);
+    return { text: bytes.toString("utf8"), truncated };
+  }
+  if (!res.body) return { text: "", truncated: false };
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let total = 0;
+  const stop = async () => {
+    try {
+      await reader.cancel();
+    } catch {
+      /* ignore */
+    }
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await stop();
+      return { text, truncated: true };
+    }
+    text += decoder.decode(value, { stream: true });
+    if (until(text)) {
+      await stop();
+      return { text, truncated: false };
+    }
+  }
+  return { text: text + decoder.decode(), truncated: false };
 }
 
 function hostOf(raw: string): string {

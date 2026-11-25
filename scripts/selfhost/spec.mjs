@@ -145,6 +145,7 @@ export const KEPT_OFF = {
   CONNECTORS_ENABLED: { addon: null, why: "connected data is new: turn it on by hand" },
   NEXT_PUBLIC_CONNECTORS_ENABLED: { addon: null, why: "connected data is new: turn it on by hand" },
   CONNECTOR_CLOUDFLARE_ENABLED: { addon: null, why: "connected data is new: turn it on by hand" },
+  CONNECTOR_MCP_ENABLED: { addon: null, why: "connected data is new: turn it on by hand" },
   CONNECTOR_SEARCH_CONSOLE_ENABLED: { addon: null, why: "needs a Google OAuth client or the identities project (docs/self-host.md, Connect Google data on your own copy)" },
   CONNECTOR_GA4_ENABLED: { addon: null, why: "needs the identities project, or a Google OAuth client with CONNECTOR_GA4_SIGNIN_ENABLED (docs/self-host.md, Google Analytics and share access)" },
   CONNECTOR_GA4_SIGNIN_ENABLED: {

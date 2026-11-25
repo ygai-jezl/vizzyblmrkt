@@ -25,6 +25,7 @@ export const CONNECTOR_ERRORS = {
   body_too_large: "The answer was too big to read. Ask for fewer days.",
   bad_response: "The provider's answer wasn't what YouGrow expected, so nothing was read.",
   query_refused: "The provider refused the question, often because the days are further back than your plan with them keeps.",
+  tool_missing: "The provider's server no longer offers something this connector reads, so nothing was read. Ask whoever runs your copy of YouGrow to update it.",
   host_not_allowed: "YouGrow stopped a call to an address this connector doesn't list.",
   busy: "This connection was asked a lot in the last few minutes. Try again shortly.",
   paused: "This connection is paused. An admin can resume it.",

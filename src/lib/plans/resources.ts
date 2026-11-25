@@ -102,6 +102,14 @@ export const RESOURCES = {
     shownAs: "article_autopilot",
     purposes: ["autopilot"],
   },
+  /** Seconds of Talk with Vizzy calls (Gemini Live audio, billed by the second), counted once as each ends. */
+  voice_seconds: {
+    label: "Voice conversations",
+    unit: "seconds",
+    capped: false,
+    shownAs: null,
+    purposes: ["onboarding_voice"],
+  },
 } as const;
 
 export type ResourceId = keyof typeof RESOURCES;
@@ -155,6 +163,7 @@ export const PURPOSE_LABELS: Record<ResourcePurpose, string> = {
   carousel: "Carousels",
   get_from_google: "Get from Google",
   autopilot: "Autopilot",
+  onboarding_voice: "Talk with Vizzy",
 };
 
 /** What every place that would search says once a brand has used its web searches for the month. */

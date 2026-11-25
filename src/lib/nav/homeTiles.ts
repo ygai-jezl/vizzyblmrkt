@@ -1,10 +1,12 @@
-import type { GrowthSignals, StageKey } from "./growth";
+import type { GrowthOptions, GrowthSignals, StageKey } from "./growth";
 import type { WeekCounts } from "./growthSignals";
+import { ideaWord } from "./terms";
 
 /**
  * The four metric tiles on Home (nav v2 phase 2), chosen for the stage the brand
  * is in: signups while launching, content while growing, the connection while
- * launching the product, journeys once retaining. Unknown values show "—".
+ * launching the product, journeys once retaining. Unknown values show "—". With the Ideas words on
+ * (`opts.ideas`), the launches tile reads Ideas.
  */
 
 export interface Tile {
@@ -36,14 +38,14 @@ export function openRate(week: WeekCounts): string {
   return `${Math.round((100 * week.emailsOpened) / week.emailsSent)}%`;
 }
 
-export function homeTiles(stage: StageKey | null, s: Signals, week: WeekCounts, now: Date): Tile[] {
+export function homeTiles(stage: StageKey | null, s: Signals, week: WeekCounts, now: Date, opts: GrowthOptions = {}): Tile[] {
   const signups: Tile = { label: "Signups", value: num(s.signups), hint: "verified and unverified" };
   const thisWeek: Tile = { label: "New this week", value: num(week.signups), hint: "signups, last 7 days" };
   const emails: Tile = { label: "Emails sent", value: num(week.emailsSent), hint: "last 7 days" };
   switch (stage) {
     case "ready":
     case "launch":
-      return [signups, thisWeek, { label: "Launches", value: num(s.activeLaunches), hint: "collecting signups" }, emails];
+      return [signups, thisWeek, { label: ideaWord(!!opts.ideas).Many, value: num(s.activeLaunches), hint: "collecting signups" }, emails];
     case "grow":
       return [
         signups,

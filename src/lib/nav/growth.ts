@@ -13,9 +13,13 @@
  * (sending, brand, email style), the steps the other stages were missing, what
  * each step needs first, the help page that explains it, and a warning where the
  * order matters. Without `setup` the path is exactly as before.
+ *
+ * With the Ideas words on (`opts.ideas`, isIdeaWordsEnabled() from the server), stage 2 is called
+ * Idea and its first step "Create an idea". Stage 4 stays "Launch product", and the keys and help
+ * anchors keep "launch".
  */
 
-import { programmeWord } from "./terms";
+import { ideaWord, programmeWord } from "./terms";
 
 export type StageKey = "ready" | "launch" | "grow" | "product" | "retain";
 export type StageStatus = "done" | "current" | "next";
@@ -169,19 +173,32 @@ function readyStage(s: GrowthSignals, setup: SetupSignals): Omit<StageView, "sta
   };
 }
 
-function launchStage(s: GrowthSignals): Omit<StageView, "status"> {
+/** What computeGrowth is told about the words in use. */
+export interface GrowthOptions {
+  /** Launches are called Ideas (isIdeaWordsEnabled(), worked out on the server). */
+  ideas?: boolean;
+}
+
+/** "Create an idea" or "Create a launch": the launch stage's first step, also what other steps need first. */
+const createStep = (s: GrowthSignals, o: GrowthOptions): NextStep => ({
+  label: `Create ${ideaWord(!!o.ideas).a}`,
+  done: s.activeLaunches > 0,
+  href: "/admin/launches/new",
+});
+
+function launchStage(s: GrowthSignals, o: GrowthOptions): Omit<StageView, "status"> {
   const launchHref = (tab: string) => (s.firstLaunchId ? `/admin/launches/${s.firstLaunchId}/${tab}` : "/admin/launches");
   const signups = s.signups ?? 0;
   return {
     key: "launch",
-    label: "Launch",
+    label: ideaWord(!!o.ideas).One,
     summary: s.activeLaunches === 0 ? "Start with a waitlist" : s.signups === null ? "Live" : plural(signups, "signup"),
     steps: s.setup ? withSetup() : plain(),
   };
 
   function plain(): NextStep[] {
     return [
-      { label: "Create a launch", done: s.activeLaunches > 0, href: "/admin/launches/new" },
+      createStep(s, o),
       { label: "Turn on the welcome email", done: s.welcomeEmailLive, href: launchHref("journey") },
       {
         label: `Get your first ${SIGNUP_GOAL} signups`,
@@ -207,7 +224,7 @@ function launchStage(s: GrowthSignals): Omit<StageView, "status"> {
   }
 }
 
-function growStage(s: GrowthSignals): Omit<StageView, "status"> {
+function growStage(s: GrowthSignals, o: GrowthOptions): Omit<StageView, "status"> {
   const wsHref = (tab: string) => (s.firstWorkspaceId ? `/admin/workspace/${s.firstWorkspaceId}/${tab}` : "/admin/workspace");
   return {
     key: "grow",
@@ -259,7 +276,7 @@ function growStage(s: GrowthSignals): Omit<StageView, "status"> {
       howTo: "/help/connected-accounts#social",
       optional: true,
     };
-    const launch = { label: "Create a launch", done: s.activeLaunches > 0, href: "/admin/launches/new" };
+    const launch = createStep(s, o);
     return [
       start,
       knowledge,
@@ -392,11 +409,11 @@ const DONE: Record<StageKey, (s: GrowthSignals) => boolean> = {
   retain: (s) => s.journeyLive,
 };
 
-export function computeGrowth(s: GrowthSignals): Growth {
+export function computeGrowth(s: GrowthSignals, opts: GrowthOptions = {}): Growth {
   const views = [
     ...(s.setup ? [readyStage(s, s.setup)] : []),
-    launchStage(s),
-    growStage(s),
+    launchStage(s, opts),
+    growStage(s, opts),
     ...(s.lifecycle ? [productStage(s), retainStage(s)] : []),
   ];
   const current = views.find((v) => !DONE[v.key](s))?.key ?? null;

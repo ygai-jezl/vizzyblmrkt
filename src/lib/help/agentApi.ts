@@ -5,6 +5,7 @@ import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { computeGrowth, nextStepOf } from "@/lib/nav/growth";
 import { loadGrowthSignals } from "@/lib/nav/growthSignals";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { isRateLimited } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { docsOrigin } from "@/lib/developers/flags";
@@ -52,6 +53,8 @@ export async function agentSetupStatus(ctx: TenantContext, db?: FirestoreLike, o
       },
       db,
     ),
+    // The stage and step names Home shows, so Vizzy says Idea where the screens do.
+    { ideas: isIdeaWordsEnabled() },
   );
   const current = growth.stages.find((s) => s.key === growth.current) ?? null;
   const next = current ? nextStepOf(current) : null;

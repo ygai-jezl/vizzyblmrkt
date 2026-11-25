@@ -538,6 +538,11 @@ export const BlogArticleFreshnessSchema = z.object({
   /** The article's outbound links that answered 404 or 410 at the last weekly check. */
   deadLinks: z.array(z.string().max(2000)).max(10).default([]),
   linksCheckedAt: z.string().max(40).nullable().default(null),
+  /**
+   * How many questions on the article's subject were open when its clock last started: questions
+   * past this count are new since then. Null until the watch next looks (a check clears it).
+   */
+  openAtStart: z.number().int().min(0).nullable().default(null),
   events: z
     .array(z.object({ at: z.string().max(40), kind: z.enum(["due", "checked", "updated"]), clockDays: z.number().int().min(1).max(365) }))
     .max(20)

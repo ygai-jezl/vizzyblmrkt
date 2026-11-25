@@ -40,6 +40,7 @@ _ERRORS = {
     "unauthorized": "My session to the app expired. Please send your message again.",
     "canvas_auth_unconfigured": "Reading the business profile isn't set up in this environment yet.",
     "admins_only": "Only an admin can add to About your business, or read the conversations and the founder's words.",
+    "call_words_off": "This copy of YouGrow keeps the words from calls with Vizzy out of chats. Answer from the facts in About your business.",
     "too_many_waiting": "Ten things already wait for an admin in About your business. They need to keep or remove some first.",
     "too_many_facts": "About your business holds as many facts as it can. An admin needs to remove some first.",
     "already_known": "About your business already has that.",

@@ -131,6 +131,10 @@ export const KEPT_OFF = {
   BRAND_MAP_CHAT_ENABLED: { addon: "vizzy", why: "Vizzy's brand map suggestions need the agent" },
   BRAND_NOTES_CHAT_ENABLED: { addon: "vizzy", why: "Vizzy adding brand notes needs the agent" },
   COMPETITORS_CHAT_ENABLED: { addon: "vizzy", why: "Vizzy reading your competitors needs the agent" },
+  ONBOARDING_CALL_WORDS_IN_CHAT_ENABLED: {
+    addon: "vizzy",
+    why: "Vizzy reading the words from calls needs the agent, and keeps what it reads with the chat in Agent Runtime after the call is deleted",
+  },
   LIFECYCLE_PERSON_BRIEF: { addon: "vizzy", why: "Vizzy reading one person needs the agent" },
   LIFECYCLE_PERSON_PLANS: { addon: "vizzy", why: "a plan per person needs the agent" },
   SEARCH_INDEX_ENABLED: { addon: "search", why: "needs the search databases (Firestore Enterprise)" },

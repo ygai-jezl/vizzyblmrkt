@@ -47,6 +47,8 @@ beforeEach(() => {
   });
   db.seed("onboarding_conversations", CONV, { tenantId: "ten_A", source: "voice", status: "ended", startedAt: "2026-11-25T10:00:00.000Z", lengthSec: 60, turns: [{ who: "member", text: "We sell plants.", atSec: 3 }] });
   vi.stubEnv("ONBOARDING_ENABLED", "true");
+  // The routes' plumbing, with the words from calls shared (agentApi.test.ts covers it off).
+  vi.stubEnv("ONBOARDING_CALL_WORDS_IN_CHAT_ENABLED", "true");
   vi.stubEnv("CANVAS_CONTEXT_SIGNING_KEY", "test-only-canvas-key");
 });
 afterEach(() => vi.unstubAllEnvs());

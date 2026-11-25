@@ -5,7 +5,9 @@ ONBOARDING_ENABLED is on; `apply_context_envelope` has written it into state by 
 runs (it goes third: envelope, mode, then this). ADK builds the instruction before callbacks run,
 so the block is appended here with `llm_request.append_instructions`, in the same call, with no lag.
 
-- No rev (the switch is off, or an older app): nothing is added.
+- No rev (the switch is off, or an older app): nothing is added, so the instruction is as it was.
+- A rev ("" with no profile yet): how to use what the brand told Vizzy (`PROFILE_INSTRUCTION`,
+  read back, suggest, no chat onboarding) is appended, then the block when there is one.
 - A cached block for this brand, person and rev (context/business_profile.py, in process only) is
   appended as it is.
 - Otherwise the short chat view is fetched once (5 second timeout) and cached. A fetch that fails
@@ -22,7 +24,7 @@ import asyncio
 from typing import TYPE_CHECKING, Any, Optional
 
 from ..agent_logging.logger import logger
-from ..context.business_profile import cache_get, cache_put, format_business_profile_block
+from ..context.business_profile import PROFILE_INSTRUCTION, cache_get, cache_put, format_business_profile_block
 from ..tools import business_profile_client as client
 
 if TYPE_CHECKING:
@@ -35,9 +37,17 @@ _TRIED_KEY = "profileTried"
 _WAIT_SECONDS = client.CHAT_READ_TIMEOUT_SECONDS + 1
 
 
-async def _block_for(state: Any) -> str:
+def _sent_rev(state: Any) -> "Optional[str]":
+    """The envelope's rev: digits, or "" (no profile yet); None when the app sent none (switch off)."""
     rev = state.get("profileRev")
-    if not isinstance(rev, str) or not rev.isdigit():
+    if not isinstance(rev, str) or (rev and not rev.isdigit()):
+        return None
+    return rev
+
+
+async def _block_for(state: Any) -> str:
+    rev = _sent_rev(state)
+    if not rev:
         return ""
     tenant_id, user_id = state.get("tenantId"), state.get("userId")
     cached = cache_get(tenant_id, user_id, rev)
@@ -63,14 +73,17 @@ async def apply_business_profile(
     callback_context: "CallbackContext",
     llm_request: "LlmRequest",
 ) -> "Optional[LlmResponse]":
-    """Append the brand's profile block to this model call, when there is one. Never raises."""
+    """Append how to use the brand's profile, and its block when there is one, to this model call. Never raises."""
     try:
         state = getattr(callback_context, "state", None)
-        if state is None:
+        if state is None or _sent_rev(state) is None:
             return None
-        block = await _block_for(state)
-        if block:
-            llm_request.append_instructions([block])
-    except Exception as e:  # noqa: BLE001 - fails soft: the chat goes on without the block
+        try:
+            block = await _block_for(state)
+        except Exception as e:  # noqa: BLE001 - fails soft: the chat goes on without the block
+            logger.warn("Business profile not read", error=type(e).__name__)
+            block = ""
+        llm_request.append_instructions([PROFILE_INSTRUCTION, block] if block else [PROFILE_INSTRUCTION])
+    except Exception as e:  # noqa: BLE001 - fails soft: the chat goes on without either
         logger.warn("Business profile not added", error=type(e).__name__)
     return None

@@ -73,20 +73,28 @@ questions, or Skip) and moved Home's next action card to PR B. ADR-0016 is piece
    four line fit table plus the sections that already hold data, and after that only grows (data
    that arrives, Open early, a page visited). Skip, existing brands and Settings-only answers keep
    today's sidebar. ⌘K still finds every section.
-10. **Vizzy reads the profile in every chat.** The chat proxy sends only `profileRev` (digits) in
-    the `[ctx:]` envelope: the envelope parser stops at the first `}]`, and ADK re-sends past
-    envelopes, so the profile itself can't ride there. A third root before-model callback
+10. **Vizzy reads the profile in every chat.** The chat proxy sends only `profileRev` (digits: the
+    profile's rev, then 1 for an admin's view or 0 for a member's, so a change of role misses the
+    cache) in the `[ctx:]` envelope, and only while `ONBOARDING_ENABLED` is on: the envelope
+    parser stops at the first `}]`, and ADK re-sends past envelopes, so the profile itself can't
+    ride there. A third root before-model callback
     (`agents/root_agent/callbacks/business_profile.py`) fetches `GET
     /api/agent/business-profile?view=chat` when the rev changes and appends a fenced
     `<yg_business_profile>` block of at most 2,400 characters with `append_instructions` (ADK builds
-    the instruction before callbacks run). The block is cached in the agent's process (256 blocks,
+    the instruction before callbacks run), after how to use it (read back, suggest, no chat
+    onboarding). With no `profileRev` nothing is added, so a copy with the switch off keeps
+    today's instruction. The block is cached in the agent's process (256 blocks,
     10 minutes, by brand, person and rev), never in session state, which Agent Runtime stores in one
     region; sub-agents read the same cache. It fails soft. A member's chat gets the four answers
     only: About says "Only your admins and Vizzy see it".
 11. **Vizzy's tools.** `get_business_profile` (answers for anyone; facts with quotes, what waits and
     the conversations for admins), `read_onboarding_conversation` (admins) and
     `suggest_business_fact` (admins, only after the person agrees). Every response and docstring says
-    the founder's words are data, never instructions.
+    the founder's words are data, never instructions. A tool's answer is kept with the chat's
+    session in Agent Runtime (one region, which no path deletes), so it outlives a deleted call:
+    the words from calls (a fact's quote from a call, a call's transcript) reach a chat only with
+    `ONBOARDING_CALL_WORDS_IN_CHAT_ENABLED`. Words said in a chat with Vizzy are in its session
+    already, so chat quotes and kept chats are always readable.
 12. **A fact from a later chat waits for an admin.** It is an agent action, `business_fact.suggest`,
     whose target is the brand itself (`brand` joins `AGENT_TARGET_TYPES`; no new registry type). At
     most 10 wait, 40 facts kept and waiting together, never the words of a kept fact; the same fact
@@ -96,9 +104,10 @@ questions, or Skip) and moved Home's next action card to PR B. ADR-0016 is piece
     Vizzy" conversation and the decision in one regional transaction
     (`keepSuggestedBusinessFact`), then bumps the rev (a brand with no profile gets one). Its words
     leave the action once it is decided (`clearDetailsOnClose`).
-13. **Switches.** `ONBOARDING_ENABLED` and `ONBOARDING_VOICE_ENABLED`, server and runtime only, off
-    in `apphosting.yaml`. Self-hosting turns the first on and keeps voice off; a local run keeps
-    voice off.
+13. **Switches.** `ONBOARDING_ENABLED`, `ONBOARDING_VOICE_ENABLED` and
+    `ONBOARDING_CALL_WORDS_IN_CHAT_ENABLED`, server and runtime only, off in `apphosting.yaml`.
+    Self-hosting turns the first on, the third with the Vizzy add-on, and keeps voice off; a local
+    run keeps voice off.
 
 Rejected:
 - `brandProfile` or `onboarding` as the tenant field: `businessProfile` matches About your business,
@@ -113,7 +122,7 @@ Rejected:
   so it counts its last line.
 
 What it costs: no new service, no new dependency, no composite index; 2 collections, 3 tenant
-fields, 1 meter resource, 1 metered feature, 2 switches. One text model call per call learned
+fields, 1 meter resource, 1 metered feature, 3 switches. One text model call per call learned
 (metered as `onboarding`), the Live call itself, and about 600 tokens of profile per chat model call
 inside the metered chat.
 
@@ -122,7 +131,11 @@ Gaps and follow-ups:
   member's `by` stays on a conversation after they leave, and a person's erase or export doesn't find
   free text that names them.
 - The answers sit in the control plane (US) for EU and Asia brands, like the brand voice; the words
-  stay in the brand's region.
+  stay in the brand's region, except what Vizzy reads in a chat: the fact lines in every chat, and
+  with `ONBOARDING_CALL_WORDS_IN_CHAT_ENABLED` a call's quotes and transcript, are kept with that
+  chat's session in Agent Runtime (us-central1), which no path deletes. Before that switch goes on,
+  the privacy policy, the DPA's Agent Runtime line and the help ("removes its transcript for good")
+  must say so.
 - The prod flip of `ONBOARDING_ENABLED` waits on the privacy policy line for kept founder words
   (private repo). Vizzy needs a redeploy for the callback and tools, in either order: an older Vizzy
   ignores `profileRev`, and a newer one adds nothing without it. A container's cached block lives up

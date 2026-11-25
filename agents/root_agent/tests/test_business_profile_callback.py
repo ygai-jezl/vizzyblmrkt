@@ -62,24 +62,33 @@ def test_fetches_once_per_rev_and_appends_the_block_every_call(monkeypatch):
     second = _run(ctx)
     assert len(calls) == 1 and calls[0] == {"ctxToken": "tok"}
     assert first.appended == second.appended
-    assert "A shop or products" in first.appended[0][0]
+    assert first.appended[0][0] == bpc.PROFILE_INSTRUCTION
+    assert "A shop or products" in first.appended[0][1]
     # A new rev reads it again.
     _run(_ctx(profileRev="4", traceId="tr2"))
     assert len(calls) == 2
 
 
 def test_no_rev_appends_nothing_and_reads_nothing(monkeypatch):
+    # The switch is off (no rev sent): the instruction stays exactly as it was.
     calls = _fetches(monkeypatch)
-    for state in ({}, {"profileRev": ""}, {"profileRev": None}, {"profileRev": "3}]"}):
+    for state in ({}, {"profileRev": None}, {"profileRev": 3}, {"profileRev": "3}]"}):
         assert _run(_ctx(**state)).appended == []
+    assert calls == []
+
+
+def test_an_empty_rev_adds_how_to_use_it_and_reads_nothing(monkeypatch):
+    # The switch is on and the brand has no profile yet: Vizzy still suggests what it hears.
+    calls = _fetches(monkeypatch)
+    assert _run(_ctx(profileRev="")).appended == [[bpc.PROFILE_INSTRUCTION]]
     assert calls == []
 
 
 def test_a_failed_fetch_is_tried_once_per_turn(monkeypatch):
     calls = _fetches(monkeypatch, None)
     ctx = _ctx(profileRev="3")
-    assert _run(ctx).appended == []
-    assert _run(ctx).appended == []
+    assert _run(ctx).appended == [[bpc.PROFILE_INSTRUCTION]]
+    assert _run(ctx).appended == [[bpc.PROFILE_INSTRUCTION]]
     assert len(calls) == 1
     # The next turn (a new trace id) tries again.
     ctx.state["traceId"] = "tr2"
@@ -96,7 +105,7 @@ def test_the_cache_is_per_person(monkeypatch):
 
 def test_never_raises(monkeypatch):
     _fetches(monkeypatch, RuntimeError("boom"))
-    assert _run(_ctx(profileRev="3")).appended == []
+    assert _run(_ctx(profileRev="3")).appended == [[bpc.PROFILE_INSTRUCTION]]
 
     class Broken(StubRequest):
         def append_instructions(self, instructions):
@@ -111,9 +120,9 @@ def test_never_raises(monkeypatch):
 def test_an_empty_profile_appends_nothing_and_is_not_read_again(monkeypatch):
     calls = _fetches(monkeypatch, {"rev": 0, "answers": [], "facts": [], "more": 0})
     ctx = _ctx(profileRev="0")
-    assert _run(ctx).appended == []
+    assert _run(ctx).appended == [[bpc.PROFILE_INSTRUCTION]]
     ctx.state["traceId"] = "tr2"
-    assert _run(ctx).appended == []
+    assert _run(ctx).appended == [[bpc.PROFILE_INSTRUCTION]]
     assert len(calls) == 1
 
 
@@ -121,6 +130,18 @@ def test_keeps_no_founder_words_in_session_state(monkeypatch):
     _fetches(monkeypatch, {**VIEW, "facts": [{"kind": "goal", "label": "Goal", "text": "A hundred sign-ups by spring"}]})
     ctx = _ctx(profileRev="3")
     req = _run(ctx)
-    assert "A hundred sign-ups by spring" in req.appended[0][0]
+    assert "A hundred sign-ups by spring" in req.appended[0][1]
     assert "sign-ups" not in repr(ctx.state)
     assert set(ctx.state) == {"tenantId", "userId", "ctxToken", "traceId", "profileRev", "profileTried"}
+
+
+def test_a_change_of_role_misses_the_cache(monkeypatch):
+    # The app sends the rev with the person's view last (1 admin, 0 member): an admin made a
+    # member reads the view again, never the cached block with the kept facts.
+    admin_view = {**VIEW, "facts": [{"kind": "goal", "label": "Goal", "text": "A hundred sign-ups by spring"}]}
+    calls = _fetches(monkeypatch, admin_view)
+    assert "A hundred sign-ups by spring" in _run(_ctx(profileRev="51")).appended[0][1]
+    calls_member = _fetches(monkeypatch, VIEW)
+    member = _run(_ctx(profileRev="50", traceId="tr2"))
+    assert len(calls) == 1 and len(calls_member) == 1
+    assert "A hundred sign-ups by spring" not in repr(member.appended)

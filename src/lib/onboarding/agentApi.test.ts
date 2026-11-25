@@ -3,7 +3,7 @@ import { signCanvasContext } from "@/lib/canvas/auth";
 import { forTenant } from "@/lib/tenant";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
-import { CHAT_FACTS, FOUNDER_WORDS_NOTE, agentReadConversation, agentReadProfile, agentSuggestFact, onboardingAgentGate } from "./agentApi";
+import { CALL_WORDS_OFF_NOTE, CHAT_FACTS, FOUNDER_WORDS_NOTE, agentReadConversation, agentReadProfile, agentSuggestFact, onboardingAgentGate } from "./agentApi";
 import { openFactSuggestions, suggestBusinessFact } from "./factSuggestions";
 import { appendTurns, endConversation, startConversation } from "./store";
 
@@ -131,6 +131,7 @@ describe("agentReadProfile, the chat view", () => {
 
 describe("agentReadProfile, the whole of it", () => {
   it("gives an admin the answers by key, the kept facts with their quotes, what waits, and the conversations", async () => {
+    vi.stubEnv("ONBOARDING_CALL_WORDS_IN_CHAT_ENABLED", "true");
     const db = brandDb();
     await keptFact(db, 1);
     const callId = await keptCall(db);
@@ -148,7 +149,36 @@ describe("agentReadProfile, the whole of it", () => {
     });
   });
 
+  it("keeps the words from calls out of a chat unless this copy shares them: no quote from a call, no calls", async () => {
+    const db = brandDb();
+    await keptFact(db, 1);
+    await keptCall(db);
+    // A fact kept from a chat keeps its quote: those words were said in a chat with Vizzy already.
+    await forTenant(ADMIN, db).businessFacts.create("bf_00000000000000c1", {
+      kind: "goal",
+      text: "A hundred sign-ups by spring",
+      quote: "We'd love a hundred sign-ups by the spring.",
+      source: "chat",
+      conversationId: null,
+      heardAt: "2026-11-26T10:00:00.000Z",
+      confirmedAt: "2026-11-26T10:05:00.000Z",
+      createdAt: new Date(T0 + 9_000).toISOString(),
+    });
+    for (const value of ["", "1", "TRUE"]) {
+      vi.stubEnv("ONBOARDING_CALL_WORDS_IN_CHAT_ENABLED", value);
+      const body = (await agentReadProfile(ADMIN, { view: "full" }, { db })).body as { facts: Array<Record<string, unknown>>; conversations: unknown[]; note: string };
+      expect(body.facts).toEqual([
+        { id: "bf_0000000000000001", kind: "channel", kindLabel: "Channel", text: "Kept fact number 1", source: "call", at: "2026-11-25T10:00:00.000Z" },
+        { id: "bf_00000000000000c1", kind: "goal", kindLabel: "Goal", text: "A hundred sign-ups by spring", quote: "We'd love a hundred sign-ups by the spring.", source: "chat", at: "2026-11-26T10:00:00.000Z" },
+      ]);
+      expect(body.conversations).toEqual([]);
+      expect(body.note).toBe(`${FOUNDER_WORDS_NOTE} ${CALL_WORDS_OFF_NOTE}`);
+      expect(JSON.stringify(body)).not.toMatch(/out loud|farmers/);
+    }
+  });
+
   it("gives a member the answers and a note, no words anyone said", async () => {
+    vi.stubEnv("ONBOARDING_CALL_WORDS_IN_CHAT_ENABLED", "true");
     const db = brandDb();
     await keptFact(db, 1);
     await keptCall(db);
@@ -159,6 +189,27 @@ describe("agentReadProfile, the whole of it", () => {
 });
 
 describe("agentReadConversation", () => {
+  beforeEach(() => {
+    vi.stubEnv("ONBOARDING_CALL_WORDS_IN_CHAT_ENABLED", "true");
+  });
+
+  it("reads no call's words unless this copy shares them, but reads a kept chat", async () => {
+    vi.stubEnv("ONBOARDING_CALL_WORDS_IN_CHAT_ENABLED", "");
+    const db = brandDb();
+    const call = await keptCall(db);
+    expect(await agentReadConversation(ADMIN, call, { db })).toEqual({ status: 403, body: { error: "call_words_off" } });
+    const chat = `oc_${"c".repeat(32)}`;
+    db.seed("onboarding_conversations", chat, {
+      tenantId: "ten_A",
+      source: "chat",
+      status: "ended",
+      startedAt: "2026-11-26T10:00:00.000Z",
+      lengthSec: 0,
+      turns: [{ who: "member", text: "We'd love a hundred sign-ups by the spring.", atSec: 0 }],
+    });
+    expect((await agentReadConversation(ADMIN, chat, { db })).status).toBe(200);
+  });
+
   it("reads a kept conversation whole for an admin, the founder's turns as theirs, with the note", async () => {
     const db = brandDb();
     const id = await keptCall(db);

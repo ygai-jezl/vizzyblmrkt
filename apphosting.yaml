@@ -277,6 +277,13 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Vizzy reads the words from calls in chat: a kept fact's quote from a call and a call's
+  # transcript (needs ONBOARDING_ENABLED). What it reads stays with the chat in Agent Runtime, in
+  # one region, after the call is deleted: turn it on once the privacy policy says so.
+  - variable: ONBOARDING_CALL_WORDS_IN_CHAT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Organisations and plans ==
   # Organisations and plans (src/lib/plans): an organisation above brands with a plan. Off, a

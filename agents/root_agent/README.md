@@ -18,12 +18,14 @@ passes tenant/user context and the reasoning mode as **message prefixes**:
 prefix before Gemini sees the text:
 1. `callbacks/context_envelope.py` writes the envelope keys into session `state`.
 2. `callbacks/chat_mode.py` sets `thinking_config` (fast = budget 0, thinking = dynamic).
-3. `callbacks/business_profile.py` appends what the brand told Vizzy about its
-   business (the four answers, and for admins the facts they kept) as a fenced
-   block of at most 2,400 characters. The envelope carries only the profile's
-   `profileRev`; the block is fetched from `/api/agent/business-profile?view=chat`
-   when it changes and cached in the process, never in session state. It fails
-   soft: no block, never an error.
+3. `callbacks/business_profile.py` appends how to use what the brand told Vizzy
+   about its business (read back, suggest, no chat onboarding), then the four
+   answers, and for admins the facts they kept, as a fenced block of at most
+   2,400 characters. The envelope carries only `profileRev` (the profile's rev,
+   then 1 for an admin's view or 0 for a member's), sent only while
+   ONBOARDING_ENABLED is on: without it nothing is added. The block is fetched
+   from `/api/agent/business-profile?view=chat` when it changes and cached in
+   the process, never in session state. It fails soft: no block, never an error.
 
 Memory Bank is scoped per tenant per user by the composite `user_id`
 (`{tenantId}_{userId}`) the proxy sends (see `context/memory_config.py`).

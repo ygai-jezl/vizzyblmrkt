@@ -20,6 +20,7 @@ import { getTenantById } from "@/lib/tenant/registry";
 import { normalizeLocale } from "@/lib/i18n/locale";
 import { isPersonInContextEnabled } from "@/lib/audience/peopleFlags";
 import { isOnboardingEnabled } from "@/lib/onboarding/flags";
+import { profileRevFor } from "@/lib/onboarding/profileRev";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -95,9 +96,10 @@ export async function POST(req: Request) {
   // tenant registry read; decoupled from `region`). Null/"en" ⇒ no directive.
   const tenant = await getTenantById(ctx.tenantId).catch(() => null);
   const locale = normalizeLocale(tenant?.defaultLocale) ?? "en";
-  // What the brand told Vizzy (ONBOARDING_ENABLED): only the profile's rev rides in the envelope,
-  // from the same read; Vizzy fetches the profile when it changes. Off, the envelope is as before.
-  const profileRev = isOnboardingEnabled() ? (tenant?.businessProfile ? String(tenant.businessProfile.rev) : "") : undefined;
+  // What the brand told Vizzy (ONBOARDING_ENABLED): only the profile's rev and the person's view
+  // (admin or not) ride in the envelope, from the same read; Vizzy fetches the profile when either
+  // changes. Off, the envelope is as before.
+  const profileRev = isOnboardingEnabled() ? profileRevFor(tenant?.businessProfile, ctx.role) : undefined;
   const text =
     contextEnvelope(ctx, traceId, mode, { ctxToken, campaignId, locale, connectionId, journeyId, workspaceId, planId, page, personId, profileRev }) + message;
 

@@ -10,6 +10,7 @@ import {
   decisionProblem,
   factSource,
   isGone,
+  noFactsLine,
   talkLabel,
   undoPick,
   waitingSource,
@@ -79,6 +80,14 @@ describe("About your business, as data", () => {
     expect(isGone({ ok: false, status: 403 })).toBe(false);
     expect(isGone({ ok: false, status: 503 })).toBe(false);
     expect(isGone(null)).toBe(false);
+  });
+
+  it("says how to add to what Vizzy learned only where that can be done", () => {
+    expect(noFactsLine({ voice: true, editable: true })).toBe("Nothing yet. Talk with Vizzy to add more.");
+    expect(noFactsLine({ voice: false, editable: true })).toBe("Nothing yet. Tell Vizzy something new in a chat to add more.");
+    // Read only (the switch is off): nothing can add a fact, voice or not.
+    expect(noFactsLine({ voice: false, editable: false })).toBe("Nothing yet.");
+    expect(noFactsLine({ voice: true, editable: false })).toBe("Nothing yet.");
   });
 
   it("uses no dashes as punctuation and none of the AI tells in any of its words", () => {

@@ -58,8 +58,9 @@ questions, or Skip) and moved Home's next action card to PR B. ADR-0016 is piece
    (`LeaveWelcomeByLoad`) loads the page shown once more when the welcome's document was left by a
    client navigation (⌘K, Back).
 8. **Kept words can always be read and deleted.** Reads and deletes skip the switch (origin,
-   sign-in and admin still apply); About your business shows while the switch is on or the brand has
-   a profile. Removing a fact deletes it (no tombstone). Deleting a conversation keeps the facts kept
+   sign-in and admin still apply); About your business shows while the switch is on, or the brand has
+   a profile or keeps a conversation or a fact (a call never confirmed writes no profile), read and
+   delete only with the switch off. Removing a fact deletes it (no tombstone). Deleting a conversation keeps the facts kept
    from it, as its dialog says. Erase and export are registered in the ontology
    (`deleteConversation`, `removeBusinessFact`, `getConversation`, `listBusinessFacts`).
 9. **Home and the sidebar follow the answers.** Home's card lists the steps of the stage the answers

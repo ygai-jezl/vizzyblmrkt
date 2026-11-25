@@ -26,7 +26,8 @@ const REGION: Record<string, string> = { us: "United States", eu: "Europe", asia
 
 /**
  * About your business is for admins, with the shell's palette (nav v2): shown while the switch is
- * on, and after it while the brand has a profile, so kept words can always be read and deleted.
+ * on, and after it while the brand has a profile or keeps a conversation or a fact, so kept words
+ * can always be read and deleted.
  */
 function mayShowAbout(ctx: Pick<TenantContext, "role">): boolean {
   return ctx.role === "admin" && isNavV2Enabled();
@@ -41,7 +42,9 @@ function mayShowAbout(ctx: Pick<TenantContext, "role">): boolean {
 async function aboutYourBusiness(ctx: TenantContext, tenant: Tenant | null): Promise<ReactElement | null> {
   const onboarding = isOnboardingEnabled();
   const profile = tenant?.businessProfile;
-  if (!mayShowAbout(ctx) || (!onboarding && !profile)) return null;
+  if (!mayShowAbout(ctx)) return null;
+  // With the switch off, a brand with no profile may still keep a call (one never confirmed): both
+  // lists are read (bounded, in the brand's region), and the section shows only to read and delete.
   const [facts, conversations, waiting] = await Promise.all([
     listBusinessFacts(ctx).then(aboutFacts, () => {
       console.warn("[settings] about your business: the facts didn't load");
@@ -58,6 +61,7 @@ async function aboutYourBusiness(ctx: TenantContext, tenant: Tenant | null): Pro
         })
       : [],
   ]);
+  if (!onboarding && !profile && !facts?.length && !conversations?.length) return null;
   return (
     <AboutYourBusiness
       answers={profile?.answers ?? {}}

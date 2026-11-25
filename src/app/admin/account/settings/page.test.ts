@@ -46,6 +46,9 @@ describe("Settings › General, Sign-in and security", () => {
     for (const name of SWITCHES) delete process.env[name];
     requireAdminContext.mockResolvedValue(CTX);
     getTenantById.mockResolvedValue({ tenantName: "Acme", rootDomain: "acme.example.com" });
+    // Nothing kept: About your business stays away with its switch off.
+    listBusinessFacts.mockResolvedValue([]);
+    listConversations.mockResolvedValue([]);
   });
   afterEach(() => {
     for (const name of SWITCHES) delete process.env[name];
@@ -140,14 +143,40 @@ describe("Settings › General, About your business", () => {
     vi.clearAllMocks();
   });
 
-  it("isn't there with the switch off and no profile, and reads no lists", async () => {
+  it("isn't there with the switch off, no profile and nothing kept", async () => {
     phase3On();
     getTenantById.mockResolvedValue(brand());
+    listBusinessFacts.mockResolvedValue([]);
+    listConversations.mockResolvedValue([]);
     const html = await renderPage();
     expect(html).toContain("Brand details");
     expect(html).not.toContain("About your business");
-    expect(listBusinessFacts).not.toHaveBeenCalled();
-    expect(listConversations).not.toHaveBeenCalled();
+    // Nor when the lists can't be read: there would be nothing to read or delete.
+    listBusinessFacts.mockRejectedValue(new Error("unavailable"));
+    listConversations.mockRejectedValue(new Error("unavailable"));
+    expect(await renderPage()).not.toContain("About your business");
+    expect(openFactSuggestions).not.toHaveBeenCalled();
+  });
+
+  it("stays with the switch off and no profile while a call is kept, to read and delete it", async () => {
+    phase3On();
+    // A call talked from Settings, never confirmed: no profile was written.
+    getTenantById.mockResolvedValue(brand());
+    listBusinessFacts.mockResolvedValue([]);
+    const html = await renderPage();
+    expect(html).toContain("About your business");
+    expect(html).toContain("Call with Vizzy");
+    expect(html).toContain("View transcript");
+    expect(html).toContain('aria-label="Delete the call on 25 Nov"');
+    expect(html).not.toMatch(/aria-haspopup="menu"/);
+    expect(html).not.toContain('href="/admin/welcome"');
+    expect(html).toContain(">Nothing yet.<");
+
+    listConversations.mockResolvedValue([]);
+    listBusinessFacts.mockResolvedValue([FACT]);
+    const facts = await renderPage();
+    expect(facts).toContain("Sells at three farmers' markets");
+    expect(facts).toContain(">Remove<");
   });
 
   it("comes first for an admin, above Brand details, with the answers, what Vizzy learned and the conversations", async () => {

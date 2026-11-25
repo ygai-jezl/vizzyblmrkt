@@ -9,6 +9,7 @@ import {
   isGone,
   talkLabel,
   undoPick,
+  noFactsLine,
   waitingSource,
   withConversation,
   type AboutConversation,
@@ -206,7 +207,7 @@ export function AboutYourBusiness({
         ) : shownFacts.length ? (
           <FactList facts={shownFacts} compact busyId={removing} onRemove={(id) => void remove(id)} onKeep={(id) => void decide(id, "keep")} />
         ) : (
-          <p className={EMPTY}>{ABOUT_WORDS.noFacts}</p>
+          <p className={EMPTY}>{noFactsLine({ voice, editable })}</p>
         )}
         {error?.where === "facts" ? (
           <p role="alert" className={ERROR}>

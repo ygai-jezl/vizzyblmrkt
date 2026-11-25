@@ -149,7 +149,12 @@ export const ABOUT_WORDS = {
   deleted: "Conversation deleted.",
   basics: "The basics",
   learned: "What Vizzy learned",
+  /** What Vizzy learned, empty, with Talk with Vizzy offered (About.html). */
   noFacts: "Nothing yet. Talk with Vizzy to add more.",
+  /** The same with voice off: Vizzy still suggests facts it hears in a chat (not drawn in the mockups). */
+  noFactsChat: "Nothing yet. Tell Vizzy something new in a chat to add more.",
+  /** The same while the section is only to read and delete (the switch is off; not drawn). */
+  noFactsReadOnly: "Nothing yet.",
   conversations: "Conversations",
   table: "Conversations with Vizzy",
   conversation: "Conversation",

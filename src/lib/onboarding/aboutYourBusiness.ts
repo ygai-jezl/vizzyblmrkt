@@ -95,6 +95,15 @@ export function conversationRow(c: AboutConversation, now?: number) {
   };
 }
 
+/**
+ * What Vizzy learned, when it is empty, says how to add to it only where that can be done here:
+ * Talk with Vizzy while it is offered, a chat while the section can change, else nothing.
+ */
+export function noFactsLine(opts: { voice: boolean; editable: boolean }): string {
+  if (!opts.editable) return ABOUT_WORDS.noFactsReadOnly;
+  return opts.voice ? ABOUT_WORDS.noFacts : ABOUT_WORDS.noFactsChat;
+}
+
 /** "Talk with Vizzy again" once a call is kept, else "Talk with Vizzy". */
 export function talkLabel(conversations: readonly Pick<AboutConversation, "source">[]): string {
   return conversations.some((c) => c.source === "voice") ? ABOUT_WORDS.talkAgain : ABOUT_WORDS.talk;

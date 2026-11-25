@@ -4,6 +4,8 @@ import { DEFAULT_MONTHLY_LIMITS, LIMITED_FEATURES, MAX_MONTHLY_LIMIT, LIMITED_RE
 import {
   ALLOWANCES,
   ALLOWANCE_LABELS,
+  ALLOWANCE_LABELS_AS_IDEAS,
+  allowanceLabels,
   EE_FEATURES,
   FEATURE_LABELS,
   INCLUDED_IN_EVERY_PLAN,
@@ -12,6 +14,7 @@ import {
   allowanceText,
   newBrandPlanNote,
   planById,
+  planSummary,
   type Plan,
   type PlanFeature,
 } from "./catalog";
@@ -162,13 +165,28 @@ describe("plan catalog", () => {
     for (const f of [...METERED_FEATURES, ...EE_FEATURES]) expect(FEATURE_LABELS[f]).toBeTruthy();
     for (const a of ALLOWANCES) expect(ALLOWANCE_LABELS[a]).toBeTruthy();
     const copy = [
-      ...PLANS.flatMap((p) => [p.name, p.summary, ...Object.values(p.allowanceNotes)]),
+      ...PLANS.flatMap((p) => [p.name, p.summary, p.summaryAsIdeas ?? "", ...Object.values(p.allowanceNotes)]),
       ...Object.values(FEATURE_LABELS),
       ...Object.values(ALLOWANCE_LABELS),
+      ...Object.values(ALLOWANCE_LABELS_AS_IDEAS),
     ];
     for (const text of copy) {
       expect(dashesIn(text), text).toEqual([]);
       expect(aiTellsIn(text), text).toEqual([]);
+    }
+  });
+
+  it("names live ideas, and Free's one live launch, in the words in use", () => {
+    expect(allowanceLabels(false)).toBe(ALLOWANCE_LABELS);
+    expect(allowanceLabels(false).liveIdeas).toBe("Live launches");
+    expect(allowanceLabels(true).liveIdeas).toBe("Live ideas");
+    expect({ ...allowanceLabels(true), liveIdeas: "" }).toEqual({ ...ALLOWANCE_LABELS, liveIdeas: "" });
+    const free = planById("free")!;
+    expect(planSummary(free, false)).toBe("One brand and one live launch, to try YouGrow with a small team.");
+    expect(planSummary(free, true)).toBe("One brand and one live idea, to try YouGrow with a small team.");
+    for (const p of PLANS) {
+      expect(planSummary(p, true), p.id).not.toMatch(/\blaunch/i);
+      if (!p.summaryAsIdeas) expect(planSummary(p, true)).toBe(p.summary);
     }
   });
 

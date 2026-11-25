@@ -233,7 +233,7 @@ describe("Vizzy's welcome-journey drafts for a moved launch", () => {
       ],
     };
     const r = await journeyCanvasKind.authorDraft({ ctx, input: { scope: { campaignId: CAMPAIGN_ID }, graph }, brief: "Warm welcome" });
-    expect(r).toMatchObject({ ok: true, id: waitlistJourneyId(CAMPAIGN_ID), url: `/admin/lifecycle/${journey.id}`, card: { title: "Fernlight — welcome emails" } });
+    expect(r).toMatchObject({ ok: true, id: waitlistJourneyId(CAMPAIGN_ID), url: `/admin/lifecycle/${journey.id}`, card: { title: "Fernlight: welcome emails" } });
     const after = (await forTenant(system, fake).lifecycleJourneys.getById(journey.id))!;
     expect(after.authoredBy).toBe("agent");
     expect(after.publishedVersion).toBe(1);

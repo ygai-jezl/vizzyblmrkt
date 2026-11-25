@@ -99,6 +99,14 @@ describe("organisationUsage", () => {
     expect(a.liveIdeas).toMatchObject({ label: "Live launches", used: 2, limit: 5, scope: "brand" });
   });
 
+  it("calls live launches live ideas while the words are on", async () => {
+    for (const k of ["NEXT_PUBLIC_NAV_V2_ENABLED", "NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED", "NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED", "NEXT_PUBLIC_NAV_IDEAS_ENABLED", "LAUNCH_IDEAS_ENABLED"]) vi.stubEnv(k, "true");
+    const s = await organisationUsage(ctxOf("ten_A", "us", "usr_owner"), deps);
+    const a = Object.fromEntries(s.allowances!.map((r) => [r.key, r]));
+    expect(a.liveIdeas).toMatchObject({ label: "Live ideas", used: 2, limit: 5, scope: "brand" });
+    expect(a.people?.label).toBe("People");
+  });
+
   it("leaves emails and AI credits not counted, with AI credits per user", async () => {
     const s = await organisationUsage(ctxOf("ten_A", "us", "usr_owner"), deps);
     const a = Object.fromEntries(s.allowances!.map((r) => [r.key, r]));

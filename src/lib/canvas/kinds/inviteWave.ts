@@ -72,7 +72,8 @@ function outcome(wave: InviteWave, campaign: Campaign, edited: boolean): CanvasA
     summary:
       `${edited ? "Updated the" : "Drafted an"} invite wave for up to ${wave.size.toLocaleString("en-GB")} ` +
       `${wave.size === 1 ? "person" : "people"} from the top of the ${campaign.waitlistName} waitlist. ` +
-      `Nothing is sent until you press Send invites on the launch's Invites page.`,
+      // Vizzy relays this whatever the app calls a launch: the page is named, not the launch.
+      `Nothing is sent until you press Send invites on its Invites page.`,
     warnings: [],
     card: {
       kind: "invite_wave",

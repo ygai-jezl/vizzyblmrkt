@@ -17,11 +17,10 @@ learning loops plan (v6, the Honest Loop: Declare, Stamp, Count, Learn, Check) s
 every choice says how it learns or why it won't, and the build fails when one says nothing. This
 step adds data, types, tests and docs only. ADR-0016 is Ideas.
 
-Decided (the owner approved the plan; this step departs from its design sketch in five places, each
-recorded below, and the owner sees them in this pull request: every line says what is true today
-(point 2), model calls with no meter get a group of their own and each rule names the file that
-makes it (point 1), `own` names a `LEARNED_STORES` key rather than any type (point 4), and `from`
-is a list (point 7)):
+Decided (the owner approved the plan; this step departs from its design sketch in five places,
+each recorded below: every line says what is true today (point 2), model calls with no meter get a
+group of their own and each rule names the file that makes it (point 1), `own` names a
+`LEARNED_STORES` key rather than any type (point 4), and `from` is a list (point 7)):
 
 1. **One line per choice, checked by the compiler.** `src/lib/loops/registry.ts` defines `LoopKind`
    as every `ResourcePurpose` (`src/lib/plans/resources.ts`), every canvas as `canvas.<name>`
@@ -41,8 +40,11 @@ is a list (point 7)):
    finds a missing line only in production.
 2. **Five answers, each true today.** `learns(...)`: it learns for each brand through the loops,
    behind its own switch. `fleetOnly(...)`: it is counted for every brand and changes only through a
-   pull request the owner merges. `own(store, why)`: it already learns from people, in that store.
-   `gap(why, revisit)`: it should learn and doesn't yet. `none(why)`: it should never learn. Step 1
+   pull request the owner merges. `own(store, why)`: it already learns from people, in that store,
+   where the switches for that learning are on. The judge's sorting, Edit mode, the image look,
+   post patterns and the best posts, and the refresh clock's readout each learn behind switches of
+   their own, separate from the switch that runs the choice and off by default, and their reasons
+   say so. `gap(why, revisit)`: it should learn and doesn't yet. `none(why)`: it should never learn. Step 1
    has no learns and no fleet only line, because nothing is stamped, counted or learned through the
    loops yet, so such a line would claim learning that does not run. Today there are 83 lines: 19
    own, 27 gap and 37 none. A line moves to learns when the loop behind it runs: image style in step
@@ -152,7 +154,8 @@ Not yet, in later steps: nothing is stamped (no writer takes a stamp, and the on
 learns through the loops (no learns or fleet only line, no loop switch, no learner, no `loop_learn`
 purpose, and nothing reads the `LOOP_RULES` numbers). There is no verdict, no weekly retro, no Loops
 section in Review and no page telling a brand what learns. Today's learners keep their own stores
-and switches; freezing them as legacy writers comes with step 5.
+and switches; freezing them as legacy writers (`LEGACY_WRITERS` in `src/lib/loops/oneWriter.test.ts`)
+comes with step 4, the image style loop.
 
 What follows: no new collection, index, rule, switch, service or dependency. Plan and usage and
 Vizzy's `get_usage` show four new labels. A pull request that adds, moves or renames a file that

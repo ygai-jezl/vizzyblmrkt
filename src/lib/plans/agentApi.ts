@@ -18,7 +18,9 @@ const LIMIT = { prefix: "usage_agent", burstLimit: 10, hourlyLimit: 120 };
 
 export const NOTE =
   "Counts run from the 1st of the month (UTC). A null monthlyLimit means no limit. AI model use counts the tokens of every Gemini call the app makes for this brand, Vizzy's chat included; " +
-  "it doesn't count the Memory Bank's own model or the browser voice chat. To change a limit or plan, ask whoever runs this copy of YouGrow.";
+  "it doesn't count the Memory Bank's own model or the browser voice chat. " +
+  "In a month counted, even in part, before workflow writing was split (late 2026), Writing posts also holds the workflow emails, hub content, briefs and angles written before the split. " +
+  "To change a limit or plan, ask whoever runs this copy of YouGrow.";
 
 export async function usageAgentGate(req: Request): Promise<{ ok: true; ctx: TenantContext } | { ok: false; result: ApiResult }> {
   if (!isUsageMeterEnabled()) return { ok: false, result: { status: 503, body: { error: "unavailable" } } };

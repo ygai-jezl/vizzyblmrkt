@@ -10,7 +10,8 @@ import type { LoopSwitch } from "./switches";
  * Count, Learn, Check). This file is the Declare step.
  *
  * Every line states what is true today:
- * - own(type, why): it already learns from people, in that ontology type's own store;
+ * - own(store, why): it already learns from people, in that store, where the switches for that
+ *   learning are on;
  * - gap(why, revisit): it should learn and doesn't yet, with a date to look again;
  * - none(why): it should never learn;
  * - learns(...) and fleetOnly(...): it learns through the loops. No line does yet.
@@ -82,7 +83,7 @@ export const LEARNED_STORES = {
   learned: "The Learned list keeps what the team kept, skipped and moved while planning, with their reasons.",
   post_learning: "Post patterns and the best posts, worked out from how the brand's LinkedIn and X posts did.",
   vizzy_memory: "Memory Bank keeps what Vizzy learned about how each team member edits, per brand and member.",
-  brand_kit: "The brand record keeps the image look learned from thumbs and ratings, per image style.",
+  brand_kit: "Where learning from image votes is turned on, the brand record keeps the image look learned from thumbs and ratings, and with image styles on, one look for each painted style.",
   brand_map: "The brand map keeps the names, subjects, groups, situations and topics a person dismissed, with its list of dismissed suggestions holding the newest 300.",
   brand_question: "Each question a person dismissed stays on the brand map marked dismissed.",
   article_review: "An article's review keeps the fingerprints of the last 50 changes a person dismissed on it.",
@@ -149,7 +150,7 @@ export const learns = (sw: LoopSwitch, learner: Learner, scopes: readonly string
 });
 /** Stamped and counted for every brand, and improved only by a pull request the owner merges. */
 export const fleetOnly = (why: string, how: Pick<Loop, "check" | "guard" | "band" | "results">) => ({ fleet: why, ...how });
-/** Learned from people before the loops, in its own store: shown, not checked. */
+/** Learned from people before the loops, in its own store, where the switches for that learning are on: shown, not checked. */
 export const own = (type: LearnedStore, why: string) => ({ own: type, why });
 /** Never learns, and why. */
 export const none = (why: string) => ({ none: why });
@@ -173,14 +174,14 @@ export const LOOPS = {
   enrichment: none("Company details such as size and industry are facts found on the web, and a person corrects a wrong one directly."),
   blog_write: gap("An article keeps no AI original beside your edits, so the writer cannot learn how your team changes its drafts.", LATER),
   fact_check: none("A fact check tests each claim against its cited source, and the right answer does not depend on taste."),
-  seen_notes: own("content_plan", "A note your team took out of an article is kept on its brief and never matched back into it."),
+  seen_notes: own("content_plan", "A note your team took out of an article is kept with the last 50 on its brief and not matched back into it."),
   architect: gap("Nothing records the pieces your team adds or deletes after a workflow is laid out, so the next layout cannot follow them.", LATER),
-  content_write: own("post_learning", "LinkedIn and X posts learn from how your past posts did and, where turned on, from how each team member edits them, while posts for other channels learn nothing yet."),
+  content_write: own("post_learning", "Where those parts are turned on, LinkedIn and X posts learn from how your past posts did and from how each team member edits them, while posts for other channels learn nothing yet."),
   content_email: gap("Emails in a workflow keep no AI original, so the changes your team makes to them cannot be measured yet.", LATER),
   content_hub: gap("A hub piece keeps no AI original beside your edits, so the writer cannot see what your team changed.", LATER),
   content_brief: none("A brief is a short instruction a person can rewrite before writing starts, and the piece written from it is what gets judged."),
   content_angle: gap("An angle you turn down with Suggest another is passed only to the next try and never kept as a no.", LATER),
-  edit_mode: own("vizzy_memory", "Vizzy remembers how each team member edits in Edit mode, and each of them can turn it off or make it forget."),
+  edit_mode: own("vizzy_memory", "Where learning from edits is turned on for the brand, Vizzy remembers how each team member edits in Edit mode, and each of them can turn it off or make it forget."),
   ebook: gap("eBook chapters keep no AI original, so the changes your team makes to them are never compared or learned.", LATER),
   templates: none("It copies the shape of a piece your team picked into a reusable template, so the choice is already theirs."),
   brand_voice: none("The voice is drafted once from your website and then edited by a person, so no repeated choice exists to learn from."),
@@ -193,17 +194,17 @@ export const LOOPS = {
   competitor_analysis: none("It labels and summarises a competitor's own pages as they are, so there is no taste of yours in it to learn."),
   competitor_articles: none("It records what each competitor article says and asks, a fact about their page rather than a choice made for you."),
   next_up: own("learned", "Next up learns from the picks your team skips, kept with their reason on the Learned list."),
-  judge: own("learned", "The sorting learns from the questions your team moves between trays, kept on the Learned list."),
+  judge: own("learned", "Where learning from the Learned list is turned on, the sorting learns from the questions your team moves between trays."),
   post_feedback: none("This is the learner that turns post results into writing rules, and it is judged by the posts those rules shape."),
   images: none("This is the image style learner itself, and it is judged by the images its learned look shapes."),
   vizzy_chat: none("Each chat reply answers what the person just asked, and anything Vizzy saves is judged as the kind of draft it is."),
   product_map: none("It reads what your product's code does today, a fact rather than a taste, and a person decides what goes in the catalog."),
   other: none("Not a choice: no code spends under this name today, and every new call should name its real purpose."),
-  blog_hero: own("brand_kit", "Blog heroes made on the article follow the look learned from your thumbs and ratings, per image style, but a hero Vizzy makes during a chat skips it."),
-  post_image: own("brand_kit", "Post images follow the look learned from your thumbs and ratings on brand images, per image style."),
-  email_block_image: own("brand_kit", "Images inside emails follow the look learned from your thumbs and ratings on brand images."),
+  blog_hero: own("brand_kit", "Where learning from image votes is turned on, blog heroes made on the article follow the look learned from your thumbs and ratings, but a hero Vizzy makes during a chat skips it."),
+  post_image: own("brand_kit", "Where learning from image votes is turned on, painted post images follow the look learned from your thumbs and ratings, but drawn styles, format cards and charts skip it."),
+  email_block_image: own("brand_kit", "Where learning from image votes is turned on, images inside emails follow the look learned from your thumbs and ratings on brand images."),
   email_hero: gap("Email hero images skip the look learned from your image votes, so a thumbs down never reaches them.", IMAGES_BY),
-  ebook_image: own("brand_kit", "eBook images follow the look learned from your thumbs and ratings on brand images, per image style."),
+  ebook_image: own("brand_kit", "Where learning from image votes is turned on, eBook images follow the look learned from your thumbs and ratings on brand images."),
   customize_image: none("It edits a photo your team supplied the way they asked, and a learned look would restage their real product."),
   carousel: none("Each carousel slide is a picture of the post's own words, so a learned photo look would fight the text it has to show."),
   get_from_google: none("A person asks for this lookup and Google returns its results, so YouGrow makes no choice here to learn."),
@@ -225,7 +226,7 @@ export const LOOPS = {
   // ----- Connector rules (src/lib/types/dataSignal.ts) -----
   rising_search: gap("A rising search your team plans or dismisses in Review stays away for 30 days, and one proposed as a question on a large brand map never comes back, but neither changes which searches count as rising.", LATER),
   losing_page: gap("Pages losing clicks are flagged by fixed cut offs, and what the team did with earlier flags, or whether a refresh won clicks back, never tunes them.", LATER),
-  within_reach: gap("Questions just off Google's first page are offered by fixed positions, and whether an article then reached page one is never looked at.", LATER),
+  within_reach: gap("Questions whose search averages position 5 to 20 on Google are offered by fixed cut offs, and whether an article then moved them up is never looked at.", LATER),
 
   // ----- Rule decisions (RULE_DECISIONS above) -----
   send_time: gap("Product journeys send in a weekday morning window unless a person changes it, waitlist journeys send at any time, and opens by hour never move either.", LATER),
@@ -238,7 +239,7 @@ export const LOOPS = {
   notes_rest: gap("A note the team keeps taking out of articles can go straight into the next one, because each removal is kept on that article alone and never makes the note rest.", LATER),
   next_up_order: own("learned", "Questions the team skipped in the last 30 days are left out of the shortlist, read from the Learned list."),
   refresh_share: gap("At most one of Next up's three picks is a refresh unless the brand sets another number, and whether refreshes or new articles won more clicks never moves it.", LATER),
-  freshness_clock: own("refresh_record", "Each article gets a 20, 30 or 45 day clock in turn, the refresh records show which clock gains clicks, and a person accepts the clock it suggests."),
+  freshness_clock: own("refresh_record", "Each article gets a 20, 30 or 45 day clock in turn, and where article refresh is turned on, the refresh records show which clock gains clicks and a person accepts the clock it suggests."),
   refresh_due: gap("Marking an article checked restarts its clock, but which reasons make articles due early never changes with what your team marks checked.", LATER),
   found_live: none("An article a person put up on their own site counts as approved by them, which is a fact to record, not a taste to learn."),
   competitor_coverage: none("The flags compare competitor articles from the last 90 days with the questions the brand has answered, drafted or planned on each subject, plain counts anyone can check, so there is no taste in them."),

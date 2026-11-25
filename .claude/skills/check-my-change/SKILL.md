@@ -73,9 +73,10 @@ Quote the real summary lines, for example:
 - test: the `Test Files` and `Tests` lines as printed
 - check:instance, check:private-paths and agents:check: their one-line results
 - build and smoke: the result, or why you didn't run them
-- learning: the Learning section's diff from `git diff dev...HEAD -- docs/ONTOLOGY.md` (use
-  your remote's dev, such as `origin/dev`, if you have no local dev) and its `Not learning:`
-  count, quoted in the pull request body under the template's Learning line. No diff there means
+- learning: the Learning section's diff from `git diff $(git merge-base dev HEAD) -- docs/ONTOLOGY.md`,
+  which holds committed and uncommitted changes (use your remote's dev, such as `origin/dev`, if
+  you have no local dev), and its `Not learning:` count, quoted in the pull request body under
+  the template's Learning line. No diff there means
   no new kind and no new file that makes one. A new choice inside a file that already makes that
   kind, or a new rule not yet in `RULE_DECISIONS`, shows no diff, so say which choices the change
   adds, if any, and check each has its line.

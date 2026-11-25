@@ -32,13 +32,21 @@ const tenant = { id: "ten_A", region: "us", status: "active" } as unknown as Ten
 const tenantB = { id: "ten_B", region: "us", status: "active" } as unknown as Tenant;
 
 /** A made-up live article with an old figure (so it is due), its own page and these outbound links. */
-function seedArticle(db: FakeFirestore, id: string, createdAt: string, slug: string, links: string[], brand: { tenantId: string; workspaceId: string; host: string } = { tenantId: "ten_A", workspaceId: "ws1", host: "acme.example" }) {
+function seedArticle(
+  db: FakeFirestore,
+  id: string,
+  createdAt: string,
+  slug: string,
+  links: string[],
+  brand: { tenantId: string; workspaceId: string; host: string } = { tenantId: "ten_A", workspaceId: "ws1", host: "acme.example" },
+  published = "2026-10-20",
+) {
   const url = `https://${brand.host}/blog/${slug}`;
   const body = `# ${slug}\n\nIn 2023, 38% of buyers asked an AI assistant first. ${links.map((l, i) => `See [source ${i + 1}](${l}).`).join(" ")}`;
   const hub = sampleHub({
     body,
     status: "approved",
-    blog: { ...BlogArticleMetaSchema.parse({}), live: { url, at: "2026-10-21T08:00:00.000Z", by: "check", titleMatched: true }, dates: { published: { at: "2026-10-20", source: "page" } } },
+    blog: { ...BlogArticleMetaSchema.parse({}), live: { url, at: "2026-10-21T08:00:00.000Z", by: "check", titleMatched: true }, dates: { published: { at: published, source: "page" } } },
   });
   db.seed(
     `workspaces/${brand.workspaceId}/content_plans`,
@@ -255,5 +263,57 @@ describe("a freshness look cut short", () => {
     expect(await lane(after)).toMatchObject({ brands: 1 });
     expect(checked).toEqual([LINK("a"), LINK("b")]);
     expect(await sweptAt(db, "plan_old")).toBe(after.toISOString());
+  });
+
+  it("keeps a due article on the list after a look over several ticks, when the list has room for it", async () => {
+    const db = new FakeFirestore();
+    db.seed("workspaces", "ws1", { tenantId: "ten_A", name: "Blog", createdAt: "2026-01-01T00:00:00.000Z" });
+    // One more due article than the list holds, on one clock. plan_p1 is read first (the newest
+    // plan) and is due last (published last), so a full look leaves it off the list.
+    seedArticle(db, "plan_p1", "2026-10-30T08:00:00.000Z", "p1", [LINK("p1")], undefined, "2026-10-10");
+    for (let i = 2; i <= FRESHNESS_WATCH.MAX_DUE + 1; i += 1) {
+      seedArticle(db, `plan_p${i}`, new Date(Date.parse("2026-09-01T08:00:00.000Z") + i * 3_600_000).toISOString(), `p${i}`, [], undefined, "2026-10-01");
+    }
+    const oneClock = { ...tenant, refreshClock: 20 } as unknown as Tenant;
+    const lane = (now: Date, cut = false) => {
+      const deadlineMs = Date.now() + 60_000;
+      return runFreshness(
+        { deadlineMs },
+        {
+          ...deps(db, now, () => {
+            if (cut) vi.spyOn(Date, "now").mockReturnValue(deadlineMs + 1);
+          }),
+          listTenants: async () => [oneClock],
+        },
+      ).finally(() => vi.restoreAllMocks());
+    };
+    const listed = async () => (await watch(db)).due.map((d) => d.planId);
+
+    await lane(NOW);
+    expect(await listed()).toHaveLength(FRESHNESS_WATCH.MAX_DUE);
+    expect(await listed()).not.toContain("plan_p1");
+    // The next look is cut after plan_p1, which ranks last again.
+    await lane(LATER, true);
+    expect(await sweptAt(db, "plan_p1")).toBe(LATER.toISOString());
+    expect(await listed()).not.toContain("plan_p1");
+    // An article on the list is taken off live, so the list has room.
+    const p2 = (await getContentPlan(A, "ws1", "plan_p2", db))!;
+    expect((await setArticleLive(ADMIN, { workspaceId: "ws1", plan: p2, nodeId: "hub", action: "clear" }, { db, now: () => LATER })).ok).toBe(true);
+
+    expect(await lane(NEXT_TICK)).toMatchObject({ brands: 1, due: FRESHNESS_WATCH.MAX_DUE });
+    const done = await watch(db);
+    expect(done.lookStartedAt).toBeNull();
+    expect(done.due).toHaveLength(FRESHNESS_WATCH.MAX_DUE);
+    expect(done.due.at(-1)).toEqual({
+      planId: "plan_p1",
+      workspaceId: "ws1",
+      title: "p1",
+      url: "https://acme.example/blog/p1",
+      state: "due",
+      reasons: expect.arrayContaining([expect.objectContaining({ kind: "age" }), expect.objectContaining({ kind: "old_figure" })]),
+      dueAt: "2026-10-30T00:00:00.000Z",
+      clockDays: 20,
+      subjectId: "sub_1",
+    });
   });
 });

@@ -170,6 +170,21 @@ async function liveArticles(ctx: TenantContext, db?: FirestoreLike): Promise<Liv
   return out;
 }
 
+/** An article's row on the due list. */
+function dueRow(a: LiveArticle, f: Pick<FreshnessDueItem, "state" | "reasons" | "dueAt" | "clockDays">): FreshnessDueItem {
+  return {
+    planId: a.plan.id,
+    workspaceId: a.plan.workspaceId,
+    title: (outlineArticle(a.hub.body).title || a.plan.name).slice(0, 200),
+    url: a.url,
+    state: f.state,
+    reasons: f.reasons,
+    dueAt: f.dueAt,
+    clockDays: f.clockDays,
+    subjectId: a.plan.blog?.subjectId ?? null,
+  };
+}
+
 /** Look at one brand's live articles now: their clocks, their states, and the brand's due list. */
 export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refreshClock">, deps: FreshnessDeps & { deadlineMs?: number } = {}): Promise<FreshnessWatchDoc> {
   const now = (deps.now ?? (() => new Date()))();
@@ -215,12 +230,12 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
   let cut = false;
   // Articles this tick looked at itself.
   let looked = 0;
-  // An article this tick doesn't work out counts as it last was, and keeps its row on the due list.
-  const keep = (planId: string, f: BlogArticleFreshness) => {
+  // An article this tick doesn't work out counts as it last was, and keeps its row on the due list:
+  // the last list's, or, when that list had no room for it, one made from its stored state.
+  const keep = (a: LiveArticle, f: BlogArticleFreshness) => {
     counts[f.state] += 1;
     byClock[String(f.clockDays) as "20" | "30" | "45"] += 1;
-    const row = rows.get(planId);
-    if (row && f.state !== "fresh") due.push(row);
+    if (f.state !== "fresh") due.push(rows.get(a.plan.id) ?? dueRow(a, { ...f, state: f.state }));
   };
 
   for (const a of articles) {
@@ -229,7 +244,7 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
     const lookedBefore = Boolean(going && stored && Date.parse(stored.sweptAt) >= Date.parse(going));
     if (!lookedBefore && deps.deadlineMs && Date.now() > deps.deadlineMs) cut = true;
     if (lookedBefore || cut) {
-      if (stored) keep(a.plan.id, stored);
+      if (stored) keep(a, stored);
       continue;
     }
     looked += 1;
@@ -310,19 +325,7 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
 
     counts[state.state] += 1;
     byClock[String(clock.clockDays) as "20" | "30" | "45"] += 1;
-    if (state.state !== "fresh") {
-      due.push({
-        planId: a.plan.id,
-        workspaceId: a.plan.workspaceId,
-        title: (outlineArticle(a.hub.body).title || a.plan.name).slice(0, 200),
-        url: a.url,
-        state: state.state,
-        reasons: state.reasons,
-        dueAt: state.dueAt,
-        clockDays: clock.clockDays,
-        subjectId: a.plan.blog?.subjectId ?? null,
-      });
-    }
+    if (state.state !== "fresh") due.push(dueRow(a, { state: state.state, reasons: state.reasons, dueAt: state.dueAt, clockDays: clock.clockDays }));
   }
 
   due.sort((x, y) => (x.state === y.state ? x.dueAt.localeCompare(y.dueAt) : x.state === "due" ? -1 : 1));

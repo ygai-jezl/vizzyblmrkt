@@ -55,12 +55,12 @@ const ICONS: Record<NavKey, LucideIcon> = {
 /**
  * Other words people use for each area, so "crm" finds Audience, and "audience" finds People.
  * Settings › Connections was Integrations, so both words find Settings. Products keeps
- * "connections" too, because a connected product is still called a connection there. Ideas were
- * Launches, so "launch", "waitlist" and "campaign" still find them, whatever they are called.
+ * "connections" too, because a connected product is still called a connection there. While
+ * launches are called ideas, their old name finds them too (`areaKeywords`).
  */
 export const KEYWORDS: Partial<Record<NavKey, string[]>> = {
   review: ["approvals", "inbox", "decisions"],
-  launches: ["launches", "ideas", "waitlists", "campaigns"],
+  launches: ["waitlists", "campaigns"],
   content: ["workspaces", "programmes", "posts", "newsletter"],
   products: ["connections", "app", "sandbox"],
   journeys: ["lifecycle", "emails", "onboarding"],
@@ -87,8 +87,23 @@ const SEARCH = isSearchUiEnabled();
 const navItems = (people: boolean, ideas: boolean) =>
   buildNav({ lifecycle, brandKit: isBrandKitUiEnabled(), review: true, phase3: PHASE3, people, ideas }).flatMap((s) => s.items);
 
-/** What every launch row and New launch is also found by, whatever launches are called. */
-export const LAUNCH_WORDS = ["launch", "idea", "waitlist", "campaign"];
+/**
+ * An area's other words, in the words in use (`ideas`, from the server): Ideas were Launches, so
+ * "launches" still finds them. With the words off nothing says idea, so "idea" finds nothing new.
+ */
+export function areaKeywords(key: NavKey, ideas: boolean): string[] | undefined {
+  const words = KEYWORDS[key];
+  return key === "launches" && ideas ? ["launches", "ideas", ...(words ?? [])] : words;
+}
+
+/**
+ * What every launch row is also found by. While launches are called ideas, "launch", "waitlist"
+ * and "campaign" find them, and New idea too; with the words off, rows keep launch and waitlist, as
+ * before, and New launch is found by its own name.
+ */
+export function launchWords(ideas: boolean): string[] {
+  return ideas ? ["launch", "idea", "waitlist", "campaign"] : ["launch", "waitlist"];
+}
 
 const ITEM =
   "flex cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 text-sm text-shell-ink data-[selected=true]:bg-shell-active";
@@ -234,7 +249,7 @@ export function CommandPalette({
               <Command.Item
                 key={item.key}
                 value={`go ${item.label}`}
-                keywords={KEYWORDS[item.key]}
+                keywords={areaKeywords(item.key, ideas)}
                 onSelect={() => go(item.href)}
                 className={ITEM}
               >
@@ -254,7 +269,7 @@ export function CommandPalette({
                 <Command.Item
                   key={l.id}
                   value={`${word.one} ${l.name} ${l.id}`}
-                  keywords={LAUNCH_WORDS}
+                  keywords={launchWords(ideas)}
                   onSelect={() => go(`/admin/launches/${l.id}`)}
                   className={ITEM}
                 >
@@ -339,7 +354,7 @@ export function CommandPalette({
         ) : null}
 
         <Command.Group heading="Create">
-          <Command.Item value={`create new ${word.one}`} keywords={LAUNCH_WORDS} onSelect={() => go("/admin/launches/new")} className={ITEM}>
+          <Command.Item value={`create new ${word.one}`} keywords={ideas ? launchWords(true) : undefined} onSelect={() => go("/admin/launches/new")} className={ITEM}>
             <Plus size={16} aria-hidden className="shrink-0 text-shell-muted" />
             New {word.one}
           </Command.Item>

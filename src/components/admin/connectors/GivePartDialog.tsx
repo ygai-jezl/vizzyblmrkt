@@ -5,6 +5,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import type { SharedConnectionsScreen, SharedConnectionView } from "@/lib/connectors/organisationConnect";
 import type { OrganisationAccount } from "@/lib/connectors/organisationParts";
+import { useThemePortalContainer } from "@/components/admin/nav/AdminThemeRoot";
 import { callApi, ORG_ROUTES } from "./api";
 import { ConnectorTile } from "./ConnectorTile";
 import {
@@ -34,9 +35,11 @@ import {
 
 /** A dialog over Settings › Organisation: its title, the connection it is about, its body and its buttons. */
 export function DialogFrame({ open, onClose, title, about, children, footer }: { open: boolean; onClose: () => void; title: string; about: ReactNode; children: ReactNode; footer: ReactNode }) {
+  // Inside the admin theme root, so the app's Light or Dark choice wins over the computer's.
+  const container = useThemePortalContainer();
   return (
     <Dialog.Root open={open} onOpenChange={(o) => (o ? null : onClose())}>
-      <Dialog.Portal>
+      <Dialog.Portal container={container}>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/40" />
         <Dialog.Content className="fixed inset-x-4 top-[8vh] z-50 mx-auto flex max-h-[84vh] max-w-xl flex-col overflow-hidden rounded-xl bg-white shadow-xl dark:bg-neutral-950">
           <div className="flex items-start justify-between gap-3 border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">

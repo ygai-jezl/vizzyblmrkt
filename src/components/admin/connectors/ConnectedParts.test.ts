@@ -87,6 +87,13 @@ describe("a part from the organisation on Connected", () => {
     expect(text).not.toContain("Signed in with Google");
   });
 
+  it("names a part's site once when its label is the site", () => {
+    const named = { ...SC, label: "fernhill-us.example (whole domain)" };
+    const text = textOf(render({ connections: [named] }));
+    expect(text.split("fernhill-us.example (whole domain)").length - 1).toBe(2); // the row, and the Manage card's title
+    expect(text).toContain("Google Search Console fernhill-us.example (whole domain) From Fernhill Group");
+  });
+
   it("opens the Manage card managed by the organisation, with both regions, readers, Check now and Pause, and nothing to change how it reads", () => {
     const html = render();
     const text = textOf(html);

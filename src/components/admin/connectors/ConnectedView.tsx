@@ -324,7 +324,7 @@ export function ConnectionRow({
               <span className="font-medium">{c.connectorName}</span>
             )}
             {c.label !== c.connectorName ? <span className={`block ${HINT}`}>{c.label}</span> : null}
-            {c.details ? <span className={`block ${HINT}`}>{accountWords(c.details.account)}</span> : null}
+            {c.details && accountWords(c.details.account) !== c.label ? <span className={`block ${HINT}`}>{accountWords(c.details.account)}</span> : null}
           </span>
         </span>
       </td>

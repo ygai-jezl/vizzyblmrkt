@@ -377,8 +377,8 @@ describe("Connect for, for an owner of the brand's organisation (Connectors 3)",
   it("says where the organisation's sign in is kept once it is chosen", () => {
     const text = textOf(renderToStaticMarkup(createElement(ConnectFor, { brand: "Harbour Blooms", org: ORG, forOrg: true, onChange: () => {} })));
     expect(text).toContain("Fernhill Group (all its brands) Kept in Europe, where Harbour Blooms keeps its data. Each brand's numbers stay in its own region.");
-    expect(CONNECT_FOR_COPY.consent("YouGrow.AI", "site")).toBe(
-      "You can give each brand in YouGrow.AI one site this Google account can see. Only you see the list. Each brand's team sees only its own site, and the other owners see which brand has which.",
+    expect(CONNECT_FOR_COPY.consent("Fernhill Group", "site")).toBe(
+      "You can give each brand in Fernhill Group one site this Google account can see. Only you see the list. Each brand's team sees only its own site, and the other owners see which brand has which.",
     );
   });
 

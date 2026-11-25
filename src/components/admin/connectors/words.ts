@@ -878,14 +878,14 @@ const orgOf = (org: string | null | undefined) => org || PART_COPY.yourOrganisat
 /** A part that reads nothing on purpose (sharing off, no longer given, a give not finished, or not checked just now). */
 export const partQuiet = (c: Pick<ConnectionView, "part">) => Boolean(c.part && (c.part.reads === "off" || c.part.reads === "ended" || c.part.reads === "pending" || c.part.reads === "unknown"));
 
-/** "From YouGrow.AI": a part's How. */
+/** "From Fernhill Group": a part's How. */
 export const fromWords = (org: string | null) => `From ${orgOf(org)}`;
-/** "Needs YouGrow.AI": a part its brand's admins can't fix themselves. */
+/** "Needs Fernhill Group": a part its brand's admins can't fix themselves. */
 export const needsWords = (org: string | null) => (org ? `Needs ${org}` : PART_COPY.needsOwner);
 /** The Manage card's note on a part. */
 export const managedWords = (org: string | null) => `Managed by ${orgOf(org)}. Its owners can change it.`;
 
-/** A part whose organisation's sign in needs attention, in the approved screen's words: "Google Analytics 4 comes from YouGrow.AI, …". */
+/** A part whose organisation's sign in needs attention, in the approved screen's words: "Google Analytics 4 comes from Fernhill Group, …". */
 export function partSourceWords(connectorName: string, org: string | null): string {
   const who = orgOf(org);
   return `${productWords(connectorName)} comes from ${who}, and its sign-in needs attention. An owner of ${who} can fix it.`;
@@ -957,7 +957,7 @@ export function stoppedUsingNoteWords(c: Pick<ConnectionView, "connectorName" | 
   return `${c.part?.brand ?? "This brand"} stopped using ${c.connectorName} from ${org}. ${cap(whoseWords(org))} owners are told.`;
 }
 
-/** "Ended on 24 Nov: Vizzybl left YouGrow.AI." */
+/** "Ended on 24 Nov: Harbour Blooms left Fernhill Group." */
 export const endedLeftWords = (day: string, brand: string | null, org: string | null) => `Ended on ${day}: ${brand ?? "this brand"} left ${orgOf(org)}.`;
 
 /** How long the note about parts that ended when the brand left its organisation stays on Connected. */
@@ -990,7 +990,7 @@ export function partUnit(connectorId: string): { one: string; many: string } {
 }
 
 const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
-/** "Vizzybl's", "Fernhill US's", but "Harbour Blooms'". */
+/** "Fernhill Cafe's", "Fernhill US's", but "Harbour Blooms'". */
 export const whoseWords = (name: string) => (/s$/.test(name) ? `${name}'` : `${name}'s`);
 /** "the United States" in a sentence, other regions as they are. */
 export const regionInSentence = (region: string) => (region === "United States" ? "the United States" : region);
@@ -1057,7 +1057,7 @@ export const SHARED_COPY = {
   failed: "This screen didn't load. Reload the page in a minute.",
 } as const;
 
-/** "Cloudflare, API token.", "Search Console, a Google address made for YouGrow.AI.", "Google Analytics 4, signed in with Google by you." */
+/** "Cloudflare, API token.", "Search Console, a Google address made for Fernhill Group.", "Google Analytics 4, signed in with Google by you." */
 export function sharedHowWords(c: { method: ConnectMethodName; signer: "you" | "other" | "gone" | null }, org: string): string {
   if (c.method === "token_fields") return ", API token.";
   if (c.method === "share_access") return `, a Google address made for ${org}.`;
@@ -1334,7 +1334,7 @@ export const BRANDS_COPY = {
 
 const brandCount = (n: number) => `${n} ${n === 1 ? "brand" : "brands"}`;
 
-/** "Brands in YouGrow.AI", the table's name for screen readers. */
+/** "Brands in Fernhill Group", the table's name for screen readers. */
 export const brandsTableWords = (org: string) => `Brands in ${org}`;
 export const moveOutTitleWords = (brand: string) => `Move out ${brand}`;
 export const bringInGoWords = (brand: string | null) => (brand ? `Bring in ${brand}` : BRANDS_COPY.bringInGo);

@@ -30,3 +30,13 @@ export function isEditModeVizzyEnabled(): boolean {
 export function isEditModeVizzyLearningEnabled(): boolean {
   return isEditModeVizzyEnabled() && process.env.EDIT_MODE_VIZZY_LEARNING_ENABLED === "true";
 }
+
+/**
+ * Server flag: Edit mode learning comes with Vizzy in Edit mode (edit_vizzy) for a brand that keeps
+ * its data in the agent's region (ROOT_AGENT_LOCATION), without the edit_vizzy_learning plan key.
+ * A brand in another region still needs the key. Post edits always need it. Needs
+ * EDIT_MODE_VIZZY_LEARNING_ENABLED. Off: only the key lets a brand learn, as before (ADR-0021).
+ */
+export function isEditModeLearningFollowsVizzyEnabled(): boolean {
+  return isEditModeVizzyLearningEnabled() && process.env.EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED === "true";
+}

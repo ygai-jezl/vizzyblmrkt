@@ -18,9 +18,13 @@ type Ctx = TenantContext & { userId: string };
 export const learningDisabled = () => NextResponse.json({ error: "learning_disabled" }, { status: 503 });
 export const learningNotConfigured = () => NextResponse.json({ error: "learning_not_configured" }, { status: 503 });
 
-/** The answer for a brand that may not learn from edits in Edit mode. */
-export function learningRefused(): NextResponse {
-  return NextResponse.json({ error: "not_included" }, { status: 403 });
+/**
+ * The answer for a brand that may not learn from edits in Edit mode: not_included for its plan,
+ * not_in_region for a brand with Vizzy in Edit mode outside the agent's region (only with
+ * EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED). The page hides learning on either.
+ */
+export function learningRefused(reason: "plan" | "region"): NextResponse {
+  return NextResponse.json({ error: reason === "region" ? "not_in_region" : "not_included" }, { status: 403 });
 }
 
 /** The learning routes' checks, in order: origin, switch, sign-in, set up, brand access. */
@@ -32,7 +36,7 @@ export async function guardLearningRoute(req: Request): Promise<{ ctx: Ctx } | {
   if (!ctx?.userId) return { response: NextResponse.json({ error: "unauthorized" }, { status: 401 }) };
   if (!isMemoryBankConfigured()) return { response: learningNotConfigured() };
   const access = await learningAccess(ctx, "edit_mode");
-  if (!access.ok) return { response: learningRefused() };
+  if (!access.ok) return { response: learningRefused(access.reason) };
   return { ctx: ctx as Ctx };
 }
 

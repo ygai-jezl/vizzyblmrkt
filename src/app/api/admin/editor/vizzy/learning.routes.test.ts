@@ -269,3 +269,58 @@ describe("the learn route's loop_learn line", () => {
   });
 });
 
+describe("with Edit mode learning following Vizzy", () => {
+  let info: ReturnType<typeof vi.spyOn>;
+  const lines = () =>
+    info.mock.calls
+      .map((c) => String(c[0]))
+      .filter((l) => l.startsWith("{"))
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
+  const pro = { id: "ten_A", orgPlan: "pro", grantedFeatures: [] };
+
+  beforeEach(() => {
+    info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    vi.stubEnv("PLANS_ENABLED", "true");
+    tenant.getTenantById.mockResolvedValue(pro);
+  });
+  afterEach(() => info.mockRestore());
+
+  it("changes nothing while the switch is off", async () => {
+    expect(await (await memories.GET(req("GET"))).json()).toEqual({ error: "not_included" });
+    expect((await learn.POST(req("POST", { entries: [entry] }))).status).toBe(403);
+    expect(bank.learnFromEdits).not.toHaveBeenCalled();
+    expect(lines()).toEqual([expect.objectContaining({ reason: "plan", plan: "pro", editVizzy: true })]);
+  });
+
+  it("lets a Pro brand in the agent's region see, forget and learn", async () => {
+    vi.stubEnv("EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED", "true");
+    expect((await memories.GET(req("GET"))).status).toBe(200);
+    bank.forgetAllEditMemories.mockResolvedValueOnce(1);
+    expect(await (await memories.DELETE(req("DELETE"))).json()).toEqual({ forgotten: 1 });
+    expect((await learn.POST(req("POST", { entries: [entry] }))).status).toBe(202);
+    expect(bank.learnFromEdits).toHaveBeenCalledWith(member, [entry]);
+    expect(lines()).toEqual([expect.objectContaining({ outcome: "learned", via: "edit_vizzy", plan: "pro", region: "us", agentRegion: "us" })]);
+  });
+
+  it("keeps a brand in another region out with not_in_region, logged as region", async () => {
+    vi.stubEnv("EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED", "true");
+    session.getAdminContext.mockResolvedValue({ ...member, region: "eu" });
+    expect(await (await memories.GET(req("GET"))).json()).toEqual({ error: "not_in_region" });
+    const res = await learn.POST(req("POST", { entries: [entry] }));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "not_in_region" });
+    expect(bank.learnFromEdits).not.toHaveBeenCalled();
+    expect(lines()).toEqual([expect.objectContaining({ outcome: "skipped", reason: "region", region: "eu", agentRegion: "us" })]);
+  });
+
+  it("still follows the person's choice and Edit mode's learning switch", async () => {
+    vi.stubEnv("EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED", "true");
+    tenant.find.mockResolvedValueOnce([{ id: "m1", userId: "u1", tenantId: "ten_A", role: "member", joinedAt: "x", editLearningOff: true }]);
+    expect(await (await learn.POST(req("POST", { entries: [entry] }))).json()).toEqual({ learned: false, reason: "learning_off" });
+    vi.stubEnv("EDIT_MODE_VIZZY_LEARNING_ENABLED", "false");
+    expect(await (await learn.POST(req("POST", { entries: [entry] }))).json()).toEqual({ error: "learning_disabled" });
+    expect(bank.learnFromEdits).not.toHaveBeenCalled();
+    expect(lines().map((l) => l.reason)).toEqual(["off_by_person", "switch"]);
+  });
+});
+

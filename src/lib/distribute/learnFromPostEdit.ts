@@ -22,9 +22,11 @@ import { isLearnFromPostEditsEnabled } from "./flags";
  * Vizzy learns how a person edits its LinkedIn and X posts (DISTRIBUTE_LEARN_FROM_EDITS_ENABLED).
  * Once a post they changed is published (so its text is public), one line in their own voice
  * goes to Memory Bank under their own scope (brand + person), exactly like Edit mode's: only
- * the words that changed, never the whole post. The same gates as Edit mode: the switch,
- * Memory Bank set up, the brand's learning access, and the person's own "Learn from my edits".
- * Server only.
+ * the words that changed, never the whole post. Gated like Edit mode: the switch, Memory Bank set
+ * up, the brand's learning access, and the person's own "Learn from my edits". Unlike Edit mode,
+ * a post always needs the learning key (edit_vizzy_learning) in any region, whatever
+ * EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED says, until step 7 moves post edits to a regional
+ * learner (ADR-0021). Server only.
  */
 
 /** The longest list of changed words sent for one post. */
@@ -102,8 +104,9 @@ export type LearnOutcome =
 export async function learnFromPublishedPost(
   ctx: TenantContext,
   post: Pick<ScheduledPost, "channel" | "aiBody" | "body" | "scheduledBy">,
-  deps: LearnDeps = defaultDeps,
+  given: Partial<LearnDeps> = {},
 ): Promise<LearnOutcome> {
+  const deps: LearnDeps = { ...defaultDeps, ...given };
   const load = onceTenant(deps.load ?? getTenantById);
   const logLine = async (result: LearnResult) => {
     try {
@@ -167,7 +170,7 @@ export async function postLearningFor(
 export async function postEditPreferencesFor(
   ctx: TenantContext,
   channel: string,
-  read: (ctx: TenantContext) => Promise<string[]> = editPreferencesFor,
+  read: (ctx: TenantContext) => Promise<string[]> = (c) => editPreferencesFor(c, "content_write"),
 ): Promise<string[]> {
   if (!isLearnFromPostEditsEnabled() || !learnsFromPostEdits(channel)) return [];
   return read(ctx).catch(() => []);

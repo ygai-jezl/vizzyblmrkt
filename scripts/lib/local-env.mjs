@@ -119,6 +119,7 @@ export function readLocalSettings() {
 export const SWITCHES_KEPT_OFF = {
   RECAPTCHA_ENABLED: "needs a real reCAPTCHA Enterprise key and project; with it on, every waitlist sign-up is refused",
   EDIT_MODE_VIZZY_LEARNING_ENABLED: "needs Agent Platform Memory Bank in a real Google Cloud project; the emulators have none",
+  EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED: "needs EDIT_MODE_VIZZY_LEARNING_ENABLED, which the emulators can't run",
   SEARCH_RERANK_ENABLED: "needs Google's Ranking API in a real Google Cloud project; local search keeps the merged order",
   CONNECTOR_GOOGLE_REVOKE_ENABLED:
     "Disconnect would revoke the Google grant for every brand that Google account connected, including the dev deployment that shares your dev client",

@@ -203,6 +203,24 @@ describe("learnFromPublishedPost's loop_learn line", () => {
   });
 });
 
+describe("post edits with Edit mode learning following Vizzy", () => {
+  const published = { channel: "x" as const, aiBody: AI, body: POSTED, scheduledBy: "uid_1" };
+
+  it("still need the learning key, whatever the switch says", async () => {
+    switchesOn();
+    vi.stubEnv("PLANS_ENABLED", "true");
+    const pro = async () => ({ id: "ten_a", orgPlan: "pro", grantedFeatures: [] }) as never;
+    for (const on of ["false", "true"]) {
+      vi.stubEnv("EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED", on);
+      const learn = vi.fn(async () => undefined);
+      const log = vi.fn();
+      expect(await learnFromPublishedPost(ctx, published, { learn, load: pro, log, configured: () => true, isOff: async () => false })).toBe("not_included");
+      expect(learn).not.toHaveBeenCalled();
+      expect(log).toHaveBeenCalledWith(expect.objectContaining({ kind: "content_write", reason: "plan", plan: "pro" }));
+    }
+  });
+});
+
 describe("postLearningFor", () => {
   const person: TenantContext = { ...ctx, userId: "uid_1" };
 

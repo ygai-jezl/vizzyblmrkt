@@ -72,7 +72,7 @@ export async function POST(req: Request) {
   }
   const [brandVoice, preferences] = await Promise.all([
     activeBrandVoiceText(ctx.tenantId, workspaceVoice),
-    editPreferencesFor(ctx),
+    editPreferencesFor(ctx, "edit_mode"),
   ]);
   const prompt = vizzyPrompt(body, { brandVoice, preferences });
 

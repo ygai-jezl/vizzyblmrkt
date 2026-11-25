@@ -1057,6 +1057,13 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Edit mode learning comes with Vizzy in Edit mode (edit_vizzy) for brands that keep their data
+  # in the agent's region (ROOT_AGENT_LOCATION), without the edit_vizzy_learning plan key. Post
+  # edits keep the key. Needs EDIT_MODE_VIZZY_LEARNING_ENABLED (ADR-0021).
+  - variable: EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Newsletter hubs sent and previewed as formatted email, not as Markdown symbols.
   - variable: NEWSLETTER_MARKDOWN_EMAIL_ENABLED
     value: "false"

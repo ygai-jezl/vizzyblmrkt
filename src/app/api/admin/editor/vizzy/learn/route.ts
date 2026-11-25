@@ -79,7 +79,7 @@ export async function POST(req: Request) {
   }
   if (!access.ok) {
     if (body) await logOutcome(ctx, body, { outcome: "skipped", reason: access.reason }, access);
-    return learningRefused();
+    return learningRefused(access.reason);
   }
   if (!body) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
   if (await isLearningOff(ctx)) {

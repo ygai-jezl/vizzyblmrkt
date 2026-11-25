@@ -1,6 +1,7 @@
 import { H1, H2, Lead, P, Pairs, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Messages, Meta, NextPage, Open } from "@/components/help/blocks";
 import { allowanceLabels, PLANS, planSummary } from "@/lib/plans/catalog";
+import { isEditModeLearningFollowsVizzyEnabled } from "@/lib/content/editor/flags";
 import { isOrganisationJoinEnabled, isUsageMeterUiEnabled } from "@/lib/plans/flags";
 import { IMAGE_LIMIT_MESSAGE, WEB_SEARCH_LIMIT_MESSAGE } from "@/lib/plans/resources";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
@@ -224,6 +225,13 @@ export default function PlanAndUsageHelp({
         Some features are turned on brand by brand as well, such as <Open href="/help/search">Search</Open>. One granted to
         your brand works even when your plan leaves it out.
       </P>
+      {isEditModeLearningFollowsVizzyEnabled() ? (
+        <P>
+          On this copy, Vizzy in Edit mode also learns from your edits there when your brand keeps its data in the region where
+          Vizzy runs, even when Plan and usage lists Vizzy learning from edits as not in your plan. Learning from LinkedIn and X
+          posts still needs Vizzy learning from edits.
+        </P>
+      ) : null}
 
       <H2 id="change">Changing your plan</H2>
       <P>

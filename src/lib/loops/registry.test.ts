@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
@@ -6,11 +6,13 @@ import { CANVAS_KIND_NAMES } from "@/lib/canvas/names";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { MEANINGS } from "@/lib/metrics/meanings";
 import { typeById } from "@/lib/ontology/registry";
+import { sourceFiles } from "@/lib/ontology/storeScan";
 import { RESOURCES } from "@/lib/plans/resources";
 import { DATA_SIGNAL_RULES } from "@/lib/types/dataSignal";
 import { BY_LEARNER, decisionKind, LEARNED_STORES, LOOP_RULES, LOOPS, RULE_DECISIONS, type Decision, type Loop } from "./registry";
 import { reasonProblems } from "./reason";
 import { LOOP_SWITCHES } from "./switches";
+import { SWITCHES_BEFORE_LOOPS } from "./testing/switchesBeforeLoops";
 
 /**
  * The learning registry (src/lib/loops/registry.ts): one honest line per place YouGrow makes a
@@ -98,13 +100,39 @@ function switchesListedOff(): Set<string> {
   return new Set((doc.env ?? []).filter((e) => e.value === "false").map((e) => e.variable));
 }
 
-/** Every non-test source file under src, for the switch read scan. */
-function sourceFiles(dir: string): string[] {
-  return readdirSync(dir).flatMap((name) => {
-    const path = join(dir, name);
-    if (statSync(path).isDirectory()) return sourceFiles(path);
-    return /\.(ts|tsx)$/.test(name) && !/\.test\.tsx?$/.test(name) ? [path] : [];
-  });
+const SWITCHES_FILE = "src/lib/loops/switches.ts";
+
+/** What the switch check reads: the lists, the switches file and every other source file. */
+interface SwitchScan {
+  /** Switches apphosting.yaml lists "false". */
+  off: ReadonlySet<string>;
+  /** The frozen list of switches from before the loops (testing/switchesBeforeLoops.ts). */
+  before: ReadonlySet<string>;
+  /** The text of src/lib/loops/switches.ts. */
+  switchesText: string;
+  /** Every other source file under src, repo relative, with its text. */
+  others: ReadonlyArray<{ file: string; text: string }>;
+}
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Any read of a variable, as process.env.X or process.env["X"]. */
+const readsOf = (sw: string) => new RegExp(`process\\.env(?:\\.${escapeRe(sw)}\\b|\\[\\s*["'\`]${escapeRe(sw)}["'\`]\\s*\\])`, "g");
+
+/**
+ * What is wrong with one loop switch; empty when it is fine. It is listed "false", it is new since
+ * the loops began, it is read exactly once in switches.ts as === "true", and nowhere else. Pure.
+ */
+function switchProblems(sw: string, scan: SwitchScan): string[] {
+  const out: string[] = [];
+  if (!scan.off.has(sw)) out.push(`${sw} is not listed "false" in apphosting.yaml`);
+  if (scan.before.has(sw)) out.push(`${sw} is a switch from before the loops; a loop gets a new one`);
+  const reads = [...scan.switchesText.matchAll(readsOf(sw))].length;
+  const exact = scan.switchesText.split(`process.env.${sw} === "true"`).length - 1;
+  if (reads !== 1 || exact !== 1) out.push(`${sw} is not read exactly once in ${SWITCHES_FILE}, as process.env.${sw} === "true"`);
+  const readers = scan.others.filter((f) => f.file !== SWITCHES_FILE && readsOf(sw).test(f.text)).map((f) => f.file);
+  if (readers.length) out.push(`${sw} is read outside ${SWITCHES_FILE}: ${readers.join(", ")}`);
+  return out;
 }
 
 describe("the learning registry", () => {
@@ -191,17 +219,57 @@ describe("the learning registry", () => {
     }
   });
 
-  it("lists each loop switch off in apphosting.yaml and reads it only in switches.ts", () => {
-    const off = switchesListedOff();
-    const switchesFile = join(ROOT, "src", "lib", "loops", "switches.ts");
-    const own = readFileSync(switchesFile, "utf8");
-    const files = sourceFiles(join(ROOT, "src")).filter((f) => f !== switchesFile);
-    for (const sw of Object.keys(LOOP_SWITCHES)) {
-      expect(off.has(sw), `${sw} is not listed "false" in apphosting.yaml`).toBe(true);
-      expect(own, sw).toContain(`process.env.${sw} === "true"`);
-      const readers = files.filter((f) => readFileSync(f, "utf8").includes(`process.env.${sw}`));
-      expect(readers, `${sw} is read outside src/lib/loops/switches.ts`).toEqual([]);
-    }
+  it("has no loop switch yet, and holds each one to its rules: off, new, and read once in switches.ts", () => {
+    // Nothing learns through the loops in step 1. The image style loop (step 4) adds the first switch
+    // and changes this line.
+    expect(Object.keys(LOOP_SWITCHES)).toEqual([]);
+    const files = sourceFiles("src", ROOT);
+    // The scan sees the source, in the same repo relative form as SWITCHES_FILE.
+    expect(files).toContain(SWITCHES_FILE);
+    expect(files.length).toBeGreaterThan(1000);
+    const scan: SwitchScan = {
+      off: switchesListedOff(),
+      before: new Set(SWITCHES_BEFORE_LOOPS),
+      switchesText: readFileSync(join(ROOT, SWITCHES_FILE), "utf8"),
+      others: files.filter((f) => f !== SWITCHES_FILE).map((file) => ({ file, text: readFileSync(join(ROOT, file), "utf8") })),
+    };
+    for (const sw of Object.keys(LOOP_SWITCHES)) expect(switchProblems(sw, scan), sw).toEqual([]);
+  });
+
+  it("would catch a loop switch that breaks a rule (the check above is not empty by accident)", () => {
+    const good = 'export const LOOP_SWITCHES = { LOOP_A_ENABLED: () => process.env.LOOP_A_ENABLED === "true" };';
+    const scan = (more: Partial<SwitchScan> = {}): SwitchScan => ({
+      off: new Set(["LOOP_A_ENABLED", "OLD_FEATURE_ENABLED"]),
+      before: new Set(["OLD_FEATURE_ENABLED"]),
+      switchesText: good,
+      others: [{ file: "src/lib/other.ts", text: 'if (process.env.SOME_FEATURE_ENABLED === "true") run();' }],
+      ...more,
+    });
+    const once = (sw: string) => `${sw} is not read exactly once in src/lib/loops/switches.ts, as process.env.${sw} === "true"`;
+    expect(switchProblems("LOOP_A_ENABLED", scan())).toEqual([]);
+    // Missing from apphosting.yaml.
+    expect(switchProblems("LOOP_B_ENABLED", scan({ switchesText: good.replace(/LOOP_A/g, "LOOP_B") }))).toEqual(['LOOP_B_ENABLED is not listed "false" in apphosting.yaml']);
+    // A switch from before the loops.
+    expect(switchProblems("OLD_FEATURE_ENABLED", scan({ switchesText: good.replace(/LOOP_A/g, "OLD_FEATURE") }))).toEqual(["OLD_FEATURE_ENABLED is a switch from before the loops; a loop gets a new one"]);
+    // Read with another comparison, or read twice.
+    expect(switchProblems("LOOP_A_ENABLED", scan({ switchesText: good.replace('=== "true"', '!== "false"') }))).toEqual([once("LOOP_A_ENABLED")]);
+    expect(switchProblems("LOOP_A_ENABLED", scan({ switchesText: `${good}\nconst raw = process.env["LOOP_A_ENABLED"];` }))).toEqual([once("LOOP_A_ENABLED")]);
+    // Also read in another file, either way of writing it.
+    expect(switchProblems("LOOP_A_ENABLED", scan({ others: [{ file: "src/lib/content/x.ts", text: 'const on = process.env.LOOP_A_ENABLED === "true";' }] }))).toEqual([
+      "LOOP_A_ENABLED is read outside src/lib/loops/switches.ts: src/lib/content/x.ts",
+    ]);
+    expect(switchProblems("LOOP_A_ENABLED", scan({ others: [{ file: "src/lib/content/y.ts", text: "const on = process.env['LOOP_A_ENABLED'];" }] }))).toEqual([
+      "LOOP_A_ENABLED is read outside src/lib/loops/switches.ts: src/lib/content/y.ts",
+    ]);
+    // A longer name that starts the same is another variable.
+    expect(switchProblems("LOOP_A_ENABLED", scan({ others: [{ file: "src/lib/content/z.ts", text: "const n = process.env.LOOP_A_ENABLED_UNTIL;" }] }))).toEqual([]);
+  });
+
+  it("keeps the frozen list of switches from before the loops as it was", () => {
+    expect(SWITCHES_BEFORE_LOOPS.length).toBe(194);
+    expect([...SWITCHES_BEFORE_LOOPS].sort()).toEqual(SWITCHES_BEFORE_LOOPS);
+    expect(new Set(SWITCHES_BEFORE_LOOPS).size).toBe(SWITCHES_BEFORE_LOOPS.length);
+    for (const sw of SWITCHES_BEFORE_LOOPS) expect(sw).toMatch(/^[A-Z][A-Z0-9_]*_ENABLED$/);
   });
 
   it("names a real file and a plain label for every rule decision", () => {

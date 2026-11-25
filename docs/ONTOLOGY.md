@@ -126,7 +126,7 @@ The older email sequence a launch sends its sign-ups, one per launch, drawn on t
 - Export: none. The brand's own work, with no one's personal data.
 - Search: none. The older launch sequences are not read into search; journeys on the lifecycle engine are.
 - Numbers: none. Its emails are counted as email sends.
-- Made by: `canvas.journey`, `journeys`, `ab_winner` (see Learning)
+- Made by: `canvas.journey`, `journeys`, `edit_mode`, `ab_winner` (see Learning)
 
 ## Signals
 
@@ -624,7 +624,7 @@ An email journey on the lifecycle engine, for a product's users or a launch's wa
 - Export: none. The brand's own work, with no one's personal data.
 - Search: `journey_email`
 - Numbers: `sends`, `delivered`, `people`, `deliveryRate`, `uniqueOpens`, `uniqueClicks`, `openRate`, `clickRate`, `totalOpens`, `totalClicks`, `hardBounces`, `softBounces`, `deferrals`, `complaints`, `unsubscribes`, through `get_email_results`
-- Made by: `journeys`, `canvas.lifecycle`, `canvas.journey_style`, `journey_shape` (see Learning)
+- Made by: `journeys`, `canvas.lifecycle`, `canvas.journey_style`, `edit_mode`, `journey_shape` (see Learning)
 
 ### Journey enrolment (`enrolment`)
 
@@ -928,7 +928,7 @@ An article, newsletter, ebook, post or journey email: its plan, drafts and the f
 - Export: none. The brand's own work, with no one's personal data.
 - Search: `article`, `newsletter`, `ebook`, `post`, `journey_email`
 - Numbers: none. A post's numbers are post results.
-- Made by: `blog_research`, `autopilot_research`, `blog_write`, `fact_check`, `seen_notes`, `architect`, `content_write`, `content_email`, `content_hub`, `content_brief`, `content_angle`, `ebook`, `email_layout`, `canvas.content_plan`, `pattern_holdout`, `freshness_clock`, `refresh_due`, `found_live` (see Learning)
+- Made by: `blog_research`, `autopilot_research`, `blog_write`, `fact_check`, `seen_notes`, `architect`, `content_write`, `content_email`, `content_hub`, `content_brief`, `content_angle`, `ebook`, `email_layout`, `edit_mode`, `canvas.content_plan`, `pattern_holdout`, `freshness_clock`, `refresh_due`, `found_live` (see Learning)
 
 ### Scrapbook clipping (`content_idea`)
 
@@ -995,7 +995,7 @@ A one off email to a launch's waitlist.
 - Export: none. The brand's own work, with no one's personal data.
 - Search: `broadcast`
 - Numbers: none. Its sends are counted as email sends.
-- Made by: `email_copy` (see Learning)
+- Made by: `email_copy`, `edit_mode` (see Learning)
 
 ### Scheduled post (`scheduled_post`)
 
@@ -1114,7 +1114,7 @@ The brand's names and subjects, groups and buying situations that every article 
 - Export: none. The brand's own work, with no one's personal data.
 - Search: `subject`, `situation`
 - Numbers: none. No numbers an agent reads.
-- Made by: `brand_map_research`, `situations`, `canvas.brand_map`, `competitor_topics` (see Learning)
+- Made by: `brand_map_research`, `situations`, `canvas.brand_map`, `blog_research`, `autopilot_research`, `judge`, `competitor_topics` (see Learning)
 
 ### Question (`brand_question`)
 
@@ -1199,7 +1199,7 @@ The brand's three best next articles, one record per brand, worked out again as 
 - Export: none. The brand's own work, with no one's personal data.
 - Search: none. A short list read by Vizzy through get_next_up.
 - Numbers: none. No numbers an agent reads.
-- Made by: `next_up`, `next_up_order` (see Learning)
+- Made by: `next_up`, `next_up_order`, `refresh_share` (see Learning)
 
 ### Autopilot run (`autopilot_run`)
 
@@ -1921,11 +1921,11 @@ Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Ev
 
 A call site is a file where a kind is made, counted once for each kind: a meter call that names its purpose, a canvas's module, or the file that holds a rule.
 
-78 kinds: 0 learn, 0 fleet only, 19 own, 26 gap and 33 none.
+79 kinds: 0 learn, 0 fleet only, 19 own, 27 gap and 33 none.
 
-98 call sites: 0 learn, 0 fleet only, 29 own, 31 gap and 38 none.
+99 call sites: 0 learn, 0 fleet only, 29 own, 32 gap and 38 none.
 
-Not learning: 69 of 98 call sites, under gap and none lines.
+Not learning: 70 of 99 call sites, under gap and none lines.
 
 ### Where own lines keep what they learned
 
@@ -1933,7 +1933,7 @@ Not learning: 69 of 98 call sites, under gap and none lines.
 - `post_learning`: Post patterns and the best posts, worked out from how the brand's LinkedIn and X posts did.
 - `vizzy_memory`: Memory Bank keeps what Vizzy learned about how each team member edits, per brand and member.
 - `brand_kit`: The brand record keeps the image look learned from thumbs and ratings, per image style.
-- `brand_map`: The brand map keeps every name, subject, group, situation and topic a person dismissed.
+- `brand_map`: The brand map keeps the names, subjects, groups, situations and topics a person dismissed, with its list of dismissed suggestions holding the newest 300.
 - `brand_question`: Each question a person dismissed stays on the brand map marked dismissed.
 - `article_review`: An article's review keeps the fingerprints of the last 50 changes a person dismissed on it.
 - `content_plan`: An article's brief keeps up to 50 notes a person took out of it.
@@ -1950,12 +1950,12 @@ No line says this yet.
 
 ### Own
 
-- `brand_map_research` (AI purpose, Brand map research), kept in `brand_map`. A name, subject or group your team dismissed on the brand map is kept and never proposed again.
+- `brand_map_research` (AI purpose, Brand map research), kept in `brand_map`. A name, subject or group your team dismissed on the brand map is kept there and not proposed again.
   - `src/lib/brandMap/importPlace.ts`
   - `src/lib/brandMap/imports.ts`
   - `src/lib/brandMap/research.ts`
   - `src/lib/brandMap/sortGroups.ts`
-- `situations` (AI purpose, Finding buying situations), kept in `brand_map`. A buying situation your team already has or dismissed is never proposed again.
+- `situations` (AI purpose, Finding buying situations), kept in `brand_map`. A buying situation your team already has or dismissed is never proposed again by research.
   - `src/lib/brandMap/findSituations.ts`
   - `src/lib/brandMap/situationsApi.ts`
   - `src/lib/canvas/kinds/brandMap.ts`
@@ -1963,22 +1963,22 @@ No line says this yet.
   - `src/lib/brandMap/situationQuestions.ts`
   - `src/lib/brandMap/situationsApi.ts`
   - `src/lib/canvas/kinds/brandMap.ts`
-- `blog_refresh` (AI purpose, Article refresh reviews), kept in `article_review`. A change your team dismissed on an article is kept on its review and never proposed for that article again.
+- `blog_refresh` (AI purpose, Article refresh reviews), kept in `article_review`. A change your team dismissed on an article is kept with the last 50 on its review and not proposed for that article again.
   - `src/lib/content/blog/refreshReview.ts`
 - `seen_notes` (AI purpose, What we've seen), kept in `content_plan`. A note your team took out of an article is kept on its brief and never matched back into it.
   - `src/lib/content/blog/seen.ts`
-- `content_write` (AI purpose, Writing posts), kept in `post_learning`. LinkedIn and X posts learn from how your past posts did and, where turned on, from how your team edits them.
+- `content_write` (AI purpose, Writing posts), kept in `post_learning`. LinkedIn and X posts learn from how your past posts did and, where turned on, from how each team member edits them, while posts for other channels learn nothing yet.
   - `src/lib/content/create/generateNode.ts`
 - `edit_mode` (AI purpose, Edit mode), kept in `vizzy_memory`. Vizzy remembers how each team member edits in Edit mode, and each of them can turn it off or make it forget.
   - `src/app/api/admin/editor/vizzy/route.ts`
-- `email_copy` (AI purpose, Email copy), kept in `broadcast`. Email assist reads the open and click rates of the launch's last five emails before it writes, though invite wave copy reads none yet.
+- `email_copy` (AI purpose, Email copy), kept in `broadcast`. Email assist reads the open and click rates of the launch's last five emails before it writes, though invite wave copy reads none.
   - `src/app/api/admin/email/assist/route.ts`
   - `src/lib/canvas/kinds/inviteWave.ts`
 - `next_up` (AI purpose, Next up), kept in `learned`. Next up learns from the picks your team skips, kept with their reason on the Learned list.
   - `src/lib/nextUp/pick.ts`
 - `judge` (AI purpose, Sorting what buyers ask), kept in `learned`. The sorting learns from the questions your team moves between trays, kept on the Learned list.
   - `src/lib/signals/judge.ts`
-- `blog_hero` (AI purpose, Blog hero images), kept in `brand_kit`. Blog heroes follow the look learned from your thumbs and ratings on brand images, per image style.
+- `blog_hero` (AI purpose, Blog hero images), kept in `brand_kit`. Blog heroes made on the article follow the look learned from your thumbs and ratings, per image style, but a hero Vizzy makes during a chat skips it.
   - `src/lib/content/blog/hero.ts`
 - `post_image` (AI purpose, Post images), kept in `brand_kit`. Post images follow the look learned from your thumbs and ratings on brand images, per image style.
   - `src/app/api/admin/workspace/[workspaceId]/content-plans/[planId]/nodes/[nodeId]/post-image/route.ts`
@@ -1990,7 +1990,7 @@ No line says this yet.
   - `src/lib/autopilot/draftSteps.ts`
   - `src/lib/autopilot/find.ts`
   - `src/lib/signals/collect.ts`
-- `canvas.brand_map` (canvas), kept in `brand_map`. Suggestions a person dismissed are kept on the brand map, and Vizzy never files the same one again.
+- `canvas.brand_map` (canvas), kept in `brand_map`. A change a person dismissed is kept on the brand map and Vizzy does not file it again, though a buying situation a person asks Vizzy for in chat comes back as a suggestion.
   - `src/lib/canvas/kinds/brandMap.ts`
 - `next_up_order` (rule, Next up shortlist), kept in `learned`. Questions the team skipped in the last 30 days are left out of the shortlist, read from the Learned list.
   - `src/lib/nextUp/candidates.ts`
@@ -2048,14 +2048,16 @@ No line says this yet.
   - `src/lib/connectors/signals/detect.ts`
 - `within_reach` (connector rule), look again by 2027-05-01. Questions just off Google's first page are offered by fixed positions, and whether an article then reached page one is never looked at.
   - `src/lib/connectors/signals/detect.ts`
-- `send_time` (rule, Send time), look again by 2027-05-01. Every journey sends in the same weekday morning window unless a person changes it, and opens by hour are never used to move it.
+- `send_time` (rule, Send time), look again by 2027-05-01. Product journeys send in a weekday morning window unless a person changes it, waitlist journeys send at any time, and opens by hour never move either.
   - `src/lib/lifecycle/sendWindow.ts`
-- `ab_winner` (rule, Email test winner), look again by 2027-05-01. A person can pick the winning email after 50 sends, but on the lifecycle engine that moved launches run on, nothing writes the winner the sends read.
+- `ab_winner` (rule, Email test winner), look again by 2027-05-01. A person can pick the winning email after 50 sends, but on a launch moved to the new journey engine that pick never reaches the emails sent.
   - `src/lib/journey/abTest.ts`
 - `journey_shape` (rule, Journey template shape), look again by 2027-05-01. The templates' email counts and the days between emails are fixed numbers, and how earlier journeys did never changes them.
   - `src/lib/lifecycle/architect.ts`
-- `notes_rest` (rule, Notes rest), look again by 2027-05-01. A note the team keeps removing from articles comes back once its rest ends, because removals are kept per article and never change the rest.
+- `notes_rest` (rule, Notes rest), look again by 2027-05-01. A note the team keeps taking out of articles can go straight into the next one, because each removal is kept on that article alone and never makes the note rest.
   - `src/lib/brandNotes/rest.ts`
+- `refresh_share` (rule, Refresh share of Next up), look again by 2027-05-01. At most one of Next up's three picks is a refresh unless the brand sets another number, and whether refreshes or new articles won more clicks never moves it.
+  - `src/lib/nextUp/pick.ts`
 - `refresh_due` (rule, Refresh due), look again by 2027-05-01. Marking an article checked restarts its clock, but which reasons make articles due early never changes with what your team marks checked.
   - `src/lib/content/blog/freshnessWatch.ts`
 
@@ -2103,9 +2105,9 @@ No line says this yet.
   - `src/app/api/admin/brand-kit/images/[assetId]/customize/route.ts`
 - `get_from_google` (AI purpose, Get from Google). A person asks for this lookup and Google returns its results, so YouGrow makes no choice here to learn.
   - `src/lib/signals/collect.ts`
-- `canvas.invite_wave` (canvas). A launch sends only a few invite waves and a person sets the size and presses Send, so there is too little here to learn from.
+- `canvas.invite_wave` (canvas). A launch sends only a few invite waves, so neither their size nor their copy learns, and a person sets the size and presses Send.
   - `src/lib/canvas/kinds/inviteWave.ts`
-- `canvas.content_plan` (canvas). The plan only gathers pieces, and each piece is written under its own purpose, such as blog_write or content_write, where its learning is declared.
+- `canvas.content_plan` (canvas). The plan only gathers pieces, and each piece, such as an article or a post, says how it learns under its own kind of writing.
   - `src/lib/canvas/kinds/contentPlan.ts`
 - `canvas.email_style` (canvas). A brand sets its email look once and a person saves it, so there is no stream of repeated choices to learn a taste from.
   - `src/lib/canvas/kinds/emailStyle.ts`

@@ -569,7 +569,10 @@ describe("the choices each Review section shows", () => {
       for (const k of from) expect(kinds.has(k), `${kind} shows ${k}, which src/lib/loops/registry.ts has no line for`).toBe(true);
     }
     expect(none.sort()).toEqual(["connection", "data_source", "failed_post"]);
-    expect(REVIEW_SECTIONS.content_refresh.from).toEqual(["refresh_due"]);
+    // Sections whose rows come from more than one choice name each one.
+    expect(REVIEW_SECTIONS.content_refresh.from).toEqual(["blog_refresh", "refresh_due"]);
+    expect(REVIEW_SECTIONS.next_article.from).toEqual(["next_up", "autopilot", "judge"]);
+    expect(REVIEW_SECTIONS.agent_draft.from).toEqual(["canvas.journey", "canvas.lifecycle", "canvas.journey_style", "canvas.invite_wave", "canvas.content_plan", "autopilot"]);
   });
 });
 

@@ -25,6 +25,15 @@ const NOT_SERVED_YET: Record<string, string> = {
 };
 
 /**
+ * Choices in the learning registry that no type's madeBy names, each with its reason. Every other
+ * kind is held by some type, so a new kind with nowhere to live shows up here.
+ */
+const HELD_NOWHERE: Record<string, string> = {
+  other: "no code spends under it, and every new call names its real purpose",
+  competitor_coverage: "the flags are worked out each time the coverage view is read, and never saved",
+};
+
+/**
  * People types whose search may name kinds anyway, each with its reason. Every other type that
  * holds the brand's people stays out of search until the data processing agreement covers it.
  */
@@ -171,6 +180,18 @@ describe("the ontology registry", () => {
     }
     // A sanity check on the lists: the stores of what YouGrow makes say so, not just a few.
     expect(ONTOLOGY.filter((t) => t.madeBy.length > 0).length).toBeGreaterThan(20);
+  });
+
+  it("holds every choice in the learning registry in some type, or says why no store keeps it", () => {
+    const held = new Set<string>(ONTOLOGY.flatMap((t) => t.madeBy));
+    for (const k of Object.keys(LOOPS)) {
+      if (k in HELD_NOWHERE) expect(held.has(k), `${k} is held now: take it off HELD_NOWHERE`).toBe(false);
+      else expect(held.has(k), `no type's madeBy names ${k}`).toBe(true);
+    }
+    for (const [k, why] of Object.entries(HELD_NOWHERE)) {
+      expect(Object.keys(LOOPS), k).toContain(k);
+      expect([...dashesIn(why), ...aiTellsIn(why)], k).toEqual([]);
+    }
   });
 
   it("has a type on each step of the spine", () => {

@@ -73,8 +73,9 @@ Quote the real summary lines, for example:
 - test: the `Test Files` and `Tests` lines as printed
 - check:instance, check:private-paths and agents:check: their one-line results
 - build and smoke: the result, or why you didn't run them
-- learning: the Learning section's diff from `git diff dev -- docs/ONTOLOGY.md` and its
-  `Not learning:` count, quoted in the pull request body under the template's Learning line. No
-  diff there means the change adds no choice YouGrow makes for a brand; say so.
+- learning: the Learning section's diff from `git diff dev...HEAD -- docs/ONTOLOGY.md` (use
+  your remote's dev, such as `origin/dev`, if you have no local dev) and its `Not learning:`
+  count, quoted in the pull request body under the template's Learning line. No diff there means
+  the change adds no choice YouGrow makes for a brand; say so.
 
 Say what you didn't run and why. Pull requests go against `dev`.

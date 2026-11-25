@@ -11,6 +11,7 @@ import {
   notesForPrompt,
   quoteIn,
   quoteKey,
+  wordsCanBack,
 } from "./learn";
 
 // A made-up plant shop's call, shaped like the owner-approved mockups' (o-canvas common.js).
@@ -93,6 +94,36 @@ describe("checkLearned", () => {
       stage: { value: null, words: "" },
       want: { value: null, words: "" },
     });
+  });
+
+  it("a guess resting on trivial words is blank: the words must be able to back the choice", () => {
+    const unsure = [turn("v", "What do you run?", 0), turn("m", "It is still just an idea, I haven't decided. We will see.", 4)];
+    const l = checkLearned(
+      {
+        answers: {
+          who: { value: "team", words: "we" },
+          run: { value: "app", words: "it" },
+          stage: { value: "idea", words: "just an idea" },
+          want: { value: "customers", words: "it is" },
+        },
+      },
+      unsure,
+      "m",
+      AT,
+    );
+    expect(l.answers).toEqual({
+      who: { value: null, words: "" },
+      run: { value: null, words: "" },
+      stage: { value: "idea", words: "just an idea" },
+      want: { value: null, words: "" },
+    });
+  });
+
+  it("short words still back a choice when they say something", () => {
+    for (const words of ["just me", "an app", "a shop", "idea", "We are three", "Six years now."]) expect(wordsCanBack(words), words).toBe(true);
+    for (const words of ["it", "we", "an", "it is", "yes", "Yeah, it's just", "um, so"]) expect(wordsCanBack(words), words).toBe(false);
+    const solo = checkLearned({ answers: { who: { value: "solo", words: "just me" } } }, [turn("m", "Oh, it's just me.")], "m", AT);
+    expect(solo.answers.who).toEqual({ value: "solo", words: "just me" });
   });
 
   it("a choice outside the list is blank", () => {

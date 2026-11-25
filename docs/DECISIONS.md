@@ -51,7 +51,8 @@ questions, or Skip) and moved Home's next action card to PR B. ADR-0016 is piece
    owner checks AI Studio's terms (billing on, the DPA and privacy policy name the Gemini API).
 6. **What was learned fails closed.** One text model call in JSON mode, then zod and code checks: an
    answer or a fact survives only when its words are inside ONE member turn (ignoring case, spacing
-   and punctuation). The transcript is fenced as data in the prompt and never logged. Nothing is
+   and punctuation), and an answer's words must be able to back it (4 letters or more, with a word
+   that isn't filler like "it" or "an"). The transcript is fenced as data in the prompt and never logged. Nothing is
    kept until "Looks right", which copies the kept facts from the stored result by id, never from
    the request. The 4 quick questions need no model call.
 7. **The microphone only on the welcome.** `next.config.ts` keeps `microphone=()` everywhere else,

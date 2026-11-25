@@ -87,6 +87,25 @@ export function quoteIn(memberTurns: readonly string[], quote: string, min: numb
   return memberTurns.some((t) => ` ${quoteKey(t)} `.includes(` ${key} `));
 }
 
+/** Words that say nothing on their own: an answer's words need one that isn't one of these. */
+const FILLER = new Set(
+  (
+    "a an the it its is am are was were be been being and or but so to of in on at for with by from as if then than " +
+    "that thats this these those there theres here do does did dont didnt have has had havent not no isnt yes yeah yep " +
+    "ok okay um uh er hmm oh ah well like just still yet really very quite maybe also too sure right im ive"
+  ).split(" "),
+);
+
+/**
+ * Whether an answer's words could say what was picked: at least 4 letters or digits, with a word
+ * that isn't filler. "It", "an" or "it is" can't back a choice; "just me" or "an app" can.
+ */
+export function wordsCanBack(words: string): boolean {
+  const key = quoteKey(words);
+  if (key.replace(/ /g, "").length < 4) return false;
+  return key.split(" ").some((w) => w.length >= 2 && !FILLER.has(w));
+}
+
 /** Four blanks and no facts. */
 export function blankLearned(model: string, at: string): Learned {
   const answers = Object.fromEntries(PROFILE_KEYS.map((k) => [k, { value: null, words: "" }])) as Record<ProfileKey, LearnedAnswer>;
@@ -139,7 +158,8 @@ function kindOf(raw: string): FactKind | null {
 
 /**
  * The model's answer, checked against the member's own turns. Pure, and fails closed: an answer
- * needs one of its choices AND its words inside one member turn; a fact needs a known kind, a
+ * needs one of its choices AND words that could back it (wordsCanBack) inside one member turn; a
+ * fact needs a known kind, a
  * short line with no AI tell, and a quote of 8 to 300 characters inside one member turn. A blank
  * keeps the words that left it unclear only when they are the member's. Unusable output gives four
  * blanks and no facts.
@@ -155,7 +175,7 @@ export function checkLearned(raw: unknown, turns: readonly ConversationTurn[], m
     if (!a) continue;
     const words = oneLine(a.words);
     const choice = a.value !== null && (PROFILE_CHOICES[key] as readonly string[]).includes(a.value) ? a.value : null;
-    if (choice && words.length <= L.MAX_QUOTE && quoteIn(member, words, 2)) out.answers[key] = { value: choice, words };
+    if (choice && words.length <= L.MAX_QUOTE && wordsCanBack(words) && quoteIn(member, words, 2)) out.answers[key] = { value: choice, words };
     else out.answers[key] = { value: null, words: words.length <= L.MAX_QUOTE && quoteIn(member, words, L.MIN_QUOTE) ? words : "" };
   }
 

@@ -8,6 +8,7 @@ import { personHref } from "@/lib/audience/paths";
 import type { PeopleFilters, PeopleRow } from "@/lib/audience/peopleList";
 import type { NewPersonVia } from "@/lib/audience/newPerson";
 import { parseFieldTag } from "@/lib/audience/fieldTags";
+import { MANY_LAUNCHES_TAG } from "@/lib/ideas/list";
 import type { FieldValue } from "@/lib/types/recordField";
 import { api } from "../connect/api";
 import { inputClass } from "../connect/ui";
@@ -232,6 +233,16 @@ export function AudienceList({
                 {l.name} <span className="tabular-nums opacity-70">{l.count}</span>
               </button>
             ))}
+          {filters.manyLaunches ? (
+            <button
+              type="button"
+              aria-pressed={show === MANY_LAUNCHES_TAG}
+              className={pill(show === MANY_LAUNCHES_TAG && !search)}
+              onClick={() => pick(MANY_LAUNCHES_TAG)}
+            >
+              In more than one launch <span className="tabular-nums opacity-70">{filters.manyLaunches}</span>
+            </button>
+          ) : null}
           {filters.via.site > 0 ? (
             <button type="button" aria-pressed={show === "via:site"} className={pill(show === "via:site" && !search)} onClick={() => pick("via:site")}>
               From your site <span className="tabular-nums opacity-70">{filters.via.site}</span>
@@ -284,7 +295,7 @@ export function AudienceList({
 
       {shownLabel && rows && total !== null ? (
         <p className="text-sm text-neutral-600 dark:text-neutral-400">
-          {total} {total === 1 ? "person" : "people"} with {shownLabel}
+          {total} {total === 1 ? "person" : "people"} {show === MANY_LAUNCHES_TAG ? "in more than one launch" : `with ${shownLabel}`}
           {canEmail ? ", only people we can email" : ""}
         </p>
       ) : null}

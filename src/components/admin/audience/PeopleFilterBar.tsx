@@ -4,12 +4,13 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, X } from "lucide-react";
 import type { FilterField, PeopleFilters } from "@/lib/audience/peopleList";
 import type { FieldValue } from "@/lib/types/recordField";
+import { MANY_LAUNCHES_TAG } from "@/lib/ideas/list";
 import { api } from "../connect/api";
 
 /**
  * The People list's filters with AUDIENCE_FIELD_FILTERS_ENABLED: Everyone and Only people we can
- * email, a menu each for launches, products and stages, and one for each of the brand's select,
- * multi select, status and checkbox fields. Firestore allows one array-contains a query, so one
+ * email, a menu each for launches, products and stages, In more than one launch (with ideas on), and
+ * one for each of the brand's select, multi select, status and checkbox fields. Firestore allows one array-contains a query, so one
  * filter applies at a time; a product group comes from "Everyone in this group" on a person's
  * page. A field's counts load when its menu opens.
  */
@@ -39,6 +40,7 @@ export function filterLabel(show: string, filters: PeopleFilters, group: ActiveG
   if (show === "all") return null;
   if (group && show === group.tag) return `Group: ${group.label}`;
   if (show === "via:site") return "Launch: From your site";
+  if (show === MANY_LAUNCHES_TAG) return "In more than one launch";
   const [kind, a, b] = show.split(":");
   if (kind === "launch") return `Launch: ${filters.launches.find((l) => l.id === a)?.name ?? "A launch"}`;
   if (kind === "product") return `Product: ${filters.products.find((p) => p.id === a)?.name ?? "A product"}`;
@@ -175,6 +177,16 @@ export function PeopleFilterBar({
               </>
             )}
           </Menu>
+        ) : null}
+        {filters.manyLaunches ? (
+          <button
+            type="button"
+            aria-pressed={shown === MANY_LAUNCHES_TAG}
+            className={pill(shown === MANY_LAUNCHES_TAG)}
+            onClick={() => (shown === MANY_LAUNCHES_TAG ? clear() : onPick(MANY_LAUNCHES_TAG))}
+          >
+            In more than one launch <span className="tabular-nums opacity-70">{filters.manyLaunches}</span>
+          </button>
         ) : null}
         {products.length ? (
           <>

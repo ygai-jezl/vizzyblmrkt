@@ -6,7 +6,9 @@ import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { computeGrowth, nextStepOf } from "@/lib/nav/growth";
 import { loadGrowthSignals } from "@/lib/nav/growthSignals";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
-import { isRateLimited } from "@/lib/tenant";
+import { isOnboardingEnabled } from "@/lib/onboarding/flags";
+import { nextActionStage } from "@/lib/onboarding/homeOrder";
+import { getTenantById, isRateLimited } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { docsOrigin } from "@/lib/developers/flags";
 import { helpPageMarkdown } from "./agentFiles";
@@ -17,7 +19,9 @@ import { helpPage, isHelpPageShown, shownHelpPages } from "./pages";
  * For Vizzy: where the brand is on its setup, and the help pages, so "What
  * should I set up first?" and "How do I…?" are answered from the brand's real
  * progress and the same pages people read. Auth: the signed canvas capability
- * token in `X-Canvas-Context`; gated by the setup guide flag.
+ * token in `X-Canvas-Context`; gated by the setup guide flag. With ONBOARDING_ENABLED it also
+ * gives `nextAction`, the stage and step Home's "Your next action" shows for the brand's answers,
+ * so Vizzy and Home agree.
  */
 
 interface ApiResult {
@@ -43,8 +47,9 @@ export async function agentSetupStatus(ctx: TenantContext, db?: FirestoreLike, o
   if (await isRateLimited(`tenant:${ctx.tenantId}`, STATUS_LIMIT, { db })) {
     return { status: 429, body: { error: "rate_limited" } };
   }
-  const growth = computeGrowth(
-    await loadGrowthSignals(
+  const onboarding = isOnboardingEnabled();
+  const [signals, tenant] = await Promise.all([
+    loadGrowthSignals(
       ctx,
       {
         lifecycle: isLifecycleEnabled(),
@@ -53,17 +58,34 @@ export async function agentSetupStatus(ctx: TenantContext, db?: FirestoreLike, o
       },
       db,
     ),
-    // The stage and step names Home shows, so Vizzy says Idea where the screens do.
-    { ideas: isIdeaWordsEnabled() },
-  );
+    // The brand's answers, for Your next action: one read, only while the switch is on. A failed
+    // read answers as no answers (the current stage), never an error.
+    onboarding ? getTenantById(ctx.tenantId, db).catch(() => null) : Promise.resolve(null),
+  ]);
+  // The stage and step names Home shows, so Vizzy says Idea where the screens do.
+  const growth = computeGrowth(signals, { ideas: isIdeaWordsEnabled() });
   const current = growth.stages.find((s) => s.key === growth.current) ?? null;
   const next = current ? nextStepOf(current) : null;
+  const action = onboarding ? nextActionStage(growth, tenant?.businessProfile?.answers) : null;
+  const actionStep = action ? nextStepOf(action) : null;
   return {
     status: 200,
     body: {
       allDone: growth.allRunning,
       currentStage: current ? { key: current.key, label: current.label, position: growth.stages.indexOf(current) + 1, of: growth.stages.length } : null,
       nextStep: next ? { label: next.label, appLink: next.href, howTo: helpUrl(next.howTo, origin), warning: next.warning ?? null } : null,
+      ...(onboarding
+        ? {
+            nextAction: action
+              ? {
+                  stage: { key: action.key, label: action.label, position: growth.stages.indexOf(action) + 1, of: growth.stages.length },
+                  step: actionStep
+                    ? { label: actionStep.label, appLink: actionStep.href, howTo: helpUrl(actionStep.howTo, origin), warning: actionStep.warning ?? null }
+                    : null,
+                }
+              : null,
+          }
+        : {}),
       stages: growth.stages.map((s) => ({
         key: s.key,
         label: s.label,

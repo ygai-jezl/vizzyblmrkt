@@ -18,16 +18,21 @@ def get_setup_status(tool_context: ToolContext) -> dict:
     Onboard & retain), each step done or not, what a
     step needs first (`needsFirst`), a warning where the order matters, the app page
     to do it (`appLink`) and the help page that explains it (`howTo`). Also
-    `currentStage`, `nextStep` and the list of `helpPages`.
+    `currentStage`, `nextStep` and the list of `helpPages`. When `nextAction` is
+    there, it is the stage and step Home's "Your next action" shows, picked from
+    what the brand said it wants first; `currentStage` is still where it is.
 
     Call this FIRST for "what should I set up first?", "what's next?", "am I set
-    up?", "why can't I…?" or any question about getting started. Answer with the
-    `nextStep` and why, in a sentence or two, give its `appLink` and `howTo`, and
-    pass on its `warning` when there is one. Never say a step is done unless it is.
+    up?", "why can't I…?" or any question about getting started. Answer with
+    `nextAction`'s step when it is there, else the `nextStep`, and why, in a
+    sentence or two, give its `appLink` and `howTo`, and pass on its `warning`
+    when there is one. Never say a step is done unless it is.
 
     Returns:
         {"status": "success", "currentStage": {...} or null, "nextStep": {...} or
-         null, "stages": [...], "helpPages": [...]}, or a status dict to relay.
+         null, "nextAction": {"stage": {...}, "step": {...} or null} or null (only
+         some copies), "stages": [...], "helpPages": [...]}, or a status dict to
+         relay.
     """
     state = getattr(tool_context, "state", None) or {}
     return get_status(state)

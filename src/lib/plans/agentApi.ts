@@ -2,7 +2,7 @@ import { isCanvasAuthConfigured, tenantContextFromCanvasToken, verifyCanvasConte
 import { meaningsOf, numberKeys } from "@/lib/metrics/meanings";
 import { isRateLimited, type TenantContext } from "@/lib/tenant";
 import { isUsageMeterEnabled } from "./flags";
-import { PURPOSE_LABELS, type ResourcePurpose } from "./resources";
+import { purposeLabel } from "./resources";
 import { organisationUsage, type MonthlyRow, type UsageDeps, type UsageSummary } from "./usage";
 
 /**
@@ -44,7 +44,7 @@ function rowForAgent(row: MonthlyRow) {
     byFeature: Object.entries(row.byPurpose ?? {})
       .filter(([, n]) => n > 0)
       .sort((a, b) => b[1] - a[1])
-      .map(([p, n]) => ({ feature: PURPOSE_LABELS[p as ResourcePurpose] ?? p, usedThisMonth: n })),
+      .map(([p, n]) => ({ feature: purposeLabel(p), usedThisMonth: n })),
     ...(row.byModel
       ? {
           byModel: Object.entries(row.byModel)

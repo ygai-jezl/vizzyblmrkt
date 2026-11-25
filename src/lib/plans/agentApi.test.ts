@@ -44,6 +44,23 @@ describe("get_usage", () => {
     expect(Object.keys(body.meanings).sort()).toEqual(["leftThisMonth", "monthlyLimit", "usedThisMonth"]);
   });
 
+  it("names what used model time in a month counted before and after the writing split, and keeps a key it doesn't know", async () => {
+    const model = (byPurpose: Record<string, number>) =>
+      summary({ monthly: [{ feature: "model_tokens", label: "AI model use", unit: "tokens", used: 1000, limit: null, from: null, included: true, needs: null, byPurpose }] });
+    const r = await agentUsage(ctx, {
+      summary: async () => model({ content_write: 500, content_email: 200, content_hub: 150, content_brief: 80, content_angle: 50, retired_feature: 20 }),
+    });
+    const rows = (r.body as { thisBrand: Array<{ key: string; byFeature: unknown }> }).thisBrand;
+    expect(rows.find((x) => x.key === "model_tokens")?.byFeature).toEqual([
+      { feature: "Writing posts", usedThisMonth: 500 },
+      { feature: "Writing workflow emails", usedThisMonth: 200 },
+      { feature: "Writing hub content", usedThisMonth: 150 },
+      { feature: "Writing briefs", usedThisMonth: 80 },
+      { feature: "Suggesting angles", usedThisMonth: 50 },
+      { feature: "retired_feature", usedThisMonth: 20 },
+    ]);
+  });
+
   it("adds the organisation's totals only when the summary has them (owners)", async () => {
     const plain = await agentUsage(ctx, { summary: async () => summary() });
     expect(plain.body).not.toHaveProperty("organisation");

@@ -201,7 +201,7 @@ export async function suggestAngle(
     timeoutMs: SUGGEST_MS,
     temperature: input.previous ? 0.9 : 0.6,
     thinkingBudget: 256,
-    usage: aiUsage(ctx, "content_write", { db: deps.db }),
+    usage: aiUsage(ctx, "content_angle", { db: deps.db }),
   }).catch(() => null);
   if (answer === null) return { ok: false, status: 502, error: "suggest_failed" };
   const spark = parseAngle(answer);

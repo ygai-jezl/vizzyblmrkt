@@ -113,6 +113,7 @@ beforeEach(() => {
   vi.stubEnv("ADMIN_ALLOWED_DOMAINS", "example.org");
   vi.stubEnv("SELF_SERVE_SIGNUP_ENABLED", "");
   vi.stubEnv("NEXT_PUBLIC_PLATFORM_ORIGIN", PLATFORM);
+  vi.stubEnv("EMAIL_LINK_ORIGIN", "");
   vi.spyOn(console, "info").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
@@ -556,6 +557,16 @@ describe("the link", () => {
     vi.stubEnv("NEXT_PUBLIC_PLATFORM_ORIGIN", "javascript:alert(1)");
     expect(confirmLinkUrl(token)).toBeNull();
     expect(() => confirmLinkUrl("not a token")).toThrow();
+  });
+
+  it("uses EMAIL_LINK_ORIGIN first, like unsubscribe and invite links, so a backend without a platform origin still gets links", () => {
+    const token = "c".repeat(43);
+    vi.stubEnv("EMAIL_LINK_ORIGIN", "https://dev-backend.example.com/");
+    expect(confirmLinkUrl(token)).toBe(`https://dev-backend.example.com/login/confirm#t=${token}`);
+    vi.stubEnv("NEXT_PUBLIC_PLATFORM_ORIGIN", "");
+    expect(confirmLinkUrl(token)).toBe(`https://dev-backend.example.com/login/confirm#t=${token}`);
+    vi.stubEnv("EMAIL_LINK_ORIGIN", "javascript:alert(1)");
+    expect(confirmLinkUrl(token)).toBeNull();
   });
 
   describe("the email", () => {

@@ -79,8 +79,8 @@ The owner's decisions, D1 to D7, all as recommended:
   instead" (`POST /api/auth/email-code` with `via: "link"`). The link holds 32 random bytes, so it
   can't be guessed and needs no cap on wrong tries; it goes through the same gate and limits as a
   code and counts toward the address's 6 sends an hour, but the lock doesn't stop it. It is built
-  only from `NEXT_PUBLIC_PLATFORM_ORIGIN`, never a request header (none set: 503
-  `link_unavailable`), with the token in the fragment (`/login/confirm#t=...`), which browsers
+  only from `EMAIL_LINK_ORIGIN`, else `NEXT_PUBLIC_PLATFORM_ORIGIN` (the rule unsubscribe and
+  invite links follow), never a request header (neither set: 503 `link_unavailable`), with the token in the fragment (`/login/confirm#t=...`), which browsers
   never send to a server. It is stored hashed with the account's uid and address in
   `email_confirm_links`, so it works only in a browser signed in to that account (the page asks
   for the email and password first); that keeps D1's point, since a stranger's account can't be

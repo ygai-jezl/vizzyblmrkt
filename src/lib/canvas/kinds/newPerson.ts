@@ -82,7 +82,7 @@ export async function authorNewPerson({ ctx, input }: CanvasAuthorArgs, deps: { 
   };
 }
 
-export const newPersonCanvasKind: CanvasKind = {
+export const newPersonCanvasKind: CanvasKind<"new_person"> = {
   kind: "new_person",
   label: "New person form, filled in",
   authorDraft: (args) => authorNewPerson(args),

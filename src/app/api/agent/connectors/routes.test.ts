@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { __resetRateLimitState } from "@/lib/tenant/rateLimit";
 import { createDataConnection, type TenantContext } from "@/lib/tenant";
-import { MEANINGS, numberKeys } from "@/lib/metrics/meanings";
+import { MEANINGS, numberKeys, shownMeaning } from "@/lib/metrics/meanings";
 import { sealConnectorSecret } from "@/lib/connectors/vault";
 import { CONNECTORS_AGENT_LIMIT, CONNECTORS_NUMBERS_LIMIT } from "@/lib/connectors/agentGate";
 import { addDays } from "@/lib/connectors/period";
@@ -252,7 +252,7 @@ describe("/api/agent/connectors/numbers", () => {
     expect(body.totals).toEqual({ cfRequests: 10000, cfPageViews: 1000, cfVisits: 400, cfUniqueVisitors: null });
     expect(body.rows).toHaveLength(10);
     // The contract: every number anywhere in the answer has its meaning, word for word.
-    for (const k of numberKeys(body)) expect(body.meanings[k], k).toEqual(MEANINGS[k as keyof typeof MEANINGS]);
+    for (const k of numberKeys(body)) expect(body.meanings[k], k).toEqual(shownMeaning(MEANINGS[k as keyof typeof MEANINGS]));
     expect(Object.keys(body.meanings)).toEqual(expect.arrayContaining(["rowsDropped", "lagDays", "cfRequests", "cfUniqueVisitors"]));
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -342,7 +342,7 @@ describe("/api/agent/connectors/suggestions", () => {
       agentActionId: expect.stringMatching(/^aa_/),
       connection: { id: SC, connector: "Google Search Console", site: "fernhill.example" },
     });
-    for (const k of numberKeys(body)) expect(body.meanings[k], k).toEqual(MEANINGS[k as keyof typeof MEANINGS]);
+    for (const k of numberKeys(body)) expect(body.meanings[k], k).toEqual(shownMeaning(MEANINGS[k as keyof typeof MEANINGS]));
     expect(body.note).toContain("Read only");
     expect((await (await ask({ rule: "within_reach", limit: 5 })).json()).suggestions).toHaveLength(1);
     // A member reads the same: a planning connection lets members read it.

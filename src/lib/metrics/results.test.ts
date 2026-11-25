@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
-import { MEANINGS, numberKeys } from "./meanings";
+import { MEANINGS, meaningsOf, numberKeys, type Meaning } from "./meanings";
 
 // The analytics the screens use are mocked: these tests check what Vizzy gets from them.
 const src = vi.hoisted(() => ({
@@ -102,6 +102,21 @@ describe("post results", () => {
 });
 
 describe("the meanings", () => {
+  it("set better and family together, on every meaning the learning loops name", () => {
+    for (const [k, m] of Object.entries(MEANINGS) as Array<[string, Meaning]>) expect(m.better === undefined, k).toBe(m.family === undefined);
+    for (const k of ["editShare", "keptShare", "declineShare", "likedShare", "unusedShare", "remadeShare", "openRate", "clickRate", "engagementRate", "searchClicks"] as const) {
+      expect((MEANINGS[k] as Meaning).better, k).toBeDefined();
+    }
+  });
+
+  it("leave better and family out of answers, which stay as they were", () => {
+    const { openRate, editShare } = meaningsOf(["openRate", "editShare"]);
+    expect(openRate).not.toHaveProperty("better");
+    expect(openRate).not.toHaveProperty("family");
+    expect(editShare).toEqual({ ...MEANINGS.editShare, better: undefined, family: undefined });
+    expect(Object.keys(editShare!)).not.toContain("family");
+  });
+
   it("are written in house style", () => {
     for (const [k, m] of Object.entries(MEANINGS)) {
       const text = Object.values(m).join(" ");

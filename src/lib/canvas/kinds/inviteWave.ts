@@ -170,7 +170,7 @@ export async function authorInviteWaveDraft(
   return outcome(r.value, setup.campaign, false);
 }
 
-export const inviteWaveCanvasKind: CanvasKind = {
+export const inviteWaveCanvasKind: CanvasKind<"invite_wave"> = {
   kind: "invite_wave",
   label: "waitlist invite",
   authorDraft: (args) => authorInviteWaveDraft(args),

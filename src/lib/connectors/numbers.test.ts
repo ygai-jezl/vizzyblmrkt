@@ -3,7 +3,7 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { shapeRecordingFirestore } from "@/lib/tenant/testing/queryShape";
 import { isStoredTimestamp, timestampFirestore } from "@/lib/tenant/testing/timestampFirestore";
 import { createDataConnection, type TenantContext } from "@/lib/tenant";
-import { MEANINGS, numberKeys } from "@/lib/metrics/meanings";
+import { MEANINGS, numberKeys, shownMeaning } from "@/lib/metrics/meanings";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { CollectStateSchema, type ConnectionGrant, type DataConnection } from "@/lib/types/dataConnection";
 import type { SnapshotBasis, SnapshotNote, SnapshotRow } from "@/lib/types/metricSnapshot";
@@ -170,7 +170,7 @@ const ask = (body: Record<string, unknown>, actor: ConnectorActor = forAdmin, ct
 function explainsEveryNumber(body: Record<string, unknown>) {
   const keys = [...numberKeys(body)];
   const meanings = body.meanings as Record<string, unknown>;
-  for (const k of keys) expect(meanings[k], k).toEqual(MEANINGS[k as keyof typeof MEANINGS]);
+  for (const k of keys) expect(meanings[k], k).toEqual(shownMeaning(MEANINGS[k as keyof typeof MEANINGS]));
   expect(Object.keys(meanings).sort()).toEqual(keys.sort());
 }
 

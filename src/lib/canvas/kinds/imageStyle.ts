@@ -85,7 +85,7 @@ export async function authorImageStyleSuggestion(
   };
 }
 
-export const imageStyleCanvasKind: CanvasKind = {
+export const imageStyleCanvasKind: CanvasKind<"image_style"> = {
   kind: "image_style",
   label: "image style suggestion",
   authorDraft: (args) => authorImageStyleSuggestion(args),

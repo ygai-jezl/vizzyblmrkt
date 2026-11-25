@@ -1,4 +1,5 @@
 import type { MeaningKey } from "@/lib/metrics/meanings";
+import type { LoopKind } from "@/lib/loops/registry";
 import type { SearchKind } from "@/lib/search/types";
 import type { EventKind } from "./events";
 
@@ -157,4 +158,10 @@ export interface OntologyType {
   export: PathDecision;
   search: SearchDecision;
   numbers: NumberDecision;
+  /**
+   * The places YouGrow makes a choice for a brand (src/lib/loops/registry.ts) whose choices this
+   * type's stores hold or were shaped by. Empty when the stores hold no choice YouGrow makes: what
+   * people typed or did, outside numbers, or plumbing. Planned types hold nothing yet.
+   */
+  madeBy: readonly LoopKind[];
 }

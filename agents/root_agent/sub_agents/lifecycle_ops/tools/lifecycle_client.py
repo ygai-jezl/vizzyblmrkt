@@ -210,7 +210,7 @@ _PERSON_ERRORS = {
     "unavailable": "Looking at one person isn't switched on in this environment.",
     "person_not_found": "I couldn't find that person in this account.",
     "person_erased": "That person has been erased, so there's nothing I can read about them.",
-    "person_only_launches": "This person has only joined your launches. I can read the situation of people who use a connected product.",
+    "person_only_launches": "This person has only joined your waitlists. I can read the situation of people who use a connected product.",
     "rate_limited": "I've looked at a lot of people in the last hour — please try again a bit later.",
 }
 

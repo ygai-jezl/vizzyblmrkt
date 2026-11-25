@@ -28,10 +28,33 @@ export const FRESH_REASONS: FreshnessReason[] = [
   { kind: "within_reach", detail: "Search Console: position 9 on average, 1,900 impressions in 28 days. A refresh could lift it onto page one.", hard: false },
 ];
 
+/**
+ * The brand's live, approved blog article at FRESH.url (published 20 Oct), in its own programme,
+ * with the freshness given (none: the watch hasn't looked yet) and, optionally, its own body.
+ */
+export function seedLiveArticle(ctx: TenantContext, db: FakeFirestore, opts: { freshness?: BlogArticleFreshness; body?: string } = {}): void {
+  db.seed("workspaces", FRESH.workspaceId, { tenantId: ctx.tenantId, name: "Plant care", createdAt: "2026-01-01T00:00:00.000Z" });
+  const hub = sampleHub({
+    status: "approved",
+    ...(opts.body !== undefined ? { body: opts.body } : {}),
+    blog: {
+      ...BlogArticleMetaSchema.parse({}),
+      live: { url: FRESH.url, at: "2026-10-21T08:00:00.000Z", by: "check", titleMatched: true },
+      dates: { published: { at: "2026-10-20", source: "page" } },
+      ...(opts.freshness ? { freshness: opts.freshness } : {}),
+    },
+  });
+  db.seed(
+    `workspaces/${FRESH.workspaceId}/content_plans`,
+    FRESH.planId,
+    samplePlan({ id: FRESH.planId, tenantId: ctx.tenantId, workspaceId: FRESH.workspaceId, name: "Fiddle leaf fig care", strategy: { objective: "brand_visibility", hubUrl: FRESH.url } }, hub),
+  );
+}
+
+/** The article above as the watch left it, with its row on the due list, and the brand's Next up. */
 export async function seedFreshArticle(ctx: TenantContext, db: FakeFirestore, now: Date): Promise<void> {
   const at = now.toISOString();
   const dueAt = "2026-11-10T08:00:00.000Z";
-  db.seed("workspaces", FRESH.workspaceId, { tenantId: ctx.tenantId, name: "Plant care", createdAt: "2026-01-01T00:00:00.000Z" });
   const freshness: BlogArticleFreshness = {
     clockDays: 20,
     arm: "test",
@@ -46,20 +69,7 @@ export async function seedFreshArticle(ctx: TenantContext, db: FakeFirestore, no
     openAtStart: 3,
     events: [{ at, kind: "due", clockDays: 20 }],
   };
-  const hub = sampleHub({
-    status: "approved",
-    blog: {
-      ...BlogArticleMetaSchema.parse({}),
-      live: { url: FRESH.url, at: "2026-10-21T08:00:00.000Z", by: "check", titleMatched: true },
-      dates: { published: { at: "2026-10-20", source: "page" } },
-      freshness,
-    },
-  });
-  db.seed(
-    `workspaces/${FRESH.workspaceId}/content_plans`,
-    FRESH.planId,
-    samplePlan({ id: FRESH.planId, tenantId: ctx.tenantId, workspaceId: FRESH.workspaceId, name: "Fiddle leaf fig care", strategy: { objective: "brand_visibility", hubUrl: FRESH.url } }, hub),
-  );
+  seedLiveArticle(ctx, db, { freshness });
   const watch: Omit<FreshnessWatchDoc, "id" | "tenantId"> = {
     nextAt: new Date(now.getTime() + 86_400_000).toISOString(),
     counts: { fresh: 0, soon: 0, due: 1 },

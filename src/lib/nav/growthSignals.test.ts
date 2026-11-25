@@ -102,6 +102,26 @@ describe("loadGrowthSignals", () => {
     expect(s.recordsEver).toBe(2);
   });
 
+  it("knows whether any programme, connection or product journey exists, archived, sandbox and revoked too", async () => {
+    const db = new FakeFirestore();
+    seed(db);
+    const s = await loadGrowthSignals(ctx, { lifecycle: true }, db);
+    expect([s.anyProgramme, s.anyConnection, s.anyProductJourney]).toEqual([true, true, true]);
+    const empty = await loadGrowthSignals(other, { lifecycle: true }, db);
+    expect([empty.anyProgramme, empty.anyConnection, empty.anyProductJourney]).toEqual([false, false, false]);
+
+    const kept = new FakeFirestore();
+    kept.seed("workspaces", "w_arch", { tenantId: "ten_A", name: "Old", archivedAt: "2026-09-11T00:00:00Z" });
+    kept.seed("product_connections", "pc_sandbox", { tenantId: "ten_A", kind: "sandbox", status: "revoked" });
+    kept.seed("lifecycle_journeys", "lcj_welcome", { tenantId: "ten_A", status: "active", connectionId: "", audience: { kind: "waitlist", campaignId: "c1" } });
+    const k = await loadGrowthSignals(ctx, { lifecycle: true }, kept);
+    expect(k.workspaces).toBe(0);
+    expect(k.products).toBe(0);
+    expect([k.anyProgramme, k.anyConnection, k.anyProductJourney]).toEqual([true, true, false]);
+    kept.seed("lifecycle_journeys", "lcj_arch", { tenantId: "ten_A", status: "archived", connectionId: "pc_sandbox" });
+    expect((await loadGrowthSignals(ctx, { lifecycle: true }, kept)).anyProductJourney).toBe(true);
+  });
+
   it("doesn't know the count when a list it counts couldn't be read", async () => {
     for (const collection of ["campaigns", "workspaces", "product_connections", "lifecycle_journeys"]) {
       const s = await loadGrowthSignals(other, { lifecycle: true }, failingFirestore(new FakeFirestore(), { collections: [collection] }));

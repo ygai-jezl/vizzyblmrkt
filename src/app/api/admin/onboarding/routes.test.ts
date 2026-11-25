@@ -149,6 +149,24 @@ describe("POST /api/admin/onboarding/conversations/[id]/confirm", () => {
     expect(await store.listBusinessFacts(A, { db })).toHaveLength(1);
   });
 
+  it("starts the sidebar's Coming up when it finishes the welcome's first visit, and only then", async () => {
+    // Home's first visit started the profile; Looks right finishes the welcome.
+    db.seed("tenants", "ten_A", { ...db.raw("tenants", "ten_A"), businessProfile: { status: "started", answers: {}, rev: 0, startedAt: "2026-11-25T09:00:00.000Z" } });
+    db.seed("contacts", "ct_1", { tenantId: "ten_A", email: "pat@example.com" });
+    expect((await post({ answers: { run: "shop", want: "audience" }, keep: [] })).status).toBe(200);
+    expect((await getTenantById("ten_A", db))?.sidebarReveal).toMatchObject({ shown: ["content", "audience", "insights"], opened: [] });
+    expect(db.raw("tenants", "ten_B")!.sidebarReveal).toBeUndefined();
+  });
+
+  it("keeps today's sidebar when the brand had finished or skipped the welcome before (Talk with Vizzy again)", async () => {
+    for (const status of ["done", "skipped"]) {
+      db.seed("tenants", "ten_A", { ...db.raw("tenants", "ten_A"), businessProfile: { status, answers: {}, rev: 1, startedAt: "2026-11-25T09:00:00.000Z" } });
+      const id = await endedConversation(A);
+      expect((await post({ answers: { want: "customers" }, keep: [] }, id)).status).toBe(200);
+      expect(db.raw("tenants", "ten_A")!.sidebarReveal, status).toBeUndefined();
+    }
+  });
+
   it("409s a conversation still live, and 429s over the limit", async () => {
     const live = await store.startConversation(A, { model: "live" }, { db });
     const res = await post({ answers: {}, keep: [] }, live.ok ? live.value.id : "");

@@ -13,6 +13,9 @@ const control = vi.hoisted(() => ({
 vi.mock("@/lib/tenant/control", () => control);
 const limits = vi.hoisted(() => ({ isRateLimited: vi.fn(async () => false) }));
 vi.mock("@/lib/tenant/rateLimit", () => limits);
+// The sidebar's side of a save (src/lib/onboarding/revealFacts.test.ts has the rules).
+const reveal = vi.hoisted(() => ({ revealAfterProfileSave: vi.fn(async () => {}) }));
+vi.mock("@/lib/onboarding/revealFacts", () => reveal);
 
 const { PUT } = await import("./route");
 
@@ -94,6 +97,14 @@ describe("PUT /api/admin/onboarding/profile", () => {
     expect(control.setBusinessProfile).toHaveBeenLastCalledWith("ten_A", { status: "skipped" });
   });
 
+  it("hands every save to the sidebar's Coming up, with the profile before and after", async () => {
+    await PUT(req({ answers: { want: "audience" }, status: "done", via: "questions" }));
+    expect(reveal.revealAfterProfileSave).toHaveBeenCalledWith(admin, {
+      before: expect.objectContaining({ status: "started" }),
+      after: expect.objectContaining({ status: "done", answers: { want: "audience" } }),
+    });
+  });
+
   it("404s when the brand is gone, and 429s over the limit", async () => {
     control.setBusinessProfile.mockResolvedValueOnce(null as never);
     expect((await PUT(req({ status: "done", via: "questions" }))).status).toBe(404);
@@ -101,5 +112,6 @@ describe("PUT /api/admin/onboarding/profile", () => {
     const res = await PUT(req({ status: "done", via: "questions" }));
     expect(res.status).toBe(429);
     expect(await res.json()).toEqual({ error: "rate_limited" });
+    expect(reveal.revealAfterProfileSave).not.toHaveBeenCalled();
   });
 });

@@ -33,11 +33,28 @@ export interface SetupOptions {
   brandMap: boolean;
 }
 
+/**
+ * What loadGrowthSignals reads beside the growth path, from the same lists (no extra reads). The
+ * three `any` facts count archived, sandbox and revoked records too: a section with data always
+ * shows in the sidebar's Coming up (src/lib/onboarding/revealFacts.ts).
+ */
+export interface GrowthExtras {
+  lastEventAt: string | null;
+  catalogSteps: number;
+  recordsEver: number | null;
+  /** Any programme, archived ones too. */
+  anyProgramme: boolean;
+  /** Any product connection: a sandbox or a revoked one too (lifecycle only). */
+  anyConnection: boolean;
+  /** Any product journey (not a launch's welcome journey), in any status (lifecycle only). */
+  anyProductJourney: boolean;
+}
+
 export async function loadGrowthSignals(
   ctx: TenantContext,
   opts: { lifecycle: boolean; invites?: boolean; setup?: SetupOptions },
   db?: FirestoreLike,
-): Promise<GrowthSignals & { lastEventAt: string | null; catalogSteps: number; recordsEver: number | null }> {
+): Promise<GrowthSignals & GrowthExtras> {
   const repos = forTenant(ctx, db);
   const setup = opts.setup ? loadSetupSignals(ctx, opts.setup, db) : Promise.resolve(undefined);
   // The lists behind recordsEver: a read that fell back to empty makes it unknown, never 0.
@@ -110,6 +127,9 @@ export async function loadGrowthSignals(
     // Everything the brand ever made: archived launches and programmes, sandboxes and waitlist
     // journeys too (the welcome's first visit rule). Null when one of those reads failed.
     recordsEver: failed.size > 0 ? null : campaigns.length + workspaces.length + connections.length + journeys.length,
+    anyProgramme: workspaces.length > 0,
+    anyConnection: connections.length > 0,
+    anyProductJourney: journeys.some((j) => j.audience?.kind !== "waitlist"),
   };
 }
 

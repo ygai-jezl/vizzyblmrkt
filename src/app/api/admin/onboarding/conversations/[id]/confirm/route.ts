@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { badId, invalidInput, limitPerUser, ok, onboardingAdmin, refused } from "@/lib/onboarding/api";
+import { revealAfterProfileSave } from "@/lib/onboarding/revealFacts";
 import { confirmLearned } from "@/lib/onboarding/store";
 import { ProfileAnswersInputSchema } from "@/lib/types/businessProfile";
 import { LEARNED_FACT_ID_RE, ONBOARDING_LIMITS, isConversationId } from "@/lib/types/onboarding";
@@ -22,7 +23,8 @@ const Body = z
 /**
  * "Looks right" on Here's what I learned (ONBOARDING_ENABLED; admins): save the answers to the
  * brand's profile and keep the picked facts, copied from what the conversation learned. A repeat
- * adds nothing. The brand is the session's, never the body's.
+ * adds nothing. The brand is the session's, never the body's. On the welcome's first visit (the
+ * profile still started) it also starts the sidebar's Coming up (revealAfterProfileSave).
  */
 export async function POST(req: Request, { params }: RouteParams) {
   const g = await onboardingAdmin(req, { need: "onboarding" });
@@ -36,6 +38,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
   const r = await confirmLearned(g.ctx, id, parsed.data);
   if (!r.ok) return refused(r);
+  if (!r.value.repeat && r.value.profile) await revealAfterProfileSave(g.ctx, { before: r.value.before, after: r.value.profile });
   return ok({
     profile: r.value.profile,
     kept: r.value.kept.map((f) => ({ id: f.id, kind: f.kind, text: f.text, quote: f.quote, source: f.source, conversationId: f.conversationId, heardAt: f.heardAt })),

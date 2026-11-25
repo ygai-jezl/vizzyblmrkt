@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { invalidInput, limitPerUser, onboardingAdmin } from "@/lib/onboarding/api";
+import { revealAfterProfileSave } from "@/lib/onboarding/revealFacts";
 import { setBusinessProfile } from "@/lib/tenant/control";
 import { ProfileAnswersInputSchema } from "@/lib/types/businessProfile";
 
@@ -26,6 +27,9 @@ const Body = z
  * The brand's profile (ONBOARDING_ENABLED; admins): an answer picked on the 4 quick questions or
  * in Settings, "That's all four" (done) or Skip for now (skipped). A skip only replaces started,
  * and done never goes back. The brand is the session's, never the body's.
+ *
+ * "That's all four" on the welcome's first visit (started to done, with an answer) also starts the
+ * sidebar's Coming up; a later changed answer only adds what now fits (revealAfterProfileSave).
  */
 export async function PUT(req: Request) {
   const g = await onboardingAdmin(req, { need: "onboarding" });
@@ -43,5 +47,6 @@ export async function PUT(req: Request) {
     ...(via === "welcome" ? {} : { via }),
   });
   if (!result) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  await revealAfterProfileSave(g.ctx, result);
   return NextResponse.json({ profile: result.after }, { headers: { "cache-control": "no-store" } });
 }

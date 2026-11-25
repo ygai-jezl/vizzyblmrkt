@@ -54,14 +54,17 @@ export const SEARCH_CONSOLE_CHIP = "Search Console";
  * Take off the stored Next up picks that weighed Search Console (a chip of its own), once a
  * connection stops feeding planning: the stored list is seen by the whole team and by Vizzy, and a
  * pick's reason may rest on those numbers. The next pick weighs what is left. Returns how many.
+ * With `notShared: false` (an erase: the numbers went, not the sharing), Next up's list of what it
+ * couldn't see is left as it is.
  */
-export async function dropSearchConsolePicks(ctx: TenantContext, deps: { db?: FirestoreLike } = {}): Promise<number> {
+export async function dropSearchConsolePicks(ctx: TenantContext, deps: { db?: FirestoreLike; notShared?: boolean } = {}): Promise<number> {
   let dropped = 0;
+  const say = deps.notShared !== false;
   await forTenant(ctx, deps.db).nextUp.claim(nextUpDocId(ctx.tenantId), (cur) => {
     const keep = cur.picks.filter((p) => !p.chips.some((c) => c.label === SEARCH_CONSOLE_CHIP));
     dropped = cur.picks.length - keep.length;
     if (!dropped) return null;
-    return { picks: keep, missing: cur.missing.includes(NOT_SHARED_NEXT_UP) ? cur.missing : [...cur.missing, NOT_SHARED_NEXT_UP] };
+    return { picks: keep, ...(say ? { missing: cur.missing.includes(NOT_SHARED_NEXT_UP) ? cur.missing : [...cur.missing, NOT_SHARED_NEXT_UP] } : {}) };
   });
   return dropped;
 }

@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemorySearchIndex } from "@/lib/search/memoryStore";
 import type { SearchStore } from "@/lib/search/types";
+import { freshnessWatchId } from "@/lib/content/blog/freshnessPages";
+import { FRESH, seedFreshArticle } from "@/lib/content/blog/testing/freshness";
+import { failingFirestore } from "@/lib/tenant/testing/failingFirestore";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
+import { getContentPlan } from "@/lib/tenant/workspaceContent";
 import { changeDataConnection, createDataConnection, forTenant, type NewDataConnection, type TenantContext } from "@/lib/tenant";
 import { ACTIVITY_KINDS, freshCollect } from "@/lib/types/dataConnection";
 import type { ConnectorActor } from "./grants";
@@ -366,5 +370,64 @@ describe("searches in brand search", () => {
     // Run again: nothing is left, and nothing is said about searches.
     const again = await purgeConnections(system, { apply: false, db, searchIndex });
     expect(again.items[0]).toMatchObject({ searchEntry: false });
+  });
+});
+
+describe("Search Console's figures in article freshness", () => {
+  const watch = async () => (await forTenant(A, db).freshnessWatch.getById(freshnessWatchId(A.tenantId)))!;
+  const card = async () => (await getContentPlan(A, FRESH.workspaceId, FRESH.planId, db))!.graph.nodes[0]!.blog!.freshness!;
+  const kindsOf = (reasons: readonly { kind: string }[]) => reasons.map((r) => r.kind);
+
+  it("leave on Disconnect, with the article's own reasons kept and the watch due now, whatever any switch says", async () => {
+    await seed();
+    await seedFreshArticle(A, db, NOW);
+    expect((await disconnect(A, admin, ID, deps())).ok).toBe(true);
+    expect(kindsOf((await watch()).due[0]!.reasons)).toEqual(["dead_link"]);
+    expect((await watch()).nextAt).toBe(NOW.toISOString());
+    expect(kindsOf((await card()).reasons)).toEqual(["dead_link"]);
+    expect((await load()).collect?.erasePending).toBeNull();
+    expect(kinds()).toEqual(["connected", "disconnected", "erased:all"]);
+  });
+
+  it("leave on Change property, as the old site's", async () => {
+    await seed();
+    await seedFreshArticle(A, db, NOW);
+    expect((await pickAccount(A, admin, ID, { account: NEW_SITE }, deps())).ok).toBe(true);
+    expect(kindsOf((await card()).reasons)).toEqual(["dead_link"]);
+    expect((await watch()).nextAt).toBe(NOW.toISOString());
+  });
+
+  it("stay for a Cloudflare or Google Analytics connection", async () => {
+    const others: Partial<NewDataConnection>[] = [
+      { connectorId: "cloudflare", method: "token_fields", label: "Cloudflare", account: "0123456789abcdef0123456789abcdef", secrets: {} },
+      { connectorId: "google-analytics", method: "share_access", label: "Google Analytics 4", account: "properties/123456789", secrets: {} },
+    ];
+    for (const over of others) {
+      db = new FakeFirestore();
+      await seed(over);
+      await seedFreshArticle(A, db, NOW);
+      const before = { watch: await watch(), card: await card(), nextUp: db.dump("next_up") };
+      await eraseConnectionData(A, ID, "all", { by: "system", now: NOW, db, searchIndex });
+      expect(await watch()).toEqual(before.watch);
+      expect(await card()).toEqual(before.card);
+      expect(db.dump("next_up")).toEqual(before.nextUp);
+    }
+  });
+
+  it("never hold the erase up: when taking them out fails, the erase still finishes and nothing is left pending", async () => {
+    await seed();
+    await collected(0);
+    await seedFreshArticle(A, db, NOW);
+    await changeDataConnection(A, ID, (cur) => ({ patch: { status: "disconnected", collect: { ...cur.collect!, erasePending: "all" } }, activity: [] }), db);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const down = failingFirestore(db, { collections: ["freshness_watch", "workspaces", "next_up"] });
+    const r = await eraseConnectionData(A, ID, "all", { by: "system", now: NOW, db: down, searchIndex });
+    expect(r).toMatchObject({ snapshots: 6, search: "removed" });
+    expect(snapshotsOf()).toEqual([]);
+    expect((await load()).collect?.erasePending).toBeNull();
+    expect(kinds()).toEqual(["connected", "erased:all"]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]![0])).toContain("[freshness]");
+    warn.mockRestore();
   });
 });

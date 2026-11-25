@@ -1,3 +1,4 @@
+import { clearSearchConsoleReasons } from "@/lib/content/blog/freshnessErase";
 import { removeFromIndex } from "@/lib/search/indexer";
 import type { SearchStore } from "@/lib/search/types";
 import { changeDataConnection, forTenant, type TenantContext } from "@/lib/tenant";
@@ -27,7 +28,10 @@ import { eraseSnapshots } from "./snapshots";
  * data_signals rows (group 4), after their open suggestions are declined as stale with their
  * values cleared and the brand map questions they proposed that nobody has decided are withdrawn
  * (removed, not dismissed, so their words don't stay; decided ones stay, a person adopted them);
- * and a Search Console connection's searches in brand search (ADR-0013), removed
+ * for a Search Console connection, the figures article freshness copied from its numbers (the
+ * "losing clicks" and "within reach" reasons on the brand's due list and each live article, and
+ * Next up picks that weighed Search Console; src/lib/content/blog/freshnessErase.ts), which never
+ * holds the erase up; and a Search Console connection's searches in brand search (ADR-0013), removed
  * with indexing forced on, so they leave whatever SEARCH_INDEX_ENABLED or
  * CONNECTORS_SEARCH_TEXT_ENABLED says; a failed removal leaves the erase pending for the lane. Each
  * erase records one `erased` activity row, kept in the log only, never on the record's recent list.
@@ -50,14 +54,23 @@ export interface EraseCounts {
 }
 
 /**
- * Remove a connection's searches from brand search, whatever any switch says. Only Search Console
- * connections put any there; one that can't be read is tried anyway, so nothing is left behind.
+ * Whether a connection may have put Search Console's numbers beyond its own snapshots and
+ * suggestions: a Search Console one, or one that can't be read, which is treated as one so nothing
+ * is left behind.
  */
-async function eraseSearchText(ctx: TenantContext, connectionId: string, deps: { db?: FirestoreLike; searchIndex?: SearchIndexOf }): Promise<EraseCounts["search"]> {
+async function maybeSearchConsole(ctx: TenantContext, connectionId: string, deps: { db?: FirestoreLike }): Promise<boolean> {
   const conn = await forTenant(ctx, deps.db)
     .dataConnections.getById(connectionId)
     .catch(() => null);
-  if (conn && conn.connectorId !== searchConsoleManifest.id) return "skipped";
+  return !conn || conn.connectorId === searchConsoleManifest.id;
+}
+
+/**
+ * Remove a connection's searches from brand search, whatever any switch says. Only Search Console
+ * connections put any there; one that can't be read is tried anyway (maybeSearchConsole).
+ */
+async function eraseSearchText(ctx: TenantContext, connectionId: string, searchConsole: boolean, deps: { searchIndex?: SearchIndexOf }): Promise<EraseCounts["search"]> {
+  if (!searchConsole) return "skipped";
   const outcome = await removeFromIndex(ctx, "research", searchTextRef(connectionId), { force: true, ...(deps.searchIndex ? { store: deps.searchIndex(ctx) } : {}) });
   return outcome === "failed" ? "failed" : "removed";
 }
@@ -112,8 +125,9 @@ export function pendingWith(pending: CollectState["erasePending"], add: "all" | 
 
 /**
  * Erase a connection's collected rows: all of them, or the listed old generations, and its searches
- * in brand search either way (they are the old site's after Change property; the new site's are
- * indexed again once it has 28 days). Then, in one change, clear what is pending (only what this
+ * in brand search and the figures article freshness copied from it either way (they are the old
+ * site's after Change property; the new site's are indexed again once it has 28 days, and
+ * freshness looks again at once). Then, in one change, clear what is pending (only what this
  * erase covered) and record one `erased` row (the purge, which leaves its own "purged" row, records
  * none). When the searches couldn't be removed, nothing is cleared, so the lane tries again. Safe to
  * run again: a second run finds nothing to delete.
@@ -124,9 +138,12 @@ export async function eraseConnectionData(
   gens: "all" | readonly number[],
   opts: { by: string; now?: Date; db?: FirestoreLike; record?: boolean; searchIndex?: SearchIndexOf },
 ): Promise<EraseCounts> {
+  const searchConsole = await maybeSearchConsole(ctx, connectionId, opts);
   const snapshots = await eraseSnapshots(ctx, connectionId, gens, { db: opts.db });
   const { signals, declined, withdrawn } = await eraseSuggestions(ctx, connectionId, gens, { db: opts.db, now: opts.now });
-  const search = await eraseSearchText(ctx, connectionId, opts);
+  // Never throws: a failure is logged there and leaves nothing pending here.
+  if (searchConsole) await clearSearchConsoleReasons(ctx, { db: opts.db, now: opts.now });
+  const search = await eraseSearchText(ctx, connectionId, searchConsole, opts);
   if (search === "failed") return { snapshots, signals, declined, withdrawn, search };
   const at = (opts.now ?? new Date()).toISOString();
   const record = opts.record !== false;

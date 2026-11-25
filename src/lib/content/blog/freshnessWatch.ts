@@ -4,7 +4,7 @@ import { subjectCoverage } from "@/lib/brandMap/recount";
 import { readBrandMap } from "@/lib/brandMap/store";
 import { mayFetch, robotsFor } from "@/lib/competitors/fetch";
 import { rolledId } from "@/lib/connectors/keys";
-import { articlePageKey, bareHost, freshnessWatchId, signalPageKey } from "./freshnessPages";
+import { bareHost, freshnessWatchId, LIVE_ARTICLES, liveArticles, signalPageKey } from "./freshnessPages";
 import { searchConsoleManifest } from "@/lib/connectors/manifests/searchConsole";
 import { openSuggestions, planningConnections } from "@/lib/connectors/signals/review";
 import { RULES } from "@/lib/connectors/signals/detect";
@@ -14,8 +14,8 @@ import { safeFetch } from "@/lib/security/ssrf";
 import { forTenant } from "@/lib/tenant";
 import { listAllTenants } from "@/lib/tenant/registry";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
-import { listRecentContentPlans, updateContentPlanNode } from "@/lib/tenant/workspaceContent";
-import type { BlogArticleFreshness, ContentNode, ContentPlan, FreshnessClock, FreshnessReason } from "@/lib/types/contentPlan";
+import { updateContentPlanNode } from "@/lib/tenant/workspaceContent";
+import type { BlogArticleFreshness, FreshnessClock, FreshnessReason } from "@/lib/types/contentPlan";
 import type { FreshnessDueItem, FreshnessWatchDoc } from "@/lib/types/freshness";
 import type { Tenant } from "@/lib/types/tenant";
 import type { BrandMapPage } from "@/lib/types/brandMapPage";
@@ -35,8 +35,8 @@ const DAY_MS = 86_400_000;
 export const FRESHNESS_WATCH = {
   BRANDS_PER_TICK: 3,
   MIN_LEFT_MS: 5_000,
-  PLANS_PER_PROGRAMME: 100,
-  MAX_PROGRAMMES: 20,
+  PLANS_PER_PROGRAMME: LIVE_ARTICLES.PLANS_PER_PROGRAMME,
+  MAX_PROGRAMMES: LIVE_ARTICLES.MAX_PROGRAMMES,
   MAX_DUE: 20,
   MAX_PAGES: 200,
   /** Outbound links checked per brand per day, and how often an article's links are checked. */
@@ -139,29 +139,6 @@ export function outboundLinks(markdown: string, ownHost: string): string[] {
     }
   }
   return [...out].slice(0, FRESHNESS_WATCH.MAX_LINKS_PER_ARTICLE);
-}
-
-interface LiveArticle {
-  plan: ContentPlan;
-  hub: ContentNode;
-  url: string;
-  key: string | null;
-}
-
-async function liveArticles(ctx: TenantContext, db?: FirestoreLike): Promise<LiveArticle[]> {
-  const out: LiveArticle[] = [];
-  const programmes = (await forTenant(ctx, db).workspaces.find({ where: [], limit: 200 })).filter((w) => !w.archivedAt).slice(0, FRESHNESS_WATCH.MAX_PROGRAMMES);
-  for (const ws of programmes) {
-    const plans = await listRecentContentPlans(ctx, ws.id, FRESHNESS_WATCH.PLANS_PER_PROGRAMME, db).catch(() => [] as ContentPlan[]);
-    for (const plan of plans) {
-      if (plan.status === "archived" || plan.topology.hubChannel !== "blog") continue;
-      const hub = plan.graph.nodes.find((n) => n.type === "hub" && n.channel === "blog");
-      const live = hub?.blog?.live;
-      if (!hub || !live || !hub.blog?.dates?.published) continue;
-      out.push({ plan, hub, url: live.url, key: articlePageKey(live.url) });
-    }
-  }
-  return out;
 }
 
 /** Look at one brand's live articles now: their clocks, their states, and the brand's due list. */

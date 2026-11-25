@@ -251,7 +251,7 @@ export const COLLECT_HELP = {
   ] as const,
   card: "Press a connection's row to see Collected numbers on its card: the last day collected and its time zone, the days kept, and what each day keeps.",
   erase:
-    "Disconnect deletes everything YouGrow collected for a connection, at once, whatever any switch says. Change property deletes the old property's numbers and fills 90 days for the new one. Pause stops collecting until you resume. If your copy turns collected numbers off, no new days arrive and the kept ones leave after 90 days.",
+    "Disconnect deletes everything YouGrow collected for a connection, at once, whatever any switch says. Change property deletes the old property's numbers and fills 90 days for the new one. For Search Console, both also take its figures out of article freshness notes. Pause stops collecting until you resume. If your copy turns collected numbers off, no new days arrive and the kept ones leave after 90 days.",
   review:
     "A connection that can't be read, has no property chosen, has failed to collect for 3 days, or was paused a week ago shows in Review under Data sources that need you. Its link opens it on Connected.",
 } as const;

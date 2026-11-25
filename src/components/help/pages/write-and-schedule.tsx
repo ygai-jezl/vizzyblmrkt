@@ -4,7 +4,7 @@ import { isBrandNotesQuestionsUiEnabled, isBrandNotesRestUiEnabled, isBrandNotes
 import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
 import { isBlogAiSummaryUiEnabled } from "@/lib/content/blog/flags";
 import { isEditModeEnabled, isEditModeVizzyEnabled, isEditModeVizzyLearningEnabled } from "@/lib/content/editor/flags";
-import { isAiDraftKeptEnabled } from "@/lib/content/create/flags";
+import { isAiDraftKeptEnabled, isAiOriginalsEnabled } from "@/lib/content/create/flags";
 import { isLearnFromPostEditsEnabled, isPostResultsEnabled } from "@/lib/distribute/flags";
 import { isNewsletterMarkdownEmailUiEnabled } from "@/lib/email/flags";
 import { isSignalsDataForSeoEnabled } from "@/lib/signals/flags";
@@ -360,6 +360,27 @@ export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSig
         </>
       ) : null}
 
+      {isAiOriginalsEnabled() ? (
+        <>
+          <H2 id="ai-draft">The AI draft</H2>
+          <P>
+            YouGrow keeps the copy as it was written, so it can learn from how your team edits it. Each time Vizzy, the
+            autopilot or Regenerate writes a piece (an article, its teaser, promo, posts or emails), the copy is kept beside the
+            one you edit, with the prompt and what the writer read. Applying a refresh review keeps its copy the same way.
+          </P>
+          <P>
+            On an article, the <strong>AI draft</strong> card says who wrote it and when, and how much you changed before you
+            approved it: the share of words, sections added or cut, figures and links. <strong>Compare</strong> shows each
+            section, with words taken out struck through and new words highlighted. A post shows the same as one line. Vizzy can
+            tell you too: ask &quot;how much did we change this draft?&quot;
+          </P>
+          <P>
+            Nothing learns from your edits yet. The record is kept so that, when it does, it starts from everything you changed.
+            Edits you make on your own site after copying the article aren&apos;t seen.
+          </P>
+        </>
+      ) : null}
+
       <H2 id="schedule">Schedule posts</H2>
       <Steps>
         <li>
@@ -540,6 +561,9 @@ export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSig
                 ["Your page doesn't show the update yet. Republish it with the new copy and date.", "Copy the article again and paste it into your site, with its date line."],
                 ["No earlier versions yet. YouGrow keeps one each time Apply, Regenerate or Restore replaces the copy.", "Nothing to do. A version is kept the next time the copy is replaced."],
               ] as Array<[string, string]>)
+            : []),
+          ...(isAiOriginalsEnabled()
+            ? ([["No AI draft kept for this piece yet. YouGrow keeps one from the next time it is written.", "Nothing to do. Pieces written before this was turned on, or typed by hand, have no AI draft."]] as Array<[string, string]>)
             : []),
           ...(isSignalsDataForSeoEnabled()
             ? ([

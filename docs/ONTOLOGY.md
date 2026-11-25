@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts` and `src/lib/loops/registry.ts`. D
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one. The Learning section at the end lists every place YouGrow makes a choice for a brand, and how that choice learns or why it doesn't.
 
-100 types: 79 built and 21 planned.
+101 types: 80 built and 21 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -1267,6 +1267,23 @@ A blog article's last 10 versions: its copy and meta just before Apply, Regenera
 - Numbers: none. No numbers an agent reads.
 - Made by: `blog_write`, `blog_refresh` (see Learning)
 
+### AI original (`ai_original`)
+
+The exact copy a writer made for one piece of a content plan (an article, its teaser, promo, posts or emails), with the prompt, model and sources that made it, kept beside the copy a person edits; and for its last 3 approvals, the copy a person approved and how it differs. What the learning loops will learn from a team's edits with. One record per piece.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `ai_originals`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `content_plan` through planId
+- Erase:
+  - `deleteContentPlan` in `src/lib/tenant/workspaceContent.ts`, on removing the record
+- Export: none. The brand's own work, with no one's personal data.
+- Search: none. Earlier copies of a piece; the piece itself is searched.
+- Numbers: `draftWordsChanged`, `draftWordsChangedShare`, `draftSectionsAdded`, `draftSectionsCut`, `draftFiguresChanged`, `draftLinksChanged`, `draftRegenerations`, `draftMinutesToApprove`, through `get_content_plan`
+- Made by: `blog_write`, `content_write`, `content_hub`, `content_email`, `blog_refresh` (see Learning)
+
 ### Article refresh review (`article_review`)
 
 A live blog article's current or last refresh review: what it found (sources, research, the brand map, Search Console's searches for the page) and the changes it proposes for a person to apply. One record per article.
@@ -2019,13 +2036,13 @@ No line says this yet.
 - `autopilot_research` (AI purpose, Autopilot research), look again by 2027-05-01. The autopilot's research is never compared with what your team kept in the article, so it cannot learn which sources fit.
   - `src/lib/autopilot/draftSteps.ts`
   - `src/lib/content/blog/research.ts`
-- `blog_write` (AI purpose, Writing blog articles), look again by 2027-05-01. An article keeps no AI original beside your edits, so the writer cannot learn how your team changes its drafts.
+- `blog_write` (AI purpose, Writing blog articles), look again by 2027-05-01. Where turned on, an article keeps its AI original and how your team changed it before approving it, but the writer learns nothing from those edits yet.
   - `src/lib/content/create/generateNode.ts`
 - `architect` (AI purpose, Laying out workflows), look again by 2027-05-01. Nothing records the pieces your team adds or deletes after a workflow is laid out, so the next layout cannot follow them.
   - `src/lib/content/create/architectRun.ts`
-- `content_email` (AI purpose, Writing workflow emails), look again by 2027-05-01. Emails in a workflow keep no AI original, so the changes your team makes to them cannot be measured yet.
+- `content_email` (AI purpose, Writing workflow emails), look again by 2027-05-01. Where turned on, emails in a workflow keep their AI original and how your team changed them, but the writer learns nothing from those edits yet.
   - `src/lib/content/create/generateNode.ts`
-- `content_hub` (AI purpose, Writing hub content), look again by 2027-05-01. A hub piece keeps no AI original beside your edits, so the writer cannot see what your team changed.
+- `content_hub` (AI purpose, Writing hub content), look again by 2027-05-01. Where turned on, a hub piece keeps its AI original and how your team changed it, but the writer learns nothing from those edits yet.
   - `src/lib/content/create/generateNode.ts`
 - `content_angle` (AI purpose, Suggesting angles), look again by 2027-05-01. An angle you turn down with Suggest another is passed only to the next try and never kept as a no.
   - `src/lib/content/create/suggestAngle.ts`

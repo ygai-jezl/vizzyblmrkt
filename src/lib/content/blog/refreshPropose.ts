@@ -1,4 +1,5 @@
 import { syncPlanPageSoftly } from "./pageActions";
+import { pinOriginal } from "@/lib/content/create/aiOriginals";
 import { createHash } from "node:crypto";
 import { generateTextWithDeadline } from "@/lib/agents/gemini";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
@@ -355,6 +356,12 @@ export async function applyReview(
   });
   if (!updated) return { ok: false, status: 404, error: "not_found" };
   await leaveDueList(ctx, plan.id, at, deps);
+  // The applied copy is the review's: it is the article's new AI original (the fact check below moves it on).
+  await pinOriginal(
+    ctx,
+    { plan, node: updated, body: updated.body, made: { purpose: "blog_refresh", promptId: "content.blog_refresh_propose", sources: ["review"] } },
+    { db: deps.db },
+  ).catch(() => null);
 
   // The rest are dismissed: none of them comes back on this article.
   const left = review.proposals.filter((p) => !applied.includes(p)).map((p) => p.fingerprint);

@@ -6,6 +6,8 @@ import type { Contact } from "@/lib/types/contact";
 import type { Company } from "@/lib/types/company";
 import type { ContactEmailHistoryEntry } from "@/lib/crm/emailHistory";
 import { EmailHistoryList } from "./EmailHistoryList";
+import { ideaWord } from "@/lib/nav/terms";
+import { useWords } from "../nav/WordsProvider";
 
 interface DetailResponse {
   contact: Contact;
@@ -26,6 +28,7 @@ export function ContactDetail({ contactId, isAdmin }: { contactId: string; isAdm
   const router = useRouter();
   const [data, setData] = useState<DetailResponse | null>(null);
   const [erasing, setErasing] = useState(false);
+  const w = ideaWord(useWords().ideas);
 
   useEffect(() => {
     let live = true;
@@ -44,7 +47,7 @@ export function ContactDetail({ contactId, isAdmin }: { contactId: string; isAdm
   const { contact, company, emails } = data;
 
   async function erase() {
-    if (!window.confirm("Permanently erase this person? Their contact, their sign-ups on every launch and all their email history go. Their unsubscribe keeps holding, without their address. This cannot be undone (GDPR erasure).")) {
+    if (!window.confirm(`Permanently erase this person? Their contact, their sign-ups on every ${w.one} and all their email history go. Their unsubscribe keeps holding, without their address. This cannot be undone (GDPR erasure).`)) {
       return;
     }
     setErasing(true);

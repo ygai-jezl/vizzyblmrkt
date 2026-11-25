@@ -18,7 +18,8 @@ describe("peopleSubtitle", () => {
   });
 
   it("keeps the earlier lines without the one People list", () => {
-    expect(peopleSubtitle({ phase3: true, oneView: false, addedByTeam: true })).toMatch(/^Everyone you reach: /);
+    expect(peopleSubtitle({ phase3: true, oneView: false, addedByTeam: true })).toMatch(/^Everyone you reach: your launches' signups, /);
+    expect(peopleSubtitle({ phase3: true, oneView: false, addedByTeam: true, ideas: true })).toMatch(/^Everyone you reach: your ideas' signups, /);
     expect(peopleSubtitle({ phase3: false, oneView: false, addedByTeam: false })).toBe("Every contact across all launches, with company intelligence and email history.");
   });
 });

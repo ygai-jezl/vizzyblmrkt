@@ -381,8 +381,9 @@ and makes only the ones missing, so a copy set up before the third alert gets ju
 code and no check until a day has passed, so nobody can guess one. Anyone who creates a password
 account with an address can type wrong codes for it and lock its owner out, so the code screen
 then offers **Email me a link instead**. The link can't be guessed, works once, for 30 minutes,
-and only in a browser signed in to that account. It needs `NEXT_PUBLIC_PLATFORM_ORIGIN` set to your app's address: the `envfile`
-step sets it to your backend's URL, and you change it if you add a custom domain. Without it,
+and only in a browser signed in to that account. It points at `EMAIL_LINK_ORIGIN` when that is
+set, like unsubscribe links, else `NEXT_PUBLIC_PLATFORM_ORIGIN`: the `envfile` step sets the
+second to your backend's URL, and you change it if you add a custom domain. With neither set,
 asking for the link sends nothing.
 
 **A renamed Google address.** When an admin's Google address changes, for example after a rename

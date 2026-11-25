@@ -13,13 +13,17 @@ import { INVITE_LOCK_TEXT } from "@/lib/invites/lockText";
 import { loadInviteSetup } from "@/lib/invites/waves";
 import { loadFunnel } from "@/lib/invites/funnel";
 import { LaunchChecklist } from "@/components/admin/LaunchChecklist";
+import { IdeaCard } from "@/components/admin/ideas/IdeaCard";
+import { isIdeasEnabled } from "@/lib/ideas/flags";
+import { teamMemberNames } from "@/lib/team/names";
 
 export const dynamic = "force-dynamic";
 
 /**
  * Compact launch overview: a few headline KPIs (the full breakdown lives in the
  * Analytics tab) plus quick links into the launch's tools. The campaign is
- * guaranteed to exist by the parent layout.
+ * guaranteed to exist by the parent layout. With LAUNCH_IDEAS_ENABLED its idea
+ * card comes first: admins change it, members read it.
  */
 export default async function LaunchOverviewPage({
   params,
@@ -32,10 +36,22 @@ export default async function LaunchOverviewPage({
   const base = `/admin/launches/${campaignId}`;
   const checklist = isNavV2Phase4Enabled() ? await loadChecklist(ctx, campaignId, a.totalSignups) : null;
   const campaign = await forTenant(ctx).campaigns.getById(campaignId).catch(() => null);
+  const idea = isIdeasEnabled() && campaign ? (campaign.idea ?? {}) : null;
+  const names = idea ? await teamMemberNames(ctx, [idea.statusBy, idea.handedOffBy]) : {};
 
   return (
     <div className="space-y-6">
       <LaunchSenderWarning ctx={ctx} campaign={campaign} />
+      {idea && campaign ? (
+        <IdeaCard
+          campaignId={campaign.id}
+          idea={idea}
+          canEdit={ctx.role === "admin"}
+          archived={!!campaign.archivedAt}
+          viewerId={ctx.userId ?? null}
+          names={names}
+        />
+      ) : null}
       {checklist ? <LaunchChecklist steps={checklist} /> : null}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Tile label="Total signups" value={a.totalSignups} hint="verified + unverified" />

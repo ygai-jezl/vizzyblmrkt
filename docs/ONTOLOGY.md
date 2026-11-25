@@ -126,7 +126,7 @@ The older email sequence a launch sends its sign-ups, one per launch, drawn on t
 - Export: none. The brand's own work, with no one's personal data.
 - Search: none. The older launch sequences are not read into search; journeys on the lifecycle engine are.
 - Numbers: none. Its emails are counted as email sends.
-- Made by: `canvas.journey`, `journeys`, `edit_mode`, `ab_winner` (see Learning)
+- Made by: `canvas.journey`, `journeys`, `edit_mode`, `ab_winner`, `email_copy`, `email_hero` (see Learning)
 
 ## Signals
 
@@ -996,7 +996,7 @@ A one off email to a launch's waitlist.
 - Export: none. The brand's own work, with no one's personal data.
 - Search: `broadcast`
 - Numbers: none. Its sends are counted as email sends.
-- Made by: `email_copy`, `edit_mode` (see Learning)
+- Made by: `email_copy`, `edit_mode`, `email_hero` (see Learning)
 
 ### Scheduled post (`scheduled_post`)
 
@@ -1115,7 +1115,7 @@ The brand's names and subjects, groups and buying situations that every article 
 - Export: none. The brand's own work, with no one's personal data.
 - Search: `subject`, `situation`
 - Numbers: none. No numbers an agent reads.
-- Made by: `brand_map_research`, `situations`, `canvas.brand_map`, `blog_research`, `autopilot_research`, `judge`, `competitor_topics` (see Learning)
+- Made by: `brand_map_research`, `situations`, `situation_questions`, `canvas.brand_map`, `blog_research`, `autopilot_research`, `judge`, `competitor_topics` (see Learning)
 
 ### Question (`brand_question`)
 
@@ -1200,7 +1200,7 @@ The brand's three best next articles, one record per brand, worked out again as 
 - Export: none. The brand's own work, with no one's personal data.
 - Search: none. A short list read by Vizzy through get_next_up.
 - Numbers: none. No numbers an agent reads.
-- Made by: `next_up`, `next_up_order`, `refresh_share` (see Learning)
+- Made by: `next_up`, `next_up_order`, `refresh_share`, `competitor_topics`, `competitor_coverage`, `search_rerank` (see Learning)
 
 ### Autopilot run (`autopilot_run`)
 
@@ -1248,7 +1248,7 @@ Article freshness's daily record per brand: its live articles' counts by state a
 - Export: none. The brand's own work, with no one's personal data.
 - Search: none. Working state; the articles are searched as themselves.
 - Numbers: `articlesDue`, `articlesReviewSoon`, `articlesFresh`, `clockDays`, `liveArticles`, through `list_articles_due`
-- Made by: `refresh_due` (see Learning)
+- Made by: `refresh_due`, `freshness_clock` (see Learning)
 
 ### Article versions (`article_version`)
 
@@ -1265,6 +1265,7 @@ A blog article's last 10 versions: its copy and meta just before Apply, Regenera
 - Export: none. The brand's own work, with no one's personal data.
 - Search: none. Earlier copies of an article; the article itself is searched.
 - Numbers: none. No numbers an agent reads.
+- Made by: `blog_write`, `blog_refresh` (see Learning)
 
 ### Article refresh review (`article_review`)
 
@@ -1923,11 +1924,11 @@ Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Ev
 
 A call site is a file where a kind is made, counted once for each kind: a meter call that names its purpose, a canvas's module, the file that holds a rule, or the file that calls a model with no meter.
 
-82 kinds: 0 learn, 0 fleet only, 19 own, 27 gap and 36 none.
+83 kinds: 0 learn, 0 fleet only, 19 own, 27 gap and 37 none.
 
-102 call sites: 0 learn, 0 fleet only, 29 own, 32 gap and 41 none.
+103 call sites: 0 learn, 0 fleet only, 29 own, 32 gap and 42 none.
 
-Not learning: 73 of 102 call sites, under gap and none lines.
+Not learning: 74 of 103 call sites, under gap and none lines.
 
 ### Where own lines keep what they learned
 
@@ -1939,7 +1940,7 @@ Not learning: 73 of 102 call sites, under gap and none lines.
 - `brand_question`: Each question a person dismissed stays on the brand map marked dismissed.
 - `article_review`: An article's review keeps the fingerprints of the last 50 changes a person dismissed on it.
 - `content_plan`: An article's brief keeps up to 50 notes a person took out of it.
-- `broadcast`: Each launch email keeps its open and click rates once its report is read.
+- `broadcast`: Each one off launch email keeps its open and click rates once its report is read.
 - `refresh_record`: Each refresh record keeps its clock, what a person decided and the clicks 28 days on.
 
 ### Learns
@@ -1973,7 +1974,7 @@ No line says this yet.
   - `src/lib/content/create/generateNode.ts`
 - `edit_mode` (AI purpose, Edit mode), kept in `vizzy_memory`. Vizzy remembers how each team member edits in Edit mode, and each of them can turn it off or make it forget.
   - `src/app/api/admin/editor/vizzy/route.ts`
-- `email_copy` (AI purpose, Email copy), kept in `broadcast`. Email assist reads the open and click rates of the launch's last five emails before it writes, though invite wave copy reads none.
+- `email_copy` (AI purpose, Email copy), kept in `broadcast`. Email assist reads the open and click rates of the launch's last five one off emails with a report before it writes, though invite wave copy reads none.
   - `src/app/api/admin/email/assist/route.ts`
   - `src/lib/canvas/kinds/inviteWave.ts`
 - `next_up` (AI purpose, Next up), kept in `learned`. Next up learns from the picks your team skips, kept with their reason on the Learned list.
@@ -1988,7 +1989,7 @@ No line says this yet.
   - `src/app/api/admin/workspace/[workspaceId]/content-plans/[planId]/nodes/[nodeId]/image/route.ts`
 - `ebook_image` (AI purpose, eBook images), kept in `brand_kit`. eBook images follow the look learned from your thumbs and ratings on brand images, per image style.
   - `src/app/api/admin/workspace/[workspaceId]/content-plans/[planId]/ebook/images/route.ts`
-- `autopilot` (AI purpose, Autopilot), kept in `learned`. The autopilot drafts only Next up's picks, so a pick your team skips on the Learned list is never drafted.
+- `autopilot` (AI purpose, Autopilot), kept in `learned`. The autopilot drafts only Next up's picks, so a pick your team skipped in the last 30 days is not drafted.
   - `src/lib/autopilot/draftSteps.ts`
   - `src/lib/autopilot/find.ts`
   - `src/lib/signals/collect.ts`
@@ -2009,12 +2010,6 @@ No line says this yet.
   - `src/lib/canvas/kinds/imageStyle.ts`
 - `image_style_pick` (rule, Image style used), look again by 2027-01-31. Until a brand picks a style, every image uses a fixed preset for its surface, and thumbs on past images never change which style is used.
   - `src/lib/content/imageStyle/resolve.ts`
-- `blog_write` (AI purpose, Writing blog articles), look again by 2027-03-31. An article keeps no AI original beside your edits, so the writer cannot learn how your team changes its drafts.
-  - `src/lib/content/create/generateNode.ts`
-- `content_email` (AI purpose, Writing workflow emails), look again by 2027-03-31. Emails in a workflow keep no AI original, so the changes your team makes to them cannot be measured yet.
-  - `src/lib/content/create/generateNode.ts`
-- `content_hub` (AI purpose, Writing hub content), look again by 2027-03-31. A hub piece keeps no AI original beside your edits, so the writer cannot see what your team changed.
-  - `src/lib/content/create/generateNode.ts`
 - `spintax_variant` (rule, Recurring post variant), look again by 2027-03-31. A recurring post picks one of its written variants at random each time, and how each variant did is never used to favour the better one.
   - `src/lib/distribute/spintax.ts`
 - `blog_research` (AI purpose, Blog research), look again by 2027-05-01. Research can read the Learned list through the brand context, but nothing records which facts and sources your team kept or cut.
@@ -2022,8 +2017,14 @@ No line says this yet.
 - `autopilot_research` (AI purpose, Autopilot research), look again by 2027-05-01. The autopilot's research is never compared with what your team kept in the article, so it cannot learn which sources fit.
   - `src/lib/autopilot/draftSteps.ts`
   - `src/lib/content/blog/research.ts`
+- `blog_write` (AI purpose, Writing blog articles), look again by 2027-05-01. An article keeps no AI original beside your edits, so the writer cannot learn how your team changes its drafts.
+  - `src/lib/content/create/generateNode.ts`
 - `architect` (AI purpose, Laying out workflows), look again by 2027-05-01. Nothing records the pieces your team adds or deletes after a workflow is laid out, so the next layout cannot follow them.
   - `src/lib/content/create/architectRun.ts`
+- `content_email` (AI purpose, Writing workflow emails), look again by 2027-05-01. Emails in a workflow keep no AI original, so the changes your team makes to them cannot be measured yet.
+  - `src/lib/content/create/generateNode.ts`
+- `content_hub` (AI purpose, Writing hub content), look again by 2027-05-01. A hub piece keeps no AI original beside your edits, so the writer cannot see what your team changed.
+  - `src/lib/content/create/generateNode.ts`
 - `content_angle` (AI purpose, Suggesting angles), look again by 2027-05-01. An angle you turn down with Suggest another is passed only to the next try and never kept as a no.
   - `src/lib/content/create/suggestAngle.ts`
 - `ebook` (AI purpose, eBooks), look again by 2027-05-01. eBook chapters keep no AI original, so the changes your team makes to them are never compared or learned.
@@ -2081,7 +2082,7 @@ No line says this yet.
   - `src/app/api/admin/workspace/[workspaceId]/templates/[templateId]/retemplatize/route.ts`
 - `brand_voice` (AI purpose, Brand voice). The voice is drafted once from your website and then edited by a person, so no repeated choice exists to learn from.
   - `src/app/api/admin/account/brand/voice/generate/route.ts`
-- `brand_kit` (AI purpose, Brand kit). Colours are read once from the logo or site and a person sets them, so nothing repeats to learn from.
+- `brand_kit` (AI purpose, Brand kit). The kit is read from a guidelines PDF, the logo or the site, and colour themes are only offered for a person to pick, so the brand sets it rather than YouGrow choosing again and again.
   - `src/app/api/admin/account/brand/colors/logo/route.ts`
   - `src/app/api/admin/account/brand/colors/theme/route.ts`
   - `src/app/api/admin/account/brand/colors/website/route.ts`
@@ -2131,15 +2132,17 @@ No line says this yet.
   - `src/lib/autopilot/tick.ts`
 - `found_live` (rule, Approve when found live). An article a person put up on their own site counts as approved by them, which is a fact to record, not a taste to learn.
   - `src/lib/content/blog/foundLive.ts`
-- `competitor_coverage` (rule, Competitor coverage flags). The flags are plain counts of articles by competitors and by the brand over 90 days, which anyone can check, so there is no taste in them.
+- `competitor_coverage` (rule, Competitor coverage flags). The flags compare competitor articles from the last 90 days with the questions the brand has answered, drafted or planned on each subject, plain counts anyone can check, so there is no taste in them.
   - `src/lib/competitors/coverage.ts`
 - `pattern_holdout` (rule, Post patterns holdout). A fixed share of posts is written without the learned patterns so their effect can be measured, and that share must not drift with results.
   - `src/lib/distribute/feedback/patterns.ts`
-- `waitlist_rank` (rule, Waitlist order). The waitlist order is the rule promised to people who signed up, referrals first and then sign up time, so it must never shift on its own.
+- `waitlist_rank` (rule, Waitlist order). The waitlist order is the rule promised to people who signed up: referrals, any bonus for finishing the voice chat and a teammate's Move up, then sign up time, so it must never shift on its own.
   - `src/lib/waitlist/scoring.ts`
 - `auto_plug` (rule, Auto plug comment). The promo comment fires only at the threshold a person set and it posts in public, so it should do exactly what they set.
   - `src/lib/distribute/autoPlug.ts`
 - `waitlist_voice_chat` (model call with no meter, Waitlist voice chat). The voice chat answers one person on a waitlist in the moment, and learning from what they said would carry it into chats with other people.
   - `src/lib/hooks/useLiveConversation.ts`
-- `edit_memory` (model call with no meter, Memory Bank memories). This is Memory Bank's own learner, which picks what to remember from each member's edits, and it is judged by the Edit mode drafts those memories shape.
+- `edit_memory` (model call with no meter, Memory Bank memories). This is Memory Bank's own learner, which picks what to remember from each member's edits, and it is judged by the Edit mode changes and the LinkedIn and X drafts those memories shape.
   - `src/lib/agents/memoryBank.ts`
+- `search_rerank` (model call with no meter, Search rerank). The ranking model only reorders the same search results by how well each answers the words asked, so it holds no taste of yours to learn.
+  - `src/lib/search/rerank.ts`

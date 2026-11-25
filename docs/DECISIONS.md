@@ -8,26 +8,34 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 Context: YouGrow makes choices for a brand all day: what a model writes under each of 46 AI
 purposes, what Vizzy puts on 11 canvases, what 3 connector rules raise, 20 other rules such as the
-send window, the waitlist order and the refresh clock, and 2 model calls that no meter counts. A few of these learn from people, each in
-its own way: post patterns and the best posts from post results, the image look from thumbs, the
-Learned list from skips and moves, Memory Bank from edits. Most learn nothing, and nothing in the
+send window, the waitlist order and the refresh clock, and 3 model calls with no meter that
+choose something. A few of these learn from people, each in its own way: post patterns and the
+best posts from post results, the image look from thumbs, the Learned list from skips and moves,
+Memory Bank from edits. Most learn nothing, and nothing in the
 code said which, so a feature that never learns looked the same as one that does. The approved
 learning loops plan (v6, the Honest Loop: Declare, Stamp, Count, Learn, Check) starts with Declare:
 every choice says how it learns or why it won't, and the build fails when one says nothing. This
 step adds data, types, tests and docs only. ADR-0016 is Ideas.
 
-Decided (the owner approved the plan; this step makes one change from its design sketch, so every
-line says what is true today, and the owner sees it in this pull request):
+Decided (the owner approved the plan; this step departs from its design sketch in five places, each
+recorded below, and the owner sees them in this pull request: every line says what is true today
+(point 2), model calls with no meter get a group of their own and each rule names the file that
+makes it (point 1), `own` names a `LEARNED_STORES` key rather than any type (point 4), and `from`
+is a list (point 7)):
 
 1. **One line per choice, checked by the compiler.** `src/lib/loops/registry.ts` defines `LoopKind`
    as every `ResourcePurpose` (`src/lib/plans/resources.ts`), every canvas as `canvas.<name>`
    (`src/lib/canvas/names.ts`), every `DataSignalRule` (`src/lib/types/dataSignal.ts`), every
    key of `RULE_DECISIONS`, a rule with a plain label and the file that makes it, and every key of
-   `UNMETERED_CALLS`, a model call that spends under no purpose (the waitlist voice chat and Memory
-   Bank's memories), with a label and file too. `LOOPS` satisfies `Record<LoopKind, Decision>`, so a
-   new purpose, canvas, connector rule or rule fails `npm run typecheck` until it has its line. A
+   `UNMETERED_CALLS`, a model call that spends under no purpose and chooses something (the waitlist
+   voice chat, Memory Bank's memories and the search rerank), with a label and file too. `LOOPS`
+   satisfies `Record<LoopKind, Decision>`, so a new purpose, canvas, connector rule or rule fails
+   `npm run typecheck` until it has its line. A
    model call with no meter has no purpose for typecheck to see, so it goes in `UNMETERED_CALLS` by
-   hand; `src/lib/agents/groundedMeter.test.ts` lists the files that call a model directly. The
+   hand. `src/lib/agents/groundedMeter.test.ts` finds every file that calls a Google model, through
+   the Gemini SDK or over REST, and fails on one that is not `gemini.ts`, Vizzy's agent runtime
+   (counted as Vizzy chat), a file in `UNMETERED_CALLS` or a file it names with its reason: the
+   search vectors in `embeddings.ts`, which turn text into numbers and choose nothing. The registry
    file imports types only, so any code can read it.
    Rejected: a list kept by hand in a doc, which goes stale unseen, and a check at run time, which
    finds a missing line only in production.
@@ -36,18 +44,20 @@ line says what is true today, and the owner sees it in this pull request):
    pull request the owner merges. `own(store, why)`: it already learns from people, in that store.
    `gap(why, revisit)`: it should learn and doesn't yet. `none(why)`: it should never learn. Step 1
    has no learns and no fleet only line, because nothing is stamped, counted or learned through the
-   loops yet, so such a line would claim learning that does not run. Today there are 82 lines: 19
-   own, 27 gap and 36 none. A line moves to learns when the loop behind it runs: image style in step
+   loops yet, so such a line would claim learning that does not run. Today there are 83 lines: 19
+   own, 27 gap and 37 none. A line moves to learns when the loop behind it runs: image style in step
    4, post edits in step 7. `LOOP_SWITCHES` in `src/lib/loops/switches.ts` is an empty map, so
    `LoopSwitch` is `never`; each future entry is one exact `"true"` read, listed `"false"` in
-   `apphosting.yaml`. Rejected: writing the target lines now, as the design sketch did for images
-   and posts.
+   `apphosting.yaml`. Rejected: writing the target lines now, as the design sketch did for images,
+   posts and the send time.
 3. **A reason a brand owner can read.** Every line but learns carries one plain sentence about that
    choice: 30 characters or more, a full stop at the end, no stock text such as "Not needed" or
    "TODO", and house style (`reasonProblems` in `src/lib/loops/reason.ts`). No two lines share a
    reason. A gap's revisit date is at most 6 months ahead (`LOOP_RULES.revisitMaxMonths`), spread
-   by the plan's order: image kinds 2027-01-31, post writing 2027-03-31, the rest 2027-05-01. A date
-   that has passed never fails a test; the weekly retro will list it.
+   by the plan's order: image kinds 2027-01-31, the recurring post variant 2027-03-31, near the post
+   edits step, and the rest 2027-05-01, which takes in articles, workflow emails and hubs as the
+   design sketch did for workflow emails. A date that has passed never fails a test; the weekly
+   retro will list it.
 4. **own names a store that already learns.** There is no union of ontology type ids, and only the
    `learned` type has the search kind learned, so the design's rule "own lines name a type in search
    kind learned" would reject post patterns, the image look and Memory Bank. `LEARNED_STORES` names
@@ -79,20 +89,23 @@ line says what is true today, and the owner sees it in this pull request):
 7. **Review and the ontology say where choices come from.** Each entry of `REVIEW_SECTIONS` in
    `src/lib/review/summary.ts` gains `from`: the kinds it shows, or null for failed posts,
    connection problems and data sources, which show health rather than a choice. It is a list
-   because one section can show several kinds (Drafts from Vizzy shows five canvases and the
-   autopilot's finished drafts). Each ontology type gains `madeBy`, the kinds whose choices its
-   stores hold (34 of 100 name some; planned types name none). Rejected: one kind per Review
-   section.
+   because one section can show several kinds (Drafts from Vizzy shows five canvases, the
+   autopilot's finished drafts and launch emails a person filled with Email assist or an email hero
+   image). Each ontology type gains `madeBy`, the kinds whose choices its stores hold or were shaped
+   by, kept copies included (35 of 100 name some; planned types name none). Rejected: one kind per
+   Review section.
 8. **Meanings get a direction and a family.** `better` (higher or lower) and `family` (taste,
    effort, use or result) are optional on a meaning, so a loop's guard can never share its check's
    family. Six new meanings carry both: `editShare`, `keptShare`, `declineShare`, `likedShare`,
    `unusedShare` and `remadeShare`, each with a caveat that nothing counts it yet; `openRate`,
    `clickRate`, `engagementRate` and `searchClicks` carry them too. `meaningsOf` leaves both fields
    out (`shownMeaning`), so Vizzy's answers don't change. `NOT_SERVED_YET` in the ontology test lists
-   the six with a reason and may only shrink.
+   the six with a reason and may only shrink. `openRate` and `clickRate` are both result, so the
+   design sketch's send time line (check `openRate`, guard `clickRate`) fails the family rule; the
+   step that makes `send_time` fleet only picks a guard from another family.
 9. **The Learning section is generated.** `npm run ontology:doc` writes a Learning section at the
    end of `docs/ONTOLOGY.md`: every kind under its decision with its reason and revisit date, the
-   files that make it, and counts by decision, including the call sites that do not learn (73 of 102
+   files that make it, and counts by decision, including the call sites that do not learn (74 of 103
    today). A call site is a file where a kind is made, counted once per kind: a meter call that
    names its purpose, a canvas's module, the file that holds a rule, or the file that calls a model
    with no meter. `src/lib/loops/callSites.ts` reads the source. A meter call whose purpose is
@@ -124,8 +137,12 @@ Enforced where:
   reason or a new call site file fails until `npm run ontology:doc` runs.
 - `src/lib/ontology/registry.test.ts` and `src/lib/review/summary.test.ts`: `madeBy` and `from`
   name only kinds in `LOOPS`, and planned types name none. Every kind is in some type's `madeBy`
-  apart from `other` and `competitor_coverage`, which no store keeps (`HELD_NOWHERE`).
-- `src/lib/agents/groundedMeter.test.ts`: no file spends under the purpose `other`.
+  apart from `other`, which no store keeps (`HELD_NOWHERE`).
+- `src/lib/ontology/coverage.test.ts`: every type whose `madeBy` names a kind, and every type an
+  own line names, has a store the code really uses.
+- `src/lib/agents/groundedMeter.test.ts`: no file spends under the purpose `other`, and every file
+  that calls a Google model, through the SDK or over REST, is metered, in `UNMETERED_CALLS` or
+  named with the reason it chooses nothing.
 - Guides: AGENTS.md's Learning section, the first step of the build-a-feature skill, the
   check-my-change skill's report and the Learning line of the pull request template ask the same
   question before review.

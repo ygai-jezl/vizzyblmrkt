@@ -76,6 +76,8 @@ Quote the real summary lines, for example:
 - learning: the Learning section's diff from `git diff dev...HEAD -- docs/ONTOLOGY.md` (use
   your remote's dev, such as `origin/dev`, if you have no local dev) and its `Not learning:`
   count, quoted in the pull request body under the template's Learning line. No diff there means
-  the change adds no choice YouGrow makes for a brand; say so.
+  no new kind and no new file that makes one. A new choice inside a file that already makes that
+  kind, or a new rule not yet in `RULE_DECISIONS`, shows no diff, so say which choices the change
+  adds, if any, and check each has its line.
 
 Say what you didn't run and why. Pull requests go against `dev`.

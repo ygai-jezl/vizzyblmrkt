@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildNav, type NavFlags, type NavKey } from "./model";
-import { REVEALABLE, REVEAL_RULE, isRevealKey, pathSections, revealKeysOf } from "./reveal";
+import { REVEALABLE, REVEAL_RULE, isRevealKey, pathSections, revealKeysOf, shownSections, waitingInView } from "./reveal";
 
 const FLAGS: NavFlags = { lifecycle: true, brandKit: true, review: true, people: true, ideas: true };
 const sections = buildNav(FLAGS);
@@ -67,5 +67,28 @@ describe("the rules", () => {
     expect(revealKeysOf(["insights", "content", "home", "nope", 3, "content", null])).toEqual(["content", "insights"]);
     expect(isRevealKey("audience")).toBe(true);
     expect(isRevealKey("people")).toBe(false);
+  });
+});
+
+describe("the sidebar's shown set", () => {
+  it("is today's sidebar without Coming up, and everything once every stage is running", () => {
+    expect(shownSections(undefined, { fetched: ["content"], allRunning: true }, ["products"])).toBeNull();
+    expect(shownSections({ shown: [] }, { fetched: null, allRunning: true }, [])).toBe("all");
+  });
+
+  it("joins what the page was drawn with, what the growth route found and what was opened here", () => {
+    const shown = shownSections({ shown: ["content"] }, { fetched: ["insights", "nope"], allRunning: false }, ["journeys"]);
+    expect([...(shown as Set<string>)]).toEqual(["content", "journeys", "insights"]);
+    expect([...(shownSections({ shown: ["audience"] }, { fetched: null, allRunning: false }, []) as Set<string>)]).toEqual(["audience"]);
+  });
+
+  it("records a waiting section whose page is in view, and nothing else", () => {
+    const shown = new Set(["content"]);
+    expect(waitingInView(shown, "audience")).toBe("audience");
+    expect(waitingInView(shown, "content")).toBeNull();
+    expect(waitingInView(shown, "settings")).toBeNull();
+    expect(waitingInView(shown, null)).toBeNull();
+    expect(waitingInView("all", "audience")).toBeNull();
+    expect(waitingInView(null, "audience")).toBeNull();
   });
 });

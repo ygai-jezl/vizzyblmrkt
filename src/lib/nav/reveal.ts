@@ -74,3 +74,27 @@ export function pathSections(
   }
   return { sections: out, comingUp };
 }
+
+/**
+ * The sections the sidebar shows for a brand with Coming up: what the page was drawn with
+ * (`drawn`, from the layout), what the growth route found since (`fetched`) and what was opened
+ * here, or "all" once every stage is running. Null without Coming up: today's sidebar.
+ */
+export function shownSections(
+  drawn: { shown: readonly string[] } | undefined,
+  live: { fetched: readonly string[] | null; allRunning: boolean },
+  opened: readonly string[],
+): ReadonlySet<string> | "all" | null {
+  if (!drawn) return null;
+  if (live.allRunning) return "all";
+  return new Set(revealKeysOf([...drawn.shown, ...(live.fetched ?? []), ...opened]));
+}
+
+/**
+ * A waiting section whose page is in view (reached by ⌘K or a link): the sidebar shows it, and
+ * records it like Open early, so it doesn't hide again when you leave. Null otherwise.
+ */
+export function waitingInView(shown: ReadonlySet<string> | "all" | null, activeKey: NavKey | null): RevealKey | null {
+  if (!shown || shown === "all" || !isRevealKey(activeKey) || shown.has(activeKey)) return null;
+  return activeKey;
+}

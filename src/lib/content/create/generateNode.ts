@@ -4,9 +4,11 @@ import { isBrandContextEnabled } from "@/lib/brandContext/flags";
 import { isResearchContextEnabled } from "@/lib/autopilot/flags";
 import { randomUUID } from "node:crypto";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
+import type { MadeBy, WriterSource } from "@/lib/types/aiOriginal";
 import { composePrompt, brandVoiceSection, audienceSection } from "@/lib/agents/prompts/compose";
 import { generateText, parseFirstJson, generateTextWithDeadline } from "@/lib/agents/gemini";
 import { aiUsage } from "@/lib/plans/meter";
+import type { ResourcePurpose } from "@/lib/plans/resources";
 import { draftEmailCopy } from "@/lib/content/create/emailCopy";
 import { channelBlueprint } from "@/lib/content/channels";
 import { transformFor } from "@/lib/content/transformationMatrix";
@@ -100,6 +102,15 @@ export interface GeneratedNodePatch {
   layout?: EmailLayout;
   /** Blog hubs written to the CITABLE structure — what the writer proposed + what the checks found. */
   blog?: BlogArticleMeta;
+  /** How the copy was made: its prompt and what the writer read (CONTENT_AI_ORIGINALS_ENABLED keeps it). */
+  made?: MadeBy;
+}
+
+/** The names of what a writer read, in WRITER_SOURCES' words. */
+function sourcesOf(read: Partial<Record<WriterSource, unknown>>): WriterSource[] {
+  return (Object.entries(read) as Array<[WriterSource, unknown]>)
+    .filter(([, v]) => (typeof v === "string" ? v.trim().length > 0 : Array.isArray(v) ? v.length > 0 : Boolean(v)))
+    .map(([k]) => k);
 }
 
 /**
@@ -181,6 +192,21 @@ function nodeWarnings(node: ContentNode, body: string, applied: Record<string, s
   return w;
 }
 
+/**
+ * What a node's writing is counted as on the usage meter: a CITABLE blog hub is a blog article,
+ * any other hub (a newsletter, an eBook hub, a blog hub from a template) is hub content, an email
+ * node is a workflow email, and spokes and promos are posts.
+ */
+export function writingPurposeOf(
+  type: ContentNode["type"],
+  citableBlog: boolean,
+): ResourcePurpose<"model_tokens"> {
+  if (citableBlog) return "blog_write";
+  if (type === "hub") return "content_hub";
+  if (type === "email") return "content_email";
+  return "content_write";
+}
+
 export async function generateNode(
   input: GenerateNodeInput,
   retrieve: RetrieveFn = retrieveSemanticKnowledgeContext,
@@ -226,7 +252,7 @@ export async function generateNode(
     node.type === "hub" && node.channel === "blog" && !input.skeletonBody?.trim() && isBlogCitableEnabled();
   // The answers to its questions are read live: one changed on Brand › What we've seen wins.
   const brief = citableBlog ? await refreshAnswers(ctx, briefOf(plan), {}, `${workspaceId}/${plan.id}`) : briefOf(plan);
-  const usage = aiUsage(ctx, citableBlog ? "blog_write" : "content_write");
+  const usage = aiUsage(ctx, writingPurposeOf(node.type, citableBlog));
 
   // Ground: scoped → pre-filter by the first scope topic (findNearest takes one).
   const scopedTopic =
@@ -278,6 +304,7 @@ export async function generateNode(
       return { body: "", placeholderValues: {}, status: "error", warnings: ["generation_failed"], format };
     }
     const baked = bakeDynamic(drafted.body, dynamic);
+    const writerPack = packPromptBlock(pack, "writer");
     return {
       body: baked.body,
       placeholderValues: baked.applied,
@@ -285,6 +312,21 @@ export async function generateNode(
       warnings: drafted.warnings,
       format,
       blog: drafted.meta,
+      made: {
+        purpose: writingPurposeOf(node.type, citableBlog),
+        promptId: drafted.promptId ?? "content.blog_draft",
+        repaired: Boolean(drafted.repaired),
+        sources: sourcesOf({
+          brand_voice: input.brandVoice ?? "",
+          audience: input.audience ?? "",
+          brand_map: input.brandMap ?? null,
+          knowledge: rag?.chunks ?? [],
+          competitor_angles: anglesBlock(theirs),
+          context_pack: writerPack,
+          proof: proofBlock,
+          brief: true,
+        }),
+      },
     };
   }
 
@@ -373,6 +415,11 @@ export async function generateNode(
       subject: finalSubject,
       previewText: bake(drafted.previewText),
       subjectVariants: drafted.subjectVariants.map((v) => bake(v)),
+      made: {
+        purpose: writingPurposeOf(node.type, citableBlog),
+        promptId: "content.email_fill",
+        sources: sourcesOf({ brand_voice: input.brandVoice ?? "", audience: input.audience ?? "", knowledge: rag?.chunks ?? [], proof: proofBlock, exemplars: exemplarsBlock }),
+      } satisfies MadeBy,
     };
 
     // With a visual layout, the AI copy fills the role:"copy" block and `body` is
@@ -481,11 +528,32 @@ export async function generateNode(
 
   const { body, applied } = bakeDynamic(drafted, dynamic);
   const warnings = nodeWarnings(node, body, applied);
+  const hubDraft = node.type === "hub" && !useSkeleton;
   return {
     body,
     placeholderValues: applied,
     status: "generated",
     warnings,
     format,
+    made: {
+      purpose: writingPurposeOf(node.type, citableBlog),
+      promptId: hubDraft ? "content.hub_draft" : "content.fill",
+      sources: sourcesOf({
+        brand_voice: input.brandVoice ?? "",
+        audience: input.audience ?? "",
+        knowledge: rag?.chunks ?? [],
+        proof: proofBlock,
+        exemplars: exemplarsBlock,
+        ...(hubDraft
+          ? {}
+          : {
+              post_patterns: patternsBlock,
+              trending: trendingBlock,
+              edit_preferences: input.editPreferences ?? [],
+              template: useSkeleton,
+              hub_copy: node.type !== "hub" ? hubNode?.body ?? "" : "",
+            }),
+      }),
+    },
   };
 }

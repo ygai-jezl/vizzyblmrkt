@@ -199,7 +199,7 @@ export async function authorJourneyStyle(
   });
 }
 
-export const journeyStyleCanvasKind: CanvasKind = {
+export const journeyStyleCanvasKind: CanvasKind<"journey_style"> = {
   kind: "journey_style",
   label: "journey email style",
   authorDraft: (args) => authorJourneyStyle(args),

@@ -136,7 +136,8 @@ export default function PlanAndUsageHelp({
             <li>
               <strong>AI model use</strong>: the tokens the AI models read and write for your brand, with a line for each
               feature and each model, Vizzy&apos;s chat and Learn from your repo included. It has no limit yet. It shows what
-              each feature uses.
+              each feature uses. Writing in a workflow has a line each for posts, workflow emails, hub content, briefs and
+              angles. A month counted before those lines were split shows all five as Writing posts.
             </li>
             <li>
               <strong>Images made</strong>: every image the AI makes for your brand, with a line for each feature (blog

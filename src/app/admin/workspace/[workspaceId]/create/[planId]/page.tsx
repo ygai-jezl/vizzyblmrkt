@@ -16,6 +16,7 @@ import { ContentCanvas } from "@/components/admin/workspace/create/ContentCanvas
 import { AutopilotBanner } from "@/components/admin/autopilot/AutopilotBanner";
 import { autopilotHolds } from "@/lib/autopilot/planLock";
 import { isBlogBrandMapEnabled, isBlogEditorialEnabled } from "@/lib/content/blog/flags";
+import { isAiOriginalsEnabled } from "@/lib/content/create/flags";
 import { isSeenOn, isSeenQuestionsOn, isSeenRestOn } from "@/lib/content/blog/hubActions";
 import { refreshAnswers } from "@/lib/content/blog/seen";
 import { askOfPlan, loadArticleMap } from "@/lib/content/blog/mapActions";
@@ -122,6 +123,7 @@ export default async function ContentPlanPage({
         {...(datesTimeZone ? { datesTimeZone } : {})}
         {...(isBlogFreshnessEnabled() ? { freshnessOn: true, openHub: (await searchParams)?.freshness === "1" } : {})}
         refreshOn={isBlogRefreshEnabled()}
+        aiDraftOn={isAiOriginalsEnabled()}
         editorialOn={isBlogEditorialEnabled()}
         seenOn={isSeenOn()}
         seenQuestionsOn={isSeenQuestionsOn()}

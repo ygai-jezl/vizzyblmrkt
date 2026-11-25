@@ -7,6 +7,7 @@ import { BlogExport } from "./BlogExport";
 import { BlogHeroCard } from "./BlogHeroCard";
 import { FreshnessCard } from "./FreshnessCard";
 import { VersionsCard } from "./VersionsCard";
+import { AiDraftCard } from "../AiDraftCard";
 import { RefreshReviewCard } from "./RefreshReviewCard";
 import { CitableChecklist } from "./CitableChecklist";
 import type { BlogHubControls } from "./types";
@@ -107,6 +108,8 @@ export function BlogHubReview({
       ) : null}
 
       {controls.refresh && node.blog?.live ? <RefreshReviewCard nodeId={node.id} controls={controls.refresh} disabled={disabled || controls.busy !== null} /> : null}
+
+      {controls.aiDraft ? <AiDraftCard read={() => controls.aiDraft!.read(node.id)} stamp={`${node.body.length}:${node.status}`} /> : null}
 
       {controls.versions ? (
         <VersionsCard nodeId={node.id} controls={controls.versions} stamp={`${node.body.length}:${node.status}`} disabled={disabled || controls.busy !== null} />

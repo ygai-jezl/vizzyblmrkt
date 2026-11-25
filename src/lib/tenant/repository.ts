@@ -60,6 +60,7 @@ import type { UsageMeterDoc } from "@/lib/types/usageMeter";
 import type { LiveWatchDoc, LiveWatchSeen } from "@/lib/types/liveWatch";
 import type { FreshnessWatchDoc } from "@/lib/types/freshness";
 import type { ArticleReviewDoc, ArticleVersionsDoc, RefreshRecord } from "@/lib/types/articleRefresh";
+import type { AiOriginalDoc } from "@/lib/types/aiOriginal";
 import type { StoredEvent } from "@/lib/types/ontologyEvent";
 import type { AgentAction } from "@/lib/types/agentAction";
 import type { SettingsVersion } from "@/lib/types/settingsVersion";
@@ -596,6 +597,8 @@ export interface TenantRepositories {
   freshnessWatch: TenantCollection<FreshnessWatchDoc>;
   /** Article refresh: each blog article's last 10 versions, `av_<planId>` (src/lib/content/blog/versions.ts). */
   articleVersions: TenantCollection<ArticleVersionsDoc>;
+  /** The AI original of each piece a writer made, and how a person changed it before approving it, `ao_<planId>_<nodeId>` (src/lib/content/create/aiOriginals.ts). */
+  aiOriginals: TenantCollection<AiOriginalDoc>;
   /** Article refresh: each blog article's current or last review, `ar_<planId>` (src/lib/content/blog/refreshReview.ts). */
   articleReviews: TenantCollection<ArticleReviewDoc>;
   /** Article refresh: one record per review, for the monthly cap and the clock readout (src/lib/content/blog/refreshRecords.ts). */
@@ -784,6 +787,7 @@ export function forTenant(
     liveWatchSeen: new TenantCollection<LiveWatchSeen>(regionalDb, "live_watch_seen", t),
     freshnessWatch: new TenantCollection<FreshnessWatchDoc>(regionalDb, "freshness_watch", t),
     articleVersions: new TenantCollection<ArticleVersionsDoc>(regionalDb, "article_versions", t),
+    aiOriginals: new TenantCollection<AiOriginalDoc>(regionalDb, "ai_originals", t),
     articleReviews: new TenantCollection<ArticleReviewDoc>(regionalDb, "article_reviews", t),
     refreshRecords: new TenantCollection<RefreshRecord>(regionalDb, "refresh_records", t),
     // A person's history and agents' suggestions are personal: regional, beside the person.

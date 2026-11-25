@@ -82,7 +82,7 @@ export async function authorPersonPlan(
   };
 }
 
-export const personPlanCanvasKind: CanvasKind = {
+export const personPlanCanvasKind: CanvasKind<"person_plan"> = {
   kind: "person_plan",
   label: "plan for one person",
   authorDraft: (args) => authorPersonPlan(args),

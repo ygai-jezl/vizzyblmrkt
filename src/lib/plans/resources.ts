@@ -48,6 +48,10 @@ export const RESOURCES = {
       "seen_notes",
       "architect",
       "content_write",
+      "content_email",
+      "content_hub",
+      "content_brief",
+      "content_angle",
       "edit_mode",
       "ebook",
       "templates",
@@ -118,7 +122,12 @@ export const RESOURCE_IDS = Object.keys(RESOURCES) as ResourceId[];
 /** What a resource was spent on: the feature that used it. */
 export type ResourcePurpose<R extends ResourceId = ResourceId> = (typeof RESOURCES)[R]["purposes"][number];
 
-/** The features that spend resources, as people know them. */
+/**
+ * The features that spend resources, as people know them. A month's counts keep the purpose
+ * they were stored under, so a purpose is never removed or renamed here: a split adds new ones.
+ * Counts stored before content_write was split (November 2026) hold workflow emails, hub
+ * content, briefs and angles under it too.
+ */
 export const PURPOSE_LABELS: Record<ResourcePurpose, string> = {
   brand_map_research: "Brand map research",
   situations: "Finding buying situations",
@@ -133,7 +142,11 @@ export const PURPOSE_LABELS: Record<ResourcePurpose, string> = {
   fact_check: "Fact checks",
   seen_notes: "What we've seen",
   architect: "Laying out workflows",
-  content_write: "Writing posts and emails",
+  content_write: "Writing posts",
+  content_email: "Writing workflow emails",
+  content_hub: "Writing hub content",
+  content_brief: "Writing briefs",
+  content_angle: "Suggesting angles",
   edit_mode: "Edit mode",
   ebook: "eBooks",
   templates: "Templates",
@@ -165,6 +178,14 @@ export const PURPOSE_LABELS: Record<ResourcePurpose, string> = {
   autopilot: "Autopilot",
   onboarding_voice: "Talk with Vizzy",
 };
+
+/**
+ * The label for a purpose as a month's counts stored it. A key this copy no longer knows (an
+ * old count, or one written by a newer copy) shows as itself, never dropped.
+ */
+export function purposeLabel(purpose: string): string {
+  return Object.prototype.hasOwnProperty.call(PURPOSE_LABELS, purpose) ? PURPOSE_LABELS[purpose as ResourcePurpose] : purpose;
+}
 
 /** What every place that would search says once a brand has used its web searches for the month. */
 export const WEB_SEARCH_LIMIT_MESSAGE = "This brand has used its web searches for research this month.";

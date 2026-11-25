@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { UNMETERED_CALLS } from "@/lib/loops/registry";
 import {
   generateBlockImage,
   generateEbookImage,
@@ -54,6 +55,44 @@ describe("Gemini use is always metered", () => {
         join("lib", "onboarding", "voice", "useVoiceCall.ts"),
       ].sort(),
     );
+  });
+
+  it("every file that calls a Google model, through the SDK or over REST, is metered or has its line", () => {
+    // gemini.ts meters each call it makes, and agentRuntime.ts is Vizzy's agent, counted as Vizzy
+    // chat by the chat route. A model call with no meter that chooses something for a brand is in
+    // UNMETERED_CALLS (src/lib/loops/registry.ts), so it has its line in LOOPS. Files that call a
+    // model and choose nothing, each with its reason:
+    const CHOOSES_NOTHING: Record<string, string> = {
+      [join("lib", "agents", "embeddings.ts")]: "knowledge search vectors only turn text into numbers to find similar records (not counted, help says so)",
+    };
+    const sdk = /\.generateContent(Stream)?\(|new GoogleGenAI\(/;
+    const rest = /aiplatform\.googleapis\.com|discoveryengine\.googleapis\.com|generativelanguage\.googleapis\.com/;
+    // useVoiceCall.ts is Talk with Vizzy: the browser talks to Google with a short-lived token, and the
+    // server meters each call's seconds under onboarding_voice as it ends (it has its line in LOOPS).
+    const metered = [join("lib", "agents", "gemini.ts"), join("lib", "agents", "agentRuntime.ts"), join("lib", "onboarding", "voice", "useVoiceCall.ts")];
+    const unmetered = Object.values(UNMETERED_CALLS).map((c) => join(...c.file.split("/").slice(1)));
+    const callers = [...new Set([...matching(sdk), ...matching(rest)])].sort();
+    expect(callers).toEqual([...new Set([...metered, ...unmetered, ...Object.keys(CHOOSES_NOTHING)])].sort());
+    for (const why of Object.values(CHOOSES_NOTHING)) expect(why.length).toBeGreaterThan(30);
+    // The scan finds a call over REST when there is one.
+    expect(rest.test("`https://${location}-aiplatform.googleapis.com/v1beta1/projects/p`")).toBe(true);
+    expect(rest.test("https://us-discoveryengine.googleapis.com/v1/projects/p/locations/us/rankingConfigs/c:rank")).toBe(true);
+    expect(rest.test("https://www.googleapis.com/auth/cloud-platform")).toBe(false);
+  });
+
+  it('never spends under the purpose "other": every call names what it is for', () => {
+    // src/lib/loops/registry.ts says other is no choice because nothing spends under it. Files
+    // allowed to, each with its reason (none today; the list may only shrink).
+    const ALLOWED_OTHER: Record<string, string> = {};
+    const call = /\b(?:aiUsage|usageMeter|usageFor)\(\s*[^,()]+,\s*(?:["'][a-z_]+["']\s*,\s*)?["']other["']/;
+    const named = /\b(?:purpose|searchPurpose)\s*[:=]\s*["']other["']|["']other["']\s+as\s+ResourcePurpose\b/;
+    const spenders = [...new Set([...matching(call), ...matching(named)])].sort();
+    expect(spenders).toEqual(Object.keys(ALLOWED_OTHER).sort());
+    // The scan finds a call when there is one.
+    expect(call.test('usage: aiUsage(ctx, "other"),')).toBe(true);
+    expect(call.test('usageMeter(ctx, "google_lookups", "other")')).toBe(true);
+    expect(call.test('aiUsage(ctx, "blog_write")')).toBe(false);
+    expect(named.test('const p = { purpose: "other" };')).toBe(true);
   });
 
   it("the no-op usage is for tests only", () => {

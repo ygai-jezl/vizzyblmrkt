@@ -1,6 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { AiDraftCard } from "./AiDraftCard";
+import type { AiOriginalView } from "@/lib/content/create/aiOriginalView";
 import { CHANNELS, channelLabel, formatLabel } from "@/lib/content/channels";
 import { CORE_ANGLES, frameworkLabel } from "@/lib/content/frameworks";
 import { EMAIL_FRAMEWORKS } from "@/lib/content/emailFrameworks";
@@ -56,6 +58,7 @@ export function ContentNodeInspector({
   onGenerate,
   onSuggestBrief,
   onApprove,
+  readAiOriginal,
   onDelete,
   onClose,
   onOpenLayout,
@@ -79,6 +82,8 @@ export function ContentNodeInspector({
   /** Spoke/promo nodes — (re)write the brief from what the node is connected to. */
   onSuggestBrief?: () => void;
   onApprove: () => void;
+  /** The piece's AI draft (CONTENT_AI_ORIGINALS_ENABLED); absent = not shown. */
+  readAiOriginal?: () => Promise<AiOriginalView | null | undefined>;
   onDelete: () => void;
   onClose: () => void;
   /** Email nodes — open the visual layout editor (mounted at the canvas level). */
@@ -492,6 +497,13 @@ export function ContentNodeInspector({
               </li>
             ))}
           </ul>
+        </div>
+      ) : null}
+
+      {/* An article shows its AI draft in its own panel; every other piece shows one line here. */}
+      {readAiOriginal && node.body && !(node.type === "hub" && node.channel === "blog" && blog) ? (
+        <div className="mt-4">
+          <AiDraftCard compact read={readAiOriginal} stamp={`${node.id}:${node.body.length}:${node.status}`} />
         </div>
       ) : null}
 

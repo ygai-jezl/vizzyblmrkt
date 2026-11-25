@@ -254,7 +254,7 @@ async function researchSituations(
   }, url);
 }
 
-export const brandMapCanvasKind: CanvasKind = {
+export const brandMapCanvasKind: CanvasKind<"brand_map"> = {
   kind: "brand_map",
   label: "brand map suggestions",
   authorDraft: (args) => authorBrandMapSuggestions(args),

@@ -1,3 +1,4 @@
+import { followCheck } from "@/lib/content/create/aiOriginals";
 import { retrieveSemanticKnowledgeContext, type ContextRetrievalRequest } from "@/lib/agents/knowledgeRetrieval";
 import { getTenantById } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
@@ -188,6 +189,8 @@ export async function checkPlanBlogFacts(
     return { ok: false, status: 422, error: "invalid_node" };
   }
   if (!updated) return { ok: false, status: 404, error: "node_not_found" };
+  // The checked copy is still the AI's draft: it replaces the AI original the check started from.
+  await followCheck(ctx, { planId: plan.id, nodeId: node.id, before: node.body, after: updated.body }, { db: deps.db }).catch(() => false);
   // The article is written: its author's details are kept for their next one, the notes it
   // was written with say so, and what a person wrote for it joins the brand's notes.
   await rememberAuthor(ctx, brief, deps.db);

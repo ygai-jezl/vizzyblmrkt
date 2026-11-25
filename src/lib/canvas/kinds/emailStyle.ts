@@ -397,7 +397,7 @@ export async function authorEmailStyleSuggestion(
   );
 }
 
-export const emailStyleCanvasKind: CanvasKind = {
+export const emailStyleCanvasKind: CanvasKind<"email_style"> = {
   kind: "email_style",
   label: "email style suggestion",
   authorDraft: (args) => authorEmailStyleSuggestion(args),

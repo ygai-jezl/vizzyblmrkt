@@ -46,6 +46,7 @@ import { COLLECT_FAILED_DAYS } from "@/lib/connectors/health";
 import { productName } from "@/lib/connectors/messages";
 import { PartCache, partFactsOf, type PartFacts, type SourceDeps } from "@/lib/connectors/sources";
 import type { DataConnection } from "@/lib/types/dataConnection";
+import type { LoopKind } from "@/lib/loops/registry";
 
 /**
  * Review (nav v2 phase 2): every decision waiting on a person, in one place,
@@ -89,62 +90,91 @@ export interface ReviewItem {
   details?: string[];
 }
 
-export const REVIEW_SECTIONS: Record<ReviewKind, { title: string; description: string }> = {
+/**
+ * One Review section. `from` names the choices YouGrow made that the section shows
+ * (src/lib/loops/registry.ts), so a new section says which choice it is about and a new rule behind
+ * one needs its own line there. null only for a section that shows no choice YouGrow made, such as
+ * a failure or a broken connection, with a comment saying so.
+ */
+export interface ReviewSection {
+  title: string;
+  description: string;
+  from: readonly [LoopKind, ...LoopKind[]] | null;
+}
+
+export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
   ai_line: {
     title: "AI lines for upcoming emails",
     description: "Personal lines for tomorrow's lifecycle emails. Anything you don't decide in time goes out as the standard version.",
+    from: ["lifecycle_lines"],
   },
   repo_results: {
     title: "Learned from your repo",
     description: "Onboarding steps, events and facts found in your code, waiting for you to accept them into the catalog.",
+    from: ["product_map"],
   },
   agent_draft: {
     title: "Drafts from Vizzy",
     description: "Vizzy only saves drafts. Check them, then publish or turn them on when you're happy.",
+    from: ["canvas.journey", "canvas.lifecycle", "canvas.journey_style", "canvas.invite_wave", "canvas.content_plan", "autopilot", "email_copy", "email_hero"],
   },
   brand_map: {
     title: "Brand map suggestions",
     description: "Names, subjects and questions found by research, your articles and Vizzy, waiting for you to accept or dismiss them.",
+    from: ["brand_map_research", "situations", "situation_questions", "canvas.brand_map", "blog_research", "autopilot_research", "competitor_topics", "judge", "rising_search"],
   },
   content_hub: {
     title: "Content waiting for approval",
     description: "Approve a hub to let its spokes be written.",
+    from: ["content_hub", "blog_write", "ebook", "blog_refresh"],
   },
   failed_post: {
     title: "Posts that need you",
     description: "Scheduled posts that couldn't publish.",
+    // a post that could not publish: a delivery problem, not a choice YouGrow made
+    from: null,
   },
   connection: {
     title: "Connection problems",
     description: "Your product's context endpoint keeps failing, so personal lines fall back to the standard version.",
+    // a product's context endpoint failing: health, not a choice YouGrow made
+    from: null,
   },
   data_source: {
     title: "Data sources that need you",
     description: "A connection that can't be read, so no new numbers are collected for it.",
+    // a connected source that can't be read: health, not a choice YouGrow made
+    from: null,
   },
   competitor_news: {
     title: "What your competitors changed",
     description: "New posts on their news pages and changes to their sites since you last looked. Open one to read it, or mark it seen.",
+    from: ["competitor_analysis"],
   },
   next_article: {
     title: "Your next article",
     description: "What the article autopilot found and sorted, the questions it asks your team, and runs that couldn't finish.",
+    from: ["next_up", "autopilot", "judge", "seen_notes"],
   },
   data_signal: {
     title: "What your numbers suggest",
     description: "Searches and pages from Search Console worth an article. Plan one, or dismiss it.",
+    from: ["rising_search", "losing_page", "within_reach"],
   },
   content_refresh: {
     title: "Articles due a refresh",
     description: "Live articles past their refresh clock, or with a reason to look again. Open one to see why, or mark it checked.",
+    from: ["blog_refresh", "refresh_due", "freshness_clock"],
   },
   person_suggestion: {
     title: "Suggestions about people",
     description: "Changes to people's fields, and people to add, that Vizzy suggested. Nothing changes until someone on your team confirms.",
+    from: ["canvas.person_fields", "canvas.new_person"],
   },
   business_fact: {
     title: "About your business",
     description: "Things Vizzy heard about your business in a chat. Vizzy uses one only once an admin keeps it in Settings, About your business.",
+    from: ["vizzy_chat"],
   },
 };
 

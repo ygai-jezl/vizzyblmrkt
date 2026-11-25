@@ -5,7 +5,7 @@ import { BrandMapDecidedSchema } from "@/lib/types/brandMap";
 import { saveBrandMap } from "@/lib/brandMap/store";
 import type { SearchOutcome } from "@/lib/search/query";
 import { addLearned, listLearned } from "@/lib/autopilot/learned";
-import { skipPick } from "@/lib/autopilot/adminApi";
+import { readLearned, skipPick } from "@/lib/autopilot/adminApi";
 import type { Candidate } from "./candidates";
 import { linesFor, pickNextUp, readNextUp, readPicks, reasonHolds, type PickDeps } from "./pick";
 import { NOT_SHARED_NEXT_UP, readSearchPlanning, searchConsoleLines } from "@/lib/connectors/signals/planning";
@@ -146,6 +146,35 @@ describe("choosing Next up", () => {
     });
     const none = await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d);
     expect(none.ok && none.doc.picks.every((p) => p.kind !== "refresh")).toBe(true);
+  });
+
+  it("takes Not now on a refresh pick, rests the article and says so on the Learned list", async () => {
+    const d = await setup();
+    const refresh: Candidate = {
+      ...cand(9),
+      questionId: "refresh:3ff11b5f-6081-463c-b9c0-1c90d46d3975",
+      question: "Article 1",
+      subjectName: "a live article",
+      refresh: { planId: "3ff11b5f-6081-463c-b9c0-1c90d46d3975", workspaceId: "ws1", reasons: [{ kind: "age", detail: "35 days since its last update or check, on a 30-day clock", hard: true }] },
+    };
+    d.refreshCandidates = async () => [refresh];
+    d.generate = async () => JSON.stringify({ picks: [5, 1, 2].map((n) => ({ n, because: `Pick ${n}.`, uses: [] })) });
+    const first = await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d);
+    expect(first.ok && first.doc.picks[0]!.questionId).toBe(refresh.questionId);
+
+    vi.stubEnv("BRAND_MAP_NEXT_UP_ENABLED", "true");
+    const r = await skipPick(A, { questionId: refresh.questionId, question: "Article 1", reason: "updated it by hand" }, { db: d.db, canUse: async () => true });
+    expect(r.status).toBe(200);
+    expect((r.body as { nextUp: { picks: Array<{ questionId: string }> } }).nextUp.picks.map((p) => p.questionId)).not.toContain(refresh.questionId);
+    const learned = await listLearned(A, d);
+    expect(learned[0]).toMatchObject({ kind: "skipped_pick", questionId: refresh.questionId });
+    const read = await readLearned(A, { db: d.db, canUse: async () => true });
+    expect((read.body as { learned: Array<{ line: string }> }).learned[0]!.line).toBe('Skipped refreshing the live article: "Article 1", because updated it by hand');
+
+    const again = await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d);
+    expect(again.ok && again.doc.picks.map((p) => p.questionId)).not.toContain(refresh.questionId);
+    // Anything else is still refused.
+    expect((await skipPick(A, { questionId: "refresh:../x", question: "x" }, { db: d.db, canUse: async () => true })).status).toBe(400);
   });
 
   it("fills in from code, plainly, when Gemini gives too few or none", async () => {

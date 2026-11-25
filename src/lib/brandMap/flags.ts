@@ -74,6 +74,25 @@ export function isBlogFreshnessUiEnabled(): boolean {
 }
 
 /**
+ * Article refresh: a review of a live article that proposes changes tied to evidence, Apply in
+ * code (a real change moves Updated), the last 10 versions with Restore, the autopilot running
+ * reviews, and the readout of which clock works. Needs article freshness. Off = as before.
+ */
+export function isBlogRefreshEnabled(): boolean {
+  return isBlogFreshnessEnabled() && process.env.BLOG_REFRESH_ENABLED === "true";
+}
+
+/** The same, for screens: Review for refresh, the proposals, Versions and the clock readout. */
+export function isBlogRefreshUiEnabled(): boolean {
+  return isBlogFreshnessUiEnabled() && process.env.NEXT_PUBLIC_BLOG_REFRESH_ENABLED === "true";
+}
+
+/** Vizzy's review_article: start or move a review from the chat. It never applies a change. */
+export function isBlogRefreshChatEnabled(): boolean {
+  return isBlogRefreshEnabled() && process.env.BLOG_REFRESH_CHAT_ENABLED === "true";
+}
+
+/**
  * The map at any size: subjects and their questions move out of the one record into their
  * own (once per brand, on its first write), in groups, with no fixed count; the Subjects and
  * Who you are tabs, the content map by levels, coverage by subject, and articles reading only

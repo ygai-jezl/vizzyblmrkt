@@ -24,8 +24,32 @@ const liveWatch = vi.hoisted(() => ({ runLiveWatch: vi.fn(async () => ({ brands:
 vi.mock("@/lib/content/blog/liveWatch", () => (loaded.add("live-watch"), liveWatch));
 const freshness = vi.hoisted(() => ({ runFreshness: vi.fn(async () => ({ brands: 1, articles: 3, due: 1 })) }));
 vi.mock("@/lib/content/blog/freshnessWatch", () => (loaded.add("freshness"), freshness));
+const refresh = vi.hoisted(() => ({ runRefreshReviews: vi.fn(async () => ({ brands: 1, advanced: 2 })) }));
+vi.mock("@/lib/content/blog/refreshReview", () => (loaded.add("refresh"), refresh));
 const lane = vi.hoisted(() => ({ runConnectorsLane: vi.fn(async () => ({ brands: 2, connections: 1, days: 3, failed: 0, erased: 0, behindMin: 4 })) }));
 vi.mock("@/lib/connectors/collect/tick", () => (loaded.add("connectors"), lane));
+// The clean-up runs for real over a fake account list; only its hourly gate and Auth are stubbed.
+const rateLimit = vi.hoisted(() => ({ isRateLimited: vi.fn(async () => false) }));
+vi.mock("@/lib/tenant/rateLimit", () => rateLimit);
+const DAY = 86_400_000;
+const accounts = vi.hoisted(() => ({
+  listUsers: vi.fn(async (): Promise<{ users: unknown[]; pageToken?: string }> => ({ users: [] })),
+  deleteUser: vi.fn(async () => {}),
+}));
+vi.mock("@/lib/auth/adminAuth", () => ({ adminAuth: () => accounts }));
+vi.mock("@/lib/auth/cleanup", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/auth/cleanup")>();
+  return { ...real, runAuthCleanup: vi.fn(real.runAuthCleanup) };
+});
+const cleanup = await import("@/lib/auth/cleanup");
+const runAuthCleanup = vi.mocked(cleanup.runAuthCleanup);
+const unconfirmed = (uid: string) => ({
+  uid,
+  email: `${uid}@example.com`,
+  emailVerified: false,
+  providerData: [{ providerId: "password" }],
+  metadata: { creationTime: new Date(Date.now() - 8 * DAY).toUTCString() },
+});
 
 const { POST } = await import("./route");
 /** What loading the route itself loaded: none of the jobs. */
@@ -37,11 +61,14 @@ let log: MockInstance<typeof console.log>;
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("LIFECYCLE_WORKER_SECRET", "s3cret-value-for-tests");
+  accounts.listUsers.mockResolvedValue({ users: [unconfirmed("u1")] });
+  vi.spyOn(console, "info").mockImplementation(() => {});
   log = vi.spyOn(console, "log").mockImplementation(() => {});
 });
 afterEach(() => {
   vi.unstubAllEnvs();
   log.mockRestore();
+  vi.restoreAllMocks();
 });
 
 const tickLines = () => log.mock.calls.map(([line]) => String(line)).filter((line) => line.startsWith("[tick] "));
@@ -234,7 +261,9 @@ describe("each job's code loads only when its switch is on", () => {
     ["autopilot", "@/lib/autopilot/tick", autopilot],
     ["live-watch", "@/lib/content/blog/liveWatch", liveWatch],
     ["freshness", "@/lib/content/blog/freshnessWatch", freshness],
+    ["refresh", "@/lib/content/blog/refreshReview", refresh],
     ["connectors", "@/lib/connectors/collect/tick", lane],
+    ["auth-cleanup", "@/lib/auth/cleanup", cleanup],
   ];
 
   /**
@@ -266,6 +295,14 @@ describe("each job's code loads only when its switch is on", () => {
     const res = await post(machine());
     expect(await res.json()).toEqual({ ok: true, mode: "all_tenants", tenants: 2 });
     expect([...loaded]).toEqual(["journeys"]);
+  });
+
+  it("loads the password account clean-up only with PASSWORD_SIGNIN_ENABLED on", async () => {
+    vi.stubEnv("PASSWORD_SIGNIN_ENABLED", "true");
+    const post = await freshRoute();
+    const res = await post(machine());
+    expect(await res.json()).toMatchObject({ ok: true, authCleanup: { mode: "log_only" } });
+    expect([...loaded]).toEqual(["auth-cleanup"]);
   });
 
   it("loads only the connected data lane with only CONNECTORS_ENABLED on", async () => {
@@ -304,6 +341,17 @@ describe("each job's code loads only when its switch is on", () => {
     const [{ deadlineMs }] = freshness.runFreshness.mock.calls[0] as unknown as [{ deadlineMs: number }];
     expect(deadlineMs - before).toBeLessThanOrEqual(20_000 + 50);
     expect(jobLines().map((line) => line.split(" ")[1])).toEqual(["freshness"]);
+  });
+
+  it("moves refresh reviews from their own code only with their switch on, within their own time", async () => {
+    for (const k of ["BLOG_DATES_ENABLED", "BRAND_MAP_ENABLED", "BRAND_MAP_PAGES_ENABLED", "BLOG_FRESHNESS_ENABLED", "BLOG_REFRESH_ENABLED"]) vi.stubEnv(k, "true");
+    const post = await freshRoute();
+    const before = Date.now();
+    const res = await post(machine());
+    expect(await res.json()).toMatchObject({ ok: true, refresh: { brands: 1, advanced: 2 } });
+    expect([...loaded].sort()).toEqual(["freshness", "refresh"]);
+    const [{ deadlineMs }] = refresh.runRefreshReviews.mock.calls[0] as unknown as [{ deadlineMs: number }];
+    expect(deadlineMs - before).toBeLessThanOrEqual(90_000 + 50);
   });
 
   it("never fails the scheduler's call when article freshness fails", async () => {
@@ -399,5 +447,87 @@ describe("each job's code loads only when its switch is on", () => {
     expect([...loaded]).toEqual(["waitlist"]);
     expect(waitlist.runWaitlistTick).toHaveBeenCalledTimes(1);
     expect(runner.drainLifecycleTenant).not.toHaveBeenCalled();
+  });
+});
+
+describe("the lifecycle tick with the password account clean-up", () => {
+  const admin = () => new Request("http://localhost/api/admin/lifecycle/tick", { method: "POST" });
+
+  it("with PASSWORD_SIGNIN_ENABLED off, behaves exactly as before: no gate, no account read", async () => {
+    vi.stubEnv("PASSWORD_CLEANUP_DELETE_ENABLED", "true");
+    let res = await POST(machine());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, skipped: "lifecycle_disabled" });
+
+    vi.stubEnv("LIFECYCLE_ENABLED", "true");
+    res = await POST(machine());
+    expect(await res.json()).toEqual({ ok: true, mode: "all_tenants", tenants: 2 });
+
+    vi.stubEnv("LIFECYCLE_ENABLED", "false");
+    res = await POST(admin());
+    expect(res.status).toBe(404);
+
+    expect(runAuthCleanup).not.toHaveBeenCalled();
+    expect(rateLimit.isRateLimited).not.toHaveBeenCalled();
+    expect(accounts.listUsers).not.toHaveBeenCalled();
+    expect(accounts.deleteUser).not.toHaveBeenCalled();
+  });
+
+  it("runs the clean-up for the scheduler with only PASSWORD_SIGNIN_ENABLED on, within its own time", async () => {
+    vi.stubEnv("PASSWORD_SIGNIN_ENABLED", "true");
+    const before = Date.now();
+    const res = await POST(machine());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, mode: "all_tenants", authCleanup: { mode: "log_only", wouldDelete: 1, deleted: 0 } });
+    expect(runner.runLifecycleTick).not.toHaveBeenCalled();
+    expect(rateLimit.isRateLimited).toHaveBeenCalledWith("auth-cleanup", { prefix: "auth-cleanup-run", burstLimit: 1, hourlyLimit: 1 });
+    expect(accounts.deleteUser).not.toHaveBeenCalled();
+    const [{ deadlineMs }] = runAuthCleanup.mock.calls[0]!;
+    expect(deadlineMs - before).toBeLessThanOrEqual(10_000 + 50);
+  });
+
+  it("deletes only with the deletion switch on too", async () => {
+    vi.stubEnv("PASSWORD_SIGNIN_ENABLED", "true");
+    vi.stubEnv("PASSWORD_CLEANUP_DELETE_ENABLED", "true");
+    const res = await POST(machine());
+    expect(await res.json()).toMatchObject({ authCleanup: { mode: "delete", deleted: 1 } });
+    expect(accounts.deleteUser).toHaveBeenCalledWith("u1");
+  });
+
+  it("runs at most once an hour: another instance's run this hour skips it", async () => {
+    vi.stubEnv("PASSWORD_SIGNIN_ENABLED", "true");
+    vi.stubEnv("LIFECYCLE_ENABLED", "true");
+    rateLimit.isRateLimited.mockResolvedValueOnce(true);
+    const res = await POST(machine());
+    expect(await res.json()).toEqual({ ok: true, mode: "all_tenants", tenants: 2 });
+    expect(accounts.listUsers).not.toHaveBeenCalled();
+  });
+
+  it("runs beside the journeys and never fails them", async () => {
+    vi.stubEnv("PASSWORD_SIGNIN_ENABLED", "true");
+    vi.stubEnv("LIFECYCLE_ENABLED", "true");
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    runAuthCleanup.mockRejectedValueOnce(new Error("boom"));
+    let res = await POST(machine());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, mode: "all_tenants", tenants: 2 });
+
+    accounts.listUsers.mockRejectedValueOnce(Object.assign(new Error("down"), { code: "auth/internal-error" }));
+    res = await POST(machine());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, tenants: 2, authCleanup: { error: "auth/internal-error" } });
+  });
+
+  it("never runs for a signed-in admin", async () => {
+    vi.stubEnv("PASSWORD_SIGNIN_ENABLED", "true");
+    let res = await POST(admin());
+    expect(res.status).toBe(404);
+
+    vi.stubEnv("LIFECYCLE_ENABLED", "true");
+    session.getAdminContext.mockResolvedValue({ tenantId: "ten_A", region: "us", role: "admin" });
+    res = await POST(admin());
+    expect(await res.json()).toMatchObject({ ok: true, mode: "tenant" });
+    expect(runAuthCleanup).not.toHaveBeenCalled();
+    expect(accounts.listUsers).not.toHaveBeenCalled();
   });
 });

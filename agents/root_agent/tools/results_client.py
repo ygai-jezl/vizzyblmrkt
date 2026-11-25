@@ -32,12 +32,12 @@ _NO_LINK = "I can't reach the app from this chat yet. Please send that again."
 _ERRORS = {
     "unavailable": _OFF,
     "http_404": _OFF,
-    "not_found": "I couldn't find that launch or journey.",
-    "id_required": "Tell me which launch or journey you mean.",
+    "not_found": "I couldn't find that waitlist or journey.",
+    "id_required": "Tell me which waitlist or journey you mean.",
     "rate_limited": "I've read a lot of numbers just now. Please try again in a minute.",
     "unauthorized": "My session to the app expired. Please send your message again.",
     "canvas_auth_unconfigured": "Reading results from chat isn't set up in this environment yet.",
-    "invalid_input": "I couldn't read results for that. Check the launch, journey or period.",
+    "invalid_input": "I couldn't read results for that. Check the waitlist, journey or period.",
     "network_error": "I couldn't reach the app just now. Please try again.",
 }
 

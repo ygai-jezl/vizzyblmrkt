@@ -10,10 +10,35 @@
 //
 // Exit code 1 when any check fails.
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { billingState, describeProject, enabledApis, gcloudAccount, hasGcloud, listBackends, secretNames } from "./selfhost/cloud.mjs";
-import { BACKEND_ID_RE, CORE_SECRETS, DEFAULT_ENV, ENV_NAME_RE, PROJECT_ID_RE, REQUIRED_APIS, WEB_API_KEY_SECRET } from "./selfhost/spec.mjs";
+import {
+  FIREBASE_REAUTH,
+  billingState,
+  describeProject,
+  enabledApis,
+  gcloudAccount,
+  hasGcloud,
+  identityToolkitBase,
+  isFirebaseSignInFailure,
+  listBackends,
+  rest,
+  secretNames,
+} from "./selfhost/cloud.mjs";
+import { entryMap } from "./selfhost/envfile.mjs";
+import {
+  BACKEND_ID_RE,
+  CORE_SECRETS,
+  DEFAULT_ENV,
+  ENV_NAME_RE,
+  PASSWORD_MIN_LENGTH,
+  PROJECT_ID_RE,
+  REQUIRED_APIS,
+  NEEDS_UPGRADE_NOTE,
+  WEB_API_KEY_SECRET,
+  isPlainFirebaseAuth,
+  passwordConfigDiff,
+} from "./selfhost/spec.mjs";
 import {
   ENV_LOCAL,
   LOCAL_PROJECT_ID,
@@ -188,9 +213,14 @@ const CLOUD_CHECKS = [
     }
 
     const b = listBackends(cloudProject);
-    if (!b.ok) out.push(problem("backend", "warn", `Can't list App Hosting backends: ${b.why}`, "firebase login"));
-    else {
+    let backendUri = "";
+    if (!b.ok) {
+      // Signing the Firebase CLI in again only helps when its sign-in is the reason.
+      const fix = isFirebaseSignInFailure(b.why) ? FIREBASE_REAUTH : `fix what it says, then: npm run doctor -- --cloud --project ${cloudProject}`;
+      out.push(problem("backend", "warn", `Can't list App Hosting backends: ${b.why}`, fix));
+    } else {
       const found = b.backends.find((x) => x.id === cloudBackend);
+      backendUri = found?.uri ?? "";
       if (!found) out.push(problem("backend", "fail", `No App Hosting backend "${cloudBackend}".`, selfhost("backend")));
       else if (found.environment !== cloudEnv) out.push(problem("backend", "fail", `Backend ${cloudBackend} has environment name "${found.environment || "(none)"}", so it won't read apphosting.${cloudEnv}.yaml.`, selfhost("backend")));
       else out.push(pass("backend", `App Hosting backend ${cloudBackend} (${found.uri}), environment "${cloudEnv}"`));
@@ -198,9 +228,53 @@ const CLOUD_CHECKS = [
 
     const envFile = join(REPO_ROOT, `apphosting.${cloudEnv}.yaml`);
     out.push(existsSync(envFile) ? pass("env-file", `apphosting.${cloudEnv}.yaml is here`) : problem("env-file", "fail", `No apphosting.${cloudEnv}.yaml in this folder.`, selfhost("envfile")));
+    if (existsSync(envFile)) out.push(...(await passwordSigninChecks(readFileSync(envFile, "utf8"), backendUri)));
     return out;
   },
 ];
+
+/**
+ * With PASSWORD_SIGNIN_ENABLED on in the settings file: an email provider is set (the codes need
+ * one), and Identity Platform is set up as addon:password leaves it. Nothing while it is off.
+ * The reset link's address counts as right on the backend's address or the settings file's
+ * own origin (a custom domain).
+ */
+async function passwordSigninChecks(envText, backendUri) {
+  const env = entryMap(envText);
+  if (env.get("PASSWORD_SIGNIN_ENABLED")?.value !== "true") return [];
+  const out = [];
+  if (!env.has("MANDRILL_API_KEY") && !env.has("RESEND_API_KEY")) {
+    out.push(
+      problem(
+        "password-email",
+        "fail",
+        "PASSWORD_SIGNIN_ENABLED is on, but no email provider is set: nobody gets a confirmation code, so the sign-in page offers Google only.",
+        selfhost("addon:email"),
+      ),
+    );
+  }
+  const cfg = await rest(`${identityToolkitBase()}/admin/v2/projects/${cloudProject}/config`, cloudProject);
+  if (!cfg.ok) {
+    out.push(problem("password-config", "warn", `Can't read the sign-in settings: ${cfg.why}`, selfhost("addon:password")));
+    return out;
+  }
+  const origins = [backendUri, env.get("CONNECT_ISSUER")?.value ?? "", env.get("NEXT_PUBLIC_PLATFORM_ORIGIN")?.value ?? ""].filter(Boolean);
+  const diffs = origins.length ? origins.map((o) => passwordConfigDiff(cfg.data ?? {}, o)) : [passwordConfigDiff(cfg.data ?? {})];
+  // The reset link is fine when it matches any of the app's addresses.
+  const diff = diffs.reduce((best, d) => (d.length < best.length ? d : best));
+  const failing = diff.filter((d) => d.level === "fail");
+  out.push(
+    failing.length
+      ? problem("password-config", "fail", `Password sign-in is on, but Identity Platform isn't ready: ${failing.map((d) => d.what).join("; ")}.`, selfhost("addon:password"))
+      : pass("password-config", `Identity Platform is set for password sign-in (${PASSWORD_MIN_LENGTH} characters or more, one account per address)`),
+  );
+  for (const d of diff.filter((x) => x.level !== "fail")) out.push(problem(`password-${d.id}`, d.level, `Password sign-in: ${d.what}.`, selfhost("addon:password")));
+  // Plain Firebase Authentication can't log requests (passwordConfigDiff leaves it out): a note, not a warning.
+  if (isPlainFirebaseAuth(cfg.data)) {
+    out.push(problem("password-upgrade", "info", `Password sign-in: ${NEEDS_UPGRADE_NOTE}, which is optional.`, `optional, can't be undone, only when you want it: ${selfhost("addon:password")} --upgrade-identity-platform`));
+  }
+  return out;
+}
 async function runChecks() {
   const results = [checkNode(), checkDependencies(), checkJava(), checkFirebaseCli(), ...(await checkPorts()), checkSettings(), checkGemini()];
   if (withCloud) {

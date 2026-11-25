@@ -1,8 +1,14 @@
 import { describe, it, expect } from "vitest";
 import {
+  CampaignIdSchema,
   CampaignSettingsSchema,
+  defaultCampaignSettings,
+  newLaunchId,
   toCampaignSettings,
 } from "./campaignSettings";
+import { createLaunch } from "./createLaunch";
+import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
+import { forTenant } from "@/lib/tenant/repository";
 import type { Campaign } from "@/lib/types/campaign";
 
 const VALID: unknown = {
@@ -411,5 +417,46 @@ describe("CampaignSettingsSchema — social share config", () => {
   it("treats both share fields as optional (omitting them is valid)", () => {
     const parsed = CampaignSettingsSchema.safeParse(VALID);
     expect(parsed.success).toBe(true);
+  });
+});
+
+describe("CampaignIdSchema's reserved ids", () => {
+  it("refuses new (a route) and any (the launch:any tag every person on a launch has)", () => {
+    expect(CampaignIdSchema.safeParse("new").success).toBe(false);
+    expect(CampaignIdSchema.safeParse("any").success).toBe(false);
+    for (const id of ["anything", "many", "any-launch"]) expect(CampaignIdSchema.safeParse(id).success, id).toBe(true);
+  });
+
+  it("lets a name like Any or New through with no slug typed, for createLaunch to suffix", async () => {
+    expect(newLaunchId("", "Any")).toEqual({ ok: true, id: "any", explicit: false });
+    expect(newLaunchId("  ", "New")).toEqual({ ok: true, id: "new", explicit: false });
+    expect(newLaunchId("", "Plant care box")).toEqual({ ok: true, id: "plant-care-box", explicit: false });
+    const db = new FakeFirestore();
+    const made = await createLaunch(forTenant({ tenantId: "ten_A", region: "us", source: "system" }, db).campaigns, "any", { ...defaultCampaignSettings(), waitlistName: "Any", createdAt: "2026-11-25T09:00:00.000Z" }, { explicit: false });
+    expect(made).toBe("any-2");
+    expect(db.raw("campaigns", "any")).toBeUndefined();
+  });
+
+  it("still refuses a reserved or broken slug the admin typed, and a name with nothing to make one from", () => {
+    expect(newLaunchId("any", "Any")).toEqual({ ok: false, message: "that id is reserved" });
+    expect(newLaunchId("New", "Something")).toEqual({ ok: false, message: "that id is reserved" });
+    expect(newLaunchId("", "!!!")).toMatchObject({ ok: false });
+    expect(newLaunchId("Plant_Box", "x")).toMatchObject({ ok: false });
+    expect(newLaunchId("Plant-Box", "x")).toEqual({ ok: true, id: "plant-box", explicit: true });
+  });
+});
+
+describe("toCampaignSettings and a launch's idea", () => {
+  it("never carries the idea, so the settings Save leaves it alone", () => {
+    const campaign = {
+      ...defaultCampaignSettings(),
+      id: "team-spaces",
+      tenantId: "ten_A",
+      waitlistName: "Team spaces",
+      createdAt: "2026-10-28T00:00:00.000Z",
+      idea: { status: "testing", hypothesis: "Teams pay." },
+    } as Campaign;
+    expect(toCampaignSettings(campaign)).not.toHaveProperty("idea");
+    expect(CampaignSettingsSchema.safeParse({ ...toCampaignSettings(campaign), idea: { status: "testing" } }).success).toBe(false);
   });
 });

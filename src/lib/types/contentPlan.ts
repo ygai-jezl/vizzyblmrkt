@@ -509,7 +509,7 @@ export const BlogArticleDatesSchema = z.object({
 export type BlogArticleDates = z.infer<typeof BlogArticleDatesSchema>;
 
 /** Why a live article is due, or soon due, a refresh (BLOG_FRESHNESS_ENABLED). */
-export const FRESHNESS_REASONS = ["age", "losing_clicks", "within_reach", "old_figure", "old_source", "dead_link", "new_questions", "no_page_date"] as const;
+export const FRESHNESS_REASONS = ["age", "losing_clicks", "within_reach", "old_figure", "old_source", "dead_link", "new_questions", "no_page_date", "page_behind"] as const;
 export type FreshnessReasonKind = (typeof FRESHNESS_REASONS)[number];
 /** The clocks a live article can have, in days (the owner's test, 2026-11-24). */
 export const FRESHNESS_CLOCKS = [20, 30, 45] as const;

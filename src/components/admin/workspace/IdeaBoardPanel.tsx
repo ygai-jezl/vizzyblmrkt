@@ -7,7 +7,10 @@ import { SEED_TEMPLATE_GROUPS } from "@/lib/content/templateCategories";
 import { IdeaCaptureBar } from "./IdeaCaptureBar";
 import { IdeaCard } from "./IdeaCard";
 
-/** Idea Board — capture + grid of ideas, each one-click templatizable. */
+/**
+ * The Scrapbook (was the Idea Board): save a clipping (a link, text or a screenshot), then a grid of
+ * clippings, each one click from a template. The route, idea_items and the search kind keep their names.
+ */
 export function IdeaBoardPanel({
   workspaceId,
   initialItems,
@@ -54,10 +57,10 @@ export function IdeaBoardPanel({
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-sm font-semibold">Idea Board</h2>
+        <h2 className="text-sm font-semibold">Scrapbook</h2>
         <p className="text-sm text-neutral-500">
-          Your brain dump — drop links, screenshots, or quick text. Hit Templatize to turn one into a
-          reusable skeleton.
+          Save posts you admire, links, screenshots and quick thoughts. Templatize turns a clipping into a template you
+          can reuse.
         </p>
       </div>
 
@@ -65,7 +68,7 @@ export function IdeaBoardPanel({
 
       {items.length === 0 ? (
         <p className="rounded-md border border-dashed border-neutral-300 p-6 text-center text-sm text-neutral-500 dark:border-neutral-700">
-          No ideas captured yet. Paste a post you admire, drop a screenshot, or jot a thought above.
+          No clippings yet. Paste a post you admire, drop a screenshot, or jot a thought above.
         </p>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

@@ -25,6 +25,8 @@ import {
   hasGcloud,
   health,
   identityToolkitBase,
+  isFirebaseSignInFailure,
+  FIREBASE_REAUTH,
   listBackends,
   listWebApps,
   live,
@@ -51,6 +53,8 @@ import {
   DEFAULT_ENV,
   DEFAULT_FIRESTORE_LOCATION,
   DEFAULT_REGION,
+  PASSWORD_APIS,
+  PASSWORD_MIN_LENGTH,
   REQUIRED_APIS,
   RUNTIME_ROLES,
   SCHEDULER_JOBS,
@@ -61,6 +65,14 @@ import {
   WEB_API_KEY_SECRET,
   WEB_APP_NAME,
   assetBucketName,
+  IDENTITY_PLATFORM_UPGRADE,
+  NEEDS_UPGRADE_NOTE,
+  authAlertPoliciesFor,
+  authLogMetricsFor,
+  isPlainFirebaseAuth,
+  logMetricBody,
+  passwordConfigDiff,
+  passwordPatchPlan,
   runtimeServiceAccount,
   searchDatabaseArgs,
   signingKeyName,
@@ -88,7 +100,27 @@ export function selfhostCommand(ctx, extra = "") {
   if (ctx.envName !== DEFAULT_ENV) opts.push("--env", ctx.envName);
   if (ctx.backendId !== ctx.project) opts.push("--backend", ctx.backendId);
   if (ctx.branch !== DEFAULT_BRANCH) opts.push("--branch", ctx.branch);
-  return ["npm run selfhost --", ...opts.map(q), extra].filter(Boolean).join(" ");
+  return ["npm run selfhost --", ...opts.map(q), extra, ...carriedOptions(ctx, extra)].filter(Boolean).join(" ");
+}
+
+/**
+ * The run's own options a printed command must keep, so following it does what this run was asked
+ * to: --app-url for every command (the backend list may still be unreadable), and addon:password's
+ * --upgrade-identity-platform and --alert-email for a command that runs that add-on. Left out when
+ * `extra` names them already.
+ * @param {any} ctx
+ * @param {string} extra
+ */
+function carriedOptions(ctx, extra) {
+  const flags = ctx.flags ?? {};
+  const has = (name) => new RegExp(`(^|\\s)${name}(\\s|=|$)`).test(extra);
+  const out = [];
+  if (flags.appUrl && !has("--app-url")) out.push("--app-url", q(flags.appUrl));
+  if (/(^|\s)--apply addon:password(\s|$)/.test(extra)) {
+    if (flags.upgradeIdentityPlatform && !has("--upgrade-identity-platform")) out.push("--upgrade-identity-platform");
+    if (flags.alertEmail && !has("--alert-email")) out.push("--alert-email", q(String(flags.alertEmail).trim()));
+  }
+  return out;
 }
 
 /** Memoised read-only lookups, cleared after every change. */
@@ -128,6 +160,69 @@ export function appUrl(ctx) {
   if (ctx.flags.appUrl) return ctx.flags.appUrl;
   const b = backend(ctx);
   return b && b.uri ? b.uri.replace(/\/+$/, "") : "";
+}
+
+/**
+ * Why the backend list failed, or "" when it worked (or --app-url makes it moot). The list goes
+ * through the Firebase CLI, whose sign-in can lapse while gcloud's still works: then the backend
+ * exists, but its address can't be read.
+ */
+function backendListFailure(ctx) {
+  if (ctx.flags.appUrl) return "";
+  const r = backends(ctx);
+  return r.ok ? "" : r.why || "the Firebase CLI gave no reason";
+}
+
+/**
+ * A check's `next` when a Firebase CLI list failed: signing it in again when that is the reason,
+ * else nothing, so the plan names the step, whose stop gives the reason and the way on.
+ * @param {string} why
+ */
+const firebaseNext = (why) => (isFirebaseSignInFailure(why) ? { next: FIREBASE_REAUTH } : {});
+
+/** A check's answer when appUrl(ctx) is empty: can't tell when the list failed, else `waiting`. */
+function waitsForBackend(ctx, waiting) {
+  const why = backendListFailure(ctx);
+  if (why) return unknown(`Can't list App Hosting backends, so the app's address isn't known: ${why}`, firebaseNext(why));
+  return todo(waiting);
+}
+
+/**
+ * What to do after a failed backend list: sign the Firebase CLI in again when that is the reason
+ * (it often lapses), else fix the reason given (an API that is off, an account without access).
+ * @param {string} why
+ */
+function backendListWayOn(why) {
+  return isFirebaseSignInFailure(why) ? `sign the Firebase CLI in again (${FIREBASE_REAUTH}) and run this again` : "fix what it says and run this again";
+}
+
+const upperFirst = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** The stop for a step that needs the backend itself (not only its address) when the list failed. */
+function backendListStop(ctx) {
+  const why = backends(ctx).why || "the Firebase CLI gave no reason";
+  return fail([`Can't list App Hosting backends: ${why}`, `${upperFirst(backendListWayOn(why))}.`]);
+}
+
+/**
+ * The stop for a step that needs the app's address when appUrl(ctx) is empty. When the backend
+ * list itself failed, it says so with its reason and the two ways on (--app-url, or the fix for
+ * the reason, usually signing the Firebase CLI in again); "No backend yet" only when the list
+ * worked and has no backend.
+ * @param {any} ctx
+ * @param {string} stepId the step to run again
+ * @param {string} [because] what the address is for, after "No backend yet"
+ */
+function noAppUrl(ctx, stepId, because = "") {
+  const why = backendListFailure(ctx);
+  if (why) {
+    return fail([
+      `Can't list App Hosting backends, so the app's address isn't known: ${why}`,
+      `Either pass the app's https address: ${selfhostCommand(ctx, `--apply ${stepId} --app-url https://<your-app-host>`)}`,
+      `Or ${backendListWayOn(why)}.`,
+    ]);
+  }
+  return fail(`No backend yet${because}. Run: ${selfhostCommand(ctx, "--apply backend")}`);
 }
 
 function webApp(ctx) {
@@ -335,7 +430,7 @@ export const CORE_STEPS = [
         // apps:list fails the same way for "no Firebase here" and "not signed in": ask the API.
         const p = await rest(`${firebaseApiBase()}/v1beta1/projects/${ctx.project}`, ctx.project);
         if (p.status === 404 || r.notFirebase) return todo("Firebase isn't added to this project yet.");
-        return unknown(`Can't list Firebase apps: ${r.why}`, { next: "firebase login" });
+        return unknown(`Can't list Firebase apps: ${r.why}`, { next: FIREBASE_REAUTH });
       }
       const app = webApp(ctx);
       if (!app) return todo("Firebase is on; no web app yet.");
@@ -501,7 +596,7 @@ export const CORE_STEPS = [
     title: "Create the App Hosting backend and give it access",
     async check(ctx) {
       const r = backends(ctx);
-      if (!r.ok) return unknown(`Can't list App Hosting backends: ${r.why}`, { next: "firebase login" });
+      if (!r.ok) return unknown(`Can't list App Hosting backends: ${r.why}`, firebaseNext(r.why));
       const b = backend(ctx);
       if (!b) return todo(`No App Hosting backend "${ctx.backendId}" yet.`);
       if (b.environment !== ctx.envName) return todo(`Backend ${b.id} exists, but its environment name is "${b.environment || "(none)"}", not "${ctx.envName}".`);
@@ -515,6 +610,8 @@ export const CORE_STEPS = [
     },
     changes(ctx) {
       const b = backend(ctx);
+      // A failed list: apply() stops with the reason, so there is nothing to ask about.
+      if (b === undefined) return [];
       const sa = (b && b.serviceAccount) || runtimeServiceAccount(ctx.project);
       const added = ctx.state.secretsWithoutAccess ?? [];
       return [
@@ -529,6 +626,8 @@ export const CORE_STEPS = [
     },
     async apply(ctx) {
       let b = backend(ctx);
+      // A failed list isn't "no backend": creating one then could clash with the one there.
+      if (b === undefined) return backendListStop(ctx);
       if (!b) {
         const app = webApp(ctx);
         if (!app) return fail("No web app yet: run the firebase step first.");
@@ -581,7 +680,7 @@ export const CORE_STEPS = [
     },
     changes: (ctx) => [
       `Create an HSM signing key ${signingKeyName(ctx.project)} and let the backend sign with it (infra/lifecycle/setup.sh signing-key)`,
-      "Turn on Firestore TTL clean-up for old events and drafts on (default) (infra/lifecycle/setup.sh ttl)",
+      "Turn on Firestore TTL clean-up for old events, drafts and sign-in codes on (default) (infra/lifecycle/setup.sh ttl)",
     ],
     async apply(ctx) {
       const script = join(ctx.repoRoot, "infra", "lifecycle", "setup.sh");
@@ -608,7 +707,7 @@ export const CORE_STEPS = [
       return done(`${name} has everything npm run selfhost writes`);
     },
     async inputs(ctx) {
-      if (!appUrl(ctx)) return fail(`No backend yet, so the app's address isn't known. Run: ${selfhostCommand(ctx, "--apply backend")}`);
+      if (!appUrl(ctx)) return noAppUrl(ctx, "envfile", ", so the app's address isn't known");
       let tenantId = envValue(ctx, "ADMIN_BOOTSTRAP_TENANT_ID") || ctx.state.tenantId || "";
       let region = envValue(ctx, "ADMIN_BOOTSTRAP_REGION") || "";
       if (!tenantId) {
@@ -655,7 +754,7 @@ export const CORE_STEPS = [
     title: "Turn on Google sign-in for your app's address",
     async check(ctx) {
       const url = appUrl(ctx);
-      if (!url) return todo("Waits for the backend (its address is the domain to authorise).");
+      if (!url) return waitsForBackend(ctx, "Waits for the backend (its address is the domain to authorise).");
       const host = new URL(url).host;
       const base = `${identityToolkitBase()}/admin/v2/projects/${ctx.project}`;
       const idp = await rest(`${base}/defaultSupportedIdpConfigs/google.com`, ctx.project);
@@ -677,6 +776,8 @@ export const CORE_STEPS = [
     async apply(ctx) {
       const s = ctx.state.signin;
       const url = appUrl(ctx);
+      // A failed backend list: give its reason and the ways on, not console steps for no host.
+      if (!url && backendListFailure(ctx)) return noAppUrl(ctx, "signin");
       const host = url ? new URL(url).host : "<your app's host>";
       const steps = [
         `1. Open https://console.firebase.google.com/project/${ctx.project}/authentication/providers`,
@@ -700,7 +801,7 @@ export const CORE_STEPS = [
     title: "Create the three scheduled jobs (journeys, emails, posts)",
     async check(ctx) {
       const url = appUrl(ctx);
-      if (!url) return todo("Waits for the backend (the jobs call its address).");
+      if (!url) return waitsForBackend(ctx, "Waits for the backend (the jobs call its address).");
       const r = gcloudJson(["scheduler", "jobs", "list", `--location=${SCHEDULER_LOCATION}`, `--project=${ctx.project}`]);
       if (!r.ok) return unknown(`Can't list scheduled jobs: ${reason(r.result)}`);
       const jobs = new Map((r.data ?? []).map((j) => [String(j.name ?? "").split("/").pop(), String(j.httpTarget?.uri ?? "")]));
@@ -712,7 +813,7 @@ export const CORE_STEPS = [
     changes: (ctx) => (ctx.state.missingJobs ?? SCHEDULER_JOBS).map((j) => `Create or update ${j.job} (${j.what}) with ${j.script} scheduler, APP_URL=${appUrl(ctx)}`),
     async apply(ctx) {
       const url = appUrl(ctx);
-      if (!url) return fail(`No backend yet. Run: ${selfhostCommand(ctx, "--apply backend")}`);
+      if (!url) return noAppUrl(ctx, "scheduler");
       for (const j of ctx.state.missingJobs ?? SCHEDULER_JOBS) {
         const code = await runLive(ctx, "bash", [join(ctx.repoRoot, j.script), "scheduler", ctx.project], { env: { APP_URL: url }, envShown: `APP_URL=${url}`, show: `bash ${j.script} scheduler ${ctx.project}` });
         if (code !== 0) return fail(`Creating ${j.job} failed (see above).`);
@@ -725,12 +826,14 @@ export const CORE_STEPS = [
     title: "Roll out the app and check it answers",
     async check(ctx) {
       const url = appUrl(ctx);
-      if (!url) return todo("Waits for the backend.");
+      if (!url) return waitsForBackend(ctx, "Waits for the backend.");
       const h = await health(url);
       return h.ok ? done(`${url}/api/health answers`) : todo(`${url} isn't answering yet (${h.why}).`);
     },
     changes(ctx) {
       const b = backend(ctx);
+      // A failed list: apply() stops with the reason, so there is nothing to ask about.
+      if (b === undefined) return [];
       return [
         b && b.repository
           ? `Start a rollout of backend ${ctx.backendId} from the ${ctx.branch} branch on GitHub`
@@ -740,6 +843,7 @@ export const CORE_STEPS = [
     },
     async apply(ctx) {
       const b = backend(ctx);
+      if (b === undefined) return backendListStop(ctx);
       if (!b) return fail(`No backend yet. Run: ${selfhostCommand(ctx, "--apply backend")}`);
       if (!existsSync(ctx.envFile)) return fail(`No apphosting.${ctx.envName}.yaml yet. Run: ${selfhostCommand(ctx, "--apply envfile")}`);
       let code;
@@ -856,6 +960,321 @@ function runTee(ctx, cmd, args, opts = {}) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Email and password sign-in (addon:password)
+// ---------------------------------------------------------------------------
+
+/** Base URLs of the Logging and Monitoring APIs (overridable for tests). */
+const loggingBase = () => (process.env.SELFHOST_LOGGING_URL || "https://logging.googleapis.com").replace(/\/+$/, "");
+const monitoringBase = () => (process.env.SELFHOST_MONITORING_URL || "https://monitoring.googleapis.com").replace(/\/+$/, "");
+const serviceUsageBase = () => (process.env.SELFHOST_SERVICEUSAGE_URL || "https://serviceusage.googleapis.com").replace(/\/+$/, "");
+
+/** The role Google's reCAPTCHA guide gives Identity Platform's own service agent. */
+const IDENTITY_AGENT_ROLE = "roles/identitytoolkit.serviceAgent";
+
+/** Identity Platform's service agent, from the project number. */
+function identityAgentEmail(projectNumber) {
+  return `service-${projectNumber}@gcp-sa-identitytoolkit.iam.gserviceaccount.com`;
+}
+
+/**
+ * Make Identity Platform's service agent and give it its role, as Google's reCAPTCHA guide asks
+ * for every project. Without them Identity Platform can't make the reCAPTCHA keys, and password
+ * sign-ins go through unscored while the config still says audit or enforce. Both are safe to
+ * repeat. True when both worked.
+ */
+async function ensureIdentityAgent(ctx) {
+  const line = (good, label, why = "") => ctx.say(`  ${good ? "ok  " : "fail"} ${label}${good ? "" : `: ${why}`}`);
+  const info = projectInfo(ctx);
+  if (info.state !== "ok" || !info.projectNumber) {
+    line(false, "Identity Platform's service agent", info.why ?? "the project number isn't known");
+    return false;
+  }
+  const r = await rest(`${serviceUsageBase()}/v1beta1/projects/${info.projectNumber}/services/identitytoolkit.googleapis.com:generateServiceIdentity`, ctx.project, {
+    method: "POST",
+    body: {},
+  });
+  const agent = String(r.data?.response?.email ?? "") || identityAgentEmail(info.projectNumber);
+  line(r.ok, `Identity Platform's service agent ${agent}`, r.why);
+  if (!r.ok) return false;
+  // IAM can take a few seconds to know an agent made a moment ago: the first grant may fail with
+  // "Policy modification failed" and the same grant work seconds later. Try again, waiting longer.
+  const label = `${IDENTITY_AGENT_ROLE} for ${agent}`;
+  const args = ["projects", "add-iam-policy-binding", ctx.project, `--member=serviceAccount:${agent}`, `--role=${IDENTITY_AGENT_ROLE}`, "--condition=None"];
+  const waits = retryWaitsMs();
+  for (let i = 0; ; i++) {
+    const g = capture("gcloud", args, { cwd: ctx.repoRoot });
+    if (g.ok) {
+      line(true, label);
+      return true;
+    }
+    if (i >= waits.length) {
+      line(false, `${label} (tried ${i + 1} times)`, reason(g));
+      // The usual cause: IAM doesn't know the agent made a moment ago yet. Waiting fixes that.
+      if (NOT_FOUND.test(reason(g))) ctx.say("  IAM doesn't know the new service agent yet. Run this add-on again in a minute.");
+      return false;
+    }
+    ctx.say(`  wait ${label}: ${reason(g)}; trying again in ${Math.round(waits[i] / 1000)}s`);
+    await sleep(waits[i]);
+  }
+}
+
+/** The waits between tries of a call that a change made a moment ago can briefly refuse. */
+const RETRY_WAITS_MS = [5_000, 10_000, 20_000];
+
+/** RETRY_WAITS_MS, or each one SELFHOST_RETRY_WAIT_MS long (tests set it near zero). */
+function retryWaitsMs() {
+  const override = process.env.SELFHOST_RETRY_WAIT_MS;
+  return override !== undefined && override !== "" && Number.isFinite(Number(override)) ? RETRY_WAITS_MS.map(() => Number(override)) : RETRY_WAITS_MS;
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const identityConfigUrl = (ctx) => `${identityToolkitBase()}/admin/v2/projects/${ctx.project}/config`;
+/** The project's Identity Toolkit config (admin v2), read once per check. */
+const identityConfig = (ctx) => memo(ctx, "identityConfig", () => rest(identityConfigUrl(ctx), ctx.project));
+
+/** Whether the settings file names an email provider (addon:email), so a code can reach an inbox. */
+function hasEmailProvider(ctx) {
+  const e = entryMap(envText(ctx));
+  return e.has("MANDRILL_API_KEY") || e.has("RESEND_API_KEY");
+}
+
+/** Who the sign-in alerts email: --alert-email, else the first address on ADMIN_ALLOWED_EMAILS. */
+function alertEmail(ctx) {
+  const chosen = ctx.flags?.alertEmail?.trim();
+  if (chosen) return chosen;
+  return envValue(ctx, "ADMIN_ALLOWED_EMAILS").split(",").map((s) => s.trim()).find(Boolean) ?? "";
+}
+
+/** "a", "a and b", "a, b and c". */
+function andList(items) {
+  return items.length > 1 ? `${items.slice(0, -1).join(", ")} and ${items.at(-1)}` : items.join("");
+}
+
+/** Every page of a list call (Monitoring's alert policies or channels). { ok, items, why }. */
+async function listAll(ctx, url, field) {
+  const items = [];
+  let token = "";
+  for (let page = 0; page < 10; page++) {
+    const r = await rest(`${url}?pageSize=1000${token ? `&pageToken=${encodeURIComponent(token)}` : ""}`, ctx.project);
+    if (!r.ok) return { ok: false, items, why: r.why };
+    items.push(...(Array.isArray(r.data?.[field]) ? r.data[field] : []));
+    token = String(r.data?.nextPageToken ?? "");
+    if (!token) break;
+  }
+  return { ok: true, items, why: "" };
+}
+
+/**
+ * Which of the sign-in alerts are missing: the log metrics by name, the alert policies by display
+ * name. Without Identity Platform (plain Firebase Authentication) the sign-up metric and alert
+ * aren't wanted. Read only. { ok, missing, why }.
+ * @param {any} ctx
+ * @param {boolean} identityPlatform
+ */
+function authAlertsState(ctx, identityPlatform) {
+  return memo(ctx, `authAlerts:${identityPlatform}`, async () => {
+    const missing = [];
+    for (const m of authLogMetricsFor(identityPlatform)) {
+      const r = await rest(`${loggingBase()}/v2/projects/${ctx.project}/metrics/${m.name}`, ctx.project);
+      if (r.status === 404) missing.push(`log metric ${m.name}`);
+      else if (!r.ok) return { ok: false, missing: [], why: r.why };
+    }
+    const policies = await listAll(ctx, `${monitoringBase()}/v3/projects/${ctx.project}/alertPolicies`, "alertPolicies");
+    if (!policies.ok) return { ok: false, missing: [], why: policies.why };
+    const names = new Set(policies.items.map((p) => p.displayName));
+    for (const p of authAlertPoliciesFor([], identityPlatform)) if (!names.has(p.displayName)) missing.push(`alert "${p.displayName}"`);
+    return { ok: true, missing, why: "" };
+  });
+}
+
+/**
+ * Make the log metrics, the alert policies, and an email channel for the alerts' recipient
+ * (alertEmail) when a policy is made. Each is made only when missing (a metric whose filter
+ * changed is updated); an alert policy that exists is left as its owner may have changed it,
+ * recipients included, so a copy that has the older alerts gets only the new one. True when all
+ * are there. Without Identity Platform the sign-up metric and alert are left out.
+ * @param {any} ctx
+ * @param {boolean} identityPlatform
+ */
+async function ensureAuthAlerts(ctx, identityPlatform) {
+  const p = ctx.project;
+  const line = (good, label, why = "") => ctx.say(`  ${good ? "ok  " : "fail"} ${label}${good ? "" : `: ${why}`}`);
+  const metrics = `${loggingBase()}/v2/projects/${p}/metrics`;
+  for (const m of authLogMetricsFor(identityPlatform)) {
+    const got = await rest(`${metrics}/${m.name}`, p);
+    if (got.ok && got.data?.filter === m.filter) {
+      line(true, `log metric ${m.name} (already there)`);
+      continue;
+    }
+    if (!got.ok && got.status !== 404) {
+      line(false, `log metric ${m.name}`, got.why);
+      return false;
+    }
+    const r = got.ok ? await rest(`${metrics}/${m.name}`, p, { method: "PUT", body: logMetricBody(m) }) : await rest(metrics, p, { method: "POST", body: logMetricBody(m) });
+    line(r.ok, `log metric ${m.name}${got.ok ? " (filter updated)" : ""}`, r.why);
+    if (!r.ok) return false;
+  }
+
+  const policiesUrl = `${monitoringBase()}/v3/projects/${p}/alertPolicies`;
+  const existing = await listAll(ctx, policiesUrl, "alertPolicies");
+  if (!existing.ok) {
+    line(false, "alert policies", existing.why);
+    return false;
+  }
+  const names = new Set(existing.items.map((x) => x.displayName));
+  const toMake = authAlertPoliciesFor([], identityPlatform).filter((policy) => !names.has(policy.displayName));
+
+  // A channel only for alerts made now: alerts already there keep the recipients they have.
+  let channels = [];
+  const email = alertEmail(ctx);
+  if (!toMake.length) {
+    line(true, "the alerts are already there and keep their recipients");
+  } else if (email) {
+    const url = `${monitoringBase()}/v3/projects/${p}/notificationChannels`;
+    const list = await listAll(ctx, url, "notificationChannels");
+    if (!list.ok) {
+      line(false, "notification channels", list.why);
+      return false;
+    }
+    const found = list.items.find((c) => c.type === "email" && String(c.labels?.email_address ?? "").toLowerCase() === email.toLowerCase());
+    if (found) {
+      channels = [found.name];
+      line(true, `new alerts go to ${email} (its channel is already there)`);
+    } else {
+      const r = await rest(url, p, { method: "POST", body: { type: "email", displayName: "YouGrow sign-in alerts", labels: { email_address: email } } });
+      line(r.ok, `new alerts go to ${email}`, r.why);
+      if (!r.ok) return false;
+      channels = [r.data?.name].filter(Boolean);
+    }
+  }
+
+  for (const policy of authAlertPoliciesFor(channels, identityPlatform)) {
+    if (names.has(policy.displayName)) {
+      line(true, `alert "${policy.displayName}" (already there, left as it is)`);
+      continue;
+    }
+    let r = await rest(policiesUrl, p, { method: "POST", body: policy });
+    // A log metric made a moment ago can take a few seconds to be known to Monitoring.
+    for (let i = 0; i < 2 && !r.ok && /metric/i.test(r.why); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 10_000));
+      r = await rest(policiesUrl, p, { method: "POST", body: policy });
+    }
+    line(r.ok, `alert "${policy.displayName}"`, r.why);
+    if (!r.ok) return false;
+  }
+  return true;
+}
+
+/** The add-on's state from a read of the config and the alerts, kept for changes() and apply(). */
+async function passwordState(ctx) {
+  const cfg = await identityConfig(ctx);
+  if (!cfg.ok) return { ok: false, why: cfg.why };
+  const config = cfg.data ?? {};
+  // Plain Firebase Authentication refuses request logging. The upgrade is opt-in only
+  // (--upgrade-identity-platform): with it, plan as for the upgraded project apply() makes.
+  const plain = isPlainFirebaseAuth(config);
+  const upgrade = plain && Boolean(ctx.flags?.upgradeIdentityPlatform);
+  const identityPlatform = !plain || upgrade;
+  const diff = passwordConfigDiff(upgrade ? { ...config, subtype: "IDENTITY_PLATFORM" } : config, appUrl(ctx));
+  const alerts = await authAlertsState(ctx, identityPlatform);
+  const state = {
+    ok: true,
+    diff,
+    config,
+    plain,
+    upgrade,
+    identityPlatform,
+    alerts,
+    switchOn: envValue(ctx, "PASSWORD_SIGNIN_ENABLED") === "true",
+    emailProvider: hasEmailProvider(ctx),
+  };
+  ctx.state.password = state;
+  return state;
+}
+
+/**
+ * Upgrade the project to Firebase Authentication with Identity Platform (identityPlatform:
+ * initializeAuth; only on --upgrade-identity-platform, as it can't be undone), then read the
+ * config back until it says IDENTITY_PLATFORM. { ok, config } or { ok: false, detail }.
+ */
+async function upgradeToIdentityPlatform(ctx) {
+  const r = await rest(`${identityToolkitBase()}/v2/projects/${ctx.project}/identityPlatform:initializeAuth`, ctx.project, { method: "POST", body: {} });
+  ctx.say(`  ${r.ok ? "ok  " : "fail"} upgrade to Firebase Authentication with Identity Platform${r.ok ? "" : `: ${r.why}`}`);
+  if (!r.ok) {
+    // A timeout, a dropped connection or a server error may come after the upgrade went through,
+    // so read the config back once before saying what happened.
+    ctx.memo.delete("identityConfig");
+    const back = await identityConfig(ctx);
+    if (back.ok && String(back.data?.subtype ?? "") === "IDENTITY_PLATFORM") {
+      ctx.say("  ok   read back: the project is on Identity Platform");
+      return { ok: true, config: back.data };
+    }
+    const again = selfhostCommand(ctx, "--apply addon:password --upgrade-identity-platform");
+    const without = "Or run it without --upgrade-identity-platform: everything but request logging and the sign-ups alert goes on.";
+    if (r.status === 0 || r.status >= 500) {
+      return {
+        ok: false,
+        detail: [
+          `The upgrade to Identity Platform didn't answer clearly (${r.why}), so it may or may not have happened. No sign-in setting was changed.`,
+          `Run this again to find out and finish: ${again}`,
+          without,
+        ],
+      };
+    }
+    return {
+      ok: false,
+      detail: [
+        `The upgrade to Identity Platform was refused (${r.why}), so no sign-in setting was changed.`,
+        ...(/billing/i.test(r.why) ? ["It needs billing on the project (the Blaze plan)."] : []),
+        `Fix what it says, then run this again: ${again}`,
+        without,
+      ],
+    };
+  }
+  const waits = retryWaitsMs();
+  for (let i = 0; ; i++) {
+    ctx.memo.delete("identityConfig");
+    const back = await identityConfig(ctx);
+    const subtype = String(back.data?.subtype ?? "");
+    if (back.ok && subtype === "IDENTITY_PLATFORM") {
+      ctx.say("  ok   read back: the project is on Identity Platform");
+      return { ok: true, config: back.data };
+    }
+    if (i >= waits.length) {
+      return {
+        ok: false,
+        detail: [
+          back.ok
+            ? `The upgrade was accepted, but the project still says ${subtype || "no subtype"}, so no sign-in setting was changed.`
+            : `The upgrade was accepted, but the sign-in settings can't be read back (${back.why}), so none was changed.`,
+          "Run this add-on again in a minute.",
+        ],
+      };
+    }
+    await sleep(waits[i]);
+  }
+}
+
+/** The closing lines on plain Firebase Authentication without the upgrade: what was left out and how to add it. */
+function upgradeSkippedLines(ctx) {
+  return [
+    "Left out: request logging and the \"YouGrow: many password sign-ups\" alert. Both need the Identity Platform",
+    "upgrade, which is free up to 50,000 monthly active users, then charged per user, and can't be undone.",
+    `To add them later: ${selfhostCommand(ctx, "--apply addon:password --upgrade-identity-platform")}`,
+  ];
+}
+
+/** The collections holding sign-in codes, their per-address guards and the links sent in place of a code, each with a `ttl` field. */
+const CODE_TTL_COLLECTIONS = ["email_codes", "email_code_guards", "email_confirm_links"];
+
+const EMAIL_PROVIDER_NOTE = [
+  "Note: password sign-in needs an email provider for its confirmation codes (MANDRILL_API_KEY or",
+  "RESEND_API_KEY in your settings file). Without one the sign-in page keeps offering Google only.",
+  "Add one with addon:email.",
+];
+
 /** @type {any[]} */
 export const ADDONS = [
   {
@@ -897,7 +1316,7 @@ export const ADDONS = [
       return envValue(ctx, "ROOT_AGENT_RESOURCE_ID") ? done(`engine ${envValue(ctx, "ROOT_AGENT_RESOURCE_ID")}`) : todo("not set up");
     },
     async inputs(ctx) {
-      if (!appUrl(ctx)) return fail(`No backend yet. Run: ${selfhostCommand(ctx, "--apply backend")}`);
+      if (!appUrl(ctx)) return noAppUrl(ctx, "addon:vizzy");
       if (!existsSync(join(ctx.repoRoot, "agents", ".venv", "bin", "python"))) {
         return fail([
           "The agent's deploy tools aren't installed. Run these once, then this add-on again:",
@@ -955,7 +1374,7 @@ export const ADDONS = [
       return envValue(ctx, "GITHUB_APP_ID") ? done(`app ${envValue(ctx, "GITHUB_APP_SLUG") || envValue(ctx, "GITHUB_APP_ID")}`) : todo("not set up");
     },
     async inputs(ctx) {
-      if (!appUrl(ctx)) return fail(`No backend yet. Run: ${selfhostCommand(ctx, "--apply backend")}`);
+      if (!appUrl(ctx)) return noAppUrl(ctx, "addon:github-app");
       if (ctx.yes && !process.stdout.isTTY) return fail(["This add-on opens GitHub in a browser, where you click Create.", `Run it yourself: ${selfhostCommand(ctx, "--apply addon:github-app")}`]);
       return ok();
     },
@@ -995,7 +1414,7 @@ export const ADDONS = [
         return envValue(ctx, `${env}_CLIENT_ID`) ? done(`${label} app set`) : todo("not set up");
       },
       async inputs(ctx) {
-        if (!appUrl(ctx)) return fail(`No backend yet. Run: ${selfhostCommand(ctx, "--apply backend")}`);
+        if (!appUrl(ctx)) return noAppUrl(ctx, `addon:${network}`);
         if (!ctx.prompt.canHide()) return needsTerminal(ctx, network);
         ctx.say(`  First create the app at ${isX ? "https://developer.x.com" : "https://developer.linkedin.com/apps"} with this callback URL:`);
         ctx.say(`    ${appUrl(ctx)}${callback}`);
@@ -1121,7 +1540,7 @@ export const ADDONS = [
       return envValue(ctx, "NEXT_PUBLIC_RECAPTCHA_SITE_KEY") ? done("site key set") : todo("not set up");
     },
     async inputs(ctx) {
-      if (!appUrl(ctx)) return fail(`No backend yet. Run: ${selfhostCommand(ctx, "--apply backend")}`);
+      if (!appUrl(ctx)) return noAppUrl(ctx, "addon:recaptcha");
       return ok();
     },
     changes: (ctx) => [
@@ -1140,6 +1559,172 @@ export const ADDONS = [
       const sa = (b && b.serviceAccount) || runtimeServiceAccount(ctx.project);
       runQuiet(ctx, "gcloud", ["projects", "add-iam-policy-binding", ctx.project, `--member=serviceAccount:${sa}`, "--role=roles/recaptchaenterprise.agent", "--condition=None"], `roles/recaptchaenterprise.agent for ${sa}`);
       return setForAddon(ctx, "recaptcha", [valueEntry("RECAPTCHA_PROJECT_ID", ctx.project), valueEntry("NEXT_PUBLIC_RECAPTCHA_SITE_KEY", key, BUILD_RUNTIME)]);
+    },
+  },
+  {
+    id: "addon:password",
+    title: "Turn on email and password sign-in",
+    how: "automated; needs an email provider (addon:email) for the confirmation codes",
+    async check(ctx) {
+      const s = await passwordState(ctx);
+      if (!s.ok) return unknown(`Can't read the sign-in settings: ${s.why}`);
+      const missing = [
+        ...(s.upgrade ? ["the project is on Firebase Authentication without the Identity Platform upgrade"] : []),
+        ...s.diff.filter((d) => d.level !== "info").map((d) => d.what),
+        ...(s.alerts.ok ? s.alerts.missing.map((a) => `no ${a}`) : [`the sign-in alerts can't be read (${s.alerts.why})`]),
+        ...(s.switchOn ? [] : ["PASSWORD_SIGNIN_ENABLED is off"]),
+      ];
+      const notes = [
+        ...s.diff.filter((d) => d.level === "info").map((d) => d.what),
+        ...(s.emailProvider ? [] : ["no email provider yet (addon:email), so nobody gets a code"]),
+        // Plain Firebase Authentication: not missing, a choice. Say what it lacks and how to opt in.
+        ...(s.plain && !s.upgrade ? [`${NEEDS_UPGRADE_NOTE} (run addon:password with --upgrade-identity-platform to opt in)`] : []),
+      ];
+      const also = notes.length ? `. Also: ${notes.join("; ")}` : "";
+      if (missing.length) return todo(`${missing.join("; ")}${also}.`);
+      const bots = s.config.recaptchaConfig?.emailPasswordEnforcementState;
+      return done(`Email/Password on, ${PASSWORD_MIN_LENGTH} characters or more, reCAPTCHA ${bots === "ENFORCE" ? "enforced" : "in audit mode"}, alerts set${also}`);
+    },
+    async inputs(ctx) {
+      if (!existsSync(ctx.envFile)) return fail(`No apphosting.${ctx.envName}.yaml yet. Run the core steps first: ${selfhostCommand(ctx, "--apply core")}`);
+      if (!appUrl(ctx)) return noAppUrl(ctx, "addon:password", ", so the reset link's address isn't known");
+      const s = ctx.state.password ?? (await passwordState(ctx));
+      if (!s.ok) return fail(`Can't read the sign-in settings: ${s.why}`);
+      if (!s.emailProvider) for (const line of EMAIL_PROVIDER_NOTE) ctx.say(`  ${line}`);
+      return ok();
+    },
+    changes(ctx) {
+      const s = ctx.state.password;
+      const apis = enabledApis(ctx.project);
+      const needApis = PASSWORD_APIS.filter((a) => !apis.apis || !apis.apis.has(a.id));
+      ctx.state.passwordApis = needApis;
+      const email = alertEmail(ctx);
+      const policies = authAlertPoliciesFor([], s.identityPlatform);
+      return [
+        // Listed first: it is the one change that can't be undone.
+        ...(s.upgrade ? [`${IDENTITY_PLATFORM_UPGRADE} (identityPlatform:initializeAuth, before any Identity Platform setting below; needs billing on the project)`] : []),
+        ...(needApis.length ? [`Turn on ${needApis.map((a) => `${a.id} (${a.why})`).join(", ")}`] : []),
+        ...passwordPatchPlan(s.diff).map(
+          (b) => `Identity Platform, ${b.label}: ${b.items.map((d) => d.fix).join("; ")} (one PATCH, updateMask ${b.mask}${b.soft ? "; a refusal only warns" : ""})`,
+        ),
+        ...(s.diff.some((d) => d.batch === "provider") ? ["The Email/Password provider goes on last, after every protection above"] : []),
+        `Make Identity Platform's service agent and give it ${IDENTITY_AGENT_ROLE}, so reCAPTCHA can make its keys (safe to repeat)`,
+        `Turn on Firestore TTL clean-up for sign-in codes on (default): ${andList(CODE_TTL_COLLECTIONS)} (safe to repeat; copies set up before these existed lack it)`,
+        ...(!s.alerts.ok || s.alerts.missing.length
+          ? [
+              `Make the sign-in alerts where missing: log metrics ${andList(authLogMetricsFor(s.identityPlatform).map((m) => m.name))}, and alerts ${andList(policies.map((p) => `"${p.displayName}"`))}${email ? `, emailed to ${email}` : ""}`,
+            ]
+          : []),
+        ...(s.plain && !s.upgrade
+          ? [
+              "Leave out request logging and the many password sign-ups alert: this project is on Firebase Authentication without the Identity Platform upgrade (add --upgrade-identity-platform to opt in)",
+            ]
+          : []),
+        // apply() only writes the switch when it is off and there is an email provider.
+        ...(s.switchOn
+          ? []
+          : [
+              s.emailProvider
+                ? `Turn on PASSWORD_SIGNIN_ENABLED in apphosting.${ctx.envName}.yaml`
+                : `Leave PASSWORD_SIGNIN_ENABLED off in apphosting.${ctx.envName}.yaml: no email provider yet (addon:email)`,
+            ]),
+      ];
+    },
+    async apply(ctx) {
+      const s = ctx.state.password;
+      const needApis = ctx.state.passwordApis ?? PASSWORD_APIS;
+      if (needApis.length) {
+        const code = await runLive(ctx, "gcloud", ["services", "enable", ...needApis.map((a) => a.id), `--project=${ctx.project}`]);
+        if (code !== 0) return fail("Turning on the APIs failed (see above).");
+      }
+      // reCAPTCHA's keys are made by Identity Platform's service agent: it comes before the config.
+      if (!(await ensureIdentityAgent(ctx))) {
+        return fail([
+          "Making Identity Platform's service agent failed (see above). Without it reCAPTCHA has no keys and scores nothing.",
+          "Nothing in Identity Platform was changed. Fix what it says and run this add-on again.",
+        ]);
+      }
+      // The codes' own clean-up. The core step's TTL run covers them on new copies; a copy set up
+      // before they existed never re-runs it, so turn it on here too (the same command, repeatable).
+      for (const group of CODE_TTL_COLLECTIONS) {
+        const args = ["firestore", "fields", "ttls", "update", "ttl", `--collection-group=${group}`, "--enable-ttl", "--database=(default)", `--project=${ctx.project}`, "--async"];
+        const code = await runLive(ctx, "gcloud", args);
+        if (code !== 0) return fail(`Turning on the TTL clean-up for ${group} failed (see above). Nothing in Identity Platform was changed.`);
+      }
+      // The opt-in upgrade, before any setting changes; then plan from what the project now says.
+      let diff = s.diff;
+      if (s.upgrade) {
+        const up = await upgradeToIdentityPlatform(ctx);
+        if (!up.ok) return fail(up.detail);
+        diff = passwordConfigDiff(up.config, appUrl(ctx));
+      }
+      const warnings = [];
+      const plan = passwordPatchPlan(diff);
+      for (const [i, batch] of plan.entries()) {
+        const r = await rest(`${identityConfigUrl(ctx)}?updateMask=${encodeURIComponent(batch.mask)}`, ctx.project, { method: "PATCH", body: batch.body });
+        ctx.say(`  ${r.ok ? "ok  " : batch.soft ? "warn" : "fail"} ${batch.label} (${batch.mask})${r.ok ? "" : `: ${r.why}`}`);
+        if (r.ok) continue;
+        if (batch.soft) {
+          warnings.push(
+            `Identity Platform refused the reset link's address. Set it by hand: Firebase console, Authentication, Templates, Password reset, edit, Customize action URL: ${appUrl(ctx)}/auth/reset`,
+          );
+          continue;
+        }
+        const left = plan.slice(i + 1);
+        return fail([
+          `Identity Platform refused the ${batch.label}. Nothing after it was sent${left.length ? ` (${left.map((b) => b.label).join(", ")})` : ""}, so the Email/Password provider stays as it was.`,
+          `Fix what it says, or set it in the Firebase console: https://console.firebase.google.com/project/${ctx.project}/authentication/settings`,
+        ]);
+      }
+
+      // Read back what Identity Platform kept.
+      ctx.memo.clear();
+      const back = await identityConfig(ctx);
+      if (!back.ok) return fail(`Can't read the sign-in settings back: ${back.why}`);
+      const left = passwordConfigDiff(back.data ?? {}, appUrl(ctx)).filter((d) => d.level !== "info");
+      if (left.length) return fail(`Identity Platform still differs after the changes: ${left.map((d) => d.what).join("; ")}.`);
+      ctx.say(`  ok   read back: Email/Password on, ${PASSWORD_MIN_LENGTH} characters or more, protections on`);
+
+      if (!(await ensureAuthAlerts(ctx, s.identityPlatform))) {
+        return fail([
+          "Making the sign-in alerts failed (see above). Identity Platform is set; run this add-on again to finish the alerts.",
+          // A copy that already has password sign-in on re-runs this for a newer alert: it stays on.
+          s.switchOn
+            ? `PASSWORD_SIGNIN_ENABLED is still on in apphosting.${ctx.envName}.yaml, as it was: only the alerts are unfinished.`
+            : `PASSWORD_SIGNIN_ENABLED is still off in apphosting.${ctx.envName}.yaml.`,
+        ]);
+      }
+
+      // No email provider, no codes: the sign-in page would offer Google only while the help page
+      // and Settings describe passwords. Leave the switch off; the check keeps the add-on to do.
+      // Without the upgrade, the closing lines say what was left out and how to add it later.
+      const skipped = s.plain && !s.upgrade ? upgradeSkippedLines(ctx) : [];
+      const saySkipped = () => {
+        for (const l of skipped) ctx.say(`  ${l}`);
+      };
+      if (!hasEmailProvider(ctx)) {
+        for (const w of warnings) ctx.say(`  Warning: ${w}`);
+        // A copy whose switch is already on (its provider removed since) keeps it: say so, not "stays off".
+        if (s.switchOn) {
+          ctx.say(`  Identity Platform and the alerts are ready. PASSWORD_SIGNIN_ENABLED is on in apphosting.${ctx.envName}.yaml,`);
+          ctx.say("  but nobody gets a confirmation code until there is an email provider (MANDRILL_API_KEY or RESEND_API_KEY).");
+          ctx.say(`  Run ${selfhostCommand(ctx, "--apply addon:email")} to add one.`);
+          saySkipped();
+          return ok();
+        }
+        ctx.say("  Identity Platform and the alerts are ready. PASSWORD_SIGNIN_ENABLED stays off: password sign-in");
+        ctx.say("  needs an email provider for its confirmation codes (MANDRILL_API_KEY or RESEND_API_KEY).");
+        ctx.say(`  Run ${selfhostCommand(ctx, "--apply addon:email")}, then this add-on again to turn it on.`);
+        saySkipped();
+        return ok();
+      }
+      const r = setForAddon(ctx, "password", []);
+      for (const w of warnings) ctx.say(`  Warning: ${w}`);
+      ctx.say("  reCAPTCHA starts in audit mode: it records, blocks nothing. After a week, if its metrics look right,");
+      ctx.say("  set it to ENFORCE (docs/self-host.md, Email and password sign-in).");
+      ctx.say("  Only addresses on ADMIN_ALLOWED_EMAILS can get in with a password; the domain list stays Google only.");
+      saySkipped();
+      return r;
     },
   },
 ];

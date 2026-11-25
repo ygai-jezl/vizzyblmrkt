@@ -1,6 +1,6 @@
 "use client";
 
-import type { User } from "firebase/auth";
+import { signOut, type User } from "firebase/auth";
 import { getClientAuth } from "./firebaseClient";
 
 /**
@@ -26,8 +26,24 @@ export const SESSION_EXPIRED_EVENT = "vzb:session-expired";
 
 const MINT_STAMP_KEY = "vzb.sessionMintedAt";
 
-/** "not_set_up": the account is allowed, but the deployment has no workspace for first-time admins yet. */
-export type MintResult = "ok" | "forbidden" | "not_set_up" | "error";
+/**
+ * What the door (/api/auth/session) said about this sign-in.
+ * - "not_set_up": the account is allowed, but the deployment has no workspace for first-time admins yet.
+ * - "email_not_verified": a password account that hasn't typed its emailed code yet.
+ * - "google_only": the address gets in only through the domain list, which is Google only.
+ * - "sign_in_again": the door removed an account it couldn't trust; sign out, then sign in again.
+ * - "address_updated": the door moved a renamed Google admin to their new address, which revoked
+ *   this sign-in; sign out, then sign in with Google again.
+ */
+export type MintResult =
+  | "ok"
+  | "forbidden"
+  | "not_set_up"
+  | "email_not_verified"
+  | "google_only"
+  | "sign_in_again"
+  | "address_updated"
+  | "error";
 
 /** Record a successful mint (localStorage, shared across tabs). */
 export function stampSessionMinted(now = Date.now()): void {
@@ -61,8 +77,26 @@ export async function mintSession(user: User): Promise<MintResult> {
     stampSessionMinted();
     return "ok";
   }
-  if (r.status === 403) return r.error === "workspace_not_set_up" ? "not_set_up" : "forbidden";
+  if (r.status === 409 && r.error === "sign_in_again") return "sign_in_again";
+  if (r.status === 409 && r.error === "address_updated") return "address_updated";
+  if (r.status === 403) {
+    switch (r.error) {
+      case "workspace_not_set_up":
+        return "not_set_up";
+      case "email_not_verified":
+        return "email_not_verified";
+      case "google_only":
+        return "google_only";
+      default:
+        return "forbidden";
+    }
+  }
   return "error";
+}
+
+/** The door's answers after which the browser's Firebase sign-in can't be used again: sign out. */
+export function mustSignOut(result: MintResult): boolean {
+  return result === "sign_in_again" || result === "address_updated";
 }
 
 async function postIdToken(
@@ -107,7 +141,11 @@ async function silentRefresh(): Promise<boolean> {
     if (!auth.currentUser) await auth.authStateReady();
     const user = auth.currentUser;
     if (!user) return false;
-    return (await mintSession(user)) === "ok";
+    const result = await mintSession(user);
+    // The door removed this account, or moved it to a renamed Google address (which revoked this
+    // sign-in): the persisted sign-in can't be used again, so drop it.
+    if (mustSignOut(result)) await signOut(auth).catch(() => undefined);
+    return result === "ok";
   } catch {
     return false; // missing client config / network failure — not silently healable
   }
@@ -131,13 +169,24 @@ export function shouldInterceptApi(url: string, origin: string): boolean {
   }
 }
 
+/** Characters a browser drops or reads as a slash inside a URL: backslash, whitespace, controls. */
+const UNSAFE_PATH_CHARS = /[\\\s\u0000-\u001f\u007f]/;
+
 /**
  * Validate a post-login return path: internal absolute paths only, so a
- * crafted link can never bounce a fresh sign-in to another origin. /login
- * itself is rejected to avoid a redirect loop.
+ * crafted link can never bounce a fresh sign-in to another origin. A browser
+ * reads "/\evil.test" (one backslash) and "/<tab>/evil.test" as "//evil.test", so backslashes,
+ * whitespace and control characters are refused too, and the path must still
+ * resolve to this origin. /login itself is rejected to avoid a redirect loop.
  */
 export function safeNextPath(raw: string | null | undefined): string | null {
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/login")) {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/login") || UNSAFE_PATH_CHARS.test(raw)) {
+    return null;
+  }
+  const base = "https://next-path.invalid";
+  try {
+    if (new URL(raw, base).origin !== base) return null;
+  } catch {
     return null;
   }
   return raw;

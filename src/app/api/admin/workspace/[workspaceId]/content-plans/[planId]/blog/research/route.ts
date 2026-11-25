@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { AUTOPILOT_RUNNING, autopilotHolds } from "@/lib/autopilot/planLock";
+import { REVIEW_RUNNING, reviewHolds } from "@/lib/content/blog/refreshHold";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant, isRateLimited } from "@/lib/tenant";
@@ -34,6 +35,8 @@ export async function POST(req: Request, { params }: RouteParams) {
   if (!plan) return NextResponse.json({ error: "not_found" }, { status: 404 });
   // The article autopilot is writing it: nothing saves over the run until it ends or a person takes over.
   if (autopilotHolds(plan)) return NextResponse.json(AUTOPILOT_RUNNING, { status: 409 });
+  // A refresh review is reading the copy: a rewrite would replace what it is about to propose changes to.
+  if (await reviewHolds(ctx, plan.id)) return NextResponse.json(REVIEW_RUNNING, { status: 409 });
   if (await isRateLimited(`tenant:${ctx.tenantId}`, RESEARCH_LIMIT)) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }

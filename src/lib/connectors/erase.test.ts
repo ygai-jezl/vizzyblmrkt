@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemorySearchIndex } from "@/lib/search/memoryStore";
 import type { SearchStore } from "@/lib/search/types";
+import { freshnessWatchId } from "@/lib/content/blog/freshnessPages";
+import { FRESH, seedFreshArticle } from "@/lib/content/blog/testing/freshness";
+import { failingFirestore } from "@/lib/tenant/testing/failingFirestore";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
+import { getContentPlan } from "@/lib/tenant/workspaceContent";
 import { changeDataConnection, createDataConnection, forTenant, type NewDataConnection, type TenantContext } from "@/lib/tenant";
 import { ACTIVITY_KINDS, freshCollect } from "@/lib/types/dataConnection";
 import type { ConnectorActor } from "./grants";
@@ -346,7 +350,7 @@ describe("searches in brand search", () => {
     const untouched = vi.fn((): SearchStore => {
       throw new Error("not a Search Console connection");
     });
-    expect(await eraseConnectionData(A, ID, "all", { by: "system", now: NOW, db, searchIndex: untouched })).toEqual({ snapshots: 0, signals: 0, declined: 0, withdrawn: 0, search: "skipped" });
+    expect(await eraseConnectionData(A, ID, "all", { by: "system", now: NOW, db, searchIndex: untouched })).toEqual({ snapshots: 0, signals: 0, declined: 0, withdrawn: 0, search: "skipped", freshness: "skipped" });
     expect(untouched).not.toHaveBeenCalled();
   });
 
@@ -366,5 +370,121 @@ describe("searches in brand search", () => {
     // Run again: nothing is left, and nothing is said about searches.
     const again = await purgeConnections(system, { apply: false, db, searchIndex });
     expect(again.items[0]).toMatchObject({ searchEntry: false });
+  });
+});
+
+describe("Search Console's figures in article freshness", () => {
+  const watch = async () => (await forTenant(A, db).freshnessWatch.getById(freshnessWatchId(A.tenantId)))!;
+  const card = async () => (await getContentPlan(A, FRESH.workspaceId, FRESH.planId, db))!.graph.nodes[0]!.blog!.freshness!;
+  const kindsOf = (reasons: readonly { kind: string }[]) => reasons.map((r) => r.kind);
+
+  it("leave on Disconnect, with the article's own reasons kept and the watch due now, whatever any switch says", async () => {
+    await seed();
+    await seedFreshArticle(A, db, NOW);
+    expect((await disconnect(A, admin, ID, deps())).ok).toBe(true);
+    expect(kindsOf((await watch()).due[0]!.reasons)).toEqual(["dead_link"]);
+    expect((await watch()).nextAt).toBe(NOW.toISOString());
+    expect(kindsOf((await card()).reasons)).toEqual(["dead_link"]);
+    expect((await load()).collect?.erasePending).toBeNull();
+    expect(kinds()).toEqual(["connected", "disconnected", "erased:all"]);
+  });
+
+  it("leave on Change property, as the old site's", async () => {
+    await seed();
+    await seedFreshArticle(A, db, NOW);
+    expect((await pickAccount(A, admin, ID, { account: NEW_SITE }, deps())).ok).toBe(true);
+    expect(kindsOf((await card()).reasons)).toEqual(["dead_link"]);
+    expect((await watch()).nextAt).toBe(NOW.toISOString());
+  });
+
+  it("stay for a Cloudflare or Google Analytics connection", async () => {
+    const others: Partial<NewDataConnection>[] = [
+      { connectorId: "cloudflare", method: "token_fields", label: "Cloudflare", account: "0123456789abcdef0123456789abcdef", secrets: {} },
+      { connectorId: "google-analytics", method: "share_access", label: "Google Analytics 4", account: "properties/123456789", secrets: {} },
+    ];
+    for (const over of others) {
+      db = new FakeFirestore();
+      await seed(over);
+      await seedFreshArticle(A, db, NOW);
+      const before = { watch: await watch(), card: await card(), nextUp: db.dump("next_up") };
+      await eraseConnectionData(A, ID, "all", { by: "system", now: NOW, db, searchIndex });
+      expect(await watch()).toEqual(before.watch);
+      expect(await card()).toEqual(before.card);
+      expect(db.dump("next_up")).toEqual(before.nextUp);
+    }
+  });
+
+  const tick = 7 * LANE.TICK_MS;
+  const lane = (s: typeof searchIndex = searchIndex) =>
+    runConnectorsLane({ deadlineMs: tick + 25_000 }, { db, clock: () => tick, listTenants: async () => [{ id: "ten_a", region: "us", status: "active" } as never], log: () => {}, searchIndex: s });
+  const pendingAll = () => changeDataConnection(A, ID, (cur) => ({ patch: { status: "disconnected", collect: { ...cur.collect!, erasePending: "all" } }, activity: [] }), db);
+
+  it("keep the erase pending when taking them out fails, logged with no brand content, and the lane's next run finishes it", async () => {
+    await seed();
+    await collected(0);
+    await seedFreshArticle(A, db, NOW);
+    await pendingAll();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const down = failingFirestore(db, { collections: ["freshness_watch", "workspaces", "next_up"] });
+    const r = await eraseConnectionData(A, ID, "all", { by: "system", now: NOW, db: down, searchIndex });
+    expect(r).toMatchObject({ snapshots: 6, search: "removed", freshness: "unfinished" });
+    expect(snapshotsOf()).toEqual([]);
+    expect(kindsOf((await card()).reasons)).toEqual(["losing_clicks", "dead_link", "within_reach"]);
+    expect((await load()).collect?.erasePending).toBe("all");
+    expect(kinds()).toEqual(["connected"]);
+    // One line for each step that failed, none with the brand's words in it.
+    expect(warn).toHaveBeenCalledTimes(2);
+    for (const call of warn.mock.calls) {
+      const line = call.map(String).join(" ");
+      expect(line).toContain("[freshness]");
+      for (const content of [FRESH.title, FRESH.url, FRESH.key]) expect(line).not.toContain(content);
+    }
+    expect(await lane()).toMatchObject({ erased: 1 });
+    expect(kindsOf((await card()).reasons)).toEqual(["dead_link"]);
+    expect(kindsOf((await watch()).due[0]!.reasons)).toEqual(["dead_link"]);
+    expect((await load()).collect?.erasePending).toBeNull();
+    expect(kinds()).toEqual(["connected", "erased:all"]);
+    warn.mockRestore();
+  });
+
+  it("leave the due list and Next up at once, and every article on a later run when the articles take longer than the time given", async () => {
+    await seed();
+    await seedFreshArticle(A, db, NOW);
+    await pendingAll();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const r = await eraseConnectionData(A, ID, "all", { by: "system", now: NOW, db, searchIndex, deadlineMs: Date.now() });
+    expect(r).toMatchObject({ search: "removed", freshness: "unfinished" });
+    expect(kindsOf((await watch()).due[0]!.reasons)).toEqual(["dead_link"]);
+    expect(db.dump("next_up")[0]!.picks).toHaveLength(1);
+    expect(kindsOf((await card()).reasons)).toEqual(["losing_clicks", "dead_link", "within_reach"]);
+    expect((await load()).collect?.erasePending).toBe("all");
+    expect(kinds()).toEqual(["connected"]);
+    expect(warn).not.toHaveBeenCalled();
+    // The lane's next run has its own time, and finishes.
+    expect(await lane()).toMatchObject({ erased: 1 });
+    expect(kindsOf((await card()).reasons)).toEqual(["dead_link"]);
+    expect((await load()).collect?.erasePending).toBeNull();
+    expect(kinds()).toEqual(["connected", "erased:all"]);
+    warn.mockRestore();
+  });
+
+  it("wait for the searches to be removed before reading every article, except in the purge, which deletes the record next", async () => {
+    await seed();
+    await indexedSearches();
+    await seedFreshArticle(A, db, NOW);
+    await pendingAll();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const down = (ctx: { tenantId: string }): SearchStore => ({ ...index.storeFor(ctx), removeSource: async () => Promise.reject(Object.assign(new Error("unavailable"), { code: 14 })) });
+    const r = await eraseConnectionData(A, ID, "all", { by: "system", now: NOW, db, searchIndex: down });
+    expect(r).toMatchObject({ search: "failed", freshness: "unfinished" });
+    // The quick step ran; the one that reads every plan waits for a try whose searches go.
+    expect(kindsOf((await watch()).due[0]!.reasons)).toEqual(["dead_link"]);
+    expect(kindsOf((await card()).reasons)).toEqual(["losing_clicks", "dead_link", "within_reach"]);
+    expect((await load()).collect?.erasePending).toBe("all");
+    for (const name of ["CONNECTORS_ENABLED", "CONNECTOR_SEARCH_CONSOLE_ENABLED", "CONNECTORS_VAULT_KEY"]) vi.stubEnv(name, "");
+    const done = await purgeConnections({ ...A, source: "system" }, { apply: true, by: "ops", now: NOW, db, searchIndex: down });
+    expect(done.removed[0]).toMatchObject({ connectionId: ID, searchRemoved: false });
+    expect(kindsOf((await card()).reasons)).toEqual(["dead_link"]);
+    warn.mockRestore();
   });
 });

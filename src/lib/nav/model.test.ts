@@ -124,7 +124,7 @@ describe("breadcrumbsFor", () => {
       "Content",
       "The Weekly Plate",
       "Curate",
-      "Idea Board",
+      "Scrapbook",
     ]);
     expect(labels("/admin/workspace/w1/create/p1/ebook")).toEqual([
       "Content",
@@ -174,7 +174,8 @@ describe("phase 3", () => {
 
   it("names programmes by the pipeline", () => {
     expect(labels("/admin/workspace/w1")).toEqual(["Content", "The Weekly Plate"]);
-    expect(labels("/admin/workspace/w1/curate/idea-board")).toEqual(["Content", "The Weekly Plate", "Ideas"]);
+    expect(labels("/admin/workspace/w1/curate/idea-board")).toEqual(["Content", "The Weekly Plate", "Scrapbook"]);
+    expect(labels("/admin/workspace/w1/curate")).toEqual(["Content", "The Weekly Plate", "Scrapbook"]);
     expect(labels("/admin/workspace/w1/curate/grounding")).toEqual(["Content", "The Weekly Plate", "Knowledge"]);
     expect(labels("/admin/workspace/w1/create/p1/ebook")).toEqual(["Content", "The Weekly Plate", "Drafts", "Draft", "eBook"]);
     expect(labels("/admin/workspace/w1/distribute")).toEqual(["Content", "The Weekly Plate", "Calendar"]);
@@ -312,6 +313,58 @@ describe("People in place of Audience", () => {
 
   it("changes nothing outside the People area", () => {
     for (const path of ["/admin", "/admin/launches/c1/signups", "/admin/account/billing", "/admin/analytics"]) {
+      expect(crumbs(path, true), path).toEqual(crumbs(path, false));
+    }
+  });
+});
+
+describe("Ideas in place of Launches", () => {
+  const names = { launches: { c1: "Offline mode" }, workspaces: { w1: "The Weekly Plate" } };
+  const crumbs = (path: string, ideas: boolean) => breadcrumbsFor(path, names, { phase3: true, insights: true, ideas });
+  const labels = (path: string, ideas: boolean) => crumbs(path, ideas).map((c) => c.label);
+  const LAUNCH_PATHS = [
+    "/admin/launches",
+    "/admin/launches/new",
+    "/admin/launches/c1",
+    "/admin/launches/unknown",
+    "/admin/launches/c1/signups",
+    "/admin/launches/c1/journey",
+    "/admin/launches/c1/invites",
+    "/admin/analytics/launches",
+  ];
+
+  it("names the sidebar item Ideas only when told, keeping its key and route", () => {
+    const on = allItems({ ...ALL_ON, phase3: true, ideas: true }).find((i) => i.key === "launches")!;
+    expect(on).toMatchObject({ label: "Ideas", href: "/admin/launches", match: ["/admin/launches"] });
+    expect(allItems({ ...ALL_ON, phase3: true }).find((i) => i.key === "launches")!.label).toBe("Launches");
+    expect(activeNavKey("/admin/launches/c1", allItems({ ...ALL_ON, ideas: true }))).toBe("launches");
+  });
+
+  it("reads Ideas in the crumbs, New idea, and Idea for a launch it has no name for", () => {
+    expect(labels("/admin/launches", true)).toEqual(["Ideas"]);
+    expect(labels("/admin/launches/new", true)).toEqual(["Ideas", "New idea"]);
+    expect(labels("/admin/launches/c1", true)).toEqual(["Ideas", "Offline mode", "Overview"]);
+    expect(labels("/admin/launches/unknown", true)).toEqual(["Ideas", "Idea", "Overview"]);
+    expect(labels("/admin/launches/c1/journey", true)).toEqual(["Ideas", "Offline mode", "Emails", "Welcome & nurture"]);
+    expect(labels("/admin/analytics/launches", true)).toEqual(["Insights", "Ideas"]);
+    expect(crumbs("/admin/launches/c1/signups", true)[0]).toEqual({ label: "Ideas", href: "/admin/launches" });
+  });
+
+  it("keeps every crumb as it was with the words off", () => {
+    expect(labels("/admin/launches/new", false)).toEqual(["Launches", "New launch"]);
+    expect(labels("/admin/launches/unknown", false)).toEqual(["Launches", "Launch", "Overview"]);
+    expect(labels("/admin/analytics/launches", false)).toEqual(["Insights", "Launches"]);
+    for (const path of LAUNCH_PATHS) expect(crumbs(path, false), path).toEqual(breadcrumbsFor(path, names, { phase3: true, insights: true }));
+  });
+
+  it("has no Launch in any label or crumb for launches while on", () => {
+    const items = allItems({ ...ALL_ON, phase3: true, ideas: true }).map((i) => i.label);
+    expect(items.join(" ")).not.toMatch(/launch/i);
+    for (const path of LAUNCH_PATHS) expect(labels(path, true).join(" › "), path).not.toMatch(/launch/i);
+  });
+
+  it("changes nothing outside launches", () => {
+    for (const path of ["/admin", "/admin/crm", "/admin/workspace/w1/curate/idea-board", "/admin/analytics/email", "/admin/products/p1"]) {
       expect(crumbs(path, true), path).toEqual(crumbs(path, false));
     }
   });

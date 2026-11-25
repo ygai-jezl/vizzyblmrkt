@@ -76,11 +76,13 @@ function companyProfileValues(company: Pick<Company, "domain" | "profile">): Arr
 
 /**
  * The fields from elsewhere a brand has, for Settings › Data model: from its launches' questions,
- * its products' catalogs, enrichment and its launches' voice chats.
+ * its products' catalogs, enrichment and its launches' voice chats. `ideas` (isIdeaWordsEnabled())
+ * names an unnamed launch an idea.
  */
 export function readOnlyFieldDefs(
   object: "person" | "company",
   sources: { campaigns: ReadonlyArray<Pick<Campaign, "id" | "waitlistName" | "questions" | "aiConversation">>; connections: readonly NamedConnection[] },
+  opts: { ideas?: boolean } = {},
 ): ReadOnlyFieldDef[] {
   if (object === "company") {
     return [
@@ -92,7 +94,7 @@ export function readOnlyFieldDefs(
   for (const c of sources.campaigns) {
     (c.questions ?? []).forEach((q, i) => {
       if (!q.question_value?.trim()) return;
-      out.push({ key: `answer:${c.id}:${i}`, label: q.question_value.trim(), typeLabel: "text", source: `Sign-up answer · ${c.waitlistName || "A launch"}`, inFilters: "No" });
+      out.push({ key: `answer:${c.id}:${i}`, label: q.question_value.trim(), typeLabel: "text", source: `Sign-up answer · ${c.waitlistName || (opts.ideas ? "An idea" : "A launch")}`, inFilters: "No" });
     });
   }
   for (const c of sources.connections) {

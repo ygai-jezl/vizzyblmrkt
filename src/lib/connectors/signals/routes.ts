@@ -4,7 +4,7 @@ import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { integrationsAdmin } from "@/lib/integrations/admin";
 import { DATA_SIGNAL_ID } from "@/lib/types/dataSignal";
 import { isConnectorSignalsEnabled } from "../flags";
-import { dismissSignal, planFromSignal, type DecideError } from "./review";
+import { dismissSignal, planFromSignal, SUGGESTION_BUSY, type DecideError } from "./review";
 
 /**
  * The two Review decisions on a suggestion from collected numbers (CONNECTOR_SIGNALS_ENABLED):
@@ -16,11 +16,12 @@ import { dismissSignal, planFromSignal, type DecideError } from "./review";
 
 const PlanBody = z.object({ workspaceId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).optional() }).strict();
 
-const STATUS: Record<DecideError, number> = { not_found: 404, changed: 409, no_programme: 409 };
+const STATUS: Record<DecideError, number> = { not_found: 404, changed: 409, no_programme: 409, busy: 503 };
 const MESSAGE: Record<DecideError, string> = {
   not_found: "That suggestion isn't there any more.",
   changed: "That suggestion was decided already. Refresh Review to see what is waiting.",
   no_programme: "Choose the programme to write it in, or add one first.",
+  busy: SUGGESTION_BUSY,
 };
 const fail = (e: DecideError) => NextResponse.json({ error: e, message: MESSAGE[e] }, { status: STATUS[e], headers: { "cache-control": "no-store" } });
 

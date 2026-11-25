@@ -4,6 +4,7 @@ import type {
 } from "@/lib/analytics/analytics";
 import { BarList } from "@/components/admin/charts/BarList";
 import { TimeSeries } from "@/components/admin/charts/TimeSeries";
+import { ideaWord } from "@/lib/nav/terms";
 
 /**
  * Presentational analytics view for a single campaign: a truncation banner, the
@@ -19,12 +20,14 @@ import { TimeSeries } from "@/components/admin/charts/TimeSeries";
  *
  * Shared by the global Analytics page (which adds the campaign-switcher pills)
  * and the per-launch Analytics tab (already scoped to one launch), so both
- * render identically.
+ * render identically. Both pass `ideas` (isIdeaWordsEnabled()) to name an idea.
  */
 export function CampaignAnalyticsView({
   analytics: a,
+  ideas = false,
 }: {
   analytics: HybridCampaignAnalytics;
+  ideas?: boolean;
 }) {
   const viewsActive = a.source.views === "bigquery";
   return (
@@ -63,7 +66,7 @@ export function CampaignAnalyticsView({
           <TimeSeries rows={a.viewsByDay} label="views" />
         ) : (
           <Empty>
-            View tracking isn’t active for this launch yet. Embed the widget (it
+            View tracking isn’t active for this {ideaWord(ideas).one} yet. Embed the widget (it
             beacons impressions automatically) and enable the BigQuery pipeline
             (docs/self-host.md, addon:bigquery) to populate this.
           </Empty>

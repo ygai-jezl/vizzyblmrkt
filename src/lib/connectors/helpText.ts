@@ -232,6 +232,9 @@ export const SIGNALS_HELP = {
  * days are collected, what is kept and for how long, what the Connected view says and what
  * erases them.
  */
+/** What else an erase of Search Console takes, in the help pages' words (src/lib/content/blog/freshnessErase.ts). */
+export const SEARCH_CONSOLE_FRESHNESS_ERASED = "the Search Console figures on article Freshness cards, in Articles due a refresh and in Next up";
+
 export const COLLECT_HELP = {
   what: "While collected numbers are on in your copy, YouGrow collects each connection's numbers once a day and keeps them 90 days in your brand's region. Decisions rest on days that no longer change; a live read is still there for exploring.",
   when: [
@@ -251,7 +254,7 @@ export const COLLECT_HELP = {
   ] as const,
   card: "Press a connection's row to see Collected numbers on its card: the last day collected and its time zone, the days kept, and what each day keeps.",
   erase:
-    "Disconnect deletes everything YouGrow collected for a connection, at once, whatever any switch says. Change property deletes the old property's numbers and fills 90 days for the new one. Pause stops collecting until you resume. If your copy turns collected numbers off, no new days arrive and the kept ones leave after 90 days.",
+    "Disconnect deletes everything YouGrow collected for a connection, at once, whatever any switch says. Change property deletes the old property's numbers and fills 90 days for the new one. For Search Console, both also take its figures off article Freshness cards and out of Articles due a refresh, and drop the Next up picks that weighed them. Pause stops collecting until you resume. If your copy turns collected numbers off, no new days arrive and the kept ones leave after 90 days.",
   review:
     "A connection that can't be read, has no property chosen, has failed to collect for 3 days, or was paused a week ago shows in Review under Data sources that need you. Its link opens it on Connected.",
 } as const;

@@ -53,8 +53,11 @@ const ICONS: Record<NavKey, LucideIcon> = {
 const PHASE2 = isNavV2Phase2Enabled();
 const GUIDE = isSetupGuideEnabled();
 
-/** The sidebar's sections; `people` (from the server) names the Audience item People. */
-function sectionsFor(people: boolean) {
+/**
+ * The sidebar's sections; `people` (from the server) names the Audience item People, and `ideas`
+ * (from the server) the Launches item Ideas.
+ */
+function sectionsFor(people: boolean, ideas: boolean) {
   return buildNav({
     lifecycle: isLifecycleUiEnabled(),
     brandKit: isBrandKitUiEnabled(),
@@ -62,6 +65,7 @@ function sectionsFor(people: boolean) {
     review: isLifecycleUiEnabled() || PHASE2,
     phase3: isNavV2Phase3Enabled(),
     people,
+    ideas,
   });
 }
 
@@ -73,6 +77,8 @@ export interface SidebarV2Props {
   email?: string;
   /** Audience is called People (isPeopleNameEnabled(), worked out by the layout on the server). */
   people?: boolean;
+  /** Launches are called Ideas (isIdeaWordsEnabled(), worked out by the layout on the server). */
+  ideas?: boolean;
 }
 
 interface GrowthDots {
@@ -145,9 +151,9 @@ function StageDot({ status }: { status: StageStatus }) {
  * launches instead of one row per launch; Brand and Settings at the bottom.
  * Phase 2 adds search (⌘K), Ask Vizzy (⌘J) and the growth-path dots.
  */
-export function SidebarV2({ brands, launches, archivedLaunches, ctx, email, people = false }: SidebarV2Props) {
+export function SidebarV2({ brands, launches, archivedLaunches, ctx, email, people = false, ideas = false }: SidebarV2Props) {
   const pathname = usePathname() ?? "/admin";
-  const sections = useMemo(() => sectionsFor(people), [people]);
+  const sections = useMemo(() => sectionsFor(people, ideas), [people, ideas]);
   const allItems = useMemo(() => sections.flatMap((s) => s.items), [sections]);
   const shell = useShell();
   const reviewCount = useReviewCount();

@@ -22,8 +22,23 @@ export interface FreshnessDueItem {
 export interface FreshnessWatchDoc {
   id: string;
   tenantId: string;
-  /** When the brand is next looked at (once a day). */
+  /**
+   * When the brand is next looked at: once a day, or at the next tick while a look cut short goes on
+   * (half an hour on when its tick ran out before it reached any article).
+   */
   nextAt: string;
+  /**
+   * When the look still going on began: a look its tick's time cuts short sets it, the next tick goes
+   * on with the articles not looked at since, and the look that reaches the last one clears it.
+   * Missing or null: no look is going on.
+   */
+  lookStartedAt?: string | null;
+  /**
+   * The look going on wrote a Search Console reason on an article it passed, so an erase starts it
+   * over (src/lib/content/blog/freshnessErase.ts). An erase tried again, with no such reason written
+   * since, lets it go on. Missing: false.
+   */
+  searchConsoleInLook?: boolean;
   counts: { fresh: number; soon: number; due: number };
   /** Live articles on each clock. */
   byClock: Record<"20" | "30" | "45", number>;
@@ -35,4 +50,10 @@ export interface FreshnessWatchDoc {
   linksDay: string;
   linksToday: number;
   updatedAt: string;
+  /**
+   * How many times an erase took Search Console's figures out (src/lib/content/blog/freshnessErase.ts),
+   * counted up by each. A look that sees it change while it runs writes none of those figures and
+   * leaves the next look due soon. Missing means none yet.
+   */
+  searchConsoleClears?: number;
 }

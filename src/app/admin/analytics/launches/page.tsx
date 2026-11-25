@@ -9,16 +9,20 @@ import { loadFunnel } from "@/lib/invites/funnel";
 import { CampaignAnalyticsView } from "@/components/admin/CampaignAnalyticsView";
 import { LaunchFunnel } from "@/components/admin/invites/LaunchFunnel";
 import { Card } from "@/components/admin/insights/parts";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { ideaWord } from "@/lib/nav/terms";
 
 export const dynamic = "force-dynamic";
 
-/** Insights › Launches (nav v2 phase 4): one launch's analytics, with its funnel into the product. */
+/** Insights › Launches (nav v2 phase 4): one launch's analytics, with its funnel into the product. Ideas with the words on. */
 export default async function InsightsLaunchesPage({ searchParams }: { searchParams: Promise<{ campaign?: string }> }) {
   if (!isInsightsHubEnabled()) notFound();
   const ctx = await requireAdminContext();
   const sp = await searchParams;
+  const words = isIdeaWordsEnabled();
+  const w = ideaWord(words);
   const campaigns = await forTenant(ctx).campaigns.find({ orderBy: [["createdAt", "desc"]], limit: 50 });
-  if (campaigns.length === 0) return <p className="text-sm text-neutral-500">No launches yet.</p>;
+  if (campaigns.length === 0) return <p className="text-sm text-neutral-500">No {w.many} yet.</p>;
   const selected = campaigns.find((c) => c.id === sp.campaign) ?? campaigns[0]!;
   const invites = isInvitesUiEnabled() && isInvitesEnabled();
   const [analytics, funnel] = await Promise.all([
@@ -28,7 +32,7 @@ export default async function InsightsLaunchesPage({ searchParams }: { searchPar
   return (
     <div className="space-y-6">
       {campaigns.length > 1 ? (
-        <div className="flex flex-wrap gap-2 text-sm" aria-label="Launch">
+        <div className="flex flex-wrap gap-2 text-sm" aria-label={w.One}>
           {campaigns.map((c) => (
             <Link
               key={c.id}
@@ -50,7 +54,7 @@ export default async function InsightsLaunchesPage({ searchParams }: { searchPar
           <LaunchFunnel funnel={funnel} />
         </Card>
       ) : null}
-      <CampaignAnalyticsView analytics={analytics} />
+      <CampaignAnalyticsView analytics={analytics} ideas={words} />
     </div>
   );
 }

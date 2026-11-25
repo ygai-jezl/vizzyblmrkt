@@ -4,6 +4,8 @@ import { useRef, useState } from "react";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import type { ReadyHub } from "@/lib/distribute/weeklyHubs";
 import { broadcastErrorText } from "@/lib/email/broadcastErrors";
+import { ideaWord } from "@/lib/nav/terms";
+import { useWords } from "../../nav/WordsProvider";
 
 /**
  * Weekly newsletter tab. Lists every ready hub newsletter across the workspace.
@@ -23,6 +25,7 @@ export function WeeklyClient({
   campaigns: Campaign[];
 }) {
   const [selected, setSelected] = useState<ReadyHub | null>(null);
+  const w = ideaWord(useWords().ideas);
 
   return (
     <div className="space-y-4">
@@ -30,9 +33,9 @@ export function WeeklyClient({
         <h2 className="text-lg font-semibold">Weekly newsletter</h2>
         <p className="mt-1 max-w-2xl text-sm text-neutral-500">
           Pick one of your generated newsletter hubs to send as this week&apos;s
-          newsletter. It goes to the launch&apos;s weekly subscribers — the people
-          who reached a &ldquo;weekly&rdquo; Exit node in that launch&apos;s
-          journey. Come back each week to send the next one.
+          newsletter. It goes to the {w.own} weekly subscribers: the people
+          who reached a &ldquo;weekly&rdquo; Exit node in that {w.own} journey.
+          Come back each week to send the next one.
         </p>
       </div>
 
@@ -95,6 +98,8 @@ function SendPanel({
   workspaceId: string;
   onClose: () => void;
 }) {
+  const { ideas } = useWords();
+  const w = ideaWord(ideas);
   const [subject, setSubject] = useState(hub.subject);
   const [campaignId, setCampaignId] = useState(campaigns[0]?.id ?? "");
   // Empty ⇒ send now; a local datetime ⇒ schedule for that future instant.
@@ -154,14 +159,14 @@ function SendPanel({
       setBusy(false);
       if (!res.ok || data.status === "failed") {
         setDone(false);
-        setMsg(broadcastErrorText(data.error ?? data.lastError, "weekly"));
+        setMsg(broadcastErrorText(data.error ?? data.lastError, "weekly", ideas));
         return;
       }
       setDone(true);
       setMsg(
         scheduling
-          ? "Scheduled. It goes to this launch's weekly subscribers at that time."
-          : "Sent to this launch's weekly subscribers.",
+          ? `Scheduled. It goes to this ${w.own} weekly subscribers at that time.`
+          : `Sent to this ${w.own} weekly subscribers.`,
       );
     } catch {
       setBusy(false);
@@ -197,10 +202,10 @@ function SendPanel({
         </label>
 
         <label className="mt-3 block text-xs font-medium text-neutral-600 dark:text-neutral-300">
-          Send to launch&apos;s weekly subscribers
+          Send to {w.own} weekly subscribers
           {campaigns.length === 0 ? (
             <p className="mt-1 text-xs font-normal text-neutral-500">
-              No launches yet. Create a launch first so there&apos;s an audience.
+              No {w.many} yet. Create {w.a} first so there&apos;s an audience.
             </p>
           ) : (
             <select

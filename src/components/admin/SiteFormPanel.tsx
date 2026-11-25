@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { KeyReveal } from "./connect/KeyReveal";
 import { Banner, Button, Field, Section, inputClass } from "./connect/ui";
+import { ideaWord } from "@/lib/nav/terms";
+import { useWords } from "./nav/WordsProvider";
 
 /**
  * "Your own form" on a launch's Page & widget tab (LAUNCH_SITE_SIGNUPS_ENABLED): the
@@ -46,6 +48,7 @@ export function curlExample(endpoint: string): string {
 
 export function SiteFormPanel({ campaignId, canEdit }: { campaignId: string; canEdit: boolean }) {
   const api = `/api/admin/campaigns/${encodeURIComponent(campaignId)}/site-key`;
+  const w = ideaWord(useWords().ideas);
   const [load, setLoad] = useState<Load>({ state: "loading" });
   const [reveal, setReveal] = useState<{ keyId: string; secret: string } | null>(null);
   const [stored, setStored] = useState(false);
@@ -84,7 +87,7 @@ export function SiteFormPanel({ campaignId, canEdit }: { campaignId: string; can
           json.error === "encryption_unavailable"
             ? "Keys can't be made on this YouGrow yet. Whoever runs it needs to set CONNECT_SECRET_ENC_KEY."
             : json.error === "key_exists"
-              ? "This launch already has a key. Refresh the page to see it."
+              ? `This ${w.one} already has a key. Refresh the page to see it.`
               : typeof json.message === "string"
                 ? json.message
                 : "That didn't work. Please try again.",
@@ -140,7 +143,7 @@ export function SiteFormPanel({ campaignId, canEdit }: { campaignId: string; can
     <div className="space-y-4">
       {problem ? <Banner tone="err">{problem}</Banner> : null}
 
-      <Section title="Site key" description="It can only add sign-ups to this launch. It can't read anyone.">
+      <Section title="Site key" description={`It can only add sign-ups to this ${w.one}. It can't read anyone.`}>
         {reveal ? (
           <div className="space-y-3">
             <KeyReveal

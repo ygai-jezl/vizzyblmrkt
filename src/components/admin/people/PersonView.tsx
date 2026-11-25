@@ -15,6 +15,8 @@ import { Chip } from "./Chip";
 import { JourneyCard } from "./JourneyCard";
 import { PlanPanel } from "./PlanPanel";
 import { useShell } from "../nav/ShellProvider";
+import { useWords } from "../nav/WordsProvider";
+import { ideaWord } from "@/lib/nav/terms";
 import { ago, day, dayTime, shortUrl, time, wallClock } from "./format";
 
 /**
@@ -86,6 +88,7 @@ export function PersonView({
 }) {
   const router = useRouter();
   const shell = useShell();
+  const w = ideaWord(useWords().ideas);
   const [state, setState] = useState<State>({ status: "loading" });
   const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -150,7 +153,7 @@ export function PersonView({
   };
   const erase = async () => {
     const ask = embedded
-      ? `Erase them from ${p.product}? Their user record, journey progress and email history in this product are deleted. Their launches and other products stay. This can't be undone.`
+      ? `Erase them from ${p.product}? Their user record, journey progress and email history in this product are deleted. Their ${w.many} and other products stay. This can't be undone.`
       : `Erase ${p.email ?? p.name ?? "this person"}? Their profile, journey progress and email history are deleted. This can't be undone.`;
     if (!window.confirm(ask)) return;
     setBusy("erase");

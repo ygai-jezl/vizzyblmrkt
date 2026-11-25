@@ -87,10 +87,11 @@ export async function refreshNextUp(ctx: TenantContext, deps: NextUpAdminDeps = 
 }
 
 const Skip = z.object({
+  /** A question's id, or "refresh:<planId>" for a live article due a refresh. */
   questionId: z
     .string()
     .trim()
-    .regex(/^q_[A-Za-z0-9]{6,40}$/),
+    .regex(/^(q_[A-Za-z0-9]{6,40}|refresh:[A-Za-z0-9_-]{6,80})$/),
   question: z.string().trim().min(1).max(300),
   reason: z.string().trim().max(200).optional(),
 });

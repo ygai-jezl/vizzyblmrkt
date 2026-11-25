@@ -54,7 +54,9 @@ export function reason(result) {
     .split("\n")
     .map((l) => l.trim())
     .filter((l) => l && !/^(Updates are available|To update|WARNING: Python)/.test(l));
-  const line = lines.find((l) => /^ERROR|Error:|error:/.test(l)) ?? lines.at(-1) ?? "";
+  // gcloud may print hints as ERROR lines first ("Policy modification failed. For a binding with
+  // condition, run ... lint-condition"); the cause is on its "ERROR: (gcloud.<command>)" line.
+  const line = lines.find((l) => /^ERROR: \(gcloud[.)]/.test(l)) ?? lines.find((l) => /^ERROR|Error:|error:/.test(l)) ?? lines.at(-1) ?? "";
   return line.replace(/^ERROR: \([^)]*\) /, "").slice(0, 300);
 }
 
@@ -156,6 +158,22 @@ export function secretNames(project) {
 export function createSecret(project, name, value) {
   const r = capture("gcloud", ["secrets", "create", name, `--project=${project}`, "--replication-policy=automatic", "--data-file=-"], { input: value });
   return { ok: r.ok, why: r.ok ? "" : reason(r) };
+}
+
+/**
+ * Signs the Firebase CLI in again. Its sign-in lapses apart from gcloud's, and then plain
+ * `firebase login` only says it is already logged in; --reauth also works when it never was.
+ */
+export const FIREBASE_REAUTH = "firebase login --reauth";
+
+/**
+ * True when a Firebase CLI failure reads as its own sign-in ("Failed to authenticate, have you run
+ * firebase login?", "Your credentials are no longer valid. Please run firebase login --reauth"),
+ * not, say, an API that is off or an account without access, which signing in again won't fix.
+ * @param {string} why
+ */
+export function isFirebaseSignInFailure(why) {
+  return /credentials|reauth|authenticat|firebase login/i.test(String(why ?? ""));
 }
 
 /**

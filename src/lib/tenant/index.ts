@@ -95,20 +95,23 @@ export {
   ORGANISATION_CHANGES,
   organisationIdFor,
   getOrganisation,
+  organisationMembership,
   listOrganisations,
   ensureBrandOrganisation,
   attachBrandToOrganisation,
   moveBrandToNewOrganisation,
+  reusableOrganisationId,
   setOrganisationPlan,
   setOrganisationName,
   setOrganisationOwners,
   organisationUserIds,
+  recordOrganisationConnectionChange,
   OPERATOR_LABEL,
   scriptActor,
   organisationDrift,
   hasDrift,
 } from "./organisations";
-export type { DriftBrand, EnsureOrganisationOptions, EnsureOrganisationResult, OrganisationDrift, SetPlanResult } from "./organisations";
+export type { AttachGuards, DriftBrand, EnsureOrganisationOptions, EnsureOrganisationResult, OrganisationConnectionChangeKind, OrganisationDrift, SetPlanResult } from "./organisations";
 export { countLiveLaunches } from "./liveLaunches";
 export {
   appendPatternVersion,
@@ -206,8 +209,74 @@ export {
   RECENT_LIMIT,
 } from "./dataConnections";
 export type { ActivityWrite, NewDataConnection, DataConnectionPatch, ChangePlan, ChangeResult, PurgeCounts } from "./dataConnections";
+// Organisation connections (Connectors 3): an organisation's sign in in the region it was
+// connected from, and each brand's part as a brand record in its own region, given, changed and
+// ended in three steps over two databases. The stage variants stay in src/lib/tenant.
+export {
+  ORGANISATION_CONNECTIONS,
+  ORGANISATION_CONNECTION_ACTIVITY,
+  REPAIR_AFTER_MS,
+  provisionedRegions,
+  newOrganisationConnectionId,
+  createOrganisationConnection,
+  getOrganisationConnection,
+  findOrganisationConnection,
+  listOrganisationConnections,
+  listRegionOrganisationConnections,
+  pageRegionOrganisationConnections,
+  scanRegionOrganisationConnections,
+  changeOrganisationConnection,
+  countOrganisationConnectionActivity,
+  purgeOrganisationConnection,
+  givePart,
+  changePart,
+  endPart,
+  removePartEntry,
+  disconnectOrganisationConnectionRecord,
+  repairParts,
+} from "./organisationConnections";
+export type {
+  OrganisationStores,
+  OrgActivityWrite,
+  NewOrganisationConnection,
+  OrganisationConnectionPatch,
+  OrgChangePlan,
+  OrgChangeResult,
+  OrganisationPurgeCounts,
+  OrganisationConnectionPage,
+  SourceRef,
+  BrandRef,
+  StepTwoStage,
+  GivePartInput,
+  GivePartResult,
+  ChangePartInput,
+  ChangePartResult,
+  EndPartInput,
+  EndPartResult,
+  RepairOutcome,
+} from "./organisationConnections";
+// Who may act for an organisation, read live.
+export { organisationContextFor, verifiedPersonOf, isBrandAdminLive, isBrandAdminByRow, mayMoveBrand } from "./organisationContext";
+export type { BrandMoveCheck, BrandMoveRefusal, OrganisationContext, VerifiedPerson } from "./organisationContext";
 // Connected data sign in states: made at Sign in, claimed once by the callback, then deleted.
 export { createConnectionState, consumeConnectionState, STATE_VALID_MS } from "./dataConnectionStates";
 export type { NewConnectionState, StoredConnectionState, ConsumeOutcome } from "./dataConnectionStates";
+// Emailed codes and links for password sign-in: one hashed code and one hashed link per account,
+// each checked in a transaction.
+export {
+  putEmailCode,
+  checkEmailCode,
+  claimEmailCodeSend,
+  deleteEmailCode,
+  putEmailLink,
+  checkEmailLink,
+  deleteEmailLink,
+  EMAIL_CODE_VALID_MS,
+  EMAIL_CODE_MAX_TRIES,
+  EMAIL_CODE_SENDS_PER_HOUR,
+  EMAIL_CODE_WRONG_PER_DAY,
+  EMAIL_LINK_VALID_MS,
+} from "./emailCodes";
+export type { EmailCodeCheck, EmailCodeSendClaim, EmailLinkCheck } from "./emailCodes";
 export type { SendClaimArgs, SendClaimOutcome } from "./lifecycleSend";
 export type { RateLimitConfig } from "./rateLimit";

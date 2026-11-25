@@ -34,6 +34,8 @@ const RULES: Array<[RegExp, string]> = [
   [/^\/admin\/workspace\/[^/]+\/distribute/, "/help/write-and-schedule#schedule"],
   [/^\/admin\/workspace\/[^/]+\/weekly/, "/help/write-and-schedule#newsletter"],
   [/^\/admin\/workspace\/[^/]+\/settings/, "/help/programmes-and-knowledge"],
+  // The Scrapbook (curate/idea-board; Curate opens it).
+  [/^\/admin\/workspace\/[^/]+\/curate(\/idea-board)?\/?$/, "/help/write-and-schedule#scrapbook"],
   [/^\/admin\/workspace\/[^/]+\/(create|templatize|curate)/, "/help/write-and-schedule#write"],
   [/^\/admin\/workspace\/[^/]+/, "/help/write-and-schedule"],
   [/^\/admin\/workspace/, "/help/programmes-and-knowledge#start"],
@@ -57,6 +59,10 @@ const RULES: Array<[RegExp, string]> = [
   [/^\/admin\/account\/connections/, "/help/connected-accounts"],
   // Settings › Data model exists only with fields on, which needs the one People list, so the page is shown.
   [/^\/admin\/account\/data-model/, "/help/your-audience#fields"],
+  // Settings › Organisation exists only while sharing (CONNECTORS_SHARING_ENABLED) or the join
+  // (ORGANISATION_JOIN_ENABLED) is on, both server switches this file can't read. With sharing on it
+  // opens Shared connections; with only the join on, the header passes `organisation: "brands"`.
+  [/^\/admin\/account\/organisation/, "/help/shared-connections"],
   [/^\/admin\/account\/?$/, "/help/email-sending"],
 ];
 
@@ -66,13 +72,20 @@ const RULES: Array<[RegExp, string]> = [
  */
 const PEOPLE_RULES: Array<[RegExp, string]> = [[/^\/admin\/crm/, "/help/your-audience"]];
 
-export function helpFor(pathname: string, opts: { people?: boolean } = {}): string {
-  const rules = opts.people ? [...PEOPLE_RULES, ...RULES] : RULES;
+/**
+ * With the join on and sharing off (from the server: isOrganisationJoinEnabled() and not
+ * isConnectorsSharingEnabled()), Settings › Organisation shows only Brands, so its How to opens
+ * Brands in your organisation instead of Shared connections, which isn't served then.
+ */
+const BRANDS_RULES: Array<[RegExp, string]> = [[/^\/admin\/account\/organisation/, "/help/organisation-brands"]];
+
+export function helpFor(pathname: string, opts: { people?: boolean; organisation?: "brands" } = {}): string {
+  const rules = [...(opts.people ? PEOPLE_RULES : []), ...(opts.organisation === "brands" ? BRANDS_RULES : []), ...RULES];
   return rules.find(([re]) => re.test(pathname))?.[1] ?? "/help";
 }
 
 /** Every help address the app links to from a page, for the tests. */
-export const HELP_PLACES: string[] = [...new Set([...RULES, ...PEOPLE_RULES].map(([, to]) => to))];
+export const HELP_PLACES: string[] = [...new Set([...RULES, ...PEOPLE_RULES, ...BRANDS_RULES].map(([, to]) => to))];
 
 /** "/help/email-sending#domain" → { slug: "email-sending", anchor: "domain" }; "/help" → slug "". */
 export function parseHelpPath(path: string): { slug: string; anchor: string | null } | null {

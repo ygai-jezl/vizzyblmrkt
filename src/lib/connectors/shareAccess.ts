@@ -30,6 +30,12 @@ import { codeForThrow, defaultTransport, retryAfter, type Transport } from "./sa
  * - Deleted accounts don't count towards the project's service account quota; a full project says
  *   so plainly (share_quota) so the screen can offer Sign in with Google.
  *
+ * - An organisation's connection (Connectors 3, ADR-0015) gets its own address from
+ *   createOrganisationShareAccount, described `connection=ocn_... org=<orgTag> copy=<copyTag>`. The
+ *   brand maker (createShareAccount) takes only a `dcn_` id, and the brand purge's description
+ *   match needs `connection=dcn_`, so a brand's purge never takes an organisation's address for
+ *   one of its leftovers; the organisation purge finds them by their own tag.
+ *
  * Every call goes through src/lib/security/ssrf.ts safeFetch with no redirects, on 443, with a
  * timeout and a capped body. Logs name the host and a code, never a token. Nothing here throws.
  */
@@ -60,6 +66,9 @@ const PROJECT_RE = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/;
 const UNIQUE_ID_RE = /^\d{1,30}$/;
 const CONNECTION_RE = /^dcn_[a-z2-7]{20}$/;
 const DESCRIPTION_RE = /\bconnection=(dcn_[a-z2-7]{20}) brand=([0-9a-f]{16})(?: copy=([0-9a-f]{16}))?\b/;
+/** An organisation's connection, and its address's description (Connectors 3). */
+const ORG_CONNECTION_RE = /^ocn_[a-z2-7]{20}$/;
+const ORG_DESCRIPTION_RE = /\bconnection=(ocn_[a-z2-7]{20}) org=([0-9a-f]{16}) copy=([0-9a-f]{16})\b/;
 
 export interface ShareDeps {
   transport?: Transport;
@@ -122,6 +131,23 @@ export function parseShareDescription(description: unknown): { connectionId: str
   if (typeof description !== "string") return null;
   const m = DESCRIPTION_RE.exec(description);
   return m ? { connectionId: m[1]!, brand: m[2]!, copy: m[3] ?? null } : null;
+}
+
+/** A short, one way tag for an organisation, so the organisation purge can tell its addresses from another's. */
+export function orgTag(organisationId: string): string {
+  return createHash("sha256").update(`yougrow-connector-org:${organisationId}`).digest("hex").slice(0, 16);
+}
+
+/** An organisation address's description: its connection, the organisation's tag and this copy's tag, no names. */
+export function organisationShareDescription(organisationId: string, connectionId: string, copy: string = copyTag()): string {
+  return `YouGrow connected data. connection=${connectionId} org=${orgTag(organisationId)} copy=${copy}`;
+}
+
+/** The connection, organisation tag and copy tag an organisation address's description names, or null. */
+export function parseOrganisationShareDescription(description: unknown): { connectionId: string; org: string; copy: string } | null {
+  if (typeof description !== "string") return null;
+  const m = ORG_DESCRIPTION_RE.exec(description);
+  return m ? { connectionId: m[1]!, org: m[2]!, copy: m[3]! } : null;
 }
 
 let _auth: GoogleAuth | null = null;
@@ -235,13 +261,26 @@ function accountFrom(body: unknown, project: string): ShareAccount | null {
  */
 export async function createShareAccount(project: string, tenantId: string, connectionId: string, deps: ShareDeps = {}): Promise<ShareResult<{ account: ShareAccount }>> {
   if (!PROJECT_RE.test(project) || !CONNECTION_RE.test(connectionId)) return { ok: false, code: "share_unconfigured", retryAfterSec: null };
+  return createAccount(project, shareDescription(tenantId, connectionId), deps);
+}
+
+/**
+ * Make the Google address for one organisation connection (Connectors 3), tagged for the
+ * organisation, never for the brand an owner acted from. Only an `ocn_` id.
+ */
+export async function createOrganisationShareAccount(project: string, organisationId: string, connectionId: string, deps: ShareDeps = {}): Promise<ShareResult<{ account: ShareAccount }>> {
+  if (!PROJECT_RE.test(project) || !ORG_CONNECTION_RE.test(connectionId) || !organisationId.startsWith("org_")) return { ok: false, code: "share_unconfigured", retryAfterSec: null };
+  return createAccount(project, organisationShareDescription(organisationId, connectionId), deps);
+}
+
+async function createAccount(project: string, description: string, deps: ShareDeps): Promise<ShareResult<{ account: ShareAccount }>> {
   const log = deps.log ?? ((line: string) => console.warn(line));
   for (let attempt = 0; attempt < 3; attempt++) {
     const accountId = newShareAccountId();
     const r = await iamCall(
       "POST",
       `${IAM_ORIGIN}/v1/projects/${project}/serviceAccounts`,
-      { accountId, serviceAccount: { displayName: "YouGrow connection", description: shareDescription(tenantId, connectionId) } },
+      { accountId, serviceAccount: { displayName: "YouGrow connection", description } },
       deps,
     );
     if (!r.ok) return { ok: false, code: r.code, retryAfterSec: null };
@@ -275,6 +314,8 @@ export async function deleteShareAccount(project: string, uniqueId: string, deps
 export interface ListedShareAccount extends ShareAccount {
   /** The connection, brand tag and copy tag its description names, or null. */
   owner: { connectionId: string; brand: string; copy: string | null } | null;
+  /** An organisation address's connection, organisation tag and copy tag, or null (Connectors 3). */
+  orgOwner?: { connectionId: string; org: string; copy: string } | null;
 }
 
 /**
@@ -295,7 +336,9 @@ export async function listShareAccounts(project: string, deps: ShareDeps = {}): 
     if (!b || typeof b !== "object") return { ok: false, code: "bad_response", retryAfterSec: null };
     for (const a of Array.isArray(b.accounts) ? b.accounts : []) {
       const account = accountFrom(a, project);
-      if (account) accounts.push({ ...account, owner: parseShareDescription((a as { description?: unknown }).description) });
+      const description = (a as { description?: unknown }).description;
+      const orgOwner = parseOrganisationShareDescription(description);
+      if (account) accounts.push({ ...account, owner: parseShareDescription(description), ...(orgOwner ? { orgOwner } : {}) });
     }
     pageToken = typeof b.nextPageToken === "string" ? b.nextPageToken : "";
     if (!pageToken) return { ok: true, accounts, complete: true };
@@ -329,13 +372,14 @@ function remember(key: string, token: string, expiresAtMs: number): void {
  * A token for a connection's address with its one read scope, lasting 300 seconds: from this
  * server's memory while more than a minute is left, else minted through generateAccessToken
  * (`projects/-/serviceAccounts/{email}`, the wildcard Google requires). A young account that IAM
- * can't see yet is retried with backoff, then reported as share_pending.
+ * can't see yet is retried with backoff, then reported as share_pending. An older one IAM can't
+ * find is share_unconfigured with `gone`: its address was deleted or disabled.
  */
 export async function shareAccessToken(
   sa: { email: string; createdAt: string },
   scope: string,
   deps: ShareDeps = {},
-): Promise<ShareResult<{ token: string }>> {
+): Promise<ShareResult<{ token: string }> | { ok: false; code: ConnectorErrorCode; retryAfterSec: null; gone: true }> {
   const now = deps.now ?? new Date();
   const key = `${sa.email}|${scope}`;
   const kept = tokens.get(key);
@@ -361,7 +405,8 @@ export async function shareAccessToken(
       continue;
     }
     if (!r.ok) return { ok: false, code: r.code, retryAfterSec: null };
-    if (notYet) return { ok: false, code: young ? "share_pending" : "share_unconfigured", retryAfterSec: null };
+    // An address past its first minutes that IAM can't find was deleted or disabled at Google: gone.
+    if (notYet) return young ? { ok: false, code: "share_pending", retryAfterSec: null } : { ok: false, code: "share_unconfigured", retryAfterSec: null, gone: true };
     const code = iamFailureCode(r.status, r.body);
     (deps.log ?? ((line: string) => console.warn(line)))(`[connectors] share iamcredentials.googleapis.com ${code} ${r.status}`);
     return { ok: false, code, retryAfterSec: r.retryAfterSec };

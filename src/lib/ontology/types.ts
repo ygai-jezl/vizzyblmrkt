@@ -138,8 +138,12 @@ export interface OntologyType {
   status: "built" | "planned";
   /** Planned types only: the piece that builds it. */
   plannedIn?: PlannedIn;
-  /** Control plane or the brand's region. "undecided" only on planned types. */
-  home: "control" | "brand" | "undecided";
+  /**
+   * Control plane, the brand's region, or (an organisation's own record, Connectors 3) the region of
+   * the brand it was connected from, serving the organisation's brands in any region. "undecided"
+   * only on planned types.
+   */
+  home: "control" | "brand" | "organisation" | "undecided";
   /** "undecided" only on planned types. */
   personal: Personal | "undecided";
   /** Built types only. */

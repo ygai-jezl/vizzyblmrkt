@@ -125,6 +125,32 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Email and password sign-in: create an account, confirm it with an emailed code, forgot
+  # password, change password and sign out everywhere. Needs the Email/Password provider on
+  # in Identity Platform (npm run selfhost -- --project <id> --apply addon:password) and an email provider. Only
+  # addresses on ADMIN_ALLOWED_EMAILS get in with a password.
+  - variable: PASSWORD_SIGNIN_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Delete password accounts still unconfirmed after 7 days (needs PASSWORD_SIGNIN_ENABLED).
+  # Off, the hourly sweep only logs what it would delete.
+  - variable: PASSWORD_CLEANUP_DELETE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Anyone may create an account and set up their own brand. Does nothing until self-serve
+  # brand creation exists: until then the sign-in door still refuses addresses not on the list.
+  - variable: SELF_SERVE_SIGNUP_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Per-visitor limits key on the address Google's load balancer adds to X-Forwarded-For
+  # (TRUSTED_PROXY_HOPS from the right, default 2), not the first entry a visitor can write.
+  - variable: TRUSTED_CLIENT_IP_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Off, / is a plain front page with a sign-in button; on, the marketing homepage.
   - variable: SITE_HOME_ENABLED
     value: "false"
@@ -224,6 +250,13 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Launches are called Ideas in the words people read (needs phase 3). It shows only where
+  # LAUNCH_IDEAS_ENABLED is on too, which the code checks.
+  - variable: NEXT_PUBLIC_NAV_IDEAS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
   # Setup steps that must happen in order stop and say so.
   - variable: ORDER_GUARDS_ENABLED
     value: "false"
@@ -242,6 +275,14 @@ env:
     value: "false"
     availability:
       - BUILD
+      - RUNTIME
+  # Brands in the organisation (ADR-0015): owners bring in a brand they run, or move one out to an
+  # organisation of its own on the same plan, on Settings > Organisation. Needs a real tenant_users
+  # admin row for the brand and PLANS_ENABLED. Every move ends the brand's shared parts from the
+  # organisation it leaves, whatever sharing says. Off, moves stay operator scripts.
+  - variable: ORGANISATION_JOIN_ENABLED
+    value: "false"
+    availability:
       - RUNTIME
   # The usage meter: every paid resource a brand uses (web searches for research, AI model use,
   # images, older counters) is counted per brand per month, and a capped one stops at its cap
@@ -292,6 +333,12 @@ env:
   # Sign-ups from a brand's own site: a launch's site key and POST /api/v2/signups
   # (needs CONNECT_SECRET_ENC_KEY, which seals the key's secret).
   - variable: LAUNCH_SITE_SIGNUPS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Ideas: a launch's hypothesis, status, outcome and hand-off, ideas side by side, and
+  # People's "in more than one launch" (needs the ontology_events indexes READY).
+  - variable: LAUNCH_IDEAS_ENABLED
     value: "false"
     availability:
       - RUNTIME
@@ -715,6 +762,24 @@ env:
     value: "false"
     availability:
       - BUILD
+      - RUNTIME
+  # Article refresh: a review that proposes changes with evidence, Apply (a real change moves
+  # Updated), the last 10 versions with Restore, autopilot reviews and the clock readout (needs
+  # BLOG_FRESHNESS_ENABLED; reviews also need the article_refresh grant where features are granted).
+  - variable: BLOG_REFRESH_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Its screens: Review for refresh, the proposals, Versions and the clock readout.
+  - variable: NEXT_PUBLIC_BLOG_REFRESH_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Vizzy's review_article: start or move a review from the chat, never apply (needs BLOG_REFRESH_ENABLED).
+  - variable: BLOG_REFRESH_CHAT_ENABLED
+    value: "false"
+    availability:
       - RUNTIME
   - variable: BRAND_MAP_CHAT_ENABLED
     value: "false"
@@ -1161,6 +1226,15 @@ env:
   # the agent action indexes READY, infra/lifecycle/setup.sh ttl for data_signals, and
   # CONNECTORS_CHAT_ENABLED so a connection can be shared with Vizzy).
   - variable: CONNECTOR_SIGNALS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Organisations share connections (ADR-0015): an organisation's owners connect once and give
+  # each of its brands one site, property or zone; each brand's numbers stay in its own region
+  # (needs CONNECTORS_ENABLED and PLANS_ENABLED). Before turning it on, run
+  # infra/lifecycle/setup.sh ttl for organisation_connection_activity and deploy the index file
+  # without --force. Off, every part reads nothing and nothing is ended for it.
+  - variable: CONNECTORS_SHARING_ENABLED
     value: "false"
     availability:
       - RUNTIME

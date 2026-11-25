@@ -4,14 +4,18 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, X } from "lucide-react";
 import type { FilterField, PeopleFilters } from "@/lib/audience/peopleList";
 import type { FieldValue } from "@/lib/types/recordField";
+import { MANY_LAUNCHES_TAG } from "@/lib/ideas/list";
+import { ideaWord } from "@/lib/nav/terms";
 import { api } from "../connect/api";
+import { useWords } from "../nav/WordsProvider";
 
 /**
  * The People list's filters with AUDIENCE_FIELD_FILTERS_ENABLED: Everyone and Only people we can
- * email, a menu each for launches, products and stages, and one for each of the brand's select,
- * multi select, status and checkbox fields. Firestore allows one array-contains a query, so one
+ * email, a menu each for launches, products and stages, In more than one launch (with ideas on), and
+ * one for each of the brand's select, multi select, status and checkbox fields. Firestore allows one array-contains a query, so one
  * filter applies at a time; a product group comes from "Everyone in this group" on a person's
- * page. A field's counts load when its menu opens.
+ * page. A field's counts load when its menu opens. With the words on (useWords().ideas) the launch
+ * menu and pill name ideas.
  */
 
 const STAGES = [
@@ -34,13 +38,18 @@ export interface ActiveGroup {
   label: string;
 }
 
-/** What one filter is called in words: "Plan: Pro", "Stage: Stuck", or null for everyone. */
-export function filterLabel(show: string, filters: PeopleFilters, group: ActiveGroup | null): string | null {
+/**
+ * What one filter is called in words: "Plan: Pro", "Stage: Stuck", or null for everyone. `ideas`
+ * (useWords().ideas) names a launch an idea.
+ */
+export function filterLabel(show: string, filters: PeopleFilters, group: ActiveGroup | null, ideas = false): string | null {
+  const w = ideaWord(ideas);
   if (show === "all") return null;
   if (group && show === group.tag) return `Group: ${group.label}`;
-  if (show === "via:site") return "Launch: From your site";
+  if (show === "via:site") return `${w.One}: From your site`;
+  if (show === MANY_LAUNCHES_TAG) return `In more than one ${w.one}`;
   const [kind, a, b] = show.split(":");
-  if (kind === "launch") return `Launch: ${filters.launches.find((l) => l.id === a)?.name ?? "A launch"}`;
+  if (kind === "launch") return `${w.One}: ${filters.launches.find((l) => l.id === a)?.name ?? w.A}`;
   if (kind === "product") return `Product: ${filters.products.find((p) => p.id === a)?.name ?? "A product"}`;
   if (kind === "stage" || kind === "quiet") {
     const product = filters.products.find((p) => p.id === a);
@@ -136,9 +145,11 @@ export function PeopleFilterBar({
   onCanEmail: (on: boolean) => void;
 }) {
   const [counts, setCounts] = useState<Record<string, Record<string, number> | "loading">>({});
+  const { ideas } = useWords();
+  const w = ideaWord(ideas);
   const shown = search ? "" : show;
   const [kind, id] = shown.split(":");
-  const active = (k: string[]) => (k.includes(kind ?? "") ? filterLabel(shown, filters, group) : null);
+  const active = (k: string[]) => (k.includes(kind ?? "") ? filterLabel(shown, filters, group, ideas) : null);
   const clear = () => onPick("all");
   const choose = (tag: string, close: () => void) => {
     onPick(tag);
@@ -165,7 +176,7 @@ export function PeopleFilterBar({
           Only people we can email <span className="tabular-nums opacity-70">{filters.canEmail}</span>
         </button>
         {launches.length || filters.via.site ? (
-          <Menu label="Launch" active={active(["launch", "via"])} onClear={clear}>
+          <Menu label={w.One} active={active(["launch", "via"])} onClear={clear}>
             {(close) => (
               <>
                 {launches.map((l) => (
@@ -175,6 +186,16 @@ export function PeopleFilterBar({
               </>
             )}
           </Menu>
+        ) : null}
+        {filters.manyLaunches ? (
+          <button
+            type="button"
+            aria-pressed={shown === MANY_LAUNCHES_TAG}
+            className={pill(shown === MANY_LAUNCHES_TAG)}
+            onClick={() => (shown === MANY_LAUNCHES_TAG ? clear() : onPick(MANY_LAUNCHES_TAG))}
+          >
+            In more than one {w.one} <span className="tabular-nums opacity-70">{filters.manyLaunches}</span>
+          </button>
         ) : null}
         {products.length ? (
           <>

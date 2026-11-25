@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-/** Curate sub-tab strip: Idea Board (brain-dump) + Grounding (vector RAG sources). */
+/** Curate sub-tab strip: Scrapbook (was Idea Board; clippings) + Grounding (vector RAG sources). The routes stay. */
 export function CurateSubTabs({ workspaceId }: { workspaceId: string }) {
   const pathname = usePathname();
   const base = `/admin/workspace/${workspaceId}/curate`;
   const tabs = [
-    { href: `${base}/idea-board`, label: "Idea Board" },
+    { href: `${base}/idea-board`, label: "Scrapbook" },
     { href: `${base}/grounding`, label: "Grounding" },
   ];
   return (

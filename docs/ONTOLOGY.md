@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts`. Don't edit this file: change the 
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one.
 
-95 types: 74 built and 21 planned.
+100 types: 79 built and 21 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -14,20 +14,21 @@ Spine step 1. A hypothesis, its site and its waitlist.
 
 ### Idea (`idea`)
 
-A business idea being tested: a hypothesis with its waitlist, its questions and its emails. Called a launch in the app today; piece D renames it, and the data stays in `campaigns`.
+A business idea being tested: a hypothesis with its waitlist, its questions and its emails. Called a launch in the app; the data stays in `campaigns`. With LAUNCH_IDEAS_ENABLED it carries `idea`: a hypothesis, a status with who set it and when, an outcome, the product it was handed off to, and Just a list for a newsletter or sign-up list that isn't an idea. The states are its status, set by an admin; closing the waitlist (`archivedAt`) is separate, and a parked or killed idea only offers it. Status and hand-off changes are record.field_changed events (`sys.idea.status`, `sys.idea.product`) on `idea:<campaignId>`.
 
 - Status: built
 - Home: the brand's region
 - Personal: no
 - Stores:
   - `campaigns`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
-- Links: `signup` through signups.campaignId (many); `site_key` through launch_site_keys, by launch id; `launch_journey` through journeys.campaignId; `broadcast` through broadcasts.campaignId (many); `invite` through invites.campaignId (many); `knowledge` through campaigns/{campaignId}/knowledge_bases (many)
-- States: `active`, `archived`
+- Links: `signup` through signups.campaignId (many); `site_key` through launch_site_keys, by launch id; `launch_journey` through journeys.campaignId; `broadcast` through broadcasts.campaignId (many); `invite` through invites.campaignId (many); `knowledge` through campaigns/{campaignId}/knowledge_bases (many); `product` through idea.productConnectionId, once handed off; `ontology_event` through subjectKey idea:<campaignId> (many)
+- Events: `record.field_changed`
+- States: `exploring`, `testing`, `validated`, `launched`, `parked`, `killed`
 - Erase:
   - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch
 - Export: none. The brand's own settings, with no one's personal data.
-- Search: none. Found by name on the Launches screen; what it sends is searched as broadcasts and journey emails.
-- Numbers: gap. People counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`).
+- Search: none. Found by name on the Launches screen; what it sends is searched as broadcasts and journey emails. Its hypothesis and outcome are not searched and have no agent path until piece C puts ideas on the brand index.
+- Numbers: gap. People counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`); the funnel the compare screen shows for each idea has no agent tool.
 
 ### Site key (`site_key`)
 
@@ -291,7 +292,7 @@ A competitor the brand watches: their sitemap's pages, their news posts, monthly
 
 ### Data connection (`data_connection`)
 
-A brand's link to an outside source of numbers, such as a Cloudflare zone, a Search Console site or a Google Analytics property: which connector, how it signs in, its health, who may read it live, and its secrets (a pasted token, or a Google sign in's access and refresh tokens), sealed with the brand, connection and slot bound in. A shared connection keeps no secret, only the Google address made for it. Each change goes into an activity log kept 90 days.
+A brand's link to an outside source of numbers, such as a Cloudflare zone, a Search Console site or a Google Analytics property: which connector, how it signs in, its health, who may read it live, and its secrets (a pasted token, or a Google sign in's access and refresh tokens), sealed with the brand, connection and slot bound in. A shared connection keeps no secret, only the Google address made for it. It may also be a part its organisation gave it (Connectors 3): then `source` names the organisation's connection and the region it is kept in, it keeps no secret and no address, and its token is read through the organisation's. Each change goes into an activity log kept 90 days.
 
 - Status: built
 - Home: the brand's region
@@ -300,7 +301,8 @@ A brand's link to an outside source of numbers, such as a Cloudflare zone, a Sea
   - `data_connections`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per connection, written only through `src/lib/tenant/dataConnections.ts`; its secrets are sealed and never leave the server.
   - `data_connection_activity`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Each change to a connection and who made it, by user id; a live read's row also keeps what was asked and the days read, never a number or a page; written with its change, never queried, deleted 90 days on by a time to live on ttlAt.
   - `data_connection_states`, the brand's regional Firestore, in `src/lib/tenant/dataConnectionStates.ts`. A sign in with Google under way: the brand, the admin's user id and the connector, read by id, valid 10 minutes, claimed once and deleted, and removed by a time to live on ttlAt.
-- Links: `brand` through tenantId; `member` through ownerUid, and by on each activity row; `connector_manifest` through connectorId
+  - `connection_parts`, the brand's regional Firestore, in `src/lib/tenant/settingsLog.ts`. The parts a brand's organisation gives it (Connectors 3), as its `connections:shared` setting: one document per brand, id from settingsDocId, one item per part (the organisation's connection and its region, the brand record, the part, who gave it by user id), archived when the part ends, never removed; written with its settings version in the same transaction as the brand record, by `src/lib/tenant/organisationConnections.ts` only.
+- Links: `brand` through tenantId; `settings_version` through the connections:shared subject, one version per part given, changed or ended (many); `member` through ownerUid, and by on each activity row; `connector_manifest` through connectorId; `organisation_connection` through source, on a part its organisation gave it
 - States: `connected`, `disconnected`
 - Erase:
   - `disconnect` in `src/lib/connectors/service.ts`, on removing the record (an admin's Disconnect removes the sealed secrets; the record stays, marked disconnected)
@@ -312,6 +314,29 @@ A brand's link to an outside source of numbers, such as a Cloudflare zone, a Sea
 - Export: none. A sealed secret and its settings, never exported.
 - Search: none. Credentials and settings, never searched.
 - Numbers: `cfRequests`, `cfPageViews`, `cfVisits`, `cfUniqueVisitors`, `searchClicks`, `searchImpressions`, `searchCtr`, `searchPosition`, `merged`, `ga4Sessions`, `ga4ActiveUsers`, `ga4Views`, `ga4KeyEvents`, through `read_connected_live`
+
+### Organisation connection (`organisation_connection`)
+
+An organisation's own link to an outside source of numbers (Connectors 3, ADR-0015): one Google sign in, one Google address made for the organisation, or one pasted token, whose owners give each of the organisation's brands one part of it (a site, a property or a zone). Kept in the regional database of the brand it was connected from, and never moved; its parts can go to the organisation's brands in any region. It holds the sealed secrets, with the organisation, connection and slot bound in, its health, pause and collect hold, the owner who signed in, and for each part the brand's id and region, the part and the brand record's id: what the sign in reads for each brand, never what was collected. Each part is a data connection in its brand's own region, where everything collected stays. Written only through `src/lib/tenant/organisationConnections.ts`; each change goes into an activity log kept 90 days.
+
+- Status: built
+- Home: the region of the brand it was connected from, serving the organisation's brands in any region
+- Personal: the brand's own team
+- Stores:
+  - `organisation_connections`, the brand's regional Firestore, in `src/lib/tenant/organisationConnections.ts`. One record per organisation connection, read by id and by equality on organisationId (with connectorId) or status, in every provisioned region; its secrets are sealed and never leave the server; residency gap: kept in the region of the brand it was connected from, which may not be the region of every brand it serves: only the sign in (its token, read into server memory) and each part's brand id, region and name cross; collected numbers stay in each brand's region.
+  - `organisation_connection_activity`, the brand's regional Firestore, in `src/lib/tenant/organisationConnections.ts`. Each change to an organisation connection and who made it, by user id, and the brand a part change is about; written with its change, never queried, deleted 90 days on by a time to live on ttlAt.
+- Links: `organisation` through organisationId; `data_connection` through parts[].useId, each brand record pointing back with source (many); `brand` through parts[].tenantId, and connectedFromTenantId (many); `member` through createdBy, signerUid, givenBy and endedBy, and by on each activity row (many); `connector_manifest` through connectorId
+- States: `connected`, `disconnected`
+- Erase:
+  - `disconnectOrganisationConnection` in `src/lib/connectors/organisation.ts`, on removing the record (Disconnect at the organisation empties the sealed secrets, ends every brand's part and erases what it collected in that brand's region, and deletes its Google address; the record stays, marked disconnected)
+  - `purgeOrganisations` in `src/lib/connectors/purge.ts`, on removing the record (the organisation purge (`connectors-purge --organisation <orgId|all>`) removes the secrets, the recent list, the parts, the activity and leftover addresses in every region, whatever any switch says)
+  - `purgeOrganisationConnection` in `src/lib/tenant/organisationConnections.ts`, on removing the record (the purge's last step for one record)
+  - `sweepOrganisationConnections` in `src/lib/connectors/organisation.ts`, on retention (the lane disconnects the connections of an organisation that is gone or has no brands left, and every move or reused organisation id does too)
+  - `ORGANISATION_CONNECTION_ACTIVITY` in `src/lib/tenant/organisationConnections.ts`, on retention (activity rows go 90 days on, through the TTL on ttlAt)
+  - Gap: an owner's user id in createdBy, signerUid, givenBy and by stays after they stop being an owner, as settings history does
+- Export: none. A sealed secret and the parts it serves, never exported.
+- Search: none. Credentials and settings, never searched.
+- Numbers: none. Its parts' numbers are each brand's data connection's.
 
 ### Connector stream (`connector_stream`)
 
@@ -380,7 +405,7 @@ A product connected to the brand: its keys, endpoints, catalog and what has arri
   - `product_connections`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
   - `connection_keys`, control plane Firestore, in `src/lib/tenant/connectionKeys.ts`. The lookup from key id to brand, no secret.
   - `connection_diagnostics`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Event names, trait keys and recent rejections.
-- Links: `product_user` through connectionId (many); `catalog` through the connection's catalog; `repo_map` through connectionId (many)
+- Links: `product_user` through connectionId (many); `catalog` through the connection's catalog; `repo_map` through connectionId (many); `idea` through campaigns.idea.productConnectionId, the ideas handed off to it (many)
 - Erase:
   - `deleteConnectionKey` in `src/lib/tenant/connectionKeys.ts`, on removing the record (when the connection's key is replaced or removed)
 - Export: none. The brand's own settings.
@@ -890,9 +915,9 @@ An article, newsletter, ebook, post or journey email: its plan, drafts and the f
 - Search: `article`, `newsletter`, `ebook`, `post`, `journey_email`
 - Numbers: none. A post's numbers are post results.
 
-### Idea Board item (`content_idea`)
+### Scrapbook clipping (`content_idea`)
 
-Something the team clipped to write about later: a link, a note or a screenshot. Not a business idea, which is `idea`.
+Something the team clipped to write about later: a link, a note or a screenshot, kept in a programme's Scrapbook (once called the Idea Board). Not a business idea, which is `idea`.
 
 - Status: built
 - Home: the brand's region
@@ -1196,6 +1221,53 @@ Article freshness's daily record per brand: its live articles' counts by state a
 - Search: none. Working state; the articles are searched as themselves.
 - Numbers: `articlesDue`, `articlesReviewSoon`, `articlesFresh`, `clockDays`, `liveArticles`, through `list_articles_due`
 
+### Article versions (`article_version`)
+
+A blog article's last 10 versions: its copy and meta just before Apply, Regenerate or Restore replaced them, for Restore. One record per article.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `article_versions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `content_plan` through planId
+- Erase:
+  - `deleteContentPlan` in `src/lib/tenant/workspaceContent.ts`, on removing the record
+- Export: none. The brand's own work, with no one's personal data.
+- Search: none. Earlier copies of an article; the article itself is searched.
+- Numbers: none. No numbers an agent reads.
+
+### Article refresh review (`article_review`)
+
+A live blog article's current or last refresh review: what it found (sources, research, the brand map, Search Console's searches for the page) and the changes it proposes for a person to apply. One record per article.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `article_reviews`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `content_plan` through planId
+- Erase:
+  - `deleteContentPlan` in `src/lib/tenant/workspaceContent.ts`, on removing the record
+- Export: none. The brand's own work, with no one's personal data.
+- Search: none. Working state; the article is searched as itself.
+- Numbers: `changesProposed`, `reviewsLeftThisMonth`, through `review_article`
+
+### Refresh record (`refresh_record`)
+
+One per refresh review of a live blog article: why it ran (its clock and reasons), what it proposed, what a person decided, what it cost, and 28 days on, Search Console before and after beside articles left alone. What the clock readout (Which clock works) learns from.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `refresh_records`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+- Links: `content_plan` through planId
+- Erase: none. Counts, dates and the article's address only, no copy and no person; kept for the clock readout.
+- Export: none. The brand's own work, with no one's personal data.
+- Search: none. Numbers, read through the clock readout.
+- Numbers: `refreshes`, `nothingShare`, `proposedAvg`, `acceptedAvg`, `costCentsAvg`, `clickLift`, `resultsNeeded`, `withResults`, `clicksPerDollar`, through `list_articles_due`
+
 ## Company
 
 A rail beside the spine: the company itself, on the organisation.
@@ -1434,7 +1506,7 @@ The account above brands: its plan (self_hosted, free, pro, ultra or enterprise,
 - Personal: the brand's own team
 - Stores:
   - `organisations`, control plane Firestore, in `src/lib/tenant/organisations.ts`. `ownerIds` and `createdBy` hold Firebase user ids; `createdBy` is instead backfill, selfhost, seed or `script:<label>` when no member made it.
-- Links: `brand` through brandIds, each brand pointing back with organisationId and keeping a copy of the plan in orgPlan (many); `member` through ownerIds and createdBy, as user ids; its users are the members of its brands, counted once (many); `organisation_change` through organisation_changes.organisationId (many)
+- Links: `brand` through brandIds, each brand pointing back with organisationId and keeping a copy of the plan in orgPlan (many); `member` through ownerIds and createdBy, as user ids; its users are the members of its brands, counted once (many); `organisation_change` through organisation_changes.organisationId (many); `organisation_connection` through organisation_connections.organisationId, in the region each was connected from (many)
 - Erase:
   - `setOrganisationOwners` in `src/lib/tenant/organisations.ts`, on the team member themselves (an operator takes their user id out of `ownerIds` with `scripts/set-plan.ts --remove-owner`, on their erase request)
   - Gap: leaving a brand's team does not take a member's user id out of `ownerIds`; it stays until an operator removes it
@@ -1518,6 +1590,22 @@ Short lived counters that keep each brand and caller within its limits, keyed by
 - Erase: none. Hashed keys, removed after two hours.
 - Export: none. Hashed keys with no person.
 - Search: none. Counters.
+- Numbers: none. No numbers an agent reads.
+
+### Email code (`email_code`)
+
+The 6-digit code emailed to confirm a password account's address: one per account, kept as a hash with its count of tries for 10 minutes. Once an address is locked out of codes, a link emailed in its place, kept as a hash for 30 minutes.
+
+- Status: built
+- Home: the control plane
+- Personal: the brand's own team
+- Stores:
+  - `email_codes`, control plane Firestore, in `src/lib/tenant/emailCodes.ts`. Keyed by the account's Firebase user id; the code's SHA-256 and its tries, never the code or the address; deleted when used, on the fifth wrong try or when found expired, and removed by a time to live on ttl.
+  - `email_code_guards`, control plane Firestore, in `src/lib/tenant/emailCodes.ts`. Keyed by the SHA-256 of the address, never the address; the times of its sends in the last hour and its wrong tries in the last day, across codes and accounts; removed by a time to live on ttl a day after the last.
+  - `email_confirm_links`, control plane Firestore, in `src/lib/tenant/emailCodes.ts`. Keyed by the account's Firebase user id; the SHA-256 of the emailed link sent in place of a code once the address is locked, never the link or the address; deleted when used or found expired, and removed by a time to live on ttl after 30 minutes.
+- Erase: none. Hashes with no address, removed by a time to live after 10 minutes (30 for a link), or a day for the per address counts.
+- Export: none. Hashes with no address.
+- Search: none. Codes.
 - Numbers: none. No numbers an agent reads.
 
 ### Email job (`email_job`)
@@ -1657,7 +1745,7 @@ A key for the records API or the MCP server, one per brand, read only unless a t
 What the registry records as missing, by type. Each is a known gap, not a promise.
 
 - Idea (`idea`):
-  - Numbers: people counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`)
+  - Numbers: people counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`); the funnel the compare screen shows for each idea has no agent tool
 - Sign-up (`signup`):
   - Erase: the BigQuery changelog mirror keeps a row's values after the row is erased in Firestore
   - Numbers: people counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`)
@@ -1762,6 +1850,8 @@ What the registry records as missing, by type. Each is a known gap, not a promis
   - Export: planned: piece J decides how an import's rows are exported with the person
 - Data connection (`data_connection`):
   - Erase: a team member's user id in ownerUid and in by stays after they leave the brand, as settings history does
+- Organisation connection (`organisation_connection`):
+  - Erase: an owner's user id in createdBy, signerUid, givenBy and by stays after they stop being an owner, as settings history does
 - Agent action (`agent_action`):
   - Erase: team member ids in actor, requestedBy, decidedBy, actedBy and undoneBy stay as ids after the member leaves and show as Former team member, as settings history does
   - Erase: rows about a product-only person whose address changed while ONTOLOGY_PERSON_IDS_ENABLED was off stay under the old person; consumer switches require that switch so this cannot happen
@@ -1775,7 +1865,7 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 
 Stores that don't keep to the brand's region.
 
-- Idea Board item: `workspace/{tenantId}/{workspaceId}/{file}` in `src/lib/workspace/assetStore.ts`. One EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
+- Scrapbook clipping: `workspace/{tenantId}/{workspaceId}/{file}` in `src/lib/workspace/assetStore.ts`. One EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
 - Generated image: `{tenantId}/{campaignId}/{file}` in `src/lib/agents/imageStore.ts`. One EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
 - Brand kit: `brand/{tenantId}/logos/{file}` in `src/lib/tenant/brandLogo.ts`. One EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
 - Brand kit: `brand/{tenantId}/fonts/{file}` in `src/lib/tenant/brandFontStore.ts`. One EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
@@ -1785,3 +1875,4 @@ Stores that don't keep to the brand's region.
 - Vizzy chat: `sessions` in `src/lib/agents/agentRuntime.ts`. One agent location (ROOT_AGENT_LOCATION) serves every region.
 - Mailchimp audience: `audience members` in `src/lib/mailchimp/sync.ts`. Mailchimp keeps it where Mailchimp runs.
 - Mandrill message log: `messages` in `src/lib/email/index.ts`. Mandrill keeps it where Mandrill runs.
+- Organisation connection: `organisation_connections` in `src/lib/tenant/organisationConnections.ts`. Kept in the region of the brand it was connected from, which may not be the region of every brand it serves: only the sign in (its token, read into server memory) and each part's brand id, region and name cross; collected numbers stay in each brand's region.

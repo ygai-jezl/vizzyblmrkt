@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { CONSENT_HOW } from "@/lib/ontology/consent";
-import { CONSENT_WAYS, consentWayLabel, NEW_PERSON_MESSAGES, NEW_PERSON_NOTES, newPersonErrorText, parseAgreed, parseNewPerson, peopleWarning } from "./newPerson";
+import { CONSENT_WAYS, consentWayLabel, NEW_PERSON_AS_IDEAS, NEW_PERSON_MESSAGES, NEW_PERSON_NOTES, newPersonErrorText, parseAgreed, parseNewPerson, peopleWarning } from "./newPerson";
 
 describe("parseNewPerson", () => {
   it("takes an email, a phone or both, with names, and leaves empty boxes out", () => {
@@ -63,12 +63,28 @@ describe("peopleWarning", () => {
 
 describe("the words", () => {
   it("follow the house style, and every error has words", () => {
-    const all = [...Object.values(NEW_PERSON_MESSAGES), ...Object.values(NEW_PERSON_NOTES), ...CONSENT_WAYS.map((w) => w.label), peopleWarning({ used: 1, limit: 1 })!];
+    const all = [
+      ...Object.values(NEW_PERSON_MESSAGES),
+      ...Object.values(NEW_PERSON_NOTES),
+      ...Object.values(NEW_PERSON_AS_IDEAS),
+      ...CONSENT_WAYS.map((w) => w.label),
+      peopleWarning({ used: 1, limit: 1 })!,
+    ];
     for (const text of all) {
       expect(dashesIn(text), text).toEqual([]);
       expect(aiTellsIn(text), text).toEqual([]);
     }
     expect(newPersonErrorText({ error: "note_needed" })).toBe(NEW_PERSON_MESSAGES.note_needed);
     expect(newPersonErrorText({ error: "teapot" })).toBe(NEW_PERSON_MESSAGES.failed);
+  });
+
+  it("name an idea in place of a launch while the words are on, and nothing else changes", () => {
+    expect(newPersonErrorText({ error: "consent_elsewhere" })).toBe(NEW_PERSON_MESSAGES.consent_elsewhere);
+    expect(newPersonErrorText({ error: "consent_elsewhere" }, true)).toBe(NEW_PERSON_AS_IDEAS.consent_elsewhere);
+    expect(newPersonErrorText({ error: "note_needed" }, true)).toBe(NEW_PERSON_MESSAGES.note_needed);
+    for (const text of Object.values(NEW_PERSON_AS_IDEAS)) {
+      expect(text).toMatch(/\bidea's waitlist\b/);
+      expect(text).not.toMatch(/\blaunch/i);
+    }
   });
 });

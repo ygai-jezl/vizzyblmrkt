@@ -134,3 +134,27 @@ describe("connectorFetch", () => {
     expect(logs.join()).not.toContain(TOKEN);
   });
 });
+
+describe("the third bucket, per organisation connection (Connectors 3)", () => {
+  it("counts a part's calls in its organisation connection's budget, and a brand's own connection's not", async () => {
+    const seen: Array<[string, RateLimitConfig]> = [];
+    const limit = async (subject: string, config: RateLimitConfig) => {
+      seen.push([subject, config]);
+      return false;
+    };
+    await connectorFetch(call({ connection: { ...connection, source: { organisationId: "org_ten_a", connectionId: "ocn_aaaaaaaaaaaaaaaaaaaa" } } }), { limit, log: () => {} });
+    expect(seen.map(([s, c]) => `${c.prefix} ${s}`)).toEqual(["connector-conn:cloudflare ten_a:dcn_aaaaaaaaaaaaaaaaaaaa", "connector-brand:cloudflare ten_a", "connector-src:cloudflare org_ten_a:ocn_aaaaaaaaaaaaaaaaaaaa"]);
+    expect(seen[2]![1]).toMatchObject({ burstLimit: 40, hourlyLimit: 600 });
+    seen.length = 0;
+    await connectorFetch(call(), { limit, log: () => {} });
+    expect(seen.map(([, c]) => c.prefix)).not.toContain("connector-src:cloudflare");
+  });
+
+  it("refuses as busy, before any request, once the organisation connection's budget is spent", async () => {
+    const limit = async (_subject: string, config: RateLimitConfig) => config.prefix.startsWith("connector-src:");
+    const r = await connectorFetch(call({ connection: { ...connection, source: { organisationId: "org_ten_a", connectionId: "ocn_aaaaaaaaaaaaaaaaaaaa" } } }), { limit, log: () => {} });
+    expect(r).toMatchObject({ ok: false, code: "busy" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+

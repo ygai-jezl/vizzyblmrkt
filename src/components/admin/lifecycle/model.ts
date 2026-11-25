@@ -331,7 +331,15 @@ export function startLabel(
   return `after ${chain?.journeys.find((j) => j.id === id)?.name ?? "a journey that's gone"}`;
 }
 
-export function issueText(i: GraphIssue): string {
-  const base = ISSUE_TEXT[i.code] ?? i.code;
+/** The issues that name a launch, while launches are called ideas (useWords().ideas). */
+const ISSUE_TEXT_AS_IDEAS: Record<string, string> = {
+  field_not_for_product: "Signup details are only for an idea's welcome journey.",
+  exit_target_waitlist_only: "Only an idea's welcome journey can hand people to the weekly newsletter.",
+  ab_test_waitlist_only: "A/B tests are for an idea's welcome journey.",
+};
+
+/** An issue in words; `ideas` names a launch an idea (useWords().ideas). */
+export function issueText(i: GraphIssue, ideas = false): string {
+  const base = (ideas ? ISSUE_TEXT_AS_IDEAS[i.code] : undefined) ?? ISSUE_TEXT[i.code] ?? i.code;
   return i.detail ? `${base} (${i.detail})` : base;
 }

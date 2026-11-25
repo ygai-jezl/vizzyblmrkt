@@ -10,6 +10,8 @@ import { normalizeHex } from "@/lib/content/create/colorPalette";
 import type { ResolvedEmailStyle } from "@/lib/email/emailStyle";
 import { averageInk, type PaletteChip } from "../brand-kit/emailStyleForm";
 import { Badge, Field, Section, inputClass } from "../connect/ui";
+import { ideaWord } from "@/lib/nav/terms";
+import { useWords } from "../nav/WordsProvider";
 import { AboutSection } from "./AboutSection";
 import { ContinuesFromField } from "./JourneyLinks";
 import { DateStartField } from "./DateStart";
@@ -80,6 +82,7 @@ export function SettingsPanel({
   /** A product journey's tracking reaches everyone in it once published (LIFECYCLE_SEND_TRACKING). */
   liveTracking?: boolean;
 }) {
+  const w = ideaWord(useWords().ideas);
   const p = settings.sendPolicy;
   const continuing = Boolean(chain) && startsAfterJourney(settings);
   const onDate = dateStart && startsOnDate(settings);
@@ -102,7 +105,7 @@ export function SettingsPanel({
       <div className="space-y-4">
         <Section title="Starts when" description="Someone joins the waitlist and verifies their email. Each person enters once.">
           <p className="text-sm text-neutral-600 dark:text-neutral-400">
-            Everyone on {waitlist.launchName}&rsquo;s list who joins while this journey is live gets it — and anyone who joins while it&rsquo;s paused starts when you resume it.
+            Everyone on {waitlist.launchName}&rsquo;s list who joins while this journey is live gets it, and anyone who joins while it&rsquo;s paused starts when you resume it.
           </p>
         </Section>
         <Section title="When emails go out" description="Welcome emails have always gone out as soon as each step is due.">
@@ -130,14 +133,14 @@ export function SettingsPanel({
             days
           </label>
         </Section>
-        <Section title="Sender" description="Welcome emails come from the launch's sender, set in the launch's settings (or your Domains settings).">
+        <Section title="Sender" description={`Welcome emails come from the ${w.own} sender, set in the ${w.own} settings (or your Domains settings).`}>
           <p className="text-sm">
             {sender.fromName ?? "Your brand"} {sender.fromEmail ? <span className="text-neutral-500">&lt;{sender.fromEmail}&gt;</span> : <span className="text-neutral-500">(the default address)</span>}
           </p>
           {emailStyleEnabled && !journeyStyle ? <EmailStyleLink /> : null}
         </Section>
         {journeyStyle ? <JourneyStyleSection value={settings.emailStyle} readOnly={readOnly} {...journeyStyle} /> : null}
-        <Section title="Tracking" description="On for welcome emails, as it has always been, so opens and clicks show in the launch's analytics.">
+        <Section title="Tracking" description={`On for welcome emails, as it has always been, so opens and clicks show in the ${w.own} analytics.`}>
           <div className="flex gap-4 text-sm">
             <label className="flex items-center gap-2">
               <input type="checkbox" disabled={readOnly} checked={settings.tracking.opens} onChange={(e) => onChange({ ...settings, tracking: { ...settings.tracking, opens: e.target.checked } })} />

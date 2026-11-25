@@ -43,10 +43,27 @@ export const CONNECTOR_ERRORS = {
   share_quota:
     "YouGrow can't make a new address for shared access right now, because its Google project holds as many as Google allows. Sign in with Google instead, or try again later.",
   share_limit:
-    "This brand already has 5 shared Google addresses for this connector, the most one brand can have. Disconnect a shared connection you no longer use, or sign in with Google instead.",
+    "This brand already has 5 shared Google addresses for this connector, the most one brand can have. Disconnect one you no longer use, or sign in with Google instead.",
+  org_share_limit:
+    "This organisation already has 5 Google addresses for this connector, the most one organisation can have. Disconnect one it no longer uses, or sign in with Google instead.",
+  org_connection_limit: "This organisation already has 20 connections for this connector, the most one organisation can have. Disconnect one it no longer uses first.",
+  // A brand's part of its organisation's connection (Connectors 3, ADR-0015).
+  managed_by_organisation: "Your organisation manages this connection. Its owners can change it.",
+  part_ended: "Your organisation doesn't give this brand this part right now, so it reads nothing.",
+  source_broken: "This connection comes from your organisation, and its sign in needs attention. An owner of your organisation can fix it.",
+  source_paused: "Your organisation paused this connection, so nobody reads it live and nothing new is collected. Numbers already collected stay readable.",
+  sharing_off: "Sharing is off in this copy, so this reads nothing.",
 } as const;
 
 export type ConnectorErrorCode = keyof typeof CONNECTOR_ERRORS;
+
+/**
+ * What a brand's own Disconnect says when revoking is on but YouGrow didn't revoke, because the
+ * brand's organisation has a shared Google sign in made by the same person, which revoking could end
+ * for every brand (Connectors 3).
+ */
+export const KEPT_AT_GOOGLE_MESSAGE =
+  "Disconnected. YouGrow didn't remove its access at Google, because your organisation's shared connection may use the same Google account and would stop for every brand. Its saved sign in is deleted here.";
 
 export function isConnectorErrorCode(code: unknown): code is ConnectorErrorCode {
   return typeof code === "string" && Object.prototype.hasOwnProperty.call(CONNECTOR_ERRORS, code);
@@ -70,6 +87,15 @@ export function tokenRefusedMessage(name: string, when: "connected" | "connectin
  */
 export function accessLostMessage(since: string): string {
   return `YouGrow lost access to this property on ${dayWords(since.slice(0, 10))}. Add the Google address again with the role shown, then press Check access.`;
+}
+
+/**
+ * A part whose organisation's sign in needs attention, naming the tool, the brand and the
+ * organisation (the brand's own organisation, so nothing crosses brands): what Vizzy and the
+ * screens say, and who can fix it.
+ */
+export function sourceBrokenMessage(tool: string, brand: string, organisation: string): string {
+  return `${tool} for ${brand} comes from ${organisation}, and its sign in needs attention. An owner of ${organisation} can fix it.`;
 }
 
 /**
@@ -106,6 +132,9 @@ export const SIGNIN_REASONS = {
   no_refresh_token: "Google didn't give YouGrow a lasting sign in. Start again, and if it happens again, remove YouGrow in your Google account first.",
   check_failed: "You signed in, but the first check didn't go through, so nothing was saved. Try again in a minute.",
   site_not_visible: "This Google account can't see the site this connection reads. Sign in with the account that has access to it.",
+  // Connecting for an organisation (Connectors 3): checked again, live, when Google sends you back.
+  not_owner: "Only an owner of your organisation can connect for it. Ask an owner, or connect for this brand instead.",
+  sharing_off: "Sharing connections across brands is off in this copy, so nothing was connected.",
 } as const;
 
 export type SignInReason = keyof typeof SIGNIN_REASONS;

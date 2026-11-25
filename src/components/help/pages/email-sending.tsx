@@ -1,7 +1,12 @@
 import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import type { HelpBodyProps } from "@/lib/help/pages";
+import { ideaWord } from "@/lib/nav/terms";
 
-export default function EmailSendingHelp() {
+/** With ideas in the words (`ideaWords`, isIdeaWordsEnabled()) a launch is called an idea. */
+export default function EmailSendingHelp({ ideaWords = isIdeaWordsEnabled() }: HelpBodyProps = {}) {
+  const w = ideaWord(ideaWords);
   return (
     <article>
       <H1>Set up email sending</H1>
@@ -49,7 +54,7 @@ export default function EmailSendingHelp() {
 
       <H2 id="sender">Add your sender details</H2>
       <P>
-        These are under <strong>Default email sender</strong> on the same page. Every launch and journey uses them unless you
+        These are under <strong>Default email sender</strong> on the same page. Every {w.one} and journey uses them unless you
         change them there.
       </P>
       <Steps>

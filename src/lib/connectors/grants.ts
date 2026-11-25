@@ -26,7 +26,13 @@ export const CONNECTOR_ACTIONS: readonly ConnectorAction[] = ["see", "see_detail
 export type ConnectorActor =
   | { kind: "human"; uid: string; role: TenantRole | undefined }
   /** Vizzy, reading for the signed-in person whose role its canvas token carries. */
-  | { kind: "agent"; agent: "vizzy"; forRole: TenantRole | undefined };
+  | { kind: "agent"; agent: "vizzy"; forRole: TenantRole | undefined }
+  /**
+   * One of the brand's own scheduled jobs (an article refresh review, BLOG_REFRESH_ENABLED). What it
+   * reads is kept for the whole team and Vizzy to see, so it may read only a connection that
+   * already feeds planning (members and Vizzy may both read it), and only live.
+   */
+  | { kind: "job"; job: "article_review" };
 
 /** The person acting in an admin route. A context with no role is treated as a member. */
 export function humanActor(ctx: TenantContext): ConnectorActor {
@@ -39,6 +45,7 @@ function has(grants: readonly ConnectionGrant[], to: GrantTarget): boolean {
 
 /** Whether the actor may do this to a connection with these grants. */
 export function can(actor: ConnectorActor, action: ConnectorAction, grants: readonly ConnectionGrant[] = []): boolean {
+  if (actor.kind === "job") return (action === "see" || action === "read_live") && feedsPlanning(grants);
   if (actor.kind === "agent") {
     if (action !== "see" && action !== "read_live") return false;
     if (!has(grants, "agent:vizzy")) return false;

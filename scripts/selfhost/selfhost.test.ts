@@ -26,6 +26,48 @@ type State = Record<string, unknown> & {
   billing: boolean;
 };
 
+/** What the test server keeps for the REST APIs, beside the fake CLIs' own state. */
+type FakeCloudState = State & {
+  backends?: { id: string; environment: string }[];
+  firebase?: boolean;
+  googleSignIn?: boolean;
+  authorizedDomains?: string[];
+  secrets?: string[];
+  granted?: string[];
+  /** Identity Toolkit's config (admin v2), less authorizedDomains. Its `subtype` "FIREBASE_AUTH" refuses request logging. */
+  identityConfig?: Record<string, unknown>;
+  /** Each config PATCH's updateMask, and "identityPlatform:initializeAuth" for the upgrade, in order. */
+  patches?: string[];
+  /** The upgrade to Identity Platform is refused (as on a project without billing). */
+  refuseUpgrade?: boolean;
+  /** The upgrade call fails with a 503, after the upgrade went through ("applied") or not ("lost"). */
+  upgradeServerError?: "applied" | "lost";
+  /** The Firebase CLI's backend list fails with this (fake-cloud.mjs). */
+  backendListError?: string;
+  /** Times IAM refuses a project grant of a role before it works (fake-cloud.mjs). */
+  iamGrantFailures?: Record<string, number>;
+  /** Every project grant tried (fake-cloud.mjs). */
+  iamGrants?: { role: string; member: string; ok: boolean }[];
+  /** updateMask prefixes the project refuses. */
+  refuseMasks?: string[];
+  logMetrics?: Record<string, { name: string; filter: string }>;
+  alertPolicies?: Record<string, unknown>[];
+  notificationChannels?: Record<string, unknown>[];
+  monitoringOff?: boolean;
+  /** Services whose service agent was made (Service Usage generateServiceIdentity). */
+  serviceIdentities?: string[];
+};
+
+function getPath(obj: unknown, path: string): unknown {
+  return path.split(".").reduce<unknown>((o, k) => (o && typeof o === "object" ? (o as Record<string, unknown>)[k] : undefined), obj);
+}
+function setPath(obj: Record<string, unknown>, path: string, value: unknown): Record<string, unknown> {
+  const [head, ...rest] = path.split(".");
+  if (!rest.length) return { ...obj, [head!]: value };
+  const inner = obj[head!] && typeof obj[head!] === "object" ? (obj[head!] as Record<string, unknown>) : {};
+  return { ...obj, [head!]: setPath(inner, rest.join("."), value) };
+}
+
 let dir = "";
 let server: Server;
 let port = 0;
@@ -61,7 +103,11 @@ function run(script: string, args: string[], input = ""): Promise<{ code: number
         SELFHOST_IDENTITY_TOOLKIT_URL: `http://127.0.0.1:${port}`,
         SELFHOST_FIREBASE_URL: `http://127.0.0.1:${port}`,
         SELFHOST_SECRETMANAGER_URL: `http://127.0.0.1:${port}`,
+        SELFHOST_LOGGING_URL: `http://127.0.0.1:${port}`,
+        SELFHOST_MONITORING_URL: `http://127.0.0.1:${port}`,
+        SELFHOST_SERVICEUSAGE_URL: `http://127.0.0.1:${port}`,
         SELFHOST_HEALTH_WAIT_MS: "1",
+        SELFHOST_RETRY_WAIT_MS: "1",
         GOOGLE_APPLICATION_CREDENTIALS: join(dir, "adc.json"),
         FIRESTORE_EMULATOR_HOST: "",
       },
@@ -114,20 +160,14 @@ beforeEach(async () => {
   writeFileSync(join(dir, "adc.json"), "{}");
   writeFileSync(join(dir, "state.json"), JSON.stringify({ project: PROJECT, exists: true, account: "owner@example.com", billing: true, webApiKey: WEB_API_KEY }));
 
-  // The REST endpoints selfhost reads with gcloud's token: App Hosting (environment name) and
-  // Identity Toolkit (Google sign-in, authorised domains).
+  // The REST endpoints selfhost reads with gcloud's token: App Hosting (environment name),
+  // Identity Toolkit (Google sign-in, authorised domains, the password settings), and Logging
+  // and Monitoring (the sign-in alerts).
   server = createServer((req, res) => {
     let body = "";
     req.on("data", (d) => (body += d));
     req.on("end", () => {
-      const state = readState() as State & {
-        backends?: { id: string; environment: string }[];
-        firebase?: boolean;
-        googleSignIn?: boolean;
-        authorizedDomains?: string[];
-        secrets?: string[];
-        granted?: string[];
-      };
+      const state = readState() as FakeCloudState;
       const url = req.url ?? "";
       const send = (status: number, data: unknown) => {
         res.writeHead(status, { "content-type": "application/json" });
@@ -149,11 +189,79 @@ beforeEach(async () => {
       }
       if (req.method === "GET" && url === `/v1beta1/projects/${PROJECT}`) return state.firebase ? send(200, { projectId: PROJECT }) : send(404, { error: { message: "not found" } });
       if (url.endsWith("/defaultSupportedIdpConfigs/google.com")) return state.googleSignIn ? send(200, { enabled: true }) : send(404, { error: { message: "CONFIGURATION_NOT_FOUND" } });
-      if (req.method === "GET" && url.endsWith("/config")) return send(200, { authorizedDomains: state.authorizedDomains ?? ["localhost", `${PROJECT}.firebaseapp.com`] });
+      if (req.method === "GET" && url.endsWith("/config")) {
+        return send(200, { ...(state.identityConfig ?? {}), authorizedDomains: state.authorizedDomains ?? ["localhost", `${PROJECT}.firebaseapp.com`] });
+      }
       if (req.method === "PATCH" && url.includes("/config?")) {
-        state.authorizedDomains = JSON.parse(body).authorizedDomains;
+        // Applies each updateMask path from the body, as the admin v2 API does.
+        const mask = new URL(url, "http://x").searchParams.get("updateMask") ?? "";
+        state.patches = [...(state.patches ?? []), mask];
+        if ((state.refuseMasks ?? []).some((m) => mask.split(",").some((p) => p.startsWith(m)))) {
+          writeState(state);
+          return send(400, { error: { message: `INVALID_CONFIG: ${mask} can't be changed on this project` } });
+        }
+        // Plain Firebase Authentication refuses request logging, as a real project does.
+        if (getPath(state.identityConfig, "subtype") === "FIREBASE_AUTH" && mask.split(",").some((p) => p.startsWith("monitoring.requestLogging"))) {
+          writeState(state);
+          return send(400, { error: { message: "OPERATION_NOT_ALLOWED : activity logging can only be enabled in GCIP" } });
+        }
+        const sent = JSON.parse(body);
+        for (const path of mask.split(",").filter(Boolean)) {
+          if (path === "authorizedDomains") state.authorizedDomains = sent.authorizedDomains;
+          else state.identityConfig = setPath(state.identityConfig ?? {}, path, getPath(sent, path));
+        }
         writeState(state);
         return send(200, {});
+      }
+      // Identity Toolkit: the upgrade to Identity Platform (Firebase Authentication with Identity Platform).
+      if (req.method === "POST" && url === `/v2/projects/${PROJECT}/identityPlatform:initializeAuth`) {
+        state.patches = [...(state.patches ?? []), "identityPlatform:initializeAuth"];
+        if (state.refuseUpgrade) {
+          writeState(state);
+          return send(400, { error: { message: "BILLING_NOT_ENABLED : the project needs billing for Identity Platform" } });
+        }
+        if (state.upgradeServerError !== "lost") state.identityConfig = { ...(state.identityConfig ?? {}), subtype: "IDENTITY_PLATFORM" };
+        writeState(state);
+        if (state.upgradeServerError) return send(503, { error: { message: "The service is currently unavailable." } });
+        return send(200, {});
+      }
+      // Service Usage: a service's own service agent, made on request (the fake project's number).
+      const identity = /^\/v1beta1\/projects\/123456789012\/services\/([^/:]+):generateServiceIdentity$/.exec(url);
+      if (req.method === "POST" && identity) {
+        state.serviceIdentities = [...new Set([...(state.serviceIdentities ?? []), identity[1]!])];
+        writeState(state);
+        const email = `service-123456789012@gcp-sa-${identity[1]!.split(".")[0]}.iam.gserviceaccount.com`;
+        return send(200, { name: "operations/fake", done: true, response: { email, uniqueId: "1" } });
+      }
+      // Cloud Logging: log based metrics.
+      const metricsAt = `/v2/projects/${PROJECT}/metrics`;
+      if (url.startsWith(metricsAt)) {
+        const metrics = state.logMetrics ?? {};
+        const name = url.slice(metricsAt.length + 1).split("?")[0] ?? "";
+        if (req.method === "GET" && name) return metrics[name] ? send(200, metrics[name]) : send(404, { error: { message: `Metric ${name} does not exist.` } });
+        if ((req.method === "POST" && !name) || (req.method === "PUT" && name)) {
+          const m = JSON.parse(body);
+          state.logMetrics = { ...metrics, [m.name]: m };
+          writeState(state);
+          return send(200, m);
+        }
+      }
+      // Cloud Monitoring: alert policies and notification channels.
+      for (const [field, kind] of [
+        ["alertPolicies", "alertPolicies"],
+        ["notificationChannels", "notificationChannels"],
+      ] as const) {
+        const at = `/v3/projects/${PROJECT}/${kind}`;
+        if (!url.startsWith(at)) continue;
+        if (state.monitoringOff) return send(403, { error: { message: "Cloud Monitoring API has not been used in project before or it is disabled." } });
+        const list = (state[field] ?? []) as Record<string, unknown>[];
+        if (req.method === "GET") return send(200, { [field]: list });
+        if (req.method === "POST") {
+          const item = { ...JSON.parse(body), name: `projects/${PROJECT}/${kind}/${list.length + 1}` };
+          state[field] = [...list, item] as never;
+          writeState(state);
+          return send(200, item);
+        }
       }
       send(404, { error: { message: "not found" } });
     });
@@ -199,7 +307,8 @@ describe("npm run selfhost: the plan", { timeout: SLOW }, () => {
       scheduler: "todo",
       rollout: "todo",
     });
-    expect(plan.next).toBe(`npm run selfhost -- --project ${PROJECT} --apply apis`);
+    // Every command keeps the run's --app-url, as the backend list may still be unreadable.
+    expect(plan.next).toBe(`npm run selfhost -- --project ${PROJECT} --apply apis --app-url ${appUrl()}`);
     expect(plan.addons.map((a: { id: string }) => a.id)).toContain("addon:vizzy");
     expect(mutatingCalls(calls())).toEqual([]);
   });
@@ -404,7 +513,690 @@ describe("the env file npm run selfhost writes", { timeout: SLOW }, () => {
   });
 });
 
+/** A copy with every core step done up to its settings file, ready for an add-on. */
+async function readyForAddons() {
+  writeState({
+    apis: REQUIRED_APIS.map((a) => a.id),
+    firebase: true,
+    webApps: [{ appId: "1:1:web:x", displayName: "YouGrow" }],
+    databases: { "(default)": "nam5" },
+    tenants: [{ id: "ten_acme", name: "Acme", region: "us" }],
+    backends: [{ id: PROJECT, region: "us-central1", environment: "live" }],
+  });
+  const r = await selfhost(["--apply", "envfile", "--yes", ...coreAnswers()]);
+  expect(r.code).toBe(0);
+}
+
+/** Give the copy an email provider, as addon:email would: password sign-in needs one for its codes. */
+function withEmailProvider() {
+  const file = join(dir, "repo", "apphosting.live.yaml");
+  writeFileSync(file, `${readFileSync(file, "utf8").replace(/\n?$/, "\n")}  - variable: MANDRILL_API_KEY\n    secret: mandrill-api-key\n    availability:\n      - RUNTIME\n`);
+}
+
+/** Identity Toolkit's config as addon:password leaves it, less the reset link. */
+const READY_CONFIG = {
+  signIn: { email: { enabled: true, passwordRequired: true }, allowDuplicateEmails: false },
+  emailPrivacyConfig: { enableImprovedEmailPrivacy: true },
+  passwordPolicyConfig: { passwordPolicyEnforcementState: "ENFORCE", passwordPolicyVersions: [{ customStrengthOptions: { minPasswordLength: 12 } }], forceUpgradeOnSignin: false },
+  recaptchaConfig: { emailPasswordEnforcementState: "AUDIT" },
+  monitoring: { requestLogging: { enabled: true } },
+};
+
+const ACCOUNT_RULES = "signIn.email.passwordRequired,emailPrivacyConfig.enableImprovedEmailPrivacy";
+
+describe("npm run selfhost: addon:password", { timeout: SLOW }, () => {
+  const password = (extra: string[] = []) => selfhost(["--apply", "addon:password", "--yes", "--app-url", appUrl(), ...extra]);
+  const envFile = () => entryMap(readFileSync(join(dir, "repo", "apphosting.live.yaml"), "utf8"));
+
+  it("in the plan, says what differs on a copy with Google sign-in only, and changes nothing", async () => {
+    await readyForAddons();
+    const before = calls().length;
+    const plan = JSON.parse((await selfhost(["--json", "--app-url", appUrl()])).out);
+    const addon = plan.addons.find((a: { id: string }) => a.id === "addon:password");
+    expect(addon).toMatchObject({ title: "Turn on email and password sign-in", state: "todo" });
+    for (const part of [
+      "the Email/Password provider is off",
+      "email enumeration protection is off",
+      "the password policy isn't enforced",
+      "reCAPTCHA bot protection for passwords is off",
+      "no log metric yougrow_auth_signups",
+      "no log metric yougrow_auth_codes_locked",
+      'no alert "YouGrow: accounts removed at sign-in"',
+      'no alert "YouGrow: sign-in codes locked"',
+      "PASSWORD_SIGNIN_ENABLED is off",
+      "no email provider yet (addon:email)",
+      `password reset links open Firebase's own page, not ${appUrl()}/auth/reset`,
+    ]) {
+      expect(addon.detail).toContain(part);
+    }
+    expect((readState() as FakeCloudState).patches ?? []).toEqual([]);
+    expect(mutatingCalls(calls().slice(before))).toEqual([]);
+  });
+
+  it("the command the troubleshooting row names really says the switch and the email provider are missing", async () => {
+    await readyForAddons();
+    const row = readFileSync(new URL("../../docs/self-host.md", import.meta.url), "utf8")
+      .split("\n")
+      .find((line) => line.startsWith("| The sign-in page has no email and password fields |"));
+    const named = /`npm run selfhost -- --project <id>([^`]*)`/.exec(row ?? "");
+    expect(named, "the row names an npm run selfhost command").not.toBeNull();
+    const args = named![1]!.trim().split(/\s+/).filter(Boolean);
+    const r = await selfhost([...args, "--app-url", appUrl()]);
+    expect(r.out).toContain("PASSWORD_SIGNIN_ENABLED is off");
+    expect(r.out).toContain("no email provider yet (addon:email)");
+  });
+
+  it("leaves the switch off without an email provider, though Identity Platform and the alerts are set", async () => {
+    await readyForAddons();
+    const r = await password();
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("ok   read back: Email/Password on, 12 characters or more");
+    expect(r.out).toContain("PASSWORD_SIGNIN_ENABLED stays off: password sign-in");
+    expect(r.out).toContain(`--apply addon:email`);
+    expect(r.out).toContain("Leave PASSWORD_SIGNIN_ENABLED off in apphosting.live.yaml: no email provider yet (addon:email)");
+    expect(r.out).not.toContain("Turn on PASSWORD_SIGNIN_ENABLED");
+    expect(envFile().has("PASSWORD_SIGNIN_ENABLED")).toBe(false);
+    expect(r.out).not.toContain("Done: Email/Password on");
+    expect(r.out).not.toMatch(/[–—]/);
+  });
+
+  it("sets every protection first, the provider last and alone, reads it back, makes the alerts and turns the switch on", async () => {
+    await readyForAddons();
+    withEmailProvider();
+    const r = await password();
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("It will:");
+    expect(r.out).toContain("The Email/Password provider goes on last, after every protection above");
+    expect(r.out).toContain("Turn on PASSWORD_SIGNIN_ENABLED in apphosting.live.yaml");
+    const s = readState() as FakeCloudState & { apis: string[] };
+    expect(s.patches).toEqual([
+      ACCOUNT_RULES,
+      "passwordPolicyConfig",
+      "recaptchaConfig.emailPasswordEnforcementState",
+      "monitoring.requestLogging.enabled",
+      "notification.sendEmail.callbackUri",
+      "signIn.email.enabled",
+    ]);
+    expect(s.identityConfig).toEqual({ ...READY_CONFIG, signIn: { email: { enabled: true, passwordRequired: true } }, notification: { sendEmail: { callbackUri: `${appUrl()}/auth/reset` } } });
+    expect(r.out).toContain("ok   read back: Email/Password on, 12 characters or more");
+    for (const api of ["recaptchaenterprise.googleapis.com", "logging.googleapis.com", "monitoring.googleapis.com"]) expect(s.apis).toContain(api);
+
+    // Three log metrics and three alerts, each naming its resource type, emailing the first admin.
+    expect(Object.keys(s.logMetrics ?? {}).sort()).toEqual(["yougrow_auth_accounts_removed", "yougrow_auth_codes_locked", "yougrow_auth_signups"]);
+    expect(s.logMetrics?.yougrow_auth_signups?.filter).toContain('resource.type="identitytoolkit_project"');
+    expect(s.logMetrics?.yougrow_auth_accounts_removed?.filter).toBe('resource.type="cloud_run_revision" AND jsonPayload.event="auth_account_removed"');
+    expect(s.logMetrics?.yougrow_auth_codes_locked?.filter).toBe('resource.type="cloud_run_revision" AND jsonPayload.event="auth_code_locked"');
+    expect(s.notificationChannels).toEqual([expect.objectContaining({ type: "email", labels: { email_address: "owner@example.com" } })]);
+    const channel = (s.notificationChannels?.[0] as { name: string }).name;
+    const policies = s.alertPolicies as { displayName: string; notificationChannels: string[]; conditions: { conditionThreshold: { filter: string; duration: string; evaluationMissingData: string } }[] }[];
+    expect(policies.map((p) => p.displayName)).toEqual(["YouGrow: many password sign-ups", "YouGrow: accounts removed at sign-in", "YouGrow: sign-in codes locked"]);
+    for (const p of policies) {
+      expect(p.notificationChannels).toEqual([channel]);
+      const t = p.conditions[0]!.conditionThreshold;
+      expect(t.filter).toMatch(/^metric\.type="logging\.googleapis\.com\/user\/yougrow_auth_\w+" AND resource\.type="\w+"$/);
+      expect(t.evaluationMissingData).toBe("EVALUATION_MISSING_DATA_INACTIVE");
+      expect(t.duration).not.toBe("0s");
+    }
+
+    expect(envFile().get("PASSWORD_SIGNIN_ENABLED")?.value).toBe("true");
+    expect(envFile().has("PASSWORD_CLEANUP_DELETE_ENABLED")).toBe(false);
+    expect(r.out).not.toContain("PASSWORD_SIGNIN_ENABLED stays off");
+    expect(r.out).toContain("reCAPTCHA starts in audit mode");
+    expect(r.out).toContain("Done: Email/Password on, 12 characters or more, reCAPTCHA in audit mode, alerts set");
+    expect(r.out).not.toMatch(/[–—]/);
+
+    // reCAPTCHA's keys need Identity Platform's service agent, with its role, before the config.
+    const agent = "service-123456789012@gcp-sa-identitytoolkit.iam.gserviceaccount.com";
+    expect(r.out).toContain("Make Identity Platform's service agent and give it roles/identitytoolkit.serviceAgent");
+    expect(s.serviceIdentities).toEqual(["identitytoolkit.googleapis.com"]);
+    // The codes' TTL clean-up, for copies set up before these collections existed.
+    for (const group of ["email_codes", "email_code_guards", "email_confirm_links"]) {
+      expect(calls()).toContainEqual({
+        tool: "gcloud",
+        args: ["firestore", "fields", "ttls", "update", "ttl", `--collection-group=${group}`, "--enable-ttl", "--database=(default)", `--project=${PROJECT}`, "--async"],
+      });
+    }
+    expect(calls()).toContainEqual({
+      tool: "gcloud",
+      args: ["projects", "add-iam-policy-binding", PROJECT, `--member=serviceAccount:${agent}`, "--role=roles/identitytoolkit.serviceAgent", "--condition=None"],
+    });
+    expect(r.out.indexOf(`ok   roles/identitytoolkit.serviceAgent for ${agent}`)).toBeLessThan(r.out.indexOf("reCAPTCHA bot protection (recaptchaConfig"));
+
+    // A second run finds it done and sends nothing again.
+    const again = await password();
+    expect(again.code).toBe(0);
+    expect(again.out).toContain("set up already");
+    const after = readState() as FakeCloudState;
+    expect(after.patches).toHaveLength(6);
+    expect(after.alertPolicies).toHaveLength(3);
+    expect(after.notificationChannels).toHaveLength(1);
+    expect(again.out).toContain('alert "YouGrow: many password sign-ups" (already there, left as it is)');
+  });
+
+  it("makes no email channel on a later run when the alerts are there, even for a new first admin", async () => {
+    await readyForAddons();
+    expect((await password()).code).toBe(0);
+    const yaml = join(dir, "repo", "apphosting.live.yaml");
+    writeFileSync(yaml, readFileSync(yaml, "utf8").replace('value: "owner@example.com"', 'value: "new.owner@example.com"'));
+    const again = await password();
+    expect(again.code).toBe(0);
+    expect(again.out).toContain("the alerts are already there and keep their recipients");
+    expect(again.out).not.toContain("new.owner@example.com");
+    const s = readState() as FakeCloudState;
+    expect(s.notificationChannels).toHaveLength(1);
+    expect(s.notificationChannels?.[0]).toMatchObject({ labels: { email_address: "owner@example.com" } });
+  });
+
+  it("gives a copy that has the two older alerts only the locked codes alert, and leaves the others' recipients", async () => {
+    await readyForAddons();
+    withEmailProvider();
+    expect((await password()).code).toBe(0);
+    // As a copy set up before the third alert left it, with its owner's own recipient on the two.
+    const set = readState() as FakeCloudState;
+    const { yougrow_auth_codes_locked: _locked, ...older } = set.logMetrics ?? {};
+    const theirs = { type: "email", displayName: "Security team", labels: { email_address: "security@example.com" }, name: `projects/${PROJECT}/notificationChannels/9` };
+    const kept = (set.alertPolicies ?? [])
+      .filter((p) => p.displayName !== "YouGrow: sign-in codes locked")
+      .map((p) => ({ ...p, notificationChannels: [theirs.name] }));
+    writeState({ logMetrics: older, alertPolicies: kept, notificationChannels: [theirs], patches: [] });
+
+    const plan = JSON.parse((await selfhost(["--json", "--app-url", appUrl()])).out);
+    const addon = plan.addons.find((a: { id: string }) => a.id === "addon:password");
+    expect(addon.state).toBe("todo");
+    expect(addon.detail).toBe('no log metric yougrow_auth_codes_locked; no alert "YouGrow: sign-in codes locked".');
+
+    const again = await password();
+    expect(again.code).toBe(0);
+    expect(again.out).toContain("ok   log metric yougrow_auth_signups (already there)");
+    expect(again.out).toContain("ok   log metric yougrow_auth_codes_locked");
+    expect(again.out).toContain('alert "YouGrow: accounts removed at sign-in" (already there, left as it is)');
+    expect(again.out).toContain('ok   alert "YouGrow: sign-in codes locked"');
+    const s = readState() as FakeCloudState;
+    expect(s.patches).toEqual([]);
+    expect(s.logMetrics?.yougrow_auth_codes_locked?.filter).toBe('resource.type="cloud_run_revision" AND jsonPayload.event="auth_code_locked"');
+    // The two older alerts keep their owner's recipient; only the new one gets the first admin.
+    const policies = s.alertPolicies as { displayName: string; notificationChannels: string[] }[];
+    expect(policies.slice(0, 2)).toEqual(kept);
+    const owner = (s.notificationChannels ?? []).find((c) => (c as { labels: { email_address: string } }).labels.email_address === "owner@example.com") as { name: string };
+    expect(owner).toBeDefined();
+    expect(policies[2]).toMatchObject({ displayName: "YouGrow: sign-in codes locked", notificationChannels: [owner.name] });
+    expect(s.notificationChannels).toHaveLength(2);
+
+    // Done now, and a third run makes nothing.
+    const third = await password();
+    expect(third.out).toContain("set up already");
+    expect((readState() as FakeCloudState).alertPolicies).toHaveLength(3);
+    expect((readState() as FakeCloudState).notificationChannels).toHaveLength(2);
+  });
+
+  it("emails the alerts to --alert-email when given, instead of the first admin", async () => {
+    await readyForAddons();
+    expect((await password(["--alert-email", "alerts@example.com"])).code).toBe(0);
+    const s = readState() as FakeCloudState;
+    expect(s.notificationChannels).toEqual([expect.objectContaining({ type: "email", labels: { email_address: "alerts@example.com" } })]);
+  });
+
+  it("refuses an --alert-email that isn't an address, before changing anything", async () => {
+    await readyForAddons();
+    const r = await password(["--alert-email", "not-an-address"]);
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("--alert-email must be an email address");
+    expect((readState() as FakeCloudState).patches ?? []).toEqual([]);
+  });
+
+  it("changes only what differs, and keeps a stricter project's settings it doesn't own", async () => {
+    await readyForAddons();
+    withEmailProvider();
+    writeState({
+      identityConfig: {
+        ...READY_CONFIG,
+        signIn: { email: { enabled: true, passwordRequired: true }, allowDuplicateEmails: true },
+        passwordPolicyConfig: {
+          passwordPolicyEnforcementState: "ENFORCE",
+          passwordPolicyVersions: [{ customStrengthOptions: { minPasswordLength: 8, maxPasswordLength: 64, containsUppercaseCharacter: true } }],
+        },
+        recaptchaConfig: { emailPasswordEnforcementState: "ENFORCE" },
+        notification: { sendEmail: { callbackUri: `${appUrl()}/auth/reset` } },
+      },
+    });
+    const r = await password();
+    expect(r.code).toBe(0);
+    const s = readState() as FakeCloudState;
+    expect(s.patches).toEqual(["signIn.allowDuplicateEmails", "passwordPolicyConfig"]);
+    expect(getPath(s.identityConfig, "passwordPolicyConfig.passwordPolicyVersions")).toEqual([{ customStrengthOptions: { minPasswordLength: 12, maxPasswordLength: 64 } }]);
+    expect(getPath(s.identityConfig, "recaptchaConfig.emailPasswordEnforcementState")).toBe("ENFORCE");
+    expect(r.out).toContain("reCAPTCHA enforced");
+  });
+
+  it("only warns when the project refuses the reset link's address, and still turns the provider on", async () => {
+    await readyForAddons();
+    writeState({ refuseMasks: ["notification"] });
+    const r = await password();
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("warn reset link address (notification.sendEmail.callbackUri)");
+    expect(r.out).toContain("Warning: Identity Platform refused the reset link's address. Set it by hand");
+    expect(r.out).toContain(`Customize action URL: ${appUrl()}/auth/reset`);
+    const s = readState() as FakeCloudState;
+    expect(s.patches?.at(-1)).toBe("signIn.email.enabled");
+    expect(getPath(s.identityConfig, "signIn.email.enabled")).toBe(true);
+    expect(r.out).toContain("Also: password reset links open Firebase's own page");
+  });
+
+  it("stops at a refused protection, before the provider, and leaves the switch off", async () => {
+    await readyForAddons();
+    writeState({ refuseMasks: ["passwordPolicyConfig"] });
+    const r = await password();
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("fail password policy (passwordPolicyConfig)");
+    expect(r.out).toContain(
+      "Nothing after it was sent (reCAPTCHA bot protection, request logging, reset link address, Email/Password provider), so the Email/Password provider stays as it was.",
+    );
+    const s = readState() as FakeCloudState;
+    expect(s.patches).toEqual([ACCOUNT_RULES, "passwordPolicyConfig"]);
+    expect(getPath(s.identityConfig, "signIn.email.enabled")).toBeUndefined();
+    expect(s.alertPolicies ?? []).toEqual([]);
+    expect(envFile().has("PASSWORD_SIGNIN_ENABLED")).toBe(false);
+  });
+
+  it("leaves the switch off when the alerts can't be made, and says to run it again", async () => {
+    await readyForAddons();
+    writeState({ monitoringOff: true });
+    const r = await password();
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("Making the sign-in alerts failed (see above). Identity Platform is set; run this add-on again to finish the alerts.");
+    expect(r.out).toContain("PASSWORD_SIGNIN_ENABLED is still off in apphosting.live.yaml.");
+    expect(getPath((readState() as FakeCloudState).identityConfig, "signIn.email.enabled")).toBe(true);
+    expect(envFile().has("PASSWORD_SIGNIN_ENABLED")).toBe(false);
+  });
+
+  it("on a copy with password sign-in on, says the switch stayed on when only a newer alert fails", async () => {
+    await readyForAddons();
+    withEmailProvider();
+    expect((await password()).code).toBe(0);
+    expect(envFile().get("PASSWORD_SIGNIN_ENABLED")?.value).toBe("true");
+    // As a copy set up before the third alert, whose Monitoring then refuses the new one.
+    const set = readState() as FakeCloudState;
+    const { yougrow_auth_codes_locked: _locked, ...older } = set.logMetrics ?? {};
+    const kept = (set.alertPolicies ?? []).filter((p) => p.displayName !== "YouGrow: sign-in codes locked");
+    writeState({ logMetrics: older, alertPolicies: kept, patches: [], monitoringOff: true });
+    const r = await password();
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("Making the sign-in alerts failed (see above).");
+    expect(r.out).toContain("PASSWORD_SIGNIN_ENABLED is still on in apphosting.live.yaml, as it was: only the alerts are unfinished.");
+    expect(r.out).not.toContain("is still off");
+    expect(envFile().get("PASSWORD_SIGNIN_ENABLED")?.value).toBe("true");
+  });
+
+  it("on a copy with password sign-in on but no email provider, says the switch is on, not that it stays off", async () => {
+    await readyForAddons();
+    // The switch on by hand, or a provider removed since: the doctor flags it, and a re-run adds the newer alert.
+    const file = join(dir, "repo", "apphosting.live.yaml");
+    writeFileSync(file, `${readFileSync(file, "utf8").replace(/\n?$/, "\n")}  - variable: PASSWORD_SIGNIN_ENABLED\n    value: "true"\n    availability:\n      - RUNTIME\n`);
+    const r = await password();
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("ok   read back: Email/Password on, 12 characters or more");
+    expect(r.out).toContain("PASSWORD_SIGNIN_ENABLED is on in apphosting.live.yaml,");
+    expect(r.out).toContain("nobody gets a confirmation code until there is an email provider");
+    expect(r.out).toContain("--apply addon:email");
+    expect(r.out).not.toContain("stays off");
+    expect(r.out).not.toContain("Turn on PASSWORD_SIGNIN_ENABLED");
+    expect(r.out).not.toContain("Leave PASSWORD_SIGNIN_ENABLED off");
+    expect(r.out).not.toMatch(/[–—]/);
+    expect(envFile().get("PASSWORD_SIGNIN_ENABLED")?.value).toBe("true");
+  });
+
+  it("when the backend list fails, says why and the two ways on, not that there is no backend", async () => {
+    await readyForAddons();
+    const lapsed = "Authentication Error: Your credentials are no longer valid. Please run firebase login --reauth";
+    writeState({ backendListError: lapsed });
+    const r = await selfhost(["--apply", "addon:password", "--yes", "--upgrade-identity-platform", "--alert-email", "ops@example.com"]);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain(`Can't list App Hosting backends, so the app's address isn't known: ${lapsed}`);
+    expect(r.out).toContain(
+      `Either pass the app's https address: npm run selfhost -- --project ${PROJECT} --apply addon:password --app-url https://<your-app-host> --upgrade-identity-platform --alert-email ops@example.com`,
+    );
+    expect(r.out).toContain(`When that's done, run: npm run selfhost -- --project ${PROJECT} --apply addon:password --upgrade-identity-platform --alert-email ops@example.com`);
+    expect(r.out).toContain("Or sign the Firebase CLI in again (firebase login --reauth) and run this again.");
+    expect(r.out).not.toContain("No backend yet");
+    expect((readState() as FakeCloudState).patches ?? []).toEqual([]);
+
+    // The checks that need the address say they can't tell, rather than waiting for a backend.
+    const plan = JSON.parse((await selfhost(["--json"])).out);
+    for (const id of ["backend", "signin", "scheduler", "rollout"]) {
+      const step = plan.steps.find((x: { id: string }) => x.id === id);
+      expect(step, id).toMatchObject({ state: "unknown", next: "firebase login --reauth" });
+      expect(step.detail, id).toContain("Can't list App Hosting backends");
+    }
+    // The printed plan names the same command on every row, never plain `firebase login`.
+    const text = (await selfhost([])).out;
+    expect(text.match(/run: firebase login --reauth/g)).toHaveLength(4);
+    expect(text).not.toMatch(/firebase login(?! --reauth)/);
+    // The backend step stops with the reason, without offering to create a backend that may be there.
+    const backendRun = await selfhost(["--apply", "backend"]);
+    expect(backendRun.code).toBe(1);
+    expect(backendRun.out).toContain(`Can't list App Hosting backends: ${lapsed}`);
+    expect(backendRun.out).toContain("Sign the Firebase CLI in again (firebase login --reauth) and run this again.");
+    expect(backendRun.out).not.toContain(`Create the App Hosting backend "${PROJECT}"`);
+    expect(backendRun.out).not.toContain("It will:");
+    expect(backendRun.out).not.toContain("Go ahead?");
+    expect(calls().some((c) => c.tool === "firebase" && c.args[0] === "apphosting:backends:create")).toBe(false);
+    // The rollout needs the backend itself, so it stops too, without deploying anything.
+    const rollout = await selfhost(["--apply", "rollout", "--yes"]);
+    expect(rollout.code).toBe(1);
+    expect(rollout.out).not.toContain("It will:");
+    expect(rollout.out).toContain(`Can't list App Hosting backends: ${lapsed}`);
+    expect(rollout.out).not.toContain("No backend yet");
+    expect(calls().some((c) => c.tool === "firebase" && c.args[0] === "deploy")).toBe(false);
+
+    // With --app-url the add-on goes ahead.
+    expect((await password()).code).toBe(0);
+  });
+
+  it("says there is no backend yet when the list works and has none", async () => {
+    await readyForAddons();
+    writeState({ backends: [] });
+    const r = await selfhost(["--apply", "addon:password", "--yes"]);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain(`No backend yet, so the reset link's address isn't known. Run: npm run selfhost -- --project ${PROJECT} --apply backend`);
+    expect(r.out).not.toContain("Can't list App Hosting backends");
+  });
+
+  it("tries the service agent's role again when IAM doesn't know the new agent yet", async () => {
+    await readyForAddons();
+    withEmailProvider();
+    writeState({ iamGrantFailures: { "roles/identitytoolkit.serviceAgent": 2 } });
+    const r = await password();
+    expect(r.code).toBe(0);
+    const agent = "service-123456789012@gcp-sa-identitytoolkit.iam.gserviceaccount.com";
+    // gcloud's own cause line, not its hint about linting conditions printed first.
+    expect(r.out).toContain(`wait roles/identitytoolkit.serviceAgent for ${agent}: INVALID_ARGUMENT: Service account ${agent} does not exist.; trying again in 0s`);
+    expect(r.out).not.toContain("lint-condition");
+    expect(r.out).toContain(`ok   roles/identitytoolkit.serviceAgent for ${agent}`);
+    const s = readState() as FakeCloudState;
+    expect((s.iamGrants ?? []).filter((g) => g.role === "roles/identitytoolkit.serviceAgent").map((g) => g.ok)).toEqual([false, false, true]);
+    expect(getPath(s.identityConfig, "signIn.email.enabled")).toBe(true);
+  });
+
+  it("stops after the last try when IAM keeps refusing the role, before Identity Platform is touched", async () => {
+    await readyForAddons();
+    withEmailProvider();
+    // Even with the upgrade asked for: the upgrade comes after the agent, so nothing is upgraded.
+    writeState({ identityConfig: { subtype: "FIREBASE_AUTH" }, iamGrantFailures: { "roles/identitytoolkit.serviceAgent": 99 } });
+    const r = await password(["--upgrade-identity-platform"]);
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/fail roles\/identitytoolkit\.serviceAgent for \S+ \(tried 4 times\): INVALID_ARGUMENT: Service account \S+ does not exist\./);
+    expect(r.out).toContain("IAM doesn't know the new service agent yet. Run this add-on again in a minute.");
+    expect(r.out).not.toContain("lint-condition");
+    expect(r.out).toContain("Nothing in Identity Platform was changed.");
+    const s = readState() as FakeCloudState;
+    expect((s.iamGrants ?? []).filter((g) => g.role === "roles/identitytoolkit.serviceAgent")).toHaveLength(4);
+    expect(s.patches ?? []).toEqual([]);
+    expect(s.identityConfig).toEqual({ subtype: "FIREBASE_AUTH" });
+    expect(envFile().has("PASSWORD_SIGNIN_ENABLED")).toBe(false);
+  });
+
+  it("on plain Firebase Authentication, turns on everything but request logging and the sign-ups alert, and says how to add them", async () => {
+    await readyForAddons();
+    withEmailProvider();
+    writeState({ identityConfig: { subtype: "FIREBASE_AUTH" } });
+    const r = await password();
+    expect(r.code).toBe(0);
+    expect(r.out).toContain(
+      "Leave out request logging and the many password sign-ups alert: this project is on Firebase Authentication without the Identity Platform upgrade (add --upgrade-identity-platform to opt in)",
+    );
+    expect(r.out).not.toContain("Upgrade to Firebase Authentication with Identity Platform");
+    const s = readState() as FakeCloudState;
+    expect(s.patches).toEqual([ACCOUNT_RULES, "passwordPolicyConfig", "recaptchaConfig.emailPasswordEnforcementState", "notification.sendEmail.callbackUri", "signIn.email.enabled"]);
+    expect(s.identityConfig?.subtype).toBe("FIREBASE_AUTH");
+    expect(getPath(s.identityConfig, "signIn.email.enabled")).toBe(true);
+    expect(getPath(s.identityConfig, "monitoring")).toBeUndefined();
+    expect(Object.keys(s.logMetrics ?? {}).sort()).toEqual(["yougrow_auth_accounts_removed", "yougrow_auth_codes_locked"]);
+    expect((s.alertPolicies ?? []).map((p) => p.displayName)).toEqual(["YouGrow: accounts removed at sign-in", "YouGrow: sign-in codes locked"]);
+    expect(envFile().get("PASSWORD_SIGNIN_ENABLED")?.value).toBe("true");
+    // The closing lines say what was left out and the command that adds it.
+    expect(r.out).toContain('Left out: request logging and the "YouGrow: many password sign-ups" alert.');
+    expect(r.out).toContain(`To add them later: npm run selfhost -- --project ${PROJECT} --apply addon:password --upgrade-identity-platform`);
+    // check() calls it done, with the note.
+    expect(r.out).toContain("Done: Email/Password on, 12 characters or more, reCAPTCHA in audit mode, alerts set");
+    expect(r.out).toContain("request logging and the many password sign-ups alert need the Identity Platform upgrade");
+    expect(r.out).not.toMatch(/[–—]/);
+    const plan = JSON.parse((await selfhost(["--json", "--app-url", appUrl()])).out);
+    const addon = plan.addons.find((a: { id: string }) => a.id === "addon:password");
+    expect(addon.state).toBe("done");
+    expect(addon.detail).toContain("(run addon:password with --upgrade-identity-platform to opt in)");
+  });
+
+  it("with --upgrade-identity-platform on plain Firebase Authentication, upgrades first, then turns on everything", async () => {
+    await readyForAddons();
+    withEmailProvider();
+    writeState({ identityConfig: { subtype: "FIREBASE_AUTH" } });
+    // The plan with the flag counts the upgrade as to do.
+    const plan = JSON.parse((await selfhost(["--json", "--app-url", appUrl(), "--upgrade-identity-platform"])).out);
+    const addon = plan.addons.find((a: { id: string }) => a.id === "addon:password");
+    expect(addon.detail).toContain("the project is on Firebase Authentication without the Identity Platform upgrade");
+    expect(addon.detail).toContain("Identity Platform's request logging is off");
+    expect((readState() as FakeCloudState).patches ?? []).toEqual([]);
+
+    const r = await password(["--upgrade-identity-platform"]);
+    expect(r.code).toBe(0);
+    const firstChange = r.out.split("It will:\n")[1]!.split("\n")[0];
+    expect(firstChange).toContain("- Upgrade to Firebase Authentication with Identity Platform: free up to 50,000 monthly active users, can't be undone");
+    expect(r.out).toContain("ok   read back: the project is on Identity Platform");
+    const s = readState() as FakeCloudState;
+    expect(s.patches).toEqual([
+      "identityPlatform:initializeAuth",
+      ACCOUNT_RULES,
+      "passwordPolicyConfig",
+      "recaptchaConfig.emailPasswordEnforcementState",
+      "monitoring.requestLogging.enabled",
+      "notification.sendEmail.callbackUri",
+      "signIn.email.enabled",
+    ]);
+    expect(s.identityConfig?.subtype).toBe("IDENTITY_PLATFORM");
+    expect(getPath(s.identityConfig, "monitoring.requestLogging.enabled")).toBe(true);
+    expect((s.alertPolicies ?? []).map((p) => p.displayName)).toEqual(["YouGrow: many password sign-ups", "YouGrow: accounts removed at sign-in", "YouGrow: sign-in codes locked"]);
+    expect(r.out).not.toContain("Left out:");
+    expect(r.out).toContain("Done: Email/Password on, 12 characters or more, reCAPTCHA in audit mode, alerts set");
+
+    // Again with the flag: the project is upgraded, so nothing more is sent.
+    const again = await password(["--upgrade-identity-platform"]);
+    expect(again.out).toContain("set up already");
+    expect((readState() as FakeCloudState).patches).toHaveLength(7);
+  });
+
+  it("stops before any setting when the upgrade is refused", async () => {
+    await readyForAddons();
+    withEmailProvider();
+    writeState({ identityConfig: { subtype: "FIREBASE_AUTH" }, refuseUpgrade: true });
+    const r = await password(["--upgrade-identity-platform"]);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("fail upgrade to Firebase Authentication with Identity Platform: BILLING_NOT_ENABLED");
+    expect(r.out).toContain("The upgrade to Identity Platform was refused (BILLING_NOT_ENABLED : the project needs billing for Identity Platform), so no sign-in setting was changed.");
+    expect(r.out).toContain("It needs billing on the project (the Blaze plan).");
+    // Every command it prints keeps the flag, so following one still upgrades.
+    expect(r.out).toContain(`Fix what it says, then run this again: npm run selfhost -- --project ${PROJECT} --apply addon:password --upgrade-identity-platform --app-url ${appUrl()}`);
+    expect(r.out).toContain(`When that's done, run: npm run selfhost -- --project ${PROJECT} --apply addon:password --app-url ${appUrl()} --upgrade-identity-platform`);
+    expect(r.out).not.toMatch(/run: npm run selfhost -- [^\n]*--apply addon:password(?![^\n]*--upgrade-identity-platform)/);
+    const s = readState() as FakeCloudState;
+    expect(s.patches).toEqual(["identityPlatform:initializeAuth"]);
+    expect(s.identityConfig).toEqual({ subtype: "FIREBASE_AUTH" });
+    expect(envFile().has("PASSWORD_SIGNIN_ENABLED")).toBe(false);
+  });
+
+  it("on an upgraded project, the flag changes nothing", async () => {
+    await readyForAddons();
+    withEmailProvider();
+    writeState({ identityConfig: { subtype: "IDENTITY_PLATFORM" } });
+    const r = await password(["--upgrade-identity-platform"]);
+    expect(r.code).toBe(0);
+    const s = readState() as FakeCloudState;
+    expect(s.patches?.[0]).toBe(ACCOUNT_RULES);
+    expect(s.patches).toContain("monitoring.requestLogging.enabled");
+    expect(s.alertPolicies).toHaveLength(3);
+  });
+
+  it("refuses a value on a yes/no flag, so --upgrade-identity-platform=false never upgrades", async () => {
+    await readyForAddons();
+    withEmailProvider();
+    writeState({ identityConfig: { subtype: "FIREBASE_AUTH" } });
+    for (const flag of ["--upgrade-identity-platform=false", "--upgrade-identity-platform=no", "--upgrade-identity-platform=true"]) {
+      const r = await password([flag]);
+      expect(r.code, flag).toBe(2);
+      expect(r.out, flag).toContain("--upgrade-identity-platform takes no value (leave it out for no)");
+    }
+    const yes = await selfhost(["--apply", "addon:password", "--yes=false", "--app-url", appUrl()]);
+    expect(yes.code).toBe(2);
+    expect(yes.out).toContain("--yes takes no value");
+    const s = readState() as FakeCloudState;
+    expect(s.patches ?? []).toEqual([]);
+    expect(s.identityConfig).toEqual({ subtype: "FIREBASE_AUTH" });
+  });
+
+  it("when the backend list fails for another reason, gives that reason, not firebase login", async () => {
+    await readyForAddons();
+    const off = "Request to https://firebaseapphosting.googleapis.com had HTTP Error: 403, Firebase App Hosting API has not been used in project";
+    writeState({ backendListError: off });
+    const r = await selfhost(["--apply", "addon:password", "--yes"]);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain(`Can't list App Hosting backends, so the app's address isn't known: ${off}`);
+    expect(r.out).toContain("Or fix what it says and run this again.");
+    expect(r.out).not.toContain("firebase login");
+    const backendRun = await selfhost(["--apply", "backend"]);
+    expect(backendRun.out).toContain("Fix what it says and run this again.");
+    expect(backendRun.out).not.toContain("firebase login");
+    const plan = JSON.parse((await selfhost(["--json"])).out);
+    expect(plan.steps.find((x: { id: string }) => x.id === "backend").next).toBe(`npm run selfhost -- --project ${PROJECT} --apply backend`);
+    expect(plan.steps.find((x: { id: string }) => x.id === "signin").next).toBe(`npm run selfhost -- --project ${PROJECT} --apply signin`);
+    // That command gives the reason too, rather than console steps for an unknown host.
+    const signin = await selfhost(["--apply", "signin", "--yes"]);
+    expect(signin.out).toContain(`Can't list App Hosting backends, so the app's address isn't known: ${off}`);
+    expect(signin.out).not.toContain("<your app's host>");
+  });
+
+  it("when the upgrade call fails without a clear answer but went through, reads it back and goes on", async () => {
+    await readyForAddons();
+    withEmailProvider();
+    writeState({ identityConfig: { subtype: "FIREBASE_AUTH" }, upgradeServerError: "applied" });
+    const r = await password(["--upgrade-identity-platform"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("fail upgrade to Firebase Authentication with Identity Platform: The service is currently unavailable.");
+    expect(r.out).toContain("ok   read back: the project is on Identity Platform");
+    const s = readState() as FakeCloudState;
+    expect(s.identityConfig?.subtype).toBe("IDENTITY_PLATFORM");
+    expect(s.patches).toContain("monitoring.requestLogging.enabled");
+    expect(s.alertPolicies).toHaveLength(3);
+  });
+
+  it("when the upgrade call fails without a clear answer and didn't go through, says it isn't known, not billing", async () => {
+    await readyForAddons();
+    withEmailProvider();
+    writeState({ identityConfig: { subtype: "FIREBASE_AUTH" }, upgradeServerError: "lost" });
+    const r = await password(["--upgrade-identity-platform"]);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain(
+      "The upgrade to Identity Platform didn't answer clearly (The service is currently unavailable.), so it may or may not have happened. No sign-in setting was changed.",
+    );
+    expect(r.out).toContain(`Run this again to find out and finish: npm run selfhost -- --project ${PROJECT} --apply addon:password --upgrade-identity-platform`);
+    expect(r.out.split("fail upgrade")[1]).not.toMatch(/billing|refused/i);
+    const s = readState() as FakeCloudState;
+    expect(s.patches).toEqual(["identityPlatform:initializeAuth"]);
+    expect(envFile().has("PASSWORD_SIGNIN_ENABLED")).toBe(false);
+  });
+
+  it("keeps --alert-email in the command that adds the upgrade later, and in the JSON plan's next", async () => {
+    await readyForAddons();
+    withEmailProvider();
+    writeState({ identityConfig: { subtype: "FIREBASE_AUTH" } });
+    const r = await password(["--alert-email", "ops@example.com"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain(
+      `To add them later: npm run selfhost -- --project ${PROJECT} --apply addon:password --upgrade-identity-platform --app-url ${appUrl()} --alert-email ops@example.com`,
+    );
+    writeState({ identityConfig: { subtype: "FIREBASE_AUTH" } });
+    const plan = JSON.parse((await selfhost(["--json", "--app-url", appUrl(), "--upgrade-identity-platform", "--alert-email", "ops@example.com"])).out);
+    const addon = plan.addons.find((a: { id: string }) => a.id === "addon:password");
+    expect(addon.next).toBe(`npm run selfhost -- --project ${PROJECT} --apply addon:password --app-url ${appUrl()} --upgrade-identity-platform --alert-email ops@example.com`);
+    // Another add-on's command doesn't carry addon:password's options.
+    const recaptcha = plan.addons.find((a: { id: string }) => a.id === "addon:recaptcha");
+    expect(recaptcha.next).toBe(`npm run selfhost -- --project ${PROJECT} --apply addon:recaptcha --app-url ${appUrl()}`);
+  });
+
+  it("needs the core steps first", async () => {
+    writeState({ backends: [{ id: PROJECT, region: "us-central1", environment: "live" }] });
+    const r = await password();
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("No apphosting.live.yaml yet. Run the core steps first");
+    expect((readState() as FakeCloudState).patches ?? []).toEqual([]);
+  });
+});
+
 describe("npm run doctor -- --cloud", { timeout: SLOW }, () => {
+  const writeEnv = (entries: string) => writeFileSync(join(dir, "repo", "apphosting.live.yaml"), `env:\n${entries}`);
+  const SWITCH_ON = '  - variable: PASSWORD_SIGNIN_ENABLED\n    value: "true"\n    availability:\n      - RUNTIME\n';
+  const MANDRILL = "  - variable: MANDRILL_API_KEY\n    secret: mandrill-api-key\n    availability:\n      - RUNTIME\n";
+
+  it("with password sign-in on, fails without an email provider or a ready Identity Platform", async () => {
+    writeState({ backends: [{ id: PROJECT, region: "us-central1", environment: "live" }] });
+    writeEnv(SWITCH_ON);
+    const r = await run("doctor.mjs", ["--cloud", "--project", PROJECT]);
+    expect(r.out).toContain("fail  PASSWORD_SIGNIN_ENABLED is on, but no email provider is set");
+    expect(r.out).toContain(`fix: npm run selfhost -- --project ${PROJECT} --apply addon:email`);
+    expect(r.out).toMatch(/fail +Password sign-in is on, but Identity Platform isn't ready: .*the Email\/Password provider is off/);
+    expect(r.out).toContain("warn  Password sign-in: reCAPTCHA bot protection for passwords is off.");
+    expect(r.out).toContain(`fix: npm run selfhost -- --project ${PROJECT} --apply addon:password`);
+    expect(r.code).toBe(1);
+    expect(mutatingCalls(calls())).toEqual([]);
+  });
+
+  it("with password sign-in on and set up, passes; with it off, checks nothing about it", async () => {
+    const host = `https://${PROJECT}--${PROJECT}.us-central1.hosted.app`;
+    writeState({
+      backends: [{ id: PROJECT, region: "us-central1", environment: "live" }],
+      identityConfig: { ...READY_CONFIG, notification: { sendEmail: { callbackUri: `${host}/auth/reset` } } },
+    });
+    writeEnv(SWITCH_ON + MANDRILL);
+    const on = await run("doctor.mjs", ["--cloud", "--project", PROJECT]);
+    expect(on.out).toContain("ok    Identity Platform is set for password sign-in (12 characters or more, one account per address)");
+    expect(on.out).not.toContain("email provider");
+    expect(on.out).not.toContain("Password sign-in:");
+
+    writeEnv(MANDRILL);
+    const off = await run("doctor.mjs", ["--cloud", "--project", PROJECT]);
+    expect(off.out).not.toContain("Identity Platform");
+  });
+
+  it("on plain Firebase Authentication, notes the optional upgrade instead of warning about request logging", async () => {
+    const host = `https://${PROJECT}--${PROJECT}.us-central1.hosted.app`;
+    const { monitoring: _monitoring, ...plain } = READY_CONFIG;
+    writeState({
+      backends: [{ id: PROJECT, region: "us-central1", environment: "live" }],
+      identityConfig: { ...plain, subtype: "FIREBASE_AUTH", notification: { sendEmail: { callbackUri: `${host}/auth/reset` } } },
+    });
+    writeEnv(SWITCH_ON + MANDRILL);
+    const r = await run("doctor.mjs", ["--cloud", "--project", PROJECT]);
+    expect(r.out).toContain("ok    Identity Platform is set for password sign-in");
+    expect(r.out).not.toContain("request logging is off");
+    expect(r.out).toContain("info  Password sign-in: request logging and the many password sign-ups alert need the Identity Platform upgrade, which is optional.");
+    expect(r.out).toContain(`fix: optional, can't be undone, only when you want it: npm run selfhost -- --project ${PROJECT} --apply addon:password --upgrade-identity-platform`);
+    expect(r.out).not.toMatch(/warn +Password sign-in/);
+  });
+
+  it("names the Firebase CLI's sign-in when the backend list fails", async () => {
+    writeState({ backendListError: "Authentication Error: Your credentials are no longer valid." });
+    const r = await run("doctor.mjs", ["--cloud", "--project", PROJECT]);
+    expect(r.out).toContain("warn  Can't list App Hosting backends: Authentication Error: Your credentials are no longer valid.");
+    expect(r.out).toContain("fix: firebase login --reauth");
+  });
+
+  it("doesn't send a backend list that fails for another reason to firebase login", async () => {
+    const off = "Request to https://firebaseapphosting.googleapis.com had HTTP Error: 403, Firebase App Hosting API has not been used in project";
+    writeState({ backendListError: off });
+    const r = await run("doctor.mjs", ["--cloud", "--project", PROJECT]);
+    expect(r.out).toContain(`warn  Can't list App Hosting backends: ${off}`);
+    expect(r.out).toContain(`fix: fix what it says, then: npm run doctor -- --cloud --project ${PROJECT}`);
+    expect(r.out).not.toContain("firebase login");
+  });
+
   it("says what is missing, read-only, with a fix for each", async () => {
     writeState({ apis: ["firestore.googleapis.com"], secrets: ["lifecycle-worker-secret"] });
     const r = await run("doctor.mjs", ["--cloud", "--project", PROJECT]);

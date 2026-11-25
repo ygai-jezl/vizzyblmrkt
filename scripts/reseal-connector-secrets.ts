@@ -23,6 +23,10 @@
  *   ...the same with --apply
  * Optional:  --tenant <tenantId>   --local (the emulators only, with the keys from .env.local)
  *
+ * Organisations' own connections (Connectors 3, ADR-0015) are covered too, in every provisioned
+ * region, after the brands (skipped with --tenant), so the count of secrets off the current key
+ * includes them.
+ *
  * Auth = Application Default Credentials (`gcloud auth application-default login`).
  */
 
@@ -40,8 +44,8 @@ function say(line: string): void {
 async function main() {
   const where = settleEnvironment(TOOL, args.has("local"));
   // Imported after the environment is settled, so the library reads it.
-  const { listAllTenants, getTenantById } = await import("@/lib/tenant");
-  const { resealBrand, reportLines } = await import("@/lib/connectors/reseal");
+  const { listAllTenants, getTenantById, provisionedRegions } = await import("@/lib/tenant");
+  const { resealBrand, resealOrganisationRegion, reportLines } = await import("@/lib/connectors/reseal");
   const { currentVaultKeyId, previousVaultKeyId } = await import("@/lib/connectors/vault");
 
   const current = currentVaultKeyId();
@@ -66,10 +70,27 @@ async function main() {
     resealed += r.resealed;
     unopenable += r.unopenable.length;
   }
+  // Organisations' own connections, in every region (bound to the organisation, not a brand).
+  if (!ONLY_TENANT) {
+    for (const region of provisionedRegions()) {
+      const r = await resealOrganisationRegion(region, { apply: APPLY });
+      if (!r.connections) continue;
+      for (const line of reportLines(r, APPLY)) say(line);
+      off += r.offCurrent;
+      resealed += r.resealed;
+      unopenable += r.unopenable.length;
+    }
+  }
 
   say(`${count(tenants.length, "brand")}, ${count(off, "secret")} off the current key before this run${APPLY ? `, ${resealed} resealed` : ""}, ${unopenable} won't open.`);
   if (!APPLY) {
-    say(off ? "Run again with --apply to reseal them." : "Nothing is left on an old key: the rotation is finished, and CONNECTORS_VAULT_KEY_PREVIOUS can be removed.");
+    say(
+      off
+        ? "Run again with --apply to reseal them."
+        : unopenable
+          ? `${unopenable} won't open or don't parse: look at them before CONNECTORS_VAULT_KEY_PREVIOUS is removed.`
+          : "Nothing is left on an old key: the rotation is finished, and CONNECTORS_VAULT_KEY_PREVIOUS can be removed.",
+    );
   } else {
     say("Run the dry run again: the rotation is finished when it counts 0 off the current key.");
   }

@@ -128,9 +128,9 @@ def test_a_launch_welcome_journey_page_points_to_the_style_tools():
     for state in ({"journeyId": "lcjw_abc123"}, {"journeyId": "lcjw_abc123", "journeyStyleEnabled": True}):
         out = build_lifecycle_ops_instruction(_ctx(state))
         conversation = out.split("# This conversation\n", 1)[1]
-        assert conversation.startswith("The operator is on the page of journey lcjw_abc123, a launch's welcome journey.")
+        assert conversation.startswith("The operator is on the page of journey lcjw_abc123, a waitlist's welcome journey.")
         assert "get_journey_email_style and set_journey_email_style" in conversation
-        assert "can't open a launch's journey, so don't call them for it" in conversation
+        assert "can't open a waitlist's journey, so don't call them for it" in conversation
         assert "read it with get_lifecycle_journey before editing" not in out
         assert "connected product" not in conversation
 

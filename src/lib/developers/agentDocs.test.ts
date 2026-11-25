@@ -367,3 +367,28 @@ describe("Sign-ups from your site (LAUNCH_SITE_SIGNUPS_ENABLED)", () => {
     expect(pageMarkdown("users", ORIGIN)).not.toContain("site-signups");
   });
 });
+
+describe("launches called ideas on the screens (NEXT_PUBLIC_NAV_IDEAS_ENABLED)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const NOTE = "YouGrow's screens call a launch an idea. It is the same thing, with the same id and the same site key, and the API keeps the word launch, as in the error `launch_closed`.";
+  const wordsOn = () => {
+    for (const name of ["NEXT_PUBLIC_NAV_V2_ENABLED", "NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED", "NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED", "NEXT_PUBLIC_NAV_IDEAS_ENABLED", "LAUNCH_IDEAS_ENABLED"]) {
+      vi.stubEnv(name, "true");
+    }
+  };
+
+  it("say on the two pages that name launches that the API keeps the word, and change nothing else in it", () => {
+    wordsOn();
+    for (const slug of ["site-signups", "users"]) expect(pageMarkdown(slug, ORIGIN), slug).toContain(`**Launches and ideas.** ${NOTE}`);
+    expect(dashesIn(NOTE)).toEqual([]);
+    expect(aiTellsIn(NOTE)).toEqual([]);
+    expect(pageMarkdown("site-signups", ORIGIN)).toContain("launch_closed");
+  });
+
+  it("say nothing about ideas while the words are off, or ideas are", () => {
+    for (const slug of ["site-signups", "users"]) expect(pageMarkdown(slug, ORIGIN), slug).not.toContain("Launches and ideas");
+    wordsOn();
+    vi.stubEnv("LAUNCH_IDEAS_ENABLED", "false");
+    expect(pageMarkdown("site-signups", ORIGIN)).not.toContain("Launches and ideas");
+  });
+});

@@ -8,6 +8,8 @@ import { personHref } from "@/lib/audience/paths";
 import type { PeopleFilters, PeopleRow } from "@/lib/audience/peopleList";
 import type { NewPersonVia } from "@/lib/audience/newPerson";
 import { parseFieldTag } from "@/lib/audience/fieldTags";
+import { MANY_LAUNCHES_TAG } from "@/lib/ideas/list";
+import { ideaWord } from "@/lib/nav/terms";
 import type { FieldValue } from "@/lib/types/recordField";
 import { api } from "../connect/api";
 import { inputClass } from "../connect/ui";
@@ -15,13 +17,15 @@ import { Chip, type ChipTone } from "../people/Chip";
 import { ago, day } from "../people/format";
 import { cellText, filterLabel, PeopleFilterBar, type ActiveGroup } from "./PeopleFilterBar";
 import { NewPersonDialog } from "./NewPersonDialog";
+import { useWords } from "../nav/WordsProvider";
 
 /**
  * Audience → People (AUDIENCE_ONE_VIEW_ENABLED): one row per person, whatever brought
  * them: a launch's form, the brand's own site, a connected product, or several. Shows
  * one group at a time, built from the brand's own launches and products; picking a
  * product shows its stages. Every row opens the person. With AUDIENCE_ADD_PERSON_ENABLED an admin
- * can add someone by hand (New person), here or from ⌘K (`?new=person`).
+ * can add someone by hand (New person), here or from ⌘K (`?new=person`). With the words on
+ * (useWords().ideas) a launch is an idea.
  */
 
 const STAGE_LABEL = { new: "New", onboarding: "Onboarding", stuck: "Stuck", activated: "Activated", member: "Member", quiet: "Quiet" } as const;
@@ -83,6 +87,8 @@ export function AudienceList({
   newPersonDraft?: string | null;
 }) {
   const router = useRouter();
+  const { ideas } = useWords();
+  const w = ideaWord(ideas);
   const [filters, setFilters] = useState<PeopleFilters | null>(null);
   /** The group shown: a memberOf tag. Within a product, `product` is that product's id. */
   const [show, setShow] = useState(initialGroup ? initialGroup.tag : initialLaunch ? `launch:${initialLaunch.id}` : "all");
@@ -191,9 +197,9 @@ export function AudienceList({
     return (
       <div className="space-y-3 rounded-md border border-dashed border-neutral-300 p-8 text-center text-sm text-neutral-500 dark:border-neutral-700">
         <p>
-          Nobody yet. People appear here when they sign up to a{" "}
+          Nobody yet. People appear here when they sign up to {ideas ? "an" : "a"}{" "}
           <Link href="/admin/launches" className="underline underline-offset-2">
-            launch
+            {w.one}
           </Link>{" "}
           or a{" "}
           <Link href="/admin/products" className="underline underline-offset-2">
@@ -214,7 +220,7 @@ export function AudienceList({
   const fieldColumns = fieldFilters
     ? [...(filters?.fields ?? [])].sort((a, b) => Number(b.id === activeField) - Number(a.id === activeField)).slice(0, 2)
     : [];
-  const shownLabel = fieldFilters && filters && !search ? filterLabel(show, filters, initialGroup) : null;
+  const shownLabel = fieldFilters && filters && !search ? filterLabel(show, filters, initialGroup, ideas) : null;
 
   return (
     <div className="space-y-3">
@@ -232,6 +238,16 @@ export function AudienceList({
                 {l.name} <span className="tabular-nums opacity-70">{l.count}</span>
               </button>
             ))}
+          {filters.manyLaunches ? (
+            <button
+              type="button"
+              aria-pressed={show === MANY_LAUNCHES_TAG}
+              className={pill(show === MANY_LAUNCHES_TAG && !search)}
+              onClick={() => pick(MANY_LAUNCHES_TAG)}
+            >
+              In more than one {w.one} <span className="tabular-nums opacity-70">{filters.manyLaunches}</span>
+            </button>
+          ) : null}
           {filters.via.site > 0 ? (
             <button type="button" aria-pressed={show === "via:site"} className={pill(show === "via:site" && !search)} onClick={() => pick("via:site")}>
               From your site <span className="tabular-nums opacity-70">{filters.via.site}</span>
@@ -284,7 +300,7 @@ export function AudienceList({
 
       {shownLabel && rows && total !== null ? (
         <p className="text-sm text-neutral-600 dark:text-neutral-400">
-          {total} {total === 1 ? "person" : "people"} with {shownLabel}
+          {total} {total === 1 ? "person" : "people"} {show === MANY_LAUNCHES_TAG ? `in more than one ${w.one}` : `with ${shownLabel}`}
           {canEmail ? ", only people we can email" : ""}
         </p>
       ) : null}

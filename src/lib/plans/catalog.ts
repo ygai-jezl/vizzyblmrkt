@@ -51,6 +51,8 @@ export interface Plan {
   /** What people read. The screens say "Plan and usage", never a bare "Plan". */
   name: string;
   summary: string;
+  /** The summary while launches are called ideas, for a plan whose summary names one. Written out, so help can quote it. */
+  summaryAsIdeas?: string;
   /** US dollars per user a month. null: set by agreement. */
   pricePerUserMonthUsd: number | null;
   /** Run by the hosted service, rather than on your own Google Cloud. */
@@ -76,6 +78,7 @@ const ALL_METERED: readonly MeteredFeature[] = [
   "brand_search",
   "next_up",
   "article_autopilot",
+  "article_refresh",
 ];
 
 const NO_LIMITS: Record<Allowance, null> = {
@@ -106,6 +109,7 @@ export const PLANS: readonly Plan[] = [
     id: "free",
     name: "Free",
     summary: "One brand and one live launch, to try YouGrow with a small team.",
+    summaryAsIdeas: "One brand and one live idea, to try YouGrow with a small team.",
     pricePerUserMonthUsd: 0,
     hosted: true,
     features: [],
@@ -166,12 +170,13 @@ export const FEATURE_LABELS: Record<PlanFeature, string> = {
   brand_search: "Brand search",
   next_up: "Next up",
   article_autopilot: "Article autopilot",
+  article_refresh: "Article refresh reviews",
   ...(Object.fromEntries(ENTERPRISE_FEATURES.map((f) => [f.id, f.label])) as Record<EnterpriseFeature, string>),
 };
 
 /**
- * What people read for each allowance. Live ideas reads "Live launches" and people "People", as
- * the navigation says today (src/lib/nav/model.ts). Piece D renames Launches to Ideas.
+ * What people read for each allowance. Live ideas reads "Live launches", or "Live ideas" while
+ * launches are called ideas (allowanceLabels(isIdeaWordsEnabled())), as the navigation says.
  */
 export const ALLOWANCE_LABELS: Record<Allowance, string> = {
   brands: "Brands",
@@ -181,6 +186,19 @@ export const ALLOWANCE_LABELS: Record<Allowance, string> = {
   emailsPerMonth: "Emails a month",
   aiCreditsPerMonth: "AI credits a month",
 };
+
+/** The labels while launches are called ideas. Written out, so a help page can quote either. */
+export const ALLOWANCE_LABELS_AS_IDEAS: Record<Allowance, string> = { ...ALLOWANCE_LABELS, liveIdeas: "Live ideas" };
+
+/** The allowance labels in the words in use: `ideas` is isIdeaWordsEnabled(). */
+export function allowanceLabels(ideas: boolean): Record<Allowance, string> {
+  return ideas ? ALLOWANCE_LABELS_AS_IDEAS : ALLOWANCE_LABELS;
+}
+
+/** A plan's line in the words in use: Free's "one live launch" is "one live idea" while launches are called ideas. */
+export function planSummary(plan: Plan, ideas: boolean): string {
+  return ideas ? (plan.summaryAsIdeas ?? plan.summary) : plan.summary;
+}
 
 /** The metered and Enterprise features every plan includes, so brand access needs no read for them. */
 export const INCLUDED_IN_EVERY_PLAN: readonly PlanFeature[] = PLANS.reduce<readonly PlanFeature[]>(

@@ -30,6 +30,7 @@ export default async function ConnectedPage({ searchParams }: { searchParams: Pr
       collect={screen.collect}
       planning={screen.planning}
       selected={wanted}
+      owner={screen.owner}
       now={new Date().toISOString()}
     />
   );

@@ -9,6 +9,7 @@ import { postEditPreferencesFor } from "@/lib/distribute/learnFromPostEdit";
 import { askOfPlan, loadArticleMap, type MapDeps } from "@/lib/content/blog/mapActions";
 import { syncPlanPageSoftly } from "@/lib/content/blog/pageActions";
 import { wakeLiveWatch } from "@/lib/content/blog/liveWatchWake";
+import { saveVersion } from "@/lib/content/blog/versions";
 
 /**
  * Fill plan nodes with copy. Shared by the Create canvas's per-node route and
@@ -77,6 +78,9 @@ export async function fillPlanNode(
   });
 
   const aiDraft = aiDraftFor(node, patch, new Date().toISOString());
+  // A rewrite of an article that has copy keeps that copy as a version first (article refresh),
+  // so Regenerate can be undone. Nothing is kept for a first draft.
+  if (blogHub) await saveVersion(ctx, { plan, node, reason: "regenerate" }, { db: deps.db }).catch(() => null);
 
   // The persist re-validates the merged node via ContentNodeSchema.parse (throwing):
   // a schema-invalid patch is a 422, not an uncaught 500.

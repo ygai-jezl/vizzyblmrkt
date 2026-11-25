@@ -59,6 +59,17 @@ describe("article dates", () => {
       readAt: NOW.toISOString(),
     });
   });
+
+  it("keeps a refresh's Updated until the page shows that day or a later one (BLOG_REFRESH_ENABLED)", () => {
+    const refreshed = { published: { at: "2026-10-03", source: "page" as const }, updated: { at: "2026-11-24T10:00:00.000Z", source: "change" as const } };
+    // The page isn't republished yet: it still says the 1 November update.
+    const old = nextDates(refreshed, { page: { published: "2026-10-03", modified: "2026-11-01" }, now: NOW });
+    expect(old.updated).toEqual(refreshed.updated);
+    // Republished: the page's own date, the same day or later, takes over.
+    expect(nextDates(refreshed, { page: { published: "2026-10-03", modified: "2026-11-24T16:00:00Z" }, now: NOW }).updated).toEqual({ at: "2026-11-24T16:00:00.000Z", source: "page" });
+    // A page with no dateModified leaves it too.
+    expect(nextDates(refreshed, { page: { published: "2026-10-03", modified: null }, now: NOW }).updated).toEqual(refreshed.updated);
+  });
 });
 
 describe("the dates a page gives itself", () => {

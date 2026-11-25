@@ -21,6 +21,7 @@ const REPO = "src/lib/tenant/repository.ts";
 const CONTROL = "src/lib/tenant/control.ts";
 const TENANT_LOOKUP = "src/lib/tenant/registry.ts";
 const ORGS = "src/lib/tenant/organisations.ts";
+const ORG_CONNECTIONS = "src/lib/tenant/organisationConnections.ts";
 const WORKSPACE_CONTENT = "src/lib/tenant/workspaceContent.ts";
 const KNOWLEDGE = "src/lib/tenant/knowledge.ts";
 const SCRAPER = "workers/knowledge-scraper/src/pipeline.ts";
@@ -159,7 +160,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "idea",
     name: "Idea",
     description:
-      "A business idea being tested: a hypothesis with its waitlist, its questions and its emails. Called a launch in the app today; piece D renames it, and the data stays in `campaigns`.",
+      "A business idea being tested: a hypothesis with its waitlist, its questions and its emails. Called a launch in the app; the data stays in `campaigns`. With LAUNCH_IDEAS_ENABLED it carries `idea`: a hypothesis, a status with who set it and when, an outcome, the product it was handed off to, and Just a list for a newsletter or sign-up list that isn't an idea. The states are its status, set by an admin; closing the waitlist (`archivedAt`) is separate, and a parked or killed idea only offers it. Status and hand-off changes are record.field_changed events (`sys.idea.status`, `sys.idea.product`) on `idea:<campaignId>`.",
     place: "idea",
     status: "built",
     home: "brand",
@@ -172,13 +173,17 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { to: "broadcast", via: "broadcasts.campaignId", many: true },
       { to: "invite", via: "invites.campaignId", many: true },
       { to: "knowledge", via: "campaigns/{campaignId}/knowledge_bases", many: true },
+      { to: "product", via: "idea.productConnectionId, once handed off", many: false },
+      { to: "ontology_event", via: "subjectKey idea:<campaignId>", many: true },
     ],
-    events: [],
-    states: ["active", "archived"],
+    events: ["record.field_changed"],
+    states: ["exploring", "testing", "validated", "launched", "parked", "killed"],
     erase: { paths: [LAUNCH_DELETE] },
     export: { none: "the brand's own settings, with no one's personal data" },
-    search: { none: "found by name on the Launches screen; what it sends is searched as broadcasts and journey emails" },
-    numbers: { gap: COUNTS_GAP },
+    search: {
+      none: "found by name on the Launches screen; what it sends is searched as broadcasts and journey emails. Its hypothesis and outcome are not searched and have no agent path until piece C puts ideas on the brand index",
+    },
+    numbers: { gap: `${COUNTS_GAP}; the funnel the compare screen shows for each idea has no agent tool` },
   },
   {
     id: "site_key",
@@ -473,6 +478,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { to: "product_user", via: "connectionId", many: true },
       { to: "catalog", via: "the connection's catalog", many: false },
       { to: "repo_map", via: "connectionId", many: true },
+      { to: "idea", via: "campaigns.idea.productConnectionId, the ideas handed off to it", many: true },
     ],
     events: [],
     erase: { paths: [brandPath("deleteConnectionKey", "src/lib/tenant/connectionKeys.ts", "when the connection's key is replaced or removed")] },
@@ -879,8 +885,9 @@ export const ONTOLOGY: readonly OntologyType[] = [
   },
   {
     id: "content_idea",
-    name: "Idea Board item",
-    description: "Something the team clipped to write about later: a link, a note or a screenshot. Not a business idea, which is `idea`.",
+    name: "Scrapbook clipping",
+    description:
+      "Something the team clipped to write about later: a link, a note or a screenshot, kept in a programme's Scrapbook (once called the Idea Board). Not a business idea, which is `idea`.",
     place: "content",
     status: "built",
     home: "brand",
@@ -1236,6 +1243,57 @@ export const ONTOLOGY: readonly OntologyType[] = [
     search: { none: "working state; the articles are searched as themselves" },
     numbers: { meanings: ["articlesDue", "articlesReviewSoon", "articlesFresh", "clockDays", "liveArticles"], tool: "list_articles_due" },
   },
+  {
+    id: "article_version",
+    name: "Article versions",
+    description: "A blog article's last 10 versions: its copy and meta just before Apply, Regenerate or Restore replaced them, for Restore. One record per article.",
+    place: "content",
+    status: "built",
+    home: "brand",
+    personal: "none",
+    stores: [regional("article_versions")],
+    links: [{ to: "content_plan", via: "planId", many: false }],
+    events: [],
+    erase: { paths: [brandPath("deleteContentPlan", WORKSPACE_CONTENT)] },
+    export: { none: NOT_PERSONAL },
+    search: { none: "earlier copies of an article; the article itself is searched" },
+    numbers: { none: NO_NUMBERS },
+  },
+  {
+    id: "article_review",
+    name: "Article refresh review",
+    description: "A live blog article's current or last refresh review: what it found (sources, research, the brand map, Search Console's searches for the page) and the changes it proposes for a person to apply. One record per article.",
+    place: "content",
+    status: "built",
+    home: "brand",
+    personal: "none",
+    stores: [regional("article_reviews")],
+    links: [{ to: "content_plan", via: "planId", many: false }],
+    events: [],
+    erase: { paths: [brandPath("deleteContentPlan", WORKSPACE_CONTENT)] },
+    export: { none: NOT_PERSONAL },
+    search: { none: "working state; the article is searched as itself" },
+    numbers: { meanings: ["changesProposed", "reviewsLeftThisMonth"], tool: "review_article" },
+  },
+  {
+    id: "refresh_record",
+    name: "Refresh record",
+    description: "One per refresh review of a live blog article: why it ran (its clock and reasons), what it proposed, what a person decided, what it cost, and 28 days on, Search Console before and after beside articles left alone. What the clock readout (Which clock works) learns from.",
+    place: "content",
+    status: "built",
+    home: "brand",
+    personal: "none",
+    stores: [regional("refresh_records")],
+    links: [{ to: "content_plan", via: "planId", many: false }],
+    events: [],
+    erase: { none: "counts, dates and the article's address only, no copy and no person; kept for the clock readout" },
+    export: { none: NOT_PERSONAL },
+    search: { none: "numbers, read through the clock readout" },
+    numbers: {
+      meanings: ["refreshes", "nothingShare", "proposedAvg", "acceptedAvg", "costCentsAvg", "clickLift", "resultsNeeded", "withResults", "clicksPerDollar"],
+      tool: "list_articles_due",
+    },
+  },
 
   // ===== Partner and agent: who acts for the brand ===========================================
   {
@@ -1339,6 +1397,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { to: "brand", via: "brandIds, each brand pointing back with organisationId and keeping a copy of the plan in orgPlan", many: true },
       { to: "member", via: "ownerIds and createdBy, as user ids; its users are the members of its brands, counted once", many: true },
       { to: "organisation_change", via: "organisation_changes.organisationId", many: true },
+      { to: "organisation_connection", via: "organisation_connections.organisationId, in the region each was connected from", many: true },
     ],
     events: [],
     erase: {
@@ -1445,6 +1504,39 @@ export const ONTOLOGY: readonly OntologyType[] = [
     erase: { none: "hashed keys, removed after two hours" },
     export: { none: "hashed keys with no person" },
     search: { none: "counters" },
+    numbers: { none: NO_NUMBERS },
+  },
+  {
+    id: "email_code",
+    name: "Email code",
+    description:
+      "The 6-digit code emailed to confirm a password account's address: one per account, kept as a hash with its count of tries for 10 minutes. Once an address is locked out of codes, a link emailed in its place, kept as a hash for 30 minutes.",
+    place: "platform",
+    status: "built",
+    home: "control",
+    personal: "team",
+    stores: [
+      control(
+        "email_codes",
+        "src/lib/tenant/emailCodes.ts",
+        "keyed by the account's Firebase user id; the code's SHA-256 and its tries, never the code or the address; deleted when used, on the fifth wrong try or when found expired, and removed by a time to live on ttl",
+      ),
+      control(
+        "email_code_guards",
+        "src/lib/tenant/emailCodes.ts",
+        "keyed by the SHA-256 of the address, never the address; the times of its sends in the last hour and its wrong tries in the last day, across codes and accounts; removed by a time to live on ttl a day after the last",
+      ),
+      control(
+        "email_confirm_links",
+        "src/lib/tenant/emailCodes.ts",
+        "keyed by the account's Firebase user id; the SHA-256 of the emailed link sent in place of a code once the address is locked, never the link or the address; deleted when used or found expired, and removed by a time to live on ttl after 30 minutes",
+      ),
+    ],
+    links: [],
+    events: [],
+    erase: { none: "hashes with no address, removed by a time to live after 10 minutes (30 for a link), or a day for the per address counts" },
+    export: { none: "hashes with no address" },
+    search: { none: "codes" },
     numbers: { none: NO_NUMBERS },
   },
   {
@@ -1859,7 +1951,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "data_connection",
     name: "Data connection",
     description:
-      "A brand's link to an outside source of numbers, such as a Cloudflare zone, a Search Console site or a Google Analytics property: which connector, how it signs in, its health, who may read it live, and its secrets (a pasted token, or a Google sign in's access and refresh tokens), sealed with the brand, connection and slot bound in. A shared connection keeps no secret, only the Google address made for it. Each change goes into an activity log kept 90 days.",
+      "A brand's link to an outside source of numbers, such as a Cloudflare zone, a Search Console site or a Google Analytics property: which connector, how it signs in, its health, who may read it live, and its secrets (a pasted token, or a Google sign in's access and refresh tokens), sealed with the brand, connection and slot bound in. A shared connection keeps no secret, only the Google address made for it. It may also be a part its organisation gave it (Connectors 3): then `source` names the organisation's connection and the region it is kept in, it keeps no secret and no address, and its token is read through the organisation's. Each change goes into an activity log kept 90 days.",
     place: "signals",
     status: "built",
     home: "brand",
@@ -1873,11 +1965,16 @@ export const ONTOLOGY: readonly OntologyType[] = [
       side("data_connection_states", "src/lib/tenant/dataConnectionStates.ts", {
         note: "a sign in with Google under way: the brand, the admin's user id and the connector, read by id, valid 10 minutes, claimed once and deleted, and removed by a time to live on ttlAt",
       }),
+      side("connection_parts", "src/lib/tenant/settingsLog.ts", {
+        note: "the parts a brand's organisation gives it (Connectors 3), as its `connections:shared` setting: one document per brand, id from settingsDocId, one item per part (the organisation's connection and its region, the brand record, the part, who gave it by user id), archived when the part ends, never removed; written with its settings version in the same transaction as the brand record, by `src/lib/tenant/organisationConnections.ts` only",
+      }),
     ],
     links: [
       { to: "brand", via: "tenantId", many: false },
+      { to: "settings_version", via: "the connections:shared subject, one version per part given, changed or ended", many: true },
       { to: "member", via: "ownerUid, and by on each activity row", many: false },
       { to: "connector_manifest", via: "connectorId", many: false },
+      { to: "organisation_connection", via: "source, on a part its organisation gave it", many: false },
     ],
     events: [],
     states: ["connected", "disconnected"],
@@ -1911,6 +2008,56 @@ export const ONTOLOGY: readonly OntologyType[] = [
       ],
       tool: "read_connected_live",
     },
+  },
+  {
+    id: "organisation_connection",
+    name: "Organisation connection",
+    description:
+      "An organisation's own link to an outside source of numbers (Connectors 3, ADR-0015): one Google sign in, one Google address made for the organisation, or one pasted token, whose owners give each of the organisation's brands one part of it (a site, a property or a zone). Kept in the regional database of the brand it was connected from, and never moved; its parts can go to the organisation's brands in any region. It holds the sealed secrets, with the organisation, connection and slot bound in, its health, pause and collect hold, the owner who signed in, and for each part the brand's id and region, the part and the brand record's id: what the sign in reads for each brand, never what was collected. Each part is a data connection in its brand's own region, where everything collected stays. Written only through `src/lib/tenant/organisationConnections.ts`; each change goes into an activity log kept 90 days.",
+    place: "signals",
+    status: "built",
+    home: "organisation",
+    personal: "team",
+    stores: [
+      side("organisation_connections", ORG_CONNECTIONS, {
+        note: "one record per organisation connection, read by id and by equality on organisationId (with connectorId) or status, in every provisioned region; its secrets are sealed and never leave the server",
+        residencyGap:
+          "kept in the region of the brand it was connected from, which may not be the region of every brand it serves: only the sign in (its token, read into server memory) and each part's brand id, region and name cross; collected numbers stay in each brand's region",
+      }),
+      side("organisation_connection_activity", ORG_CONNECTIONS, {
+        note: "each change to an organisation connection and who made it, by user id, and the brand a part change is about; written with its change, never queried, deleted 90 days on by a time to live on ttlAt",
+      }),
+    ],
+    links: [
+      { to: "organisation", via: "organisationId", many: false },
+      { to: "data_connection", via: "parts[].useId, each brand record pointing back with source", many: true },
+      { to: "brand", via: "parts[].tenantId, and connectedFromTenantId", many: true },
+      { to: "member", via: "createdBy, signerUid, givenBy and endedBy, and by on each activity row", many: true },
+      { to: "connector_manifest", via: "connectorId", many: false },
+    ],
+    events: [],
+    states: ["connected", "disconnected"],
+    erase: {
+      paths: [
+        brandPath(
+          "disconnectOrganisationConnection",
+          "src/lib/connectors/organisation.ts",
+          "Disconnect at the organisation empties the sealed secrets, ends every brand's part and erases what it collected in that brand's region, and deletes its Google address; the record stays, marked disconnected",
+        ),
+        brandPath("purgeOrganisations", "src/lib/connectors/purge.ts", "the organisation purge (`connectors-purge --organisation <orgId|all>`) removes the secrets, the recent list, the parts, the activity and leftover addresses in every region, whatever any switch says"),
+        brandPath("purgeOrganisationConnection", ORG_CONNECTIONS, "the purge's last step for one record"),
+        retention(
+          "sweepOrganisationConnections",
+          "src/lib/connectors/organisation.ts",
+          "the lane disconnects the connections of an organisation that is gone or has no brands left, and every move or reused organisation id does too",
+        ),
+        retention("ORGANISATION_CONNECTION_ACTIVITY", ORG_CONNECTIONS, "activity rows go 90 days on, through the TTL on ttlAt"),
+      ],
+      gaps: ["an owner's user id in createdBy, signerUid, givenBy and by stays after they stop being an owner, as settings history does"],
+    },
+    export: { none: "a sealed secret and the parts it serves, never exported" },
+    search: { none: "credentials and settings, never searched" },
+    numbers: { none: "its parts' numbers are each brand's data connection's" },
   },
   {
     id: "connector_stream",

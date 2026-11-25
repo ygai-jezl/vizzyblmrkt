@@ -9,6 +9,8 @@ import { requireAdminContext } from "@/lib/auth/session";
 import { getTenantById } from "@/lib/tenant";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { computeGrowth, nextStepOf, type StageView } from "@/lib/nav/growth";
+import { ideaWord } from "@/lib/nav/terms";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { loadGrowthSignals, loadWeekCounts } from "@/lib/nav/growthSignals";
 import { homeTiles } from "@/lib/nav/homeTiles";
 import { homePrompts } from "@/lib/nav/vizzy";
@@ -165,7 +167,7 @@ function NextSteps({ stage }: { stage: StageView }) {
   );
 }
 
-function FirstRun() {
+function FirstRun({ ideas }: { ideas: boolean }) {
   return (
     <section className={CARD}>
       <h2 className="text-base font-semibold">What are you building?</h2>
@@ -177,7 +179,7 @@ function FirstRun() {
         href="/admin/launches/new"
         className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-shell-accent hover:underline"
       >
-        Or create a launch by hand
+        Or create {ideaWord(ideas).a} by hand
         <ArrowRight size={15} aria-hidden />
       </Link>
     </section>
@@ -230,7 +232,9 @@ export async function HomeV2() {
     getTenantById(ctx.tenantId).catch(() => null),
     loadReview(ctx, { lifecycle, includeContent: false }).catch(() => ({ aiLines: 0, items: [] as ReviewItem[] })),
   ]);
-  const growth = computeGrowth(signals);
+  // Launches are called Ideas (worked out on the server): stage 2, its steps, the tile and the prompts.
+  const ideas = isIdeaWordsEnabled();
+  const growth = computeGrowth(signals, { ideas });
   const current = growth.stages.find((s) => s.key === growth.current) ?? null;
   const position = current ? growth.stages.indexOf(current) + 1 : 0;
 
@@ -269,11 +273,11 @@ export async function HomeV2() {
           // The setup guide: the next steps even on the first visit, with Vizzy's offer beside them.
           <>
             <NextSteps stage={current} />
-            {growth.firstRun ? <FirstRun /> : <NeedsYou items={needs.slice(0, 3)} total={needs.length} />}
+            {growth.firstRun ? <FirstRun ideas={ideas} /> : <NeedsYou items={needs.slice(0, 3)} total={needs.length} />}
           </>
         ) : (
           <>
-            {growth.firstRun ? <FirstRun /> : current ? <NextSteps stage={current} /> : null}
+            {growth.firstRun ? <FirstRun ideas={ideas} /> : current ? <NextSteps stage={current} /> : null}
             <NeedsYou items={needs.slice(0, 3)} total={needs.length} />
           </>
         )}
@@ -284,7 +288,7 @@ export async function HomeV2() {
           This week
         </h2>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {homeTiles(growth.firstRun && !guide ? "launch" : growth.current, signals, week, new Date()).map((t) => (
+          {homeTiles(growth.firstRun && !guide ? "launch" : growth.current, signals, week, new Date(), { ideas }).map((t) => (
             <div key={t.label} className="rounded-xl border border-shell-line bg-shell-card px-4 py-3">
               <p className="text-xs text-shell-muted">{t.label}</p>
               <p className="mt-1 text-2xl font-semibold tabular-nums">{t.value}</p>
@@ -294,7 +298,7 @@ export async function HomeV2() {
         </div>
       </section>
 
-      <AskChips prompts={homePrompts(growth.firstRun && !(guide && growth.current === "ready") ? "first" : growth.current)} />
+      <AskChips prompts={homePrompts(growth.firstRun && !(guide && growth.current === "ready") ? "first" : growth.current, { ideas })} />
       <DashboardChat intro="compact" />
     </div>
   );

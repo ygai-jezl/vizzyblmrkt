@@ -3,6 +3,7 @@ import { PlanAndUsage, PlanAndUsageFailed, PlansOff } from "@/components/admin/p
 import { isPlansEnabled, isPlansUiEnabled } from "@/lib/plans/flags";
 import { organisationUsage, type UsageSummary } from "@/lib/plans/usage";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -30,5 +31,5 @@ export default async function AccountBillingPage() {
     console.warn("[account/billing] plan and usage didn't load", err instanceof Error ? err.message : "unknown error");
     return <PlanAndUsageFailed />;
   }
-  return <PlanAndUsage summary={summary} people={isPeopleNameEnabled()} />;
+  return <PlanAndUsage summary={summary} people={isPeopleNameEnabled()} ideas={isIdeaWordsEnabled()} />;
 }

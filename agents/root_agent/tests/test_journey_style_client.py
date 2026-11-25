@@ -249,7 +249,7 @@ def test_errors_become_plain_messages(monkeypatch):
         (429, {"error": "rate_limited"}, "rate_limited", "try again in a few minutes"),
         (400, {"error": "invalid_input", "issues": ["headerColor: Invalid"]}, "invalid_input", "headerColor: Invalid"),
         (404, {"error": "journey_not_found"}, "journey_not_found", "couldn't find that journey"),
-        (404, {"error": "launch_not_found"}, "launch_not_found", "couldn't find that launch"),
+        (404, {"error": "launch_not_found"}, "launch_not_found", "couldn't find that waitlist"),
         (0, {"error": "network_error", "detail": "timed out"}, "network_error", "couldn't reach the app"),
         (500, "not json", "http_500", "Please try again"),
     ]:
@@ -298,7 +298,7 @@ def test_the_state_flag_follows_what_the_app_says(monkeypatch):
 
 def test_a_journey_not_found_carries_the_apps_reason(monkeypatch):
     note = (
-        "This launch's welcome emails haven't moved to the new journey engine, so they wear the brand's "
+        "This waitlist's welcome emails haven't moved to the new journey engine, so they wear the brand's "
         "Email style (Brand › Email style)."
     )
     _capture(monkeypatch, 404, {"error": "journey_not_found", "issues": [note]})

@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { Note, OL, Pairs, UL } from "@/components/developers/Doc";
 import { nextHelpPage } from "@/lib/help/pages";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { ideaWord } from "@/lib/nav/terms";
 
 /**
  * The building blocks every how-to page uses, in this order: Meta, Before and
@@ -74,9 +76,12 @@ export function Messages({ rows }: { rows: Array<[string, ReactNode]> }) {
   return <Pairs head={["If you see", "What to do"]} rows={rows.map(([m, fix]) => [`"${m}"`, fix])} />;
 }
 
-/** The link to the next page in reading order. */
-export function NextPage({ slug }: { slug: string }) {
-  const next = nextHelpPage(slug);
+/**
+ * The link to the next page in reading order. A body the How to drawer renders passes `ideaWords`,
+ * since the browser reads server switches off.
+ */
+export function NextPage({ slug, ideaWords }: { slug: string; ideaWords?: boolean }) {
+  const next = nextHelpPage(slug, { ideaWords });
   if (!next) return null;
   return (
     <p className="mt-12 border-t border-neutral-200 pt-4 text-sm dark:border-neutral-800">
@@ -90,15 +95,17 @@ export function NextPage({ slug }: { slug: string }) {
 
 /**
  * Who gets which emails, by how they got into YouGrow. The one answer every page about
- * newsletters, launches and connected products points to (LAUNCH_SITE_SIGNUPS_ENABLED).
+ * newsletters, launches and connected products points to (LAUNCH_SITE_SIGNUPS_ENABLED). With
+ * `ideaWords` (isIdeaWordsEnabled() unless told) a launch is an idea.
  */
-export function WhoGetsWhichEmails() {
+export function WhoGetsWhichEmails({ ideaWords = isIdeaWordsEnabled() }: { ideaWords?: boolean } = {}) {
+  const own = ideaWord(ideaWords).own;
   return (
     <Pairs
       head={["How they got in", "What they get"]}
       rows={[
-        ["YouGrow's page or widget", "The launch's journey and its broadcasts. The weekly newsletter once they reach its weekly step."],
-        ["Your own form, with a site key", "The same: the launch's journey, its broadcasts, and the weekly newsletter once they reach its weekly step."],
+        ["YouGrow's page or widget", `The ${own} journey and its broadcasts. The weekly newsletter once they reach its weekly step.`],
+        ["Your own form, with a site key", `The same: the ${own} journey, its broadcasts, and the weekly newsletter once they reach its weekly step.`],
         ["Your app, through the API (users.update)", "Onboarding journeys only. Never broadcasts or the weekly newsletter."],
       ]}
     />

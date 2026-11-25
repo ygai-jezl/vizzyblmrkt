@@ -23,6 +23,35 @@ export interface GuideStep {
 const slugOf = (path: string | undefined) => (path ? (parseHelpPath(path)?.slug ?? null) : null);
 
 /**
+ * What a help body in the drawer is told: every switch the admin shell was given by the server
+ * (the drawer renders in the browser, where server switches read off), so a page says the same in
+ * the drawer as on /help. Sharing, the join, ideas and their words are server switches too, so
+ * they come this way.
+ */
+export function drawerBodyProps(shell: ReturnType<typeof useShell>): Required<HelpBodyProps> {
+  return {
+    people: shell?.people ?? false,
+    fields: shell?.fields ?? false,
+    fieldFilters: shell?.fieldFilters ?? false,
+    addPerson: shell?.addPerson ?? false,
+    timeline: shell?.timeline ?? false,
+    vizzyFields: shell?.vizzyFields ?? false,
+    vizzyTextFields: shell?.vizzyTextFields ?? false,
+    vizzyAddPerson: shell?.vizzyAddPerson ?? false,
+    catalogHistory: shell?.catalogHistory ?? false,
+    connectorsChat: shell?.connectorsChat ?? false,
+    connectorsCollect: shell?.connectorsCollect ?? false,
+    connectorsSearchText: shell?.connectorsSearchText ?? false,
+    connectorSignals: shell?.connectorSignals ?? false,
+    brandMapScale: shell?.brandMapScale ?? false,
+    sharing: shell?.sharing ?? false,
+    join: shell?.join ?? false,
+    ideas: shell?.ideas ?? false,
+    ideaWords: shell?.ideaWords ?? false,
+  };
+}
+
+/**
  * The How to drawer: a help page beside the page you're on, so you can follow
  * the steps while you do them. It stays open as you move around the app. Above
  * the page, the setup steps it covers and where your brand is on each. Links to
@@ -32,20 +61,7 @@ export function HowToDrawer() {
   const [path, setPath] = useState<string | null>(null);
   const [body, setBody] = useState<{ slug: string; Component: ComponentType<HelpBodyProps> } | null>(null);
   // The drawer renders in the browser, where server switches read off: it says what the shell says.
-  const people = useShell()?.people ?? false;
-  const fields = useShell()?.fields ?? false;
-  const fieldFilters = useShell()?.fieldFilters ?? false;
-  const addPerson = useShell()?.addPerson ?? false;
-  const timeline = useShell()?.timeline ?? false;
-  const vizzyFields = useShell()?.vizzyFields ?? false;
-  const vizzyTextFields = useShell()?.vizzyTextFields ?? false;
-  const vizzyAddPerson = useShell()?.vizzyAddPerson ?? false;
-  const catalogHistory = useShell()?.catalogHistory ?? false;
-  const connectorsChat = useShell()?.connectorsChat ?? false;
-  const connectorsCollect = useShell()?.connectorsCollect ?? false;
-  const connectorsSearchText = useShell()?.connectorsSearchText ?? false;
-  const connectorSignals = useShell()?.connectorSignals ?? false;
-  const brandMapScale = useShell()?.brandMapScale ?? false;
+  const bodyProps = drawerBodyProps(useShell());
   const [steps, setSteps] = useState<GuideStep[] | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -109,7 +125,7 @@ export function HowToDrawer() {
   }, [path]);
 
   if (!path || slug === null) return null;
-  const page = helpPage(slug, { people });
+  const page = helpPage(slug, { people: bodyProps.people, ideaWords: bodyProps.ideaWords });
   const Body = body && body.slug === slug ? body.Component : null;
   const mine = (steps ?? []).filter((st) => slugOf(st.howTo) === slug);
 
@@ -196,22 +212,7 @@ export function HowToDrawer() {
         ) : null}
         {Body ? (
           <div className="text-sm [&_h1]:text-xl [&_h2]:mt-8 [&_h2]:text-base">
-            <Body
-              people={people}
-              fields={fields}
-              fieldFilters={fieldFilters}
-              addPerson={addPerson}
-              timeline={timeline}
-              vizzyFields={vizzyFields}
-              vizzyTextFields={vizzyTextFields}
-              vizzyAddPerson={vizzyAddPerson}
-              catalogHistory={catalogHistory}
-              connectorsChat={connectorsChat}
-              connectorsCollect={connectorsCollect}
-              connectorsSearchText={connectorsSearchText}
-              connectorSignals={connectorSignals}
-              brandMapScale={brandMapScale}
-            />
+            <Body {...bodyProps} />
           </div>
         ) : (
           <p className="text-sm text-shell-muted">Loading…</p>

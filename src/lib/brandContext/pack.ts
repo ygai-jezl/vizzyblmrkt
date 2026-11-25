@@ -109,7 +109,7 @@ const KIND_WORD: Partial<Record<SearchKind, string>> = {
   journey_email: "email",
   broadcast: "email",
   note: "team note",
-  idea_board: "saved idea",
+  idea_board: "clipping",
   knowledge: "site page",
 };
 

@@ -18,3 +18,26 @@ export const INVITE_LOCK_TEXT: Record<InviteLockReason, string> = {
   no_signup_url: "Add your app's sign-up link in Products › Settings.",
   links_unconfigured: "Invite links aren't set up yet.",
 };
+
+/**
+ * The same reasons while launches are called ideas (isIdeaWordsEnabled()). Written out, not built
+ * from ideaWord(), because the help page quotes "This launch is archived." and will quote this one.
+ */
+const INVITE_LOCK_TEXT_AS_IDEAS: Record<InviteLockReason, string> = {
+  ...INVITE_LOCK_TEXT,
+  launch_archived: "This idea is archived.",
+};
+
+/** Why inviting is locked, in the words in use: `ideas` is useWords().ideas, or isIdeaWordsEnabled() on the server. */
+export function inviteLockText(reason: InviteLockReason, ideas: boolean): string {
+  return (ideas ? INVITE_LOCK_TEXT_AS_IDEAS : INVITE_LOCK_TEXT)[reason];
+}
+
+/**
+ * The reason for Vizzy to relay (the invite_wave canvas kind). Vizzy can't tell which word the app
+ * uses, so it names the waitlist, which reads right either way.
+ */
+export const INVITE_LOCK_TEXT_FOR_VIZZY: Record<InviteLockReason, string> = {
+  ...INVITE_LOCK_TEXT,
+  launch_archived: "This waitlist is archived. Restore it on its Settings tab first.",
+};

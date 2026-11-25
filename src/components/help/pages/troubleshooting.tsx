@@ -1,8 +1,13 @@
 import { C, H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { NextPage, Open } from "@/components/help/blocks";
 import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import type { HelpBodyProps } from "@/lib/help/pages";
+import { ideaWord } from "@/lib/nav/terms";
 
-export default function TroubleshootingHelp() {
+/** With ideas in the words (`ideaWords`, isIdeaWordsEnabled()) a launch is called an idea. */
+export default function TroubleshootingHelp({ ideaWords = isIdeaWordsEnabled() }: HelpBodyProps = {}) {
+  const w = ideaWord(ideaWords);
   return (
     <article>
       <H1>Why isn&apos;t this working?</H1>
@@ -16,7 +21,7 @@ export default function TroubleshootingHelp() {
 
       <H2 id="welcome-everyone">My welcome email went to everyone on my waitlist</H2>
       <P>
-        When you first publish a launch&apos;s welcome email with people already on the list, YouGrow asks whether they should
+        When you first publish {w.a}&apos;s welcome email with people already on the list, YouGrow asks whether they should
         get it too. <strong>Send to them too</strong> sends it to everyone already verified, and it can&apos;t be called back.
         Choose <strong>Only people who join from now</strong> to leave them out.{" "}
         <Open href="/help/launch-and-waitlist#welcome">Turn on the welcome email</Open>.
@@ -41,7 +46,7 @@ export default function TroubleshootingHelp() {
 
       <H2 id="newsletter-not-sent">My weekly newsletter didn&apos;t send</H2>
       <P>
-        Nobody on that launch has reached the weekly newsletter step of its welcome journey yet, so there was nobody to send it
+        Nobody on that {w.one} has reached the weekly newsletter step of its welcome journey yet, so there was nobody to send it
         to. YouGrow says so when you press Send or Schedule.{" "}
         <Open href="/help/write-and-schedule#newsletter">Send the weekly newsletter</Open>.
       </P>
@@ -52,14 +57,14 @@ export default function TroubleshootingHelp() {
           <P>
             Look at what the call answered. <C>recently_sent</C>: a confirmation went to that address in the last day.{" "}
             <C>blocked</C>: email to it bounced or was reported as spam, so it&apos;s never emailed. <C>removed</C>:
-            someone took them off the launch. A 503 means the email couldn&apos;t go: check{" "}
+            someone took them off the {w.one}. A 503 means the email couldn&apos;t go: check{" "}
             <Open href="/help/email-sending">Email sending</Open>, then call again.{" "}
             <Open href="/help/newsletter-from-your-site#call">Send each sign-up from your server</Open>.
           </P>
 
           <H2 id="site-no-welcome">People who confirmed didn&apos;t get the welcome email</H2>
           <P>
-            Publish the launch&apos;s journey: its <strong>Emails</strong> tab should show <strong>Welcome &amp; nurture</strong>{" "}
+            Publish the {w.own} journey: its <strong>Emails</strong> tab should show <strong>Welcome &amp; nurture</strong>{" "}
             as Live. Journey emails also need your privacy policy link in{" "}
             <Open href="/help/email-sending">Email sending</Open>. People who confirmed before you published join when you
             first publish.

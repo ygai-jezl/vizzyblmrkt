@@ -1,9 +1,9 @@
-import { FEATURE_LABELS, allowanceText, planById, type Allowance, type Plan } from "@/lib/plans/catalog";
+import { FEATURE_LABELS, allowanceText, planById, planSummary, type Allowance, type Plan } from "@/lib/plans/catalog";
 import type { CapKey } from "@/lib/plans/limits";
 import { PURPOSE_LABELS, type ResourcePurpose } from "@/lib/plans/resources";
 import type { AllowanceRow, FeatureRow, MonthlyRow, UsageBrandRow, UsageSummary } from "@/lib/plans/usage";
 import type { Region } from "@/lib/types/tenant";
-import { peopleArea } from "@/lib/nav/terms";
+import { ideaWord, peopleArea } from "@/lib/nav/terms";
 
 /**
  * Settings › Plan and usage (PLANS_ENABLED and NEXT_PUBLIC_PLANS_ENABLED), from organisationUsage
@@ -37,10 +37,11 @@ export const PLAN_AND_USAGE_COPY = {
 /**
  * What every plan includes, shown before the plan's own features, so Free (which adds none) never
  * reads as a plan with nothing in it. The names the navigation uses: `people` is
- * isPeopleNameEnabled(), so the last one is People or Audience as the sidebar says.
+ * isPeopleNameEnabled(), so the last one is People or Audience as the sidebar says, and `ideas`
+ * is isIdeaWordsEnabled(), so the first is Ideas or Launches.
  */
-export function everyPlanIncludes(people: boolean): string[] {
-  return ["Launches and waitlists", "Journeys", "Posts", peopleArea(people)];
+export function everyPlanIncludes(people: boolean, ideas = false): string[] {
+  return [`${ideaWord(ideas).Many} and waitlists`, "Journeys", "Posts", peopleArea(people)];
 }
 
 const CARD = "rounded-lg border border-neutral-200 p-4 dark:border-neutral-800";
@@ -190,7 +191,7 @@ export function PlanAndUsageFailed() {
   return <p className="max-w-2xl text-sm text-neutral-600 dark:text-neutral-300">{PLAN_AND_USAGE_COPY.failed}</p>;
 }
 
-export function PlanAndUsage({ summary, people = false }: { summary: UsageSummary; people?: boolean }) {
+export function PlanAndUsage({ summary, people = false, ideas = false }: { summary: UsageSummary; people?: boolean; ideas?: boolean }) {
   const plan = planById(summary.plan);
   const org = summary.organisation;
   const orgView = org?.view === "organisation";
@@ -219,7 +220,7 @@ export function PlanAndUsage({ summary, people = false }: { summary: UsageSummar
             {orgView && org?.name ? <p className={HINT}>{org.name}</p> : null}
             {plan ? <p className="text-2xl font-semibold">{plan.name}</p> : null}
             <p className="text-sm text-neutral-600 dark:text-neutral-300">
-              {!plan ? PLAN_AND_USAGE_COPY.noPlan : plan.id === "self_hosted" ? PLAN_AND_USAGE_COPY.selfHosted : plan.summary}
+              {!plan ? PLAN_AND_USAGE_COPY.noPlan : plan.id === "self_hosted" ? PLAN_AND_USAGE_COPY.selfHosted : planSummary(plan, ideas)}
             </p>
             {since ? <p className={HINT}>{since}</p> : null}
           </div>
@@ -240,7 +241,7 @@ export function PlanAndUsage({ summary, people = false }: { summary: UsageSummar
           <div className="space-y-1.5">
             <h3 className={LABEL}>{plan ? "What your plan includes" : "What this brand can use"}</h3>
             <ul className="flex flex-wrap gap-1.5">
-              {everyPlanIncludes(people).map((name) => (
+              {everyPlanIncludes(people, ideas).map((name) => (
                 <li key={name} className={PILL}>
                   {name}
                 </li>
@@ -303,7 +304,7 @@ export function PlanAndUsage({ summary, people = false }: { summary: UsageSummar
               <h3 className={LABEL}>Now</h3>
               <Meter label="People" value={brand.people === null ? PLAN_AND_USAGE_COPY.couldNotCount : fmt(brand.people)} />
               <Meter
-                label="Live launches"
+                label={ideas ? "Live ideas" : "Live launches"}
                 value={
                   brand.liveLaunches === null
                     ? PLAN_AND_USAGE_COPY.couldNotCount

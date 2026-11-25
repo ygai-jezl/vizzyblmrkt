@@ -20,7 +20,7 @@ import { isPlansEnabled } from "./flags";
  * With PLANS_ENABLED off and GRANTED_ONLY_FEATURES empty, every brand may use every feature (a
  * self-hosted copy's default), exactly as before plans.
  */
-export const METERED_FEATURES = ["edit_vizzy", "edit_vizzy_learning", "competitors", "competitor_articles", "brand_search", "next_up", "article_autopilot"] as const;
+export const METERED_FEATURES = ["edit_vizzy", "edit_vizzy_learning", "competitors", "competitor_articles", "brand_search", "next_up", "article_autopilot", "article_refresh"] as const;
 export type MeteredFeature = (typeof METERED_FEATURES)[number];
 
 /** The features this deployment keeps for granted brands. */

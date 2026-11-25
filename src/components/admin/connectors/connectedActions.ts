@@ -1,14 +1,16 @@
 import type { ConnectionView } from "@/lib/connectors/service";
 import { callApi, ROUTES, startSignIn } from "./api";
 import type { ApiCall } from "./tokenConnect";
-import { CONNECTED_COPY, confirmDisconnectWords, connectionWords, disconnectedWords, pickPath, withGrant } from "./words";
+import { CONNECTED_COPY, confirmDisconnectWords, connectionWords, disconnectedWords, pickPath, stoppedUsingNoteWords, withGrant } from "./words";
 
 /**
  * What the buttons on Connected do, apart from the page so the tests can run them with a stub
  * call. The panel stays on the connection acted on: every action selects it explicitly, whatever
  * its state turns out to be, so a Check that fixes one connection (or breaks another) never moves
  * the panel to whichever now needs attention. A Disconnect selects nothing, and its note says
- * which connection went and what to do at the tool.
+ * which connection went and what to do at the tool. Stop using a brand's part is its Disconnect,
+ * confirmed in its own dialog first: its note says the brand stopped using it and the
+ * organisation's owners are told.
  *
  * A refused action still reads the connection again: a refusal can be what found the change (Check
  * now answering 409 because the token no longer opens, or a pause the provider asked for), so the
@@ -90,6 +92,15 @@ export function connectedActions(d: ConnectedActionDeps) {
       // It leaves the table, so the panel shows nothing rather than another connection's buttons.
       d.select(null);
       d.note({ tone: "ok", text: disconnectedWords(connectionWords(c), r.data.message) });
+    },
+    /** Stop using a brand's part (the dialog asked already): the same route as Disconnect, which ends a part. */
+    stopUsing: async (c: ConnectionView) => {
+      d.select(c.id);
+      const r = await call<{ connection: ConnectionView; message: string }>(ROUTES.connection(c.id), { method: "DELETE" });
+      if (!r.ok) return refused(c, r, "err");
+      d.replace(r.data.connection);
+      d.select(null);
+      d.note({ tone: "ok", text: stoppedUsingNoteWords(c) });
     },
   };
 }

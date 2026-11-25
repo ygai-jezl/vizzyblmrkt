@@ -30,7 +30,7 @@ describe("programmeOverview", () => {
 
   it("counts each pipeline stage (follow-up jobs don't count as posts)", () => {
     expect(overview.pipeline.map((s) => `${s.label}=${s.count}`)).toEqual([
-      "Ideas=3",
+      "Scrapbook=3",
       "Templates=4",
       "Drafts=2",
       "Scheduled=2",

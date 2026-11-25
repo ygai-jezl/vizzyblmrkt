@@ -143,6 +143,17 @@ class FakeQuery implements QueryLike {
     return field === "__name__" ? r.id : r.data[field];
   }
 
+  /** A filter's field: a dotted name is a path into nested maps, as Firestore reads it. */
+  private static atPath(data: Doc, field: string): unknown {
+    if (field in data || !field.includes(".")) return data[field];
+    let v: unknown = data;
+    for (const part of field.split(".")) {
+      if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+      v = (v as Doc)[part];
+    }
+    return v;
+  }
+
   where(field: string, op: WhereOp, value: unknown): QueryLike {
     return new FakeQuery(
       this.store,
@@ -183,7 +194,7 @@ class FakeQuery implements QueryLike {
       data,
     }));
     for (const [field, op, value] of this.filters) {
-      rows = rows.filter((r) => matchOp(r.data[field], op, value));
+      rows = rows.filter((r) => matchOp(FakeQuery.atPath(r.data, field), op, value));
     }
     // Real Firestore excludes any document missing an ordered field.
     for (const [field] of this.orders) {

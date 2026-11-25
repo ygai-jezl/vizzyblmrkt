@@ -3,6 +3,7 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import { isCanvasAuthConfigured, tenantContextFromCanvasToken, verifyCanvasContext } from "@/lib/canvas/auth";
 import { isOneViewEnabled } from "./flags";
 import { peopleFilters } from "./peopleList";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 
 /**
  * What Vizzy may read about a brand's audience (AUDIENCE_ONE_VIEW_ENABLED): how many
@@ -35,7 +36,10 @@ export async function agentAudienceCounts(ctx: TenantContext, db?: FirestoreLike
       fromYourSite: f.via.site,
       launches: f.launches.map((l) => ({ name: l.name, people: l.count })),
       products: f.products.map((p) => ({ name: p.name, people: p.count, stages: p.stages })),
-      note: "One person per address across every launch and product. Stages are per product: someone stuck is not counted as onboarding, and quiet overlaps the other stages.",
+      // Vizzy reads the note: while the app calls launches ideas, it says so, so Vizzy uses the app's word.
+      note: isIdeaWordsEnabled()
+        ? "One person per address across every launch (the app calls them ideas) and product. Stages are per product: someone stuck is not counted as onboarding, and quiet overlaps the other stages."
+        : "One person per address across every launch and product. Stages are per product: someone stuck is not counted as onboarding, and quiet overlaps the other stages.",
     },
   };
 }

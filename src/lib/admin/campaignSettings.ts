@@ -303,8 +303,11 @@ export function suffixedCampaignId(base: string, n: number): string {
   return `${base.slice(0, 64 - suffix.length)}${suffix}`;
 }
 
-/** Ids reserved because they collide with static routes under /admin/launches. */
-const RESERVED_CAMPAIGN_IDS = new Set(["new"]);
+/**
+ * Ids reserved because they collide with something: `new` with the static route under
+ * /admin/launches, and `any` with the `launch:any` tag every person on a launch has (People).
+ */
+const RESERVED_CAMPAIGN_IDS = new Set(["new", "any"]);
 
 /**
  * Validate a NORMALISED (already lowercased) campaign id used as the Firestore
@@ -317,6 +320,24 @@ export const CampaignIdSchema = z
     "use lowercase letters, numbers and hyphens (3–64 chars)",
   )
   .refine((s) => !RESERVED_CAMPAIGN_IDS.has(s), { message: "that id is reserved" });
+
+/**
+ * The id a new launch is asked for: the slug the admin typed (explicit), or one derived from its
+ * name. A name such as "New" or "Any" derives a reserved id, which is handed on as it is:
+ * createLaunch skips an id that isn't valid and suffixes it (`any-2`). Only an id the admin typed
+ * is refused for being reserved, since they never typed the derived one.
+ */
+export function newLaunchId(
+  provided: string,
+  name: string,
+): { ok: true; id: string; explicit: boolean } | { ok: false; message: string } {
+  const explicit = provided.trim().length > 0;
+  const raw = (provided.trim() || slugifyCampaignId(name)).toLowerCase();
+  const id = CampaignIdSchema.safeParse(raw);
+  if (id.success) return { ok: true, id: id.data, explicit };
+  if (!explicit && RESERVED_CAMPAIGN_IDS.has(raw)) return { ok: true, id: raw, explicit };
+  return { ok: false, message: id.error.issues[0]?.message ?? "invalid id" };
+}
 
 /** Project a stored Campaign down to its editable settings (form defaults). */
 export function toCampaignSettings(campaign: Campaign): CampaignSettings {

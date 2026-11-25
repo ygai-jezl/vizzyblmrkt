@@ -10,7 +10,10 @@
 // --backend (the project id), --branch (main), --yes (don't ask; for coding agents, after the
 // user agreed), --json (the plan as JSON), and answers: --location, --admin-email,
 // --privacy-url, --workspace-name, --workspace-domain, --workspace-region,
-// --another-workspace, --provider, --email-from, --github-app-name, --app-url.
+// --another-workspace, --provider, --email-from, --github-app-name, --app-url, --alert-email.
+// addon:password also takes --upgrade-identity-platform: on a project still on plain Firebase
+// Authentication it upgrades to Identity Platform first (can't be undone), for request logging
+// and the sign-ups alert. Without it the add-on leaves those two out and says how to add them.
 //
 // The plan only reads. Nothing changes without --apply. docs/self-host.md explains each step.
 // Node built-ins only; it shells out to gcloud and firebase.
@@ -21,10 +24,11 @@ import { createPrompter } from "./selfhost/prompt.mjs";
 import { BACKEND_ID_RE, DEFAULT_BRANCH, DEFAULT_ENV, DEFAULT_REGION, ENV_NAME_RE, PROJECT_ID_RE, REGION_RE } from "./selfhost/spec.mjs";
 import { ADDONS, ALL_STEPS, CORE_STEPS, selfhostCommand } from "./selfhost/steps.mjs";
 
-const BOOLEAN_FLAGS = new Set(["yes", "help", "json", "another-workspace"]);
+const BOOLEAN_FLAGS = new Set(["yes", "help", "json", "another-workspace", "upgrade-identity-platform"]);
 const VALUE_FLAGS = new Set([
   "project", "region", "env", "backend", "branch", "apply", "location", "admin-email", "privacy-url",
   "workspace-name", "workspace-domain", "workspace-region", "provider", "email-from", "github-app-name", "app-url",
+  "alert-email",
 ]);
 
 function usage() {
@@ -34,6 +38,9 @@ function usage() {
     "With only --project it prints the plan: each step, whether it is done, and the next command.",
     "Nothing changes without --apply. Steps: " + CORE_STEPS.map((s) => s.id).join(", ") + ".",
     "Add-ons: " + ADDONS.map((s) => s.id).join(", ") + ".",
+    "--app-url <https origin> gives the app's address when the backend list can't be read.",
+    "addon:password takes --alert-email <address>, and --upgrade-identity-platform to upgrade a project on plain",
+    "Firebase Authentication to Identity Platform first (free up to 50,000 monthly active users; can't be undone).",
     "Guide: docs/self-host.md",
   ].join("\n");
 }
@@ -47,8 +54,11 @@ function parseArgs(argv) {
       continue;
     }
     const [key, inline] = a.slice(2).split(/=(.*)/s, 2);
-    if (BOOLEAN_FLAGS.has(key)) out[key] = true;
-    else if (VALUE_FLAGS.has(key)) {
+    // A boolean flag takes no value: "--upgrade-identity-platform=false" must not mean yes.
+    if (BOOLEAN_FLAGS.has(key)) {
+      if (inline !== undefined) out._errors.push(`--${key} takes no value (leave it out for no)`);
+      else out[key] = true;
+    } else if (VALUE_FLAGS.has(key)) {
       const value = inline ?? argv[++i];
       if (value === undefined || (inline === undefined && value.startsWith("--"))) out._errors.push(`--${key} needs a value`);
       else out[key] = value;
@@ -88,6 +98,9 @@ async function main() {
   if (project && !BACKEND_ID_RE.test(backendId)) errors.push(`--backend "${backendId}" is not a backend id`);
   const appUrlFlag = args["app-url"] ? httpsOrigin(args["app-url"]) : "";
   if (args["app-url"] && !appUrlFlag) errors.push("--app-url must be an https origin with no path, e.g. https://app.example.com");
+  if (args["alert-email"] !== undefined && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(args["alert-email"].trim())) {
+    errors.push("--alert-email must be an email address, e.g. alerts@example.com");
+  }
   const apply = args.apply;
   const target = apply === undefined || apply === "core" ? null : ALL_STEPS.find((s) => s.id === apply);
   if (apply !== undefined && apply !== "core" && !target) errors.push(`--apply "${apply}" is not a step. Steps: core, ${ALL_STEPS.map((s) => s.id).join(", ")}`);
@@ -119,6 +132,8 @@ async function main() {
       emailFrom: args["email-from"],
       githubAppName: args["github-app-name"],
       appUrl: appUrlFlag,
+      alertEmail: args["alert-email"],
+      upgradeIdentityPlatform: Boolean(args["upgrade-identity-platform"]),
     },
     memo: new Map(),
     state: {},

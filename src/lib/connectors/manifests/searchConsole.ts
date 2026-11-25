@@ -51,11 +51,21 @@ export const searchConsoleManifest = {
         "Press Add user, paste the address YouGrow shows, choose Restricted, then press Add.",
         "Back in YouGrow, press Check access, then pick the site.",
       ],
+      organisationSteps: [
+        "In Search Console, open each site your brands use, then Settings, then Users and permissions.",
+        "Press Add user, paste the address YouGrow shows, choose Restricted, then press Add. Do this on every site you want to give a brand.",
+        "Back in YouGrow, press Check access, then give each brand its site on Settings › Organisation.",
+      ],
     },
   ],
   api: {
     hosts: ["searchconsole.googleapis.com", "oauth2.googleapis.com"],
-    limits: { connection: { perMinute: 20, perHour: 300 }, brand: { perMinute: 40, perHour: 600 } },
+    limits: {
+      connection: { perMinute: 20, perHour: 300 },
+      brand: { perMinute: 40, perHour: 600 },
+      // One organisation sign in or address serves several brands; Google counts per user and per site.
+      source: { perMinute: 100, perHour: 1500, holds: "connection" },
+    },
     timeoutMs: 15_000,
     maxBytes: 512 * 1024,
   },

@@ -1,7 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
-import { changeDataConnection, createDataConnection, forTenant, isRateLimited, type ActivityWrite, type ChangePlan, type TenantContext } from "@/lib/tenant";
+import { changeDataConnection, createDataConnection, endPart, forTenant, isRateLimited, type ActivityWrite, type ChangePlan, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
+import { REGION_CONFIGS } from "@/lib/tenant/region";
+import type { Region } from "@/lib/types/tenant";
 import { meaningsOf } from "@/lib/metrics/meanings";
 import { ConnectionGrantSchema, freshCollect, type ActivityKind, type ConnectionGrant, type ConnectionServiceAccount, type DataConnection } from "@/lib/types/dataConnection";
 import { eraseConnectionData, pendingWith, type SearchIndexOf } from "./erase";
@@ -15,13 +17,14 @@ import { checkLiveRequest, lagWords, readLive, type LiveAnswer } from "./live";
 import { collectedStream, keepsWords, shareMethod, tokenMethod, type ConnectMethodName, type ConnectorIcon, type ConnectorManifest } from "./manifest";
 import { addDays, daysIn, laterDay, todayIn } from "./period";
 import { oldestAlive } from "./snapshots";
-import { connectorMessage, tokenRefusedMessage, type ConnectorErrorCode } from "./messages";
+import { connectorMessage, productName, sourceBrokenMessage, tokenRefusedMessage, type ConnectorErrorCode, KEPT_AT_GOOGLE_MESSAGE } from "./messages";
 import { getConnector, knownConnector, listConnectors, readyMethods } from "./registry";
 import type { ConnectorFetchDeps } from "./safeFetch";
 import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isGoogleRevokeEnabled } from "./flags";
 import { revokeGoogleToken } from "./google";
 import { createShareAccount, deleteShareAccount, forgetShareTokens, identitiesProject, projectOfShareAccount, shareAccessToken, type ShareDeps, type ShareResult } from "./shareAccess";
-import { freshAccessToken, REFRESH_SLOT, type KeeperDeps } from "./tokenKeeper";
+import { organisationSignInMayShareAccount, PartCache, partFactsOf, partFailure, sourceToken, storesOf, type PartFacts, type PartReads, type SourceDeps } from "./sources";
+import { freshAccessToken, REFRESH_SLOT } from "./tokenKeeper";
 import { isVaultConfigured, openConnectorSecret, sealConnectorSecret, VaultOpenError, type SealedSecret } from "./vault";
 
 /**
@@ -32,7 +35,7 @@ import { isVaultConfigured, openConnectorSecret, sealConnectorSecret, VaultOpenE
  * and never leave here.
  */
 
-export interface ServiceDeps extends ConnectorFetchDeps, KeeperDeps, ShareDeps {
+export interface ServiceDeps extends ConnectorFetchDeps, SourceDeps, ShareDeps {
   db?: FirestoreLike;
   newId?: () => string;
   /** The brand's search index, for erasing a connection's searches (tests pass an in-memory one). */
@@ -57,7 +60,24 @@ function refuse(status: 400 | 403 | 404 | 409 | 429 | 502 | 503, error: string, 
   return { ok: false, status, error, ...(message ? { message } : {}) };
 }
 
-const CONFLICTS: ReadonlySet<ConnectorErrorCode> = new Set(["paused", "secret_unopenable", "disconnected", "signin_refused", "account_needed", "share_not_visible", "share_access_lost", "share_pending", "share_limit"]);
+const CONFLICTS: ReadonlySet<ConnectorErrorCode> = new Set([
+  "paused",
+  "secret_unopenable",
+  "disconnected",
+  "signin_refused",
+  "account_needed",
+  "share_not_visible",
+  "share_access_lost",
+  "share_pending",
+  "share_limit",
+  "org_share_limit",
+  "org_connection_limit",
+  "managed_by_organisation",
+  "part_ended",
+  "source_broken",
+  "source_paused",
+  "sharing_off",
+]);
 const UNCONFIGURED: ReadonlySet<ConnectorErrorCode> = new Set(["vault_unconfigured", "signin_unconfigured", "share_unconfigured", "share_quota"]);
 
 /**
@@ -82,9 +102,18 @@ const aboutOf = (connectorId: string) => ({ name: knownConnector(connectorId)?.n
 
 /**
  * A stored connection's call refused: a turned down token names its tool, as Check now and the
- * Connected screen do, wherever the refusal comes from (a live read, Vizzy's, or the picker).
+ * Connected screen do, wherever the refusal comes from (a live read, Vizzy's, or the picker). A
+ * part whose organisation's sign in needs attention names the tool, the brand and the organisation,
+ * and who can fix it.
  */
-const connectionRefusal = (conn: Pick<DataConnection, "connectorId">, code: ConnectorErrorCode) => providerRefusal(code, aboutOf(conn.connectorId));
+const connectionRefusal = (conn: Pick<DataConnection, "connectorId">, code: ConnectorErrorCode, part?: { organisation: string; brand: string } | null) => {
+  const r = providerRefusal(code, aboutOf(conn.connectorId));
+  if (code !== "source_broken" || !part || r.ok) return r;
+  return { ...r, message: sourceBrokenMessage(productName(aboutOf(conn.connectorId).name), part.brand, part.organisation) };
+};
+
+/** Refused for a brand's part: its organisation's owners manage what it reads and how it signs in. */
+const managedByOrganisation = () => providerRefusal("managed_by_organisation");
 
 /**
  * A shared connection's failures in its own words: Google turning its address down means the
@@ -116,7 +145,7 @@ function forMethod<T extends { ok: boolean }>(conn: Pick<DataConnection, "method
 }
 
 const nowOf = (deps: ServiceDeps) => deps.now ?? new Date();
-export const byOf = (actor: ConnectorActor) => (actor.kind === "agent" ? `agent:${actor.agent}` : actor.uid || "system");
+export const byOf = (actor: ConnectorActor) => (actor.kind === "agent" ? `agent:${actor.agent}` : actor.kind === "job" ? `job:${actor.job}` : actor.uid || "system");
 
 // --- What people see ---------------------------------------------------------------------------
 
@@ -257,6 +286,12 @@ export interface ConnectionView {
   canReadLive: boolean;
   /** The last day collected, for anyone who may read it, while collected numbers are on; else null. */
   collectedTo: string | null;
+  /**
+   * A brand's part of its organisation's connection (Connectors 3, a record with a `source`): who
+   * gives it, and whether it reads now. It names only this brand and its own organisation, never
+   * the sign in, its Google address, what it can see or another brand's part.
+   */
+  part?: PartView;
   /** Admins only. */
   details?: {
     method: DataConnection["method"];
@@ -278,8 +313,68 @@ export interface ConnectionView {
   };
 }
 
-/** A connection as this actor may see it: name and health for anyone allowed to see it, the rest for admins. */
-export function viewOf(conn: DataConnection, actor: ConnectorActor, now: Date): ConnectionView {
+export interface PartView {
+  /** The organisation that gives it, and this brand, by name; null when they couldn't be read. */
+  organisation: string | null;
+  brand: string | null;
+  reads: PartReads;
+  /** When its organisation's sign in stopped working (`source`). */
+  since: string | null;
+  /** Where the sign in is kept, and where this brand keeps its numbers, by name. */
+  keptIn: string;
+  region: string;
+  /**
+   * How it ended, from its own activity, once it is disconnected: `left` (the brand left the
+   * organisation), `part_ended` (taken back), `stopped_using`, or `disconnected` (the organisation
+   * disconnected its connection).
+   */
+  ended: { why: string; at: string } | null;
+}
+
+const regionLabel = (r: Region): string => REGION_CONFIGS[r]?.displayName ?? r;
+
+/** Codes a part records while its organisation's connection can't serve it; stale once it reads again. */
+const SOURCE_CODES: ReadonlySet<string> = new Set(["source_broken", "source_paused", "sharing_off", "part_ended"]);
+
+/** A part's view from what partFactsOf read: the brand's region is the server's, never a request's. */
+export function partViewOf(conn: DataConnection, brandRegion: Region, facts: PartFacts): PartView {
+  const end = conn.status === "connected" ? null : (conn.recent.find((e) => e.kind === "disconnected") ?? null);
+  return {
+    organisation: facts.organisation,
+    brand: facts.brand,
+    reads: facts.reads,
+    since: facts.since,
+    keptIn: regionLabel(conn.source?.region ?? brandRegion),
+    region: regionLabel(brandRegion),
+    ended: end ? { why: end.code ?? "disconnected", at: end.at } : conn.status === "connected" ? null : conn.disconnectedAt ? { why: "disconnected", at: conn.disconnectedAt } : null,
+  };
+}
+
+/**
+ * The health a part shows: its organisation's sign in needing attention reads as broken from then,
+ * its owners' pause as paused, and a code the part recorded while its source couldn't serve it is
+ * dropped once it reads again. The brand's own pause, and a failure of its own part, stay as they are.
+ */
+function partHealth(conn: DataConnection, part: PartView, health: ConnectionView["health"]): ConnectionView["health"] {
+  if (health.state === "paused" || health.state === "broken") return health;
+  if (part.reads === "source") return { ...health, state: "broken", since: part.since, message: connectorMessage("source_broken") };
+  if (part.reads === "paused") return { ...health, state: "paused", message: connectorMessage("source_paused") };
+  if ((part.reads === "live" || part.reads === "off") && health.state === "check" && conn.health.lastErrorCode && SOURCE_CODES.has(conn.health.lastErrorCode)) {
+    return { ...health, state: "ok", message: null, since: null };
+  }
+  return health;
+}
+
+/**
+ * A connection as this actor may see it: name and health for anyone allowed to see it, the rest for
+ * admins. A brand's part (`part`, from partFactsOf) that partLive refuses (its organisation no
+ * longer gives it, sharing is off, a give not finished, or a read that failed) reads nothing: no
+ * live read, and no collected line, before the erase. `partLive: false` alone says the same
+ * without the part's words.
+ */
+export function viewOf(conn: DataConnection, actor: ConnectorActor, now: Date, opts: { partLive?: boolean; part?: PartView | null } = {}): ConnectionView {
+  const part = conn.source ? (opts.part ?? null) : null;
+  const live = opts.partLive !== false && (!part || part.reads === "live" || part.reads === "source" || part.reads === "paused");
   const known = knownConnector(conn.connectorId);
   const view: ConnectionView = {
     id: conn.id,
@@ -299,10 +394,15 @@ export function viewOf(conn: DataConnection, actor: ConnectorActor, now: Date): 
       since: conn.health.since ?? null,
     },
     needsAccount: conn.status === "connected" && !conn.account,
-    canReadLive: conn.status === "connected" && !!conn.account && can(actor, "read_live", conn.grants),
+    canReadLive: live && conn.status === "connected" && !!conn.account && can(actor, "read_live", conn.grants),
     collectedTo: null,
   };
-  const collect = isConnectorsCollectEnabled() && conn.status === "connected" ? collectViewOf(conn, now) : null;
+  if (part) {
+    view.part = part;
+    view.health = partHealth(conn, part, view.health);
+  }
+  // A part that reads nothing shows nothing it collected, to anyone, until the erase.
+  const collect = isConnectorsCollectEnabled() && conn.status === "connected" && live ? collectViewOf(conn, now) : null;
   if (collect && view.canReadLive) view.collectedTo = collect.lastDay;
   if (can(actor, "see_details", conn.grants)) {
     view.details = {
@@ -324,14 +424,33 @@ export function viewOf(conn: DataConnection, actor: ConnectorActor, now: Date): 
   return view;
 }
 
+/** Each part's view (partLive, then its source's state and the names), with one cache for the request. */
+async function partViews(ctx: TenantContext, rows: readonly DataConnection[], deps: ServiceDeps): Promise<Map<string, PartView>> {
+  const out = new Map<string, PartView>();
+  const shared = { ...deps, partCache: deps.partCache ?? new PartCache() };
+  for (const c of rows) {
+    if (!c.source) continue;
+    const facts = await partFactsOf(ctx, c, shared);
+    if (facts) out.set(c.id, partViewOf(c, ctx.region, facts));
+  }
+  return out;
+}
+
+/** One connection as this actor may see it, with its part's words when it is a brand's part. */
+async function viewFor(ctx: TenantContext, conn: DataConnection, actor: ConnectorActor, deps: ServiceDeps): Promise<ConnectionView> {
+  if (!conn.source) return viewOf(conn, actor, nowOf(deps));
+  const parts = await partViews(ctx, [conn], deps);
+  return viewOf(conn, actor, nowOf(deps), { part: parts.get(conn.id) ?? null, partLive: parts.has(conn.id) ? undefined : false });
+}
+
 /** Browse and the brand's connections, newest first, as this actor may see them. */
 export async function listForActor(ctx: TenantContext, actor: ConnectorActor, deps: ServiceDeps = {}): Promise<ServiceResult<{ connectors: ConnectorListing[]; connections: ConnectionView[] }>> {
   const now = nowOf(deps);
-  const rows = await forTenant(ctx, deps.db).dataConnections.find({ limit: LIST_LIMIT });
+  const rows = (await forTenant(ctx, deps.db).dataConnections.find({ limit: LIST_LIMIT })).filter((c) => can(actor, "see", c.grants));
+  const parts = await partViews(ctx, rows, deps);
   const connections = rows
-    .filter((c) => can(actor, "see", c.grants))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .map((c) => viewOf(c, actor, now));
+    .map((c) => viewOf(c, actor, now, { part: parts.get(c.id) ?? null, partLive: c.source && !parts.has(c.id) ? false : undefined }));
   return { ok: true, status: 200, value: { connectors: listConnectors().map(listingOf), connections } };
 }
 
@@ -343,7 +462,7 @@ async function load(ctx: TenantContext, id: string, deps: ServiceDeps): Promise<
 export async function getForActor(ctx: TenantContext, actor: ConnectorActor, id: string, deps: ServiceDeps = {}): Promise<ServiceResult<ConnectionView>> {
   const conn = await load(ctx, id, deps);
   if (!conn || !can(actor, "see", conn.grants)) return refuse(404, "not_found");
-  return { ok: true, status: 200, value: viewOf(conn, actor, nowOf(deps)) };
+  return { ok: true, status: 200, value: await viewFor(ctx, conn, actor, deps) };
 }
 
 // --- Connect -----------------------------------------------------------------------------------
@@ -379,7 +498,8 @@ export function checkFields(
   return labels.length ? { ok: false, labels } : { ok: true, values };
 }
 
-function cleanLabel(label: string | undefined, fallback: string): string {
+/** A label as typed, with control characters and angle brackets taken out; the fallback when nothing is left. */
+export function cleanLabel(label: string | undefined, fallback: string): string {
   const cleaned = (label ?? "").replace(/[\u0000-\u001f\u007f<>]/g, "").trim();
   return cleaned || fallback;
 }
@@ -551,8 +671,13 @@ export function outcomePlan(
 
 type Usable = { ok: true; conn: DataConnection; manifest: ConnectorManifest; token: string } | { ok: false; result: ServiceResult<never> };
 
-/** A connection's token, or why not; `recorded` when the token keeper already wrote the failure on the connection. */
-export type TokenResult = { ok: true; token: string } | { ok: false; code: ConnectorErrorCode; retryAfterSec: number | null; recorded: boolean };
+/**
+ * A connection's token, or why not; `recorded` when the token keeper already wrote the failure on
+ * the connection. A part's refusal may name its organisation and brand (`part`), for its words.
+ */
+export type TokenResult =
+  | { ok: true; token: string }
+  | { ok: false; code: ConnectorErrorCode; retryAfterSec: number | null; recorded: boolean; part?: { organisation: string; brand: string } | null };
 
 /**
  * The token for a call on a connection, whoever asks: a shared connection's minted for its address
@@ -560,8 +685,16 @@ export type TokenResult = { ok: true; token: string } | { ok: false; code: Conne
  * keeper under its lease, a pasted token opened from the vault. No grant is checked here: the
  * caller checks its own (usable for people and Vizzy; none for the daily collect, a system job).
  * Nothing is written, except by the token keeper when Google ended a sign in.
+ *
+ * A brand's part of its organisation's connection (a record with a `source`, Connectors 3) is
+ * minted through the organisation's connection, after partLive; its own secrets, if any were ever
+ * found on it, are never read.
  */
 export async function connectionToken(ctx: TenantContext, conn: DataConnection, manifest: ConnectorManifest, by: string, deps: ServiceDeps = {}): Promise<TokenResult> {
+  if (conn.source) {
+    const r = await sourceToken(ctx, conn, manifest, by, deps);
+    return r.ok ? r : { ok: false, code: r.code, retryAfterSec: r.retryAfterSec, recorded: false, part: r.about };
+  }
   if (conn.method === "share_access") {
     const kept = await shareToken(conn, manifest, deps);
     return kept.ok ? { ok: true, token: kept.token } : { ok: false, code: kept.code, retryAfterSec: kept.retryAfterSec, recorded: false };
@@ -610,7 +743,7 @@ async function usable(ctx: TenantContext, actor: ConnectorActor, id: string, act
   if (!kept.recorded) {
     await changeDataConnection(ctx, conn.id, (cur) => outcomePlan(cur, { ok: false, code: kept.code, retryAfterSec: kept.retryAfterSec }, actor, now, null), deps.db);
   }
-  return { ok: false, result: kept.code === "secret_unopenable" ? providerRefusal("secret_unopenable") : connectionRefusal(conn, kept.code) };
+  return { ok: false, result: kept.code === "secret_unopenable" ? providerRefusal("secret_unopenable") : connectionRefusal(conn, kept.code, kept.part) };
 }
 
 export interface CheckOutcome {
@@ -625,16 +758,25 @@ export async function check(ctx: TenantContext, actor: ConnectorActor, id: strin
   const now = nowOf(deps);
   const verify = VERIFY_HOOKS[u.manifest.verify.hook];
   if (!verify) return refuse(503, "connector_unavailable");
-  const outcome = forMethod(u.conn, await verify({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token }, deps));
-  if (!outcome.ok && outcome.code === "busy") return providerRefusal("busy");
+  const verified = forMethod(u.conn, await verify({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token }, deps));
+  if (!verified.ok && verified.code === "busy") return providerRefusal("busy");
+  // A part's sign in turned down outright is its organisation's, not this brand's.
+  const outcome = verified.ok ? verified : { ...verified, code: await partFailure(u.conn, verified.code, byOf(actor), deps) };
   const r = await changeDataConnection(ctx, id, (cur) => outcomePlan(cur, outcome, actor, now, "verified"), deps.db);
   const conn = r.ok ? r.connection : r.why === "unchanged" ? r.connection : u.conn;
+  const view = await viewFor(ctx, conn, actor, { ...deps, now });
+  // A part whose organisation's sign in needs attention says who can fix it, by name.
+  const names = view.part?.organisation && view.part.brand ? { organisation: view.part.organisation, brand: view.part.brand } : null;
+  const message = (code: ConnectorErrorCode) => {
+    const refusal = connectionRefusal(u.conn, code, names);
+    return !refusal.ok && refusal.message ? refusal.message : connectorMessage(code, aboutOf(u.conn.connectorId));
+  };
   return {
     ok: true,
     status: 200,
     value: {
-      connection: viewOf(conn, actor, now),
-      check: outcome.ok ? { ok: true, code: null, message: null } : { ok: false, code: outcome.code, message: connectorMessage(outcome.code, aboutOf(u.conn.connectorId)) },
+      connection: view,
+      check: outcome.ok ? { ok: true, code: null, message: null } : { ok: false, code: outcome.code, message: message(outcome.code) },
     },
   };
 }
@@ -657,8 +799,10 @@ export async function readLiveFor(
   const checked = checkLiveRequest(u.manifest, rawQuery, now);
   if (!checked.ok) return refuse(400, checked.error);
   const q = checked.query;
-  const r = forMethod(u.conn, await readLive({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token, query: q }, deps));
-  if (!r.ok && r.code === "busy") return providerRefusal("busy");
+  const read0 = forMethod(u.conn, await readLive({ manifest: u.manifest, connection: u.conn, account: u.conn.account, token: u.token, query: q }, deps));
+  if (!read0.ok && read0.code === "busy") return providerRefusal("busy");
+  // A part's sign in turned down outright is its organisation's, not this brand's.
+  const r = read0.ok ? read0 : { ...read0, code: await partFailure(u.conn, read0.code, byOf(actor), deps) };
   const read = r.ok
     ? { stream: q.stream, by: q.by, from: r.answer.period.from, to: r.answer.period.to, timeZone: r.answer.period.timeZone, limit: q.limit, period: q.period ?? null, pageFilter: q.page !== undefined }
     : undefined;
@@ -682,6 +826,9 @@ export interface AccountsList {
  * sites.list, unverified sites left out). Admins only. Nothing is stored.
  */
 export async function listAccounts(ctx: TenantContext, actor: ConnectorActor, id: string, deps: ServiceDeps = {}): Promise<ServiceResult<AccountsList>> {
+  // A part's list is its organisation's: a brand admin never sees what else the sign in can read.
+  const part = await load(ctx, id, deps);
+  if (part?.source && can(actor, "see", part.grants)) return managedByOrganisation();
   const u = await usable(ctx, actor, id, "check", deps);
   if (!u.ok) return u.result;
   const hook = u.manifest.hooks.accounts ? ACCOUNT_HOOKS[u.manifest.hooks.accounts] : undefined;
@@ -710,6 +857,8 @@ export async function pickAccount(ctx: TenantContext, actor: ConnectorActor, id:
   const conn = await load(ctx, id, deps);
   if (!conn || !can(actor, "see", conn.grants)) return refuse(404, "not_found");
   if (!can(actor, "connect", conn.grants)) return refuse(403, "forbidden");
+  // A part changes only through its organisation (the part change in src/lib/tenant).
+  if (conn.source) return managedByOrganisation();
   if (conn.method === "token_fields") return refuse(400, "method_not_supported");
   const u = await usable(ctx, actor, id, "check", deps);
   if (!u.ok) return u.result;
@@ -727,15 +876,10 @@ export async function pickAccount(ctx: TenantContext, actor: ConnectorActor, id:
       ["account", "==", account],
       ["status", "==", "connected"],
     ],
-    limit: 2,
+    limit: 3,
   });
   if (existing.some((c) => c.id !== id)) return refuse(409, "already_connected", "Another connection reads this already. Check or disconnect it there.");
   const now = nowOf(deps);
-  const at = now.toISOString();
-  // Change property (a picked one replaced): take the collect lease, bump the generation and mark
-  // the old one for erasing, in this one change, so the new site's numbers never share an id with
-  // the old site's; then erase the old generation and start the new 90 days. A first pick starts
-  // collecting on the lane's next run.
   let leased = false;
   let erase: number[] | null = null;
   const changeLease = randomBytes(12).toString("hex");
@@ -743,35 +887,69 @@ export async function pickAccount(ctx: TenantContext, actor: ConnectorActor, id:
     ctx,
     id,
     (cur) => {
-      leased = false;
-      erase = null;
-      if (cur.status !== "connected" || cur.account === account) return null;
-      const c = cur.collect ?? freshCollect();
-      if (cur.account && c.leaseId && c.leaseUntil && Date.parse(c.leaseUntil) > now.getTime()) {
-        leased = true;
-        return null;
-      }
-      const collect = cur.account
-        ? { ...freshCollect(at, c.gen + 1), erasePending: pendingWith(c.erasePending, [c.gen]), leaseId: changeLease, leaseUntil: new Date(now.getTime() + CHANGE_LEASE_MS).toISOString() }
-        : { ...c, nextAt: at };
-      if (cur.account) erase = [c.gen];
-      return { patch: { account, health: healthAfterSuccess(cur.health, now), collect }, activity: [{ kind: "account_picked", by: byOf(actor), at }] };
+      const planned = changePropertyPlan(cur, account, { now, by: byOf(actor), leaseId: changeLease });
+      leased = planned?.kind === "leased";
+      erase = planned?.kind === "plan" ? planned.erase : null;
+      return planned?.kind === "plan" ? planned.plan : null;
     },
     deps.db,
   );
   if (!r.ok && r.why === "not_found") return refuse(404, "not_found");
   if (leased) return providerRefusal("busy");
   const old = erase as number[] | null;
-  if (r.ok && old) {
-    try {
-      await eraseConnectionData(ctx, id, r.connection.collect?.erasePending ?? old, { by: byOf(actor), now, db: deps.db, searchIndex: deps.searchIndex });
-    } catch (err) {
-      console.warn(`[connectors] erase after Change property failed for ${id}; the lane tries again:`, err instanceof Error ? err.message.slice(0, 200) : "error");
-    }
-    await changeDataConnection(ctx, id, (cur) => (cur.collect?.leaseId === changeLease ? { patch: { collect: { ...cur.collect, leaseId: null, leaseUntil: null, nextAt: at } }, activity: [] } : null), deps.db);
-  }
+  if (r.ok && old) await afterChangeProperty(ctx, id, r.connection, old, changeLease, { by: byOf(actor), now, db: deps.db, searchIndex: deps.searchIndex });
   const after = r.ok && old ? await load(ctx, id, deps) : null;
   return { ok: true, status: 200, value: viewOf(after ?? (r.ok ? r.connection : r.connection), actor, now) };
+}
+
+/**
+ * Change property's change to a record, for a brand's own connection (pickAccount) and a brand's
+ * part (the part change, src/lib/tenant/organisationConnections.ts): take the collect lease, bump
+ * the generation and mark the old one for erasing, in this one change, so the new site's numbers
+ * never share an id with the old site's; a first pick starts collecting on the lane's next run.
+ * Null when it already reads that account or isn't connected; `leased` while a collect run holds it.
+ */
+export function changePropertyPlan(
+  cur: DataConnection,
+  account: string,
+  opts: { now: Date; by: string; leaseId: string; code?: string; label?: string },
+): { kind: "leased" } | { kind: "plan"; plan: NonNullable<ChangePlan>; erase: number[] | null } | null {
+  if (cur.status !== "connected" || cur.account === account) return null;
+  const at = opts.now.toISOString();
+  const c = cur.collect ?? freshCollect();
+  if (cur.account && c.leaseId && c.leaseUntil && Date.parse(c.leaseUntil) > opts.now.getTime()) return { kind: "leased" };
+  const collect = cur.account
+    ? { ...freshCollect(at, c.gen + 1), erasePending: pendingWith(c.erasePending, [c.gen]), leaseId: opts.leaseId, leaseUntil: new Date(opts.now.getTime() + CHANGE_LEASE_MS).toISOString() }
+    : { ...c, nextAt: at };
+  return {
+    kind: "plan",
+    erase: cur.account ? [c.gen] : null,
+    plan: {
+      patch: { account, health: healthAfterSuccess(cur.health, opts.now), collect, ...(opts.label ? { label: opts.label } : {}) },
+      activity: [{ kind: "account_picked", by: opts.by, at, ...(opts.code ? { code: opts.code } : {}) }],
+    },
+  };
+}
+
+/**
+ * After Change property: erase the old generation's numbers (a failure stays pending for the lane),
+ * then let go of the collect lease and start the new 90 days on the lane's next run.
+ */
+export async function afterChangeProperty(
+  ctx: TenantContext,
+  id: string,
+  changed: DataConnection,
+  old: number[],
+  leaseId: string,
+  opts: { by: string; now: Date; db?: FirestoreLike; searchIndex?: SearchIndexOf },
+): Promise<void> {
+  try {
+    await eraseConnectionData(ctx, id, changed.collect?.erasePending ?? old, { by: opts.by, now: opts.now, db: opts.db, searchIndex: opts.searchIndex });
+  } catch (err) {
+    console.warn(`[connectors] erase after Change property failed for ${id}; the lane tries again:`, err instanceof Error ? err.message.slice(0, 200) : "error");
+  }
+  const at = opts.now.toISOString();
+  await changeDataConnection(ctx, id, (cur) => (cur.collect?.leaseId === leaseId ? { patch: { collect: { ...cur.collect, leaseId: null, leaseUntil: null, nextAt: at } }, activity: [] } : null), opts.db);
 }
 
 /** How long Change property holds the collect lease while it erases the old site's numbers. */
@@ -814,7 +992,7 @@ function notYetChecked(): DataConnection["health"] {
  */
 async function liveShareAddresses(ctx: TenantContext, connectorId: string, deps: ServiceDeps): Promise<number> {
   const repo = forTenant(ctx, deps.db).dataConnections;
-  const atGoogle = (c: DataConnection) => Boolean(c.serviceAccount && !c.serviceAccount.deletedAt);
+  const atGoogle = (c: DataConnection) => Boolean(!c.source && c.serviceAccount && !c.serviceAccount.deletedAt);
   const of = (status: DataConnection["status"], limit: number) =>
     repo.find({
       where: [
@@ -859,7 +1037,7 @@ export async function shareConnect(ctx: TenantContext, actor: ConnectorActor, co
     ],
     limit: 5,
   });
-  const reuse = waiting.find((c) => c.serviceAccount && !c.serviceAccount.deletedAt);
+  const reuse = waiting.find((c) => !c.source && c.serviceAccount && !c.serviceAccount.deletedAt);
   if (reuse) return { ok: true, status: 200, value: { connection: viewOf(reuse, actor, now), share: shareOf(reuse), reused: true } };
   if ((await liveShareAddresses(ctx, m.id, deps)) >= SHARE_ADDRESS_CAP) return providerRefusal("share_limit");
 
@@ -921,6 +1099,8 @@ export async function checkAccess(ctx: TenantContext, actor: ConnectorActor, id:
   const conn = await load(ctx, id, deps);
   if (!conn || !can(actor, "see", conn.grants)) return refuse(404, "not_found");
   if (!can(actor, "check", conn.grants)) return refuse(403, "forbidden");
+  // A part's address and list are its organisation's.
+  if (conn.source) return managedByOrganisation();
   if (conn.method !== "share_access") return refuse(400, "method_not_supported");
   const u = await usable(ctx, actor, id, "check", deps);
   if (!u.ok) return u.result;
@@ -1007,7 +1187,7 @@ async function manage(
   const at = now.toISOString();
   const r = await changeDataConnection(ctx, id, (cur) => plan(cur, at), deps.db);
   if (!r.ok && r.why === "not_found") return refuse(404, "not_found");
-  return { ok: true, status: 200, value: viewOf(r.ok ? r.connection : r.connection, actor, now) };
+  return { ok: true, status: 200, value: await viewFor(ctx, r.ok ? r.connection : r.connection, actor, { ...deps, now }) };
 }
 
 /** Pause or resume a connection's calls. Resuming also ends a timed pause. Admins only. */
@@ -1082,9 +1262,16 @@ export const ADDRESS_DELETED_MESSAGE =
 export const ADDRESS_KEPT_MESSAGE =
   "Disconnected. YouGrow couldn't delete its Google address just now and tries again later; it reads nothing for this brand any more. You can also remove it from your property's users.";
 
+/** What Disconnect says for a brand's part of its organisation's connection: Stop using. */
+export const STOPPED_USING_MESSAGE =
+  "This brand stopped using it, so it reads nothing from it any more, and what was collected for it is deleted. Your organisation's owners see that it stopped.";
+
 /** What Disconnect says after Google revoked the sign in: every grant of that account ends. */
 export const REVOKED_MESSAGE =
   "Disconnected, and YouGrow's access was removed at Google too. Any other connection signed in with the same Google account has to sign in again.";
+
+/** What Disconnect says when revoke is on but YouGrow didn't revoke (src/lib/connectors/messages.ts). */
+export { KEPT_AT_GOOGLE_MESSAGE };
 
 /**
  * Disconnect: delete the sealed secrets, mark it disconnected and record it. The record stays, so
@@ -1099,9 +1286,12 @@ export const REVOKED_MESSAGE =
  * purge tries again. Its entry in the property's users stays until the admin removes it, harmless.
  */
 export async function disconnect(ctx: TenantContext, actor: ConnectorActor, id: string, deps: ServiceDeps = {}): Promise<ServiceResult<DisconnectOutcome>> {
+  const part = await load(ctx, id, deps);
+  if (part?.source) return stopUsing(ctx, actor, part, deps);
   let signIn: SealedSecret | null = null;
   let address: ConnectionServiceAccount | null = null;
   let changed = false;
+  let ownerUid: string | null = null;
   const r = await manage(
     ctx,
     actor,
@@ -1111,6 +1301,7 @@ export async function disconnect(ctx: TenantContext, actor: ConnectorActor, id: 
       signIn = null;
       address = null;
       changed = false;
+      ownerUid = cur.ownerUid;
       if (cur.status === "disconnected") return null;
       changed = true;
       signIn = cur.method === "oauth_pkce" ? (cur.secrets[REFRESH_SLOT] ?? null) : null;
@@ -1131,12 +1322,17 @@ export async function disconnect(ctx: TenantContext, actor: ConnectorActor, id: 
     }
   }
   let revoked = false;
+  let keptAtGoogle = false;
   const sealed = signIn as SealedSecret | null;
   if (sealed && isGoogleRevokeEnabled()) {
-    try {
-      revoked = await revokeGoogleToken(openConnectorSecret(ctx.tenantId, id, REFRESH_SLOT, sealed), deps);
-    } catch (err) {
-      if (!(err instanceof VaultOpenError)) throw err;
+    // Google's revoke ends every grant of that account: never when the organisation's shared sign in may be that account's.
+    keptAtGoogle = await organisationSignInMayShareAccount(ctx, [actor.kind === "human" ? actor.uid : null, ownerUid], deps);
+    if (!keptAtGoogle) {
+      try {
+        revoked = await revokeGoogleToken(openConnectorSecret(ctx.tenantId, id, REFRESH_SLOT, sealed), deps);
+      } catch (err) {
+        if (!(err instanceof VaultOpenError)) throw err;
+      }
     }
   }
   const sa = address as ConnectionServiceAccount | null;
@@ -1147,5 +1343,37 @@ export async function disconnect(ctx: TenantContext, actor: ConnectorActor, id: 
     return { ok: true, status: 200, value: { connection, revoked: false, addressDeleted: deleted, message: deleted ? ADDRESS_DELETED_MESSAGE : ADDRESS_KEPT_MESSAGE } };
   }
   const m = knownConnector(r.value.connectorId);
-  return { ok: true, status: 200, value: { connection: r.value, revoked, addressDeleted: null, message: revoked ? REVOKED_MESSAGE : (m?.disconnect ?? "Disconnected.") } };
+  return { ok: true, status: 200, value: { connection: r.value, revoked, addressDeleted: null, message: revoked ? REVOKED_MESSAGE : keptAtGoogle ? KEPT_AT_GOOGLE_MESSAGE : (m?.disconnect ?? "Disconnected.") } };
+}
+
+/**
+ * Stop using a brand's part of its organisation's connection (Connectors 3): Disconnect on a part,
+ * for the brand's admins. In three steps (src/lib/tenant/organisationConnections.ts endPart): the
+ * part goes `ending` on the organisation's record, the brand record goes disconnected with
+ * everything it collected marked for erasing and any secret emptied, then the entry leaves the
+ * organisation's record. If the sign in's database can't be written, the brand record is ended
+ * anyway and housekeeping removes the entry. Then what it collected is erased. It never revokes a
+ * sign in and never deletes the organisation's Google address: other brands still use them.
+ */
+async function stopUsing(ctx: TenantContext, actor: ConnectorActor, conn: DataConnection, deps: ServiceDeps): Promise<ServiceResult<DisconnectOutcome>> {
+  if (!can(actor, "see", conn.grants)) return refuse(404, "not_found");
+  if (!can(actor, "disconnect", conn.grants)) return refuse(403, "forbidden");
+  const now = nowOf(deps);
+  const source = conn.source!;
+  const ended = await endPart(
+    { source, brand: { tenantId: ctx.tenantId, region: ctx.region }, useId: conn.id, by: byOf(actor), at: now.toISOString(), code: "stopped_using", evenIfSourceFails: true },
+    storesOf(deps),
+  );
+  if (ended.ended) {
+    // Whatever any collect switch says: Stop using deletes what YouGrow stored for it.
+    try {
+      await eraseConnectionData(ctx, conn.id, "all", { by: byOf(actor), now, db: deps.db, searchIndex: deps.searchIndex });
+    } catch (err) {
+      console.warn(`[connectors] erase after Stop using failed for ${conn.id}; the lane tries again:`, err instanceof Error ? err.message.slice(0, 200) : "error");
+    }
+  }
+  const after = (await load(ctx, conn.id, deps)) ?? conn;
+  // Its view says it ended (and who gave it), so its activity keeps its organisation's name.
+  const view = after.status === "connected" ? viewOf(after, actor, now, { partLive: false }) : await viewFor(ctx, after, actor, { ...deps, now });
+  return { ok: true, status: 200, value: { connection: view, revoked: false, addressDeleted: null, message: STOPPED_USING_MESSAGE } };
 }

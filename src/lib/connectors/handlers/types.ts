@@ -13,7 +13,8 @@ import type { ConnectorFetchDeps } from "../safeFetch";
 
 export interface HookInput {
   manifest: ConnectorManifest;
-  connection: Pick<DataConnection, "id" | "tenantId" | "pausedAt" | "health">;
+  /** A brand's part names its source, so safe fetch counts it in its organisation connection's budget. */
+  connection: Pick<DataConnection, "id" | "tenantId" | "pausedAt" | "health" | "source">;
   /** The non secret account (a zone id, a site), or "" when a signed in connection has none picked yet. */
   account: string;
   /** The opened secret, used only for the call. */

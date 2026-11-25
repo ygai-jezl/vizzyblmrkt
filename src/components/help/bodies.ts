@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { HelpBodyProps } from "@/lib/help/pages";
 import GetSetUpHelp from "./pages/get-set-up";
 import PlanAndUsageHelp from "./pages/plan-and-usage";
+import SignInAndPasswordsHelp from "./pages/sign-in-and-passwords";
 import EmailSendingHelp from "./pages/email-sending";
 import YourBrandHelp from "./pages/your-brand";
 import EmailStyleHelp from "./pages/email-style";
@@ -12,6 +13,8 @@ import BrandMapHelp from "./pages/brand-map";
 import WriteAndScheduleHelp from "./pages/write-and-schedule";
 import ConnectedAccountsHelp from "./pages/connected-accounts";
 import ConnectedDataHelp from "./pages/connected-data";
+import SharedConnectionsHelp from "./pages/shared-connections";
+import OrganisationBrandsHelp from "./pages/organisation-brands";
 import ConnectYourProductHelp from "./pages/connect-your-product";
 import InviteYourWaitlistHelp from "./pages/invite-your-waitlist";
 import OnboardingJourneysHelp from "./pages/onboarding-journeys";
@@ -25,6 +28,8 @@ import TroubleshootingHelp from "./pages/troubleshooting";
 export const HELP_BODIES: Record<string, (props?: HelpBodyProps) => ReactNode> = {
   "": GetSetUpHelp,
   "plan-and-usage": PlanAndUsageHelp,
+  "organisation-brands": OrganisationBrandsHelp,
+  "sign-in-and-passwords": SignInAndPasswordsHelp,
   "email-sending": EmailSendingHelp,
   "your-brand": YourBrandHelp,
   "email-style": EmailStyleHelp,
@@ -35,6 +40,7 @@ export const HELP_BODIES: Record<string, (props?: HelpBodyProps) => ReactNode> =
   "write-and-schedule": WriteAndScheduleHelp,
   "connected-accounts": ConnectedAccountsHelp,
   "connected-data": ConnectedDataHelp,
+  "shared-connections": SharedConnectionsHelp,
   "connect-your-product": ConnectYourProductHelp,
   "invite-your-waitlist": InviteYourWaitlistHelp,
   "onboarding-journeys": OnboardingJourneysHelp,

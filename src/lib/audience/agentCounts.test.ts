@@ -41,4 +41,14 @@ describe("Vizzy's audience counts", () => {
     expect(text).not.toContain("Ada");
     expect(text).not.toContain("pu_");
   });
+
+  it("tells Vizzy the app calls launches ideas while the words are on, keeping the launches key", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const note = async () => ((await agentAudienceCounts(ctx, db)).body as { note: string; launches: unknown[] }).note;
+    expect(await note()).toMatch(/^One person per address across every launch and product\./);
+    for (const k of ["NEXT_PUBLIC_NAV_V2_ENABLED", "NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED", "NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED", "NEXT_PUBLIC_NAV_IDEAS_ENABLED", "LAUNCH_IDEAS_ENABLED"]) vi.stubEnv(k, "true");
+    expect(await note()).toMatch(/^One person per address across every launch \(the app calls them ideas\) and product\./);
+    expect((await agentAudienceCounts(ctx, db)).body).toHaveProperty("launches");
+  });
 });

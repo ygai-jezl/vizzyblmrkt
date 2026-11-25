@@ -70,6 +70,24 @@ describe("per-source rules", () => {
     expect(agentLaunchJourneyItem(human as never, "Beta")).toBeNull();
   });
 
+  it("call a launch with no name an idea while the words are on", () => {
+    const graph = { nodes: [{ id: "e1", type: "email", position: { x: 0, y: 0 }, data: { agentMeta: { source: "agent3" } } }], edges: [] };
+    const j = { id: "journey_c1", campaignId: "c1", status: "draft" as const, graph };
+    const lc = { id: "lcjw_c1", name: "Welcome", authoredBy: "agent" as const, publishedVersion: null, status: "draft" as const, audience: { kind: "waitlist" as const, campaignId: "c1" } };
+    const wave = { id: "w1", campaignId: "c1", status: "draft" as const, authoredBy: "agent" as const, size: 120 };
+    expect(agentLaunchJourneyItem(j as never, undefined)?.title).toBe("Welcome emails for a launch");
+    expect(agentInviteWaveItem(wave as never, undefined)?.title).toBe("Invite 120 people from a launch");
+    for (const k of ["NEXT_PUBLIC_NAV_V2_ENABLED", "NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED", "NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED", "NEXT_PUBLIC_NAV_IDEAS_ENABLED", "LAUNCH_IDEAS_ENABLED"]) vi.stubEnv(k, "true");
+    try {
+      expect(agentLaunchJourneyItem(j as never, undefined)?.title).toBe("Welcome emails for an idea");
+      expect(agentJourneyItem(lc as never)?.title).toBe("Welcome emails for an idea");
+      expect(agentInviteWaveItem(wave as never, undefined)?.title).toBe("Invite 120 people from an idea");
+      expect(agentLaunchJourneyItem(j as never, "Beta")?.title).toBe("Welcome emails for Beta");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("content: a written hub that isn't approved", () => {
     const ws = { id: "w1", name: "Weekly" };
     const plan = (status: string, body = "Hello") => ({
@@ -581,5 +599,19 @@ describe("articles due a refresh, in Review", () => {
     expect(await kinds()).toEqual([]);
     expect(REVIEW_ORDER.indexOf("content_refresh")).toBe(REVIEW_ORDER.indexOf("data_signal") + 1);
     expect(REVIEW_SECTIONS.content_refresh.title).toBe("Articles due a refresh");
+  });
+
+  it("puts a refresh ready to look at first, once per article (BLOG_REFRESH_ENABLED)", async () => {
+    vi.stubEnv("BLOG_REFRESH_ENABLED", "true");
+    const db = new FakeFirestore();
+    db.seed("freshness_watch", "fw_ten_A", { tenantId: "ten_A", due: [due("p1"), due("p3")] });
+    db.seed("article_reviews", "ar_p1", { tenantId: "ten_A", planId: "p1", workspaceId: "ws1", state: "ready", by: "autopilot", proposals: [{}, {}, {}], finishedAt: "2026-11-25T10:00:00.000Z" });
+    db.seed("article_reviews", "ar_x", { tenantId: "ten_B", planId: "x", workspaceId: "ws1", state: "ready", by: "person", proposals: [{}], finishedAt: "2026-11-25T10:00:00.000Z" });
+    const items = (await loadReview(ctx, { lifecycle: false, includeContent: false }, db)).items.filter((i) => i.kind === "content_refresh");
+    expect(items.map((i) => [i.id, i.title])).toEqual([
+      ["content_refresh_ready:p1", "Refresh ready: 3 changes to look at"],
+      ["content_refresh:p3", "Due a refresh: Article p3"],
+    ]);
+    expect(items[0]).toMatchObject({ detail: "Article p1 · the autopilot ran the review", action: "Look at changes", href: "/admin/workspace/ws1/create/p1?freshness=1" });
   });
 });

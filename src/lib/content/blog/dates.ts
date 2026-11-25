@@ -65,7 +65,7 @@ export interface DateInputs {
  * The article's dates after a live check, Found live or a person's word. Published: the page's own
  * date when it has one (what readers see), else a person's word, else what was stored, else when
  * it was first seen live. Updated: the page's own dateModified, kept only when it is a later day
- * than Published.
+ * than Published; a refresh's own Updated stays until the page shows that day or later.
  */
 export function nextDates(stored: BlogArticleDates | undefined, input: DateInputs): BlogArticleDates {
   const { now } = input;
@@ -79,7 +79,11 @@ export function nextDates(stored: BlogArticleDates | undefined, input: DateInput
     : person
       ? { at: person, source: "person" }
       : (stored?.published ?? (found ? { at: found, source: "found" } : undefined));
-  let updated: BlogArticleDates["updated"] = pageModified ? { at: pageModified, source: "page" } : stored?.updated;
+  const fromPage: BlogArticleDates["updated"] = pageModified ? { at: pageModified, source: "page" } : undefined;
+  // A refresh's own Updated (source "change") stands until the page shows that day or a later one:
+  // a page not yet republished still carries its older date.
+  const change = stored?.updated?.source === "change" ? stored.updated : undefined;
+  let updated: BlogArticleDates["updated"] = change && (!fromPage || utcDay(fromPage.at) < utcDay(change.at)) ? change : (fromPage ?? stored?.updated);
   if (updated && (!published || utcDay(updated.at) <= utcDay(published.at))) updated = undefined;
 
   const page = input.page ? { published: input.page.published?.slice(0, 40) ?? null, modified: input.page.modified?.slice(0, 40) ?? null, readAt: now.toISOString() } : stored?.page;

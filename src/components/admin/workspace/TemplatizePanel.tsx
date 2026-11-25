@@ -71,14 +71,14 @@ export function TemplatizePanel({
       <div>
         <h2 className="text-sm font-semibold">Templatize</h2>
         <p className="text-sm text-neutral-500">
-          Modular templates (with {"{{tokens}}"}) from your Idea Board — tagged by style, block, and
-          channel. Reframe, refine, or deconstruct a hub into channel-native spokes.
+          Modular templates (with {"{{tokens}}"}) from your Scrapbook, tagged by style, block and channel. Reframe,
+          refine, or deconstruct a hub into channel-native spokes.
         </p>
       </div>
 
       {templates.length === 0 ? (
         <p className="rounded-md border border-dashed border-neutral-300 p-6 text-center text-sm text-neutral-500 dark:border-neutral-700">
-          No templates yet. Capture an idea in the Idea Board and hit Templatize.
+          No templates yet. Save a clipping in the Scrapbook and press Templatize.
         </p>
       ) : (
         byGroup.map(([group, list]) => (

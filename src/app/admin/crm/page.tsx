@@ -7,7 +7,8 @@ import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { isOneViewEnabled, isPeopleNameEnabled, isPersonLinksEnabled, isPersonViewEnabled } from "@/lib/audience/flags";
 import { canAddPeople, isAddPersonEnabled, isFieldFiltersEnabled, isFieldsEnabled, isVizzyAddPersonEnabled } from "@/lib/audience/peopleFlags";
 import { groupLabel, parseGroupTag } from "@/lib/audience/peopleList";
-import { peopleArea, peopleSubtitle } from "@/lib/nav/terms";
+import { ideaWord, peopleArea, peopleSubtitle } from "@/lib/nav/terms";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { forTenant } from "@/lib/tenant";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
 import { withInviteStages } from "@/lib/invites/audience";
@@ -75,19 +76,21 @@ export default async function CrmPage({
     invites ? loadFunnel(ctx, { campaignId: launch?.id ?? null }).catch(() => null) : null,
   ]);
   const contactRows = invites ? await withInviteStages(ctx, contacts.items).catch(() => contacts.items) : contacts.items;
+  // Launches are called ideas (nav phase 3, NEXT_PUBLIC_NAV_IDEAS_ENABLED and LAUNCH_IDEAS_ENABLED).
+  const ideas = isIdeaWordsEnabled();
 
   return (
     <div className="space-y-5">
       <div>
         <h1 className="text-lg font-semibold">{isNavV2Enabled() ? peopleArea(isPeopleNameEnabled()) : "Unified CRM"}</h1>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          {peopleSubtitle({ phase3, oneView, addedByTeam: oneView && isAddPersonEnabled() })}
+          {peopleSubtitle({ phase3, oneView, addedByTeam: oneView && isAddPersonEnabled(), ideas })}
         </p>
       </div>
       {funnel ? (
         <LaunchFunnel
           funnel={funnel}
-          caption={launch ? `${launch.waitlistName}: from waitlist to activated user.` : "Every launch: from waitlist to activated user."}
+          caption={launch ? `${launch.waitlistName}: from waitlist to activated user.` : `Every ${ideaWord(ideas).one}: from waitlist to activated user.`}
         />
       ) : null}
       <CrmClient

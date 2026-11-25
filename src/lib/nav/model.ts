@@ -8,6 +8,7 @@
  */
 
 import { connectorName } from "@/lib/connectors/manifests";
+import { ideaWord } from "./terms";
 
 export type NavKey =
   | "home"
@@ -56,6 +57,12 @@ export interface NavFlags {
    * /admin/crm.
    */
   people?: boolean;
+  /**
+   * The Launches item reads Ideas (NEXT_PUBLIC_NAV_IDEAS_ENABLED with LAUNCH_IDEAS_ENABLED:
+   * isIdeaWordsEnabled(), worked out on the server). Its key and route stay "launches" and
+   * /admin/launches.
+   */
+  ideas?: boolean;
 }
 
 export function buildNav(flags: NavFlags): NavSection[] {
@@ -77,7 +84,7 @@ export function buildNav(flags: NavFlags): NavSection[] {
       key: "grow",
       title: "Grow",
       items: [
-        { key: "launches", href: "/admin/launches", label: "Launches", match: ["/admin/launches"] },
+        { key: "launches", href: "/admin/launches", label: ideaWord(!!flags.ideas).Many, match: ["/admin/launches"] },
         {
           key: "content",
           href: "/admin/workspace",
@@ -211,7 +218,8 @@ const WORKSPACE_TABS: Record<string, string> = {
   settings: "Settings",
 };
 
-const CURATE_TABS: Record<string, string> = { "idea-board": "Idea Board", grounding: "Grounding" };
+/** The Scrapbook was the Idea Board; its route stays idea-board. */
+const CURATE_TABS: Record<string, string> = { "idea-board": "Scrapbook", grounding: "Grounding" };
 
 const BRAND_KIT_PAGES: Record<string, string> = {
   colours: "Colours",
@@ -294,24 +302,29 @@ function connectionsCrumbs(settings: Crumb, tab: string, rest: string[]): Crumb[
   return [settings, connections, { label: name }];
 }
 
+/**
+ * The header's crumbs, which are also what Vizzy is told about the page. `people` names the
+ * Audience area People and `ideas` calls launches ideas (both worked out on the server).
+ */
 export function breadcrumbsFor(
   pathname: string,
   names: CrumbNames,
-  opts: { phase3?: boolean; insights?: boolean; plans?: boolean; people?: boolean } = {},
+  opts: { phase3?: boolean; insights?: boolean; plans?: boolean; people?: boolean; ideas?: boolean } = {},
 ): Crumb[] {
   const segments = pathname.split("/").filter(Boolean);
   if (segments[0] !== "admin") return [];
   const [, area, id, ...rest] = segments;
   if (!area) return [{ label: "Home" }];
   const p3 = !!opts.phase3;
+  const word = ideaWord(!!opts.ideas);
 
   switch (area) {
     case "launches": {
-      if (!id) return [{ label: "Launches" }];
-      const root: Crumb = { label: "Launches", href: "/admin/launches" };
-      if (id === "new") return [root, { label: "New launch" }];
+      if (!id) return [{ label: word.Many }];
+      const root: Crumb = { label: word.Many, href: "/admin/launches" };
+      if (id === "new") return [root, { label: `New ${word.one}` }];
       const tab = rest[0];
-      const launch: Crumb = { label: names.launches[id] ?? "Launch", href: `/admin/launches/${id}` };
+      const launch: Crumb = { label: names.launches[id] ?? word.One, href: `/admin/launches/${id}` };
       if (p3 && (tab === "journey" || tab === "broadcasts" || tab === "invites")) {
         // All live under the launch's Emails tab.
         return [
@@ -332,8 +345,8 @@ export function breadcrumbsFor(
       if (!tab) return [root, { label: workspace }];
       const ws: Crumb = { label: workspace, href: `/admin/workspace/${id}` };
       if (p3) {
-        // The pipeline tabs: Ideas · Templates · Drafts · Calendar, with Knowledge apart.
-        if (tab === "curate") return [root, ws, { label: sub === "grounding" ? "Knowledge" : "Ideas" }];
+        // The pipeline tabs: Scrapbook · Templates · Drafts · Calendar, with Knowledge apart.
+        if (tab === "curate") return [root, ws, { label: sub === "grounding" ? "Knowledge" : "Scrapbook" }];
         if (tab === "weekly") {
           return [root, ws, { label: "Calendar", href: `/admin/workspace/${id}/distribute` }, { label: "Weekly newsletter" }];
         }
@@ -401,7 +414,10 @@ export function breadcrumbsFor(
       return [{ label: id === "new" ? "Add brand" : "Brands" }];
     case "analytics": {
       // Nav v2 phase 4: Insights › {tab}.
-      if (opts.insights && id) return [{ label: "Insights", href: "/admin/analytics" }, { label: INSIGHTS_TABS[id] ?? titleCase(id) }];
+      if (opts.insights && id) {
+        const tab = id === "launches" ? word.Many : (INSIGHTS_TABS[id] ?? titleCase(id));
+        return [{ label: "Insights", href: "/admin/analytics" }, { label: tab }];
+      }
       return [{ label: PAGES.analytics! }];
     }
     default:

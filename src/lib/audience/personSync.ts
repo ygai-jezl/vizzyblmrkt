@@ -12,9 +12,12 @@ import { buildSearchTokens } from "@/lib/crm/searchTokens";
 import { contactFieldsFromSignup, linkFromSignup, recomputeContactStatus } from "@/lib/crm/contactService";
 import { isContactPersonId } from "@/lib/ontology/person";
 import { isTimelineEnabled } from "./peopleFlags";
+import { isIdeasEnabled } from "@/lib/ideas/flags";
+import { MANY_LAUNCHES_TAG } from "@/lib/ideas/list";
 import { moveEvents, movesOf } from "./personMoves";
 import {
   handAddedOf,
+  isLiveSignupLink,
   linkFromProductUser,
   optOutsOf,
   sameDay,
@@ -23,6 +26,7 @@ import {
   tagChanges,
   withCarriedTags,
   type HandAdded,
+  type ManyLaunches,
   type PersonSummary,
 } from "./personLinks";
 
@@ -47,6 +51,11 @@ import {
  * that only came from products stays when its last product user goes (revoked, moved to another
  * address, or joined to an address), out of Everyone like a sign-up contact whose launches went,
  * until the team erases it. Only the erase path (`erase: true`) removes it with its values.
+ *
+ * With LAUNCH_IDEAS_ENABLED a person in two or more live launches that aren't Just a list also has
+ * `launches:many`. A full sync reads the brand's Just a list launches (an equality read) only for
+ * someone in two or more launches; the fast path keeps the tag as it was, since it never changes
+ * their launches, and ticking Just a list flags the launch's people for a full sync.
  *
  * With AUDIENCE_TIMELINE_ENABLED, both functions record the person's moves (launch, product,
  * stage and quiet, src/lib/audience/personMoves.ts) after their commit, so every caller is
@@ -92,6 +101,19 @@ export async function optOutRowsFor(ctx: TenantContext, key: string, db?: Firest
     repo.emailSuppressions.find({ where: [["normalizedEmail", "==", key]], limit: 100 }),
   ]);
   return byId && !rows.some((r) => r.id === byId.id) ? [byId, ...rows] : rows;
+}
+
+/** The brand's launches marked Just a list (LAUNCH_IDEAS_ENABLED), by id: an equality read, no composite index. */
+export async function justAListIds(ctx: TenantContext, db?: FirestoreLike): Promise<Set<string>> {
+  const rows = await forTenant(ctx, db).campaigns.find({ where: [["idea.justAList", "==", true]], limit: 500 });
+  return new Set(rows.map((c) => c.id));
+}
+
+/** How a full sync works out `launches:many`: off without ideas, and no read for someone in fewer than two launches. */
+async function manyLaunchesFor(ctx: TenantContext, campaigns: readonly ContactCampaignLink[], db?: FirestoreLike): Promise<ManyLaunches | null> {
+  if (!isIdeasEnabled()) return null;
+  const live = new Set(campaigns.filter(isLiveSignupLink).map((c) => c.campaignId));
+  return { leaveOut: live.size >= 2 ? await justAListIds(ctx, db) : new Set() };
 }
 
 /** The brand's people connections by id, read once and shared across a batch of syncs. */
@@ -183,15 +205,19 @@ interface Derived {
   hand: HandAdded | null;
 }
 
-/** The derived fields for a record as it is now: its hand-added source read from the record itself. */
+/**
+ * The derived fields for a record as it is now: its hand-added source read from the record itself.
+ * `many` works out `launches:many` (null while ideas are off, which drops it).
+ */
 function derive(
   record: Pick<Contact, "addedBy" | "consent" | "email"> | null | undefined,
   campaigns: ContactCampaignLink[],
   products: PersonProductLink[],
   optOuts: Contact["optOuts"],
+  many: ManyLaunches | null,
 ): Derived {
   const hand = handAddedOf(record);
-  return { campaigns, products, optOuts, hand, summary: summarize(campaigns, products, optOuts, hand) };
+  return { campaigns, products, optOuts, hand, summary: summarize(campaigns, products, optOuts, hand, { manyLaunches: many }) };
 }
 
 function sameCampaigns(a: readonly ContactCampaignLink[], b: readonly ContactCampaignLink[]): boolean {
@@ -294,7 +320,8 @@ export async function syncPerson(ctx: TenantContext, rawKey: string, deps: SyncD
     .filter((u) => u.status === "active" && connections.has(u.connectionId))
     .sort((a, b) => a.connectionId.localeCompare(b.connectionId) || a.id.localeCompare(b.id));
   const products = users.map((u) => linkFromProductUser(u, connections.get(u.connectionId)!, optOuts, nowMs));
-  const next = derive(existing, campaigns, products, optOuts);
+  const many = await manyLaunchesFor(ctx, campaigns, deps.db);
+  const next = derive(existing, campaigns, products, optOuts, many);
   const { summary } = next;
 
   if (!summary.live) {
@@ -350,7 +377,7 @@ export async function syncPerson(ctx: TenantContext, rawKey: string, deps: SyncD
         ? { firstName: who.firstName, lastName: who.lastName, email: who.email, emailDomain: who.emailDomain, searchTokens: who.searchTokens }
         : null;
     // The record as it is inside this transaction says whether it was added by hand.
-    const patch = patchFor(personId, current, derive(current, campaigns, products, optOuts), nowIso);
+    const patch = patchFor(personId, current, derive(current, campaigns, products, optOuts, many), nowIso);
     patched = !!(patch || renamed);
     if (!patch && !renamed) return null;
     return { ...(patch ?? { updatedAt: nowIso }), ...(renamed ?? {}) } as never;
@@ -439,7 +466,9 @@ export async function syncProductLink(
     const products = (fresh.products ?? []).map((p) => (p.productUserId === user.id ? link : p));
     before = fresh.memberOf ?? [];
     beforeProducts = fresh.products ?? [];
-    return patchFor(personId, fresh, derive(fresh, fresh.campaigns ?? [], products, fresh.optOuts), nowIso) as never;
+    // Their launches don't change here, so `launches:many` stays as the last full sync left it.
+    const many = isIdeasEnabled() ? { keep: (fresh.memberOf ?? []).includes(MANY_LAUNCHES_TAG) } : null;
+    return patchFor(personId, fresh, derive(fresh, fresh.campaigns ?? [], products, fresh.optOuts, many), nowIso) as never;
   });
   if (owed) return syncPerson(ctx, key, deps);
   if (!updated) return { personId, outcome: "unchanged", added: [], removed: [], changedAt: null };

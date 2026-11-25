@@ -64,7 +64,18 @@ describe("GET /api/admin/audience/list", () => {
   it("gives the brand's groups with their counts", async () => {
     const res = await filters(req());
     expect(res.status).toBe(200);
-    expect(list.peopleFilters).toHaveBeenCalledWith(admin, undefined, { fields: false });
+    expect(list.peopleFilters).toHaveBeenCalledWith(admin, undefined, { fields: false, manyLaunches: false });
+  });
+
+  it("counts the people in more than one launch while ideas are on", async () => {
+    vi.stubEnv("LAUNCH_IDEAS_ENABLED", "true");
+    await filters(req());
+    expect(list.peopleFilters).toHaveBeenLastCalledWith(admin, undefined, { fields: false, manyLaunches: true });
+  });
+
+  it("shows the people in more than one launch", async () => {
+    await GET(req("?show=launches:many"));
+    expect(list.listPeople).toHaveBeenLastCalledWith(admin, { tag: "launches:many", canEmail: false, q: "", cursor: null }, undefined, {});
   });
 });
 
@@ -98,7 +109,7 @@ describe("field and group filters (AUDIENCE_FIELD_FILTERS_ENABLED)", () => {
   it("lists the fields with the groups, and counts one field's options when asked", async () => {
     on();
     await filters(req());
-    expect(list.peopleFilters).toHaveBeenLastCalledWith(admin, undefined, { fields: true });
+    expect(list.peopleFilters).toHaveBeenLastCalledWith(admin, undefined, { fields: true, manyLaunches: false });
     const res = await filters(req("?field=fld_000000000001"));
     expect(await res.json()).toEqual({ counts: { opt_00000001: 4 } });
     expect(list.fieldOptionCounts).toHaveBeenCalledWith(admin, "fld_000000000001");

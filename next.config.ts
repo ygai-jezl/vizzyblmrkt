@@ -22,7 +22,12 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["firebase-admin", "@google-cloud/firestore", "@google-cloud/bigquery", "wawoff2"],
   // The image renderer reads the bundled open-licence fonts from disk, and the legal pages read a
   // deployment's own legal/*.md; make sure every server bundle carries them.
-  outputFileTracingIncludes: { "/**": ["./public/email-fonts/*.woff", "./legal/*.md"] },
+  // Trace ALL of public/, not only the fonts. Tracing one folder of public/ makes Next create
+  // .next/standalone/public holding just that folder, and older App Hosting Next.js adapters
+  // (14.0.21 and before) skip copying public/ when it already exists there. Every other public
+  // file (the share image, the logo, connector marks, the Sign in with Google button) then
+  // answered 404 in production from 19 Oct 2026. Tracing the whole folder works with any adapter.
+  outputFileTracingIncludes: { "/**": ["./public/**/*", "./legal/*.md"] },
   // Put every page's <title>, description, canonical and hreflang tags in <head> for
   // every visitor. By default Next streams them into <body> on dynamic pages unless the
   // user agent is on its short bot list, which misses AI crawlers (GPTBot, ClaudeBot,

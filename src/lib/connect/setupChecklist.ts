@@ -1,4 +1,5 @@
 import type { ProductEnvironment } from "./environments";
+import { ideaWord } from "@/lib/nav/terms";
 
 /**
  * A product's setup, in the order the work happens (nav v2 phase 3): the Setup
@@ -19,6 +20,8 @@ export interface SetupInput {
   production: { id: string; hasJourney: boolean } | null;
   /** Nav v2 phase 4, when invites are on: this product's sign-up link and invite numbers. */
   invites?: { hasSignupUrl: boolean; invited: number; signedUp: number } | null;
+  /** Launches are called ideas (useWords().ideas). */
+  ideas?: boolean;
 }
 
 export interface SetupStep {
@@ -113,8 +116,8 @@ export function setupSteps(input: SetupInput): SetupStep[] {
           invited > 0
             ? `${invited.toLocaleString("en-GB")} invited · ${signedUp.toLocaleString("en-GB")} signed up.`
             : hasSignupUrl
-              ? "Invite people from a launch's waitlist into your product."
-              : "Add your app's sign-up link in Settings, then invite from a launch.",
+              ? `Invite people from ${ideaWord(input.ideas === true).a}'s waitlist into your product.`
+              : `Add your app's sign-up link in Settings, then invite from ${ideaWord(input.ideas === true).a}.`,
         done: invited > 0,
         ...(hasSignupUrl ? { href: "/admin/launches" } : { tab: "settings" as const }),
       });

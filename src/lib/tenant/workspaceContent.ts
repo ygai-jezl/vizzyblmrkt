@@ -410,6 +410,29 @@ export async function listRecentContentPlans(
   return rows;
 }
 
+/**
+ * A page of a workspace's plans in id order, after the id `after`, for a pass that must reach every
+ * plan however many there are (an erase): `next` is the id to start the next page after, or null at
+ * the end. Ordered on the id only, so no composite index.
+ */
+export async function pageContentPlans(
+  ctx: TenantContext,
+  workspaceId: string,
+  opts: { after?: string | null; limit: number },
+  db?: FirestoreLike,
+): Promise<{ plans: ContentPlan[]; next: string | null }> {
+  const limit = Math.min(Math.max(opts.limit, 1), 500);
+  let q = contentPlans(ctx, workspaceId, db).orderBy("__name__", "asc");
+  if (opts.after) q = q.startAfter(opts.after);
+  const snap = await q.limit(limit).get();
+  const plans: ContentPlan[] = [];
+  for (const d of snap.docs) {
+    const parsed = ContentPlanSchema.safeParse(d.data());
+    if (parsed.success && parsed.data.tenantId === ctx.tenantId && parsed.data.workspaceId === workspaceId) plans.push(parsed.data);
+  }
+  return { plans, next: snap.docs.length === limit ? snap.docs[snap.docs.length - 1]!.id : null };
+}
+
 export async function getContentPlan(
   ctx: TenantContext,
   workspaceId: string,
@@ -827,4 +850,10 @@ export async function deleteContentPlan(
   db?: FirestoreLike,
 ): Promise<void> {
   await contentPlans(ctx, workspaceId, db).doc(planId).delete();
+  // Its earlier versions and its review go with it (article refresh). A plan never refreshed has none.
+  const repo = forTenant(ctx, db);
+  const kept = await repo.articleVersions.getById(`av_${planId}`).catch(() => null);
+  if (kept && kept.workspaceId === workspaceId) await repo.articleVersions.delete(kept.id).catch(() => undefined);
+  const review = await repo.articleReviews.getById(`ar_${planId}`).catch(() => null);
+  if (review && review.workspaceId === workspaceId) await repo.articleReviews.delete(review.id).catch(() => undefined);
 }

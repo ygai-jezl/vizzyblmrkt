@@ -1,4 +1,4 @@
-import { forTenant } from "@/lib/tenant";
+import { forTenant, organisationContextFor } from "@/lib/tenant";
 import { readDueArticles } from "@/lib/content/blog/freshnessPages";
 import { refreshHref } from "@/lib/content/blog/freshnessHref";
 import type { FreshnessDueItem } from "@/lib/types/freshness";
@@ -18,8 +18,10 @@ import type { ScheduledPost } from "@/lib/types/scheduledPost";
 import type { InviteWave } from "@/lib/types/invite";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
 import { isWaitlistEngineUiEnabled } from "@/lib/lifecycle/waitlist/flags";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { ideaWord } from "@/lib/nav/terms";
 import type { BrandMap, BrandMapSuggestionFrom } from "@/lib/types/brandMap";
-import { isBlogFreshnessEnabled, isBrandMapEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
+import { isBlogFreshnessEnabled, isBlogRefreshEnabled, isBrandMapEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 import { proposalsWaiting, suggestionsWaiting } from "@/lib/brandMap/waiting";
 import { readBrandMap } from "@/lib/brandMap/store";
 import { BRAND_KIT_COMPETITORS_ROUTE, BRAND_KIT_MAP_ROUTE } from "@/lib/content/brandKit";
@@ -40,6 +42,7 @@ import { dayWords } from "@/lib/connectors/period";
 import { getConnector, knownConnector } from "@/lib/connectors/registry";
 import { COLLECT_FAILED_DAYS } from "@/lib/connectors/health";
 import { productName } from "@/lib/connectors/messages";
+import { PartCache, partFactsOf, type PartFacts, type SourceDeps } from "@/lib/connectors/sources";
 import type { DataConnection } from "@/lib/types/dataConnection";
 
 /**
@@ -167,6 +170,9 @@ export function repoResultsItem(
   };
 }
 
+/** A launch with no name left: "a launch", or "an idea" while the words are on (isIdeaWordsEnabled(); Review is built on the server). */
+const unnamedLaunch = (): string => ideaWord(isIdeaWordsEnabled()).a;
+
 /** A lifecycle journey Vizzy drafted that has never been published. */
 export function agentJourneyItem(
   j: Pick<LifecycleJourney, "id" | "name" | "authoredBy" | "publishedVersion" | "status"> & Partial<Pick<LifecycleJourney, "audience">>,
@@ -178,7 +184,7 @@ export function agentJourneyItem(
     return {
       id: `lcj:${j.id}`,
       kind: "agent_draft",
-      title: `Welcome emails for ${launchName ?? "a launch"}`,
+      title: `Welcome emails for ${launchName ?? unnamedLaunch()}`,
       detail: "Drafted by Vizzy · not published",
       href: `/admin/lifecycle/${j.id}`,
       action: "Open",
@@ -204,7 +210,7 @@ export function agentLaunchJourneyItem(
   return {
     id: `journey:${j.id}`,
     kind: "agent_draft",
-    title: `Welcome emails for ${launchName ?? "a launch"}`,
+    title: `Welcome emails for ${launchName ?? unnamedLaunch()}`,
     detail: "Drafted by Vizzy · not turned on",
     href: `/admin/launches/${j.campaignId}/journey`,
     action: "Open",
@@ -220,7 +226,7 @@ export function agentInviteWaveItem(
   return {
     id: `wave:${w.id}`,
     kind: "agent_draft",
-    title: `Invite ${w.size.toLocaleString("en-GB")} ${w.size === 1 ? "person" : "people"} from ${launchName ?? "a launch"}`,
+    title: `Invite ${w.size.toLocaleString("en-GB")} ${w.size === 1 ? "person" : "people"} from ${launchName ?? unnamedLaunch()}`,
     detail: "Waitlist invite drafted by Vizzy · not sent",
     href: `/admin/launches/${w.campaignId}/invites?wave=${w.id}`,
     action: "Open",
@@ -386,6 +392,8 @@ const DAY_MS = 86_400_000;
 
 /** The Connected view with this connection selected. */
 export const connectedHref = (id: string) => `/admin/account/connections/connected?c=${encodeURIComponent(id)}`;
+/** Settings › Organisation, where an owner fixes a connection the organisation shares. */
+export const ORGANISATION_HREF = "/admin/account/organisation";
 
 /** "19 Nov", from an instant. */
 const dayOf = (iso: string) => dayWords(iso.slice(0, 10));
@@ -397,8 +405,10 @@ const dayOf = (iso: string) => dayWords(iso.slice(0, 10));
  * or more days ago. Each links to the Connected view with that connection selected. A connection
  * whose connector this copy has turned off reads nothing on purpose, so it isn't listed.
  */
-export function dataSourceItem(c: DataConnection, now: Date = new Date()): ReviewItem | null {
+export function dataSourceItem(c: DataConnection, now: Date = new Date(), part?: PartReview | null): ReviewItem | null {
   if (c.status !== "connected" || !getConnector(c.connectorId)) return null;
+  // A brand's part is fixed by its organisation's owners: never "sign in again" here.
+  if (c.source) return partSourceItem(c, part ?? null, now);
   const full = knownConnector(c.connectorId)?.name ?? c.connectorId;
   // The product people name: "Google Analytics", "Search Console".
   const tool = productName(full);
@@ -425,10 +435,75 @@ export function dataSourceItem(c: DataConnection, now: Date = new Date()): Revie
   return null;
 }
 
-/** The brand's connected data sources that need someone: equality on status only. */
-async function dataSourceItems(ctx: TenantContext, db?: FirestoreLike): Promise<ReviewItem[]> {
-  const connections = await forTenant(ctx, db).dataConnections.find({ where: [["status", "==", "connected"]], limit: 50 });
-  return connections.map((c) => dataSourceItem(c)).filter((i): i is ReviewItem => !!i);
+/** A brand's part as Review reads it: what partFactsOf found, and whether this person owns its organisation. */
+export interface PartReview {
+  facts: PartFacts;
+  /** An owner of the brand's organisation (read live), who fixes it on Settings › Organisation. */
+  owner: boolean;
+}
+
+/**
+ * A brand's part of its organisation's connection that needs someone (Connectors 3): its
+ * organisation's sign in needing attention, or its own part that can't be read, naming the
+ * organisation and who can fix it, as the approved Review screen; one failing to collect for 3
+ * days, or that the brand's admins paused a week ago, as any connection. An owner gets Fix, to
+ * Settings › Organisation; any other admin See it, to the part on Connected. A part that reads
+ * nothing on purpose (sharing or plans off, a give not finished, no longer given) or that couldn't
+ * be checked is skipped quietly, and so is one its owners paused.
+ */
+export function partSourceItem(c: DataConnection, part: PartReview | null, now: Date = new Date()): ReviewItem | null {
+  if (!part) return null;
+  const { facts } = part;
+  if (facts.reads !== "live" && facts.reads !== "source" && facts.reads !== "paused") return null;
+  const full = knownConnector(c.connectorId)?.name ?? c.connectorId;
+  // As the approved screen names it: "Google Analytics 4", "Search Console", "Cloudflare".
+  const tool = full.replace(/^Google (Search Console)$/, "$1");
+  const org = facts.organisation ?? "your organisation";
+  const base = { id: `data_source:${c.id}`, kind: "data_source" as const };
+  const fix = part.owner ? { href: ORGANISATION_HREF, action: "Fix" } : { href: connectedHref(c.id), action: "See it" };
+  const cantRead = (since: string) => ({ ...base, ...fix, title: `${tool} from ${org} can't be read since ${dayOf(since)}`, detail: `An owner of ${org} can fix it.` });
+  if (facts.reads === "source") return cantRead(facts.since ?? now.toISOString());
+  if (c.health.state === "broken") return cantRead(c.health.since ?? c.health.lastCheckedAt ?? now.toISOString());
+  if (facts.reads === "paused") return null;
+  const failedSince = c.collect?.failedSince;
+  if (failedSince && now.getTime() - Date.parse(failedSince) >= COLLECT_FAILED_DAYS * DAY_MS) {
+    return { ...base, href: connectedHref(c.id), title: `${tool} from ${org} needs you`, detail: `Collecting its numbers has failed since ${dayOf(failedSince)}, so the newest are missing. Press Check now on it to see why.`, action: "Fix" };
+  }
+  if (c.pausedAt && now.getTime() - Date.parse(c.pausedAt) >= PAUSED_DAYS * DAY_MS) {
+    return { ...base, href: connectedHref(c.id), title: `${tool} from ${org} is paused`, detail: `Paused since ${dayOf(c.pausedAt)}, so no new numbers are collected. Resume it, or stop using it if you no longer need it.`, action: "Open" };
+  }
+  return null;
+}
+
+export interface DataSourceDeps extends Pick<SourceDeps, "controlDb" | "regionDb"> {
+  db?: FirestoreLike;
+  now?: Date;
+}
+
+/**
+ * The brand's connected data sources that need someone: equality on status only. A brand's part is
+ * checked live first (partLive, then its source's state, one cache for the read), and whether this
+ * person owns the brand's organisation is read live only when a part needs someone.
+ */
+export async function dataSourceItems(ctx: TenantContext, deps: DataSourceDeps = {}): Promise<ReviewItem[]> {
+  const now = deps.now ?? new Date();
+  const connections = await forTenant(ctx, deps.db).dataConnections.find({ where: [["status", "==", "connected"]], limit: 50 });
+  const facts = new Map<string, PartFacts>();
+  const shared = { db: deps.db, controlDb: deps.controlDb, regionDb: deps.regionDb, partCache: new PartCache() };
+  for (const c of connections) {
+    if (!c.source) continue;
+    const f = await partFactsOf(ctx, c, shared).catch(() => null);
+    if (f) facts.set(c.id, f);
+  }
+  const items = (owner: boolean) =>
+    connections.map((c) => dataSourceItem(c, now, c.source ? (facts.has(c.id) ? { facts: facts.get(c.id)!, owner } : null) : undefined)).filter((i): i is ReviewItem => !!i);
+  const first = items(false);
+  if (!first.some((i) => i.action === "See it")) return first;
+  const control = deps.controlDb ?? deps.db;
+  const owner = await organisationContextFor(ctx, control)
+    .then((o) => o?.isOwner === true)
+    .catch(() => false);
+  return owner ? items(true) : first;
 }
 
 /**
@@ -504,10 +579,31 @@ const RUN_FAILED: Record<string, string> = {
 /** Most articles due a refresh listed in Review. */
 const MAX_REFRESH_ITEMS = 10;
 
-/** Live articles due a refresh (BLOG_FRESHNESS_ENABLED), from the freshness watch: one item each. */
-export function refreshItems(due: FreshnessDueItem[]): ReviewItem[] {
-  return due
-    .filter((d) => d.state === "due")
+/** A finished refresh review waiting for a person (BLOG_REFRESH_ENABLED): its article, and how many changes. */
+export interface ReadyReview {
+  planId: string;
+  workspaceId: string;
+  title: string;
+  changes: number;
+  by: "person" | "autopilot" | "vizzy";
+}
+
+/**
+ * Live articles with a refresh ready to look at (BLOG_REFRESH_ENABLED) first, then those due a
+ * refresh (BLOG_FRESHNESS_ENABLED), from the freshness watch: one item each, an article once.
+ */
+export function refreshItems(due: FreshnessDueItem[], ready: ReadyReview[] = []): ReviewItem[] {
+  const readyItems = ready.slice(0, MAX_REFRESH_ITEMS).map((r) => ({
+    id: `content_refresh_ready:${r.planId}`,
+    kind: "content_refresh" as const,
+    title: `Refresh ready: ${r.changes} change${r.changes === 1 ? "" : "s"} to look at`,
+    detail: `${r.title}${r.by === "autopilot" ? " · the autopilot ran the review" : r.by === "vizzy" ? " · Vizzy ran the review" : ""}`,
+    href: refreshHref({ planId: r.planId, workspaceId: r.workspaceId }),
+    action: "Look at changes",
+  }));
+  const readyPlans = new Set(ready.map((r) => r.planId));
+  return [...readyItems, ...due
+    .filter((d) => d.state === "due" && !readyPlans.has(d.planId))
     .slice(0, MAX_REFRESH_ITEMS)
     .map((d) => ({
       id: `content_refresh:${d.planId}`,
@@ -517,7 +613,16 @@ export function refreshItems(due: FreshnessDueItem[]): ReviewItem[] {
       details: d.reasons.map((r) => r.detail),
       href: refreshHref(d),
       action: "Open article",
-    }));
+    }))];
+}
+
+/** Reviews finished and waiting for a person, newest first, with their article's title from the watch's list or the plan. */
+async function readyReviews(ctx: TenantContext, due: FreshnessDueItem[], db?: FirestoreLike): Promise<ReadyReview[]> {
+  const rows = await forTenant(ctx, db).articleReviews.find({ where: [["state", "==", "ready"]], limit: MAX_REFRESH_ITEMS });
+  const titles = new Map(due.map((d) => [d.planId, d.title] as const));
+  return rows
+    .sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))
+    .map((r) => ({ planId: r.planId, workspaceId: r.workspaceId, title: titles.get(r.planId) ?? "A live article", changes: r.proposals.length, by: r.by }));
 }
 
 export function nextArticleItems(runs: AutopilotRun[], nowMs = Date.now()): ReviewItem[] {
@@ -641,13 +746,15 @@ export async function loadReview(
   const dueArticles = isBlogFreshnessEnabled()
     ? await soft("articles due a refresh", readDueArticles(ctx, { db }), [] as FreshnessDueItem[])
     : [];
+  // Refresh reviews done and waiting for a person (BLOG_REFRESH_ENABLED).
+  const readyArticles = isBlogRefreshEnabled() ? await soft("refreshes ready", readyReviews(ctx, dueArticles, db), [] as ReadyReview[]) : [];
   // New person drafts only where this user can open the form: admins, who alone add someone
   // (decision 28), with the People list on screen. Field suggestions show to everyone, since the
   // person's page tells a member that an admin confirms.
   const people = { fields: isVizzyFieldsEnabled(), drafts: isVizzyAddPersonEnabled() && canAddPeople(ctx.role) };
   const personSuggestions = people.fields || people.drafts ? await soft("person suggestions", personSuggestionItems(ctx, people, db), [] as ReviewItem[]) : [];
   // Data sources that need someone: admins only, while collected numbers are on.
-  const dataSources = isConnectorsCollectEnabled() && ctx.role === "admin" ? await soft("data sources", dataSourceItems(ctx, db), [] as ReviewItem[]) : [];
+  const dataSources = isConnectorsCollectEnabled() && ctx.role === "admin" ? await soft("data sources", dataSourceItems(ctx, { db }), [] as ReviewItem[]) : [];
   // What collected numbers suggest: admins only, while signals are on, from planning connections.
   const numberSuggestions = isConnectorSignalsEnabled() && ctx.role === "admin" ? await soft("number suggestions", signalReviewItems(ctx, { db }), [] as ReviewItem[]) : [];
   const liveConnections = connections.filter((c) => c.kind === "custom" && c.status !== "revoked");
@@ -673,7 +780,7 @@ export async function loadReview(
     ...competitorItems(competitors, competitorNews),
     ...nextArticleItems(autopilotRuns),
     ...numberSuggestions,
-    ...refreshItems(dueArticles),
+    ...refreshItems(dueArticles, readyArticles),
     ...(opts.includeContent ? await loadContentHubItems(ctx, activeWorkspaces) : []),
   ].filter((i): i is ReviewItem => !!i);
 

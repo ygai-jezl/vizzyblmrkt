@@ -4,6 +4,535 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0016 · Ideas: a launch is an idea being tested, in the app's words and Vizzy's (piece D) (2026-11-25)
+
+Context: a launch is a waitlist, and teams start one to test a business idea before they build it.
+Piece D (wave 3 of the build plan) makes that test visible: what the team expects, where the test
+stands, what happened, and the product it became. The CRM plan's spine starts at Idea, so the app
+calls launches ideas, which means the content programme's Idea Board needs another name, and the
+public API, Vizzy and the help have to agree. Connectors 3 (#231) is ADR-0015.
+
+Decided (the owner approved plan-piece-d with these picks):
+
+1. **Status versus archive.** `campaigns.idea` is an optional map (`IdeaSchema`,
+   `src/lib/types/campaign.ts`): a hypothesis (500 characters at most), a status (Exploring,
+   Testing, Validated, Launched, Parked or Killed) with who set it and when, an outcome (2,000 at
+   most), the product connection it was handed off to with who and when, and Just a list. A cleared
+   field is written as `null`, never left undefined. The status is the team's judgement and is
+   separate from `archivedAt`, which closes the waitlist: nobody new joins, both journeys pause and
+   scheduled broadcasts go back to drafts. So Parked and Killed only *offer* to close it, with an
+   unticked "Also close the waitlist" that calls `setLaunchArchived` after the status is saved; if
+   closing fails, the status stays and the card says so. A launch made before ideas has no status,
+   never Exploring by default. Status and hand-off changes commit through `writeRecordWithEvents` as
+   `record.field_changed` events (`sys.idea.status`, `sys.idea.product`) on `idea:<campaignId>`;
+   hypothesis and outcome edits are not events, and have no agent path until piece C. Only admins
+   change the card (PATCH `/api/admin/campaigns/[campaignId]/idea`: origin, switch, sign-in, admin,
+   strict body); members keep New idea, as they could create a launch before. `any` joins
+   `RESERVED_CAMPAIGN_IDS`, beside `new`, because every person on a launch carries `launch:any`.
+   Rejected: archiving on Parked or Killed (too much as a side effect of a status), and a default
+   status for old launches.
+2. **Just a list.** A newsletter or sign-up list is a launch today but not an idea, so
+   `idea.justAList` hides the card (one line with Make it an idea stays), the status badge and the
+   compare box, and leaves it out of comparisons and of People's In more than one idea.
+3. **`launches:many`.** A person in two or more live launches that aren't Just a list carries the tag
+   `launches:many` (`summarize` in `personLinks.ts`, through `derive()` in `personSync.ts`, so all
+   three callers get it), while `LAUNCH_IDEAS_ENABLED` is on. It can't collide: launch ids have no
+   colon, and no other tag starts `launches:`. A sync reads the brand's Just a list ids (an equality
+   read, no composite index) only for someone in two or more launches. Ticking or unticking Just a
+   list records `campaigns.peopleResync` in the same commit and answers; the lifecycle tick's person
+   sweep then flags, a page at a time from a cursor, only the people whose tag can change (ticked:
+   those with `launches:many` on that launch; unticked: those on it and another launch, without the
+   tag), so a newsletter of thousands never holds up the save. People filters by it on both filter
+   bars. Existing people get it from `backfill-person-links --contacts-only`.
+   Rejected: counting every launch, which costs no read but shows someone on the newsletter and in
+   one idea as "in more than one idea".
+4. **The words follow two switches.** The screens say idea only when nav v2 phase 3,
+   `NEXT_PUBLIC_NAV_IDEAS_ENABLED` (build and runtime) and `LAUNCH_IDEAS_ENABLED` (runtime) are all
+   on: `isIdeaWordsEnabled()`, worked out on the server. `LAUNCH_IDEAS_ENABLED` on with the words
+   off is a valid setting: the features work and still say launch. The admin layout passes the
+   answer to the shell (sidebar, header, ⌘K, ShellProvider) as a prop, as B did for People, and to
+   a new `WordsProvider` for client components deep in the launch screens. `ideaWord(on)` carries
+   the article and possessive ("an idea", "idea's"). A message a help page quotes is written out as
+   a literal pair, so the help test still finds it in the source. Help bodies take `ideaWords`, and
+   the How to drawer and ⌘K pass the shell's, since the browser reads server switches off;
+   `help.test.ts` checks that no help page says launch with the words on, apart from "Launch
+   product", the general sense ("about our launch", "such as a launch or an award"), the public
+   API's own archived message, link addresses and identifiers such as `launch_closed`. Home's stage 2
+   and help's "2 · Launch" become Idea; "Launch product" stays. Routes, the `campaigns` collection,
+   slugs, anchors and stored text (canvas card titles, the "Launch updates" unsubscribe category, old
+   Review titles) keep launch. Nav v1 keeps launch: the words need phase 3.
+5. **Scrapbook without a switch.** The Idea Board becomes the Scrapbook and its items clippings, for
+   everyone. Piece 0's search labels already say Scrapbook and Clipping in prod, so a switch would
+   only keep the screens disagreeing with search, and this way only one thing is ever called ideas.
+   The route (`/curate/idea-board`), the `idea_items` collection and the search kind `idea_board`
+   keep their names; the registry's `content_idea` is the Scrapbook clipping.
+6. **Vizzy names both words.** Vizzy can't read the switch, so the root, Campaign Ops and Lifecycle
+   Ops instructions each carry one line: "The app may call a launch an idea; same thing, same id."
+   Every message a tool hands Vizzy to relay says waitlist where it said launch, so it reads right
+   either way; docstrings and tool arguments (scope "launch", campaign ids) keep launch.
+   `agents/root_agent/tests/test_idea_words.py` checks the glossary and reads every tool module's
+   strings with `ast`. Vizzy is redeployed on dev once D merges, and on prod with D's promotion,
+   before the words switch goes on there, not with K. Rejected: both words in every module (about 22
+   files for no better answers).
+7. **Piece K owns the API's names.** The public API keeps launch: `/api/v2/signups`, its errors
+   (`launch_closed`, "This launch is archived, so it takes no new sign-ups."), the OpenAPI document
+   and the SDK. So do the emails end users receive and the marketing site. While the words are on,
+   the two developer pages that name a launch (Sign-ups from your site, Sending users) carry a note
+   that an idea is a launch with the same id and site key, and that the API keeps the word. Renaming
+   the API is piece K's, so it isn't lost here.
+8. **The freshness fix (group 5), behind `BLOG_FRESHNESS_ENABLED`.** When a tick ran out of time,
+   `sweepBrand` stopped, still set `nextAt` a day ahead and wrote counts, due rows and pages for the
+   articles it reached only. It reads articles in the same order every day, so a brand's oldest
+   articles were never looked at. Now the brand's record (`fw_<tenant>`) gets an optional
+   `lookStartedAt`, placed after `nextAt`. A look the deadline cuts short sets `nextAt` to now and
+   `lookStartedAt`, so it goes on at the next tick, which passes over the articles whose `sweptAt` is
+   on or after `lookStartedAt`. Meanwhile nothing drops off: an article not reached counts as its
+   last stored state and keeps its row from the previous due list, and `pages` lists every live
+   article. A look older than a day starts over. The look that reaches the last article clears
+   `lookStartedAt` and sets `nextAt` a day ahead, as before. No new switch, and no Idea file, so it
+   can be cherry-picked alone. Private #35 (freshness on in prod) waits until D is in prod. A Search
+   Console erase (#231) starts a look going over when that look wrote a Search Console reason
+   (`searchConsoleInLook`): the erase writes `lookStartedAt: null`, and so does a look an erase
+   lands in, so the next look reads every article again and none stays due with no reason. The
+   lane's retries of a pending erase find a look that wrote none, and let it finish.
+
+What follows: no new collection, index, rule or dependency. D reads `campaigns` (tenantId,
+createdAt DESC) and 0e's `ontology_events` (tenantId, subjectKey, at DESC), whose index must be
+READY in an environment before `LAUNCH_IDEAS_ENABLED` goes on there. Both switches ship `"false"`;
+the private dev overlay keeps them off until the hand-run sync, then `LAUNCH_IDEAS_ENABLED` goes on
+and the backfill runs, then the words switch (a rebuild).
+
+---
+
+## ADR-0015 · Organisations share connections (Connectors 3) (2026-11-24)
+
+Context: an organisation (ADR-0009) holds several brands. Until now each brand connected Search
+Console, Google Analytics 4 or Cloudflare on its own, so an organisation with three brands signed in
+three times, held three refresh tokens and split one provider budget three ways without knowing it.
+Connectors 3 lets an organisation connect once and give each of its brands one part of that
+connection: a site, a property or a zone. Each brand's numbers are still collected, kept and read in
+that brand and its region, exactly as for a brand's own connection (ADR-0011, ADR-0012).
+
+The research behind it, and what it changed (plan `plan-connectors-3.md`, "What the research
+changed"):
+
+- **A connection can't simply grow an owner.** A `data_connections` record has one `account`, one
+  `tenantId` and grants that name readers inside one brand, and its secrets are sealed with
+  `${tenantId}:${connectionId}:${slot}` bound in (`src/lib/connectors/vault.ts`). So the
+  organisation gets a record of its own for the sign in, and each brand an ordinary brand record for
+  its part. Nothing existing moves.
+- **One token reads every part its identity can see.** Google: "Access tokens are valid only for the
+  set of operations and resources described in the `scope`"
+  (https://developers.google.com/identity/protocols/oauth2); `accountSummaries.list` "Returns
+  summaries of all accounts accessible by the caller"; `sites.list` "Lists the user's Search Console
+  sites". Cloudflare: a token policy can "Include a single zone, all zones in an account, or all zones
+  in all accounts" (https://developers.cloudflare.com/fundamentals/api/how-to/create-via-api/). The
+  part a brand is given is YouGrow's own wall: checked on every token and every read, and the account
+  lists never reach a brand admin.
+- **One sign in per organisation is kinder to Google's limits.** "There is currently a limit of 100
+  refresh tokens per Google Account per OAuth 2.0 client ID", and "creating a new refresh token
+  automatically invalidates the oldest refresh token without warning"
+  (https://developers.google.com/identity/protocols/oauth2).
+- **Revoke reaches too far.** "Revocation removes all OAuth 2.0 scopes previously granted to a
+  project, invalidating any issued access or refresh tokens for all clients"
+  (https://developers.google.com/identity/protocols/oauth2/web-server). Ending one brand's part never
+  revokes. Only an owner's Disconnect of the organisation's connection (whose confirm warns) and the
+  operator's organisation purge may, and only with `CONNECTOR_GOOGLE_REVOKE_ENABLED`. A disconnect
+  nobody asked for (the lane's sweep, a move that empties the organisation, an id taken up again)
+  empties the sealed secrets, so YouGrow keeps no usable token, and never revokes: it would end the
+  same Google account's sign ins for other organisations and brands. A brand's own Disconnect (and
+  the brand purge) doesn't revoke either while its organisation holds a connected Google sign in
+  made by the same person, the only hint YouGrow keeps of who the Google account is.
+- **Quotas differ by provider.** GA4 counts per property and per project per property ("Core Tokens
+  Per Project Per Property Per Hour | 14,000",
+  https://developers.google.com/analytics/devguides/reporting/data/v1/quotas). Search Console counts
+  per site and per user, and "The "quota exceeded" error is the same for all quota exceeded events"
+  (https://developers.google.com/webmaster-tools/limits). Cloudflare: "The default quota is 300
+  GraphQL queries over 5-minute window" per user
+  (https://developers.cloudflare.com/analytics/graphql-api/limits/).
+- **No transaction crosses databases.** Firestore runs no query or transaction across databases
+  (`docs/REGIONAL-DATA-RESIDENCY.md` section 2, ADR-0002), and a move commits in `(default)` only
+  (`src/lib/tenant/organisations.ts`). So leaving holds "at once" only because every token and every
+  read checks the part live, and a give across regions is three steps.
+- **Google's data policy is about consent and disclosure.** Transfers are allowed "To provide or
+  improve your appropriate access or user-facing features that are visible and prominent in the
+  requesting application's user interface and only with the user's consent", and a new use needs
+  users to "consent to an updated privacy policy"
+  (https://developers.google.com/terms/api-services-user-data-policy). Showing one sign in's numbers
+  to several brands inside YouGrow is our reading of "a user-facing feature", not Google's words. It
+  holds only with the signer's consent (only they see the list and give its parts), the privacy
+  paragraph in the deployment's own policy, and Google's verification describing it.
+
+### Already decided (binding)
+
+- Connectors plan v5 decisions 7, 8 and 9: organisations exist and brands are joined only on purpose;
+  the three read connectors are open to every brand; the screens keep "Connections" with Browse and
+  Connected.
+- v5 organisation rules 1 to 5: a connection belongs to one brand or one organisation; shared means
+  split, one part per brand; no parts, no automatic sharing; organisation owners share, brand admins
+  use their part; data stays with the brand.
+- v5 connector rules 1 to 8: secrets never reach a browser or Vizzy, end access at the source on
+  Disconnect, mark parts outside the brand's domains, rate limits per brand.
+- "An address per connection, everywhere (never one shared address)." An organisation's Google
+  address serves its own brands only.
+- Build plan decision 13: connector routes reuse `integrationsAdmin` with `sameOriginGuard`.
+  Decision 32: `CONNECTORS_VAULT_KEY`, and connections live in the brand's region. Decision 33: the
+  identities project.
+- ADR-0009's ADR-0003 P2 note: organisation rights are read live from `ownerIds` on every action,
+  never from the session's claims.
+- Connectors 2: collecting is not reading, and every way out checks the brand's grants; planning
+  uses a connection only when members and Vizzy may both read it; Disconnect and Change property
+  erase everything that came from the connection; `collect.gen` keeps an old part's numbers apart;
+  collector holds never block live reads.
+
+### Decided here (picks 1 to 22 of the plan, with the owner's answers of 24 Nov)
+
+1. **Two records.** `organisation_connections/{ocn_...}` holds the sign in: the sealed token, the
+   Google address or the pasted key, its health, its pause, its collect hold and the list of parts
+   given out. Each brand gets an ordinary `data_connections` record (`dcn_`) in its own region, with
+   `account` set to its part, no secrets, no address, and a new optional
+   `source { organisationId, connectionId, region }`. Collect, snapshots, generations, erase, brand
+   search, signals, Vizzy and Review work per brand record, unchanged.
+2. **Any region (the owner's answer, 24 Nov, 19:40).** The organisation's record lives in the
+   regional database of the brand it was connected from and never moves, even when that brand
+   leaves. Its parts can go to the organisation's brands in any region. Each brand's record, its
+   settings, its collected numbers, signals and search entries stay in that brand's own region.
+   `source.region` names where the sign in is kept, so every lookup reads the right database. Only
+   the sign in's record is reached across regions: its token is read into server memory, `partLive`
+   reads its part list, and the token keeper writes its lease and health there. Collected numbers
+   never cross. The cost: giving, changing and taking back a part are three steps over two
+   databases, and an outage of the sign in's database stops every brand it serves.
+3. **Names.** "Part" in the code (`parts`, `source`), "Given to" and "From <organisation>" on screen,
+   so "grant" keeps meaning a reader inside a brand and "share" keeps meaning share access.
+4. **Organisation admins are its owners,** read live from `ownerIds` on every action, until M
+   brings roles.
+5. **Giving a brand a part needs its admin, read live:** `isBrandAdminLive`
+   (`src/lib/tenant/organisationContext.ts`), a `tenant_users` row with role admin, or the brand is
+   the caller's verified home brand and the session's claims say admin. The claims case carries
+   ADR-0003 P2 (claims last up to 5 days, no role can be lowered today); before M lets a role be
+   lowered it must revoke refresh tokens or read live claims, and this helper follows.
+6. **For a Google sign in, only the person who signed in sees its list and gives its parts.** A
+   Google address and a pasted Cloudflare token are the organisation's own grant at the provider, so
+   any owner who is the brand's admin may.
+7. **A named signer** (`signerUid`), a warning when they are no longer an owner, and a careful Sign in
+   again that lists what the sign in serves first and checks each part with the new token.
+8. **No plan gate (the owner's answer).** Sharing is open on every plan.
+9. **`partLive` checks every token and every read of what a part collected**
+   (`src/lib/connectors/sources.ts`): the three switches (`CONNECTORS_SHARING_ENABLED`,
+   `CONNECTORS_ENABLED`, `PLANS_ENABLED`); the brand's registry record, read live and uncached, names
+   the source's organisation and isn't suspended, and the organisation lists the brand; the source
+   record, read by id in the region `source` names, belongs to that organisation, is connected and
+   has the same connector and method; and its `parts` hold an `active` entry for exactly this brand,
+   region, part and brand record. A token also needs the source not paused and its sign in working.
+   A read error refuses this time and ends nothing. It runs on every token mint, the numbers route,
+   suggestions, brand search, signals and planning, Review's suggestions and the Connected view's
+   collected line. Brand records with no `source` skip it at no cost.
+10. **Every end of a part erases what came from it, as Disconnect does.** Take back, Stop using,
+    Disconnect at the organisation, and a brand leaving or moving organisation mark the brand record
+    disconnected with `collect.erasePending: "all"`. Housekeeping ends a part only on positive
+    evidence: the brand's raw registry record points at another organisation or none; the source
+    record is missing or disconnected; or the part's entry is gone, `ending`, or `active` with
+    another part or brand record. Never on a switch state, never on a read error, and never on a
+    cached read: the lane's run wide cache serves read only checks, and an end reads the brand
+    record and the part again with no cache, then checks the evidence once more inside step one's
+    transaction, so a part given or changed while the lane runs survives. A suspended brand's part
+    ends on the same evidence (the lane gives suspended brands their parts' housekeeping only).
+    **v5 rule 6
+    changes to:** "Leaving ends access at once. What was collected through the organisation is
+    erased; the brand's own connection fills it again."
+11. **Brand admins run their own part:** readers, pause and Stop using. No Sign in again, no picker,
+    no Check access and no address on a part: `startSignIn`, `finishSignIn`'s `again` path,
+    `listAccounts`, `pickAccount`, `checkAccess` and `shareConnect` refuse a record with a `source`
+    (`managed_by_organisation`). A brand Disconnect of a part is Stop using: it never revokes, never
+    deletes an address and empties any secrets. A part record never holds secrets, and the token
+    branch ignores any it finds.
+12. **Rate limits, holds and failures sit where they belong.** `safeFetch` adds a third bucket per
+    organisation connection, `connector-src:<connector>`, from a data only `limits.source` in each
+    manifest (Search Console 100 a minute and 1,500 an hour; GA4 40 and 480; Cloudflare 40 and 600).
+    A Search Console or Cloudflare quota answer sets `collectHold` on the organisation's record, so
+    collection pauses for every part; a GA4 hold stays on the brand's own record, because GA4 counts
+    per property. Failures of the sign in (Google's `invalid_grant`, a token turned down outright, a
+    secret that won't open) go on the organisation's record; failures of one part
+    (`account_refused`, `share_access_lost`, `share_not_visible`) stay on that brand's record. The
+    share address cap (5) counts per organisation for organisation connections.
+13. **One part per brand per connection, a part given once per connection, and no part a brand
+    already reads with its own connection.**
+14. **Screens:** Settings › Organisation (owners who are admins of the brand they are in), Browse ›
+    Listing "Connect for", and "From <organisation>" rows on each brand's Connected view.
+15. **Switches:** `CONNECTORS_SHARING_ENABLED` (groups 1 to 3) and `ORGANISATION_JOIN_ENABLED`
+    (group 4), both server side.
+16. **The narrow in-app join (the owner's answer)** behind `ORGANISATION_JOIN_ENABLED`: Bring in and
+    Move out need a real `tenant_users` row with role admin for the brand, never the claims case.
+    This changes decision 19's "no join in the app until M" and ADR-0009's "An in-app join waits for
+    H or M". Bring in refuses anything narrower, inside the move's transaction: the plans preview
+    (`accessChanges`, read only) and the plans' own feature lists, because the preview doesn't count
+    the Enterprise features (Enterprise to Ultra is refused). Move out keeps the plan, makes the mover
+    the only owner, and takes up an empty `org_<tenantId>` only after disconnecting what it holds.
+17. **History:** giving, changing and taking back a part write a `connections:shared` version in the
+    receiving brand's `settings_versions`; the organisation's own changes add five kinds to
+    `organisation_changes`, written after the commit. Each step is composed from transaction-taking
+    stage variants inside `src/lib/tenant` (`prepareSettingsChange`, `stageDataConnectionCreate`,
+    `prepareDataConnectionChange`).
+18. **Not here:** sharing a connector with no parts whole, and any connector with a personal stream
+    (a manifest refine refuses `limits.source` beside a personal stream).
+19. **Privacy text** is in the deployment's own policy (private PR); the prod flip of sharing waits
+    for it.
+20. **Order:** piece 3 goes next; O2 adds its History to the Organisation page this piece starts.
+21. **Moves never leave a sign in behind.** Every move ends the brand's parts from the organisation it
+    left. When that leaves the organisation with no brands, every connection it holds, in every
+    region, is disconnected. Before any caller takes up an empty `org_<tenantId>` again
+    (`move-brand.ts --to new`, Move out, `backfill-organisations`, New brand), its connected
+    organisation connections are disconnected first. The lane sweeps each region's connected
+    organisation connections and disconnects those whose organisation is gone or has no brands
+    (its record readable and empty), which also catches moves an older build made. It pages by
+    document id from a starting id that moves on every run and wraps round, so every record is
+    reached however many there are. Every listing by organisation reads every page, and an
+    organisation holds at most 20 connected connections per connector, in every region together.
+    Whether an empty `org_<tenantId>` is taken up again is read from its raw record, as the move
+    decides, so one that doesn't parse is cleared too.
+22. **Turning off or reverting never strands a sign in.** The organisation purge
+    (`connectors-purge --organisation <orgId|all>`) runs whatever any switch says and loops every
+    provisioned region. A part whose brand record couldn't be ended stays listed, as `ending`, so the
+    dry run never says nothing is left while a brand still reads it; and a stored record that
+    doesn't parse is counted as left (its address never deleted as a leftover), as the reseal counts
+    it as one that won't open.
+
+### How a part is given, changed and taken back (three steps, two databases)
+
+- **Give.** Step one, in the sign in's database: the part is added as `pending`, with the brand's id
+  and region, the part, and the brand record's id (`useId`, made first). Step two, in the brand's
+  database, one transaction, every read first: the brand record is created with that id and its
+  `source`, with the settings version beside it. If step two refuses, step one is undone. Step three:
+  the part goes `active` if it is still `pending` with this `useId`; if it is gone, the brand record
+  just made is ended.
+- **Change.** Step one: the part goes `pending` with the new part, keeping the old one in `was`. Step
+  two: the brand record's `account` changes, `collect.gen` goes up and the old generation joins
+  `erasePending`. Step three: `active`, `was` dropped.
+- **Take back, Stop using, leaving.** Step one: `ending`. Step two: the brand record disconnected with
+  `erasePending: "all"` and any secrets emptied. Step three: the entry leaves `parts`. Stop using
+  runs step two even when the sign in's database can't be written.
+- **Repairs,** by housekeeping, only when the other record is readable and disagrees: a `pending` part
+  older than 10 minutes whose brand record matches is made `active`, one whose brand record reads the
+  `was` part goes back to it, one whose brand record is missing or disconnected is removed; an
+  `ending` part is finished. A read error, or any switch state, repairs nothing.
+
+### Vault and addresses
+
+- Organisation secrets bind `${organisationId}:${ocn id}:${slot}`. Brand ids start `ten_` and
+  organisation ids `org_`, so a blob sealed for one never opens as the other.
+- An organisation's Google address is made by `createOrganisationShareAccount`, described
+  `connection=ocn_... org=<orgTag> copy=<copyTag>`. The brand maker keeps refusing anything but a
+  `dcn_` id, and the brand purge's description match needs `dcn_`, so a brand purge never takes an
+  organisation's address for its own leftover.
+- Reseal covers organisation secrets in every region, so a "zero left" dry run is true before
+  `CONNECTORS_VAULT_KEY_PREVIOUS` is removed.
+
+### Data
+
+- `organisation_connections` (regional, in the sign in's region) and `organisation_connection_activity`
+  (one row per change with who and the code, `ttlAt` 90 days on, never queried). Read by id and by
+  equality on `organisationId` (with `connectorId`) or on `status`, in each provisioned region. No
+  composite index; field exemptions on `organisation_connections.parts` and
+  `organisation_connection_activity.ttlAt`; one `ttl_on` line in `infra/lifecycle/setup.sh`. The
+  index deploy runs `--non-interactive` with no `--force`.
+- `data_connections.source` joins the fields no change can alter (`FIXED`), so no request can point
+  a brand at another record or region. A part's `recent` list takes only kinds older builds know,
+  with new codes (`part_given`, `part_changed`, `part_ended`, `stopped_using`).
+- `data_connection_states` gain optional `organisationId` and `sourceId`.
+- Older builds drop `source` on parse and write patches only, so they never erase it; they find no
+  secret and no address on a part, and read nothing.
+
+### Switches
+
+| Switch | Needs | Self-host |
+| --- | --- | --- |
+| `CONNECTORS_SHARING_ENABLED` | `CONNECTORS_ENABLED` and `PLANS_ENABLED` | `KEPT_OFF`, addon null |
+| `ORGANISATION_JOIN_ENABLED` | `PLANS_ENABLED` | `KEPT_OFF`, addon null |
+
+**What each switch leaves behind when turned off:**
+
+| Off | Stops | Stays until |
+| --- | --- | --- |
+| `CONNECTORS_SHARING_ENABLED` | the Shared connections section, connecting and giving parts, every part's live reads, collection and collected numbers | parts' numbers (unreadable) expire within 90 days, or Take back, Disconnect or the purge removes them; organisation records keep sealed tokens and Google addresses until Disconnect or the organisation purge; housekeeping for brands that left, and repairs of half-done gives and take backs, still run; the sweep and moves that empty an organisation disconnect its connections without revoking at Google (only an owner's Disconnect or the purge revokes, with `CONNECTOR_GOOGLE_REVOKE_ENABLED`) |
+| `ORGANISATION_JOIN_ENABLED` | Bring in and Move out | nothing: moves already made stay, as with `move-brand.ts` |
+| `PLANS_ENABLED` | organisations, so every part reads nothing | as for sharing; no part is ended for it |
+| `CONNECTORS_ENABLED` | everything | the purge, brand and organisation, still erases, whatever any switch says |
+
+### Reverting the whole pull request (the runbook)
+
+1. With the new build still running, Disconnect every organisation connection, or run
+   `npx tsx scripts/connectors-purge.ts --organisation all` (the dry run first), then with
+   `--apply --by <label>`. It loops every provisioned region and runs whatever any switch says.
+2. Run the dry run again and check it says nothing is left.
+3. Only then revert.
+
+Why: older builds can't read organisation records or remove their addresses, so after a revert
+nothing could. Parts are already disconnected by step 1, and an older build reads any left as a
+connection with no secret, so nothing is read; numbers leave through their time to live.
+
+Rejected: an `organisationId` on today's records with a list of parts (every reader would have to
+learn parts, and an older build would read every part); keeping every sign in in `(default)` (tokens
+of European and Asian organisations would sit in the United States); the same region only (an
+organisation with brands in two regions would connect once per region); and one Google address
+shared across organisations (the confused deputy of Connectors plan v2).
+
+---
+
+## ADR-0014 · Email and password sign-in behind one door (2026-11-24)
+
+Context: the admin app signed in with Google only (ADR-0003), enforced in `ensureAdminAccess`.
+Someone on `ADMIN_ALLOWED_EMAILS` without a Google account couldn't sign in at all. Passwords bring
+risks Google sign-in doesn't have: anyone can create a password account for an address they don't
+own (a squat), link their own login to it (a trojan), or get the mailbox owner to confirm it for
+them. YouGrow already gives an account its brand, role and session in one place: every read and
+write goes through the server behind one session cookie, and the Firestore rules deny every
+browser read and write. So the new checks go in that one place too, and need no new service.
+
+Decided, behind `PASSWORD_SIGNIN_ENABLED` (off: sign-in is Google only, as before). Five rules:
+
+1. **One door.** Only `/api/auth/session` (`ensureAdminAccess` in `src/lib/auth/session.ts`) gives
+   an account claims (tenant, region, role) or a session cookie. Verifying tokens, session cookies,
+   custom claims, revoking and deleting Auth users happen only in `src/lib/auth/**`, plus the local
+   seed `src/lib/dev/seedAdmin.ts`. `src/lib/auth/oneDoor.test.ts` fails when any other file in
+   `src` does one of these or imports `firebase-admin/auth`.
+2. **Nothing for an unconfirmed address.** The door accepts Google and password sign-ins only, and
+   refuses an account whose email isn't verified, or that carries a sign-in for another address (a
+   trojan): the token's email must be the account's, and every linked sign-in must be Google or
+   password for the account's own address. A password account that hasn't confirmed its code gets
+   403 `email_not_verified`. One mismatch is let in: the same Google account under a new address
+   (a Workspace rename). The door remembers each admin's Google account id, which Google never
+   changes, in the custom claim `google_id`: set with the other claims at the first sign-in, and
+   added at the next Google sign-in for accounts made before it (never at a password sign-in). On an
+   established account, a Google sign-in with the account's own email, whose only linked Google
+   sign-in now carries another address, passes as a rename when that sign-in's id, the token's
+   Google identity and the remembered `google_id` are all the same. The new address is then checked
+   against the admin list like any other (not allowed: refused, nothing changed). Allowed, the
+   account's address becomes the new one (`emailVerified` stays true), `auth_google_address_renamed`
+   is logged with the old and new domains only. Firebase treats an email change as a major account
+   change and revokes the account's tokens, this sign-in's and every other device's session, so a
+   refreshed token can't come back through the door. The door answers 409 `address_updated`
+   instead: the browser signs out of Firebase and says the Google address changed, and the
+   admin's next Google sign-in carries the new address and gets in as usual. If another account
+   already has the new address, it is refused and logged as `auth_google_rename_conflict`; any
+   other failure to update the account is logged as `auth_google_rename_failed`, and failing to
+   record the id as `auth_google_id_record_failed` (the sign-in still goes ahead).
+3. **Prove the mailbox in the same tab.** A password account is confirmed only by typing the emailed
+   6 digit code into a browser signed in to that account. The check route then sets `emailVerified`
+   and the custom claim `email_code` (the marker).
+4. **Distrust a first sign-in we can't explain.** On an account's first visit (no `tenant_id` claim
+   yet) it passes only if it is untouched (`tokensValidAfterTime` absent or within 1 second of
+   `creationTime`: no reset, password change or takeover since it was made) and either has the
+   marker, or Google created it in this same sign-in (`creationTime` within 3 seconds of the
+   token's `auth_time`). Both windows are tight on purpose: Firebase writes these times to the
+   second, and someone can register an address again the moment the door removes a squat, so the
+   owner's retry must not count as having created that new squat. The token's sign-in method must
+   also still be linked to the account. Anything else is deleted, logged as `auth_account_removed`
+   with the address's domain only, and answered 409 `sign_in_again`, but only when the address
+   could get in: an address on no list is refused as before, kept, and not counted as a removal. Deleted, not cleaned: a code a squatter saved
+   for the account (to change its email, say) still works after a clean-up and stops only once the
+   account is deleted. Deleting is safe because the account holds nothing of ours yet. A trojan on
+   an established account is refused and kept, logged as `auth_sign_in_refused`. When it has the
+   shape of a rename (rule 2) but no Google id is remembered for the account, the reason is
+   `provider_email_changed`; a remembered id that doesn't match is a `trojan`. First sign-ins are
+   unchanged: a trojan there is removed, renamed or not. The judgement is one pure function,
+   `judgeSignIn` in `src/lib/auth/trust.ts`, with a table test.
+5. **Passwords stay with Identity Platform.** Sign-up, sign-in, reset and change password go from
+   the browser to Identity Platform. Our server never receives, logs or stores a password.
+
+The owner's decisions, D1 to D7, all as recommended:
+- **D1: a code, not a link.** With a link, the mailbox owner can click Confirm on an account a
+  stranger created and set the password for, which here would hand the stranger an address on the
+  admin list. A code typed into the tab that holds the password closes that, keeps people in one
+  tab, and needs no action page of ours. Codes are 6 digits, stored hashed, work for 10 minutes and
+  5 tries, one live code per account, limited per visitor, account and address, and sent only to
+  addresses that may get in (the answer is the same either way). Each address also has a hard cap
+  kept in the database: 6 sends an hour, and 15 wrong codes a day, after which its codes lock
+  (POST answers 429 `code_locked`, PUT answers 400 `code_locked`, and `auth_code_locked` is logged
+  once, with the domain only).
+  **The link, only once the code is locked.** The code screen then offers "Email me a link
+  instead" (`POST /api/auth/email-code` with `via: "link"`). The link holds 32 random bytes, so it
+  can't be guessed and needs no cap on wrong tries; it goes through the same gate and limits as a
+  code and counts toward the address's 6 sends an hour, but the lock doesn't stop it. It is built
+  only from `EMAIL_LINK_ORIGIN`, else `NEXT_PUBLIC_PLATFORM_ORIGIN` (the rule unsubscribe and
+  invite links follow), never a request header (neither set: 503 `link_unavailable`), with the token in the fragment (`/login/confirm#t=...`), which browsers
+  never send to a server. It is stored hashed with the account's uid and address in
+  `email_confirm_links`, so it works only in a browser signed in to that account (the page asks
+  for the email and password first); that keeps D1's point, since a stranger's account can't be
+  confirmed by the mailbox owner clicking. It works once, for 30 minutes, one live link per
+  account. `PUT` with `link` confirms the account exactly as a right code does; anything else is
+  400 `link_invalid`.
+- **D2: Firebase sends the reset email.** No reset route, template, rate limit or timing pad of
+  ours. Its link lands on `/auth/reset`, which finishes the reset in the browser. Safe because a
+  reset revokes the account's tokens, so rule 4 removes an account reset before its first sign-in.
+- **D3: the domain list stays Google only.** `ADMIN_ALLOWED_DOMAINS` matches Google sign-ins only;
+  a password account needs its exact address on `ADMIN_ALLOWED_EMAILS`. A password sign-in allowed
+  only through the domain list gets 403 `google_only` (`isAllowedAdmin` in
+  `src/lib/auth/allowlist.ts` takes the sign-in method).
+- **D4: passwords of at least 12 characters,** set in Identity Platform's password policy and
+  checked in the form first.
+- **D5: unconfirmed password accounts go after 7 days,** in the existing scheduled work
+  (`src/lib/auth/cleanup.ts`). They can never sign in and hold nothing of ours. Until
+  `PASSWORD_CLEANUP_DELETE_ENABLED` is on it only logs what it would delete.
+- **D6: the self-serve switch ships inert.** `SELF_SERVE_SIGNUP_ENABLED` does nothing until
+  self-serve brand creation exists (`isSelfServeSignupOpen` in `src/lib/auth/flags.ts` is false
+  whatever the switch says). The door's self-serve seam refuses, so turning the switch on early
+  can't drop anyone into an existing brand.
+- **D7: email enumeration protection on, one account per email, and reCAPTCHA bot protection in
+  audit mode at go-live,** moved to enforce after a week of its numbers.
+
+Also in this change:
+- **Three alerts,** made by the self-host `addon:password` step from the app's logs and emailed to
+  one recipient: many password sign-ups, accounts removed at sign-in, and sign-in codes locked
+  (`auth_code_locked`, any in an hour).
+- **Sign out everywhere,** `DELETE /api/auth/session?scope=everywhere`: same origin, needs a valid
+  session, revokes every refresh token the account holds (so every session cookie made before it
+  fails `verifySessionCookie` with the revocation check), then clears this browser's cookies. Not
+  behind the switch. This also covers ADR-0003's open item: a revoke now exists to call.
+- **The door verifies tokens with the revocation check** and reads the account as Auth holds it
+  now, so a reset or a sign out everywhere takes effect at the door at once.
+- **The local run has no bypass.** The emulator-only skip of the Google check is gone; the seeded
+  demo admin is verified, has its claims, and links password and Google for its own address, so
+  `npm run local` and the smoke test pass the same checks as a deployment.
+
+What it replaces in ADR-0003: the "Google Sign-In ... Google-only, no email/password in the UI"
+line, the provider check `isVerifiedGoogleIdentity` (now `judgeSignIn`) with its emulator bypass,
+and the reminder to keep Email/Password sign-in disabled on the production Identity Platform
+project. A deployment turns the provider on when it turns `PASSWORD_SIGNIN_ENABLED` on, and not
+before. The rest of ADR-0003 stands: the claims bootstrap, the session cookie, and a tenant context
+taken only from verified claims.
+
+Accepted risks:
+- A squat made within a second or so of the owner's very first Google sign-in can pass rule 4,
+  when Google's takeover of the account falls inside the windows. A test on a real project
+  confirms Firebase writes these times as rule 4 expects.
+- Creating an account with an address that already has one says so, even with enumeration
+  protection on (Identity Platform documents this). reCAPTCHA and a sign-up volume alert watch it.
+- Someone refused at the door and added to a list later signs in twice: the account from their
+  first try is removed as unexplained, and the next sign-in starts afresh.
+- A Google account on a mailbox Google doesn't run, where a password account for the address
+  already exists, is told to use the password: Google treats only its own mail as proof of an
+  address.
+- Someone holding an account for an address can use up its 6 sends an hour, codes and links
+  alike. The answer stays the same, and the limit resets within the hour. Locking the address's
+  codes no longer shuts out the owner: the link still works, and the alert says it happened.
+- An admin whose Google address was renamed before their Google id was remembered is still
+  refused, logged as `auth_sign_in_refused` with reason `provider_email_changed`, until someone
+  fixes the account by hand.
+- Moving a renamed Google admin to the new address revokes every sign-in the account holds, as
+  any email change does in Firebase: they are signed out on every device, and the first Google
+  sign-in after the rename ends at a message that the address changed; the next one gets in.
+- The reset link's code appears in request logs, because Firebase puts it in the query string. The
+  page scrubs it from the address bar at once, and the code works once and expires.
+
+Rejected: an auth service or Cloud Functions (a sign-up trigger, a nightly reaper), since the app
+already has one door; confirming by link alone (D1); our own reset email (D2); password sign-in for whole
+domains (D3).
+
+Not built: adding a password from Settings to a Google only account (Forgot password does it),
+changing your email, two-factor, passkeys, single sign-on, languages other than English.
+
+---
+
 ## ADR-0013 · Search Console queries are Google's aggregates, so they may enter brand search (decision 37) (2026-11-23)
 
 Context: Connectors 2 group 3 (ADR-0012) puts each Search Console connection's top searches into
@@ -1291,7 +1820,8 @@ Owner decisions (2026-11-20, decisions 17 to 21 of the build plan):
   the same home brand (`src/lib/auth/session.ts`), so "the brand you are in" says nothing
   about which organisation a new brand belongs to. Brands are combined or split only with
   `scripts/move-brand.ts`. An in-app join waits for H or M, as an explicit choice offered
-  to the target organisation's owners. The demo seed and the self-host `workspace` step
+  to the target organisation's owners. (Changed by ADR-0015: the narrow in-app join, Bring in
+  and Move out, behind `ORGANISATION_JOIN_ENABLED`, with a real `tenant_users` admin row.) The demo seed and the self-host `workspace` step
   give their brand a Self-hosted organisation; in the self-host step a failure is a
   warning naming the repair, not a failed step.
 - **The backfill (decision 20).** `scripts/backfill-organisations.ts` gives every brand
@@ -2227,6 +2757,8 @@ Adversarial review (post-build) findings, all addressed:
   manage signups; only NEW grants happen). Before shipping admin-only surfaces
   (org/billing), call `revokeRefreshTokens(uid)` on downgrade or re-read live
   claims for privileged actions.
+
+Superseded in part by ADR-0014 (email and password sign-in behind one door).
 
 ---
 

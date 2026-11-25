@@ -8,10 +8,13 @@ import { draftsThisMonth } from "@/lib/autopilot/runs";
 import { isCompetitorArticlesEnabled } from "@/lib/competitors/flags";
 import { readsThisMonth } from "@/lib/competitors/articles";
 import { lookupsThisMonth } from "@/lib/signals/store";
+import { isBlogRefreshEnabled } from "@/lib/brandMap/flags";
+import { reviewsThisMonth } from "@/lib/content/blog/refreshRecords";
 import { FEATURE_NEEDS, METERED_FEATURES, mayReachWith, mayUseWith, type MeteredFeature } from "./brandAccess";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import {
   ALLOWANCES,
-  ALLOWANCE_LABELS,
+  allowanceLabels,
   COUNTED_ALLOWANCES,
   EE_FEATURES,
   FEATURE_LABELS,
@@ -231,6 +234,7 @@ async function monthlyRows(ctx: TenantContext, tenant: Tenant | null, plansOn: b
     { feature: "next_up", on: isNextUpEnabled(), count: () => lookupsThisMonth(ctx, counters) },
     { feature: "competitor_articles", on: isCompetitorArticlesEnabled(), count: () => readsThisMonth(ctx, counters) },
     { feature: "article_autopilot", on: isAutopilotEnabled(), count: () => draftsThisMonth(ctx, counters) },
+    { feature: "article_refresh", on: isBlogRefreshEnabled(), count: () => reviewsThisMonth(ctx, counters) },
   ];
   const features = Promise.all(
     rows
@@ -316,7 +320,7 @@ function allowanceRow(key: Allowance, plan: Plan | null, used: number | null, us
   const value = counted ? used : null;
   return {
     key,
-    label: ALLOWANCE_LABELS[key],
+    label: allowanceLabels(isIdeaWordsEnabled())[key],
     used: value,
     limit,
     counted,

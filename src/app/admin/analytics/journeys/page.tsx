@@ -6,6 +6,8 @@ import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { WAITLIST_STATUS_LABEL } from "@/lib/journey/waitlistJourneyRows";
 import { loadJourneyInsights } from "@/lib/insights/journeys";
 import { Card } from "@/components/admin/insights/parts";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { ideaWord } from "@/lib/nav/terms";
 
 export const dynamic = "force-dynamic";
 
@@ -20,16 +22,17 @@ export default async function InsightsJourneysPage() {
   const lifecycle = isLifecycleEnabled();
   const j = await loadJourneyInsights(ctx, { lifecycle });
   const anyWaiting = j.welcome.some((w) => (w.waiting ?? 0) > 0);
+  const word = ideaWord(isIdeaWordsEnabled());
   return (
     <div className="space-y-6">
-      <Card title="Welcome journeys" note="one per launch">
+      <Card title="Welcome journeys" note={`one per ${word.one}`}>
         {j.welcome.length === 0 ? (
-          <p className="text-sm text-neutral-500">No launch has a welcome journey yet.</p>
+          <p className="text-sm text-neutral-500">No {word.one} has a welcome journey yet.</p>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-neutral-200 dark:border-neutral-800">
-                <th className={TH}>Launch</th>
+                <th className={TH}>{word.One}</th>
                 <th className={TH}>Status</th>
                 <th className={`${TH} text-right`}>Emails</th>
                 <th className={`${TH} text-right`}>People part-way</th>

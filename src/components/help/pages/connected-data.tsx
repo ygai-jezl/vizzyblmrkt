@@ -1,10 +1,10 @@
 import { H1, H2, H3, Lead, P, Pairs, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
 import { ConnectorTile } from "@/components/admin/connectors/ConnectorTile";
-import { CONNECTED_COPY, PICKER_COPY, SCREEN_COPY, activityWords } from "@/components/admin/connectors/words";
-import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsSearchTextEnabled } from "@/lib/connectors/flags";
-import { COLLECT_HELP, connectedDataHelp, SEARCH_TEXT_HELP, SIGNALS_HELP, VIZZY_COLLECTED_HELP, type ConnectorHelp } from "@/lib/connectors/helpText";
-import { tokenRefusedMessage } from "@/lib/connectors/messages";
+import { CONNECTED_COPY, PART_COPY, PICKER_COPY, SCREEN_COPY, activityWords } from "@/components/admin/connectors/words";
+import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsSearchTextEnabled, isConnectorsSharingEnabled } from "@/lib/connectors/flags";
+import { COLLECT_HELP, connectedDataHelp, SEARCH_CONSOLE_FRESHNESS_ERASED, SEARCH_TEXT_HELP, SIGNALS_HELP, VIZZY_COLLECTED_HELP, type ConnectorHelp } from "@/lib/connectors/helpText";
+import { CONNECTOR_ERRORS, tokenRefusedMessage } from "@/lib/connectors/messages";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
 /** "A and B", or "A, B and C". */
@@ -114,13 +114,17 @@ function ConnectorSection({ c, collect }: { c: ConnectorHelp; collect: boolean }
  * daily (CONNECTORS_COLLECT_ENABLED), and with both on, how Vizzy reads the collected numbers;
  * `connectorsSearchText` whether Search Console's searches go into brand search
  * (CONNECTORS_SEARCH_TEXT_ENABLED, ADR-0013), and `connectorSignals` whether collected numbers
- * suggest what to write (CONNECTOR_SIGNALS_ENABLED). The How to drawer passes what the server said.
+ * suggest what to write (CONNECTOR_SIGNALS_ENABLED). `sharing` is whether organisations share
+ * connections (CONNECTORS_SHARING_ENABLED): then a part your organisation gives your brand, as the
+ * brand's own Connected view shows it, has its own section. The How to drawer passes what the
+ * server said.
  */
 export default function ConnectedDataHelp({
   connectorsChat = isConnectorsChatEnabled(),
   connectorsCollect = isConnectorsCollectEnabled(),
   connectorsSearchText = isConnectorsSearchTextEnabled(),
   connectorSignals = isConnectorSignalsEnabled(),
+  sharing = isConnectorsSharingEnabled(),
 }: HelpBodyProps = {}) {
   const help = connectedDataHelp();
   const google = help.connectors.filter((c) => c.signIn || c.share);
@@ -169,6 +173,14 @@ export default function ConnectedDataHelp({
         <Open href="/help/connected-accounts">Connected accounts</Open> explains. Email sending is set up under{" "}
         <Open href="/admin/account">Settings › Sending</Open>.
       </P>
+      {sharing ? (
+        <P>
+          When your brands share an organisation, its owners can connect Search Console, Google Analytics 4 or Cloudflare once
+          for all of them and give each brand its own site, property or zone, as{" "}
+          <Open href="/help/shared-connections">Shared connections</Open> explains. A part given to your brand shows on Connected
+          like any other connection.
+        </P>
+      ) : null}
 
       {help.connectors.map((c) => (
         <ConnectorSection key={c.id} c={c} collect={connectorsCollect} />
@@ -343,6 +355,57 @@ export default function ConnectedDataHelp({
         </>
       ) : null}
 
+      {sharing ? (
+        <>
+          <H2 id="from-organisation">A part from your organisation</H2>
+          <P>
+            When your organisation gives your brand a site, property or zone from one of its{" "}
+            <Open href="/help/shared-connections">Shared connections</Open>, it shows on{" "}
+            <Open href="/admin/account/connections/connected">Connected</Open> with <strong>From</strong> and your
+            organisation&apos;s name under How. It reads, collects and plans like a connection of your own, and its numbers stay
+            in your brand&apos;s region.
+          </P>
+          <UL>
+            <li>
+              Its card says it is <strong>Managed by</strong> your organisation: its owners choose the part, sign in and fix its
+              access. When your brand keeps its numbers in another region than the sign in, the card says both.
+            </li>
+            <li>
+              Admins choose who can read it, and press <strong>{CONNECTED_COPY.checkNow}</strong>,{" "}
+              <strong>{CONNECTED_COPY.pause}</strong> or <strong>{PART_COPY.stopUsing}</strong>. It has no property to choose, no
+              Google address, no Check access and no Reconnect here.
+            </li>
+            <li>
+              <strong>{PART_COPY.stopUsing}</strong> ends it for your brand at once and deletes what YouGrow collected for it,
+              with the suggestions its numbers made and {SEARCH_CONSOLE_FRESHNESS_ERASED}. Your organisation&apos;s owners see
+              that it stopped. It never removes access at Google or Cloudflare, since the same sign in can serve your other
+              brands.
+            </li>
+            <li>
+              When your brand leaves the organisation, its parts end the same way, and Connected says when it left. A
+              connection of your brand&apos;s own fills its 90 days again within a day.
+            </li>
+          </UL>
+          <Pairs
+            head={["Status", "What it means"]}
+            rows={[
+              [
+                "Needs, with your organisation's name",
+                "Its organisation's sign in needs attention, or YouGrow can't read this part. An owner of your organisation fixes it on Settings › Organisation, and Review lists it under Data sources that need you.",
+              ],
+              ["Paused", "An admin here paused it, and an admin here resumes it. Or your organisation's owners paused it for every brand, and only they resume it."],
+              ["Turned off here", `${CONNECTOR_ERRORS.sharing_off} It comes back as it was when sharing is turned on again.`],
+              [
+                PART_COPY.ended,
+                `Your organisation no longer gives it, so it reads nothing. It leaves Connected within the hour, and what was collected for it is deleted, with ${SEARCH_CONSOLE_FRESHNESS_ERASED}.`,
+              ],
+              [PART_COPY.pending, "An owner is still giving it. It reads once that finishes."],
+              [PART_COPY.unknownCell, "YouGrow couldn't check it with your organisation just now, so it reads nothing this time. Reload the page in a minute."],
+            ]}
+          />
+        </>
+      ) : null}
+
       <H2 id="messages">If you see this</H2>
       <Messages
         rows={[
@@ -365,7 +428,7 @@ export default function ConnectedDataHelp({
           [help.messages.share_access_lost, "Someone took the connection's Google address off the property. Add it again with the role shown, then press Check access on Connected. The message says the day it stopped."],
           [help.messages.share_pending, "Wait a minute, then press Check access again."],
           [help.messages.share_quota, "Sign in with Google instead, or try again later."],
-          [help.messages.share_limit, "Disconnect a shared connection you no longer use, or sign in with Google."],
+          [help.messages.share_limit, "Disconnect one you no longer use, or sign in with Google."],
           [help.messages.share_unconfigured, "Ask whoever runs your copy to set up its identities project, or sign in with Google."],
           [help.messages.signin_unconfigured, "Ask whoever runs your copy to add its Google client, or share access instead."],
           [help.messages.vault_unconfigured, "Ask whoever runs your copy to set CONNECTORS_VAULT_KEY. Nothing can be connected until then."],
@@ -380,6 +443,17 @@ export default function ConnectedDataHelp({
           [help.signInReasons.no_refresh_token, "Remove YouGrow in your Google account, then sign in again."],
           [help.signInReasons.site_not_visible, "Sign in with the Google account that can see the site this connection reads."],
           [CONNECTED_COPY.askAdmin, "You're a member, so you see the connection but can't reconnect it. An admin presses Reconnect on Connected."],
+          ...(sharing
+            ? ([
+                [CONNECTOR_ERRORS.source_broken, "An owner of your organisation signs in again, or fixes its Google address or token, on Settings › Organisation."],
+                [CONNECTOR_ERRORS.source_paused, "An owner of your organisation resumes it on Settings › Organisation."],
+                [CONNECTOR_ERRORS.managed_by_organisation, "Ask an owner of your organisation to change it on Settings › Organisation."],
+                [CONNECTOR_ERRORS.part_ended, "Your organisation took it back, or your brand left it. Ask an owner if you still need it, or connect it for this brand."],
+                [CONNECTOR_ERRORS.sharing_off, "Whoever runs your copy turns on CONNECTORS_SHARING_ENABLED. Every part comes back as it was."],
+                [PART_COPY.pendingLine, "Reload the page in a minute. If it stays, an owner gives it again."],
+                [PART_COPY.unknownLine, "Reload the page in a minute."],
+              ] satisfies Array<[string, string]>)
+            : []),
         ]}
       />
 

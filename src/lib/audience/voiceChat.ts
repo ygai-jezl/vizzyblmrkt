@@ -2,6 +2,8 @@ import { forTenant, getTenantById, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { ConversationTurn } from "@/lib/types/signup";
 import { isPersonId } from "./paths";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { ideaWord } from "@/lib/nav/terms";
 
 /**
  * A voice chat on a sign-up page, in full (piece B): what the person and the brand's voice agent
@@ -42,7 +44,8 @@ export async function loadVoiceChat(ctx: TenantContext, personId: string, signup
   ]);
   return {
     signupId: signup.id,
-    launchName: campaign?.waitlistName || "A launch",
+    // An unnamed launch, in the words in use.
+    launchName: campaign?.waitlistName || ideaWord(isIdeaWordsEnabled()).A,
     brandName: tenant?.tenantName || "your brand",
     personName: [contact.firstName, contact.lastName].filter(Boolean).join(" ").trim() || null,
     at: chat.capturedAt,

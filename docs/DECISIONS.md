@@ -19,10 +19,16 @@ reverts on its own. It left the interval open. This step adds one pure module, i
 numbers. ADR-0017 is step 1 (Declare); ADR-0018 is the onboarding piece (PR A), and Work takes
 ADR-0020 in its own pull request.
 
-Decided (this step makes one change from the approved design: the windows stop at 120 outputs a
-side (item 3), and the owner sees it in this pull request; numbers for the chosen method were
-measured through the real `verdict()` with a seeded generator; numbers for rejected intervals,
-other z values and longer windows come from the same simulation with that one piece swapped):
+Decided (this step departs from the approved design in three places, each recorded below, and
+the owner sees them in this pull request: the windows stop at 120 outputs a side (item 3); the
+design's "about 40 points of edit share at 10 outputs a side" does not hold, so the verdict quotes
+its exact number, and from most before windows at 10 a side says no change could show (item 4);
+and better waits for the guard, both for the guard to reach the check's look and while a guard
+too few to read sits wholly on the worse side of no change, which is stricter than the design's
+"the guard not worse" (item 5). Naming the items that changed between two versions waits for
+versions in step 4 (Not yet). Numbers for the chosen method were measured through the real
+`verdict()` with a seeded generator; numbers for rejected intervals, other z values and longer
+windows come from the same simulation with that one piece swapped):
 
 1. **Newcombe's hybrid score interval, read against the band in three zones.** `compare` in
    `src/lib/loops/verdict.ts` takes two equal windows and finds where after minus before could be
@@ -76,7 +82,7 @@ other z values and longer windows come from the same simulation with that one pi
    every verdict says not adjusted for season. The windows stop at 120: each
    extra look adds a chance of a false same (2.3% to 120, 5.3% to 400 and 6.6% to 800 a side at
    this z), and longer windows reach back across seasons, where drift has longer to build. This
-   amends the design's open ended "then every 40", the one change from the design.
+   amends the design's open ended "then every 40".
    Rejected: a Bonferroni split (0.01 a look, z 2.576), valid but it costs power for nothing.
 4. **Too few to tell says the smallest change it could have seen.** `smallestVisibleChange` moves
    the after count away from the before count until the change would read better and quotes the gap
@@ -97,12 +103,18 @@ other z values and longer windows come from the same simulation with that one pi
    from about 0.13 to 0.87, even when nothing changed; only a rate near none or near all reaches
    it, at 80 or 120. For liked share's 15 point band it is reachable at 120 a side at any rate, and
    at 80 only below about 0.25 or above 0.75. The before window is fixed at the change, so the
-   largest look a change can reach is set by its usable before outputs: every too few line with a
-   look, whether or not it quotes a smallest change, names the next look only when the before
-   window can reach it, otherwise says this is the last look this change can reach, and at 120
-   says the windows stop. When the check's raw range sits wholly on the worse side of no change,
-   the line says it got worse, though not clearly by more than the band, before what could have
-   shown as better, so the likely harm is never left to the counts alone. Every reason line leads
+   largest look a change can reach is set by its usable before outputs: every too few line the
+   check decides, whether or not it quotes a smallest change, names the next look only when the
+   before window can reach it, otherwise says this is the last look this change can reach, and at
+   120 says the windows stop; a too few line the guard decides says the same of the guard (item
+   5). The smallest change is what the check alone could read as better, before the guard has its
+   say, and the line says when the guard stands in the way: no change could have shown as better
+   while a guard too few to read got worse (with its counts), a change could show only once the
+   guard has reached the check's look, or no change can show when the guard has fewer than 10
+   outputs before the change. When the check's raw range sits wholly on the worse side of no
+   change, the line says it got worse, though not clearly by more than the band, before what could
+   have shown as better, and a guard that moved the wrong way is named too, so the likely harm is
+   never left to the counts alone. Every reason line leads
    with the real counts, such as 5 of 10 to 2 of 10,
    then the estimated levels, and says estimates lean toward the default while outputs are few;
    each read keeps its counts beside the blended levels.
@@ -111,24 +123,46 @@ other z values and longer windows come from the same simulation with that one pi
    image while liked share counts only the voted ones. A guard worse against the band gives worse
    whatever the check says; the verdict's look is then the guard's and `decidedBy` is `"guard"`, so
    a worse can come before the check has a look. A check that reads better gives too few to tell
-   until the guard has reached a look of its own, and while the guard is too few to read and its
-   raw range sits wholly on the worse side of no change. A guard that reads same is within the
-   band, so it is not worse (the design's "the guard not worse") and lets better through, even when
-   its raw range sits on the worse side of no change. Through the real verdict, 5,000 runs with edit share falling from
-   0.5 to 0.1: with the guard going from 0.2 to 0.4, better at 40 a side fell from 69% of runs to
-   46% with this rule, and at 120 from 73% to 12%; with a flat guard it barely moved (100% to 99%
-   at 120). It only removes better calls, so the false alarm limit cannot get worse. The reason
-   line says the guard did not get worse only when it reads better. Same allows up to one band
-   worse, so a guard that reads same "stayed within the band", or "got worse, but stayed within the
-   band" when its raw range sits wholly on the worse side; a guard too few to read was only "not
-   shown to get worse"; a guard that holds better back "got worse, though not clearly by more than
-   the band". Each of these lines quotes the guard's counts. The order is: guard
-   worse, check better, check worse, check same, too few. Every verdict carries
+   until the guard has reached the check's look, or the last look the guard's own before window
+   can reach, and while the guard is too few to read and its raw range sits wholly on the worse
+   side of no change. Both are stricter than the design's "the guard not worse". A guard read at a
+   smaller look than the check's, as unused share is while it lags, has a range too wide to sit
+   wholly on the worse side, so a guard that clearly got worse would let better through; and
+   blending shrinks the guard's range toward no change, so the second test reads the raw range. A
+   guard that reads same is within the band, so it is not worse and lets better through, even when
+   its raw range sits on the worse side of no change. Through the real verdict, 5,000 runs with
+   edit share falling from 0.5 to 0.1 and the guard exactly as long as the check: with the guard
+   going from 0.2 to 0.4, better at 40 a side fell from 69% of runs to 46% with the raw range test,
+   and at 120 from 73% to 12%; with a flat guard it barely moved (100% to 99% at 120). Those
+   numbers assume no lag. With the guard 6 outputs behind the check (unused share's 14 days at 12
+   drafts a month), waiting only for a look of the guard's own let 83% of runs read better at some
+   look, against 64% with no lag; waiting for the check's look gives 64% (55% at 30 behind), and
+   the call once the guard has caught up is 12% either way. Liked share rising from 0.3 to 0.75
+   with remade share going from 0.1 to 0.4, 30 behind: 58% before, 11% now. With a flat guard the
+   lag only delays better (99.5% of runs still read it). The rule only removes better calls, so
+   the false alarm limit cannot get worse. The reason line says the guard did not get worse only
+   when it reads better. Same allows up to one band worse, so a guard that reads same "stayed
+   within the band", or "got worse, but stayed within the band" when its raw range sits wholly on
+   the worse side; a guard too few to read was only "not shown to get worse"; a guard that holds
+   better back "got worse, though not clearly by more than the band", and the line names the
+   guard's next look, or says this change cannot read better when the guard can reach no further;
+   a guard that lags says how many outputs since the change better waits for; a guard with fewer
+   than 10 outputs before the change never reaches a look, and the line says this change cannot
+   read better. Same and too few lines the guard does not decide name a guard that moved the wrong
+   way, with its counts. A guard like that does not hold back a same, since same speaks for the
+   check; whether it should is put to the owner in this pull request. When the check and the guard
+   both read worse, the guard decides and the line names both. Every line that names the guard's
+   change quotes its counts. The order is: guard worse, check better, check worse, check same, too
+   few. Every verdict carries
    `notAdjustedForSeason: true` and a reason line a person can read that ends "Not adjusted for
    season."; nothing in it undoes a change.
 6. **Outputs in, mistakes thrown.** Each number takes its outputs oldest first, one true or false
-   per output, so a view can never count. `startsAt` says how many outputs the scope made before
-   the first one passed; left out it is 0, so the scope's first 10 are dropped, the careful default.
+   per output, so a view can never count. The warm up drops each list's own first 10 entries: for a
+   list of every output, such as edit share's drafts or remade share's images, that is the scope's
+   first 10, and for liked share it is the first 10 voted images. `startsAt` says how many entries
+   each list would hold before its first one, as one number for both or one for each, since the
+   two lists can start at different points; left out it is 0, so each list's first 10 are dropped,
+   the careful default.
    A mistake in the caller throws rather than reading as too few: a band or prior outside 0 to 1, a
    negative or fractional `startsAt`, a check or guard that is not a share with better and family, a
    guard in the check's family, and in `compare` hits outside 0 to n, unequal sides or a size that
@@ -138,9 +172,10 @@ other z values and longer windows come from the same simulation with that one pi
    x (20 + 20/19), divided by outputs a month x band squared, with p the most uncertain rate within
    one band of today's so a rate at 0 or 1 never promises a read now. At a rate of 0.5 and a band of
    0.1 that is about 5,000 divided by outputs a month: 416 months at 12 a month, 50 at 100, 5 at
-   1,000 and 1 at 5,000. The outputs a month are that scope's, pooled, from the organisations whose
-   outputs feed the fleet's counts; which organisations those are is still an open decision. The
-   design reads the holdback only across the fleet and never for one brand. Two of its rules are
+   1,000 and 1 at 5,000. The outputs a month are that scope's, pooled across every brand in the
+   copy that has not opted out: as the owner decided, every brand feeds the fleet's counts from day
+   one, counts only, and a brand that opts out leaves both arms. The design reads the holdback only
+   across the fleet and never for one brand. Two of its rules are
    not modelled: each organisation counts at most 20 outputs per arm, so a few busy organisations
    make the answer too hopeful, and a fleet number publishes only for `cellOrgs` (10) organisations
    or more, so below that nothing reads whatever the months say. The 21.05 against 4 for an even split is Kohavi's
@@ -158,30 +193,36 @@ Enforced where:
   worst today); edit share falling from 0.5 to 0.1 is called better by 120 a side in 95% or more
   of runs and rarely at 10. Also Newcombe's published examples for the difference and for Wilson's
   interval, Hearth Bakery fixtures at 12 drafts a month (too few, with the smallest change quoted
-  or none, and the next or last look named), the warm up for the check and the guard, the same
-  answer between looks, no next look named that the before window cannot reach, with or without a
-  smallest change, and the windows' end at 120, guard worse (read in the guard's own
-  direction, over a check better or same, and with the guard's look when the check has none), same
-  inside the band and read on the raw range, better waiting for the guard, held back while a guard
-  too few to read sits wholly on the worse side and let through by a guard that reads same, the
-  lines for a guard that reads same and for a check that moved the wrong way, the smallest change
-  for a check that is better higher over a guard that is better lower, a rise mirroring a fall at
-  every look, the check and guard each blended toward its own prior, priors of 0 and 1, fewer than
-  10 outputs a side, every throw, every reason in house style, the halving search, and `blendM`
-  equal to the `PRIOR_N0` default in `reward.ts`.
+  or none, and the next or last look named), the warm up for the check and the guard, each list
+  counting its own entries with `startsAt` one number or one for each, the same answer between
+  looks, no next look named that the before window cannot reach, with or without a smallest
+  change, and the windows' end at 120, guard worse (read in the guard's own direction, over a
+  check better or same, with the guard's look when the check has none, and deciding when both read
+  worse), same inside the band and read on the raw range, better waiting for the guard to reach
+  the check's look (a simulation with the guard 6 to 60 outputs behind on both lines never reads
+  better more often than with no lag), held back while a guard too few to read sits wholly on the
+  worse side and let through by a guard that reads same, the lines for a guard that reads same,
+  for a guard that holds better back (its next or last look, or the windows' end), for a guard
+  that lags or never reaches a look, for a guard that moved the wrong way on a same or a too few,
+  and for a check that moved the wrong way, the smallest change for a check that is better higher
+  over a guard that is better lower, a rise mirroring a fall at every look, the check and guard
+  each blended toward its own prior, priors of 0 and 1, fewer than 10 outputs a side, every throw,
+  every reason template in house style (the test checks each template comes up), the halving
+  search, the holdback's most uncertain rate within one band, and `blendM` equal to the
+  `PRIOR_N0` default in `reward.ts`.
 - `src/lib/loops/registry.test.ts`: the five new `LOOP_RULES` numbers each have a one line reason.
 
 Not yet, in later steps: nothing calls the verdict, and nothing is stamped or counted, so it reads
 no real outputs. It does not name the items that changed between two versions; that comes with
 versions in step 4 and the lane that runs verdicts in step 5. There are no fleet cells, so the prior is whatever the caller passes, no Go
-back card, no Loops section and no adjustment for season, which waits for a cell of one coarse
-business type with 10 or more organisations.
+back card, no Loops section and no adjustment for season, which waits for a cell of one industry
+with 10 or more organisations.
 
 What follows: no new collection, index, rule, switch, service or dependency, and no runtime
 change: the module is pure and client safe, and `docs/ONTOLOGY.md` is unchanged. ADR-0017's
 "nothing reads the `LOOP_RULES` numbers" and "There is no verdict" describe step 1 and stay as
 written. Sources: Newcombe 1998, Stat Med 17:873 (https://doi.org/10.1002/(SICI)1097-0258(19980430)17:8%3C873::AID-SIM779%3E3.0.CO;2-I);
-Newcombe 1998, Two sided confidence intervals for the single proportion, Stat Med 17:857;
+Newcombe 1998, Two sided confidence intervals for the single proportion, Stat Med 17:857 (https://doi.org/10.1002/(SICI)1097-0258(19980430)17:8%3C857::AID-SIM777%3E3.0.CO;2-E);
 Wilson 1927, JASA 22:209 (https://doi.org/10.1080/01621459.1927.10502953); Agresti and Caffo 2000,
 Am Stat 54:280 (JSTOR 2685779); Brown, Cai and DasGupta 2001, Stat Sci
 (https://doi.org/10.1214/ss/1009213286); Kruschke 2018, AMPPS 1:270

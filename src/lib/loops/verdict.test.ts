@@ -20,6 +20,7 @@ import {
   type Outputs,
   type Tally,
   type Verdict,
+  type VerdictInput,
 } from "./verdict";
 
 /**
@@ -60,7 +61,7 @@ const joined = (...parts: boolean[][]) => parts.flat();
 /** A scope's warm up of outputs that are never read, then n outputs with `hits` counting. */
 const afterWarmUp = (hits: number, n: number) => joined(outputs(0, LOOP_RULES.warmUp), outputs(hits, n));
 
-const run = (line: Line, check: Outputs, guard: Outputs, more: { prior?: typeof PRIOR; startsAt?: number } = {}): Verdict =>
+const run = (line: Line, check: Outputs, guard: Outputs, more: { prior?: typeof PRIOR; startsAt?: VerdictInput["startsAt"] } = {}): Verdict =>
   verdict({ line, check, guard, prior: more.prior ?? PRIOR, startsAt: more.startsAt });
 
 interface Sim {
@@ -71,11 +72,14 @@ interface Sim {
   check: readonly [number, number];
   /** The guard's true rate before and after the change. */
   guard: readonly [number, number];
+  /** How many outputs the guard's known outputs trail the check's, as unused share is known only 14 days after each draft. */
+  lag?: number;
 }
 
 interface SimResult {
   /** Share of runs that read better or worse at any look. */
   betterOrWorse: number;
+  better: number;
   worse: number;
   same: number;
   /** Share of runs that had read better by each look. */
@@ -84,11 +88,15 @@ interface SimResult {
 
 /**
  * Draws a scope's warm up and 120 outputs before a change, then 120 after it, and reads the
- * verdict at every look as the after window grows, the way a caller will.
+ * verdict at every output where either side's look changes as the after windows grow, the way a
+ * caller reading after every output would (between looks it gives the same answer). With a lag
+ * the guard's outputs trail the check's, and the reads go on until the guard has 120 too.
  */
 function simulate(s: Sim): SimResult {
   const rnd = mulberry32(s.seed);
+  const lag = s.lag ?? 0;
   let betterOrWorse = 0;
+  let better = 0;
   let worse = 0;
   let same = 0;
   const firstBetter: Record<number, number> = Object.fromEntries(LOOK_SIZES.map((n) => [n, 0]));
@@ -97,12 +105,19 @@ function simulate(s: Sim): SimResult {
     const guard = { before: draw(rnd, LOOP_RULES.warmUp + LAST, s.guard[0]), after: draw(rnd, LAST, s.guard[1]) };
     const calls = new Set<Call>();
     let first: number | null = null;
-    for (const look of LOOK_SIZES) {
-      const v = run(s.line, { before: check.before, after: check.after.slice(0, look) }, { before: guard.before, after: guard.after.slice(0, look) });
+    let looks = "";
+    for (let t = 1; t <= LAST + lag; t++) {
+      const k = Math.min(t, LAST);
+      const j = Math.min(Math.max(0, t - lag), LAST);
+      const now = `${lookAt(LAST, k)} ${lookAt(LAST, j)}`;
+      if (now === looks) continue;
+      looks = now;
+      const v = run(s.line, { before: check.before, after: check.after.slice(0, k) }, { before: guard.before, after: guard.after.slice(0, j) });
       calls.add(v.call);
-      if (v.call === "better" && first === null) first = look;
+      if (v.call === "better" && first === null) first = v.check.look;
     }
     if (calls.has("better") || calls.has("worse")) betterOrWorse++;
+    if (calls.has("better")) better++;
     if (calls.has("worse")) worse++;
     if (calls.has("same")) same++;
     if (first !== null) firstBetter[first] = (firstBetter[first] ?? 0) + 1;
@@ -110,7 +125,7 @@ function simulate(s: Sim): SimResult {
   let sum = 0;
   const betterBy: Record<number, number> = {};
   for (const n of LOOK_SIZES) betterBy[n] = (sum += firstBetter[n]!) / s.runs;
-  return { betterOrWorse: betterOrWorse / s.runs, worse: worse / s.runs, same: same / s.runs, betterBy };
+  return { betterOrWorse: betterOrWorse / s.runs, better: better / s.runs, worse: worse / s.runs, same: same / s.runs, betterBy };
 }
 
 describe("the verdict's numbers", () => {
@@ -226,6 +241,22 @@ describe("a real change", () => {
     expect(smaller.betterBy[120]).toBeGreaterThan(0.8);
   });
 
+  it("reads better no more often when the guard lags the check, as unused share does 14 days after each draft", () => {
+    // A guard read on fewer outputs than the check has a range too wide to show harm, so better waits for it.
+    const cases: Array<[Line, readonly [number, number], readonly [number, number]]> = [
+      [EDITS, [0.5, 0.1], [0.2, 0.4]],
+      [VOTES, [0.3, 0.75], [0.1, 0.4]],
+    ];
+    for (const [line, check, guard] of cases) {
+      const at = (lag: number) => simulate({ runs: 2000, seed: 31, line, check, guard, lag });
+      const none = at(0);
+      for (const lag of [6, 10, 30, 60]) expect(at(lag).better, `${line.check}, guard ${lag} behind`).toBeLessThanOrEqual(none.better);
+    }
+    // A guard that did not move costs a lagging better little: it still comes once the guard catches up.
+    const flat = simulate({ runs: 1000, seed: 32, line: EDITS, check: [0.5, 0.1], guard: [0.2, 0.2], lag: 30 });
+    expect(flat.better).toBeGreaterThan(0.95);
+  });
+
   it("takes its direction from Meaning.better: liked share is better higher, edit share lower", () => {
     const rising = { before: afterWarmUp(12, 40), after: outputs(32, 40) };
     const flat = { before: afterWarmUp(4, 40), after: outputs(4, 40) };
@@ -277,9 +308,9 @@ describe("Hearth Bakery, about 12 drafts a month", () => {
 });
 
 describe("the holdback, read only across the fleet", () => {
-  // perMonth is one scope's outputs from the organisations that feed the fleet's counts (which ones
-  // is still open), pooled: the holdback is never read for one brand. Neither the cap of 20 outputs
-  // per organisation per arm nor the floor of LOOP_RULES.cellOrgs organisations is modelled.
+  // perMonth is one scope's outputs, pooled across every brand in the copy that has not opted out:
+  // the holdback is never read for one brand. Neither the cap of 20 outputs per organisation per
+  // arm nor the floor of LOOP_RULES.cellOrgs organisations is modelled.
   it("would wait decades for a 1 in 20 holdback to read a band sized change at 12 outputs a month pooled, and months at 1,000 a month", () => {
     const quiet = monthsUntilHoldbackReads({ perMonth: 12, rate: 0.5, band: 0.1 })!;
     expect(quiet).toBeGreaterThan(400);
@@ -292,6 +323,10 @@ describe("the holdback, read only across the fleet", () => {
     const atZero = monthsUntilHoldbackReads({ perMonth: 12, rate: 0, band: 0.1 })!;
     expect(atZero).toBeGreaterThan(100);
     expect(monthsUntilHoldbackReads({ perMonth: 12, rate: 1, band: 0.1 })).toBeCloseTo(atZero, 6);
+    // At 0 the most uncertain rate within one band is 0.1, so p(1 minus p) is 0.09; at 0.2 and 0.8 it is 0.3 and 0.7, so 0.21.
+    expect(atZero).toBeCloseTo((quiet * 0.09) / 0.25, 6);
+    expect(monthsUntilHoldbackReads({ perMonth: 12, rate: 0.2, band: 0.1 })).toBeCloseTo((quiet * 0.21) / 0.25, 6);
+    expect(monthsUntilHoldbackReads({ perMonth: 12, rate: 0.8, band: 0.1 })).toBeCloseTo((quiet * 0.21) / 0.25, 6);
   });
 });
 
@@ -344,10 +379,27 @@ describe("the calls", () => {
       expect(v.guard.rawRange![0], String(after)).toBeGreaterThan(0);
       expect(v.call, String(after)).toBe("too_few");
       expect(v.reason).toBe(
-        `Too few to tell at 40 outputs a side: edit share went from 32 of 40 to 4 of 40, an estimated 77% to 14%, past the 10 point band, but unused share went from 8 of 40 to ${after} of 40, an estimated 23% to ${after === 18 ? 46 : 54}%, so it got worse, though not clearly by more than the band.` +
+        `Too few to tell at 40 outputs a side: edit share went from 32 of 40 to 4 of 40, an estimated 77% to 14%, past the 10 point band, but unused share went from 8 of 40 to ${after} of 40, an estimated 23% to ${after === 18 ? 46 : 54}%, so it got worse, though not clearly by more than the band; 40 outputs a side is the last look unused share can reach, since only 40 of its outputs before the change count, so this change cannot read better.` +
           ESTIMATES,
       );
     }
+  });
+
+  it("says when a guard that holds better back is read again, or that this change cannot read better", () => {
+    // 120 a side is the last look there is, so this too few is final.
+    const end = run(EDITS, { before: afterWarmUp(80, 120), after: outputs(20, 120) }, { before: afterWarmUp(4, 120), after: outputs(16, 200) });
+    expect([end.check.call, end.guard.call, end.guard.movedWrongWay, end.guard.look, end.call]).toEqual(["better", "too_few", true, 120, "too_few"]);
+    expect(end.reason).toBe(
+      "Too few to tell at 120 outputs a side: edit share went from 80 of 120 to 20 of 120, an estimated 66% to 18%, past the 10 point band, but unused share went from 4 of 120 to 16 of 120, an estimated 5% to 15%, so it got worse, though not clearly by more than the band; the windows stop at 120 outputs a side, so this change cannot read better." +
+        ESTIMATES,
+    );
+    // With 120 usable before the change on both, the guard is read again at 80.
+    const room = run(EDITS, { before: joined(outputs(0, 90), outputs(32, 40)), after: outputs(4, 40) }, { before: joined(outputs(0, 90), outputs(8, 40)), after: outputs(18, 40) });
+    expect([room.check.call, room.guard.call, room.guard.movedWrongWay, room.call]).toEqual(["better", "too_few", true, "too_few"]);
+    expect(room.reason).toBe(
+      "Too few to tell at 40 outputs a side: edit share went from 32 of 40 to 4 of 40, an estimated 77% to 14%, past the 10 point band, but unused share went from 8 of 40 to 18 of 40, an estimated 23% to 46%, so it got worse, though not clearly by more than the band; the next look for unused share is at 80 outputs a side." +
+        ESTIMATES,
+    );
   });
 
   it("lets better through on a guard that reads same, even when it moved the wrong way inside the band", () => {
@@ -403,7 +455,9 @@ describe("the calls", () => {
     expect(v.guard.rawRange![0]).toBeGreaterThan(EDITS.band);
     expect(v.guard.range![0]).toBeLessThan(EDITS.band);
     expect(v.call).toBe("too_few");
-    expect(v.reason).toMatch(/but unused share went from 0 of 10 to 6 of 10, an estimated 17% to 57%, so it got worse, though not clearly by more than the band\./);
+    expect(v.reason).toMatch(
+      /but unused share went from 0 of 10 to 6 of 10, an estimated 17% to 57%, so it got worse, though not clearly by more than the band; 10 outputs a side is the last look unused share can reach, since only 10 of its outputs before the change count, so this change cannot read better\./,
+    );
   });
 
   it("reads worse when the guard gets worse, even with the check better", () => {
@@ -413,6 +467,15 @@ describe("the calls", () => {
     expect(v.call).toBe("worse");
     expect(v.decidedBy).toBe("guard");
     expect(v.reason).toBe("Worse at 40 outputs a side: unused share went from 4 of 40 to 30 of 40, an estimated 14% to 72%, past the 10 point band the wrong way." + ESTIMATES);
+  });
+
+  it("lets the guard decide when the check and the guard both read worse, and names both", () => {
+    const both = run(EDITS, { before: afterWarmUp(2, 40), after: outputs(25, 40) }, { before: afterWarmUp(4, 40), after: outputs(30, 40) });
+    expect([both.check.call, both.guard.call, both.call, both.decidedBy, both.look]).toEqual(["worse", "worse", "worse", "guard", 40]);
+    expect(both.reason).toBe(
+      "Worse at 40 outputs a side: unused share went from 4 of 40 to 30 of 40, an estimated 14% to 72%, past the 10 point band the wrong way, and so did edit share: it went from 2 of 40 to 25 of 40, an estimated 10% to 61%." +
+        ESTIMATES,
+    );
   });
 
   it("reads the guard in its own direction and gives worse on a guard worse whatever the check says", () => {
@@ -456,36 +519,178 @@ describe("the calls", () => {
     expect(v.reason).toMatch(/^Same at 120 outputs a side: edit share went from 6 of 120 to 6 of 120, an estimated 7% to 7%, and the whole range the change could be in sits inside the 10 point band\./);
   });
 
-  it("never reads better before the guard has reached a look of its own", () => {
+  it("names a guard that moved the wrong way on a same, with its counts", () => {
+    const steady = { before: afterWarmUp(6, 120), after: outputs(6, 120) };
+    // Unused share 4 to 24 of 120: too few against the band, its raw range wholly on the worse side.
+    const v = run(EDITS, steady, { before: afterWarmUp(4, 120), after: outputs(24, 120) });
+    expect([v.call, v.guard.call, v.guard.movedWrongWay]).toEqual(["same", "too_few", true]);
+    expect(v.reason).toBe(
+      "Same at 120 outputs a side: edit share went from 6 of 120 to 6 of 120, an estimated 7% to 7%, and the whole range the change could be in sits inside the 10 point band. Unused share got worse, though not clearly by more than the 10 point band: it went from 4 of 120 to 24 of 120, an estimated 5% to 21%." +
+        ESTIMATES,
+    );
+    const wider = run(EDITS, steady, { before: afterWarmUp(10, 120), after: outputs(30, 120) });
+    expect([wider.call, wider.guard.call, wider.guard.movedWrongWay]).toEqual(["same", "too_few", true]);
+    expect(wider.reason).toMatch(/\. Unused share got worse, though not clearly by more than the 10 point band: it went from 10 of 120 to 30 of 120, an estimated 10% to 26%\./);
+    // Liked share flat, remade share 12 to 30 of 120: same reaches liked share at any rate, so this case is common.
+    const votes = run(VOTES, { before: afterWarmUp(12, 120), after: outputs(12, 120) }, { before: afterWarmUp(12, 120), after: outputs(30, 120) });
+    expect([votes.call, votes.guard.call, votes.guard.movedWrongWay]).toEqual(["same", "too_few", true]);
+    expect(votes.reason).toBe(
+      "Same at 120 outputs a side: liked share went from 12 of 120 to 12 of 120, an estimated 12% to 12%, and the whole range the change could be in sits inside the 15 point band. Remade share got worse, though not clearly by more than the 15 point band: it went from 12 of 120 to 30 of 120, an estimated 12% to 26%." +
+        ESTIMATES,
+    );
+    // A guard that reads same but moved the wrong way inside the band stayed within it.
+    const inside = run(VOTES, { before: afterWarmUp(12, 120), after: outputs(12, 120) }, { before: afterWarmUp(0, 120), after: outputs(8, 120) });
+    expect([inside.call, inside.guard.call, inside.guard.movedWrongWay]).toEqual(["same", "same", true]);
+    expect(inside.reason).toMatch(/band\. Remade share got worse, but stayed within the band: it went from 0 of 120 to 8 of 120, an estimated 2% to 8%\./);
+    // A guard that did not move the wrong way is left out.
+    expect(run(EDITS, steady, { before: afterWarmUp(0, 120), after: outputs(5, 120) }).reason).not.toMatch(/Unused share/);
+  });
+
+  it("names a guard that moved the wrong way on a too few, and says no change could have shown as better while it did", () => {
+    const fell = { before: afterWarmUp(20, 40), after: outputs(16, 40) };
+    const v = run(EDITS, fell, { before: afterWarmUp(4, 40), after: outputs(14, 40) });
+    expect([v.call, v.check.call, v.guard.call, v.guard.movedWrongWay, v.guard.look]).toEqual(["too_few", "too_few", "too_few", true, 40]);
+    // The check alone could read better from 31 points, but not past this guard: no after count does.
+    expect(v.smallestVisible).toBeCloseTo(14 / 45, 10);
+    for (let after = 0; after <= 40; after++) expect(run(EDITS, { ...fell, after: outputs(after, 40) }, { before: afterWarmUp(4, 40), after: outputs(14, 40) }).call, String(after)).not.toBe("better");
+    expect(v.reason).toBe(
+      "Too few to tell at 40 outputs a side: edit share went from 20 of 40 to 16 of 40, an estimated 50% to 41%, and no change could have shown as better at this look while unused share got worse, though not clearly by more than the 10 point band: it went from 4 of 40 to 14 of 40, an estimated 14% to 37%; this is the last look this change can reach, since only 40 outputs before it count." +
+        ESTIMATES,
+    );
+    const flat = run(EDITS, { before: afterWarmUp(60, 120), after: outputs(60, 120) }, { before: afterWarmUp(24, 120), after: outputs(44, 120) });
+    expect(flat.reason).toBe(
+      "Too few to tell at 120 outputs a side: edit share went from 60 of 120 to 60 of 120, an estimated 50% to 50%, and no change could have shown as better at this look while unused share got worse, though not clearly by more than the 10 point band: it went from 24 of 120 to 44 of 120, an estimated 21% to 37%; the windows stop at 120 outputs a side." +
+        ESTIMATES,
+    );
+    // With no change able to show from the check alone, the guard gets a sentence of its own.
+    const rose = run(EDITS, { before: afterWarmUp(10, 40), after: outputs(24, 40) }, { before: afterWarmUp(4, 40), after: outputs(14, 40) });
+    expect(rose.reason).toMatch(/before it count\. Unused share got worse, though not clearly by more than the 10 point band: it went from 4 of 40 to 14 of 40, an estimated 14% to 37%\./);
+    // A guard that lags, or never reaches a look, stands in the way of the smallest change too.
+    const lags = run(EDITS, fell, { before: afterWarmUp(4, 40), after: outputs(1, 10) });
+    expect(lags.reason).toBe(
+      "Too few to tell at 40 outputs a side: edit share went from 20 of 40 to 16 of 40, an estimated 50% to 41%, and only an estimated change of 31 points or more could show as better at this look, once unused share has at least 40 outputs since the change; this is the last look this change can reach, since only 40 outputs before it count." +
+        ESTIMATES,
+    );
+    const never = run(EDITS, fell, { before: afterWarmUp(1, 6), after: outputs(1, 40) });
+    expect(never.reason).toBe(
+      "Too few to tell at 40 outputs a side: edit share went from 20 of 40 to 16 of 40, an estimated 50% to 41%, and no change can show as better, since unused share has only 6 outputs before the change and a look needs 10; this is the last look this change can reach, since only 40 outputs before it count." +
+        ESTIMATES,
+    );
+  });
+
+  it("never reads better before the guard has reached the check's look", () => {
     // Unused share is known only 14 days after each draft, so the guard can lag the check.
     const lagging = run(EDITS, clearlyBetter, { before: afterWarmUp(4, 40), after: outputs(0, 6) });
     expect(lagging.check.call).toBe("better");
     expect(lagging.guard.look).toBeNull();
     expect(lagging.call).toBe("too_few");
-    expect(lagging.reason).toMatch(/past the 10 point band, but unused share has too few outputs for a look, 40 before the change and 6 since\./);
-    expect(run(EDITS, clearlyBetter, { before: afterWarmUp(4, 40), after: outputs(1, 10) }).call).toBe("better");
+    expect(lagging.reason).toMatch(/past the 10 point band, but unused share has too few outputs for a look, 40 before the change and 6 since, so better waits until it has at least 40 since\./);
+    // A look of its own is not enough: at 10 or 20 a side its range is too wide to show harm.
+    for (const since of [10, 34]) {
+      const behind = run(EDITS, clearlyBetter, { before: afterWarmUp(4, 40), after: outputs(1, since) });
+      expect([behind.guard.look, behind.call], String(since)).toEqual([since === 10 ? 10 : 20, "too_few"]);
+      expect(behind.reason).toBe(
+        `Too few to tell at 40 outputs a side: edit share went from 25 of 40 to 2 of 40, an estimated 61% to 10%, past the 10 point band, but unused share has only ${since} outputs since the change, so better waits until it has at least 40.` +
+          ESTIMATES,
+      );
+    }
+    // A guard 5 of 10 after 2 of 10 is not shown to get worse at 10 a side, and better still waits for it.
+    const unsure = run(EDITS, { before: afterWarmUp(20, 40), after: outputs(2, 40) }, { before: joined(outputs(0, 10), ...Array.from({ length: 5 }, () => outputs(2, 8))), after: outputs(5, 10) });
+    expect([unsure.guard.look, unsure.guard.movedWrongWay, unsure.call]).toEqual([10, false, "too_few"]);
+    // A guard that lags and moved the wrong way says so too.
+    const worse = run(EDITS, clearlyBetter, { before: afterWarmUp(0, 40), after: outputs(6, 10) });
+    expect([worse.guard.look, worse.guard.movedWrongWay, worse.call]).toEqual([10, true, "too_few"]);
+    expect(worse.reason).toMatch(/so better waits until it has at least 40\. Unused share got worse, though not clearly by more than the 10 point band: it went from 0 of 10 to 6 of 10, an estimated 17% to 57%\./);
+    expect(run(EDITS, clearlyBetter, quietGuard).call).toBe("better");
+    // A guard that can reach no further than its own look has caught up: 26 before the change caps it at 20.
+    const capped = run(EDITS, clearlyBetter, { before: afterWarmUp(4, 26), after: outputs(1, 20) });
+    expect([capped.guard.look, capped.call]).toEqual([20, "better"]);
+    // So does a guard ahead of the check, as remade share can be with every image counted.
+    const ahead = run(VOTES, { before: afterWarmUp(10, 40), after: outputs(30, 40) }, { before: afterWarmUp(4, 80), after: outputs(4, 80) });
+    expect([ahead.check.look, ahead.guard.look, ahead.call]).toEqual([40, 80, "better"]);
+  });
+
+  it("says a guard with fewer than 10 outputs before the change can never let better through", () => {
+    for (const since of [40, 400]) {
+      const v = run(EDITS, clearlyBetter, { before: afterWarmUp(1, 6), after: outputs(1, since) });
+      expect([v.guard.look, v.call], String(since)).toEqual([null, "too_few"]);
+      expect(v.reason).toBe(
+        `Too few to tell at 40 outputs a side: edit share went from 25 of 40 to 2 of 40, an estimated 61% to 10%, past the 10 point band, but unused share has too few outputs for a look, 6 before the change and ${since} since; with fewer than 10 before the change it never will, so this change cannot read better.` +
+          ESTIMATES,
+      );
+    }
   });
 
   it("says not adjusted for season, in one line of house style, whatever it calls", () => {
     const seen = new Set<Call>();
     const rnd = mulberry32(3);
     const verdicts: Verdict[] = [];
+    const sizes = [5, 12, 25, 45, 90, 130];
+    const size = () => sizes[Math.floor(rnd() * sizes.length)]!;
     for (let r = 0; r < 400; r++) {
-      const [line, n] = [r % 2 ? EDITS : VOTES, [5, 12, 25, 45, 90, 130][r % 6]!];
+      // Each list's length is drawn on its own, so the before window can reach the next look and the guard can lag.
+      const [line, n] = [r % 2 ? EDITS : VOTES, sizes[Math.floor(r / 2) % sizes.length]!];
       const rate = () => Math.floor(rnd() * 10) / 10;
       const [a, b, c, d] = [rate(), rate(), rate(), rate()];
-      verdicts.push(run(line, { before: draw(rnd, n + 10, a), after: draw(rnd, n, b) }, { before: draw(rnd, n + 10, c), after: draw(rnd, n, d) }));
+      verdicts.push(run(line, { before: draw(rnd, n + 10, a), after: draw(rnd, size(), b) }, { before: draw(rnd, size() + 10, c), after: draw(rnd, size(), d) }));
     }
     const steady = { before: afterWarmUp(6, 120), after: outputs(6, 120) };
+    const fell = { before: afterWarmUp(20, 40), after: outputs(16, 40) };
+    const hearth = joined(outputs(8, 16), outputs(5, 10), outputs(5, 10));
     verdicts.push(
       run(EDITS, clearlyBetter, quietGuard),
       run(EDITS, steady, steady),
       run(EDITS, clearlyBetter, { before: afterWarmUp(4, 40), after: outputs(30, 40) }),
+      run(EDITS, { before: afterWarmUp(2, 40), after: outputs(25, 40) }, { before: afterWarmUp(4, 40), after: outputs(30, 40) }),
       run(EDITS, { before: afterWarmUp(80, 120), after: outputs(20, 120) }, { before: afterWarmUp(2, 120), after: outputs(6, 120) }),
       run(VOTES, { before: afterWarmUp(30, 120), after: outputs(90, 120) }, { before: afterWarmUp(0, 120), after: outputs(8, 120) }),
       run(EDITS, { before: afterWarmUp(10, 40), after: outputs(24, 40) }, quietGuard),
       run(EDITS, clearlyBetter, { before: afterWarmUp(8, 40), after: outputs(18, 40) }),
+      run(EDITS, clearlyBetter, { before: afterWarmUp(4, 40), after: outputs(0, 6) }),
+      run(EDITS, clearlyBetter, { before: afterWarmUp(4, 40), after: outputs(1, 10) }),
+      run(EDITS, clearlyBetter, { before: afterWarmUp(0, 40), after: outputs(6, 10) }),
+      run(EDITS, clearlyBetter, { before: afterWarmUp(1, 6), after: outputs(1, 40) }),
+      run(EDITS, { before: afterWarmUp(80, 120), after: outputs(20, 120) }, { before: afterWarmUp(4, 120), after: outputs(16, 200) }),
+      run(EDITS, { before: joined(outputs(0, 90), outputs(32, 40)), after: outputs(4, 40) }, { before: joined(outputs(0, 90), outputs(8, 40)), after: outputs(18, 40) }),
+      run(EDITS, steady, { before: afterWarmUp(4, 120), after: outputs(24, 120) }),
+      run(VOTES, { before: afterWarmUp(12, 120), after: outputs(12, 120) }, { before: afterWarmUp(0, 120), after: outputs(8, 120) }),
+      run(EDITS, fell, { before: afterWarmUp(4, 40), after: outputs(14, 40) }),
+      run(EDITS, { before: afterWarmUp(10, 40), after: outputs(24, 40) }, { before: afterWarmUp(4, 40), after: outputs(14, 40) }),
+      run(EDITS, fell, { before: afterWarmUp(4, 40), after: outputs(1, 10) }),
+      run(EDITS, fell, { before: afterWarmUp(1, 6), after: outputs(1, 40) }),
+      run(VOTES, { before: outputs(2, 15), after: outputs(3, 6) }, { before: outputs(4, 50), after: outputs(14, 40) }),
+      run(EDITS, { before: hearth, after: joined(outputs(2, 10), outputs(0, 2)) }, { before: joined(outputs(2, 16), outputs(2, 20)), after: outputs(1, 12) }),
     );
+    // Every template a reason line can take comes up at least once, so each one is held to house style.
+    const templates = [
+      /^Worse at \d+ outputs a side: [a-z ]+ went from .* the wrong way\./,
+      /the wrong way, and so did /,
+      /did not get worse\./,
+      /stayed within the band: it went/,
+      /got worse, but stayed within the band: it went/,
+      /was not shown to get worse, but there are too few outputs to tell/,
+      /^Same at /,
+      /^Same at .*\. [A-Z][a-z]+ share got worse, though not clearly/,
+      /^Too few to tell: a look needs/,
+      /never count\) and \d+ since\. [A-Z][a-z]+ share got worse/,
+      /has too few outputs for a look, \d+ before the change and \d+ since, so better waits/,
+      /it never will, so this change cannot read better\./,
+      /has only \d+ outputs since the change, so better waits until it has at least \d+\./,
+      /so better waits until it has at least \d+\. [A-Z][a-z]+ share got worse/,
+      /so it got worse, though not clearly by more than the band; the windows stop at 120 outputs a side, so this change cannot read better\./,
+      /so it got worse, though not clearly by more than the band; \d+ outputs a side is the last look/,
+      /so it got worse, though not clearly by more than the band; the next look for [a-z ]+ is at \d+ outputs a side\./,
+      /and no change could have shown as better at this look; the next look is at \d+ outputs a side\./,
+      /could have shown as better at this look; the next look is at \d+ outputs a side\./,
+      /could have shown as better at this look, the last look this change can reach/,
+      /could have shown as better at this look; the windows stop at 120 outputs a side\./,
+      /could have shown as better at this look while [a-z ]+ got worse/,
+      /once [a-z ]+ has at least \d+ outputs since the change; /,
+      /and no change can show as better, since [a-z ]+ has only \d+ outputs before the change/,
+      /\. It got worse, though not clearly by more than the \d+ point band, and /,
+      /before it count\. [A-Z][a-z]+ share got worse, though not clearly/,
+    ];
+    for (const t of templates) expect(verdicts.some((v) => t.test(v.reason)), String(t)).toBe(true);
     for (const v of verdicts) {
       seen.add(v.call);
       expect(v.notAdjustedForSeason).toBe(true);
@@ -514,10 +719,25 @@ describe("windows and looks", () => {
     const guarded = { before, after: outputs(0, 20) };
     expect(run(EDITS, { before, after }, guarded).guard.before).toBeCloseTo(blend({ hits: 0, n: 10 }, PRIOR.guard), 10);
     expect(run(EDITS, { before, after }, guarded, { startsAt: 10 }).guard.before).toBeCloseTo(blend({ hits: 10, n: 20 }, PRIOR.guard), 10);
+    // Each list counts its own entries: liked share holds only the voted images, remade share every image.
+    const votes = { before: joined(outputs(4, 10), outputs(2, 10)), after: outputs(2, 20) };
+    const images = { before: joined(outputs(10, 10), outputs(0, 30)), after: outputs(0, 40) };
+    const own = run(VOTES, votes, images);
+    expect([own.check.look, own.guard.look]).toEqual([10, 20]);
+    expect(own.check.counts!.before).toEqual({ hits: 2, n: 10 });
+    // The first 12 voted images came before these lists, but every image the scope made is here.
+    const each = run(VOTES, votes, images, { startsAt: { check: 12, guard: 0 } });
+    expect([each.check.look, each.guard.look]).toEqual([20, 20]);
+    expect(each.check.counts!.before).toEqual({ hits: 6, n: 20 });
+    expect(each.guard.counts!.before).toEqual({ hits: 0, n: 20 });
+    // One number applies to both lists.
+    const both = run(VOTES, votes, images, { startsAt: 12 });
+    expect([both.check.look, both.guard.look]).toEqual([20, 40]);
+    expect(both.guard.counts!.before).toEqual({ hits: 10, n: 40 });
     const short = run(EDITS, { before: outputs(5, 15), after: outputs(0, 40) }, guard);
     expect(short.look).toBeNull();
     expect(short.reason).toBe(
-      "Too few to tell: a look needs 10 outputs on each side, and edit share has 5 before the change (the scope's first 10 never count) and 40 since. Not adjusted for season.",
+      "Too few to tell: a look needs 10 outputs on each side, and edit share has 5 before the change (its first 10 never count) and 40 since. Not adjusted for season.",
     );
   });
 
@@ -718,6 +938,7 @@ describe("edge cases", () => {
     expect(() => run(EDITS, ok, ok, { prior: { check: 0.5, guard: 1.5 } })).toThrow(/prior must be from 0 to 1/);
     expect(() => run(EDITS, ok, ok, { startsAt: -1 })).toThrow(/startsAt/);
     expect(() => run(EDITS, ok, ok, { startsAt: 2.5 })).toThrow(/startsAt/);
+    expect(() => run(EDITS, ok, ok, { startsAt: { check: 0, guard: -1 } as never })).toThrow(/startsAt for the guard must be a whole number/);
     expect(() => run({ ...EDITS, check: "sends" }, ok, ok)).toThrow(/check sends needs better and family/);
     expect(() => run({ ...EDITS, check: "searchClicks" }, ok, ok)).toThrow(/check searchClicks is a count, not a share of outputs/);
     expect(() => run({ ...EDITS, guard: "keptShare" }, ok, ok)).toThrow(/guard keptShare shares the family taste/);
@@ -730,6 +951,8 @@ describe("edge cases", () => {
     expect(() => compare({ hits: 11, n: 10 }, { hits: 5, n: 10 }, "lower", 0.1)).toThrow(/hits that are a whole number from 0 to 10/);
     expect(() => compare({ hits: 2.5, n: 10 }, { hits: 5, n: 10 }, "lower", 0.1)).toThrow(/hits that are a whole number/);
     expect(() => compare({ hits: 5, n: 10 }, { hits: 5, n: 10 }, "up" as never, 0.1)).toThrow(/better must be higher or lower/);
+    expect(() => compare({ hits: 5, n: 10 }, { hits: 5, n: 10 }, "lower", 5)).toThrow(/band must be between 0 and 1/);
+    expect(() => smallestVisibleChange({ hits: 0, n: 10 }, "up" as never, 0.1)).toThrow(/better must be higher or lower/);
     expect(() => wilson({ hits: 0, n: 0 })).toThrow(/at least one output/);
     expect(() => blend({ hits: 1, n: -1 }, 0.5)).toThrow(/whole number of outputs/);
     expect(() => monthsUntilHoldbackReads({ perMonth: -1, rate: 0.5, band: 0.1 })).toThrow(/outputs a month/);

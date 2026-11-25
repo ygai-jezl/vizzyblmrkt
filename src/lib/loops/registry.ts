@@ -262,12 +262,25 @@ export const LOOPS = {
   search_rerank: none("The ranking model only reorders the same search results by how well each answers the words asked, so it holds no taste of yours to learn."),
 } as const satisfies Record<LoopKind, Decision>;
 
-/** Every number the loops use, each with its reason. Nothing reads them until the loops run. */
+/**
+ * Every number the loops use, each with its reason. The verdict (src/lib/loops/verdict.ts) reads
+ * blendM, the looks, warmUp, holdbackOneIn and its own numbers; the rest wait for the loops to run.
+ */
 export const LOOP_RULES = {
   /** A rate leans toward the shipped default with the weight of 5 outputs, so a new brand starts at the default (as PRIOR_N0 does in reward.ts). */
   blendM: 5,
-  /** A verdict is read only at these outputs per side, then every 40, because reading daily turns 5% false alarms into about 26%. */
+  /** A verdict is read only at these outputs per side, then every 40 up to 120, because reading daily turns 5% false alarms into about 26%. */
   looks: [10, 20, 40],
+  /** After those looks the windows grow by 40 outputs a side, so a busy scope is read again without being read daily. */
+  lookEvery: 40,
+  /** The windows stop at 120 outputs a side, because every extra look adds a chance of a false same and longer windows reach back across seasons. */
+  lastLook: 120,
+  /** Each look reads a 97.5% range for the change, which keeps a change that did nothing near 1% false better or worse across all five looks. */
+  verdictZ: 2.24,
+  /** A change that did nothing may read better or worse, and a change of one band may read same, at most 5% of the time across all looks. */
+  falseAlarm: 0.05,
+  /** Months until the holdback can read a band sized change are worked out at 80% power, the usual level for planning a test. */
+  holdbackPowerZ: 0.84,
   /** A scope's first 10 outputs never serve as a before window, so a cold start is never what a change is judged against. */
   warmUp: 10,
   /** About 1 decision in 20 per scope leaves out shared defaults and items adopted without a card, so the fleet can check that learning helps. */

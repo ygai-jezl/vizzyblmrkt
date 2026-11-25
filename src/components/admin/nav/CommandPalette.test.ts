@@ -16,4 +16,12 @@ describe("⌘K keywords", () => {
       expect(settings, plans).toEqual(expect.arrayContaining(["connections", "connected data", "integrations"]));
     }
   });
+
+  it("still find Ideas by launch, waitlist and campaign, and Launches by idea", async () => {
+    const launches = (await keywords()).launches ?? [];
+    expect(launches).toEqual(expect.arrayContaining(["launches", "ideas", "waitlists", "campaigns"]));
+    // Each launch's row and New launch, whatever launches are called.
+    const { LAUNCH_WORDS } = await import("./CommandPalette");
+    expect(LAUNCH_WORDS).toEqual(expect.arrayContaining(["launch", "idea", "waitlist", "campaign"]));
+  });
 });

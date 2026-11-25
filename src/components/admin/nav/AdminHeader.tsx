@@ -14,11 +14,18 @@ import { ThemeSwitch } from "./ThemeSwitch";
 /**
  * The slim bar above every admin page: where you are on the left, the theme switch on the right.
  * `people` (isPeopleNameEnabled(), from the server) names the Audience area People in the crumbs
- * and opens its How to on /help/your-audience.
+ * and opens its How to on /help/your-audience. `ideas` (isIdeaWordsEnabled(), from the server)
+ * calls launches ideas in the crumbs.
  */
-export function AdminHeader({ names, people = false }: { names: CrumbNames; people?: boolean }) {
+export function AdminHeader({ names, people = false, ideas = false }: { names: CrumbNames; people?: boolean; ideas?: boolean }) {
   const pathname = usePathname() ?? "/admin";
-  const crumbs = breadcrumbsFor(pathname, names, { phase3: isNavV2Phase3Enabled(), insights: isInsightsHubEnabled(), plans: isPlansUiEnabled(), people });
+  const crumbs = breadcrumbsFor(pathname, names, {
+    phase3: isNavV2Phase3Enabled(),
+    insights: isInsightsHubEnabled(),
+    plans: isPlansUiEnabled(),
+    people,
+    ideas,
+  });
   const howTo = helpFor(pathname, { people });
   return (
     <header className="sticky top-0 z-20 flex h-12 shrink-0 items-center gap-4 border-b border-shell-line bg-shell-side px-6">

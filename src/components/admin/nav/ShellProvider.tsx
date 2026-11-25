@@ -56,6 +56,11 @@ interface Shell {
   /** Launches are ideas (isIdeasEnabled(), from the server), for the How to drawer. */
   ideas: boolean;
   /**
+   * Launches are called Ideas (isIdeaWordsEnabled(), from the server): the page label Vizzy gets
+   * follows the crumbs, and the Ask Vizzy panel's starters say idea.
+   */
+  ideaWords: boolean;
+  /**
    * Hear about each draft Vizzy saves in this chat (returns the unsubscribe), so a page whose
    * data isn't the server's render (the journey editor, a person's page) can reload it. Null
    * unless the layout passes `journeyInContext` or `personInContext`.
@@ -107,6 +112,7 @@ export function ShellProvider({
   connectorSignals = false,
   brandMapScale = false,
   ideas = false,
+  ideaWords = false,
   children,
 }: {
   names: CrumbNames;
@@ -148,10 +154,20 @@ export function ShellProvider({
   brandMapScale?: boolean;
   /** Launches are ideas (isIdeasEnabled(), from the server): the How to drawer shows their help sections. */
   ideas?: boolean;
+  /** Launches are called Ideas (isIdeaWordsEnabled(), from the server): the page label Vizzy gets follows the crumbs. */
+  ideaWords?: boolean;
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? "/admin";
-  const page = vizzyPageLabel(breadcrumbsFor(pathname, names, { phase3: isNavV2Phase3Enabled(), insights: isInsightsHubEnabled(), plans: isPlansUiEnabled(), people }));
+  const page = vizzyPageLabel(
+    breadcrumbsFor(pathname, names, {
+      phase3: isNavV2Phase3Enabled(),
+      insights: isInsightsHubEnabled(),
+      plans: isPlansUiEnabled(),
+      people,
+      ideas: ideaWords,
+    }),
+  );
   const router = useRouter();
   // Made once, so a page's subscription outlives re-renders.
   const [saved] = useState(cardListeners);
@@ -226,9 +242,10 @@ export function ShellProvider({
       connectorSignals,
       brandMapScale,
       ideas,
+      ideaWords,
       onCanvasSaved: journeyInContext || personInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, brandMapScale, ideas, saved],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, brandMapScale, ideas, ideaWords, saved],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

@@ -32,6 +32,7 @@ import { isInvitesUiEnabled } from "@/lib/invites/flags";
 import { isLifecycleUiEnabled } from "@/lib/lifecycle/flags";
 import { isInsightsHubEnabled, isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { buildNav, type LaunchRef, type NavKey } from "@/lib/nav/model";
+import { ideaWord } from "@/lib/nav/terms";
 import { isPlansUiEnabled } from "@/lib/plans/flags";
 import { isSearchUiEnabled } from "@/lib/search/flags";
 import { BrandSearchResults, paletteFilter } from "@/components/admin/search/BrandSearchResults";
@@ -54,11 +55,12 @@ const ICONS: Record<NavKey, LucideIcon> = {
 /**
  * Other words people use for each area, so "crm" finds Audience, and "audience" finds People.
  * Settings › Connections was Integrations, so both words find Settings. Products keeps
- * "connections" too, because a connected product is still called a connection there.
+ * "connections" too, because a connected product is still called a connection there. Ideas were
+ * Launches, so "launch", "waitlist" and "campaign" still find them, whatever they are called.
  */
 export const KEYWORDS: Partial<Record<NavKey, string[]>> = {
   review: ["approvals", "inbox", "decisions"],
-  launches: ["waitlists", "campaigns"],
+  launches: ["launches", "ideas", "waitlists", "campaigns"],
   content: ["workspaces", "programmes", "posts", "newsletter"],
   products: ["connections", "app", "sandbox"],
   journeys: ["lifecycle", "emails", "onboarding"],
@@ -78,9 +80,15 @@ const PHASE3 = isNavV2Phase3Enabled();
 const INVITES = isInvitesUiEnabled();
 const GUIDE = isSetupGuideEnabled();
 const SEARCH = isSearchUiEnabled();
-/** The areas to jump to; `people` (from the server) names the Audience area People. */
-const navItems = (people: boolean) =>
-  buildNav({ lifecycle, brandKit: isBrandKitUiEnabled(), review: true, phase3: PHASE3, people }).flatMap((s) => s.items);
+/**
+ * The areas to jump to; `people` (from the server) names the Audience area People, and `ideas`
+ * (from the server) the Launches area Ideas.
+ */
+const navItems = (people: boolean, ideas: boolean) =>
+  buildNav({ lifecycle, brandKit: isBrandKitUiEnabled(), review: true, phase3: PHASE3, people, ideas }).flatMap((s) => s.items);
+
+/** What every launch row and New launch is also found by, whatever launches are called. */
+export const LAUNCH_WORDS = ["launch", "idea", "waitlist", "campaign"];
 
 const ITEM =
   "flex cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 text-sm text-shell-ink data-[selected=true]:bg-shell-active";
@@ -100,6 +108,7 @@ export function CommandPalette({
   archivedLaunches,
   workspaces,
   people = false,
+  ideas = false,
   canAddPerson = false,
 }: {
   launches: LaunchRef[];
@@ -107,11 +116,14 @@ export function CommandPalette({
   workspaces: LaunchRef[];
   /** Audience is called People (isPeopleNameEnabled(), worked out by the layout on the server). */
   people?: boolean;
+  /** Launches are called Ideas (isIdeaWordsEnabled(), worked out by the layout on the server). */
+  ideas?: boolean;
   /** An admin with New person on (AUDIENCE_ADD_PERSON_ENABLED, worked out by the layout): Create offers New person. */
   canAddPerson?: boolean;
 }) {
   const shell = useShell();
-  const nav = useMemo(() => navItems(people), [people]);
+  const nav = useMemo(() => navItems(people, ideas), [people, ideas]);
+  const word = ideaWord(ideas);
   const router = useRouter();
   const container = useThemePortalContainer();
   const [query, setQuery] = useState("");
@@ -161,7 +173,7 @@ export function CommandPalette({
       {/* Radix needs a title for screen readers; the input's placeholder says the rest. */}
       <Dialog.Title className="sr-only">Search or jump to</Dialog.Title>
       <Dialog.Description className="sr-only">
-        Type to find a page, launch, {PHASE3 ? "programme" : "workspace"}, journey or product, or to ask Vizzy.
+        Type to find a page, {word.one}, {PHASE3 ? "programme" : "workspace"}, journey or product, or to ask Vizzy.
       </Dialog.Description>
       <div className="flex items-center gap-2 border-b border-shell-line px-4">
         <Search size={16} aria-hidden className="shrink-0 text-shell-faint" />
@@ -234,15 +246,15 @@ export function CommandPalette({
         </Command.Group>
 
         {launches.length || archivedLaunches.length ? (
-          <Command.Group heading="Launches">
+          <Command.Group heading={word.Many}>
             {[...launches, ...archivedLaunches].map((l) => {
               const archived = archivedLaunches.includes(l);
               const Icon = archived ? Archive : Rocket;
               return (
                 <Command.Item
                   key={l.id}
-                  value={`launch ${l.name} ${l.id}`}
-                  keywords={["launch", "waitlist"]}
+                  value={`${word.one} ${l.name} ${l.id}`}
+                  keywords={LAUNCH_WORDS}
                   onSelect={() => go(`/admin/launches/${l.id}`)}
                   className={ITEM}
                 >
@@ -327,9 +339,9 @@ export function CommandPalette({
         ) : null}
 
         <Command.Group heading="Create">
-          <Command.Item value="create new launch" onSelect={() => go("/admin/launches/new")} className={ITEM}>
+          <Command.Item value={`create new ${word.one}`} keywords={LAUNCH_WORDS} onSelect={() => go("/admin/launches/new")} className={ITEM}>
             <Plus size={16} aria-hidden className="shrink-0 text-shell-muted" />
-            New launch
+            New {word.one}
           </Command.Item>
           <Command.Item
             value={PHASE3 ? "create new content programme workspace" : "create new content workspace"}

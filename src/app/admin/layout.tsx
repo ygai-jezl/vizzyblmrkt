@@ -143,7 +143,7 @@ export default async function AdminLayout({
     // switch, so it is worked out here and passed down. The How to drawer reads it from the shell.
     const people = isPeopleNameEnabled();
     // Launches are called Ideas: the switch (phase 3) plus LAUNCH_IDEAS_ENABLED, a server switch.
-    // Pages read it through WordsProvider.
+    // The shell takes it as a prop, as for People; pages read it through WordsProvider.
     const ideaWords = isIdeaWordsEnabled();
     const shell = (
       <>
@@ -155,9 +155,10 @@ export default async function AdminLayout({
           ctx={sidebarCtx}
           email={ctx.email}
           people={people}
+          ideas={ideaWords}
         />
         <div className="flex min-w-0 flex-1 flex-col">
-          <AdminHeader names={crumbNames} people={people} />
+          <AdminHeader names={crumbNames} people={people} ideas={ideaWords} />
           <main className="min-w-0 flex-1 px-6 py-6">
             <DeveloperDocsProvider enabled={docs}>
               <WordsProvider ideas={ideaWords}>{children}</WordsProvider>
@@ -172,6 +173,7 @@ export default async function AdminLayout({
             archivedLaunches={archivedLaunches}
             workspaces={workspaces.filter((w) => !w.archivedAt).map((w) => ({ id: w.id, name: w.name }))}
             people={people}
+            ideas={ideaWords}
             canAddPerson={canAddPeople(ctx.role)}
           />
         ) : null}
@@ -204,6 +206,7 @@ export default async function AdminLayout({
             connectorSignals={isConnectorSignalsEnabled()}
             brandMapScale={isBrandMapScaleEnabled()}
             ideas={isIdeasEnabled()}
+            ideaWords={ideaWords}
           >
             {shell}
           </ShellProvider>

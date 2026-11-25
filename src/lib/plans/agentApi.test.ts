@@ -59,6 +59,8 @@ describe("get_usage", () => {
       { feature: "Suggesting angles", usedThisMonth: 50 },
       { feature: "retired_feature", usedThisMonth: 20 },
     ]);
+    // Tokens counted before the split sit under content_write, so the note says Writing posts may hold them.
+    expect((r.body as { note: string }).note).toMatch(/before workflow writing was split .*Writing posts also holds the workflow emails, hub content, briefs and angles/);
   });
 
   it("adds the organisation's totals only when the summary has them (owners)", async () => {

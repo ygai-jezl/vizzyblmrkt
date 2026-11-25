@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { UNMETERED_CALLS } from "@/lib/loops/registry";
 import {
   generateBlockImage,
   generateEbookImage,
@@ -48,6 +49,27 @@ describe("Gemini use is always metered", () => {
     expect(matching(/\.generateContent(Stream)?\(|new GoogleGenAI\(/)).toEqual(
       [join("lib", "agents", "embeddings.ts"), join("lib", "agents", "gemini.ts"), join("lib", "hooks", "useLiveConversation.ts")].sort(),
     );
+  });
+
+  it("every file that calls a Google model, through the SDK or over REST, is metered or has its line", () => {
+    // gemini.ts meters each call it makes, and agentRuntime.ts is Vizzy's agent, counted as Vizzy
+    // chat by the chat route. A model call with no meter that chooses something for a brand is in
+    // UNMETERED_CALLS (src/lib/loops/registry.ts), so it has its line in LOOPS. Files that call a
+    // model and choose nothing, each with its reason:
+    const CHOOSES_NOTHING: Record<string, string> = {
+      [join("lib", "agents", "embeddings.ts")]: "knowledge search vectors only turn text into numbers to find similar records (not counted, help says so)",
+    };
+    const sdk = /\.generateContent(Stream)?\(|new GoogleGenAI\(/;
+    const rest = /aiplatform\.googleapis\.com|discoveryengine\.googleapis\.com|generativelanguage\.googleapis\.com/;
+    const metered = [join("lib", "agents", "gemini.ts"), join("lib", "agents", "agentRuntime.ts")];
+    const unmetered = Object.values(UNMETERED_CALLS).map((c) => join(...c.file.split("/").slice(1)));
+    const callers = [...new Set([...matching(sdk), ...matching(rest)])].sort();
+    expect(callers).toEqual([...new Set([...metered, ...unmetered, ...Object.keys(CHOOSES_NOTHING)])].sort());
+    for (const why of Object.values(CHOOSES_NOTHING)) expect(why.length).toBeGreaterThan(30);
+    // The scan finds a call over REST when there is one.
+    expect(rest.test("`https://${location}-aiplatform.googleapis.com/v1beta1/projects/p`")).toBe(true);
+    expect(rest.test("https://us-discoveryengine.googleapis.com/v1/projects/p/locations/us/rankingConfigs/c:rank")).toBe(true);
+    expect(rest.test("https://www.googleapis.com/auth/cloud-platform")).toBe(false);
   });
 
   it('never spends under the purpose "other": every call names what it is for', () => {

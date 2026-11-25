@@ -30,7 +30,6 @@ const NOT_SERVED_YET: Record<string, string> = {
  */
 const HELD_NOWHERE: Record<string, string> = {
   other: "no code spends under it, and every new call names its real purpose",
-  competitor_coverage: "the flags are worked out each time the coverage view is read, and never saved",
 };
 
 /**

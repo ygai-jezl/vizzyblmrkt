@@ -10,7 +10,8 @@ import type { LoopSwitch } from "./switches";
  * Count, Learn, Check). This file is the Declare step.
  *
  * Every line states what is true today:
- * - own(type, why): it already learns from people, in that ontology type's own store;
+ * - own(store, why): it already learns from people, in that store, where the switches for that
+ *   learning are on;
  * - gap(why, revisit): it should learn and doesn't yet, with a date to look again;
  * - none(why): it should never learn;
  * - learns(...) and fleetOnly(...): it learns through the loops. No line does yet.
@@ -51,14 +52,17 @@ export const RULE_DECISIONS = {
 export type RuleDecision = keyof typeof RULE_DECISIONS;
 
 /**
- * Model calls that spend under no purpose, so no meter call names them, each with a plain label and
- * the file that makes the call. Typecheck cannot find a new one by itself: a model call with no
- * meter adds a line here, then one in LOOPS. src/lib/agents/groundedMeter.test.ts lists the files
- * that call a model directly.
+ * Model calls that spend under no purpose and choose something for a brand, so no meter call names
+ * them, each with a plain label and the file that makes the call. Typecheck cannot find a new one by
+ * itself: a model call with no meter adds a line here, then one in LOOPS.
+ * src/lib/agents/groundedMeter.test.ts finds every file that calls a Google model, through the
+ * Gemini SDK or over REST, and fails on one that is not gemini.ts, Vizzy's agent runtime, a file
+ * here or a file it names with its reason (the search vectors, which choose nothing).
  */
 export const UNMETERED_CALLS = {
   waitlist_voice_chat: { label: "Waitlist voice chat", file: "src/lib/hooks/useLiveConversation.ts" },
   edit_memory: { label: "Memory Bank memories", file: "src/lib/agents/memoryBank.ts" },
+  search_rerank: { label: "Search rerank", file: "src/lib/search/rerank.ts" },
 } as const satisfies Record<string, { label: string; file: string }>;
 
 export type UnmeteredCall = keyof typeof UNMETERED_CALLS;
@@ -69,7 +73,7 @@ export type LoopKind =
   | `canvas.${CanvasKindName}` // every canvas Vizzy fills (src/lib/canvas/names.ts)
   | DataSignalRule // every connector rule (src/lib/types/dataSignal.ts)
   | RuleDecision // every other rule
-  | UnmeteredCall; // every model call with no meter
+  | UnmeteredCall; // every model call with no meter that chooses something
 
 /**
  * The ontology types whose stores already hold what people taught YouGrow, each with where the
@@ -80,12 +84,12 @@ export const LEARNED_STORES = {
   learned: "The Learned list keeps what the team kept, skipped and moved while planning, with their reasons.",
   post_learning: "Post patterns and the best posts, worked out from how the brand's LinkedIn and X posts did.",
   vizzy_memory: "Memory Bank keeps what Vizzy learned about how each team member edits, per brand and member.",
-  brand_kit: "The brand record keeps the image look learned from thumbs and ratings, per image style.",
+  brand_kit: "Where learning from image votes is turned on, the brand record keeps the image look learned from thumbs and ratings, and with image styles on, one look for each painted style.",
   brand_map: "The brand map keeps the names, subjects, groups, situations and topics a person dismissed, with its list of dismissed suggestions holding the newest 300.",
   brand_question: "Each question a person dismissed stays on the brand map marked dismissed.",
   article_review: "An article's review keeps the fingerprints of the last 50 changes a person dismissed on it.",
   content_plan: "An article's brief keeps up to 50 notes a person took out of it.",
-  broadcast: "Each launch email keeps its open and click rates once its report is read.",
+  broadcast: "Each one off launch email keeps its open and click rates once its report is read.",
   refresh_record: "Each refresh record keeps its clock, what a person decided and the clicks 28 days on.",
 } as const satisfies Record<string, string>;
 
@@ -147,7 +151,7 @@ export const learns = (sw: LoopSwitch, learner: Learner, scopes: readonly string
 });
 /** Stamped and counted for every brand, and improved only by a pull request the owner merges. */
 export const fleetOnly = (why: string, how: Pick<Loop, "check" | "guard" | "band" | "results">) => ({ fleet: why, ...how });
-/** Learned from people before the loops, in its own store: shown, not checked. */
+/** Learned from people before the loops, in its own store, where the switches for that learning are on: shown, not checked. */
 export const own = (type: LearnedStore, why: string) => ({ own: type, why });
 /** Never learns, and why. */
 export const none = (why: string) => ({ none: why });
@@ -169,43 +173,43 @@ export const LOOPS = {
   competitor_site: none("Finding a competitor's sitemap has one right answer, and a person can type the address in when it is wrong."),
   trending: none("It reports what your industry is talking about this week, a fact that changes on its own rather than a taste to learn."),
   enrichment: none("Company details such as size and industry are facts found on the web, and a person corrects a wrong one directly."),
-  blog_write: gap("An article keeps no AI original beside your edits, so the writer cannot learn how your team changes its drafts.", POSTS_BY),
+  blog_write: gap("An article keeps no AI original beside your edits, so the writer cannot learn how your team changes its drafts.", LATER),
   fact_check: none("A fact check tests each claim against its cited source, and the right answer does not depend on taste."),
-  seen_notes: own("content_plan", "A note your team took out of an article is kept on its brief and never matched back into it."),
+  seen_notes: own("content_plan", "A note your team took out of an article is kept with the last 50 on its brief and not matched back into it."),
   architect: gap("Nothing records the pieces your team adds or deletes after a workflow is laid out, so the next layout cannot follow them.", LATER),
-  content_write: own("post_learning", "LinkedIn and X posts learn from how your past posts did and, where turned on, from how each team member edits them, while posts for other channels learn nothing yet."),
-  content_email: gap("Emails in a workflow keep no AI original, so the changes your team makes to them cannot be measured yet.", POSTS_BY),
-  content_hub: gap("A hub piece keeps no AI original beside your edits, so the writer cannot see what your team changed.", POSTS_BY),
+  content_write: own("post_learning", "Where those parts are turned on, LinkedIn and X posts learn from how your past posts did and from how each team member edits them, while posts for other channels learn nothing yet."),
+  content_email: gap("Emails in a workflow keep no AI original, so the changes your team makes to them cannot be measured yet.", LATER),
+  content_hub: gap("A hub piece keeps no AI original beside your edits, so the writer cannot see what your team changed.", LATER),
   content_brief: none("A brief is a short instruction a person can rewrite before writing starts, and the piece written from it is what gets judged."),
   content_angle: gap("An angle you turn down with Suggest another is passed only to the next try and never kept as a no.", LATER),
-  edit_mode: own("vizzy_memory", "Vizzy remembers how each team member edits in Edit mode, and each of them can turn it off or make it forget."),
+  edit_mode: own("vizzy_memory", "Where learning from edits is turned on for the brand, Vizzy remembers how each team member edits in Edit mode, and each of them can turn it off or make it forget."),
   ebook: gap("eBook chapters keep no AI original, so the changes your team makes to them are never compared or learned.", LATER),
   templates: none("It copies the shape of a piece your team picked into a reusable template, so the choice is already theirs."),
   brand_voice: none("The voice is drafted once from your website and then edited by a person, so no repeated choice exists to learn from."),
-  brand_kit: none("Colours are read once from the logo or site and a person sets them, so nothing repeats to learn from."),
+  brand_kit: none("The kit is read from a guidelines PDF, the logo or the site, and colour themes are only offered for a person to pick, so the brand sets it rather than YouGrow choosing again and again."),
   brand_notes: none("It splits text a person pasted into separate notes, and that person keeps or drops each one straight away."),
   email_layout: gap("The blocks your team moves, adds or removes after a layout is made are not kept, so the next layout cannot follow them.", LATER),
-  email_copy: own("broadcast", "Email assist reads the open and click rates of the launch's last five emails before it writes, though invite wave copy reads none."),
+  email_copy: own("broadcast", "Email assist reads the open and click rates of the launch's last five one off emails with a report before it writes, though invite wave copy reads none."),
   journeys: gap("A journey draft is saved over by your team's edits, so what they changed is never kept or learned.", LATER),
   lifecycle_lines: gap("Each AI line is approved, swapped for the fallback or skipped, but those decisions never shape the next line.", LATER),
   competitor_analysis: none("It labels and summarises a competitor's own pages as they are, so there is no taste of yours in it to learn."),
   competitor_articles: none("It records what each competitor article says and asks, a fact about their page rather than a choice made for you."),
   next_up: own("learned", "Next up learns from the picks your team skips, kept with their reason on the Learned list."),
-  judge: own("learned", "The sorting learns from the questions your team moves between trays, kept on the Learned list."),
+  judge: own("learned", "Where learning from the Learned list is turned on, the sorting learns from the questions your team moves between trays."),
   post_feedback: none("This is the learner that turns post results into writing rules, and it is judged by the posts those rules shape."),
   images: none("This is the image style learner itself, and it is judged by the images its learned look shapes."),
   vizzy_chat: none("Each chat reply answers what the person just asked, and anything Vizzy saves is judged as the kind of draft it is."),
   product_map: none("It reads what your product's code does today, a fact rather than a taste, and a person decides what goes in the catalog."),
   other: none("Not a choice: no code spends under this name today, and every new call should name its real purpose."),
-  blog_hero: own("brand_kit", "Blog heroes made on the article follow the look learned from your thumbs and ratings, per image style, but a hero Vizzy makes during a chat skips it."),
-  post_image: own("brand_kit", "Post images follow the look learned from your thumbs and ratings on brand images, per image style."),
-  email_block_image: own("brand_kit", "Images inside emails follow the look learned from your thumbs and ratings on brand images."),
+  blog_hero: own("brand_kit", "Where learning from image votes is turned on, blog heroes made on the article follow the look learned from your thumbs and ratings, but a hero Vizzy makes during a chat skips it."),
+  post_image: own("brand_kit", "Where learning from image votes is turned on, painted post images follow the look learned from your thumbs and ratings, but drawn styles, format cards and charts skip it."),
+  email_block_image: own("brand_kit", "Where learning from image votes is turned on, images inside emails follow the look learned from your thumbs and ratings on brand images."),
   email_hero: gap("Email hero images skip the look learned from your image votes, so a thumbs down never reaches them.", IMAGES_BY),
-  ebook_image: own("brand_kit", "eBook images follow the look learned from your thumbs and ratings on brand images, per image style."),
+  ebook_image: own("brand_kit", "Where learning from image votes is turned on, eBook images follow the look learned from your thumbs and ratings on brand images."),
   customize_image: none("It edits a photo your team supplied the way they asked, and a learned look would restage their real product."),
   carousel: none("Each carousel slide is a picture of the post's own words, so a learned photo look would fight the text it has to show."),
   get_from_google: none("A person asks for this lookup and Google returns its results, so YouGrow makes no choice here to learn."),
-  autopilot: own("learned", "The autopilot drafts only Next up's picks, so a pick your team skips on the Learned list is never drafted."),
+  autopilot: own("learned", "The autopilot drafts only Next up's picks, so a pick your team skipped in the last 30 days is not drafted."),
 
   // ----- Canvases Vizzy fills (src/lib/canvas/names.ts) -----
   "canvas.journey": gap("Vizzy's launch email copy gets changed on the canvas before it goes live, but its first draft is not kept, so those changes cannot be counted.", LATER),
@@ -223,7 +227,7 @@ export const LOOPS = {
   // ----- Connector rules (src/lib/types/dataSignal.ts) -----
   rising_search: gap("A rising search your team plans or dismisses in Review stays away for 30 days, and one proposed as a question on a large brand map never comes back, but neither changes which searches count as rising.", LATER),
   losing_page: gap("Pages losing clicks are flagged by fixed cut offs, and what the team did with earlier flags, or whether a refresh won clicks back, never tunes them.", LATER),
-  within_reach: gap("Questions just off Google's first page are offered by fixed positions, and whether an article then reached page one is never looked at.", LATER),
+  within_reach: gap("Questions whose search averages position 5 to 20 on Google are offered by fixed cut offs, and whether an article then moved them up is never looked at.", LATER),
 
   // ----- Rule decisions (RULE_DECISIONS above) -----
   send_time: gap("Product journeys send in a weekday morning window unless a person changes it, waitlist journeys send at any time, and opens by hour never move either.", LATER),
@@ -237,20 +241,21 @@ export const LOOPS = {
   next_up_order: own("learned", "Questions the team skipped in the last 30 days are left out of the shortlist, read from the Learned list, and where turned on a subject counts by its size as well as its share answered."),
   repeat_match: own("learned", "A question your team wrote anyway, added to an article or unlinked is kept on the Learned list and not matched that way again, though the closeness cut offs never move."),
   refresh_share: gap("At most one of Next up's three picks is a refresh unless the brand sets another number, and whether refreshes or new articles won more clicks never moves it.", LATER),
-  freshness_clock: own("refresh_record", "Each article gets a 20, 30 or 45 day clock in turn, the refresh records show which clock gains clicks, and a person accepts the clock it suggests."),
+  freshness_clock: own("refresh_record", "Each article gets a 20, 30 or 45 day clock in turn, and where article refresh is turned on, the refresh records show which clock gains clicks and a person accepts the clock it suggests."),
   refresh_due: gap("Marking an article checked restarts its clock, but which reasons make articles due early never changes with what your team marks checked.", LATER),
   found_live: none("An article a person put up on their own site counts as approved by them, which is a fact to record, not a taste to learn."),
-  competitor_coverage: none("The flags are plain counts of articles by competitors and by the brand over 90 days, which anyone can check, so there is no taste in them."),
+  competitor_coverage: none("The flags compare competitor articles from the last 90 days with the questions the brand has answered, drafted or planned on each subject, plain counts anyone can check, so there is no taste in them."),
   competitor_topics: own("brand_map", "A topic a person dismissed from the brand map is marked dismissed and left out of what Next up suggests from competitor articles."),
   image_style_pick: gap("Until a brand picks a style, every image uses a fixed preset for its surface, and thumbs on past images never change which style is used.", IMAGES_BY),
   pattern_holdout: none("A fixed share of posts is written without the learned patterns so their effect can be measured, and that share must not drift with results."),
-  waitlist_rank: none("The waitlist order is the rule promised to people who signed up, referrals first and then sign up time, so it must never shift on its own."),
+  waitlist_rank: none("The waitlist order is the rule promised to people who signed up: referrals, any bonus for finishing the voice chat and a teammate's Move up, then sign up time, so it must never shift on its own."),
   spintax_variant: gap("A recurring post picks one of its written variants at random each time, and how each variant did is never used to favour the better one.", POSTS_BY),
   auto_plug: none("The promo comment fires only at the threshold a person set and it posts in public, so it should do exactly what they set."),
 
   // ----- Model calls with no meter (UNMETERED_CALLS above) -----
   waitlist_voice_chat: none("The voice chat answers one person on a waitlist in the moment, and learning from what they said would carry it into chats with other people."),
-  edit_memory: none("This is Memory Bank's own learner, which picks what to remember from each member's edits, and it is judged by the Edit mode drafts those memories shape."),
+  edit_memory: none("This is Memory Bank's own learner, which picks what to remember from each member's edits, and it is judged by the Edit mode changes and the LinkedIn and X drafts those memories shape."),
+  search_rerank: none("The ranking model only reorders the same search results by how well each answers the words asked, so it holds no taste of yours to learn."),
 } as const satisfies Record<LoopKind, Decision>;
 
 /** Every number the loops use, each with its reason. Nothing reads them until the loops run. */

@@ -7,8 +7,8 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 ## ADR-0017 · Every choice YouGrow makes for a brand declares how it learns (learning loops step 1) (2026-11-25)
 
 Context: YouGrow makes choices for a brand all day: what a model writes under each of 46 AI
-purposes, what Vizzy puts on 11 canvases, what 3 connector rules raise, and 19 other rules such as
-the send window, the waitlist order and the refresh clock. A few of these learn from people, each in
+purposes, what Vizzy puts on 11 canvases, what 3 connector rules raise, 20 other rules such as the
+send window, the waitlist order and the refresh clock, and 2 model calls that no meter counts. A few of these learn from people, each in
 its own way: post patterns and the best posts from post results, the image look from thumbs, the
 Learned list from skips and moves, Memory Bank from edits. Most learn nothing, and nothing in the
 code said which, so a feature that never learns looked the same as one that does. The approved
@@ -16,15 +16,19 @@ learning loops plan (v6, the Honest Loop: Declare, Stamp, Count, Learn, Check) s
 every choice says how it learns or why it won't, and the build fails when one says nothing. This
 step adds data, types, tests and docs only. ADR-0016 is Ideas.
 
-Decided (the owner approved the plan, with one change from its design sketch: every line says
-what is true today):
+Decided (the owner approved the plan; this step makes one change from its design sketch, so every
+line says what is true today, and the owner sees it in this pull request):
 
 1. **One line per choice, checked by the compiler.** `src/lib/loops/registry.ts` defines `LoopKind`
    as every `ResourcePurpose` (`src/lib/plans/resources.ts`), every canvas as `canvas.<name>`
-   (`src/lib/canvas/names.ts`), every `DataSignalRule` (`src/lib/types/dataSignal.ts`) and every
-   key of `RULE_DECISIONS`, a rule with a plain label and the file that makes it. `LOOPS` satisfies
-   `Record<LoopKind, Decision>`, so a new purpose, canvas, connector rule or rule fails
-   `npm run typecheck` until it has its line. The file imports types only, so any code can read it.
+   (`src/lib/canvas/names.ts`), every `DataSignalRule` (`src/lib/types/dataSignal.ts`), every
+   key of `RULE_DECISIONS`, a rule with a plain label and the file that makes it, and every key of
+   `UNMETERED_CALLS`, a model call that spends under no purpose (the waitlist voice chat and Memory
+   Bank's memories), with a label and file too. `LOOPS` satisfies `Record<LoopKind, Decision>`, so a
+   new purpose, canvas, connector rule or rule fails `npm run typecheck` until it has its line. A
+   model call with no meter has no purpose for typecheck to see, so it goes in `UNMETERED_CALLS` by
+   hand; `src/lib/agents/groundedMeter.test.ts` lists the files that call a model directly. The
+   file imports types only, so any code can read it.
    Rejected: a list kept by hand in a doc, which goes stale unseen, and a check at run time, which
    finds a missing line only in production.
 2. **Five answers, each true today.** `learns(...)`: it learns for each brand through the loops,
@@ -32,8 +36,8 @@ what is true today):
    pull request the owner merges. `own(store, why)`: it already learns from people, in that store.
    `gap(why, revisit)`: it should learn and doesn't yet. `none(why)`: it should never learn. Step 1
    has no learns and no fleet only line, because nothing is stamped, counted or learned through the
-   loops yet, so such a line would claim learning that does not run. Today there are 79 lines: 19
-   own, 27 gap and 33 none. A line moves to learns when the loop behind it runs: image style in step
+   loops yet, so such a line would claim learning that does not run. Today there are 82 lines: 19
+   own, 27 gap and 36 none. A line moves to learns when the loop behind it runs: image style in step
    4, post edits in step 7. `LOOP_SWITCHES` in `src/lib/loops/switches.ts` is an empty map, so
    `LoopSwitch` is `never`; each future entry is one exact `"true"` read, listed `"false"` in
    `apphosting.yaml`. Rejected: writing the target lines now, as the design sketch did for images
@@ -58,7 +62,7 @@ what is true today):
    sits in `vizzy_memory`; both reach LinkedIn and X posts only, and the reason says so.
    `email_copy` is own for email assist, and its reason says the invite wave copy written under the
    same purpose reads nothing. Rejected: a typed union of all 100 type ids, which means rewriting
-   the 2,303 line ontology registry for one check.
+   the whole ontology registry for one check.
 5. **content_write is split.** One purpose counted every kind of workflow writing. It now means
    posts (spokes and promos, "Writing posts"), and four new model token purposes name the rest:
    `content_email` (an email node), `content_hub` (a hub that is not a CITABLE blog),
@@ -77,7 +81,7 @@ what is true today):
    connection problems and data sources, which show health rather than a choice. It is a list
    because one section can show several kinds (Drafts from Vizzy shows five canvases and the
    autopilot's finished drafts). Each ontology type gains `madeBy`, the kinds whose choices its
-   stores hold (32 of 100 name some; planned types name none). Rejected: one kind per Review
+   stores hold (34 of 100 name some; planned types name none). Rejected: one kind per Review
    section.
 8. **Meanings get a direction and a family.** `better` (higher or lower) and `family` (taste,
    effort, use or result) are optional on a meaning, so a loop's guard can never share its check's
@@ -88,12 +92,13 @@ what is true today):
    the six with a reason and may only shrink.
 9. **The Learning section is generated.** `npm run ontology:doc` writes a Learning section at the
    end of `docs/ONTOLOGY.md`: every kind under its decision with its reason and revisit date, the
-   files that make it, and counts by decision, including the call sites that do not learn (70 of 99
+   files that make it, and counts by decision, including the call sites that do not learn (73 of 102
    today). A call site is a file where a kind is made, counted once per kind: a meter call that
-   names its purpose, a canvas's module, or the file that holds a rule. `src/lib/loops/callSites.ts`
-   reads the source. A meter call whose purpose is worked out in code (workflow writing, blog
-   research, Google lookups, the competitor steps) is listed in `ROUTED_CALLS` with the purposes it
-   reaches, and the knowledge scraper's own `product_map` spend in `OUTSIDE_SRC`. So a new file that
+   names its purpose, a canvas's module, the file that holds a rule, or the file that calls a model
+   with no meter. `src/lib/loops/callSites.ts` reads the source. A meter call whose purpose is
+   worked out in code (workflow writing, blog research, Google lookups, the competitor steps) is
+   listed in `ROUTED_CALLS` with the purposes it reaches, and the knowledge scraper's own
+   `product_map` spend in `OUTSIDE_SRC`. So a new file that
    spends under an existing purpose still shows in the diff, under the decision it inherits. Each
    type's section also lists its `madeBy`. Rejected: line numbers, which would make the doc stale on
    every edit above a call.
@@ -102,10 +107,10 @@ Enforced where:
 
 - Typecheck: `LOOPS` has every kind, `own()` takes only a `LEARNED_STORES` key, `KINDS` has every
   canvas name, every `REVIEW_SECTIONS` entry has `from`, and every ontology type has `madeBy`.
-- `src/lib/loops/registry.test.ts`: the four groups of kinds never share a name and together equal
+- `src/lib/loops/registry.test.ts`: the five groups of kinds never share a name and together equal
   `LOOPS`; every reason passes `reasonProblems` and none repeats; revisit dates are real and within
-  6 months; each learned store is a built type an own line uses; each rule's file exists; each number
-  in `LOOP_RULES` has its reason above it. It also holds the rules a learns or fleet only line will
+  6 months; each learned store is a built type an own line uses; each rule's and each unmetered
+  call's file exists; each number in `LOOP_RULES` has its reason above it. It also holds the rules a learns or fleet only line will
   meet (meanings with better and family, a guard outside the check's family, no result named after
   one provider, scopes of 40 characters at most, no suggest only loop that learns from votes), and
   the rules each loop switch will meet: listed off in `apphosting.yaml`, read exactly once in

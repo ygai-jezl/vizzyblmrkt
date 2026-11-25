@@ -15,8 +15,8 @@ import type { LoopSwitch } from "./switches";
  * - none(why): it should never learn;
  * - learns(...) and fleetOnly(...): it learns through the loops. No line does yet.
  *
- * A new AI purpose, canvas, connector rule or rule decision fails npm run typecheck until it has
- * its line here. src/lib/loops/registry.test.ts checks the lines. Pure and client safe: it imports
+ * A new AI purpose, canvas or connector rule, or a new key in RULE_DECISIONS or UNMETERED_CALLS,
+ * fails npm run typecheck until it has its line here. src/lib/loops/registry.test.ts checks the lines. Pure and client safe: it imports
  * types only.
  */
 
@@ -30,6 +30,7 @@ export const RULE_DECISIONS = {
   ab_winner: { label: "Email test winner", file: "src/lib/journey/abTest.ts" },
   journey_next_step: { label: "Journey next step", file: "src/lib/lifecycle/planner.ts" },
   journey_shape: { label: "Journey template shape", file: "src/lib/lifecycle/architect.ts" },
+  insight_pick: { label: "Insight an email features", file: "src/lib/lifecycle/recipientContext.ts" },
   autopilot_cadence: { label: "Autopilot cadence", file: "src/lib/autopilot/tick.ts" },
   notes_rest: { label: "Notes rest", file: "src/lib/brandNotes/rest.ts" },
   next_up_order: { label: "Next up shortlist", file: "src/lib/nextUp/candidates.ts" },
@@ -48,12 +49,26 @@ export const RULE_DECISIONS = {
 
 export type RuleDecision = keyof typeof RULE_DECISIONS;
 
+/**
+ * Model calls that spend under no purpose, so no meter call names them, each with a plain label and
+ * the file that makes the call. Typecheck cannot find a new one by itself: a model call with no
+ * meter adds a line here, then one in LOOPS. src/lib/agents/groundedMeter.test.ts lists the files
+ * that call a model directly.
+ */
+export const UNMETERED_CALLS = {
+  waitlist_voice_chat: { label: "Waitlist voice chat", file: "src/lib/hooks/useLiveConversation.ts" },
+  edit_memory: { label: "Memory Bank memories", file: "src/lib/agents/memoryBank.ts" },
+} as const satisfies Record<string, { label: string; file: string }>;
+
+export type UnmeteredCall = keyof typeof UNMETERED_CALLS;
+
 /** Every place YouGrow makes a choice for a brand. A new one fails npm run typecheck until LOOPS has its line. */
 export type LoopKind =
-  | ResourcePurpose // every model call already names one (src/lib/plans/resources.ts)
+  | ResourcePurpose // every metered model call names one (src/lib/plans/resources.ts)
   | `canvas.${CanvasKindName}` // every canvas Vizzy fills (src/lib/canvas/names.ts)
   | DataSignalRule // every connector rule (src/lib/types/dataSignal.ts)
-  | RuleDecision; // every other rule
+  | RuleDecision // every other rule
+  | UnmeteredCall; // every model call with no meter
 
 /**
  * The ontology types whose stores already hold what people taught YouGrow, each with where the
@@ -187,7 +202,7 @@ export const LOOPS = {
   email_hero: gap("Email hero images skip the look learned from your image votes, so a thumbs down never reaches them.", IMAGES_BY),
   ebook_image: own("brand_kit", "eBook images follow the look learned from your thumbs and ratings on brand images, per image style."),
   customize_image: none("It edits a photo your team supplied the way they asked, and a learned look would restage their real product."),
-  carousel: gap("Carousel slides skip the look learned from your image votes, so your thumbs never shape them.", IMAGES_BY),
+  carousel: none("Each carousel slide is a picture of the post's own words, so a learned photo look would fight the text it has to show."),
   get_from_google: none("A person asks for this lookup and Google returns its results, so YouGrow makes no choice here to learn."),
   autopilot: own("learned", "The autopilot drafts only Next up's picks, so a pick your team skips on the Learned list is never drafted."),
 
@@ -205,7 +220,7 @@ export const LOOPS = {
   "canvas.new_person": none("Vizzy copies details from the chat into the New person form, and a person checks the facts and records consent, so no taste is involved."),
 
   // ----- Connector rules (src/lib/types/dataSignal.ts) -----
-  rising_search: gap("Planning or dismissing a rising search only pauses that search for 30 days, and never changes which searches count as rising for this brand.", LATER),
+  rising_search: gap("A rising search your team plans or dismisses in Review stays away for 30 days, and one proposed as a question on a large brand map never comes back, but neither changes which searches count as rising.", LATER),
   losing_page: gap("Pages losing clicks are flagged by fixed cut offs, and what the team did with earlier flags, or whether a refresh won clicks back, never tunes them.", LATER),
   within_reach: gap("Questions just off Google's first page are offered by fixed positions, and whether an article then reached page one is never looked at.", LATER),
 
@@ -214,7 +229,8 @@ export const LOOPS = {
   ab_split: none("The split between versions has to stay a fair, stable coin toss per person, or the test can no longer say which email did better."),
   ab_winner: gap("A person can pick the winning email after 50 sends, but on a launch moved to the new journey engine that pick never reaches the emails sent.", LATER),
   journey_next_step: none("The next step is the path a person drew on the journey, and the walk follows it rather than picking a branch of its own."),
-  journey_shape: gap("The templates' email counts and the days between emails are fixed numbers, and how earlier journeys did never changes them.", LATER),
+  journey_shape: gap("The templates start from default email counts and days between emails that a person or Vizzy can change, and how earlier journeys did never moves those defaults.", LATER),
+  insight_pick: gap("Each email features the product's highest weighted insight not used yet, and whether emails with that insight got clicks never changes the pick.", LATER),
   autopilot_cadence: none("The brand chooses the weekday and how many articles a week, and the autopilot keeps to that pace rather than setting its own."),
   notes_rest: gap("A note the team keeps taking out of articles can go straight into the next one, because each removal is kept on that article alone and never makes the note rest.", LATER),
   next_up_order: own("learned", "Questions the team skipped in the last 30 days are left out of the shortlist, read from the Learned list."),
@@ -229,6 +245,10 @@ export const LOOPS = {
   waitlist_rank: none("The waitlist order is the rule promised to people who signed up, referrals first and then sign up time, so it must never shift on its own."),
   spintax_variant: gap("A recurring post picks one of its written variants at random each time, and how each variant did is never used to favour the better one.", POSTS_BY),
   auto_plug: none("The promo comment fires only at the threshold a person set and it posts in public, so it should do exactly what they set."),
+
+  // ----- Model calls with no meter (UNMETERED_CALLS above) -----
+  waitlist_voice_chat: none("The voice chat answers one person on a waitlist in the moment, and learning from what they said would carry it into chats with other people."),
+  edit_memory: none("This is Memory Bank's own learner, which picks what to remember from each member's edits, and it is judged by the Edit mode drafts those memories shape."),
 } as const satisfies Record<LoopKind, Decision>;
 
 /** Every number the loops use, each with its reason. Nothing reads them until the loops run. */

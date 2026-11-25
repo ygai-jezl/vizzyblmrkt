@@ -71,7 +71,7 @@ Event history and agent actions (`ontology_events`, `agent_actions`) are written
 
 ## Learning
 
-- Every place YouGrow makes a choice for a brand (an AI purpose, a canvas Vizzy fills, a connector rule, or a rule listed in `RULE_DECISIONS`) has one line in `src/lib/loops/registry.ts`. Typecheck fails until a new one has its line, so a new rule goes in `RULE_DECISIONS` first.
+- Every place YouGrow makes a choice for a brand (an AI purpose, a canvas Vizzy fills, a connector rule, a rule listed in `RULE_DECISIONS`, or a model call with no meter listed in `UNMETERED_CALLS`) has one line in `src/lib/loops/registry.ts`. Typecheck fails until a new one has its line, so a new rule goes in `RULE_DECISIONS` first, and a model call that spends under no purpose goes in `UNMETERED_CALLS`.
 - Today a line says own, gap or none, whichever is true, each with one plain reason; a gap also needs a date to look again, at most 6 months ahead. Learns and fleet only come in later steps, and `npm test` fails on them until then.
 - The Learning section of `docs/ONTOLOGY.md` is generated: run `npm run ontology:doc` after changing a line, or after adding, moving or renaming a file that makes one. `src/lib/ontology/doc.test.ts` fails while it is stale. Why: ADR-0017 in `docs/DECISIONS.md`.
 

@@ -71,7 +71,7 @@ One person joining one launch's waitlist: their address or phone, answers, refer
   - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on)
 - Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
 - Numbers: gap. People counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`).
-- Made by: `waitlist_rank` (see Learning)
+- Made by: `waitlist_rank`, `waitlist_voice_chat` (see Learning)
 
 ### Invite (`invite`)
 
@@ -260,6 +260,7 @@ How each published post did: impressions, reactions, comments, shares and clicks
 - Export: none. The brand's own post statistics.
 - Search: none. Numbers; the post's text is searched as a post.
 - Numbers: `impressions`, `likes`, `comments`, `shares`, `reposts`, `quotes`, `bookmarks`, `clicks`, `engagementRate`, `linkedinEngagement`, `publishedAt`, `posts`, through `get_post_results`
+- Made by: `content_write`, `pattern_holdout` (see Learning)
 
 ### Trending topics (`trending_topic`)
 
@@ -650,7 +651,7 @@ One person's way through one journey: where they are, what they were sent and wh
   - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on)
 - Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
 - Numbers: none. Journey numbers are counted from email sends.
-- Made by: `journey_next_step`, `send_time`, `ab_split` (see Learning)
+- Made by: `journey_next_step`, `send_time`, `ab_split`, `insight_pick` (see Learning)
 
 ### AI line (`ai_line`)
 
@@ -671,7 +672,7 @@ A line Vizzy wrote for one person's email from their facts, waiting for (or past
   - `exportWholePerson` in `src/lib/audience/personExport.ts`, on a person's erase or export (AUDIENCE_ONE_VIEW_ENABLED is on)
 - Search: none. People's words wait for the data processing agreement to cover a new store of personal data.
 - Numbers: none. No numbers an agent reads.
-- Made by: `lifecycle_lines` (see Learning)
+- Made by: `lifecycle_lines`, `insight_pick` (see Learning)
 
 ### Person plan (`person_plan`)
 
@@ -1011,7 +1012,7 @@ A social post waiting to go out on one of the brand's accounts, and what happene
 - Export: none. The brand's own work, with no one's personal data.
 - Search: none. Its text is searched from its content plan as a post.
 - Numbers: none. Its numbers are post results.
-- Made by: `content_write`, `spintax_variant`, `auto_plug` (see Learning)
+- Made by: `content_write`, `spintax_variant`, `auto_plug`, `carousel` (see Learning)
 
 ### What posts taught (`post_learning`)
 
@@ -1047,11 +1048,11 @@ An image made for the brand's content, with its prompt and where it is used.
 - Export: none. The brand's own work, with no one's personal data.
 - Search: `image`
 - Numbers: none. No numbers an agent reads.
-- Made by: `blog_hero`, `post_image`, `email_block_image`, `email_hero`, `ebook_image`, `customize_image`, `carousel`, `image_style_pick` (see Learning)
+- Made by: `blog_hero`, `post_image`, `email_block_image`, `email_hero`, `ebook_image`, `customize_image`, `image_style_pick` (see Learning)
 
 ### Brand kit (`brand_kit`)
 
-How the brand looks and sounds: voice, colours and email style on the brand record, plus its logos, fonts, icons, graphics and guideline files.
+How the brand looks and sounds: voice, colours, email style and image style on the brand record, plus its logos, fonts, icons, graphics and guideline files. The image style keeps the look learned from thumbs and ratings for each style, and Vizzy's suggested style waits beside it.
 
 - Status: built
 - Home: the brand's region
@@ -1064,7 +1065,7 @@ How the brand looks and sounds: voice, colours and email style on the brand reco
   - `brand/{tenantId}/fonts/{file}`, Cloud Storage, in `src/lib/tenant/brandFontStore.ts`. Font files; residency gap: one EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
   - `brand/{tenantId}/{category}/{file}`, Cloud Storage, in `src/lib/tenant/brandAssetStore.ts`. Icons and graphics; residency gap: one EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
   - `brand/{tenantId}/{file}`, Cloud Storage, in `src/lib/tenant/brandAsset.ts`. Brand guideline files, read only on the server; residency gap: one EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
-- Links: `brand` through brandKit and brandVoice on the brand record
+- Links: `brand` through brandKit, brandVoice, imageStyle (with its learned looks) and imageStyleSuggestion on the brand record
 - Erase:
   - `deleteLogo` in `src/lib/admin/brandLogos.ts`, on removing the record
   - `deleteBrandFont` in `src/lib/admin/brandFonts.ts`, on removing the record
@@ -1375,6 +1376,7 @@ What Vizzy learned about how each team member edits, kept per brand and member.
   - `listEditMemories` in `src/lib/agents/memoryBank.ts`, on the team member themselves (the member sees them in Edit mode)
 - Search: none. Read by Vizzy for the member it belongs to.
 - Numbers: none. No numbers an agent reads.
+- Made by: `edit_memory` (see Learning)
 
 ### Vizzy chat (`vizzy_chat`)
 
@@ -1911,7 +1913,7 @@ Stores that don't keep to the brand's region.
 
 ## Learning
 
-Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Every place YouGrow makes a choice for a brand has one line there: each AI purpose, each canvas Vizzy fills, each connector rule and each other rule. A new one fails `npm run typecheck` until it has its line, and the line gives one of five answers:
+Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Every place YouGrow makes a choice for a brand has one line there: each AI purpose, each canvas Vizzy fills, each connector rule, each other rule and each model call with no meter. A new one fails `npm run typecheck` until it has its line (a model call with no meter once it is listed in `UNMETERED_CALLS`), and the line gives one of five answers:
 
 - Learns: it learns for each brand through the loops, behind its own switch.
 - Fleet only: it is counted for every brand, and changes only through a pull request the owner merges.
@@ -1919,13 +1921,13 @@ Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Ev
 - Gap: it should learn and doesn't yet, with a date to look again.
 - None: it should never learn, and the line says why.
 
-A call site is a file where a kind is made, counted once for each kind: a meter call that names its purpose, a canvas's module, or the file that holds a rule.
+A call site is a file where a kind is made, counted once for each kind: a meter call that names its purpose, a canvas's module, the file that holds a rule, or the file that calls a model with no meter.
 
-79 kinds: 0 learn, 0 fleet only, 19 own, 27 gap and 33 none.
+82 kinds: 0 learn, 0 fleet only, 19 own, 27 gap and 36 none.
 
-99 call sites: 0 learn, 0 fleet only, 29 own, 32 gap and 38 none.
+102 call sites: 0 learn, 0 fleet only, 29 own, 32 gap and 41 none.
 
-Not learning: 70 of 99 call sites, under gap and none lines.
+Not learning: 73 of 102 call sites, under gap and none lines.
 
 ### Where own lines keep what they learned
 
@@ -2003,8 +2005,6 @@ No line says this yet.
 
 - `email_hero` (AI purpose, Email hero images), look again by 2027-01-31. Email hero images skip the look learned from your image votes, so a thumbs down never reaches them.
   - `src/app/api/admin/email/image/route.ts`
-- `carousel` (AI purpose, Carousels), look again by 2027-01-31. Carousel slides skip the look learned from your image votes, so your thumbs never shape them.
-  - `src/lib/distribute/carousel/build.ts`
 - `canvas.image_style` (canvas), look again by 2027-01-31. Vizzy suggests an image style without reading the thumbs on the brand's images, and a dismissed suggestion is deleted with no record.
   - `src/lib/canvas/kinds/imageStyle.ts`
 - `image_style_pick` (rule, Image style used), look again by 2027-01-31. Until a brand picks a style, every image uses a fixed preset for its surface, and thumbs on past images never change which style is used.
@@ -2042,7 +2042,7 @@ No line says this yet.
   - `src/lib/canvas/kinds/journey.ts`
 - `canvas.lifecycle` (canvas), look again by 2027-05-01. Whether a journey Vizzy drafted gets published, and how much a person changed first, is never counted, so the next draft cannot get better.
   - `src/lib/canvas/kinds/lifecycle.ts`
-- `rising_search` (connector rule), look again by 2027-05-01. Planning or dismissing a rising search only pauses that search for 30 days, and never changes which searches count as rising for this brand.
+- `rising_search` (connector rule), look again by 2027-05-01. A rising search your team plans or dismisses in Review stays away for 30 days, and one proposed as a question on a large brand map never comes back, but neither changes which searches count as rising.
   - `src/lib/connectors/signals/detect.ts`
 - `losing_page` (connector rule), look again by 2027-05-01. Pages losing clicks are flagged by fixed cut offs, and what the team did with earlier flags, or whether a refresh won clicks back, never tunes them.
   - `src/lib/connectors/signals/detect.ts`
@@ -2052,8 +2052,10 @@ No line says this yet.
   - `src/lib/lifecycle/sendWindow.ts`
 - `ab_winner` (rule, Email test winner), look again by 2027-05-01. A person can pick the winning email after 50 sends, but on a launch moved to the new journey engine that pick never reaches the emails sent.
   - `src/lib/journey/abTest.ts`
-- `journey_shape` (rule, Journey template shape), look again by 2027-05-01. The templates' email counts and the days between emails are fixed numbers, and how earlier journeys did never changes them.
+- `journey_shape` (rule, Journey template shape), look again by 2027-05-01. The templates start from default email counts and days between emails that a person or Vizzy can change, and how earlier journeys did never moves those defaults.
   - `src/lib/lifecycle/architect.ts`
+- `insight_pick` (rule, Insight an email features), look again by 2027-05-01. Each email features the product's highest weighted insight not used yet, and whether emails with that insight got clicks never changes the pick.
+  - `src/lib/lifecycle/recipientContext.ts`
 - `notes_rest` (rule, Notes rest), look again by 2027-05-01. A note the team keeps taking out of articles can go straight into the next one, because each removal is kept on that article alone and never makes the note rest.
   - `src/lib/brandNotes/rest.ts`
 - `refresh_share` (rule, Refresh share of Next up), look again by 2027-05-01. At most one of Next up's three picks is a refresh unless the brand sets another number, and whether refreshes or new articles won more clicks never moves it.
@@ -2103,6 +2105,8 @@ No line says this yet.
   - No call site in the code.
 - `customize_image` (AI purpose, Customised images). It edits a photo your team supplied the way they asked, and a learned look would restage their real product.
   - `src/app/api/admin/brand-kit/images/[assetId]/customize/route.ts`
+- `carousel` (AI purpose, Carousels). Each carousel slide is a picture of the post's own words, so a learned photo look would fight the text it has to show.
+  - `src/lib/distribute/carousel/build.ts`
 - `get_from_google` (AI purpose, Get from Google). A person asks for this lookup and Google returns its results, so YouGrow makes no choice here to learn.
   - `src/lib/signals/collect.ts`
 - `canvas.invite_wave` (canvas). A launch sends only a few invite waves, so neither their size nor their copy learns, and a person sets the size and presses Send.
@@ -2135,3 +2139,7 @@ No line says this yet.
   - `src/lib/waitlist/scoring.ts`
 - `auto_plug` (rule, Auto plug comment). The promo comment fires only at the threshold a person set and it posts in public, so it should do exactly what they set.
   - `src/lib/distribute/autoPlug.ts`
+- `waitlist_voice_chat` (model call with no meter, Waitlist voice chat). The voice chat answers one person on a waitlist in the moment, and learning from what they said would carry it into chats with other people.
+  - `src/lib/hooks/useLiveConversation.ts`
+- `edit_memory` (model call with no meter, Memory Bank memories). This is Memory Bank's own learner, which picks what to remember from each member's edits, and it is judged by the Edit mode drafts those memories shape.
+  - `src/lib/agents/memoryBank.ts`

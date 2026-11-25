@@ -9,7 +9,7 @@ import { typeById } from "@/lib/ontology/registry";
 import { sourceFiles } from "@/lib/ontology/storeScan";
 import { RESOURCES } from "@/lib/plans/resources";
 import { DATA_SIGNAL_RULES } from "@/lib/types/dataSignal";
-import { BY_LEARNER, decisionKind, LEARNED_STORES, LOOP_RULES, LOOPS, RULE_DECISIONS, type Decision, type Loop } from "./registry";
+import { BY_LEARNER, decisionKind, LEARNED_STORES, LOOP_RULES, LOOPS, RULE_DECISIONS, UNMETERED_CALLS, type Decision, type Loop } from "./registry";
 import { reasonProblems } from "./reason";
 import { LOOP_SWITCHES } from "./switches";
 import { SWITCHES_BEFORE_LOOPS } from "./testing/switchesBeforeLoops";
@@ -30,6 +30,7 @@ const GROUPS: Record<string, readonly string[]> = {
   canvases: CANVAS_KIND_NAMES.map((n) => `canvas.${n}`),
   signals: [...DATA_SIGNAL_RULES],
   rules: Object.keys(RULE_DECISIONS),
+  unmetered: Object.keys(UNMETERED_CALLS),
 };
 
 const LINES = Object.entries(LOOPS) as Array<[string, Decision]>;
@@ -136,7 +137,7 @@ function switchProblems(sw: string, scan: SwitchScan): string[] {
 }
 
 describe("the learning registry", () => {
-  it("has one line for every kind, and the four groups never share a name", () => {
+  it("has one line for every kind, and the five groups never share a name", () => {
     const groups = Object.entries(GROUPS);
     for (const [a, aKinds] of groups) {
       expect(aKinds.length, a).toBeGreaterThan(0);
@@ -272,10 +273,11 @@ describe("the learning registry", () => {
     for (const sw of SWITCHES_BEFORE_LOOPS) expect(sw).toMatch(/^[A-Z][A-Z0-9_]*_ENABLED$/);
   });
 
-  it("names a real file and a plain label for every rule decision", () => {
-    const labels = Object.values(RULE_DECISIONS).map((r) => r.label);
+  it("names a real file and a plain label for every rule decision and every model call with no meter", () => {
+    const listed = [...Object.entries(RULE_DECISIONS), ...Object.entries(UNMETERED_CALLS)];
+    const labels = listed.map(([, r]) => r.label);
     expect(new Set(labels).size).toBe(labels.length);
-    for (const [key, r] of Object.entries(RULE_DECISIONS)) {
+    for (const [key, r] of listed) {
       expect(key, key).toMatch(/^[a-z][a-z0-9_]*$/);
       expect(existsSync(join(ROOT, r.file)), `${key}: ${r.file}`).toBe(true);
       expect([...dashesIn(r.label), ...aiTellsIn(r.label)], key).toEqual([]);

@@ -1,7 +1,7 @@
 import { PURPOSE_LABELS, type ResourcePurpose } from "@/lib/plans/resources";
 import { DATA_SIGNAL_RULES } from "@/lib/types/dataSignal";
 import type { CallSites } from "./callSites";
-import { decisionKind, LEARNED_STORES, LOOPS, RULE_DECISIONS, type Decision, type DecisionKind, type LoopKind, type RuleDecision } from "./registry";
+import { decisionKind, LEARNED_STORES, LOOPS, RULE_DECISIONS, UNMETERED_CALLS, type Decision, type DecisionKind, type LoopKind, type RuleDecision, type UnmeteredCall } from "./registry";
 
 /**
  * The Learning section of docs/ONTOLOGY.md (ADR-0017): every kind in the learning registry
@@ -30,6 +30,7 @@ export function kindLabel(kind: LoopKind): string {
   if (kind.startsWith("canvas.")) return "canvas";
   if ((DATA_SIGNAL_RULES as readonly string[]).includes(kind)) return "connector rule";
   if (Object.prototype.hasOwnProperty.call(RULE_DECISIONS, kind)) return `rule, ${RULE_DECISIONS[kind as RuleDecision].label}`;
+  if (Object.prototype.hasOwnProperty.call(UNMETERED_CALLS, kind)) return `model call with no meter, ${UNMETERED_CALLS[kind as UnmeteredCall].label}`;
   return `AI purpose, ${PURPOSE_LABELS[kind as ResourcePurpose]}`;
 }
 
@@ -79,12 +80,12 @@ export function renderLearningSection(sites: CallSites, lines: LearningLines = L
   const out: string[] = [
     "## Learning",
     "",
-    "Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Every place YouGrow makes a choice for a brand has one line there: each AI purpose, each canvas Vizzy fills, each connector rule and each other rule. " +
-      "A new one fails `npm run typecheck` until it has its line, and the line gives one of five answers:",
+    "Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Every place YouGrow makes a choice for a brand has one line there: each AI purpose, each canvas Vizzy fills, each connector rule, each other rule and each model call with no meter. " +
+      "A new one fails `npm run typecheck` until it has its line (a model call with no meter once it is listed in `UNMETERED_CALLS`), and the line gives one of five answers:",
     "",
     ...DECISION_ORDER.map((k) => `- ${DECISION_TITLE[k].title}: ${DECISION_TITLE[k].about}`),
     "",
-    "A call site is a file where a kind is made, counted once for each kind: a meter call that names its purpose, a canvas's module, or the file that holds a rule.",
+    "A call site is a file where a kind is made, counted once for each kind: a meter call that names its purpose, a canvas's module, the file that holds a rule, or the file that calls a model with no meter.",
     "",
     `${plural(c.totalKinds, "kind", "kinds")}: ${byDecision(c.kinds)}.`,
     "",

@@ -4,13 +4,13 @@ import { CANVAS_KIND_NAMES, type CanvasKindName } from "@/lib/canvas/names";
 import { sourceFiles, stripComments } from "@/lib/ontology/storeScan";
 import type { ResourcePurpose } from "@/lib/plans/resources";
 import { DATA_SIGNAL_RULES } from "@/lib/types/dataSignal";
-import { LOOPS, RULE_DECISIONS, type LoopKind } from "./registry";
+import { LOOPS, RULE_DECISIONS, UNMETERED_CALLS, type LoopKind } from "./registry";
 
 /**
  * Where each kind in the learning registry (src/lib/loops/registry.ts) is made in the code, for
  * the Learning section of docs/ONTOLOGY.md (ADR-0017). A call site is a file, counted once per
- * kind: a meter call that names its purpose, a canvas's module, or the file that holds a rule.
- * Plain text scanning with Node built-ins, nothing run. Server and test only: it reads the disk.
+ * kind: a meter call that names its purpose, a canvas's module, the file that holds a rule, or the
+ * file that calls a model with no meter. Plain text scanning with Node built-ins, nothing run. Server and test only: it reads the disk.
  */
 
 /** Files where a kind is made, repo relative and sorted. */
@@ -121,6 +121,7 @@ export function scanCallSites(files: ReadonlyArray<{ file: string; text: string 
   for (const name of CANVAS_KIND_NAMES) add(`canvas.${name}`, canvasFileOf(name));
   for (const rule of DATA_SIGNAL_RULES) add(rule, SIGNAL_RULES_FILE);
   for (const [key, r] of Object.entries(RULE_DECISIONS)) add(key, r.file);
+  for (const [key, c] of Object.entries(UNMETERED_CALLS)) add(key, c.file);
   const sites = Object.fromEntries([...found].map(([k, set]) => [k, [...set].sort()])) as unknown as CallSites;
   return { sites, computedIn: computedIn.sort(), unknown };
 }

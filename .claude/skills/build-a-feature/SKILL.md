@@ -22,9 +22,10 @@ today:
   (ADR-0017 in `docs/DECISIONS.md`).
 
 The reason is one plain sentence about this choice that a brand owner could read. A new AI
-purpose goes in `src/lib/plans/resources.ts` with its label, and a new rule in `RULE_DECISIONS`;
-typecheck fails until the line is there. A file that reuses a purpose needs no new line, but it
-shows under that purpose in `docs/ONTOLOGY.md` once you run `npm run ontology:doc`.
+purpose goes in `src/lib/plans/resources.ts` with its label, a new rule in `RULE_DECISIONS`, and a
+model call that spends under no purpose in `UNMETERED_CALLS`; typecheck fails until the line is
+there. A file that reuses a purpose needs no new line, but it shows under that purpose in
+`docs/ONTOLOGY.md` once you run `npm run ontology:doc`.
 
 ## 2. Read the neighbours
 

@@ -46,5 +46,6 @@ describe("the Learning section", () => {
     expect(kindLabel("rising_search")).toBe("connector rule");
     expect(kindLabel("send_time")).toBe("rule, Send time");
     expect(kindLabel("content_email")).toMatch(/^AI purpose, \S/);
+    expect(kindLabel("waitlist_voice_chat")).toBe("model call with no meter, Waitlist voice chat");
   });
 });

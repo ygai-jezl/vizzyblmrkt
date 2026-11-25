@@ -134,7 +134,6 @@ export function WidgetBuilder({
   siteForm?: { canEdit: boolean };
 }) {
   const router = useRouter();
-  const w = ideaWord(useWords().ideas);
   const [ownForm, setOwnForm] = useState(false);
   const [tab, setTab] = useState<Tab>("design");
   const [campaignId, setCampaignId] = useState(initialCampaignId);

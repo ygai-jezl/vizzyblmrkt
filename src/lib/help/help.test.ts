@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { HELP_BODIES } from "@/components/help/bodies";
 import { Messages } from "@/components/help/blocks";
 import { HELP_LOADERS } from "@/components/help/loaders";
@@ -74,6 +74,7 @@ vi.hoisted(() => {
   process.env.CONNECTOR_SIGNALS_ENABLED = "true";
   process.env.BRAND_MAP_SCALE_ENABLED = "true";
   process.env.PASSWORD_SIGNIN_ENABLED = "true";
+  process.env.LAUNCH_IDEAS_ENABLED = "true";
   // Password help shows only when a code can be delivered too (isPasswordSigninAvailable).
   process.env.MANDRILL_API_KEY = "test-key-not-real";
 });
@@ -337,6 +338,55 @@ describe("links into the help", () => {
     expect(helpFor("/admin/account/billing")).toBe("/help/plan-and-usage");
     expect(helpFor("/admin/brands/new")).toBe("/help/plan-and-usage#brands");
     expect(HELP_PLACES).toContain("/help/plan-and-usage");
+  });
+});
+
+describe("ideas on Launch and waitlist", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const md = (ideas: boolean) => docToMarkdown(HELP_BODIES["launch-and-waitlist"]!({ ideas }), "https://app.example.com");
+  const ids = (ideas: boolean) =>
+    elements(HELP_BODIES["launch-and-waitlist"]!({ ideas }))
+      .filter((e) => e.type === H2)
+      .map((e) => String(e.props.id));
+
+  it("explain a launch's idea and handing it off while ideas are on, keeping the sections others link to", () => {
+    expect(ids(true)).toEqual(expect.arrayContaining(["create", "idea", "welcome", "share", "hand-off", "check", "messages"]));
+    const text = md(true);
+    expect(text).toContain("**Hypothesis (optional)**");
+    expect(text).toContain("Set to Testing by you on 18 Nov.");
+    expect(text).toContain("**Also close the waitlist**");
+    expect(text).toContain("**Just a list**");
+    expect(text).toContain("Your launch is made. Add the hypothesis on its Overview.");
+  });
+
+  it("promise comparing launches only where the launches list is (nav v2)", () => {
+    expect(ids(true)).not.toContain("compare");
+    vi.stubEnv("NEXT_PUBLIC_NAV_V2_ENABLED", "true");
+    expect(ids(true)).toContain("compare");
+    const text = md(true);
+    expect(text).toContain("**Compare side by side**");
+    for (const line of text.split("\n")) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
+    for (const el of elements(HELP_BODIES["launch-and-waitlist"]!({ ideas: true }))) {
+      const href = el.props.href;
+      if (typeof href === "string" && href.startsWith("/admin")) expect(adminRouteExists(href), href).toBe(true);
+      if (typeof href === "string" && href.startsWith("/help")) expectHelpPath(href, "/help/launch-and-waitlist");
+    }
+  });
+
+  it("say nothing about ideas while they are off", () => {
+    vi.stubEnv("NEXT_PUBLIC_NAV_V2_ENABLED", "true");
+    expect(ids(false)).toEqual(["create", "welcome", "share", "own-form", "check", "messages"]);
+    const text = md(false);
+    for (const word of ["Hypothesis", "Idea card", "Just a list", "Hand off", "Compare"]) expect(text).not.toContain(word);
+  });
+
+  it("show In more than one launch on the People list's page only while ideas are on", () => {
+    const people = (ideas: boolean) => docToMarkdown(HELP_BODIES["your-audience"]!({ people: true, ideas }), "https://app.example.com");
+    expect(people(true)).toContain("**In more than one launch**");
+    expect(people(false)).not.toContain("In more than one launch");
   });
 });
 

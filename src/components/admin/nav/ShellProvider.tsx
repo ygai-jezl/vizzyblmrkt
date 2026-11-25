@@ -53,6 +53,8 @@ interface Shell {
   connectorSignals: boolean;
   /** The brand map is kept at any size (isBrandMapScaleEnabled(), from the server), for the How to drawer. */
   brandMapScale: boolean;
+  /** Launches are ideas (isIdeasEnabled(), from the server), for the How to drawer. */
+  ideas: boolean;
   /**
    * Hear about each draft Vizzy saves in this chat (returns the unsubscribe), so a page whose
    * data isn't the server's render (the journey editor, a person's page) can reload it. Null
@@ -104,6 +106,7 @@ export function ShellProvider({
   connectorsSearchText = false,
   connectorSignals = false,
   brandMapScale = false,
+  ideas = false,
   children,
 }: {
   names: CrumbNames;
@@ -143,6 +146,8 @@ export function ShellProvider({
   connectorSignals?: boolean;
   /** The brand map is kept at any size (isBrandMapScaleEnabled(), from the server): the How to drawer says where proposals wait. */
   brandMapScale?: boolean;
+  /** Launches are ideas (isIdeasEnabled(), from the server): the How to drawer shows their help sections. */
+  ideas?: boolean;
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? "/admin";
@@ -220,9 +225,10 @@ export function ShellProvider({
       connectorsSearchText,
       connectorSignals,
       brandMapScale,
+      ideas,
       onCanvasSaved: journeyInContext || personInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, brandMapScale, saved],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, brandMapScale, ideas, saved],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

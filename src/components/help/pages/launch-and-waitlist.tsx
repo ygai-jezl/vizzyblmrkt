@@ -2,8 +2,18 @@ import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning, WhoGetsWhichEmails } from "@/components/help/blocks";
 import { isEditModeEmailsEnabled } from "@/lib/content/editor/flags";
 import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
+import { isIdeasEnabled } from "@/lib/ideas/flags";
+import { isNavV2Enabled } from "@/lib/nav/flags";
+import { IDEA_MESSAGES } from "@/lib/ideas/words";
+import type { HelpBodyProps } from "@/lib/help/pages";
 
-export default function LaunchAndWaitlistHelp() {
+/**
+ * With ideas on (LAUNCH_IDEAS_ENABLED) the page explains a launch's idea, and handing it off; comparing
+ * launches and the status filter need the launches list too (nav v2). The switch is read on the
+ * server, so the How to drawer passes it in.
+ */
+export default function LaunchAndWaitlistHelp({ ideas = isIdeasEnabled() }: HelpBodyProps = {}) {
+  const compare = ideas && isNavV2Enabled();
   return (
     <article>
       <H1>Launch and waitlist</H1>
@@ -41,6 +51,12 @@ export default function LaunchAndWaitlistHelp() {
         <li>
           Type a <strong>Launch name</strong>. It&apos;s the headline on your waitlist page.
         </li>
+        {ideas ? (
+          <li>
+            Admins can also write a <strong>Hypothesis (optional)</strong>: what you expect to happen, and for whom. You can
+            change it on the Overview later.
+          </li>
+        ) : null}
         <li>
           Leave <strong>URL slug</strong> blank to make one from the name. Your page lives at /waitlist/ plus the slug, and
           the slug can&apos;t be changed later.
@@ -69,6 +85,43 @@ export default function LaunchAndWaitlistHelp() {
           it the way it will look, with headings, bold, lists and links. Press <strong>Done</strong> to put it back in the email,
           then save the email as usual.
         </P>
+      ) : null}
+
+      {ideas ? (
+        <>
+          <H2 id="idea">Test it as an idea</H2>
+          <P>Each launch tests an idea. Its Overview starts with the Idea card, so your team can see what you expect and how it went.</P>
+          <Steps>
+            <li>
+              Open your launch. The <strong>Idea</strong> card is at the top of the Overview.
+            </li>
+            <li>
+              Under <strong>Status</strong>, pick <strong>Exploring</strong>, <strong>Testing</strong>,{" "}
+              <strong>Validated</strong>, <strong>Launched</strong>, <strong>Parked</strong> or <strong>Killed</strong>. It saves
+              straight away, with your name and the date, for example &quot;Set to Testing by you on 18 Nov.&quot;
+            </li>
+            <li>
+              Write the <strong>Hypothesis</strong> (up to 500 characters) and, as you learn, the <strong>Outcome</strong>{" "}
+              (up to 2,000). Press <strong>Save</strong>.
+            </li>
+          </Steps>
+          <P>
+            Only admins change the Idea card. Everyone on your team can read it. A launch made before ideas has no status until
+            someone picks one.
+          </P>
+          <P>
+            Parked or Killed leaves the waitlist open: people can still join, and its emails still go out. The card asks what
+            to do. Press <strong>Keep it open</strong>, or <strong>Also close the waitlist</strong>, which does what{" "}
+            <strong>Archive launch</strong> on the Settings tab does: nobody new can join, its emails pause, scheduled emails go
+            back to drafts, and it moves to Archived.
+          </P>
+          <P>
+            For a newsletter or sign up list that isn&apos;t an idea, tick <strong>Just a list</strong> on the card. The card
+            becomes one line, the launch shows no status, and it&apos;s left out of comparisons and of{" "}
+            <Open href="/help/your-audience#list">In more than one launch</Open>. Press <strong>Make it an idea</strong> to undo
+            it.
+          </P>
+        </>
       ) : null}
 
       <H2 id="welcome">Turn on the welcome email</H2>
@@ -145,6 +198,54 @@ export default function LaunchAndWaitlistHelp() {
         </>
       ) : null}
 
+      {compare ? (
+        <>
+          <H2 id="compare">Compare launches side by side</H2>
+          <Steps>
+            <li>
+              Open <Open href="/admin/launches">Launches</Open>. Each launch shows its status. Pick a status at the top, such
+              as <strong>Testing</strong>, to show only those.
+            </li>
+            <li>
+              Tick 2 to 4 launches, then press <strong>Compare side by side</strong>.
+            </li>
+            <li>
+              Each launch gets a column: its status, hypothesis and outcome, then <strong>Waitlisted</strong>,{" "}
+              <strong>Verified</strong>, <strong>Invited</strong>, <strong>Signed up</strong> and <strong>Activated</strong>.
+              Each bar is against that launch&apos;s own waitlist, and the line under it is the share of the step before.
+            </li>
+          </Steps>
+          <P>
+            Launches marked Just a list have no box. Press <strong>All launches</strong> to go back.
+          </P>
+        </>
+      ) : null}
+
+      {ideas ? (
+        <>
+          <H2 id="hand-off">Hand it off to your product</H2>
+          <P>Once an idea is built, say which product it became, so the two stay linked.</P>
+          <Steps>
+            <li>
+              On the Idea card, set the status to <strong>Launched</strong>.
+            </li>
+            <li>
+              Under <strong>Hand off to a product</strong>, pick the product. The one your latest invite wave went to is picked
+              first. Products come from <Open href="/help/connect-your-product">Connect your product</Open>, and test ones say
+              Sandbox.
+            </li>
+            <li>
+              Press <strong>Hand off</strong>. The card says which product, when and who, for example &quot;Handed off to Lumen
+              app on 4 Nov by you.&quot;
+            </li>
+          </Steps>
+          <P>
+            To change it, pick another product while the status is Launched and press <strong>Hand off</strong> again. Each
+            change is kept. The line stays if the status moves on later.
+          </P>
+        </>
+      ) : null}
+
       <H2 id="check">Check it worked</H2>
       <Checks>
         <li>
@@ -185,6 +286,17 @@ export default function LaunchAndWaitlistHelp() {
               Your sending domain isn&apos;t verified yet. See <Open href="/help/email-sending">Email sending</Open>.
             </>,
           ],
+          ...(ideas
+            ? ([
+                [
+                  IDEA_MESSAGES.hypothesisNotSaved,
+                  "The launch was created, but its hypothesis didn't save. Press Open its Overview and write it on the Idea card.",
+                ],
+                [IDEA_MESSAGES.closeFailed, "The new status is kept. Press Also close the waitlist again, or archive it from the Settings tab."],
+                [IDEA_MESSAGES.notLaunched, "Pick Launched under Status first, then press Hand off."],
+                [IDEA_MESSAGES.productGone, "That product was disconnected. Pick another one, or connect it again."],
+              ] as Array<[string, string]>)
+            : []),
         ]}
       />
 

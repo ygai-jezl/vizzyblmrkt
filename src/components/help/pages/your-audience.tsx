@@ -16,6 +16,7 @@ import { FIELD_MESSAGES, VIZZY_READS_HINT } from "@/components/admin/audience/fi
 import { CONSENT_WAYS, NEW_PERSON_MESSAGES, NEW_PERSON_NOTES } from "@/lib/audience/newPerson";
 import type { HelpBodyProps } from "@/lib/help/pages";
 import { peopleArea } from "@/lib/nav/terms";
+import { isIdeasEnabled } from "@/lib/ideas/flags";
 
 /**
  * Shown only while AUDIENCE_ONE_VIEW_ENABLED is on (src/lib/help/pages.ts). With People on
@@ -25,7 +26,8 @@ import { peopleArea } from "@/lib/nav/terms";
  * AUDIENCE_ADD_PERSON_ENABLED is on, and the timeline while AUDIENCE_TIMELINE_ENABLED is. Vizzy
  * and their fields shows while AUDIENCE_VIZZY_FIELDS_ENABLED is on, with "Vizzy can read this field"
  * for text fields while AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED is too, and Vizzy filling in New person
- * while AUDIENCE_VIZZY_ADD_PERSON_ENABLED is.
+ * while AUDIENCE_VIZZY_ADD_PERSON_ENABLED is. In more than one launch shows while
+ * LAUNCH_IDEAS_ENABLED is on.
  */
 export default function YourAudienceHelp({
   people = isPeopleNameEnabled(),
@@ -36,6 +38,7 @@ export default function YourAudienceHelp({
   vizzyFields = isVizzyFieldsEnabled(),
   vizzyTextFields = isVizzyTextFieldsEnabled(),
   vizzyAddPerson = isVizzyAddPersonEnabled(),
+  ideas = isIdeasEnabled(),
 }: HelpBodyProps = {}) {
   const area = peopleArea(people);
   // Text fields Vizzy may read need Vizzy's fields, which need fields.
@@ -100,6 +103,12 @@ export default function YourAudienceHelp({
             <strong>Stuck</strong>, <strong>Activated</strong> and <strong>Quiet</strong>.
           </li>
         )}
+        {ideas ? (
+          <li>
+            Press <strong>In more than one launch</strong> to see everyone on two or more of your launches, and how many there
+            are. Launches marked <Open href="/help/launch-and-waitlist#idea">Just a list</Open> don&apos;t count.
+          </li>
+        ) : null}
         <li>
           {fieldFilters ? "Press" : "Tick"} <strong>Only people we can email</strong> to leave out anyone who unsubscribed,
           bounced or never gave consent.

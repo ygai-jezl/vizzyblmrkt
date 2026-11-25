@@ -38,6 +38,7 @@ import { parseThemePreference, THEME_COOKIE } from "@/lib/theme";
 import { isCatalogHistoryEnabled } from "@/lib/connect/v2/flags";
 import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsSearchTextEnabled } from "@/lib/connectors/flags";
 import { isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
+import { isIdeasEnabled } from "@/lib/ideas/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -196,6 +197,7 @@ export default async function AdminLayout({
             connectorsSearchText={isConnectorsSearchTextEnabled()}
             connectorSignals={isConnectorSignalsEnabled()}
             brandMapScale={isBrandMapScaleEnabled()}
+            ideas={isIdeasEnabled()}
           >
             {shell}
           </ShellProvider>

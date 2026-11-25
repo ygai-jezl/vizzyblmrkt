@@ -5,6 +5,7 @@ import { readNextUp } from "@/lib/nextUp/pick";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { isNextUpEnabled } from "./flags";
 import { learnedLine, listLearned } from "./learned";
+import { meaningsOf, numberKeys } from "@/lib/metrics/meanings";
 
 /**
  * For Vizzy's get_next_up (/api/agent/next-up): the brand's three best next articles with why,
@@ -33,9 +34,7 @@ export async function nextUpAgentGate(req: Request): Promise<{ ok: true; ctx: Te
 export async function agentNextUp(ctx: TenantContext, deps: { db?: FirestoreLike; canUse?: (ctx: TenantContext) => Promise<boolean> } = {}): Promise<ApiResult> {
   if (!(await (deps.canUse ?? ((c) => brandCanUse(c, "next_up")))(ctx).catch(() => false))) return { status: 403, body: { error: "not_included" } };
   const [doc, learned] = await Promise.all([readNextUp(ctx, deps), listLearned(ctx, deps).catch(() => [])]);
-  return {
-    status: 200,
-    body: {
+  const body = {
       // A refresh pick (BLOG_FRESHNESS_ENABLED) is a live article to improve, with where it is.
       picks: (doc?.picks ?? []).map((p) => ({
         questionId: p.questionId,
@@ -44,12 +43,20 @@ export async function agentNextUp(ctx: TenantContext, deps: { db?: FirestoreLike
         because: p.because,
         chips: p.chips.map((c) => `${c.label}: ${c.text}`),
         ...(p.kind === "refresh" && p.planId && p.workspaceId ? { kind: "refresh", article: { planId: p.planId, workspaceId: p.workspaceId } } : {}),
+        // Stop repeats (NEXT_UP_REPEATS_ENABLED): a live article this question is close to. Suggest adding to it, not a new article.
+        ...(p.closeTo
+          ? { closeTo: { title: p.closeTo.title, url: p.closeTo.url, liveSince: p.closeTo.liveAt, repeatSimilarity: p.closeTo.sim, ...(p.closeTo.planId && p.closeTo.workspaceId ? { article: { planId: p.closeTo.planId, workspaceId: p.closeTo.workspaceId } } : {}) } }
+          : {}),
       })),
       notOnMap: doc?.notOnMap ?? [],
       missing: doc?.missing ?? [],
       chosenAt: doc?.at ?? null,
       learned: learned.slice(0, 15).map(learnedLine),
+      // Stop repeats: live articles that answer one question, and questions left out as already being written.
+      ...(doc?.repeatsLive?.length ? { repeatsLive: doc.repeatsLive.map((r) => ({ question: r.question, articles: r.pages.map((x) => ({ title: x.title, url: x.url })), repeatSimilarity: r.sim })) } : {}),
+      ...(doc?.leftOut !== undefined ? { questionsLeftOut: doc.leftOut, questionsLinkedByMeaning: doc.linkedByMeaning ?? 0 } : {}),
       note: doc ? NOTE : `Next up hasn't chosen yet. ${NOTE}`,
-    },
   };
+  const keys = numberKeys(body);
+  return { status: 200, body: keys.size ? { ...body, meanings: meaningsOf(keys) } : body };
 }

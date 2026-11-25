@@ -1134,7 +1134,7 @@ A question the brand's buyers ask, on the brand map, decided or still open.
 - Export: none. The brand's own work, with no one's personal data.
 - Search: `question`
 - Numbers: none. Its outside numbers are brand signals.
-- Made by: `brand_map_research`, `situation_questions`, `rising_search` (see Learning)
+- Made by: `brand_map_research`, `situation_questions`, `rising_search`, `repeat_match` (see Learning)
 
 ### Research import (`research_import`)
 
@@ -1199,8 +1199,8 @@ The brand's three best next articles, one record per brand, worked out again as 
 - Erase: none. Worked out again each time.
 - Export: none. The brand's own work, with no one's personal data.
 - Search: none. A short list read by Vizzy through get_next_up.
-- Numbers: none. No numbers an agent reads.
-- Made by: `next_up`, `next_up_order`, `refresh_share` (see Learning)
+- Numbers: `repeatSimilarity`, `questionsLeftOut`, `questionsLinkedByMeaning`, through `get_next_up`
+- Made by: `next_up`, `next_up_order`, `refresh_share`, `repeat_match` (see Learning)
 
 ### Autopilot run (`autopilot_run`)
 
@@ -1923,11 +1923,11 @@ Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Ev
 
 A call site is a file where a kind is made, counted once for each kind: a meter call that names its purpose, a canvas's module, the file that holds a rule, or the file that calls a model with no meter.
 
-82 kinds: 0 learn, 0 fleet only, 19 own, 27 gap and 36 none.
+83 kinds: 0 learn, 0 fleet only, 20 own, 27 gap and 36 none.
 
-102 call sites: 0 learn, 0 fleet only, 29 own, 32 gap and 41 none.
+103 call sites: 0 learn, 0 fleet only, 30 own, 32 gap and 41 none.
 
-Not learning: 73 of 102 call sites, under gap and none lines.
+Not learning: 73 of 103 call sites, under gap and none lines.
 
 ### Where own lines keep what they learned
 
@@ -1994,8 +1994,10 @@ No line says this yet.
   - `src/lib/signals/collect.ts`
 - `canvas.brand_map` (canvas), kept in `brand_map`. A change a person dismissed is kept on the brand map and Vizzy does not file it again, though a buying situation a person asks Vizzy for in chat comes back as a suggestion.
   - `src/lib/canvas/kinds/brandMap.ts`
-- `next_up_order` (rule, Next up shortlist), kept in `learned`. Questions the team skipped in the last 30 days are left out of the shortlist, read from the Learned list.
+- `next_up_order` (rule, Next up shortlist), kept in `learned`. Questions the team skipped in the last 30 days are left out of the shortlist, read from the Learned list, and where turned on a subject counts by its size as well as its share answered.
   - `src/lib/nextUp/candidates.ts`
+- `repeat_match` (rule, Repeat match), kept in `learned`. A question your team wrote anyway, added to an article or unlinked is kept on the Learned list and not matched that way again, though the closeness cut offs never move.
+  - `src/lib/nextUp/repeats.ts`
 - `freshness_clock` (rule, Refresh clock), kept in `refresh_record`. Each article gets a 20, 30 or 45 day clock in turn, the refresh records show which clock gains clicks, and a person accepts the clock it suggests.
   - `src/lib/content/blog/freshness.ts`
 - `competitor_topics` (rule, Competitor topics to add), kept in `brand_map`. A topic a person dismissed from the brand map is marked dismissed and left out of what Next up suggests from competitor articles.

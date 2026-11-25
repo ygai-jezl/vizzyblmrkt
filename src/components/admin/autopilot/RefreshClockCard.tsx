@@ -11,12 +11,36 @@ import { useEffect, useState } from "react";
 
 type Clock = "test" | 20 | 30 | 45;
 
+/** Which clock works (BLOG_REFRESH_ENABLED), as src/lib/content/blog/refreshReadout.ts sums it up. */
+interface ClockRow {
+  clockDays: 20 | 30 | 45;
+  refreshes: number;
+  nothingShare: number | null;
+  proposedAvg: number | null;
+  acceptedAvg: number | null;
+  costCentsAvg: number | null;
+  clickLift: { mean: number; low: number; high: number } | null;
+  resultsNeeded: number;
+}
+
 interface RefreshData {
   clock: Clock;
   share: number;
+  keepTesting?: boolean;
   counts: { fresh: number; soon: number; due: number } | null;
   byClock: Record<"20" | "30" | "45", number> | null;
   lookedAt: string | null;
+  readout?: { clocks: ClockRow[]; since: string | null; suggestion: { clockDays: 20 | 30 | 45; text: string } | null; line: string };
+}
+
+/** Said under the readout. */
+export const READOUT_NOTE = "Cost is an estimate at Google's list prices. Search Console's numbers stay with this brand.";
+
+const pct = (x: number) => `${x >= 0 ? "+" : ""}${Math.round(x * 100)}%`;
+/** "Too early" until a clock has its results; then the range, never one number. */
+export function liftText(c: ClockRow): string {
+  if (!c.clickLift) return `Too early: ${c.resultsNeeded} more refresh${c.resultsNeeded === 1 ? "" : "es"}`;
+  return `${pct(c.clickLift.mean)} (${pct(c.clickLift.low)} to ${pct(c.clickLift.high)})`;
 }
 
 const CARD = "rounded-lg border border-neutral-200 p-4 dark:border-neutral-800";
@@ -54,21 +78,28 @@ export function RefreshClockCard({ isAdmin }: { isAdmin: boolean }) {
 
   if (!data) return null;
 
-  const save = async () => {
+  const save = async (next: { clock: Clock; share: number; keepTesting?: boolean } = { clock, share }) => {
     setBusy(true);
     setMessage(null);
     const res = await fetch("/api/admin/settings/refresh", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ clock, share }),
+      body: JSON.stringify(next),
     }).catch(() => null);
     setBusy(false);
     if (!res?.ok) {
       setMessage(res?.status === 403 ? "Only admins can change the refresh clock." : "That didn't save. Try again in a moment.");
       return;
     }
-    setData({ ...data, clock, share });
-    setMessage(clock === "test" ? "Saved. New live articles are spread across 20, 30 and 45 days." : `Saved. Live articles are due every ${clock} days.`);
+    setData({ ...data, clock: next.clock, share: next.share, keepTesting: next.clock !== "test" && next.keepTesting === true });
+    setClock(next.clock);
+    setMessage(
+      next.clock === "test"
+        ? "Saved. New live articles are spread across 20, 30 and 45 days."
+        : next.keepTesting
+          ? `Saved. Live articles are due every ${next.clock} days, and a tenth of new ones keep testing.`
+          : `Saved. Live articles are due every ${next.clock} days.`,
+    );
   };
 
   const changed = clock !== data.clock || share !== data.share;
@@ -123,11 +154,54 @@ export function RefreshClockCard({ isAdmin }: { isAdmin: boolean }) {
           Live articles by clock: {b["20"]} on 20 days, {b["30"]} on 30, {b["45"]} on 45.
         </p>
       ) : null}
+      {data.readout ? (
+        <div className="mt-3 space-y-2">
+          <h3 className="text-xs font-semibold">Which clock works</h3>
+          <div className="overflow-x-auto rounded-md border border-neutral-200 dark:border-neutral-800">
+            <table className="w-full text-left text-xs tabular-nums">
+              <thead className="bg-neutral-50 text-[10.5px] uppercase tracking-wide text-neutral-500 dark:bg-neutral-900">
+                <tr>
+                  <th className="px-2 py-1.5 font-medium">Clock</th>
+                  <th className="px-2 py-1.5 font-medium">Refreshes</th>
+                  <th className="px-2 py-1.5 font-medium">Nothing to change</th>
+                  <th className="px-2 py-1.5 font-medium">Changes accepted</th>
+                  <th className="px-2 py-1.5 font-medium">Cost each</th>
+                  <th className="px-2 py-1.5 font-medium">Clicks after 28 days, against articles left alone</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.readout.clocks.map((c) => (
+                  <tr key={c.clockDays} className="border-t border-neutral-200 dark:border-neutral-800">
+                    <td className="px-2 py-1.5">{c.clockDays} days</td>
+                    <td className="px-2 py-1.5">{c.refreshes}</td>
+                    <td className="px-2 py-1.5">{c.nothingShare === null ? "" : `${Math.round(c.nothingShare * 100)}%`}</td>
+                    <td className="px-2 py-1.5">{c.acceptedAvg === null ? "" : `${c.acceptedAvg} of ${c.proposedAvg ?? 0}`}</td>
+                    <td className="px-2 py-1.5">{c.costCentsAvg === null ? "" : `about ${Math.round(c.costCentsAvg)}¢`}</td>
+                    <td className={`px-2 py-1.5 ${c.clickLift ? "" : "text-neutral-500"}`}>{liftText(c)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="rounded-md bg-neutral-50 px-2 py-1.5 text-xs text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">{data.readout.line}</p>
+          {isAdmin && data.readout.suggestion && data.clock !== data.readout.suggestion.clockDays ? (
+            <button
+              type="button"
+              onClick={() => void save({ clock: data.readout!.suggestion!.clockDays, share, keepTesting: true })}
+              disabled={busy}
+              className="rounded-md border border-neutral-300 px-2.5 py-1 text-xs hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
+            >
+              Use {data.readout.suggestion.clockDays} days
+            </button>
+          ) : null}
+          <p className="text-[11px] text-neutral-500 dark:text-neutral-400">{READOUT_NOTE}</p>
+        </div>
+      ) : null}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {isAdmin ? (
           <button
             type="button"
-            onClick={() => void save()}
+            onClick={() => void save({ clock, share })}
             disabled={busy || !changed}
             className="rounded-md bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
           >

@@ -1,4 +1,4 @@
-import { isBlogFreshnessEnabled } from "@/lib/brandMap/flags";
+import { isBlogFreshnessEnabled, isBlogRefreshEnabled } from "@/lib/brandMap/flags";
 import { forTenant, getTenantById } from "@/lib/tenant";
 import { setTenantRefresh } from "@/lib/tenant/control";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
@@ -7,6 +7,8 @@ import type { ContentNode } from "@/lib/types/contentPlan";
 import type { Tenant } from "@/lib/types/tenant";
 import { articleFreshness, nextEvents } from "./freshness";
 import { freshnessWatchId } from "./freshnessPages";
+import { clockReadout, readoutLine } from "./refreshReadout";
+import { listRecords } from "./refreshRecords";
 
 /**
  * Article freshness's settings and a person's check (BLOG_FRESHNESS_ENABLED): the brand's refresh
@@ -29,14 +31,18 @@ export async function readRefresh(ctx: TenantContext, deps: RefreshDeps = {}): P
   if (!isBlogFreshnessEnabled()) return { status: 503, body: { error: "unavailable" } };
   const tenant = await (deps.loadTenant ?? getTenantById)(ctx.tenantId).catch(() => null);
   const watch = await forTenant(ctx, deps.db).freshnessWatch.getById(freshnessWatchId(ctx.tenantId)).catch(() => null);
+  // Which clock works (BLOG_REFRESH_ENABLED): the brand's refresh records, summed per clock.
+  const readout = isBlogRefreshEnabled() ? clockReadout(await listRecords(ctx, deps).catch(() => [])) : null;
   return {
     status: 200,
     body: {
       clock: tenant?.refreshClock ?? "test",
       share: tenant?.refreshShare ?? DEFAULT_REFRESH_SHARE,
+      keepTesting: tenant?.refreshKeepTesting === true,
       counts: watch?.counts ?? null,
       byClock: watch?.byClock ?? null,
       lookedAt: watch?.updatedAt ?? null,
+      ...(readout ? { readout: { ...readout, line: readoutLine(readout) } } : {}),
     },
   };
 }
@@ -45,13 +51,15 @@ export async function readRefresh(ctx: TenantContext, deps: RefreshDeps = {}): P
 export async function saveRefresh(ctx: TenantContext, raw: unknown, deps: RefreshDeps = {}): Promise<ApiResult> {
   if (!isBlogFreshnessEnabled()) return { status: 503, body: { error: "unavailable" } };
   if (ctx.role !== "admin") return { status: 403, body: { error: "forbidden" } };
-  const body = raw as { clock?: unknown; share?: unknown } | null;
+  const body = raw as { clock?: unknown; share?: unknown; keepTesting?: unknown } | null;
   const clock = body?.clock;
   const share = body?.share;
+  const keepTesting = body?.keepTesting;
+  if (keepTesting !== undefined && typeof keepTesting !== "boolean") return { status: 400, body: { error: "invalid_input" } };
   if (!(clock === "test" || clock === 20 || clock === 30 || clock === 45)) return { status: 400, body: { error: "invalid_clock" } };
   if (typeof share !== "number" || !Number.isInteger(share) || share < 0 || share > 3) return { status: 400, body: { error: "invalid_share" } };
-  const ok = await (deps.save ?? setTenantRefresh)(ctx.tenantId, { refreshClock: clock, refreshShare: share });
-  return ok ? { status: 200, body: { clock, share } } : { status: 404, body: { error: "not_found" } };
+  const ok = await (deps.save ?? setTenantRefresh)(ctx.tenantId, { refreshClock: clock, refreshShare: share, ...(typeof keepTesting === "boolean" ? { refreshKeepTesting: keepTesting } : {}) });
+  return ok ? { status: 200, body: { clock, share, ...(typeof keepTesting === "boolean" ? { keepTesting: clock !== "test" && keepTesting } : {}) } } : { status: 404, body: { error: "not_found" } };
 }
 
 /**
@@ -90,17 +98,21 @@ export async function markChecked(
     },
   });
   if (!node) return { ok: false, status: 404, error: "node_not_found" };
-  // Off the due list at once, so Review and Next up stop offering it.
+  await leaveDueList(ctx, args.planId, at, deps);
+  return { ok: true, node };
+}
+
+/** Off the brand's due list at once (checked or refreshed), so Review and Next up stop offering it. */
+export async function leaveDueList(ctx: TenantContext, planId: string, at: string, deps: { db?: FirestoreLike } = {}): Promise<void> {
   await forTenant(ctx, deps.db)
     .freshnessWatch.claim(freshnessWatchId(ctx.tenantId), (w) => {
-      const gone = w.due.find((d) => d.planId === args.planId);
+      const gone = w.due.find((d) => d.planId === planId);
       if (!gone) return null;
       return {
-        due: w.due.filter((d) => d.planId !== args.planId),
+        due: w.due.filter((d) => d.planId !== planId),
         counts: { ...w.counts, [gone.state]: Math.max(0, w.counts[gone.state] - 1), fresh: w.counts.fresh + 1 },
         updatedAt: at,
       };
     })
     .catch(() => null);
-  return { ok: true, node };
 }

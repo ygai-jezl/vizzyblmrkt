@@ -1,5 +1,6 @@
 import type { BlogBrief } from "@/lib/types/contentPlan";
 import type { VersionsControls } from "./VersionsCard";
+import type { RefreshControls } from "./RefreshReviewCard";
 import type { ArticleMap } from "@/lib/content/blog/articleMap";
 import type { AddressSaved } from "@/lib/content/blog/address";
 import type { LiveAction, LiveCheck } from "@/lib/content/blog/live";
@@ -73,6 +74,8 @@ export interface BlogHubControls {
   focusFreshness?: boolean;
   /** Article refresh (BLOG_REFRESH_ENABLED): the article's earlier versions, with Restore. */
   versions?: VersionsControls;
+  /** Article refresh (BLOG_REFRESH_ENABLED): a live article's review, its proposals and Apply. */
+  refresh?: RefreshControls;
   /** Found live (BLOG_LIVE_WATCH_ENABLED): YouGrow checks the address on its own, or finds the article on the sitemap. */
   liveWatch?: boolean;
   /** The hero image (BLOG_HERO_ENABLED); absent = no hero card. */

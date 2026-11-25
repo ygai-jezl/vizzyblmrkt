@@ -59,7 +59,7 @@ import type { AutopilotRun, LearnedEntry, NextUpDoc } from "@/lib/types/autopilo
 import type { UsageMeterDoc } from "@/lib/types/usageMeter";
 import type { LiveWatchDoc, LiveWatchSeen } from "@/lib/types/liveWatch";
 import type { FreshnessWatchDoc } from "@/lib/types/freshness";
-import type { ArticleVersionsDoc } from "@/lib/types/articleRefresh";
+import type { ArticleReviewDoc, ArticleVersionsDoc, RefreshRecord } from "@/lib/types/articleRefresh";
 import type { StoredEvent } from "@/lib/types/ontologyEvent";
 import type { AgentAction } from "@/lib/types/agentAction";
 import type { SettingsVersion } from "@/lib/types/settingsVersion";
@@ -595,6 +595,10 @@ export interface TenantRepositories {
   freshnessWatch: TenantCollection<FreshnessWatchDoc>;
   /** Article refresh: each blog article's last 10 versions, `av_<planId>` (src/lib/content/blog/versions.ts). */
   articleVersions: TenantCollection<ArticleVersionsDoc>;
+  /** Article refresh: each blog article's current or last review, `ar_<planId>` (src/lib/content/blog/refreshReview.ts). */
+  articleReviews: TenantCollection<ArticleReviewDoc>;
+  /** Article refresh: one record per review, for the monthly cap and the clock readout (src/lib/content/blog/refreshRecords.ts). */
+  refreshRecords: TenantCollection<RefreshRecord>;
   /**
    * The event history: one row per thing that happened to a person, company, idea or agent
    * action. Append only: written only through ./ontologyEvents.ts and ./agentActions.ts.
@@ -772,6 +776,8 @@ export function forTenant(
     liveWatchSeen: new TenantCollection<LiveWatchSeen>(regionalDb, "live_watch_seen", t),
     freshnessWatch: new TenantCollection<FreshnessWatchDoc>(regionalDb, "freshness_watch", t),
     articleVersions: new TenantCollection<ArticleVersionsDoc>(regionalDb, "article_versions", t),
+    articleReviews: new TenantCollection<ArticleReviewDoc>(regionalDb, "article_reviews", t),
+    refreshRecords: new TenantCollection<RefreshRecord>(regionalDb, "refresh_records", t),
     // A person's history and agents' suggestions are personal: regional, beside the person.
     ontologyEvents: new TenantCollection<StoredEvent>(regionalDb, "ontology_events", t),
     agentActions: new TenantCollection<AgentAction>(regionalDb, "agent_actions", t),

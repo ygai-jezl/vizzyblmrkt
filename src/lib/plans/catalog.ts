@@ -76,6 +76,7 @@ const ALL_METERED: readonly MeteredFeature[] = [
   "brand_search",
   "next_up",
   "article_autopilot",
+  "article_refresh",
 ];
 
 const NO_LIMITS: Record<Allowance, null> = {
@@ -166,6 +167,7 @@ export const FEATURE_LABELS: Record<PlanFeature, string> = {
   brand_search: "Brand search",
   next_up: "Next up",
   article_autopilot: "Article autopilot",
+  article_refresh: "Article refresh reviews",
   ...(Object.fromEntries(ENTERPRISE_FEATURES.map((f) => [f.id, f.label])) as Record<EnterpriseFeature, string>),
 };
 

@@ -850,8 +850,10 @@ export async function deleteContentPlan(
   db?: FirestoreLike,
 ): Promise<void> {
   await contentPlans(ctx, workspaceId, db).doc(planId).delete();
-  // Its earlier versions go with it (article refresh). A plan never refreshed has none.
-  const versions = forTenant(ctx, db).articleVersions;
-  const kept = await versions.getById(`av_${planId}`).catch(() => null);
-  if (kept && kept.workspaceId === workspaceId) await versions.delete(kept.id).catch(() => undefined);
+  // Its earlier versions and its review go with it (article refresh). A plan never refreshed has none.
+  const repo = forTenant(ctx, db);
+  const kept = await repo.articleVersions.getById(`av_${planId}`).catch(() => null);
+  if (kept && kept.workspaceId === workspaceId) await repo.articleVersions.delete(kept.id).catch(() => undefined);
+  const review = await repo.articleReviews.getById(`ar_${planId}`).catch(() => null);
+  if (review && review.workspaceId === workspaceId) await repo.articleReviews.delete(review.id).catch(() => undefined);
 }

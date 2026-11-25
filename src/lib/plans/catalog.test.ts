@@ -55,8 +55,9 @@ describe("plan catalog", () => {
     expect(plan("free").allowances).toEqual({ brands: 1, users: 2, liveIdeas: 1, people: 1000, emailsPerMonth: 1000, aiCreditsPerMonth: 50 });
     expect(plan("pro").allowances).toEqual({ brands: 3, users: null, liveIdeas: 5, people: 10000, emailsPerMonth: 5000, aiCreditsPerMonth: 250 });
     expect(plan("ultra").allowances).toEqual({ brands: 10, users: null, liveIdeas: null, people: 100000, emailsPerMonth: 50000, aiCreditsPerMonth: 1200 });
-    expect(plan("free").features).toEqual([]);
-    expect([...plan("pro").features].sort()).toEqual(["brand_search", "edit_vizzy"]);
+    // Talk with Vizzy by voice is in every plan.
+    expect(plan("free").features).toEqual(["onboarding_voice"]);
+    expect([...plan("pro").features].sort()).toEqual(["brand_search", "edit_vizzy", "onboarding_voice"]);
     expect([...plan("ultra").features].sort()).toEqual([...METERED_FEATURES].sort());
     // Free and Pro cap web searches for research; Ultra sets no caps (decision 20), Enterprise by agreement.
     expect(plan("free").monthlyCaps).toEqual({ web_searches: 300 });
@@ -158,7 +159,7 @@ describe("plan catalog", () => {
   it("works out which features every plan includes", () => {
     const common = [...METERED_FEATURES, ...EE_FEATURES].filter((f) => PLANS.every((p) => p.features.includes(f)));
     expect([...INCLUDED_IN_EVERY_PLAN].sort()).toEqual(common.sort());
-    expect(INCLUDED_IN_EVERY_PLAN).toEqual([]);
+    expect(INCLUDED_IN_EVERY_PLAN).toEqual(["onboarding_voice"]);
   });
 
   it("labels every feature and allowance, in house style", () => {

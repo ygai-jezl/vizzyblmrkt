@@ -21,6 +21,7 @@ from __future__ import annotations
 from . import _project_fix  # noqa: F401  MUST precede google-auth — see _project_fix.py
 from google.adk.agents import LlmAgent
 
+from .callbacks.business_profile import apply_business_profile
 from .callbacks.chat_mode import apply_chat_mode
 from .callbacks.context_envelope import apply_context_envelope
 from .context.brand_context import build_dynamic_instruction
@@ -47,6 +48,7 @@ from .tools.articles_due import list_articles_due
 from .tools.article_review import review_article
 from .tools.setup_help import get_setup_status, read_help_page
 from .tools.new_person import new_person_propose
+from .tools.business_profile import get_business_profile, read_onboarding_conversation, suggest_business_fact
 
 root_agent = LlmAgent(
     name="vizzybl_marketing_root",
@@ -56,8 +58,9 @@ root_agent = LlmAgent(
         "email broadcasts/journeys, creative, signups, and analytics."
     ),
     instruction=build_dynamic_instruction,
-    # Order matters: strip the [ctx:] envelope first, then the [mode:] directive.
-    before_model_callback=[apply_context_envelope, apply_chat_mode],
+    # Order matters: strip the [ctx:] envelope first, then the [mode:] directive, then append
+    # what the brand told Vizzy (it needs the envelope's profileRev; see callbacks/business_profile.py).
+    before_model_callback=[apply_context_envelope, apply_chat_mode, apply_business_profile],
     # retrieve_knowledge grounds answers on the launch's ingested docs/site/repos
     # (RAG); get_insights_summary answers "how are we doing?" from the Insights
     # numbers (aggregates only); get_audience_counts counts the audience by launch,
@@ -83,7 +86,10 @@ root_agent = LlmAgent(
     # get_setup_status/read_help_page answer "what should I set up first?"
     # and "how do I…?" from the brand's setup progress and the help pages;
     # new_person_propose fills in the New person form for an admin to confirm (never
-    # consent). More marketing FunctionTools land alongside them.
+    # consent); get_business_profile/read_onboarding_conversation read what the brand told Vizzy
+    # about the business (facts, quotes and conversations for admins), and suggest_business_fact
+    # files something new it heard for an admin to keep in About your business.
+    # More marketing FunctionTools land alongside them.
     tools=[
         retrieve_knowledge,
         get_insights_summary,
@@ -114,6 +120,9 @@ root_agent = LlmAgent(
         get_setup_status,
         read_help_page,
         new_person_propose,
+        get_business_profile,
+        read_onboarding_conversation,
+        suggest_business_fact,
     ],
     # campaign_ops authors launch (waitlist) journeys; lifecycle_ops authors
     # connected-product lifecycle journeys. Both save drafts only.

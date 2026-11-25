@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { addMissing, baseSwitches, entryMap, formatEntry, parseEntries, renderEnvFile, secretEntry, setEntries, valueEntry } from "./envfile.mjs";
 import { KEPT_OFF, switchesForAddon } from "./spec.mjs";
+import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 
 const REPO = fileURLToPath(new URL("../..", import.meta.url));
 const base = readFileSync(join(REPO, "apphosting.yaml"), "utf8");
@@ -98,6 +99,19 @@ describe("the switches npm run selfhost leaves off", () => {
     expect(KEPT_OFF.ORGANISATION_JOIN_ENABLED.addon).toBeNull();
     for (const addon of ["x", "linkedin", "vizzy", "knowledge", "github-app", "bigquery", "recaptcha", "search"]) {
       expect(switchesForAddon(addon), addon).not.toContain("ORGANISATION_JOIN_ENABLED");
+    }
+  });
+
+  it("keep talking with Vizzy by voice off on a new copy, and turn the 4 quick questions on", () => {
+    // The welcome and its questions need no AI, so a new copy gets them. Voice sends audio to the
+    // Gemini API through AI Studio, outside the project, so a copy turns it on by hand.
+    expect(KEPT_OFF.ONBOARDING_VOICE_ENABLED.addon).toBeNull();
+    expect(dashesIn(KEPT_OFF.ONBOARDING_VOICE_ENABLED.why)).toEqual([]);
+    expect(aiTellsIn(KEPT_OFF.ONBOARDING_VOICE_ENABLED.why)).toEqual([]);
+    expect(KEPT_OFF).not.toHaveProperty("ONBOARDING_ENABLED");
+    expect(switches.has("ONBOARDING_ENABLED")).toBe(true);
+    for (const addon of ["x", "linkedin", "vizzy", "knowledge", "github-app", "bigquery", "recaptcha", "search", "password"]) {
+      expect(switchesForAddon(addon), addon).not.toContain("ONBOARDING_VOICE_ENABLED");
     }
   });
 

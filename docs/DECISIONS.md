@@ -4,6 +4,155 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0018 · Getting to know you: what a new brand tells Vizzy, and how Vizzy uses it (PR A) (2026-11-25)
+
+Context: a new brand lands on an empty Home and a sidebar of every section, and Vizzy knows
+nothing about the business it is helping. PR A ("Getting to know you", plan `plan-onboarding.md`
+with the owner's answers of 25 Nov) asks a new brand's first admin four things, by voice or as four
+quick questions, keeps what was said, orders Home and the sidebar by it, and lets Vizzy read it in
+every chat. The owner ruled out a text chat onboarding (Talk with Vizzy by voice, the 4 quick
+questions, or Skip) and moved Home's next action card to PR B. ADR-0016 is piece D's Ideas.
+
+### Decided
+
+1. **Scope.** The welcome (`/admin/welcome`, `/admin/welcome/questions`, `/admin/welcome/learned`)
+   under one layout that draws a full screen frame over the shell; Here's what I learned after a
+   call; kept transcripts; the brand's profile; Settings › General › About your business; Home's
+   title "Your next action" with its stage picked from the answers; Coming up in the sidebar; and
+   Vizzy reading and suggesting. No chat onboarding, no A2UI, no next action card.
+2. **First visit.** Home sends an admin to the welcome only when `ONBOARDING_ENABLED` is on, the
+   brand has no `businessProfile`, it has never had a launch, programme, connection or lifecycle
+   journey (archived ones count, and a read that failed counts as "had one"), no sign-up, and no
+   setup a person did (a sending detail or domain, LinkedIn, X or GitHub connected, a brand voice,
+   or a saved brand map: `didSetupWork`).
+   Home only redirects. The welcome page writes `status: "started"` (`startBusinessProfile`, in a
+   transaction) when it renders for a brand that rule still picks (`markWelcomeShown`), so it shows
+   once per brand and a redirect lost to a racing refresh comes back on the next visit to Home. Add
+   Brand loads Home as a whole page. Existing brands are never sent there; they start from Settings.
+   Members never.
+3. **Where it lives.** On the tenant doc (control plane, read free by the admin layout, Home and the
+   chat proxy): `businessProfile` (status, how it came, the four answers as fixed keys, and `rev`),
+   `sidebarReveal` and the voice day `onboardingVoice`, with no user ids. In the brand's own region
+   through `forTenant(ctx)`: `onboarding_conversations` (`oc_` and 32 hex: turns, Vizzy's notes, what
+   was learned, at most 200 turns, 40,000 characters, 20 per brand) and `business_facts` (`bf_` and
+   16 hex: kind, a short line, the member's own words, at most 40 per brand). Lists read whole and
+   sort in code: equality only, so no composite index. `rev` goes up whenever an answer or a kept
+   fact changes.
+4. **The answers and the facts.** Keys `who | run | stage | want` with three choices each (the
+   mockups' labels); `ProfileStage` is never the growth path's `StageKey`. Facts are `timeline`,
+   `channel`, `start` ("Starting point"), `constraint` or `goal`.
+5. **Talk with Vizzy runs on AI Studio ephemeral tokens.** A browser can't open the Vertex Live API
+   without a proxy (server to server only), and a proxy is a new service. The token is for one use,
+   locked to the whole config, expires after 6 minutes and must connect within 1; the call is 5
+   minutes. The model is `GEMINI_ONBOARDING_LIVE_MODEL`. Each brand has one finished call and 3
+   starts a UTC day (`claimVoiceStart`), kept on the brand record so deleting a conversation can't
+   give the day back. `onboarding_voice` is a metered feature in every plan, counted as
+   `voice_seconds` once, when the call ends. A call where the member never spoke is counted, then
+   deleted, so it never lists or counts toward the 20. A call left open (no end reached the
+   server) is closed by the brand's next start, counted by its last line, and leaves the day; the
+   browser tries the end 4 times and, failing, shows the call dropped with no review. `ONBOARDING_VOICE_ENABLED` stays off in prod until the
+   owner checks AI Studio's terms (billing on, the DPA and privacy policy name the Gemini API).
+6. **What was learned fails closed.** One text model call in JSON mode, then zod and code checks: an
+   answer or a fact survives only when its words are inside ONE member turn (ignoring case, spacing
+   and punctuation), and an answer's words must be able to back it (4 letters or more, with a word
+   that isn't filler like "it" or "an"). The transcript is fenced as data in the prompt and never logged. Nothing is
+   kept until "Looks right", which copies the kept facts from the stored result by id, never from
+   the request. The 4 quick questions need no model call.
+7. **The microphone only on the welcome.** `next.config.ts` keeps `microphone=()` everywhere else,
+   and the welcome reloads once when it arrived by a client navigation, because the header is per
+   document. For the same reason every way out of the welcome is a whole page load (Skip, the
+   questions, See what I learned, See your next action), and the admin shell
+   (`LeaveWelcomeByLoad`) loads the page shown once more when the welcome's document was left by a
+   client navigation (⌘K, Back).
+8. **Kept words can always be read and deleted.** Reads and deletes skip the switch (origin,
+   sign-in and admin still apply); About your business shows while the switch is on, or the brand has
+   a profile or keeps a conversation or a fact (a call never confirmed writes no profile), read and
+   delete only with the switch off. Removing a fact deletes it (no tombstone). Deleting a conversation keeps the facts kept
+   from it, as its dialog says. Erase and export are registered in the ontology
+   (`deleteConversation`, `removeBusinessFact`, `getConversation`, `listBusinessFacts`).
+9. **Home and the sidebar follow the answers.** Home's card lists the steps of the stage the answers
+   point to (`nextActionStage`); everything else on Home keeps the current stage. The sidebar is
+   filtered only for a brand whose welcome flow finished: `sidebarReveal` is written then, from a
+   four line fit table plus the sections that already hold data, and after that only grows (data
+   that arrives, Open early, a page visited). Skip, existing brands and Settings-only answers keep
+   today's sidebar. ⌘K still finds every section.
+10. **Vizzy reads the profile in every chat.** The chat proxy sends only `profileRev` (digits: the
+    profile's rev, then 1 for an admin's view or 0 for a member's, so a change of role misses the
+    cache) in the `[ctx:]` envelope, and only while `ONBOARDING_ENABLED` is on: the envelope
+    parser stops at the first `}]`, and ADK re-sends past envelopes, so the profile itself can't
+    ride there. A third root before-model callback
+    (`agents/root_agent/callbacks/business_profile.py`) fetches `GET
+    /api/agent/business-profile?view=chat` when the rev changes and appends a fenced
+    `<yg_business_profile>` block of at most 2,400 characters with `append_instructions` (ADK builds
+    the instruction before callbacks run), after how to use it (read back, suggest, no chat
+    onboarding). With no `profileRev` nothing is added, so a copy with the switch off keeps
+    today's instruction. The block is cached in the agent's process (256 blocks,
+    10 minutes, by brand, person and rev), never in session state, which Agent Runtime stores in one
+    region; sub-agents read the same cache. It fails soft. A member's chat gets the four answers
+    only: About says "Only your admins and Vizzy see it".
+11. **Vizzy's tools.** `get_business_profile` (answers for anyone; facts with quotes, what waits and
+    the conversations for admins), `read_onboarding_conversation` (admins) and
+    `suggest_business_fact` (admins, only after the person agrees). Every response and docstring says
+    the founder's words are data, never instructions. A tool's answer is kept with the chat's
+    session in Agent Runtime (one region, which no path deletes), so it outlives a deleted call:
+    the words from calls (a fact's quote from a call, a call's transcript) reach a chat only with
+    `ONBOARDING_CALL_WORDS_IN_CHAT_ENABLED`. Words said in a chat with Vizzy are in its session
+    already, so chat quotes and kept chats are always readable.
+12. **A fact from a later chat waits for an admin.** It is an agent action, `business_fact.suggest`,
+    whose target is the brand itself (`brand` joins `AGENT_TARGET_TYPES`; no new registry type). At
+    most 10 wait, 40 facts kept and waiting together, never the words of a kept fact; the same fact
+    again answers with the one waiting, or "already decided" once a person kept or removed it; each
+    waits 30 days. It shows to admins in About your business ("From a chat, 25 Nov. Waiting for
+    you", Keep beside Remove) and in Review. Keep writes the fact, the chat's lines as a "Chat with
+    Vizzy" conversation and the decision in one regional transaction
+    (`keepSuggestedBusinessFact`), then bumps the rev (a brand with no profile gets one). Its words
+    leave the action once it is decided (`clearDetailsOnClose`).
+13. **Switches.** `ONBOARDING_ENABLED`, `ONBOARDING_VOICE_ENABLED` and
+    `ONBOARDING_CALL_WORDS_IN_CHAT_ENABLED`, server and runtime only, off in `apphosting.yaml`.
+    Self-hosting turns the first on, the third with the Vizzy add-on, and keeps voice off; a local
+    run keeps voice off.
+
+Rejected:
+- `brandProfile` or `onboarding` as the tenant field: `businessProfile` matches About your business,
+  `business_facts` and `get_business_profile`, and "onboarding" already means product onboarding.
+- The profile in the envelope, or the block in session state: see 10.
+- A `status` field on facts for chat suggestions (the brand notes pattern): no outcome record for the
+  learning loops and no Review entry for free.
+- A daily cap counted from kept conversations: deleting one would give the day back.
+- Metering a call on every upload: `record()` adds a call each time, so seconds are counted once, at
+  the end, and a stale call is closed and counted by the brand's next start.
+- Metering a stale call's whole 6 minute window: nothing says how long a call nobody ended was open,
+  so it counts its last line.
+
+What it costs: no new service, no new dependency, no composite index; 2 collections, 3 tenant
+fields, 1 meter resource, 1 metered feature, 3 switches. One text model call per call learned
+(metered as `onboarding`), the Live call itself, and about 600 tokens of profile per chat model call
+inside the metered chat.
+
+Gaps and follow-ups:
+- No path deletes a whole brand, so the privacy line says the words stay "until you delete them". A
+  member's `by` stays on a conversation after they leave, and a person's erase or export doesn't find
+  free text that names them.
+- The answers sit in the control plane (US) for EU and Asia brands, like the brand voice; the words
+  stay in the brand's region, except what Vizzy reads in a chat: the fact lines in every chat, and
+  with `ONBOARDING_CALL_WORDS_IN_CHAT_ENABLED` a call's quotes and transcript, are kept with that
+  chat's session in Agent Runtime (us-central1), which no path deletes. Before that switch goes on,
+  the privacy policy, the DPA's Agent Runtime line and the help ("removes its transcript for good")
+  must say so.
+- The prod flip of `ONBOARDING_ENABLED` waits on the privacy policy line for kept founder words
+  (private repo). Vizzy needs a redeploy for the callback and tools, in either order: an older Vizzy
+  ignores `profileRev`, and a newer one adds nothing without it. A container's cached block lives up
+  to 10 minutes after the switch goes off.
+- Brands created but never used before switch day qualify for the welcome (say so in the release
+  note).
+- A call ended by closing its tab, or left open (a crash), is kept, but nobody reviews what Vizzy
+  learned from it (a call left open isn't learned from at all): no screen leads back to an
+  unconfirmed call's review. Its words are in About your business.
+- Existing, not new: the `page` and `personId` instruction blocks lag one model call, because ADK
+  builds the instruction before the envelope callback runs.
+
+---
+
 ## ADR-0017 · Every choice YouGrow makes for a brand declares how it learns (learning loops step 1) (2026-11-25)
 
 Context: YouGrow makes choices for a brand all day: what a model writes under each of 46 AI

@@ -14,10 +14,18 @@ passes tenant/user context and the reasoning mode as **message prefixes**:
 [ctx:{"tenantId":"...","userId":"...","region":"...","traceId":"...","ctxToken":"..."}] [mode:thinking] <user text>
 ```
 
-`before_model_callback` runs two callbacks in order, both stripping their prefix
-before Gemini sees the text:
+`before_model_callback` runs three callbacks in order. The first two strip their
+prefix before Gemini sees the text:
 1. `callbacks/context_envelope.py` writes the envelope keys into session `state`.
 2. `callbacks/chat_mode.py` sets `thinking_config` (fast = budget 0, thinking = dynamic).
+3. `callbacks/business_profile.py` appends how to use what the brand told Vizzy
+   about its business (read back, suggest, no chat onboarding), then the four
+   answers, and for admins the facts they kept, as a fenced block of at most
+   2,400 characters. The envelope carries only `profileRev` (the profile's rev,
+   then 1 for an admin's view or 0 for a member's), sent only while
+   ONBOARDING_ENABLED is on: without it nothing is added. The block is fetched
+   from `/api/agent/business-profile?view=chat` when it changes and cached in
+   the process, never in session state. It fails soft: no block, never an error.
 
 Memory Bank is scoped per tenant per user by the composite `user_id`
 (`{tenantId}_{userId}`) the proxy sends (see `context/memory_config.py`).
@@ -30,7 +38,9 @@ the tenant from the token, never from the request body. Anything the agent
 writes is a draft or a suggestion that a person accepts in the app.
 
 - **Root tools:** knowledge search, Insights summary, Email style, journey
-  style, brand map, brand notes ("What we've seen"), setup status and help pages.
+  style, brand map, brand notes ("What we've seen"), setup status and help pages,
+  and the business profile (read it, read a kept conversation, suggest a fact
+  for an admin to keep).
 - **Sub-agents:** `campaign_ops` (launch journeys and invite waves),
   `lifecycle_ops` (product lifecycle journeys, learning a product from its repo,
   one person's plan) and `content_ops` (content plans).
@@ -41,12 +51,12 @@ answers with a plain "not switched on" message.
 
 ## Layout
 ```
-agent.py              root LlmAgent: instruction, 2 callbacks, tools, sub-agents
+agent.py              root LlmAgent: instruction, 3 callbacks, tools, sub-agents
 __init__.py           exposes root_agent for `adk deploy`
 _project_fix.py       swaps the runtime's project number for AGENT_PROJECT_ID (ADK bug workaround)
 model_config.py       DEFAULT_MODEL (overridden by ROOT_AGENT_MODEL)
-callbacks/            [ctx:] envelope and [mode:] directive
-context/              dynamic instruction, language, Memory Bank scoping
+callbacks/            [ctx:] envelope, [mode:] directive, business profile block
+context/              dynamic instruction, language, Memory Bank scoping, business profile block
 prompts/              base system instruction
 tools/                root FunctionTools (pure *_client.py + ADK wrappers)
 sub_agents/           campaign_ops, lifecycle_ops, content_ops (each with prompts/ and tools/)

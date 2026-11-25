@@ -39,3 +39,25 @@ def test_never_claims_research_or_a_fact_check_the_tool_did_not_report():
 
 def test_root_routes_content_to_content_ops():
     assert "content_ops_agent" in ROOT_SYSTEM_INSTRUCTION
+
+
+def test_appends_what_the_brand_told_vizzy_when_the_root_has_it_cached():
+    import types as _types
+
+    from root_agent_pkg.context import business_profile as _bpc
+    from root_agent_pkg.sub_agents.content_ops.instruction_builder import build_content_ops_instruction as _build
+    from root_agent_pkg.sub_agents.content_ops.prompts.instruction import CONTENT_OPS_INSTRUCTION as _base
+
+    _bpc.cache_clear()
+    state = {"tenantId": "ten_A", "userId": "usr_1", "profileRev": "3"}
+    # Nothing cached (a new replica, or no profile): exactly as before.
+    assert _build(_types.SimpleNamespace(state=state)) == _build(_types.SimpleNamespace(state={})) == _base
+    _bpc.cache_put("ten_A", "usr_1", "3", "## About this business\n<yg_business_profile>\nWhat you run: A shop or products\n</yg_business_profile>")
+    try:
+        out = _build(_types.SimpleNamespace(state=state))
+        assert out.startswith(_base)
+        assert out.endswith("</yg_business_profile>")
+        # Another person's, or an older rev's, is never used.
+        assert _build(_types.SimpleNamespace(state={**state, "userId": "usr_2"})) == _base
+    finally:
+        _bpc.cache_clear()

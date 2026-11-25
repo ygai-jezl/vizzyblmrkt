@@ -45,9 +45,15 @@ describe("Gemini use is always metered", () => {
 
   it("only gemini.ts calls the models", () => {
     // embeddings.ts: knowledge search vectors (not counted, help says so). useLiveConversation.ts:
-    // the browser's voice chat, which talks to Google directly with a short-lived token (not counted).
+    // the waitlist's voice chat, which talks to Google directly with a short-lived token (not counted).
+    // useVoiceCall.ts: Talk with Vizzy, the same way; the server counts its seconds as each call ends.
     expect(matching(/\.generateContent(Stream)?\(|new GoogleGenAI\(/)).toEqual(
-      [join("lib", "agents", "embeddings.ts"), join("lib", "agents", "gemini.ts"), join("lib", "hooks", "useLiveConversation.ts")].sort(),
+      [
+        join("lib", "agents", "embeddings.ts"),
+        join("lib", "agents", "gemini.ts"),
+        join("lib", "hooks", "useLiveConversation.ts"),
+        join("lib", "onboarding", "voice", "useVoiceCall.ts"),
+      ].sort(),
     );
   });
 
@@ -61,7 +67,9 @@ describe("Gemini use is always metered", () => {
     };
     const sdk = /\.generateContent(Stream)?\(|new GoogleGenAI\(/;
     const rest = /aiplatform\.googleapis\.com|discoveryengine\.googleapis\.com|generativelanguage\.googleapis\.com/;
-    const metered = [join("lib", "agents", "gemini.ts"), join("lib", "agents", "agentRuntime.ts")];
+    // useVoiceCall.ts is Talk with Vizzy: the browser talks to Google with a short-lived token, and the
+    // server meters each call's seconds under onboarding_voice as it ends (it has its line in LOOPS).
+    const metered = [join("lib", "agents", "gemini.ts"), join("lib", "agents", "agentRuntime.ts"), join("lib", "onboarding", "voice", "useVoiceCall.ts")];
     const unmetered = Object.values(UNMETERED_CALLS).map((c) => join(...c.file.split("/").slice(1)));
     const callers = [...new Set([...matching(sdk), ...matching(rest)])].sort();
     expect(callers).toEqual([...new Set([...metered, ...unmetered, ...Object.keys(CHOOSES_NOTHING)])].sort());

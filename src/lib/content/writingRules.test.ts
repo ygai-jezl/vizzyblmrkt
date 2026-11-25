@@ -23,6 +23,7 @@ const WRITE_ON_THEIR_OWN = [
   "competitors.read_article",
   "competitors.read_article_google",
   "content.blog_refresh_propose",
+  "onboarding.learn",
 ];
 
 describe("no dashes in our copy", () => {

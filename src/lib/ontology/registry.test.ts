@@ -30,6 +30,7 @@ const NOT_SERVED_YET: Record<string, string> = {
  */
 const HELD_NOWHERE: Record<string, string> = {
   other: "no code spends under it, and every new call names its real purpose",
+  next_action_order: "Home works the order out on each visit from the brand's answers and where it is, and keeps none of it",
 };
 
 /**

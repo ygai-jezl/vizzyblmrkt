@@ -122,6 +122,7 @@ export const SWITCHES_KEPT_OFF = {
   SEARCH_RERANK_ENABLED: "needs Google's Ranking API in a real Google Cloud project; local search keeps the merged order",
   CONNECTOR_GOOGLE_REVOKE_ENABLED:
     "Disconnect would revoke the Google grant for every brand that Google account connected, including the dev deployment that shares your dev client",
+  ONBOARDING_VOICE_ENABLED: "talking with Vizzy by voice needs the Gemini Live API and a key; the emulators have neither",
 };
 
 export function featureSwitchNames() {

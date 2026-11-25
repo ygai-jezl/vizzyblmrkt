@@ -131,6 +131,10 @@ export const KEPT_OFF = {
   BRAND_MAP_CHAT_ENABLED: { addon: "vizzy", why: "Vizzy's brand map suggestions need the agent" },
   BRAND_NOTES_CHAT_ENABLED: { addon: "vizzy", why: "Vizzy adding brand notes needs the agent" },
   COMPETITORS_CHAT_ENABLED: { addon: "vizzy", why: "Vizzy reading your competitors needs the agent" },
+  ONBOARDING_CALL_WORDS_IN_CHAT_ENABLED: {
+    addon: "vizzy",
+    why: "Vizzy reading the words from calls needs the agent, and keeps what it reads with the chat in Agent Runtime after the call is deleted",
+  },
   LIFECYCLE_PERSON_BRIEF: { addon: "vizzy", why: "Vizzy reading one person needs the agent" },
   LIFECYCLE_PERSON_PLANS: { addon: "vizzy", why: "a plan per person needs the agent" },
   SEARCH_INDEX_ENABLED: { addon: "search", why: "needs the search databases (Firestore Enterprise)" },
@@ -179,6 +183,10 @@ export const KEPT_OFF = {
     why: "deletes password accounts still unconfirmed after 7 days; read the would_delete lines in your logs for a while first (docs/self-host.md, Email and password sign-in)",
   },
   SELF_SERVE_SIGNUP_ENABLED: { addon: null, why: "does nothing yet: it waits for self-serve brand creation" },
+  ONBOARDING_VOICE_ENABLED: {
+    addon: null,
+    why: "talking with Vizzy by voice needs GEMINI_LIVE_API_KEY, a Gemini API key from AI Studio on a project with billing, and sends the audio to the Gemini API outside your Google Cloud project; turn it on by hand once you accept that",
+  },
   TRUSTED_CLIENT_IP_ENABLED: {
     addon: null,
     why: "measure the X-Forwarded-For shape your copy receives first (docs/self-host.md, Email and password sign-in)",

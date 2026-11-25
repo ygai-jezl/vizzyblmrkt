@@ -113,3 +113,114 @@ body {
   --yg-accent: #60a5fa;
   --yg-accent-soft: #15203a;
 }
+
+/* Getting to know you (/admin/welcome, ONBOARDING_ENABLED): the live dot, the End button, the
+   lifted cards' shadow and the done note (green), in both themes. */
+.yg-shell {
+  --ob-live: #dc2626;
+  --ob-live-ring: rgba(220, 38, 38, 0.18);
+  --ob-end: #dc2626;
+  --ob-end-hover: #b91c1c;
+  --ob-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+  --ob-ok-bg: #f0fdf4;
+  --ob-ok-line: #bbf7d0;
+  --ob-ok-text: #166534;
+}
+@media (prefers-color-scheme: dark) {
+  .yg-shell:not([data-theme="light"]) {
+    --ob-live: #f87171;
+    --ob-live-ring: rgba(248, 113, 113, 0.2);
+    --ob-end: #dc2626;
+    --ob-end-hover: #ef4444;
+    --ob-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.5);
+    --ob-ok-bg: rgba(5, 46, 22, 0.5);
+    --ob-ok-line: #166534;
+    --ob-ok-text: #86efac;
+  }
+}
+.yg-shell[data-theme="dark"] {
+  --ob-live: #f87171;
+  --ob-live-ring: rgba(248, 113, 113, 0.2);
+  --ob-end: #dc2626;
+  --ob-end-hover: #ef4444;
+  --ob-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.5);
+  --ob-ok-bg: rgba(5, 46, 22, 0.5);
+  --ob-ok-line: #166534;
+  --ob-ok-text: #86efac;
+}
+
+/* Talk with Vizzy (the welcome's main card, and See what I learned after a call): a card coloured
+   button with ink text in both themes, a slowly turning gradient border (blue, violet, pink,
+   amber) and a soft pulsing glow. No motion under reduced motion. Declared after Tailwind's
+   utilities, so it wins over the element's own background and border colour. */
+@property --ob-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+.yg-talk {
+  border-color: transparent;
+  color: var(--yg-ink);
+  background:
+    linear-gradient(var(--yg-card), var(--yg-card)) padding-box,
+    conic-gradient(from var(--ob-angle), #2563eb, #7c3aed, #db2777, #f59e0b, #2563eb) border-box;
+  box-shadow: 0 0 0 0 rgba(124, 58, 237, 0), var(--ob-shadow);
+  animation:
+    yg-ob-turn 6s linear infinite,
+    yg-ob-pulse 2.4s ease-in-out infinite;
+}
+.yg-talk:hover {
+  background:
+    linear-gradient(var(--yg-hover), var(--yg-hover)) padding-box,
+    conic-gradient(from var(--ob-angle), #2563eb, #7c3aed, #db2777, #f59e0b, #2563eb) border-box;
+}
+@keyframes yg-ob-turn {
+  to {
+    --ob-angle: 360deg;
+  }
+}
+@keyframes yg-ob-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(124, 58, 237, 0), var(--ob-shadow);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(124, 58, 237, 0.14), 0 0 22px 2px rgba(37, 99, 235, 0.22), var(--ob-shadow);
+  }
+}
+
+/* A call: the rings breathe while Vizzy listens, and the line being heard ends in a caret. */
+.yg-breathe {
+  animation: yg-ob-breathe 2.4s ease-in-out infinite;
+}
+@keyframes yg-ob-breathe {
+  0%,
+  100% {
+    transform: scale(0.94);
+  }
+  50% {
+    transform: scale(1.06);
+  }
+}
+.yg-caret::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 16px;
+  margin-left: 3px;
+  vertical-align: -2px;
+  background: var(--yg-accent);
+  animation: yg-ob-blink 1s steps(1) infinite;
+}
+@keyframes yg-ob-blink {
+  50% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .yg-talk,
+  .yg-breathe,
+  .yg-caret::after {
+    animation: none;
+  }
+}

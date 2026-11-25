@@ -644,3 +644,43 @@ describe("articles due a refresh, in Review", () => {
     expect(items[0]).toMatchObject({ detail: "Article p1 · the autopilot ran the review", action: "Look at changes", href: "/admin/workspace/ws1/create/p1?freshness=1" });
   });
 });
+
+describe("What Vizzy heard about the business (ONBOARDING_ENABLED)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const admin: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u_admin", role: "admin" };
+  const member: TenantContext = { ...admin, userId: "u_member", role: "member" };
+
+  async function heard() {
+    const { suggestBusinessFact } = await import("@/lib/onboarding/factSuggestions");
+    const db = new FakeFirestore();
+    const r = await suggestBusinessFact(admin, { kind: "goal", text: "A hundred sign-ups by spring", quote: "We'd love a hundred sign-ups by the spring." }, { db });
+    if (!r.ok) throw new Error(r.error);
+    return { db, id: r.fact.id };
+  }
+
+  it("is listed for admins while the switch is on, opening About your business", async () => {
+    const { db, id } = await heard();
+    vi.stubEnv("ONBOARDING_ENABLED", "true");
+    const r = await loadReview(admin, { lifecycle: false, includeContent: false }, db);
+    expect(r.items).toEqual([
+      {
+        id: `aa:${id}`,
+        kind: "business_fact",
+        title: "Vizzy heard something new about your business",
+        detail: "A hundred sign-ups by spring",
+        href: "/admin/account/settings#about",
+        action: "Check",
+      },
+    ]);
+    expect(REVIEW_ORDER.indexOf("business_fact")).toBe(REVIEW_ORDER.indexOf("person_suggestion") + 1);
+    expect(REVIEW_SECTIONS.business_fact.title).toBe("About your business");
+  });
+
+  it("is never listed for a member, nor with the switch off", async () => {
+    const { db } = await heard();
+    vi.stubEnv("ONBOARDING_ENABLED", "true");
+    expect((await loadReview(member, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
+    vi.stubEnv("ONBOARDING_ENABLED", "false");
+    expect((await loadReview(admin, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
+  });
+});

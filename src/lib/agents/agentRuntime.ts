@@ -88,6 +88,11 @@ export function contextEnvelope(
      * never a name, an address or the product's id. "" = no person in view any more.
      */
     personId?: string | null;
+    /**
+     * The brand profile's rev (ONBOARDING_ENABLED): digits only, so it stays brace-free. Vizzy
+     * reads the profile again when it changes (callbacks/business_profile.py); "" = no profile.
+     */
+    profileRev?: string | null;
   },
 ): string {
   const payload: Record<string, unknown> = {
@@ -107,6 +112,8 @@ export function contextEnvelope(
   if (extras?.planId) payload.planId = extras.planId;
   // Kept when empty, like the journey: "" clears the person an earlier page named.
   if (typeof extras?.personId === "string") payload.personId = extras.personId;
+  // Kept when empty too ("" = no profile any more); anything but digits is never sent.
+  if (typeof extras?.profileRev === "string" && /^\d{0,12}$/.test(extras.profileRev)) payload.profileRev = extras.profileRev;
   // Operator content language for the root agent. Omitted for English so the
   // common-case envelope is unchanged; the Python side no-ops on "en" anyway.
   if (extras?.locale && extras.locale !== "en") payload.locale = extras.locale;

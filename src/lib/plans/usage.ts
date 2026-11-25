@@ -32,6 +32,15 @@ import { addCounts, usageThisMonth } from "./meter";
 import type { ResourceCount } from "@/lib/types/usageMeter";
 import { RESOURCE_IDS, RESOURCES, type ResourceId } from "./resources";
 import { isUsageMeterEnabled } from "./flags";
+import { isOnboardingVoiceEnabled } from "@/lib/onboarding/flags";
+
+/**
+ * Talk with Vizzy by voice is in every plan, but only offered where ONBOARDING_VOICE_ENABLED is on:
+ * off, Plan and usage doesn't list it, and its seconds show only when some were counted this month
+ * (it was on earlier in the month).
+ */
+const voiceShown = (used: number | null | undefined) => isOnboardingVoiceEnabled() || (used ?? 0) > 0;
+const VOICE_RESOURCE: ResourceId = "voice_seconds";
 
 /**
  * The figures behind Settings › Plan and usage, and allowance counting for later pieces. Server
@@ -263,7 +272,7 @@ async function monthlyRows(ctx: TenantContext, tenant: Tenant | null, plansOn: b
     const count = meters?.[r];
     if (row && count) row.byPurpose = count.byPurpose ?? {};
   }
-  const resources = RESOURCE_IDS.filter((r) => RESOURCES[r].shownAs === null).map((r): MonthlyRow => {
+  const resources = RESOURCE_IDS.filter((r) => RESOURCES[r].shownAs === null && (r !== VOICE_RESOURCE || voiceShown(meters?.[r]?.total))).map((r): MonthlyRow => {
     const count = meters === null ? null : (meters[r] ?? null);
     const cap = isLimitedResource(r) ? monthlyLimitWith(tenant, r, plansOn) : null;
     return {
@@ -290,7 +299,7 @@ async function organisationResources(brands: Array<{ id: string; region: Region 
     for (const [r, c] of Object.entries(m!) as Array<[ResourceId, ResourceCount]>) sum[r] = addCounts(sum[r] ?? { total: 0, calls: 0, lostCalls: 0, byPurpose: {} }, c);
     return sum;
   }, {});
-  return RESOURCE_IDS.filter((r) => RESOURCES[r].shownAs === null).map((r) => ({
+  return RESOURCE_IDS.filter((r) => RESOURCES[r].shownAs === null && (r !== VOICE_RESOURCE || voiceShown(totals?.[r]?.total))).map((r) => ({
     resource: r,
     label: RESOURCES[r].label,
     unit: RESOURCES[r].unit,
@@ -300,7 +309,8 @@ async function organisationResources(brands: Array<{ id: string; region: Region 
 
 function featureRows(tenant: Tenant | null, plan: Plan | null, plansOn: boolean): FeatureRow[] {
   const ee = EE_FEATURES.filter((f) => plan?.features.includes(f));
-  return [...METERED_FEATURES, ...ee].map((feature) => {
+  const metered = METERED_FEATURES.filter((f) => f !== "onboarding_voice" || voiceShown(0));
+  return [...metered, ...ee].map((feature) => {
     const included = plan ? plan.features.includes(feature) : true;
     const metered = (METERED_FEATURES as readonly string[]).includes(feature) ? (feature as MeteredFeature) : null;
     return {

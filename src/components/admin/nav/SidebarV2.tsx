@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   BookOpen,
   Archive,
@@ -31,6 +31,9 @@ import { STAGE_NAV_KEY, type StageKey, type StageStatus } from "@/lib/nav/growth
 import { openHowTo } from "@/components/help/openHowTo";
 import { isSetupGuideEnabled } from "@/lib/help/flags";
 import { activeNavKey, buildNav, resolvePins, type LaunchRef, type NavItem, type NavKey } from "@/lib/nav/model";
+import { isRevealKey, pathSections, revealKeysOf, shownSections, waitingInView, type RevealKey } from "@/lib/nav/reveal";
+import type { SidebarReveal } from "@/lib/onboarding/sidebarFit";
+import { ComingUp, type ComingUpItem } from "./ComingUp";
 import { usePinnedLaunchIds } from "./pins";
 import { ProfileMenu } from "./ProfileMenu";
 import { useShell } from "./ShellProvider";
@@ -79,6 +82,11 @@ export interface SidebarV2Props {
   people?: boolean;
   /** Launches are called Ideas (isIdeaWordsEnabled(), worked out by the layout on the server). */
   ideas?: boolean;
+  /**
+   * Coming up (ONBOARDING_ENABLED, worked out by the layout from the tenant doc): the sections this
+   * brand shows and each waiting one's line. Undefined: today's sidebar, every section shown.
+   */
+  reveal?: SidebarReveal;
 }
 
 interface GrowthDots {
@@ -86,13 +94,23 @@ interface GrowthDots {
   position: string | null;
 }
 
+interface GrowthState {
+  /** Null before the first answer, and once every stage is running. */
+  dots: GrowthDots | null;
+  /** The sections a brand with Coming up shows now (data found since the page was drawn); null without. */
+  revealShown: RevealKey[] | null;
+  allRunning: boolean;
+}
+
+const NO_GROWTH: GrowthState = { dots: null, revealShown: null, allRunning: false };
+
 /**
  * Growth-path progress for the Grow items (phase 2). Fetched after load so it
- * never slows the page; refreshed every five minutes. Hidden once every stage
- * is running.
+ * never slows the page; refreshed every five minutes. The dots hide once every
+ * stage is running. With Coming up, the sections the brand shows now come with it.
  */
-function useGrowthDots(): GrowthDots | null {
-  const [dots, setDots] = useState<GrowthDots | null>(null);
+function useGrowth(): GrowthState {
+  const [growth, setGrowth] = useState<GrowthState>(NO_GROWTH);
   useEffect(() => {
     if (!PHASE2) return;
     let alive = true;
@@ -100,15 +118,24 @@ function useGrowthDots(): GrowthDots | null {
       try {
         const res = await fetch("/api/admin/growth");
         if (!res.ok) return;
-        const data = (await res.json()) as { stages?: Array<{ key: StageKey; status: StageStatus }>; allRunning?: boolean };
+        const data = (await res.json()) as {
+          stages?: Array<{ key: StageKey; status: StageStatus }>;
+          allRunning?: boolean;
+          reveal?: { shown?: unknown };
+        };
         if (!alive || !data.stages) return;
-        if (data.allRunning) return setDots(null);
+        const revealShown = Array.isArray(data.reveal?.shown) ? revealKeysOf(data.reveal.shown) : null;
+        if (data.allRunning) return setGrowth({ dots: null, revealShown, allRunning: true });
         const current = data.stages.findIndex((s) => s.status === "current");
-        setDots({
-          byNav: Object.fromEntries(
-            data.stages.flatMap((s) => (STAGE_NAV_KEY[s.key] ? [[STAGE_NAV_KEY[s.key], s.status]] : [])),
-          ),
-          position: current >= 0 ? `Stage ${current + 1} of ${data.stages.length}` : null,
+        setGrowth({
+          dots: {
+            byNav: Object.fromEntries(
+              data.stages.flatMap((s) => (STAGE_NAV_KEY[s.key] ? [[STAGE_NAV_KEY[s.key], s.status]] : [])),
+            ),
+            position: current >= 0 ? `Stage ${current + 1} of ${data.stages.length}` : null,
+          },
+          revealShown,
+          allRunning: false,
         });
       } catch {
         // Offline — keep the last dots.
@@ -121,7 +148,7 @@ function useGrowthDots(): GrowthDots | null {
       clearInterval(timer);
     };
   }, []);
-  return dots;
+  return growth;
 }
 
 const STATUS_TEXT: Record<StageStatus, string> = {
@@ -151,19 +178,53 @@ function StageDot({ status }: { status: StageStatus }) {
  * launches instead of one row per launch; Brand and Settings at the bottom.
  * Phase 2 adds search (⌘K), Ask Vizzy (⌘J) and the growth-path dots.
  */
-export function SidebarV2({ brands, launches, archivedLaunches, ctx, email, people = false, ideas = false }: SidebarV2Props) {
+export function SidebarV2({ brands, launches, archivedLaunches, ctx, email, people = false, ideas = false, reveal }: SidebarV2Props) {
   const pathname = usePathname() ?? "/admin";
+  const router = useRouter();
   const sections = useMemo(() => sectionsFor(people, ideas), [people, ideas]);
   const allItems = useMemo(() => sections.flatMap((s) => s.items), [sections]);
   const shell = useShell();
   const reviewCount = useReviewCount();
-  const growth = useGrowthDots();
+  const { dots: growth, revealShown, allRunning } = useGrowth();
   const [collapsed, setCollapsed] = useState(false);
   const [mod, setMod] = useState("⌘");
   const [storedPins] = usePinnedLaunchIds(ctx.tenantId);
   const pins = resolvePins(storedPins, launches, archivedLaunches);
   const archivedIds = new Set(archivedLaunches.map((l) => l.id));
   const activeKey = activeNavKey(pathname, allItems);
+
+  // Coming up: without `reveal` the sidebar is exactly as before. Sections opened here show at once.
+  const [opened, setOpened] = useState<RevealKey[]>([]);
+  const shown = useMemo(
+    () => shownSections(reveal, { fetched: revealShown, allRunning }, opened),
+    [reveal, revealShown, allRunning, opened],
+  );
+  const view = useMemo(
+    () => (shown ? pathSections(sections, shown, activeKey) : { sections, comingUp: [] as NavItem[] }),
+    [sections, shown, activeKey],
+  );
+  const recorded = useRef(new Set<RevealKey>());
+  // Show a section for good: Open early, or its page reached another way (⌘K, a link). Once a key.
+  const keepShown = useCallback((key: RevealKey) => {
+    setOpened((list) => (list.includes(key) ? list : [...list, key]));
+    if (recorded.current.has(key)) return;
+    recorded.current.add(key);
+    void fetch("/api/admin/nav/open", {
+      method: "POST",
+      keepalive: true,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ key }),
+    }).catch(() => {});
+  }, []);
+  const inView = waitingInView(shown, activeKey);
+  useEffect(() => {
+    if (inView) keepShown(inView);
+  }, [inView, keepShown]);
+  const comingUp: ComingUpItem[] = reveal
+    ? view.comingUp.flatMap((item) =>
+        isRevealKey(item.key) ? [{ key: item.key, label: item.label, href: item.href, icon: ICONS[item.key], why: reveal.why[item.key] }] : [],
+      )
+    : [];
 
   useEffect(() => {
     if (!/Mac|iPhone|iPad/.test(navigator.userAgent)) setMod("Ctrl ");
@@ -216,9 +277,11 @@ export function SidebarV2({ brands, launches, archivedLaunches, ctx, email, peop
       </div>
     );
 
-  const section = (key: string) => sections.find((s) => s.key === key)!;
+  const section = (key: string) => view.sections.find((s) => s.key === key);
   const renderSection = (key: "start" | "grow" | "understand") => {
+    // Understand is left out when nothing in it shows (Coming up).
     const s = section(key);
+    if (!s) return null;
     return (
       <div key={key} className="space-y-0.5">
         {s.title && heading(s.title, key === "grow" ? growth?.position : null)}
@@ -291,6 +354,19 @@ export function SidebarV2({ brands, launches, archivedLaunches, ctx, email, peop
         {renderSection("grow")}
         {renderSection("understand")}
 
+        {comingUp.length > 0 ? (
+          <ComingUp
+            items={comingUp}
+            collapsed={collapsed}
+            mod={mod}
+            rowClassName={rowClass("idle")}
+            onOpen={(item) => {
+              keepShown(item.key);
+              router.push(item.href);
+            }}
+          />
+        ) : null}
+
         {/* Pinned launches: the newest three until the user stars their own on the Launches page. */}
         {pins.length > 0 && (
           <div className="space-y-0.5">
@@ -332,7 +408,7 @@ export function SidebarV2({ brands, launches, archivedLaunches, ctx, email, peop
             {!collapsed && <span className="flex-1 truncate">Help</span>}
           </a>
         ) : null}
-        {section("end").items.map(renderItem)}
+        {section("end")?.items.map(renderItem)}
       </div>
 
       <div className="border-t border-shell-line px-2 py-2">

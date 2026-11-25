@@ -106,6 +106,35 @@ describe("summarize", () => {
   });
 });
 
+describe("in more than one launch (LAUNCH_IDEAS_ENABLED)", () => {
+  const two = [signup(), signup({ campaignId: "camp2", signupId: "sig_2" })];
+  const tags = (campaigns: ContactCampaignLink[], many: Parameters<typeof summarize>[4]) => summarize(campaigns, [], undefined, null, many).memberOf;
+
+  it("tags someone in two or more live launches, only while asked to", () => {
+    expect(tags(two, { manyLaunches: { leaveOut: new Set() } })).toContain("launches:many");
+    expect(tags(two, {})).not.toContain("launches:many");
+    expect(tags(two, { manyLaunches: null })).not.toContain("launches:many");
+  });
+
+  it("counts each launch once, and no deleted sign-up", () => {
+    const many = { manyLaunches: { leaveOut: new Set<string>() } };
+    expect(tags([signup(), signup({ signupId: "sig_2" })], many)).not.toContain("launches:many");
+    expect(tags([signup(), signup({ campaignId: "camp2", status: "deleted" })], many)).not.toContain("launches:many");
+  });
+
+  it("leaves out the brand's Just a list launches", () => {
+    expect(tags(two, { manyLaunches: { leaveOut: new Set(["camp2"]) } })).not.toContain("launches:many");
+    const three = [...two, signup({ campaignId: "camp3", signupId: "sig_3" })];
+    expect(tags(three, { manyLaunches: { leaveOut: new Set(["camp2"]) } })).toContain("launches:many");
+  });
+
+  it("keeps what the last full sync worked out, on the fast path", () => {
+    expect(tags(two, { manyLaunches: { keep: true } })).toContain("launches:many");
+    expect(tags(two, { manyLaunches: { keep: false } })).not.toContain("launches:many");
+    expect(tags([signup()], { manyLaunches: { keep: true } })).not.toContain("launches:many");
+  });
+});
+
 describe("someone added by hand", () => {
   const ADDED = "2026-09-10T09:00:00.000Z";
   const hand = (marketingConsent = false, hasAddress = true) => ({ at: ADDED, marketingConsent, hasAddress });

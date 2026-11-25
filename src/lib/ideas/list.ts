@@ -9,6 +9,13 @@ import { IDEA_STATUSES, type Campaign, type IdeaStatus } from "@/lib/types/campa
 
 export type IdeaFilter = IdeaStatus | "none" | "list";
 
+/**
+ * The People tag for someone in two or more live launches that aren't Just a list
+ * (src/lib/audience/personLinks.ts). It can't clash with a launch's own `launch:<id>` tag, or any
+ * other: no tag starts `launches:`. Here so client code can read it.
+ */
+export const MANY_LAUNCHES_TAG = "launches:many";
+
 /** How many launches compare at once (src/lib/ideas/compare.ts). Here so client code can read it. */
 export const COMPARE_MIN = 2;
 export const COMPARE_MAX = 4;

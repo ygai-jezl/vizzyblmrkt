@@ -11,6 +11,11 @@
  *   2. Straight after turning it on, without the flag: it adds everyone who only uses a
  *      product, and catches the writes made in between.
  *
+ * Ideas (LAUNCH_IDEAS_ENABLED) add the `launches:many` tag for everyone in two or more launches
+ * that aren't Just a list. After turning that switch on, run it once more with --contacts-only
+ * (everyone in two launches already has a contact) and LAUNCH_IDEAS_ENABLED=true in this shell:
+ * a run without it works the tag out as off and takes it away again.
+ *
  * DRY RUN by default: it says how many people it would create, update, leave alone and
  * remove. Pass --apply to write. Safe to re-run: a person already right is left alone.
  * It prints counts only, never an address.

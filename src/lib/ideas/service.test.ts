@@ -181,3 +181,18 @@ describe("planIdea", () => {
     expect((current as { idea: unknown }).idea).toEqual({ status: "testing" });
   });
 });
+
+describe("Just a list and People", () => {
+  it("flags the launch's people for a full sync when it moves, and not otherwise", async () => {
+    const db = world();
+    db.seed("contacts", "ct_sam", { tenantId: "ten_A", memberOf: ["all", "launch:team-spaces", "launches:many"], sortKey: "2026-11-01|ct_sam", needsSync: false });
+    db.seed("contacts", "ct_kim", { tenantId: "ten_A", memberOf: ["all", "launch:offline-mode"], sortKey: "2026-11-02|ct_kim", needsSync: false });
+    await setIdea(admin, "team-spaces", { justAList: true }, { db });
+    expect(db.raw("contacts", "ct_sam")?.needsSync).toBe(true);
+    expect(db.raw("contacts", "ct_kim")?.needsSync).toBe(false);
+
+    db.seed("contacts", "ct_sam", { ...db.raw("contacts", "ct_sam"), needsSync: false });
+    await setIdea(admin, "team-spaces", { justAList: true, hypothesis: "Still a list." }, { db });
+    expect(db.raw("contacts", "ct_sam")?.needsSync).toBe(false);
+  });
+});

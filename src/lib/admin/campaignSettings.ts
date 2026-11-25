@@ -303,8 +303,11 @@ export function suffixedCampaignId(base: string, n: number): string {
   return `${base.slice(0, 64 - suffix.length)}${suffix}`;
 }
 
-/** Ids reserved because they collide with static routes under /admin/launches. */
-const RESERVED_CAMPAIGN_IDS = new Set(["new"]);
+/**
+ * Ids reserved because they collide with something: `new` with the static route under
+ * /admin/launches, and `any` with the `launch:any` tag every person on a launch has (People).
+ */
+const RESERVED_CAMPAIGN_IDS = new Set(["new", "any"]);
 
 /**
  * Validate a NORMALISED (already lowercased) campaign id used as the Firestore

@@ -443,3 +443,15 @@ describe("the fake's update() of a missing document", () => {
     expect(db.raw("signups", "nope")).toBeUndefined();
   });
 });
+
+describe("find by a field inside a map", () => {
+  it("reads a dotted name as a path, as Firestore does, and stays in the tenant", async () => {
+    const db = new FakeFirestore();
+    db.seed("campaigns", "product-updates", { tenantId: "ten_A", idea: { justAList: true } });
+    db.seed("campaigns", "team-spaces", { tenantId: "ten_A", idea: { status: "testing" } });
+    db.seed("campaigns", "old-launch", { tenantId: "ten_A" });
+    db.seed("campaigns", "their-list", { tenantId: "ten_B", idea: { justAList: true } });
+    const lists = await forTenant(ctxA, db).campaigns.find({ where: [["idea.justAList", "==", true]] });
+    expect(lists.map((c) => c.id)).toEqual(["product-updates"]);
+  });
+});

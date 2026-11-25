@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { suppressEmail } from "@/lib/email/suppression";
 import { CONNECTION_ID, T0, TENANT_ID, ctx, seedUser, seedWorld, system } from "@/lib/lifecycle/testing/fixtures";
@@ -126,13 +126,31 @@ describe("peopleFilters", () => {
     expect(f).toMatchObject({ everyone: 3, canEmail: 3, via: { form: 1, site: 1 } });
     expect(f.launches).toEqual([{ id: "camp1", name: "Beta waitlist", count: 2 }]);
     expect(f.products).toEqual([{ id: CONNECTION_ID, name: "Sandbox", count: 2, stages: { new: 2, onboarding: 0, stuck: 0, activated: 0, quiet: 0 } }]);
+    expect(f).not.toHaveProperty("manyLaunches");
+  });
+});
+
+describe("in more than one launch (LAUNCH_IDEAS_ENABLED)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("counts and lists the people in two or more launches", async () => {
+    vi.stubEnv("LAUNCH_IDEAS_ENABLED", "true");
+    const db = await world();
+    db.seed("campaigns", "camp2", { tenantId: TENANT_ID, waitlistName: "Second waitlist" });
+    seedSignup(db, "s_sam1", "sam@example.com");
+    seedSignup(db, "s_sam2", "sam@example.com", { campaignId: "camp2" });
+    await syncPerson(ctx, "sam@example.com", { db, nowMs: T0 + 3_600_000 });
+    expect((await peopleFilters(ctx, db, { manyLaunches: true })).manyLaunches).toBe(1);
+    const { people, total } = await listPeople(ctx, q({ tag: "launches:many" }), db);
+    expect(total).toBe(1);
+    expect(people.map((p) => p.email)).toEqual(["sam@example.com"]);
   });
 });
 
 describe("isPeopleTag", () => {
   it("accepts the groups the list shows and nothing else", () => {
-    for (const ok of ["all", "launch:any", "launch:camp1", "via:site", "product:pcn_1", "stage:pcn_1:stuck", "quiet:pcn_1"]) expect(isPeopleTag(ok)).toBe(true);
-    for (const bad of ["", "everyone", "stage:pcn_1:asleep", "launch:a/b", "group:pcn_1:ws"]) expect(isPeopleTag(bad)).toBe(false);
+    for (const ok of ["all", "launch:any", "launch:camp1", "via:site", "product:pcn_1", "stage:pcn_1:stuck", "quiet:pcn_1", "launches:many"]) expect(isPeopleTag(ok)).toBe(true);
+    for (const bad of ["", "everyone", "stage:pcn_1:asleep", "launch:a/b", "group:pcn_1:ws", "launches:all", "launches:"]) expect(isPeopleTag(bad)).toBe(false);
   });
 });
 

@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
+  CampaignIdSchema,
   CampaignSettingsSchema,
+  defaultCampaignSettings,
   toCampaignSettings,
 } from "./campaignSettings";
 import type { Campaign } from "@/lib/types/campaign";
@@ -411,5 +413,28 @@ describe("CampaignSettingsSchema — social share config", () => {
   it("treats both share fields as optional (omitting them is valid)", () => {
     const parsed = CampaignSettingsSchema.safeParse(VALID);
     expect(parsed.success).toBe(true);
+  });
+});
+
+describe("CampaignIdSchema's reserved ids", () => {
+  it("refuses new (a route) and any (the launch:any tag every person on a launch has)", () => {
+    expect(CampaignIdSchema.safeParse("new").success).toBe(false);
+    expect(CampaignIdSchema.safeParse("any").success).toBe(false);
+    for (const id of ["anything", "many", "any-launch"]) expect(CampaignIdSchema.safeParse(id).success, id).toBe(true);
+  });
+});
+
+describe("toCampaignSettings and a launch's idea", () => {
+  it("never carries the idea, so the settings Save leaves it alone", () => {
+    const campaign = {
+      ...defaultCampaignSettings(),
+      id: "team-spaces",
+      tenantId: "ten_A",
+      waitlistName: "Team spaces",
+      createdAt: "2026-10-28T00:00:00.000Z",
+      idea: { status: "testing", hypothesis: "Teams pay." },
+    } as Campaign;
+    expect(toCampaignSettings(campaign)).not.toHaveProperty("idea");
+    expect(CampaignSettingsSchema.safeParse({ ...toCampaignSettings(campaign), idea: { status: "testing" } }).success).toBe(false);
   });
 });

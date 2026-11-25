@@ -8,6 +8,7 @@ import { ENTITY_ID_RE } from "@/lib/connect/v2/contract";
 import { isFilterType, liveOptions, type FieldValue, type FieldType, type RecordField } from "@/lib/types/recordField";
 import { CHECKED, fieldTag, parseFieldTag } from "./fieldTags";
 import { readFieldList } from "./fieldList";
+import { MANY_LAUNCHES_TAG } from "@/lib/ideas/list";
 
 /**
  * Audience → People (AUDIENCE_ONE_VIEW_ENABLED): one list of everyone a brand knows,
@@ -15,15 +16,16 @@ import { readFieldList } from "./fieldList";
  * shows one group at a time (a `memberOf` tag: everyone, a launch, how they joined, a
  * product, or a stage in one product), optionally only those we can email. With
  * AUDIENCE_FIELD_FILTERS_ENABLED a group can also be a field value or a product group, through
- * the same tags and indexes. Search looks through everyone. Pages of 50, newest activity first,
+ * the same tags and indexes. With LAUNCH_IDEAS_ENABLED it can be everyone in more than one launch. Search looks through everyone. Pages of 50, newest activity first,
  * with a real total.
  */
 
 export const PEOPLE_PAGE = 50;
 
 const ID = "[A-Za-z0-9_-]{1,128}";
+// launches:many: in two or more launches that aren't Just a list (LAUNCH_IDEAS_ENABLED).
 const TAG = new RegExp(
-  `^(all|launch:any|product:any|via:(form|site)|launch:${ID}|product:${ID}|quiet:${ID}|stage:${ID}:(new|onboarding|stuck|activated|member))$`,
+  `^(all|launch:any|product:any|via:(form|site)|launches:many|launch:${ID}|product:${ID}|quiet:${ID}|stage:${ID}:(new|onboarding|stuck|activated|member))$`,
 );
 
 /** Whether a string is a group the list can show. */
@@ -175,17 +177,22 @@ export interface PeopleFilters {
   canEmail: number;
   via: { form: number; site: number };
   launches: Array<{ id: string; name: string; count: number }>;
+  /** With ideas on: how many people are in more than one launch (`launches:many`). */
+  manyLaunches?: number;
   products: Array<{ id: string; name: string; count: number; stages: Record<"new" | "onboarding" | "stuck" | "activated" | "quiet", number> }>;
 }
 
 const STAGES = ["new", "onboarding", "stuck", "activated"] as const;
 
-/** The groups this brand's list can show, each with how many people are in it, and with `fields` the fields it can filter by. */
-export async function peopleFilters(ctx: TenantContext, db?: FirestoreLike, opts: { fields?: boolean } = {}): Promise<PeopleFilters> {
+/**
+ * The groups this brand's list can show, each with how many people are in it, with `fields` the
+ * fields it can filter by, and with `manyLaunches` (ideas on) how many are in more than one launch.
+ */
+export async function peopleFilters(ctx: TenantContext, db?: FirestoreLike, opts: { fields?: boolean; manyLaunches?: boolean } = {}): Promise<PeopleFilters> {
   const repo = forTenant(ctx, db);
   const names = await sourceNames(ctx, db);
   const count = (tag: string, canEmail = false) => repo.contacts.count(whereOf({ tag, canEmail, q: "", cursor: null }));
-  const [everyone, canEmail, form, site, launches, products, fieldList] = await Promise.all([
+  const [everyone, canEmail, form, site, launches, products, fieldList, manyLaunches] = await Promise.all([
     count("all"),
     count("all", true),
     count("via:form"),
@@ -203,8 +210,17 @@ export async function peopleFilters(ctx: TenantContext, db?: FirestoreLike, opts
       }),
     ),
     opts.fields ? readFieldList(ctx, "person", db) : Promise.resolve(null),
+    opts.manyLaunches ? count(MANY_LAUNCHES_TAG) : Promise.resolve(null),
   ]);
-  return { ...(fieldList ? { fields: filterFields(fieldList.items) } : {}), everyone, canEmail, via: { form, site }, launches, products };
+  return {
+    ...(fieldList ? { fields: filterFields(fieldList.items) } : {}),
+    everyone,
+    canEmail,
+    via: { form, site },
+    launches,
+    ...(manyLaunches !== null ? { manyLaunches } : {}),
+    products,
+  };
 }
 
 /**

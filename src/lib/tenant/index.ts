@@ -110,7 +110,7 @@ export {
   organisationDrift,
   hasDrift,
 } from "./organisations";
-export type { DriftBrand, EnsureOrganisationOptions, EnsureOrganisationResult, OrganisationConnectionChangeKind, OrganisationDrift, SetPlanResult } from "./organisations";
+export type { AttachGuards, DriftBrand, EnsureOrganisationOptions, EnsureOrganisationResult, OrganisationConnectionChangeKind, OrganisationDrift, SetPlanResult } from "./organisations";
 export { countLiveLaunches } from "./liveLaunches";
 export {
   appendPatternVersion,

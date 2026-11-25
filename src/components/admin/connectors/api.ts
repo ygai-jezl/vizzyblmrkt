@@ -78,6 +78,13 @@ export const ORG_ROUTES = {
   parts: (id: string) => `${ORG_ROOT}/${encodeURIComponent(id)}/parts`,
 } as const;
 
+const ORG_BRANDS_ROOT = "/api/admin/organisation/brands";
+
+/** The organisation's brands (Connectors 3 group 4): Bring in, by the brand's id. */
+export const ORG_BRAND_ROUTES = {
+  list: ORG_BRANDS_ROOT,
+} as const;
+
 /** Google's address must be Google's own, over https. */
 const googleUrl = (r: ApiResult<{ url: string }>): ApiResult<{ url: string }> =>
   r.ok && (typeof r.data.url !== "string" || !r.data.url.startsWith("https://")) ? { ok: false, status: 502, error: "bad_response", message: API_WORDS.other } : r;

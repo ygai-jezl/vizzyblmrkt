@@ -101,7 +101,7 @@ describe("mayMoveBrand: who may move a brand, read live (pick 16)", () => {
   });
 
   it("refuses the home brand reached by claims only, even when they say admin", async () => {
-    expect(await mayMoveBrand(priya, "ten_fernhill", db)).toEqual({ ok: false, why: "home_only" });
+    expect(await mayMoveBrand(priya, "ten_fernhill", db)).toMatchObject({ ok: false, why: "home_only", brand: { id: "ten_fernhill" } });
     // An operator adds a row: now it may move.
     db.seed("tenant_users", "m6", { userId: "usr_priya", tenantId: "ten_fernhill", role: "admin", joinedAt: T });
     expect((await mayMoveBrand(priya, "ten_fernhill", db)).ok).toBe(true);
@@ -110,8 +110,8 @@ describe("mayMoveBrand: who may move a brand, read live (pick 16)", () => {
   it("refuses a member's row and no row at all, for a brand that isn't the home brand", async () => {
     const leo: VerifiedPerson = { userId: "usr_leo", homeTenantId: "ten_leo", homeRole: "admin" };
     db.seed("organisations", "org_ten_fernhill", { ...db.raw("organisations", "org_ten_fernhill")!, ownerIds: ["usr_priya", "usr_leo"] });
-    expect(await mayMoveBrand(leo, "ten_harbour", db)).toEqual({ ok: false, why: "not_admin" });
-    expect(await mayMoveBrand(leo, "ten_fernhill", db)).toEqual({ ok: false, why: "not_admin" });
+    expect(await mayMoveBrand(leo, "ten_harbour", db)).toMatchObject({ ok: false, why: "not_admin", brand: { id: "ten_harbour" } });
+    expect(await mayMoveBrand(leo, "ten_fernhill", db)).toMatchObject({ ok: false, why: "not_admin" });
   });
 
   it("refuses an organisation the person doesn't own, whatever rows they have (another organisation's brand)", async () => {
@@ -123,7 +123,7 @@ describe("mayMoveBrand: who may move a brand, read live (pick 16)", () => {
     expect(await mayMoveBrand(priya, "ten_cafe", db)).toEqual({ ok: false, why: "not_owner" });
     db.seed("organisations", "org_ten_cafe", { ...db.raw("organisations", "org_ten_cafe")!, ownerIds: ["usr_priya"] });
     db.seed("tenant_users", "m3", { userId: "usr_priya", tenantId: "ten_cafe", role: "member", joinedAt: T });
-    expect(await mayMoveBrand(priya, "ten_cafe", db)).toEqual({ ok: false, why: "not_admin" });
+    expect(await mayMoveBrand(priya, "ten_cafe", db)).toMatchObject({ ok: false, why: "not_admin" });
   });
 
   it("refuses a missing or suspended brand, one with no organisation, and one its organisation doesn't list", async () => {

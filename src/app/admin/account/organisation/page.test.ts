@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 
 // Settings › Organisation (Connectors 3): found only for an owner of the brand's organisation who
-// is an admin of the brand they are in, read live while sharing is on, and its tab shows only then.
+// is an admin of the brand they are in, read live while sharing or the join is on, and its tab
+// shows only then.
 // Fernhill Group [made up] owns Fernhill Plants (Europe); Priya is its owner, Leo an admin there.
 const { getAdminContextWithHome, notFound } = vi.hoisted(() => ({
   getAdminContextWithHome: vi.fn(),
@@ -61,6 +62,32 @@ describe("Settings › Organisation", () => {
     await expect(open()).rejects.toThrow("NEXT_NOT_FOUND");
     getAdminContextWithHome.mockResolvedValue({ ctx: { ...priya, role: "member" }, homeTenantId: "ten_fernhill", homeRole: "member" });
     await expect(open()).rejects.toThrow("NEXT_NOT_FOUND");
+  });
+
+  it("shows Brands below Shared connections with the join on too", async () => {
+    vi.stubEnv("ORGANISATION_JOIN_ENABLED", "true");
+    const html = renderToStaticMarkup((await open()) as ReactElement);
+    expect(html.indexOf("Shared connections")).toBeGreaterThan(-1);
+    expect(html.indexOf("Bring in a brand you run")).toBeGreaterThan(html.indexOf("Shared connections"));
+    expect(html).toContain('aria-label="Brands in Fernhill Group"');
+  });
+
+  it("with only the join on: Brands alone, for the same owners; with both off, no page", async () => {
+    vi.stubEnv("CONNECTORS_SHARING_ENABLED", "false");
+    vi.stubEnv("ORGANISATION_JOIN_ENABLED", "true");
+    await expect(OrganisationLayout({ children: null })).resolves.toBeTruthy();
+    const html = renderToStaticMarkup((await open()) as ReactElement);
+    expect(html).toContain("Bring in a brand you run");
+    expect(html).not.toContain("Shared connections");
+    getAdminContextWithHome.mockResolvedValue({ ctx: leo, homeTenantId: "ten_fernhill", homeRole: "admin" });
+    await expect(open()).rejects.toThrow("NEXT_NOT_FOUND");
+    getAdminContextWithHome.mockResolvedValue({ ctx: priya, homeTenantId: "ten_fernhill", homeRole: "admin" });
+    // The join needs plans on.
+    vi.stubEnv("PLANS_ENABLED", "false");
+    await expect(OrganisationLayout({ children: null })).rejects.toThrow("NEXT_NOT_FOUND");
+    vi.stubEnv("PLANS_ENABLED", "true");
+    vi.stubEnv("ORGANISATION_JOIN_ENABLED", "false");
+    await expect(OrganisationLayout({ children: null })).rejects.toThrow("NEXT_NOT_FOUND");
   });
 
   it("has a tab after the others only when the layout works out that it may", () => {

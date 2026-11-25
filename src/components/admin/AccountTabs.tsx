@@ -15,7 +15,7 @@ export function AccountTabs({ dataModel = false, organisation = false }: {
   dataModel?: boolean;
   /**
    * Settings › Organisation (Connectors 3): for an owner of the brand's organisation who is an
-   * admin of the brand they are in, read live on the server while sharing is on.
+   * admin of the brand they are in, read live on the server while sharing or the join is on.
    */
   organisation?: boolean;
 } = {}) {

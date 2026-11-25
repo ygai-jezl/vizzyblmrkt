@@ -71,7 +71,8 @@ export function ConnectionAbout({ c, org, extra }: { c: SharedConnectionView; or
   );
 }
 
-const OPTION = (on: boolean, off: boolean) =>
+/** A radio card, as the property picker draws one: sky when chosen, greyed when it can't be. */
+export const OPTION = (on: boolean, off: boolean) =>
   `flex items-start gap-3 rounded-lg border px-3 py-2.5 text-sm ${off ? "cursor-default border-neutral-200 opacity-60 dark:border-neutral-800" : on ? "cursor-pointer border-sky-400 bg-sky-50 dark:border-sky-700 dark:bg-sky-950/40" : "cursor-pointer border-neutral-200 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"}`;
 
 export interface GiveFormProps {

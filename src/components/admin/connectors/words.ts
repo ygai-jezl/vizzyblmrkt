@@ -2,6 +2,7 @@ import { LIVE_LIMITS, type ConnectMethodName, type ConnectorCategory, type Share
 import { CONNECTOR_ERRORS, SIGNIN_REASONS } from "@/lib/connectors/messages";
 import { dayWords, zoneWords } from "@/lib/connectors/period";
 import type { SharedConnectionsScreen, SharedConnectionView } from "@/lib/connectors/organisationConnect";
+import type { BringInCandidate, OrganisationBrandView } from "@/lib/connectors/organisationBrands";
 import type { OrganisationAccount } from "@/lib/connectors/organisationParts";
 import type { ConnectionView, ConnectorListing } from "@/lib/connectors/service";
 
@@ -1297,3 +1298,99 @@ export function firstPartFor(options: ReadonlyArray<{ id: string; off: boolean }
   }
   return free.length === 1 ? free[0]!.id : null;
 }
+
+// --- Settings › Organisation › Brands (Connectors 3 group 4, ORGANISATION_JOIN_ENABLED) ------------
+
+export const BRANDS_HELP_PATH = "/help/organisation-brands";
+
+export const BRANDS_COPY = {
+  title: "Brands",
+  bringIn: "Bring in a brand you run",
+  brand: "Brand",
+  region: "Region",
+  parts: "Parts given to it",
+  actions: "Actions",
+  thisBrand: "This brand",
+  moveOut: "Move out",
+  couldntCount: "Couldn't count",
+  none: "No other brand can join yet. A brand can join when you're an owner of its organisation and an admin on its team.",
+  bringInGo: "Bring in",
+  cancel: "Cancel",
+  close: "Close",
+  already: "That brand is in this organisation already.",
+  changed: "That brand moved since this page loaded. Reload the page and try again.",
+  notOwnerThere: "Moves need you as an owner of the organisation the brand is in now. Ask one of its owners.",
+  alone: "This brand is the only one in its organisation, so it has one of its own already.",
+  failed: "The Brands section didn't load. Reload the page in a minute.",
+  help: "Help: Brands in your organisation",
+} as const;
+
+const brandCount = (n: number) => `${n} ${n === 1 ? "brand" : "brands"}`;
+
+/** "Brands in YouGrow.AI", the table's name for screen readers. */
+export const brandsTableWords = (org: string) => `Brands in ${org}`;
+export const moveOutTitleWords = (brand: string) => `Move out ${brand}`;
+export const bringInGoWords = (brand: string | null) => (brand ? `Bring in ${brand}` : BRANDS_COPY.bringInGo);
+
+/** "Fernhill Cafe (its own organisation, Free)", "Fernhill Wholesale (Wholesale Group, Enterprise)". */
+export function candidateWords(c: Pick<BringInCandidate, "name" | "organisation">): string {
+  return `${c.name} (${c.organisation.alone ? "its own organisation" : c.organisation.name}, ${c.organisation.planName})`;
+}
+
+/** Bring in refused as narrower (decision 20): nothing here turns a feature off or lowers a cap. */
+export function narrowerWords(brand: string, fromPlan: string, toPlan: string, kind: "features" | "caps"): string {
+  const what = kind === "features" ? "turn off features it has" : "lower what it may use each month";
+  return `Bringing in ${brand} would move it from ${fromPlan} to ${toPlan} and ${what}. That needs a plan change first.`;
+}
+
+/** Bring in refused at the plan's brands allowance. */
+export const fullWords = (org: string, limit: number, plan: string) => `${org} already has the ${brandCount(limit)} ${plan} allows. Bringing in another needs a plan change first.`;
+
+/**
+ * What leaving an organisation costs a brand: its parts from it stop and what was collected
+ * through them is deleted (pick 10). `emptied`: the organisation is left with no brands, so its
+ * connections are disconnected (pick 21). `keep`: connections connected from this brand stay where
+ * they are kept and keep serving the others (pick 2).
+ */
+export function leavingWords(from: string, parts: readonly string[] | null, opts: { emptied?: { connections: number; alone: boolean }; keep?: { regions: readonly string[]; others: readonly string[] } } = {}): string {
+  let t = "";
+  if (parts && parts.length === 1) t += ` Its ${partUnit(parts[0]!).one} from ${from} stops now, and what was collected through it is deleted.`;
+  if (parts && parts.length > 1) t += ` Its ${parts.length} parts from ${from} stop now, and what was collected through them is deleted.`;
+  const e = opts.emptied;
+  if (e && e.connections > 0) {
+    const whose = e.alone ? "Its own organisation" : from;
+    t += e.connections === 1 ? ` ${whose} has no brands left after this, so its connection is disconnected.` : ` ${whose} has no brands left after this, so its connections are disconnected.`;
+  }
+  const k = opts.keep;
+  if (k && k.regions.length && k.others.length) {
+    const serving = k.others.length > 3 ? `the other ${brandCount(k.others.length)}` : joinAnd(k.others);
+    t += ` ${whoseWords(from)} connections stay in ${joinAnd(k.regions.map(regionInSentence))} and keep serving ${serving}.`;
+  }
+  return t;
+}
+
+/** The Bring in confirm: "Fernhill Cafe joins Fernhill Group and takes its plan, Ultra. Nothing it uses today is turned off." */
+export function bringInTextWords(c: BringInCandidate, org: string, plan: string): string {
+  const head = `${c.name} joins ${org} and takes its plan, ${plan}.`;
+  const leaving = leavingWords(c.organisation.name, c.parts, { emptied: c.organisation.alone ? { connections: c.emptiedConnections, alone: true } : undefined });
+  return c.parts && c.parts.length ? `${head} The plan turns nothing off.${leaving}` : `${head} Nothing it uses today is turned off.${leaving}`;
+}
+
+/** The Move out confirm: "YouGrow gets an organisation of its own on Ultra, the same plan, with you as its only owner. …" */
+export function moveOutTextWords(b: Pick<OrganisationBrandView, "id" | "name" | "parts" | "keptFrom">, org: string, plan: string, brands: ReadonlyArray<Pick<OrganisationBrandView, "id" | "name">>): string {
+  const others = brands.filter((x) => x.id !== b.id).map((x) => x.name);
+  // Move out is offered only while the organisation has other brands, so it never leaves it empty.
+  const leaving = leavingWords(org, b.parts, { keep: { regions: b.keptFrom, others } });
+  return `${b.name} gets an organisation of its own on ${plan}, the same plan, with you as its only owner.${leaving}`;
+}
+
+/** Move out (or Bring in) refused: moves need a real admin row for the brand, never the claims of the brand you first signed in with (pick 16). */
+export function moveRefusalWords(brand: string, why: "home_only" | "not_admin", move: "out" | "in" = "out"): string {
+  const needs = `You can't ${move === "out" ? `move ${brand} out` : `bring ${brand} in`} here. Moves need you on ${whoseWords(brand)} team as an admin`;
+  return why === "home_only"
+    ? `${needs}, and you reach ${brand} as the brand you first signed in with. Ask whoever runs YouGrow to add you to its team, or to move it for you.`
+    : `${needs}. Ask an admin of ${brand} to make you one, or ask whoever runs YouGrow to move it for you.`;
+}
+
+export const bringInDoneWords = (brand: string, org: string) => `${brand} joined ${org}.`;
+export const moveOutDoneWords = (brand: string, plan: string) => `${brand} has an organisation of its own now, on ${plan}, with you as its only owner.`;

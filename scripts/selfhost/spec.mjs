@@ -108,6 +108,10 @@ export const KEPT_OFF = {
   NEXT_PUBLIC_GA_DEBUG_MODE: { addon: null, why: "sends Analytics hits to DebugView, for testing only" },
   PLANS_ENABLED: { addon: null, why: "the hosted service's plans; off, every brand may use every feature its switch turns on (docs/self-host.md, Plans)" },
   NEXT_PUBLIC_PLANS_ENABLED: { addon: null, why: "Settings, Plan and usage for the hosted service's plans; with PLANS_ENABLED off it only says plans are off" },
+  ORGANISATION_JOIN_ENABLED: {
+    addon: null,
+    why: "Bring in and Move out on Settings › Organisation need plans on (PLANS_ENABLED, every organisation on Self-hosted) and owners added with scripts/set-plan.ts (docs/self-host.md, Brands in an organisation)",
+  },
   RECAPTCHA_ENABLED: { addon: "recaptcha", why: "needs a reCAPTCHA Enterprise key; on without one, every waitlist sign-up is refused" },
   KNOWLEDGE_RAG_ENABLED: { addon: "knowledge", why: "needs the knowledge worker" },
   GIT_REPO_SELECTION_ENABLED: { addon: "github-app", why: "needs a connected repo (the read-only GitHub App)" },

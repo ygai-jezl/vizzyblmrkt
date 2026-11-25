@@ -93,6 +93,14 @@ describe("the switches npm run selfhost leaves off", () => {
     }
   });
 
+  it("keep the in-app join off on a new copy, and no add-on turns it on", () => {
+    // Bring in and Move out need plans on and owners added by hand (ADR-0014).
+    expect(KEPT_OFF.ORGANISATION_JOIN_ENABLED.addon).toBeNull();
+    for (const addon of ["x", "linkedin", "vizzy", "knowledge", "github-app", "bigquery", "recaptcha", "search"]) {
+      expect(switchesForAddon(addon), addon).not.toContain("ORGANISATION_JOIN_ENABLED");
+    }
+  });
+
   it("keep plans off on a new copy, and no add-on turns them on", () => {
     // Plans are the hosted service's (ADR-0009). Off, every brand may use every feature its
     // switch turns on, and GRANTED_ONLY_FEATURES still works.

@@ -5,7 +5,8 @@ import { organisationOwnerOf, type OrganisationOwner } from "./organisationOwner
 
 /**
  * Responses for the organisation routes (Connectors 3, ADR-0014), under /api/admin/organisation.
- * Each route checks its switch first (CONNECTORS_SHARING_ENABLED for connections), then the
+ * Each route checks its switch first (CONNECTORS_SHARING_ENABLED for connections,
+ * ORGANISATION_JOIN_ENABLED for brands), then the
  * integrations gate with the origin check and the admin role of the brand the person is in, then
  * the owner check here, read live: an owner of that brand's organisation and an admin of the brand
  * (isBrandAdminLive). src/lib/connectors/organisationRoutesGate.test.ts holds every route to it.
@@ -13,6 +14,11 @@ import { organisationOwnerOf, type OrganisationOwner } from "./organisationOwner
 
 /** With sharing off every organisation connection route answers 404, as if it weren't there. */
 export function sharingOff(): NextResponse {
+  return NextResponse.json({ error: "not_found" }, { status: 404, headers: { "cache-control": "no-store" } });
+}
+
+/** With the join off every organisation brands route answers 404, as if it weren't there. */
+export function joinOff(): NextResponse {
   return NextResponse.json({ error: "not_found" }, { status: 404, headers: { "cache-control": "no-store" } });
 }
 

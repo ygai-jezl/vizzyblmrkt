@@ -262,6 +262,56 @@ describe("organisations", () => {
       db.seed(ORGANISATIONS, "org_ten_A", org("org_ten_A", { brandIds: ["ten_A"] }));
       expect(await attachBrandToOrganisation("ten_nope", "org_ten_A", { actor: "script:ops" }, db)).toBe("missing");
     });
+
+    describe("with Bring in's guards (Connectors 3 group 4)", () => {
+      function seeded() {
+        const db = new FakeFirestore();
+        db.seed(ORGANISATIONS, "org_ten_A", org("org_ten_A", { plan: "ultra", brandIds: ["ten_A"] }));
+        db.seed(ORGANISATIONS, "org_ten_B", org("org_ten_B", { plan: "enterprise", brandIds: ["ten_B"] }));
+        db.seed(ORGANISATIONS, "org_ten_C", org("org_ten_C", { plan: "free", brandIds: [] }));
+        db.seed("tenants", "ten_A", brand({ organisationId: "org_ten_A", orgPlan: "ultra" }));
+        db.seed("tenants", "ten_B", brand({ organisationId: "org_ten_B", orgPlan: "enterprise" }));
+        return db;
+      }
+      const noWrites = (db: FakeFirestore) => {
+        expect(db.writeCountFor(ORGANISATIONS, "org_ten_A")).toBe(0);
+        expect(db.writeCountFor(ORGANISATIONS, "org_ten_B")).toBe(0);
+        expect(db.writeCountFor("tenants", "ten_B")).toBe(0);
+        expect(db.dump(ORGANISATION_CHANGES)).toHaveLength(0);
+      };
+
+      it("refuses a brand that moved since the owners were checked, with no writes", async () => {
+        const db = seeded();
+        expect(await attachBrandToOrganisation("ten_B", "org_ten_A", { actor: "usr_priya", expectFrom: "org_ten_C" }, db)).toBe("changed");
+        noWrites(db);
+      });
+
+      it("refuses as narrower, judged on the brand and the target's plan inside the transaction, with no writes", async () => {
+        const db = seeded();
+        const seen: Array<[string, string]> = [];
+        const narrower = (b: { id: string }, plan: string) => {
+          seen.push([b.id, plan]);
+          return plan !== "enterprise";
+        };
+        expect(await attachBrandToOrganisation("ten_B", "org_ten_A", { actor: "usr_priya", expectFrom: "org_ten_B", narrower }, db)).toBe("narrower");
+        expect(seen).toEqual([["ten_B", "ultra"]]);
+        noWrites(db);
+      });
+
+      it("counts a brand record that doesn't read as narrower", async () => {
+        const db = seeded();
+        db.seed("tenants", "ten_B", { organisationId: "org_ten_B", tenantName: 7 });
+        expect(await attachBrandToOrganisation("ten_B", "org_ten_A", { actor: "usr_priya", expectFrom: "org_ten_B", narrower: () => false }, db)).toBe("narrower");
+      });
+
+      it("moves when the brand is still where the owners were checked and nothing narrows", async () => {
+        const db = seeded();
+        expect(await attachBrandToOrganisation("ten_B", "org_ten_A", { actor: "usr_priya", expectFrom: "org_ten_B", narrower: () => false, maxBrands: 3 }, db)).toBe("moved");
+        expect(db.raw("tenants", "ten_B")).toMatchObject({ organisationId: "org_ten_A", orgPlan: "ultra" });
+        expect(db.raw(ORGANISATIONS, "org_ten_B")?.brandIds).toEqual([]);
+        expect(changes(db).find((c) => c.kind === "brand.joined")).toMatchObject({ organisationId: "org_ten_A", tenantId: "ten_B", from: "org_ten_B", actor: "usr_priya" });
+      });
+    });
   });
 
   describe("moveBrandToNewOrganisation", () => {

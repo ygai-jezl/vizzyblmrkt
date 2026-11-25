@@ -243,6 +243,14 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Brands in the organisation (ADR-0014): owners bring in a brand they run, or move one out to an
+  # organisation of its own on the same plan, on Settings > Organisation. Needs a real tenant_users
+  # admin row for the brand and PLANS_ENABLED. Every move ends the brand's shared parts from the
+  # organisation it leaves, whatever sharing says. Off, moves stay operator scripts.
+  - variable: ORGANISATION_JOIN_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # The usage meter: every paid resource a brand uses (web searches for research, AI model use,
   # images, older counters) is counted per brand per month, and a capped one stops at its cap
   # (src/lib/plans/meter.ts). Off: nothing is counted or capped.

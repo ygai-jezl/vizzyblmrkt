@@ -87,7 +87,11 @@ export async function isBrandAdminLive(person: VerifiedPerson, tenantId: string,
  */
 export type BrandMoveRefusal = "no_brand" | "no_organisation" | "not_owner" | "home_only" | "not_admin";
 
-export type BrandMoveCheck = { ok: true; brand: Tenant; organisation: Organisation } | { ok: false; why: BrandMoveRefusal };
+/**
+ * A refusal for want of an admin row also carries the brand: the person owns its organisation, so
+ * its name may be shown to them.
+ */
+export type BrandMoveCheck = { ok: true; brand: Tenant; organisation: Organisation } | { ok: false; why: BrandMoveRefusal; brand?: Tenant };
 
 /**
  * Whether the person may move a brand out of the organisation it is in now (Bring in elsewhere, or
@@ -107,6 +111,6 @@ export async function mayMoveBrand(person: VerifiedPerson, tenantId: string, db?
   const organisation = db ? await getOrganisation(brand.organisationId, db) : await getOrganisation(brand.organisationId);
   if (!organisation || !organisation.brandIds.includes(brand.id)) return { ok: false, why: "no_organisation" };
   if (!organisation.ownerIds.includes(person.userId)) return { ok: false, why: "not_owner" };
-  if (!(await isBrandAdminByRow(person.userId, brand.id, db))) return { ok: false, why: tenantId === person.homeTenantId ? "home_only" : "not_admin" };
+  if (!(await isBrandAdminByRow(person.userId, brand.id, db))) return { ok: false, why: tenantId === person.homeTenantId ? "home_only" : "not_admin", brand };
   return { ok: true, brand, organisation };
 }

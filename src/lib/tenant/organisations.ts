@@ -13,6 +13,7 @@ import {
   type OrganisationChange,
   type PlanId,
 } from "@/lib/types/organisation";
+import { TenantSchema, type Tenant } from "@/lib/types/tenant";
 
 /**
  * Organisations in the control database ((default)), above brands (PLANS_ENABLED; the plans are
@@ -218,17 +219,32 @@ export async function ensureBrandOrganisation(
 }
 
 /**
+ * What may stop Bring in (Connectors 3 group 4, ADR-0014) inside the move's own transaction:
+ * - `expectFrom`: the organisation the brand must still be in, the one whose owners the caller
+ *   checked; a brand moved meanwhile is refused as "changed";
+ * - `narrower`: whether taking `plan` would narrow what the brand may use (the caller passes the
+ *   plans preview's answer, src/lib/plans/preview.ts accessChanges, read only), checked against
+ *   the brand and the target's plan as they are inside the transaction; refused as "narrower", so
+ *   an in-app join never narrows (decision 20).
+ */
+export interface AttachGuards {
+  expectFrom?: string;
+  narrower?: (brand: Tenant, plan: PlanId) => boolean;
+}
+
+/**
  * Move a brand into another organisation (combining brands, when an owner asks). The brand takes
  * the target's plan. The organisation it leaves is kept, even when empty. With `maxBrands` (the
  * target plan's brands allowance) the move is refused as full when the target already has that
- * many; the check is inside the transaction, so two moves can't both pass it.
+ * many; the check is inside the transaction, so two moves can't both pass it. The guards are
+ * checked there too (AttachGuards).
  */
 export async function attachBrandToOrganisation(
   tenantId: string,
   organisationId: string,
-  opts: { actor: string; maxBrands?: number | null },
+  opts: { actor: string; maxBrands?: number | null } & AttachGuards,
   db: FirestoreLike = defaultDb(),
-): Promise<"moved" | "already" | "missing" | "full"> {
+): Promise<"moved" | "already" | "missing" | "full" | "changed" | "narrower"> {
   const brandRef = db.collection(TENANTS).doc(tenantId);
   const targetRef = db.collection(ORGANISATIONS).doc(organisationId);
   return db.runTransaction(async (tx) => {
@@ -240,10 +256,16 @@ export async function attachBrandToOrganisation(
     const fromRef = fromId && fromId !== organisationId ? db.collection(ORGANISATIONS).doc(fromId) : null;
     const fromSnap = fromRef ? await tx.get(fromRef) : null;
 
+    if (opts.expectFrom !== undefined && fromId !== opts.expectFrom) return "changed";
     if (fromId === organisationId && target.brandIds.includes(tenantId)) return "already";
     const others = target.brandIds.filter((id) => id !== tenantId);
     const limit = Math.min(opts.maxBrands ?? MAX_ORGANISATION_BRANDS, MAX_ORGANISATION_BRANDS);
     if (others.length >= limit) return "full";
+    if (opts.narrower) {
+      // A brand record that doesn't read counts as narrower: nothing is moved on a guess.
+      const brand = TenantSchema.safeParse({ id: brandSnap.id, ...(brandSnap.data() ?? {}) });
+      if (!brand.success || opts.narrower(brand.data, target.plan)) return "narrower";
+    }
 
     const now = new Date().toISOString();
     if (fromRef && fromSnap?.exists) {

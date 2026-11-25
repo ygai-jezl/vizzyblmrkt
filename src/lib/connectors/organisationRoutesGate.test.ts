@@ -5,14 +5,14 @@ import { join, relative } from "node:path";
 // Every organisation route (Connectors 3, ADR-0014) checks its switch first, then goes through the
 // integrations gate (origin check, sign in, the admin role of the brand the person is in), then the
 // live owner check, as routesGate.test.ts holds the connector routes to theirs. Connections answer
-// to CONNECTORS_SHARING_ENABLED. No organisation route lets a member in, reads the session itself,
-// or takes the organisation or a region from the request.
+// to CONNECTORS_SHARING_ENABLED, brands to ORGANISATION_JOIN_ENABLED. No organisation route lets a
+// member in, reads the session itself, or takes the organisation or a region from the request.
 const ROOT = join(process.cwd(), "src", "app", "api", "admin", "organisation");
 
 const METHODS = "GET|POST|PUT|PATCH|DELETE";
 const GATE_CALL = /\bintegrationsAdmin\(/;
 const OWNER_CALL = /\borganisationOwner\(/;
-const SWITCHES: Record<string, RegExp> = { connections: /\bisConnectorsSharingEnabled\(\)/ };
+const SWITCHES: Record<string, RegExp> = { connections: /\bisConnectorsSharingEnabled\(\)/, brands: /\bisOrganisationJoinEnabled\(\)/ };
 
 function routeFiles(dir: string, out: string[] = []): string[] {
   if (!existsSync(dir)) return out;

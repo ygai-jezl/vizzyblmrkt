@@ -68,6 +68,8 @@ export interface BlogHubControls {
   datesTimeZone?: string;
   /** Article freshness (BLOG_FRESHNESS_ENABLED): "Checked, nothing to change" on a live article. */
   onChecked?: (nodeId: string) => Promise<{ ok: boolean; error?: string }>;
+  /** Opened from Review, Next up or a Search Console row (?freshness=1): bring the Freshness card into view. */
+  focusFreshness?: boolean;
   /** Found live (BLOG_LIVE_WATCH_ENABLED): YouGrow checks the address on its own, or finds the article on the sitemap. */
   liveWatch?: boolean;
   /** The hero image (BLOG_HERO_ENABLED); absent = no hero card. */

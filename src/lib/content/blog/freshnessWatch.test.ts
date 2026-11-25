@@ -32,13 +32,13 @@ function world(over: { refreshClock?: Tenant["refreshClock"] } = {}) {
 }
 
 const checked: string[] = [];
-const deps = (db: FakeFirestore, now = NOW) => ({
+const deps = (db: FakeFirestore, now = NOW, openOnSubject = 3) => ({
   db,
   now: () => now,
   rand: () => 0,
   losingPages: async () => new Map([["acme.example/blog/visibility", "Search Console: 120 clicks, down from 260."]]),
   reachPages: async () => new Map([["acme.example/blog/visibility", "Search Console: position 12 on average."]]),
-  openQuestions: async () => new Map([["sub_1", 3]]),
+  openQuestions: async () => new Map([["sub_1", openOnSubject]]),
   checkLink: async (url: string) => {
     checked.push(url);
     return url.includes("gone.example") ? ("dead" as const) : ("ok" as const);
@@ -68,7 +68,8 @@ describe("the freshness watch", () => {
     const doc = await sweepBrand(A, tenant, deps(db));
     const f = (await hubOf(db)).freshness!;
     expect(f).toMatchObject({ clockDays: 20, arm: "test", state: "due", deadLinks: ["https://gone.example.net/report"], linksCheckedAt: NOW.toISOString() });
-    expect(f.reasons.map((r) => r.kind)).toEqual(["age", "losing_clicks", "dead_link", "old_figure", "within_reach", "old_source", "new_questions"]);
+    expect(f.reasons.map((r) => r.kind)).toEqual(["age", "losing_clicks", "dead_link", "old_figure", "within_reach", "old_source"]);
+    expect(f.openAtStart).toBe(3);
     expect(f.events).toEqual([{ at: NOW.toISOString(), kind: "due", clockDays: 20 }]);
     expect(doc).toMatchObject({ counts: { fresh: 0, soon: 0, due: 1 }, byClock: { "20": 1, "30": 0, "45": 0 }, pages: [{ key: "acme.example/blog/visibility", planId: "plan_1", workspaceId: "ws1" }] });
     expect(doc.due[0]).toMatchObject({ planId: "plan_1", title: "What is AI search visibility monitoring?", state: "due", clockDays: 20, subjectId: "sub_1" });
@@ -85,6 +86,25 @@ describe("the freshness watch", () => {
     expect(f.clockDays).toBe(20);
     await updateContentPlan(A, "ws1", "plan_1", { graph: samplePlan({}, sampleHub({ body: "edited", status: "approved" })).graph }, db);
     expect((await hubOf(db)).freshness).toMatchObject({ clockDays: 20, state: "due" });
+  });
+
+  it("counts only questions opened on its subject since its clock started, afresh after a check", async () => {
+    const { db, tenant } = world();
+    const kinds = async () => (await hubOf(db)).freshness!.reasons.filter((r) => r.kind === "new_questions").map((r) => r.detail);
+    await sweepBrand(A, tenant, deps(db, NOW, 30));
+    expect(await kinds()).toEqual([]);
+    await sweepBrand(A, tenant, deps(db, new Date("2026-11-25T12:00:00.000Z"), 31));
+    expect(await kinds()).toEqual([]);
+    await sweepBrand(A, tenant, deps(db, new Date("2026-11-26T12:00:00.000Z"), 33));
+    expect(await kinds()).toEqual(["3 new questions on its subject that no live page answers"]);
+    expect((await hubOf(db)).freshness!.openAtStart).toBe(30);
+    // A check starts the clock again: the next look takes today's count as its start.
+    const { markChecked } = await import("./refreshAdmin");
+    expect((await markChecked({ ...A, source: "idtoken", role: "admin" }, { workspaceId: "ws1", planId: "plan_1", nodeId: "hub" }, { db, now: () => new Date("2026-11-26T13:00:00.000Z") })).ok).toBe(true);
+    expect((await hubOf(db)).freshness!.openAtStart).toBeNull();
+    await sweepBrand(A, tenant, deps(db, new Date("2026-11-27T12:00:00.000Z"), 33));
+    expect(await kinds()).toEqual([]);
+    expect((await hubOf(db)).freshness!.openAtStart).toBe(33);
   });
 
   it("uses a clock the brand fixed, and Not live takes the clock away", async () => {

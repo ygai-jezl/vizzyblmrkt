@@ -100,6 +100,7 @@ export function BlogHubReview({
           freshness={node.blog?.freshness}
           onChecked={() => controls.onChecked!(node.id)}
           disabled={disabled || controls.busy !== null}
+          focus={controls.focusFreshness === true}
         />
       ) : null}
 

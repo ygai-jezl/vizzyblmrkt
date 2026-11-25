@@ -750,6 +750,24 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Article refresh: a review that proposes changes with evidence, Apply (a real change moves
+  # Updated), the last 10 versions with Restore, autopilot reviews and the clock readout (needs
+  # BLOG_FRESHNESS_ENABLED; reviews also need the article_refresh grant where features are granted).
+  - variable: BLOG_REFRESH_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Its screens: Review for refresh, the proposals, Versions and the clock readout.
+  - variable: NEXT_PUBLIC_BLOG_REFRESH_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Vizzy's review_article: start or move a review from the chat, never apply (needs BLOG_REFRESH_ENABLED).
+  - variable: BLOG_REFRESH_CHAT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   - variable: BRAND_MAP_CHAT_ENABLED
     value: "false"
     availability:

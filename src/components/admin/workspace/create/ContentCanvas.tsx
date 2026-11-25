@@ -1,5 +1,6 @@
 "use client";
 
+import type { VersionListing } from "@/lib/content/blog/versions";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { WEB_SEARCH_LIMIT_MESSAGE } from "@/lib/plans/resources";
 import { useRouter } from "next/navigation";
@@ -126,6 +127,7 @@ export function ContentCanvas({
   liveWatchOn = false,
   datesTimeZone,
   freshnessOn = false,
+  refreshOn = false,
   openHub = false,
   editorialOn = false,
   seenOn = false,
@@ -154,6 +156,8 @@ export function ContentCanvas({
   datesTimeZone?: string;
   /** Article freshness (BLOG_FRESHNESS_ENABLED): the Freshness card and its check. */
   freshnessOn?: boolean;
+  /** Article refresh (BLOG_REFRESH_ENABLED): the article's earlier versions, with Restore. */
+  refreshOn?: boolean;
   /** Open with the hub selected (a link to an article's Freshness card). */
   openHub?: boolean;
   /** Blog articles are written in the editorial shape (CREATE_BLOG_EDITORIAL_ENABLED). */
@@ -713,6 +717,39 @@ export function ContentCanvas({
     }
   }
 
+  /** The article's earlier versions (BLOG_REFRESH_ENABLED), newest first; null when they can't be read. */
+  async function listVersionsOf(id: string): Promise<VersionListing[] | null> {
+    try {
+      const res = await fetch(`/api/admin/workspace/${workspaceId}/content-plans/${planId}/nodes/${id}/blog/versions`, { cache: "no-store" });
+      const data = (await res.json().catch(() => ({}))) as { versions?: VersionListing[] };
+      return res.ok && data.versions ? data.versions : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Put a version back. The canvas saves first, so the copy it replaces is the one on screen. */
+  async function restoreVersionOf(id: string, n: number): Promise<string | null> {
+    if (!(await save().catch(() => false))) return "Save failed. Nothing was restored.";
+    try {
+      const res = await fetch(`/api/admin/workspace/${workspaceId}/content-plans/${planId}/nodes/${id}/blog/versions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ restore: n }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { node?: ContentNode; error?: string };
+      if (res.ok && data.node) {
+        patchNode(id, { cn: data.node });
+        return null;
+      }
+      if (data.error === "locked") return "Scheduled copy isn't changed. Unschedule it first.";
+      if (data.error === "autopilot_running") return "The autopilot is writing this article. Take over first.";
+      return "That didn't restore. Try again in a moment.";
+    } catch {
+      return "That didn't restore. Try again in a moment.";
+    }
+  }
+
   /** Check, mark or clear that the article is live; the server saves it on the hub's meta. */
   async function setLive(id: string, action: LiveAction, day?: string): Promise<LiveResult> {
     try {
@@ -1055,6 +1092,7 @@ export function ContentCanvas({
           ...(pagesOn ? { onSetAddress: saveAddress, onLive: setLive, ...(liveWatchOn ? { liveWatch: true } : {}) } : {}),
           ...(datesTimeZone ? { datesTimeZone } : {}),
           ...(freshnessOn && pagesOn ? { onChecked: markChecked, ...(openHub ? { focusFreshness: true } : {}) } : {}),
+          ...(refreshOn ? { versions: { list: listVersionsOf, restore: restoreVersionOf } } : {}),
           ...(editorialOn ? { editorial: true } : {}),
           ...(seenOn ? { onFindSeen: () => void onBlogFindSeen() } : {}),
           ...(seenOn && seenQuestionsOn ? { answers: { save: answers.save, done: answers.done, state: answers.state } } : {}),

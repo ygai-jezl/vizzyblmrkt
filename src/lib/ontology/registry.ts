@@ -1237,6 +1237,22 @@ export const ONTOLOGY: readonly OntologyType[] = [
     search: { none: "working state; the articles are searched as themselves" },
     numbers: { meanings: ["articlesDue", "articlesReviewSoon", "articlesFresh", "clockDays", "liveArticles"], tool: "list_articles_due" },
   },
+  {
+    id: "article_version",
+    name: "Article versions",
+    description: "A blog article's last 10 versions: its copy and meta just before Apply, Regenerate or Restore replaced them, for Restore. One record per article.",
+    place: "content",
+    status: "built",
+    home: "brand",
+    personal: "none",
+    stores: [regional("article_versions")],
+    links: [{ to: "content_plan", via: "planId", many: false }],
+    events: [],
+    erase: { paths: [brandPath("deleteContentPlan", WORKSPACE_CONTENT)] },
+    export: { none: NOT_PERSONAL },
+    search: { none: "earlier copies of an article; the article itself is searched" },
+    numbers: { none: NO_NUMBERS },
+  },
 
   // ===== Partner and agent: who acts for the brand ===========================================
   {

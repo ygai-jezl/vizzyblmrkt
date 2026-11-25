@@ -6,6 +6,7 @@ import { BlogBriefPanel } from "./BlogBriefPanel";
 import { BlogExport } from "./BlogExport";
 import { BlogHeroCard } from "./BlogHeroCard";
 import { FreshnessCard } from "./FreshnessCard";
+import { VersionsCard } from "./VersionsCard";
 import { CitableChecklist } from "./CitableChecklist";
 import type { BlogHubControls } from "./types";
 
@@ -102,6 +103,10 @@ export function BlogHubReview({
           disabled={disabled || controls.busy !== null}
           focus={controls.focusFreshness === true}
         />
+      ) : null}
+
+      {controls.versions ? (
+        <VersionsCard nodeId={node.id} controls={controls.versions} stamp={`${node.body.length}:${node.status}`} disabled={disabled || controls.busy !== null} />
       ) : null}
 
       <CitableChecklist markdown={node.body} brief={controls.brief} meta={node.blog} pageUrl={controls.pageUrl} map={controls.map ?? null} />

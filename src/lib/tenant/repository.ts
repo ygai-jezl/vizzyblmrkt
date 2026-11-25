@@ -59,6 +59,7 @@ import type { AutopilotRun, LearnedEntry, NextUpDoc } from "@/lib/types/autopilo
 import type { UsageMeterDoc } from "@/lib/types/usageMeter";
 import type { LiveWatchDoc, LiveWatchSeen } from "@/lib/types/liveWatch";
 import type { FreshnessWatchDoc } from "@/lib/types/freshness";
+import type { ArticleVersionsDoc } from "@/lib/types/articleRefresh";
 import type { StoredEvent } from "@/lib/types/ontologyEvent";
 import type { AgentAction } from "@/lib/types/agentAction";
 import type { SettingsVersion } from "@/lib/types/settingsVersion";
@@ -592,6 +593,8 @@ export interface TenantRepositories {
   liveWatchSeen: TenantCollection<LiveWatchSeen>;
   /** Article freshness: the brand's due articles and counts (src/lib/content/blog/freshnessWatch.ts). */
   freshnessWatch: TenantCollection<FreshnessWatchDoc>;
+  /** Article refresh: each blog article's last 10 versions, `av_<planId>` (src/lib/content/blog/versions.ts). */
+  articleVersions: TenantCollection<ArticleVersionsDoc>;
   /**
    * The event history: one row per thing that happened to a person, company, idea or agent
    * action. Append only: written only through ./ontologyEvents.ts and ./agentActions.ts.
@@ -768,6 +771,7 @@ export function forTenant(
     liveWatch: new TenantCollection<LiveWatchDoc>(regionalDb, "live_watch", t),
     liveWatchSeen: new TenantCollection<LiveWatchSeen>(regionalDb, "live_watch_seen", t),
     freshnessWatch: new TenantCollection<FreshnessWatchDoc>(regionalDb, "freshness_watch", t),
+    articleVersions: new TenantCollection<ArticleVersionsDoc>(regionalDb, "article_versions", t),
     // A person's history and agents' suggestions are personal: regional, beside the person.
     ontologyEvents: new TenantCollection<StoredEvent>(regionalDb, "ontology_events", t),
     agentActions: new TenantCollection<AgentAction>(regionalDb, "agent_actions", t),

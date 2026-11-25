@@ -155,6 +155,43 @@ export const OffboardingEmailSchema = z.object({
 });
 export type OffboardingEmail = z.infer<typeof OffboardingEmailSchema>;
 
+/**
+ * Where the test behind a launch stands (LAUNCH_IDEAS_ENABLED), in order. Separate from
+ * `archivedAt`: a parked or killed idea keeps its waitlist open until an admin closes it.
+ */
+export const IDEA_STATUSES = ["exploring", "testing", "validated", "launched", "parked", "killed"] as const;
+export const IdeaStatusSchema = z.enum(IDEA_STATUSES);
+export type IdeaStatus = z.infer<typeof IdeaStatusSchema>;
+
+/** The longest hypothesis and outcome, in characters. */
+export const IDEA_LIMITS = { hypothesis: 500, outcome: 2000 } as const;
+
+/**
+ * A launch as an idea being tested (LAUNCH_IDEAS_ENABLED). Every part is optional, so an old
+ * launch reads with no status (and shows no badge, never Exploring by default). A cleared field
+ * is written as `null`, never left undefined (`ignoreUndefinedProperties` would drop the key and
+ * the old value would stay). Who set the status and who handed it off are user ids, never an
+ * address. Status and hand-off changes are also kept as record.field_changed events on
+ * `idea:<campaignId>` (src/lib/ideas/service.ts).
+ */
+export const IdeaSchema = z.object({
+  /** What the team expects to happen, and for whom. */
+  hypothesis: z.string().max(IDEA_LIMITS.hypothesis).nullable().optional(),
+  status: IdeaStatusSchema.optional(),
+  /** When and by whom the status was last set. */
+  statusAt: z.string().nullable().optional(),
+  statusBy: z.string().nullable().optional(),
+  /** What happened, and what the team learned. */
+  outcome: z.string().max(IDEA_LIMITS.outcome).nullable().optional(),
+  /** The connected product it was handed off to, once launched, with when and by whom. */
+  productConnectionId: z.string().nullable().optional(),
+  handedOffAt: z.string().nullable().optional(),
+  handedOffBy: z.string().nullable().optional(),
+  /** A newsletter or sign-up list, not an idea: no card, no badge, left out of comparisons. */
+  justAList: z.boolean().optional(),
+});
+export type Idea = z.infer<typeof IdeaSchema>;
+
 export const CampaignSchema = z.object({
   id: z.string(),
   tenantId: z.string(),
@@ -215,6 +252,11 @@ export const CampaignSchema = z.object({
   // Post-signup Gemini Live voice conversation. OPTIONAL on the stored shape for
   // the same backward-compatibility reason as `strategy` above.
   aiConversation: AiConversationSchema.optional(),
+
+  // The idea behind the launch (LAUNCH_IDEAS_ENABLED): hypothesis, status, outcome and hand-off.
+  // OPTIONAL so every launch made before it reads cleanly. Written only by src/lib/ideas/service.ts,
+  // never by the settings editor (toCampaignSettings leaves it out).
+  idea: IdeaSchema.optional(),
 
   createdAt: z.string(),
 

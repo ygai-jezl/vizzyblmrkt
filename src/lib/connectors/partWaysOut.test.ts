@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { changeOrganisationConnection, type TenantContext } from "@/lib/tenant";
+import { changeOrganisationConnection, forTenant, type TenantContext } from "@/lib/tenant";
+import { getAgentAction } from "@/lib/ontology/agentActions";
+import { isAgentActionId } from "@/lib/types/agentAction";
 import { freshCollect } from "@/lib/types/dataConnection";
 import { readableConnections } from "@/lib/search/query";
 import { agentCollectedNumbers } from "./numbers";
 import { agentNumberSuggestions } from "./signals/agentApi";
 import { readSearchPlanning } from "./signals/planning";
-import { signalReviewItems } from "./signals/review";
+import { planFromSignal, signalReviewItems } from "./signals/review";
 import { addDays } from "./period";
 import { LAST_DAY, search, seedSuggestion, writePlanning } from "./testing/signals";
 import { brandDeps, OCN, ORG, OTHER_ORG, orgWorld, seedFernhill, seedPart, seedSource, seedTenant, US_BRAND, USE_US, type OrgWorld } from "./testing/organisation";
@@ -89,5 +91,26 @@ describe("every way out checks the part live", () => {
     expect((await readSearchPlanning(CTX, where()))?.sites).toEqual([]);
     vi.stubEnv("CONNECTORS_SHARING_ENABLED", "true");
     expect(await signalReviewItems(CTX, { ...where(), now: NOW })).toHaveLength(1);
+  });
+
+  it("Plan an article: a part partLive refuses answers not_found and stays proposed, a live one plans", async () => {
+    await forTenant(CTX, db()).workspaces.create("ws_care", { name: "Plant care", createdAt: NOW.toISOString() } as never);
+    const { signalId, actionId } = await seedSuggestion(CTX, db(), USE_US, "rising", { account: SITE, now: new Date(NOW.getTime() + 1000) });
+    const plan = () => planFromSignal(CTX, signalId, {}, { ...where(), now: NOW, loadTenant: async () => null });
+    const state = async () => (isAgentActionId(actionId) ? (await getAgentAction(CTX, actionId, { db: db() }))?.state : null);
+    const setParts = (to: "pending" | "active") =>
+      changeOrganisationConnection(ORG, OCN, "eu", (cur) => ({ patch: { parts: cur.parts.map((p) => ({ ...p, state: to })) }, activity: [] }), { regionDb: w.regionDb });
+    vi.stubEnv("CONNECTORS_SHARING_ENABLED", "false");
+    expect(await plan()).toEqual({ ok: false, error: "not_found" });
+    vi.stubEnv("CONNECTORS_SHARING_ENABLED", "true");
+    await setParts("pending");
+    expect(await plan()).toEqual({ ok: false, error: "not_found" });
+    await setParts("active");
+    leave();
+    expect(await plan()).toEqual({ ok: false, error: "not_found" });
+    expect(await state()).toBe("proposed");
+    seedTenant(w, US_BRAND, ORG);
+    expect(await plan()).toEqual({ ok: true, value: { href: "/admin/workspace/ws_care/create?numbers=search&text=pet%20safe%20hanging%20plants" } });
+    expect(await state()).toBe("acted");
   });
 });

@@ -151,7 +151,9 @@ const memberOf = (ctx: TenantContext) => ({ type: "member" as const, id: ctx.use
 /**
  * Plan an article from a suggestion: proposed to acted with its Create link as the result, its
  * values cleared, the row blanked and kept away 30 days. With several programmes and none chosen
- * (or none at all), answers no_programme.
+ * (or none at all), answers no_programme. A suggestion Review hides answers not_found and stays
+ * proposed: its connection no longer feeds planning (a part partLive refuses, or a brand's own
+ * connection whose grants changed), or its row is of another generation than the connection's.
  */
 export async function planFromSignal(
   ctx: TenantContext,
@@ -161,9 +163,11 @@ export async function planFromSignal(
 ): Promise<DecideResult<{ href: string }>> {
   const open = await openFor(ctx, signalId, deps);
   if (!open.ok) return open;
-  // A page that is one of the brand's live articles is refreshed, not planned again.
+  // Exactly what openSuggestions hides: a link built from the row's label goes nowhere Review wouldn't show.
   const connection = (await planningConnections(ctx, deps).catch(() => new Map<string, DataConnection>())).get(open.row.connectionId);
-  const own = connection ? await ownArticleFor(ctx, open.row, connection, deps).catch(() => null) : null;
+  if (!connection || open.row.gen !== connection.collect?.gen) return { ok: false, error: "not_found" };
+  // A page that is one of the brand's live articles is refreshed, not planned again.
+  const own = await ownArticleFor(ctx, open.row, connection, deps).catch(() => null);
   const workspaceId = own ? own.workspaceId : await programmeFor(ctx, input.workspaceId ?? null, deps, deps.loadTenant ?? getTenantById);
   if (!workspaceId) return { ok: false, error: "no_programme" };
   const href = own ? refreshHref(own) : planHref(workspaceId, open.row);

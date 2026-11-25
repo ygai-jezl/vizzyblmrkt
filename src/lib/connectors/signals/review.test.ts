@@ -101,6 +101,29 @@ describe("Plan an article", () => {
     expect(planHref("ws_blog", { rule: "rising_search", label: "pet safe hanging plants", questionId: null, key: { topic: "pet safe hanging plants" } })).toBe("/admin/workspace/ws_blog/create?numbers=search&text=pet%20safe%20hanging%20plants");
   });
 
+  it("answers not_found for a suggestion Review hides, and leaves it proposed", async () => {
+    await workspace("ws_blog", "Plant care blog");
+    const plan = (signalId: string) => planFromSignal(A, signalId, {}, { db, now: NOW, loadTenant: async () => null });
+    // A row of an older generation than the connection's (Change property, its erase not done yet).
+    const old = await seedSuggestion(A, db, ID, "rising", { gen: 1 });
+    await changeDataConnection(A, ID, (cur) => ({ patch: { collect: { ...cur.collect!, gen: 2 } }, activity: [] }), db);
+    expect(await plan(old.signalId)).toEqual({ ok: false, error: "not_found" });
+    expect((await action(old.actionId)).state).toBe("proposed");
+    await changeDataConnection(A, ID, (cur) => ({ patch: { collect: { ...cur.collect!, gen: 0 } }, activity: [] }), db);
+    // The brand's own connection no longer feeds planning: members only, so Review hides it.
+    const { signalId, actionId } = await seedSuggestion(A, db, ID, "losing");
+    await changeDataConnection(A, ID, () => ({ patch: { grants: [{ to: "members", can: "read" }] }, activity: [] }), db);
+    expect(await signalReviewItems(A, { db, now: NOW })).toEqual([]);
+    expect(await plan(signalId)).toEqual({ ok: false, error: "not_found" });
+    expect(await action(actionId)).toMatchObject({ state: "proposed", proposal: { label: "/care/fiddle-leaf-fig" } });
+    // Disconnected: the same.
+    await changeDataConnection(A, ID, () => ({ patch: { grants: [{ to: "members", can: "read" }, { to: "agent:vizzy", can: "read" }], status: "disconnected" }, activity: [] }), db);
+    expect(await plan(signalId)).toEqual({ ok: false, error: "not_found" });
+    // Back to feeding planning: it plans.
+    await changeDataConnection(A, ID, () => ({ patch: { status: "connected" }, activity: [] }), db);
+    expect(await plan(signalId)).toMatchObject({ ok: true, value: { href: expect.stringContaining("/admin/workspace/ws_blog/create?numbers=page") } });
+  });
+
   it("asks which programme when there are several, and takes the autopilot's", async () => {
     await workspace("ws_blog", "Plant care blog");
     await workspace("ws_news", "Newsletter");

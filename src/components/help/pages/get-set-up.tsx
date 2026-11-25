@@ -1,7 +1,8 @@
 import { H1, H2, H3, Lead, P, UL } from "@/components/developers/Doc";
-import { NextPage, Open, Warning } from "@/components/help/blocks";
+import { Messages, NextPage, Open, Warning } from "@/components/help/blocks";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { isOnboardingEnabled, isOnboardingVoiceEnabled } from "@/lib/onboarding/flags";
+import { VOICE_WORDS, WELCOME_WORDS } from "@/lib/onboarding/words";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
 /**
@@ -9,7 +10,8 @@ import type { HelpBodyProps } from "@/lib/help/pages";
  * words (`ideaWords`) stage 2 is Idea, as Home calls it; its anchor stays #launch, and stage 4 stays
  * Launch product. With getting to know a new brand on (`onboarding`), #about-you says what the
  * welcome asks, and Home starts where the brand is rather than at stage 1. With voice too
- * (`onboardingVoice`), it says how Here's what I learned works after a call.
+ * (`onboardingVoice`), it says how Talk with Vizzy works, what is kept and what isn't, and how
+ * Here's what I learned works after a call.
  */
 export default function GetSetUpHelp({
   ideaWords = isIdeaWordsEnabled(),
@@ -36,11 +38,20 @@ export default function GetSetUpHelp({
       {onboarding ? (
         <>
           <H2 id="about-you">Tell Vizzy about your business</H2>
-          <P>
-            The first time an admin opens Home for a new brand, YouGrow opens a welcome page. Choose{" "}
-            <strong>Answer 4 quick questions</strong>, or <strong>Skip for now</strong> to go straight to Home. It shows once
-            per brand. Members don&apos;t see it, and a brand that already has something in it never gets it.
-          </P>
+          {onboardingVoice ? (
+            <P>
+              The first time an admin opens Home for a new brand, YouGrow opens a welcome page. Choose{" "}
+              <strong>{WELCOME_WORDS.talk}</strong> to talk it through by voice in 3 to 5 minutes, or answer 4 quick questions
+              instead. <strong>Skip for now</strong> goes straight to Home. It shows once per brand. Members don&apos;t see it,
+              and a brand that already has something in it never gets it.
+            </P>
+          ) : (
+            <P>
+              The first time an admin opens Home for a new brand, YouGrow opens a welcome page. Choose{" "}
+              <strong>Answer 4 quick questions</strong>, or <strong>Skip for now</strong> to go straight to Home. It shows
+              once per brand. Members don&apos;t see it, and a brand that already has something in it never gets it.
+            </P>
+          )}
           <P>
             The questions ask who you are, what you run, where it is today and what you want from YouGrow first. Each answer
             saves as soon as you pick it, so closing the page keeps what you picked. Press 1, 2 or 3 to pick from the keyboard,{" "}
@@ -50,6 +61,30 @@ export default function GetSetUpHelp({
             After the fourth, <strong>That&apos;s all four</strong> lists your answers. Choose{" "}
             <strong>See your next action</strong> to go to Home.
           </P>
+          {onboardingVoice ? (
+            <>
+              <P>
+                Your browser asks to use your microphone the first time. Vizzy listens only on the welcome page. During the
+                call, Vizzy makes sure it hears who you are, what you run, where it is today and what you want first, and
+                ticks each one off as you talk. Talk about anything else too. <strong>{VOICE_WORDS.mute}</strong> stops sending
+                your voice, and <strong>{VOICE_WORDS.end}</strong> finishes the call. It ends by itself after 5 minutes.
+              </P>
+              <P>
+                Vizzy keeps the words, never the audio. Your voice goes to Google&apos;s Gemini API for the call and isn&apos;t
+                stored. The transcript stays with your brand until you delete it in Settings, under About your business. Each
+                brand has one call a day.
+              </P>
+              <Messages
+                rows={[
+                  [VOICE_WORDS.blocked, "Allow the microphone for this site in your browser, then open the welcome again."],
+                  [VOICE_WORDS.usedToday, "Answer the 4 quick questions now, or talk with Vizzy tomorrow (UTC)."],
+                  [VOICE_WORDS.full, "Delete a conversation you no longer need in Settings, under About your business."],
+                  [VOICE_WORDS.unavailable, "Answer the 4 quick questions, or try again later."],
+                  [VOICE_WORDS.dropped, "Choose See what I learned: Vizzy works from the words you said before it dropped."],
+                ]}
+              />
+            </>
+          ) : null}
           {onboardingVoice ? (
             <P>
               After a call with Vizzy, <strong>Here&apos;s what I learned</strong> shows the four answers and what else Vizzy

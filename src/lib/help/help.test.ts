@@ -23,7 +23,7 @@ import { helpMetadata } from "./metadata";
 import { HELP_PLACES, helpFor, parseHelpPath } from "./places";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
 import { VIZZY_READS_HINT } from "@/components/admin/audience/fieldsApi";
-import { FACT_WORDS, LEARNED_WORDS, QUESTIONS_WORDS, WELCOME_WORDS } from "@/lib/onboarding/words";
+import { FACT_WORDS, LEARNED_WORDS, QUESTIONS_WORDS, VOICE_WORDS, WELCOME_WORDS } from "@/lib/onboarding/words";
 
 
 /**
@@ -84,8 +84,10 @@ vi.hoisted(() => {
   process.env.ORGANISATION_JOIN_ENABLED = "true";
   process.env.PASSWORD_SIGNIN_ENABLED = "true";
   process.env.LAUNCH_IDEAS_ENABLED = "true";
-  // Tell Vizzy about your business, on the hub (the switch folds in no nav switch).
+  // Tell Vizzy about your business, on the hub (the switch folds in no nav switch), with Talk with
+  // Vizzy by voice, so its lines and the messages it quotes are checked too.
   process.env.ONBOARDING_ENABLED = "true";
+  process.env.ONBOARDING_VOICE_ENABLED = "true";
   // Password help shows only when a code can be delivered too (isPasswordSigninAvailable).
   process.env.MANDRILL_API_KEY = "test-key-not-real";
 });
@@ -1020,7 +1022,7 @@ describe("Tell Vizzy about your business (ONBOARDING_ENABLED)", () => {
   });
 
   it("names the buttons in the screens' own words, with no voice while it can't be had", () => {
-    const text = md({ onboarding: true });
+    const text = md({ onboarding: true, onboardingVoice: false });
     for (const words of [WELCOME_WORDS.questions, WELCOME_WORDS.skip, QUESTIONS_WORDS.skip, QUESTIONS_WORDS.back, QUESTIONS_WORDS.done, QUESTIONS_WORDS.next]) {
       expect(text).toContain(`**${words}**`);
     }
@@ -1039,6 +1041,28 @@ describe("Tell Vizzy about your business (ONBOARDING_ENABLED)", () => {
     }
     const off = md({ onboarding: true, onboardingVoice: false });
     for (const w of [LEARNED_WORDS.looksRight, LEARNED_WORDS.readTranscript]) expect(off).not.toContain(w);
+  });
+
+  it("says how Talk with Vizzy works only with voice: the buttons, what is kept, and every message it shows", () => {
+    const voice = md({ onboarding: true, onboardingVoice: true });
+    for (const w of [WELCOME_WORDS.talk, VOICE_WORDS.mute, VOICE_WORDS.end, "Skip for now"]) expect(voice).toContain(`**${w}**`);
+    expect(voice).toContain("Vizzy keeps the words, never the audio.");
+    expect(voice).toContain("Gemini API");
+    expect(voice).toContain("one call a day");
+    for (const m of [VOICE_WORDS.blocked, VOICE_WORDS.usedToday, VOICE_WORDS.full, VOICE_WORDS.unavailable, VOICE_WORDS.dropped]) {
+      expect(voice).toContain(`"${m}"`);
+    }
+    const off = md({ onboarding: true, onboardingVoice: false });
+    for (const w of [VOICE_WORDS.usedToday, VOICE_WORDS.blocked, "Gemini API", "microphone"]) expect(off).not.toContain(w);
+  });
+
+  it("counts voice conversations on Plan and usage only with voice", () => {
+    vi.stubEnv("NEXT_PUBLIC_USAGE_METER_ENABLED", "true");
+    const plan = (onboardingVoice: boolean) => docToMarkdown(HELP_BODIES["plan-and-usage"]!({ onboardingVoice }), "https://app.example.com");
+    expect(plan(true)).toContain("**Voice conversations**: the seconds of each Talk with Vizzy call");
+    expect(plan(true)).toContain("the voice chat on your waitlist pages");
+    expect(plan(false)).not.toContain("Voice conversations");
+    expect(plan(false)).toContain("the voice chat in your browser");
   });
 
   it("uses no dashes as punctuation and none of the AI tells", () => {

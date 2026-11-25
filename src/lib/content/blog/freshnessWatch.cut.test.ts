@@ -427,4 +427,65 @@ describe("an erase and a look cut short", () => {
 
     await expectFullLookAfter(db);
   });
+
+  it("a pending erase tried again before every tick starts the look over once, then lets it finish", async () => {
+    const db = erasedWorld();
+    /** One tick that has time for one article only. */
+    const oneArticle = async (at: Date) => {
+      const deadlineMs = 1_000_000;
+      let calls = 0;
+      vi.spyOn(Date, "now").mockImplementation(() => (calls++ === 0 ? 0 : deadlineMs + 1));
+      try {
+        await sweepBrand(A, fixedClock, {
+          ...deps(db, at),
+          deadlineMs,
+          losingPages: async () => (connected ? new Map([[KEY_NEW, "Search Console: 120 clicks, down from 260."]]) : new Map<string, string>()),
+        });
+      } finally {
+        vi.restoreAllMocks();
+      }
+    };
+    await lane(db, NOW);
+    await oneArticle(LATER);
+    expect(await freshnessOf(db, "plan_new")).toMatchObject({ state: "due", reasons: [expect.objectContaining({ kind: "losing_clicks" })] });
+    expect(await watch(db)).toMatchObject({ lookStartedAt: LATER.toISOString(), searchConsoleInLook: true });
+
+    // Search Console is disconnected and its erase stays pending: the lane tries it again before
+    // each tick. The first try starts the look over, as it wrote lost clicks; the tries after find
+    // a look that wrote none, and let it go on.
+    connected = false;
+    let at = LATER;
+    for (const planId of ["plan_new", "plan_mid", "plan_old"]) {
+      await clearSearchConsoleReasons(A, { db, now: new Date(at.getTime() + 60_000) });
+      at = new Date(at.getTime() + 2 * 60_000);
+      await oneArticle(at);
+      expect(await sweptAt(db, planId), planId).toBe(at.toISOString());
+    }
+    expect(await freshnessOf(db, "plan_new")).toMatchObject({ state: "fresh", reasons: [] });
+    expect(await watch(db)).toMatchObject({ lookStartedAt: null, searchConsoleInLook: false, nextAt: new Date(at.getTime() + DAY).toISOString(), counts: { fresh: 1, soon: 0, due: 2 } });
+  });
+
+  it("an erase tried again during a cut tick that wrote no Search Console reason lets the look go on", async () => {
+    const db = erasedWorld();
+    connected = false;
+    await lane(db, NOW);
+    await lane(db, LATER, cutAt(1));
+    expect(await watch(db)).toMatchObject({ lookStartedAt: LATER.toISOString(), searchConsoleInLook: false });
+
+    // The retry lands at plan_mid's link check, and the tick runs out of time there.
+    await lane(db, NEXT_TICK, async (n, deadlineMs) => {
+      if (n !== 1) return;
+      await clearSearchConsoleReasons(A, { db, now: NEXT_TICK });
+      vi.spyOn(Date, "now").mockReturnValue(deadlineMs + 1);
+    });
+    expect(checked).toEqual([LINK("m")]);
+    expect((await watch(db)).lookStartedAt).toBe(LATER.toISOString());
+
+    // The next tick reaches plan_old and finishes the look.
+    const after = new Date(NEXT_TICK.getTime() + 2 * 60_000);
+    await lane(db, after);
+    expect(checked).toEqual([LINK("a"), LINK("b")]);
+    expect(await sweptAt(db, "plan_new")).toBe(LATER.toISOString());
+    expect(await watch(db)).toMatchObject({ lookStartedAt: null, nextAt: new Date(after.getTime() + DAY).toISOString() });
+  });
 });

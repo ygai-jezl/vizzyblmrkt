@@ -91,9 +91,10 @@ Decided (the owner approved plan-piece-d with these picks):
    article. A look older than a day starts over. The look that reaches the last article clears
    `lookStartedAt` and sets `nextAt` a day ahead, as before. No new switch, and no Idea file, so it
    can be cherry-picked alone. Private #35 (freshness on in prod) waits until D is in prod. A Search
-   Console erase (#231) starts a look going over: the erase writes `lookStartedAt: null`, and so
-   does a look an erase lands in, so the next look reads every article again and none stays due
-   with no reason.
+   Console erase (#231) starts a look going over when that look wrote a Search Console reason
+   (`searchConsoleInLook`): the erase writes `lookStartedAt: null`, and so does a look an erase
+   lands in, so the next look reads every article again and none stays due with no reason. The
+   lane's retries of a pending erase find a look that wrote none, and let it finish.
 
 What follows: no new collection, index, rule or dependency. D reads `campaigns` (tenantId,
 createdAt DESC) and 0e's `ontology_events` (tenantId, subjectKey, at DESC), whose index must be

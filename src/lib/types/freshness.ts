@@ -33,6 +33,12 @@ export interface FreshnessWatchDoc {
    * Missing or null: no look is going on.
    */
   lookStartedAt?: string | null;
+  /**
+   * The look going on wrote a Search Console reason on an article it passed, so an erase starts it
+   * over (src/lib/content/blog/freshnessErase.ts). An erase tried again, with no such reason written
+   * since, lets it go on. Missing: false.
+   */
+  searchConsoleInLook?: boolean;
   counts: { fresh: number; soon: number; due: number };
   /** Live articles on each clock. */
   byClock: Record<"20" | "30" | "45", number>;

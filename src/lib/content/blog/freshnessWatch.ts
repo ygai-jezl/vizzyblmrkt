@@ -4,7 +4,7 @@ import { subjectCoverage } from "@/lib/brandMap/recount";
 import { readBrandMap } from "@/lib/brandMap/store";
 import { mayFetch, robotsFor } from "@/lib/competitors/fetch";
 import { rolledId } from "@/lib/connectors/keys";
-import { bareHost, freshnessWatchId, LIVE_ARTICLES, liveArticles, signalPageKey, withoutSearchConsole } from "./freshnessPages";
+import { bareHost, freshnessWatchId, fromSearchConsole, LIVE_ARTICLES, liveArticles, signalPageKey, withoutSearchConsole } from "./freshnessPages";
 import type { LiveArticle } from "./freshnessPages";
 import { searchConsoleManifest } from "@/lib/connectors/manifests/searchConsole";
 import { openSuggestions, planningConnections } from "@/lib/connectors/signals/review";
@@ -223,6 +223,8 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
   let cut = false;
   // Articles this tick looked at itself.
   let looked = 0;
+  // This tick wrote a Search Console reason on an article, so an erase starts the look over.
+  let wroteSearchConsole = false;
   // An article this tick doesn't work out counts as it last was, and keeps its row on the due list:
   // the last list's, or, when that list had no room for it, one made from its stored state.
   const keep = (a: LiveArticle, f: BlogArticleFreshness) => {
@@ -290,6 +292,7 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
       now,
     );
     if (!state) continue;
+    if (fromSearchConsole(state.reasons)) wroteSearchConsole = true;
     const becameDue = state.state === "due" && stored?.state !== "due";
     const next: BlogArticleFreshness = {
       clockDays: clock.clockDays,
@@ -330,6 +333,7 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
     // reached no article, so its reads don't take every tick and hold up the brands after it.
     nextAt: new Date(now.getTime() + (!cut ? DAY_MS : looked ? 0 : FRESHNESS_WATCH.EMPTY_CUT_WAIT_MS)).toISOString(),
     lookStartedAt: cut ? (going ?? now.toISOString()) : null,
+    searchConsoleInLook: cut && (wroteSearchConsole || Boolean(going && prior?.searchConsoleInLook)),
     counts,
     byClock,
     pages,
@@ -346,13 +350,14 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
       written = doc;
       if ((current.searchConsoleClears ?? 0) === clearsAtStart) return doc;
       // An erase took Search Console's figures out while this look ran: none of them on the list, the
-      // erase's "due now" kept, and a look cut short starts over, so the next look looks again at
-      // every article and puts back what is still readable.
+      // erase's "due now" kept, and a look cut short that wrote any starts over, so the next look
+      // looks again at every article and puts back what is still readable.
       written = {
         ...doc,
         due: doc.due.map((d) => ({ ...d, reasons: withoutSearchConsole(d.reasons) })),
         nextAt: Date.parse(current.nextAt) < Date.parse(doc.nextAt) ? current.nextAt : doc.nextAt,
-        lookStartedAt: null,
+        ...(doc.searchConsoleInLook ? { lookStartedAt: null } : {}),
+        searchConsoleInLook: false,
       };
       return written;
     },

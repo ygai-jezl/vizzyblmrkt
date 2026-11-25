@@ -55,7 +55,7 @@ const warnOnce = (ctx: TenantContext, what: string) => console.warn(`[freshness]
 
 /**
  * The quick step, for one brand: those reasons off every item on the due list, the watch due now,
- * a look going on started over, and its count of erases moved on, so a look already running writes
+ * a look going on started over when it wrote any, and its count of erases moved on, so a look already running writes
  * none of them back (freshnessWatch.ts); then Next up picks that weighed Search Console. Idempotent
  * apart from that count, whatever any switch says, and it never throws.
  */
@@ -72,11 +72,13 @@ export async function clearSearchConsoleDue(ctx: TenantContext, deps: { db?: Fir
         return { ...d, reasons: withoutSearchConsole(d.reasons) };
       });
       const sooner = !(Date.parse(w.nextAt) <= now.getTime());
-      // A look going on starts over, so the next one looks again at the articles it already passed.
+      // A look going on that wrote a Search Console reason starts over, so the next one looks again
+      // at the articles it already passed. One that wrote none (the lane trying a pending erase
+      // again, say) goes on, or a look longer than the gap between tries would never finish.
       return {
         ...(out.due ? { due } : {}),
         ...(sooner ? { nextAt: now.toISOString() } : {}),
-        ...(w.lookStartedAt ? { lookStartedAt: null } : {}),
+        ...(w.searchConsoleInLook ? { lookStartedAt: null, searchConsoleInLook: false } : {}),
         searchConsoleClears: (w.searchConsoleClears ?? 0) + 1,
       };
     });

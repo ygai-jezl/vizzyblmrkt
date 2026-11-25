@@ -14,7 +14,8 @@ from .setup_help_client import get_help_page, get_status
 
 def get_setup_status(tool_context: ToolContext) -> dict:
     """Get where the brand is on its setup: five stages in order (Get ready, Launch,
-    Grow audience, Launch product, Onboard & retain), each step done or not, what a
+    called Idea where the app calls launches ideas, Grow audience, Launch product,
+    Onboard & retain), each step done or not, what a
     step needs first (`needsFirst`), a warning where the order matters, the app page
     to do it (`appLink`) and the help page that explains it (`howTo`). Also
     `currentStage`, `nextStep` and the list of `helpPages`.
@@ -38,7 +39,8 @@ def read_help_page(page: str, tool_context: ToolContext) -> dict:
 
     Args:
         page: the page name, one of: get-set-up, email-sending, your-brand,
-            email-style, launch-and-waitlist, programmes-and-knowledge, brand-map,
+            email-style, launch-and-waitlist (Idea and waitlist where the app calls
+            launches ideas), programmes-and-knowledge, brand-map,
             write-and-schedule, connected-accounts, connect-your-product,
             invite-your-waitlist, onboarding-journeys, review-and-approvals,
             people, troubleshooting.

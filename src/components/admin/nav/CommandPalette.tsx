@@ -321,7 +321,7 @@ export function CommandPalette({
 
         {GUIDE ? (
           <Command.Group heading="Help">
-            {shownHelpPages().map((p) => (
+            {shownHelpPages({ ideaWords: ideas }).map((p) => (
               <Command.Item
                 key={p.path}
                 value={`help how to ${p.label} ${p.summary}`}

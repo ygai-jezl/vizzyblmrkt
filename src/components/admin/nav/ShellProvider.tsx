@@ -57,7 +57,7 @@ interface Shell {
   ideas: boolean;
   /**
    * Launches are called Ideas (isIdeaWordsEnabled(), from the server): the page label Vizzy gets
-   * follows the crumbs, and the Ask Vizzy panel's starters say idea.
+   * follows the crumbs, the Ask Vizzy panel's starters say idea, and so does the How to drawer.
    */
   ideaWords: boolean;
   /**

@@ -47,6 +47,7 @@ export function HowToDrawer() {
   const connectorSignals = useShell()?.connectorSignals ?? false;
   const brandMapScale = useShell()?.brandMapScale ?? false;
   const ideas = useShell()?.ideas ?? false;
+  const ideaWords = useShell()?.ideaWords ?? false;
   const [steps, setSteps] = useState<GuideStep[] | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -110,7 +111,7 @@ export function HowToDrawer() {
   }, [path]);
 
   if (!path || slug === null) return null;
-  const page = helpPage(slug, { people });
+  const page = helpPage(slug, { people, ideaWords });
   const Body = body && body.slug === slug ? body.Component : null;
   const mine = (steps ?? []).filter((st) => slugOf(st.howTo) === slug);
 
@@ -213,6 +214,7 @@ export function HowToDrawer() {
               connectorSignals={connectorSignals}
               brandMapScale={brandMapScale}
               ideas={ideas}
+              ideaWords={ideaWords}
             />
           </div>
         ) : (

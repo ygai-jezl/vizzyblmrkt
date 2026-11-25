@@ -42,3 +42,18 @@ export function invalidInput(issues: ReadonlyArray<{ path: PropertyKey[]; messag
 export async function limitPerUser(ctx: TenantContext, limit: RateLimitConfig): Promise<Response | null> {
   return (await isRateLimited(`user:${ctx.tenantId}:${ctx.userId ?? "anon"}`, limit)) ? json(429, { error: "rate_limited" }) : null;
 }
+
+/** A store's refusal as a response: its status and error (and the length kept, for out of order). */
+export function refused(r: { status: number; error: string; length?: number }): Response {
+  return json(r.status, { error: r.error, ...(r.length !== undefined ? { length: r.length } : {}) });
+}
+
+/** A success, never cached. */
+export function ok(body: unknown): Response {
+  return json(200, body);
+}
+
+/** An id in the path that can't be one: 400, like any other bad input. */
+export function badId(what: string): Response {
+  return json(400, { error: "invalid_input", issues: [`${what}: not a valid id`] });
+}

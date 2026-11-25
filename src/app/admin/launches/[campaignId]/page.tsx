@@ -15,6 +15,8 @@ import { loadFunnel } from "@/lib/invites/funnel";
 import { LaunchChecklist } from "@/components/admin/LaunchChecklist";
 import { IdeaCard } from "@/components/admin/ideas/IdeaCard";
 import { isIdeasEnabled } from "@/lib/ideas/flags";
+import { loadHandoff } from "@/lib/ideas/handoff";
+import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { teamMemberNames } from "@/lib/team/names";
 
 export const dynamic = "force-dynamic";
@@ -37,7 +39,12 @@ export default async function LaunchOverviewPage({
   const checklist = isNavV2Phase4Enabled() ? await loadChecklist(ctx, campaignId, a.totalSignups) : null;
   const campaign = await forTenant(ctx).campaigns.getById(campaignId).catch(() => null);
   const idea = isIdeasEnabled() && campaign ? (campaign.idea ?? {}) : null;
-  const names = idea ? await teamMemberNames(ctx, [idea.statusBy, idea.handedOffBy]) : {};
+  const [names, handoff] = idea
+    ? await Promise.all([
+        teamMemberNames(ctx, [idea.statusBy, idea.handedOffBy]),
+        idea.justAList ? null : loadHandoff(ctx, campaignId).catch(() => null),
+      ])
+    : [{}, null];
 
   return (
     <div className="space-y-6">
@@ -50,6 +57,8 @@ export default async function LaunchOverviewPage({
           archived={!!campaign.archivedAt}
           viewerId={ctx.userId ?? null}
           names={names}
+          handoff={handoff}
+          productLinks={isLifecycleEnabled()}
         />
       ) : null}
       {checklist ? <LaunchChecklist steps={checklist} /> : null}

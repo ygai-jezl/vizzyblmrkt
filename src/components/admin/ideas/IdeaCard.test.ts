@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import type { Idea } from "@/lib/types/campaign";
+import type { HandoffChoices } from "@/lib/ideas/handoff";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
 const { IdeaCard } = await import("./IdeaCard");
@@ -77,5 +78,66 @@ describe("New launch's hypothesis", () => {
     expect(text(on)).toContain("0 of 500");
     expect(on).toContain('maxLength="500"');
     expect(text(renderToStaticMarkup(createElement(NewLaunchForm, {})))).not.toContain("Hypothesis");
+  });
+});
+
+describe("handing off to a product", () => {
+  const choices: HandoffChoices = {
+    options: [
+      { id: "pcn_app", name: "Lumen app", label: "Lumen app (Production)" },
+      { id: "pcn_sb", name: "Test app", label: "Test app (Sandbox)" },
+    ],
+    defaultId: "pcn_app",
+    fromWave: true,
+    names: { pcn_app: "Lumen app", pcn_sb: "Test app", pcn_old: "Old app" },
+  };
+  const render = (idea: Idea, over: { canEdit?: boolean; productLinks?: boolean; handoff?: HandoffChoices | null } = {}) =>
+    renderToStaticMarkup(
+      createElement(IdeaCard, {
+        campaignId: "weekly-digest",
+        idea,
+        canEdit: over.canEdit ?? true,
+        archived: false,
+        viewerId: "usr_admin",
+        names: NAMES,
+        handoff: over.handoff === undefined ? choices : over.handoff,
+        productLinks: over.productLinks ?? false,
+      }),
+    );
+
+  it("offers a launched idea's products, the latest wave's picked first", () => {
+    const html = render({ status: "launched" });
+    expect(text(html)).toContain("Hand off to a product");
+    expect(html).toMatch(/<option value="pcn_app" selected="">Lumen app \(Production\)<\/option>/);
+    expect(html).toContain('<option value="pcn_sb">Test app (Sandbox)</option>');
+    expect(text(html)).toContain("Picked first: Lumen app, where its latest invite wave went.");
+  });
+
+  it("says where it went and when, links to the product only while products are on, and can change while Launched", () => {
+    const idea: Idea = { status: "launched", productConnectionId: "pcn_app", handedOffAt: "2026-11-04T10:00:00.000Z", handedOffBy: "usr_admin" };
+    expect(text(render(idea))).toContain("Handed off to Lumen app on 4 Nov by you.");
+    expect(render(idea)).not.toContain('href="/admin/products/pcn_app"');
+    expect(render(idea, { productLinks: true })).toMatch(/href="\/admin\/products\/pcn_app"[^>]*>Open Lumen app</);
+    expect(text(render(idea))).toContain("Pick another product to change it.");
+  });
+
+  it("keeps the line when the status moves on, with nothing to pick", () => {
+    const html = render({ status: "validated", productConnectionId: "pcn_old", handedOffAt: "2026-11-04T10:00:00.000Z", handedOffBy: "usr_sam" }, { productLinks: true });
+    expect(text(html)).toContain("Handed off to Old app on 4 Nov by Sam Rivera.");
+    expect(html).not.toContain("<select");
+    expect(html).not.toContain("/admin/products/");
+  });
+
+  it("shows a member the line only, and nothing before Launched", () => {
+    const idea: Idea = { status: "launched", productConnectionId: "pcn_app", handedOffAt: "2026-11-04T10:00:00.000Z", handedOffBy: "usr_sam" };
+    expect(render(idea, { canEdit: false })).not.toContain("<select");
+    expect(text(render(idea, { canEdit: false }))).toContain("Handed off to Lumen app on 4 Nov by Sam Rivera.");
+    expect(text(render({ status: "testing" }))).not.toContain("Hand off");
+  });
+
+  it("points at Connect your product when there's nothing to hand off to", () => {
+    const html = render({ status: "launched" }, { handoff: { options: [], defaultId: null, fromWave: false, names: {} } });
+    expect(text(html)).toContain("No product is connected yet. See Connect your product .");
+    expect(html).toContain('href="/help/connect-your-product"');
   });
 });

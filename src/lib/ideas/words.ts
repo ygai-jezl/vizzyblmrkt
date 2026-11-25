@@ -70,3 +70,17 @@ export function statusLine(idea: Idea, viewerId: string | null, names: Readonly<
   const when = ideaDay(idea.statusAt);
   return `Set to ${IDEA_STATUS_LABEL[idea.status]}${who ? ` by ${who}` : ""}${when ? ` on ${when}` : ""}.`;
 }
+
+/** "Handed off to Lumen app on 4 Nov by you.", or null before any hand-off. */
+export function handedOffLine(
+  idea: Idea,
+  products: Readonly<Record<string, string>>,
+  viewerId: string | null,
+  names: Readonly<Record<string, string>>,
+): string | null {
+  if (!idea.productConnectionId) return null;
+  const product = products[idea.productConnectionId] ?? "a product that isn't connected any more";
+  const when = ideaDay(idea.handedOffAt);
+  const who = whoDid(idea.handedOffBy, viewerId, names);
+  return `Handed off to ${product}${when ? ` on ${when}` : ""}${who ? ` by ${who}` : ""}.`;
+}

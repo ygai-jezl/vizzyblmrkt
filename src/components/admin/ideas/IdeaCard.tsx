@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { IDEA_LIMITS, type Idea, type IdeaStatus } from "@/lib/types/campaign";
-import { IDEA_MESSAGES, IDEA_STATUS_LABEL, IDEA_STATUS_OPTIONS, IDEA_STATUS_TONE, ideaErrorText, JUST_A_LIST, statusLine } from "@/lib/ideas/words";
+import type { HandoffChoices } from "@/lib/ideas/handoff";
+import { handedOffLine, IDEA_MESSAGES, IDEA_STATUS_LABEL, IDEA_STATUS_OPTIONS, IDEA_STATUS_TONE, ideaErrorText, JUST_A_LIST, statusLine } from "@/lib/ideas/words";
 import { api } from "../connect/api";
 import { Banner, Button, inputClass } from "../connect/ui";
 import { Chip, chipToneClass } from "../people/Chip";
@@ -13,6 +15,10 @@ import { Chip, chipToneClass } from "../people/Chip";
  * it and when), the hypothesis and outcome (saved with Save), and Just a list. Parked or killed
  * offers to close the waitlist; nothing closes on its own. Admins change it; everyone else reads it.
  * A launch marked Just a list shows one line instead, with Make it an idea for an admin.
+ *
+ * While the idea is Launched, an admin hands it off to the product it became, and can pick again to
+ * change it; the line stays when the status moves on. It links to the product only while connected
+ * products are on (LIFECYCLE_ENABLED).
  */
 
 const CLOSING: readonly IdeaStatus[] = ["parked", "killed"];
@@ -27,6 +33,10 @@ export interface IdeaCardProps {
   viewerId: string | null;
   /** Team members' names by user id, for who set the status. */
   names: Readonly<Record<string, string>>;
+  /** The products it can be handed off to, and which is picked first. */
+  handoff?: HandoffChoices | null;
+  /** Link the hand-off to its product's page (LIFECYCLE_ENABLED). */
+  productLinks?: boolean;
 }
 
 interface IdeaReply {
@@ -38,7 +48,7 @@ interface IdeaReply {
 
 const count = (n: number) => n.toLocaleString("en-GB");
 
-export function IdeaCard({ campaignId, idea: initial, canEdit, archived, viewerId, names }: IdeaCardProps) {
+export function IdeaCard({ campaignId, idea: initial, canEdit, archived, viewerId, names, handoff = null, productLinks = false }: IdeaCardProps) {
   const router = useRouter();
   const [idea, setIdea] = useState<Idea>(initial);
   const [hyp, setHyp] = useState(initial.hypothesis ?? "");
@@ -49,6 +59,7 @@ export function IdeaCard({ campaignId, idea: initial, canEdit, archived, viewerI
   const [offer, setOffer] = useState(false);
   const [closed, setClosed] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [product, setProduct] = useState(initial.productConnectionId ?? handoff?.defaultId ?? "");
 
   async function patch(body: Record<string, unknown>): Promise<IdeaReply | null> {
     setBusy(true);
@@ -89,6 +100,10 @@ export function IdeaCard({ campaignId, idea: initial, canEdit, archived, viewerI
     setOut(r.idea.outcome ?? "");
     setDirty(false);
     setSaved(true);
+  }
+
+  async function handOff() {
+    if (product) await patch({ productConnectionId: product });
   }
 
   async function setList(justAList: boolean) {
@@ -200,6 +215,18 @@ export function IdeaCard({ campaignId, idea: initial, canEdit, archived, viewerI
         </div>
       ) : null}
 
+      <HandOff
+        idea={idea}
+        canEdit={canEdit}
+        busy={busy}
+        choices={handoff}
+        product={product}
+        onProduct={setProduct}
+        onHandOff={() => void handOff()}
+        productLinks={productLinks}
+        line={handedOffLine(idea, handoff?.names ?? {}, viewerId, names)}
+      />
+
       {canEdit ? (
         <label className="flex items-start gap-2 border-t border-neutral-100 pt-3 text-sm dark:border-neutral-900">
           <input type="checkbox" className="mt-0.5" checked={false} disabled={busy} onChange={() => void setList(true)} />
@@ -253,5 +280,83 @@ function TextPart({
         </span>
       </span>
     </label>
+  );
+}
+
+/** Hand off to a product: the line once handed off, and while Launched the picker for an admin. */
+function HandOff({
+  idea,
+  canEdit,
+  busy,
+  choices,
+  product,
+  onProduct,
+  onHandOff,
+  productLinks,
+  line,
+}: {
+  idea: Idea;
+  canEdit: boolean;
+  busy: boolean;
+  choices: HandoffChoices | null;
+  product: string;
+  onProduct: (id: string) => void;
+  onHandOff: () => void;
+  productLinks: boolean;
+  line: string | null;
+}): ReactNode {
+  const launched = idea.status === "launched";
+  if (!launched && !line) return null;
+  const options = choices?.options ?? [];
+  const handedName = idea.productConnectionId ? (choices?.names[idea.productConnectionId] ?? null) : null;
+  const linked = productLinks && idea.productConnectionId && options.some((o) => o.id === idea.productConnectionId);
+  const picked = options.find((o) => o.id === choices?.defaultId);
+  return (
+    <div className="space-y-2 border-t border-neutral-100 pt-3 dark:border-neutral-900">
+      <h3 className="text-xs font-medium text-neutral-600 dark:text-neutral-400">Hand off to a product</h3>
+      {line ? (
+        <p className="text-sm">
+          {line}{" "}
+          {linked ? (
+            <Link href={`/admin/products/${idea.productConnectionId}`} className="underline underline-offset-2">
+              Open {handedName}
+            </Link>
+          ) : null}
+        </p>
+      ) : null}
+      {launched && canEdit ? (
+        options.length ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <select aria-label="Product" value={product} disabled={busy} onChange={(e) => onProduct(e.target.value)} className={`${inputClass} w-auto`}>
+              {options.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <Button onClick={onHandOff} disabled={busy || !product || product === idea.productConnectionId}>
+              Hand off
+            </Button>
+          </div>
+        ) : (
+          <p className="text-xs text-neutral-500">
+            No product is connected yet. See{" "}
+            <Link href="/help/connect-your-product" className="underline underline-offset-2">
+              Connect your product
+            </Link>
+            .
+          </p>
+        )
+      ) : null}
+      {launched && canEdit && options.length ? (
+        <p className="text-xs text-neutral-500">
+          {line
+            ? "Pick another product to change it. Each change is kept."
+            : choices?.fromWave && picked
+              ? `Picked first: ${picked.name}, where its latest invite wave went.`
+              : "Pick the product this idea became."}
+        </p>
+      ) : null}
+    </div>
   );
 }

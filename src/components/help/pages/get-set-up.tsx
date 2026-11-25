@@ -1,18 +1,24 @@
 import { H1, H2, H3, Lead, P, UL } from "@/components/developers/Doc";
 import { NextPage, Open, Warning } from "@/components/help/blocks";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { isOnboardingEnabled } from "@/lib/onboarding/flags";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
 /**
  * The /help hub: the five setup stages in order, and where the order matters. With ideas in the
  * words (`ideaWords`) stage 2 is Idea, as Home calls it; its anchor stays #launch, and stage 4 stays
- * Launch product.
+ * Launch product. With getting to know a new brand on (`onboarding`), #about-you says what the
+ * welcome asks, and Home starts where the brand is rather than at stage 1.
  */
-export default function GetSetUpHelp({ ideaWords = isIdeaWordsEnabled() }: HelpBodyProps = {}) {
+export default function GetSetUpHelp({ ideaWords = isIdeaWordsEnabled(), onboarding = isOnboardingEnabled() }: HelpBodyProps = {}) {
   return (
     <article>
       <H1>Get set up</H1>
-      <Lead>Five stages, in order. Each one unlocks the next. Home shows where you are and what to do next.</Lead>
+      <Lead>
+        {onboarding
+          ? "Five stages. Home shows where you are and your next action."
+          : "Five stages, in order. Each one unlocks the next. Home shows where you are and what to do next."}
+      </Lead>
 
       <H2 id="brand">First, your brand</H2>
       <P>
@@ -21,6 +27,26 @@ export default function GetSetUpHelp({ ideaWords = isIdeaWordsEnabled() }: HelpB
         yourbrand.com) and a <strong>Data region</strong>. The region is where its data lives, and it can&apos;t be changed
         later.
       </P>
+
+      {onboarding ? (
+        <>
+          <H2 id="about-you">Tell Vizzy about your business</H2>
+          <P>
+            The first time an admin opens Home for a new brand, YouGrow opens a welcome page. Choose{" "}
+            <strong>Answer 4 quick questions</strong>, or <strong>Skip for now</strong> to go straight to Home. It shows once
+            per brand. Members don&apos;t see it, and a brand that already has something in it never gets it.
+          </P>
+          <P>
+            The questions ask who you are, what you run, where it is today and what you want from YouGrow first. Each answer
+            saves as soon as you pick it, so closing the page keeps what you picked. Press 1, 2 or 3 to pick from the keyboard,{" "}
+            <strong>Skip</strong> to leave a question blank, or <strong>Back</strong> to change the one before.
+          </P>
+          <P>
+            After the fourth, <strong>That&apos;s all four</strong> lists your answers. Choose{" "}
+            <strong>See your next action</strong> to go to Home.
+          </P>
+        </>
+      ) : null}
 
       <H2 id="ready">1. Get ready</H2>
       <P>About 30 minutes plus DNS time, once per brand. Do this before anything goes out.</P>

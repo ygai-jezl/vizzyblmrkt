@@ -23,6 +23,7 @@ import { helpMetadata } from "./metadata";
 import { HELP_PLACES, helpFor, parseHelpPath } from "./places";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
 import { VIZZY_READS_HINT } from "@/components/admin/audience/fieldsApi";
+import { QUESTIONS_WORDS, WELCOME_WORDS } from "@/lib/onboarding/words";
 
 
 /**
@@ -83,6 +84,8 @@ vi.hoisted(() => {
   process.env.ORGANISATION_JOIN_ENABLED = "true";
   process.env.PASSWORD_SIGNIN_ENABLED = "true";
   process.env.LAUNCH_IDEAS_ENABLED = "true";
+  // Tell Vizzy about your business, on the hub (the switch folds in no nav switch).
+  process.env.ONBOARDING_ENABLED = "true";
   // Password help shows only when a code can be delivered too (isPasswordSigninAvailable).
   process.env.MANDRILL_API_KEY = "test-key-not-real";
 });
@@ -988,5 +991,50 @@ describe("what an erase takes from article freshness", () => {
       expect(aiTellsIn(text), name).toEqual([]);
     }
     expect(shared.split(SEARCH_CONSOLE_FRESHNESS_ERASED).length - 1).toBe(4);
+  });
+});
+
+describe("Tell Vizzy about your business (ONBOARDING_ENABLED)", () => {
+  const hub = (props: HelpBodyProps) => HELP_BODIES[""]!(props);
+  const ids = (props: HelpBodyProps) =>
+    elements(hub(props))
+      .filter((e) => e.type === H2)
+      .map((e) => String(e.props.id));
+  const md = (props: HelpBodyProps) => docToMarkdown(hub(props), "https://app.example.com");
+
+  it("is on the hub after the brand while the switch is on, and the Lead says Home starts where you are", () => {
+    expect(ids({ onboarding: true }).slice(0, 2)).toEqual(["brand", "about-you"]);
+    const text = md({ onboarding: true });
+    expect(text).toContain("## Tell Vizzy about your business");
+    expect(text).toContain("Five stages. Home shows where you are and your next action.");
+    expect(text).not.toContain("unlocks");
+    // The server's own answer, as /help and its Markdown copy read it.
+    expect(anchorsOf("").has("about-you")).toBe(true);
+  });
+
+  it("is gone with the switch off, and the Lead is as before", () => {
+    expect(ids({ onboarding: false })).not.toContain("about-you");
+    const text = md({ onboarding: false });
+    expect(text).not.toContain("Tell Vizzy about your business");
+    expect(text).toContain("Five stages, in order. Each one unlocks the next.");
+  });
+
+  it("names the buttons in the screens' own words, with no voice while it can't be had", () => {
+    const text = md({ onboarding: true });
+    for (const words of [WELCOME_WORDS.questions, WELCOME_WORDS.skip, QUESTIONS_WORDS.skip, QUESTIONS_WORDS.back, QUESTIONS_WORDS.done, QUESTIONS_WORDS.next]) {
+      expect(text).toContain(`**${words}**`);
+    }
+    expect(text).not.toContain("Talk with Vizzy");
+    expect(text).not.toContain("audio");
+  });
+
+  it("uses no dashes as punctuation and none of the AI tells", () => {
+    const text = md({ onboarding: true });
+    const section = text.slice(text.indexOf("## Tell Vizzy about your business"), text.indexOf("## 1. Get ready"));
+    expect(section.length).toBeGreaterThan(100);
+    for (const line of section.split("\n")) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
   });
 });

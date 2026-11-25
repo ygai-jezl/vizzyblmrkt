@@ -41,6 +41,7 @@ import { isOrganisationJoinEnabled } from "@/lib/plans/flags";
 import { isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 import { isIdeaWordsEnabled, isIdeasEnabled } from "@/lib/ideas/flags";
 import { WordsProvider } from "@/components/admin/nav/WordsProvider";
+import { isOnboardingEnabled, isOnboardingVoiceEnabled } from "@/lib/onboarding/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -215,6 +216,8 @@ export default async function AdminLayout({
             ideaWords={ideaWords}
             sharing={isConnectorsSharingEnabled()}
             join={isOrganisationJoinEnabled()}
+            onboarding={isOnboardingEnabled()}
+            onboardingVoice={isOnboardingVoiceEnabled()}
           >
             {shell}
           </ShellProvider>

@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useRef, useState, type ComponentType, type MouseEvent } from "react";
 import {
   AppWindow,
   ArrowLeft,
@@ -47,6 +46,8 @@ const TOPIC = "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 
 
 type Final = "idle" | "saving" | "saved" | "failed";
 
+const HOME = "/admin";
+
 /**
  * /admin/welcome/questions: one question at a time, three answers each, and a pick moves straight
  * on. Each pick saves at once, so a closed tab keeps what was picked. The keys 1 to 3 pick too.
@@ -57,6 +58,9 @@ export function QuickQuestions() {
   const [at, setAt] = useState(0);
   const [picked, setPicked] = useState<ProfileAnswers>(answers);
   const [final, setFinal] = useState<Final>("idle");
+  const [leaving, setLeaving] = useState(false);
+  /** The save of all four with done, while it runs (See your next action waits for it). */
+  const saving = useRef<Promise<boolean> | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const view = questionsView(at, picked);
 
@@ -73,8 +77,24 @@ export function QuickQuestions() {
 
   const finish = useCallback(async (all: ProfileAnswers) => {
     setFinal("saving");
-    setFinal((await saveProfile(finishBody(all))) ? "saved" : "failed");
+    const save = saveProfile(finishBody(all));
+    saving.current = save;
+    setFinal((await save) ? "saved" : "failed");
   }, []);
+
+  /**
+   * See your next action: once the save of all four has settled (saved or not), a whole page
+   * load. Home's next action and the sidebar's Coming up read the brand's new profile only on a
+   * load, as after Looks right; and the welcome's microphone header stays behind.
+   */
+  const goHome = async (e: MouseEvent<HTMLAnchorElement>) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    if (leaving) return;
+    setLeaving(true);
+    await saving.current;
+    window.location.assign(HOME);
+  };
 
   // The summary saves every answer with done, once.
   const finished = useRef(false);
@@ -123,13 +143,15 @@ export function QuickQuestions() {
             </li>
           ))}
         </ul>
-        <Link
-          href="/admin"
+        <a
+          href={HOME}
+          onClick={(e) => void goHome(e)}
+          aria-busy={leaving || undefined}
           className="yg-talk mt-7 inline-flex items-center justify-center gap-3.5 rounded-[14px] border-2 border-shell-line bg-shell-card px-[22px] py-3 text-[15px] font-semibold leading-[22px] text-shell-ink shadow-lg hover:bg-shell-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-shell-accent"
         >
           {QUESTIONS_WORDS.next}
           <ArrowRight size={18} aria-hidden />
-        </Link>
+        </a>
         {final === "failed" ? (
           <p role="alert" className="mt-4 text-sm text-shell-ink">
             {QUESTIONS_WORDS.notSaved}{" "}

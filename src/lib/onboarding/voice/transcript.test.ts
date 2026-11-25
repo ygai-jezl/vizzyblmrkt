@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ONBOARDING_LIMITS, VoiceTurnSchema } from "@/lib/types/onboarding";
-import { EMPTY_TRANSCRIPT, addPiece, cameBySoftNavigation, cleanText, clock, finishLine, nextUpload, turnsForUpload } from "./transcript";
+import { EMPTY_TRANSCRIPT, addPiece, cameBySoftNavigation, cleanText, clock, finishLine, leftBySoftNavigation, nextUpload, turnsForUpload } from "./transcript";
 
 describe("a call's transcript in the browser", () => {
   it("joins pieces from the same speaker, and a new speaker finishes the line", () => {
@@ -85,5 +85,29 @@ describe("arriving at the welcome", () => {
   it("can't tell without a navigation entry, so it doesn't load again", () => {
     expect(cameBySoftNavigation(undefined, "/admin/welcome")).toBe(false);
     expect(cameBySoftNavigation("not a url", "/admin/welcome")).toBe(false);
+  });
+});
+
+describe("leaving the welcome", () => {
+  const WELCOME = "https://app.example.com/admin/welcome";
+
+  it("is a soft exit when the welcome's own document now shows another page", () => {
+    for (const shown of ["/admin", "/admin/welcome/questions", "/admin/welcome/learned", "/admin/people"]) {
+      expect(leftBySoftNavigation(WELCOME, shown, "/admin/welcome"), shown).toBe(true);
+    }
+    expect(leftBySoftNavigation(`${WELCOME}/?c=1`, "/admin", "/admin/welcome")).toBe(true);
+  });
+
+  it("is not while the welcome is shown, nor in any other page's document", () => {
+    expect(leftBySoftNavigation(WELCOME, "/admin/welcome", "/admin/welcome")).toBe(false);
+    expect(leftBySoftNavigation(WELCOME, "/admin/welcome/", "/admin/welcome")).toBe(false);
+    expect(leftBySoftNavigation("https://app.example.com/admin", "/admin/people", "/admin/welcome")).toBe(false);
+    expect(leftBySoftNavigation("https://app.example.com/admin/welcome/questions", "/admin", "/admin/welcome")).toBe(false);
+  });
+
+  it("can't tell without a navigation entry or a path, so it doesn't load again", () => {
+    expect(leftBySoftNavigation(undefined, "/admin", "/admin/welcome")).toBe(false);
+    expect(leftBySoftNavigation("not a url", "/admin", "/admin/welcome")).toBe(false);
+    expect(leftBySoftNavigation(WELCOME, null, "/admin/welcome")).toBe(false);
   });
 });

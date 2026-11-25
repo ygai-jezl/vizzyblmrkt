@@ -91,3 +91,28 @@ describe("the 4 quick questions", () => {
     expect(html).toContain("An agency, for clients");
   });
 });
+
+describe("leaving the welcome", () => {
+  const source = (...parts: string[]) => readFileSync(join(process.cwd(), "src", ...parts), "utf8");
+
+  it("is always a whole page load from its screens, so the microphone header stays behind", () => {
+    for (const file of ["WelcomeScreen.tsx", "VoiceCall.tsx", "QuickQuestions.tsx", "LearnedReview.tsx", "parts.tsx", "OnboardingFrame.tsx"]) {
+      const src = source("components", "admin", "onboarding", file);
+      expect(src, file).not.toMatch(/from "next\/link"/);
+      expect(src, file).not.toMatch(/useRouter|router\.(push|replace)/);
+    }
+    // Skip and See your next action go Home by location.assign.
+    expect(source("components", "admin", "onboarding", "WelcomeScreen.tsx")).toMatch(/window\.location\.assign\(href\)/);
+    expect(source("components", "admin", "onboarding", "QuickQuestions.tsx")).toMatch(/await saving\.current;\s*window\.location\.assign\(HOME\)/);
+  });
+
+  it("by any other way (⌘K, Back) loads the page shown again: the admin shell has the guard in both layouts", () => {
+    expect(source("app", "admin", "layout.tsx").match(/<LeaveWelcomeByLoad \/>/g)).toHaveLength(2);
+  });
+
+  it("offers the questions as plain links, in both welcome layouts", () => {
+    for (const voice of [false, true]) {
+      expect(render(voice, WelcomeScreen)).toMatch(/<a href="\/admin\/welcome\/questions"/);
+    }
+  });
+});

@@ -51,7 +51,10 @@ questions, or Skip) and moved Home's next action card to PR B. ADR-0016 is piece
    the request. The 4 quick questions need no model call.
 7. **The microphone only on the welcome.** `next.config.ts` keeps `microphone=()` everywhere else,
    and the welcome reloads once when it arrived by a client navigation, because the header is per
-   document.
+   document. For the same reason every way out of the welcome is a whole page load (Skip, the
+   questions, See what I learned, See your next action), and the admin shell
+   (`LeaveWelcomeByLoad`) loads the page shown once more when the welcome's document was left by a
+   client navigation (⌘K, Back).
 8. **Kept words can always be read and deleted.** Reads and deletes skip the switch (origin,
    sign-in and admin still apply); About your business shows while the switch is on or the brand has
    a profile. Removing a fact deletes it (no tombstone). Deleting a conversation keeps the facts kept

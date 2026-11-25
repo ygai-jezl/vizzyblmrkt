@@ -119,11 +119,27 @@ export function clock(seconds: number): string {
  * the document, so the welcome then loads itself once more. Unknown (no entry) is no.
  */
 export function cameBySoftNavigation(navigationUrl: string | undefined, path: string): boolean {
-  if (!navigationUrl) return false;
+  const at = documentPath(navigationUrl);
+  return at !== null && at !== path;
+}
+
+/**
+ * Whether the page now shown left `path` by a soft navigation: the document is still `path`'s own
+ * (so it keeps that page's microphone header) while the address shows another path. Unknown (no
+ * entry) is no. The admin shell then loads the page shown once more (LeaveWelcomeByLoad.tsx).
+ */
+export function leftBySoftNavigation(navigationUrl: string | undefined, currentPath: string | null | undefined, path: string): boolean {
+  if (!currentPath) return false;
+  const now = currentPath.replace(/\/+$/, "") || "/";
+  return documentPath(navigationUrl) === path && now !== path;
+}
+
+/** The path the browser loaded this document for, without a trailing slash, or null. */
+function documentPath(navigationUrl: string | undefined): string | null {
+  if (!navigationUrl) return null;
   try {
-    const at = new URL(navigationUrl).pathname.replace(/\/+$/, "") || "/";
-    return at !== path;
+    return new URL(navigationUrl).pathname.replace(/\/+$/, "") || "/";
   } catch {
-    return false;
+    return null;
   }
 }

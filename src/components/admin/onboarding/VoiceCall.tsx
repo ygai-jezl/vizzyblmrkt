@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
-import Link from "next/link";
 import { ArrowRight, Check, Loader2, Mic, MicOff, Sparkles, Square } from "lucide-react";
 import { VOICE_WORDS, WELCOME_WORDS, longLength } from "@/lib/onboarding/words";
 import { heardLabels, type TopicState, type TopicView } from "@/lib/onboarding/voice/topics";
@@ -72,9 +71,10 @@ export function MicrophoneScreen({ problem }: { problem: VoiceProblem | null }) 
       ) : (
         <p className={LEAD}>{VOICE_WORDS.micLead}</p>
       )}
-      <Link href={QUESTIONS_HREF} className="mt-[18px] text-sm text-shell-muted hover:text-shell-ink hover:underline">
+      {/* Whole page loads out of the welcome's document, which allows the microphone. */}
+      <a href={QUESTIONS_HREF} className="mt-[18px] text-sm text-shell-muted hover:text-shell-ink hover:underline">
         {VOICE_WORDS.instead}
-      </Link>
+      </a>
       <p className={FOOT}>{VOICE_WORDS.micFoot}</p>
     </div>
   );
@@ -221,7 +221,7 @@ export function EndedScreen({ ended }: { ended: NonNullable<VoiceCallState["ende
           ))}
         </ul>
       ) : null}
-      <Link
+      <a
         href={href}
         onClick={wait}
         aria-busy={ended.learning || undefined}
@@ -233,7 +233,7 @@ export function EndedScreen({ ended }: { ended: NonNullable<VoiceCallState["ende
         {ended.learning ? <Loader2 size={18} aria-hidden className="animate-spin" /> : null}
         {VOICE_WORDS.seeLearned}
         {ended.learning ? null : <ArrowRight size={18} aria-hidden />}
-      </Link>
+      </a>
       <p className={FOOT}>{VOICE_WORDS.endedFoot}</p>
     </div>
   );

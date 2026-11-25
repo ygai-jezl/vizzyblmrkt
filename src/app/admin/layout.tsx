@@ -9,6 +9,7 @@ import {
 } from "@/lib/tenant";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
 import { SessionKeeper } from "@/components/admin/SessionKeeper";
+import { LeaveWelcomeByLoad } from "@/components/admin/onboarding/LeaveWelcomeByLoad";
 import type { BrandOption } from "@/components/admin/BrandSwitcher";
 import { AdminThemeRoot } from "@/components/admin/nav/AdminThemeRoot";
 import { AdminHeader } from "@/components/admin/nav/AdminHeader";
@@ -156,6 +157,8 @@ export default async function AdminLayout({
     const shell = (
       <>
         <SessionKeeper />
+        {/* The microphone stays on the welcome's own page load (next.config.ts). */}
+        <LeaveWelcomeByLoad />
         <SidebarV2
           brands={brands}
           launches={launches}
@@ -238,6 +241,7 @@ export default async function AdminLayout({
   return (
     <div className="flex min-h-screen">
       <SessionKeeper />
+      <LeaveWelcomeByLoad />
       <AdminSidebar
         brands={brands}
         launches={launches}

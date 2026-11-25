@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { ArrowRight, ListChecks, Mic, Sparkles } from "lucide-react";
 import { cameBySoftNavigation } from "@/lib/onboarding/voice/transcript";
 import { useVoiceCall } from "@/lib/onboarding/voice/useVoiceCall";
@@ -47,6 +45,15 @@ function loadAgainIfSoftArrival(): void {
 }
 
 /**
+ * Every way out of the welcome is a whole page load (a plain link, or `location.assign`): the
+ * page reached gets its own header, where the microphone is off. A soft navigation would keep this
+ * document's microphone header for every page after it (LeaveWelcomeByLoad.tsx catches the rest).
+ */
+function leaveTo(href: string): void {
+  window.location.assign(href);
+}
+
+/**
  * /admin/welcome, shown once per brand to the first admin who opens Home (and any time from
  * Settings). Talk with Vizzy by voice is the main choice when voice is on; without it, the
  * 4 quick questions are. Skip for now marks the profile skipped and goes to Home.
@@ -56,7 +63,6 @@ function loadAgainIfSoftArrival(): void {
  */
 export function WelcomeScreen() {
   const { brand, voice } = useOnboarding();
-  const router = useRouter();
   const [skipping, setSkipping] = useState(false);
   const call = useVoiceCall();
 
@@ -69,7 +75,7 @@ export function WelcomeScreen() {
     setSkipping(true);
     // Home again either way: a failed save leaves the profile started, which never redirects.
     await saveProfile({ status: "skipped", via: "welcome" });
-    router.push("/admin");
+    leaveTo("/admin");
   }
 
   if (voice && call.phase !== "first") return <VoiceCall call={call} />;
@@ -105,23 +111,23 @@ export function WelcomeScreen() {
               {WELCOME_WORDS.talkHint}
             </p>
             <div className="mt-2 grid w-full">
-              <Link
+              <a
                 href={QUESTIONS_HREF}
                 className="flex items-center justify-center gap-2 rounded-xl border border-shell-line bg-shell-card px-3 py-[11px] text-sm font-medium text-shell-ink hover:bg-shell-hover"
               >
                 <ListChecks size={16} aria-hidden className="text-shell-muted" />
                 {WELCOME_WORDS.orQuestions}
-              </Link>
+              </a>
             </div>
           </>
         ) : (
-          <Link href={QUESTIONS_HREF} className={PRIMARY}>
+          <a href={QUESTIONS_HREF} className={PRIMARY}>
             <span className={PRIMARY_ICON}>
               <ListChecks size={20} aria-hidden />
             </span>
             <span className="min-w-0 flex-1 text-base font-semibold">{WELCOME_WORDS.questions}</span>
             <ArrowRight size={18} aria-hidden className="shrink-0" />
-          </Link>
+          </a>
         )}
         <button
           type="button"

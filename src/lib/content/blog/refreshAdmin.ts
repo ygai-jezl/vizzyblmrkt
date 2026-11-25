@@ -82,6 +82,8 @@ export async function markChecked(
       return {
         ...stored,
         checkedAt: at,
+        // The clock starts again, so the next look counts the subject's open questions afresh.
+        openAtStart: null,
         ...(state ? { state: state.state, reasons: state.reasons, dueAt: state.dueAt } : {}),
         events: nextEvents(stored.events, { at, kind: "checked", clockDays: stored.clockDays }),
       };

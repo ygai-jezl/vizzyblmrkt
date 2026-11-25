@@ -1054,7 +1054,7 @@ export function ContentCanvas({
           ...(brandMap ? { map: brandMap } : {}),
           ...(pagesOn ? { onSetAddress: saveAddress, onLive: setLive, ...(liveWatchOn ? { liveWatch: true } : {}) } : {}),
           ...(datesTimeZone ? { datesTimeZone } : {}),
-          ...(freshnessOn && pagesOn ? { onChecked: markChecked } : {}),
+          ...(freshnessOn && pagesOn ? { onChecked: markChecked, ...(openHub ? { focusFreshness: true } : {}) } : {}),
           ...(editorialOn ? { editorial: true } : {}),
           ...(seenOn ? { onFindSeen: () => void onBlogFindSeen() } : {}),
           ...(seenOn && seenQuestionsOn ? { answers: { save: answers.save, done: answers.done, state: answers.state } } : {}),

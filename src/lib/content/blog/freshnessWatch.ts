@@ -43,7 +43,7 @@ export const FRESHNESS_WATCH = {
   LINKS_PER_DAY: 50,
   LINK_EVERY_DAYS: 7,
   MAX_LINKS_PER_ARTICLE: 20,
-  /** An article's subject with this many open questions counts as having new ones to answer. */
+  /** This many more open questions on an article's subject than when its clock started counts as new ones to answer. */
   OPEN_QUESTIONS: 2,
 } as const;
 
@@ -234,8 +234,11 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
     if (a.key && reach.has(a.key)) signals.push({ kind: "within_reach", detail: reach.get(a.key)!.slice(0, 200), hard: false });
     const oldSources = (a.plan.blog?.sources ?? []).filter((s) => s.year !== null && s.year <= year - OLD_SOURCE_YEARS);
     if (oldSources.length) signals.push({ kind: "old_source", detail: `Cites ${oldSources.length} source${oldSources.length === 1 ? "" : "s"} from ${Math.min(...oldSources.map((s) => s.year!))} or earlier`, hard: false });
-    const openOnSubject = subject ? (open.get(subject) ?? 0) : 0;
-    if (openOnSubject >= FRESHNESS_WATCH.OPEN_QUESTIONS) signals.push({ kind: "new_questions", detail: `${openOnSubject} questions on its subject that no live page answers`, hard: false });
+    // New questions: open ones on its subject past the count when its clock started (set at the first look after).
+    const openNow = subject && open.has(subject) ? open.get(subject)! : null;
+    const openAtStart = stored?.openAtStart ?? openNow;
+    const newOnes = openNow !== null && openAtStart !== null ? openNow - openAtStart : 0;
+    if (newOnes >= FRESHNESS_WATCH.OPEN_QUESTIONS) signals.push({ kind: "new_questions", detail: `${newOnes} new questions on its subject that no live page answers`, hard: false });
     const pageDates = a.hub.blog?.dates?.page;
     if (pageDates && !pageDates.published && !pageDates.modified) signals.push({ kind: "no_page_date", detail: "Your page shows no date", hard: false });
 
@@ -257,11 +260,21 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
       sweptAt: now.toISOString(),
       deadLinks,
       linksCheckedAt,
+      openAtStart,
       events: becameDue ? nextEvents(stored?.events ?? [], { at: now.toISOString(), kind: "due", clockDays: clock.clockDays }) : (stored?.events ?? []),
     };
     await updateContentPlanNode(ctx, a.plan.workspaceId, a.plan.id, a.hub.id, {}, db, {
       // A check made meanwhile wins over this pass's copy of the article.
-      setFreshness: (current) => ({ ...next, checkedAt: current?.checkedAt ?? next.checkedAt, events: current && current.events.length > (stored?.events.length ?? 0) ? current.events : next.events }),
+      setFreshness: (current) => {
+        const checkedMeanwhile = Boolean(current && current.checkedAt !== (stored?.checkedAt ?? null));
+        return {
+          ...next,
+          checkedAt: current?.checkedAt ?? next.checkedAt,
+          // A check restarts the clock, so the next look counts open questions afresh.
+          openAtStart: checkedMeanwhile ? (current?.openAtStart ?? null) : next.openAtStart,
+          events: current && current.events.length > (stored?.events.length ?? 0) ? current.events : next.events,
+        };
+      },
     }).catch((err: unknown) => console.warn(`[freshness] ${ctx.tenantId}/${a.plan.id}: ${err instanceof Error ? err.message.slice(0, 160) : "error"}`));
 
     counts[state.state] += 1;

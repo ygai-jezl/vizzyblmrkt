@@ -69,6 +69,8 @@ function seed(db: FakeFirestore): ContentPlan {
   return plan;
 }
 
+/** An em dash, built from its code so this file holds none. */
+const EM_DASH = String.fromCharCode(0x2014);
 const NEW_FACT = "In 2026, 52% of software buyers asked an AI assistant before a vendor call.";
 const SECTION = `## Can I see which prompts cite my competitors?\n\n${Array.from({ length: 40 }, (_, i) => `word${i % 9}`).join(" ")}.`;
 
@@ -80,7 +82,7 @@ const changes = (extra: object[] = []) =>
       { kind: "newer_figure", old: OLD_LINE, new: "In 2026, 70% of buyers asked first.", after: null, evidence: ["e3"], why: "x" },
       { kind: "answer_search", old: null, new: SECTION, after: "How does it work?", evidence: ["e5"], why: "A search that lands here" },
       // A dash used as punctuation: dropped.
-      { kind: "answer_search", old: null, new: `## Is it worth it?\n\nYes — ${Array.from({ length: 40 }, () => "word").join(" ")}.`, after: null, evidence: ["e4"], why: "x" },
+      { kind: "answer_search", old: null, new: `## Is it worth it?\n\nYes ${EM_DASH} ${Array.from({ length: 40 }, () => "word").join(" ")}.`, after: null, evidence: ["e4"], why: "x" },
       ...extra,
     ],
   });
@@ -269,6 +271,8 @@ describe("Apply", () => {
     const r = await ready(db);
     const out = await applyReview(ctx, { workspace: { id: "ws1", name: "Acme" }, planId: "plan_1", ids: ["p1", "p2"] }, { db, now: () => NOW, factCheck });
     expect(out).toMatchObject({ ok: true, applied: 2, skipped: 0, real: true, checked: true });
+    // The brief it saved comes back, so the canvas's next save keeps the new source.
+    expect(out.ok && out.brief?.sources.map((s) => s.url)).toEqual(["https://new.example.org/2026", "https://old.example.org/survey"]);
     const node = stored(db);
     expect(node.status).toBe("generated");
     expect(node.body).toContain("See the guide.");

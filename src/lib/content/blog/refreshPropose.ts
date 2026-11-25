@@ -7,7 +7,7 @@ import { forTenant } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { getContentPlan, updateContentPlan, updateContentPlanNode } from "@/lib/tenant/workspaceContent";
 import type { ArticleReviewDoc, ProposalKind, ReviewEvidence, ReviewProposal } from "@/lib/types/articleRefresh";
-import { BlogSourceSchema, type BlogArticleFreshness, type BlogSource, type ContentNode } from "@/lib/types/contentPlan";
+import { BlogSourceSchema, type BlogArticleFreshness, type BlogBrief, type BlogSource, type ContentNode } from "@/lib/types/contentPlan";
 import { articleFigures, figureSet, wordsOf } from "./figures";
 import { articleFreshness, nextEvents } from "./freshness";
 import { checkPlanBlogFacts } from "./hubActions";
@@ -288,7 +288,7 @@ export interface ApplyDeps {
 }
 
 export type ApplyResult =
-  | { ok: true; node: ContentNode; applied: number; skipped: number; real: boolean; checked: boolean; review: ArticleReviewDoc | null }
+  | { ok: true; node: ContentNode; applied: number; skipped: number; real: boolean; checked: boolean; review: ArticleReviewDoc | null; brief: BlogBrief | null }
   | { ok: false; status: number; error: string };
 
 /** The brief's sources with the ones applied changes cite added, and the links taken out dropped. */
@@ -331,10 +331,9 @@ export async function applyReview(
   const real = applied.some((p) => p.real);
 
   await saveVersion(ctx, { plan, node, reason: "apply" }, deps);
-  if (plan.blog) {
-    const sources = sourcesAfter(plan.blog.sources, applied, review.evidence);
-    await updateContentPlan(ctx, plan.workspaceId, plan.id, { blog: { ...plan.blog, sources } }, deps.db);
-  }
+  // The brief keeps the sources the changes cite (so the fact check keeps their links); the canvas takes it back.
+  const brief = plan.blog ? { ...plan.blog, sources: sourcesAfter(plan.blog.sources, applied, review.evidence) } : null;
+  if (brief) await updateContentPlan(ctx, plan.workspaceId, plan.id, { blog: brief }, deps.db);
   const updated = await updateContentPlanNode(ctx, plan.workspaceId, plan.id, node.id, { body, status: "generated" }, deps.db, {
     ...(real ? { setDates: (stored) => (stored?.published ? { ...stored, updated: { at, source: "change" as const } } : stored) } : {}),
     setFreshness: (stored, current) => (stored ? freshnessAfter(stored, current, at, real, now) : stored),
@@ -355,7 +354,7 @@ export async function applyReview(
   const checked = fresh ? await (deps.factCheck ?? checkPlanBlogFacts)(ctx, { workspace: args.workspace, plan: fresh, nodeId: node.id }).catch(() => null) : null;
   const finalNode = checked && checked.ok ? checked.node : updated;
   await recordDecision(ctx, review, { outcome: "applied", accepted: applied.length, real, byUid: ctx.userId ?? null }, deps);
-  return { ok: true, node: finalNode, applied: applied.length, skipped: skipped.length, real, checked: Boolean(checked?.ok), review: after };
+  return { ok: true, node: finalNode, applied: applied.length, skipped: skipped.length, real, checked: Boolean(checked?.ok), review: after, brief };
 }
 
 /** The article's freshness after Apply: a real change starts the clock from now as an update; links alone, as a check. */

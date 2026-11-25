@@ -81,4 +81,21 @@ describe("Vizzy's articles due a refresh", () => {
     vi.stubEnv("BLOG_FRESHNESS_ENABLED", "false");
     expect(((await agentArticlesDue(A, { db })).body as { articles: unknown[] }).articles).toEqual([]);
   });
+
+  it("adds which clock works, with a meaning for every number, while refresh reviews are on", async () => {
+    const db = new FakeFirestore();
+    seed(db);
+    const before = (await agentArticlesDue(A, { db })).body as Record<string, unknown>;
+    expect(before).not.toHaveProperty("whichClockWorks");
+    vi.stubEnv("BLOG_REFRESH_ENABLED", "true");
+    const body = (await agentArticlesDue(A, { db })).body as { whichClockWorks: { says: string; clocks: Array<{ clockDays: number; refreshes: number; clickLiftRange: string | null }> }; meanings: Record<string, unknown> };
+    expect(body.whichClockWorks.says).toMatch(/^No refreshes yet/);
+    expect(body.whichClockWorks.clocks.map((c) => [c.clockDays, c.refreshes, c.clickLiftRange])).toEqual([
+      [20, 0, null],
+      [30, 0, null],
+      [45, 0, null],
+    ]);
+    for (const k of numberKeys(body)) expect(MEANINGS, k).toHaveProperty(k);
+    expect(body.meanings).toHaveProperty("resultsNeeded");
+  });
 });

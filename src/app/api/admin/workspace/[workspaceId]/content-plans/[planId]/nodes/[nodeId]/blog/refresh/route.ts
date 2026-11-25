@@ -76,7 +76,7 @@ export async function POST(req: Request, { params }: RouteParams) {
   if (body.action === "apply") {
     const r = await applyReview(ctx, { workspace: { id: ws.id, name: ws.name, audience: ws.audience ?? null }, planId, ids: body.ids });
     if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
-    return NextResponse.json({ node: r.node, applied: r.applied, skipped: r.skipped, real: r.real, checked: r.checked, review: r.review });
+    return NextResponse.json({ node: r.node, brief: r.brief, applied: r.applied, skipped: r.skipped, real: r.real, checked: r.checked, review: r.review });
   }
 
   // Start: the brand may (its grant and this month's cap), and not too many at once.

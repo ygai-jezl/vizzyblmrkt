@@ -772,9 +772,11 @@ export function ContentCanvas({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = (await res.json().catch(() => ({}))) as RefreshAnswer & { node?: ContentNode | null };
+      const data = (await res.json().catch(() => ({}))) as RefreshAnswer & { node?: ContentNode | null; brief?: BlogBrief | null };
       if (!res.ok) return { error: data.error ?? "failed" };
       if (data.node) patchNode(id, { cn: data.node });
+      // Apply added sources to the brief: the canvas takes it, so its next save keeps them.
+      if (data.brief) setBlogBrief(data.brief);
       return data;
     } catch {
       return { error: "failed" };

@@ -22,7 +22,9 @@ questions, or Skip) and moved Home's next action card to PR B. ADR-0016 is piece
    Vizzy reading and suggesting. No chat onboarding, no A2UI, no next action card.
 2. **First visit.** Home sends an admin to the welcome only when `ONBOARDING_ENABLED` is on, the
    brand has no `businessProfile`, it has never had a launch, programme, connection or lifecycle
-   journey (archived ones count, and a read that failed counts as "had one"), and no sign-up.
+   journey (archived ones count, and a read that failed counts as "had one"), no sign-up, and no
+   setup a person did (a sending detail or domain, LinkedIn, X or GitHub connected, a brand voice,
+   or a saved brand map: `didSetupWork`).
    `startBusinessProfile` writes `status: "started"` in a transaction first, so it shows once per
    brand. Existing brands are never sent there; they start from Settings. Members never.
 3. **Where it lives.** On the tenant doc (control plane, read free by the admin layout, Home and the

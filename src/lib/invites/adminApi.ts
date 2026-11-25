@@ -8,7 +8,9 @@ import { resolveEmailStyle } from "@/lib/email/resolveEmailStyle";
 import { journeyFooterValues } from "@/lib/email/footer";
 import { resolveCampaignLocale } from "@/lib/i18n/locale";
 import { zodReason } from "@/lib/connect/protocol";
-import { INVITE_LOCK_TEXT, inviteProductName } from "./eligibility";
+import { inviteProductName } from "./eligibility";
+import { inviteLockText } from "./lockText";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { loadFunnel } from "./funnel";
 import { INVITE_TAGS, defaultInviteCopy, renderInviteEmail } from "./render";
 import {
@@ -82,7 +84,7 @@ export async function getLaunchInvites(ctx: TenantContext, campaignId: string, d
   const progress = await Promise.all(recent.map((w) => (w.status === "draft" ? null : waveProgress(ctx, w.id, db))));
   return ok({
     lock: setup.lock,
-    lockText: setup.lock ? INVITE_LOCK_TEXT[setup.lock] : null,
+    lockText: setup.lock ? inviteLockText(setup.lock, isIdeaWordsEnabled()) : null,
     connections: setup.eligible.map((c) => ({
       id: c.id,
       name: c.name,

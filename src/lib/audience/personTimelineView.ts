@@ -15,6 +15,8 @@ import { readFieldList } from "./fieldList";
 import { valueText } from "./fields";
 import { consentWayLabel } from "./newPerson";
 import { parseMoveFieldId } from "./personMoves";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { ideaWord, type IdeaWord } from "@/lib/nav/terms";
 
 /**
  * One person's timeline (AUDIENCE_TIMELINE_ENABLED), newest first, a page at a time: what their
@@ -101,6 +103,8 @@ function calendarDay(v: string): string {
 }
 
 interface Names {
+  /** A launch's name in the words in use (isIdeaWordsEnabled()), for one that's gone. */
+  word: IdeaWord;
   launches: Map<string, string>;
   products: Map<string, string>;
   fields: Map<string, RecordField>;
@@ -208,7 +212,7 @@ function fromEvent(e: StoredEvent, names: Names, launchesJoined: ReadonlySet<str
       const { before, after } = e.properties as { before: unknown; after: unknown };
       if (move) {
         const product = names.products.get(move.on) ?? "a product";
-        const launch = names.launches.get(move.on) ?? "a launch";
+        const launch = names.launches.get(move.on) ?? names.word.a;
         switch (move.kind) {
           case "stage":
             // A first stage comes with starting to use the product, and a last with leaving it: those entries say it.
@@ -272,12 +276,15 @@ function fromEvent(e: StoredEvent, names: Names, launchesJoined: ReadonlySet<str
   }
 }
 
-function emailEntry(m: ContactEmailHistoryEntry): TimelineEntry | null {
+/** An email a launch sent them. While launches are called ideas it is a waitlist email: "an idea email" reads oddly. */
+function emailEntry(m: ContactEmailHistoryEntry, word: IdeaWord): TimelineEntry | null {
   const at = m.clickedAt ?? m.openedAt ?? m.sentAt;
   if (!at) return null;
-  const subject = m.subject ? `"${m.subject}"` : "a launch email";
-  const text = m.clicked ? `Clicked a link in ${subject}` : m.opened ? `Opened ${subject}` : m.bounced ? `${m.subject ? subject : "A launch email"} bounced` : `Sent ${subject}`;
-  return { id: `email:${m.journeyId}:${m.nodeId}:${m.signupId}:${m.variantId}`, at, kind: "email", text, detail: "Launch email" };
+  const ideas = word.one === "idea";
+  const subject = m.subject ? `"${m.subject}"` : ideas ? "a waitlist email" : "a launch email";
+  const unnamed = ideas ? "A waitlist email" : "A launch email";
+  const text = m.clicked ? `Clicked a link in ${subject}` : m.opened ? `Opened ${subject}` : m.bounced ? `${m.subject ? subject : unnamed} bounced` : `Sent ${subject}`;
+  return { id: `email:${m.journeyId}:${m.nodeId}:${m.signupId}:${m.variantId}`, at, kind: "email", text, detail: ideas ? "Waitlist email" : "Launch email" };
 }
 
 /** Their sign-ups, launch emails and voice chats: the entries that live outside the event history. */
@@ -290,22 +297,23 @@ async function besideEntries(ctx: TenantContext, contact: Contact, names: Names,
   ]);
   const out: TimelineEntry[] = [];
   for (const l of links) {
-    const launch = names.launches.get(l.campaignId) ?? "a launch";
+    const launch = names.launches.get(l.campaignId);
     out.push({
       id: `signup:${l.signupId}`,
       at: l.joinedAt,
       kind: "signup",
-      text: `Joined the ${launch} waitlist`,
+      // One that's gone has no name to put in the sentence.
+      text: launch && launch !== names.word.a ? `Joined the ${launch} waitlist` : "Joined a waitlist",
       detail: [l.joinedVia === "site" ? "From your site" : null, LAUNCH_STATUS[l.status] ?? null].filter(Boolean).join(". ") || null,
     });
   }
   for (const s of signups) {
     const chat = s?.aiConversation;
     if (!s || !chat?.completed || !chat.capturedAt) continue;
-    out.push({ id: `voice:${s.id}`, at: chat.capturedAt, kind: "voice_chat", text: `Voice chat on the ${names.launches.get(s.campaignId) ?? "launch"} sign-up page`, detail: null, signupId: s.id });
+    out.push({ id: `voice:${s.id}`, at: chat.capturedAt, kind: "voice_chat", text: `Voice chat on the ${names.launches.get(s.campaignId) ?? names.word.one} sign-up page`, detail: null, signupId: s.id });
   }
   for (const m of emails.slice(0, BESIDE_MAX)) {
-    const e = emailEntry(m);
+    const e = emailEntry(m, names.word);
     if (e) out.push(e);
   }
   // One form of time, so they order with the event history's.
@@ -354,8 +362,10 @@ async function namesFor(ctx: TenantContext, contact: Contact, events: readonly S
     Promise.all([...productIds].slice(0, 50).map(async (id) => [id, await repo.productConnections.getById(id).catch(() => null)] as const)),
     teamMemberNames(ctx, [...people], { db, lookup }),
   ]);
+  const word = ideaWord(isIdeaWordsEnabled());
   return {
-    launches: new Map(campaigns.map(([id, c]) => [id, c?.waitlistName || "a launch"])),
+    word,
+    launches: new Map(campaigns.map(([id, c]) => [id, c?.waitlistName || word.a])),
     products: new Map(
       connections.map(([id, c]) => {
         const env = c ? environmentOf(c) : null;

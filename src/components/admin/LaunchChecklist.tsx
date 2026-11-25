@@ -3,14 +3,15 @@ import { BookOpen, Check, TriangleAlert } from "lucide-react";
 import { HowToLink } from "@/components/help/HowToLink";
 import type { LaunchChecklistStep } from "@/lib/nav/launchChecklist";
 
-/** A launch's Overview checklist (nav v2 phase 4). Server-safe. */
-export function LaunchChecklist({ steps }: { steps: LaunchChecklistStep[] }) {
+/** A launch's Overview checklist (nav v2 phase 4), the Idea checklist with the words on. Server-safe. */
+export function LaunchChecklist({ steps, ideas = false }: { steps: LaunchChecklistStep[]; ideas?: boolean }) {
+  const title = ideas ? "Idea checklist" : "Launch checklist";
   const done = steps.filter((s) => s.done).length;
   const next = steps.find((s) => !s.done);
   return (
-    <section className="rounded-lg border border-neutral-200 p-4 dark:border-neutral-800" aria-label="Launch checklist">
+    <section className="rounded-lg border border-neutral-200 p-4 dark:border-neutral-800" aria-label={title}>
       <div className="flex items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold">Launch checklist</h2>
+        <h2 className="text-sm font-semibold">{title}</h2>
         <span className="text-xs text-neutral-500">
           {done} of {steps.length} done
         </span>

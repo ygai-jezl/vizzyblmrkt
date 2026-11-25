@@ -4,7 +4,8 @@ import { subjectCoverage } from "@/lib/brandMap/recount";
 import { readBrandMap } from "@/lib/brandMap/store";
 import { mayFetch, robotsFor } from "@/lib/competitors/fetch";
 import { rolledId } from "@/lib/connectors/keys";
-import { bareHost, freshnessWatchId, LIVE_ARTICLES, liveArticles, signalPageKey, withoutSearchConsole } from "./freshnessPages";
+import { bareHost, freshnessWatchId, fromSearchConsole, LIVE_ARTICLES, liveArticles, signalPageKey, withoutSearchConsole } from "./freshnessPages";
+import type { LiveArticle } from "./freshnessPages";
 import { searchConsoleManifest } from "@/lib/connectors/manifests/searchConsole";
 import { openSuggestions, planningConnections } from "@/lib/connectors/signals/review";
 import { RULES } from "@/lib/connectors/signals/detect";
@@ -28,7 +29,11 @@ import { outlineArticle } from "./outline";
 /**
  * The freshness watch (BLOG_FRESHNESS_ENABLED): once a day per brand it looks at every live blog
  * article, gives one without a clock its clock, works out its state from counted signals (no AI),
- * writes it on the article, and keeps the brand's due list in `fw_<tenantId>`.
+ * writes it on the article, and keeps the brand's due list in `fw_<tenantId>`. A look its tick's
+ * time cuts short is due again at the next tick and goes on with the articles it didn't reach; until
+ * then each keeps its last state, and its row on the due list. A tick cut before it reached any
+ * article waits a while instead, so a brand slow to read never takes every tick, and the brands
+ * waiting longest are looked at first.
  */
 
 const DAY_MS = 86_400_000;
@@ -45,6 +50,8 @@ export const FRESHNESS_WATCH = {
   MAX_LINKS_PER_ARTICLE: 20,
   /** This many more open questions on an article's subject than when its clock started counts as new ones to answer. */
   OPEN_QUESTIONS: 2,
+  /** How long a look waits when its tick ran out of time before it reached any article. */
+  EMPTY_CUT_WAIT_MS: 30 * 60_000,
 } as const;
 
 export { articlePageKey, bareHost, freshnessWatchId } from "./freshnessPages";
@@ -141,6 +148,21 @@ export function outboundLinks(markdown: string, ownHost: string): string[] {
   return [...out].slice(0, FRESHNESS_WATCH.MAX_LINKS_PER_ARTICLE);
 }
 
+/** An article's row on the due list. */
+function dueRow(a: LiveArticle, f: Pick<FreshnessDueItem, "state" | "reasons" | "dueAt" | "clockDays">): FreshnessDueItem {
+  return {
+    planId: a.plan.id,
+    workspaceId: a.plan.workspaceId,
+    title: (outlineArticle(a.hub.body).title || a.plan.name).slice(0, 200),
+    url: a.url,
+    state: f.state,
+    reasons: f.reasons,
+    dueAt: f.dueAt,
+    clockDays: f.clockDays,
+    subjectId: a.plan.blog?.subjectId ?? null,
+  };
+}
+
 /** Look at one brand's live articles now: their clocks, their states, and the brand's due list. */
 export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refreshClock">, deps: FreshnessDeps & { deadlineMs?: number } = {}): Promise<FreshnessWatchDoc> {
   const now = (deps.now ?? (() => new Date()))();
@@ -188,12 +210,39 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
   const counts = { fresh: 0, soon: 0, due: 0 };
   const byClock: FreshnessWatchDoc["byClock"] = { "20": 0, "30": 0, "45": 0 };
   const due: FreshnessDueItem[] = [];
-  const pages: FreshnessWatchDoc["pages"] = [];
+  // Every live article's page, whether this tick reaches it or not.
+  const pages: FreshnessWatchDoc["pages"] = articles
+    .flatMap((a) => (a.key ? [{ key: a.key, planId: a.plan.id, workspaceId: a.plan.workspaceId }] : []))
+    .slice(0, FRESHNESS_WATCH.MAX_PAGES);
   const year = now.getUTCFullYear();
 
+  // A look its tick's time cut short goes on where it stopped, unless it began over a day ago.
+  const started = prior?.lookStartedAt ?? null;
+  const going = started && now.getTime() - Date.parse(started) < DAY_MS ? started : null;
+  const rows = new Map((prior?.due ?? []).map((d) => [d.planId, d]));
+  let cut = false;
+  // Articles this tick looked at itself.
+  let looked = 0;
+  // This tick wrote a Search Console reason on an article, so an erase starts the look over.
+  let wroteSearchConsole = false;
+  // An article this tick doesn't work out counts as it last was, and keeps its row on the due list:
+  // the last list's, or, when that list had no room for it, one made from its stored state.
+  const keep = (a: LiveArticle, f: BlogArticleFreshness) => {
+    counts[f.state] += 1;
+    byClock[String(f.clockDays) as "20" | "30" | "45"] += 1;
+    if (f.state !== "fresh") due.push(rows.get(a.plan.id) ?? dueRow(a, { ...f, state: f.state }));
+  };
+
   for (const a of articles) {
-    if (deps.deadlineMs && Date.now() > deps.deadlineMs) break;
     const stored = a.hub.blog?.freshness;
+    // Looked at earlier in this look, or out of time: as it last was.
+    const lookedBefore = Boolean(going && stored && Date.parse(stored.sweptAt) >= Date.parse(going));
+    if (!lookedBefore && deps.deadlineMs && Date.now() > deps.deadlineMs) cut = true;
+    if (lookedBefore || cut) {
+      if (stored) keep(a, stored);
+      continue;
+    }
+    looked += 1;
     const subject = a.plan.blog?.subjectId ?? "";
     const setting = tenant.refreshClock;
     const fixed = setting === 20 || setting === 30 || setting === 45 ? setting : null;
@@ -243,6 +292,7 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
       now,
     );
     if (!state) continue;
+    if (fromSearchConsole(state.reasons)) wroteSearchConsole = true;
     const becameDue = state.state === "due" && stored?.state !== "due";
     const next: BlogArticleFreshness = {
       clockDays: clock.clockDays,
@@ -274,25 +324,16 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
 
     counts[state.state] += 1;
     byClock[String(clock.clockDays) as "20" | "30" | "45"] += 1;
-    if (a.key && pages.length < FRESHNESS_WATCH.MAX_PAGES) pages.push({ key: a.key, planId: a.plan.id, workspaceId: a.plan.workspaceId });
-    if (state.state !== "fresh") {
-      due.push({
-        planId: a.plan.id,
-        workspaceId: a.plan.workspaceId,
-        title: (outlineArticle(a.hub.body).title || a.plan.name).slice(0, 200),
-        url: a.url,
-        state: state.state,
-        reasons: state.reasons,
-        dueAt: state.dueAt,
-        clockDays: clock.clockDays,
-        subjectId: a.plan.blog?.subjectId ?? null,
-      });
-    }
+    if (state.state !== "fresh") due.push(dueRow(a, { state: state.state, reasons: state.reasons, dueAt: state.dueAt, clockDays: clock.clockDays }));
   }
 
   due.sort((x, y) => (x.state === y.state ? x.dueAt.localeCompare(y.dueAt) : x.state === "due" ? -1 : 1));
   const doc: Omit<FreshnessWatchDoc, "id" | "tenantId"> = {
-    nextAt: new Date(now.getTime() + DAY_MS).toISOString(),
+    // Cut short: due again at the next tick, to go on where it stopped; after a while if this tick
+    // reached no article, so its reads don't take every tick and hold up the brands after it.
+    nextAt: new Date(now.getTime() + (!cut ? DAY_MS : looked ? 0 : FRESHNESS_WATCH.EMPTY_CUT_WAIT_MS)).toISOString(),
+    lookStartedAt: cut ? (going ?? now.toISOString()) : null,
+    searchConsoleInLook: cut && (wroteSearchConsole || Boolean(going && prior?.searchConsoleInLook)),
     counts,
     byClock,
     pages,
@@ -308,12 +349,15 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
     (current) => {
       written = doc;
       if ((current.searchConsoleClears ?? 0) === clearsAtStart) return doc;
-      // An erase took Search Console's figures out while this look ran: none of them on the list, and
-      // the erase's "due now" kept, so the next look puts back what is still readable.
+      // An erase took Search Console's figures out while this look ran: none of them on the list, the
+      // erase's "due now" kept, and a look cut short that wrote any starts over, so the next look
+      // looks again at every article and puts back what is still readable.
       written = {
         ...doc,
         due: doc.due.map((d) => ({ ...d, reasons: withoutSearchConsole(d.reasons) })),
         nextAt: Date.parse(current.nextAt) < Date.parse(doc.nextAt) ? current.nextAt : doc.nextAt,
+        ...(doc.searchConsoleInLook ? { lookStartedAt: null } : {}),
+        searchConsoleInLook: false,
       };
       return written;
     },
@@ -327,19 +371,34 @@ export interface FreshnessResult {
   due: number;
 }
 
-/** The tick's lane: brands not looked at today, a few a tick, within the budget. */
+/**
+ * The tick's lane: brands due a look, a few a tick, within the budget, the one waiting longest first
+ * (never looked at, then the earliest `nextAt`). A look going on is due from the tick before, so it
+ * gives way to a brand that has waited since yesterday.
+ */
 export async function runFreshness(opts: { deadlineMs: number }, deps: FreshnessDeps = {}): Promise<FreshnessResult> {
   const result: FreshnessResult = { brands: 0, articles: 0, due: 0 };
   if (!isBlogFreshnessEnabled()) return result;
   const now = (deps.now ?? (() => new Date()))();
   const tenants = await (deps.listTenants ?? listAllTenants)();
+  const queue: Array<{ t: Tenant; ctx: TenantContext; at: number }> = [];
   for (const t of tenants) {
-    if (result.brands >= FRESHNESS_WATCH.BRANDS_PER_TICK || opts.deadlineMs - Date.now() < FRESHNESS_WATCH.MIN_LEFT_MS) break;
+    if (opts.deadlineMs - Date.now() < FRESHNESS_WATCH.MIN_LEFT_MS) break;
     if (t.status === "suspended") continue;
     const ctx: TenantContext = { tenantId: t.id, region: t.region, source: "system" };
     try {
       const prior = await forTenant(ctx, deps.db).freshnessWatch.getById(freshnessWatchId(t.id));
-      if (prior && Date.parse(prior.nextAt) > now.getTime()) continue;
+      const at = prior ? Date.parse(prior.nextAt) : 0;
+      if (at > now.getTime()) continue;
+      queue.push({ t, ctx, at: Number.isFinite(at) ? at : 0 });
+    } catch (err) {
+      console.warn(`[freshness] ${t.id} failed:`, err instanceof Error ? err.message.slice(0, 200) : "error");
+    }
+  }
+  queue.sort((x, y) => x.at - y.at);
+  for (const { t, ctx } of queue) {
+    if (result.brands >= FRESHNESS_WATCH.BRANDS_PER_TICK || opts.deadlineMs - Date.now() < FRESHNESS_WATCH.MIN_LEFT_MS) break;
+    try {
       result.brands += 1;
       const doc = await sweepBrand(ctx, t, { ...deps, deadlineMs: opts.deadlineMs });
       result.articles += doc.counts.fresh + doc.counts.soon + doc.counts.due;

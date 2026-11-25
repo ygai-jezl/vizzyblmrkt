@@ -12,11 +12,18 @@ import { isAutopilotEnabled } from "@/lib/autopilot/flags";
 import { isBlogDatesUiEnabled, isBlogFreshnessUiEnabled, isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
 import { isConnectorSignalsEnabled } from "@/lib/connectors/flags";
 import type { HelpBodyProps } from "@/lib/help/pages";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { ideaWord } from "@/lib/nav/terms";
 import { isUsageMeterUiEnabled } from "@/lib/plans/flags";
 import { WEB_SEARCH_LIMIT_MESSAGE } from "@/lib/plans/resources";
 
-/** The How to drawer passes the server's switches (connectorSignals): it can't read them itself. */
-export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSignalsEnabled() }: HelpBodyProps = {}) {
+/**
+ * The How to drawer passes the server's switches (connectorSignals, ideaWords): it can't read them
+ * itself. With ideas in the words a launch is called an idea; "about our launch" is the general
+ * sense and stays.
+ */
+export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSignalsEnabled(), ideaWords = isIdeaWordsEnabled() }: HelpBodyProps = {}) {
+  const w = ideaWord(ideaWords);
   return (
     <article>
       <H1>Write and schedule</H1>
@@ -33,7 +40,8 @@ export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSig
               LinkedIn or X connected, to post (<Open href="/help/connected-accounts#social">Connected accounts</Open>)
             </li>
             <li>
-              A launch, for the newsletter (<Open href="/help/launch-and-waitlist">Launch and waitlist</Open>)
+              {ideaWords ? "A waitlist" : "A launch"}, for the newsletter (
+              <Open href="/help/launch-and-waitlist">{w.One} and waitlist</Open>)
             </li>
           </>
         }
@@ -49,6 +57,34 @@ export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSig
         Connect LinkedIn or X before you schedule. YouGrow won&apos;t schedule a post until the account it goes out from is
         connected.
       </Warning>
+
+      <H2 id="scrapbook">Save clippings in the Scrapbook</H2>
+      <P>
+        The Scrapbook keeps posts you admire, links, screenshots and quick thoughts, so you can write from them later. Each one
+        is a clipping.
+      </P>
+      <Steps>
+        <li>
+          Open your programme, then <strong>Scrapbook</strong>.
+        </li>
+        <li>
+          Paste a link, paste the text or jot a thought, or press <strong>Add screenshot</strong>. Any one of them is enough.
+        </li>
+        <li>
+          Press <strong>Save clipping</strong>. It shows below, with where it came from: a site, a screenshot or text.
+        </li>
+        <li>
+          To reuse its shape, press <strong>Templatize</strong>. Vizzy turns it into a template on the{" "}
+          <strong>Templates</strong> tab, and the clipping then shows <strong>View template</strong>.
+        </li>
+        <li>
+          To remove a clipping, press <strong>Delete</strong>.
+        </li>
+      </Steps>
+      <P>
+        YouGrow can&apos;t read pages on LinkedIn, X, Instagram, Facebook, Threads, TikTok or YouTube from the link alone. For
+        those, paste the text or add a screenshot too, so the template comes out right.
+      </P>
 
       <H2 id="write">Write a draft</H2>
       <Steps>
@@ -323,18 +359,18 @@ export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSig
 
       <H2 id="newsletter">Send the weekly newsletter</H2>
       <P>
-        It goes to people on a launch&apos;s waitlist who reached the weekly newsletter step of its welcome journey. If nobody
+        It goes to people on {w.a}&apos;s waitlist who reached the weekly newsletter step of its welcome journey. If nobody
         has yet, YouGrow tells you and sends nothing.
       </P>
       {isSiteSignupsEnabled() ? (
         <P>
-          Newsletter sign-ups from your own site join a launch just for the newsletter, and Send this week&apos;s newsletter
-          offers that launch first. See <Open href="/help/newsletter-from-your-site">Newsletter from your own site</Open>.
+          Newsletter sign-ups from your own site join {ideaWords ? "a waitlist" : "a launch"} just for the newsletter, and Send
+          this week&apos;s newsletter offers that {ideaWords ? "waitlist" : "launch"} first. See <Open href="/help/newsletter-from-your-site">Newsletter from your own site</Open>.
         </P>
       ) : null}
       <Steps>
         <li>
-          Open your launch, then <strong>Emails</strong>, and press <strong>Edit journey</strong>. On an Exit step, tick{" "}
+          Open your {w.one}, then <strong>Emails</strong>, and press <strong>Edit journey</strong>. On an Exit step, tick{" "}
           <strong>Then add them to the weekly newsletter</strong>. On an older journey, press <strong>Add exit</strong>, then{" "}
           <strong>Subscribe to the weekly newsletter</strong>. Press <strong>Publish</strong>.
         </li>
@@ -348,7 +384,7 @@ export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSig
           Press <strong>Send this week</strong> on the newsletter you want.
         </li>
         <li>
-          Check the <strong>Subject line</strong> and the launch. Press <strong>Send now</strong>, or pick a time under{" "}
+          Check the <strong>Subject line</strong> and the {w.one}. Press <strong>Send now</strong>, or pick a time under{" "}
           <strong>Schedule for later</strong> and press <strong>Schedule</strong>.
         </li>
       </Steps>
@@ -380,6 +416,11 @@ export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSig
       <H2 id="messages">If you see this</H2>
       <Messages
         rows={[
+          ["Add a link, paste text, or attach a screenshot.", "The Scrapbook saves a clipping only with something in it. Add one, then press Save clipping."],
+          [
+            "Couldn't save that clipping.",
+            "Try again. A screenshot has to be a PNG, JPEG or WebP image of 8MB or less.",
+          ],
           ["Give this workflow a name.", "Type a Workflow name on the Strategy step."],
           [
             "Research didn't finish. You can still write the article, or try again.",
@@ -403,10 +444,15 @@ export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSig
             "That LinkedIn Page isn't connected.",
             "A YouGrow admin who is also an admin of the Page on LinkedIn connects LinkedIn Pages. Or choose to post as yourself.",
           ],
-          [
-            "Nobody has joined this launch's weekly newsletter yet",
-            "Add the weekly newsletter step to the launch's welcome journey (step 1 above), and wait for someone to reach it.",
-          ],
+          ideaWords
+            ? [
+                "Nobody has joined this idea's weekly newsletter yet",
+                "Add the weekly newsletter step to the idea's welcome journey (step 1 above), and wait for someone to reach it.",
+              ]
+            : [
+                "Nobody has joined this launch's weekly newsletter yet",
+                "Add the weekly newsletter step to the launch's welcome journey (step 1 above), and wait for someone to reach it.",
+              ],
           ["Pick a future date and time.", "The newsletter's scheduled time has passed. Pick a later one, or leave it empty to send now."],
           ...(isBlogLiveWatchEnabled()
             ? ([
@@ -546,7 +592,7 @@ export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSig
         ]}
       />
 
-      <NextPage slug="write-and-schedule" />
+      <NextPage slug="write-and-schedule" ideaWords={ideaWords} />
     </article>
   );
 }

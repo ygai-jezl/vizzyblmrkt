@@ -63,6 +63,23 @@ describe("journey routes (engine move D1)", () => {
     vi.unstubAllEnvs();
   });
 
+  it("says where to move the launch in the words in use (an idea while the words are on)", async () => {
+    vi.stubEnv("WAITLIST_LEGACY_EDITOR", "read_only");
+    try {
+      expect((await (await PUT(req("PUT", { graph }), params)).json()).message).toBe(
+        "Welcome emails are now built in the new journey editor. Move this launch in its Settings.",
+      );
+      for (const k of ["NEXT_PUBLIC_NAV_V2_ENABLED", "NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED", "NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED", "NEXT_PUBLIC_NAV_IDEAS_ENABLED", "LAUNCH_IDEAS_ENABLED"]) {
+        vi.stubEnv(k, "true");
+      }
+      expect((await (await PUT(req("PUT", { graph }), params)).json()).message).toBe(
+        "Welcome emails are now built in the new journey editor. Move this idea in its Settings.",
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("publishing an archived launch is refused with 409", async () => {
     service.setJourneyState.mockResolvedValue({ ok: false, error: "launch_archived" });
     const res = await activate(req("POST", { action: "activate" }), params);

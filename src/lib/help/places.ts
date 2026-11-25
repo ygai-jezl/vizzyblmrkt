@@ -34,6 +34,8 @@ const RULES: Array<[RegExp, string]> = [
   [/^\/admin\/workspace\/[^/]+\/distribute/, "/help/write-and-schedule#schedule"],
   [/^\/admin\/workspace\/[^/]+\/weekly/, "/help/write-and-schedule#newsletter"],
   [/^\/admin\/workspace\/[^/]+\/settings/, "/help/programmes-and-knowledge"],
+  // The Scrapbook (curate/idea-board; Curate opens it).
+  [/^\/admin\/workspace\/[^/]+\/curate(\/idea-board)?\/?$/, "/help/write-and-schedule#scrapbook"],
   [/^\/admin\/workspace\/[^/]+\/(create|templatize|curate)/, "/help/write-and-schedule#write"],
   [/^\/admin\/workspace\/[^/]+/, "/help/write-and-schedule"],
   [/^\/admin\/workspace/, "/help/programmes-and-knowledge#start"],

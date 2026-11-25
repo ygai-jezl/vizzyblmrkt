@@ -49,13 +49,13 @@ def parse_knowledge_response(status_code: int, body_text: str) -> dict:
         return {
             "status": "empty",
             "context": "",
-            "message": "No relevant knowledge has been ingested for this launch yet.",
+            "message": "No relevant knowledge has been ingested for this waitlist yet.",
         }
     code = body.get("error", f"http_{status_code}")
     if code == "canvas_auth_unconfigured":
         msg = "Knowledge retrieval isn't enabled in this environment yet."
     elif code == "unauthorized":
-        msg = "This session can't access that launch's knowledge."
+        msg = "This session can't access that waitlist's knowledge."
     else:
         msg = "I couldn't search the knowledge base just now."
     return {"status": "error", "context": "", "code": code, "message": msg}
@@ -106,7 +106,7 @@ def retrieve_knowledge_via_api(
         return {
             "status": "needs_campaign",
             "context": "",
-            "message": "Which launch's knowledge should I search?",
+            "message": "Which waitlist's knowledge should I search?",
         }
     if not query or not query.strip():
         return {

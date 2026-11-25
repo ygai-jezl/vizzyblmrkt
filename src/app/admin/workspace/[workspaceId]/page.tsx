@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowRight, BookOpen, Calendar, Lightbulb, PenLine, Send } from "lucide-react";
+import { ArrowRight, BookOpen, Calendar, PenLine, Scissors, Send } from "lucide-react";
 import { requireAdminContext } from "@/lib/auth/session";
 import { forTenant, getTenantById } from "@/lib/tenant";
 import { listContentPlans, listIdeaItems, listTemplates } from "@/lib/tenant/workspaceContent";
@@ -128,7 +128,7 @@ export default async function WorkspaceIndex({ params }: { params: Promise<{ wor
 
       <div className="flex flex-wrap gap-2">
         {[
-          { href: `${base}/curate/idea-board`, label: "Capture an idea", Icon: Lightbulb },
+          { href: `${base}/curate/idea-board`, label: "Save a clipping", Icon: Scissors },
           { href: `${base}/create`, label: "New draft", Icon: PenLine },
           { href: `${base}/distribute`, label: "Schedule posts", Icon: Calendar },
           { href: `${base}/weekly`, label: "Send this week's newsletter", Icon: Send },

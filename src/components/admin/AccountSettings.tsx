@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ideaWord } from "@/lib/nav/terms";
+import { useWords } from "./nav/WordsProvider";
 import {
   LOCALES,
   DEFAULT_LOCALE,
@@ -26,6 +28,7 @@ interface LocaleConfig {
 }
 
 export function AccountSettings() {
+  const w = ideaWord(useWords().ideas);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [defaultLocale, setDefaultLocale] = useState(DEFAULT_LOCALE);
@@ -105,8 +108,8 @@ export function AccountSettings() {
         <div>
           <h2 className="text-base font-semibold">Languages</h2>
           <p className="text-sm text-neutral-500">
-            The default content language for your launches, and the languages your
-            waitlists are offered in. Each launch can override these in its own
+            The default content language for your {w.many}, and the languages your
+            waitlists are offered in. Each {w.one} can override these in its own
             Strategy settings. Independent of your data region.
           </p>
         </div>

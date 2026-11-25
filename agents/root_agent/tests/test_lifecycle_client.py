@@ -261,10 +261,11 @@ def test_on_a_whole_persons_page_the_plan_goes_to_the_product_user_their_brief_i
     assert lc.save_person_plan(state, "g", "a", None, None)["status"] == "needs_person"
 
 
-def test_a_brief_for_someone_who_only_joined_launches_says_so(monkeypatch):
+def test_a_brief_for_someone_who_only_joined_waitlists_says_so(monkeypatch):
     _capture(monkeypatch, 404, {"error": "person_only_launches"})
     out = lc.get_person({**STATE, "personId": "ct_9b2e"}, "")
-    assert out["status"] == "error" and "only joined your launches" in out["message"]
+    # A waitlist, whatever the app calls a launch (piece D).
+    assert out["status"] == "error" and "only joined your waitlists" in out["message"]
 
 
 def test_a_plan_needs_a_person_and_its_two_parts(monkeypatch):

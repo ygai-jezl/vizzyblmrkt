@@ -9,12 +9,14 @@ import { loadGrowthSignals } from "@/lib/nav/growthSignals";
 import { isBrandMapUiEnabled } from "@/lib/brandMap/flags";
 import { isEmailStyleUiEnabled } from "@/lib/email/flags";
 import { isSetupGuideEnabled } from "@/lib/help/flags";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 
 export const dynamic = "force-dynamic";
 
 /**
  * The growth path's stage statuses, for the sidebar's progress dots (nav v2 phase 2).
- * With the setup guide on, every step too, for the How to drawer and Vizzy.
+ * With the setup guide on, every step too, for the How to drawer and Vizzy, in the words the
+ * screens use (Create an idea, with the Ideas words on).
  */
 export async function GET(req: Request) {
   if (!isNavV2Phase2Enabled()) return NextResponse.json({ error: "not_found" }, { status: 404 });
@@ -30,6 +32,7 @@ export async function GET(req: Request) {
       invites: isInvitesUiEnabled() && isInvitesEnabled(),
       setup: guide ? { emailStyle: isEmailStyleUiEnabled(), brandMap: isBrandMapUiEnabled() } : undefined,
     }),
+    { ideas: isIdeaWordsEnabled() },
   );
   return NextResponse.json(
     {

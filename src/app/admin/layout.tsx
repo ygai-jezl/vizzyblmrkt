@@ -39,6 +39,8 @@ import { isCatalogHistoryEnabled } from "@/lib/connect/v2/flags";
 import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsSearchTextEnabled, isConnectorsSharingEnabled } from "@/lib/connectors/flags";
 import { isOrganisationJoinEnabled } from "@/lib/plans/flags";
 import { isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
+import { isIdeaWordsEnabled, isIdeasEnabled } from "@/lib/ideas/flags";
+import { WordsProvider } from "@/components/admin/nav/WordsProvider";
 
 export const dynamic = "force-dynamic";
 
@@ -141,6 +143,9 @@ export default async function AdminLayout({
     // Audience is called People: the switch (phase 3) plus the one People list, a server
     // switch, so it is worked out here and passed down. The How to drawer reads it from the shell.
     const people = isPeopleNameEnabled();
+    // Launches are called Ideas: the switch (phase 3) plus LAUNCH_IDEAS_ENABLED, a server switch.
+    // The shell takes it as a prop, as for People; pages read it through WordsProvider.
+    const ideaWords = isIdeaWordsEnabled();
     const shell = (
       <>
         <SessionKeeper />
@@ -151,11 +156,19 @@ export default async function AdminLayout({
           ctx={sidebarCtx}
           email={ctx.email}
           people={people}
+          ideas={ideaWords}
         />
         <div className="flex min-w-0 flex-1 flex-col">
-          <AdminHeader names={crumbNames} people={people} organisation={isOrganisationJoinEnabled() && !isConnectorsSharingEnabled() ? "brands" : undefined} />
+          <AdminHeader
+            names={crumbNames}
+            people={people}
+            ideas={ideaWords}
+            organisation={isOrganisationJoinEnabled() && !isConnectorsSharingEnabled() ? "brands" : undefined}
+          />
           <main className="min-w-0 flex-1 px-6 py-6">
-            <DeveloperDocsProvider enabled={docs}>{children}</DeveloperDocsProvider>
+            <DeveloperDocsProvider enabled={docs}>
+              <WordsProvider ideas={ideaWords}>{children}</WordsProvider>
+            </DeveloperDocsProvider>
           </main>
         </div>
         {phase2 ? <VizzyPanel /> : null}
@@ -166,6 +179,7 @@ export default async function AdminLayout({
             archivedLaunches={archivedLaunches}
             workspaces={workspaces.filter((w) => !w.archivedAt).map((w) => ({ id: w.id, name: w.name }))}
             people={people}
+            ideas={ideaWords}
             canAddPerson={canAddPeople(ctx.role)}
           />
         ) : null}
@@ -197,6 +211,8 @@ export default async function AdminLayout({
             connectorsSearchText={isConnectorsSearchTextEnabled()}
             connectorSignals={isConnectorSignalsEnabled()}
             brandMapScale={isBrandMapScaleEnabled()}
+            ideas={isIdeasEnabled()}
+            ideaWords={ideaWords}
             sharing={isConnectorsSharingEnabled()}
             join={isOrganisationJoinEnabled()}
           >

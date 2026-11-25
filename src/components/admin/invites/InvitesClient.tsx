@@ -5,7 +5,8 @@ import Link from "next/link";
 import { Send } from "lucide-react";
 import type { Funnel } from "@/lib/invites/funnel";
 import type { InviteWave } from "@/lib/types/invite";
-import { INVITE_LOCK_TEXT, type InviteLockReason } from "@/lib/invites/lockText";
+import { inviteLockText, type InviteLockReason } from "@/lib/invites/lockText";
+import { useWords } from "../nav/WordsProvider";
 import { api, errorText, timeAgo } from "../connect/api";
 import { Badge, Banner, Button, Field, Section, inputClass } from "../connect/ui";
 import { LaunchFunnel } from "./LaunchFunnel";
@@ -106,6 +107,7 @@ export function InvitesClient({
   myEmail: string | null;
   initialWaveId?: string | null;
 }) {
+  const { ideas } = useWords();
   const [view, setView] = useState(initial);
   const openWave = initialWaveId ? initial.waves.find((w) => w.id === initialWaveId && w.status === "draft") : undefined;
   const [draft, setDraft] = useState<Draft | null>(openWave ? draftFrom(initial, openWave) : null);
@@ -124,8 +126,8 @@ export function InvitesClient({
 
   const fail = (data: unknown) => {
     const d = (data ?? {}) as { error?: string; detail?: string };
-    const lock = d.error === "invites_locked" && d.detail ? INVITE_LOCK_TEXT[d.detail as InviteLockReason] : null;
-    setMessage({ tone: "err", text: lock ?? errorText(data) });
+    const lock = d.error === "invites_locked" && d.detail ? inviteLockText(d.detail as InviteLockReason, ideas) : null;
+    setMessage({ tone: "err", text: lock ?? errorText(data, ideas) });
   };
 
   /** Save the draft (create or update) and return its id. */

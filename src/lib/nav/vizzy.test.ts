@@ -29,6 +29,21 @@ describe("vizzySuggestions", () => {
     expect(vizzySuggestions(null)).toEqual(vizzySuggestions("home"));
   });
 
+  it("says idea in the launches area's starters and Home's first prompts only with the Ideas words on", () => {
+    expect(vizzySuggestions("launches", { ideas: true })).toEqual(["Draft a broadcast to this idea's waitlist", "Write a referral nudge for people who haven't shared"]);
+    expect(homePrompts("first", { ideas: true })[0]).toBe("Help me plan and test my idea");
+    expect(homePrompts("first")[0]).toBe("Help me plan a launch for my idea");
+    for (const key of ["home", "launches", "content", "audience"] as const) {
+      expect(vizzySuggestions(key, { ideas: true }).join(" "), key).not.toMatch(/launch/i);
+    }
+    for (const stage of ["first", "ready", "launch", "grow", "product", "retain"] as const) {
+      expect(homePrompts(stage, { ideas: true }).join(" "), stage).not.toMatch(/launch/i);
+    }
+    // Only the launches area and first run change.
+    expect(vizzySuggestions("content", { ideas: true })).toEqual(vizzySuggestions("content"));
+    expect(homePrompts("grow", { ideas: true })).toEqual(homePrompts("grow"));
+  });
+
   it("asks about Settings › Connections by its tab's name, not Integrations", () => {
     expect(vizzySuggestions("settings")[0]).toBe("Which accounts are connected?");
     expect(vizzySuggestions("settings").join(" ")).not.toMatch(/integrations/i);

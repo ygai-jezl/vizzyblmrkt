@@ -19,6 +19,12 @@ describe("the How to drawer's help bodies", () => {
     expect(drawerBodyProps({ sharing: true, join: true } as never)).toMatchObject({ sharing: true, join: true });
   });
 
+  it("passes on ideas and their words from the shell", async () => {
+    const { drawerBodyProps } = await import("./HowToDrawer");
+    expect(drawerBodyProps(null)).toMatchObject({ ideas: false, ideaWords: false });
+    expect(drawerBodyProps({ ideas: true, ideaWords: true } as never)).toMatchObject({ ideas: true, ideaWords: true });
+  });
+
   it("shows the shared connection sections of Connected data and Brands in your organisation with the shell's values on", async () => {
     // As in the browser: the server switches read off.
     vi.stubEnv("CONNECTORS_SHARING_ENABLED", "");

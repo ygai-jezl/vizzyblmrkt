@@ -7,6 +7,8 @@ import { platformOrigin } from "@/lib/platform/origin";
 import { toCampaignSettings } from "@/lib/admin/campaignSettings";
 import { WidgetBuilder } from "@/components/admin/WidgetBuilder";
 import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { ideaWord } from "@/lib/nav/terms";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +29,7 @@ export default async function LaunchWidgetPage({
       <div>
         <h2 className="text-sm font-semibold">Embed &amp; Design</h2>
         <p className="mt-1 text-sm text-neutral-500">
-          Style this launch&apos;s waitlist and embed it on any site. Tweak the
+          Style this {ideaWord(isIdeaWordsEnabled()).own} waitlist and embed it on any site. Tweak the
           branding, preview each surface, then copy the snippet.
         </p>
       </div>

@@ -88,6 +88,18 @@ describe("loadPersonTimeline", () => {
     expect(page.entries.filter((e) => e.text.includes("Spring launch") && e.kind === "launch")).toEqual([]);
   });
 
+  it("calls a launch's email a waitlist email while launches are called ideas", async () => {
+    const { db, id } = await world();
+    const detail = async () => (await loadPersonTimeline(ctx, id, { db, lookup }))!.entries.find((e) => e.kind === "email")?.detail;
+    expect(await detail()).toBe("Launch email");
+    for (const k of ["NEXT_PUBLIC_NAV_V2_ENABLED", "NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED", "NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED", "NEXT_PUBLIC_NAV_IDEAS_ENABLED", "LAUNCH_IDEAS_ENABLED"]) {
+      vi.stubEnv(k, "true");
+    }
+    expect(await detail()).toBe("Waitlist email");
+    // A launch's own name is kept: only the word changes.
+    expect(texts((await loadPersonTimeline(ctx, id, { db, lookup }))!.entries)).toContain("Joined the Spring launch waitlist");
+  });
+
   it("pages through everything once, in order, whatever the page size", async () => {
     const { db, id } = await world();
     const all = texts((await loadPersonTimeline(ctx, id, { db, lookup }))!.entries);

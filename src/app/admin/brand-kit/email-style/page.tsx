@@ -19,6 +19,7 @@ import { isEmailHeaderImage, styleFromBrandKit } from "@/lib/email/emailStyle";
 import { emailLinkOrigin } from "@/lib/email/footer";
 import { resolveFooterBrand } from "@/lib/email/sender";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import type { BrandLogo } from "@/lib/types/brandLogo";
 import { EmailStyleCard } from "@/components/admin/brand-kit/EmailStyleCard";
 import { brandFontsToEmail, paletteChips } from "@/components/admin/brand-kit/emailStyleForm";
@@ -119,9 +120,11 @@ export default async function EmailStylePage() {
   const phase3 = isNavV2Phase3Enabled();
   // Off, the page is as without it: the welcome email alone in the preview, and today's list of emails.
   const transactional = isEmailStyleTransactionalEnabled();
+  // A launch's welcome emails are waitlist welcome emails while launches are called ideas.
+  const welcome = isIdeaWordsEnabled() ? "waitlist welcome" : "launch welcome";
   const emails = transactional
-    ? "lifecycle, launch welcome, invite, newsletter, sign-up confirmation and offboarding emails"
-    : "lifecycle, launch welcome, invite and newsletter emails";
+    ? `lifecycle, ${welcome}, invite, newsletter, sign-up confirmation and offboarding emails`
+    : `lifecycle, ${welcome}, invite and newsletter emails`;
 
   return (
     <div className="space-y-5">

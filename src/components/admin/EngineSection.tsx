@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ideaWord, type IdeaWord } from "@/lib/nav/terms";
+import { useWords } from "./nav/WordsProvider";
 
 /**
  * A launch's "Email engine" panel (engine move D5): where its welcome emails run
@@ -35,16 +37,17 @@ const ENGINE_LABEL: Record<Engine, string> = {
   lifecycle: "The new (lifecycle) engine",
 };
 
-const ERRORS: Record<string, string> = {
+/** The route's error codes in words, naming a launch or an idea (useWords().ideas). */
+const errorsFor = (w: IdeaWord): Record<string, string> => ({
   engine_off: "The new engine is switched off in this environment.",
-  not_in_pilot: "Moving launches isn't open to this account yet.",
-  launch_archived: "Restore the launch first.",
+  not_in_pilot: `Moving ${w.many} isn't open to this account yet.`,
+  launch_archived: `Restore the ${w.one} first.`,
   journey_paused: "Turn the welcome emails back on first, so nobody is left waiting.",
-  cannot_convert: "This journey can't be moved as it is — see what's blocking it below.",
+  cannot_convert: "This journey can't be moved as it is. See what's blocking it below.",
   nothing_to_rehearse: "There's nothing to rehearse: the welcome journey hasn't been published.",
   no_shadow_inbox: "Your account has no email address to send the rehearsal to.",
-  already_moved: "This launch has already moved.",
-};
+  already_moved: `This ${w.one} has already moved.`,
+});
 
 const BUTTON =
   "rounded-md border border-neutral-300 px-3 py-1.5 text-sm font-medium hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-900";
@@ -55,6 +58,7 @@ const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-
 
 export function EngineSection({ campaignId }: { campaignId: string }) {
   const router = useRouter();
+  const w = ideaWord(useWords().ideas);
   const [status, setStatus] = useState<Status | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -78,7 +82,7 @@ export function EngineSection({ campaignId }: { campaignId: string }) {
     });
     const data = (await res.json().catch(() => ({}))) as { error?: string; status?: Status };
     setBusy(null);
-    if (!res.ok) return setMsg({ ok: false, text: ERRORS[data.error ?? ""] ?? "That didn't work — please try again." });
+    if (!res.ok) return setMsg({ ok: false, text: errorsFor(w)[data.error ?? ""] ?? "That didn't work. Please try again." });
     if (data.status) setStatus(data.status);
     setMsg({ ok: true, text: done });
     router.refresh();
@@ -216,7 +220,7 @@ export function EngineSection({ campaignId }: { campaignId: string }) {
       </div>
       {!canMove && status.engine !== "lifecycle" ? (
         <p className="text-xs text-neutral-500">
-          {status.enabled ? "Moving launches isn't open to this account yet." : "The new engine is switched off in this environment."}
+          {status.enabled ? `Moving ${w.many} isn't open to this account yet.` : "The new engine is switched off in this environment."}
         </p>
       ) : null}
 

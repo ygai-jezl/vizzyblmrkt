@@ -4,7 +4,9 @@ import { forTenant } from "@/lib/tenant";
 import { LaunchTabs } from "@/components/admin/LaunchTabs";
 import { InviteButton } from "@/components/admin/invites/InviteButton";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
-import { INVITE_LOCK_TEXT } from "@/lib/invites/lockText";
+import { inviteLockText } from "@/lib/invites/lockText";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { ideaWord } from "@/lib/nav/terms";
 import { loadInviteSetup } from "@/lib/invites/waves";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +15,7 @@ export const dynamic = "force-dynamic";
  * Launch (campaign) workspace shell. Resolves the campaign once and renders the
  * launch header + sub-tabs; each tab surfaces an existing waitlist tool scoped
  * to this launch. The campaign existence is enforced here, so the tab pages can
- * assume it exists.
+ * assume it exists. With the words on (isIdeaWordsEnabled()) the header says Idea.
  */
 export default async function LaunchLayout({
   children,
@@ -26,6 +28,7 @@ export default async function LaunchLayout({
   const { campaignId } = await params;
   const campaign = await forTenant(ctx).campaigns.getById(campaignId);
   if (!campaign) notFound();
+  const words = isIdeaWordsEnabled();
   // Nav v2 phase 4: "Invite waitlist to product", locked (with the reason) until
   // there's a live production product with a sign-up link. Fails soft to hidden.
   const invites =
@@ -35,7 +38,7 @@ export default async function LaunchLayout({
 
   const header = (
     <div className="space-y-1">
-      <p className="text-xs uppercase tracking-wide text-neutral-400">Launch</p>
+      <p className="text-xs uppercase tracking-wide text-neutral-400">{ideaWord(words).One}</p>
       <h1 className="text-xl font-semibold">{campaign.waitlistName}</h1>
       <p className="text-sm text-neutral-500">
         /{campaign.id} · hosted at{" "}
@@ -49,7 +52,7 @@ export default async function LaunchLayout({
       {invites ? (
         <div className="flex flex-wrap items-start justify-between gap-3">
           {header}
-          <InviteButton campaignId={campaign.id} lockText={invites.lock ? INVITE_LOCK_TEXT[invites.lock] : null} />
+          <InviteButton campaignId={campaign.id} lockText={invites.lock ? inviteLockText(invites.lock, words) : null} />
         </div>
       ) : (
         header

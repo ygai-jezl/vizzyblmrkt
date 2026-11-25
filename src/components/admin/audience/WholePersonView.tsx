@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Download, Sparkles, Trash2 } from "lucide-react";
 import type { WholePerson } from "@/lib/audience/wholePerson";
-import { CONSENT_WAYS, NEW_PERSON_MESSAGES, NEW_PERSON_NOTES, newPersonErrorText, type ConsentWay } from "@/lib/audience/newPerson";
+import { CONSENT_WAYS, NEW_PERSON_AS_IDEAS, NEW_PERSON_MESSAGES, NEW_PERSON_NOTES, newPersonErrorText, type ConsentWay } from "@/lib/audience/newPerson";
+import { ideaWord } from "@/lib/nav/terms";
 import { INVITE_STAGE_LABEL } from "@/lib/invites/inviteStage";
 import { api, errorText } from "../connect/api";
 import { Banner, Button, inputClass, Section } from "../connect/ui";
@@ -12,6 +13,7 @@ import { Chip } from "../people/Chip";
 import { PersonView } from "../people/PersonView";
 import { EmailHistoryList } from "../crm/EmailHistoryList";
 import { useShell } from "../nav/ShellProvider";
+import { useWords } from "../nav/WordsProvider";
 import { ago, day } from "../people/format";
 import { FieldsPanel } from "./FieldsPanel";
 import { PersonTimeline } from "./PersonTimeline";
@@ -21,6 +23,7 @@ import { VizzySuggestions } from "./VizzySuggestions";
  * One person, whole (AUDIENCE_ONE_VIEW_ENABLED): everything a brand knows about one
  * address, whatever brought them. Their launches, each product they use (shown as that
  * product's own view of them), the emails their launches sent, and one consent panel.
+ * With the words on (useWords().ideas) their launches are ideas.
  */
 
 const LAUNCH_STATUS: Record<string, string> = { verified_active: "Confirmed", unverified: "Not confirmed yet", offboarded: "Offboarded" };
@@ -65,6 +68,7 @@ export function WholePersonView({
   vizzyFields?: boolean;
 }) {
   const shell = useShell();
+  const w = ideaWord(useWords().ideas);
   const [state, setState] = useState<State>({ status: "loading" });
   // Bumped when a suggestion changed their fields, so the Fields panel and the timeline read them again.
   const [version, setVersion] = useState(0);
@@ -104,7 +108,7 @@ export function WholePersonView({
   const p = state.person;
   const eraseEverywhere = async () => {
     const what = [
-      p.launches.length ? "their sign-ups on every launch" : null,
+      p.launches.length ? `their sign-ups on every ${w.one}` : null,
       p.products.length ? "their user record in every product" : null,
       "their journeys and all their email history",
     ].filter(Boolean);
@@ -153,7 +157,7 @@ export function WholePersonView({
       {suggestions && !timeline ? suggestions : null}
 
       {p.launches.length ? (
-        <Section title="Launches">
+        <Section title={w.Many}>
           <ul className="divide-y divide-neutral-100 text-sm dark:divide-neutral-900">
             {p.launches.map((l) => (
               <li key={l.campaignId} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
@@ -214,7 +218,7 @@ export function WholePersonView({
       ) : null}
 
       {p.launches.length ? (
-        <Section title={`Emails from your launches${p.launchEmails.length ? ` (${p.launchEmails.length})` : ""}`}>
+        <Section title={`Emails from your ${w.many}${p.launchEmails.length ? ` (${p.launchEmails.length})` : ""}`}>
           <EmailHistoryList emails={p.launchEmails} />
         </Section>
       ) : null}
@@ -348,6 +352,7 @@ export function WholePersonView({
 
 /** Record how someone added by hand agreed to marketing email, after they were added. Admins only. */
 function RecordConsent({ personId, onRecorded }: { personId: string; onRecorded: () => void }) {
+  const { ideas } = useWords();
   const [open, setOpen] = useState(false);
   const [how, setHow] = useState<ConsentWay>("in_person");
   const [note, setNote] = useState("");
@@ -369,7 +374,7 @@ function RecordConsent({ personId, onRecorded }: { personId: string; onRecorded:
       body: JSON.stringify({ how, ...(note.trim() ? { note: note.trim() } : {}) }),
     });
     setBusy(false);
-    if (!r.ok) return setError(newPersonErrorText(r.data));
+    if (!r.ok) return setError(newPersonErrorText(r.data, ideas));
     onRecorded();
   };
   return (
@@ -402,6 +407,7 @@ function RecordConsent({ personId, onRecorded }: { personId: string; onRecorded:
  * only. `elsewhere`: they also came from a launch or a product, whose consent this leaves alone.
  */
 function WithdrawConsent({ personId, elsewhere, onWithdrawn }: { personId: string; elsewhere: boolean; onWithdrawn: () => void }) {
+  const { ideas } = useWords();
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -421,7 +427,7 @@ function WithdrawConsent({ personId, elsewhere, onWithdrawn }: { personId: strin
       body: JSON.stringify(note.trim() ? { note: note.trim() } : {}),
     });
     setBusy(false);
-    if (!r.ok) return setError(r.status === 403 ? NEW_PERSON_MESSAGES.withdraw_forbidden : newPersonErrorText(r.data));
+    if (!r.ok) return setError(r.status === 403 ? NEW_PERSON_MESSAGES.withdraw_forbidden : newPersonErrorText(r.data, ideas));
     onWithdrawn();
   };
   return (
@@ -429,7 +435,7 @@ function WithdrawConsent({ personId, elsewhere, onWithdrawn }: { personId: strin
       <legend className="px-1 text-xs font-medium text-neutral-600 dark:text-neutral-400">{NEW_PERSON_NOTES.withdrawAsk}</legend>
       <input type="text" aria-label="Note" placeholder="A short note, if you like" maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} className={inputClass} />
       <p className="text-xs text-neutral-500">{NEW_PERSON_NOTES.withdrawHint}</p>
-      {elsewhere ? <p className="text-xs text-neutral-500">{NEW_PERSON_NOTES.withdrawElsewhere}</p> : null}
+      {elsewhere ? <p className="text-xs text-neutral-500">{ideas ? NEW_PERSON_AS_IDEAS.withdrawElsewhere : NEW_PERSON_NOTES.withdrawElsewhere}</p> : null}
       {error ? <Banner tone="err">{error}</Banner> : null}
       <div className="flex gap-2">
         <Button tone="danger" disabled={busy} onClick={() => void withdraw()}>

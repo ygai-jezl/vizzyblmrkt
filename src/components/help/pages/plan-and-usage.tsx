@@ -1,21 +1,28 @@
 import { H1, H2, Lead, P, Pairs, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Messages, Meta, NextPage, Open } from "@/components/help/blocks";
-import { PLANS } from "@/lib/plans/catalog";
+import { allowanceLabels, PLANS, planSummary } from "@/lib/plans/catalog";
 import { isOrganisationJoinEnabled, isUsageMeterUiEnabled } from "@/lib/plans/flags";
 import { IMAGE_LIMIT_MESSAGE, WEB_SEARCH_LIMIT_MESSAGE } from "@/lib/plans/resources";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
 import { isAddPersonEnabled } from "@/lib/audience/peopleFlags";
 import { isConnectorsSharingEnabled } from "@/lib/connectors/flags";
 import type { HelpBodyProps } from "@/lib/help/pages";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { ideaWord } from "@/lib/nav/terms";
 
-/** /help/plan-and-usage (NEXT_PUBLIC_PLANS_ENABLED): Settings › Plan and usage. No prices: they may change. */
+/**
+ * /help/plan-and-usage (NEXT_PUBLIC_PLANS_ENABLED): Settings › Plan and usage. No prices: they may change.
+ * With ideas in the words (`ideaWords`) launches are ideas, as the page's own labels say.
+ */
 export default function PlanAndUsageHelp({
   people = isPeopleNameEnabled(),
   addPerson = isAddPersonEnabled(),
   sharing = isConnectorsSharingEnabled(),
   join = isOrganisationJoinEnabled(),
+  ideaWords = isIdeaWordsEnabled(),
 }: HelpBodyProps = {}) {
   const meter = isUsageMeterUiEnabled();
+  const w = ideaWord(ideaWords);
   return (
     <article>
       <H1>Plan and usage</H1>
@@ -45,9 +52,9 @@ export default function PlanAndUsageHelp({
         Open <Open href="/admin/account/billing">Settings › Plan and usage</Open>. It shows your plan, a line about it and
         since when you have had it. There are five plans:
       </P>
-      <Pairs head={["Plan", "In a sentence"]} rows={PLANS.map((p) => [p.name, p.summary])} />
+      <Pairs head={["Plan", "In a sentence"]} rows={PLANS.map((p) => [p.name, planSummary(p, ideaWords)])} />
       <P>
-        Every plan includes launches and waitlists, journeys, posts and {people ? "People" : "your Audience"}. Plans differ in the features they add
+        Every plan includes {w.many} and waitlists, journeys, posts and {people ? "People" : "your Audience"}. Plans differ in the features they add
         and in how much they allow.
       </P>
       <P>
@@ -105,7 +112,7 @@ export default function PlanAndUsageHelp({
           ["Brands", "Every brand on the plan, suspended ones too."],
           ["Users", "Everyone added to any of the plan's brands, counted once however many brands they are in."],
           ["People", `Everyone in each brand's ${people ? "People list" : "Audience"}, added up across the plan's brands.`],
-          ["Live launches", "Each brand's launches that aren't archived. This one is per brand, not shared."],
+          [allowanceLabels(ideaWords).liveIdeas, `Each brand's ${w.many} that aren't archived. This one is per brand, not shared.`],
         ]}
       />
       <P>
@@ -148,7 +155,7 @@ export default function PlanAndUsageHelp({
       </UL>
 
       <H2 id="limits">At a limit</H2>
-      <P>Nobody and nothing is removed, and new sign-ups, launches and teammates still come in for now.</P>
+      <P>Nobody and nothing is removed, and new sign-ups, {w.many} and teammates still come in for now.</P>
       <UL>
         <li>A monthly allowance that runs out stops that feature for the rest of the month. It starts again on the 1st.</li>
         {meter ? (
@@ -174,7 +181,7 @@ export default function PlanAndUsageHelp({
           </li>
         ) : null}
         <li>
-          To make room, archive a launch you have finished, or ask whoever runs your copy of YouGrow about another plan.
+          To make room, archive {w.a} you have finished, or ask whoever runs your copy of YouGrow about another plan.
         </li>
       </UL>
 

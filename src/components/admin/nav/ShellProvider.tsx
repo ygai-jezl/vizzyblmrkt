@@ -53,6 +53,13 @@ interface Shell {
   connectorSignals: boolean;
   /** The brand map is kept at any size (isBrandMapScaleEnabled(), from the server), for the How to drawer. */
   brandMapScale: boolean;
+  /** Launches are ideas (isIdeasEnabled(), from the server), for the How to drawer. */
+  ideas: boolean;
+  /**
+   * Launches are called Ideas (isIdeaWordsEnabled(), from the server): the page label Vizzy gets
+   * follows the crumbs, the Ask Vizzy panel's starters say idea, and so does the How to drawer.
+   */
+  ideaWords: boolean;
   /** Organisations share connections (isConnectorsSharingEnabled(), from the server), for the How to drawer. */
   sharing: boolean;
   /** Owners bring in and move out brands (isOrganisationJoinEnabled(), from the server), for the How to drawer. */
@@ -108,6 +115,8 @@ export function ShellProvider({
   connectorsSearchText = false,
   connectorSignals = false,
   brandMapScale = false,
+  ideas = false,
+  ideaWords = false,
   sharing = false,
   join = false,
   children,
@@ -149,6 +158,10 @@ export function ShellProvider({
   connectorSignals?: boolean;
   /** The brand map is kept at any size (isBrandMapScaleEnabled(), from the server): the How to drawer says where proposals wait. */
   brandMapScale?: boolean;
+  /** Launches are ideas (isIdeasEnabled(), from the server): the How to drawer shows their help sections. */
+  ideas?: boolean;
+  /** Launches are called Ideas (isIdeaWordsEnabled(), from the server): the page label Vizzy gets follows the crumbs. */
+  ideaWords?: boolean;
   /** Organisations share connections (isConnectorsSharingEnabled(), from the server): the How to drawer says so. */
   sharing?: boolean;
   /** Owners bring in and move out brands (isOrganisationJoinEnabled(), from the server): the How to drawer says so. */
@@ -156,7 +169,15 @@ export function ShellProvider({
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? "/admin";
-  const page = vizzyPageLabel(breadcrumbsFor(pathname, names, { phase3: isNavV2Phase3Enabled(), insights: isInsightsHubEnabled(), plans: isPlansUiEnabled(), people }));
+  const page = vizzyPageLabel(
+    breadcrumbsFor(pathname, names, {
+      phase3: isNavV2Phase3Enabled(),
+      insights: isInsightsHubEnabled(),
+      plans: isPlansUiEnabled(),
+      people,
+      ideas: ideaWords,
+    }),
+  );
   const router = useRouter();
   // Made once, so a page's subscription outlives re-renders.
   const [saved] = useState(cardListeners);
@@ -230,11 +251,13 @@ export function ShellProvider({
       connectorsSearchText,
       connectorSignals,
       brandMapScale,
+      ideas,
+      ideaWords,
       sharing,
       join,
       onCanvasSaved: journeyInContext || personInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, brandMapScale, sharing, join, saved],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, brandMapScale, ideas, ideaWords, sharing, join, saved],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

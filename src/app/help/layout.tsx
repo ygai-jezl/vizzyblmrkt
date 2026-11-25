@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { HELP_GROUPS, shownHelpPages } from "@/lib/help/pages";
+import { helpGroups, shownHelpPages } from "@/lib/help/pages";
 import { isHelpPagesEnabled } from "@/lib/help/flags";
 import { HelpNav } from "@/components/help/HelpNav";
 import { BaseJsonLd } from "@/components/site/JsonLd";
@@ -11,8 +11,9 @@ export const dynamic = "force-dynamic";
 /** Public how-to pages for setting up and running YouGrow, in the order it's done. */
 export default function HelpLayout({ children }: { children: ReactNode }) {
   if (!isHelpPagesEnabled()) notFound();
+  // The server's words: with ideas on, Launch and waitlist is listed as Idea and waitlist, under 2 · Idea.
   const pages = shownHelpPages();
-  const groups = HELP_GROUPS.map((g) => ({ ...g, pages: pages.filter((p) => p.group === g.key) }));
+  const groups = helpGroups().map((g) => ({ ...g, pages: pages.filter((p) => p.group === g.key) }));
   return (
     <div className="min-h-screen bg-white text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
       <BaseJsonLd />

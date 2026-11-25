@@ -60,9 +60,9 @@ def build_lifecycle_ops_instruction(ctx: "ReadonlyContext") -> str:
         # from chat, only its look.
         parts.append(
             "# This conversation\n"
-            f"The operator is on the page of journey {journey_id}, a launch's welcome journey. "
+            f"The operator is on the page of journey {journey_id}, a waitlist's welcome journey. "
             "They edit its emails and steps on that page: get_lifecycle_journey and "
-            "save_lifecycle_graph can't open a launch's journey, so don't call them for it. For "
+            "save_lifecycle_graph can't open a waitlist's journey, so don't call them for it. For "
             'its look ("give this journey a navy header"), use get_journey_email_style and '
             "set_journey_email_style, which use this journey when journey_id is empty."
         )

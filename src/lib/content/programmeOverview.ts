@@ -61,7 +61,8 @@ export function programmeOverview(input: {
   const pipeline: PipelineStage[] = [
     {
       key: "ideas",
-      label: "Ideas",
+      // The Scrapbook's clippings (was Ideas); the key and the tab's route keep their names.
+      label: "Scrapbook",
       count: input.ideas.length,
       note: newIdeas ? `${newIdeas} not templated yet` : null,
       tab: "curate/idea-board",

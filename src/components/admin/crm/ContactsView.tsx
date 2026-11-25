@@ -7,6 +7,8 @@ import { INVITE_STAGE_LABEL, type InviteStage } from "@/lib/invites/inviteStage"
 /** Nav v2 phase 4: the contacts API adds each row's furthest invite stage when invites are on. */
 const inviteStageOf = (c: Contact): InviteStage | null => (c as Contact & { invite?: InviteStage | null }).invite ?? null;
 import { ContactDetail } from "./ContactDetail";
+import { ideaWord } from "@/lib/nav/terms";
+import { useWords } from "../nav/WordsProvider";
 
 const chip = (active: boolean) =>
   `rounded-full border px-3 py-1 text-xs ${
@@ -37,6 +39,7 @@ export function ContactsView({
   // The API applies one primary filter and a search wins over the launch, so a
   // search clears the launch filter rather than pretending to combine them.
   const [launch, setLaunch] = useState(initialLaunch);
+  const w = ideaWord(useWords().ideas);
   const [rows, setRows] = useState<Contact[]>(initialRows);
   const [cursor, setCursor] = useState<string | null>(initialCursor);
   const [q, setQ] = useState(initialQuery);
@@ -113,7 +116,7 @@ export function ContactsView({
             className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2.5 py-1 text-xs font-medium text-sky-800 dark:bg-sky-950 dark:text-sky-300"
             title="Show everyone"
           >
-            Launch: {launch.name} <span aria-hidden>×</span>
+            {w.One}: {launch.name} <span aria-hidden>×</span>
           </a>
         ) : null}
         <button className={chip(corporate)} onClick={() => applyFilters({ corporate: !corporate })}>

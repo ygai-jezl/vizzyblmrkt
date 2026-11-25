@@ -10,6 +10,7 @@ import { SETUP_HOW_TO, setupSteps, type SetupStep } from "@/lib/connect/setupChe
 import { isInvitesUiEnabled } from "@/lib/invites/flags";
 import { api, errorText, type PublicConnection } from "./api";
 import { Banner, Section } from "./ui";
+import { useWords } from "../nav/WordsProvider";
 
 const GUIDE = isSetupGuideEnabled();
 
@@ -25,6 +26,7 @@ interface JourneysResponse {
  * the work happens, each step opening the tab or page where it's done.
  */
 export function SetupPanel({ connection, onOpenTab }: { connection: PublicConnection; onOpenTab: (tab: Tab) => void }) {
+  const { ideas } = useWords();
   const [steps, setSteps] = useState<SetupStep[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,13 +57,14 @@ export function SetupPanel({ connection, onOpenTab }: { connection: PublicConnec
           journeys: all.journeys.filter((j) => j.connectionId === connection.id),
           production: prod ? { id: prod.id, hasJourney: all.journeys.some((j) => j.connectionId === prod.id) } : null,
           invites: invites?.ok ? invites.data : null,
+          ideas,
         }),
       );
     })();
     return () => {
       alive = false;
     };
-  }, [connection]);
+  }, [connection, ideas]);
 
   if (error) return <Banner tone="err">{error}</Banner>;
   if (!steps) return <p className="text-sm text-neutral-500">Loading…</p>;

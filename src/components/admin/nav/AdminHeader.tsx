@@ -14,12 +14,29 @@ import { ThemeSwitch } from "./ThemeSwitch";
 /**
  * The slim bar above every admin page: where you are on the left, the theme switch on the right.
  * `people` (isPeopleNameEnabled(), from the server) names the Audience area People in the crumbs
- * and opens its How to on /help/your-audience. `organisation: "brands"` (from the server: the join
- * on, sharing off) opens Settings › Organisation's How to on Brands in your organisation.
+ * and opens its How to on /help/your-audience. `ideas` (isIdeaWordsEnabled(), from the server)
+ * calls launches ideas in the crumbs. `organisation: "brands"` (from the server: the join on,
+ * sharing off) opens Settings › Organisation's How to on Brands in your organisation.
  */
-export function AdminHeader({ names, people = false, organisation }: { names: CrumbNames; people?: boolean; organisation?: "brands" }) {
+export function AdminHeader({
+  names,
+  people = false,
+  ideas = false,
+  organisation,
+}: {
+  names: CrumbNames;
+  people?: boolean;
+  ideas?: boolean;
+  organisation?: "brands";
+}) {
   const pathname = usePathname() ?? "/admin";
-  const crumbs = breadcrumbsFor(pathname, names, { phase3: isNavV2Phase3Enabled(), insights: isInsightsHubEnabled(), plans: isPlansUiEnabled(), people });
+  const crumbs = breadcrumbsFor(pathname, names, {
+    phase3: isNavV2Phase3Enabled(),
+    insights: isInsightsHubEnabled(),
+    plans: isPlansUiEnabled(),
+    people,
+    ideas,
+  });
   const howTo = helpFor(pathname, { people, organisation });
   return (
     <header className="sticky top-0 z-20 flex h-12 shrink-0 items-center gap-4 border-b border-shell-line bg-shell-side px-6">

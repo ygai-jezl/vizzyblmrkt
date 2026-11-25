@@ -18,6 +18,8 @@ import type { ScheduledPost } from "@/lib/types/scheduledPost";
 import type { InviteWave } from "@/lib/types/invite";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
 import { isWaitlistEngineUiEnabled } from "@/lib/lifecycle/waitlist/flags";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { ideaWord } from "@/lib/nav/terms";
 import type { BrandMap, BrandMapSuggestionFrom } from "@/lib/types/brandMap";
 import { isBlogFreshnessEnabled, isBrandMapEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 import { proposalsWaiting, suggestionsWaiting } from "@/lib/brandMap/waiting";
@@ -168,6 +170,9 @@ export function repoResultsItem(
   };
 }
 
+/** A launch with no name left: "a launch", or "an idea" while the words are on (isIdeaWordsEnabled(); Review is built on the server). */
+const unnamedLaunch = (): string => ideaWord(isIdeaWordsEnabled()).a;
+
 /** A lifecycle journey Vizzy drafted that has never been published. */
 export function agentJourneyItem(
   j: Pick<LifecycleJourney, "id" | "name" | "authoredBy" | "publishedVersion" | "status"> & Partial<Pick<LifecycleJourney, "audience">>,
@@ -179,7 +184,7 @@ export function agentJourneyItem(
     return {
       id: `lcj:${j.id}`,
       kind: "agent_draft",
-      title: `Welcome emails for ${launchName ?? "a launch"}`,
+      title: `Welcome emails for ${launchName ?? unnamedLaunch()}`,
       detail: "Drafted by Vizzy · not published",
       href: `/admin/lifecycle/${j.id}`,
       action: "Open",
@@ -205,7 +210,7 @@ export function agentLaunchJourneyItem(
   return {
     id: `journey:${j.id}`,
     kind: "agent_draft",
-    title: `Welcome emails for ${launchName ?? "a launch"}`,
+    title: `Welcome emails for ${launchName ?? unnamedLaunch()}`,
     detail: "Drafted by Vizzy · not turned on",
     href: `/admin/launches/${j.campaignId}/journey`,
     action: "Open",
@@ -221,7 +226,7 @@ export function agentInviteWaveItem(
   return {
     id: `wave:${w.id}`,
     kind: "agent_draft",
-    title: `Invite ${w.size.toLocaleString("en-GB")} ${w.size === 1 ? "person" : "people"} from ${launchName ?? "a launch"}`,
+    title: `Invite ${w.size.toLocaleString("en-GB")} ${w.size === 1 ? "person" : "people"} from ${launchName ?? unnamedLaunch()}`,
     detail: "Waitlist invite drafted by Vizzy · not sent",
     href: `/admin/launches/${w.campaignId}/invites?wave=${w.id}`,
     action: "Open",

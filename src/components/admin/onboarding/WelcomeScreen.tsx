@@ -1,34 +1,68 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, ListChecks, Mic, Sparkles } from "lucide-react";
+import { cameBySoftNavigation } from "@/lib/onboarding/voice/transcript";
+import { useVoiceCall } from "@/lib/onboarding/voice/useVoiceCall";
 import { WELCOME_WORDS } from "@/lib/onboarding/words";
 import { Orb, saveProfile, useOnboarding } from "./OnboardingFrame";
+import { VoiceCall } from "./VoiceCall";
 
+const WELCOME_PATH = "/admin/welcome";
 const QUESTIONS_HREF = "/admin/welcome/questions";
+/** When the welcome last loaded itself again, so it does it once. */
+const RELOADED_KEY = "yg-welcome-reloaded";
+
+const CARD =
+  "flex w-full items-center gap-3.5 rounded-[14px] border-2 py-3.5 pl-3.5 pr-[18px] text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-shell-accent";
+/** Talk with Vizzy: `yg-talk` (globals.css) is the card coloured fill, the turning gradient border and the glow. */
+const TALK = `yg-talk ${CARD}`;
+/** The questions as the main choice, with voice off: a plain card. */
+const PRIMARY = `${CARD} border-shell-line bg-shell-card text-shell-ink shadow-lg hover:bg-shell-hover`;
+const PRIMARY_ICON = "grid h-10 w-10 shrink-0 place-items-center rounded-full bg-shell-accent text-white";
 
 /**
- * The main choice's card. `yg-talk` gives it the turning gradient border with voice (globals.css);
- * without that style it is a plain card with a border.
+ * The microphone header is on /admin/welcome's own document only (next.config.ts). Arriving by a
+ * soft navigation keeps the page before's document, where the microphone is off, so the welcome
+ * loads itself once more. That happens before any click, so Talk with Vizzy still starts the
+ * audio inside its own click.
  */
-const PRIMARY =
-  "yg-talk flex w-full items-center gap-3.5 rounded-[14px] border-2 border-shell-line bg-shell-card py-3.5 pl-3.5 pr-[18px] text-left text-shell-ink shadow-lg hover:bg-shell-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-shell-accent";
-const PRIMARY_ICON = "grid h-10 w-10 shrink-0 place-items-center rounded-full bg-shell-accent text-white";
+function loadAgainIfSoftArrival(): void {
+  try {
+    const entry = performance.getEntriesByType("navigation")[0];
+    if (!cameBySoftNavigation(entry?.name, WELCOME_PATH)) return;
+    try {
+      const last = Number(sessionStorage.getItem(RELOADED_KEY) ?? 0);
+      if (Date.now() - last < 30_000) return;
+      sessionStorage.setItem(RELOADED_KEY, String(Date.now()));
+    } catch {
+      /* no storage: the navigation entry alone keeps it to once */
+    }
+    window.location.replace(window.location.href);
+  } catch {
+    /* no navigation entry: leave it */
+  }
+}
 
 /**
  * /admin/welcome, shown once per brand to the first admin who opens Home (and any time from
  * Settings). Talk with Vizzy by voice is the main choice when voice is on; without it, the
  * 4 quick questions are. Skip for now marks the profile skipped and goes to Home.
  *
- * `onTalk` starts the call. The call's own screens (the microphone, talking, the end) take this
- * one's place once it starts.
+ * Talk with Vizzy starts the call in its own click; the call's screens (the microphone, talking,
+ * the end) then take this one's place.
  */
-export function WelcomeScreen({ onTalk }: { onTalk?: () => void }) {
+export function WelcomeScreen() {
   const { brand, voice } = useOnboarding();
   const router = useRouter();
   const [skipping, setSkipping] = useState(false);
+  const call = useVoiceCall();
+
+  useEffect(() => {
+    if (voice) loadAgainIfSoftArrival();
+  }, [voice]);
 
   async function skip() {
     if (skipping) return;
@@ -37,6 +71,8 @@ export function WelcomeScreen({ onTalk }: { onTalk?: () => void }) {
     await saveProfile({ status: "skipped", via: "welcome" });
     router.push("/admin");
   }
+
+  if (voice && call.phase !== "first") return <VoiceCall call={call} />;
 
   return (
     <div className="flex w-full max-w-[480px] flex-col items-center text-center">
@@ -49,7 +85,7 @@ export function WelcomeScreen({ onTalk }: { onTalk?: () => void }) {
       <div className="mt-8 flex w-full flex-col items-center">
         {voice ? (
           <>
-            <button type="button" onClick={onTalk} className={PRIMARY}>
+            <button type="button" onClick={call.start} className={TALK}>
               <span className={PRIMARY_ICON}>
                 <Mic size={20} aria-hidden />
               </span>

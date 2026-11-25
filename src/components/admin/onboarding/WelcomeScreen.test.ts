@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -33,6 +35,8 @@ describe("the welcome", () => {
     for (const gone of ["Talk with Vizzy", "Fastest", "By voice", "Talking it through", "Or answer 4 quick questions", "never the audio"]) {
       expect(html).not.toContain(gone);
     }
+    // A plain card: the turning gradient border is Talk with Vizzy's own.
+    expect(html).not.toContain("yg-talk");
   });
 
   it("with voice on, leads with Talk with Vizzy, then the questions, Skip and the words footer", () => {
@@ -41,6 +45,31 @@ describe("the welcome", () => {
     const at = order.map((w) => html.indexOf(w));
     expect(at.every((i) => i >= 0)).toBe(true);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
+  });
+
+  it("gives Talk with Vizzy the gradient border on a card coloured button, with the Fastest badge", () => {
+    const html = render(true, WelcomeScreen);
+    const talk = html.match(/<button type="button" class="([^"]*)">(.*?)<\/button>/)!;
+    expect(talk[1]).toMatch(/^yg-talk /);
+    // Card coloured with ink text comes from yg-talk (globals.css): never a black fill.
+    expect(talk[1]).not.toMatch(/bg-shell-ink|bg-black/);
+    expect(talk[2]).toContain("Talk with Vizzy");
+    expect(talk[2]).toMatch(/<span class="[^"]*">Fastest<\/span>/);
+    expect(talk[2]).toContain("By voice, 3 to 5 minutes");
+    expect(html.match(/yg-talk/g)).toHaveLength(1);
+  });
+
+  it("styles the border to turn in 6 s and glow every 2.4 s, on the card colour, and keeps still under reduced motion", () => {
+    const css = readFileSync(join(process.cwd(), "src", "app", "globals.css"), "utf8");
+    expect(css).toMatch(/@property --ob-angle \{\s*syntax: "<angle>";\s*inherits: false;\s*initial-value: 0deg;\s*\}/);
+    const talk = css.slice(css.indexOf(".yg-talk {"), css.indexOf("}", css.indexOf(".yg-talk {")));
+    expect(talk).toContain("linear-gradient(var(--yg-card), var(--yg-card)) padding-box");
+    expect(talk).toContain("conic-gradient(from var(--ob-angle), #2563eb, #7c3aed, #db2777, #f59e0b, #2563eb) border-box");
+    expect(talk).toContain("color: var(--yg-ink)");
+    expect(talk).toMatch(/yg-ob-turn 6s linear infinite/);
+    expect(talk).toMatch(/yg-ob-pulse 2\.4s ease-in-out infinite/);
+    const still = css.slice(css.lastIndexOf("@media (prefers-reduced-motion: reduce)"));
+    expect(still).toMatch(/\.yg-talk,[\s\S]*animation: none/);
   });
 });
 

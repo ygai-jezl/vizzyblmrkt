@@ -23,6 +23,41 @@ export const WELCOME_WORDS = {
   foot: "Vizzy keeps the words, never the audio. Read or delete them in Settings.",
 } as const;
 
+/** Talk with Vizzy: the microphone, the call and its end (Welcome.html). */
+export const VOICE_WORDS = {
+  micTitle: "Allow your microphone",
+  micLead: "Your browser asks once. Vizzy listens only on this page.",
+  instead: "Answer 4 quick questions instead",
+  micFoot: "Vizzy keeps the words, never the audio.",
+  live: "Live",
+  left: (clock: string) => `${clock} left`,
+  leftAria: (clock: string) => `Time left: ${clock}`,
+  listening: "Listening",
+  muted: "Muted",
+  topics: "What Vizzy makes sure it covers",
+  covered: (answer: string) => ` (covered: ${answer})`,
+  now: " (talking about it now)",
+  transcript: "Live transcript",
+  vizzy: "Vizzy",
+  you: "You",
+  mute: "Mute",
+  end: "End",
+  talkFoot: "Talk about anything else too. Vizzy keeps the words, never the audio.",
+  endedTitle: "Thanks, that's plenty",
+  allCovered: (length: string) => `${length}. All four covered.`,
+  /** Fewer than four (not drawn in the mockups). */
+  someCovered: (length: string, n: number) => `${length}. ${n} of 4 covered.`,
+  heard: "What Vizzy heard",
+  seeLearned: "See what I learned",
+  endedFoot: "The transcript is in Settings, under About your business.",
+  /** When a call can't start or stops (not drawn in the mockups). */
+  blocked: "Your browser blocked the microphone. Allow it in your browser's site settings, or answer 4 quick questions.",
+  usedToday: "You've talked with Vizzy today. Answer 4 quick questions, or talk again tomorrow.",
+  unavailable: "Voice isn't available right now. Answer 4 quick questions instead.",
+  full: "You've kept 20 conversations. Delete one in Settings to talk again.",
+  dropped: "The call dropped. What you said so far is kept.",
+} as const;
+
 export const QUESTIONS_WORDS = {
   progress: (n: number, of: number) => `${n} of ${of}`,
   soFar: "Your answers so far",

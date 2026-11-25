@@ -44,9 +44,15 @@ describe("Gemini use is always metered", () => {
 
   it("only gemini.ts calls the models", () => {
     // embeddings.ts: knowledge search vectors (not counted, help says so). useLiveConversation.ts:
-    // the browser's voice chat, which talks to Google directly with a short-lived token (not counted).
+    // the waitlist's voice chat, which talks to Google directly with a short-lived token (not counted).
+    // useVoiceCall.ts: Talk with Vizzy, the same way; the server counts its seconds as each call ends.
     expect(matching(/\.generateContent(Stream)?\(|new GoogleGenAI\(/)).toEqual(
-      [join("lib", "agents", "embeddings.ts"), join("lib", "agents", "gemini.ts"), join("lib", "hooks", "useLiveConversation.ts")].sort(),
+      [
+        join("lib", "agents", "embeddings.ts"),
+        join("lib", "agents", "gemini.ts"),
+        join("lib", "hooks", "useLiveConversation.ts"),
+        join("lib", "onboarding", "voice", "useVoiceCall.ts"),
+      ].sort(),
     );
   });
 

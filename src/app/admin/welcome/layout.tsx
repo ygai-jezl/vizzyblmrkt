@@ -2,7 +2,9 @@ import { notFound, redirect } from "next/navigation";
 import { requireAdminContext } from "@/lib/auth/session";
 import { deriveFaviconUrl, getTenantById } from "@/lib/tenant";
 import { isNavV2Phase2Enabled } from "@/lib/nav/flags";
-import { isOnboardingEnabled } from "@/lib/onboarding/flags";
+import { isLiveConfigured } from "@/lib/agents/gemini";
+import { isOnboardingEnabled, isOnboardingVoiceEnabled } from "@/lib/onboarding/flags";
+import { tenantMayUse } from "@/lib/plans/brandAccess";
 import { OnboardingFrame } from "@/components/admin/onboarding/OnboardingFrame";
 
 export const dynamic = "force-dynamic";
@@ -21,8 +23,9 @@ export default async function WelcomeLayout({ children }: { children: React.Reac
     name: tenant?.tenantName ?? ctx.tenantId,
     faviconUrl: tenant?.faviconUrl || (tenant ? deriveFaviconUrl(tenant.rootDomain) : undefined),
   };
-  // Talk with Vizzy waits for the voice call; until then the questions are the main choice.
-  const voice = false;
+  // Talk with Vizzy: the voice switch, a Live API key, and this brand's access (every plan has it;
+  // a copy may keep it for granted brands). Without it the questions are the main choice.
+  const voice = isOnboardingVoiceEnabled() && isLiveConfigured() && tenantMayUse(tenant, "onboarding_voice");
   return (
     <OnboardingFrame brand={brand} voice={voice} answers={tenant?.businessProfile?.answers ?? {}}>
       {children}

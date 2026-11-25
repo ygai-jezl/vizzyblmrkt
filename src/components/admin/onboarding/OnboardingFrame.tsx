@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { BrandFavicon } from "@/components/admin/BrandFavicon";
 import type { ProfileAnswers } from "@/lib/types/businessProfile";
 import { FRAME_WORDS } from "@/lib/onboarding/words";
@@ -16,6 +16,14 @@ export interface OnboardingInfo {
 
 const OnboardingContext = createContext<OnboardingInfo | null>(null);
 
+/** The top bar's right side, where a call shows Live and its time left (see useFrameTopSlot). */
+const TopSlotContext = createContext<HTMLElement | null>(null);
+
+/** The element on the right of the top bar, for a portal, or null until it is there. */
+export function useFrameTopSlot(): HTMLElement | null {
+  return useContext(TopSlotContext);
+}
+
 /** The welcome's brand, voice and saved answers. Only inside OnboardingFrame. */
 export function useOnboarding(): OnboardingInfo {
   const info = useContext(OnboardingContext);
@@ -30,6 +38,7 @@ export function useOnboarding(): OnboardingInfo {
  */
 export function OnboardingFrame({ children, ...info }: OnboardingInfo & { children?: ReactNode }) {
   const root = useRef<HTMLDivElement>(null);
+  const [topSlot, setTopSlot] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     // Screen readers start here, unless a screen already moved focus to its heading.
@@ -39,47 +48,57 @@ export function OnboardingFrame({ children, ...info }: OnboardingInfo & { childr
 
   return (
     <OnboardingContext.Provider value={info}>
-      <div
-        ref={root}
-        tabIndex={-1}
-        role="dialog"
-        aria-modal="true"
-        aria-label={FRAME_WORDS.label}
-        className="fixed inset-0 z-40 flex flex-col overflow-y-auto overscroll-contain bg-shell-page text-shell-ink outline-none"
-        style={{
-          backgroundImage:
-            "radial-gradient(ellipse 70% 42% at 50% 0%, color-mix(in srgb, var(--yg-accent) 11%, transparent), transparent 72%)",
-        }}
-      >
-        <header className="flex h-14 shrink-0 items-center justify-between gap-4 px-6">
-          <span className="flex min-w-0 items-center gap-2 text-sm font-semibold">
-            <BrandFavicon name={info.brand.name} faviconUrl={info.brand.faviconUrl} size={20} />
-            <span className="truncate">{info.brand.name}</span>
-          </span>
-        </header>
-        <div className="relative flex flex-1 flex-col items-center justify-center px-4 pb-20 pt-6 sm:px-6">{children}</div>
-      </div>
+      <TopSlotContext.Provider value={topSlot}>
+        <div
+          ref={root}
+          tabIndex={-1}
+          role="dialog"
+          aria-modal="true"
+          aria-label={FRAME_WORDS.label}
+          className="fixed inset-0 z-40 flex flex-col overflow-y-auto overscroll-contain bg-shell-page text-shell-ink outline-none"
+          style={{
+            backgroundImage:
+              "radial-gradient(ellipse 70% 42% at 50% 0%, color-mix(in srgb, var(--yg-accent) 11%, transparent), transparent 72%)",
+          }}
+        >
+          <header className="flex h-14 shrink-0 items-center justify-between gap-4 px-6">
+            <span className="flex min-w-0 items-center gap-2 text-sm font-semibold">
+              <BrandFavicon name={info.brand.name} faviconUrl={info.brand.faviconUrl} size={20} />
+              <span className="truncate">{info.brand.name}</span>
+            </span>
+            <div ref={setTopSlot} className="flex shrink-0 items-center gap-4 text-[13px] leading-[18px] text-shell-muted" />
+          </header>
+          <div className="relative flex flex-1 flex-col items-center justify-center px-4 pb-20 pt-6 sm:px-6">{children}</div>
+        </div>
+      </TopSlotContext.Provider>
     </OnboardingContext.Provider>
   );
 }
 
-/** The rings and the round core above a screen's heading. `done` is the finished look. */
-export function Orb({ done = false, children }: { done?: boolean; children: ReactNode }) {
-  const ring = `absolute rounded-full border ${done ? "border-shell-faint" : "border-shell-accent"}`;
+export type OrbLook = "start" | "wait" | "live" | "done";
+
+const CORE: Record<OrbLook, string> = {
+  start: "bg-shell-accent text-white shadow-[0_0_0_8px_var(--yg-accent-soft),0_14px_32px_-10px_var(--yg-accent)]",
+  wait: "border-2 border-shell-accent bg-shell-card text-shell-accent shadow-[0_0_0_8px_var(--yg-accent-soft),0_14px_32px_-10px_var(--yg-accent)]",
+  live: "bg-shell-accent text-white shadow-[0_0_0_8px_var(--yg-accent-soft),0_14px_32px_-10px_var(--yg-accent)]",
+  done: "bg-shell-ink text-shell-side shadow-[0_0_0_8px_var(--yg-active)]",
+};
+
+/**
+ * The rings and the round core above a screen's heading. `done` (or `look="done"`) is the
+ * finished look, `wait` waits for the browser, `live` breathes while Vizzy listens (still under
+ * reduced motion). `small` is the call's size.
+ */
+export function Orb({ done = false, look, small = false, children }: { done?: boolean; look?: OrbLook; small?: boolean; children: ReactNode }) {
+  const as: OrbLook = look ?? (done ? "done" : "start");
+  const ring = `absolute rounded-full border ${as === "done" ? "border-shell-faint" : "border-shell-accent"}${as === "live" ? " yg-breathe" : ""}`;
+  const step = small ? 14 : 18;
   return (
-    <div aria-hidden className="relative grid h-[168px] w-[168px] shrink-0 place-items-center">
+    <div aria-hidden className={`relative grid shrink-0 place-items-center ${small ? "h-32 w-32" : "h-[168px] w-[168px]"}`}>
       <span className={ring} style={{ inset: 0, opacity: 0.14 }} />
-      <span className={ring} style={{ inset: 18, opacity: 0.24 }} />
-      <span className={ring} style={{ inset: 36, opacity: 0.42 }} />
-      <span
-        className={`relative grid h-16 w-16 place-items-center rounded-full ${
-          done
-            ? "bg-shell-ink text-shell-side shadow-[0_0_0_8px_var(--yg-active)]"
-            : "bg-shell-accent text-white shadow-[0_0_0_8px_var(--yg-accent-soft),0_14px_32px_-10px_var(--yg-accent)]"
-        }`}
-      >
-        {children}
-      </span>
+      <span className={ring} style={{ inset: step, opacity: 0.24, animationDelay: "0.3s" }} />
+      <span className={ring} style={{ inset: step * 2, opacity: 0.42, animationDelay: "0.6s" }} />
+      <span className={`relative grid h-16 w-16 place-items-center rounded-full ${CORE[as]}`}>{children}</span>
     </div>
   );
 }

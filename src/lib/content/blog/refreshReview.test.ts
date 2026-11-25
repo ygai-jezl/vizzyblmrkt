@@ -184,6 +184,18 @@ describe("the review's steps", () => {
     expect(record.observation.liveUrl).toBe(live.url);
   });
 
+  it("gives the model a whole article's time, with its thinking capped", async () => {
+    const db = new FakeFirestore();
+    const plan = seed(db);
+    await startReview(ctx, { plan, by: "person" }, deps(db));
+    const generate = vi.fn(async () => changes());
+    await runAll(deps(db, { generate }));
+    const [, opts] = generate.mock.calls[0] as unknown as [string, { timeoutMs: number; thinkingBudget: number; json: boolean }];
+    expect(opts).toMatchObject({ thinkingBudget: 2048, json: true });
+    expect(opts.timeoutMs).toBeGreaterThan(40_000);
+    expect(opts.timeoutMs).toBeLessThanOrEqual(70_000);
+  });
+
   it("says what it couldn't read, and tries a failed step again before giving up", async () => {
     const db = new FakeFirestore();
     const plan = seed(db);

@@ -54,7 +54,7 @@ export const REVIEW = {
   MAX_ATTEMPTS: 3,
   RETRY_MS: 2 * 60_000,
   /** The longest each step takes, so one starts only with time for it. */
-  STEP_MS: { read: 8_000, sources: 30_000, research: 70_000, brand: 40_000, propose: 50_000 } satisfies Record<ReviewStep, number>,
+  STEP_MS: { read: 8_000, sources: 30_000, research: 70_000, brand: 40_000, propose: 75_000 } satisfies Record<ReviewStep, number>,
   /** Research's own limit, inside its step's. */
   RESEARCH_MS: 55_000,
   MAX_EVIDENCE: 40,

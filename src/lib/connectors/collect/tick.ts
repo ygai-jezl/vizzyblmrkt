@@ -44,7 +44,9 @@ import { collectConnection, collectOf, isDue, MIN_START_MS, type CollectRunDeps,
  * housekeeping never ends a part on them (it reads afresh first). A suggestion reads another
  * connection's numbers (Google Analytics sessions beside Search Console's) only from one every way
  * out may read now: a brand's own, or a part partLive honours. A suspended brand gets its parts'
- * housekeeping only, so a part its organisation ended is still ended and erased.
+ * housekeeping and its pending erases only (nothing collected, nothing looked at), so a part its
+ * organisation ended is still ended and erased, and an erase that failed, on any of its records,
+ * disconnected ones included, is tried again on the next run.
  */
 
 export const LANE = {
@@ -122,16 +124,22 @@ export async function runConnectorsLane(opts: { deadlineMs: number }, deps: Lane
   } catch (err) {
     console.warn("[connectors] the organisation connections sweep failed:", err instanceof Error ? err.message.slice(0, 200) : "error");
   }
-  // Suspended brands: their parts' housekeeping only (nothing collected, nothing looked at), on positive evidence.
+  // Suspended brands: their parts' housekeeping, on positive evidence, and any erase still pending on
+  // any of their records, disconnected ones included. Nothing collected, nothing looked at.
   for (const t of suspended) {
     if (opts.deadlineMs - clock() < MIN_START_MS) break;
     const ctx: TenantContext = { tenantId: t.id, region: t.region, source: "system" };
     const db = deps.regionDb?.(t.region) ?? deps.db;
     try {
-      const conns = (await forTenant(ctx, db).dataConnections.find({ where: [["status", "==", "connected"]], limit: LANE.CONNECTIONS_PER_BRAND })).filter((c) => c.source);
-      if (!conns.length) continue;
-      const ended = await partHousekeeping(ctx, conns, { db, now: new Date(clock()), searchIndex: deps.searchIndex, regionDb: deps.regionDb, controlDb: deps.controlDb, partCache });
-      result.partsEnded = (result.partsEnded ?? 0) + ended.ended;
+      const records = await forTenant(ctx, db).dataConnections.find({ limit: LANE.CONNECTIONS_PER_BRAND });
+      const parts = records.filter((c) => c.source && c.status === "connected");
+      if (parts.length) {
+        const ended = await partHousekeeping(ctx, parts, { db, now: new Date(clock()), searchIndex: deps.searchIndex, regionDb: deps.regionDb, controlDb: deps.controlDb, partCache });
+        result.partsEnded = (result.partsEnded ?? 0) + ended.ended;
+      }
+      // A part ended just now was erased as it ended; one whose erase failed on an earlier run is tried again here.
+      const { erased } = await retryPendingErases(ctx, records, { db, now: new Date(clock()), searchIndex: deps.searchIndex });
+      result.erased += erased;
     } catch (err) {
       console.warn(`[connectors] part housekeeping for suspended ${t.id} failed:`, err instanceof Error ? err.message.slice(0, 200) : "error");
     }

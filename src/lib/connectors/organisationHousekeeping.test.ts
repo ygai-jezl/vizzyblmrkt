@@ -341,6 +341,61 @@ describe("the lane with shared connections", () => {
     expect(await record(US_BRAND, USE_US)).toMatchObject({ status: "disconnected" });
   });
 
+  it("tries a suspended brand's failed erase again on the next run, and never collects for it", async () => {
+    for (const on of ["CONNECTORS_ENABLED", "CONNECTORS_COLLECT_ENABLED", "CONNECTOR_CLOUDFLARE_ENABLED"]) vi.stubEnv(on, "true");
+    const { createDataConnection } = await import("@/lib/tenant");
+    const OWN = "dcn_ownaaaaaaaaaaaaaaaaa";
+    seedTenant(w, US_BRAND, ORG, { status: "suspended" });
+    // A connection of Fernhill US's own, due to collect: never collected while the brand is suspended.
+    await createDataConnection(
+      { ...US_BRAND, source: "system" },
+      {
+        id: OWN,
+        connectorId: "cloudflare",
+        method: "token_fields",
+        label: "Cloudflare",
+        account: "0123456789abcdef0123456789abcd09",
+        ownerUid: "usr_priya",
+        grants: [],
+        secrets: {},
+        health: { state: "ok", lastOkAt: T0, lastCheckedAt: T0, lastErrorCode: null, failures: 0, pausedUntil: null },
+        pausedAt: null,
+        pausedBy: null,
+        status: "connected",
+        createdAt: T0,
+        updatedAt: T0,
+        disconnectedAt: null,
+      },
+      [],
+      w.us,
+    );
+    await changeOrganisationConnection(ORG, OCN, "eu", () => ({ patch: { status: "disconnected" }, activity: [] }), { regionDb: w.regionDb });
+    const suspended = () => Promise.resolve([{ id: US_BRAND.tenantId, region: "us", status: "suspended", organisationId: ORG } as Tenant]);
+    const collect = vi.fn(async (_ctx: unknown, _id: string) => ({ status: "nothing" as const, days: 0 }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const usSnapshots = () => w.us.dump("metric_snapshots").filter((d) => d.connectionId === USE_US);
+    // The first run ends the part, but its erase fails: the brand's region won't delete snapshots just then.
+    const down = failingFirestore(w.us, { collections: ["metric_snapshots"] });
+    const first = await lane({ collect, listTenants: suspended, regionDb: (r: Region) => (r === "us" ? down : w.regionDb(r)) });
+    expect(first).toMatchObject({ brands: 0, partsEnded: 1, erased: 0 });
+    expect(await record(US_BRAND, USE_US)).toMatchObject({ status: "disconnected", collect: { erasePending: "all" } });
+    expect(usSnapshots()).toHaveLength(1);
+    // The next run finds the part disconnected with its erase still pending, and erases it.
+    const next = await lane({ collect, listTenants: suspended });
+    expect(next).toMatchObject({ brands: 0, erased: 1 });
+    expect(next.partsEnded ?? 0).toBe(0);
+    expect(usSnapshots()).toEqual([]);
+    expect((await record(US_BRAND, USE_US))!.collect?.erasePending).toBeNull();
+    // Nothing left to erase: a third run erases nothing, and nothing was ever collected.
+    expect((await lane({ collect, listTenants: suspended })).erased).toBe(0);
+    expect(collect).not.toHaveBeenCalled();
+    // Active again, its own connection is collected.
+    seedTenant(w, US_BRAND, ORG);
+    await lane({ collect });
+    expect(collect.mock.calls.map((c) => c[1])).toEqual([OWN]);
+    warn.mockRestore();
+  });
+
   it("ends a part whose brand left and sweeps an emptied organisation, with sharing off", async () => {
     vi.stubEnv("CONNECTORS_ENABLED", "true");
     seedTenant(w, US_BRAND, OTHER_ORG);

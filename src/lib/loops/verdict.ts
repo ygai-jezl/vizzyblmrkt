@@ -61,8 +61,10 @@ export interface VerdictInput {
 }
 
 /**
- * One number read at a look. Levels, change and range are blended, in the meaning's own direction:
- * they are estimates that lean toward the prior while outputs are few, so counts keeps the real ones.
+ * One number read at a look. Levels, change and range are blended and on the meaning's own scale:
+ * after minus before, so for a meaning that is better lower, such as edit share, a negative change
+ * is better. They are estimates that lean toward the prior while outputs are few, so counts keeps
+ * the real ones.
  */
 export interface Read {
   meaning: MeaningKey;
@@ -72,8 +74,8 @@ export interface Read {
   /** The real counts the look read, such as 5 of 10 drafts edited before and 2 of 10 since. */
   counts: { before: Tally; after: Tally } | null;
   /**
-   * True when the raw range sits wholly on the worse side of no change. On the guard this holds
-   * back a better check, even while the guard is too few to read worse against the band.
+   * True when the raw range sits wholly on the worse side of no change. On a guard that is too few
+   * to read against the band this holds back a better check; a guard that reads same does not.
    */
   movedWrongWay: boolean;
   /** The blended level before the change, from 0 to 1. */
@@ -129,9 +131,11 @@ export interface Comparison {
  */
 export interface HoldbackPlan {
   /**
-   * Outputs a month in this scope across every organisation in the copy, pooled. The design caps
-   * each organisation at 20 outputs per arm, which this does not model, so a few busy
-   * organisations make the answer too hopeful.
+   * Outputs a month in this scope from the organisations whose outputs feed the fleet's counts
+   * (which ones is still open), pooled. Two of the design's rules are not modelled: each
+   * organisation counts at most 20 outputs per arm, so a few busy organisations make the answer
+   * too hopeful, and a fleet number publishes only for LOOP_RULES.cellOrgs organisations or more,
+   * so below that nothing reads whatever the months say.
    */
   perMonth: number;
   rate: number;
@@ -296,8 +300,9 @@ function widestVariance(rate: number, band: number): number {
  * smallest detectable change to fall below the band: the usual sample size sum for two shares,
  * with the verdict's own interval and LOOP_RULES.holdbackPowerZ for power. About 5,000 divided
  * by the outputs a month at a rate of 0.5 and a band of 0.1. Null when nothing is made.
- * perMonth is the whole copy's outputs in this scope, pooled across organisations: the holdback
- * is never read for one brand, and the cap of 20 outputs per organisation per arm is not modelled.
+ * perMonth is this scope's outputs from the organisations that feed the fleet's counts (which ones
+ * is still open), pooled: the holdback is never read for one brand. Neither the cap of 20 outputs
+ * per organisation per arm nor the floor of LOOP_RULES.cellOrgs organisations is modelled.
  */
 export function monthsUntilHoldbackReads({ perMonth, rate, band }: HoldbackPlan): number | null {
   if (!(perMonth >= 0) || !Number.isFinite(perMonth)) fail(`outputs a month must be 0 or more, not ${perMonth}`);
@@ -381,7 +386,12 @@ function reasonFor(call: Call, c: Window, g: Window, band: number, smallest: num
   if (call === "worse") return `Worse at ${c.read.look} outputs a side: ${moved(c.read)}, past ${bandText} the wrong way.${estimates}`;
   if (call === "better") {
     const head = `Better at ${c.read.look} outputs a side: ${moved(c.read)}, past ${bandText}`;
-    if (g.read.call === "same" || g.read.call === "better") return `${head}, and ${guardName} did not get worse.${estimates}`;
+    if (g.read.call === "better") return `${head}, and ${guardName} did not get worse.${estimates}`;
+    // Same bounds the guard's change inside the band, so it may still have got up to one band worse: quote it.
+    if (g.read.call === "same") {
+      const stayed = g.read.movedWrongWay ? "got worse, but stayed within the band" : "stayed within the band";
+      return `${head}, and ${guardName} ${stayed}: it ${went(g.read)}.${estimates}`;
+    }
     return `${head}. ${MEANINGS[g.read.meaning].name} was not shown to get worse, but there are too few outputs to tell: it ${went(g.read)}.${estimates}`;
   }
   if (call === "same") return `Same at ${c.read.look} outputs a side: ${moved(c.read)}, and the whole range the change could be in sits inside ${bandText}.${estimates}`;
@@ -392,17 +402,23 @@ function reasonFor(call: Call, c: Window, g: Window, band: number, smallest: num
   if (c.read.call === "better" && g.read.look === null) {
     return `Too few to tell at ${look} outputs a side: ${moved(c.read)}, past ${bandText}, but ${guardName} has too few outputs for a look, ${g.usableBefore} before the change and ${g.after} since.${estimates}`;
   }
-  if (c.read.call === "better") return `Too few to tell at ${look} outputs a side: ${moved(c.read)}, past ${bandText}, but ${moved(g.read)}, so it may have got worse.${estimates}`;
-  if (smallest !== null) return `Too few to tell at ${look} outputs a side: ${moved(c.read)}, and only an estimated change of ${points(smallest)} points or more could have shown as better.${estimates}`;
+  // Reached only when the guard is too few to read and its raw range sits wholly on the worse side of no change.
+  if (c.read.call === "better") return `Too few to tell at ${look} outputs a side: ${moved(c.read)}, past ${bandText}, but ${moved(g.read)}, so it got worse, though not clearly by more than the band.${estimates}`;
   // The before window is fixed at the change, so a look larger than its usable outputs never comes.
   const next = nextLook(look);
   const then =
     next === null
-      ? `, and the windows stop at ${look} outputs a side`
+      ? `; the windows stop at ${look} outputs a side`
       : c.usableBefore >= next
         ? `; the next look is at ${next} outputs a side`
         : `, the last look this change can reach, since only ${c.usableBefore} outputs before it count`;
-  return `Too few to tell at ${look} outputs a side: ${moved(c.read)}, and no change could have shown as better at this look${then}.${estimates}`;
+  const shown =
+    smallest === null
+      ? "no change could have shown as better at this look"
+      : `only an estimated change of ${points(smallest)} points or more could have shown as better at this look`;
+  // A check that moved the wrong way says so first, so the likely harm is never left to the counts alone.
+  const wrong = c.read.movedWrongWay ? `. It got worse, though not clearly by more than ${bandText}, and` : ", and";
+  return `Too few to tell at ${look} outputs a side: ${moved(c.read)}${wrong} ${shown}${then}.${estimates}`;
 }
 
 /**
@@ -410,10 +426,12 @@ function reasonFor(call: Call, c: Window, g: Window, band: number, smallest: num
  * reached: the look's outputs just before the change against the same number just after it, so
  * between looks it reads the same windows and gives the same answer. In order:
  * - the guard worse (against the band) gives worse;
- * - the check better gives better, once the guard has reached a look too and its raw range is not
- *   wholly on the worse side of no change; until then it is too few to tell. Blending shrinks the
- *   guard's range toward no change, which makes a guard worse harder to read, so this second test
- *   on the raw range keeps a guard that probably got worse from letting better through;
+ * - the check better gives better, once the guard has reached a look too and is not a guard too
+ *   few to read whose raw range sits wholly on the worse side of no change; until then it is too
+ *   few to tell. Blending shrinks the guard's range toward no change, which makes a guard worse
+ *   harder to read, so this second test on the raw range keeps a guard that probably got worse
+ *   from letting better through. A guard that reads same is within the band, so it is not worse
+ *   and lets better through;
  * - the check worse gives worse, and the check same gives same;
  * - anything else is too few to tell, with the smallest change it could have seen.
  * It never undoes a change. Throws on a band outside 0 to 1, a prior outside 0 to 1, a negative or
@@ -436,7 +454,7 @@ export function verdict(input: VerdictInput): Verdict {
   const byGuard = g.read.call === "worse";
   let call: Call;
   if (byGuard) call = "worse";
-  else if (c.read.call === "better") call = g.read.look === null || g.read.movedWrongWay ? "too_few" : "better";
+  else if (c.read.call === "better") call = g.read.look === null || (g.read.movedWrongWay && g.read.call === "too_few") ? "too_few" : "better";
   else call = c.read.call;
   const smallest = c.before ? smallestVisibleChange(c.before, check.better, line.band) : null;
   return {

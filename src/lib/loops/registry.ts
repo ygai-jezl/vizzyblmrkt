@@ -264,13 +264,13 @@ export const LOOPS = {
 
 /**
  * Every number the loops use, each with its reason. The verdict (src/lib/loops/verdict.ts) reads
- * verdictZ, lookEvery, lastLook, holdbackPowerZ, blendM, looks, warmUp and holdbackOneIn, and its
- * tests hold it to falseAlarm; the rest wait for the loops to run.
+ * some, its tests hold it to falseAlarm, registry.test.ts holds gap dates to revisitMaxMonths, and
+ * the rest wait for the loops to run.
  */
 export const LOOP_RULES = {
   /** A rate leans toward the shipped default with the weight of 5 outputs, so a new brand starts at the default (as PRIOR_N0 does in reward.ts). */
   blendM: 5,
-  /** A verdict is read only at these outputs per side, then every 40 up to 120, because reading daily turns 5% false alarms into about 26%. */
+  /** A verdict is read only at these outputs per side, then every lookEvery up to lastLook, because reading daily turns 5% false alarms into about 26%. */
   looks: [10, 20, 40],
   /** After those looks the windows grow by 40 outputs a side, so a busy scope is read again without being read daily. */
   lookEvery: 40,

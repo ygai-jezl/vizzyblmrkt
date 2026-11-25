@@ -19,9 +19,10 @@ reverts on its own. It left the interval open. This step adds one pure module, i
 numbers. ADR-0017 is step 1 (Declare); ADR-0018 is the onboarding piece (PR A), and Work takes
 ADR-0020 in its own pull request.
 
-Decided (numbers for the chosen method were measured through the real `verdict()` with a seeded
-generator; numbers for rejected intervals, other z values and longer windows come from the same
-simulation with that one piece swapped):
+Decided (this step makes one change from the approved design: the windows stop at 120 outputs a
+side (item 3), and the owner sees it in this pull request; numbers for the chosen method were
+measured through the real `verdict()` with a seeded generator; numbers for rejected intervals,
+other z values and longer windows come from the same simulation with that one piece swapped):
 
 1. **Newcombe's hybrid score interval, read against the band in three zones.** `compare` in
    `src/lib/loops/verdict.ts` takes two equal windows and finds where after minus before could be
@@ -29,11 +30,12 @@ simulation with that one piece swapped):
    quadrature. It matches Newcombe's published examples to four places (56/70 minus 48/80 gives
    0.0524 to 0.3339). Kruschke's region of practical equivalence rule reads it: better when the
    blended range is wholly past the band the better way, worse when it is wholly past the band the
-   other way, same when the raw range sits wholly inside the band, otherwise too few to tell. The
+   other way, same when the raw range sits wholly inside the band, which is Schuirmann's two one
+   sided tests for equivalence at 1.25% a side, otherwise too few to tell. The
    direction comes from `Meaning.better`. The check and guard must be shares (`unit: "ratio"`) with
    better and family, in different families, or it throws. Rejected: the plain normal (Wald)
    interval, whose coverage is erratic at small counts and which has zero width at no hits or
-   all hits (Brown, Cai and DasGupta); adding one success and one failure (Agresti and Caffo),
+   all hits (Brown, Cai and DasGupta); adding one success and one failure to each side (Agresti and Caffo),
    whose false same near 0 and 1 reached 8% on the grid in item 3; a Beta posterior on
    the blended counts, whose false same reached 22% when a 10% rate fell to none in an earlier run
    of the same simulation (that script is not kept) and whose width moves with the prior; group sequential
@@ -47,7 +49,9 @@ simulation with that one piece swapped):
    prior of 0 or 1 never moves a call, only the levels people see. Unequal sides would not cancel:
    20 before and 120 after, a true rate of 0.8 on both and a prior of 0.2 read as a change of about
    one band. Better and worse read the blended range, which is shrunk toward no change; same reads
-   the raw range, so for the check blending can only make a call more careful. For the guard it
+   the raw range, so for the check blending can only make a call more careful, which also makes a
+   check that got worse slower to read (edit share rising two bands, from 0.3 to 0.5, reads worse at
+   80 a side in about 15% of runs, against 18% on the raw range). For the guard it
    cuts the other way: shrinking the guard's range makes a guard worse harder to read, which would
    make better easier, so item 5 adds a test on the guard's raw range. Rejected: reading same on
    the shrunk range, which let a change of one band read same more often.
@@ -60,14 +64,19 @@ simulation with that one piece swapped):
    that did nothing reads better or worse at any look in at most 0.82% of runs (edits at base rates
    0.1, 0.3, 0.5 and 0.8: worst 0.33%, 0.60%, 0.82% and 0.38%; votes: worst 0.15%), against a
    limit of 5%. A real change of exactly one band reads same in at most 2.3% (likedShare 0.8 to
-   0.95). The band does most of the work against peeking: a plain 95% test against no change, read
-   at the same five looks, fails the same simulation. For the swapped pieces the grid is every rate
+   0.95). The band does most of the work against peeking: with the band shrunk to 0.001 the same
+   simulation and verdict read better or worse in 14.9% of runs (10.2% at 0.01), and a plain 95%
+   test against no change, read at the same five looks, fails too. For the swapped pieces the grid is every rate
    from 0 to 1 in steps of 0.05, both learners, a change of one band either way, 10,000 runs a
-   case. At z 1.96 false same reached 4.8% and at 1.645 it reached 11.5%, so 2.24 keeps a margin,
-   which also covers season drift the simulation does not model. The windows stop at 120: each
+   case. At z 1.96 false same reached 4.8% and at 1.645 it reached 11.5%, so 2.24 keeps a margin.
+   That margin does not cover drift, which the simulation leaves out. Through the real verdict,
+   4,000 runs with edit share drifting steadily through 0.5 across both windows, a flat guard and
+   nothing changing at the change: a drift of one band per 120 outputs reads better or worse at
+   some look in about 2% of runs, 1.5 bands in about 7% and two bands in about 24%. That is why
+   every verdict says not adjusted for season. The windows stop at 120: each
    extra look adds a chance of a false same (2.3% to 120, 5.3% to 400 and 6.6% to 800 a side at
-   this z), and longer windows reach back across seasons. This amends the design's open ended
-   "then every 40".
+   this z), and longer windows reach back across seasons, where drift has longer to build. This
+   amends the design's open ended "then every 40", the one change from the design.
    Rejected: a Bonferroni split (0.01 a look, z 2.576), valid but it costs power for nothing.
 4. **Too few to tell says the smallest change it could have seen.** `smallestVisibleChange` moves
    the after count away from the before count until the change would read better and quotes the gap
@@ -76,7 +85,8 @@ simulation with that one piece swapped):
    window and a 10 point band: none at 10 a side, then 36, 31, 27 and 24 points at 20, 40, 80 and
    120 (45, 35, 29 and 25 points of raw edit share). At 10 a side a change can read better only from
    7 or more of 10 edited, and then only by a fall of 7 drafts or more (47 points). So the design's "about
-   40 points of edit share at 10 outputs a side" agrees only with the closed form in blended points
+   40 points of edit share at 10 outputs a side" agrees only with the normal approximation for a
+   50% rate, band / w + verdictZ x sqrt(2 x 0.25 / 10), in blended points
    (43; it is 65 in raw edit share points), and it matches a plain single look 95% half width
    (44 points) more than this rule; the verdict quotes its exact number and says when there is
    none. The search halves the distance, which is right because better never flips back as the
@@ -87,9 +97,13 @@ simulation with that one piece swapped):
    from about 0.13 to 0.87, even when nothing changed; only a rate near none or near all reaches
    it, at 80 or 120. For liked share's 15 point band it is reachable at 120 a side at any rate, and
    at 80 only below about 0.25 or above 0.75. The before window is fixed at the change, so the
-   largest look a change can reach is set by its usable before outputs: the reason line names the
-   next look only when the before window can reach it, and otherwise says this is the last look
-   this change can reach. Every reason line leads with the real counts, such as 5 of 10 to 2 of 10,
+   largest look a change can reach is set by its usable before outputs: every too few line with a
+   look, whether or not it quotes a smallest change, names the next look only when the before
+   window can reach it, otherwise says this is the last look this change can reach, and at 120
+   says the windows stop. When the check's raw range sits wholly on the worse side of no change,
+   the line says it got worse, though not clearly by more than the band, before what could have
+   shown as better, so the likely harm is never left to the counts alone. Every reason line leads
+   with the real counts, such as 5 of 10 to 2 of 10,
    then the estimated levels, and says estimates lean toward the default while outputs are few;
    each read keeps its counts beside the blended levels.
 5. **Better waits for the guard.** The guard keeps its own outputs, which can be fewer or more than
@@ -97,13 +111,18 @@ simulation with that one piece swapped):
    image while liked share counts only the voted ones. A guard worse against the band gives worse
    whatever the check says; the verdict's look is then the guard's and `decidedBy` is `"guard"`, so
    a worse can come before the check has a look. A check that reads better gives too few to tell
-   until the guard has reached a look of its own, and while the guard's raw range sits wholly on
-   the worse side of no change. Through the real verdict, 5,000 runs with edit share falling from
+   until the guard has reached a look of its own, and while the guard is too few to read and its
+   raw range sits wholly on the worse side of no change. A guard that reads same is within the
+   band, so it is not worse (the design's "the guard not worse") and lets better through, even when
+   its raw range sits on the worse side of no change. Through the real verdict, 5,000 runs with edit share falling from
    0.5 to 0.1: with the guard going from 0.2 to 0.4, better at 40 a side fell from 69% of runs to
    46% with this rule, and at 120 from 73% to 12%; with a flat guard it barely moved (100% to 99%
    at 120). It only removes better calls, so the false alarm limit cannot get worse. The reason
-   line says the guard did not get worse only when the guard reads same or better; a guard too few
-   to read was only "not shown to get worse", and the line quotes its counts. The order is: guard
+   line says the guard did not get worse only when it reads better. Same allows up to one band
+   worse, so a guard that reads same "stayed within the band", or "got worse, but stayed within the
+   band" when its raw range sits wholly on the worse side; a guard too few to read was only "not
+   shown to get worse"; a guard that holds better back "got worse, though not clearly by more than
+   the band". Each of these lines quotes the guard's counts. The order is: guard
    worse, check better, check worse, check same, too few. Every verdict carries
    `notAdjustedForSeason: true` and a reason line a person can read that ends "Not adjusted for
    season."; nothing in it undoes a change.
@@ -119,10 +138,12 @@ simulation with that one piece swapped):
    x (20 + 20/19), divided by outputs a month x band squared, with p the most uncertain rate within
    one band of today's so a rate at 0 or 1 never promises a read now. At a rate of 0.5 and a band of
    0.1 that is about 5,000 divided by outputs a month: 416 months at 12 a month, 50 at 100, 5 at
-   1,000 and 1 at 5,000. The outputs a month are the whole copy's in that scope, pooled across its
-   organisations: the design reads the holdback only across the fleet and never for one brand, and
-   caps each organisation at 20 outputs per arm, which this does not model, so a few busy
-   organisations make the answer too hopeful. The 21.05 against 4 for an even split is Kohavi's
+   1,000 and 1 at 5,000. The outputs a month are that scope's, pooled, from the organisations whose
+   outputs feed the fleet's counts; which organisations those are is still an open decision. The
+   design reads the holdback only across the fleet and never for one brand. Two of its rules are
+   not modelled: each organisation counts at most 20 outputs per arm, so a few busy organisations
+   make the answer too hopeful, and a fleet number publishes only for `cellOrgs` (10) organisations
+   or more, so below that nothing reads whatever the months say. The 21.05 against 4 for an even split is Kohavi's
    factor of about 5 for a 95/5 split. Under the band rule a true change of exactly one band is
    never reliably called better, so step 9's Proven read may need its own rule.
 
@@ -131,18 +152,23 @@ Enforced where:
 - `src/lib/loops/verdict.test.ts`, with a seeded mulberry32 generator, in about a second on its own: a change
   that did nothing at base rates 0.1, 0.3, 0.5 and 0.8, for both learners' lines with guards at 0.1
   and 0.5, through all five looks, reads better or worse at most `falseAlarm` in every case, under
-  2.5% at worst and under 1% on average (0.75% and 0.22% today); a plain 95% test against no change
-  fails the same simulation; a change of exactly one band reads same at most `falseAlarm` (2.33% at
+  2.5% at worst and under 1% on average (0.75% and 0.22% today); the same simulation with a band of
+  0.001 or 0.01 goes over `falseAlarm`, so that check can fail, and so does a plain 95% test against
+  no change; a change of exactly one band reads same at most `falseAlarm` (2.33% at
   worst today); edit share falling from 0.5 to 0.1 is called better by 120 a side in 95% or more
   of runs and rarely at 10. Also Newcombe's published examples for the difference and for Wilson's
   interval, Hearth Bakery fixtures at 12 drafts a month (too few, with the smallest change quoted
-  or the next look named), the warm up for the check and the guard, the same answer between looks,
-  no next look named that the before window cannot reach, guard worse (read in the guard's own
+  or none, and the next or last look named), the warm up for the check and the guard, the same
+  answer between looks, no next look named that the before window cannot reach, with or without a
+  smallest change, and the windows' end at 120, guard worse (read in the guard's own
   direction, over a check better or same, and with the guard's look when the check has none), same
-  inside the band and read on the raw range, better waiting for the guard and held back while the
-  guard's raw range sits wholly on the worse side, priors of 0 and 1, fewer than 10 outputs a side,
-  every throw, every reason in house style, the halving search, and `blendM` equal to the
-  `PRIOR_N0` default in `reward.ts`.
+  inside the band and read on the raw range, better waiting for the guard, held back while a guard
+  too few to read sits wholly on the worse side and let through by a guard that reads same, the
+  lines for a guard that reads same and for a check that moved the wrong way, the smallest change
+  for a check that is better higher over a guard that is better lower, a rise mirroring a fall at
+  every look, the check and guard each blended toward its own prior, priors of 0 and 1, fewer than
+  10 outputs a side, every throw, every reason in house style, the halving search, and `blendM`
+  equal to the `PRIOR_N0` default in `reward.ts`.
 - `src/lib/loops/registry.test.ts`: the five new `LOOP_RULES` numbers each have a one line reason.
 
 Not yet, in later steps: nothing calls the verdict, and nothing is stamped or counted, so it reads

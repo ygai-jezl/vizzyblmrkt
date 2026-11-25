@@ -321,6 +321,24 @@ export const CampaignIdSchema = z
   )
   .refine((s) => !RESERVED_CAMPAIGN_IDS.has(s), { message: "that id is reserved" });
 
+/**
+ * The id a new launch is asked for: the slug the admin typed (explicit), or one derived from its
+ * name. A name such as "New" or "Any" derives a reserved id, which is handed on as it is:
+ * createLaunch skips an id that isn't valid and suffixes it (`any-2`). Only an id the admin typed
+ * is refused for being reserved, since they never typed the derived one.
+ */
+export function newLaunchId(
+  provided: string,
+  name: string,
+): { ok: true; id: string; explicit: boolean } | { ok: false; message: string } {
+  const explicit = provided.trim().length > 0;
+  const raw = (provided.trim() || slugifyCampaignId(name)).toLowerCase();
+  const id = CampaignIdSchema.safeParse(raw);
+  if (id.success) return { ok: true, id: id.data, explicit };
+  if (!explicit && RESERVED_CAMPAIGN_IDS.has(raw)) return { ok: true, id: raw, explicit };
+  return { ok: false, message: id.error.issues[0]?.message ?? "invalid id" };
+}
+
 /** Project a stored Campaign down to its editable settings (form defaults). */
 export function toCampaignSettings(campaign: Campaign): CampaignSettings {
   return {

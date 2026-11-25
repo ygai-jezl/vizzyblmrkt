@@ -2,11 +2,7 @@ import { NextResponse } from "next/server";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { forTenant } from "@/lib/tenant";
-import {
-  CampaignSettingsSchema,
-  CampaignIdSchema,
-  slugifyCampaignId,
-} from "@/lib/admin/campaignSettings";
+import { CampaignSettingsSchema, newLaunchId } from "@/lib/admin/campaignSettings";
 import { createLaunch, LaunchIdTakenError } from "@/lib/admin/createLaunch";
 import { isWaitlistEngineEnabled, isWaitlistEnginePilot, isWaitlistEngineUiEnabled } from "@/lib/lifecycle/waitlist/flags";
 import { createWaitlistJourney } from "@/lib/lifecycle/service";
@@ -51,15 +47,12 @@ export async function POST(req: Request) {
   }
 
   const provided = typeof body?.id === "string" ? body.id : "";
-  const explicit = provided.trim().length > 0;
-  const rawId = (provided.trim() || slugifyCampaignId(settings.data.waitlistName)).toLowerCase();
-  const id = CampaignIdSchema.safeParse(rawId);
-  if (!id.success) {
-    return NextResponse.json(
-      { error: "invalid_id", message: id.error.issues[0]?.message ?? "invalid id" },
-      { status: 400 },
-    );
+  // A derived id that is reserved ("Any" gives `any`) goes on to createLaunch, which suffixes it.
+  const id = newLaunchId(provided, settings.data.waitlistName);
+  if (!id.ok) {
+    return NextResponse.json({ error: "invalid_id", message: id.message }, { status: 400 });
   }
+  const explicit = id.explicit;
 
   // Engine move (pilot): a pilot tenant's new launch starts on the lifecycle
   // engine, with a draft welcome journey there. Its first publish enrols everyone.
@@ -68,7 +61,7 @@ export async function POST(req: Request) {
   try {
     const createdId = await createLaunch(
       forTenant(ctx).campaigns,
-      id.data,
+      id.id,
       {
         ...settings.data,
         createdAt: now,

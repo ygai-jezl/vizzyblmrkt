@@ -3,8 +3,12 @@ import {
   CampaignIdSchema,
   CampaignSettingsSchema,
   defaultCampaignSettings,
+  newLaunchId,
   toCampaignSettings,
 } from "./campaignSettings";
+import { createLaunch } from "./createLaunch";
+import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
+import { forTenant } from "@/lib/tenant/repository";
 import type { Campaign } from "@/lib/types/campaign";
 
 const VALID: unknown = {
@@ -421,6 +425,24 @@ describe("CampaignIdSchema's reserved ids", () => {
     expect(CampaignIdSchema.safeParse("new").success).toBe(false);
     expect(CampaignIdSchema.safeParse("any").success).toBe(false);
     for (const id of ["anything", "many", "any-launch"]) expect(CampaignIdSchema.safeParse(id).success, id).toBe(true);
+  });
+
+  it("lets a name like Any or New through with no slug typed, for createLaunch to suffix", async () => {
+    expect(newLaunchId("", "Any")).toEqual({ ok: true, id: "any", explicit: false });
+    expect(newLaunchId("  ", "New")).toEqual({ ok: true, id: "new", explicit: false });
+    expect(newLaunchId("", "Plant care box")).toEqual({ ok: true, id: "plant-care-box", explicit: false });
+    const db = new FakeFirestore();
+    const made = await createLaunch(forTenant({ tenantId: "ten_A", region: "us", source: "system" }, db).campaigns, "any", { ...defaultCampaignSettings(), waitlistName: "Any", createdAt: "2026-11-25T09:00:00.000Z" }, { explicit: false });
+    expect(made).toBe("any-2");
+    expect(db.raw("campaigns", "any")).toBeUndefined();
+  });
+
+  it("still refuses a reserved or broken slug the admin typed, and a name with nothing to make one from", () => {
+    expect(newLaunchId("any", "Any")).toEqual({ ok: false, message: "that id is reserved" });
+    expect(newLaunchId("New", "Something")).toEqual({ ok: false, message: "that id is reserved" });
+    expect(newLaunchId("", "!!!")).toMatchObject({ ok: false });
+    expect(newLaunchId("Plant_Box", "x")).toMatchObject({ ok: false });
+    expect(newLaunchId("Plant-Box", "x")).toEqual({ ok: true, id: "plant-box", explicit: true });
   });
 });
 

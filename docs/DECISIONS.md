@@ -19,7 +19,9 @@ reverts on its own. It left the interval open. This step adds one pure module, i
 numbers. ADR-0017 is step 1 (Declare); ADR-0018 is the onboarding piece (PR A), and Work takes
 ADR-0020 in its own pull request.
 
-Decided (each number below was measured through the real `verdict()` with a seeded generator):
+Decided (numbers for the chosen method were measured through the real `verdict()` with a seeded
+generator; numbers for rejected intervals, other z values and longer windows come from the same
+simulation with that one piece swapped):
 
 1. **Newcombe's hybrid score interval, read against the band in three zones.** `compare` in
    `src/lib/loops/verdict.ts` takes two equal windows and finds where after minus before could be
@@ -31,9 +33,10 @@ Decided (each number below was measured through the real `verdict()` with a seed
    direction comes from `Meaning.better`. The check and guard must be shares (`unit: "ratio"`) with
    better and family, in different families, or it throws. Rejected: the plain normal (Wald)
    interval, whose coverage is erratic at small counts and which has zero width at no hits or
-   all hits (Brown, Cai and DasGupta); adding one success and one failure (Agresti and Caffo), whose false same near 0 and 1
-   reached 11% in the research runs; a Beta posterior on the blended counts, whose false same
-   reached 22% when a 10% rate fell to none and whose width moves with the prior; group sequential
+   all hits (Brown, Cai and DasGupta); adding one success and one failure (Agresti and Caffo),
+   whose false same near 0 and 1 reached 8% on the grid in item 3; a Beta posterior on
+   the blended counts, whose false same reached 22% when a 10% rate fell to none in an earlier run
+   of the same simulation (that script is not kept) and whose width moves with the prior; group sequential
    boundaries (Pocock, O'Brien and Fleming, Lan and DeMets) and always valid tests, which test
    against no change and are more than this needs once the band carries most of the peeking risk.
 2. **Equal windows either side of the change, blended toward one prior.** Each number reads the
@@ -44,28 +47,35 @@ Decided (each number below was measured through the real `verdict()` with a seed
    prior of 0 or 1 never moves a call, only the levels people see. Unequal sides would not cancel:
    20 before and 120 after, a true rate of 0.8 on both and a prior of 0.2 read as a change of about
    one band. Better and worse read the blended range, which is shrunk toward no change; same reads
-   the raw range, so blending can only make a call more careful. Rejected: reading same on the
-   shrunk range, which let a change of one band read same more often.
+   the raw range, so for the check blending can only make a call more careful. For the guard it
+   cuts the other way: shrinking the guard's range makes a guard worse harder to read, which would
+   make better easier, so item 5 adds a test on the guard's raw range. Rejected: reading same on
+   the shrunk range, which let a change of one band read same more often.
 3. **One interval at every look: z = 2.24, looks at 10, 20, 40, 80 and 120 outputs a side.**
    `LOOP_RULES` gains `verdictZ` (2.24, a 97.5% range), `lookEvery` (40), `lastLook` (120),
-   `falseAlarm` (0.05) and `holdbackPowerZ` (0.84), each with its reason. The verdict reads those
-   and `blendM`, `looks` and `warmUp`, and hard codes none. With 20,000 runs a case, both learners'
-   lines and guards at 0.1 and 0.5, a change that did nothing reads better or worse at any look in
-   at most 0.86% of runs (edits at base rates 0.1, 0.3, 0.5 and 0.8: worst 0.26%, 0.60%, 0.86% and
-   0.38%; votes: worst 0.15%), against a limit of 5%. A real change of exactly one band reads same
-   in at most 2.3% (likedShare 0.8 to 0.95). The band does most of the work against peeking: a plain
-   95% test against no change, read at the same five looks, fails the same simulation. At z 1.96
-   false same reached 4.25% and at 1.645 it reached 10.5%, so 2.24 keeps a margin, which also
-   covers season drift the simulation does not model. The windows stop at 120: each extra look adds
-   a chance of a false same (2.45% to 120, 5.3% to 400 and 7.6% to 800 a side at this z), and longer
-   windows reach back across seasons. This amends the design's open ended "then every 40".
+   `falseAlarm` (0.05) and `holdbackPowerZ` (0.84), each with its reason. The verdict reads
+   `verdictZ`, `lookEvery`, `lastLook`, `holdbackPowerZ`, `blendM`, `looks`, `warmUp` and
+   `holdbackOneIn`, and hard codes none; `falseAlarm` is the limit its tests hold it to. With
+   20,000 runs a case on the test's seeds, both learners' lines and guards at 0.1 and 0.5, a change
+   that did nothing reads better or worse at any look in at most 0.82% of runs (edits at base rates
+   0.1, 0.3, 0.5 and 0.8: worst 0.33%, 0.60%, 0.82% and 0.38%; votes: worst 0.15%), against a
+   limit of 5%. A real change of exactly one band reads same in at most 2.3% (likedShare 0.8 to
+   0.95). The band does most of the work against peeking: a plain 95% test against no change, read
+   at the same five looks, fails the same simulation. For the swapped pieces the grid is every rate
+   from 0 to 1 in steps of 0.05, both learners, a change of one band either way, 10,000 runs a
+   case. At z 1.96 false same reached 4.8% and at 1.645 it reached 11.5%, so 2.24 keeps a margin,
+   which also covers season drift the simulation does not model. The windows stop at 120: each
+   extra look adds a chance of a false same (2.3% to 120, 5.3% to 400 and 6.6% to 800 a side at
+   this z), and longer windows reach back across seasons. This amends the design's open ended
+   "then every 40".
    Rejected: a Bonferroni split (0.01 a look, z 2.576), valid but it costs power for nothing.
 4. **Too few to tell says the smallest change it could have seen.** `smallestVisibleChange` moves
    the after count away from the before count until the change would read better and quotes the gap
-   in points between the blended levels (null when no after window could). From a 50% before
+   in points between the blended levels, a documented choice the reason line labels "an estimated
+   change" (null when no after window could). From a 50% before
    window and a 10 point band: none at 10 a side, then 36, 31, 27 and 24 points at 20, 40, 80 and
    120 (45, 35, 29 and 25 points of raw edit share). At 10 a side a change can read better only from
-   7 or more of 10 edited, and then only by reaching none edited (47 points). So the design's "about
+   7 or more of 10 edited, and then only by a fall of 7 drafts or more (47 points). So the design's "about
    40 points of edit share at 10 outputs a side" agrees only with the closed form in blended points
    (43; it is 65 in raw edit share points), and it matches a plain single look 95% half width
    (44 points) more than this rule; the verdict quotes its exact number and says when there is
@@ -73,13 +83,28 @@ Decided (each number below was measured through the real `verdict()` with a seed
    count moves; the test checks that for every look and before count. A bakery at 12 drafts a month
    needs at least 2.5, 4.2, 7.5, 14.2 and 20.8 months from its first draft to reach each look (the
    warm up, then that many outputs before and after), so most of its verdicts read too few, as the
-   design expects. Same is out of reach by 120 a side at rates of 0.3 to 0.5;
-   a rate near none reaches it at 80 or 120.
-5. **Better waits for the guard.** The guard keeps its own outputs, which can be fewer, since unused
-   share is known only 14 days after each output. A worse guard gives worse whatever the check
-   says. A check that reads better gives too few to tell until the guard has reached a look of its
-   own, so "the guard did not get worse" never means "the guard was not counted yet". The order is:
-   guard worse, check better, check worse, check same, too few. Every verdict carries
+   design expects. For edit share's 10 point band, same is out of reach by 120 a side at any rate
+   from about 0.13 to 0.87, even when nothing changed; only a rate near none or near all reaches
+   it, at 80 or 120. For liked share's 15 point band it is reachable at 120 a side at any rate, and
+   at 80 only below about 0.25 or above 0.75. The before window is fixed at the change, so the
+   largest look a change can reach is set by its usable before outputs: the reason line names the
+   next look only when the before window can reach it, and otherwise says this is the last look
+   this change can reach. Every reason line leads with the real counts, such as 5 of 10 to 2 of 10,
+   then the estimated levels, and says estimates lean toward the default while outputs are few;
+   each read keeps its counts beside the blended levels.
+5. **Better waits for the guard.** The guard keeps its own outputs, which can be fewer or more than
+   the check's: unused share is known only 14 days after each output, and remade share counts every
+   image while liked share counts only the voted ones. A guard worse against the band gives worse
+   whatever the check says; the verdict's look is then the guard's and `decidedBy` is `"guard"`, so
+   a worse can come before the check has a look. A check that reads better gives too few to tell
+   until the guard has reached a look of its own, and while the guard's raw range sits wholly on
+   the worse side of no change. Through the real verdict, 5,000 runs with edit share falling from
+   0.5 to 0.1: with the guard going from 0.2 to 0.4, better at 40 a side fell from 69% of runs to
+   46% with this rule, and at 120 from 73% to 12%; with a flat guard it barely moved (100% to 99%
+   at 120). It only removes better calls, so the false alarm limit cannot get worse. The reason
+   line says the guard did not get worse only when the guard reads same or better; a guard too few
+   to read was only "not shown to get worse", and the line quotes its counts. The order is: guard
+   worse, check better, check worse, check same, too few. Every verdict carries
    `notAdjustedForSeason: true` and a reason line a person can read that ends "Not adjusted for
    season."; nothing in it undoes a change.
 6. **Outputs in, mistakes thrown.** Each number takes its outputs oldest first, one true or false
@@ -94,9 +119,12 @@ Decided (each number below was measured through the real `verdict()` with a seed
    x (20 + 20/19), divided by outputs a month x band squared, with p the most uncertain rate within
    one band of today's so a rate at 0 or 1 never promises a read now. At a rate of 0.5 and a band of
    0.1 that is about 5,000 divided by outputs a month: 416 months at 12 a month, 50 at 100, 5 at
-   1,000 and 1 at 5,000. The 21.05 against 4 for an even split is Kohavi's factor of about 5 for a
-   95/5 split. Under the band rule a true change of exactly one band is never reliably called
-   better, so step 9's Proven read may need its own rule.
+   1,000 and 1 at 5,000. The outputs a month are the whole copy's in that scope, pooled across its
+   organisations: the design reads the holdback only across the fleet and never for one brand, and
+   caps each organisation at 20 outputs per arm, which this does not model, so a few busy
+   organisations make the answer too hopeful. The 21.05 against 4 for an even split is Kohavi's
+   factor of about 5 for a 95/5 split. Under the band rule a true change of exactly one band is
+   never reliably called better, so step 9's Proven read may need its own rule.
 
 Enforced where:
 
@@ -106,16 +134,20 @@ Enforced where:
   2.5% at worst and under 1% on average (0.75% and 0.22% today); a plain 95% test against no change
   fails the same simulation; a change of exactly one band reads same at most `falseAlarm` (2.33% at
   worst today); edit share falling from 0.5 to 0.1 is called better by 120 a side in 95% or more
-  of runs and rarely at 10. Also Newcombe's and Wilson's published examples, Hearth Bakery fixtures
-  at 12 drafts a month (too few, with the smallest change quoted or the next look named), the warm
-  up, the same answer between looks, guard worse, same inside the band, better waiting for the
-  guard, priors of 0 and 1, fewer than 10 outputs a side, every throw, every reason in house style,
-  the halving search, and `blendM` equal to the `PRIOR_N0` default in `reward.ts`.
+  of runs and rarely at 10. Also Newcombe's published examples for the difference and for Wilson's
+  interval, Hearth Bakery fixtures at 12 drafts a month (too few, with the smallest change quoted
+  or the next look named), the warm up for the check and the guard, the same answer between looks,
+  no next look named that the before window cannot reach, guard worse (read in the guard's own
+  direction, over a check better or same, and with the guard's look when the check has none), same
+  inside the band and read on the raw range, better waiting for the guard and held back while the
+  guard's raw range sits wholly on the worse side, priors of 0 and 1, fewer than 10 outputs a side,
+  every throw, every reason in house style, the halving search, and `blendM` equal to the
+  `PRIOR_N0` default in `reward.ts`.
 - `src/lib/loops/registry.test.ts`: the five new `LOOP_RULES` numbers each have a one line reason.
 
 Not yet, in later steps: nothing calls the verdict, and nothing is stamped or counted, so it reads
 no real outputs. It does not name the items that changed between two versions; that comes with
-versions in step 5. There are no fleet cells, so the prior is whatever the caller passes, no Go
+versions in step 4 and the lane that runs verdicts in step 5. There are no fleet cells, so the prior is whatever the caller passes, no Go
 back card, no Loops section and no adjustment for season, which waits for a cell of one coarse
 business type with 10 or more organisations.
 
@@ -123,6 +155,7 @@ What follows: no new collection, index, rule, switch, service or dependency, and
 change: the module is pure and client safe, and `docs/ONTOLOGY.md` is unchanged. ADR-0017's
 "nothing reads the `LOOP_RULES` numbers" and "There is no verdict" describe step 1 and stay as
 written. Sources: Newcombe 1998, Stat Med 17:873 (https://doi.org/10.1002/(SICI)1097-0258(19980430)17:8%3C873::AID-SIM779%3E3.0.CO;2-I);
+Newcombe 1998, Two sided confidence intervals for the single proportion, Stat Med 17:857;
 Wilson 1927, JASA 22:209 (https://doi.org/10.1080/01621459.1927.10502953); Agresti and Caffo 2000,
 Am Stat 54:280 (JSTOR 2685779); Brown, Cai and DasGupta 2001, Stat Sci
 (https://doi.org/10.1214/ss/1009213286); Kruschke 2018, AMPPS 1:270

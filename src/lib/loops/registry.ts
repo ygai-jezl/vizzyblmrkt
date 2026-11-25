@@ -264,7 +264,8 @@ export const LOOPS = {
 
 /**
  * Every number the loops use, each with its reason. The verdict (src/lib/loops/verdict.ts) reads
- * blendM, the looks, warmUp, holdbackOneIn and its own numbers; the rest wait for the loops to run.
+ * verdictZ, lookEvery, lastLook, holdbackPowerZ, blendM, looks, warmUp and holdbackOneIn, and its
+ * tests hold it to falseAlarm; the rest wait for the loops to run.
  */
 export const LOOP_RULES = {
   /** A rate leans toward the shipped default with the weight of 5 outputs, so a new brand starts at the default (as PRIOR_N0 does in reward.ts). */

@@ -345,12 +345,14 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
     (current) => {
       written = doc;
       if ((current.searchConsoleClears ?? 0) === clearsAtStart) return doc;
-      // An erase took Search Console's figures out while this look ran: none of them on the list, and
-      // the erase's "due now" kept, so the next look puts back what is still readable.
+      // An erase took Search Console's figures out while this look ran: none of them on the list, the
+      // erase's "due now" kept, and a look cut short starts over, so the next look looks again at
+      // every article and puts back what is still readable.
       written = {
         ...doc,
         due: doc.due.map((d) => ({ ...d, reasons: withoutSearchConsole(d.reasons) })),
         nextAt: Date.parse(current.nextAt) < Date.parse(doc.nextAt) ? current.nextAt : doc.nextAt,
+        lookStartedAt: null,
       };
       return written;
     },

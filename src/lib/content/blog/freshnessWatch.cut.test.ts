@@ -6,6 +6,7 @@ import { getContentPlan } from "@/lib/tenant/workspaceContent";
 import { BlogArticleMetaSchema, BlogBriefSchema } from "@/lib/types/contentPlan";
 import type { Tenant } from "@/lib/types/tenant";
 import { agentArticlesDue } from "./freshnessAgentApi";
+import { clearSearchConsoleReasons } from "./freshnessErase";
 import { readDueArticles } from "./freshnessPages";
 import { FRESHNESS_WATCH, freshnessWatchId, runFreshness, sweepBrand } from "./freshnessWatch";
 import { setArticleLive } from "./live";
@@ -315,5 +316,115 @@ describe("a freshness look cut short", () => {
       clockDays: 20,
       subjectId: "sub_1",
     });
+  });
+});
+
+describe("an erase and a look cut short", () => {
+  const KEY_NEW = "acme.example/blog/new";
+  const fixedClock = { ...tenant, refreshClock: 45 } as unknown as Tenant;
+
+  /**
+   * Three live articles, read newest first: plan_new is due only because Search Console says it is
+   * losing clicks (no old figure, published lately, on a 45-day clock); the other two have an old
+   * figure. Each has one outbound link.
+   */
+  function erasedWorld() {
+    const db = world();
+    const url = "https://acme.example/blog/new";
+    const hub = sampleHub({
+      body: "# new\n\nAnswer engines answer a question in place of a list of links. See [a source](https://research.example.org/n).",
+      status: "approved",
+      blog: { ...BlogArticleMetaSchema.parse({}), live: { url, at: "2026-11-21T08:00:00.000Z", by: "check", titleMatched: true }, dates: { published: { at: "2026-11-20", source: "page" } } },
+    });
+    db.seed(
+      "workspaces/ws1/content_plans",
+      "plan_new",
+      samplePlan({ id: "plan_new", tenantId: "ten_A", workspaceId: "ws1", createdAt: "2026-10-08T08:00:00.000Z", updatedAt: "2026-10-08T08:00:00.000Z", blog: BlogBriefSchema.parse({ subjectId: "sub_1" }), strategy: { objective: "brand_visibility", hubUrl: url } }, hub),
+    );
+    seedArticle(db, "plan_mid", "2026-10-05T08:00:00.000Z", "mid", [LINK("m")]);
+    return db;
+  }
+
+  /** Search Console: connected until the erase, and then nothing to read. */
+  let connected = true;
+  /** One tick; `onLink(n)` runs at the nth link check of the tick (1 is plan_new's). */
+  async function lane(db: FakeFirestore, now: Date, onLink: (n: number, deadlineMs: number) => Promise<void> = async () => {}) {
+    checked.length = 0;
+    const deadlineMs = Date.now() + 60_000;
+    let n = 0;
+    try {
+      return await runFreshness(
+        { deadlineMs },
+        {
+          ...deps(db, now),
+          listTenants: async () => [fixedClock],
+          losingPages: async () => (connected ? new Map([[KEY_NEW, "Search Console: 120 clicks, down from 260."]]) : new Map<string, string>()),
+          checkLink: async (link: string) => {
+            checked.push(link);
+            n += 1;
+            await onLink(n, deadlineMs);
+            return "ok" as const;
+          },
+        },
+      );
+    } finally {
+      vi.restoreAllMocks();
+    }
+  }
+  const cutAt = (at: number) => async (n: number, deadlineMs: number) => {
+    if (n === at) vi.spyOn(Date, "now").mockReturnValue(deadlineMs + 1);
+  };
+  const freshnessOf = async (db: FakeFirestore, planId: string) => (await getContentPlan(A, "ws1", planId, db))!.graph.nodes[0]!.blog!.freshness!;
+
+  beforeEach(() => {
+    connected = true;
+  });
+
+  /** After the erase, the next tick looks at every article: none stays due with no reason. */
+  async function expectFullLookAfter(db: FakeFirestore) {
+    expect(await lane(db, NEXT_TICK)).toEqual({ brands: 1, articles: 3, due: 2 });
+    for (const planId of ["plan_new", "plan_mid", "plan_old"]) expect(await sweptAt(db, planId), planId).toBe(NEXT_TICK.toISOString());
+    expect(await freshnessOf(db, "plan_new")).toMatchObject({ state: "fresh", reasons: [] });
+    const done = await watch(db);
+    expect(done).toMatchObject({ lookStartedAt: null, counts: { fresh: 1, soon: 0, due: 2 } });
+    expect(done.due.map((d) => d.planId).sort()).toEqual(["plan_mid", "plan_old"]);
+    for (const d of done.due) expect(d.reasons.length, d.planId).toBeGreaterThan(0);
+  }
+
+  it("between ticks: the next tick looks again at the articles the cut look passed", async () => {
+    const db = erasedWorld();
+    await lane(db, NOW);
+    // The look is cut after plan_new, which it finds due because of lost clicks.
+    await lane(db, LATER, cutAt(1));
+    expect(checked).toEqual([LINK("n")]);
+    expect(await freshnessOf(db, "plan_new")).toMatchObject({ state: "due", reasons: [expect.objectContaining({ kind: "losing_clicks" })] });
+    expect((await watch(db)).lookStartedAt).toBe(LATER.toISOString());
+
+    // Search Console is disconnected before the next tick.
+    connected = false;
+    await clearSearchConsoleReasons(A, { db, now: new Date(LATER.getTime() + 60_000) });
+    expect((await watch(db)).lookStartedAt).toBeNull();
+
+    await expectFullLookAfter(db);
+  });
+
+  it("during a cut tick: the look starts over at the next tick", async () => {
+    const db = erasedWorld();
+    await lane(db, NOW);
+    // plan_new is written with its lost clicks; then, at plan_mid's link check, Search Console is
+    // disconnected and the tick runs out of time, so plan_old isn't reached.
+    await lane(db, LATER, async (n, deadlineMs) => {
+      if (n !== 2) return;
+      connected = false;
+      await clearSearchConsoleReasons(A, { db, now: LATER });
+      vi.spyOn(Date, "now").mockReturnValue(deadlineMs + 1);
+    });
+    expect(checked).toEqual([LINK("n"), LINK("m")]);
+    expect(await sweptAt(db, "plan_old")).toBe(NOW.toISOString());
+    // The erase took plan_new's reason off, and the look that it landed in doesn't go on.
+    expect(await freshnessOf(db, "plan_new")).toMatchObject({ state: "due", reasons: [] });
+    expect((await watch(db)).lookStartedAt).toBeNull();
+
+    await expectFullLookAfter(db);
   });
 });

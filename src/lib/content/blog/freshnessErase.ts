@@ -55,9 +55,9 @@ const warnOnce = (ctx: TenantContext, what: string) => console.warn(`[freshness]
 
 /**
  * The quick step, for one brand: those reasons off every item on the due list, the watch due now,
- * and its count of erases moved on, so a look already running writes none of them back
- * (freshnessWatch.ts); then Next up picks that weighed Search Console. Idempotent apart from that
- * count, whatever any switch says, and it never throws.
+ * a look going on started over, and its count of erases moved on, so a look already running writes
+ * none of them back (freshnessWatch.ts); then Next up picks that weighed Search Console. Idempotent
+ * apart from that count, whatever any switch says, and it never throws.
  */
 export async function clearSearchConsoleDue(ctx: TenantContext, deps: { db?: FirestoreLike; now?: Date } = {}): Promise<ClearedDue> {
   const out: ClearedDue = { due: 0, picks: 0, failed: false };
@@ -72,7 +72,13 @@ export async function clearSearchConsoleDue(ctx: TenantContext, deps: { db?: Fir
         return { ...d, reasons: withoutSearchConsole(d.reasons) };
       });
       const sooner = !(Date.parse(w.nextAt) <= now.getTime());
-      return { ...(out.due ? { due } : {}), ...(sooner ? { nextAt: now.toISOString() } : {}), searchConsoleClears: (w.searchConsoleClears ?? 0) + 1 };
+      // A look going on starts over, so the next one looks again at the articles it already passed.
+      return {
+        ...(out.due ? { due } : {}),
+        ...(sooner ? { nextAt: now.toISOString() } : {}),
+        ...(w.lookStartedAt ? { lookStartedAt: null } : {}),
+        searchConsoleClears: (w.searchConsoleClears ?? 0) + 1,
+      };
     });
   } catch {
     out.failed = true;

@@ -1,6 +1,7 @@
 "use client";
 
 import type { VersionListing } from "@/lib/content/blog/versions";
+import type { AiOriginalView } from "@/lib/content/create/aiOriginalView";
 import type { ArticleReviewDoc } from "@/lib/types/articleRefresh";
 import type { RefreshAction, RefreshAnswer } from "./blog/RefreshReviewCard";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -130,6 +131,7 @@ export function ContentCanvas({
   datesTimeZone,
   freshnessOn = false,
   refreshOn = false,
+  aiDraftOn = false,
   openHub = false,
   editorialOn = false,
   seenOn = false,
@@ -160,6 +162,8 @@ export function ContentCanvas({
   freshnessOn?: boolean;
   /** Article refresh (BLOG_REFRESH_ENABLED): the article's earlier versions, with Restore. */
   refreshOn?: boolean;
+  /** The AI draft of each piece and how a person changed it (CONTENT_AI_ORIGINALS_ENABLED). */
+  aiDraftOn?: boolean;
   /** Open with the hub selected (a link to an article's Freshness card). */
   openHub?: boolean;
   /** Blog articles are written in the editorial shape (CREATE_BLOG_EDITORIAL_ENABLED). */
@@ -719,6 +723,17 @@ export function ContentCanvas({
     }
   }
 
+  /** A piece's AI original (CONTENT_AI_ORIGINALS_ENABLED): null when none was kept, undefined when it can't be read. */
+  async function readAiOriginalOf(id: string): Promise<AiOriginalView | null | undefined> {
+    try {
+      const res = await fetch(`/api/admin/workspace/${workspaceId}/content-plans/${planId}/nodes/${id}/ai-original`, { cache: "no-store" });
+      const data = (await res.json().catch(() => ({}))) as { original?: AiOriginalView | null };
+      return res.ok && data.original !== undefined ? data.original : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   /** The article's earlier versions (BLOG_REFRESH_ENABLED), newest first; null when they can't be read. */
   async function listVersionsOf(id: string): Promise<VersionListing[] | null> {
     try {
@@ -1126,6 +1141,7 @@ export function ContentCanvas({
           ...(datesTimeZone ? { datesTimeZone } : {}),
           ...(freshnessOn && pagesOn ? { onChecked: markChecked, ...(openHub ? { focusFreshness: true } : {}) } : {}),
           ...(refreshOn ? { versions: { list: listVersionsOf, restore: restoreVersionOf } } : {}),
+          ...(aiDraftOn ? { aiDraft: { read: readAiOriginalOf } } : {}),
           ...(refreshOn && pagesOn ? { refresh: { read: readReviewOf, act: actOnReview } } : {}),
           ...(editorialOn ? { editorial: true } : {}),
           ...(seenOn ? { onFindSeen: () => void onBlogFindSeen() } : {}),
@@ -1257,6 +1273,7 @@ export function ContentCanvas({
           onGenerate={() => saveThenGenerate(selectedCn.id)}
           onSuggestBrief={() => suggestBrief(selectedCn.id)}
           onApprove={() => approveNode(selectedCn.id)}
+          readAiOriginal={aiDraftOn ? () => readAiOriginalOf(selectedCn.id) : undefined}
           onImageBusyChange={(b) => {
             // An in-flight image op persists the ref per-node server-side; block the whole-graph
             // Save (canvas busy) + this node's own generate/auto-brief (node busy) meanwhile, so a

@@ -1,5 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
+import type { AiUsage } from "@/lib/agents/gemini";
 import type { ArticleMap } from "@/lib/content/blog/articleMap";
+import { usageThisMonth } from "@/lib/plans/meter";
+import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { MAX_ANGLE, parseAngle, suggestAngle, SuggestAngleBody } from "./suggestAngle";
 
 const ctx = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" } as const;
@@ -162,6 +165,30 @@ describe("suggesting a new workflow's angle", () => {
     expect(generate.mock.calls[0]![0]).toContain("Already suggested, and not the one (say something different)");
     expect(generate.mock.calls[0]![0]).toContain("Rankings no longer show whether buyers see you.");
     expect(generate.mock.calls[0]![1]).toMatchObject({ temperature: 0.9 });
+  });
+
+  it("counts the model's use as suggesting angles", async () => {
+    vi.stubEnv("USAGE_METER_ENABLED", "true");
+    const quiet = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    onTestFinished(() => {
+      vi.unstubAllEnvs();
+      quiet.mockRestore();
+    });
+    const db = new FakeFirestore();
+    const generate = vi.fn(async (_prompt: string, opts: { usage: AiUsage }) => {
+      await opts.usage.recordModel(300, "model-a");
+      return "ANGLE: Fresh bread sells itself before nine.";
+    });
+    const r = await suggestAngle(ctx, ws, body({ name: "Morning bakes" }), {
+      db: db as never,
+      modelReady: () => true,
+      now,
+      generate: generate as never,
+      loadMap: (async () => null) as never,
+      retrieve: (async () => null) as never,
+    });
+    expect(r).toMatchObject({ ok: true });
+    expect((await usageThisMonth(ctx, { db: db as never })).model_tokens?.byPurpose).toEqual({ content_angle: 300 });
   });
 
   it("refuses without a model or anything to go on, and when the answer can't be used", async () => {

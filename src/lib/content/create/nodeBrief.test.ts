@@ -14,12 +14,19 @@ vi.mock("@/lib/agents/gemini", () => ({
   },
 }));
 
+// The real meter, watched: the test can see which purpose the brief was counted under.
+vi.mock("@/lib/plans/meter", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/plans/meter")>();
+  return { ...real, aiUsage: vi.fn(real.aiUsage) };
+});
+
 import {
   gatherAncestorContext,
   generateNodeBrief,
   type GenerateNodeBriefInput,
 } from "./nodeBrief";
 import { generateText } from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import type { ContentGraph, ContentNode, ContentPlan } from "@/lib/types/contentPlan";
 
 const mocked = vi.mocked(generateText);
@@ -131,6 +138,17 @@ describe("generateNodeBrief", () => {
     const prompt = mocked.mock.calls.at(-1)?.[0] ?? "";
     expect(prompt).toContain("3 tips on writing"); // hub body is upstream context
     expect(prompt).toContain("Listicle"); // angle guidance injected
+  });
+
+  it("counts a brief as writing briefs, not as the piece it is for", async () => {
+    vi.mocked(aiUsage).mockClear();
+    mocked.mockResolvedValue(JSON.stringify({ brief: "One tip per line." }));
+    const hub = node({ id: "hub", type: "hub", channel: "newsletter", body: "3 tips on baking bread" });
+    const spoke = node({ id: "s1", type: "spoke", channel: "linkedin" });
+    const graph: ContentGraph = { nodes: [hub, spoke], edges: [edge("hub", "s1")] };
+    await generateNodeBrief({ ctx, workspaceId: "ws1", plan: plan(graph), node: spoke }, noRag);
+    expect(vi.mocked(aiUsage).mock.calls.map((c) => c[1])).toEqual(["content_brief"]);
+    expect(mocked.mock.calls.at(-1)?.[1]?.usage).toBe(vi.mocked(aiUsage).mock.results[0]?.value);
   });
 
   it("falls back to a deterministic brief when Gemini returns nothing", async () => {

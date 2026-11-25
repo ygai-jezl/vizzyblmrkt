@@ -254,7 +254,7 @@ export async function authorLifecycleDraft(
   };
 }
 
-export const lifecycleCanvasKind: CanvasKind = {
+export const lifecycleCanvasKind: CanvasKind<"lifecycle"> = {
   kind: "lifecycle",
   label: "lifecycle journey",
   authorDraft: (args) => authorLifecycleDraft(args),

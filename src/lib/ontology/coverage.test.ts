@@ -1,10 +1,12 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { forTenant } from "@/lib/tenant";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
-import { storesOf } from "./registry";
+import { LOOPS } from "@/lib/loops/registry";
+import { ONTOLOGY, storesOf, typeById } from "./registry";
+import { FIRESTORE_DBS, type StoreRef } from "./types";
 import {
   coverageProblems,
   homeOfFile,
@@ -82,6 +84,18 @@ describe("store coverage", () => {
   it("has a registry entry for every store, and finds every Firestore entry in the code", () => {
     const problems = coverageProblems({ repositoryFile: REPOSITORY, repository, scanned, stores: storesOf(), allowed: UNRESOLVED, storeFiles });
     expect(problems).toEqual([]);
+  });
+
+  it("keeps what each kind made, and what each own line learned, in stores the code uses", () => {
+    const names = new Set([...repository.map((e) => e.collection), ...scanned.flatMap((f) => f.calls.resolved.map((r) => r.name)), ...UNRESOLVED.flatMap((a) => a.names)]);
+    const inCode = (s: StoreRef) => ((FIRESTORE_DBS as readonly string[]).includes(s.db) ? names.has(s.collection) : storeFiles.includes(s.definedIn) || existsSync(join(ROOT, s.definedIn)));
+    const holders = ONTOLOGY.filter((t) => t.madeBy.length > 0).map((t) => t.id);
+    const learnedIn = Object.values(LOOPS).flatMap((d) => ("own" in d ? [d.own as string] : []));
+    for (const id of new Set([...holders, ...learnedIn])) {
+      const t = typeById(id);
+      expect(t, id).toBeDefined();
+      expect(t!.stores.some(inCode), `${id} says it holds what YouGrow made or learned, but the code uses none of its stores`).toBe(true);
+    }
   });
 
   it("gives every allowlisted call a reason", () => {

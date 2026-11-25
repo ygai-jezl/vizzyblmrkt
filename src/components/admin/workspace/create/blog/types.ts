@@ -1,3 +1,4 @@
+import type { AiOriginalView } from "@/lib/content/create/aiOriginalView";
 import type { BlogBrief } from "@/lib/types/contentPlan";
 import type { VersionsControls } from "./VersionsCard";
 import type { RefreshControls } from "./RefreshReviewCard";
@@ -74,6 +75,8 @@ export interface BlogHubControls {
   focusFreshness?: boolean;
   /** Article refresh (BLOG_REFRESH_ENABLED): the article's earlier versions, with Restore. */
   versions?: VersionsControls;
+  /** The article's AI draft and how a person changed it (CONTENT_AI_ORIGINALS_ENABLED). */
+  aiDraft?: { read: (nodeId: string) => Promise<AiOriginalView | null | undefined> };
   /** Article refresh (BLOG_REFRESH_ENABLED): a live article's review, its proposals and Apply. */
   refresh?: RefreshControls;
   /** Found live (BLOG_LIVE_WATCH_ENABLED): YouGrow checks the address on its own, or finds the article on the sitemap. */

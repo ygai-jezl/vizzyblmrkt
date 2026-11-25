@@ -77,7 +77,7 @@ export async function authorPersonFields({ ctx, input }: CanvasAuthorArgs, deps:
   };
 }
 
-export const personFieldsCanvasKind: CanvasKind = {
+export const personFieldsCanvasKind: CanvasKind<"person_fields"> = {
   kind: "person_fields",
   label: "suggested field changes for one person",
   authorDraft: (args) => authorPersonFields(args),

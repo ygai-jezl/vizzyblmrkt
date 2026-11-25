@@ -254,6 +254,27 @@ describe("Plan and usage", () => {
     expect(aiTellsIn(text)).toEqual([]);
   });
 
+  it("names each kind of workflow writing, and shows a stored key it doesn't know as itself", () => {
+    const text = render(
+      proOwner({
+        monthly: [
+          {
+            feature: "model_tokens",
+            label: "AI model use",
+            used: 1000,
+            limit: null,
+            from: null,
+            included: true,
+            needs: null,
+            unit: "tokens",
+            byPurpose: { content_write: 500, content_email: 200, content_hub: 150, content_brief: 80, content_angle: 50, retired_feature: 20 },
+          },
+        ],
+      }),
+    );
+    expect(text).toContain("Writing posts 500 · Writing workflow emails 200 · Writing hub content 150 · Writing briefs 80 · Suggesting angles 50 · retired_feature 20");
+  });
+
   it("has a neutral line when plans are off, never coming soon", () => {
     const off = textOf(renderToStaticMarkup(createElement(PlansOff)));
     expect(off).toBe(PLAN_AND_USAGE_COPY.plansOff);

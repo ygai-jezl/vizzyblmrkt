@@ -99,6 +99,12 @@ def draft_content_plan(
 def get_content_plan(tool_context: ToolContext, plan_id: str = "", workspace_id: str = "") -> dict:
     """Read a plan's pieces (ids, types, statuses and copy) before rewriting any.
 
+    Where the brand keeps AI drafts, each piece also has an `edit` block: when its AI draft was
+    written and by whom, and how a person changed it before approving it (share of words
+    changed, sections added or cut, figures and links changed, times written again). The
+    `meanings` say what each number means. Use it to answer "how much did we change this
+    draft?"; it never changes anything.
+
     Args:
         plan_id: The plan. If empty, the plan on screen is used.
         workspace_id: Its programme. If empty, the programme on screen is used.

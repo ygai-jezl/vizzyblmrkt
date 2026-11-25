@@ -14,8 +14,15 @@ vi.mock("@/lib/agents/gemini", () => ({
   },
 }));
 
-import { generateNode, type GenerateNodeInput } from "./generateNode";
+// The real meter, watched: each test can see which purpose a node's writing was counted under.
+vi.mock("@/lib/plans/meter", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/plans/meter")>();
+  return { ...real, aiUsage: vi.fn(real.aiUsage) };
+});
+
+import { generateNode, writingPurposeOf, type GenerateNodeInput } from "./generateNode";
 import { generateText } from "@/lib/agents/gemini";
+import { aiUsage } from "@/lib/plans/meter";
 import { BlogArticleMetaSchema, BlogBriefSchema, type ContentNode, type ContentPlan } from "@/lib/types/contentPlan";
 
 const mocked = vi.mocked(generateText);
@@ -449,5 +456,74 @@ describe("generateNode — a blog hub written to the CITABLE structure", () => {
     );
     expect(skeleton.body).toBe("Filled skeleton.");
     expect(draftBlog).not.toHaveBeenCalled();
+  });
+});
+
+describe("generateNode: what a node's writing is counted as", () => {
+  const usageSpy = vi.mocked(aiUsage);
+  const purposeOfLastCall = () => usageSpy.mock.calls.at(-1)?.[1];
+  // The usage the model call got is the one built for that purpose.
+  const modelGotThatUsage = () => expect(mocked.mock.calls.at(-1)?.[1]?.usage).toBe(usageSpy.mock.results.at(-1)?.value);
+
+  beforeEach(() => {
+    mocked.mockReset();
+    usageSpy.mockClear();
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("names one purpose for each kind of node", () => {
+    expect(writingPurposeOf("hub", true)).toBe("blog_write");
+    expect(writingPurposeOf("hub", false)).toBe("content_hub");
+    expect(writingPurposeOf("email", false)).toBe("content_email");
+    for (const type of ["spoke", "promo_pre", "promo_post"] as const) expect(writingPurposeOf(type, false)).toBe("content_write");
+  });
+
+  it("counts a hub as hub content, with or without a template skeleton", async () => {
+    mocked.mockResolvedValue(JSON.stringify({ body: "A newsletter." }));
+    const hub = node({ type: "hub", channel: "newsletter" });
+    await generateNode({ ctx, workspaceId: "ws1", plan: plan([hub]), node: hub }, noRag);
+    expect(purposeOfLastCall()).toBe("content_hub");
+    modelGotThatUsage();
+
+    await generateNode({ ctx, workspaceId: "ws1", plan: plan([hub]), node: hub, skeletonBody: "# {{Title}}" }, noRag);
+    expect(purposeOfLastCall()).toBe("content_hub");
+    modelGotThatUsage();
+  });
+
+  it("counts spokes and promos as posts", async () => {
+    mocked.mockResolvedValue(JSON.stringify({ body: "A post." }));
+    const hub = node({ id: "hub", type: "hub", body: "hub body" });
+    for (const n of [
+      node({ id: "s1", type: "spoke", channel: "x", role: "Spoke" }),
+      node({ id: "p1", type: "promo_pre", channel: "linkedin", role: "Promo" }),
+      node({ id: "p2", type: "promo_post", channel: "instagram", role: "Promo" }),
+    ]) {
+      await generateNode({ ctx, workspaceId: "ws1", plan: plan([hub, n]), node: n }, noRag);
+      expect(purposeOfLastCall(), n.type).toBe("content_write");
+      modelGotThatUsage();
+    }
+  });
+
+  it("counts an email node as a workflow email", async () => {
+    mocked.mockResolvedValue(JSON.stringify({ subject: "Hello", previewText: "", subjectVariants: [], body: "<p>Hi there.</p>" }));
+    const email = node({ id: "e1", type: "email", channel: "newsletter", role: "Email 1" });
+    await generateNode({ ctx, workspaceId: "ws1", plan: plan([email], { objective: "email_sequence", sequenceType: "welcome" }), node: email }, noRag);
+    expect(purposeOfLastCall()).toBe("content_email");
+    modelGotThatUsage();
+  });
+
+  it("counts a CITABLE blog hub as a blog article, and a structural node as nothing", async () => {
+    vi.stubEnv("CREATE_BLOG_CITABLE_ENABLED", "true");
+    const hub = node({ type: "hub", channel: "blog", brief: "Explain it." });
+    const draftBlog = vi.fn().mockResolvedValue({ body: "# A question?", meta: BlogArticleMetaSchema.parse({ metaTitle: "T", slug: "t" }), warnings: [], report: {} });
+    const blogPlan = { ...plan([hub]), blog: BlogBriefSchema.parse({ primaryQuestion: "How does it work?", publisherName: "Hearth Bakery" }) };
+    await generateNode({ ctx, workspaceId: "ws1", plan: blogPlan, node: hub }, noRag, undefined, draftBlog as never);
+    expect(purposeOfLastCall()).toBe("blog_write");
+    expect(draftBlog.mock.calls[0]![0].usage).toBe(usageSpy.mock.results.at(-1)?.value);
+
+    usageSpy.mockClear();
+    const wait = node({ id: "w1", type: "wait" });
+    await generateNode({ ctx, workspaceId: "ws1", plan: plan([wait]), node: wait }, noRag);
+    expect(usageSpy).not.toHaveBeenCalled();
   });
 });

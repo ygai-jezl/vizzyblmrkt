@@ -1,5 +1,10 @@
 import { forTenant, type TenantContext } from "@/lib/tenant";
 import { isBlogDatesEnabled } from "@/lib/brandMap/flags";
+import { isAiOriginalsEnabled } from "./create/flags";
+import { readPlanOriginals } from "./create/aiOriginals";
+import { editMeasures } from "./editMeasures";
+import { meaningsOf, numberKeys } from "@/lib/metrics/meanings";
+import type { AiOriginalDoc } from "@/lib/types/aiOriginal";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { ContentObjective, SequenceType, type ContentPlan } from "@/lib/types/contentPlan";
 import { verifyCanvasContext, isCanvasAuthConfigured, tenantContextFromCanvasToken } from "@/lib/canvas/auth";
@@ -166,31 +171,60 @@ export async function agentContentPlan(
   if (!ws) return { status: 404, body: { error: "workspace_not_found" } };
   const plan = await getContentPlan(ctx, workspaceId, planId, db);
   if (!plan) return { status: 404, body: { error: "plan_not_found" } };
+  // How each piece changed from its AI draft (CONTENT_AI_ORIGINALS_ENABLED); off, the read is as before.
+  const originals = isAiOriginalsEnabled() ? new Map((await readPlanOriginals(ctx, plan.id, { db })).filter((o) => o.workspaceId === workspaceId).map((o) => [o.nodeId, o] as const)) : null;
+  const body = {
+    plan: planSummary(plan),
+    pieces: plan.graph.nodes
+      .filter((n) => isPiece(n.type))
+      .slice(0, 60)
+      .map((n) => ({
+        id: n.id,
+        type: n.type,
+        channel: n.channel,
+        role: n.role,
+        status: n.status,
+        scheduled: !!(n.distributionStatus || n.scheduledAt),
+        brief: clip(n.brief, 400),
+        subject: n.subject ?? null,
+        body: clip(n.body, 1200),
+        // A live blog article's true dates (BLOG_DATES_ENABLED), as stored: an ISO instant or a day.
+        ...(isBlogDatesEnabled() && n.channel === "blog" && n.blog?.live && n.blog.dates?.published
+          ? {
+              published: { at: n.blog.dates.published.at, from: n.blog.dates.published.source },
+              updated: n.blog.dates.updated ? { at: n.blog.dates.updated.at, from: n.blog.dates.updated.source } : null,
+            }
+          : {}),
+        ...(originals ? { edit: editBlock(originals.get(n.id) ?? null, n) } : {}),
+      })),
+  };
+  return { status: 200, body: originals ? { ...body, meanings: meaningsOf(numberKeys(body)) } : body };
+}
+
+/** A piece's AI draft and how a person changed it: the last approval's measures, else the copy as it is now. */
+function editBlock(doc: AiOriginalDoc | null, node: { type: string; channel: string; body: string }) {
+  if (!doc) return null;
+  const pair = doc.pairs.find((p) => p.original.at === doc.original.at) ?? null;
+  const m = pair
+    ? pair.measures
+    : editMeasures(doc.original.body, node.body, { originalAt: doc.original.at, approvedAt: new Date().toISOString(), regenerations: doc.regenerations, sections: node.type === "hub" && node.channel === "blog" });
   return {
-    status: 200,
-    body: {
-      plan: planSummary(plan),
-      pieces: plan.graph.nodes
-        .filter((n) => isPiece(n.type))
-        .slice(0, 60)
-        .map((n) => ({
-          id: n.id,
-          type: n.type,
-          channel: n.channel,
-          role: n.role,
-          status: n.status,
-          scheduled: !!(n.distributionStatus || n.scheduledAt),
-          brief: clip(n.brief, 400),
-          subject: n.subject ?? null,
-          body: clip(n.body, 1200),
-          // A live blog article's true dates (BLOG_DATES_ENABLED), as stored: an ISO instant or a day.
-          ...(isBlogDatesEnabled() && n.channel === "blog" && n.blog?.live && n.blog.dates?.published
-            ? {
-                published: { at: n.blog.dates.published.at, from: n.blog.dates.published.source },
-                updated: n.blog.dates.updated ? { at: n.blog.dates.updated.at, from: n.blog.dates.updated.source } : null,
-              }
-            : {}),
-        })),
-    },
+    aiDraftAt: doc.original.at,
+    writtenBy: doc.original.by,
+    promptId: doc.original.stamp?.promptId ?? null,
+    sources: doc.original.sources,
+    approvedAt: pair?.final.at ?? null,
+    approvedBy: pair ? (pair.trigger === "live" ? "found live" : "a person") : null,
+    approvedAsWritten: m.approvedAsWritten,
+    draftWordsChanged: m.wordsChanged,
+    draftWordsChangedShare: m.wordsChangedShare,
+    draftSectionsAdded: m.sectionsAdded.length,
+    draftSectionsCut: m.sectionsCut.length,
+    sectionsAddedNames: m.sectionsAdded,
+    sectionsCutNames: m.sectionsCut,
+    draftFiguresChanged: m.figuresAdded.length + m.figuresRemoved.length,
+    draftLinksChanged: m.linksAdded.length + m.linksCut.length,
+    draftRegenerations: m.regenerations,
+    draftMinutesToApprove: m.minutesToApprove,
   };
 }

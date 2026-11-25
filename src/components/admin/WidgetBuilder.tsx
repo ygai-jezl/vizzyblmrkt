@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ideaWord } from "@/lib/nav/terms";
+import { useWords } from "./nav/WordsProvider";
 import {
   WIDGET_TYPE_META,
   type WidgetMode,
@@ -132,6 +134,7 @@ export function WidgetBuilder({
   siteForm?: { canEdit: boolean };
 }) {
   const router = useRouter();
+  const w = ideaWord(useWords().ideas);
   const [ownForm, setOwnForm] = useState(false);
   const [tab, setTab] = useState<Tab>("design");
   const [campaignId, setCampaignId] = useState(initialCampaignId);
@@ -456,6 +459,7 @@ function DesignTab({
   snippet: string;
   hostedUrl: string;
 }) {
+  const w = ideaWord(useWords().ideas);
   const [copied, setCopied] = useState<"snippet" | "link" | null>(null);
   const isHosted = surface === "hosted";
   const description = isHosted
@@ -507,7 +511,7 @@ function DesignTab({
       <div className="space-y-6">
         {pills}
         <p className="text-xs text-neutral-500">
-          Keep your own sign-up box. Your server sends each email to YouGrow with this launch&apos;s site key.
+          Keep your own sign-up box. Your server sends each email to YouGrow with this {w.own} site key.
           YouGrow sends the confirmation email, and people join once they confirm.
         </p>
         <SiteFormPanel campaignId={siteForm.campaignId} canEdit={siteForm.canEdit} />
@@ -738,7 +742,7 @@ function DesignTab({
           </pre>
           <p className="text-xs text-neutral-500">
             Your standalone waitlist page. Share the link directly, or set it as your
-            launch&apos;s Waitlist URL in Settings.
+            {` ${w.own} `}Waitlist URL in Settings.
           </p>
         </section>
       ) : (

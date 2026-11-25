@@ -41,11 +41,30 @@ export const IDEA_MESSAGES = {
   closeFailed: "The status is saved, but the waitlist didn't close. Try again, or use Archive launch on the Settings tab.",
 } as const;
 
+/**
+ * The same messages while launches are called ideas (isIdeaWordsEnabled()). Written out in full
+ * rather than built from ideaWord(), so a help page can quote either set and the help test still
+ * finds it in the source.
+ */
+export const IDEA_MESSAGES_AS_IDEAS: Record<keyof typeof IDEA_MESSAGES, string> = {
+  hypothesisNotSaved: "Your idea is made. Add the hypothesis on its Overview.",
+  notSaved: IDEA_MESSAGES.notSaved,
+  notLaunched: IDEA_MESSAGES.notLaunched,
+  productGone: IDEA_MESSAGES.productGone,
+  closeFailed: "The status is saved, but the waitlist didn't close. Try again, or use Archive idea on the Settings tab.",
+};
+
+/** The messages in the words in use: `ideas` is useWords().ideas, or isIdeaWordsEnabled() on the server. */
+export function ideaMessages(ideas: boolean): Record<keyof typeof IDEA_MESSAGES, string> {
+  return ideas ? IDEA_MESSAGES_AS_IDEAS : IDEA_MESSAGES;
+}
+
 /** An error code from the idea route, in words. */
-export function ideaErrorText(code: unknown): string {
-  if (code === "not_launched") return IDEA_MESSAGES.notLaunched;
-  if (code === "product_not_found") return IDEA_MESSAGES.productGone;
-  return IDEA_MESSAGES.notSaved;
+export function ideaErrorText(code: unknown, ideas = false): string {
+  const m = ideaMessages(ideas);
+  if (code === "not_launched") return m.notLaunched;
+  if (code === "product_not_found") return m.productGone;
+  return m.notSaved;
 }
 
 /** "18 Nov", with the year when it isn't this one. */

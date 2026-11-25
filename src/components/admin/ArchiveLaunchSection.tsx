@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
+import { ideaWord } from "@/lib/nav/terms";
+import { useWords } from "./nav/WordsProvider";
 
 const PHASE3 = isNavV2Phase3Enabled();
 
@@ -13,6 +15,7 @@ const PHASE3 = isNavV2Phase3Enabled();
  * every record (so the data stays available to agents/analytics). No typed
  * confirmation (unlike delete — it's reversible); an optional reason is recorded
  * on the audit trail. Rendered only for admins; the route enforces the role too.
+ * With the words on (useWords().ideas) it names an idea.
  */
 export function ArchiveLaunchSection({
   campaignId,
@@ -33,6 +36,8 @@ export function ArchiveLaunchSection({
   holdOnPause?: boolean;
 }) {
   const router = useRouter();
+  const { ideas } = useWords();
+  const w = ideaWord(ideas);
   const [reason, setReason] = useState("");
   const [status, setStatus] = useState<"idle" | "working" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -64,8 +69,8 @@ export function ArchiveLaunchSection({
           data.error === "journey_invalid"
             ? `The journey can't be published yet${data.reason ? `: ${data.reason}` : ""}. Fix it on the Journey page.`
             : data.error === "launch_archived"
-              ? "Restore the launch first, then turn its welcome emails back on."
-              : "Couldn't turn the emails back on — please try again.",
+              ? `Restore the ${w.one} first, then turn its welcome emails back on.`
+              : "Couldn't turn the emails back on. Please try again.",
         );
         setResume("idle");
         return;
@@ -79,7 +84,7 @@ export function ArchiveLaunchSection({
       setResume("done");
       router.refresh();
     } catch {
-      setError("Network error — please try again.");
+      setError("Network error. Please try again.");
       setResume("idle");
     }
   }
@@ -98,10 +103,10 @@ export function ArchiveLaunchSection({
       if (!res.ok) {
         setError(
           data.error === "forbidden"
-            ? "Only an admin can archive a launch."
+            ? `Only an admin can archive ${w.a}.`
             : data.error === "campaign_not_found"
-              ? "This launch no longer exists."
-              : `${archived ? "Restore" : "Archive"} failed — please try again.`,
+              ? `This ${w.one} no longer exists.`
+              : `${archived ? "Restore" : "Archive"} failed. Please try again.`,
         );
         setStatus("error");
         return;
@@ -110,7 +115,7 @@ export function ArchiveLaunchSection({
       router.refresh();
       setStatus("idle");
     } catch {
-      setError("Network error — please try again.");
+      setError("Network error. Please try again.");
       setStatus("error");
     }
   }
@@ -152,18 +157,18 @@ export function ArchiveLaunchSection({
       {archived ? (
         <div>
           <h2 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-            Restore this launch
+            Restore this {w.one}
           </h2>
           <p className="mt-1 text-sm text-amber-700/90 dark:text-amber-300/80">
-            <span className="font-medium">{campaignName}</span> is archived — its
+            <span className="font-medium">{campaignName}</span> is archived. Its
             public waitlist is closed to new signups. Restoring reopens signups
             immediately.{" "}
             {PHASE3 ? (
               "If its welcome emails were paused, you can turn them back on here once it's restored."
             ) : (
               <>
-                Note: paused email journeys are <span className="font-medium">not</span> resumed automatically —
-                re-activate them from the Journey page.
+                Note: paused email journeys are <span className="font-medium">not</span> resumed automatically.
+                Turn them back on from the Journey page.
               </>
             )}
           </p>
@@ -171,12 +176,12 @@ export function ArchiveLaunchSection({
       ) : (
         <div>
           <h2 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-            Archive this launch
+            Archive this {w.one}
           </h2>
           <p className="mt-1 text-sm text-amber-700/90 dark:text-amber-300/80">
             Closes <span className="font-medium">{campaignName}</span>: the public
             waitlist stops accepting new signups, any active email journey is
-            paused, and the launch moves out of Active Launches. All data is kept
+            paused, and {ideas ? "the idea moves to Archived on the Ideas list" : "the launch moves out of Active Launches"}. All data is kept
             and stays available to your agents. You can restore it at any time.
           </p>
         </div>
@@ -190,7 +195,7 @@ export function ArchiveLaunchSection({
           <input
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder="e.g. Launch wrapped up / pausing intake"
+            placeholder={`e.g. ${w.One} wrapped up / pausing intake`}
             className="w-full rounded-md border border-amber-300 bg-white px-3 py-2 text-sm dark:border-amber-900/70 dark:bg-neutral-900"
           />
         </div>
@@ -209,10 +214,10 @@ export function ArchiveLaunchSection({
         {archived
           ? busy
             ? "Restoring…"
-            : "Restore launch"
+            : `Restore ${w.one}`
           : busy
             ? "Archiving…"
-            : "Archive launch"}
+            : `Archive ${w.one}`}
       </button>
     </section>
     </>

@@ -9,7 +9,9 @@ import {
   type CampaignSettings,
 } from "@/lib/admin/campaignSettings";
 import { IDEA_LIMITS, type RequiredContactDetail } from "@/lib/types/campaign";
-import { IDEA_MESSAGES } from "@/lib/ideas/words";
+import { ideaMessages } from "@/lib/ideas/words";
+import { ideaWord } from "@/lib/nav/terms";
+import { useWords } from "./nav/WordsProvider";
 
 const CONTACT_OPTIONS: RequiredContactDetail[] = ["EMAIL", "PHONE", "BOTH", "EITHER"];
 
@@ -21,9 +23,14 @@ const CONTACT_OPTIONS: RequiredContactDetail[] = ["EMAIL", "PHONE", "BOTH", "EIT
  * With `hypothesis` (LAUNCH_IDEAS_ENABLED, admins only) it also asks for the idea's
  * hypothesis, saved by a second call once the launch exists. If that call fails the
  * launch is made all the same: the form stays, with the text kept, and says so.
+ *
+ * With the words on (useWords().ideas) it names an idea instead. "Launch name is required." and
+ * its idea twin are written out, since the help page quotes them.
  */
 export function NewLaunchForm({ hypothesis: withHypothesis = false }: { hypothesis?: boolean }) {
   const router = useRouter();
+  const { ideas } = useWords();
+  const w = ideaWord(ideas);
   const [name, setName] = useState("");
   const [hypothesis, setHypothesis] = useState("");
   const [madeId, setMadeId] = useState<string | null>(null);
@@ -40,7 +47,7 @@ export function NewLaunchForm({ hypothesis: withHypothesis = false }: { hypothes
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) {
-      setError("Launch name is required.");
+      setError(ideas ? "Idea name is required." : "Launch name is required.");
       setStatus("error");
       return;
     }
@@ -64,7 +71,12 @@ export function NewLaunchForm({ hypothesis: withHypothesis = false }: { hypothes
 
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
-      setError(data.message ?? data.error ?? "Could not create the launch. Please try again.");
+      // The server's id_taken message names a launch.
+      setError(
+        ideas && data.error === "id_taken"
+          ? "An idea already uses that URL slug. Pick another one."
+          : (data.message ?? data.error ?? `Could not create the ${w.one}. Please try again.`),
+      );
       setStatus("error");
       return;
     }
@@ -90,11 +102,11 @@ export function NewLaunchForm({ hypothesis: withHypothesis = false }: { hypothes
 
   return (
     <form onSubmit={submit} className="space-y-5">
-      <Field label="Launch name" hint="Shown on the hosted waitlist page.">
+      <Field label={`${w.One} name`} hint="Shown on the hosted waitlist page.">
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Developer API Launch"
+          placeholder={ideas ? "Developer API" : "Developer API Launch"}
           required
           disabled={madeId !== null}
           className={inputClass}
@@ -185,7 +197,7 @@ export function NewLaunchForm({ hypothesis: withHypothesis = false }: { hypothes
 
       {madeId ? (
         <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
-          <p>{IDEA_MESSAGES.hypothesisNotSaved}</p>
+          <p>{ideaMessages(ideas).hypothesisNotSaved}</p>
           <Link
             href={`/admin/launches/${madeId}`}
             className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
@@ -200,11 +212,9 @@ export function NewLaunchForm({ hypothesis: withHypothesis = false }: { hypothes
             disabled={busy}
             className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-60 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
           >
-            {busy ? "Creating…" : "Create launch"}
+            {busy ? "Creating…" : `Create ${w.one}`}
           </button>
-          <span className="text-xs text-neutral-400">
-            You can fine-tune everything else in the launch&apos;s Settings tab.
-          </span>
+          <span className="text-xs text-neutral-400">You can fine-tune everything else in the {w.own} Settings tab.</span>
         </div>
       )}
     </form>

@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { COMPARE_MAX, COMPARE_MIN } from "@/lib/ideas/list";
+import { ideaWord } from "@/lib/nav/terms";
+import { useWords } from "../nav/WordsProvider";
 
 /**
  * The bar above the launches list's compare boxes (LAUNCH_IDEAS_ENABLED). The boxes are plain
@@ -10,6 +12,7 @@ import { COMPARE_MAX, COMPARE_MIN } from "@/lib/ideas/list";
  * them.
  */
 export function ComparePicks() {
+  const w = ideaWord(useWords().ideas);
   const ref = useRef<HTMLDivElement>(null);
   const [picked, setPicked] = useState(0);
 
@@ -38,10 +41,10 @@ export function ComparePicks() {
     <div ref={ref} role="status" className={`flex flex-wrap items-center justify-between gap-2 text-sm ${ready ? "rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-900" : "text-neutral-500"}`}>
       <p>
         {ready
-          ? `${picked} launches picked.${picked >= COMPARE_MAX ? " That's the most you can compare at once." : ""}`
+          ? `${picked} ${w.many} picked.${picked >= COMPARE_MAX ? " That's the most you can compare at once." : ""}`
           : picked === 1
-            ? "1 launch picked. Tick one more to compare them."
-            : `Tick ${COMPARE_MIN} to ${COMPARE_MAX} launches to compare them side by side.`}
+            ? `1 ${w.one} picked. Tick one more to compare them.`
+            : `Tick ${COMPARE_MIN} to ${COMPARE_MAX} ${w.many} to compare them side by side.`}
       </p>
       {ready ? (
         <span className="flex gap-2">

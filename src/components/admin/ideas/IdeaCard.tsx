@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { IDEA_LIMITS, type Idea, type IdeaStatus } from "@/lib/types/campaign";
 import type { HandoffChoices } from "@/lib/ideas/handoff";
-import { handedOffLine, IDEA_MESSAGES, IDEA_STATUS_LABEL, IDEA_STATUS_OPTIONS, IDEA_STATUS_TONE, ideaErrorText, JUST_A_LIST, statusLine } from "@/lib/ideas/words";
+import { handedOffLine, IDEA_STATUS_LABEL, IDEA_STATUS_OPTIONS, IDEA_STATUS_TONE, ideaErrorText, ideaMessages, JUST_A_LIST, statusLine } from "@/lib/ideas/words";
+import { useWords } from "../nav/WordsProvider";
 import { api } from "../connect/api";
 import { Banner, Button, inputClass } from "../connect/ui";
 import { Chip, chipToneClass } from "../people/Chip";
@@ -50,6 +51,7 @@ const count = (n: number) => n.toLocaleString("en-GB");
 
 export function IdeaCard({ campaignId, idea: initial, canEdit, archived, viewerId, names, handoff = null, productLinks = false }: IdeaCardProps) {
   const router = useRouter();
+  const { ideas } = useWords();
   const [idea, setIdea] = useState<Idea>(initial);
   const [hyp, setHyp] = useState(initial.hypothesis ?? "");
   const [out, setOut] = useState(initial.outcome ?? "");
@@ -67,7 +69,7 @@ export function IdeaCard({ campaignId, idea: initial, canEdit, archived, viewerI
     const r = await api<IdeaReply>(`/api/admin/campaigns/${encodeURIComponent(campaignId)}/idea`, { method: "PATCH", body: JSON.stringify(body) });
     setBusy(false);
     if (!r.ok || !r.data.idea) {
-      setError(ideaErrorText(r.data.error));
+      setError(ideaErrorText(r.data.error, ideas));
       return null;
     }
     setIdea(r.data.idea);
@@ -89,7 +91,7 @@ export function IdeaCard({ campaignId, idea: initial, canEdit, archived, viewerI
       setClosed(true);
       router.refresh();
     } else {
-      setError(IDEA_MESSAGES.closeFailed);
+      setError(ideaMessages(ideas).closeFailed);
     }
   }
 

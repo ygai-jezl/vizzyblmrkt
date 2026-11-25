@@ -13,7 +13,8 @@ import { docToMarkdown } from "@/lib/developers/markdown";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { STATE_LABELS } from "@/components/admin/connectors/words";
 import { SOURCE_COPY } from "@/components/admin/chat/SourceLine";
-import { HEALTH_HELP, SEARCH_TEXT_HELP, SIGNALS_HELP, VIZZY_COLLECTED_HELP } from "@/lib/connectors/helpText";
+import { COLLECT_HELP, HEALTH_HELP, SEARCH_CONSOLE_FRESHNESS_ERASED, SEARCH_TEXT_HELP, SIGNALS_HELP, VIZZY_COLLECTED_HELP } from "@/lib/connectors/helpText";
+import { SUGGESTION_BUSY } from "@/lib/connectors/signals/review";
 import { allConnectors } from "@/lib/connectors/catalog";
 import { CONNECTOR_ERRORS, tokenRefusedMessage } from "@/lib/connectors/messages";
 import { helpLlmsTxt, helpPageMarkdown } from "./agentFiles";
@@ -74,6 +75,11 @@ vi.hoisted(() => {
   process.env.CONNECTORS_SEARCH_TEXT_ENABLED = "true";
   process.env.CONNECTOR_SIGNALS_ENABLED = "true";
   process.env.BRAND_MAP_SCALE_ENABLED = "true";
+  // Shared connections (Connectors 3) need plans on too.
+  process.env.PLANS_ENABLED = "true";
+  process.env.CONNECTORS_SHARING_ENABLED = "true";
+  // Brands in your organisation (Connectors 3 group 4) needs plans on too.
+  process.env.ORGANISATION_JOIN_ENABLED = "true";
   process.env.PASSWORD_SIGNIN_ENABLED = "true";
   process.env.LAUNCH_IDEAS_ENABLED = "true";
   // Password help shows only when a code can be delivered too (isPasswordSigninAvailable).
@@ -810,6 +816,9 @@ describe("Connected data", () => {
     expect(text).toContain("Each day keeps the zone's totals. Visits by people reach back about 31 days, and older days count all traffic.");
     expect(text).toMatch(/^\| Filling 90 days: 34 of 90 \|/m);
     expect(text).toContain("Disconnect deletes everything YouGrow collected for a connection, at once, whatever any switch says.");
+    // What else goes for Search Console, in the product's own words: the Freshness card, Review's list and Next up.
+    expect(text).toContain(COLLECT_HELP.erase);
+    expect(COLLECT_HELP.erase).toContain("For Search Console, both also take its figures off article Freshness cards and out of Articles due a refresh, and drop the Next up picks that weighed them.");
     expect(text).toContain("Data sources that need you");
     const off = collected(false);
     expect(off).not.toContain("Collected numbers");
@@ -912,6 +921,7 @@ describe("What your numbers suggest (CONNECTOR_SIGNALS_ENABLED)", () => {
     expect(text).toContain("**What your numbers suggest**: searches and pages from Search Console worth an article");
     expect(text).toContain("## Plan or dismiss what your numbers suggest");
     expect(text).toContain("It won't come back for 30 days.");
+    expect(text).toContain(SUGGESTION_BUSY);
     expect(review(true, false)).not.toContain("What your numbers suggest");
     expect(review(false, true)).not.toContain("What your numbers suggest");
   });
@@ -965,3 +975,17 @@ describe("What your numbers suggest (CONNECTOR_SIGNALS_ENABLED)", () => {
   });
 });
 
+
+describe("what an erase takes from article freshness", () => {
+  it("says it in the product's own words on Connected data and Shared connections, and never calls them notes", () => {
+    const connected = docToMarkdown(HELP_BODIES["connected-data"]!({ connectorsChat: true, connectorsCollect: true, sharing: true } as never), "https://app.example.com");
+    const shared = docToMarkdown(HELP_BODIES["shared-connections"]!({}), "https://app.example.com");
+    for (const [name, text] of [["connected-data", connected], ["shared-connections", shared]] as const) {
+      expect(text, name).toContain(SEARCH_CONSOLE_FRESHNESS_ERASED);
+      expect(text, name).not.toContain("freshness notes");
+      expect(dashesIn(text), name).toEqual([]);
+      expect(aiTellsIn(text), name).toEqual([]);
+    }
+    expect(shared.split(SEARCH_CONSOLE_FRESHNESS_ERASED).length - 1).toBe(4);
+  });
+});

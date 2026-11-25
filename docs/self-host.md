@@ -381,8 +381,9 @@ and makes only the ones missing, so a copy set up before the third alert gets ju
 code and no check until a day has passed, so nobody can guess one. Anyone who creates a password
 account with an address can type wrong codes for it and lock its owner out, so the code screen
 then offers **Email me a link instead**. The link can't be guessed, works once, for 30 minutes,
-and only in a browser signed in to that account. It needs `NEXT_PUBLIC_PLATFORM_ORIGIN` set to your app's address: the `envfile`
-step sets it to your backend's URL, and you change it if you add a custom domain. Without it,
+and only in a browser signed in to that account. It points at `EMAIL_LINK_ORIGIN` when that is
+set, like unsubscribe links, else `NEXT_PUBLIC_PLATFORM_ORIGIN`: the `envfile` step sets the
+second to your backend's URL, and you change it if you add a custom domain. With neither set,
 asking for the link sends nothing.
 
 **A renamed Google address.** When an admin's Google address changes, for example after a rename
@@ -493,6 +494,34 @@ once a day and keeps them 90 days (ADR-0012); `npm run selfhost` keeps it off. B
 With brand search too (`addon:search`, which turns it on), `CONNECTORS_SEARCH_TEXT_ENABLED` puts
 each Search Console connection's top searches into brand search, found only by those who may read
 the connection (ADR-0013). It does nothing until collected numbers are on.
+
+**Shared connections across your brands.** `CONNECTORS_SHARING_ENABLED` lets an organisation's
+owners connect Search Console, Google Analytics or Cloudflare once and give each of its brands one
+site, property or zone (ADR-0015). The sign in is kept in the region of the brand it was connected
+from, and each brand's numbers stay in that brand's own region. `npm run selfhost` keeps it off.
+Organisations count only with plans on, so a copy that wants sharing:
+
+1. turns plans on as above with `PLANS_NEW_ORGANISATION_PLAN` left empty, so every organisation is
+   on Self-hosted and nothing is limited, and runs `scripts/backfill-organisations.ts --plan self_hosted`;
+2. adds its owners with `scripts/set-plan.ts --organisation <orgId> --add-owner <uid>` and combines
+   brands with `scripts/move-brand.ts`;
+3. runs `setup.sh ttl <id>` once more (the time to live on `organisation_connection_activity.ttlAt`)
+   and deploys the index file without `--force`, as for collected numbers below;
+4. sets `CONNECTORS_SHARING_ENABLED` to `"true"` and rolls out.
+
+Before you turn it off for good, or roll back to a build from before it, disconnect every shared
+connection or run `npx tsx scripts/connectors-purge.ts --organisation all` (a dry run), then with
+`--apply --by <label>`: older builds can't remove an organisation's sign ins or Google addresses.
+
+**Brands in an organisation.** `ORGANISATION_JOIN_ENABLED` lets owners combine brands themselves on
+Settings › Organisation (ADR-0015): **Bring in a brand you run** moves a brand from another
+organisation they also own into theirs, on its plan, and **Move out** gives a brand an organisation of
+its own on the same plan, with the mover as its only owner. Both need plans on, and a real
+`tenant_users` row with role admin for the brand: the brand someone first signed in with counts only
+once they have a row for it. Bring in refuses a plan that would turn a feature off or lower a cap.
+Every move ends the brand's shared parts from the organisation it leaves, and disconnects that
+organisation's connections when it is left with no brands, whatever `CONNECTORS_SHARING_ENABLED` says.
+`npm run selfhost` keeps it off; with it off, `scripts/move-brand.ts` still combines and splits brands.
 
 `CONNECTOR_SIGNALS_ENABLED` turns collected Search Console numbers into suggestions in the brand map,
 Review, Next up and the context pack; `npm run selfhost` keeps it off. Turn it on only after

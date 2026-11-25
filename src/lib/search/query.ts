@@ -3,6 +3,7 @@ import { isConnectorsSearchTextEnabled } from "@/lib/connectors/flags";
 import { can, type ConnectorActor } from "@/lib/connectors/grants";
 import { connectionOfSearchRef } from "@/lib/connectors/keys";
 import { searchConsoleManifest } from "@/lib/connectors/manifests/searchConsole";
+import { PartCache, readable, type SourceDeps } from "@/lib/connectors/sources";
 import { brandCanUse } from "@/lib/plans/brandAccess";
 import { forTenant } from "@/lib/tenant";
 import { searchStoreFor } from "@/lib/tenant/searchIndex";
@@ -21,7 +22,8 @@ import type { RankedChunk, SearchKind, SearchStore } from "./types";
  * Searches from a connection (Search Console's, ref `gsc:<connectionId>`, ADR-0013) follow the
  * viewer's access: they show only to a viewer who may read that connection, as its grants say
  * (src/lib/connectors/grants.ts), only while it is connected and CONNECTORS_SEARCH_TEXT_ENABLED is
- * on. A caller that names no viewer gets none of them.
+ * on. A caller that names no viewer gets none of them. A brand's part of its organisation's
+ * connection (Connectors 3) shows only while its organisation still gives it (partLive).
  */
 
 export const MAX_QUERY_CHARS = 500;
@@ -57,6 +59,9 @@ export interface QueryDeps {
   granted?: boolean;
   /** Where the connections' grants are read (tests pass a fake). */
   db?: FirestoreLike;
+  /** Where a part's organisation and its connection are read (tests pass fakes). */
+  regionDb?: SourceDeps["regionDb"];
+  controlDb?: FirestoreLike;
 }
 
 /**
@@ -79,15 +84,18 @@ export async function readableConnections(
   ctx: Pick<TenantContext, "tenantId" | "region">,
   viewer: SearchViewer | undefined,
   ids: readonly string[],
-  deps: Pick<QueryDeps, "db"> = {},
+  deps: Pick<QueryDeps, "db" | "regionDb" | "controlDb"> = {},
 ): Promise<Set<string>> {
   const out = new Set<string>();
   if (!viewer || !ids.length || !isConnectorsSearchTextEnabled()) return out;
   const actor = viewerActor(viewer);
   const repo = forTenant({ source: "system", ...ctx }, deps.db);
+  const partCache = new PartCache();
   for (const id of new Set(ids)) {
     const c = await repo.dataConnections.getById(id).catch(() => null);
-    if (c && c.status === "connected" && c.connectorId === searchConsoleManifest.id && can(actor, "read_live", c.grants)) out.add(id);
+    if (!c || c.status !== "connected" || c.connectorId !== searchConsoleManifest.id || !can(actor, "read_live", c.grants)) continue;
+    // A brand's part: only while its organisation still gives it (partLive), before the erase.
+    if (await readable(ctx, c, { db: deps.db, regionDb: deps.regionDb, controlDb: deps.controlDb, partCache }).catch(() => false)) out.add(id);
   }
   return out;
 }

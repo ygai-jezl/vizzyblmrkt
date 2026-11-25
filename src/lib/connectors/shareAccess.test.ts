@@ -3,6 +3,7 @@ import {
   __resetShareTokens,
   brandTag,
   copyTag,
+  createOrganisationShareAccount,
   createShareAccount,
   deleteShareAccount,
   forgetShareTokens,
@@ -12,6 +13,9 @@ import {
   listShareAccounts,
   MINT_BACKOFF_MS,
   newShareAccountId,
+  organisationShareDescription,
+  orgTag,
+  parseOrganisationShareDescription,
   parseShareDescription,
   shareAccessToken,
   shareDescription,
@@ -143,6 +147,26 @@ describe("making, listing and deleting addresses", () => {
     expect(JSON.stringify(sent.body)).not.toContain(TENANT);
   });
 
+  it("makes an organisation's address with its own tag, never a brand's, and the brand maker refuses an organisation's id", async () => {
+    const iam = fakeIam();
+    const OCN = "ocn_aaaaaaaaaaaaaaaaaaaa";
+    expect(await createShareAccount(PROJECT, TENANT, OCN, iam.deps)).toMatchObject({ ok: false, code: "share_unconfigured" });
+    expect(await createOrganisationShareAccount(PROJECT, "org_ten_example", CONN, iam.deps)).toMatchObject({ ok: false, code: "share_unconfigured" });
+    expect(await createOrganisationShareAccount(PROJECT, TENANT, OCN, iam.deps)).toMatchObject({ ok: false, code: "share_unconfigured" });
+    expect(iam.calls).toHaveLength(0);
+    const made = await createOrganisationShareAccount(PROJECT, "org_ten_example", OCN, iam.deps);
+    expect(made.ok).toBe(true);
+    const description = organisationShareDescription("org_ten_example", OCN);
+    expect(iam.calls[0]!.body).toEqual({ accountId: expect.stringMatching(/^ygc-/), serviceAccount: { displayName: "YouGrow connection", description } });
+    expect(description).toBe(`YouGrow connected data. connection=${OCN} org=${orgTag("org_ten_example")} copy=${copyTag()}`);
+    expect(orgTag("org_ten_example")).not.toBe(brandTag("org_ten_example"));
+    // A brand's purge reads no owner from it, so it never takes it for a brand's leftover.
+    expect(parseShareDescription(description)).toBeNull();
+    expect(parseOrganisationShareDescription(description)).toEqual({ connectionId: OCN, org: orgTag("org_ten_example"), copy: copyTag() });
+    const listed = await listShareAccounts(PROJECT, iam.deps);
+    expect(listed.ok && listed.accounts[0]).toMatchObject({ owner: null, orgOwner: { connectionId: OCN } });
+  });
+
   it("says plainly when the project is full, and when this copy's setup refuses", async () => {
     expect(await createShareAccount(PROJECT, TENANT, CONN, fakeIam({ full: true }).deps)).toMatchObject({ ok: false, code: "share_quota" });
     expect(await createShareAccount(PROJECT, TENANT, CONN, fakeIam({ createStatus: 403 }).deps)).toMatchObject({ ok: false, code: "share_unconfigured" });
@@ -219,7 +243,8 @@ describe("short lived tokens", () => {
 
   it("doesn't retry an old account IAM refuses, and refuses an address YouGrow didn't make", async () => {
     const iam = fakeIam({ invisibleFor: 1 });
-    expect(await shareAccessToken(sa, SCOPE, iam.deps)).toMatchObject({ ok: false, code: "share_unconfigured" });
+    // An old address IAM can't find was deleted or disabled at Google: gone.
+    expect(await shareAccessToken(sa, SCOPE, iam.deps)).toMatchObject({ ok: false, code: "share_unconfigured", gone: true });
     expect(iam.sleep).not.toHaveBeenCalled();
     const other = fakeIam();
     expect(await shareAccessToken({ ...sa, email: "someone@example.com" }, SCOPE, other.deps)).toMatchObject({ ok: false, code: "share_unconfigured" });

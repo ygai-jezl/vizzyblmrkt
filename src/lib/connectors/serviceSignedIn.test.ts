@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
-import { createDataConnection, forTenant, type TenantContext } from "@/lib/tenant";
+import { createDataConnection, createOrganisationConnection, forTenant, type TenantContext } from "@/lib/tenant";
 import type { ConnectorActor } from "./grants";
 import { healthyAt } from "./health";
-import { check, disconnect, getForActor, listAccounts, listForActor, pickAccount, readLiveFor, REVOKED_MESSAGE } from "./service";
+import { check, disconnect, getForActor, KEPT_AT_GOOGLE_MESSAGE, listAccounts, listForActor, pickAccount, readLiveFor, REVOKED_MESSAGE } from "./service";
 import { ACCESS_SLOT, REFRESH_SLOT } from "./tokenKeeper";
 import { openConnectorSecret, sealConnectorSecret } from "./vault";
 
@@ -215,6 +215,23 @@ describe("disconnecting a signed in connection", () => {
     expect(String((transport.mock.calls[0]![1] as RequestInit).body)).toBe("token=made-up-refresh");
     expect((await load()).secrets).toEqual({});
     expect(activity()).toEqual(["connected", "disconnected", "erased:all"]);
+  });
+
+  it("doesn't revoke while its organisation's shared Google sign in was made by the same person, and says why", async () => {
+    await seed({ account: "sc-domain:example.com" });
+    vi.stubEnv("CONNECTOR_GOOGLE_REVOKE_ENABLED", "true");
+    // The brand is in an organisation whose Google Analytics sign in, kept here, was made by this admin.
+    db.seed("tenants", "ten_a", { tenantName: "Brand A", rootDomain: "a.example", ownerId: "usr_admin", status: "active", region: "us", allowedOrigins: [], createdAt: inMs(0), updatedAt: inMs(0), organisationId: "org_ten_a" });
+    const health = { state: "ok" as const, lastOkAt: inMs(0), lastCheckedAt: inMs(0), lastErrorCode: null, failures: 0, pausedUntil: null };
+    await createOrganisationConnection(
+      { id: "ocn_gggggggggggggggggggg", organisationId: "org_ten_a", region: "us", connectorId: "google-analytics", method: "oauth_pkce", label: "Google Analytics 4", createdBy: "usr_admin", signerUid: "usr_admin", connectedFromTenantId: "ten_a", secrets: {}, health, pausedAt: null, pausedBy: null, status: "connected", createdAt: inMs(0), updatedAt: inMs(0), disconnectedAt: null, collectHold: null, parts: [] },
+      [],
+      { regionDb: () => db },
+    );
+    const r = await disconnect(A, admin, ID, deps());
+    expect(r).toMatchObject({ ok: true, value: { revoked: false, message: KEPT_AT_GOOGLE_MESSAGE, connection: { status: "disconnected" } } });
+    expect(transport).not.toHaveBeenCalled();
+    expect((await load()).secrets).toEqual({});
   });
 
   it("still disconnects when Google's revoke fails, and never revokes twice or for a member", async () => {

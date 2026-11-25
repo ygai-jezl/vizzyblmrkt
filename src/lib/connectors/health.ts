@@ -16,7 +16,11 @@ import type { ConnectorErrorCode } from "./messages";
  * - Anything else that may pass (the provider down or slow) sets check.
  * - YouGrow's own refusals (busy, paused, an undeclared host, no vault key, no Google client, no
  *   site picked yet, a shared address Google is still setting up, no identities project or a full
- *   one) change nothing.
+ *   one) change nothing. So do a part's refusals that are its organisation's choice or this copy's
+ *   (Connectors 3: managed by the organisation, the part ended, the source paused, sharing off).
+ * - A part whose organisation's sign in is broken (source_broken) counts as a failure on the
+ *   brand's own record, so Review and the Connected view find it per brand, but leaves it in check,
+ *   not broken: once an owner signs in again its next call works and the part heals by itself.
  */
 
 export const FAILURES_BEFORE_PAUSE = 5;
@@ -43,6 +47,11 @@ const OURS: ReadonlySet<ConnectorErrorCode> = new Set([
   "share_unconfigured",
   "share_quota",
   "share_limit",
+  "org_share_limit",
+  "managed_by_organisation",
+  "part_ended",
+  "source_paused",
+  "sharing_off",
 ]);
 
 /** A new connection's health, after the check that let it be saved. */

@@ -43,7 +43,7 @@ describe("the ontology registry", () => {
     for (const t of ONTOLOGY) {
       expect(PLACES, t.id).toContain(t.place);
       expect([...PERSONALS, "undecided"], t.id).toContain(t.personal);
-      expect(["control", "brand", "undecided"], t.id).toContain(t.home);
+      expect(["control", "brand", "organisation", "undecided"], t.id).toContain(t.home);
       for (const s of t.stores) expect(STORE_DBS, `${t.id} ${s.collection}`).toContain(s.db);
       for (const p of [...pathsOf(t.erase), ...pathsOf(t.export)]) expect(PATH_TRIGGERS, `${t.id} ${p.fn}`).toContain(p.trigger);
     }

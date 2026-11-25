@@ -1,3 +1,4 @@
+import { clearSearchConsoleArticles, clearSearchConsoleDue } from "@/lib/content/blog/freshnessErase";
 import { removeFromIndex } from "@/lib/search/indexer";
 import type { SearchStore } from "@/lib/search/types";
 import { changeDataConnection, forTenant, type TenantContext } from "@/lib/tenant";
@@ -27,10 +28,13 @@ import { eraseSnapshots } from "./snapshots";
  * data_signals rows (group 4), after their open suggestions are declined as stale with their
  * values cleared and the brand map questions they proposed that nobody has decided are withdrawn
  * (removed, not dismissed, so their words don't stay; decided ones stay, a person adopted them);
- * and a Search Console connection's searches in brand search (ADR-0013), removed
- * with indexing forced on, so they leave whatever SEARCH_INDEX_ENABLED or
- * CONNECTORS_SEARCH_TEXT_ENABLED says; a failed removal leaves the erase pending for the lane. Each
- * erase records one `erased` activity row, kept in the log only, never on the record's recent list.
+ * for a Search Console connection, the figures article freshness copied from its numbers (the
+ * "losing clicks" and "within reach" reasons on the brand's due list and on every article, and
+ * Next up picks that weighed Search Console; src/lib/content/blog/freshnessErase.ts); and a Search
+ * Console connection's searches in brand search (ADR-0013), removed with indexing forced on, so they
+ * leave whatever SEARCH_INDEX_ENABLED or CONNECTORS_SEARCH_TEXT_ENABLED says. A failed removal, or
+ * an article step that failed or ran out of time, leaves the erase pending for the lane. Each erase
+ * records one `erased` activity row, kept in the log only, never on the record's recent list.
  */
 
 /** The brand's search index (tests pass an in-memory one); default searchStoreFor. */
@@ -47,17 +51,32 @@ export interface EraseCounts {
    * or skipped for a connection that puts none there.
    */
   search: "removed" | "failed" | "skipped";
+  /**
+   * Search Console's figures in article freshness: taken out; not all yet (a step failed, it ran out
+   * of time, or the searches couldn't be removed first), so the erase stays pending; or skipped for
+   * a connection that puts none there.
+   */
+  freshness: "cleared" | "unfinished" | "skipped";
+}
+
+/**
+ * Whether a connection may have put Search Console's numbers beyond its own snapshots and
+ * suggestions: a Search Console one, or one that can't be read, which is treated as one so nothing
+ * is left behind.
+ */
+async function maybeSearchConsole(ctx: TenantContext, connectionId: string, deps: { db?: FirestoreLike }): Promise<boolean> {
+  const conn = await forTenant(ctx, deps.db)
+    .dataConnections.getById(connectionId)
+    .catch(() => null);
+  return !conn || conn.connectorId === searchConsoleManifest.id;
 }
 
 /**
  * Remove a connection's searches from brand search, whatever any switch says. Only Search Console
- * connections put any there; one that can't be read is tried anyway, so nothing is left behind.
+ * connections put any there; one that can't be read is tried anyway (maybeSearchConsole).
  */
-async function eraseSearchText(ctx: TenantContext, connectionId: string, deps: { db?: FirestoreLike; searchIndex?: SearchIndexOf }): Promise<EraseCounts["search"]> {
-  const conn = await forTenant(ctx, deps.db)
-    .dataConnections.getById(connectionId)
-    .catch(() => null);
-  if (conn && conn.connectorId !== searchConsoleManifest.id) return "skipped";
+async function eraseSearchText(ctx: TenantContext, connectionId: string, searchConsole: boolean, deps: { searchIndex?: SearchIndexOf }): Promise<EraseCounts["search"]> {
+  if (!searchConsole) return "skipped";
   const outcome = await removeFromIndex(ctx, "research", searchTextRef(connectionId), { force: true, ...(deps.searchIndex ? { store: deps.searchIndex(ctx) } : {}) });
   return outcome === "failed" ? "failed" : "removed";
 }
@@ -112,22 +131,37 @@ export function pendingWith(pending: CollectState["erasePending"], add: "all" | 
 
 /**
  * Erase a connection's collected rows: all of them, or the listed old generations, and its searches
- * in brand search either way (they are the old site's after Change property; the new site's are
- * indexed again once it has 28 days). Then, in one change, clear what is pending (only what this
+ * in brand search and the figures article freshness copied from it either way (they are the old
+ * site's after Change property; the new site's are indexed again once it has 28 days, and
+ * freshness looks again at once). Then, in one change, clear what is pending (only what this
  * erase covered) and record one `erased` row (the purge, which leaves its own "purged" row, records
- * none). When the searches couldn't be removed, nothing is cleared, so the lane tries again. Safe to
- * run again: a second run finds nothing to delete.
+ * none). When the searches couldn't be removed, or the article step didn't finish, nothing is
+ * cleared, so the lane tries again. Safe to run again: a second run finds nothing to delete.
+ *
+ * The article step reads every plan the brand has, so it stops at `deadlineMs` (the lane passes its
+ * own; with none it takes FRESHNESS_CLEAR.BUDGET_MS) and runs only once the searches are removed, so
+ * a removal that keeps failing never repeats it. With `lastTry` (the operator purge, which deletes
+ * the record next, so nothing is tried again) it always runs, with no deadline.
  */
 export async function eraseConnectionData(
   ctx: TenantContext,
   connectionId: string,
   gens: "all" | readonly number[],
-  opts: { by: string; now?: Date; db?: FirestoreLike; record?: boolean; searchIndex?: SearchIndexOf },
+  opts: { by: string; now?: Date; db?: FirestoreLike; record?: boolean; searchIndex?: SearchIndexOf; deadlineMs?: number; lastTry?: boolean },
 ): Promise<EraseCounts> {
+  const searchConsole = await maybeSearchConsole(ctx, connectionId, opts);
   const snapshots = await eraseSnapshots(ctx, connectionId, gens, { db: opts.db });
   const { signals, declined, withdrawn } = await eraseSuggestions(ctx, connectionId, gens, { db: opts.db, now: opts.now });
-  const search = await eraseSearchText(ctx, connectionId, opts);
-  if (search === "failed") return { snapshots, signals, declined, withdrawn, search };
+  // The due list and Next up first (two documents), so Review, Next up and Vizzy stop at once.
+  // Both steps never throw: a failure is logged there and keeps the erase pending here.
+  const due = searchConsole ? await clearSearchConsoleDue(ctx, { db: opts.db, now: opts.now }) : null;
+  const search = await eraseSearchText(ctx, connectionId, searchConsole, opts);
+  const articles =
+    searchConsole && (search !== "failed" || opts.lastTry)
+      ? await clearSearchConsoleArticles(ctx, { db: opts.db, deadlineMs: opts.lastTry ? Number.POSITIVE_INFINITY : opts.deadlineMs })
+      : null;
+  const freshness: EraseCounts["freshness"] = !searchConsole ? "skipped" : due?.failed || !articles?.finished ? "unfinished" : "cleared";
+  if (search === "failed" || freshness === "unfinished") return { snapshots, signals, declined, withdrawn, search, freshness };
   const at = (opts.now ?? new Date()).toISOString();
   const record = opts.record !== false;
   await changeDataConnection(
@@ -140,25 +174,27 @@ export async function eraseConnectionData(
     },
     opts.db,
   );
-  return { snapshots, signals, declined, withdrawn, search };
+  return { snapshots, signals, declined, withdrawn, search, freshness };
 }
 
 /**
- * The lane's housekeeping: erase what a connection still has pending, one connection at a time.
- * A failure is logged and left pending for the next run.
+ * The lane's housekeeping: erase what a connection still has pending, one connection at a time,
+ * each article step stopping at the lane's deadline. A failure is logged and left pending for the
+ * next run.
  */
 export async function retryPendingErases(
   ctx: TenantContext,
   connections: readonly DataConnection[],
-  deps: { db?: FirestoreLike; now?: Date; searchIndex?: SearchIndexOf } = {},
+  deps: { db?: FirestoreLike; now?: Date; searchIndex?: SearchIndexOf; deadlineMs?: number } = {},
 ): Promise<{ erased: number }> {
   let erased = 0;
   for (const c of connections) {
     const pending = c.collect?.erasePending;
     if (!pending) continue;
     try {
-      const r = await eraseConnectionData(ctx, c.id, pending, { by: "system", now: deps.now, db: deps.db, searchIndex: deps.searchIndex });
+      const r = await eraseConnectionData(ctx, c.id, pending, { by: "system", now: deps.now, db: deps.db, searchIndex: deps.searchIndex, deadlineMs: deps.deadlineMs });
       if (r.search === "failed") console.warn(`[connectors] erase for ${c.id} couldn't remove its searches from brand search, tried again next run`);
+      else if (r.freshness === "unfinished") console.warn(`[connectors] erase for ${c.id} didn't finish taking Search Console figures out of article freshness, tried again next run`);
       else erased += 1;
     } catch (err) {
       console.warn(`[connectors] erase for ${c.id} failed, tried again next run:`, err instanceof Error ? err.message.slice(0, 200) : "error");

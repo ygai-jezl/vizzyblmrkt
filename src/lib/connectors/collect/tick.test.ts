@@ -85,7 +85,8 @@ describe("the connectors lane", () => {
       return { status: "nothing" as const, days: 0 };
     });
     const r = await runConnectorsLane({ deadlineMs: LANE_TICK + 25_000 }, { db: shapeRecordingFirestore(db, ops), listTenants: async () => [tenant("ten_a"), tenant("ten_b")], clock: () => t, collect, log: () => {} });
-    expect(ops.every((o) => o.endsWith(" ==")), ops.join(", ")).toBe(true);
+    // Equality, in document id order at most (the sweep pages by id), which every index already has.
+    expect(ops.every((o) => o.endsWith(" ==") || o === "orderBy __name__" || o === "startAfter"), ops.join(", ")).toBe(true);
     expect(r.brands).toBe(1);
   });
 

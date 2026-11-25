@@ -60,6 +60,10 @@ interface Shell {
    * follows the crumbs, the Ask Vizzy panel's starters say idea, and so does the How to drawer.
    */
   ideaWords: boolean;
+  /** Organisations share connections (isConnectorsSharingEnabled(), from the server), for the How to drawer. */
+  sharing: boolean;
+  /** Owners bring in and move out brands (isOrganisationJoinEnabled(), from the server), for the How to drawer. */
+  join: boolean;
   /**
    * Hear about each draft Vizzy saves in this chat (returns the unsubscribe), so a page whose
    * data isn't the server's render (the journey editor, a person's page) can reload it. Null
@@ -113,6 +117,8 @@ export function ShellProvider({
   brandMapScale = false,
   ideas = false,
   ideaWords = false,
+  sharing = false,
+  join = false,
   children,
 }: {
   names: CrumbNames;
@@ -156,6 +162,10 @@ export function ShellProvider({
   ideas?: boolean;
   /** Launches are called Ideas (isIdeaWordsEnabled(), from the server): the page label Vizzy gets follows the crumbs. */
   ideaWords?: boolean;
+  /** Organisations share connections (isConnectorsSharingEnabled(), from the server): the How to drawer says so. */
+  sharing?: boolean;
+  /** Owners bring in and move out brands (isOrganisationJoinEnabled(), from the server): the How to drawer says so. */
+  join?: boolean;
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? "/admin";
@@ -243,9 +253,11 @@ export function ShellProvider({
       brandMapScale,
       ideas,
       ideaWords,
+      sharing,
+      join,
       onCanvasSaved: journeyInContext || personInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, brandMapScale, ideas, ideaWords, saved],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, brandMapScale, ideas, ideaWords, sharing, join, saved],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

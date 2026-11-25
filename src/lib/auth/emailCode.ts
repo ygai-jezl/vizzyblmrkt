@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomInt } from "node:crypto";
 import { setTimeout as wait } from "node:timers/promises";
 import type { Auth, DecodedIdToken, UserRecord } from "firebase-admin/auth";
 import { sendEmail, type EmailMessage, type EmailResult } from "@/lib/email";
-import { platformOrigin } from "@/lib/platform/origin";
+import { emailLinkOrigin } from "@/lib/email/footer";
 import {
   checkEmailCode,
   checkEmailLink,
@@ -47,7 +47,7 @@ import { EMAIL_CODE_EMAIL, EMAIL_LINK_EMAIL } from "./messages";
  *   passes the same gate and limits as a code, and counts toward the address's 6 sends an hour,
  *   but the lock doesn't stop it: 32 random bytes can't be guessed. It is stored hashed with the
  *   account's uid and address, works once for 30 minutes, and only for that account: PUT with
- *   `link` from a browser signed in to it. The URL is built on platformOrigin(), never on a
+ *   `link` from a browser signed in to it. The URL is built on emailLinkOrigin(), never on a
  *   request header, and carries the token after the #, so it never reaches a server log, a
  *   proxy or a Referer header. No platform origin, no link: 503 link_unavailable.
  * - The emails hold the code or the link and fixed words only: nothing the account holder typed.
@@ -208,9 +208,12 @@ export function hashEmailLink(uid: string, email: string, token: string): string
   return createHash("sha256").update(`link:${uid}:${email.trim().toLowerCase()}:${token}`).digest("hex");
 }
 
-/** The platform's own origin for links (scheme and host only), or null when none is set or it isn't http(s). */
+/**
+ * Where emailed links point (scheme and host only): EMAIL_LINK_ORIGIN, else the platform origin, the
+ * same rule as unsubscribe and invite links. Null when neither is set or it isn't http(s).
+ */
 function linkOrigin(): string | null {
-  const raw = platformOrigin();
+  const raw = emailLinkOrigin();
   if (!raw) return null;
   try {
     const url = new URL(raw);
@@ -221,9 +224,9 @@ function linkOrigin(): string | null {
 }
 
 /**
- * The link's URL: platformOrigin() (NEXT_PUBLIC_PLATFORM_ORIGIN), never a request header, so a
- * forged Host can't point the email elsewhere. The token goes after the #, which browsers never
- * send to a server. Null when no platform origin is set.
+ * The link's URL: on EMAIL_LINK_ORIGIN, else NEXT_PUBLIC_PLATFORM_ORIGIN (both server settings),
+ * never a request header, so a forged Host can't point the email elsewhere. The token goes after
+ * the #, which browsers never send to a server. Null when neither origin is set.
  */
 export function confirmLinkUrl(token: string): string | null {
   if (!LINK_TOKEN_RE.test(token)) throw new Error("confirmLinkUrl: the token must be base64url");

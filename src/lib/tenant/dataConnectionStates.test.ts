@@ -104,3 +104,32 @@ describe("sign in states", () => {
     expect(ops).toEqual([]);
   });
 });
+
+describe("a sign in for an organisation (Connectors 3)", () => {
+  let db: FakeFirestore;
+  beforeEach(() => {
+    db = new FakeFirestore();
+  });
+  const OCN = "ocn_aaaaaaaaaaaaaaaaaaaa";
+
+  it("keeps the organisation and the connection signed in again, and finishes only as the organisation's", async () => {
+    await createConnectionState(A, fresh({ organisationId: "org_ten_a", sourceId: OCN }), db);
+    expect(db.raw(DATA_CONNECTION_STATES, ID)).toMatchObject({ organisationId: "org_ten_a", sourceId: OCN });
+    expect(await consumeConnectionState(A, ID, who, at(1000), db)).toEqual({ ok: false, why: "mismatch" });
+    expect(await consumeConnectionState(A, ID, { ...who, organisationId: "org_ten_b" }, at(1000), db)).toEqual({ ok: false, why: "mismatch" });
+    const r = await consumeConnectionState(A, ID, { ...who, organisationId: "org_ten_a" }, at(1000), db);
+    expect(r).toMatchObject({ ok: true, state: { organisationId: "org_ten_a", sourceId: OCN, connectionId: null } });
+  });
+
+  it("never finishes a brand's sign in as an organisation's", async () => {
+    await createConnectionState(A, fresh(), db);
+    expect(await consumeConnectionState(A, ID, { ...who, organisationId: "org_ten_a" }, at(1000), db)).toEqual({ ok: false, why: "mismatch" });
+    expect((await consumeConnectionState(A, ID, who, at(1000), db)).ok).toBe(true);
+  });
+
+  it("refuses a source without an organisation, a brand connection beside one, or a bad id", async () => {
+    await expect(createConnectionState(A, fresh({ sourceId: OCN }), db)).rejects.toBeInstanceOf(TenantValidationError);
+    await expect(createConnectionState(A, fresh({ organisationId: "org_ten_a", connectionId: "dcn_aaaaaaaaaaaaaaaaaaaa" }), db)).rejects.toBeInstanceOf(TenantValidationError);
+    await expect(createConnectionState(A, fresh({ organisationId: "org_ten_a", sourceId: "dcn_aaaaaaaaaaaaaaaaaaaa" }), db)).rejects.toBeInstanceOf(TenantValidationError);
+  });
+});

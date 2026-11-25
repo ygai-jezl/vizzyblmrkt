@@ -44,4 +44,10 @@ export interface FreshnessWatchDoc {
   linksDay: string;
   linksToday: number;
   updatedAt: string;
+  /**
+   * How many times an erase took Search Console's figures out (src/lib/content/blog/freshnessErase.ts),
+   * counted up by each. A look that sees it change while it runs writes none of those figures and
+   * leaves the next look due soon. Missing means none yet.
+   */
+  searchConsoleClears?: number;
 }

@@ -195,6 +195,12 @@ const TokenFieldsMethodSchema = z
     /** How to make the token, step by step. */
     steps: z.array(Copy()).min(1).max(10),
     /**
+     * How to make one token for an organisation's brands (Connectors 3), step by step, shown instead
+     * of `steps` when an owner connects for the organisation, where nothing is picked: each brand is
+     * given its own part later.
+     */
+    organisationSteps: z.array(Copy()).min(1).max(10).optional(),
+    /**
      * Pick the account from a list after Check, where the token can list them (hooks.accounts):
      * the list's label, and the short note shown when the token can't list them, so the account
      * field is typed instead. Without it, every field is typed and Connect checks them together.
@@ -233,6 +239,8 @@ const ShareAccessMethodSchema = z
     scopes: z.array(HttpsUrl).length(1),
     /** Where to add the address, step by step, in the product's words. */
     steps: z.array(Copy()).min(1).max(8),
+    /** The same for an organisation's address (Connectors 3): added for every brand, then each brand given its part. */
+    organisationSteps: z.array(Copy()).min(1).max(8).optional(),
   })
   .strict();
 
@@ -242,6 +250,25 @@ const RateLimitSchema = z
   .object({
     perMinute: z.number().int().min(1).max(600),
     perHour: z.number().int().min(1).max(36_000),
+  })
+  .strict();
+
+/**
+ * The third bucket, per organisation connection (Connectors 3, ADR-0015): one sign in, address or
+ * token serves several brands, and the provider counts their calls together (Search Console per
+ * user, Cloudflare per token), so their parts share one budget beside each brand's own. `holds`
+ * says where a quota answer holds collecting: "connection" stops every part (Search Console,
+ * Cloudflare), "part" only the brand's own record (GA4 counts per property). `holdMinutes`, when
+ * set, is how long an organisation's hold lasts at least (Cloudflare blocks every call for five
+ * minutes); otherwise it lasts as the brand's own quota hold does. A connector without it is never
+ * shared. Data only.
+ */
+const SourceLimitSchema = z
+  .object({
+    perMinute: z.number().int().min(1).max(600),
+    perHour: z.number().int().min(1).max(36_000),
+    holds: z.enum(["connection", "part"]),
+    holdMinutes: z.number().int().min(1).max(60).optional(),
   })
   .strict();
 
@@ -368,7 +395,7 @@ export const ConnectorManifestSchema = z
     api: z
       .object({
         hosts: z.array(Host).min(1).max(5),
-        limits: z.object({ connection: RateLimitSchema, brand: RateLimitSchema }).strict(),
+        limits: z.object({ connection: RateLimitSchema, brand: RateLimitSchema, source: SourceLimitSchema.optional() }).strict(),
         timeoutMs: z.number().int().min(1000).max(30_000),
         maxBytes: z.number().int().min(1024).max(LIVE_LIMITS.maxBytes),
       })
@@ -431,6 +458,8 @@ export const ConnectorManifestSchema = z
     if (collected.length > 1) ctx.addIssue({ code: "custom", message: "at most one stream is collected" });
     if (collected.length && !m.hooks.collect) ctx.addIssue({ code: "custom", message: "a collected stream needs hooks.collect" });
     if (!collected.length && m.hooks.collect) ctx.addIssue({ code: "custom", message: "hooks.collect needs a stream with a collect block" });
+    // Brands never share people (v5; ADR-0011's registry rule): a connector with a personal stream is never shared.
+    if (m.api.limits.source && m.produces.some((p) => p.personal)) ctx.addIssue({ code: "custom", message: "a connector with a personal stream is never shared (limits.source)" });
   });
 
 export type ConnectorManifest = z.infer<typeof ConnectorManifestSchema>;

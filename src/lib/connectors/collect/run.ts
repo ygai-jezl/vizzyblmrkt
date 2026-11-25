@@ -9,6 +9,7 @@ import { collectedStream, type ConnectorManifest } from "../manifest";
 import { todayIn } from "../period";
 import { getConnector, knownConnector } from "../registry";
 import { codeFor, connectionToken, outcomePlan, SYSTEM, type ServiceDeps } from "../service";
+import { holdSource, partFailure, sourceHeldUntil } from "../sources";
 import { rollConnection } from "../rollups";
 import { dropAgedDay, writeDayDoc } from "../snapshots";
 import { advance, nextMidnight, spreadMs, type CollectCursor } from "./schedule";
@@ -31,6 +32,12 @@ import { advance, nextMidnight, spreadMs, type CollectCursor } from "./schedule"
  * A run that loses its lease (it ran out) leaves the cursor alone: its docs are written again next
  * time. A run that finds the connection disconnected or its generation changed marks what it wrote
  * for erasing.
+ *
+ * A brand's part of an organisation's connection (Connectors 3) is collected the same way, in the
+ * brand's region, with its token read through the organisation's connection. It waits, quietly, while
+ * that connection holds collecting for every part; a Search Console quota answer or a Cloudflare 429
+ * on one part holds every part (the provider counts per user or per token), while a GA4 hold stays on
+ * the part (GA4 counts per property). A sign in turned down outright marks the organisation's record.
  */
 
 export const LEASE_MS = 60_000;
@@ -160,6 +167,13 @@ export async function collectConnection(ctx: TenantContext, id: string, opts: { 
   const start = collectOf(conn);
   const owner = { id: conn.id, connectorId: conn.connectorId, account: conn.account, gen: start.gen };
 
+  // A part waits while its organisation's connection holds collecting for every part.
+  const sourceHeld = conn.source ? await sourceHeldUntil(ctx, conn, { ...deps, now }) : null;
+  if (sourceHeld) {
+    await release(ctx, id, leaseId, owner.gen, deps, (_cur, c) => ({ patch: {}, activity: [], collect: { ...c, nextAt: sourceHeld } }));
+    return { status: "held", days: 0 };
+  }
+
   // 2. The token, as a system job.
   const token = hook ? await connectionToken(ctx, conn, manifest, "system", deps) : null;
   if (!hook || !token || !token.ok) {
@@ -205,7 +219,9 @@ export async function collectConnection(ctx: TenantContext, id: string, opts: { 
 
   // 5. The cursor and what comes next, under the lease. A shared connection's refusals read in its
   // own words, as a live read's do.
-  const failure: HookFailure | null = r.failure ? { ...r.failure, code: codeFor(conn, r.failure.code) } : null;
+  const own: HookFailure | null = r.failure ? { ...r.failure, code: codeFor(conn, r.failure.code) } : null;
+  // A part's sign in turned down outright is its organisation's: marked there, source_broken here.
+  const failure: HookFailure | null = own ? { ...own, code: await partFailure(conn, own.code, "system", { ...deps, now }) } : null;
   const cursor = advance(cursorOf(start), landed, { newest: r.newest, keepDays: stream.collect.keepDays, reachFrom: r.reachFrom, timeZone: r.timeZone });
 
   // 6. Once a day after a day lands (and when the backfill fills), the rolled 28 and 90 day docs.
@@ -227,6 +243,19 @@ export async function collectConnection(ctx: TenantContext, id: string, opts: { 
   const probeDay = todayIn(now, quotaZone(stream));
   const probes = r.probed ? { day: probeDay, count: start.probes?.day === probeDay ? start.probes.count + 1 : 1 } : start.probes;
   const { hold, strikes } = holdFor(start, r, failure, stream, now);
+  // A quota the provider counts per user or per token holds every part of the organisation's connection.
+  const shared = manifest.api.limits.source;
+  if (conn.source && failure?.code === "rate_limited" && shared?.holds === "connection") {
+    const least = Math.max((shared.holdMinutes ?? 0) * 60_000, (failure.retryAfterSec ?? 0) * 1000);
+    if (shared.holdMinutes) await holdSource(conn.source, new Date(now.getTime() + least), "quota", { ...deps, now });
+    else {
+      // 15 minutes, then to the quota day's end on the shared sign in's second strike that day,
+      // whichever brand met it: its strikes are counted on the organisation's record.
+      const zone = quotaZone(stream);
+      const until = hold?.until ?? new Date(now.getTime() + Math.max(QUOTA_HOLD_MS, least));
+      await holdSource(conn.source, until, "quota", { ...deps, now }, { day: todayIn(now, zone), dayUntil: nextMidnight(now, zone) });
+    }
+  }
   const noData = r.hold?.reason === "no_data";
   const worked = landed.length > 0 || (!failure && (r.probed || r.days.length > 0 || r.newest !== null));
   await release(ctx, id, leaseId, owner.gen, deps, (cur, c) => {

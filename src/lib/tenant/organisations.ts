@@ -6,12 +6,14 @@ import {
   MAX_ORGANISATION_BRANDS,
   MAX_ORGANISATION_NAME,
   MAX_ORGANISATION_OWNERS,
+  OrganisationChangeSchema,
   OrganisationSchema,
   PlanIdSchema,
   type Organisation,
   type OrganisationChange,
   type PlanId,
 } from "@/lib/types/organisation";
+import { TenantSchema, type Tenant } from "@/lib/types/tenant";
 
 /**
  * Organisations in the control database ((default)), above brands (PLANS_ENABLED; the plans are
@@ -100,6 +102,17 @@ function logChange(tx: TransactionLike, db: FirestoreLike, change: OrganisationC
 export async function getOrganisation(id: string, db: FirestoreLike = defaultDb()): Promise<Organisation | null> {
   if (!id) return null;
   return organisationOf(await db.collection(ORGANISATIONS).doc(id).get());
+}
+
+/**
+ * Whether an organisation exists and the brands it lists, read as stored (whether or not the rest of
+ * it parses): housekeeping's evidence that an organisation is gone or has no brands left, so its
+ * connections are disconnected (Connectors 3). A read error throws, so nothing is decided on it.
+ */
+export async function organisationMembership(id: string, db: FirestoreLike = defaultDb()): Promise<{ exists: boolean; brandIds: string[] }> {
+  if (!id) return { exists: false, brandIds: [] };
+  const snap = await db.collection(ORGANISATIONS).doc(id).get();
+  return snap.exists ? { exists: true, brandIds: idsOf(snap.data()?.brandIds) } : { exists: false, brandIds: [] };
 }
 
 /** Every organisation that parses (for the backfill's --check and --replan). */
@@ -206,17 +219,32 @@ export async function ensureBrandOrganisation(
 }
 
 /**
+ * What may stop Bring in (Connectors 3 group 4, ADR-0015) inside the move's own transaction:
+ * - `expectFrom`: the organisation the brand must still be in, the one whose owners the caller
+ *   checked; a brand moved meanwhile is refused as "changed";
+ * - `narrower`: whether taking `plan` would narrow what the brand may use (the caller passes the
+ *   plans preview's answer, src/lib/plans/preview.ts accessChanges, read only), checked against
+ *   the brand and the target's plan as they are inside the transaction; refused as "narrower", so
+ *   an in-app join never narrows (decision 20).
+ */
+export interface AttachGuards {
+  expectFrom?: string;
+  narrower?: (brand: Tenant, plan: PlanId) => boolean;
+}
+
+/**
  * Move a brand into another organisation (combining brands, when an owner asks). The brand takes
  * the target's plan. The organisation it leaves is kept, even when empty. With `maxBrands` (the
  * target plan's brands allowance) the move is refused as full when the target already has that
- * many; the check is inside the transaction, so two moves can't both pass it.
+ * many; the check is inside the transaction, so two moves can't both pass it. The guards are
+ * checked there too (AttachGuards).
  */
 export async function attachBrandToOrganisation(
   tenantId: string,
   organisationId: string,
-  opts: { actor: string; maxBrands?: number | null },
+  opts: { actor: string; maxBrands?: number | null } & AttachGuards,
   db: FirestoreLike = defaultDb(),
-): Promise<"moved" | "already" | "missing" | "full"> {
+): Promise<"moved" | "already" | "missing" | "full" | "changed" | "narrower"> {
   const brandRef = db.collection(TENANTS).doc(tenantId);
   const targetRef = db.collection(ORGANISATIONS).doc(organisationId);
   return db.runTransaction(async (tx) => {
@@ -228,10 +256,16 @@ export async function attachBrandToOrganisation(
     const fromRef = fromId && fromId !== organisationId ? db.collection(ORGANISATIONS).doc(fromId) : null;
     const fromSnap = fromRef ? await tx.get(fromRef) : null;
 
+    if (opts.expectFrom !== undefined && fromId !== opts.expectFrom) return "changed";
     if (fromId === organisationId && target.brandIds.includes(tenantId)) return "already";
     const others = target.brandIds.filter((id) => id !== tenantId);
     const limit = Math.min(opts.maxBrands ?? MAX_ORGANISATION_BRANDS, MAX_ORGANISATION_BRANDS);
     if (others.length >= limit) return "full";
+    if (opts.narrower) {
+      // A brand record that doesn't read counts as narrower: nothing is moved on a guess.
+      const brand = TenantSchema.safeParse({ id: brandSnap.id, ...(brandSnap.data() ?? {}) });
+      if (!brand.success || opts.narrower(brand.data, target.plan)) return "narrower";
+    }
 
     const now = new Date().toISOString();
     if (fromRef && fromSnap?.exists) {
@@ -254,16 +288,38 @@ function randomSuffix(): string {
 }
 
 /**
+ * The organisation id a brand's organisation of its own would take up again: its org_<tenantId>,
+ * when that exists and lists no brands (a move left it empty). Null when there is none to take up.
+ * Before anything takes one up (Move out, move-brand --to new, the backfill, a new brand), the
+ * caller disconnects every organisation connection still kept under it, in every region, so a
+ * later claimant of the id never inherits a sign in (Connectors 3 pick 21), and passes the id as
+ * moveBrandToNewOrganisation's `takeUp`. A read error throws.
+ */
+export async function reusableOrganisationId(tenantId: string, db: FirestoreLike = defaultDb()): Promise<string | null> {
+  const id = organisationIdFor(tenantId);
+  const snap = await db.collection(ORGANISATIONS).doc(id).get();
+  return snap.exists && idsOf(snap.data()?.brandIds).length === 0 ? id : null;
+}
+
+/**
  * Split a brand back out into an organisation of its own, on `plan` (undoing a combine). The new
  * organisation is org_<tenantId> when that is absent or empty, else org_<tenantId>_<6 characters>.
  * The organisation it leaves is kept. A brand already alone in its organisation stays put
  * (moved: false). Null when there is no such brand.
+ *
+ * Move out (Connectors 3 group 4) also passes:
+ * - `expectFrom`: the organisation the brand must still be in, whose owners the caller checked; a
+ *   brand moved meanwhile is left where it is (moved: false, changed: true);
+ * - `takeUp`: the one existing empty organisation it may take up again, the one whose connections
+ *   the caller has just disconnected (reusableOrganisationId), or null for none: any other
+ *   existing organisation is passed over for a new id, so a move never takes up an id that may
+ *   still carry a sign in.
  */
 export async function moveBrandToNewOrganisation(
   tenantId: string,
-  opts: { plan: PlanId; actor: string; ownerIds?: string[] },
+  opts: { plan: PlanId; actor: string; ownerIds?: string[]; expectFrom?: string; takeUp?: string | null },
   db: FirestoreLike = defaultDb(),
-): Promise<{ organisationId: string; moved: boolean } | null> {
+): Promise<{ organisationId: string; moved: boolean; changed?: true } | null> {
   const plan = checkPlan(opts.plan);
   const ownerIds = cleanOwners(opts.ownerIds);
   const brandRef = db.collection(TENANTS).doc(tenantId);
@@ -271,15 +327,18 @@ export async function moveBrandToNewOrganisation(
     const brandSnap = await tx.get(brandRef);
     if (!brandSnap.exists) return null;
     const fromId = organisationIdOf(brandSnap);
+    if (opts.expectFrom !== undefined && fromId !== opts.expectFrom) return { organisationId: fromId ?? "", moved: false, changed: true };
     const fromRef = fromId ? db.collection(ORGANISATIONS).doc(fromId) : null;
     const fromSnap = fromRef ? await tx.get(fromRef) : null;
     const fromBrands = fromSnap?.exists ? idsOf(fromSnap.data()?.brandIds) : [];
     if (fromId && fromBrands.length === 1 && fromBrands[0] === tenantId) return { organisationId: fromId, moved: false };
 
-    // Find the target, reading every candidate before any write.
+    // Find the target, reading every candidate before any write. An existing one is taken up only
+    // when it is empty and, with `takeUp` given, is the one the caller cleared.
+    const taken = (snap: DocSnapLike) => snap.exists && (idsOf(snap.data()?.brandIds).length > 0 || (opts.takeUp !== undefined && snap.id !== opts.takeUp));
     let targetRef: DocRefLike = db.collection(ORGANISATIONS).doc(organisationIdFor(tenantId));
     let targetSnap = await tx.get(targetRef);
-    for (let tries = 0; targetSnap.exists && idsOf(targetSnap.data()?.brandIds).length > 0; tries += 1) {
+    for (let tries = 0; taken(targetSnap); tries += 1) {
       if (tries >= 5) throw new Error(`no free organisation id for ${tenantId}`);
       targetRef = db.collection(ORGANISATIONS).doc(`${organisationIdFor(tenantId)}_${randomSuffix()}`);
       targetSnap = await tx.get(targetRef);
@@ -429,6 +488,32 @@ export async function organisationUserIds(
     }
   }
   return users;
+}
+
+/** The kinds an organisation's own connection records on its organisation's change log. */
+export type OrganisationConnectionChangeKind = Extract<OrganisationChange["kind"], `connection.${string}`>;
+
+/**
+ * Record a change to an organisation's own connection (Connectors 3, ADR-0015) on its change log:
+ * connected, signed in again, paused, resumed or disconnected, naming the organisation, the
+ * connection and the brand it was connected from, by id only. organisation_changes is in
+ * (default) and can't join a transaction in another region's database, so this is written after
+ * the change itself, best effort, like the activity log: a failure is logged and changes nothing
+ * else. Returns whether the row was written.
+ */
+export async function recordOrganisationConnectionChange(
+  change: { organisationId: string; kind: OrganisationConnectionChangeKind; connectionId: string; tenantId: string; actor: string; at: string },
+  db: FirestoreLike = defaultDb(),
+): Promise<boolean> {
+  try {
+    const row = OrganisationChangeSchema.parse(change);
+    const id = `${row.organisationId}_${row.tenantId ?? "org"}_${row.at}_${row.kind}_${randomUUID().slice(0, 8)}`.replace(/[^\w.-]/g, "_");
+    await db.collection(ORGANISATION_CHANGES).doc(id).create(Object.fromEntries(Object.entries(row).filter(([, v]) => v !== undefined)));
+    return true;
+  } catch (err) {
+    console.warn(`[organisations] recording ${change.kind} for ${change.connectionId} failed:`, err instanceof Error ? err.message.slice(0, 200) : "error");
+    return false;
+  }
 }
 
 /**

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { EncryptedBlobSchema } from "./productConnection";
+import { Region } from "./tenant";
 
 /**
  * Connected data (Connectors 1, ADR-0011). One record per connection in the brand's regional
@@ -11,6 +12,13 @@ import { EncryptedBlobSchema } from "./productConnection";
  */
 
 export const DATA_CONNECTION_ID_RE = /^dcn_[a-z2-7]{20}$/;
+
+/**
+ * An organisation's own connection (Connectors 3, ADR-0015), `ocn_` and 20 base32 characters, in
+ * `organisation_connections` (src/lib/types/organisationConnection.ts). Its own prefix, so it never
+ * shares an id, a vault binding or a search ref with a brand's connection.
+ */
+export const ORGANISATION_CONNECTION_ID_RE = /^ocn_[a-z2-7]{20}$/;
 
 export const DATA_CONNECTION_METHODS = ["token_fields", "oauth_pkce", "share_access"] as const;
 export type DataConnectionMethod = (typeof DATA_CONNECTION_METHODS)[number];
@@ -164,6 +172,24 @@ export function freshCollect(nextAt: string | null = null, gen = 0): CollectStat
   return CollectStateSchema.parse({ gen, nextAt });
 }
 
+/**
+ * Where a brand's part of an organisation's connection comes from (Connectors 3, ADR-0015): the
+ * organisation, its connection, and the region that connection is kept in, which may not be the
+ * brand's. Written by the server when the part is given and never changed after (it is FIXED in
+ * src/lib/tenant/dataConnections.ts), so no request can point a brand at another record or region.
+ * A record with a source keeps no secret and no address: its token is read through the source
+ * (src/lib/connectors/sources.ts). Optional, so an older build's parse drops it and reads a part
+ * as a connection with nothing to open.
+ */
+export const ConnectionSourceSchema = z
+  .object({
+    organisationId: z.string().min(1).max(160),
+    connectionId: z.string().regex(ORGANISATION_CONNECTION_ID_RE),
+    region: Region,
+  })
+  .strict();
+export type ConnectionSource = z.infer<typeof ConnectionSourceSchema>;
+
 export const DataConnectionSchema = z.object({
   id: z.string().regex(DATA_CONNECTION_ID_RE),
   tenantId: z.string(),
@@ -201,6 +227,8 @@ export const DataConnectionSchema = z.object({
   disconnectedAt: z.string().nullable(),
   /** The daily collect's state (Connectors 2). */
   collect: CollectStateSchema.optional(),
+  /** Set when this is a brand's part of an organisation's connection (Connectors 3). */
+  source: ConnectionSourceSchema.optional(),
 });
 export type DataConnection = z.infer<typeof DataConnectionSchema>;
 
@@ -252,6 +280,13 @@ export interface DataConnectionState {
   uid: string;
   /** The connection being signed in again, or null for a new one. */
   connectionId: string | null;
+  /**
+   * A sign in for an organisation (Connectors 3): the organisation it is for, read live from the
+   * brand's record when it started, and checked again at the callback. Unset for a brand's own.
+   */
+  organisationId?: string | null;
+  /** The organisation's connection being signed in again (`ocn_`), or null. */
+  sourceId?: string | null;
   createdAt: string;
   expiresAt: string;
   usedAt: string | null;

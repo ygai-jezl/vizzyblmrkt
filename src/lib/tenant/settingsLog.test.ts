@@ -164,3 +164,31 @@ describe("the settings log's store", () => {
     expect(writer).not.toMatch(/versionRef\.(set|update|delete)\(/);
   });
 });
+
+describe("prepareSettingsChange", () => {
+  it("saves a setting and its version beside another write, in the caller's one transaction", async () => {
+    const { prepareSettingsChange } = await import("./settingsLog");
+    const db = new FakeFirestore();
+    const r = await db.runTransaction(async (txn) => {
+      const p = await prepareSettingsChange(A, save(0, [plan]), txn, db);
+      const other = db.collection("probe").doc("p");
+      await txn.get(other);
+      if (!p.ok) return p;
+      p.stage();
+      txn.create(other, { tenantId: "ten_A" });
+      return p;
+    });
+    expect(r).toMatchObject({ ok: true, rev: 1 });
+    expect(versionsOf(db)).toHaveLength(1);
+    expect(db.raw("probe", "p")).toBeDefined();
+  });
+
+  it("answers settings_changed without staging anything, so the caller can refuse its other writes", async () => {
+    const { prepareSettingsChange } = await import("./settingsLog");
+    const db = new FakeFirestore();
+    await commitSettingsChange(A, save(0, [plan]), db);
+    const r = await db.runTransaction(async (txn) => prepareSettingsChange(A, save(0, [plan, role]), txn, db));
+    expect(r).toMatchObject({ ok: false, error: "settings_changed" });
+    expect(versionsOf(db)).toHaveLength(1);
+  });
+});

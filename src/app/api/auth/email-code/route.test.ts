@@ -105,6 +105,7 @@ beforeEach(() => {
   vi.stubEnv("ADMIN_ALLOWED_DOMAINS", "example.org");
   vi.stubEnv("SELF_SERVE_SIGNUP_ENABLED", "");
   vi.stubEnv("NEXT_PUBLIC_PLATFORM_ORIGIN", "https://app.example.com");
+  vi.stubEnv("EMAIL_LINK_ORIGIN", "");
   vi.spyOn(console, "info").mockImplementation(() => {});
   vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});

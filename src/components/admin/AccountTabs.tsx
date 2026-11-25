@@ -10,9 +10,14 @@ import { isPlansUiEnabled } from "@/lib/plans/flags";
  * "border pill" style. Domains lives at the base route (exact match); Billing
  * (Plan and usage with NEXT_PUBLIC_PLANS_ENABLED) is a child route matched by prefix.
  */
-export function AccountTabs({ dataModel = false }: {
+export function AccountTabs({ dataModel = false, organisation = false }: {
   /** Settings › Data model (AUDIENCE_FIELDS_ENABLED, a server switch): worked out by the layout. */
   dataModel?: boolean;
+  /**
+   * Settings › Organisation (Connectors 3): for an owner of the brand's organisation who is an
+   * admin of the brand they are in, read live on the server while sharing or the join is on.
+   */
+  organisation?: boolean;
 } = {}) {
   const pathname = usePathname();
   // Nav v2 phase 3: General first; the guidelines moved to Brand; Billing stays
@@ -27,6 +32,7 @@ export function AccountTabs({ dataModel = false }: {
         { href: "/admin/account/connections", label: "Connections", exact: false },
         ...(plans ? [{ href: "/admin/account/billing", label: "Plan and usage", exact: false }] : []),
         ...(dataModel ? [{ href: "/admin/account/data-model", label: "Data model", exact: false }] : []),
+        ...(organisation ? [{ href: "/admin/account/organisation", label: "Organisation", exact: false }] : []),
       ]
     : [
         { href: "/admin/account", label: "Domains", exact: true },
@@ -35,6 +41,7 @@ export function AccountTabs({ dataModel = false }: {
         { href: "/admin/account/connections", label: "Connections", exact: false },
         { href: "/admin/account/billing", label: plans ? "Plan and usage" : "Billing", exact: false },
         ...(dataModel ? [{ href: "/admin/account/data-model", label: "Data model", exact: false }] : []),
+        ...(organisation ? [{ href: "/admin/account/organisation", label: "Organisation", exact: false }] : []),
       ];
 
   return (

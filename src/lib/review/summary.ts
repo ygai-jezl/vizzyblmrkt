@@ -113,17 +113,17 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
   agent_draft: {
     title: "Drafts from Vizzy",
     description: "Vizzy only saves drafts. Check them, then publish or turn them on when you're happy.",
-    from: ["canvas.journey", "canvas.lifecycle", "canvas.journey_style", "canvas.invite_wave", "canvas.content_plan", "autopilot"],
+    from: ["canvas.journey", "canvas.lifecycle", "canvas.journey_style", "canvas.invite_wave", "canvas.content_plan", "autopilot", "email_copy", "email_hero"],
   },
   brand_map: {
     title: "Brand map suggestions",
     description: "Names, subjects and questions found by research, your articles and Vizzy, waiting for you to accept or dismiss them.",
-    from: ["brand_map_research", "situations", "situation_questions", "canvas.brand_map", "blog_research", "autopilot_research", "competitor_topics", "judge"],
+    from: ["brand_map_research", "situations", "situation_questions", "canvas.brand_map", "blog_research", "autopilot_research", "competitor_topics", "judge", "rising_search"],
   },
   content_hub: {
     title: "Content waiting for approval",
     description: "Approve a hub to let its spokes be written.",
-    from: ["content_hub", "blog_write"],
+    from: ["content_hub", "blog_write", "ebook", "blog_refresh"],
   },
   failed_post: {
     title: "Posts that need you",
@@ -151,7 +151,7 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
   next_article: {
     title: "Your next article",
     description: "What the article autopilot found and sorted, the questions it asks your team, and runs that couldn't finish.",
-    from: ["next_up", "autopilot", "judge"],
+    from: ["next_up", "autopilot", "judge", "seen_notes"],
   },
   data_signal: {
     title: "What your numbers suggest",
@@ -161,7 +161,7 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
   content_refresh: {
     title: "Articles due a refresh",
     description: "Live articles past their refresh clock, or with a reason to look again. Open one to see why, or mark it checked.",
-    from: ["blog_refresh", "refresh_due"],
+    from: ["blog_refresh", "refresh_due", "freshness_clock"],
   },
   person_suggestion: {
     title: "Suggestions about people",

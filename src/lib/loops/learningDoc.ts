@@ -18,7 +18,7 @@ export const DECISION_ORDER: readonly DecisionKind[] = ["learns", "fleet", "own"
 const DECISION_TITLE: Record<DecisionKind, { title: string; about: string }> = {
   learns: { title: "Learns", about: "it learns for each brand through the loops, behind its own switch." },
   fleet: { title: "Fleet only", about: "it is counted for every brand, and changes only through a pull request the owner merges." },
-  own: { title: "Own", about: "it already learns from people, in that type's own store." },
+  own: { title: "Own", about: "it already learns from people, in that store, where the switches for that learning are on." },
   gap: { title: "Gap", about: "it should learn and doesn't yet, with a date to look again." },
   none: { title: "None", about: "it should never learn, and the line says why." },
 };
@@ -81,7 +81,7 @@ export function renderLearningSection(sites: CallSites, lines: LearningLines = L
     "## Learning",
     "",
     "Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Every place YouGrow makes a choice for a brand has one line there: each AI purpose, each canvas Vizzy fills, each connector rule, each other rule and each model call with no meter. " +
-      "A new one fails `npm run typecheck` until it has its line (a model call with no meter once it is listed in `UNMETERED_CALLS`), and the line gives one of five answers:",
+      "A new one fails `npm run typecheck` until it has its line (a rule once it is listed in `RULE_DECISIONS`, and a model call with no meter once it is listed in `UNMETERED_CALLS`), and the line gives one of five answers:",
     "",
     ...DECISION_ORDER.map((k) => `- ${DECISION_TITLE[k].title}: ${DECISION_TITLE[k].about}`),
     "",

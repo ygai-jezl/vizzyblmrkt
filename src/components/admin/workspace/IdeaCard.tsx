@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Sparkles } from "lucide-react";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import Link from "next/link";
 import type { IdeaItem } from "@/lib/types/ideaItem";
@@ -10,6 +11,7 @@ import { templateCategoryLabel } from "@/lib/content/templateCategories";
 import { frameworkLabel } from "@/lib/content/frameworks";
 import { blockLabel } from "@/lib/content/blocks";
 
+/** One Scrapbook clipping (an idea_items row): its source, Templatize or its template, and Delete. */
 export function IdeaCard({
   workspaceId,
   item,
@@ -40,7 +42,7 @@ export function IdeaCard({
       );
       const data = (await res.json().catch(() => ({}))) as { template?: Template };
       if (!res.ok || !data.template) {
-        setErr("Couldn't templatize — try again.");
+        setErr("Couldn't make a template from it. Try again.");
         return;
       }
       setTemplate(data.template);
@@ -65,7 +67,7 @@ export function IdeaCard({
   }
 
   async function remove() {
-    if (!window.confirm("Delete this idea?")) return;
+    if (!window.confirm("Delete this clipping?")) return;
     setDeleting(true);
     const res = await fetch(`/api/admin/workspace/${workspaceId}/idea-items/${item.id}`, {
       method: "DELETE",
@@ -90,7 +92,7 @@ export function IdeaCard({
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={`/api/admin/workspace/${workspaceId}/asset/${item.screenshotPath}`}
-          alt="Idea screenshot"
+          alt="Clipping screenshot"
           className="max-h-40 rounded border border-neutral-200 dark:border-neutral-700"
         />
       ) : null}
@@ -118,7 +120,9 @@ export function IdeaCard({
             </span>
             <span className="text-neutral-400">·</span>
             <GroupCombobox value={template.group} options={groups} onChange={changeGroup} />
-            <span className="text-[11px] text-green-600 dark:text-green-400">✨ AI suggested</span>
+            <span className="inline-flex items-center gap-1 text-[11px] text-green-600 dark:text-green-400">
+              <Sparkles size={11} aria-hidden /> AI suggested
+            </span>
           </div>
           <div className="flex flex-wrap items-center gap-1 text-[11px] text-neutral-500">
             {template.framework ? (
@@ -150,9 +154,10 @@ export function IdeaCard({
           <button
             onClick={templatize}
             disabled={busy}
-            className="rounded-md border border-violet-600 bg-violet-600 px-3 py-1.5 text-xs text-white disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md border border-violet-600 bg-violet-600 px-3 py-1.5 text-xs text-white disabled:opacity-50"
           >
-            {busy ? "Templatizing…" : "✨ Templatize"}
+            <Sparkles size={12} aria-hidden />
+            {busy ? "Templatizing…" : "Templatize"}
           </button>
         ) : !template ? (
           <Link
@@ -165,6 +170,7 @@ export function IdeaCard({
         <button
           onClick={remove}
           disabled={deleting}
+          aria-label={`Delete the clipping ${item.title}`}
           className="text-xs text-red-600 disabled:opacity-50 dark:text-red-400"
         >
           {deleting ? "…" : "Delete"}

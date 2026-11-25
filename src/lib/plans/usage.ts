@@ -11,9 +11,10 @@ import { lookupsThisMonth } from "@/lib/signals/store";
 import { isBlogRefreshEnabled } from "@/lib/brandMap/flags";
 import { reviewsThisMonth } from "@/lib/content/blog/refreshRecords";
 import { FEATURE_NEEDS, METERED_FEATURES, mayReachWith, mayUseWith, type MeteredFeature } from "./brandAccess";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import {
   ALLOWANCES,
-  ALLOWANCE_LABELS,
+  allowanceLabels,
   COUNTED_ALLOWANCES,
   EE_FEATURES,
   FEATURE_LABELS,
@@ -319,7 +320,7 @@ function allowanceRow(key: Allowance, plan: Plan | null, used: number | null, us
   const value = counted ? used : null;
   return {
     key,
-    label: ALLOWANCE_LABELS[key],
+    label: allowanceLabels(isIdeaWordsEnabled())[key],
     used: value,
     limit,
     counted,

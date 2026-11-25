@@ -184,3 +184,48 @@ describe("the setup guide", () => {
     for (const st of g.stages.flatMap((s) => s.steps)) expect(st.howTo, st.label).toMatch(/^\/help(\/[a-z-]+)?(#[a-z-]+)?$/);
   });
 });
+
+describe("Idea in place of Launch", () => {
+  const SETUP = {
+    domainVerified: true,
+    senderDetails: true,
+    logo: true,
+    voice: true,
+    emailStyle: true,
+    knowledge: false,
+    brandMapSaved: null,
+    social: false,
+    git: false,
+  };
+  const labels = (ideas: boolean) =>
+    computeGrowth({ ...NOTHING, setup: SETUP }, { ideas }).stages.map((st) => [st.label, ...st.steps.flatMap((step) => [step.label, ...(step.needs ?? []).map((n) => n.label)])]);
+
+  it("calls stage 2 Idea and its first step Create an idea, wherever another step needs it", () => {
+    const g = computeGrowth({ ...NOTHING, setup: SETUP }, { ideas: true });
+    const idea = g.stages.find((st) => st.key === "launch")!;
+    expect(idea.label).toBe("Idea");
+    expect(idea.steps[0]).toMatchObject({ label: "Create an idea", href: "/admin/launches/new", howTo: "/help/launch-and-waitlist#create" });
+    const newsletter = g.stages.find((st) => st.key === "grow")!.steps.find((st) => st.label === "Send a newsletter to your waitlist")!;
+    expect(newsletter.needs?.map((n) => n.label)).toContain("Create an idea");
+  });
+
+  it("keeps Launch product, and says Launch with the words off", () => {
+    const on = labels(true).flat();
+    expect(on).toContain("Launch product");
+    expect(on.filter((l) => /launch/i.test(l))).toEqual(["Launch product"]);
+    const g = computeGrowth({ ...NOTHING, setup: SETUP });
+    expect(g.stages.find((st) => st.key === "launch")!.label).toBe("Launch");
+    expect(g.stages.find((st) => st.key === "launch")!.steps[0]!.label).toBe("Create a launch");
+    expect(computeGrowth({ ...NOTHING, setup: SETUP }, { ideas: false })).toEqual(g);
+  });
+
+  it("changes no key, status, link or help anchor", () => {
+    const strip = (ideas: boolean) =>
+      computeGrowth({ ...LAUNCHED, setup: SETUP }, { ideas }).stages.map((st) => ({
+        key: st.key,
+        status: st.status,
+        steps: st.steps.map((step) => [step.done, step.href, step.howTo]),
+      }));
+    expect(strip(true)).toEqual(strip(false));
+  });
+});

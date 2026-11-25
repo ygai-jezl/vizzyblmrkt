@@ -8,6 +8,8 @@ import type { EmailSenderConfig } from "@/lib/types/tenant";
 import { LOCALES, isLiveSupportedLocale, languageName } from "@/lib/i18n/locale";
 import { place } from "@/lib/nav/places";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
+import { ideaWord } from "@/lib/nav/terms";
+import { useWords } from "./nav/WordsProvider";
 
 const CONTACT_OPTIONS: { value: CampaignSettings["requiredContactDetail"]; label: string }[] = [
   { value: "EMAIL", label: "Email only" },
@@ -76,6 +78,8 @@ export function CampaignSettingsForm({
   senderConfig: EmailSenderConfig;
 }) {
   const router = useRouter();
+  // A launch is called an idea while the words are on.
+  const w = ideaWord(useWords().ideas);
   const [form, setForm] = useState<CampaignSettings>(initial);
   const [questions, setQuestions] = useState<UiQuestion[]>(() => toUiQuestions(initial));
   // Probe topics edited as a one-per-line textarea (mirrors question options).
@@ -255,7 +259,7 @@ export function CampaignSettingsForm({
         <ReadOnlyField
           label="Page slug (locked)"
           value={`/waitlist/${campaignId}`}
-          hint="Set when the launch was created and can't be changed — this is your default YouGrow.ai page."
+          hint={`Set when the ${w.one} was created and can't be changed. This is your default YouGrow.ai page.`}
         />
         <TextField
           label="Waitlist URL"
@@ -431,7 +435,7 @@ export function CampaignSettingsForm({
 
       <Section
         title="Communication"
-        description="Who launch emails come from, and referral notifications."
+        description={`Who ${w.one} emails come from, and referral notifications.`}
       >
         <SenderDefaultNote senderConfig={senderConfig} />
         <TextField
@@ -439,7 +443,7 @@ export function CampaignSettingsForm({
           value={form.emailFromName ?? ""}
           onChange={(v) => set("emailFromName", v)}
           placeholder={senderConfig.senderName || "Your brand"}
-          hint="Display name shown on launch emails. Blank = account default."
+          hint={`Display name shown on ${w.one} emails. Blank = account default.`}
         />
         <SenderAddressField
           verifiedDomains={verifiedDomains}
@@ -763,6 +767,7 @@ function SelectField<T extends string>({
 
 /** Read-only summary of the tenant default sender (Account Settings → Domains). */
 function SenderDefaultNote({ senderConfig }: { senderConfig: EmailSenderConfig }) {
+  const w = ideaWord(useWords().ideas);
   const tenantFrom =
     senderConfig.fromLocalPart && senderConfig.fromDomain
       ? `${senderConfig.fromLocalPart}@${senderConfig.fromDomain}`
@@ -776,7 +781,7 @@ function SenderDefaultNote({ senderConfig }: { senderConfig: EmailSenderConfig }
           {senderConfig.senderName ? <>“{senderConfig.senderName}” </> : null}
           {tenantFrom ? <>&lt;{tenantFrom}&gt; </> : null}
           {senderConfig.replyTo ? <>· reply-to {senderConfig.replyTo} </> : null}
-          from your account default. Override per launch below.{" "}
+          from your account default. Override per {w.one} below.{" "}
         </>
       ) : (
         <>No account default sender set yet. </>

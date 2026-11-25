@@ -633,3 +633,65 @@ describe("moves on the timeline (AUDIENCE_TIMELINE_ENABLED)", () => {
     expect(db.dump("ontology_events")).toHaveLength(written);
   });
 });
+
+describe("in more than one launch (LAUNCH_IDEAS_ENABLED)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const SAM = "sam@example.com";
+  const launch = (db: FakeFirestore, id: string, idea?: Record<string, unknown>) =>
+    db.seed("campaigns", id, { tenantId: TENANT_ID, waitlistName: id, createdAt: ISO0, ...(idea ? { idea } : {}) });
+  function world(): FakeFirestore {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    launch(db, "camp1");
+    launch(db, "camp2");
+    seedSignup(db, "sig_1", { email: SAM });
+    seedSignup(db, "sig_2", { email: SAM, campaignId: "camp2" });
+    return db;
+  }
+
+  it("tags someone in two launches while ideas are on, and drops the tag once they're off", async () => {
+    vi.stubEnv("LAUNCH_IDEAS_ENABLED", "true");
+    const db = world();
+    await syncPerson(ctx, SAM, { db, nowMs: NOW });
+    expect(person(db, SAM)!.memberOf).toContain("launches:many");
+
+    vi.stubEnv("LAUNCH_IDEAS_ENABLED", "false");
+    const r = await syncPerson(ctx, SAM, { db, nowMs: NOW + 1000 });
+    expect(r.removed).toEqual(["launches:many"]);
+    expect(person(db, SAM)!.memberOf).not.toContain("launches:many");
+  });
+
+  it("leaves out a launch marked Just a list", async () => {
+    vi.stubEnv("LAUNCH_IDEAS_ENABLED", "true");
+    const db = world();
+    launch(db, "camp2", { justAList: true });
+    await syncPerson(ctx, SAM, { db, nowMs: NOW });
+    expect(person(db, SAM)!.memberOf).toEqual(expect.arrayContaining(["launch:camp1", "launch:camp2"]));
+    expect(person(db, SAM)!.memberOf).not.toContain("launches:many");
+  });
+
+  it("reads the Just a list launches only for someone in two or more", async () => {
+    vi.stubEnv("LAUNCH_IDEAS_ENABLED", "true");
+    const db = new FakeFirestore();
+    seedWorld(db);
+    seedSignup(db, "sig_1", { email: SAM });
+    await syncPerson(ctx, SAM, { db, nowMs: NOW });
+    expect(db.collectionCalls("campaigns")).toBe(0);
+    seedSignup(db, "sig_2", { email: SAM, campaignId: "camp2" });
+    await syncPerson(ctx, SAM, { db, nowMs: NOW });
+    expect(db.collectionCalls("campaigns")).toBeGreaterThan(0);
+  });
+
+  it("keeps the tag on the fast path for a product write, which never changes their launches", async () => {
+    vi.stubEnv("LAUNCH_IDEAS_ENABLED", "true");
+    const db = world();
+    const user = seedUser(db, "sam", { email: SAM, emailNormalized: SAM });
+    const c = await connection(db);
+    await syncProductLink(ctx, c, user, { db, nowMs: NOW });
+    expect(person(db, SAM)!.memberOf).toContain("launches:many");
+    const later = await syncProductLink(ctx, c, user, { db, nowMs: T0 + 3 * DAY });
+    expect(later?.outcome).toBe("updated");
+    expect(later?.removed).not.toContain("launches:many");
+    expect(person(db, SAM)!.memberOf).toContain("launches:many");
+  });
+});

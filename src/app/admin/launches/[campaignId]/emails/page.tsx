@@ -10,7 +10,9 @@ import { launchEmails, percent, type SentSummary } from "@/lib/journey/launchEma
 import { WAITLIST_STATUS_LABEL } from "@/lib/journey/waitlistJourneys";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
-import { INVITE_LOCK_TEXT } from "@/lib/invites/lockText";
+import { inviteLockText } from "@/lib/invites/lockText";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { ideaWord } from "@/lib/nav/terms";
 import { loadInviteSetup } from "@/lib/invites/waves";
 import { inviteProgressLine, loadFunnel } from "@/lib/invites/funnel";
 
@@ -90,6 +92,8 @@ export default async function LaunchEmailsPage({ params }: { params: Promise<{ c
       ? await countFinishingOnOriginal(ctx, campaignId).catch(() => 0)
       : 0;
   const base = `/admin/launches/${campaignId}`;
+  const words = isIdeaWordsEnabled();
+  const word = ideaWord(words);
   const names = new Map(workspaces.map((w) => [w.id, w.name]));
   const source = emails.newsletters.workspaceIds[0];
   const status = emails.journey.status;
@@ -99,7 +103,7 @@ export default async function LaunchEmailsPage({ params }: { params: Promise<{ c
       <div>
         <h2 className="text-sm font-semibold">Emails</h2>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Everything this launch sends. Each one opens where it&rsquo;s edited.
+          Everything this {word.one} sends. Each one opens where it&rsquo;s edited.
         </p>
       </div>
       <LaunchSenderWarning ctx={ctx} campaign={campaign} />
@@ -162,7 +166,7 @@ export default async function LaunchEmailsPage({ params }: { params: Promise<{ c
             title="Invites into your product"
             line={
               inviteSetup.lock
-                ? INVITE_LOCK_TEXT[inviteSetup.lock]
+                ? inviteLockText(inviteSetup.lock, words)
                 : funnel && funnel.invited > 0
                   ? inviteProgressLine(funnel)
                   : "Invite people from the top of this waitlist into your product."
@@ -182,7 +186,7 @@ export default async function LaunchEmailsPage({ params }: { params: Promise<{ c
         ) : null}
       </ul>
       <p className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
-        <Mail size={13} aria-hidden /> Open and click rates for every email are on this launch&rsquo;s Analytics tab.
+        <Mail size={13} aria-hidden /> Open and click rates for every email are on this {word.own} Analytics tab.
       </p>
     </div>
   );

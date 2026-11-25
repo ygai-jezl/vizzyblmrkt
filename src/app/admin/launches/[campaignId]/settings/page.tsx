@@ -13,6 +13,8 @@ import { countHeldWaitlistEnrolments } from "@/lib/lifecycle/waitlist/enrol";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { isHoldOnPauseEnabled } from "@/lib/journey/flags";
 import { countHeldJourneySteps } from "@/lib/journey/hold";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { ideaWord } from "@/lib/nav/terms";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +50,7 @@ export default async function LaunchSettingsPage({
       <h2 className="text-sm font-semibold">Settings</h2>
       {campaign.archivedAt ? (
         <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
-          This launch is <span className="font-medium">archived</span> — its
+          This {ideaWord(isIdeaWordsEnabled()).one} is <span className="font-medium">archived</span>. Its
           public waitlist is closed to new signups. Restore it below to reopen.
         </div>
       ) : null}

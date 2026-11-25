@@ -6,6 +6,8 @@ import { forTenant } from "@/lib/tenant";
 import { JourneyGraphSchema } from "@/lib/types/journey";
 import { journeyIdFor, upsertJourneyDraft } from "@/lib/journey/service";
 import { legacyEditorMode } from "@/lib/journey/flags";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { ideaWord } from "@/lib/nav/terms";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,7 +52,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
   // Engine move D6: the original editor is retired — welcome emails are built in the new one.
   if (legacyEditorMode() !== "edit") {
     return NextResponse.json(
-      { error: "original_editor_retired", message: "Welcome emails are now built in the new journey editor. Move this launch in its Settings." },
+      {
+        error: "original_editor_retired",
+        message: `Welcome emails are now built in the new journey editor. Move this ${ideaWord(isIdeaWordsEnabled()).one} in its Settings.`,
+      },
       { status: 409 },
     );
   }

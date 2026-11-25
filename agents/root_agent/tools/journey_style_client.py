@@ -55,7 +55,7 @@ _ERRORS = {
     "invalid_style": "That style can't be saved",
     # The app may say why (a launch whose welcome emails haven't moved to the new engine).
     "journey_not_found": "I couldn't find that journey in this account, or it's archived.",
-    "launch_not_found": "I couldn't find that launch in this account.",
+    "launch_not_found": "I couldn't find that waitlist in this account.",
     # EMAIL_HEADER_OPTIONS_ENABLED is off: only a real gradient or a forced text colour is refused.
     "header_options_unavailable": "Gradient headers and header text colour aren't switched on in this environment yet.",
     "network_error": "I couldn't reach the app just now. Please try again.",
@@ -142,7 +142,7 @@ def journey_ref(state: "dict | None", journey_id: str = "", campaign_id: str = "
 
 _NEEDS_JOURNEY = {
     "status": "needs_journey",
-    "message": "Which journey do you mean? Ask me from the journey's page, or from the launch whose welcome emails it is.",
+    "message": "Which journey do you mean? Ask me from the journey's page, or from the waitlist whose welcome emails it is.",
 }
 
 

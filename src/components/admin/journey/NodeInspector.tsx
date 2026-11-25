@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { programmeWord } from "@/lib/nav/terms";
+import { ideaWord, programmeWord } from "@/lib/nav/terms";
+import { useWords } from "@/components/admin/nav/WordsProvider";
 import type { Node } from "@xyflow/react";
 import { EmailComposer, type EmailComposerValue } from "@/components/admin/email/EmailComposer";
 import type {
@@ -342,6 +343,7 @@ function AbTestEditor({
   campaignId: string;
   onChange: (next: AbTest | undefined) => void;
 }) {
+  const w = ideaWord(useWords().ideas);
   // A promoted test is history — the winner is already in the base copy above.
   if (abTest?.status === "promoted") {
     return (
@@ -472,7 +474,7 @@ function AbTestEditor({
           ) : null}
 
           <p className="rounded-md bg-neutral-50 p-2 text-xs text-neutral-500 dark:bg-neutral-900/40">
-            Review results and promote a winner from this launch&apos;s{" "}
+            Review results and promote a winner from this {w.own}{" "}
             <span className="font-medium">Analytics → Emails</span> tab once the
             test has run.
           </p>

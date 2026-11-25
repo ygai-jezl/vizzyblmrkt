@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Broadcast } from "@/lib/types/broadcast";
 import { broadcastErrorText } from "@/lib/email/broadcastErrors";
+import { ideaWord, type IdeaWord } from "@/lib/nav/terms";
+import { useWords } from "../nav/WordsProvider";
 import { Modal } from "./Modal";
 import { EmailComposer, type EmailComposerValue } from "./EmailComposer";
 
@@ -21,13 +23,13 @@ const EMPTY: EmailComposerValue = { subject: "", body: "", heroImageUrl: null };
 /** Furthest ahead a broadcast may be scheduled — mirrors the server's cap. */
 const MAX_SCHEDULE_AHEAD_MS = 365 * 24 * 60 * 60 * 1000;
 
-/** Server error codes → operator-facing copy for the schedule action. */
-const SCHEDULE_ERRORS: Record<string, string> = {
+/** Server error codes → operator-facing copy for the schedule action. `w` names the launch, or the idea while the words are on. */
+const scheduleErrors = (w: IdeaWord): Record<string, string> => ({
   must_be_future: "Pick a time in the future.",
   too_far_ahead: "Pick a time within the next year.",
   not_schedulable: "This broadcast is already sending and can't be scheduled.",
-  launch_archived: "This launch is closed. Reopen it before scheduling.",
-};
+  launch_archived: `This ${w.one} is closed. Reopen it before scheduling.`,
+});
 
 /** Format a Date as a `datetime-local` input value in the browser's timezone. */
 function toLocalInput(d: Date): string {
@@ -45,6 +47,8 @@ export function BroadcastsView({
   initial: Broadcast[];
 }) {
   const router = useRouter();
+  const { ideas } = useWords();
+  const w = ideaWord(ideas);
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -128,7 +132,7 @@ export function BroadcastsView({
   }
 
   async function send(b: Broadcast) {
-    if (!window.confirm(`Send "${b.name}" to this launch's subscribers now?`)) return;
+    if (!window.confirm(`Send "${b.name}" to this ${w.own} subscribers now?`)) return;
     setBusyId(b.id);
     const res = await fetch(
       `/api/admin/campaigns/${campaignId}/broadcasts/${b.id}/send`,
@@ -137,7 +141,7 @@ export function BroadcastsView({
     const data = await res.json().catch(() => ({}));
     setBusyId(null);
     if (!res.ok || data.status === "failed") {
-      window.alert(broadcastErrorText(data.error ?? data.lastError, b.audienceMode ?? "launch"));
+      window.alert(broadcastErrorText(data.error ?? data.lastError, b.audienceMode ?? "launch", ideas));
     }
     router.refresh();
   }
@@ -182,10 +186,11 @@ export function BroadcastsView({
       const data = await res.json().catch(() => ({}) as { error?: string });
       const code = data.error ?? "";
       const mode = initial.find((x) => x.id === scheduleId)?.audienceMode ?? "launch";
+      const errors = scheduleErrors(w);
       setScheduleErr(
-        SCHEDULE_ERRORS[code] ??
+        (Object.hasOwn(errors, code) ? errors[code] : undefined) ??
           (code === "no_audience_segment_for_launch" || code.startsWith("mailchimp_config:")
-            ? broadcastErrorText(code, mode)
+            ? broadcastErrorText(code, mode, ideas)
             : "Could not schedule. Please try again."),
       );
       return;
@@ -217,7 +222,7 @@ export function BroadcastsView({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-neutral-500">
-          One-off emails to this launch&apos;s audience.
+          One-off emails to this {w.own} audience.
         </p>
         <button
           type="button"
@@ -230,7 +235,7 @@ export function BroadcastsView({
 
       {rows.length === 0 ? (
         <p className="rounded-md border border-dashed border-neutral-300 p-8 text-center text-sm text-neutral-500 dark:border-neutral-700">
-          No broadcasts yet. Create one to email this launch&apos;s subscribers.
+          No broadcasts yet. Create one to email this {w.own} subscribers.
         </p>
       ) : (
         <div className="overflow-x-auto rounded-md border border-neutral-200 dark:border-neutral-800">

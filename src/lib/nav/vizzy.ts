@@ -20,6 +20,9 @@ const SUGGESTIONS: Record<NavKey, string[]> = {
   settings: ["Which accounts are connected?", "Is our sending domain set up?"],
 };
 
+/** The Ideas area's starters while launches are called ideas (isIdeaWordsEnabled(), from the server). */
+const IDEA_SUGGESTIONS = ["Draft a broadcast to this idea's waitlist", "Write a referral nudge for people who haven't shared"];
+
 /** Nav v2 phase 4: extra starters that only make sense while their feature is on. */
 const INVITE_SUGGESTION = "Draft an invite wave for my top 100";
 /** Answered from real numbers by Vizzy's get_insights_summary tool. */
@@ -36,18 +39,19 @@ export const PERSON_FIELD_SUGGESTIONS = ["What do their fields say?", "Which of 
 
 /**
  * The starters for the area in view. On a person's page: `person` when Vizzy can read their
- * situation (the brief), else `personFields` when it can read only their fields.
+ * situation (the brief), else `personFields` when it can read only their fields. `ideas` (from the
+ * server) says idea where the launches area would say launch.
  */
-export function vizzySuggestions(key: NavKey | null, opts: { person?: boolean; personFields?: boolean } = {}): string[] {
+export function vizzySuggestions(key: NavKey | null, opts: { person?: boolean; personFields?: boolean; ideas?: boolean } = {}): string[] {
   if (opts.person) return PERSON_SUGGESTIONS;
   if (opts.personFields) return PERSON_FIELD_SUGGESTIONS;
-  const base = SUGGESTIONS[key ?? "home"];
+  const base = key === "launches" && opts.ideas ? IDEA_SUGGESTIONS : SUGGESTIONS[key ?? "home"];
   if (key === "launches" && isInvitesUiEnabled()) return [...base, INVITE_SUGGESTION];
   if (key === "insights" && isInsightsHubEnabled()) return [...base, INSIGHTS_SUGGESTION];
   return base;
 }
 
-/** Prompts on Home, for the stage the brand is in ("first" = nothing set up yet). */
+/** Prompts on Home, for the stage the brand is in ("first" = nothing set up yet). The Ideas words change "first" (FIRST_IDEA). */
 const HOME_PROMPTS: Record<"first" | "ready" | "launch" | "grow" | "product" | "retain", string[]> = {
   first: ["Help me plan a launch for my idea", "What should I set up first?"],
   ready: ["What should I set up first?", "Write my brand voice from my website"],
@@ -57,8 +61,11 @@ const HOME_PROMPTS: Record<"first" | "ready" | "launch" | "grow" | "product" | "
   retain: ["Draft a journey for users who go quiet for 7 days", "Which onboarding step do people stall on?"],
 };
 
-export function homePrompts(stage: keyof typeof HOME_PROMPTS | null): string[] {
-  const base = HOME_PROMPTS[stage ?? "retain"];
+/** Home's first-run prompts while launches are called ideas. */
+const FIRST_IDEA = ["Help me plan and test my idea", "What should I set up first?"];
+
+export function homePrompts(stage: keyof typeof HOME_PROMPTS | null, opts: { ideas?: boolean } = {}): string[] {
+  const base = stage === "first" && opts.ideas ? FIRST_IDEA : HOME_PROMPTS[stage ?? "retain"];
   return stage === "product" && isInvitesUiEnabled() ? [...base, "Invite my waitlist to the product"] : base;
 }
 

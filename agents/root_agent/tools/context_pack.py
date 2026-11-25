@@ -19,7 +19,7 @@ def get_brand_context(tool_context: ToolContext, question_id: str = "", subject_
 
     Returns the context pack: `map` (where the question sits on the brand map, how far along it
     is, the last article on its subject), `yours` (what the brand already made that is closest:
-    articles, newsletters, posts, emails, notes, saved ideas, site pages), `theirs` (what
+    articles, newsletters, posts, emails, notes, Scrapbook clippings, site pages), `theirs` (what
     competitors wrote: the subject's flag, angles taken, whether any article answers it),
     `research` (earlier Google lookups and research files near it), `numbers` (what Google shows:
     the brand's position, People also ask, who the AI Overview cites), `figures` with `meanings`

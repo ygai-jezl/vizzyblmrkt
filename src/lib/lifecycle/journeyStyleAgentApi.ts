@@ -31,10 +31,11 @@ export const JourneyRefSchema = z.object({ journeyId: DocId(64).optional(), camp
 export type JourneyRef = z.infer<typeof JourneyRefSchema>;
 export const ONE_JOURNEY = "journeyId/campaignId: give exactly one";
 
+// Vizzy relays these, and the chat card shows them, whatever the app calls a launch: they say waitlist.
 const NOT_MOVED =
-  "This launch's welcome emails haven't moved to the new journey engine, so they wear the brand's Email style (Brand › Email style).";
+  "This waitlist's welcome emails haven't moved to the new journey engine, so they wear the brand's Email style (Brand › Email style).";
 const ON_ORIGINAL_ENGINE =
-  "This launch's welcome emails still send from the original engine, which wears the brand's Email style: this style applies once the launch moves to the new engine.";
+  "This waitlist's welcome emails still send from the original engine, which wears the brand's Email style: this style applies once they move to the new engine.";
 
 const NOTE =
   "mode brand = the brand's Email style (Brand › Email style). custom = this journey's own header and button colours, " +

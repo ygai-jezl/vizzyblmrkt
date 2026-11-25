@@ -2,14 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ideaWord } from "@/lib/nav/terms";
+import { useWords } from "../nav/WordsProvider";
 
-/** Insights' tab strip (nav v2 phase 4). Mirrors LaunchTabs' pill style. */
+/** Insights' tab strip (nav v2 phase 4). Mirrors LaunchTabs' pill style. The launches tab reads Ideas with the words on. */
 export function InsightsTabs({ market }: { market: boolean }) {
   const pathname = usePathname() ?? "";
+  const w = ideaWord(useWords().ideas);
   const base = "/admin/analytics";
   const tabs = [
     { href: base, label: "Overview", exact: true },
-    { href: `${base}/launches`, label: "Launches" },
+    { href: `${base}/launches`, label: w.Many },
     { href: `${base}/email`, label: "Email" },
     { href: `${base}/content`, label: "Content" },
     { href: `${base}/journeys`, label: "Journeys" },

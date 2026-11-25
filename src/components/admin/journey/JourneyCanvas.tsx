@@ -17,6 +17,8 @@ import {
 import "@xyflow/react/dist/style.css";
 import { useAdminColorMode } from "@/components/admin/nav/AdminThemeRoot";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
+import { ideaWord, type IdeaWord } from "@/lib/nav/terms";
+import { useWords } from "@/components/admin/nav/WordsProvider";
 
 const PHASE3 = isNavV2Phase3Enabled();
 
@@ -40,10 +42,10 @@ function publishedMessage(data: PublishResponse): string {
   return parts.join(" ");
 }
 
-/** Why Publish/Pause was refused, in words the operator can act on. */
-function publishError(data: { error?: string; reason?: string }): string {
+/** Why Publish/Pause was refused, in words the operator can act on. `w` names the launch, or the idea while the words are on. */
+function publishError(data: { error?: string; reason?: string }, w: IdeaWord): string {
   if (data.error === "forbidden") return "Only admins can publish or pause a journey.";
-  if (data.error === "launch_archived") return "This launch is archived. Restore it in Settings, then publish.";
+  if (data.error === "launch_archived") return `This ${w.one} is archived. Restore it in Settings, then publish.`;
   if (data.error === "journey_invalid") return `Can't publish yet${data.reason ? `: ${data.reason}` : ""}.`;
   return "Action failed.";
 }
@@ -127,6 +129,7 @@ export function JourneyCanvas({
   // React Flow has its own theming; follow the admin theme switch (System = OS).
   const colorMode = useAdminColorMode();
   const router = useRouter();
+  const w = ideaWord(useWords().ideas);
   const seeded = useMemo(() => seedGraph(initial), [initial]);
   const [nodes, setNodes, onNodesChange] = useNodesState(seeded.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(seeded.edges);
@@ -312,7 +315,7 @@ export function JourneyCanvas({
       setMsg(action === "activate" ? publishedMessage(data) : "Paused.");
       router.refresh();
     } else {
-      setMsg(publishError(data));
+      setMsg(publishError(data, w));
     }
   }
 
@@ -320,7 +323,7 @@ export function JourneyCanvas({
     <div className="space-y-3">
       {readOnly ? (
         <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
-          This editor is read-only: welcome emails are now built in the new journey editor. Move this launch to the new engine
+          This editor is read-only: welcome emails are now built in the new journey editor. Move this {w.one} to the new engine
           in its <a className="underline" href={`/admin/launches/${campaignId}/settings`}>Settings</a> to edit them.
         </p>
       ) : null}

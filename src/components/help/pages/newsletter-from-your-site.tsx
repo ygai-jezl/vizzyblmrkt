@@ -1,19 +1,30 @@
 import { Code, H1, H2, Lead, P, Pairs } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning, WhoGetsWhichEmails } from "@/components/help/blocks";
+import { isIdeasEnabled, isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import type { HelpBodyProps } from "@/lib/help/pages";
+import { ideaWord } from "@/lib/nav/terms";
 
 const CALL = `curl https://YOUR-YOUGROW/api/v2/signups \\
   -u "$YOUGROW_KEY_ID:$YOUGROW_SECRET" \\
   -H "Content-Type: application/json" \\
   -d '{"email":"sam@example.com","locale":"en-GB","source":"blog/first-post"}'`;
 
-/** Shown only while LAUNCH_SITE_SIGNUPS_ENABLED is on (src/lib/help/pages.ts). */
-export default function NewsletterFromYourSiteHelp() {
+/**
+ * Shown only while LAUNCH_SITE_SIGNUPS_ENABLED is on (src/lib/help/pages.ts). With ideas on
+ * (`ideas`) the newsletter's launch is ticked Just a list; with ideas in the words (`ideaWords`) it is
+ * a waitlist just for the newsletter, and launches are called ideas. "This launch is archived, so it
+ * takes no new sign-ups." is the public API's own message: piece K renames the API.
+ */
+export default function NewsletterFromYourSiteHelp({ ideas = isIdeasEnabled(), ideaWords = isIdeaWordsEnabled() }: HelpBodyProps = {}) {
+  const w = ideaWord(ideaWords);
+  // The newsletter's own list: a launch of its own, or a waitlist of its own while launches are called ideas.
+  const list = ideaWords ? "waitlist" : "launch";
   return (
     <article>
       <H1>Newsletter from your own site</H1>
       <Lead>
-        Keep your own sign-up box. Your server adds each email to a newsletter launch, and YouGrow confirms it, welcomes
-        them and sends the weekly newsletter.
+        Keep your own sign-up box. Your server adds each email to {ideaWords ? "a waitlist just for the newsletter" : "a newsletter launch"},
+        and YouGrow confirms it, welcomes them and sends the weekly newsletter.
       </Lead>
       <Meta items={["About 20 minutes", "Admins, plus your developer", "Once per newsletter"]} />
 
@@ -35,30 +46,47 @@ export default function NewsletterFromYourSiteHelp() {
         }
       />
 
-      <Warning>
-        Use a launch just for the newsletter. Each launch has one journey and everyone who joins it gets that journey, so
-        newsletter sign-ups added to your waitlist launch would get your waitlist&apos;s welcome emails.
-      </Warning>
+      {ideaWords ? (
+        <Warning>
+          Use a waitlist just for the newsletter. Each idea has one journey and everyone who joins it gets that journey, so
+          newsletter sign-ups added to an idea&apos;s waitlist would get that idea&apos;s welcome emails.
+        </Warning>
+      ) : (
+        <Warning>
+          Use a launch just for the newsletter. Each launch has one journey and everyone who joins it gets that journey, so
+          newsletter sign-ups added to your waitlist launch would get your waitlist&apos;s welcome emails.
+        </Warning>
+      )}
 
       <H2 id="who-gets-what">Who gets which emails</H2>
-      <WhoGetsWhichEmails />
-      <P>So a newsletter list is a launch. People your app sends through the API never get the newsletter.</P>
+      <WhoGetsWhichEmails ideaWords={ideaWords} />
+      <P>
+        {ideaWords ? "So a newsletter list is a waitlist of its own, made as an idea and ticked Just a list." : "So a newsletter list is a launch."}{" "}
+        People your app sends through the API never get the newsletter.
+      </P>
 
-      <H2 id="launch">Make the newsletter launch</H2>
+      <H2 id="launch">Make the newsletter {list}</H2>
       <Steps>
         <li>
-          Open <Open href="/admin/launches">Launches</Open> and press <strong>New launch</strong>.
+          Open <Open href="/admin/launches">{w.Many}</Open> and press <strong>New {w.one}</strong>.
         </li>
         <li>
-          Type a <strong>Launch name</strong>, such as &quot;Acme newsletter&quot;. The confirmation email names it.
+          Type {ideaWords ? "an" : "a"} <strong>{w.One} name</strong>, such as &quot;Acme newsletter&quot;. The confirmation
+          email names it.
         </li>
         <li>
-          Tick <strong>Require email verification (double opt-in)</strong>, so anyone who finds the launch&apos;s hosted
+          Tick <strong>Require email verification (double opt-in)</strong>, so anyone who finds the {w.own} hosted
           page confirms too.
         </li>
         <li>
-          Press <strong>Create launch</strong>.
+          Press <strong>Create {w.one}</strong>.
         </li>
+        {ideas ? (
+          <li>
+            On the Idea card, tick <strong>Just a list</strong>, so it shows no status and stays out of comparisons and of In
+            more than one {w.one}.
+          </li>
+        ) : null}
         <li>
           On its <strong>Settings</strong> tab, set <strong>Spots skipped per referral</strong> to 0 and tick{" "}
           <strong>Hide signup counts on the page</strong>. Press <strong>Save changes</strong>.
@@ -68,7 +96,7 @@ export default function NewsletterFromYourSiteHelp() {
       <H2 id="journey">Set up the newsletter journey</H2>
       <Steps>
         <li>
-          Open the launch&apos;s <strong>Emails</strong> tab. Next to <strong>Welcome &amp; nurture</strong>, press{" "}
+          Open the {w.own} <strong>Emails</strong> tab. Next to <strong>Welcome &amp; nurture</strong>, press{" "}
           <strong>Set it up</strong>.
         </li>
         <li>
@@ -87,7 +115,7 @@ export default function NewsletterFromYourSiteHelp() {
       <H2 id="key">Create the site key</H2>
       <Steps>
         <li>
-          On the launch&apos;s <strong>Page &amp; widget</strong> tab, choose <strong>Your own form</strong>.
+          On the {w.own} <strong>Page &amp; widget</strong> tab, choose <strong>Your own form</strong>.
         </li>
         <li>
           Press <strong>Create site key</strong>.
@@ -103,7 +131,7 @@ export default function NewsletterFromYourSiteHelp() {
         </li>
       </Steps>
       <P>
-        The key can only add sign-ups to this launch, and it can&apos;t read anyone. Lost the secret? Press{" "}
+        The key can only add sign-ups to this {w.one}, and it can&apos;t read anyone. Lost the secret? Press{" "}
         <strong>Rotate secret</strong>: you get a new one, and the old one keeps working for 24 hours.{" "}
         <strong>Revoke key</strong> stops the key within a minute.
       </P>
@@ -121,7 +149,7 @@ export default function NewsletterFromYourSiteHelp() {
           ["200 already_confirmed", "They're already on the list. Nothing was sent."],
           ["200 not_sent, recently_sent", "A confirmation went to this address in the last day."],
           ["200 not_sent, blocked", "Email to this address bounced or was reported as spam, so it's never emailed."],
-          ["200 not_sent, removed", "Someone took them off the launch."],
+          ["200 not_sent, removed", `Someone took them off the ${list}.`],
         ]}
       />
       <P>
@@ -149,7 +177,7 @@ export default function NewsletterFromYourSiteHelp() {
       <H2 id="weekly">Send the weekly newsletter</H2>
       <P>
         Write a Newsletter hub, then on your programme&apos;s Overview press <strong>Send this week&apos;s newsletter</strong>.
-        It offers the launch with a site key first. The steps are in{" "}
+        It offers the {list} with a site key first. The steps are in{" "}
         <Open href="/help/write-and-schedule#newsletter">Write and schedule</Open>.
       </P>
 
@@ -183,7 +211,7 @@ export default function NewsletterFromYourSiteHelp() {
             "Use HTTP Basic auth: your site key id as the username, its secret as the password.",
             "The key id or secret is wrong, or the key was revoked. Check what your server sends, or create a new key.",
           ],
-          ["This launch is archived, so it takes no new sign-ups.", "Use a launch that isn't archived."],
+          ["This launch is archived, so it takes no new sign-ups.", `Use a ${list} that isn't archived.`],
           [
             "The confirmation email couldn't be sent. Try again shortly.",
             <>
@@ -198,7 +226,7 @@ export default function NewsletterFromYourSiteHelp() {
         ]}
       />
 
-      <NextPage slug="newsletter-from-your-site" />
+      <NextPage slug="newsletter-from-your-site" ideaWords={ideaWords} />
     </article>
   );
 }

@@ -2,7 +2,8 @@ import { HELP_BODIES } from "@/components/help/bodies";
 import { docsOrigin } from "@/lib/developers/flags";
 import { docToMarkdown } from "@/lib/developers/markdown";
 import { isHelpPagesEnabled } from "./flags";
-import { HELP_GROUPS, helpMarkdownPath, shownHelpPages } from "./pages";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { helpGroups, helpMarkdownPath, shownHelpPages } from "./pages";
 
 /**
  * What AI assistants read (Vizzy included): each help page as Markdown, an
@@ -19,13 +20,16 @@ export function helpPageMarkdown(slug: string, origin = docsOrigin()): string | 
 }
 
 export function helpLlmsTxt(origin = docsOrigin()): string {
+  // With ideas in the words, stage 2 tests an idea with a waitlist, as Home and the help navigation say.
+  const ideaWords = isIdeaWordsEnabled();
+  const stage2 = ideaWords ? "test an idea with a waitlist" : "launch a waitlist";
   const lines = [
     "# YouGrow Help",
     "",
-    "> How to set up and run YouGrow, in the order it's done: get ready (sending domain, brand, email style), launch a waitlist, grow an audience with content, connect your product, then onboard and retain its users with journeys. Written for the people using YouGrow; developers connecting a product read /developers instead.",
+    `> How to set up and run YouGrow, in the order it's done: get ready (sending domain, brand, email style), ${stage2}, grow an audience with content, connect your product, then onboard and retain its users with journeys. Written for the people using YouGrow; developers connecting a product read /developers instead.`,
     "",
   ];
-  for (const g of HELP_GROUPS) {
+  for (const g of helpGroups(ideaWords)) {
     const pages = shownHelpPages().filter((p) => p.group === g.key);
     if (!pages.length) continue;
     lines.push(`## ${g.label || "Start here"}`);

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Copy, Trash2 } from "lucide-react";
+import { ideaWord } from "@/lib/nav/terms";
+import { useWords } from "./nav/WordsProvider";
 
 /**
  * Domains tab of Account Settings. Lets a tenant add domains they own, publish
@@ -75,6 +77,8 @@ const OUTLINE_BTN =
   "rounded-md border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-900";
 
 export function DomainsSettings() {
+  const { ideas } = useWords();
+  const w = ideaWord(ideas);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [providerConfigured, setProviderConfigured] = useState(true);
@@ -477,7 +481,7 @@ export function DomainsSettings() {
         <div>
           <h2 className="text-sm font-semibold">Your domains</h2>
           <p className="mt-1 text-sm text-neutral-500">
-            Add a domain you own and verify it via DNS so you can send launch emails
+            Add a domain you own and verify it via DNS so you can send {ideas ? "waitlist" : "launch"} emails
             from a custom sender and reply-to address.
           </p>
         </div>
@@ -534,8 +538,8 @@ export function DomainsSettings() {
         <div>
           <h2 className="text-sm font-semibold">Default email sender</h2>
           <p className="mt-1 text-sm text-neutral-500">
-            Used as the default sender across all launches once a domain is verified.
-            Individual launches can override these.
+            Used as the default sender across all {w.many} once a domain is verified.
+            Individual {w.many} can override these.
           </p>
         </div>
 

@@ -6,7 +6,7 @@ import { IdeaBoardPanel } from "@/components/admin/workspace/IdeaBoardPanel";
 
 export const dynamic = "force-dynamic";
 
-/** Idea Board sub-tab: zero-friction capture (links / screenshots / text) → templatize. */
+/** The Scrapbook (was the Idea Board): save clippings (links, screenshots, text), then templatize them. */
 export default async function IdeaBoardPage({
   params,
 }: {

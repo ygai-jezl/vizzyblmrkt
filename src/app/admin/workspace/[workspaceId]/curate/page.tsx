@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-/** Curate defaults to the Idea Board (the brain-dump). */
+/** Curate opens the Scrapbook (was the Idea Board; its route stays idea-board). */
 export default async function CuratePage({
   params,
 }: {

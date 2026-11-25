@@ -5,6 +5,8 @@ import { legacyEditorMode } from "@/lib/journey/flags";
 import { forTenant } from "@/lib/tenant";
 import { JourneyCanvas } from "@/components/admin/journey/JourneyCanvas";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { ideaWord } from "@/lib/nav/terms";
 import type { Journey } from "@/lib/types/journey";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +31,7 @@ export default async function LaunchJourneyPage({
   // Engine move D6: the original editor is retired — move the launch from its Settings.
   const editor = legacyEditorMode();
   if (editor === "retired") redirect(`/admin/launches/${campaignId}/settings`);
+  const w = ideaWord(isIdeaWordsEnabled());
   const journey: Journey =
     existing ?? {
       id,
@@ -46,8 +49,8 @@ export default async function LaunchJourneyPage({
         <h2 className="text-sm font-semibold">{isNavV2Phase3Enabled() ? "Welcome & nurture" : "Journey"}</h2>
         <p className="text-sm text-neutral-500">
           {isNavV2Phase3Enabled()
-            ? "The automated emails everyone who joins this launch receives. Build them on the canvas, then publish."
-            : "Automated email sequence for this launch. Build it on the canvas, then activate."}
+            ? `The automated emails everyone who joins this ${w.one} receives. Build them on the canvas, then publish.`
+            : `Automated email sequence for this ${w.one}. Build it on the canvas, then activate.`}
         </p>
       </div>
       <JourneyCanvas

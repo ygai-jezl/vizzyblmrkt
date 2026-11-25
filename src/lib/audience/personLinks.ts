@@ -2,6 +2,7 @@ import type { Contact, ContactCampaignLink, PersonOptOuts, PersonProductLink } f
 import type { EmailSuppression } from "@/lib/types/emailSuppression";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import type { ProductUser } from "@/lib/types/productUser";
+import { MANY_LAUNCHES_TAG } from "@/lib/ideas/list";
 import { lastActiveAt, personReach, personStage } from "./personStage";
 
 /**
@@ -136,16 +137,25 @@ export function withCarriedTags(summaryTags: readonly string[], current: readonl
 }
 
 /**
+ * How a sync works out the `launches:many` tag (LAUNCH_IDEAS_ENABLED): from the person's live
+ * launches, leaving out the brand's Just a list launches; or, on the fast path for a product write
+ * (where their launches don't change), keeping what the last full sync worked out.
+ */
+export type ManyLaunches = { leaveOut: ReadonlySet<string> } | { keep: boolean };
+
+/**
  * The tags, reach and last activity of a person, from their links. Someone added by hand is
  * live with the `all` and `added:hand` tags, active from when they were added, and can be
  * emailed only when they have an address, the team recorded their marketing consent and no
- * brand-wide opt-out stops it.
+ * brand-wide opt-out stops it. With `manyLaunches` (ideas on), someone in two or more live launches
+ * that aren't Just a list also has `launches:many`.
  */
 export function summarize(
   campaigns: readonly ContactCampaignLink[],
   products: readonly PersonProductLink[],
   optOuts: PersonOptOuts | undefined,
   hand: HandAdded | null = null,
+  opts: { manyLaunches?: ManyLaunches | null } = {},
 ): PersonSummary {
   const liveCampaigns = campaigns.filter(isLiveSignupLink);
   const tags = new Set<string>();
@@ -153,6 +163,12 @@ export function summarize(
   for (const c of liveCampaigns) {
     tags.add(`launch:${c.campaignId}`);
     tags.add(`via:${c.joinedVia ?? "form"}`);
+  }
+  const many = opts.manyLaunches;
+  const liveIds = new Set(liveCampaigns.map((c) => c.campaignId));
+  if (many && liveIds.size >= 2) {
+    const inMany = "keep" in many ? many.keep : [...liveIds].filter((id) => !many.leaveOut.has(id)).length >= 2;
+    if (inMany) tags.add(MANY_LAUNCHES_TAG);
   }
   if (products.length) tags.add("product:any");
   const groups: string[] = [];

@@ -45,7 +45,11 @@ export function VizzyPanel() {
   const { chat } = shell;
   // On a person's page: their situation's starters while the brief is on, else only what Vizzy can do with their fields.
   const onPerson = shell.personInContext && personInView(pathname) !== null;
-  const suggestions = vizzySuggestions(activeNavKey(pathname, ITEMS), { person: onPerson && shell.personBrief, personFields: onPerson && !shell.personBrief });
+  const suggestions = vizzySuggestions(activeNavKey(pathname, ITEMS), {
+    person: onPerson && shell.personBrief,
+    personFields: onPerson && !shell.personBrief,
+    ideas: shell.ideaWords,
+  });
 
   return (
     <aside

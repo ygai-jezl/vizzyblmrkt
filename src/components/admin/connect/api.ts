@@ -212,10 +212,17 @@ const MESSAGES: Record<string, string> = {
   send_failed: "The email couldn't be sent.",
 };
 
-/** A readable message for an admin-API error body. */
-export function errorText(data: unknown): string {
+/** The messages that name a launch, while launches are called ideas. */
+const MESSAGES_AS_IDEAS: Readonly<Record<string, string>> = {
+  invites_locked: "Invites are locked for this idea.",
+  campaign_not_found: "That idea doesn't exist.",
+};
+
+/** A readable message for an admin-API error body. `ideas` (useWords().ideas) names a launch an idea. */
+export function errorText(data: unknown, ideas = false): string {
   const d = (data ?? {}) as { error?: string; detail?: string };
-  const base = (d.error && MESSAGES[d.error]) || d.error || "Something went wrong.";
+  const asIdea = ideas && d.error && Object.hasOwn(MESSAGES_AS_IDEAS, d.error) ? MESSAGES_AS_IDEAS[d.error] : undefined;
+  const base = asIdea || (d.error && MESSAGES[d.error]) || d.error || "Something went wrong.";
   return d.detail ? `${base} (${d.detail})` : base;
 }
 

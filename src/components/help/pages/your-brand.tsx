@@ -1,10 +1,16 @@
 import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import type { HelpBodyProps } from "@/lib/help/pages";
 import { isBrandNotesQuestionsUiEnabled, isBrandNotesRestUiEnabled, isBrandNotesUiEnabled } from "@/lib/brandNotes/flags";
 import { isCompetitorsUiEnabled } from "@/lib/competitors/flags";
 import { isBlogHeroUiEnabled, isBrandImageStyleUiEnabled, isImageFormatsUiEnabled, isMoreStylesUiEnabled, isSiteFontsUiEnabled } from "@/lib/content/imageStyle/flags";
 
-export default function YourBrandHelp() {
+/**
+ * With ideas in the words (`ideaWords`, isIdeaWordsEnabled()) a launch's emails are waitlist emails,
+ * as Brand voice says. "Such as a launch or an award" is the general sense and stays.
+ */
+export default function YourBrandHelp({ ideaWords = isIdeaWordsEnabled() }: HelpBodyProps = {}) {
   const imageStyle = isBrandImageStyleUiEnabled();
   const competitors = isCompetitorsUiEnabled();
   return (
@@ -165,7 +171,7 @@ export default function YourBrandHelp() {
 
       <H2 id="voice">Write your brand voice</H2>
       <P>
-        This is how your brand writes. Posts, articles, launch and journey emails and Vizzy&apos;s drafts all follow it. Once
+        This is how your brand writes. Posts, articles, {ideaWords ? "waitlist" : "launch"} and journey emails and Vizzy&apos;s drafts all follow it. Once
         saved, it&apos;s used instead of any voice set on a single programme.
       </P>
       <Steps>

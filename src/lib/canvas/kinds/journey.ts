@@ -13,6 +13,8 @@ import { legacyEditorMode } from "@/lib/journey/flags";
 import { convertLegacyJourney } from "@/lib/lifecycle/waitlist/convert";
 import { waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
 import { createWaitlistJourney, saveLifecycleDraft } from "@/lib/lifecycle/service";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { ideaWord } from "@/lib/nav/terms";
 import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types";
 
 /**
@@ -163,7 +165,7 @@ export const journeyCanvasKind: CanvasKind = {
       card: {
         kind: "journey",
         id: saved.journey.id,
-        title: `${resolveProductName(campaign) || "Launch"} — email journey`,
+        title: `${resolveProductName(campaign) || ideaWord(isIdeaWordsEnabled()).One}: email journey`,
         url,
         stats: [{ label: "emails", value: filled.nodes.filter((n) => n.type === "email").length }],
         warnings: warnings.length,
@@ -198,14 +200,15 @@ async function saveMovedLaunchDraft(
     status: journey.status,
     url,
     summary:
-      `I drafted the welcome emails for ${resolveProductName(campaign) || "your launch"}. Open the journey to review the copy, ` +
-      `then Publish when you're happy — nothing changes for your subscribers until you do.` +
+      // Vizzy relays this whatever the app calls a launch, so a launch with no name is "this waitlist".
+      `I drafted the welcome emails for ${resolveProductName(campaign) || "this waitlist"}. Open the journey to review the copy, ` +
+      `then Publish when you're happy. Nothing changes for your subscribers until you do.` +
       (all.length ? ` Heads up: ${all.join("; ")}.` : ""),
     warnings: all,
     card: {
       kind: "journey",
       id: journey.id,
-      title: `${resolveProductName(campaign) || "Launch"} — welcome emails`,
+      title: `${resolveProductName(campaign) || ideaWord(isIdeaWordsEnabled()).One}: welcome emails`,
       url,
       stats: [{ label: "emails", value: draft.graph.nodes.filter((n) => n.type === "email").length }],
       warnings: all.length,

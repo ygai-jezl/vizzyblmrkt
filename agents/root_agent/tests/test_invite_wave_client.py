@@ -40,6 +40,8 @@ def test_locked_launch_says_what_to_do_first():
 def test_needs_a_token_a_launch_and_a_callback(monkeypatch):
     assert cc.draft_invite_wave_via_canvas({}, "beta", "")["status"] == "unavailable"
     assert cc.draft_invite_wave_via_canvas({"ctxToken": "t"}, "", "")["status"] == "needs_campaign"
+    # Asked as a waitlist, whatever the app calls a launch (piece D).
+    assert cc.draft_invite_wave_via_canvas({"ctxToken": "t"}, "", "")["message"] == "Which waitlist should I invite?"
     monkeypatch.delenv("CANVAS_CALLBACK_URL", raising=False)
     assert cc.draft_invite_wave_via_canvas({"ctxToken": "t", "campaignId": "beta"}, "", "")["status"] == "unavailable"
 

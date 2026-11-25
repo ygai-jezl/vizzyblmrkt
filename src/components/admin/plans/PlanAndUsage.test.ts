@@ -101,6 +101,11 @@ describe("Plan and usage", () => {
     const people = textOf(renderToStaticMarkup(createElement(PlanAndUsage, { summary: proOwner(), people: true })));
     expect(people).toContain("What your plan includes Launches and waitlists Journeys Posts People Vizzy in Edit mode");
     expect(people).not.toMatch(/\bAudience\b/);
+    // With the idea words on, launches are ideas, as the sidebar names them.
+    const ideas = textOf(renderToStaticMarkup(createElement(PlanAndUsage, { summary: proOwner(), people: true, ideas: true })));
+    expect(ideas).toContain("What your plan includes Ideas and waitlists Journeys Posts People Vizzy in Edit mode");
+    expect(ideas).toContain("Live ideas 2 of 5");
+    expect(ideas).not.toMatch(/\blaunch/i);
     expect(text).toContain(`Competitors · ${PLAN_AND_USAGE_COPY.granted}`);
     expect(text).toContain(`Brand search · ${PLAN_AND_USAGE_COPY.heldBack}`);
     expect(text).toContain(`${PLAN_AND_USAGE_COPY.notIncluded} Next up`);

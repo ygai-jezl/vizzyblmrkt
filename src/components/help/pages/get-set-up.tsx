@@ -1,8 +1,14 @@
 import { H1, H2, H3, Lead, P, UL } from "@/components/developers/Doc";
 import { NextPage, Open, Warning } from "@/components/help/blocks";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import type { HelpBodyProps } from "@/lib/help/pages";
 
-/** The /help hub: the five setup stages in order, and where the order matters. */
-export default function GetSetUpHelp() {
+/**
+ * The /help hub: the five setup stages in order, and where the order matters. With ideas in the
+ * words (`ideaWords`) stage 2 is Idea, as Home calls it; its anchor stays #launch, and stage 4 stays
+ * Launch product.
+ */
+export default function GetSetUpHelp({ ideaWords = isIdeaWordsEnabled() }: HelpBodyProps = {}) {
   return (
     <article>
       <H1>Get set up</H1>
@@ -35,11 +41,11 @@ export default function GetSetUpHelp() {
         </li>
       </UL>
 
-      <H2 id="launch">2. Launch</H2>
-      <P>Start a waitlist for what you&apos;re building.</P>
+      <H2 id="launch">{ideaWords ? "2. Idea" : "2. Launch"}</H2>
+      <P>{ideaWords ? "Test an idea with a waitlist before you build it." : "Start a waitlist for what you're building."}</P>
       <UL>
         <li>
-          <Open href="/help/launch-and-waitlist#create">Create a launch</Open>
+          <Open href="/help/launch-and-waitlist#create">{ideaWords ? "Create an idea" : "Create a launch"}</Open>
         </li>
         <li>
           <Open href="/help/launch-and-waitlist#welcome">Turn on the welcome email</Open>
@@ -134,7 +140,7 @@ export default function GetSetUpHelp() {
         coding agent.
       </P>
 
-      <NextPage slug="" />
+      <NextPage slug="" ideaWords={ideaWords} />
     </article>
   );
 }

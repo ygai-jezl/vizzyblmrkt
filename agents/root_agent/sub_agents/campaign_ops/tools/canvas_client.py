@@ -32,11 +32,11 @@ def _error_message(body: dict) -> str:
     code = body.get("error")
     if code == "journey_active":
         return (
-            "That launch already has an ACTIVE journey. Ask the operator to pause "
+            "That waitlist already has an ACTIVE journey. Ask the operator to pause "
             "it first if they want it rebuilt."
         )
     if code == "campaign_not_found":
-        return "I couldn't find that launch in this account."
+        return "I couldn't find that waitlist in this account."
     if code == "invalid_graph":
         issues = body.get("issues") or []
         detail = "; ".join(str(i) for i in issues[:5])
@@ -120,7 +120,7 @@ def author_journey_via_canvas(
     if not resolved_campaign:
         return {
             "status": "needs_campaign",
-            "message": "Which launch should I build this journey for?",
+            "message": "Which waitlist should I build this journey for?",
         }
 
     base = os.environ.get("CANVAS_CALLBACK_URL", "").rstrip("/")
@@ -166,12 +166,12 @@ def _invite_error_message(body: dict) -> str:
     code = body.get("error")
     issues = body.get("issues") or []
     if code == "invites_locked":
-        reason = str(issues[0]) if issues else "the launch isn't ready for invites yet"
-        return f"I can't draft an invite for this launch yet: {reason}"
+        reason = str(issues[0]) if issues else "the waitlist isn't ready for invites yet"
+        return f"I can't draft an invite for this waitlist yet: {reason}"
     if code == "unavailable":
         return "Waitlist invites aren't switched on in this environment yet."
     if code == "campaign_not_found":
-        return "I couldn't find that launch in this account."
+        return "I couldn't find that waitlist in this account."
     if code == "wave_not_found":
         return "I couldn't find that invite draft — it may have been sent or deleted."
     if code == "rate_limited":
@@ -219,7 +219,7 @@ def draft_invite_wave_via_canvas(
     if not token:
         return {"status": "unavailable", "message": "Drafting invites isn't available in this session yet."}
     if not resolved_campaign:
-        return {"status": "needs_campaign", "message": "Which launch's waitlist should I invite?"}
+        return {"status": "needs_campaign", "message": "Which waitlist should I invite?"}
     base = os.environ.get("CANVAS_CALLBACK_URL", "").rstrip("/")
     if not base:
         return {"status": "unavailable", "message": "Drafting invites isn't configured (no callback URL)."}

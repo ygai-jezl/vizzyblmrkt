@@ -70,6 +70,24 @@ describe("per-source rules", () => {
     expect(agentLaunchJourneyItem(human as never, "Beta")).toBeNull();
   });
 
+  it("call a launch with no name an idea while the words are on", () => {
+    const graph = { nodes: [{ id: "e1", type: "email", position: { x: 0, y: 0 }, data: { agentMeta: { source: "agent3" } } }], edges: [] };
+    const j = { id: "journey_c1", campaignId: "c1", status: "draft" as const, graph };
+    const lc = { id: "lcjw_c1", name: "Welcome", authoredBy: "agent" as const, publishedVersion: null, status: "draft" as const, audience: { kind: "waitlist" as const, campaignId: "c1" } };
+    const wave = { id: "w1", campaignId: "c1", status: "draft" as const, authoredBy: "agent" as const, size: 120 };
+    expect(agentLaunchJourneyItem(j as never, undefined)?.title).toBe("Welcome emails for a launch");
+    expect(agentInviteWaveItem(wave as never, undefined)?.title).toBe("Invite 120 people from a launch");
+    for (const k of ["NEXT_PUBLIC_NAV_V2_ENABLED", "NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED", "NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED", "NEXT_PUBLIC_NAV_IDEAS_ENABLED", "LAUNCH_IDEAS_ENABLED"]) vi.stubEnv(k, "true");
+    try {
+      expect(agentLaunchJourneyItem(j as never, undefined)?.title).toBe("Welcome emails for an idea");
+      expect(agentJourneyItem(lc as never)?.title).toBe("Welcome emails for an idea");
+      expect(agentInviteWaveItem(wave as never, undefined)?.title).toBe("Invite 120 people from an idea");
+      expect(agentLaunchJourneyItem(j as never, "Beta")?.title).toBe("Welcome emails for Beta");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("content: a written hub that isn't approved", () => {
     const ws = { id: "w1", name: "Weekly" };
     const plan = (status: string, body = "Hello") => ({

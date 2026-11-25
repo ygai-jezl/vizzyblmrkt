@@ -16,4 +16,22 @@ describe("⌘K keywords", () => {
       expect(settings, plans).toEqual(expect.arrayContaining(["connections", "connected data", "integrations"]));
     }
   });
+
+  it("still find Ideas by launch, waitlist and campaign while launches are called ideas", async () => {
+    vi.resetModules();
+    const { areaKeywords, launchWords } = await import("./CommandPalette");
+    expect(areaKeywords("launches", true)).toEqual(expect.arrayContaining(["launches", "ideas", "waitlists", "campaigns"]));
+    // Each idea's row and New idea.
+    expect(launchWords(true)).toEqual(expect.arrayContaining(["launch", "idea", "waitlist", "campaign"]));
+  });
+
+  it("never find Launches, a launch or New launch by idea while the words are off, as before ideas", async () => {
+    vi.resetModules();
+    const { areaKeywords, launchWords, KEYWORDS } = await import("./CommandPalette");
+    expect(areaKeywords("launches", false)).toEqual(["waitlists", "campaigns"]);
+    expect(launchWords(false)).toEqual(["launch", "waitlist"]);
+    for (const words of Object.values(KEYWORDS)) expect(words.join(" ")).not.toMatch(/idea/);
+    // Other areas are the same either way.
+    expect(areaKeywords("audience", true)).toEqual(areaKeywords("audience", false));
+  });
 });

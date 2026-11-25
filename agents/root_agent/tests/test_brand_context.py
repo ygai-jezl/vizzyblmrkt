@@ -50,6 +50,13 @@ def test_page_context_is_appended():
     )
 
 
+def test_a_page_named_with_ideas_reaches_vizzy_with_the_glossary():
+    # With piece D's words on, the crumbs (and so the page name) say Ideas; the glossary says it's a launch.
+    out = build_dynamic_instruction(_ctx({"page": "Ideas › Team spaces › Overview"}))
+    assert "They are looking at this page of the YouGrow admin: Ideas › Team spaces › Overview. " in out
+    assert "The app may call a launch an idea; same thing, same id." in out
+
+
 def test_blank_or_odd_page_adds_nothing():
     assert build_dynamic_instruction(_ctx({"page": "   "})) == ROOT_SYSTEM_INSTRUCTION
     assert build_dynamic_instruction(_ctx({"page": 42})) == ROOT_SYSTEM_INSTRUCTION

@@ -7,6 +7,8 @@ import { loadInsightsOverview, sourcesNote, type SignupSources } from "@/lib/ins
 import { WeeklyBars } from "@/components/admin/charts/WeeklyBars";
 import { LaunchFunnel } from "@/components/admin/invites/LaunchFunnel";
 import { Card, RoadmapCard, Tiles, pct } from "./parts";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { ideaWord } from "@/lib/nav/terms";
 
 /** Signups by source as labelled rows (one series: each row names itself). */
 export function SourceList({ sources }: { sources: SignupSources }) {
@@ -36,13 +38,14 @@ export async function InsightsOverviewSection() {
   const invites = isInvitesUiEnabled() && isInvitesEnabled();
   const o = await loadInsightsOverview(ctx, { lifecycle: isLifecycleEnabled(), invites });
   const topContent = o.sources.contentCampaigns.slice(0, 3);
+  const w = ideaWord(isIdeaWordsEnabled());
 
   return (
     <div className="space-y-6">
       <Tiles tiles={o.tiles} />
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="rounded-lg border border-neutral-200 p-4 dark:border-neutral-800">
-          <WeeklyBars title="Signups per week, all launches" unit="signups" points={o.weeks.map((w) => ({ start: w.start, value: w.signups }))} />
+          <WeeklyBars title={`Signups per week, all ${w.many}`} unit="signups" points={o.weeks.map((w) => ({ start: w.start, value: w.signups }))} />
         </section>
         <Card title="Where signups come from" note={sourcesNote(o.sources)}>
           <SourceList sources={o.sources} />
@@ -85,7 +88,7 @@ export async function InsightsOverviewSection() {
         </ul>
       </Card>
       {o.funnel ? (
-        <Card title="From waitlist to product" note="every launch">
+        <Card title="From waitlist to product" note={`every ${w.one}`}>
           <LaunchFunnel funnel={o.funnel} />
         </Card>
       ) : null}

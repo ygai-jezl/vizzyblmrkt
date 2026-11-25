@@ -11,6 +11,8 @@ import { memberLabel, teamMemberNames, type UserLookup } from "@/lib/team/names"
 import { readFieldList } from "./fieldList";
 import { consentWayLabel } from "./newPerson";
 import { personReadOnly, type ReadOnlyValue, type VoiceChatSummary } from "./readOnlyFields";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { ideaWord } from "@/lib/nav/terms";
 
 /**
  * One person, whole (AUDIENCE_ONE_VIEW_ENABLED): their person record with each launch
@@ -95,6 +97,8 @@ export async function loadWholePerson(
   const contact = await repo.contacts.getById(personId);
   if (!contact) return null;
   const links = (contact.campaigns ?? []).filter((l) => l.status !== "deleted");
+  // A launch with no name (or gone), in the words in use.
+  const unnamed = ideaWord(isIdeaWordsEnabled()).A;
   const [campaigns, connections, launchEmails, extras] = await Promise.all([
     Promise.all(links.map((l) => repo.campaigns.getById(l.campaignId).catch(() => null))),
     Promise.all((contact.products ?? []).map((p) => repo.productConnections.getById(p.connectionId).catch(() => null))),
@@ -127,7 +131,7 @@ export async function loadWholePerson(
       connections.flatMap((c) => (c ? [[c.id, { id: c.id, catalog: c.catalog, name: productName(c) }] as const] : [])),
     );
     const extra = personReadOnly({
-      signups: links.flatMap((l, i) => (signups[i] ? [{ signup: signups[i]!, launchName: campaigns[i]?.waitlistName || "A launch" }] : [])),
+      signups: links.flatMap((l, i) => (signups[i] ? [{ signup: signups[i]!, launchName: campaigns[i]?.waitlistName || unnamed }] : [])),
       products: contact.products ?? [],
       users: users.filter((u): u is NonNullable<typeof u> => !!u && u.status === "active"),
       connections: named,
@@ -166,7 +170,7 @@ export async function loadWholePerson(
       const { invite, enrolment } = extras[i]!;
       return {
         campaignId: l.campaignId,
-        name: campaigns[i]?.waitlistName || "A launch",
+        name: campaigns[i]?.waitlistName || unnamed,
         signupId: l.signupId,
         status: l.status,
         via: l.joinedVia ?? "form",

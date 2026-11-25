@@ -153,9 +153,10 @@ export const NEW_PERSON_MESSAGES = {
 } as const;
 export type NewPersonMessage = keyof typeof NEW_PERSON_MESSAGES;
 
-/** The plain words for an error a New person or consent route answered. */
-export function newPersonErrorText(data: unknown): string {
+/** The plain words for an error a New person or consent route answered. `ideas`: launches are called ideas (useWords().ideas). */
+export function newPersonErrorText(data: unknown, ideas = false): string {
   const d = (data ?? {}) as { error?: string };
+  if (ideas && d.error === "consent_elsewhere") return NEW_PERSON_AS_IDEAS.consent_elsewhere;
   return (d.error && (NEW_PERSON_MESSAGES as Record<string, string>)[d.error]) || NEW_PERSON_MESSAGES.failed;
 }
 
@@ -171,6 +172,15 @@ export const NEW_PERSON_NOTES = {
   withdrawAsk: "They no longer agree to marketing emails?",
   withdrawHint: "Saved with your name and the time. What your team recorded no longer lets them be emailed, until someone records that they agreed again.",
   withdrawElsewhere: "They also joined a launch or use your product. Whatever they agreed to there still stands, so they may still get emails from there.",
+} as const;
+
+/**
+ * The two that name a launch, while launches are called ideas (isIdeaWordsEnabled(), useWords().ideas
+ * on the page). Written out in full, so the help page can quote either set.
+ */
+export const NEW_PERSON_AS_IDEAS = {
+  consent_elsewhere: "Only people added by hand have their agreement recorded here. Consent for anyone else comes from their idea's waitlist or your product.",
+  withdrawElsewhere: "They also joined an idea's waitlist or use your product. Whatever they agreed to there still stands, so they may still get emails from there.",
 } as const;
 
 /**

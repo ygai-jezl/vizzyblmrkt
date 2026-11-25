@@ -8,6 +8,8 @@ import { WAITLIST_STATUS_LABEL, type WaitlistJourneyRow } from "@/lib/journey/wa
 import { api, errorText, timeAgo } from "../connect/api";
 import { Badge, Banner, Button, Field, Section, inputClass } from "../connect/ui";
 import { sendWindowText, type TimelineSummary } from "./model";
+import { ideaWord } from "@/lib/nav/terms";
+import { useWords } from "../nav/WordsProvider";
 
 /**
  * Journeys: every journey, and starting a new one. Before nav v2 phase 3 these
@@ -75,6 +77,7 @@ export function JourneysHome({
   waitlist?: WaitlistJourneyRow[];
 }) {
   const router = useRouter();
+  const word = ideaWord(useWords().ideas);
   const unified = waitlist !== undefined;
   const [journeys, setJourneys] = useState<JourneySummary[] | null>(null);
   const [connections, setConnections] = useState<ConnectionOption[]>([]);
@@ -294,7 +297,7 @@ export function JourneysHome({
             >
               <WhoChip kind="waitlist">Waitlist</WhoChip>
               <p className="text-sm font-semibold">People who join a waitlist</p>
-              <p className="text-xs text-neutral-500">Welcome and nurture emails for a launch&rsquo;s signups.</p>
+              <p className="text-xs text-neutral-500">Welcome and nurture emails for {word.a}&rsquo;s signups.</p>
             </button>
             <button
               type="button"
@@ -320,9 +323,9 @@ export function JourneysHome({
       {creating && who === "waitlist" ? (
         <Section
           title="New waitlist journey"
-          description="Each launch has one welcome & nurture journey. You edit it on the launch, then publish it."
+          description={`Each ${word.one} has one welcome & nurture journey. You edit it on the ${word.one}, then publish it.`}
         >
-          <Field label="Launch">
+          <Field label={word.One}>
             <select className={inputClass} value={launchId} onChange={(e) => setLaunchId(e.target.value)}>
               {openLaunches.map((w) => (
                 <option key={w.campaignId} value={w.campaignId}>

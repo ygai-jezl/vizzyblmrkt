@@ -5,6 +5,7 @@ import { requireAdminContext } from "@/lib/auth/session";
 import { forTenant } from "@/lib/tenant";
 import { isBrandVoiceEnabled, BRAND_KIT_ROUTE } from "@/lib/content/brandKit";
 import { isNavV2Phase3Enabled } from "@/lib/nav/flags";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { BrandVoiceEditor } from "@/components/admin/brand-kit/BrandVoiceEditor";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +21,8 @@ export default async function BrandVoicePage() {
   // Nav v2 phase 3: make the precedence visible. A programme's own voice is a
   // fallback — generation uses it only while this brand voice is empty.
   const phase3 = isNavV2Phase3Enabled();
+  // A launch's emails are waitlist emails while launches are called ideas ("idea emails" reads oddly).
+  const launchEmails = isIdeaWordsEnabled() ? "waitlist" : "launch";
   const withOwnVoice = phase3
     ? (await forTenant(ctx).workspaces.find({ where: [], limit: 200 }).catch(() => [])).filter(
         (w) => !w.archivedAt && w.brandVoice?.trim(),
@@ -38,8 +41,8 @@ export default async function BrandVoicePage() {
         <h1 className="mt-1 text-lg font-semibold">Brand voice</h1>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
           {phase3
-            ? "Describe how your brand writes. One voice per brand — every piece of written copy follows it: content, launch and lifecycle emails, personal AI lines, Vizzy's drafts and the voice assistant."
-            : "Describe how your brand writes. One voice per brand — it steers the AI everywhere it drafts copy: content, launch emails, and the voice assistant."}
+            ? `Describe how your brand writes. There is one voice per brand, and every piece of written copy follows it: content, ${launchEmails} and lifecycle emails, personal AI lines, Vizzy's drafts and the voice assistant.`
+            : `Describe how your brand writes. There is one voice per brand, and it steers the AI everywhere it drafts copy: content, ${launchEmails} emails and the voice assistant.`}
         </p>
       </div>
       {withOwnVoice.length ? (

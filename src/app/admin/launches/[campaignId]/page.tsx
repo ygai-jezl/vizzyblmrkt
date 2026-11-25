@@ -9,17 +9,23 @@ import { launchEmails } from "@/lib/journey/launchEmails";
 import { isNavV2Phase4Enabled } from "@/lib/nav/flags";
 import { launchChecklist } from "@/lib/nav/launchChecklist";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
-import { INVITE_LOCK_TEXT } from "@/lib/invites/lockText";
+import { inviteLockText } from "@/lib/invites/lockText";
 import { loadInviteSetup } from "@/lib/invites/waves";
 import { loadFunnel } from "@/lib/invites/funnel";
 import { LaunchChecklist } from "@/components/admin/LaunchChecklist";
+import { IdeaCard } from "@/components/admin/ideas/IdeaCard";
+import { isIdeasEnabled, isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { loadHandoff } from "@/lib/ideas/handoff";
+import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
+import { teamMemberNames } from "@/lib/team/names";
 
 export const dynamic = "force-dynamic";
 
 /**
  * Compact launch overview: a few headline KPIs (the full breakdown lives in the
  * Analytics tab) plus quick links into the launch's tools. The campaign is
- * guaranteed to exist by the parent layout.
+ * guaranteed to exist by the parent layout. With LAUNCH_IDEAS_ENABLED its idea
+ * card comes first: admins change it, members read it.
  */
 export default async function LaunchOverviewPage({
   params,
@@ -32,11 +38,30 @@ export default async function LaunchOverviewPage({
   const base = `/admin/launches/${campaignId}`;
   const checklist = isNavV2Phase4Enabled() ? await loadChecklist(ctx, campaignId, a.totalSignups) : null;
   const campaign = await forTenant(ctx).campaigns.getById(campaignId).catch(() => null);
+  const idea = isIdeasEnabled() && campaign ? (campaign.idea ?? {}) : null;
+  const [names, handoff] = idea
+    ? await Promise.all([
+        teamMemberNames(ctx, [idea.statusBy, idea.handedOffBy]),
+        idea.justAList ? null : loadHandoff(ctx, campaignId).catch(() => null),
+      ])
+    : [{}, null];
 
   return (
     <div className="space-y-6">
       <LaunchSenderWarning ctx={ctx} campaign={campaign} />
-      {checklist ? <LaunchChecklist steps={checklist} /> : null}
+      {idea && campaign ? (
+        <IdeaCard
+          campaignId={campaign.id}
+          idea={idea}
+          canEdit={ctx.role === "admin"}
+          archived={!!campaign.archivedAt}
+          viewerId={ctx.userId ?? null}
+          names={names}
+          handoff={handoff}
+          productLinks={isLifecycleEnabled()}
+        />
+      ) : null}
+      {checklist ? <LaunchChecklist steps={checklist} ideas={isIdeaWordsEnabled()} /> : null}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Tile label="Total signups" value={a.totalSignups} hint="verified + unverified" />
         <Tile label="Verified" value={a.verifiedSignups} />
@@ -75,7 +100,7 @@ async function loadChecklist(ctx: Awaited<ReturnType<typeof requireAdminContext>
     newslettersSent: launchEmails(welcome, broadcasts).newsletters.sent,
     invites: inviteSetup
       ? {
-          lockText: inviteSetup.lock ? INVITE_LOCK_TEXT[inviteSetup.lock] : null,
+          lockText: inviteSetup.lock ? inviteLockText(inviteSetup.lock, isIdeaWordsEnabled()) : null,
           invited: funnel?.invited ?? 0,
           signedUp: funnel?.signedUp ?? 0,
         }

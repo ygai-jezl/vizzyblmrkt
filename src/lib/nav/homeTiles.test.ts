@@ -37,6 +37,16 @@ describe("homeTiles", () => {
     expect(labels(null)).toEqual(labels("retain"));
   });
 
+  it("names the launches tile Ideas only with the Ideas words on", () => {
+    expect(homeTiles("launch", signals, week, now, { ideas: true }).map((t) => `${t.label}=${t.value}`)).toEqual([
+      "Signups=1,204",
+      "New this week=38",
+      "Ideas=2",
+      "Emails sent=200",
+    ]);
+    expect(homeTiles("launch", signals, week, now, { ideas: false })).toEqual(homeTiles("launch", signals, week, now));
+  });
+
   it("shows — for anything unknown", () => {
     const tiles = homeTiles("launch", { ...signals, signups: null }, { ...week, signups: null, emailsSent: null }, now);
     expect(tiles.map((t) => t.value)).toEqual(["—", "—", "2", "—"]);

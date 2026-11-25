@@ -55,7 +55,7 @@ def test_relays_the_apps_errors_plainly(monkeypatch):
     _capture(monkeypatch, 503, {"error": "unavailable"})
     assert rc.get_post_results(STATE)["message"] == rc._OFF
     _capture(monkeypatch, 404, {"error": "not_found"})
-    assert rc.get_email_results(STATE, "journey", "lcj_9")["message"] == "I couldn't find that launch or journey."
+    assert rc.get_email_results(STATE, "journey", "lcj_9")["message"] == "I couldn't find that waitlist or journey."
     assert rc.get_email_results({})["code"] == "not_connected"
 
 

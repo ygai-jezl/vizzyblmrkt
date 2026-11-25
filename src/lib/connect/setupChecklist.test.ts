@@ -56,6 +56,14 @@ describe("setupSteps", () => {
     const sent = setupSteps({ ...base, invites: { hasSignupUrl: true, invited: 300, signedUp: 212 } }).at(-1);
     expect(sent).toMatchObject({ id: "invite", done: true, href: "/admin/launches", detail: "300 invited · 212 signed up." });
     expect(setupSteps({ ...base, environment: "staging", invites: { hasSignupUrl: true, invited: 0, signedUp: 0 } }).map((s) => s.id)).not.toContain("invite");
+    // A launch, or an idea while the words are on.
+    expect(noLink?.detail).toBe("Add your app's sign-up link in Settings, then invite from a launch.");
+    expect(setupSteps({ ...base, ideas: true, invites: { hasSignupUrl: false, invited: 0, signedUp: 0 } }).at(-1)?.detail).toBe(
+      "Add your app's sign-up link in Settings, then invite from an idea.",
+    );
+    expect(setupSteps({ ...base, ideas: true, invites: { hasSignupUrl: true, invited: 0, signedUp: 0 } }).at(-1)?.detail).toBe(
+      "Invite people from an idea's waitlist into your product.",
+    );
   });
 });
 

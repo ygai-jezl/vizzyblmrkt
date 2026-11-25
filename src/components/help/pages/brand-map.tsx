@@ -1,6 +1,6 @@
 import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
-import { isBlogFreshnessUiEnabled, isBlogLiveWatchEnabled, isBrandMapScaleEnabled, isBrandMapSituationAskUiEnabled } from "@/lib/brandMap/flags";
+import { isBlogFreshnessUiEnabled, isBlogLiveWatchEnabled, isBlogRefreshUiEnabled, isBrandMapScaleEnabled, isBrandMapSituationAskUiEnabled } from "@/lib/brandMap/flags";
 import { isConnectorSignalsEnabled } from "@/lib/connectors/flags";
 import { SIGNALS_HELP } from "@/lib/connectors/helpText";
 import type { HelpBodyProps } from "@/lib/help/pages";
@@ -221,7 +221,24 @@ export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnab
               Next up can also offer a live article that is{" "}
               <Open href="/help/write-and-schedule#freshness">due a refresh</Open>, as <strong>Refresh a live article</strong>{" "}
               with its reasons. <strong>Open article</strong> takes you to it. By default one of the three picks at most is a
-              refresh; an admin changes that under <strong>Refresh clock</strong>. Autopilot writes only new articles for now.
+              refresh; an admin changes that under <strong>Refresh clock</strong>.{" "}
+              {isBlogRefreshUiEnabled() ? (
+                <>
+                  In Draft mode the autopilot starts a <Open href="/help/write-and-schedule#refresh">refresh review</Open> for one,
+                  and the review waits for you; it never applies a change.
+                </>
+              ) : (
+                "Autopilot writes only new articles for now."
+              )}
+            </P>
+          ) : null}
+          {isBlogRefreshUiEnabled() ? (
+            <P>
+              Under <strong>Refresh clock</strong>, <strong>Which clock works</strong> shows each clock&apos;s refreshes: how
+              many changed nothing, how many changes were accepted, what a review cost, and the change in Google clicks 28 days
+              after, against your articles left alone. It says too early until a clock has 8 refreshes with results, and then
+              gives a range, never one number. Once all three have 8, it suggests the clock that gains the most clicks for what
+              reviews cost; an admin can use it, and a tenth of new articles keep testing.
             </P>
           ) : null}
           <P>

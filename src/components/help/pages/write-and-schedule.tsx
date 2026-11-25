@@ -9,7 +9,7 @@ import { isLearnFromPostEditsEnabled, isPostResultsEnabled } from "@/lib/distrib
 import { isNewsletterMarkdownEmailUiEnabled } from "@/lib/email/flags";
 import { isSignalsDataForSeoEnabled } from "@/lib/signals/flags";
 import { isAutopilotEnabled } from "@/lib/autopilot/flags";
-import { isBlogDatesUiEnabled, isBlogFreshnessUiEnabled, isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
+import { isBlogDatesUiEnabled, isBlogFreshnessUiEnabled, isBlogLiveWatchEnabled, isBlogRefreshUiEnabled } from "@/lib/brandMap/flags";
 import { isConnectorSignalsEnabled } from "@/lib/connectors/flags";
 import type { HelpBodyProps } from "@/lib/help/pages";
 import { isUsageMeterUiEnabled } from "@/lib/plans/flags";
@@ -275,6 +275,55 @@ export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSig
         </>
       ) : null}
 
+      {isBlogRefreshUiEnabled() ? (
+        <>
+          <H2 id="refresh">Refresh an article</H2>
+          <P>
+            On a live article, press <strong>Review for refresh</strong> on its hub. A review takes a few minutes. It moves on
+            while the article is open, and on its own in the background. It:
+          </P>
+          <Steps>
+            <li>reads the article, and opens every source it cites again, to find pages that are gone, moved or no longer show their figure;</li>
+            <li>looks for newer research on the article&apos;s subject, without changing its brief;</li>
+            <li>
+              reads the open questions on that subject on your brand map, your own material, What we&apos;ve seen, and the Google
+              searches that land on the page. Those searches are read only when Search Console is connected and shared with your
+              team and with Vizzy.
+            </li>
+          </Steps>
+          <P>
+            It then proposes up to 8 changes, each with the evidence behind it: a newer figure, a section that answers a search
+            or a question, a correction about your product, a note from your team, or a dead or moved link. YouGrow checks every
+            change before you see it: the words it replaces are in the article exactly, every figure and link it adds comes from
+            its evidence, and it keeps to your house style. Nothing changes until you apply.
+          </P>
+          <P>
+            Tick the changes you want and press <strong>Apply</strong>. YouGrow keeps the copy as it was as a version, makes the
+            changes, runs the fact check again, and sends the article back to you to approve. A change to the words is a real
+            update: Updated becomes today and Published stays. Link fixes alone leave Updated as it is, as Google asks. Copy the
+            article again and republish it: until your page shows the new date, the Freshness card says so.
+          </P>
+          <P>
+            None of them right? Press <strong>Dismiss them all</strong>. None of them is proposed again for this article, and its
+            clock starts again.
+          </P>
+          <P>
+            With the autopilot in Draft mode, a refresh that Next up picks starts a review on its own, and the review waits in{" "}
+            <Open href="/admin/approvals">Review</Open> as <strong>Refresh ready</strong>. The autopilot never applies a change.
+            Vizzy can run a review too: ask &quot;review our share of voice article&quot;. Reviews count against your plan&apos;s
+            refresh reviews each month: 20, unless your plan says otherwise.
+          </P>
+
+          <H2 id="versions">Versions</H2>
+          <P>
+            YouGrow keeps an article&apos;s last 10 versions: the copy just before Apply, Regenerate or Restore replaced it. The{" "}
+            <strong>Versions</strong> card on the hub lists them. <strong>Restore</strong> puts one back and keeps the copy it
+            replaces as a version, so a Restore can be undone. The live mark and Published stay as they are, and the article goes
+            back to you to approve.
+          </P>
+        </>
+      ) : null}
+
       <H2 id="schedule">Schedule posts</H2>
       <Steps>
         <li>
@@ -434,6 +483,16 @@ export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSig
                 ],
                 ["Checked. The clock starts again from today, and Updated stays as it is.", "Your check is saved. The article is fresh again until its clock runs out."],
                 ["Only admins can change the refresh clock.", "Ask an admin to choose the clock on Brand › Brand map."],
+              ] as Array<[string, string]>)
+            : []),
+          ...(isBlogRefreshUiEnabled()
+            ? ([
+                ["The review found nothing worth changing. The clock starts again, and Updated stays as it is.", "Nothing to do. The article is fresh again until its clock runs out."],
+                ["Dismissed. None of these comes back on this article, and the clock starts again.", "Nothing to do. A later review can still find other changes."],
+                ["Refresh reviews aren't included in this brand's plan.", "Ask whoever runs your copy of YouGrow to include them, or press Checked, nothing to change once you've looked yourself."],
+                ["This brand has used its refresh reviews for this month.", "Reviews start again next month. Meanwhile you can edit the article yourself."],
+                ["Your page doesn't show the update yet. Republish it with the new copy and date.", "Copy the article again and paste it into your site, with its date line."],
+                ["No earlier versions yet. YouGrow keeps one each time Apply, Regenerate or Restore replaces the copy.", "Nothing to do. A version is kept the next time the copy is replaced."],
               ] as Array<[string, string]>)
             : []),
           ...(isSignalsDataForSeoEnabled()

@@ -884,8 +884,9 @@ export const ONTOLOGY: readonly OntologyType[] = [
   },
   {
     id: "content_idea",
-    name: "Idea Board item",
-    description: "Something the team clipped to write about later: a link, a note or a screenshot. Not a business idea, which is `idea`.",
+    name: "Scrapbook clipping",
+    description:
+      "Something the team clipped to write about later: a link, a note or a screenshot, kept in a programme's Scrapbook (once called the Idea Board). Not a business idea, which is `idea`.",
     place: "content",
     status: "built",
     home: "brand",

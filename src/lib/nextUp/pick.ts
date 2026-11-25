@@ -93,7 +93,7 @@ const PICK_MS = 30_000;
 const SEARCH_PARALLEL = 6;
 const SKIP_DAYS = 30;
 const OWN_KINDS = new Set<SearchKind>(["article", "newsletter", "ebook", "post", "journey_email", "broadcast", "note", "idea_board", "knowledge"]);
-const KIND_WORD: Partial<Record<SearchKind, string>> = { article: "article", newsletter: "newsletter", ebook: "ebook", post: "post", journey_email: "email", broadcast: "email", note: "team note", idea_board: "saved idea", knowledge: "site page" };
+const KIND_WORD: Partial<Record<SearchKind, string>> = { article: "article", newsletter: "newsletter", ebook: "ebook", post: "post", journey_email: "email", broadcast: "email", note: "team note", idea_board: "clipping", knowledge: "site page" };
 const FLAG_WORD: Record<CoverageFlag, string> = {
   open: "nobody has written on it lately, competitors or you",
   gap: "only competitors have written on it lately",

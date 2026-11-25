@@ -50,6 +50,34 @@ export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSig
         connected.
       </Warning>
 
+      <H2 id="scrapbook">Save clippings in the Scrapbook</H2>
+      <P>
+        The Scrapbook keeps posts you admire, links, screenshots and quick thoughts, so you can write from them later. Each one
+        is a clipping.
+      </P>
+      <Steps>
+        <li>
+          Open your programme, then <strong>Scrapbook</strong>.
+        </li>
+        <li>
+          Paste a link, paste the text or jot a thought, or press <strong>Add screenshot</strong>. Any one of them is enough.
+        </li>
+        <li>
+          Press <strong>Save clipping</strong>. It shows below, with where it came from: a site, a screenshot or text.
+        </li>
+        <li>
+          To reuse its shape, press <strong>Templatize</strong>. Vizzy turns it into a template on the{" "}
+          <strong>Templates</strong> tab, and the clipping then shows <strong>View template</strong>.
+        </li>
+        <li>
+          To remove a clipping, press <strong>Delete</strong>.
+        </li>
+      </Steps>
+      <P>
+        YouGrow can&apos;t read pages on LinkedIn, X, Instagram, Facebook, Threads, TikTok or YouTube from the link alone. For
+        those, paste the text or add a screenshot too, so the template comes out right.
+      </P>
+
       <H2 id="write">Write a draft</H2>
       <Steps>
         <li>
@@ -380,6 +408,11 @@ export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSig
       <H2 id="messages">If you see this</H2>
       <Messages
         rows={[
+          ["Add a link, paste text, or attach a screenshot.", "The Scrapbook saves a clipping only with something in it. Add one, then press Save clipping."],
+          [
+            "Couldn't save that clipping.",
+            "Try again. A screenshot has to be a PNG, JPEG or WebP image of 8MB or less.",
+          ],
           ["Give this workflow a name.", "Type a Workflow name on the Strategy step."],
           [
             "Research didn't finish. You can still write the article, or try again.",

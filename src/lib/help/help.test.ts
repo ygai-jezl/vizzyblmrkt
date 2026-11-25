@@ -311,7 +311,9 @@ describe("links into the help", () => {
     expect(helpFor("/admin/account/connections")).toBe("/help/connected-accounts");
     expect(helpFor("/admin/launches/c1/invites")).toBe("/help/invite-your-waitlist");
     expect(helpFor("/admin/workspace/w1/curate/grounding")).toBe("/help/programmes-and-knowledge#knowledge");
-    expect(helpFor("/admin/workspace/w1/curate/idea-board")).toBe("/help/write-and-schedule#write");
+    expect(helpFor("/admin/workspace/w1/curate/idea-board")).toBe("/help/write-and-schedule#scrapbook");
+    expect(helpFor("/admin/workspace/w1/curate")).toBe("/help/write-and-schedule#scrapbook");
+    expect(helpFor("/admin/workspace/w1/templatize")).toBe("/help/write-and-schedule#write");
     expect(helpFor("/admin/lifecycle/j1")).toBe("/help/onboarding-journeys");
     expect(helpFor("/admin/somewhere-new")).toBe("/help");
   });

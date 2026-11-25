@@ -891,9 +891,9 @@ An article, newsletter, ebook, post or journey email: its plan, drafts and the f
 - Search: `article`, `newsletter`, `ebook`, `post`, `journey_email`
 - Numbers: none. A post's numbers are post results.
 
-### Idea Board item (`content_idea`)
+### Scrapbook clipping (`content_idea`)
 
-Something the team clipped to write about later: a link, a note or a screenshot. Not a business idea, which is `idea`.
+Something the team clipped to write about later: a link, a note or a screenshot, kept in a programme's Scrapbook (once called the Idea Board). Not a business idea, which is `idea`.
 
 - Status: built
 - Home: the brand's region
@@ -1792,7 +1792,7 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 
 Stores that don't keep to the brand's region.
 
-- Idea Board item: `workspace/{tenantId}/{workspaceId}/{file}` in `src/lib/workspace/assetStore.ts`. One EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
+- Scrapbook clipping: `workspace/{tenantId}/{workspaceId}/{file}` in `src/lib/workspace/assetStore.ts`. One EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
 - Generated image: `{tenantId}/{campaignId}/{file}` in `src/lib/agents/imageStore.ts`. One EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
 - Brand kit: `brand/{tenantId}/logos/{file}` in `src/lib/tenant/brandLogo.ts`. One EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
 - Brand kit: `brand/{tenantId}/fonts/{file}` in `src/lib/tenant/brandFontStore.ts`. One EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.

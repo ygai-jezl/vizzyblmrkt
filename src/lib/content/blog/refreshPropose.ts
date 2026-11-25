@@ -29,7 +29,12 @@ import { recordDecision } from "./refreshRecords";
 
 export const PROPOSE = {
   MAX: 8,
-  TIMEOUT_MS: 40_000,
+  /**
+   * The model call: a whole article and its evidence, like the fact check's (75s). 40s with
+   * thinking uncapped ran out on dev's first real article (25 Nov), so thinking is capped too.
+   */
+  TIMEOUT_MS: 70_000,
+  THINKING_BUDGET: 2048,
   /** The most a review may add, in words: this share of the article, and never more than MAX_WORDS. */
   GROWTH: 0.25,
   MAX_WORDS: 600,
@@ -220,7 +225,7 @@ export const proposeStep: StepFn = async (ctx, { review, plan, node, usage, dead
       article: body,
     });
     const timeoutMs = Math.max(10_000, Math.min(PROPOSE.TIMEOUT_MS, deadlineMs - Date.now() - 3_000));
-    const raw = await generate(prompt, { timeoutMs, json: true, temperature: 0.2, usage });
+    const raw = await generate(prompt, { timeoutMs, json: true, temperature: 0.2, thinkingBudget: PROPOSE.THINKING_BUDGET, usage });
     if (raw === null) return { error: "propose_failed" } satisfies StepResult;
     const byId = new Map(review.evidence.map((e) => [e.id, e] as const));
     const cap = Math.min(PROPOSE.MAX_WORDS, Math.round(words(body) * PROPOSE.GROWTH));

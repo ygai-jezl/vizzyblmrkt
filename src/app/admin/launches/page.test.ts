@@ -128,3 +128,43 @@ describe("the launches list", () => {
     expect(String(note?.props.children)).toContain("Only admins set a launch's hypothesis, status and outcome.");
   });
 });
+
+describe("the list's words", () => {
+  /** Every string the page writes itself, components left unrendered. */
+  const words = (els: El[]) =>
+    els
+      .flatMap((e) => (Array.isArray(e.props.children) ? e.props.children : [e.props.children]))
+      .filter((c): c is string => typeof c === "string")
+      .join(" | ");
+  const wordsOn = () => {
+    vi.stubEnv("NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_NAV_IDEAS_ENABLED", "true");
+  };
+
+  it("say Ideas with the words on, and hand them to the compare table", async () => {
+    wordsOn();
+    const t = words(await open());
+    expect(t).toContain("Ideas");
+    expect(t).toContain("Each idea tests something with a waitlist before you build it.");
+    expect(t).toContain("idea");
+    // The status Launched and the made-up launch called old-launch aren't the word.
+    expect(t.replace(/old-launch/g, "")).not.toMatch(/\blaunch(es|'s)?\b/i);
+    const compare = (await open({ compare: "team-spaces,offline-mode" })).find((e) => e.type === CompareTable);
+    expect(compare?.props.ideas).toBe(true);
+  });
+
+  it("say an idea's in the member note and the empty states", async () => {
+    wordsOn();
+    state.ctx = { ...admin, userId: "usr_sam", role: "member" };
+    expect(words(await open())).toContain("Only admins set an idea's hypothesis, status and outcome.");
+    expect(words(await open({ status: "archived" }))).toContain("No archived ideas.");
+  });
+
+  it("say Launches with the nav switch off, even with LAUNCH_IDEAS_ENABLED on", async () => {
+    const t = words(await open());
+    expect(t).toContain("Launches");
+    expect(t).toContain("A launch is a waitlist page and the emails that keep it warm.");
+    expect((await open({ compare: "team-spaces,offline-mode" })).find((e) => e.type === CompareTable)?.props.ideas).toBe(false);
+  });
+});

@@ -2,6 +2,7 @@ import { requireAdminContext } from "@/lib/auth/session";
 import { computeHybridAnalytics } from "@/lib/analytics/analytics";
 import { CampaignAnalyticsView } from "@/components/admin/CampaignAnalyticsView";
 import { EmailAnalyticsSection } from "@/components/admin/email/EmailAnalyticsSection";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,7 @@ export default async function LaunchAnalyticsPage({
   // CampaignAnalyticsView, which the global analytics page also renders).
   return (
     <div className="space-y-8">
-      <CampaignAnalyticsView analytics={analytics} />
+      <CampaignAnalyticsView analytics={analytics} ideas={isIdeaWordsEnabled()} />
       <EmailAnalyticsSection campaignId={campaignId} />
     </div>
   );

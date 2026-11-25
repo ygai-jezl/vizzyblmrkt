@@ -10,7 +10,8 @@ import { Chip } from "@/components/admin/people/Chip";
 import { CompareTable } from "@/components/admin/ideas/CompareTable";
 import { ComparePicks } from "@/components/admin/ideas/ComparePicks";
 import { COMPARE_MIN, loadComparison, parseCompareIds } from "@/lib/ideas/compare";
-import { isIdeasEnabled } from "@/lib/ideas/flags";
+import { isIdeasEnabled, isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { ideaWord } from "@/lib/nav/terms";
 import { IDEA_FILTERS, ideaFilterCounts, ideaFilterOf, parseIdeaFilter, type IdeaFilter } from "@/lib/ideas/list";
 import { IDEA_STATUS_LABEL, IDEA_STATUS_TONE, JUST_A_LIST } from "@/lib/ideas/words";
 
@@ -38,6 +39,7 @@ function filterLabel(f: IdeaFilter): string {
  * Active and Archived tabs). Ticking 2 to 4 rows and pressing Compare side by side
  * is a plain GET to `?compare=`, which shows them side by side instead of the list;
  * fewer than two of this brand's launches that aren't Just a list, and the list shows.
+ * With the words on (isIdeaWordsEnabled()) the page says Ideas; the address stays.
  */
 export default async function LaunchesPage({
   searchParams,
@@ -49,6 +51,8 @@ export default async function LaunchesPage({
   const sp = await searchParams;
   const view = sp.status === "archived" ? "archived" : "active";
   const ideas = isIdeasEnabled();
+  const words = isIdeaWordsEnabled();
+  const w = ideaWord(words);
   const ideaFilter = ideas ? parseIdeaFilter(sp.idea) : null;
 
   const compareIds = ideas ? parseCompareIds(sp.compare) : null;
@@ -56,7 +60,7 @@ export default async function LaunchesPage({
   if (compared.length >= COMPARE_MIN) {
     return (
       <div className="mx-auto max-w-5xl">
-        <CompareTable columns={compared} />
+        <CompareTable columns={compared} ideas={words} />
       </div>
     );
   }
@@ -129,9 +133,11 @@ export default async function LaunchesPage({
     <div className="mx-auto max-w-4xl space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Launches</h1>
+          <h1 className="text-xl font-semibold">{w.Many}</h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-            A launch is a waitlist page and the emails that keep it warm. Star one to pin it to the sidebar.
+            {words
+              ? "Each idea tests something with a waitlist before you build it. Star one to pin it to the sidebar."
+              : "A launch is a waitlist page and the emails that keep it warm. Star one to pin it to the sidebar."}
           </p>
         </div>
         <Link
@@ -139,7 +145,7 @@ export default async function LaunchesPage({
           className="inline-flex items-center gap-1.5 rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
         >
           <Plus size={16} aria-hidden />
-          New launch
+          New {w.one}
         </Link>
       </div>
 
@@ -162,7 +168,9 @@ export default async function LaunchesPage({
 
       {ideas && ctx.role !== "admin" ? (
         <p role="note" className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400">
-          You can add a launch, read every launch and compare them. Only admins set a launch&apos;s hypothesis, status and outcome.
+          {words
+            ? "You can add an idea, read every idea and compare them. Only admins set an idea's hypothesis, status and outcome."
+            : "You can add a launch, read every launch and compare them. Only admins set a launch's hypothesis, status and outcome."}
         </p>
       ) : null}
 
@@ -187,17 +195,17 @@ export default async function LaunchesPage({
 
       {rows.length === 0 && ideaFilter ? (
         <p className="rounded-md border border-dashed border-neutral-300 p-8 text-center text-sm text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
-          No launches with this status.
+          No {w.many} with this status.
         </p>
       ) : rows.length === 0 ? (
         <div className="rounded-md border border-dashed border-neutral-300 p-8 text-center text-sm text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
           {view === "archived" ? (
-            "No archived launches."
+            `No archived ${w.many}.`
           ) : (
             <>
-              <p>No launches yet. Your first one takes a couple of minutes.</p>
+              <p>No {w.many} yet. Your first one takes a couple of minutes.</p>
               <Link href="/admin/launches/new" className="mt-3 inline-block font-medium text-neutral-900 underline underline-offset-4 dark:text-neutral-100">
-                Create a launch
+                Create {w.a}
               </Link>
             </>
           )}

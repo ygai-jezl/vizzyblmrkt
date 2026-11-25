@@ -44,6 +44,18 @@ describe("the compare table", () => {
     expect(aiTellsIn(text(html))).toEqual([]);
   });
 
+  it("says ideas with the words on, and launches without them", () => {
+    const columns = [col({}), col({ id: "offline-mode", name: "Offline mode" })];
+    const on = text(renderToStaticMarkup(createElement(CompareTable, { columns, ideas: true })));
+    expect(on).toContain("All ideas");
+    expect(on).toContain("Compare ideas");
+    expect(on).toContain("Each bar is against that idea's own waitlist. Ideas marked Just a list are left out.");
+    expect(on).toContain("Pick other ideas");
+    expect(on).not.toMatch(/\blaunch/i);
+    expect(text(html)).toContain("Compare launches");
+    expect(dashesIn(on)).toEqual([]);
+  });
+
   it("says when a launch has no status yet", () => {
     expect(sinceLine(col({}))).toBe("No status yet.");
   });

@@ -9,12 +9,12 @@ import { launchEmails } from "@/lib/journey/launchEmails";
 import { isNavV2Phase4Enabled } from "@/lib/nav/flags";
 import { launchChecklist } from "@/lib/nav/launchChecklist";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
-import { INVITE_LOCK_TEXT } from "@/lib/invites/lockText";
+import { inviteLockText } from "@/lib/invites/lockText";
 import { loadInviteSetup } from "@/lib/invites/waves";
 import { loadFunnel } from "@/lib/invites/funnel";
 import { LaunchChecklist } from "@/components/admin/LaunchChecklist";
 import { IdeaCard } from "@/components/admin/ideas/IdeaCard";
-import { isIdeasEnabled } from "@/lib/ideas/flags";
+import { isIdeasEnabled, isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { loadHandoff } from "@/lib/ideas/handoff";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { teamMemberNames } from "@/lib/team/names";
@@ -61,7 +61,7 @@ export default async function LaunchOverviewPage({
           productLinks={isLifecycleEnabled()}
         />
       ) : null}
-      {checklist ? <LaunchChecklist steps={checklist} /> : null}
+      {checklist ? <LaunchChecklist steps={checklist} ideas={isIdeaWordsEnabled()} /> : null}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Tile label="Total signups" value={a.totalSignups} hint="verified + unverified" />
         <Tile label="Verified" value={a.verifiedSignups} />
@@ -100,7 +100,7 @@ async function loadChecklist(ctx: Awaited<ReturnType<typeof requireAdminContext>
     newslettersSent: launchEmails(welcome, broadcasts).newsletters.sent,
     invites: inviteSetup
       ? {
-          lockText: inviteSetup.lock ? INVITE_LOCK_TEXT[inviteSetup.lock] : null,
+          lockText: inviteSetup.lock ? inviteLockText(inviteSetup.lock, isIdeaWordsEnabled()) : null,
           invited: funnel?.invited ?? 0,
           signedUp: funnel?.signedUp ?? 0,
         }

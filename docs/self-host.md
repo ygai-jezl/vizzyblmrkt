@@ -128,7 +128,7 @@ npm run selfhost -- --project <your-project-id> --apply addon:<name>
 | `addon:bigquery` | Analytics breakdowns from BigQuery | Automated. The extensions deploy may ask you to accept their permissions |
 | `addon:search` | Search that finds what a brand wrote by its words and its meaning, for people and Vizzy | Automated. Makes a Firestore Enterprise database per region you use, which bills by data read and written. Needs the `gcloud beta` component. Fill it afterwards with `npx tsx scripts/search-backfill.ts` |
 | `addon:recaptcha` | reCAPTCHA on waitlist sign-ups | Automated |
-| `addon:password` | Email and password sign-in for the people on your admin list, with three alerts | Automated. Needs an email provider (`addon:email`) for the confirmation codes. See [Email and password sign-in](#email-and-password-sign-in-optional) |
+| `addon:password` | Email and password sign-in for the people on your admin list, with up to three alerts (two on plain Firebase Authentication) | Automated. Needs an email provider (`addon:email`) for the confirmation codes. See [Email and password sign-in](#email-and-password-sign-in-optional) |
 
 **Reranking search results.** `SEARCH_RERANK_ENABLED` reorders a US brand's search results with
 Google's Ranking API (it runs only in the US and global locations, so EU and Asia brands keep the
@@ -338,7 +338,8 @@ help page people read is `/help/sign-in-and-passwords`, shown while the switch i
      sign-in screens say the same 12);
    - reCAPTCHA bot protection for passwords in audit mode (it turns on the reCAPTCHA Enterprise API);
    - Identity Platform's request logging, which the sign-up alert counts (Cloud Logging bills past
-     its free monthly allowance);
+     its free monthly allowance). Only on a project upgraded to Identity Platform: see
+     **Plain Firebase Authentication or Identity Platform** below;
    - the reset email's link, so it opens `https://<your app>/auth/reset`. Firebase uses this one
      address for every email it sends, so the page also handles "undo the email change" links,
      letting someone whose sign-in email was changed without them change it back. Some projects
@@ -346,11 +347,39 @@ help page people read is `/help/sign-in-and-passwords`, shown while the switch i
      (Authentication, Templates, Password reset, Customize action URL);
    - the Email/Password provider, last and on its own.
 
-   It reads the settings back, makes the three alerts below, and sets `PASSWORD_SIGNIN_ENABLED` to
+   It reads the settings back, makes the three alerts below (two on plain Firebase Authentication), and sets `PASSWORD_SIGNIN_ENABLED` to
    `"true"` in your settings file. If anything before the provider is refused, it stops there and
    leaves the provider and the switch as they were. Roll out afterwards.
 3. **Check it:** `npm run doctor -- --cloud --project <your-project-id>`. While the switch is on, it
    fails without an email provider or when Identity Platform isn't set as above.
+
+**Plain Firebase Authentication or Identity Platform.** A project where sign-in was turned on in the
+Firebase console is often still on plain Firebase Authentication. That works for password sign-in,
+but it can't log sign-in requests, so on such a project the add-on turns on everything else (the
+account rules, the password policy, reCAPTCHA and the provider) and leaves out request logging and
+the many password sign-ups alert. Its last lines say what it left out. To have both, add
+`--upgrade-identity-platform` when you run the add-on, the first time or later:
+
+```bash
+npm run selfhost -- --project <your-project-id> --apply addon:password --upgrade-identity-platform
+```
+
+It upgrades the project to Firebase Authentication with Identity Platform before it changes any
+sign-in setting (the APIs, the service agent and the code clean-up come first, as without the
+flag). Your app needs no change. On the Blaze plan the upgrade is free up to 50,000 monthly active
+users, then costs 0.0025 to 0.0055 dollars per user a month, and it adds user activity logging, an
+SLA, multi-factor authentication and blocking functions. It can't be undone, so the add-on never
+upgrades without the flag, and the list it shows before asking puts the upgrade first. A project
+already on Identity Platform needs no flag. Once the switch is on, `npm run doctor -- --cloud`
+notes when your project could have the upgrade. If you passed `--alert-email` the first time, pass
+it again with the upgrade, so the sign-ups alert emails the same address as the other two.
+
+**The backend's address.** The add-on reads your app's address from the App Hosting backend list,
+which comes from the Firebase CLI. If that list can't be read, it stops with the reason. Most
+often the Firebase CLI's sign-in has lapsed: sign it in again with `firebase login --reauth` (plain
+`firebase login` only says you are logged in already), or pass the address with
+`--app-url https://<your app's host>`. Otherwise fix what the reason says, such as an API that is
+off.
 
 **reCAPTCHA: audit first, then enforce.** Audit mode scores every password sign-in, sign-up and
 reset email and blocks nothing. The sign-in page and Settings load your project's reCAPTCHA
@@ -369,11 +398,12 @@ shows.
 **The three alerts.** Each emails the first address on `ADMIN_ALLOWED_EMAILS`, or the address you
 pass with `--alert-email` when you run the add-on. Change who they email, or their thresholds, in
 Cloud Monitoring, Alerting. Running the add-on again leaves the alerts you have as you left them
-and makes only the ones missing, so a copy set up before the third alert gets just that one.
+and makes only the ones missing, so a copy set up before the third alert gets just that one. On
+plain Firebase Authentication it makes the last two only, until you upgrade.
 
 | Alert | What it counts | Fires when |
 | --- | --- | --- |
-| YouGrow: many password sign-ups | Log metric `yougrow_auth_signups`: sign-ups in Identity Platform's request logs | More than 20 in an hour |
+| YouGrow: many password sign-ups | Log metric `yougrow_auth_signups`: sign-ups in Identity Platform's request logs. Needs the Identity Platform upgrade (`--upgrade-identity-platform`), so a project on plain Firebase Authentication goes without it | More than 20 in an hour |
 | YouGrow: accounts removed at sign-in | Log metric `yougrow_auth_accounts_removed`: the app's `auth_account_removed` log line, written when it removes an account on its first sign-in because it can't trust it | Any in an hour |
 | YouGrow: sign-in codes locked | Log metric `yougrow_auth_codes_locked`: the app's `auth_code_locked` log line, written when an address reaches 15 wrong codes in a day and its codes lock. It gives the address's domain only | Any in an hour |
 

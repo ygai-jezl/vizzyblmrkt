@@ -106,7 +106,22 @@ function gcloud() {
     state.jobs = [...(state.jobs ?? []).filter((j) => j.name !== args[4]), { name: args[4], uri: flag("uri") }];
     return save();
   }
-  // add-iam-policy-binding and anything else: succeed quietly.
+  // A project grant IAM refuses a set number of times (iamGrantFailures: { role: count }), as it
+  // does for a service agent made a moment ago; then it succeeds.
+  if (has("projects", "add-iam-policy-binding")) {
+    const role = flag("role");
+    const left = (state.iamGrantFailures ?? {})[role] ?? 0;
+    state.iamGrants = [...(state.iamGrants ?? []), { role, member: flag("member"), ok: left <= 0 }];
+    if (left > 0) state.iamGrantFailures = { ...state.iamGrantFailures, [role]: left - 1 };
+    save();
+    if (left > 0) {
+      // Real gcloud prints a hint about conditions first, then the cause on its "(gcloud.<command>)" line.
+      process.stderr.write('ERROR: Policy modification failed. For a binding with condition, run "gcloud alpha iam policies lint-condition" to identify issues in condition.\n');
+      err(`INVALID_ARGUMENT: Service account ${flag("member").replace(/^serviceAccount:/, "")} does not exist.`);
+    }
+    return;
+  }
+  // Anything else: succeed quietly.
 }
 
 function firebase() {
@@ -124,6 +139,8 @@ function firebase() {
   }
   if (has("apps:sdkconfig")) return fbOk({ sdkConfig: { projectId: state.project, apiKey: state.webApiKey, authDomain: `${state.project}.firebaseapp.com` } });
   if (has("apphosting:backends:list")) {
+    // As when the Firebase CLI's own sign-in has lapsed while gcloud's still works.
+    if (state.backendListError) fbErr(state.backendListError);
     return fbOk(
       (state.backends ?? []).map((b) => ({
         name: `projects/${state.project}/locations/${b.region}/backends/${b.id}`,

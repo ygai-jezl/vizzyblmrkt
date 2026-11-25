@@ -12,7 +12,19 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { billingState, describeProject, enabledApis, gcloudAccount, hasGcloud, identityToolkitBase, listBackends, rest, secretNames } from "./selfhost/cloud.mjs";
+import {
+  FIREBASE_REAUTH,
+  billingState,
+  describeProject,
+  enabledApis,
+  gcloudAccount,
+  hasGcloud,
+  identityToolkitBase,
+  isFirebaseSignInFailure,
+  listBackends,
+  rest,
+  secretNames,
+} from "./selfhost/cloud.mjs";
 import { entryMap } from "./selfhost/envfile.mjs";
 import {
   BACKEND_ID_RE,
@@ -22,7 +34,9 @@ import {
   PASSWORD_MIN_LENGTH,
   PROJECT_ID_RE,
   REQUIRED_APIS,
+  NEEDS_UPGRADE_NOTE,
   WEB_API_KEY_SECRET,
+  isPlainFirebaseAuth,
   passwordConfigDiff,
 } from "./selfhost/spec.mjs";
 import {
@@ -200,8 +214,11 @@ const CLOUD_CHECKS = [
 
     const b = listBackends(cloudProject);
     let backendUri = "";
-    if (!b.ok) out.push(problem("backend", "warn", `Can't list App Hosting backends: ${b.why}`, "firebase login"));
-    else {
+    if (!b.ok) {
+      // Signing the Firebase CLI in again only helps when its sign-in is the reason.
+      const fix = isFirebaseSignInFailure(b.why) ? FIREBASE_REAUTH : `fix what it says, then: npm run doctor -- --cloud --project ${cloudProject}`;
+      out.push(problem("backend", "warn", `Can't list App Hosting backends: ${b.why}`, fix));
+    } else {
       const found = b.backends.find((x) => x.id === cloudBackend);
       backendUri = found?.uri ?? "";
       if (!found) out.push(problem("backend", "fail", `No App Hosting backend "${cloudBackend}".`, selfhost("backend")));
@@ -252,6 +269,10 @@ async function passwordSigninChecks(envText, backendUri) {
       : pass("password-config", `Identity Platform is set for password sign-in (${PASSWORD_MIN_LENGTH} characters or more, one account per address)`),
   );
   for (const d of diff.filter((x) => x.level !== "fail")) out.push(problem(`password-${d.id}`, d.level, `Password sign-in: ${d.what}.`, selfhost("addon:password")));
+  // Plain Firebase Authentication can't log requests (passwordConfigDiff leaves it out): a note, not a warning.
+  if (isPlainFirebaseAuth(cfg.data)) {
+    out.push(problem("password-upgrade", "info", `Password sign-in: ${NEEDS_UPGRADE_NOTE}, which is optional.`, `optional, can't be undone, only when you want it: ${selfhost("addon:password")} --upgrade-identity-platform`));
+  }
   return out;
 }
 async function runChecks() {

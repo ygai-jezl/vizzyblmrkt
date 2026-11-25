@@ -1345,7 +1345,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "onboarding_conversation",
     name: "Conversation with Vizzy",
     description:
-      "A team member's conversation with Vizzy about the business, on the welcome page, kept as words only (no audio), with what Vizzy learned from it until an admin confirms it. Read by the brand's admins in Settings, About your business, and by Vizzy.",
+      "A team member's conversation with Vizzy about the business, kept as words only (no audio): a call on the welcome page, with what Vizzy learned from it until an admin confirms it, or the three lines of a later chat whose fact an admin kept. Read by the brand's admins in Settings, About your business, and by Vizzy.",
     place: "partner_agent",
     status: "built",
     home: "brand",
@@ -1368,13 +1368,16 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "business_fact",
     name: "Business fact",
     description:
-      "Something Vizzy heard about the business and an admin kept: a timeline, channel, starting point, constraint or goal, each with the member's own words. With the four answers on the brand record, it is the brand's profile, which Vizzy reads in every chat.",
+      "Something Vizzy heard about the business and an admin kept: a timeline, channel, starting point, constraint or goal, each with the member's own words. It comes from a call on the welcome, or from a later chat, where it waits as an agent action until an admin keeps it. With the four answers on the brand record, it is the brand's profile, which Vizzy reads in every chat.",
     place: "company",
     status: "built",
     home: "brand",
     personal: "team",
     stores: [regional("business_facts", "one record per fact, at most 40 per brand; the quote is the member's own words")],
-    links: [{ to: "onboarding_conversation", via: "conversationId", many: false }],
+    links: [
+      { to: "onboarding_conversation", via: "conversationId", many: false },
+      { to: "agent_action", via: "the chat suggestion it was kept from (its result names the fact)", many: false },
+    ],
     events: [],
     erase: {
       paths: [brandPath("removeBusinessFact", ONBOARDING, "an admin removes it on Here's what I learned or in Settings")],
@@ -2297,7 +2300,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "agent_action",
     name: "Agent action",
     description:
-      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B). Other drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.",
+      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business. Other drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.",
     place: "partner_agent",
     status: "built",
     home: "brand",
@@ -2311,6 +2314,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { to: "idea", via: "the target, when it is an idea", many: false },
       { to: "data_signal", via: "the target, when it is a suggestion from collected numbers", many: false },
       { to: "brand_question", via: "the target, when it is a question proposed from Search Console", many: false },
+      { to: "brand", via: "the target, when it is something Vizzy heard about the business in a chat", many: false },
       { to: "ontology_event", via: "agentActionId, its agent kinds of event", many: true },
     ],
     events: ["agent.proposed", "agent.approved", "agent.acted", "agent.undone", "agent.declined"],

@@ -2,17 +2,19 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { requireAdminContext, getTenantById, listBusinessFacts, listConversations, isLiveConfigured } = vi.hoisted(() => ({
+const { requireAdminContext, getTenantById, listBusinessFacts, listConversations, openFactSuggestions, isLiveConfigured } = vi.hoisted(() => ({
   requireAdminContext: vi.fn(),
   getTenantById: vi.fn(),
   listBusinessFacts: vi.fn(),
   listConversations: vi.fn(),
+  openFactSuggestions: vi.fn(),
   isLiveConfigured: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/session", () => ({ requireAdminContext }));
 vi.mock("@/lib/tenant", () => ({ getTenantById }));
 vi.mock("@/lib/onboarding/store", () => ({ listBusinessFacts, listConversations }));
+vi.mock("@/lib/onboarding/factSuggestions", () => ({ openFactSuggestions }));
 vi.mock("@/lib/agents/gemini", () => ({ isLiveConfigured }));
 
 const { default: AccountSettingsPage } = await import("./page");
@@ -130,6 +132,7 @@ describe("Settings › General, About your business", () => {
     getTenantById.mockResolvedValue(brand({ businessProfile: PROFILE }));
     listBusinessFacts.mockResolvedValue([FACT]);
     listConversations.mockResolvedValue([CALL]);
+    openFactSuggestions.mockResolvedValue([]);
     isLiveConfigured.mockReturnValue(true);
   });
   afterEach(() => {
@@ -233,6 +236,25 @@ describe("Settings › General, About your business", () => {
     expect(await renderPage()).not.toContain('href="/admin/welcome"');
     getTenantById.mockResolvedValue(brand({ businessProfile: PROFILE, grantedFeatures: ["onboarding_voice"] }));
     expect(await renderPage()).toContain('href="/admin/welcome"');
+  });
+
+  it("lists what Vizzy heard in a later chat, waiting for Keep, only while the switch is on", async () => {
+    const WAITING = { id: `aa_${"c".repeat(40)}`, rev: 1, kind: "goal", text: "A hundred sign-ups by spring", quote: "We'd love a hundred sign-ups by the spring.", asked: "What would make this year a good one?", at: `${thisYear}-11-26T09:00:00.000Z` };
+    openFactSuggestions.mockResolvedValue([WAITING]);
+    process.env.ONBOARDING_ENABLED = "true";
+    phase3On();
+    const html = await renderPage();
+    expect(html).toContain("From a chat, 26 Nov. Waiting for you");
+    expect(html).toContain('aria-label="Keep A hundred sign-ups by spring"');
+    // Vizzy's question is never sent to the browser.
+    expect(html).not.toContain("What would make this year a good one?");
+
+    delete process.env.ONBOARDING_ENABLED;
+    openFactSuggestions.mockClear();
+    const off = await renderPage();
+    expect(off).toContain("About your business");
+    expect(off).not.toContain("Waiting for you");
+    expect(openFactSuggestions).not.toHaveBeenCalled();
   });
 
   it("says a list didn't load rather than showing it empty", async () => {

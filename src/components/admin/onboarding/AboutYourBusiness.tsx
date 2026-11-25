@@ -2,7 +2,19 @@
 
 import { useEffect, useRef, useState } from "react";
 import { MessageCircle, Mic } from "lucide-react";
-import { conversationRow, factSource, isGone, talkLabel, undoPick, type AboutConversation, type AboutFact } from "@/lib/onboarding/aboutYourBusiness";
+import {
+  conversationRow,
+  decisionProblem,
+  factSource,
+  isGone,
+  talkLabel,
+  undoPick,
+  waitingSource,
+  withConversation,
+  type AboutConversation,
+  type AboutFact,
+  type AboutWaiting,
+} from "@/lib/onboarding/aboutYourBusiness";
 import { ABOUT_WORDS, DELETE_CONVERSATION_WORDS } from "@/lib/onboarding/words";
 import type { ProfileAnswers, ProfileKey } from "@/lib/types/businessProfile";
 import { BUTTON, BUTTON_DANGER, BasicsGrid, DeleteConversationDialog, FactList, TranscriptDialog } from "./parts";
@@ -12,6 +24,11 @@ export interface AboutYourBusinessProps {
   /** Null when the list didn't load. */
   facts: AboutFact[] | null;
   conversations: AboutConversation[] | null;
+  /**
+   * What Vizzy heard in later chats, waiting for an admin to keep (ONBOARDING_ENABLED). Empty with
+   * the switch off; null when the list didn't load.
+   */
+  waiting?: AboutWaiting[] | null;
   /** Talk with Vizzy is on for this brand (the welcome's voice rule, with nav v2 phase 2). */
   voice: boolean;
   /** The chips save (ONBOARDING_ENABLED). Off, they show what was picked, and kept words can still be read and deleted. */
@@ -32,9 +49,17 @@ type Dialog = { kind: "transcript" | "delete"; id: string } | null;
  * Talk with Vizzy (again) when voice is on. The page reads the brand's answers and both lists on
  * the server; every change here goes to its own route.
  */
-export function AboutYourBusiness({ answers: initialAnswers, facts: initialFacts, conversations: initialConversations, voice, editable }: AboutYourBusinessProps) {
+export function AboutYourBusiness({
+  answers: initialAnswers,
+  facts: initialFacts,
+  conversations: initialConversations,
+  waiting: initialWaiting = [],
+  voice,
+  editable,
+}: AboutYourBusinessProps) {
   const [answers, setAnswers] = useState<ProfileAnswers>(initialAnswers);
   const [facts, setFacts] = useState<AboutFact[] | null>(initialFacts);
+  const [waiting, setWaiting] = useState<AboutWaiting[]>(initialWaiting ?? []);
   const [conversations, setConversations] = useState<AboutConversation[] | null>(initialConversations);
   const [error, setError] = useState<{ where: "basics" | "facts"; text: string } | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
@@ -67,7 +92,32 @@ export function AboutYourBusiness({ answers: initialAnswers, facts: initialFacts
     setError({ where: "basics", text: ABOUT_WORDS.notSaved });
   };
 
+  /** Keep or remove something Vizzy heard in a chat: it leaves the waiting rows either way it is decided. */
+  const decide = async (id: string, decision: "keep" | "remove") => {
+    if (removing) return;
+    setRemoving(id);
+    setError(null);
+    const res = await fetch(`/api/admin/onboarding/suggestions/${encodeURIComponent(id)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ decision }),
+    }).catch(() => null);
+    const body = res ? ((await res.json().catch(() => ({}))) as { error?: string; fact?: AboutFact; conversation?: AboutConversation }) : null;
+    setRemoving(null);
+    const problem = decisionProblem(res ? { ok: res.ok, status: res.status, error: body?.error } : null, decision);
+    if (!problem || problem.drop) setWaiting((list) => list.filter((w) => w.id !== id));
+    if (!problem && decision === "keep" && body?.fact) {
+      const fact = body.fact;
+      setFacts((list) => (list ? [...list.filter((f) => f.id !== fact.id), fact] : list));
+      const kept = body.conversation;
+      if (kept) setConversations((list) => (list ? withConversation(list, kept) : list));
+    }
+    if (problem) setError({ where: "facts", text: problem.text });
+    factsHeading.current?.focus();
+  };
+
   const remove = async (id: string) => {
+    if (waiting.some((w) => w.id === id)) return decide(id, "remove");
     if (removing) return;
     setRemoving(id);
     setError(null);
@@ -102,10 +152,13 @@ export function AboutYourBusiness({ answers: initialAnswers, facts: initialFacts
     setDeleted((n) => n + 1);
   };
 
-  const shownFacts = facts?.map((f) => ({ ...f, src: factSource(f) })) ?? null;
+  const shownFacts = facts
+    ? [...(editable ? waiting.map((w) => ({ ...w, src: waitingSource(w), waiting: true })) : []), ...facts.map((f) => ({ ...f, src: factSource(f) }))]
+    : null;
 
   return (
-    <section aria-labelledby="about-business" className="flex max-w-[760px] flex-col gap-5 text-shell-ink">
+    // `#about`: where Review and Vizzy's chat card link (src/lib/onboarding/factSuggestions.ts).
+    <section id="about" aria-labelledby="about-business" className="flex max-w-[760px] scroll-mt-6 flex-col gap-5 text-shell-ink">
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
         <div>
           <h2 id="about-business" className="text-base font-semibold">
@@ -151,7 +204,7 @@ export function AboutYourBusiness({ answers: initialAnswers, facts: initialFacts
         {shownFacts === null ? (
           <p className={EMPTY}>{ABOUT_WORDS.notLoaded}</p>
         ) : shownFacts.length ? (
-          <FactList facts={shownFacts} compact busyId={removing} onRemove={(id) => void remove(id)} />
+          <FactList facts={shownFacts} compact busyId={removing} onRemove={(id) => void remove(id)} onKeep={(id) => void decide(id, "keep")} />
         ) : (
           <p className={EMPTY}>{ABOUT_WORDS.noFacts}</p>
         )}

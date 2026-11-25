@@ -71,6 +71,22 @@ describe("About your business", () => {
     expect(html).not.toContain('aria-haspopup="menu"');
   });
 
+  it("lists what Vizzy heard in a later chat first, waiting, with Keep beside Remove, while it can be saved", () => {
+    const waiting = [{ id: `aa_${"c".repeat(40)}`, kind: "timeline" as const, text: "Gift boxes before the winter fair", quote: "We want gift boxes ready before the winter fair.", at: `${year}-11-26T09:00:00.000Z` }];
+    const html = render({ waiting });
+    expect(html).toMatch(/What Vizzy learned <span[^>]*>3<\/span>/);
+    expect(html).toContain("From a chat, 26 Nov. Waiting for you");
+    expect(html.indexOf("Gift boxes before the winter fair")).toBeLessThan(html.indexOf("Sells at three farmers' markets"));
+    expect(html).toContain('aria-label="Keep Gift boxes before the winter fair"');
+    expect(html.split(">Keep<").length - 1).toBe(1);
+    expect(html.split(">Remove<").length - 1).toBe(3);
+    expect(html).toContain('id="about"');
+    // With the switch off nothing waiting is shown, and there is no Keep.
+    const off = render({ waiting, editable: false });
+    expect(off).not.toContain("Gift boxes before the winter fair");
+    expect(off).not.toContain(">Keep<");
+  });
+
   it("shows no banner until a conversation is deleted", () => {
     expect(render()).not.toContain("Conversation deleted.");
   });

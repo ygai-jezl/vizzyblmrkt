@@ -35,6 +35,8 @@ import { agentActionReviewItem, listOpenAgentActions } from "@/lib/ontology/agen
 import { canAddPeople, isVizzyAddPersonEnabled, isVizzyFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { PERSON_FIELDS_ACTION } from "@/lib/audience/fieldSuggestions";
 import { NEW_PERSON_ACTION } from "@/lib/audience/personDrafts";
+import { isOnboardingEnabled } from "@/lib/onboarding/flags";
+import { BUSINESS_FACT_ACTION, businessFactReviewItem } from "@/lib/onboarding/factSuggestions";
 import { readFieldList } from "@/lib/audience/fieldList";
 import { isConnectorsCollectEnabled, isConnectorSignalsEnabled } from "@/lib/connectors/flags";
 import { signalReviewItems } from "@/lib/connectors/signals/review";
@@ -68,7 +70,8 @@ export type ReviewKind =
   | "next_article"
   | "data_signal"
   | "content_refresh"
-  | "person_suggestion";
+  | "person_suggestion"
+  | "business_fact";
 
 export interface ReviewItem {
   id: string;
@@ -139,10 +142,14 @@ export const REVIEW_SECTIONS: Record<ReviewKind, { title: string; description: s
     title: "Suggestions about people",
     description: "Changes to people's fields, and people to add, that Vizzy suggested. Nothing changes until someone on your team confirms.",
   },
+  business_fact: {
+    title: "About your business",
+    description: "Things Vizzy heard about your business in a chat. Vizzy uses one only once an admin keeps it in Settings, About your business.",
+  },
 };
 
 /** Order of sections on the page (AI lines are time-bound, so they come first). */
-export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "data_source", "next_article", "data_signal", "content_refresh", "agent_draft", "person_suggestion", "repo_results", "brand_map", "competitor_news", "content_hub"];
+export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "data_source", "next_article", "data_signal", "content_refresh", "agent_draft", "person_suggestion", "business_fact", "repo_results", "brand_map", "competitor_news", "content_hub"];
 
 // ---------------------------------------------------------------------------
 // Per-source rules (pure)
@@ -544,6 +551,18 @@ async function personSuggestionItems(ctx: TenantContext, opts: { fields: boolean
   return [...drafts, ...open].map((a) => personSuggestionItem(a, labels)).filter((i): i is ReviewItem => !!i);
 }
 
+/**
+ * What Vizzy heard about the business in a chat, waiting for an admin (ONBOARDING_ENABLED): one
+ * item each, opening About your business. Admins only: only they keep or remove one.
+ */
+async function businessFactItems(ctx: TenantContext, db?: FirestoreLike): Promise<ReviewItem[]> {
+  const open = await listOpenAgentActions(ctx, { action: BUSINESS_FACT_ACTION, limit: 50, db });
+  return open
+    .filter((a) => a.target.type === "brand" && a.target.id === ctx.tenantId)
+    .map(businessFactReviewItem)
+    .filter((i): i is ReviewItem => !!i);
+}
+
 // ---------------------------------------------------------------------------
 // Loading
 
@@ -753,6 +772,8 @@ export async function loadReview(
   // person's page tells a member that an admin confirms.
   const people = { fields: isVizzyFieldsEnabled(), drafts: isVizzyAddPersonEnabled() && canAddPeople(ctx.role) };
   const personSuggestions = people.fields || people.drafts ? await soft("person suggestions", personSuggestionItems(ctx, people, db), [] as ReviewItem[]) : [];
+  // What Vizzy heard about the business in a chat: admins only, while getting to know you is on.
+  const businessFacts = isOnboardingEnabled() && ctx.role === "admin" ? await soft("business facts", businessFactItems(ctx, db), [] as ReviewItem[]) : [];
   // Data sources that need someone: admins only, while collected numbers are on.
   const dataSources = isConnectorsCollectEnabled() && ctx.role === "admin" ? await soft("data sources", dataSourceItems(ctx, { db }), [] as ReviewItem[]) : [];
   // What collected numbers suggest: admins only, while signals are on, from planning connections.
@@ -775,6 +796,7 @@ export async function loadReview(
     ...launchJourneys.map((j) => agentLaunchJourneyItem(j, launchNames.get(j.campaignId))),
     ...agentWaves.map((w) => agentInviteWaveItem(w, launchNames.get(w.campaignId))),
     ...personSuggestions,
+    ...businessFacts,
     ...liveConnections.map((c, i) => repoResultsItem(c, latestRuns[i]?.[0])),
     brandMapItem(brandMap, brandMapProposals),
     ...competitorItems(competitors, competitorNews),

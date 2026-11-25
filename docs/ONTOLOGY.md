@@ -1274,14 +1274,14 @@ A rail beside the spine: the company itself, on the organisation.
 
 ### Business fact (`business_fact`)
 
-Something Vizzy heard about the business and an admin kept: a timeline, channel, starting point, constraint or goal, each with the member's own words. With the four answers on the brand record, it is the brand's profile, which Vizzy reads in every chat.
+Something Vizzy heard about the business and an admin kept: a timeline, channel, starting point, constraint or goal, each with the member's own words. It comes from a call on the welcome, or from a later chat, where it waits as an agent action until an admin keeps it. With the four answers on the brand record, it is the brand's profile, which Vizzy reads in every chat.
 
 - Status: built
 - Home: the brand's region
 - Personal: the brand's own team
 - Stores:
   - `business_facts`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per fact, at most 40 per brand; the quote is the member's own words.
-- Links: `onboarding_conversation` through conversationId
+- Links: `onboarding_conversation` through conversationId; `agent_action` through the chat suggestion it was kept from (its result names the fact)
 - Erase:
   - `removeBusinessFact` in `src/lib/onboarding/store.ts`, on removing the record (an admin removes it on Here's what I learned or in Settings)
   - Gap: no path deletes a whole brand and everything it holds
@@ -1382,7 +1382,7 @@ A team member's chats with Vizzy, kept by Agent Engine as sessions.
 
 ### Conversation with Vizzy (`onboarding_conversation`)
 
-A team member's conversation with Vizzy about the business, on the welcome page, kept as words only (no audio), with what Vizzy learned from it until an admin confirms it. Read by the brand's admins in Settings, About your business, and by Vizzy.
+A team member's conversation with Vizzy about the business, kept as words only (no audio): a call on the welcome page, with what Vizzy learned from it until an admin confirms it, or the three lines of a later chat whose fact an admin kept. Read by the brand's admins in Settings, About your business, and by Vizzy.
 
 - Status: built
 - Home: the brand's region
@@ -1455,14 +1455,14 @@ What the brand asked a partner to set up, which fields were sent (names only, va
 
 ### Agent action (`agent_action`)
 
-One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B). Other drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.
+One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business. Other drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.
 
 - Status: built
 - Home: the brand's region
 - Personal: yes, the brand's people
 - Stores:
   - `agent_actions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per suggestion, written only through `src/lib/tenant/agentActions.ts`; its proposal, basis, result and undo may hold personal values.
-- Links: `person` through personId, and the target when it is a person; `company` through the target, when it is a company; `idea` through the target, when it is an idea; `data_signal` through the target, when it is a suggestion from collected numbers; `brand_question` through the target, when it is a question proposed from Search Console; `ontology_event` through agentActionId, its agent kinds of event (many)
+- Links: `person` through personId, and the target when it is a person; `company` through the target, when it is a company; `idea` through the target, when it is an idea; `data_signal` through the target, when it is a suggestion from collected numbers; `brand_question` through the target, when it is a question proposed from Search Console; `brand` through the target, when it is something Vizzy heard about the business in a chat; `ontology_event` through agentActionId, its agent kinds of event (many)
 - Events: `agent.proposed`, `agent.approved`, `agent.acted`, `agent.undone`, `agent.declined`
 - States: `proposed`, `approved`, `acted`, `undone`, `declined`
 - Person fields: `personId` (written with the row)

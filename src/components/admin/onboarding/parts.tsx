@@ -10,6 +10,7 @@ import {
   BASICS_WORDS,
   DELETE_CONVERSATION_WORDS,
   FACT_WORDS,
+  SUGGESTION_WORDS,
   TRANSCRIPT_WORDS,
   longLength,
   messageCount,
@@ -163,13 +164,28 @@ export interface FactRow {
   quote: string;
   /** Where it came from ("From our call, 25 Nov"), in Settings. */
   src?: string;
+  /** Heard in a later chat and waiting for an admin: Keep shows beside Remove. */
+  waiting?: boolean;
 }
 
 /**
  * The facts, each with its kind, the member's own words and Remove. `compact` is Settings' look:
- * the words and where they came from on one line.
+ * the words and where they came from on one line. A waiting row (heard in a later chat) also has
+ * Keep, when `onKeep` is given.
  */
-export function FactList({ facts, onRemove, compact = false, busyId = null }: { facts: readonly FactRow[]; onRemove: (id: string) => void; compact?: boolean; busyId?: string | null }) {
+export function FactList({
+  facts,
+  onRemove,
+  onKeep,
+  compact = false,
+  busyId = null,
+}: {
+  facts: readonly FactRow[];
+  onRemove: (id: string) => void;
+  onKeep?: (id: string) => void;
+  compact?: boolean;
+  busyId?: string | null;
+}) {
   return (
     <ul className={`${compact ? "" : "mt-2.5 "}overflow-hidden rounded-xl border border-shell-line bg-shell-card`}>
       {facts.map((f) => {
@@ -204,6 +220,19 @@ export function FactList({ facts, onRemove, compact = false, busyId = null }: { 
                 </>
               )}
             </div>
+            {f.waiting && onKeep ? (
+              <button
+                type="button"
+                aria-label={SUGGESTION_WORDS.keepAria(f.text)}
+                onClick={() => onKeep(f.id)}
+                disabled={busyId === f.id}
+                aria-busy={busyId === f.id || undefined}
+                className="inline-flex shrink-0 items-center gap-1 rounded-md border border-shell-line bg-shell-card px-2 py-1 text-xs font-medium text-shell-ink hover:bg-shell-hover disabled:opacity-60"
+              >
+                <Check size={14} aria-hidden />
+                {SUGGESTION_WORDS.keep}
+              </button>
+            ) : null}
             <button
               type="button"
               aria-label={FACT_WORDS.removeAria(f.text)}

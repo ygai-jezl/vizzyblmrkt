@@ -1,7 +1,8 @@
 import type { FactKind } from "./choices";
-import { ABOUT_WORDS, FACT_WORDS, TRANSCRIPT_WORDS, longLength, messageCount, shortDate } from "./words";
+import type { WaitingFact } from "./factSuggestions";
+import { ABOUT_WORDS, FACT_WORDS, SUGGESTION_WORDS, TRANSCRIPT_WORDS, longLength, messageCount, shortDate } from "./words";
 import type { ProfileAnswers, ProfileKey } from "@/lib/types/businessProfile";
-import type { BusinessFact, ConversationSource, ConversationSummary } from "@/lib/types/onboarding";
+import type { BusinessFact, ConversationSource, ConversationSummary, OnboardingConversation } from "@/lib/types/onboarding";
 
 /**
  * Settings, About your business, as plain data: what the page sends the browser (no ids of
@@ -28,12 +29,50 @@ export interface AboutConversation {
   turnCount: number;
 }
 
+/** Something Vizzy heard in a later chat, waiting for an admin to keep or remove it. */
+export interface AboutWaiting {
+  /** The suggestion's id (an agent action's). */
+  id: string;
+  kind: FactKind;
+  text: string;
+  quote: string;
+  /** When Vizzy heard it. */
+  at: string;
+}
+
+export function aboutWaiting(list: readonly WaitingFact[]): AboutWaiting[] {
+  return list.map((w) => ({ id: w.id, kind: w.kind, text: w.text, quote: w.quote, at: w.at }));
+}
+
+/** "From a chat, 25 Nov. Waiting for you". */
+export function waitingSource(w: Pick<AboutWaiting, "at">, now?: number): string {
+  return SUGGESTION_WORDS.waiting(shortDate(w.at, now));
+}
+
+/** What Keep or Remove on a waiting row answered, as the section says it. Null: it worked. */
+export function decisionProblem(res: { ok: boolean; status: number; error?: string } | null, decision: "keep" | "remove"): { text: string; drop: boolean } | null {
+  if (res?.ok) return null;
+  if (res && (res.status === 404 || res.error === "already_decided")) return { text: SUGGESTION_WORDS.decided, drop: true };
+  if (res?.error === "too_many_facts") return { text: SUGGESTION_WORDS.full, drop: false };
+  return { text: decision === "keep" ? SUGGESTION_WORDS.notKept : ABOUT_WORDS.notRemoved, drop: false };
+}
+
+/** A conversation just kept goes in its place in the table: newest first. */
+export function withConversation(list: readonly AboutConversation[], c: AboutConversation): AboutConversation[] {
+  return [...list.filter((x) => x.id !== c.id), c].sort((a, b) => b.startedAt.localeCompare(a.startedAt) || a.id.localeCompare(b.id));
+}
+
 export function aboutFacts(facts: readonly BusinessFact[]): AboutFact[] {
   return facts.map((f) => ({ id: f.id, kind: f.kind, text: f.text, quote: f.quote, source: f.source, heardAt: f.heardAt }));
 }
 
 export function aboutConversations(list: readonly ConversationSummary[]): AboutConversation[] {
   return list.map((c) => ({ id: c.id, source: c.source, startedAt: c.startedAt, lengthSec: c.lengthSec, turnCount: c.turnCount }));
+}
+
+/** One conversation just kept (a chat's lines, when an admin keeps what Vizzy heard), as the table lists it. */
+export function aboutConversation(c: Pick<OnboardingConversation, "id" | "source" | "startedAt" | "lengthSec" | "turns">): AboutConversation {
+  return { id: c.id, source: c.source, startedAt: c.startedAt, lengthSec: c.lengthSec, turnCount: c.turns.length };
 }
 
 /** "From our call, 25 Nov" or "From a chat, 25 Nov". */

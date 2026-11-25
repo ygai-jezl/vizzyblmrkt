@@ -168,6 +168,25 @@ export const ABOUT_WORDS = {
   notLoaded: "This list didn't load. Try again in a moment.",
 } as const;
 
+/**
+ * Something Vizzy heard about the business in a later chat, waiting for an admin to keep it: in
+ * About your business, in Review and on the chat's card. Not drawn in the mockups, except the
+ * chat's last line ("Noted. ..."), which is About.js's kept chat.
+ */
+export const SUGGESTION_WORDS = {
+  waiting: (date: string) => `From a chat, ${date}. Waiting for you`,
+  keep: "Keep",
+  keepAria: (fact: string) => `Keep ${fact}`,
+  notKept: "It wasn't kept. Try again.",
+  decided: "Someone already kept or removed that one. Refresh the page to see it.",
+  full: "About your business holds 40 facts. Remove one to keep this.",
+  reviewTitle: "Vizzy heard something new about your business",
+  reviewAction: "Check",
+  cardNote: "Waiting for you in About your business. Vizzy uses it once you keep it.",
+  cardCta: "Check it",
+  keptLine: "Noted. It's in About your business for you to check.",
+} as const;
+
 /** Home's card of steps, with getting to know you on (Home.html). */
 export const HOME_WORDS = {
   nextAction: "Your next action",

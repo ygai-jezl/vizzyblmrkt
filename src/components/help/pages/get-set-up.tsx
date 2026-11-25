@@ -2,7 +2,7 @@ import { H1, H2, H3, Lead, P, UL } from "@/components/developers/Doc";
 import { Messages, NextPage, Open, Warning } from "@/components/help/blocks";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { isOnboardingEnabled, isOnboardingVoiceEnabled } from "@/lib/onboarding/flags";
-import { ABOUT_WORDS, BASICS_WORDS, COMING_UP_WORDS, FACT_WORDS, HOME_WORDS, VOICE_WORDS, WELCOME_WORDS } from "@/lib/onboarding/words";
+import { ABOUT_WORDS, BASICS_WORDS, COMING_UP_WORDS, FACT_WORDS, HOME_WORDS, SUGGESTION_WORDS, VOICE_WORDS, WELCOME_WORDS } from "@/lib/onboarding/words";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
 /**
@@ -12,8 +12,9 @@ import type { HelpBodyProps } from "@/lib/help/pages";
  * welcome asks, and Home starts where the brand is rather than at stage 1. With voice too
  * (`onboardingVoice`), it says how Talk with Vizzy works, what is kept and what isn't, and how
  * Here's what I learned works after a call. It also says where to change the answers later (Settings,
- * About your business) and how they order Home's Your next action. #sidebar says how the sidebar's
- * Coming up works for a brand that answered on the welcome.
+ * About your business) and how they order Home's Your next action, what Vizzy reads in every chat,
+ * and how something new Vizzy hears in a later chat waits for an admin's Keep. #sidebar says how the
+ * sidebar's Coming up works for a brand that answered on the welcome.
  */
 export default function GetSetUpHelp({
   ideaWords = isIdeaWordsEnabled(),
@@ -108,6 +109,23 @@ export default function GetSetUpHelp({
               remove it. <strong>{ABOUT_WORDS.talkAgain}</strong> opens the welcome for another call.
             </P>
           ) : null}
+          <P>
+            Vizzy reads your answers and the facts you kept in every chat, so its answers fit your business. When a member
+            chats with Vizzy, it reads the four answers only.
+          </P>
+          <P>
+            When you tell Vizzy something new about the business in a later chat, such as a deadline, a channel or a goal, it
+            reads it back and asks before it adds it. It then waits at the top of <strong>{ABOUT_WORDS.learned}</strong>,
+            marked &quot;{SUGGESTION_WORDS.waiting("25 Nov")}&quot;, and in Review. <strong>{SUGGESTION_WORDS.keep}</strong>{" "}
+            adds it, with the chat under Conversations, and <strong>{FACT_WORDS.remove}</strong> drops it. Vizzy uses it only
+            once an admin keeps it, and one nobody decides goes after 30 days.
+          </P>
+          <Messages
+            rows={[
+              [SUGGESTION_WORDS.full, `Remove a fact you no longer need under ${ABOUT_WORDS.learned}, then press Keep again.`],
+              [SUGGESTION_WORDS.decided, "Another admin decided it a moment ago. Refresh Settings to see where it went."],
+            ]}
+          />
           <P>
             Home&apos;s <strong>{HOME_WORDS.nextAction}</strong> starts with the stage that fits your answers: the waitlist
             first for an idea, content first when you want an audience, and your product first for an app that wants

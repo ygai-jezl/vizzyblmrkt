@@ -5,7 +5,8 @@ import type { TenantContext } from "@/lib/tenant/types";
 import type { Tenant } from "@/lib/types/tenant";
 import { isNavV2Enabled, isNavV2Phase2Enabled, isNavV2Phase3Enabled } from "@/lib/nav/flags";
 import { isOnboardingEnabled } from "@/lib/onboarding/flags";
-import { aboutConversations, aboutFacts } from "@/lib/onboarding/aboutYourBusiness";
+import { aboutConversations, aboutFacts, aboutWaiting } from "@/lib/onboarding/aboutYourBusiness";
+import { openFactSuggestions } from "@/lib/onboarding/factSuggestions";
 import { listBusinessFacts, listConversations } from "@/lib/onboarding/store";
 import { mayTalkWithVizzy } from "@/lib/onboarding/voiceAccess";
 import { AboutYourBusiness } from "@/components/admin/onboarding/AboutYourBusiness";
@@ -33,14 +34,15 @@ function mayShowAbout(ctx: Pick<TenantContext, "role">): boolean {
 
 /**
  * Settings › General › About your business (ONBOARDING_ENABLED): the brand's four answers, what
- * Vizzy learned and the kept conversations. Two regional reads, for admins only; a list that
- * fails shows as not loaded, never as empty.
+ * Vizzy learned (and, with the switch on, what it heard in later chats, waiting to be kept) and
+ * the kept conversations. Two or three regional reads, for admins only; a list that fails shows
+ * as not loaded, never as empty.
  */
 async function aboutYourBusiness(ctx: TenantContext, tenant: Tenant | null): Promise<ReactElement | null> {
   const onboarding = isOnboardingEnabled();
   const profile = tenant?.businessProfile;
   if (!mayShowAbout(ctx) || (!onboarding && !profile)) return null;
-  const [facts, conversations] = await Promise.all([
+  const [facts, conversations, waiting] = await Promise.all([
     listBusinessFacts(ctx).then(aboutFacts, () => {
       console.warn("[settings] about your business: the facts didn't load");
       return null;
@@ -49,12 +51,19 @@ async function aboutYourBusiness(ctx: TenantContext, tenant: Tenant | null): Pro
       console.warn("[settings] about your business: the conversations didn't load");
       return null;
     }),
+    onboarding
+      ? openFactSuggestions(ctx).then(aboutWaiting, () => {
+          console.warn("[settings] about your business: what Vizzy heard in chats didn't load");
+          return [];
+        })
+      : [],
   ]);
   return (
     <AboutYourBusiness
       answers={profile?.answers ?? {}}
       facts={facts}
       conversations={conversations}
+      waiting={waiting}
       // The welcome needs nav v2 phase 2, so the link does too.
       voice={isNavV2Phase2Enabled() && mayTalkWithVizzy(tenant)}
       editable={onboarding}

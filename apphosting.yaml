@@ -321,6 +321,12 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Ideas: a launch's hypothesis, status, outcome and hand-off, ideas side by side, and
+  # People's "in more than one launch" (needs the ontology_events indexes READY).
+  - variable: LAUNCH_IDEAS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Lifecycle journeys and connected products ==
   # Connected products and their journeys, and API v2 (/api/v2/users).

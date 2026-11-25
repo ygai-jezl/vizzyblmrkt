@@ -14,20 +14,21 @@ Spine step 1. A hypothesis, its site and its waitlist.
 
 ### Idea (`idea`)
 
-A business idea being tested: a hypothesis with its waitlist, its questions and its emails. Called a launch in the app today; piece D renames it, and the data stays in `campaigns`.
+A business idea being tested: a hypothesis with its waitlist, its questions and its emails. Called a launch in the app; the data stays in `campaigns`. With LAUNCH_IDEAS_ENABLED it carries `idea`: a hypothesis, a status with who set it and when, an outcome, the product it was handed off to, and Just a list for a newsletter or sign-up list that isn't an idea. The states are its status, set by an admin; closing the waitlist (`archivedAt`) is separate, and a parked or killed idea only offers it. Status and hand-off changes are record.field_changed events (`sys.idea.status`, `sys.idea.product`) on `idea:<campaignId>`.
 
 - Status: built
 - Home: the brand's region
 - Personal: no
 - Stores:
   - `campaigns`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
-- Links: `signup` through signups.campaignId (many); `site_key` through launch_site_keys, by launch id; `launch_journey` through journeys.campaignId; `broadcast` through broadcasts.campaignId (many); `invite` through invites.campaignId (many); `knowledge` through campaigns/{campaignId}/knowledge_bases (many)
-- States: `active`, `archived`
+- Links: `signup` through signups.campaignId (many); `site_key` through launch_site_keys, by launch id; `launch_journey` through journeys.campaignId; `broadcast` through broadcasts.campaignId (many); `invite` through invites.campaignId (many); `knowledge` through campaigns/{campaignId}/knowledge_bases (many); `product` through idea.productConnectionId, once handed off; `ontology_event` through subjectKey idea:<campaignId> (many)
+- Events: `record.field_changed`
+- States: `exploring`, `testing`, `validated`, `launched`, `parked`, `killed`
 - Erase:
   - `deleteLaunch` in `src/lib/tenant/launchDeletion.ts`, on deleting a launch
 - Export: none. The brand's own settings, with no one's personal data.
-- Search: none. Found by name on the Launches screen; what it sends is searched as broadcasts and journey emails.
-- Numbers: gap. People counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`).
+- Search: none. Found by name on the Launches screen; what it sends is searched as broadcasts and journey emails. Its hypothesis and outcome are not searched and have no agent path until piece C puts ideas on the brand index.
+- Numbers: gap. People counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`); the funnel the compare screen shows for each idea has no agent tool.
 
 ### Site key (`site_key`)
 
@@ -380,7 +381,7 @@ A product connected to the brand: its keys, endpoints, catalog and what has arri
   - `product_connections`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
   - `connection_keys`, control plane Firestore, in `src/lib/tenant/connectionKeys.ts`. The lookup from key id to brand, no secret.
   - `connection_diagnostics`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Event names, trait keys and recent rejections.
-- Links: `product_user` through connectionId (many); `catalog` through the connection's catalog; `repo_map` through connectionId (many)
+- Links: `product_user` through connectionId (many); `catalog` through the connection's catalog; `repo_map` through connectionId (many); `idea` through campaigns.idea.productConnectionId, the ideas handed off to it (many)
 - Erase:
   - `deleteConnectionKey` in `src/lib/tenant/connectionKeys.ts`, on removing the record (when the connection's key is replaced or removed)
 - Export: none. The brand's own settings.
@@ -1673,7 +1674,7 @@ A key for the records API or the MCP server, one per brand, read only unless a t
 What the registry records as missing, by type. Each is a known gap, not a promise.
 
 - Idea (`idea`):
-  - Numbers: people counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`)
+  - Numbers: people counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`); the funnel the compare screen shows for each idea has no agent tool
 - Sign-up (`signup`):
   - Erase: the BigQuery changelog mirror keeps a row's values after the row is erased in Firestore
   - Numbers: people counts per launch and product reach Vizzy through get_counts with no meanings (`src/lib/audience/agentCounts.ts`)

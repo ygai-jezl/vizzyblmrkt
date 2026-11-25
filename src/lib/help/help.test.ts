@@ -23,7 +23,7 @@ import { helpMetadata } from "./metadata";
 import { HELP_PLACES, helpFor, parseHelpPath } from "./places";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
 import { VIZZY_READS_HINT } from "@/components/admin/audience/fieldsApi";
-import { QUESTIONS_WORDS, WELCOME_WORDS } from "@/lib/onboarding/words";
+import { FACT_WORDS, LEARNED_WORDS, QUESTIONS_WORDS, WELCOME_WORDS } from "@/lib/onboarding/words";
 
 
 /**
@@ -1026,6 +1026,19 @@ describe("Tell Vizzy about your business (ONBOARDING_ENABLED)", () => {
     }
     expect(text).not.toContain("Talk with Vizzy");
     expect(text).not.toContain("audio");
+  });
+
+  it("says how Here's what I learned works only with voice, in the screen's own words", () => {
+    const words = [LEARNED_WORDS.title, FACT_WORDS.remove, LEARNED_WORDS.undo, LEARNED_WORDS.readTranscript, LEARNED_WORDS.looksRight];
+    const voice = md({ onboarding: true, onboardingVoice: true });
+    for (const w of words) expect(voice).toContain(`**${w}**`);
+    const section = voice.slice(voice.indexOf("## Tell Vizzy about your business"), voice.indexOf("## 1. Get ready"));
+    for (const line of section.split("\n")) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
+    const off = md({ onboarding: true, onboardingVoice: false });
+    for (const w of [LEARNED_WORDS.looksRight, LEARNED_WORDS.readTranscript]) expect(off).not.toContain(w);
   });
 
   it("uses no dashes as punctuation and none of the AI tells", () => {

@@ -38,3 +38,99 @@ export const QUESTIONS_WORDS = {
   notSaved: "Your answers didn't save.",
   retry: "Try again",
 } as const;
+
+/** Here's what I learned, after a call (Learned.html). */
+export const LEARNED_WORDS = {
+  fromCall: (length: string, date: string) => `From our call, ${length}, ${date}`,
+  fromChat: (messages: string, date: string) => `From our chat, ${messages}, ${date}`,
+  title: "Here's what I learned",
+  lead: "Change anything that's off. Vizzy reads this in every chat.",
+  basics: "The basics",
+  heard: "What else I heard",
+  nothing: "Nothing else for now.",
+  removed: (fact: string) => `Removed: ${fact}`,
+  undo: "Undo",
+  looksRight: "Looks right",
+  readTranscript: "Read the transcript",
+  readChat: "Read the chat",
+  /** When Looks right fails (not drawn in the mockups). */
+  notSaved: "That didn't save. Try again.",
+} as const;
+
+/** The four answers as chips, on Learned and in Settings, About your business. */
+export const BASICS_WORDS = {
+  change: (short: string, answer: string) => `${short}: ${answer}. Change`,
+  notSure: "Not sure yet",
+  whyUnsure: (words: string) => `I couldn't tell from “${words}” Which fits?`,
+  notPicked: "Not picked",
+  notPickedAria: (short: string) => `${short}: not picked. Change`,
+} as const;
+
+/** What Vizzy heard, each with the member's own words. */
+export const FACT_WORDS = {
+  remove: "Remove",
+  removeAria: (fact: string) => `Remove ${fact}`,
+  fromCall: (date: string) => `From our call, ${date}`,
+  fromChat: (date: string) => `From a chat, ${date}`,
+} as const;
+
+/** Read the conversation (About.overlay.html), on Learned and in Settings. */
+export const TRANSCRIPT_WORDS = {
+  title: "Read the conversation",
+  close: "Close",
+  call: "Call with Vizzy",
+  chat: "Chat with Vizzy",
+  callMeta: (date: string, length: string, turns: number) => `${date}, ${length}, ${turns} ${turns === 1 ? "turn" : "turns"}`,
+  chatMeta: (date: string, messages: string) => `${date}, ${messages}`,
+  vizzy: "Vizzy",
+  you: "You",
+  private: "Only your admins and Vizzy can read this. No audio is kept.",
+  delete: "Delete",
+  /** While the words load, and when they don't (not drawn in the mockups). */
+  loading: "Getting the words.",
+  failed: "The transcript didn't load.",
+  retry: "Try again",
+} as const;
+
+/** Delete this conversation? (About.overlay.html). */
+export const DELETE_CONVERSATION_WORDS = {
+  title: "Delete this conversation?",
+  text: (what: "call" | "chat", date: string) => `The transcript of your ${what} on ${date} goes for good.`,
+  keep: "What Vizzy learned from it stays until you remove it.",
+  cancel: "Cancel",
+  confirm: "Delete conversation",
+  close: "Close",
+  /** When the delete fails (not drawn in the mockups). */
+  failed: "It didn't delete. Try again.",
+} as const;
+
+const DAY_MONTH = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+const DAY_MONTH_YEAR = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+
+/** "25 Nov", with the year when it isn't this year's. "" for a date that can't be read. */
+export function shortDate(at: string, now: number = Date.now()): string {
+  const ms = Date.parse(at);
+  if (!Number.isFinite(ms)) return "";
+  const d = new Date(ms);
+  return (d.getUTCFullYear() === new Date(now).getUTCFullYear() ? DAY_MONTH : DAY_MONTH_YEAR).format(d);
+}
+
+/** A call's length in round minutes ("4 min"), or seconds under a minute ("45 s"). */
+export function shortLength(sec: number): string {
+  const s = Math.max(0, Math.round(sec));
+  return s < 60 ? `${s} s` : `${Math.round(s / 60)} min`;
+}
+
+/** A call's length to the second ("4 min 12 s", "4 min", "45 s"). */
+export function longLength(sec: number): string {
+  const s = Math.max(0, Math.round(sec));
+  const m = Math.floor(s / 60);
+  const rest = s % 60;
+  if (!m) return `${rest} s`;
+  return rest ? `${m} min ${rest} s` : `${m} min`;
+}
+
+/** "11 messages", "1 message". */
+export function messageCount(n: number): string {
+  return `${n} ${n === 1 ? "message" : "messages"}`;
+}

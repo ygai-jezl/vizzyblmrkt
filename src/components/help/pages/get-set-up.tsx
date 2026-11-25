@@ -1,16 +1,21 @@
 import { H1, H2, H3, Lead, P, UL } from "@/components/developers/Doc";
 import { NextPage, Open, Warning } from "@/components/help/blocks";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
-import { isOnboardingEnabled } from "@/lib/onboarding/flags";
+import { isOnboardingEnabled, isOnboardingVoiceEnabled } from "@/lib/onboarding/flags";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
 /**
  * The /help hub: the five setup stages in order, and where the order matters. With ideas in the
  * words (`ideaWords`) stage 2 is Idea, as Home calls it; its anchor stays #launch, and stage 4 stays
  * Launch product. With getting to know a new brand on (`onboarding`), #about-you says what the
- * welcome asks, and Home starts where the brand is rather than at stage 1.
+ * welcome asks, and Home starts where the brand is rather than at stage 1. With voice too
+ * (`onboardingVoice`), it says how Here's what I learned works after a call.
  */
-export default function GetSetUpHelp({ ideaWords = isIdeaWordsEnabled(), onboarding = isOnboardingEnabled() }: HelpBodyProps = {}) {
+export default function GetSetUpHelp({
+  ideaWords = isIdeaWordsEnabled(),
+  onboarding = isOnboardingEnabled(),
+  onboardingVoice = isOnboardingVoiceEnabled(),
+}: HelpBodyProps = {}) {
   return (
     <article>
       <H1>Get set up</H1>
@@ -45,6 +50,14 @@ export default function GetSetUpHelp({ ideaWords = isIdeaWordsEnabled(), onboard
             After the fourth, <strong>That&apos;s all four</strong> lists your answers. Choose{" "}
             <strong>See your next action</strong> to go to Home.
           </P>
+          {onboardingVoice ? (
+            <P>
+              After a call with Vizzy, <strong>Here&apos;s what I learned</strong> shows the four answers and what else Vizzy
+              heard, each with your own words. Change an answer, or <strong>Remove</strong> anything that&apos;s off (
+              <strong>Undo</strong> brings it back). <strong>Read the transcript</strong> shows the whole conversation. Nothing
+              is saved until you choose <strong>Looks right</strong>.
+            </P>
+          ) : null}
         </>
       ) : null}
 

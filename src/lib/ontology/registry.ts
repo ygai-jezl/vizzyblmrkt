@@ -1183,6 +1183,27 @@ export const ONTOLOGY: readonly OntologyType[] = [
     numbers: { none: NO_NUMBERS },
   },
   {
+    id: "brand_strategy",
+    name: "Brand strategy",
+    description:
+      "The brand's strategy, one record per brand, approved by a person: who it's for (audiences and 3 to 5 focus buying situations), who it competes with (in groups, found by the competitor finder or watched), where it wins and where they do (claims, each with its proof or shown as a gap), what it is not, and the quarter's goal. Keeps the draft a person edits, the approved one everything reads, the last 5 approved, and the stars, ticks and edits people made.",
+    place: "content",
+    status: "built",
+    madeBy: [],
+    home: "brand",
+    personal: "none",
+    stores: [regional("brand_strategy", "one document per brand; `by` and decisions hold the admin's email or user id")],
+    links: [
+      { to: "brand_map", via: "its audiences and identity, and the focus situations it stars on approval", many: false },
+      { to: "competitor", via: "the competitors a person ticked to monitor", many: true },
+    ],
+    events: [],
+    erase: { paths: [brandPath("deleteBrandStrategy", "src/lib/brandStrategy/store.ts", "an admin presses Start over on the Strategy tab")] },
+    export: { none: NOT_PERSONAL },
+    search: { none: "one short record per brand, read whole by the writer, research, Next up and Vizzy" },
+    numbers: { none: NO_NUMBERS },
+  },
+  {
     id: "brand_note",
     name: "What we've seen note",
     description: "A first hand note from the brand's team about what they have seen, or an open question asked of the team. A note may name a customer.",

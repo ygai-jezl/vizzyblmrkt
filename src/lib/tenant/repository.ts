@@ -48,6 +48,7 @@ import type { Invite, InviteWave } from "@/lib/types/invite";
 import type { PersonPlan } from "@/lib/types/personPlan";
 import type { PersonMove } from "@/lib/types/personMove";
 import type { BrandMapRecord } from "@/lib/types/brandMap";
+import type { BrandStrategyRecord } from "@/lib/types/brandStrategy";
 import type { BrandMapPage } from "@/lib/types/brandMapPage";
 import type { BrandMapStoredRecord } from "@/lib/types/brandMapRecords";
 import type { BrandAuthor } from "@/lib/types/brandAuthor";
@@ -566,6 +567,8 @@ export interface TenantRepositories {
   brandMapSituations: TenantCollection<BrandMapStoredRecord>;
   brandMapRuns: TenantCollection<BrandMapStoredRecord>;
   brandMapImports: TenantCollection<BrandMapStoredRecord>;
+  /** The brand strategy: one document per brand (`bst_<tenantId>`), parsed by src/lib/brandStrategy/store.ts. */
+  brandStrategy: TenantCollection<BrandStrategyRecord>;
   /** The authors a brand's articles are written under (role, bio, profile page), one per name. */
   brandAuthors: TenantCollection<BrandAuthor>;
   /** What we've seen: the brand's own first-hand notes (src/lib/brandNotes/store.ts). */
@@ -759,6 +762,8 @@ export function forTenant(
     brandMapSituations: new TenantCollection<BrandMapStoredRecord>(regionalDb, "brand_map_situations", t),
     brandMapRuns: new TenantCollection<BrandMapStoredRecord>(regionalDb, "brand_map_runs", t),
     brandMapImports: new TenantCollection<BrandMapStoredRecord>(regionalDb, "brand_map_imports", t),
+    // The brand strategy steers the same content as the brand map, and sits beside it → regional DB.
+    brandStrategy: new TenantCollection<BrandStrategyRecord>(regionalDb, "brand_strategy", t),
     // An article's author (a person's name, role and bio) sits with the articles → regional DB.
     brandAuthors: new TenantCollection<BrandAuthor>(regionalDb, "brand_authors", t),
     // The brand's first-hand notes may name its customers → regional DB, with the content they inform.

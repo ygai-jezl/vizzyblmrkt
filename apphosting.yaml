@@ -829,6 +829,31 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # The brand strategy: one approved record per brand (who it's for, who you compete with, where you
+  # win, what you're not, the quarter's goal) on a Strategy tab, proposed with one Gemini call and
+  # read by the writer, research and Next up (needs BRAND_MAP_ENABLED). The NEXT_PUBLIC twin shows
+  # its section on the Brand map help page.
+  - variable: BRAND_STRATEGY_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_STRATEGY_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # The competitor finder on the Strategy tab: grounded Google searches that name who buyers weigh
+  # instead (needs BRAND_STRATEGY_ENABLED). Full mode needs the competitor_finder grant where
+  # features are granted, 4 a month by default; quick mode runs once per brand without it.
+  - variable: COMPETITOR_FINDER_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Vizzy's get_brand_strategy: reads the approved strategy, never changes it (needs BRAND_STRATEGY_ENABLED).
+  - variable: BRAND_STRATEGY_CHAT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # A brand's first hand notes, and Vizzy adding to them (needs the notes).
   - variable: BRAND_NOTES_ENABLED
     value: "false"

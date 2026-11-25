@@ -125,6 +125,11 @@ function cutAtWord(text: string, max: number): string {
   return (at > 0 ? head.slice(0, at) : text.slice(0, max)).replace(/[,;:\s]+$/, "").trim();
 }
 
+/** A fact's line in house style, cut at a word to 80 characters (Vizzy's chat suggestions too). */
+export function tidyFactText(text: string): string {
+  return cutAtWord(tidyText(text), ONBOARDING_LIMITS.MAX_FACT_TEXT);
+}
+
 /** A fact's kind, as the prompt names them (an older spelling of "start" is taken too). */
 function kindOf(raw: string): FactKind | null {
   const k = raw.trim().toLowerCase().replace(/[\s-]+/g, "_");

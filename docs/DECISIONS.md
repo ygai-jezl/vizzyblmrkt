@@ -25,8 +25,11 @@ questions, or Skip) and moved Home's next action card to PR B. ADR-0016 is piece
    journey (archived ones count, and a read that failed counts as "had one"), no sign-up, and no
    setup a person did (a sending detail or domain, LinkedIn, X or GitHub connected, a brand voice,
    or a saved brand map: `didSetupWork`).
-   `startBusinessProfile` writes `status: "started"` in a transaction first, so it shows once per
-   brand. Existing brands are never sent there; they start from Settings. Members never.
+   Home only redirects. The welcome page writes `status: "started"` (`startBusinessProfile`, in a
+   transaction) when it renders for a brand that rule still picks (`markWelcomeShown`), so it shows
+   once per brand and a redirect lost to a racing refresh comes back on the next visit to Home. Add
+   Brand loads Home as a whole page. Existing brands are never sent there; they start from Settings.
+   Members never.
 3. **Where it lives.** On the tenant doc (control plane, read free by the admin layout, Home and the
    chat proxy): `businessProfile` (status, how it came, the four answers as fixed keys, and `rev`),
    `sidebarReveal` and the voice day `onboardingVoice`, with no user ids. In the brand's own region

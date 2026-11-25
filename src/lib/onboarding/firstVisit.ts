@@ -33,7 +33,8 @@ export function didSetupWork(tenant: FirstVisitTenant, setup?: { brandMapSaved?:
  * records or its sign-ups never sends a busy brand to the welcome. Existing brands always have
  * something, so they start from Settings instead; members never get it.
  *
- * Home then marks the profile started (startBusinessProfile), so it shows once per brand.
+ * Home only redirects. The welcome marks the profile started when it renders (markWelcomeShown in
+ * welcomeShown.ts), so it shows once per brand and a lost redirect comes back on the next visit.
  */
 export function shouldWelcome(
   tenant: FirstVisitTenant | null,

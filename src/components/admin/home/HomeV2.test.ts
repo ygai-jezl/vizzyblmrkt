@@ -104,6 +104,16 @@ describe("Home's card of steps", () => {
     expect(getTenantById).toHaveBeenCalledTimes(1);
   });
 
+  it("sends a new brand's admin to the welcome without marking it shown (the welcome does that)", async () => {
+    process.env.ONBOARDING_ENABLED = "true";
+    getTenantById.mockResolvedValue({ tenantName: "Fernhill Plants" });
+    loadGrowthSignals.mockResolvedValue({ ...SIGNALS, activeLaunches: 0, firstLaunchId: null, welcomeEmailLive: false, signups: 0, recordsEver: 0 });
+    await renderHome();
+    expect(redirect).toHaveBeenCalledWith("/admin/welcome");
+    // A redirect can be lost to a racing refresh: Home writes nothing, so the next visit sends them again.
+    expect(startBusinessProfile).not.toHaveBeenCalled();
+  });
+
   it("is Your next action on the current stage after a skip", async () => {
     process.env.ONBOARDING_ENABLED = "true";
     getTenantById.mockResolvedValue({ tenantName: "Fernhill Plants", businessProfile: { ...profile({}), status: "skipped" } });

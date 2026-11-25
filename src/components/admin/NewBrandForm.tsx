@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import type { Region } from "@/lib/types/tenant";
 
 const REGIONS: { value: Region; label: string }[] = [
@@ -19,7 +18,6 @@ const REGIONS: { value: Region; label: string }[] = [
  * `organisationNote` (with plans on) says which plan the new brand starts on.
  */
 export function NewBrandForm({ organisationNote }: { organisationNote?: string } = {}) {
-  const router = useRouter();
   const [name, setName] = useState("");
   const [domain, setDomain] = useState("");
   const [region, setRegion] = useState<Region>("us");
@@ -57,8 +55,10 @@ export function NewBrandForm({ organisationNote }: { organisationNote?: string }
       return;
     }
 
-    router.push("/admin");
-    router.refresh();
+    // A whole page load into the new brand: every part of the page starts from it, and a new brand
+    // that Home sends to the welcome gets there as its own page (the welcome's microphone header),
+    // with no refresh racing the redirect.
+    window.location.assign("/admin");
   }
 
   const busy = status === "creating";

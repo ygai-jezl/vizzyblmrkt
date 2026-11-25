@@ -8,7 +8,6 @@ import { isEmailStyleUiEnabled } from "@/lib/email/flags";
 import { isBrandMapUiEnabled } from "@/lib/brandMap/flags";
 import { requireAdminContext } from "@/lib/auth/session";
 import { getTenantById } from "@/lib/tenant";
-import { startBusinessProfile } from "@/lib/tenant/control";
 import { isOnboardingEnabled } from "@/lib/onboarding/flags";
 import { shouldWelcome } from "@/lib/onboarding/firstVisit";
 import { nextActionStage, nextActionTitle } from "@/lib/onboarding/homeOrder";
@@ -239,14 +238,11 @@ export async function HomeV2() {
     getTenantById(ctx.tenantId).catch(() => null),
     loadReview(ctx, { lifecycle, includeContent: false }).catch(() => ({ aiLines: 0, items: [] as ReviewItem[] })),
   ]);
-  // A new brand's first admin meets Vizzy first, once per brand: only the call that marks the
-  // profile started redirects, and a failed write shows Home. redirect() throws, so never in a try.
+  // A new brand's first admin meets Vizzy first. Home only redirects: the welcome marks itself shown
+  // when it renders (markWelcomeShown), so a redirect lost to a racing refresh comes back on the next
+  // visit to Home. redirect() throws, so never in a try.
   const onboarding = isOnboardingEnabled();
-  if (
-    onboarding &&
-    shouldWelcome(tenant, signals, ctx.role) &&
-    (await startBusinessProfile(ctx.tenantId).catch(() => false))
-  ) {
+  if (onboarding && shouldWelcome(tenant, signals, ctx.role)) {
     redirect("/admin/welcome");
   }
   // Launches are called Ideas (worked out on the server): stage 2, its steps, the tile and the prompts.

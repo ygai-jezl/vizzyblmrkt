@@ -16,6 +16,7 @@ import { getContentPlan } from "@/lib/tenant/workspaceContent";
 import type { ArticleReviewDoc, ReviewBy, ReviewEvidence, ReviewStep } from "@/lib/types/articleRefresh";
 import { REVIEW_STEPS } from "@/lib/types/articleRefresh";
 import type { BrandMapPage } from "@/lib/types/brandMapPage";
+import type { Tenant } from "@/lib/types/tenant";
 import type { ContentNode, ContentPlan } from "@/lib/types/contentPlan";
 import { askOfPlan, loadArticleMap } from "./mapActions";
 import { computeCoverage } from "./coverage";
@@ -83,6 +84,8 @@ export interface ReviewDeps {
   checkLink?: (url: string) => Promise<LinkState>;
   fetchPage?: (url: string) => Promise<FetchedPage | null>;
   research?: typeof researchBlogBrief;
+  /** The brand's record, for its grant and monthly cap (tests); otherwise read from the registry. */
+  loadTenant?: (id: string) => Promise<Tenant | null>;
   /** The brand's name and own sites (tests); otherwise from its record. */
   brand?: (ctx: TenantContext) => Promise<{ name: string | null; sites: string[] }>;
   retrieve?: typeof retrieveSemanticKnowledgeContext;

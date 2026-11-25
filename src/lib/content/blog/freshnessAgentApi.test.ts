@@ -57,6 +57,7 @@ describe("Vizzy's articles due a refresh", () => {
     ]);
     expect(body.articles).toEqual([
       {
+        articleId: "p1",
         title: "Article p1",
         liveAddress: "https://acme.example/blog/p1",
         state: "due a refresh",

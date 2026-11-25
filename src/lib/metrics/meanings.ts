@@ -426,7 +426,7 @@ export const MEANINGS = {
   },
   clickLift: {
     name: "Click change after a refresh",
-    definition: "Google clicks on the article's page in the 28 days after a refresh against the 28 days before, beside the same change for the brand's articles left alone: 0.12 means 12% better than those. Given as the mean and a 95% range (low, high).",
+    definition: "Google clicks on the article's page in the 28 days after a refresh against the 28 days before, beside the same change for the brand's articles left alone: 0.12 means 12% better than those. The mean over the clock's refreshes; clickLiftRange gives its 95% range.",
     grain: "one clock, from its refreshes with results",
     unit: "ratio",
     source: "Search Console's daily page numbers, kept 90 days",

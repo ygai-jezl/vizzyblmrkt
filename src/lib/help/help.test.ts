@@ -73,6 +73,9 @@ vi.hoisted(() => {
   process.env.CONNECTORS_SEARCH_TEXT_ENABLED = "true";
   process.env.CONNECTOR_SIGNALS_ENABLED = "true";
   process.env.BRAND_MAP_SCALE_ENABLED = "true";
+  process.env.PASSWORD_SIGNIN_ENABLED = "true";
+  // Password help shows only when a code can be delivered too (isPasswordSigninAvailable).
+  process.env.MANDRILL_API_KEY = "test-key-not-real";
 });
 
 const SRC = join(process.cwd(), "src");

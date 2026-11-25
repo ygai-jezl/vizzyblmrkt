@@ -125,6 +125,32 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Email and password sign-in: create an account, confirm it with an emailed code, forgot
+  # password, change password and sign out everywhere. Needs the Email/Password provider on
+  # in Identity Platform (npm run selfhost -- --project <id> --apply addon:password) and an email provider. Only
+  # addresses on ADMIN_ALLOWED_EMAILS get in with a password.
+  - variable: PASSWORD_SIGNIN_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Delete password accounts still unconfirmed after 7 days (needs PASSWORD_SIGNIN_ENABLED).
+  # Off, the hourly sweep only logs what it would delete.
+  - variable: PASSWORD_CLEANUP_DELETE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Anyone may create an account and set up their own brand. Does nothing until self-serve
+  # brand creation exists: until then the sign-in door still refuses addresses not on the list.
+  - variable: SELF_SERVE_SIGNUP_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Per-visitor limits key on the address Google's load balancer adds to X-Forwarded-For
+  # (TRUSTED_PROXY_HOPS from the right, default 2), not the first entry a visitor can write.
+  - variable: TRUSTED_CLIENT_IP_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Off, / is a plain front page with a sign-in button; on, the marketing homepage.
   - variable: SITE_HOME_ENABLED
     value: "false"

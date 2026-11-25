@@ -45,7 +45,7 @@ export const AI_BOTS = [
 ];
 
 /** The signed-in app, its API and one-off personal links: nothing a crawler could use. */
-export const DISALLOW = ["/admin", "/admin-preview", "/api/", "/embed/", "/invite/", "/login", "/unsubscribe"];
+export const DISALLOW = ["/admin", "/admin-preview", "/api/", "/auth/", "/embed/", "/invite/", "/login", "/unsubscribe"];
 
 export const CONTENT_SIGNAL = "search=yes, ai-input=yes, ai-train=yes";
 

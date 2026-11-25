@@ -1,4 +1,4 @@
-import { clientIp } from "@/lib/analytics/viewIngest";
+import { clientIp } from "@/lib/http/clientIp";
 import { escapeHtml } from "@/lib/email/emailRender";
 import { handleInviteClick, type InviteClickResult } from "@/lib/invites/click";
 

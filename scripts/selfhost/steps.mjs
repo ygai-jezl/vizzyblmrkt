@@ -46,11 +46,14 @@ import {
   valueEntry,
 } from "./envfile.mjs";
 import {
+  AUTH_LOG_METRICS,
   CORE_SECRETS,
   DEFAULT_BRANCH,
   DEFAULT_ENV,
   DEFAULT_FIRESTORE_LOCATION,
   DEFAULT_REGION,
+  PASSWORD_APIS,
+  PASSWORD_MIN_LENGTH,
   REQUIRED_APIS,
   RUNTIME_ROLES,
   SCHEDULER_JOBS,
@@ -61,6 +64,10 @@ import {
   WEB_API_KEY_SECRET,
   WEB_APP_NAME,
   assetBucketName,
+  authAlertPolicies,
+  logMetricBody,
+  passwordConfigDiff,
+  passwordPatchPlan,
   runtimeServiceAccount,
   searchDatabaseArgs,
   signingKeyName,
@@ -581,7 +588,7 @@ export const CORE_STEPS = [
     },
     changes: (ctx) => [
       `Create an HSM signing key ${signingKeyName(ctx.project)} and let the backend sign with it (infra/lifecycle/setup.sh signing-key)`,
-      "Turn on Firestore TTL clean-up for old events and drafts on (default) (infra/lifecycle/setup.sh ttl)",
+      "Turn on Firestore TTL clean-up for old events, drafts and sign-in codes on (default) (infra/lifecycle/setup.sh ttl)",
     ],
     async apply(ctx) {
       const script = join(ctx.repoRoot, "infra", "lifecycle", "setup.sh");
@@ -855,6 +862,210 @@ function runTee(ctx, cmd, args, opts = {}) {
     child.on("exit", (code) => resolve({ code: code ?? 1, out }));
   });
 }
+
+// ---------------------------------------------------------------------------
+// Email and password sign-in (addon:password)
+// ---------------------------------------------------------------------------
+
+/** Base URLs of the Logging and Monitoring APIs (overridable for tests). */
+const loggingBase = () => (process.env.SELFHOST_LOGGING_URL || "https://logging.googleapis.com").replace(/\/+$/, "");
+const monitoringBase = () => (process.env.SELFHOST_MONITORING_URL || "https://monitoring.googleapis.com").replace(/\/+$/, "");
+const serviceUsageBase = () => (process.env.SELFHOST_SERVICEUSAGE_URL || "https://serviceusage.googleapis.com").replace(/\/+$/, "");
+
+/** The role Google's reCAPTCHA guide gives Identity Platform's own service agent. */
+const IDENTITY_AGENT_ROLE = "roles/identitytoolkit.serviceAgent";
+
+/** Identity Platform's service agent, from the project number. */
+function identityAgentEmail(projectNumber) {
+  return `service-${projectNumber}@gcp-sa-identitytoolkit.iam.gserviceaccount.com`;
+}
+
+/**
+ * Make Identity Platform's service agent and give it its role, as Google's reCAPTCHA guide asks
+ * for every project. Without them Identity Platform can't make the reCAPTCHA keys, and password
+ * sign-ins go through unscored while the config still says audit or enforce. Both are safe to
+ * repeat. True when both worked.
+ */
+async function ensureIdentityAgent(ctx) {
+  const line = (good, label, why = "") => ctx.say(`  ${good ? "ok  " : "fail"} ${label}${good ? "" : `: ${why}`}`);
+  const info = projectInfo(ctx);
+  if (info.state !== "ok" || !info.projectNumber) {
+    line(false, "Identity Platform's service agent", info.why ?? "the project number isn't known");
+    return false;
+  }
+  const r = await rest(`${serviceUsageBase()}/v1beta1/projects/${info.projectNumber}/services/identitytoolkit.googleapis.com:generateServiceIdentity`, ctx.project, {
+    method: "POST",
+    body: {},
+  });
+  const agent = String(r.data?.response?.email ?? "") || identityAgentEmail(info.projectNumber);
+  line(r.ok, `Identity Platform's service agent ${agent}`, r.why);
+  if (!r.ok) return false;
+  return runQuiet(
+    ctx,
+    "gcloud",
+    ["projects", "add-iam-policy-binding", ctx.project, `--member=serviceAccount:${agent}`, `--role=${IDENTITY_AGENT_ROLE}`, "--condition=None"],
+    `${IDENTITY_AGENT_ROLE} for ${agent}`,
+  );
+}
+
+const identityConfigUrl = (ctx) => `${identityToolkitBase()}/admin/v2/projects/${ctx.project}/config`;
+/** The project's Identity Toolkit config (admin v2), read once per check. */
+const identityConfig = (ctx) => memo(ctx, "identityConfig", () => rest(identityConfigUrl(ctx), ctx.project));
+
+/** Whether the settings file names an email provider (addon:email), so a code can reach an inbox. */
+function hasEmailProvider(ctx) {
+  const e = entryMap(envText(ctx));
+  return e.has("MANDRILL_API_KEY") || e.has("RESEND_API_KEY");
+}
+
+/** Who the sign-in alerts email: --alert-email, else the first address on ADMIN_ALLOWED_EMAILS. */
+function alertEmail(ctx) {
+  const chosen = ctx.flags?.alertEmail?.trim();
+  if (chosen) return chosen;
+  return envValue(ctx, "ADMIN_ALLOWED_EMAILS").split(",").map((s) => s.trim()).find(Boolean) ?? "";
+}
+
+/** "a", "a and b", "a, b and c". */
+function andList(items) {
+  return items.length > 1 ? `${items.slice(0, -1).join(", ")} and ${items.at(-1)}` : items.join("");
+}
+
+/** Every page of a list call (Monitoring's alert policies or channels). { ok, items, why }. */
+async function listAll(ctx, url, field) {
+  const items = [];
+  let token = "";
+  for (let page = 0; page < 10; page++) {
+    const r = await rest(`${url}?pageSize=1000${token ? `&pageToken=${encodeURIComponent(token)}` : ""}`, ctx.project);
+    if (!r.ok) return { ok: false, items, why: r.why };
+    items.push(...(Array.isArray(r.data?.[field]) ? r.data[field] : []));
+    token = String(r.data?.nextPageToken ?? "");
+    if (!token) break;
+  }
+  return { ok: true, items, why: "" };
+}
+
+/**
+ * Which of the sign-in alerts are missing: the log metrics by name, the alert policies by display
+ * name. Read only. { ok, missing, why }.
+ */
+function authAlertsState(ctx) {
+  return memo(ctx, "authAlerts", async () => {
+    const missing = [];
+    for (const m of AUTH_LOG_METRICS) {
+      const r = await rest(`${loggingBase()}/v2/projects/${ctx.project}/metrics/${m.name}`, ctx.project);
+      if (r.status === 404) missing.push(`log metric ${m.name}`);
+      else if (!r.ok) return { ok: false, missing: [], why: r.why };
+    }
+    const policies = await listAll(ctx, `${monitoringBase()}/v3/projects/${ctx.project}/alertPolicies`, "alertPolicies");
+    if (!policies.ok) return { ok: false, missing: [], why: policies.why };
+    const names = new Set(policies.items.map((p) => p.displayName));
+    for (const p of authAlertPolicies()) if (!names.has(p.displayName)) missing.push(`alert "${p.displayName}"`);
+    return { ok: true, missing, why: "" };
+  });
+}
+
+/**
+ * Make the log metrics, the alert policies, and an email channel for the alerts' recipient
+ * (alertEmail) when a policy is made. Each is made only when missing (a metric whose filter
+ * changed is updated); an alert policy that exists is left as its owner may have changed it,
+ * recipients included, so a copy that has the older alerts gets only the new one. True when all
+ * are there.
+ */
+async function ensureAuthAlerts(ctx) {
+  const p = ctx.project;
+  const line = (good, label, why = "") => ctx.say(`  ${good ? "ok  " : "fail"} ${label}${good ? "" : `: ${why}`}`);
+  const metrics = `${loggingBase()}/v2/projects/${p}/metrics`;
+  for (const m of AUTH_LOG_METRICS) {
+    const got = await rest(`${metrics}/${m.name}`, p);
+    if (got.ok && got.data?.filter === m.filter) {
+      line(true, `log metric ${m.name} (already there)`);
+      continue;
+    }
+    if (!got.ok && got.status !== 404) {
+      line(false, `log metric ${m.name}`, got.why);
+      return false;
+    }
+    const r = got.ok ? await rest(`${metrics}/${m.name}`, p, { method: "PUT", body: logMetricBody(m) }) : await rest(metrics, p, { method: "POST", body: logMetricBody(m) });
+    line(r.ok, `log metric ${m.name}${got.ok ? " (filter updated)" : ""}`, r.why);
+    if (!r.ok) return false;
+  }
+
+  const policiesUrl = `${monitoringBase()}/v3/projects/${p}/alertPolicies`;
+  const existing = await listAll(ctx, policiesUrl, "alertPolicies");
+  if (!existing.ok) {
+    line(false, "alert policies", existing.why);
+    return false;
+  }
+  const names = new Set(existing.items.map((x) => x.displayName));
+  const toMake = authAlertPolicies().filter((policy) => !names.has(policy.displayName));
+
+  // A channel only for alerts made now: alerts already there keep the recipients they have.
+  let channels = [];
+  const email = alertEmail(ctx);
+  if (!toMake.length) {
+    line(true, "the alerts are already there and keep their recipients");
+  } else if (email) {
+    const url = `${monitoringBase()}/v3/projects/${p}/notificationChannels`;
+    const list = await listAll(ctx, url, "notificationChannels");
+    if (!list.ok) {
+      line(false, "notification channels", list.why);
+      return false;
+    }
+    const found = list.items.find((c) => c.type === "email" && String(c.labels?.email_address ?? "").toLowerCase() === email.toLowerCase());
+    if (found) {
+      channels = [found.name];
+      line(true, `new alerts go to ${email} (its channel is already there)`);
+    } else {
+      const r = await rest(url, p, { method: "POST", body: { type: "email", displayName: "YouGrow sign-in alerts", labels: { email_address: email } } });
+      line(r.ok, `new alerts go to ${email}`, r.why);
+      if (!r.ok) return false;
+      channels = [r.data?.name].filter(Boolean);
+    }
+  }
+
+  for (const policy of authAlertPolicies(channels)) {
+    if (names.has(policy.displayName)) {
+      line(true, `alert "${policy.displayName}" (already there, left as it is)`);
+      continue;
+    }
+    let r = await rest(policiesUrl, p, { method: "POST", body: policy });
+    // A log metric made a moment ago can take a few seconds to be known to Monitoring.
+    for (let i = 0; i < 2 && !r.ok && /metric/i.test(r.why); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 10_000));
+      r = await rest(policiesUrl, p, { method: "POST", body: policy });
+    }
+    line(r.ok, `alert "${policy.displayName}"`, r.why);
+    if (!r.ok) return false;
+  }
+  return true;
+}
+
+/** The add-on's state from a read of the config and the alerts, kept for changes() and apply(). */
+async function passwordState(ctx) {
+  const cfg = await identityConfig(ctx);
+  if (!cfg.ok) return { ok: false, why: cfg.why };
+  const diff = passwordConfigDiff(cfg.data ?? {}, appUrl(ctx));
+  const alerts = await authAlertsState(ctx);
+  const state = {
+    ok: true,
+    diff,
+    config: cfg.data ?? {},
+    alerts,
+    switchOn: envValue(ctx, "PASSWORD_SIGNIN_ENABLED") === "true",
+    emailProvider: hasEmailProvider(ctx),
+  };
+  ctx.state.password = state;
+  return state;
+}
+
+/** The collections holding sign-in codes, their per-address guards and the links sent in place of a code, each with a `ttl` field. */
+const CODE_TTL_COLLECTIONS = ["email_codes", "email_code_guards", "email_confirm_links"];
+
+const EMAIL_PROVIDER_NOTE = [
+  "Note: password sign-in needs an email provider for its confirmation codes (MANDRILL_API_KEY or",
+  "RESEND_API_KEY in your settings file). Without one the sign-in page keeps offering Google only.",
+  "Add one with addon:email.",
+];
 
 /** @type {any[]} */
 export const ADDONS = [
@@ -1140,6 +1351,146 @@ export const ADDONS = [
       const sa = (b && b.serviceAccount) || runtimeServiceAccount(ctx.project);
       runQuiet(ctx, "gcloud", ["projects", "add-iam-policy-binding", ctx.project, `--member=serviceAccount:${sa}`, "--role=roles/recaptchaenterprise.agent", "--condition=None"], `roles/recaptchaenterprise.agent for ${sa}`);
       return setForAddon(ctx, "recaptcha", [valueEntry("RECAPTCHA_PROJECT_ID", ctx.project), valueEntry("NEXT_PUBLIC_RECAPTCHA_SITE_KEY", key, BUILD_RUNTIME)]);
+    },
+  },
+  {
+    id: "addon:password",
+    title: "Turn on email and password sign-in",
+    how: "automated; needs an email provider (addon:email) for the confirmation codes",
+    async check(ctx) {
+      const s = await passwordState(ctx);
+      if (!s.ok) return unknown(`Can't read the sign-in settings: ${s.why}`);
+      const missing = [
+        ...s.diff.filter((d) => d.level !== "info").map((d) => d.what),
+        ...(s.alerts.ok ? s.alerts.missing.map((a) => `no ${a}`) : [`the sign-in alerts can't be read (${s.alerts.why})`]),
+        ...(s.switchOn ? [] : ["PASSWORD_SIGNIN_ENABLED is off"]),
+      ];
+      const notes = [
+        ...s.diff.filter((d) => d.level === "info").map((d) => d.what),
+        ...(s.emailProvider ? [] : ["no email provider yet (addon:email), so nobody gets a code"]),
+      ];
+      const also = notes.length ? `. Also: ${notes.join("; ")}` : "";
+      if (missing.length) return todo(`${missing.join("; ")}${also}.`);
+      const bots = s.config.recaptchaConfig?.emailPasswordEnforcementState;
+      return done(`Email/Password on, ${PASSWORD_MIN_LENGTH} characters or more, reCAPTCHA ${bots === "ENFORCE" ? "enforced" : "in audit mode"}, alerts set${also}`);
+    },
+    async inputs(ctx) {
+      if (!existsSync(ctx.envFile)) return fail(`No apphosting.${ctx.envName}.yaml yet. Run the core steps first: ${selfhostCommand(ctx, "--apply core")}`);
+      if (!appUrl(ctx)) return fail(`No backend yet, so the reset link's address isn't known. Run: ${selfhostCommand(ctx, "--apply backend")}`);
+      const s = ctx.state.password ?? (await passwordState(ctx));
+      if (!s.ok) return fail(`Can't read the sign-in settings: ${s.why}`);
+      if (!s.emailProvider) for (const line of EMAIL_PROVIDER_NOTE) ctx.say(`  ${line}`);
+      return ok();
+    },
+    changes(ctx) {
+      const s = ctx.state.password;
+      const apis = enabledApis(ctx.project);
+      const needApis = PASSWORD_APIS.filter((a) => !apis.apis || !apis.apis.has(a.id));
+      ctx.state.passwordApis = needApis;
+      const email = alertEmail(ctx);
+      return [
+        ...(needApis.length ? [`Turn on ${needApis.map((a) => `${a.id} (${a.why})`).join(", ")}`] : []),
+        ...passwordPatchPlan(s.diff).map(
+          (b) => `Identity Platform, ${b.label}: ${b.items.map((d) => d.fix).join("; ")} (one PATCH, updateMask ${b.mask}${b.soft ? "; a refusal only warns" : ""})`,
+        ),
+        ...(s.diff.some((d) => d.batch === "provider") ? ["The Email/Password provider goes on last, after every protection above"] : []),
+        `Make Identity Platform's service agent and give it ${IDENTITY_AGENT_ROLE}, so reCAPTCHA can make its keys (safe to repeat)`,
+        `Turn on Firestore TTL clean-up for sign-in codes on (default): ${andList(CODE_TTL_COLLECTIONS)} (safe to repeat; copies set up before these existed lack it)`,
+        ...(!s.alerts.ok || s.alerts.missing.length
+          ? [
+              `Make the sign-in alerts where missing: log metrics ${andList(AUTH_LOG_METRICS.map((m) => m.name))}, and alerts for many password sign-ups, for accounts removed at sign-in and for sign-in codes locked${email ? `, emailed to ${email}` : ""}`,
+            ]
+          : []),
+        // apply() only writes the switch when it is off and there is an email provider.
+        ...(s.switchOn
+          ? []
+          : [
+              s.emailProvider
+                ? `Turn on PASSWORD_SIGNIN_ENABLED in apphosting.${ctx.envName}.yaml`
+                : `Leave PASSWORD_SIGNIN_ENABLED off in apphosting.${ctx.envName}.yaml: no email provider yet (addon:email)`,
+            ]),
+      ];
+    },
+    async apply(ctx) {
+      const s = ctx.state.password;
+      const needApis = ctx.state.passwordApis ?? PASSWORD_APIS;
+      if (needApis.length) {
+        const code = await runLive(ctx, "gcloud", ["services", "enable", ...needApis.map((a) => a.id), `--project=${ctx.project}`]);
+        if (code !== 0) return fail("Turning on the APIs failed (see above).");
+      }
+      // reCAPTCHA's keys are made by Identity Platform's service agent: it comes before the config.
+      if (!(await ensureIdentityAgent(ctx))) {
+        return fail([
+          "Making Identity Platform's service agent failed (see above). Without it reCAPTCHA has no keys and scores nothing.",
+          "Nothing in Identity Platform was changed. Fix what it says and run this add-on again.",
+        ]);
+      }
+      // The codes' own clean-up. The core step's TTL run covers them on new copies; a copy set up
+      // before they existed never re-runs it, so turn it on here too (the same command, repeatable).
+      for (const group of CODE_TTL_COLLECTIONS) {
+        const args = ["firestore", "fields", "ttls", "update", "ttl", `--collection-group=${group}`, "--enable-ttl", "--database=(default)", `--project=${ctx.project}`, "--async"];
+        const code = await runLive(ctx, "gcloud", args);
+        if (code !== 0) return fail(`Turning on the TTL clean-up for ${group} failed (see above). Nothing in Identity Platform was changed.`);
+      }
+      const warnings = [];
+      const plan = passwordPatchPlan(s.diff);
+      for (const [i, batch] of plan.entries()) {
+        const r = await rest(`${identityConfigUrl(ctx)}?updateMask=${encodeURIComponent(batch.mask)}`, ctx.project, { method: "PATCH", body: batch.body });
+        ctx.say(`  ${r.ok ? "ok  " : batch.soft ? "warn" : "fail"} ${batch.label} (${batch.mask})${r.ok ? "" : `: ${r.why}`}`);
+        if (r.ok) continue;
+        if (batch.soft) {
+          warnings.push(
+            `Identity Platform refused the reset link's address. Set it by hand: Firebase console, Authentication, Templates, Password reset, edit, Customize action URL: ${appUrl(ctx)}/auth/reset`,
+          );
+          continue;
+        }
+        const left = plan.slice(i + 1);
+        return fail([
+          `Identity Platform refused the ${batch.label}. Nothing after it was sent${left.length ? ` (${left.map((b) => b.label).join(", ")})` : ""}, so the Email/Password provider stays as it was.`,
+          `Fix what it says, or set it in the Firebase console: https://console.firebase.google.com/project/${ctx.project}/authentication/settings`,
+        ]);
+      }
+
+      // Read back what Identity Platform kept.
+      ctx.memo.clear();
+      const back = await identityConfig(ctx);
+      if (!back.ok) return fail(`Can't read the sign-in settings back: ${back.why}`);
+      const left = passwordConfigDiff(back.data ?? {}, appUrl(ctx)).filter((d) => d.level !== "info");
+      if (left.length) return fail(`Identity Platform still differs after the changes: ${left.map((d) => d.what).join("; ")}.`);
+      ctx.say(`  ok   read back: Email/Password on, ${PASSWORD_MIN_LENGTH} characters or more, protections on`);
+
+      if (!(await ensureAuthAlerts(ctx))) {
+        return fail([
+          "Making the sign-in alerts failed (see above). Identity Platform is set; run this add-on again to finish the alerts.",
+          // A copy that already has password sign-in on re-runs this for a newer alert: it stays on.
+          s.switchOn
+            ? `PASSWORD_SIGNIN_ENABLED is still on in apphosting.${ctx.envName}.yaml, as it was: only the alerts are unfinished.`
+            : `PASSWORD_SIGNIN_ENABLED is still off in apphosting.${ctx.envName}.yaml.`,
+        ]);
+      }
+
+      // No email provider, no codes: the sign-in page would offer Google only while the help page
+      // and Settings describe passwords. Leave the switch off; the check keeps the add-on to do.
+      if (!hasEmailProvider(ctx)) {
+        for (const w of warnings) ctx.say(`  Warning: ${w}`);
+        // A copy whose switch is already on (its provider removed since) keeps it: say so, not "stays off".
+        if (s.switchOn) {
+          ctx.say(`  Identity Platform and the alerts are ready. PASSWORD_SIGNIN_ENABLED is on in apphosting.${ctx.envName}.yaml,`);
+          ctx.say("  but nobody gets a confirmation code until there is an email provider (MANDRILL_API_KEY or RESEND_API_KEY).");
+          ctx.say(`  Run ${selfhostCommand(ctx, "--apply addon:email")} to add one.`);
+          return ok();
+        }
+        ctx.say("  Identity Platform and the alerts are ready. PASSWORD_SIGNIN_ENABLED stays off: password sign-in");
+        ctx.say("  needs an email provider for its confirmation codes (MANDRILL_API_KEY or RESEND_API_KEY).");
+        ctx.say(`  Run ${selfhostCommand(ctx, "--apply addon:email")}, then this add-on again to turn it on.`);
+        return ok();
+      }
+      const r = setForAddon(ctx, "password", []);
+      for (const w of warnings) ctx.say(`  Warning: ${w}`);
+      ctx.say("  reCAPTCHA starts in audit mode: it records, blocks nothing. After a week, if its metrics look right,");
+      ctx.say("  set it to ENFORCE (docs/self-host.md, Email and password sign-in).");
+      ctx.say("  Only addresses on ADMIN_ALLOWED_EMAILS can get in with a password; the domain list stays Google only.");
+      return r;
     },
   },
 ];

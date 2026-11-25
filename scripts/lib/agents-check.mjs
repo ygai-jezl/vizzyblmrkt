@@ -287,6 +287,9 @@ export const ENV_NOT_SETTINGS = {
   APPDATA: "the operating system's (Windows), where gcloud keeps its settings",
   // Tests only (scripts/selfhost/selfhost.test.ts): point npm run selfhost at fakes.
   SELFHOST_IDENTITY_TOOLKIT_URL: "tests only: a fake Identity Toolkit API",
+  SELFHOST_LOGGING_URL: "tests only: a fake Cloud Logging API",
+  SELFHOST_MONITORING_URL: "tests only: a fake Cloud Monitoring API",
+  SELFHOST_SERVICEUSAGE_URL: "tests only: a fake Service Usage API",
   SELFHOST_FIREBASE_URL: "tests only: a fake Firebase Management API",
   SELFHOST_APPHOSTING_URL: "tests only: a fake App Hosting API",
   SELFHOST_SECRETMANAGER_URL: "tests only: a fake Secret Manager API",

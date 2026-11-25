@@ -6,16 +6,18 @@
 #   firebase emulators:exec --config firebase.integration.json --project demo-yougrow 'bash scripts/smoke.sh'
 # Starts a production server on :3099 (SMOKE_PORT moves it) against the emulator,
 # seeds the demo brand, signs up (twice, to prove idempotency), loads the hosted
-# page, signs in as the demo admin, runs a connected-product journey through API
-# v2, then tears down.
+# page, signs in as the demo admin, creates a password account and confirms it
+# with the emailed code, runs a connected-product journey through API v2, then
+# tears down.
 set -uo pipefail
 PORT="${SMOKE_PORT:-3099}"
 BASE="http://localhost:$PORT"
 export ALLOW_SEED=true
 export GOOGLE_CLOUD_PROJECT=demo-yougrow
 # The demo brand answers on this port, and the seeded demo admin may sign in.
+# newcomer@example.com is a second listed address: the password sign-up below.
 export LOCAL_APP_PORT="$PORT"
-export ADMIN_ALLOWED_EMAILS=admin@example.com
+export ADMIN_ALLOWED_EMAILS=admin@example.com,newcomer@example.com
 export ADMIN_ALLOWED_DOMAINS=""
 export ADMIN_BOOTSTRAP_TENANT_ID=ten_demo
 # The demo brand has no Privacy Policy URL of its own; emails need one in the footer.
@@ -38,8 +40,12 @@ export CONNECT_SECRET_ENC_KEY="smoke-only-connect-key-not-a-real-secret"
 export UNSUBSCRIBE_SIGNING_KEY="smoke-only-unsub-key-not-a-real-secret"
 export LIFECYCLE_WORKER_SECRET="smoke-only-worker-secret"
 export CONNECT_ISSUER="http://localhost:$PORT"
+# Email and password sign-in. With no email provider (above) the confirmation code
+# is written to the server's log, which this script reads.
+export PASSWORD_SIGNIN_ENABLED=true
+SERVER_LOG=/tmp/next-smoke.log
 
-npx next start -p "$PORT" >/tmp/next-smoke.log 2>&1 &
+npx next start -p "$PORT" >"$SERVER_LOG" 2>&1 &
 NEXT_PID=$!
 trap 'kill $NEXT_PID 2>/dev/null' EXIT
 
@@ -182,6 +188,81 @@ echo "--- admin: action WITHOUT session is 401 ---"
 code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/admin/signups/action" \
   -H 'content-type: application/json' -d '{"action":"delete","ids":["x"]}')
 echo "HTTP $code"; [ "$code" = "401" ] || fail=1
+
+# --- Password sign-up: create, refused until confirmed, code, confirm, in --------
+# Against the Auth emulator's REST API, as the browser does it: the password goes
+# to Identity Platform only. Our server sees ID tokens and the 6-digit code.
+NEW_EMAIL=newcomer@example.com
+NEW_PASSWORD="smoke-only-password-not-a-real-one"
+NEW_REFRESH=""
+# A fresh ID token from the refresh token, as getIdToken(true) gets one in the browser.
+refresh_id() {
+  curl -s -X POST "http://$AUTH_HOST/securetoken.googleapis.com/v1/token?key=demo" \
+    -H 'content-type: application/x-www-form-urlencoded' \
+    -d grant_type=refresh_token --data-urlencode "refresh_token=$NEW_REFRESH" -o /tmp/pw_refresh.json
+  node -e 'console.log(require("/tmp/pw_refresh.json").id_token || "")' 2>/dev/null
+}
+
+echo "--- password sign-up: create the account on the Auth emulator ---"
+curl -s -o /tmp/pw_signup.json -X POST "http://$AUTH_HOST/identitytoolkit.googleapis.com/v1/accounts:signUp?key=demo" \
+  -H 'content-type: application/json' \
+  -d "{\"email\":\"$NEW_EMAIL\",\"password\":\"$NEW_PASSWORD\",\"returnSecureToken\":true}"
+NEW_ID=$(node -e 'console.log(require("/tmp/pw_signup.json").idToken || "")' 2>/dev/null)
+NEW_REFRESH=$(node -e 'console.log(require("/tmp/pw_signup.json").refreshToken || "")' 2>/dev/null)
+{ [ -n "$NEW_ID" ] && [ -n "$NEW_REFRESH" ]; } && echo "account created ✓" \
+  || { echo "BUG: the emulator didn't create the account"; head -c 300 /tmp/pw_signup.json; echo; fail=1; }
+
+echo "--- password sign-up: the door refuses it until the email is confirmed (expect 403 email_not_verified) ---"
+code=$(curl -s -o /tmp/pw_sess1.json -w "%{http_code}" -X POST "$BASE/api/auth/session" \
+  -H 'content-type: application/json' -d "{\"idToken\":\"$NEW_ID\"}")
+echo "HTTP $code"; cat /tmp/pw_sess1.json; echo
+{ [ "$code" = "403" ] && grep -q '"error":"email_not_verified"' /tmp/pw_sess1.json; } || fail=1
+
+echo "--- password sign-up: send the code (expect 200) ---"
+code=$(curl -s -o /tmp/pw_send.json -w "%{http_code}" -X POST "$BASE/api/auth/email-code" \
+  -H 'content-type: application/json' -H "origin: $BASE" -d "{\"idToken\":\"$NEW_ID\"}")
+echo "HTTP $code"; cat /tmp/pw_send.json; echo
+{ [ "$code" = "200" ] && grep -q '"ok":true' /tmp/pw_send.json; } || fail=1
+
+echo "--- password sign-up: read the code from the server's log (no email provider) ---"
+CODE=""
+for _ in $(seq 1 10); do
+  CODE=$(sed -n "s/.*\[email:log\] to=$NEW_EMAIL subject=\"\([0-9]\{6\}\) is your YouGrow code\".*/\1/p" "$SERVER_LOG" | tail -1)
+  [ -n "$CODE" ] && break
+  sleep 1
+done
+[ -n "$CODE" ] && echo "code found in the server log ✓" \
+  || { echo "BUG: no code for $NEW_EMAIL in the server log"; grep -n "email:log" "$SERVER_LOG" | tail -3; fail=1; }
+
+echo "--- password sign-up: a wrong code is refused (expect 400 code_wrong) ---"
+WRONG=000000; [ "$CODE" = "$WRONG" ] && WRONG=111111
+code=$(curl -s -o /tmp/pw_wrong.json -w "%{http_code}" -X PUT "$BASE/api/auth/email-code" \
+  -H 'content-type: application/json' -H "origin: $BASE" -d "{\"idToken\":\"$NEW_ID\",\"code\":\"$WRONG\"}")
+echo "HTTP $code"; cat /tmp/pw_wrong.json; echo
+{ [ "$code" = "400" ] && grep -q '"error":"code_wrong"' /tmp/pw_wrong.json; } || fail=1
+
+echo "--- password sign-up: the right code confirms the email (expect 200) ---"
+code=$(curl -s -o /tmp/pw_check.json -w "%{http_code}" -X PUT "$BASE/api/auth/email-code" \
+  -H 'content-type: application/json' -H "origin: $BASE" -d "{\"idToken\":\"$NEW_ID\",\"code\":\"$CODE\"}")
+echo "HTTP $code"; cat /tmp/pw_check.json; echo
+{ [ "$code" = "200" ] && grep -q '"ok":true' /tmp/pw_check.json; } || fail=1
+
+echo "--- password sign-up: the door, with a refreshed token (expect needsRefresh, then ok) ---"
+NEW_ID=$(refresh_id)
+[ -n "$NEW_ID" ] || { echo "BUG: the emulator didn't refresh the token"; head -c 300 /tmp/pw_refresh.json; echo; fail=1; }
+code=$(curl -s -o /tmp/pw_sess2.json -w "%{http_code}" -X POST "$BASE/api/auth/session" \
+  -H 'content-type: application/json' -d "{\"idToken\":\"$NEW_ID\"}")
+echo "HTTP $code"; cat /tmp/pw_sess2.json; echo
+{ [ "$code" = "200" ] && grep -q '"needsRefresh":true' /tmp/pw_sess2.json; } || fail=1
+NEW_ID=$(refresh_id)
+code=$(curl -s -c /tmp/pw_cj.txt -o /tmp/pw_sess3.json -w "%{http_code}" -X POST "$BASE/api/auth/session" \
+  -H 'content-type: application/json' -d "{\"idToken\":\"$NEW_ID\"}")
+echo "HTTP $code"; cat /tmp/pw_sess3.json; echo
+{ [ "$code" = "200" ] && grep -q '"ok":true' /tmp/pw_sess3.json; } || fail=1
+
+echo "--- password sign-up: the new admin's session opens the dashboard (expect 200 + 'Signups') ---"
+code=$(curl -s -b /tmp/pw_cj.txt -o /tmp/pw_dash.html -w "%{http_code}" "$BASE/admin/signups")
+echo "HTTP $code"; { [ "$code" = "200" ] && grep -q "Signups" /tmp/pw_dash.html; } && echo "signed in with a password ✓" || fail=1
 
 echo "--- admin: offboard a signup (expect updated:1) ---"
 SID="sig_$(printf 'beta-launch\nreferred@test.com' | shasum -a 256 | cut -c1-40)"

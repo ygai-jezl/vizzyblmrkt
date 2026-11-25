@@ -1,10 +1,3 @@
-import {
-  getApps,
-  initializeApp,
-  applicationDefault,
-  type App,
-} from "firebase-admin/app";
-import { getAuth, type DecodedIdToken } from "firebase-admin/auth";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import {
@@ -15,7 +8,17 @@ import {
 import type { TenantContext } from "@/lib/tenant/types";
 import type { Region } from "@/lib/types/tenant";
 import type { TenantRole } from "@/lib/types/tenantUser";
+import { adminAuth } from "./adminAuth";
 import { isAllowedAdmin } from "./allowlist";
+import {
+  emailDomain,
+  GOOGLE_ID_CLAIM,
+  googleIdAtBootstrap,
+  googleIdToBackfill,
+  judgeSignIn,
+  type AccountFacts,
+  type TrustVerdict,
+} from "./trust";
 
 /**
  * Server-side admin session. The verified ID-token / session-cookie CLAIMS
@@ -28,103 +31,226 @@ import { isAllowedAdmin } from "./allowlist";
  * when that cookie is present and differs from the home tenant — an unswitched
  * session stays fully claim-based / Firestore-decoupled. The candidate is never
  * trusted: a stale/forged/non-member cookie falls back to the home tenant.
+ *
+ * This is the one door (ADR-0014, rule 1): only ensureAdminAccess gives an account its
+ * tenant and role claims, and only this file makes session cookies or revokes them. The
+ * one-door test (./oneDoor.test.ts) fails if code outside src/lib/auth verifies a token,
+ * makes or checks a session cookie, sets claims, revokes or deletes an Auth user.
  */
 const SESSION_COOKIE = "__session";
 const ACTIVE_TENANT_COOKIE = "active_tenant";
 const SESSION_TTL_MS = 5 * 24 * 60 * 60 * 1000; // 5 days
 
-function adminApp(): App {
-  const existing = getApps()[0];
-  if (existing) return existing;
-  if (
-    process.env.FIRESTORE_EMULATOR_HOST ||
-    process.env.FIREBASE_AUTH_EMULATOR_HOST
-  ) {
-    return initializeApp({
-      projectId: process.env.GOOGLE_CLOUD_PROJECT ?? "demo-yougrow",
-    });
-  }
-  return initializeApp({
-    credential: applicationDefault(),
-    projectId: process.env.GOOGLE_CLOUD_PROJECT,
-  });
-}
-
-export type AdminAccess = "ready" | "needs_refresh" | "forbidden" | "not_set_up";
-
-/** The admin login accepts ONLY genuine Google sign-ins (ADR-0003, Google-only). */
-const REQUIRED_SIGN_IN_PROVIDER = "google.com";
+export type AdminAccess =
+  | "ready"
+  | "needs_refresh"
+  | "forbidden"
+  | "not_set_up"
+  | "email_not_verified"
+  | "google_only"
+  | "sign_in_again"
+  | "address_updated";
 
 /**
- * AUTHENTICATION invariant for every session mint: a real, VERIFIED Google
- * identity — the token was minted by Google sign-in AND Google verified the
- * email. This holds identically for today's allowlisted operators and any
- * future self-service tenant owner (both sign in with Google), and it is what
- * makes the email-domain match in isAllowedAdmin trustworthy: the domain is
- * Google-verified, never self-asserted. Without it, a project that has
- * email/password (or anonymous) sign-in enabled would let an attacker mint a
- * token for an unowned address (e.g. anyone@<an allowed domain>) and pass the allowlist.
+ * The door. Verify the ID token (refusing revoked ones), read the account as Auth holds
+ * it now, judge the sign-in (./trust.ts), check the admin lists (./allowlist.ts), and
+ * BOOTSTRAP the tenant/role claims on first sign-in. Returns:
+ *  - "forbidden"          → not a Google or password sign-in, a trojan on an established
+ *                           account, an unverified Google email, or not an allowed account
+ *                           (for a renamed Google admin: the new address isn't allowed, or
+ *                           another account already has it)
+ *  - "email_not_verified" → a password account that hasn't confirmed its emailed code yet
+ *  - "google_only"        → allowed only through the domain list, but signed in with a password
+ *  - "sign_in_again"      → a first sign-in the door can't trust: the Auth account was deleted
+ *                           (it held nothing of ours yet) and the person must sign in again
+ *  - "address_updated"    → moved a renamed Google admin to their new address. Firebase treats
+ *                           an email change as a major account change and revokes the account's
+ *                           tokens (this sign-in's too, and every other device's session), so a
+ *                           refresh can't carry on: the client signs out and the admin signs in
+ *                           with Google once more, which then passes as an ordinary sign-in
+ *  - "needs_refresh"      → just minted claims; the client must refresh its ID token and call
+ *                           again so the new token carries the claims
+ *  - "ready"              → the token already has tenant_id+region; create the session
+ *  - "not_set_up"         → an allowed account with no tenant yet, and no
+ *                           ADMIN_BOOTSTRAP_TENANT_ID to put it in (the deployment
+ *                           hasn't named its first workspace)
  *
- * Kept separate from AUTHORIZATION (which tenant/role — isAllowedAdmin + the
- * claims bootstrap below) so the future onboarding path can reuse this exact
- * gate before it provisions a new tenant.
+ * The door also remembers each account's Google account id (the `google_id` claim): the
+ * bootstrap records it, and a Google sign-in on an account set up before that merges it in. It
+ * is what tells a renamed Google address (same id) from someone else's Google account.
+ *
+ * The local emulator runs the same checks: the seeded demo admin is verified, has its claims,
+ * and has password and Google sign-in linked for its own address (src/lib/dev/seedAdmin.ts).
  */
-export function isVerifiedGoogleIdentity(decoded: DecodedIdToken): boolean {
-  return (
-    decoded.email_verified === true &&
-    decoded.firebase?.sign_in_provider === REQUIRED_SIGN_IN_PROVIDER
-  );
-}
-
-/**
- * Verify a Google ID token, gate by Workspace domain, and BOOTSTRAP the
- * tenant/role claims on first sign-in. Returns:
- *  - "forbidden"     → not a verified Google identity, or not an allowed account
- *  - "needs_refresh" → just minted claims; the client must refresh its ID token
- *                      and call again so the new token carries the claims
- *  - "ready"         → the token already has tenant_id+region; create the session
- *  - "not_set_up"    → an allowed account with no tenant yet, and no
- *                      ADMIN_BOOTSTRAP_TENANT_ID to put it in (the deployment
- *                      hasn't named its first workspace)
- */
-export async function ensureAdminAccess(idToken: string): Promise<AdminAccess> {
-  const auth = getAuth(adminApp());
-  const decoded = await auth.verifyIdToken(idToken);
-  // AUTHENTICATION: only a verified Google identity may ever mint a session.
-  // The local Auth emulator (smoke test) signs in with email/password, so the
-  // strict provider check is bypassed there — never reachable in a real deploy.
-  const isEmulator = !!(
-    process.env.FIREBASE_AUTH_EMULATOR_HOST || process.env.FIRESTORE_EMULATOR_HOST
-  );
-  if (!isEmulator && !isVerifiedGoogleIdentity(decoded)) {
-    return "forbidden";
+export async function ensureAdminAccess(idToken: string, now: number = Date.now()): Promise<AdminAccess> {
+  const auth = adminAuth();
+  const decoded = await auth.verifyIdToken(idToken, true);
+  const account = await auth.getUser(decoded.uid);
+  // AUTHENTICATION: which sign-ins the door trusts at all (rules 2 and 4).
+  const verdict = judgeSignIn({ token: decoded, account, now });
+  if (verdict.kind === "remove") {
+    // Remove only an account whose address could get in. Someone on no list who signs in again
+    // later fails rule 4 too, but their account can never hold anything of ours: refuse it as
+    // before, without deleting it or counting it as a removal (the alert watches removals).
+    const could = isAllowedAdmin(decoded.email, decoded.hd as string | undefined, verdict.provider);
+    if (could === "google_only") return "google_only";
+    if (could !== "allowed") return "forbidden";
+    await removeAccount(decoded.uid, account.email, verdict);
+    return "sign_in_again";
+  }
+  if (verdict.kind === "refuse") {
+    if (verdict.reason === "trojan" || verdict.reason === "provider_email_changed") {
+      logAuthEvent("auth_sign_in_refused", verdict.reason, verdict.provider, account.email);
+    }
+    return verdict.reason === "email_not_verified" && verdict.provider === "password"
+      ? "email_not_verified"
+      : "forbidden";
+  }
+  if (verdict.renamedEmail !== undefined) {
+    return moveToRenamedAddress(decoded.uid, account.email, verdict.renamedEmail, decoded.hd as string | undefined);
   }
   // AUTHORIZATION: which tenant/role this verified identity gets.
-  if (!isAllowedAdmin(decoded.email, decoded.hd as string | undefined)) {
-    // FUTURE(self-service): a verified Google identity that is NOT on the
-    // internal operator allowlist should be routed to a tenant-creation
-    // onboarding flow (provisioning their OWN tenant) rather than forbidden.
-    // Until that lands we fail closed, so widening the allowlist can never
-    // silently drop a stranger into the bootstrap tenant as admin.
+  const listed = isAllowedAdmin(decoded.email, decoded.hd as string | undefined, verdict.provider);
+  if (listed === "google_only") return "google_only";
+  if (listed === "self_serve") {
+    // FUTURE(self-service): the self-serve seam. A verified identity on no admin list, while
+    // self-serve sign-up is open, will be routed to creating its OWN tenant here. Unreachable
+    // today (isSelfServeSignupOpen is false until self-serve brand creation ships), and it
+    // fails closed, so widening anything can never drop a stranger into the bootstrap tenant.
     return "forbidden";
   }
+  if (listed !== "allowed") return "forbidden";
   if (!decoded.tenant_id || !decoded.region) {
     // The tenant a first-time admin joins. No default: a deployment names its own.
     const tenantId = process.env.ADMIN_BOOTSTRAP_TENANT_ID?.trim();
     if (!tenantId) return "not_set_up";
+    const googleId = googleIdAtBootstrap(account);
     await auth.setCustomUserClaims(decoded.uid, {
       tenant_id: tenantId,
       region: process.env.ADMIN_BOOTSTRAP_REGION ?? "us",
       role: "admin",
+      ...(googleId === null ? {} : { [GOOGLE_ID_CLAIM]: googleId }),
     });
     return "needs_refresh";
   }
+  await backfillGoogleId(decoded.uid, account, googleIdToBackfill(decoded, account, verdict));
   return "ready";
+}
+
+/**
+ * An established admin whose Google address was renamed (same Google account id, judged in
+ * ./trust.ts): check the NEW address against the admin lists, then move the account to it. Moving
+ * the email revokes the account's tokens (Firebase moves tokensValidAfterTime), so this sign-in
+ * can't be refreshed into a session: the answer is "address_updated", and the admin's next Google
+ * sign-in carries the new address and gets in. Not allowed, or another account already has the
+ * address: refused, and nothing changes. Logs carry the old and new domains only.
+ */
+async function moveToRenamedAddress(
+  uid: string,
+  oldEmail: string | undefined,
+  newEmail: string,
+  hostedDomain: string | undefined,
+): Promise<AdminAccess> {
+  if (isAllowedAdmin(newEmail, hostedDomain, "google.com") !== "allowed") return "forbidden";
+  const domains = { newEmailDomain: emailDomain(newEmail) };
+  try {
+    await adminAuth().updateUser(uid, { email: newEmail, emailVerified: true });
+  } catch (err) {
+    const code = (err as { code?: unknown } | null)?.code;
+    if (code === "auth/email-already-exists") {
+      logAuthEvent("auth_google_rename_conflict", "email_already_exists", "google.com", oldEmail, domains);
+      return "forbidden";
+    }
+    logAuthEvent("auth_google_rename_failed", "update_failed", "google.com", oldEmail, {
+      ...domains,
+      errorCode: typeof code === "string" ? code : "unknown",
+    });
+    throw err;
+  }
+  logAuthEvent("auth_google_address_renamed", "same_google_account", "google.com", oldEmail, domains);
+  return "address_updated";
+}
+
+/**
+ * Record the Google account id on an account set up before the door recorded one, merged into
+ * its claims (none dropped). The door reads it from the account, so no token refresh is needed.
+ * A failure doesn't keep the admin out: the next Google sign-in tries again.
+ */
+async function backfillGoogleId(uid: string, account: AccountFacts, googleId: string | null): Promise<void> {
+  if (googleId === null) return;
+  try {
+    await adminAuth().setCustomUserClaims(uid, { ...(account.customClaims ?? {}), [GOOGLE_ID_CLAIM]: googleId });
+  } catch (err) {
+    const code = (err as { code?: unknown } | null)?.code;
+    logAuthEvent("auth_google_id_record_failed", "set_claims_failed", "google.com", account.email, {
+      errorCode: typeof code === "string" ? code : "unknown",
+    });
+  }
+}
+
+/**
+ * Rule 4: delete an Auth account the door can't trust on its first sign-in. It holds no
+ * claims and no data of ours yet, and deleting (not cleaning) it is what stops any code
+ * a squatter saved for it from working later.
+ */
+async function removeAccount(
+  uid: string,
+  email: string | undefined,
+  verdict: Extract<TrustVerdict, { kind: "remove" }>,
+): Promise<void> {
+  try {
+    await adminAuth().deleteUser(uid);
+  } catch (err) {
+    const code = (err as { code?: unknown } | null)?.code;
+    // Already gone (a second door call for the same sign-in got there first): removed all the same.
+    if (code !== "auth/user-not-found") {
+      logAuthEvent("auth_account_remove_failed", verdict.reason, verdict.provider, email, {
+        errorCode: typeof code === "string" ? code : "unknown",
+      });
+      throw err;
+    }
+  }
+  logAuthEvent("auth_account_removed", verdict.reason, verdict.provider, email, {
+    accountAgeSeconds: verdict.accountAgeSeconds,
+  });
+}
+
+/**
+ * One structured line for Cloud Logging (a JSON line becomes jsonPayload, so an alert can
+ * match `jsonPayload.event`). Carries the address's domain only, never the address.
+ */
+function logAuthEvent(
+  event: string,
+  reason: string,
+  provider: string,
+  email: string | undefined,
+  extra: Record<string, unknown> = {},
+): void {
+  console.warn(
+    JSON.stringify({
+      severity: "WARNING",
+      message: `[auth] ${event}`,
+      event,
+      reason,
+      provider,
+      emailDomain: emailDomain(email),
+      ...extra,
+    }),
+  );
+}
+
+/**
+ * Sign out everywhere: revoke every refresh token the account holds. Every session cookie
+ * minted before now then fails verifySessionCookie(checkRevoked), and every device must
+ * sign in again. The caller clears this browser's cookies with destroySession.
+ */
+export async function revokeAllSessions(uid: string): Promise<void> {
+  await adminAuth().revokeRefreshTokens(uid);
 }
 
 /** Exchange a freshly-minted ID token for a long-lived session cookie. */
 export async function createSession(idToken: string): Promise<void> {
-  const cookie = await getAuth(adminApp()).createSessionCookie(idToken, {
+  const cookie = await adminAuth().createSessionCookie(idToken, {
     expiresIn: SESSION_TTL_MS,
   });
   const jar = await cookies();
@@ -176,7 +302,7 @@ export async function getHomeAdminContext(): Promise<TenantContext | null> {
   const session = jar.get(SESSION_COOKIE)?.value;
   if (!session) return null;
   try {
-    const decoded = await getAuth(adminApp()).verifySessionCookie(session, true);
+    const decoded = await adminAuth().verifySessionCookie(session, true);
     const claims: VerifiedClaims = {
       uid: decoded.uid,
       tenant_id: decoded.tenant_id as string | undefined,

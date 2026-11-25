@@ -2,10 +2,10 @@ import { applicationDefault, getApps, initializeApp, type App } from "firebase-a
 import { getAuth, type Auth } from "firebase-admin/auth";
 
 /**
- * Firebase Auth on the server, for looking team members up by user id (their names on history
- * screens). Reuses the app the session or the database already started, else starts it as
- * src/lib/auth/session.ts does: the emulators' demo project locally, Application Default
- * Credentials elsewhere.
+ * Firebase Auth on the server: the door (./session.ts), the emailed code (./emailCode.ts), the
+ * clean-up of unconfirmed accounts (./cleanup.ts) and team-name lookups. Reuses the app the
+ * database already started, else starts one: the emulators' demo project locally, Application
+ * Default Credentials elsewhere.
  */
 function app(): App {
   const existing = getApps()[0];

@@ -4,6 +4,161 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0014 · Email and password sign-in behind one door (2026-11-24)
+
+Context: the admin app signed in with Google only (ADR-0003), enforced in `ensureAdminAccess`.
+Someone on `ADMIN_ALLOWED_EMAILS` without a Google account couldn't sign in at all. Passwords bring
+risks Google sign-in doesn't have: anyone can create a password account for an address they don't
+own (a squat), link their own login to it (a trojan), or get the mailbox owner to confirm it for
+them. YouGrow already gives an account its brand, role and session in one place: every read and
+write goes through the server behind one session cookie, and the Firestore rules deny every
+browser read and write. So the new checks go in that one place too, and need no new service.
+
+Decided, behind `PASSWORD_SIGNIN_ENABLED` (off: sign-in is Google only, as before). Five rules:
+
+1. **One door.** Only `/api/auth/session` (`ensureAdminAccess` in `src/lib/auth/session.ts`) gives
+   an account claims (tenant, region, role) or a session cookie. Verifying tokens, session cookies,
+   custom claims, revoking and deleting Auth users happen only in `src/lib/auth/**`, plus the local
+   seed `src/lib/dev/seedAdmin.ts`. `src/lib/auth/oneDoor.test.ts` fails when any other file in
+   `src` does one of these or imports `firebase-admin/auth`.
+2. **Nothing for an unconfirmed address.** The door accepts Google and password sign-ins only, and
+   refuses an account whose email isn't verified, or that carries a sign-in for another address (a
+   trojan): the token's email must be the account's, and every linked sign-in must be Google or
+   password for the account's own address. A password account that hasn't confirmed its code gets
+   403 `email_not_verified`. One mismatch is let in: the same Google account under a new address
+   (a Workspace rename). The door remembers each admin's Google account id, which Google never
+   changes, in the custom claim `google_id`: set with the other claims at the first sign-in, and
+   added at the next Google sign-in for accounts made before it (never at a password sign-in). On an
+   established account, a Google sign-in with the account's own email, whose only linked Google
+   sign-in now carries another address, passes as a rename when that sign-in's id, the token's
+   Google identity and the remembered `google_id` are all the same. The new address is then checked
+   against the admin list like any other (not allowed: refused, nothing changed). Allowed, the
+   account's address becomes the new one (`emailVerified` stays true), `auth_google_address_renamed`
+   is logged with the old and new domains only. Firebase treats an email change as a major account
+   change and revokes the account's tokens, this sign-in's and every other device's session, so a
+   refreshed token can't come back through the door. The door answers 409 `address_updated`
+   instead: the browser signs out of Firebase and says the Google address changed, and the
+   admin's next Google sign-in carries the new address and gets in as usual. If another account
+   already has the new address, it is refused and logged as `auth_google_rename_conflict`; any
+   other failure to update the account is logged as `auth_google_rename_failed`, and failing to
+   record the id as `auth_google_id_record_failed` (the sign-in still goes ahead).
+3. **Prove the mailbox in the same tab.** A password account is confirmed only by typing the emailed
+   6 digit code into a browser signed in to that account. The check route then sets `emailVerified`
+   and the custom claim `email_code` (the marker).
+4. **Distrust a first sign-in we can't explain.** On an account's first visit (no `tenant_id` claim
+   yet) it passes only if it is untouched (`tokensValidAfterTime` absent or within 1 second of
+   `creationTime`: no reset, password change or takeover since it was made) and either has the
+   marker, or Google created it in this same sign-in (`creationTime` within 3 seconds of the
+   token's `auth_time`). Both windows are tight on purpose: Firebase writes these times to the
+   second, and someone can register an address again the moment the door removes a squat, so the
+   owner's retry must not count as having created that new squat. The token's sign-in method must
+   also still be linked to the account. Anything else is deleted, logged as `auth_account_removed`
+   with the address's domain only, and answered 409 `sign_in_again`, but only when the address
+   could get in: an address on no list is refused as before, kept, and not counted as a removal. Deleted, not cleaned: a code a squatter saved
+   for the account (to change its email, say) still works after a clean-up and stops only once the
+   account is deleted. Deleting is safe because the account holds nothing of ours yet. A trojan on
+   an established account is refused and kept, logged as `auth_sign_in_refused`. When it has the
+   shape of a rename (rule 2) but no Google id is remembered for the account, the reason is
+   `provider_email_changed`; a remembered id that doesn't match is a `trojan`. First sign-ins are
+   unchanged: a trojan there is removed, renamed or not. The judgement is one pure function,
+   `judgeSignIn` in `src/lib/auth/trust.ts`, with a table test.
+5. **Passwords stay with Identity Platform.** Sign-up, sign-in, reset and change password go from
+   the browser to Identity Platform. Our server never receives, logs or stores a password.
+
+The owner's decisions, D1 to D7, all as recommended:
+- **D1: a code, not a link.** With a link, the mailbox owner can click Confirm on an account a
+  stranger created and set the password for, which here would hand the stranger an address on the
+  admin list. A code typed into the tab that holds the password closes that, keeps people in one
+  tab, and needs no action page of ours. Codes are 6 digits, stored hashed, work for 10 minutes and
+  5 tries, one live code per account, limited per visitor, account and address, and sent only to
+  addresses that may get in (the answer is the same either way). Each address also has a hard cap
+  kept in the database: 6 sends an hour, and 15 wrong codes a day, after which its codes lock
+  (POST answers 429 `code_locked`, PUT answers 400 `code_locked`, and `auth_code_locked` is logged
+  once, with the domain only).
+  **The link, only once the code is locked.** The code screen then offers "Email me a link
+  instead" (`POST /api/auth/email-code` with `via: "link"`). The link holds 32 random bytes, so it
+  can't be guessed and needs no cap on wrong tries; it goes through the same gate and limits as a
+  code and counts toward the address's 6 sends an hour, but the lock doesn't stop it. It is built
+  only from `NEXT_PUBLIC_PLATFORM_ORIGIN`, never a request header (none set: 503
+  `link_unavailable`), with the token in the fragment (`/login/confirm#t=...`), which browsers
+  never send to a server. It is stored hashed with the account's uid and address in
+  `email_confirm_links`, so it works only in a browser signed in to that account (the page asks
+  for the email and password first); that keeps D1's point, since a stranger's account can't be
+  confirmed by the mailbox owner clicking. It works once, for 30 minutes, one live link per
+  account. `PUT` with `link` confirms the account exactly as a right code does; anything else is
+  400 `link_invalid`.
+- **D2: Firebase sends the reset email.** No reset route, template, rate limit or timing pad of
+  ours. Its link lands on `/auth/reset`, which finishes the reset in the browser. Safe because a
+  reset revokes the account's tokens, so rule 4 removes an account reset before its first sign-in.
+- **D3: the domain list stays Google only.** `ADMIN_ALLOWED_DOMAINS` matches Google sign-ins only;
+  a password account needs its exact address on `ADMIN_ALLOWED_EMAILS`. A password sign-in allowed
+  only through the domain list gets 403 `google_only` (`isAllowedAdmin` in
+  `src/lib/auth/allowlist.ts` takes the sign-in method).
+- **D4: passwords of at least 12 characters,** set in Identity Platform's password policy and
+  checked in the form first.
+- **D5: unconfirmed password accounts go after 7 days,** in the existing scheduled work
+  (`src/lib/auth/cleanup.ts`). They can never sign in and hold nothing of ours. Until
+  `PASSWORD_CLEANUP_DELETE_ENABLED` is on it only logs what it would delete.
+- **D6: the self-serve switch ships inert.** `SELF_SERVE_SIGNUP_ENABLED` does nothing until
+  self-serve brand creation exists (`isSelfServeSignupOpen` in `src/lib/auth/flags.ts` is false
+  whatever the switch says). The door's self-serve seam refuses, so turning the switch on early
+  can't drop anyone into an existing brand.
+- **D7: email enumeration protection on, one account per email, and reCAPTCHA bot protection in
+  audit mode at go-live,** moved to enforce after a week of its numbers.
+
+Also in this change:
+- **Three alerts,** made by the self-host `addon:password` step from the app's logs and emailed to
+  one recipient: many password sign-ups, accounts removed at sign-in, and sign-in codes locked
+  (`auth_code_locked`, any in an hour).
+- **Sign out everywhere,** `DELETE /api/auth/session?scope=everywhere`: same origin, needs a valid
+  session, revokes every refresh token the account holds (so every session cookie made before it
+  fails `verifySessionCookie` with the revocation check), then clears this browser's cookies. Not
+  behind the switch. This also covers ADR-0003's open item: a revoke now exists to call.
+- **The door verifies tokens with the revocation check** and reads the account as Auth holds it
+  now, so a reset or a sign out everywhere takes effect at the door at once.
+- **The local run has no bypass.** The emulator-only skip of the Google check is gone; the seeded
+  demo admin is verified, has its claims, and links password and Google for its own address, so
+  `npm run local` and the smoke test pass the same checks as a deployment.
+
+What it replaces in ADR-0003: the "Google Sign-In ... Google-only, no email/password in the UI"
+line, the provider check `isVerifiedGoogleIdentity` (now `judgeSignIn`) with its emulator bypass,
+and the reminder to keep Email/Password sign-in disabled on the production Identity Platform
+project. A deployment turns the provider on when it turns `PASSWORD_SIGNIN_ENABLED` on, and not
+before. The rest of ADR-0003 stands: the claims bootstrap, the session cookie, and a tenant context
+taken only from verified claims.
+
+Accepted risks:
+- A squat made within a second or so of the owner's very first Google sign-in can pass rule 4,
+  when Google's takeover of the account falls inside the windows. A test on a real project
+  confirms Firebase writes these times as rule 4 expects.
+- Creating an account with an address that already has one says so, even with enumeration
+  protection on (Identity Platform documents this). reCAPTCHA and a sign-up volume alert watch it.
+- Someone refused at the door and added to a list later signs in twice: the account from their
+  first try is removed as unexplained, and the next sign-in starts afresh.
+- A Google account on a mailbox Google doesn't run, where a password account for the address
+  already exists, is told to use the password: Google treats only its own mail as proof of an
+  address.
+- Someone holding an account for an address can use up its 6 sends an hour, codes and links
+  alike. The answer stays the same, and the limit resets within the hour. Locking the address's
+  codes no longer shuts out the owner: the link still works, and the alert says it happened.
+- An admin whose Google address was renamed before their Google id was remembered is still
+  refused, logged as `auth_sign_in_refused` with reason `provider_email_changed`, until someone
+  fixes the account by hand.
+- Moving a renamed Google admin to the new address revokes every sign-in the account holds, as
+  any email change does in Firebase: they are signed out on every device, and the first Google
+  sign-in after the rename ends at a message that the address changed; the next one gets in.
+- The reset link's code appears in request logs, because Firebase puts it in the query string. The
+  page scrubs it from the address bar at once, and the code works once and expires.
+
+Rejected: an auth service or Cloud Functions (a sign-up trigger, a nightly reaper), since the app
+already has one door; confirming by link alone (D1); our own reset email (D2); password sign-in for whole
+domains (D3).
+
+Not built: adding a password from Settings to a Google only account (Forgot password does it),
+changing your email, two-factor, passkeys, single sign-on, languages other than English.
+
+---
+
 ## ADR-0013 · Search Console queries are Google's aggregates, so they may enter brand search (decision 37) (2026-11-23)
 
 Context: Connectors 2 group 3 (ADR-0012) puts each Search Console connection's top searches into
@@ -2227,6 +2382,8 @@ Adversarial review (post-build) findings, all addressed:
   manage signups; only NEW grants happen). Before shipping admin-only surfaces
   (org/billing), call `revokeRefreshTokens(uid)` on downgrade or re-read live
   claims for privileged actions.
+
+Superseded in part by ADR-0014 (email and password sign-in behind one door).
 
 ---
 

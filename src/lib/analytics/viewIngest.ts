@@ -128,33 +128,9 @@ export function buildWidgetViewRow(
   };
 }
 
-/** Loose IPv4/IPv6 literal check — rejects spoofed non-IP junk used as a key. */
-export function isIpLiteral(s: string): boolean {
-  if (!s) return false;
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(s)) {
-    return s.split(".").every((o) => Number(o) <= 255);
-  }
-  return s.includes(":") && /^[0-9a-fA-F:.]+$/.test(s); // loose IPv6
-}
-
-/**
- * Best-effort client IP for rate-limit keying. Returns the first VALID IP literal
- * in x-forwarded-for (else x-real-ip), folding spoofed non-IP junk to a single
- * "unknown" bucket so an attacker can't mint a fresh bucket per garbage value.
- * XFF is client-influenced, so this is best-effort only — the IP-INDEPENDENT
- * per-tenant caps in the route are the real resource backstop (see route.ts).
- */
-export function clientIp(headers: Headers): string {
-  const xff = headers.get("x-forwarded-for");
-  if (xff) {
-    for (const hop of xff.split(",")) {
-      const ip = hop.trim();
-      if (isIpLiteral(ip)) return ip;
-    }
-  }
-  const real = headers.get("x-real-ip")?.trim();
-  return real && isIpLiteral(real) ? real : "unknown";
-}
+// The visitor's address now lives in src/lib/http/clientIp.ts (shared by every route that limits
+// per visitor); re-exported so existing imports keep working.
+export { clientIp, isIpLiteral } from "@/lib/http/clientIp";
 
 // --- in-process abuse state (per instance; documented single-instance caveat) -
 

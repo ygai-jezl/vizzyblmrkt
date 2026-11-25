@@ -288,16 +288,38 @@ function randomSuffix(): string {
 }
 
 /**
+ * The organisation id a brand's organisation of its own would take up again: its org_<tenantId>,
+ * when that exists and lists no brands (a move left it empty). Null when there is none to take up.
+ * Before anything takes one up (Move out, move-brand --to new, the backfill, a new brand), the
+ * caller disconnects every organisation connection still kept under it, in every region, so a
+ * later claimant of the id never inherits a sign in (Connectors 3 pick 21), and passes the id as
+ * moveBrandToNewOrganisation's `takeUp`. A read error throws.
+ */
+export async function reusableOrganisationId(tenantId: string, db: FirestoreLike = defaultDb()): Promise<string | null> {
+  const id = organisationIdFor(tenantId);
+  const snap = await db.collection(ORGANISATIONS).doc(id).get();
+  return snap.exists && idsOf(snap.data()?.brandIds).length === 0 ? id : null;
+}
+
+/**
  * Split a brand back out into an organisation of its own, on `plan` (undoing a combine). The new
  * organisation is org_<tenantId> when that is absent or empty, else org_<tenantId>_<6 characters>.
  * The organisation it leaves is kept. A brand already alone in its organisation stays put
  * (moved: false). Null when there is no such brand.
+ *
+ * Move out (Connectors 3 group 4) also passes:
+ * - `expectFrom`: the organisation the brand must still be in, whose owners the caller checked; a
+ *   brand moved meanwhile is left where it is (moved: false, changed: true);
+ * - `takeUp`: the one existing empty organisation it may take up again, the one whose connections
+ *   the caller has just disconnected (reusableOrganisationId), or null for none: any other
+ *   existing organisation is passed over for a new id, so a move never takes up an id that may
+ *   still carry a sign in.
  */
 export async function moveBrandToNewOrganisation(
   tenantId: string,
-  opts: { plan: PlanId; actor: string; ownerIds?: string[] },
+  opts: { plan: PlanId; actor: string; ownerIds?: string[]; expectFrom?: string; takeUp?: string | null },
   db: FirestoreLike = defaultDb(),
-): Promise<{ organisationId: string; moved: boolean } | null> {
+): Promise<{ organisationId: string; moved: boolean; changed?: true } | null> {
   const plan = checkPlan(opts.plan);
   const ownerIds = cleanOwners(opts.ownerIds);
   const brandRef = db.collection(TENANTS).doc(tenantId);
@@ -305,15 +327,18 @@ export async function moveBrandToNewOrganisation(
     const brandSnap = await tx.get(brandRef);
     if (!brandSnap.exists) return null;
     const fromId = organisationIdOf(brandSnap);
+    if (opts.expectFrom !== undefined && fromId !== opts.expectFrom) return { organisationId: fromId ?? "", moved: false, changed: true };
     const fromRef = fromId ? db.collection(ORGANISATIONS).doc(fromId) : null;
     const fromSnap = fromRef ? await tx.get(fromRef) : null;
     const fromBrands = fromSnap?.exists ? idsOf(fromSnap.data()?.brandIds) : [];
     if (fromId && fromBrands.length === 1 && fromBrands[0] === tenantId) return { organisationId: fromId, moved: false };
 
-    // Find the target, reading every candidate before any write.
+    // Find the target, reading every candidate before any write. An existing one is taken up only
+    // when it is empty and, with `takeUp` given, is the one the caller cleared.
+    const taken = (snap: DocSnapLike) => snap.exists && (idsOf(snap.data()?.brandIds).length > 0 || (opts.takeUp !== undefined && snap.id !== opts.takeUp));
     let targetRef: DocRefLike = db.collection(ORGANISATIONS).doc(organisationIdFor(tenantId));
     let targetSnap = await tx.get(targetRef);
-    for (let tries = 0; targetSnap.exists && idsOf(targetSnap.data()?.brandIds).length > 0; tries += 1) {
+    for (let tries = 0; taken(targetSnap); tries += 1) {
       if (tries >= 5) throw new Error(`no free organisation id for ${tenantId}`);
       targetRef = db.collection(ORGANISATIONS).doc(`${organisationIdFor(tenantId)}_${randomSuffix()}`);
       targetSnap = await tx.get(targetRef);

@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forTenant, getOrganisationConnection } from "@/lib/tenant";
 import { timestampFirestore } from "@/lib/tenant/testing/timestampFirestore";
 import type { Region } from "@/lib/types/tenant";
-import { bringBrandIn, narrowerOf, organisationBrandsScreen } from "./organisationBrands";
+import { sealConnectorSecret } from "./vault";
+import { bringBrandIn, moveBrandOut, narrowerOf, organisationBrandsScreen } from "./organisationBrands";
 import { organisationOwnerOf, type OrganisationOwner } from "./organisationOwner";
 import { EU_BRAND, ORG, OCN, orgWorld, seedFernhill, seedPart, seedSource, seedTenant, T0, US_BRAND, type OrgWorld } from "./testing/organisation";
 
@@ -123,7 +124,7 @@ describe("Bring in", () => {
     await seedPart(w, fernSource, US_BRAND, { useId: "dcn_uuuuuuuuuuuuuuuuuuuu", account: "0123456789abcdef0123456789abcd02" });
 
     const r = await bringBrandIn(owner, "ten_cafe", deps());
-    expect(r).toEqual({ ok: true, status: 200, value: { message: "Fernhill Cafe joined Fernhill Group.", ended: 1, disconnected: 1 } });
+    expect(r).toEqual({ ok: true, status: 200, value: { message: "Fernhill Cafe joined Fernhill Group.", organisationId: ORG, ended: 1, disconnected: 1 } });
     expect(w.us.raw("tenants", "ten_cafe")).toMatchObject({ organisationId: ORG, orgPlan: "ultra" });
     expect(w.us.raw("organisations", ORG)?.brandIds).toEqual([EU_BRAND.tenantId, US_BRAND.tenantId, "ten_cafe"]);
     // The part ended in the brand's own region, and what it collected is waiting to be erased.
@@ -165,5 +166,80 @@ describe("Bring in", () => {
 
   it("refuses a brand already in the organisation", async () => {
     expect(await bringBrandIn(owner, US_BRAND.tenantId, deps())).toMatchObject({ ok: false, status: 409, error: "already" });
+  });
+});
+
+describe("Move out", () => {
+  const changes = () => Object.values(w.us.dump("organisation_changes")) as Array<Record<string, unknown>>;
+
+  it("moves a brand out to one of its own on the same plan, with Priya its only owner, and ends its part; the connections stay in Europe for the others", async () => {
+    // Fernhill Group had another owner too: the new organisation never inherits them.
+    seedOrg(ORG, "Fernhill Group", "ultra", [EU_BRAND.tenantId, US_BRAND.tenantId], ["usr_priya", "usr_alex"]);
+    const again = await organisationOwnerOf(owner.ctx, owner.person, { controlDb: w.us });
+    if (!again.ok) throw new Error(again.why);
+    const source = await seedSource(w);
+    await seedPart(w, source, US_BRAND, { useId: "dcn_uuuuuuuuuuuuuuuuuuuu", account: "0123456789abcdef0123456789abcd02" });
+    await seedPart(w, source, EU_BRAND, { useId: "dcn_eeeeeeeeeeeeeeeeeeee", account: "0123456789abcdef0123456789abcd01" });
+
+    const r = await moveBrandOut(again.owner, US_BRAND.tenantId, deps());
+    expect(r).toEqual({
+      ok: true,
+      status: 200,
+      value: { message: "Fernhill US has an organisation of its own now, on Ultra, with you as its only owner.", organisationId: "org_ten_fernhill-us", ended: 1, disconnected: 0 },
+    });
+    expect(w.us.raw("organisations", "org_ten_fernhill-us")).toMatchObject({ plan: "ultra", brandIds: [US_BRAND.tenantId], ownerIds: ["usr_priya"], createdBy: "usr_priya" });
+    expect(w.us.raw("tenants", US_BRAND.tenantId)).toMatchObject({ organisationId: "org_ten_fernhill-us", orgPlan: "ultra" });
+    expect(w.us.raw("organisations", ORG)?.brandIds).toEqual([EU_BRAND.tenantId]);
+    // The part ended in the brand's own region (the United States); the sign in stays in Europe, serving Fernhill Plants.
+    expect(await forTenant({ ...US_BRAND, source: "system" }, w.us).dataConnections.getById("dcn_uuuuuuuuuuuuuuuuuuuu")).toMatchObject({ status: "disconnected" });
+    const kept = await getOrganisationConnection(ORG, OCN, "eu", { regionDb: w.regionDb });
+    expect(kept?.status).toBe("connected");
+    expect(kept?.parts.map((p) => [p.tenantId, p.state])).toEqual([[EU_BRAND.tenantId, "active"]]);
+    expect(changes().filter((c) => c.kind === "brand.left")).toEqual([expect.objectContaining({ organisationId: ORG, tenantId: US_BRAND.tenantId, to: "org_ten_fernhill-us", actor: "usr_priya" })]);
+  });
+
+  it("takes an emptied id up again only after disconnecting what it still holds: no live connection, no secret to open", async () => {
+    vi.stubEnv("CONNECTORS_VAULT_KEY", "brands-test-vault-root-0123456789abcdef");
+    // org_ten_fernhill-us was left empty by an earlier move, holding a token another owner pasted.
+    seedOrg("org_ten_fernhill-us", "Old Fernhill US", "pro", [], ["usr_old"]);
+    const old = "ocn_oooooooooooooooooooo";
+    await seedSource(w, { id: old, organisationId: "org_ten_fernhill-us", region: "us", connectedFromTenantId: US_BRAND.tenantId, secrets: { token: sealConnectorSecret("org_ten_fernhill-us", old, "token", "made-up-old-token", new Date(T0)) } });
+
+    const r = await moveBrandOut(owner, US_BRAND.tenantId, deps());
+    expect(r).toMatchObject({ ok: true, value: { organisationId: "org_ten_fernhill-us" } });
+    const was = await getOrganisationConnection("org_ten_fernhill-us", old, "us", { regionDb: w.regionDb });
+    expect(was).toMatchObject({ status: "disconnected", secrets: {} });
+    expect(w.us.raw("organisations", "org_ten_fernhill-us")).toMatchObject({ ownerIds: ["usr_priya"], plan: "ultra", brandIds: [US_BRAND.tenantId] });
+  });
+
+  it("refuses, with nothing moved, when what an emptied id holds can't be read", async () => {
+    seedOrg("org_ten_fernhill-us", "Old Fernhill US", "pro", [], ["usr_old"]);
+    const broken = { ...deps(), regionDb: (r: Region) => (r === "asia" ? ({ collection: () => { throw new Error("unavailable"); } } as never) : w.regionDb(r)) };
+    expect(await moveBrandOut(owner, US_BRAND.tenantId, broken)).toMatchObject({ ok: false, status: 503, error: "busy" });
+    expect(w.us.raw("tenants", US_BRAND.tenantId)).toMatchObject({ organisationId: ORG });
+  });
+
+  it("refuses the brand Priya reaches only as her home brand, naming why", async () => {
+    const r = await moveBrandOut(owner, EU_BRAND.tenantId, deps());
+    expect(r).toMatchObject({
+      ok: false,
+      status: 403,
+      error: "home_only",
+      message: "You can't move Fernhill Plants out here. Moves need you on Fernhill Plants' team as an admin, and you reach Fernhill Plants as the brand you first signed in with. Ask whoever runs YouGrow to add you to its team, or to move it for you.",
+    });
+    expect(w.us.raw("tenants", EU_BRAND.tenantId)).toMatchObject({ organisationId: ORG });
+  });
+
+  it("moves the brand Priya is in once she has a row, and refuses a brand alone or in another organisation", async () => {
+    row("usr_priya", EU_BRAND.tenantId);
+    expect(await moveBrandOut(owner, "ten_cafe", deps())).toMatchObject({ ok: false, status: 404 });
+    expect(await moveBrandOut(owner, "ten_otto", deps())).toMatchObject({ ok: false, status: 403, error: "not_owner_there" });
+    const moved = await moveBrandOut(owner, EU_BRAND.tenantId, deps());
+    // Its own org_ten_fernhill is Fernhill Group itself, which still lists Fernhill US: a new id.
+    expect(moved.ok && moved.value.organisationId).toMatch(/^org_ten_fernhill_[a-z0-9]{6}$/);
+    expect(w.us.raw("organisations", ORG)?.brandIds).toEqual([US_BRAND.tenantId]);
+    const alone = await organisationOwnerOf(owner.ctx, owner.person, { controlDb: w.us });
+    if (!alone.ok) throw new Error(alone.why);
+    expect(await moveBrandOut(alone.owner, EU_BRAND.tenantId, deps())).toMatchObject({ ok: false, status: 409, error: "alone" });
   });
 });

@@ -1321,6 +1321,7 @@ export const BRANDS_COPY = {
   changed: "That brand moved since this page loaded. Reload the page and try again.",
   notOwnerThere: "Moves need you as an owner of the organisation the brand is in now. Ask one of its owners.",
   alone: "This brand is the only one in its organisation, so it has one of its own already.",
+  busy: "That didn't go through. Nothing moved. Try again in a minute.",
   failed: "The Brands section didn't load. Reload the page in a minute.",
   help: "Help: Brands in your organisation",
 } as const;

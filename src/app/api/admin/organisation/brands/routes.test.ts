@@ -10,7 +10,7 @@ vi.mock("@/lib/tenant/searchIndex", async () => {
 });
 
 // The organisation brands routes (Connectors 3 group 4, ORGANISATION_JOIN_ENABLED): the Brands
-// section and Bring in. Fernhill Group [made up] has Fernhill Plants (Europe), Priya's home brand
+// section, Bring in and Move out. Fernhill Group [made up] has Fernhill Plants (Europe), Priya's home brand
 // (claims, no tenant_users row), and Fernhill US (United States, an admin row). Priya also owns
 // Fernhill Cafe's own organisation and has an admin row there. Leo is an admin of Fernhill Plants
 // who isn't an owner; Sam is a member. One fake database per region, with (default) the United
@@ -24,6 +24,7 @@ vi.mock("@/lib/tenant/firestore", async (importOriginal) => ({
 }));
 
 const brands = await import("./route");
+const moveOut = await import("./[tenantId]/move-out/route");
 const { createOrganisationConnection, forTenant, getOrganisationConnection, givePart } = await import("@/lib/tenant");
 
 const ORIGIN = "https://app.yougrow.test";
@@ -52,6 +53,12 @@ function req(method: string, body?: unknown, headers: Record<string, string> = {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 }
+
+const out = (tenantId: string, headers: Record<string, string> = {}) =>
+  moveOut.POST(
+    new Request(`${ORIGIN}/api/admin/organisation/brands/${tenantId}/move-out`, { method: "POST", headers: { host: "app.yougrow.test", ...headers } }),
+    { params: Promise.resolve({ tenantId }) },
+  );
 
 function seed() {
   const tenant = (id: string, name: string, region: string, organisationId: string, orgPlan: string) =>
@@ -153,6 +160,7 @@ describe("the organisation brands routes: who gets in", () => {
       vi.stubEnv(off, "false");
       expect((await brands.GET(req("GET"))).status).toBe(404);
       expect((await brands.POST(req("POST", { tenantId: CAFE }))).status).toBe(404);
+      expect((await out(US)).status).toBe(404);
       vi.stubEnv(off, "true");
     }
     expect(session.getAdminContextWithHome).not.toHaveBeenCalled();
@@ -162,10 +170,16 @@ describe("the organisation brands routes: who gets in", () => {
     expect((await brands.POST(req("POST", { tenantId: CAFE }, { origin: "https://elsewhere.example" }))).status).toBe(403);
     as(sam, EU, "member");
     expect((await brands.GET(req("GET"))).status).toBe(403);
+    expect((await out(US, { origin: "https://elsewhere.example" })).status).toBe(403);
+    as(sam, EU, "member");
+    expect((await out(US)).status).toBe(403);
     as(leo, "ten_leo");
     const r = await brands.POST(req("POST", { tenantId: CAFE }));
     expect(r.status).toBe(403);
     expect(us.raw("tenants", CAFE)).toMatchObject({ organisationId: "org_ten_cafe" });
+    // Leo has an admin row for Fernhill Plants but owns nothing: he can't move it out.
+    expect((await out(EU)).status).toBe(403);
+    expect(us.raw("tenants", EU)).toMatchObject({ organisationId: ORG });
   });
 
   it("take no organisation from the body: only the brand", async () => {
@@ -192,7 +206,7 @@ describe("Bring in", () => {
     await seedCafePart();
     const res = await brands.POST(req("POST", { tenantId: CAFE }));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ message: "Fernhill Cafe joined Fernhill Group.", ended: 1, disconnected: 1 });
+    expect(await res.json()).toEqual({ message: "Fernhill Cafe joined Fernhill Group.", organisationId: ORG, ended: 1, disconnected: 1 });
     expect(us.raw("tenants", CAFE)).toMatchObject({ organisationId: ORG, orgPlan: "ultra" });
     expect(await forTenant({ tenantId: CAFE, region: "eu", source: "system" }, eu).dataConnections.getById(USE_CAFE)).toMatchObject({ status: "disconnected" });
     expect((await getOrganisationConnection("org_ten_cafe", OCN_CAFE, "eu", { regionDb: regionDb as never }))?.status).toBe("disconnected");
@@ -210,5 +224,23 @@ describe("Bring in", () => {
       "You can't bring Home Shop in here. Moves need you on Home Shop's team as an admin, and you reach Home Shop as the brand you first signed in with. Ask whoever runs YouGrow to add you to its team, or to move it for you.",
     );
     expect(us.raw("tenants", "ten_home")).toMatchObject({ organisationId: "org_ten_home" });
+  });
+});
+
+describe("Move out", () => {
+  it("moves Fernhill US out to an organisation of its own on Ultra, with Priya its only owner", async () => {
+    const res = await out(US);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ message: "Fernhill US has an organisation of its own now, on Ultra, with you as its only owner.", organisationId: "org_ten_fernhill-us", ended: 0, disconnected: 0 });
+    expect(us.raw("organisations", "org_ten_fernhill-us")).toMatchObject({ plan: "ultra", brandIds: [US], ownerIds: ["usr_priya"] });
+    expect(us.raw("organisations", ORG)?.brandIds).toEqual([EU]);
+  });
+
+  it("refuses Priya's home brand, reached by claims only, and a brand of another organisation", async () => {
+    const res = await out(EU);
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("home_only");
+    expect((await out(CAFE)).status).toBe(404);
+    expect(us.raw("tenants", CAFE)).toMatchObject({ organisationId: "org_ten_cafe" });
   });
 });

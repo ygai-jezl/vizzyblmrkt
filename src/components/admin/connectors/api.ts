@@ -80,9 +80,10 @@ export const ORG_ROUTES = {
 
 const ORG_BRANDS_ROOT = "/api/admin/organisation/brands";
 
-/** The organisation's brands (Connectors 3 group 4): Bring in, by the brand's id. */
+/** The organisation's brands (Connectors 3 group 4): Bring in and Move out, by the brand's id. */
 export const ORG_BRAND_ROUTES = {
   list: ORG_BRANDS_ROOT,
+  moveOut: (tenantId: string) => `${ORG_BRANDS_ROOT}/${encodeURIComponent(tenantId)}/move-out`,
 } as const;
 
 /** Google's address must be Google's own, over https. */

@@ -13,6 +13,7 @@ import {
   organisationDrift,
   organisationIdFor,
   organisationUserIds,
+  reusableOrganisationId,
   scriptActor,
   setOrganisationName,
   setOrganisationOwners,
@@ -344,6 +345,49 @@ describe("organisations", () => {
       expect(await getOrganisation(res!.organisationId, db)).toMatchObject({ plan: "free", brandIds: ["ten_A"], createdBy: "script:ops" });
       expect(db.raw("tenants", "ten_A")).toMatchObject({ organisationId: res!.organisationId, orgPlan: "free" });
       expect(kinds(db)).toEqual(["brand.joined", "brand.left", "organisation.created"]);
+    });
+
+    describe("with Move out's guards (Connectors 3 group 4)", () => {
+      function seeded() {
+        const db = new FakeFirestore();
+        db.seed(ORGANISATIONS, "org_ten_A", org("org_ten_A", { plan: "ultra", brandIds: ["ten_A", "ten_B"], ownerIds: ["usr_old", "usr_priya"] }));
+        db.seed("tenants", "ten_A", brand({ organisationId: "org_ten_A", orgPlan: "ultra" }));
+        db.seed("tenants", "ten_B", brand({ tenantName: "Beta", organisationId: "org_ten_A", orgPlan: "ultra" }));
+        return db;
+      }
+
+      it("leaves a brand that moved since the owners were checked where it is, with no writes", async () => {
+        const db = seeded();
+        expect(await moveBrandToNewOrganisation("ten_B", { plan: "ultra", actor: "usr_priya", ownerIds: ["usr_priya"], expectFrom: "org_ten_C", takeUp: null }, db)).toEqual({ organisationId: "org_ten_A", moved: false, changed: true });
+        expect(db.writeCountFor("tenants", "ten_B")).toBe(0);
+        expect(db.dump(ORGANISATION_CHANGES)).toHaveLength(0);
+      });
+
+      it("passes over an empty org_<id> it wasn't told it may take up, for a new id", async () => {
+        const db = seeded();
+        db.seed(ORGANISATIONS, "org_ten_B", org("org_ten_B", { brandIds: [], ownerIds: ["usr_old"] }));
+        const res = await moveBrandToNewOrganisation("ten_B", { plan: "ultra", actor: "usr_priya", ownerIds: ["usr_priya"], expectFrom: "org_ten_A", takeUp: null }, db);
+        expect(res?.organisationId).toMatch(/^org_ten_B_[a-z0-9]{6}$/);
+        expect(db.raw(ORGANISATIONS, "org_ten_B")).toMatchObject({ brandIds: [], ownerIds: ["usr_old"] });
+        expect(await getOrganisation(res!.organisationId, db)).toMatchObject({ plan: "ultra", brandIds: ["ten_B"], ownerIds: ["usr_priya"] });
+      });
+
+      it("takes up the empty org_<id> it was told it may, with the mover as its only owner", async () => {
+        const db = seeded();
+        db.seed(ORGANISATIONS, "org_ten_B", org("org_ten_B", { brandIds: [], ownerIds: ["usr_old"] }));
+        expect(await reusableOrganisationId("ten_B", db)).toBe("org_ten_B");
+        const res = await moveBrandToNewOrganisation("ten_B", { plan: "ultra", actor: "usr_priya", ownerIds: ["usr_priya"], expectFrom: "org_ten_A", takeUp: "org_ten_B" }, db);
+        expect(res).toEqual({ organisationId: "org_ten_B", moved: true });
+        expect(await getOrganisation("org_ten_B", db)).toMatchObject({ brandIds: ["ten_B"], ownerIds: ["usr_priya"] });
+        expect(db.raw(ORGANISATIONS, "org_ten_A")).toMatchObject({ brandIds: ["ten_A"], ownerIds: ["usr_old", "usr_priya"] });
+        expect(await reusableOrganisationId("ten_B", db)).toBeNull();
+      });
+
+      it("finds no id to take up when org_<id> is absent or lists brands", async () => {
+        const db = seeded();
+        expect(await reusableOrganisationId("ten_B", db)).toBeNull();
+        expect(await reusableOrganisationId("ten_A", db)).toBeNull();
+      });
     });
 
     it("leaves a brand that is already alone where it is, and gives null for an unknown brand", async () => {

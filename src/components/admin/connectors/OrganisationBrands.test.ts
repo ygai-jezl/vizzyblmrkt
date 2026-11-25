@@ -11,7 +11,7 @@ vi.mock("@radix-ui/react-dialog", () => {
   const pass = ({ children }: { children?: ReactNode }) => createElement("div", null, children);
   return { Root: pass, Portal: pass, Overlay: () => null, Content: pass, Title: ({ children }: { children?: ReactNode }) => createElement("h2", null, children), Close: () => null, Description: pass };
 });
-const { BrandsTable, BringInBody, OrganisationBrandsView, bringInState } = await import("./OrganisationBrandsView");
+const { BrandsTable, BringInBody, MoveOutBody, OrganisationBrandsView, bringInState } = await import("./OrganisationBrandsView");
 const W = await import("./words");
 
 // Settings › Organisation › Brands (Connectors 3 group 4), as the approved OrgBrands screens draw
@@ -121,6 +121,40 @@ describe("Bring in a brand you run", () => {
   });
 });
 
+describe("Move out", () => {
+  it("is on each row while the organisation has more than one brand, and on none when it has one", () => {
+    const raw = renderToStaticMarkup(createElement(BrandsTable, { screen: screen() }));
+    expect(raw).toContain('aria-label="Move out Fernhill US"');
+    expect(raw).toContain('aria-label="Move out Fernhill Plants"');
+    const alone = renderToStaticMarkup(createElement(BrandsTable, { screen: screen({ brands: [brand("ten_fernhill", "Fernhill Plants", "Europe", [], { isThis: true })] }) }));
+    expect(alone).not.toContain("Move out");
+  });
+
+  it("says what moving a brand out does: a plan of its own, you its only owner, its part ends", () => {
+    const s = screen();
+    expect(html(createElement(MoveOutBody, { screen: s, b: s.brands[1]!, error: null }))).toContain(
+      "Harbour Blooms gets an organisation of its own on Ultra, the same plan, with you as its only owner. Its site from Fernhill Group stops now, and what was collected through it is deleted.",
+    );
+  });
+
+  it("says the connections connected from it stay where they are kept and keep serving the others", () => {
+    const s = screen();
+    expect(html(createElement(MoveOutBody, { screen: s, b: s.brands[0]!, error: null }))).toContain(
+      "Fernhill Plants gets an organisation of its own on Ultra, the same plan, with you as its only owner. Its 2 parts from Fernhill Group stop now, and what was collected through them is deleted. Fernhill Group's connections stay in Europe and keep serving Harbour Blooms and Fernhill US.",
+    );
+  });
+
+  it("refuses, before anything is pressed, a brand reached only as the one first signed in with", () => {
+    const s = screen({ brands: [brand("ten_fernhill", "Fernhill Plants", "Europe", [], { isThis: true, moveRefusal: "home_only" }), brand("ten_harbour", "Harbour Blooms", "Europe", [], { moveRefusal: "not_admin" })] });
+    expect(html(createElement(MoveOutBody, { screen: s, b: s.brands[0]!, error: null }))).toContain(
+      "You can't move Fernhill Plants out here. Moves need you on Fernhill Plants' team as an admin, and you reach Fernhill Plants as the brand you first signed in with. Ask whoever runs YouGrow to add you to its team, or to move it for you.",
+    );
+    expect(html(createElement(MoveOutBody, { screen: s, b: s.brands[1]!, error: null }))).toContain(
+      "You can't move Harbour Blooms out here. Moves need you on Harbour Blooms' team as an admin. Ask an admin of Harbour Blooms to make you one, or ask whoever runs YouGrow to move it for you.",
+    );
+  });
+});
+
 describe("the words", () => {
   it("follow the writing rules", () => {
     for (const text of Object.values(W.BRANDS_COPY)) clean(text);
@@ -131,6 +165,8 @@ describe("the words", () => {
     clean(W.moveRefusalWords("Harbour Blooms", "home_only"));
     clean(W.moveRefusalWords("Harbour Blooms", "not_admin", "in"));
     clean(W.bringInDoneWords("Fernhill Cafe", "Fernhill Group"));
+    clean(W.moveOutDoneWords("Fernhill US", "Ultra"));
+    clean(W.moveOutTextWords(screen().brands[0]!, "Fernhill Group", "Ultra", screen().brands));
     expect(W.fullWords("Fernhill Group", 1, "Free")).toBe("Fernhill Group already has the 1 brand Free allows. Bringing in another needs a plan change first.");
   });
 });

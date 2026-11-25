@@ -100,6 +100,7 @@ export {
   ensureBrandOrganisation,
   attachBrandToOrganisation,
   moveBrandToNewOrganisation,
+  reusableOrganisationId,
   setOrganisationPlan,
   setOrganisationName,
   setOrganisationOwners,

@@ -7,6 +7,8 @@ import {
   isBrandAdminByRow,
   listOrganisationConnections,
   mayMoveBrand,
+  moveBrandToNewOrganisation,
+  reusableOrganisationId,
   type BrandMoveRefusal,
 } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
@@ -15,8 +17,8 @@ import { accessChanges } from "@/lib/plans/preview";
 import { MAX_ORGANISATION_BRANDS, type Organisation, type PlanId } from "@/lib/types/organisation";
 import type { OrganisationConnection } from "@/lib/types/organisationConnection";
 import type { Tenant } from "@/lib/types/tenant";
-import { bringInDoneWords, BRANDS_COPY, fullWords, moveRefusalWords, narrowerWords } from "@/components/admin/connectors/words";
-import { disconnectEmptiedOrganisation, endBrandParts, type OrganisationActionDeps } from "./organisation";
+import { bringInDoneWords, BRANDS_COPY, fullWords, moveOutDoneWords, moveRefusalWords, narrowerWords } from "@/components/admin/connectors/words";
+import { clearOrganisationIdForReuse, disconnectEmptiedOrganisation, endBrandParts, type OrganisationActionDeps } from "./organisation";
 import { regionName } from "./organisationConnect";
 import type { OrganisationOwner } from "./organisationOwner";
 import type { ServiceResult } from "./service";
@@ -251,6 +253,8 @@ async function afterLeaving(brand: Tenant, fromOrganisationId: string, by: strin
 
 export interface MoveDone {
   message: string;
+  /** The organisation the brand is in now. */
+  organisationId: string;
   /** Parts ended now, from the organisation it left. */
   ended: number;
   /** Connections disconnected now, of an organisation the move left with no brands. */
@@ -286,5 +290,45 @@ export async function bringBrandIn(owner: OrganisationOwner, tenantId: string, d
   if (res === "already") return refuse(409, "already", BRANDS_COPY.already);
   if (res !== "moved") return refuse(409, "changed", BRANDS_COPY.changed);
   const after = await afterLeaving(brand, from.id, owner.person.userId, deps);
-  return { ok: true, status: 200, value: { message: bringInDoneWords(brand.tenantName, target.name), ...after } };
+  return { ok: true, status: 200, value: { message: bringInDoneWords(brand.tenantName, target.name), organisationId: target.id, ...after } };
+}
+
+// --- Move out --------------------------------------------------------------------------------------
+
+/** Move out names its brand in the address; the organisation it leaves is the session brand's. */
+export const MoveOutParamSchema = z.string().min(1).max(128);
+
+/**
+ * Move a brand out of the owner's organisation into one of its own, on the same plan, with the owner
+ * as its only owner (never the old owners of an id taken up again): they own this organisation and
+ * have a real admin row for the brand (mayMoveBrand). An empty org_<tenantId> it would take up has
+ * its connections disconnected first, in every region, and the move refuses to take up any other
+ * (pick 21). Then the brand's parts from this organisation end. Its connections stay where they are
+ * kept and keep serving the brands left, in any region, even when they were connected from this
+ * brand (pick 2).
+ */
+export async function moveBrandOut(owner: OrganisationOwner, tenantId: string, deps: OrganisationBrandsDeps = {}): Promise<ServiceResult<MoveDone>> {
+  const control = controlOf(deps);
+  const by = owner.person.userId;
+  const check = await mayMoveBrand(owner.person, tenantId, control);
+  if (!check.ok) return moveRefused(check, "out");
+  const { brand, organisation: from } = check;
+  // Only a brand of this organisation, as its owners see it here.
+  if (from.id !== owner.organisation.id) return refuse(404, "not_found");
+  if (from.brandIds.length < 2) return refuse(409, "alone", BRANDS_COPY.alone);
+  let takeUp: string | null;
+  try {
+    takeUp = await reusableOrganisationId(tenantId, control);
+    if (takeUp) await clearOrganisationIdForReuse(takeUp, by, deps);
+  } catch (err) {
+    // Never take an id up while it may still carry a sign in.
+    warn(`clearing an organisation id for ${tenantId} failed`, err);
+    return refuse(503, "busy", BRANDS_COPY.busy);
+  }
+  const res = await moveBrandToNewOrganisation(tenantId, { plan: from.plan, actor: by, ownerIds: [by], expectFrom: from.id, takeUp }, control);
+  if (!res) return refuse(404, "not_found");
+  if (res.changed) return refuse(409, "changed", BRANDS_COPY.changed);
+  if (!res.moved) return refuse(409, "alone", BRANDS_COPY.alone);
+  const after = await afterLeaving(brand, from.id, by, deps);
+  return { ok: true, status: 200, value: { message: moveOutDoneWords(brand.tenantName, planName(from.plan)), organisationId: res.organisationId, ...after } };
 }

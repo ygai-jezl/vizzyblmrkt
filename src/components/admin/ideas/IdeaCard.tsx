@@ -49,6 +49,19 @@ interface IdeaReply {
 
 const count = (n: number) => n.toLocaleString("en-GB");
 
+/**
+ * The product the picker shows picked: the admin's own pick, else the one the idea went to, else
+ * the default, as long as it is one of the options shown now. Worked out on every render, so a
+ * hand-off to a product since revoked, or options that arrive after Make it an idea, never leave the
+ * picker on a product it doesn't list (where Hand off would stay off and picking the one option
+ * shown would change nothing).
+ */
+export function handoffPick(choices: HandoffChoices | null, ...wanted: Array<string | null | undefined>): string {
+  const options = choices?.options ?? [];
+  const listed = (id: string | null | undefined): id is string => !!id && options.some((o) => o.id === id);
+  return wanted.find(listed) ?? (listed(choices?.defaultId) ? choices!.defaultId! : (options[0]?.id ?? ""));
+}
+
 export function IdeaCard({ campaignId, idea: initial, canEdit, archived, viewerId, names, handoff = null, productLinks = false }: IdeaCardProps) {
   const router = useRouter();
   const { ideas } = useWords();
@@ -61,7 +74,9 @@ export function IdeaCard({ campaignId, idea: initial, canEdit, archived, viewerI
   const [offer, setOffer] = useState(false);
   const [closed, setClosed] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [product, setProduct] = useState(initial.productConnectionId ?? handoff?.defaultId ?? "");
+  // The admin's own pick in the picker, if they made one.
+  const [chosen, setChosen] = useState<string | null>(null);
+  const product = handoffPick(handoff, chosen, idea.productConnectionId);
 
   async function patch(body: Record<string, unknown>): Promise<IdeaReply | null> {
     setBusy(true);
@@ -223,7 +238,7 @@ export function IdeaCard({ campaignId, idea: initial, canEdit, archived, viewerI
         busy={busy}
         choices={handoff}
         product={product}
-        onProduct={setProduct}
+        onProduct={setChosen}
         onHandOff={() => void handOff()}
         productLinks={productLinks}
         line={handedOffLine(idea, handoff?.names ?? {}, viewerId, names)}

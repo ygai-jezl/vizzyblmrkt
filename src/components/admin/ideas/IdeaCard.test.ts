@@ -6,7 +6,7 @@ import type { Idea } from "@/lib/types/campaign";
 import type { HandoffChoices } from "@/lib/ideas/handoff";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
-const { IdeaCard } = await import("./IdeaCard");
+const { IdeaCard, handoffPick } = await import("./IdeaCard");
 const { ideaDay, statusLine, whoDid } = await import("@/lib/ideas/words");
 const { NewLaunchForm } = await import("../NewLaunchForm");
 
@@ -133,6 +133,26 @@ describe("handing off to a product", () => {
     expect(render(idea, { canEdit: false })).not.toContain("<select");
     expect(text(render(idea, { canEdit: false }))).toContain("Handed off to Lumen app on 4 Nov by Sam Rivera.");
     expect(text(render({ status: "testing" }))).not.toContain("Hand off");
+  });
+
+  it("can hand off again when the idea went to a product since revoked, which the picker doesn't list", () => {
+    const idea: Idea = { status: "launched", productConnectionId: "pcn_old", handedOffAt: "2026-11-04T10:00:00.000Z", handedOffBy: "usr_admin" };
+    const html = render(idea, { handoff: { ...choices, options: [choices.options[0]!] } });
+    expect(text(html)).toContain("Handed off to Old app on 4 Nov by you.");
+    expect(html).toMatch(/<option value="pcn_app" selected="">Lumen app \(Production\)<\/option>/);
+    expect(html).toMatch(/<button[^>]*>Hand off</);
+    expect(html).not.toMatch(/<button[^>]*disabled=""[^>]*>Hand off</);
+  });
+
+  it("picks from the options shown now: the admin's pick, then where it went, then the default, then the first", () => {
+    expect(handoffPick(choices, "pcn_sb", "pcn_app")).toBe("pcn_sb");
+    expect(handoffPick(choices, null, "pcn_app")).toBe("pcn_app");
+    // A revoked product, or nothing picked yet (options that came after Make it an idea): the default.
+    expect(handoffPick(choices, null, "pcn_old")).toBe("pcn_app");
+    expect(handoffPick(choices, null, undefined)).toBe("pcn_app");
+    expect(handoffPick({ ...choices, defaultId: "pcn_old" }, null, null)).toBe("pcn_app");
+    expect(handoffPick({ ...choices, defaultId: null, options: [choices.options[1]!] }, "pcn_app", null)).toBe("pcn_sb");
+    expect(handoffPick(null, "pcn_app", "pcn_app")).toBe("");
   });
 
   it("points at Connect your product when there's nothing to hand off to", () => {

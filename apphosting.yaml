@@ -250,6 +250,13 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Launches are called Ideas in the words people read (needs phase 3). It shows only where
+  # LAUNCH_IDEAS_ENABLED is on too, which the code checks.
+  - variable: NEXT_PUBLIC_NAV_IDEAS_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
   # Setup steps that must happen in order stop and say so.
   - variable: ORDER_GUARDS_ENABLED
     value: "false"

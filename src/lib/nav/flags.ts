@@ -58,3 +58,14 @@ export function isInsightsHubEnabled(): boolean {
 export function isNavPeopleEnabled(): boolean {
   return isNavV2Phase3Enabled() && process.env.NEXT_PUBLIC_NAV_PEOPLE_ENABLED === "true";
 }
+
+/**
+ * Launches are called Ideas in the words people read: the sidebar, ⌘K, the crumbs (also what
+ * Vizzy is told about the page), Home's Growth Path and the screens. Needs phase 3, and takes
+ * effect only where ideas are on too (LAUNCH_IDEAS_ENABLED, a server switch), which
+ * isIdeaWordsEnabled() in src/lib/ideas/flags.ts checks. Routes, APIs and data keep "launch"
+ * and `campaigns`; only the words change.
+ */
+export function isNavIdeasEnabled(): boolean {
+  return isNavV2Phase3Enabled() && process.env.NEXT_PUBLIC_NAV_IDEAS_ENABLED === "true";
+}

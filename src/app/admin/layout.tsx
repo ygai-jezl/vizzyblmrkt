@@ -38,7 +38,8 @@ import { parseThemePreference, THEME_COOKIE } from "@/lib/theme";
 import { isCatalogHistoryEnabled } from "@/lib/connect/v2/flags";
 import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsSearchTextEnabled } from "@/lib/connectors/flags";
 import { isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
-import { isIdeasEnabled } from "@/lib/ideas/flags";
+import { isIdeaWordsEnabled, isIdeasEnabled } from "@/lib/ideas/flags";
+import { WordsProvider } from "@/components/admin/nav/WordsProvider";
 
 export const dynamic = "force-dynamic";
 
@@ -141,6 +142,9 @@ export default async function AdminLayout({
     // Audience is called People: the switch (phase 3) plus the one People list, a server
     // switch, so it is worked out here and passed down. The How to drawer reads it from the shell.
     const people = isPeopleNameEnabled();
+    // Launches are called Ideas: the switch (phase 3) plus LAUNCH_IDEAS_ENABLED, a server switch.
+    // Pages read it through WordsProvider.
+    const ideaWords = isIdeaWordsEnabled();
     const shell = (
       <>
         <SessionKeeper />
@@ -155,7 +159,9 @@ export default async function AdminLayout({
         <div className="flex min-w-0 flex-1 flex-col">
           <AdminHeader names={crumbNames} people={people} />
           <main className="min-w-0 flex-1 px-6 py-6">
-            <DeveloperDocsProvider enabled={docs}>{children}</DeveloperDocsProvider>
+            <DeveloperDocsProvider enabled={docs}>
+              <WordsProvider ideas={ideaWords}>{children}</WordsProvider>
+            </DeveloperDocsProvider>
           </main>
         </div>
         {phase2 ? <VizzyPanel /> : null}

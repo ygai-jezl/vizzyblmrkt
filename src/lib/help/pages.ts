@@ -2,7 +2,7 @@ import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
 import { isOneViewEnabled, isPeopleNameEnabled } from "@/lib/audience/flags";
 import { isFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { isSearchUiEnabled } from "@/lib/search/flags";
-import { isPlansUiEnabled } from "@/lib/plans/flags";
+import { isOrganisationJoinEnabled, isPlansUiEnabled } from "@/lib/plans/flags";
 import { isConnectorsScreenEnabled, isConnectorsSharingEnabled } from "@/lib/connectors/flags";
 
 /**
@@ -26,7 +26,7 @@ export interface HelpPage {
    * A page about a switched-off feature: listed and served only while its switch is on.
    * The switches are read on the server, so client lists (⌘K) leave these pages out.
    */
-  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing";
+  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join";
 }
 
 /**
@@ -65,6 +65,8 @@ export interface HelpBodyProps {
   brandMapScale?: boolean;
   /** Organisations share connections (isConnectorsSharingEnabled(), a server switch: the drawer reads it off). */
   sharing?: boolean;
+  /** Owners bring in and move out brands (isOrganisationJoinEnabled(), a server switch: the drawer reads it off). */
+  join?: boolean;
 }
 
 /** Navigation headings, matching Home's stages. */
@@ -95,6 +97,13 @@ export const HELP_PAGES: HelpPage[] = [
     "start",
     "See your plan, the brands on it and what is counted, and what happens at a limit.",
     "plans",
+  ),
+  page(
+    "organisation-brands",
+    "Brands in your organisation",
+    "start",
+    "Bring a brand you run into your organisation, or move one out to an organisation of its own, on the same plan.",
+    "join",
   ),
   page("email-sending", "Email sending", "ready", "Verify the domain you send from, then add your From address, privacy policy link and postal address."),
   page("your-brand", "Your brand", "ready", "Add your logo, colours and fonts, and write your brand voice so everything Vizzy writes sounds like you."),
@@ -149,6 +158,7 @@ export function isHelpPageShown(p: Pick<HelpPage, "onlyWhen">): boolean {
   if (p.onlyWhen === "plans") return isPlansUiEnabled();
   if (p.onlyWhen === "connectors") return isConnectorsScreenEnabled();
   if (p.onlyWhen === "sharing") return isConnectorsSharingEnabled();
+  if (p.onlyWhen === "join") return isOrganisationJoinEnabled();
   return true;
 }
 

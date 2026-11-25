@@ -1,7 +1,7 @@
 import { H1, H2, Lead, P, Pairs, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Messages, Meta, NextPage, Open } from "@/components/help/blocks";
 import { PLANS } from "@/lib/plans/catalog";
-import { isUsageMeterUiEnabled } from "@/lib/plans/flags";
+import { isOrganisationJoinEnabled, isUsageMeterUiEnabled } from "@/lib/plans/flags";
 import { IMAGE_LIMIT_MESSAGE, WEB_SEARCH_LIMIT_MESSAGE } from "@/lib/plans/resources";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
 import { isAddPersonEnabled } from "@/lib/audience/peopleFlags";
@@ -9,7 +9,12 @@ import { isConnectorsSharingEnabled } from "@/lib/connectors/flags";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
 /** /help/plan-and-usage (NEXT_PUBLIC_PLANS_ENABLED): Settings › Plan and usage. No prices: they may change. */
-export default function PlanAndUsageHelp({ people = isPeopleNameEnabled(), addPerson = isAddPersonEnabled(), sharing = isConnectorsSharingEnabled() }: HelpBodyProps = {}) {
+export default function PlanAndUsageHelp({
+  people = isPeopleNameEnabled(),
+  addPerson = isAddPersonEnabled(),
+  sharing = isConnectorsSharingEnabled(),
+  join = isOrganisationJoinEnabled(),
+}: HelpBodyProps = {}) {
   const meter = isUsageMeterUiEnabled();
   return (
     <article>
@@ -58,8 +63,17 @@ export default function PlanAndUsageHelp({ people = isPeopleNameEnabled(), addPe
           Add Brand page says which plan it starts on.
         </li>
         <li>
-          Whoever runs your copy of YouGrow can put brands together on one plan, or take one back out. Moving a brand never
-          removes anyone or anything from it.
+          Whoever runs your copy of YouGrow can put brands together on one plan, or take one back out.
+          {join ? (
+            <>
+              {" "}
+              Owners can too, on Settings › Organisation: they bring in a brand they run, or move one out to an organisation of
+              its own, as <Open href="/help/organisation-brands">Brands in your organisation</Open> explains.
+            </>
+          ) : null}{" "}
+          {sharing
+            ? "Moving a brand never removes anyone from it, or anything it made. Its shared parts from the organisation it leaves stop, and what was collected through them is deleted."
+            : "Moving a brand never removes anyone or anything from it."}
         </li>
         <li>
           Owners see every brand on the plan, with its data region, and the totals across them. A brand that is suspended

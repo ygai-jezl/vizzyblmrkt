@@ -154,7 +154,10 @@ changed"):
 16. **The narrow in-app join (the owner's answer)** behind `ORGANISATION_JOIN_ENABLED`: Bring in and
     Move out need a real `tenant_users` row with role admin for the brand, never the claims case.
     This changes decision 19's "no join in the app until M" and ADR-0009's "An in-app join waits for
-    H or M".
+    H or M". Bring in refuses anything narrower, inside the move's transaction: the plans preview
+    (`accessChanges`, read only) and the plans' own feature lists, because the preview doesn't count
+    the Enterprise features (Enterprise to Ultra is refused). Move out keeps the plan, makes the mover
+    the only owner, and takes up an empty `org_<tenantId>` only after disconnecting what it holds.
 17. **History:** giving, changing and taking back a part write a `connections:shared` version in the
     receiving brand's `settings_versions`; the organisation's own changes add five kinds to
     `organisation_changes`, written after the commit. Each step is composed from transaction-taking
@@ -1544,7 +1547,8 @@ Owner decisions (2026-11-20, decisions 17 to 21 of the build plan):
   the same home brand (`src/lib/auth/session.ts`), so "the brand you are in" says nothing
   about which organisation a new brand belongs to. Brands are combined or split only with
   `scripts/move-brand.ts`. An in-app join waits for H or M, as an explicit choice offered
-  to the target organisation's owners. The demo seed and the self-host `workspace` step
+  to the target organisation's owners. (Changed by ADR-0014: the narrow in-app join, Bring in
+  and Move out, behind `ORGANISATION_JOIN_ENABLED`, with a real `tenant_users` admin row.) The demo seed and the self-host `workspace` step
   give their brand a Self-hosted organisation; in the self-host step a failure is a
   warning naming the repair, not a failed step.
 - **The backfill (decision 20).** `scripts/backfill-organisations.ts` gives every brand

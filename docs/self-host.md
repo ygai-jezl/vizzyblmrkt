@@ -397,6 +397,16 @@ Before you turn it off for good, or roll back to a build from before it, disconn
 connection or run `npx tsx scripts/connectors-purge.ts --organisation all` (a dry run), then with
 `--apply --by <label>`: older builds can't remove an organisation's sign ins or Google addresses.
 
+**Brands in an organisation.** `ORGANISATION_JOIN_ENABLED` lets owners combine brands themselves on
+Settings › Organisation (ADR-0014): **Bring in a brand you run** moves a brand from another
+organisation they also own into theirs, on its plan, and **Move out** gives a brand an organisation of
+its own on the same plan, with the mover as its only owner. Both need plans on, and a real
+`tenant_users` row with role admin for the brand: the brand someone first signed in with counts only
+once they have a row for it. Bring in refuses a plan that would turn a feature off or lower a cap.
+Every move ends the brand's shared parts from the organisation it leaves, and disconnects that
+organisation's connections when it is left with no brands, whatever `CONNECTORS_SHARING_ENABLED` says.
+`npm run selfhost` keeps it off; with it off, `scripts/move-brand.ts` still combines and splits brands.
+
 `CONNECTOR_SIGNALS_ENABLED` turns collected Search Console numbers into suggestions in the brand map,
 Review, Next up and the context pack; `npm run selfhost` keeps it off. Turn it on only after
 `CONNECTORS_COLLECT_ENABLED`, and only once the agent action indexes in `firestore.indexes.json`

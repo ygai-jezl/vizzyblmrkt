@@ -13,6 +13,7 @@ import WriteAndScheduleHelp from "./pages/write-and-schedule";
 import ConnectedAccountsHelp from "./pages/connected-accounts";
 import ConnectedDataHelp from "./pages/connected-data";
 import SharedConnectionsHelp from "./pages/shared-connections";
+import OrganisationBrandsHelp from "./pages/organisation-brands";
 import ConnectYourProductHelp from "./pages/connect-your-product";
 import InviteYourWaitlistHelp from "./pages/invite-your-waitlist";
 import OnboardingJourneysHelp from "./pages/onboarding-journeys";
@@ -26,6 +27,7 @@ import TroubleshootingHelp from "./pages/troubleshooting";
 export const HELP_BODIES: Record<string, (props?: HelpBodyProps) => ReactNode> = {
   "": GetSetUpHelp,
   "plan-and-usage": PlanAndUsageHelp,
+  "organisation-brands": OrganisationBrandsHelp,
   "email-sending": EmailSendingHelp,
   "your-brand": YourBrandHelp,
   "email-style": EmailStyleHelp,

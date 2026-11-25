@@ -74,6 +74,8 @@ vi.hoisted(() => {
   // Shared connections (Connectors 3) need plans on too.
   process.env.PLANS_ENABLED = "true";
   process.env.CONNECTORS_SHARING_ENABLED = "true";
+  // Brands in your organisation (Connectors 3 group 4) needs plans on too.
+  process.env.ORGANISATION_JOIN_ENABLED = "true";
 });
 
 const SRC = join(process.cwd(), "src");

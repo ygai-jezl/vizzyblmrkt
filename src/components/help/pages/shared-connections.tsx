@@ -126,6 +126,11 @@ export default function SharedConnectionsHelp() {
           sign in is also removed at Google only when your copy of YouGrow does that, and then the same Google account&apos;s other
           YouGrow connections need signing in again.
         </li>
+        <li>
+          A brand that moves to another organisation stops reading its parts at once, and what was collected through them is
+          deleted. Your connections keep serving the brands left, in any region. When no brand is left, every connection the
+          organisation holds is disconnected.
+        </li>
       </UL>
 
       <H2 id="limits">Limits</H2>

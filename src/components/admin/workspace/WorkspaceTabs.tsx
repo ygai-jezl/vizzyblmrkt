@@ -21,12 +21,12 @@ interface Tab {
 export function WorkspaceTabs({ workspaceId }: { workspaceId: string }) {
   const pathname = usePathname();
   const base = `/admin/workspace/${workspaceId}`;
-  // Nav v2 phase 3: the tabs follow the pipeline — Ideas → Templates → Drafts →
-  // Calendar — with Knowledge (was Grounding) and Settings apart.
+  // Nav v2 phase 3: the tabs follow the pipeline (Scrapbook, Templates, Drafts, Calendar),
+  // with Knowledge (was Grounding) and Settings apart. Scrapbook was Ideas; its route stays.
   const tabs: Tab[] = isNavV2Phase3Enabled()
     ? [
         { href: base, label: "Overview", exact: true },
-        { href: `${base}/curate/idea-board`, label: "Ideas", also: [`${base}/curate`], not: [`${base}/curate/grounding`] },
+        { href: `${base}/curate/idea-board`, label: "Scrapbook", also: [`${base}/curate`], not: [`${base}/curate/grounding`] },
         { href: `${base}/templatize`, label: "Templates" },
         { href: `${base}/create`, label: "Drafts" },
         { href: `${base}/distribute`, label: "Calendar", also: [`${base}/weekly`] },

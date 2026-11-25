@@ -218,7 +218,8 @@ const WORKSPACE_TABS: Record<string, string> = {
   settings: "Settings",
 };
 
-const CURATE_TABS: Record<string, string> = { "idea-board": "Idea Board", grounding: "Grounding" };
+/** The Scrapbook was the Idea Board; its route stays idea-board. */
+const CURATE_TABS: Record<string, string> = { "idea-board": "Scrapbook", grounding: "Grounding" };
 
 const BRAND_KIT_PAGES: Record<string, string> = {
   colours: "Colours",
@@ -344,8 +345,8 @@ export function breadcrumbsFor(
       if (!tab) return [root, { label: workspace }];
       const ws: Crumb = { label: workspace, href: `/admin/workspace/${id}` };
       if (p3) {
-        // The pipeline tabs: Ideas · Templates · Drafts · Calendar, with Knowledge apart.
-        if (tab === "curate") return [root, ws, { label: sub === "grounding" ? "Knowledge" : "Ideas" }];
+        // The pipeline tabs: Scrapbook · Templates · Drafts · Calendar, with Knowledge apart.
+        if (tab === "curate") return [root, ws, { label: sub === "grounding" ? "Knowledge" : "Scrapbook" }];
         if (tab === "weekly") {
           return [root, ws, { label: "Calendar", href: `/admin/workspace/${id}/distribute` }, { label: "Weekly newsletter" }];
         }

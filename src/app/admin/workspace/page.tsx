@@ -20,12 +20,12 @@ export default async function WorkspaceListPage() {
         <h1 className="text-xl font-semibold">{isNavV2Enabled() ? "Content" : "Workspaces"}</h1>
         <p className="text-sm text-neutral-500">
           {isNavV2Phase3Enabled()
-            ? "Your content programmes — a newsletter, a LinkedIn series. Each has its own ideas, drafts, calendar and knowledge."
+            ? "Your content programmes, such as a newsletter or a LinkedIn series. Each has its own scrapbook, drafts, calendar and knowledge."
             : "Content production spaces. Each workspace has its own grounded knowledge base (Curate → Templatize → Create → Distribute)."}
         </p>
         {isNavV2Phase3Enabled() && isBrandKitUiEnabled() ? (
           <Link href="/admin/brand-kit/images" className="mt-2 inline-block text-sm font-medium text-blue-700 hover:underline dark:text-blue-300">
-            Library — every AI-generated image →
+            Library: every AI-generated image →
           </Link>
         ) : null}
       </div>
@@ -36,8 +36,8 @@ export default async function WorkspaceListPage() {
         {workspaces.length === 0 ? (
           <div className="col-span-full rounded-md border border-dashed border-neutral-300 p-8 text-sm text-neutral-500 dark:border-neutral-700">
             {isNavV2Phase3Enabled()
-              ? "No programmes yet — create one above to start collecting ideas and sources."
-              : "No workspaces yet — create one above to start curating grounding sources."}
+              ? "No programmes yet. Create one above to start saving clippings and sources."
+              : "No workspaces yet. Create one above to start curating grounding sources."}
           </div>
         ) : (
           workspaces.map((w) => (

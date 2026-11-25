@@ -124,7 +124,7 @@ describe("breadcrumbsFor", () => {
       "Content",
       "The Weekly Plate",
       "Curate",
-      "Idea Board",
+      "Scrapbook",
     ]);
     expect(labels("/admin/workspace/w1/create/p1/ebook")).toEqual([
       "Content",
@@ -174,7 +174,8 @@ describe("phase 3", () => {
 
   it("names programmes by the pipeline", () => {
     expect(labels("/admin/workspace/w1")).toEqual(["Content", "The Weekly Plate"]);
-    expect(labels("/admin/workspace/w1/curate/idea-board")).toEqual(["Content", "The Weekly Plate", "Ideas"]);
+    expect(labels("/admin/workspace/w1/curate/idea-board")).toEqual(["Content", "The Weekly Plate", "Scrapbook"]);
+    expect(labels("/admin/workspace/w1/curate")).toEqual(["Content", "The Weekly Plate", "Scrapbook"]);
     expect(labels("/admin/workspace/w1/curate/grounding")).toEqual(["Content", "The Weekly Plate", "Knowledge"]);
     expect(labels("/admin/workspace/w1/create/p1/ebook")).toEqual(["Content", "The Weekly Plate", "Drafts", "Draft", "eBook"]);
     expect(labels("/admin/workspace/w1/distribute")).toEqual(["Content", "The Weekly Plate", "Calendar"]);

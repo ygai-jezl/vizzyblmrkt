@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { Paperclip } from "lucide-react";
 import type { IdeaItem } from "@/lib/types/ideaItem";
 import { classifyLinkSource } from "@/lib/content/linkSource";
 
@@ -13,7 +14,7 @@ const ERRORS: Record<string, string> = {
   invalid_input: "Check the fields and try again.",
 };
 
-/** The Idea Board capture bar — drop a link, paste text, and/or attach a screenshot. */
+/** The Scrapbook's bar: save a clipping from a link, pasted text, a screenshot, or any of them. */
 export function IdeaCaptureBar({
   workspaceId,
   onCaptured,
@@ -63,7 +64,7 @@ export function IdeaCaptureBar({
       }
       const data = (await res.json().catch(() => ({}))) as { item?: IdeaItem; error?: string };
       if (!res.ok || !data.item) {
-        setNote(ERRORS[data.error ?? ""] ?? "Couldn't save that idea.");
+        setNote(ERRORS[data.error ?? ""] ?? "Couldn't save that clipping.");
         return;
       }
       setUrl("");
@@ -84,19 +85,21 @@ export function IdeaCaptureBar({
       <input
         value={url}
         onChange={(e) => setUrl(e.target.value)}
-        placeholder="Paste a link you like (tweet, article, post)…"
+        placeholder="Paste a link you like (a post, an article, a newsletter)…"
+        aria-label="Link"
         className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
       />
       {flakyNudge ? (
         <p className="text-xs text-amber-600 dark:text-amber-400">
-          {cls?.host} content can&apos;t be auto-read — paste the text or add a screenshot for an
-          accurate template.
+          YouGrow can&apos;t read {cls?.host} pages by itself. Paste the text or add a screenshot for an accurate
+          template.
         </p>
       ) : null}
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder="…or paste the text / a quick idea"
+        placeholder="…or paste the text, or jot a quick thought"
+        aria-label="Text"
         rows={3}
         className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
       />
@@ -109,8 +112,9 @@ export function IdeaCaptureBar({
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             className="hidden"
           />
-          <span className="rounded-md border border-neutral-300 px-2 py-1 dark:border-neutral-700">
-            {file ? `📎 ${file.name}` : "📎 Add screenshot"}
+          <span className="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 px-2 py-1 dark:border-neutral-700">
+            <Paperclip size={12} aria-hidden />
+            {file ? file.name : "Add screenshot"}
           </span>
         </label>
         <button
@@ -118,7 +122,7 @@ export function IdeaCaptureBar({
           disabled={busy}
           className="rounded-md border border-neutral-900 bg-neutral-900 px-3 py-2 text-sm text-white disabled:opacity-50 dark:border-white dark:bg-white dark:text-neutral-900"
         >
-          {busy ? "Capturing…" : "Capture idea"}
+          {busy ? "Saving…" : "Save clipping"}
         </button>
       </div>
       {note ? <p className="text-xs text-amber-600 dark:text-amber-400">{note}</p> : null}

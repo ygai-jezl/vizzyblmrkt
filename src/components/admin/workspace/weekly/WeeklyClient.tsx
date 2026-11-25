@@ -34,8 +34,8 @@ export function WeeklyClient({
         <p className="mt-1 max-w-2xl text-sm text-neutral-500">
           Pick one of your generated newsletter hubs to send as this week&apos;s
           newsletter. It goes to the {w.own} weekly subscribers: the people
-          who reached a &ldquo;weekly&rdquo; Exit node in that {w.own}
-          journey. Come back each week to send the next one.
+          who reached a &ldquo;weekly&rdquo; Exit node in that {w.own} journey.
+          Come back each week to send the next one.
         </p>
       </div>
 

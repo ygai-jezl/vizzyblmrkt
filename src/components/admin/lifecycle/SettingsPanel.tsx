@@ -105,7 +105,7 @@ export function SettingsPanel({
       <div className="space-y-4">
         <Section title="Starts when" description="Someone joins the waitlist and verifies their email. Each person enters once.">
           <p className="text-sm text-neutral-600 dark:text-neutral-400">
-            Everyone on {waitlist.launchName}&rsquo;s list who joins while this journey is live gets it — and anyone who joins while it&rsquo;s paused starts when you resume it.
+            Everyone on {waitlist.launchName}&rsquo;s list who joins while this journey is live gets it, and anyone who joins while it&rsquo;s paused starts when you resume it.
           </p>
         </Section>
         <Section title="When emails go out" description="Welcome emails have always gone out as soon as each step is due.">

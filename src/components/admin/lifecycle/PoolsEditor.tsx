@@ -278,7 +278,7 @@ export function PoolsEditor({
           ) : null}
         </div>
       ) : (
-        <p className="text-sm text-neutral-500">No content yet — add a content pool.</p>
+        <p className="text-sm text-neutral-500">No content yet. Add a content pool.</p>
       )}
     </div>
   );

@@ -2,9 +2,8 @@
 
 import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { FORMER_TEAM_MEMBER } from "@/lib/team/former";
 import { IDEA_LIMITS, type Idea, type IdeaStatus } from "@/lib/types/campaign";
-import { IDEA_MESSAGES, IDEA_STATUS_LABEL, IDEA_STATUS_OPTIONS, IDEA_STATUS_TONE, ideaErrorText, JUST_A_LIST } from "@/lib/ideas/words";
+import { IDEA_MESSAGES, IDEA_STATUS_LABEL, IDEA_STATUS_OPTIONS, IDEA_STATUS_TONE, ideaErrorText, JUST_A_LIST, statusLine } from "@/lib/ideas/words";
 import { api } from "../connect/api";
 import { Banner, Button, inputClass } from "../connect/ui";
 import { Chip, chipToneClass } from "../people/Chip";
@@ -38,29 +37,6 @@ interface IdeaReply {
 }
 
 const count = (n: number) => n.toLocaleString("en-GB");
-
-/** "18 Nov", with the year when it isn't this one. */
-export function ideaDay(iso: string | null | undefined, now: Date = new Date()): string {
-  const d = iso ? new Date(iso) : null;
-  if (!d || Number.isNaN(d.getTime())) return "";
-  const sameYear = d.getUTCFullYear() === now.getUTCFullYear();
-  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", ...(sameYear ? {} : { year: "numeric" }), timeZone: "UTC" }).format(d);
-}
-
-/** Who did something: "you", a team member's name, or Former team member. */
-export function whoDid(userId: string | null | undefined, viewerId: string | null, names: Readonly<Record<string, string>>): string | null {
-  if (!userId) return null;
-  if (userId === viewerId) return "you";
-  return Object.hasOwn(names, userId) ? names[userId]! : FORMER_TEAM_MEMBER;
-}
-
-/** "Set to Testing by you on 18 Nov." */
-export function statusLine(idea: Idea, viewerId: string | null, names: Readonly<Record<string, string>>): string {
-  if (!idea.status) return "No status yet.";
-  const who = whoDid(idea.statusBy, viewerId, names);
-  const when = ideaDay(idea.statusAt);
-  return `Set to ${IDEA_STATUS_LABEL[idea.status]}${who ? ` by ${who}` : ""}${when ? ` on ${when}` : ""}.`;
-}
 
 export function IdeaCard({ campaignId, idea: initial, canEdit, archived, viewerId, names }: IdeaCardProps) {
   const router = useRouter();

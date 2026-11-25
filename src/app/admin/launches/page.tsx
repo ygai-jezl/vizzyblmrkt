@@ -7,6 +7,9 @@ import { isNavV2Enabled } from "@/lib/nav/flags";
 import { defaultPinIds } from "@/lib/nav/model";
 import { PinButton } from "@/components/admin/nav/PinButton";
 import { Chip } from "@/components/admin/people/Chip";
+import { CompareTable } from "@/components/admin/ideas/CompareTable";
+import { ComparePicks } from "@/components/admin/ideas/ComparePicks";
+import { COMPARE_MIN, loadComparison, parseCompareIds } from "@/lib/ideas/compare";
 import { isIdeasEnabled } from "@/lib/ideas/flags";
 import { IDEA_FILTERS, ideaFilterCounts, ideaFilterOf, parseIdeaFilter, type IdeaFilter } from "@/lib/ideas/list";
 import { IDEA_STATUS_LABEL, IDEA_STATUS_TONE, JUST_A_LIST } from "@/lib/ideas/words";
@@ -32,12 +35,14 @@ function filterLabel(f: IdeaFilter): string {
  * pins a few; this page is where the rest live, and where pins are chosen. With
  * LAUNCH_IDEAS_ENABLED each row shows its idea's status, and `?idea=` filters the
  * rows already read by status, by none yet, or by Just a list (`?status` stays the
- * Active and Archived tabs).
+ * Active and Archived tabs). Ticking 2 to 4 rows and pressing Compare side by side
+ * is a plain GET to `?compare=`, which shows them side by side instead of the list;
+ * fewer than two of this brand's launches that aren't Just a list, and the list shows.
  */
 export default async function LaunchesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; idea?: string | string[] }>;
+  searchParams: Promise<{ status?: string; idea?: string | string[]; compare?: string | string[] }>;
 }) {
   if (!isNavV2Enabled()) notFound();
   const ctx = await requireAdminContext();
@@ -45,6 +50,16 @@ export default async function LaunchesPage({
   const view = sp.status === "archived" ? "archived" : "active";
   const ideas = isIdeasEnabled();
   const ideaFilter = ideas ? parseIdeaFilter(sp.idea) : null;
+
+  const compareIds = ideas ? parseCompareIds(sp.compare) : null;
+  const compared = compareIds ? await loadComparison(ctx, compareIds) : [];
+  if (compared.length >= COMPARE_MIN) {
+    return (
+      <div className="mx-auto max-w-5xl">
+        <CompareTable columns={compared} />
+      </div>
+    );
+  }
 
   const campaigns = await forTenant(ctx).campaigns.find({
     orderBy: [["createdAt", "desc"]],
@@ -74,6 +89,41 @@ export default async function LaunchesPage({
     { key: "active", label: `Active · ${active.length}`, href: "/admin/launches" },
     { key: "archived", label: `Archived · ${archived.length}`, href: "/admin/launches?status=archived" },
   ];
+
+  const list = (
+    <ul className="divide-y divide-neutral-100 overflow-hidden rounded-md border border-neutral-200 dark:divide-neutral-900 dark:border-neutral-800">
+      {rows.map((c) => (
+        <li key={c.id} className="flex items-center gap-2 pr-2 hover:bg-neutral-50 dark:hover:bg-neutral-900/50">
+          {ideas ? (
+            c.idea?.justAList ? (
+              <span className="ml-4 w-4 shrink-0" aria-hidden />
+            ) : (
+              <input type="checkbox" name="compare" value={c.id} aria-label={`Compare ${c.waitlistName}`} className="ml-4 shrink-0" />
+            )
+          ) : null}
+          <Link
+            href={`/admin/launches/${c.id}`}
+            className={`flex min-w-0 flex-1 items-center justify-between gap-4 py-3 text-sm ${ideas ? "pl-2 pr-4" : "px-4"}`}
+          >
+            <span className="min-w-0 truncate">
+              <span className="font-medium">{c.waitlistName}</span>
+              <span className="ml-2 text-neutral-500 dark:text-neutral-400">/{c.id}</span>
+              {c.archivedAt ? (
+                <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                  Archived
+                </span>
+              ) : null}
+              {ideas ? <IdeaBadge kind={ideaFilterOf(c)} /> : null}
+            </span>
+            <span className="shrink-0 text-xs text-neutral-500 dark:text-neutral-400">
+              Started {formatDate(c.createdAt)}
+            </span>
+          </Link>
+          <PinButton tenantId={ctx.tenantId} launchId={c.id} launchName={c.waitlistName} defaultIds={defaults} />
+        </li>
+      ))}
+    </ul>
+  );
 
   return (
     <div className="mx-auto max-w-4xl space-y-5">
@@ -152,29 +202,13 @@ export default async function LaunchesPage({
             </>
           )}
         </div>
+      ) : ideas ? (
+        <form method="get" action="/admin/launches" className="space-y-3">
+          <ComparePicks />
+          {list}
+        </form>
       ) : (
-        <ul className="divide-y divide-neutral-100 overflow-hidden rounded-md border border-neutral-200 dark:divide-neutral-900 dark:border-neutral-800">
-          {rows.map((c) => (
-            <li key={c.id} className="flex items-center gap-2 pr-2 hover:bg-neutral-50 dark:hover:bg-neutral-900/50">
-              <Link href={`/admin/launches/${c.id}`} className="flex min-w-0 flex-1 items-center justify-between gap-4 px-4 py-3 text-sm">
-                <span className="min-w-0 truncate">
-                  <span className="font-medium">{c.waitlistName}</span>
-                  <span className="ml-2 text-neutral-500 dark:text-neutral-400">/{c.id}</span>
-                  {c.archivedAt ? (
-                    <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
-                      Archived
-                    </span>
-                  ) : null}
-                  {ideas ? <IdeaBadge kind={ideaFilterOf(c)} /> : null}
-                </span>
-                <span className="shrink-0 text-xs text-neutral-500 dark:text-neutral-400">
-                  Started {formatDate(c.createdAt)}
-                </span>
-              </Link>
-              <PinButton tenantId={ctx.tenantId} launchId={c.id} launchName={c.waitlistName} defaultIds={defaults} />
-            </li>
-          ))}
-        </ul>
+        list
       )}
     </div>
   );

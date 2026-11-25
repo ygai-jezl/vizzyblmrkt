@@ -5,7 +5,8 @@ import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import type { Idea } from "@/lib/types/campaign";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
-const { IdeaCard, ideaDay, statusLine, whoDid } = await import("./IdeaCard");
+const { IdeaCard } = await import("./IdeaCard");
+const { ideaDay, statusLine, whoDid } = await import("@/lib/ideas/words");
 const { NewLaunchForm } = await import("../NewLaunchForm");
 
 const NAMES = { usr_sam: "Sam Rivera" };

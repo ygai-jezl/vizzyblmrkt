@@ -9,6 +9,10 @@ import { IDEA_STATUSES, type Campaign, type IdeaStatus } from "@/lib/types/campa
 
 export type IdeaFilter = IdeaStatus | "none" | "list";
 
+/** How many launches compare at once (src/lib/ideas/compare.ts). Here so client code can read it. */
+export const COMPARE_MIN = 2;
+export const COMPARE_MAX = 4;
+
 export const IDEA_FILTERS: readonly IdeaFilter[] = [...IDEA_STATUSES, "none", "list"];
 
 /** Where one launch sits in the filter. */

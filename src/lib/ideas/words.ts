@@ -1,5 +1,6 @@
 import type { ChipTone } from "@/components/admin/people/Chip";
-import { IDEA_STATUSES, type IdeaStatus } from "@/lib/types/campaign";
+import { FORMER_TEAM_MEMBER } from "@/lib/team/former";
+import { IDEA_STATUSES, type Idea, type IdeaStatus } from "@/lib/types/campaign";
 
 /**
  * The words and colours of ideas (LAUNCH_IDEAS_ENABLED). Pure and client safe. The screens still
@@ -45,4 +46,27 @@ export function ideaErrorText(code: unknown): string {
   if (code === "not_launched") return IDEA_MESSAGES.notLaunched;
   if (code === "product_not_found") return IDEA_MESSAGES.productGone;
   return IDEA_MESSAGES.notSaved;
+}
+
+/** "18 Nov", with the year when it isn't this one. */
+export function ideaDay(iso: string | null | undefined, now: Date = new Date()): string {
+  const d = iso ? new Date(iso) : null;
+  if (!d || Number.isNaN(d.getTime())) return "";
+  const sameYear = d.getUTCFullYear() === now.getUTCFullYear();
+  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", ...(sameYear ? {} : { year: "numeric" }), timeZone: "UTC" }).format(d);
+}
+
+/** Who did something: "you", a team member's name, or Former team member. */
+export function whoDid(userId: string | null | undefined, viewerId: string | null, names: Readonly<Record<string, string>>): string | null {
+  if (!userId) return null;
+  if (userId === viewerId) return "you";
+  return Object.hasOwn(names, userId) ? names[userId]! : FORMER_TEAM_MEMBER;
+}
+
+/** "Set to Testing by you on 18 Nov." */
+export function statusLine(idea: Idea, viewerId: string | null, names: Readonly<Record<string, string>>): string {
+  if (!idea.status) return "No status yet.";
+  const who = whoDid(idea.statusBy, viewerId, names);
+  const when = ideaDay(idea.statusAt);
+  return `Set to ${IDEA_STATUS_LABEL[idea.status]}${who ? ` by ${who}` : ""}${when ? ` on ${when}` : ""}.`;
 }

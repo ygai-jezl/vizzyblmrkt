@@ -187,8 +187,12 @@ async function main() {
   for (const brand of open) {
     const orgId = tenantLib.organisationIdFor(brand.id);
     const existing = await tenantLib.getOrganisation(orgId);
-    // As ensureBrandOrganisation decides: an org_<id> that lists the brand relinks on its own plan.
-    const row: Row = !existing
+    // As ensureBrandOrganisation decides, on the raw record: an empty org_<id> is reused even when it
+    // doesn't parse (so its connections are cleared first), and one that lists the brand relinks on its own plan.
+    const reusable = await tenantLib.reusableOrganisationId(brand.id);
+    const row: Row = reusable
+      ? { id: brand.id, action: "reuse", orgId, plan }
+      : !existing
       ? { id: brand.id, action: "create", orgId, plan }
       : existing.brandIds.includes(brand.id)
         ? { id: brand.id, action: "relink", orgId, plan: existing.plan }
@@ -220,8 +224,16 @@ async function main() {
   if (blocked) refuse(TOOL, blocked);
 
   const results: Record<string, string[]> = { created: [], exists: [], conflict: [], missing_brand: [], failed: [] };
+  const { clearOrganisationIdForReuse } = await import("@/lib/connectors/organisation");
   for (const brand of open) {
     try {
+      // An empty org_<id> taken up again never carries a sign in (Connectors 3): its connections go
+      // first. Read raw again now, so one emptied since the dry run is cleared too.
+      const reused = await tenantLib.reusableOrganisationId(brand.id);
+      if (reused) {
+        const cleared = await clearOrganisationIdForReuse(reused, actor!);
+        if (cleared) console.log(`  ${brand.id}: ${count(cleared, "connection")} left on ${tenantLib.organisationIdFor(brand.id)} disconnected first`);
+      }
       const res = await tenantLib.ensureBrandOrganisation(brand.id, { plan, createdBy: "backfill", actor: actor! });
       results[res.status]!.push(brand.id);
     } catch (err) {

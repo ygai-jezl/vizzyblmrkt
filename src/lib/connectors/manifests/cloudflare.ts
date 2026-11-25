@@ -73,6 +73,13 @@ export const cloudflareManifest = {
         "Create the token and copy it. Cloudflare shows it only once.",
         "Paste the token here and press Check. Pick your site's zone from the list, then press Connect. Nothing is saved before that.",
       ],
+      organisationSteps: [
+        "In Cloudflare, open My Profile, then API Tokens, or use the link here, which fills in the form for you.",
+        "Give the token three permissions: Zone Read, so YouGrow can list your zones; Zone Analytics Read, so it can read their numbers; and Account Analytics Read, asked for now so later features don't need a new token. Nothing reads with it today.",
+        "Under Account Resources, include the accounts your brands' sites are in. Under Zone Resources, include every zone your brands use, and only those.",
+        "Create the token and copy it. Cloudflare shows it only once.",
+        "Paste the token here and press Connect for the organisation. YouGrow lists the zones it reaches, and you give each brand its zone on Settings › Organisation.",
+      ],
       pick: {
         label: "Zone",
         cantList: "This token can't list your zones (that needs Zone Read), so type your site's Zone ID instead.",
@@ -82,7 +89,12 @@ export const cloudflareManifest = {
   api: {
     hosts: ["api.cloudflare.com"],
     // Cloudflare allows 300 GraphQL queries every 5 minutes per user; stay well under it.
-    limits: { connection: { perMinute: 10, perHour: 120 }, brand: { perMinute: 20, perHour: 300 } },
+    limits: {
+      connection: { perMinute: 10, perHour: 120 },
+      brand: { perMinute: 20, perHour: 300 },
+      // One token serves several brands' zones; Cloudflare counts per token, and a 429 blocks five minutes.
+      source: { perMinute: 40, perHour: 600, holds: "connection", holdMinutes: 5 },
+    },
     timeoutMs: 10_000,
     maxBytes: 512 * 1024,
   },

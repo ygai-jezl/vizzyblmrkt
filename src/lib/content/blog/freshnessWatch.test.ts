@@ -127,3 +127,63 @@ describe("the freshness watch", () => {
     expect(await run(new Date("2026-11-27T12:30:00.000Z"))).toEqual({ brands: 0, articles: 0, due: 0 });
   });
 });
+
+describe("an erase while a look runs", () => {
+  const SECOND = "https://acme.example/blog/answer-engines";
+  const keys = ["acme.example/blog/visibility", "acme.example/blog/answer-engines"];
+  const scKinds = (reasons: readonly { kind: string }[]) => reasons.map((r) => r.kind).filter((k) => k === "losing_clicks" || k === "within_reach");
+
+  it("writes none of Search Console's figures after it, takes them off the list, keeps the next look due now, and the next look puts back what is still read", async () => {
+    const { db, tenant } = world();
+    // A second live article, made later, so the look reaches it first. It has no outbound links.
+    const hub = sampleHub({
+      body: "# What are answer engines?\n\nThey answer a question in place of a list of links.",
+      status: "approved",
+      blog: { ...BlogArticleMetaSchema.parse({}), live: { url: SECOND, at: "2026-10-22T08:00:00.000Z", by: "check", titleMatched: true }, dates: { published: { at: "2026-10-21", source: "page" } } },
+    });
+    db.seed(PLANS, "plan_2", samplePlan({ id: "plan_2", name: "Answer engines", createdAt: "2026-10-08T08:00:00.000Z", strategy: { objective: "brand_visibility", hubUrl: SECOND } }, hub));
+    const later = new Date(NOW.getTime() + 8 * 86_400_000);
+    let erase: (() => Promise<unknown>) | null = null;
+    const run = (now: Date) =>
+      sweepBrand(A, tenant, {
+        ...deps(db, now),
+        losingPages: async () => new Map(keys.map((k) => [k, "Search Console: 120 clicks, down from 260."])),
+        reachPages: async () => new Map(keys.map((k) => [k, "Search Console: position 12 on average."])),
+        // The erase lands while the look checks the first article's links: after it wrote the second.
+        checkLink: async () => {
+          const go = erase;
+          erase = null;
+          if (go) await go();
+          return "ok" as const;
+        },
+      });
+    const reasonsOf = async (planId: string) => (await getContentPlan(A, "ws1", planId, db))!.graph.nodes[0]!.blog!.freshness!.reasons;
+    const watchDoc = async () => (await forTenant(A, db).freshnessWatch.getById(freshnessWatchId("ten_A")))!;
+
+    await run(NOW);
+    expect(scKinds(await reasonsOf("plan_1"))).toEqual(["losing_clicks", "within_reach"]);
+    expect(scKinds(await reasonsOf("plan_2"))).toEqual(["losing_clicks", "within_reach"]);
+
+    const { clearSearchConsoleReasons } = await import("./freshnessErase");
+    erase = () => clearSearchConsoleReasons(A, { db, now: later });
+    const doc = await run(later);
+    expect(erase).toBeNull();
+    // Neither article keeps the figures: the second, written before the erase, lost them to it; the
+    // first, written after, never got them.
+    expect(scKinds(await reasonsOf("plan_1"))).toEqual([]);
+    expect(scKinds(await reasonsOf("plan_2"))).toEqual([]);
+    const stored = await watchDoc();
+    expect(stored.due.map((d) => d.planId).sort()).toEqual(["plan_1", "plan_2"]);
+    for (const d of stored.due) expect(scKinds(d.reasons), d.planId).toEqual([]);
+    // Due again at once (the erase's word), not a day after this look.
+    expect(Date.parse(stored.nextAt)).toBeLessThanOrEqual(later.getTime());
+    expect(stored.searchConsoleClears).toBe(1);
+    expect(doc.nextAt).toBe(stored.nextAt);
+
+    // The next look starts after the erase, so the figures still read come back, and a day passes.
+    const next = new Date(later.getTime() + 120_000);
+    await run(next);
+    expect(scKinds(await reasonsOf("plan_1"))).toEqual(["losing_clicks", "within_reach"]);
+    expect((await watchDoc()).nextAt).toBe(new Date(next.getTime() + 86_400_000).toISOString());
+  });
+});

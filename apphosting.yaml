@@ -269,6 +269,14 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Brands in the organisation (ADR-0015): owners bring in a brand they run, or move one out to an
+  # organisation of its own on the same plan, on Settings > Organisation. Needs a real tenant_users
+  # admin row for the brand and PLANS_ENABLED. Every move ends the brand's shared parts from the
+  # organisation it leaves, whatever sharing says. Off, moves stay operator scripts.
+  - variable: ORGANISATION_JOIN_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # The usage meter: every paid resource a brand uses (web searches for research, AI model use,
   # images, older counters) is counted per brand per month, and a capped one stops at its cap
   # (src/lib/plans/meter.ts). Off: nothing is counted or capped.
@@ -1187,6 +1195,15 @@ env:
   # the agent action indexes READY, infra/lifecycle/setup.sh ttl for data_signals, and
   # CONNECTORS_CHAT_ENABLED so a connection can be shared with Vizzy).
   - variable: CONNECTOR_SIGNALS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Organisations share connections (ADR-0015): an organisation's owners connect once and give
+  # each of its brands one site, property or zone; each brand's numbers stay in its own region
+  # (needs CONNECTORS_ENABLED and PLANS_ENABLED). Before turning it on, run
+  # infra/lifecycle/setup.sh ttl for organisation_connection_activity and deploy the index file
+  # without --force. Off, every part reads nothing and nothing is ended for it.
+  - variable: CONNECTORS_SHARING_ENABLED
     value: "false"
     availability:
       - RUNTIME

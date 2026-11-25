@@ -221,3 +221,25 @@ describe("connector manifests", () => {
     expect(() => parseManifest({ ...base(), id: "browse" })).toThrow(/bad_connector_manifest:browse:id: a reserved id/);
   });
 });
+
+describe("sharing one connection across an organisation's brands (Connectors 3)", () => {
+  it("gives each built connector its own organisation budget, and says where a quota answer holds", () => {
+    expect(parseManifest(searchConsoleManifest).api.limits.source).toEqual({ perMinute: 100, perHour: 1500, holds: "connection" });
+    expect(parseManifest(ga4Manifest).api.limits.source).toEqual({ perMinute: 40, perHour: 480, holds: "part" });
+    expect(parseManifest(cloudflareManifest).api.limits.source).toEqual({ perMinute: 40, perHour: 600, holds: "connection", holdMinutes: 5 });
+    // Each stays under the provider's own limits: Search Console 1,200 a minute per user, Cloudflare 300 GraphQL queries per 5 minutes.
+    expect(parseManifest(searchConsoleManifest).api.limits.source!.perMinute).toBeLessThan(1200);
+    expect(parseManifest(cloudflareManifest).api.limits.source!.perMinute * 5).toBeLessThan(300);
+  });
+
+  it("never shares a connector with a personal stream", () => {
+    const m = base();
+    (m.produces[0] as { personal: boolean }).personal = true;
+    (m.produces[0] as { collect?: unknown }).collect = undefined;
+    (m.hooks as { collect?: string }).collect = undefined;
+    expect(issues(m)).toContain(": a connector with a personal stream is never shared (limits.source)");
+    m.api.limits.source = undefined;
+    expect(issues(m)).not.toContain(": a connector with a personal stream is never shared (limits.source)");
+  });
+});
+

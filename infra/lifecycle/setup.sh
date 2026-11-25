@@ -212,6 +212,7 @@ case "$CMD" in
       ttl_on "$db" data_connection_states ttlAt
       ttl_on "$db" metric_snapshots ttlAt
       ttl_on "$db" data_signals ttlAt
+      ttl_on "$db" organisation_connection_activity ttlAt
     done
     ttl_on "(default)" rate_limits ttl
     ttl_on "(default)" email_codes ttl

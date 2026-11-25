@@ -19,6 +19,7 @@ const base = (over: Partial<ConnectionsScreen> = {}): ConnectionsScreen => ({
   collect: false,
   planning: false,
   isAdmin: false,
+  owner: false,
   uid: "usr_sam",
   connectors: [],
   connections: [connectionView({ member: true })],
@@ -46,6 +47,13 @@ describe("the Connected and Browse pages", () => {
     const el = (await ConnectedPage(none())) as { props: { isAdmin: boolean; chat: boolean; connections: unknown[]; uid: string } };
     expect(el.props).toMatchObject({ isAdmin: false, chat: true, uid: "usr_sam" });
     expect(el.props.connections).toHaveLength(1);
+  });
+
+  it("tell the view whether this person owns the organisation, as the server worked it out", async () => {
+    state.screen = base({ isAdmin: true, owner: true });
+    expect(((await ConnectedPage(none())) as { props: { owner: boolean } }).props.owner).toBe(true);
+    state.screen = base({ isAdmin: true });
+    expect(((await ConnectedPage(none())) as { props: { owner: boolean } }).props.owner).toBe(false);
   });
 
   it("open on the connection a Review row names, and only a real connection id", async () => {

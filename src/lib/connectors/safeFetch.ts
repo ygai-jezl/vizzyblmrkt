@@ -11,8 +11,10 @@ import type { ConnectorErrorCode } from "./messages";
  * - The URL's host must be one of the manifest's declared hosts, exactly, over https on 443,
  *   before any request is made.
  * - A paused connection is refused before any request.
- * - Rate limits per connection and per brand for this connector (isRateLimited, keyed by a hash).
- *   They fail open, so the pause on the record is the hard stop.
+ * - Rate limits per connection and per brand for this connector (isRateLimited, keyed by a hash),
+ *   and for a brand's part of an organisation's connection (Connectors 3) a third, per organisation
+ *   connection (`connector-src:<connector>`), from the manifest's limits.source. They fail open, so
+ *   the pause on the record is the hard stop.
  * - It calls src/lib/security/ssrf.ts safeFetch with maxRedirects 0 and allowedPorts [443].
  *   That helper follows redirects itself and copies the same init, Authorization included, into
  *   every hop; with 0 any 3xx throws after one request, and any 3xx that comes back anyway is
@@ -23,8 +25,8 @@ import type { ConnectorErrorCode } from "./messages";
 
 export interface ConnectorCall {
   manifest: Pick<ConnectorManifest, "id" | "api">;
-  /** The connection (or, while connecting, the one about to be saved). */
-  connection: Pick<DataConnection, "id" | "tenantId" | "pausedAt" | "health">;
+  /** The connection (or, while connecting, the one about to be saved). A part names its source. */
+  connection: Pick<DataConnection, "id" | "tenantId" | "pausedAt" | "health"> & { source?: Pick<NonNullable<DataConnection["source"]>, "organisationId" | "connectionId"> };
   url: string;
   method: "GET" | "POST";
   /** A JSON body, sent as application/json. */
@@ -109,6 +111,12 @@ export async function connectorFetch(call: ConnectorCall, deps: ConnectorFetchDe
   if (overConnection) return fail("busy");
   const overBrand = await limit(`${connection.tenantId}`, { prefix: `connector-brand:${manifest.id}`, burstLimit: brand.perMinute, hourlyLimit: brand.perHour });
   if (overBrand) return fail("busy");
+  const shared = manifest.api.limits.source;
+  if (connection.source && shared) {
+    // Every brand's part of one organisation connection draws on one budget, as the provider counts it.
+    const overSource = await limit(`${connection.source.organisationId}:${connection.source.connectionId}`, { prefix: `connector-src:${manifest.id}`, burstLimit: shared.perMinute, hourlyLimit: shared.perHour });
+    if (overSource) return fail("busy");
+  }
 
   const headers: Record<string, string> = { authorization: `Bearer ${call.token}`, accept: "application/json" };
   if (call.json !== undefined) headers["content-type"] = "application/json";

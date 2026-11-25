@@ -21,6 +21,7 @@ const base = (over: Partial<ConnectionsScreen> = {}): ConnectionsScreen => ({
   collect: false,
   planning: false,
   isAdmin: true,
+  owner: false,
   uid: "usr_alex",
   connectors: [listingFor("search-console", ["oauth_pkce", "share_access"])],
   connections: [],

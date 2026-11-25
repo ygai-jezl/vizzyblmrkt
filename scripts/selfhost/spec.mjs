@@ -108,6 +108,10 @@ export const KEPT_OFF = {
   NEXT_PUBLIC_GA_DEBUG_MODE: { addon: null, why: "sends Analytics hits to DebugView, for testing only" },
   PLANS_ENABLED: { addon: null, why: "the hosted service's plans; off, every brand may use every feature its switch turns on (docs/self-host.md, Plans)" },
   NEXT_PUBLIC_PLANS_ENABLED: { addon: null, why: "Settings, Plan and usage for the hosted service's plans; with PLANS_ENABLED off it only says plans are off" },
+  ORGANISATION_JOIN_ENABLED: {
+    addon: null,
+    why: "Bring in and Move out on Settings › Organisation need plans on (PLANS_ENABLED, every organisation on Self-hosted) and owners added with scripts/set-plan.ts (docs/self-host.md, Brands in an organisation)",
+  },
   RECAPTCHA_ENABLED: { addon: "recaptcha", why: "needs a reCAPTCHA Enterprise key; on without one, every waitlist sign-up is refused" },
   KNOWLEDGE_RAG_ENABLED: { addon: "knowledge", why: "needs the knowledge worker" },
   GIT_REPO_SELECTION_ENABLED: { addon: "github-app", why: "needs a connected repo (the read-only GitHub App)" },
@@ -159,6 +163,10 @@ export const KEPT_OFF = {
   CONNECTOR_SIGNALS_ENABLED: {
     addon: null,
     why: "suggestions from collected numbers do nothing until CONNECTORS_COLLECT_ENABLED is on, need the agent action indexes READY and the data_signals time to live, and come only from connections Vizzy may read (docs/self-host.md, Upgrading to collected numbers)",
+  },
+  CONNECTORS_SHARING_ENABLED: {
+    addon: null,
+    why: "organisations sharing connections need plans on (PLANS_ENABLED, every organisation on Self-hosted), the organisation_connection_activity time to live and the index file deployed without --force (docs/self-host.md, Shared connections across your brands)",
   },
   ANALYTICS_BQ_ENABLED: { addon: "bigquery", why: "needs the BigQuery datasets and export extensions" },
   NEXT_PUBLIC_ANALYTICS_BQ_ENABLED: { addon: "bigquery", why: "needs the BigQuery datasets and export extensions" },

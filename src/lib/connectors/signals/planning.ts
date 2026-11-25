@@ -4,6 +4,7 @@ import { nextUpDocId } from "@/lib/types/autopilot";
 import type { SnapshotRow } from "@/lib/types/metricSnapshot";
 import { isConnectorsChatEnabled, isConnectorSignalsEnabled } from "../flags";
 import { feedsPlanning } from "../grants";
+import { readableOnly, type SourceDeps } from "../sources";
 import { planningId, siteName } from "../keys";
 import { searchConsoleManifest } from "../manifests/searchConsole";
 import { dayWords, zoneWords } from "../period";
@@ -53,23 +54,27 @@ export const SEARCH_CONSOLE_CHIP = "Search Console";
  * Take off the stored Next up picks that weighed Search Console (a chip of its own), once a
  * connection stops feeding planning: the stored list is seen by the whole team and by Vizzy, and a
  * pick's reason may rest on those numbers. The next pick weighs what is left. Returns how many.
+ * With `notShared: false` (an erase: the numbers went, not the sharing), Next up's list of what it
+ * couldn't see is left as it is.
  */
-export async function dropSearchConsolePicks(ctx: TenantContext, deps: { db?: FirestoreLike } = {}): Promise<number> {
+export async function dropSearchConsolePicks(ctx: TenantContext, deps: { db?: FirestoreLike; notShared?: boolean } = {}): Promise<number> {
   let dropped = 0;
+  const say = deps.notShared !== false;
   await forTenant(ctx, deps.db).nextUp.claim(nextUpDocId(ctx.tenantId), (cur) => {
     const keep = cur.picks.filter((p) => !p.chips.some((c) => c.label === SEARCH_CONSOLE_CHIP));
     dropped = cur.picks.length - keep.length;
     if (!dropped) return null;
-    return { picks: keep, missing: cur.missing.includes(NOT_SHARED_NEXT_UP) ? cur.missing : [...cur.missing, NOT_SHARED_NEXT_UP] };
+    return { picks: keep, ...(say ? { missing: cur.missing.includes(NOT_SHARED_NEXT_UP) ? cur.missing : [...cur.missing, NOT_SHARED_NEXT_UP] } : {}) };
   });
   return dropped;
 }
 
 /** The brand's Search Console demand, or null while signals are off. */
-export async function readSearchPlanning(ctx: TenantContext, deps: { db?: FirestoreLike } = {}): Promise<SearchPlanning | null> {
+export async function readSearchPlanning(ctx: TenantContext, deps: Pick<SourceDeps, "db" | "regionDb" | "controlDb"> = {}): Promise<SearchPlanning | null> {
   if (!isConnectorSignalsEnabled()) return null;
   const conns = (await forTenant(ctx, deps.db).dataConnections.find({ where: [["status", "==", "connected"]], limit: 50 })).filter((c) => c.connectorId === searchConsoleManifest.id);
-  const planning = conns.filter((c) => feedsPlanning(c.grants) && c.collect);
+  // A brand's part counts only while its organisation still gives it (partLive).
+  const planning = await readableOnly(ctx, conns.filter((c) => feedsPlanning(c.grants) && c.collect), deps);
   const sites: SearchPlanningSite[] = [];
   for (const c of planning) {
     const gen = c.collect!.gen;

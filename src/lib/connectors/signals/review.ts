@@ -9,6 +9,7 @@ import type { DataConnection } from "@/lib/types/dataConnection";
 import { isDataSignalId, type DataSignal } from "@/lib/types/dataSignal";
 import type { Tenant } from "@/lib/types/tenant";
 import { feedsPlanning } from "../grants";
+import { partLive, readableOnly, type SourceDeps } from "../sources";
 import { siteName } from "../keys";
 import { searchConsoleManifest } from "../manifests/searchConsole";
 import { DATA_SIGNAL_ACTION, PROPOSE_QUESTION_ACTION, SIGNALS_AGENT } from "./names";
@@ -35,15 +36,20 @@ export interface OpenSuggestion {
   connection: DataConnection;
 }
 
-export interface SuggestionDeps {
+export interface SuggestionDeps extends Pick<SourceDeps, "regionDb" | "controlDb"> {
   db?: FirestoreLike;
   now?: Date;
 }
 
-/** The brand's connected Search Console connections that feed planning, by id. */
+/**
+ * The brand's connected Search Console connections that feed planning, by id: its own, and the
+ * parts its organisation still gives it (partLive), so a brand that left sees none of its old
+ * part's suggestions before the erase.
+ */
 export async function planningConnections(ctx: TenantContext, deps: SuggestionDeps): Promise<Map<string, DataConnection>> {
   const conns = await forTenant(ctx, deps.db).dataConnections.find({ where: [["status", "==", "connected"]], limit: 50 });
-  return new Map(conns.filter((c) => c.connectorId === searchConsoleManifest.id && feedsPlanning(c.grants)).map((c) => [c.id, c] as const));
+  const planning = await readableOnly(ctx, conns.filter((c) => c.connectorId === searchConsoleManifest.id && feedsPlanning(c.grants)), { db: deps.db, regionDb: deps.regionDb, controlDb: deps.controlDb });
+  return new Map(planning.map((c) => [c.id, c] as const));
 }
 
 /**
@@ -96,8 +102,11 @@ export async function signalReviewItems(ctx: TenantContext, deps: SuggestionDeps
   });
 }
 
-export type DecideError = "not_found" | "changed" | "no_programme";
+export type DecideError = "not_found" | "changed" | "no_programme" | "busy";
 export type DecideResult<T> = { ok: true; value: T } | { ok: false; error: DecideError };
+
+/** What Plan an article says when what it checks couldn't be read just now (busy); Review's help quotes it. */
+export const SUGGESTION_BUSY = "That suggestion couldn't be checked just now. Try again in a minute.";
 
 /** The open suggestion a row names, or why not: a row of this brand, not blanked, its action still proposed. */
 async function openFor(ctx: TenantContext, signalId: string, deps: SuggestionDeps): Promise<{ ok: true; row: DataSignal; action: AgentAction } | { ok: false; error: DecideError }> {
@@ -143,9 +152,30 @@ export function planHref(workspaceId: string, row: Pick<DataSignal, "rule" | "la
 const memberOf = (ctx: TenantContext) => ({ type: "member" as const, id: ctx.userId && !ctx.userId.includes("@") ? ctx.userId : "admin" });
 
 /**
+ * Why a suggestion's connection isn't among the planning connections: not_found when it is gone or
+ * no longer feeds planning (a part partLive refuses, or a brand's own connection whose grants
+ * changed), busy when a read behind the answer failed (the record, or the checks behind partLive,
+ * which read as refused), so the person is asked to try again rather than told it is gone.
+ */
+async function whyNotPlanning(ctx: TenantContext, connectionId: string, deps: SuggestionDeps): Promise<"not_found" | "busy"> {
+  try {
+    const conn = await forTenant(ctx, deps.db).dataConnections.getById(connectionId);
+    if (!conn?.source || conn.status !== "connected" || conn.connectorId !== searchConsoleManifest.id || !feedsPlanning(conn.grants)) return "not_found";
+    const check = await partLive(ctx, conn, { db: deps.db, regionDb: deps.regionDb, controlDb: deps.controlDb });
+    // Live now: the read that hid it a moment ago failed, so trying again works.
+    return check.live || check.why === "read_failed" ? "busy" : "not_found";
+  } catch {
+    return "busy";
+  }
+}
+
+/**
  * Plan an article from a suggestion: proposed to acted with its Create link as the result, its
  * values cleared, the row blanked and kept away 30 days. With several programmes and none chosen
- * (or none at all), answers no_programme.
+ * (or none at all), answers no_programme. A suggestion Review hides answers not_found and stays
+ * proposed: its connection no longer feeds planning (a part partLive refuses, or a brand's own
+ * connection whose grants changed), or its row is of another generation than the connection's.
+ * When that can't be read just now, it answers busy and stays proposed.
  */
 export async function planFromSignal(
   ctx: TenantContext,
@@ -155,9 +185,18 @@ export async function planFromSignal(
 ): Promise<DecideResult<{ href: string }>> {
   const open = await openFor(ctx, signalId, deps);
   if (!open.ok) return open;
+  // Exactly what openSuggestions hides: a link built from the row's label goes nowhere Review wouldn't show.
+  let planning: Map<string, DataConnection>;
+  try {
+    planning = await planningConnections(ctx, deps);
+  } catch {
+    return { ok: false, error: "busy" };
+  }
+  const connection = planning.get(open.row.connectionId);
+  if (!connection) return { ok: false, error: await whyNotPlanning(ctx, open.row.connectionId, deps) };
+  if (open.row.gen !== connection.collect?.gen) return { ok: false, error: "not_found" };
   // A page that is one of the brand's live articles is refreshed, not planned again.
-  const connection = (await planningConnections(ctx, deps).catch(() => new Map<string, DataConnection>())).get(open.row.connectionId);
-  const own = connection ? await ownArticleFor(ctx, open.row, connection, deps).catch(() => null) : null;
+  const own = await ownArticleFor(ctx, open.row, connection, deps).catch(() => null);
   const workspaceId = own ? own.workspaceId : await programmeFor(ctx, input.workspaceId ?? null, deps, deps.loadTenant ?? getTenantById);
   if (!workspaceId) return { ok: false, error: "no_programme" };
   const href = own ? refreshHref(own) : planHref(workspaceId, open.row);

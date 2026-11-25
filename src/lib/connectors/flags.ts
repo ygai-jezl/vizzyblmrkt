@@ -1,3 +1,5 @@
+import { isPlansEnabled } from "@/lib/plans/flags";
+
 /**
  * Connected data switches (Connectors 1, ADR-0011). Each is on only when it is exactly "true".
  * With CONNECTORS_ENABLED off every connector route answers 404, nothing calls a provider, and
@@ -114,4 +116,16 @@ export function isConnectorsNumbersEnabled(): boolean {
  */
 export function isConnectorSignalsEnabled(): boolean {
   return isConnectorsCollectEnabled() && process.env.CONNECTOR_SIGNALS_ENABLED === "true";
+}
+
+/**
+ * Organisations share connections (Connectors 3, ADR-0015): an organisation's owners connect once
+ * and give each of its brands one part (a site, a property or a zone). Needs CONNECTORS_ENABLED
+ * and PLANS_ENABLED (organisations count only with plans on). Off, the Shared connections section
+ * is hidden and every part reads nothing, live or collected, and the lane skips parts quietly;
+ * nothing is ended for it. Housekeeping for brands that left, the repairs of half done gives and
+ * take backs, and the organisation purge run whatever it says.
+ */
+export function isConnectorsSharingEnabled(): boolean {
+  return isConnectorsEnabled() && isPlansEnabled() && process.env.CONNECTORS_SHARING_ENABLED === "true";
 }

@@ -2,8 +2,8 @@ import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
 import { isOneViewEnabled, isPeopleNameEnabled } from "@/lib/audience/flags";
 import { isFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { isSearchUiEnabled } from "@/lib/search/flags";
-import { isPlansUiEnabled } from "@/lib/plans/flags";
-import { isConnectorsScreenEnabled } from "@/lib/connectors/flags";
+import { isOrganisationJoinEnabled, isPlansUiEnabled } from "@/lib/plans/flags";
+import { isConnectorsScreenEnabled, isConnectorsSharingEnabled } from "@/lib/connectors/flags";
 import { isPasswordSigninAvailable } from "@/lib/auth/flags";
 
 /**
@@ -27,7 +27,7 @@ export interface HelpPage {
    * A page about a switched-off feature: listed and served only while its switch is on.
    * The switches are read on the server, so client lists (⌘K) leave these pages out.
    */
-  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "password_signin";
+  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin";
 }
 
 /**
@@ -64,6 +64,10 @@ export interface HelpBodyProps {
   connectorSignals?: boolean;
   /** The brand map is kept at any size (isBrandMapScaleEnabled()): proposed questions wait on its Subjects tab. */
   brandMapScale?: boolean;
+  /** Organisations share connections (isConnectorsSharingEnabled(), a server switch: the drawer gets it from the admin shell). */
+  sharing?: boolean;
+  /** Owners bring in and move out brands (isOrganisationJoinEnabled(), a server switch: the drawer gets it from the admin shell). */
+  join?: boolean;
 }
 
 /** Navigation headings, matching Home's stages. */
@@ -96,6 +100,13 @@ export const HELP_PAGES: HelpPage[] = [
     "plans",
   ),
   page(
+    "organisation-brands",
+    "Brands in your organisation",
+    "start",
+    "Bring a brand you run into your organisation, or move one out to an organisation of its own, on the same plan.",
+    "join",
+  ),
+  page(
     "sign-in-and-passwords",
     "Sign in and passwords",
     "start",
@@ -126,6 +137,13 @@ export const HELP_PAGES: HelpPage[] = [
     "connectors",
   ),
   page(
+    "shared-connections",
+    "Shared connections",
+    "grow",
+    "Connect Search Console, Google Analytics 4 or Cloudflare once for your organisation and give each brand its own site, property or zone.",
+    "sharing",
+  ),
+  page(
     "your-audience",
     "Your audience",
     "grow",
@@ -147,6 +165,8 @@ export function isHelpPageShown(p: Pick<HelpPage, "onlyWhen">): boolean {
   if (p.onlyWhen === "search") return isSearchUiEnabled();
   if (p.onlyWhen === "plans") return isPlansUiEnabled();
   if (p.onlyWhen === "connectors") return isConnectorsScreenEnabled();
+  if (p.onlyWhen === "sharing") return isConnectorsSharingEnabled();
+  if (p.onlyWhen === "join") return isOrganisationJoinEnabled();
   // As /login decides: the switch on and a way to deliver the code, so the page never describes
   // password screens the sign-in page doesn't show.
   if (p.onlyWhen === "password_signin") return isPasswordSigninAvailable();

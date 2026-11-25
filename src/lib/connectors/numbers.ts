@@ -19,6 +19,7 @@ import { getConnector } from "./registry";
 import { PEOPLE_KEYS, RowRoller, rollTotals } from "./rollups";
 import type { ServiceDeps } from "./service";
 import { KEEP_ROWS, oldestAlive, readDayDocs, readSnapshot } from "./snapshots";
+import { partLive } from "./sources";
 
 /**
  * Vizzy's collected numbers (Connectors 2, ADR-0012): get_connected_numbers, through
@@ -314,7 +315,7 @@ function stoppedWhy(conn: DataConnection, name: string): string | null {
  * stream's lag in words and lagDays, totals for the period, the rows asked for, how many rows it
  * left out (rowsDropped) and each note once.
  */
-export async function agentCollectedNumbers(ctx: TenantContext, actor: ConnectorActor, body: unknown, deps: Pick<ServiceDeps, "db" | "now"> = {}): Promise<AgentApiResult> {
+export async function agentCollectedNumbers(ctx: TenantContext, actor: ConnectorActor, body: unknown, deps: Pick<ServiceDeps, "db" | "now" | "regionDb" | "controlDb"> = {}): Promise<AgentApiResult> {
   const parsed = AgentNumbersSchema.safeParse(body);
   if (!parsed.success) return refuse(400, "invalid_input");
   const q = parsed.data;
@@ -326,6 +327,11 @@ export async function agentCollectedNumbers(ctx: TenantContext, actor: Connector
   if (conn.status !== "connected") return refuse(409, "disconnected", connectorMessage("disconnected"));
   if (!can(actor, "see", conn.grants)) return refuse(403, "no_agent_grant", NO_AGENT_GRANT);
   if (!can(actor, "read_live", conn.grants)) return refuse(403, "no_read_grant", NO_MEMBER_READ);
+  // A brand's part: only while its organisation still gives it, before any erase (partLive).
+  if (conn.source) {
+    const check = await partLive(ctx, conn, deps);
+    if (!check.live) return refuse(409, check.code, connectorMessage(check.code));
+  }
   const manifest = getConnector(conn.connectorId);
   if (!manifest) return refuse(404, "connector_off");
 

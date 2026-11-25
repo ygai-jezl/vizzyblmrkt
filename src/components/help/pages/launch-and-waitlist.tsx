@@ -2,23 +2,27 @@ import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning, WhoGetsWhichEmails } from "@/components/help/blocks";
 import { isEditModeEmailsEnabled } from "@/lib/content/editor/flags";
 import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
-import { isIdeasEnabled } from "@/lib/ideas/flags";
+import { isIdeasEnabled, isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { isNavV2Enabled } from "@/lib/nav/flags";
-import { IDEA_MESSAGES } from "@/lib/ideas/words";
+import { ideaWord } from "@/lib/nav/terms";
+import { ideaMessages } from "@/lib/ideas/words";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
 /**
  * With ideas on (LAUNCH_IDEAS_ENABLED) the page explains a launch's idea, and handing it off; comparing
- * launches and the status filter need the launches list too (nav v2). The switch is read on the
- * server, so the How to drawer passes it in.
+ * launches and the status filter need the launches list too (nav v2). With ideas in the words
+ * (`ideaWords`, isIdeaWordsEnabled()) a launch is called an idea; the slug and anchors stay. The
+ * switches are read on the server, so the How to drawer passes them in.
  */
-export default function LaunchAndWaitlistHelp({ ideas = isIdeasEnabled() }: HelpBodyProps = {}) {
+export default function LaunchAndWaitlistHelp({ ideas = isIdeasEnabled(), ideaWords = isIdeaWordsEnabled() }: HelpBodyProps = {}) {
   const compare = ideas && isNavV2Enabled();
+  const w = ideaWord(ideaWords);
+  const messages = ideaMessages(ideaWords);
   return (
     <article>
-      <H1>Launch and waitlist</H1>
+      <H1>{w.One} and waitlist</H1>
       <Lead>Create a waitlist, greet everyone who joins, then share it.</Lead>
-      <Meta items={["About 15 minutes", "Admins", "Once per launch"]} />
+      <Meta items={["About 15 minutes", "Admins", `Once per ${w.one}`]} />
 
       <BeforeAndUnlocks
         before={
@@ -43,13 +47,13 @@ export default function LaunchAndWaitlistHelp({ ideas = isIdeasEnabled() }: Help
         the list when you first publish it, YouGrow asks whether they should get it too.
       </Warning>
 
-      <H2 id="create">Create a launch</H2>
+      <H2 id="create">Create {w.a}</H2>
       <Steps>
         <li>
-          Open <Open href="/admin/launches">Launches</Open> and press <strong>New launch</strong>.
+          Open <Open href="/admin/launches">{w.Many}</Open> and press <strong>New {w.one}</strong>.
         </li>
         <li>
-          Type a <strong>Launch name</strong>. It&apos;s the headline on your waitlist page.
+          Type {ideaWords ? "an" : "a"} <strong>{w.One} name</strong>. It&apos;s the headline on your waitlist page.
         </li>
         {ideas ? (
           <li>
@@ -62,7 +66,7 @@ export default function LaunchAndWaitlistHelp({ ideas = isIdeasEnabled() }: Help
           the slug can&apos;t be changed later.
         </li>
         <li>
-          Choose the <strong>Required contact detail</strong>. EMAIL suits most launches.
+          Choose the <strong>Required contact detail</strong>. EMAIL suits most {w.many}.
         </li>
         <li>
           Set <strong>Spots skipped per referral</strong>: how far someone moves up for each friend who joins.
@@ -71,7 +75,8 @@ export default function LaunchAndWaitlistHelp({ ideas = isIdeasEnabled() }: Help
           Tick <strong>Require email verification (double opt-in)</strong> if people should confirm their email first.
         </li>
         <li>
-          Press <strong>Create launch</strong>. Your launch opens on its Overview, with a <strong>Launch checklist</strong>.
+          Press <strong>Create {w.one}</strong>. Your {w.one} opens on its Overview, with {ideaWords ? "an" : "a"}{" "}
+          <strong>{w.One} checklist</strong>.
         </li>
       </Steps>
       <P>
@@ -90,10 +95,13 @@ export default function LaunchAndWaitlistHelp({ ideas = isIdeasEnabled() }: Help
       {ideas ? (
         <>
           <H2 id="idea">Test it as an idea</H2>
-          <P>Each launch tests an idea. Its Overview starts with the Idea card, so your team can see what you expect and how it went.</P>
+          <P>
+            {ideaWords ? "Each idea is tested with its own waitlist." : "Each launch tests an idea."} Its Overview starts with
+            the Idea card, so your team can see what you expect and how it went.
+          </P>
           <Steps>
             <li>
-              Open your launch. The <strong>Idea</strong> card is at the top of the Overview.
+              Open your {w.one}. The <strong>Idea</strong> card is at the top of the Overview.
             </li>
             <li>
               Under <strong>Status</strong>, pick <strong>Exploring</strong>, <strong>Testing</strong>,{" "}
@@ -106,29 +114,31 @@ export default function LaunchAndWaitlistHelp({ ideas = isIdeasEnabled() }: Help
             </li>
           </Steps>
           <P>
-            Only admins change the Idea card. Everyone on your team can read it. A launch made before ideas has no status until
-            someone picks one.
+            Only admins change the Idea card. Everyone on your team can read it.{" "}
+            {ideaWords
+              ? "An idea made before statuses came in has none until someone picks one."
+              : "A launch made before ideas has no status until someone picks one."}
           </P>
           <P>
             Parked or Killed leaves the waitlist open: people can still join, and its emails still go out. The card asks what
             to do. Press <strong>Keep it open</strong>, or <strong>Also close the waitlist</strong>, which does what{" "}
-            <strong>Archive launch</strong> on the Settings tab does: nobody new can join, its emails pause, scheduled emails go
+            <strong>Archive {w.one}</strong> on the Settings tab does: nobody new can join, its emails pause, scheduled emails go
             back to drafts, and it moves to Archived.
           </P>
           <P>
             For a newsletter or sign up list that isn&apos;t an idea, tick <strong>Just a list</strong> on the card. The card
-            becomes one line, the launch shows no status, and it&apos;s left out of comparisons and of{" "}
-            <Open href="/help/your-audience#list">In more than one launch</Open>. Press <strong>Make it an idea</strong> to undo
+            becomes one line, the {w.one} shows no status, and it&apos;s left out of comparisons and of{" "}
+            <Open href="/help/your-audience#list">In more than one {w.one}</Open>. Press <strong>Make it an idea</strong> to undo
             it.
           </P>
         </>
       ) : null}
 
       <H2 id="welcome">Turn on the welcome email</H2>
-      <P>Every new launch starts with a draft welcome journey. Nothing sends until you publish it.</P>
+      <P>Every new {w.one} starts with a draft welcome journey. Nothing sends until you publish it.</P>
       <Steps>
         <li>
-          Open your launch, then the <strong>Emails</strong> tab.
+          Open your {w.one}, then the <strong>Emails</strong> tab.
         </li>
         <li>
           Next to <strong>Welcome &amp; nurture</strong>, press <strong>Set it up</strong>.
@@ -155,14 +165,14 @@ export default function LaunchAndWaitlistHelp({ ideas = isIdeasEnabled() }: Help
       </Steps>
       <P>
         If Publish is refused, the editor lists what to fix above its tabs. Rather have Vizzy write it? Ask Vizzy (⌘J) for
-        welcome emails for this launch. Vizzy saves a draft for you to check here, and it shows in Review. It never
+        welcome emails for this {w.one}. Vizzy saves a draft for you to check here, and it shows in Review. It never
         publishes.
       </P>
 
       <H2 id="share">Share your waitlist</H2>
       <Steps>
         <li>
-          Open your launch, then the <strong>Page &amp; widget</strong> tab.
+          Open your {w.one}, then the <strong>Page &amp; widget</strong> tab.
         </li>
         <li>
           To share the hosted page, choose <strong>Hosted</strong> and press <strong>Copy link</strong>. Post it anywhere.
@@ -172,7 +182,7 @@ export default function LaunchAndWaitlistHelp({ ideas = isIdeasEnabled() }: Help
           Press <strong>Copy</strong> next to <strong>Embed snippet</strong> and paste it into your page.
         </li>
         <li>
-          Embedded it? On the launch&apos;s <strong>Settings</strong> tab, paste that page&apos;s full address into{" "}
+          Embedded it? On the {w.own} <strong>Settings</strong> tab, paste that page&apos;s full address into{" "}
           <strong>Waitlist URL</strong>, so referral links point to your site. Press <strong>Save changes</strong>.
         </li>
         <li>
@@ -190,33 +200,36 @@ export default function LaunchAndWaitlistHelp({ ideas = isIdeasEnabled() }: Help
           <H2 id="own-form">Use your own sign-up form</H2>
           <P>
             Rather keep your own box than embed ours? On <strong>Page &amp; widget</strong>, choose{" "}
-            <strong>Your own form</strong>: your server adds each email with the launch&apos;s site key, and YouGrow sends the
-            confirmation. For a newsletter, use a launch just for it. See{" "}
-            <Open href="/help/newsletter-from-your-site">Newsletter from your own site</Open>.
+            <strong>Your own form</strong>: your server adds each email with the {w.own} site key, and YouGrow sends the
+            confirmation.{" "}
+            {ideaWords
+              ? "For a newsletter, use a waitlist just for it, and tick Just a list on its Idea card."
+              : "For a newsletter, use a launch just for it."}{" "}
+            See <Open href="/help/newsletter-from-your-site">Newsletter from your own site</Open>.
           </P>
-          <WhoGetsWhichEmails />
+          <WhoGetsWhichEmails ideaWords={ideaWords} />
         </>
       ) : null}
 
       {compare ? (
         <>
-          <H2 id="compare">Compare launches side by side</H2>
+          <H2 id="compare">Compare {w.many} side by side</H2>
           <Steps>
             <li>
-              Open <Open href="/admin/launches">Launches</Open>. Each launch shows its status. Pick a status at the top, such
+              Open <Open href="/admin/launches">{w.Many}</Open>. Each {w.one} shows its status. Pick a status at the top, such
               as <strong>Testing</strong>, to show only those.
             </li>
             <li>
-              Tick 2 to 4 launches, then press <strong>Compare side by side</strong>.
+              Tick 2 to 4 {w.many}, then press <strong>Compare side by side</strong>.
             </li>
             <li>
-              Each launch gets a column: its status, hypothesis and outcome, then <strong>Waitlisted</strong>,{" "}
+              Each {w.one} gets a column: its status, hypothesis and outcome, then <strong>Waitlisted</strong>,{" "}
               <strong>Verified</strong>, <strong>Invited</strong>, <strong>Signed up</strong> and <strong>Activated</strong>.
-              Each bar is against that launch&apos;s own waitlist, and the line under it is the share of the step before.
+              Each bar is against that {w.own} own waitlist, and the line under it is the share of the step before.
             </li>
           </Steps>
           <P>
-            Launches marked Just a list have no box. Press <strong>All launches</strong> to go back.
+            {w.Many} marked Just a list have no box. Press <strong>All {w.many}</strong> to go back.
           </P>
         </>
       ) : null}
@@ -266,13 +279,17 @@ export default function LaunchAndWaitlistHelp({ ideas = isIdeasEnabled() }: Help
       <H2 id="messages">If you see this</H2>
       <Messages
         rows={[
-          ["Launch name is required.", "Type a Launch name, then press Create launch again."],
+          ideaWords
+            ? ["Idea name is required.", "Type an Idea name, then press Create idea again."]
+            : ["Launch name is required.", "Type a Launch name, then press Create launch again."],
           [
             "use lowercase letters, numbers and hyphens",
             "The URL slug can only use lowercase letters, numbers and hyphens. Or leave it blank.",
           ],
           [
-            "This launch's emails come from a shared default address until you verify your sending domain.",
+            ideaWords
+              ? "This idea's emails come from a shared default address until you verify your sending domain."
+              : "This launch's emails come from a shared default address until you verify your sending domain.",
             <>
               Verify your domain in <Open href="/help/email-sending">Email sending</Open>. Until then, your welcome and invite
               emails don&apos;t come from you.
@@ -289,18 +306,18 @@ export default function LaunchAndWaitlistHelp({ ideas = isIdeasEnabled() }: Help
           ...(ideas
             ? ([
                 [
-                  IDEA_MESSAGES.hypothesisNotSaved,
-                  "The launch was created, but its hypothesis didn't save. Press Open its Overview and write it on the Idea card.",
+                  messages.hypothesisNotSaved,
+                  `The ${w.one} was created, but its hypothesis didn't save. Press Open its Overview and write it on the Idea card.`,
                 ],
-                [IDEA_MESSAGES.closeFailed, "The new status is kept. Press Also close the waitlist again, or archive it from the Settings tab."],
-                [IDEA_MESSAGES.notLaunched, "Pick Launched under Status first, then press Hand off."],
-                [IDEA_MESSAGES.productGone, "That product was disconnected. Pick another one, or connect it again."],
+                [messages.closeFailed, "The new status is kept. Press Also close the waitlist again, or archive it from the Settings tab."],
+                [messages.notLaunched, "Pick Launched under Status first, then press Hand off."],
+                [messages.productGone, "That product was disconnected. Pick another one, or connect it again."],
               ] as Array<[string, string]>)
             : []),
         ]}
       />
 
-      <NextPage slug="launch-and-waitlist" />
+      <NextPage slug="launch-and-waitlist" ideaWords={ideaWords} />
     </article>
   );
 }

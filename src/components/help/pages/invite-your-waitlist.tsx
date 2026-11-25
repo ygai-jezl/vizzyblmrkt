@@ -1,7 +1,12 @@
 import { C, H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import type { HelpBodyProps } from "@/lib/help/pages";
+import { ideaWord } from "@/lib/nav/terms";
 
-export default function InviteYourWaitlistHelp() {
+/** With ideas in the words (`ideaWords`, isIdeaWordsEnabled()) a launch is called an idea. */
+export default function InviteYourWaitlistHelp({ ideaWords = isIdeaWordsEnabled() }: HelpBodyProps = {}) {
+  const w = ideaWord(ideaWords);
   return (
     <article>
       <H1>Invite your waitlist</H1>
@@ -11,7 +16,7 @@ export default function InviteYourWaitlistHelp() {
       <BeforeAndUnlocks
         before={
           <>
-            <li>A launch with verified signups</li>
+            <li>{w.A} with verified signups</li>
             <li>
               Your production app connected. See <Open href="/help/connect-your-product">Connect your product</Open>.
             </li>
@@ -33,7 +38,7 @@ export default function InviteYourWaitlistHelp() {
 
       <H2 id="unlock">Unlock invites</H2>
       <P>
-        At the top of your launch, <strong>Invite waitlist to product</strong> stays locked until your product is ready. The
+        At the top of your {w.one}, <strong>Invite waitlist to product</strong> stays locked until your product is ready. The
         reason shows under the button. These steps clear the usual ones.
       </P>
       <Steps>
@@ -63,7 +68,7 @@ export default function InviteYourWaitlistHelp() {
       <H2 id="wave">Send a wave</H2>
       <Steps>
         <li>
-          Open your launch and press <strong>Invite waitlist to product</strong>.
+          Open your {w.one} and press <strong>Invite waitlist to product</strong>.
         </li>
         <li>
           Press <strong>New invite wave</strong>.
@@ -90,7 +95,7 @@ export default function InviteYourWaitlistHelp() {
         </li>
       </Steps>
       <P>
-        Only verified people are invited. A wave skips anyone already invited from this launch and anyone without an email
+        Only verified people are invited. A wave skips anyone already invited from this {w.one} and anyone without an email
         address. Vizzy can draft a wave for you: it shows as <strong>Drafted by Vizzy</strong> and waits for you to send it.
       </P>
 
@@ -102,7 +107,7 @@ export default function InviteYourWaitlistHelp() {
           The last two come from your product&apos;s events, so your product must send them.
         </li>
         <li>
-          Invited people move to <strong>Offboarded</strong> on the launch&apos;s <strong>Signups</strong> tab.
+          Invited people move to <strong>Offboarded</strong> on the {w.own} <strong>Signups</strong> tab.
         </li>
         <li>On the Overview, the checklist ticks &quot;Invite your waitlist when the product is ready&quot;.</li>
       </Checks>
@@ -126,7 +131,9 @@ export default function InviteYourWaitlistHelp() {
             "Invite links aren't set up yet.",
             "Whoever runs your YouGrow needs to set an invite link signing key (INVITE_LINK_SIGNING_KEY). If you run it yourself, see the setup guide in the repository.",
           ],
-          ["This launch is archived.", "On the launch's Settings tab, press Restore launch."],
+          ideaWords
+            ? ["This idea is archived.", "On the idea's Settings tab, press Restore idea."]
+            : ["This launch is archived.", "On the launch's Settings tab, press Restore launch."],
           [
             "Nobody left to invite: everyone verified has been invited or already uses the product.",
             "Wait for more people to join and verify, or untick Skip people who already use the product.",

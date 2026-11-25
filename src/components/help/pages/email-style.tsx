@@ -1,7 +1,10 @@
 import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import type { HelpBodyProps } from "@/lib/help/pages";
 
-export default function EmailStyleHelp() {
+/** `ideaWords` names the next page, Launch and waitlist, as the drawer's shell does. */
+export default function EmailStyleHelp({ ideaWords = isIdeaWordsEnabled() }: HelpBodyProps = {}) {
   return (
     <article>
       <H1>Email style</H1>
@@ -147,7 +150,7 @@ export default function EmailStyleHelp() {
         ]}
       />
 
-      <NextPage slug="email-style" />
+      <NextPage slug="email-style" ideaWords={ideaWords} />
     </article>
   );
 }

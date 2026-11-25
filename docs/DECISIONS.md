@@ -4,6 +4,101 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0016 · Ideas: a launch is an idea being tested, in the app's words and Vizzy's (piece D) (2026-11-25)
+
+Context: a launch is a waitlist, and teams start one to test a business idea before they build it.
+Piece D (wave 3 of the build plan) makes that test visible: what the team expects, where the test
+stands, what happened, and the product it became. The CRM plan's spine starts at Idea, so the app
+calls launches ideas, which means the content programme's Idea Board needs another name, and the
+public API, Vizzy and the help have to agree. Draft PR #231 claims ADR-0015; if it doesn't merge
+first, this one is renumbered.
+
+Decided (the owner approved plan-piece-d with these picks):
+
+1. **Status versus archive.** `campaigns.idea` is an optional map (`IdeaSchema`,
+   `src/lib/types/campaign.ts`): a hypothesis (500 characters at most), a status (Exploring,
+   Testing, Validated, Launched, Parked or Killed) with who set it and when, an outcome (2,000 at
+   most), the product connection it was handed off to with who and when, and Just a list. A cleared
+   field is written as `null`, never left undefined. The status is the team's judgement and is
+   separate from `archivedAt`, which closes the waitlist: nobody new joins, both journeys pause and
+   scheduled broadcasts go back to drafts. So Parked and Killed only *offer* to close it, with an
+   unticked "Also close the waitlist" that calls `setLaunchArchived` after the status is saved; if
+   closing fails, the status stays and the card says so. A launch made before ideas has no status,
+   never Exploring by default. Status and hand-off changes commit through `writeRecordWithEvents` as
+   `record.field_changed` events (`sys.idea.status`, `sys.idea.product`) on `idea:<campaignId>`;
+   hypothesis and outcome edits are not events, and have no agent path until piece C. Only admins
+   change the card (PATCH `/api/admin/campaigns/[campaignId]/idea`: origin, switch, sign-in, admin,
+   strict body); members keep New idea, as they could create a launch before. `any` joins
+   `RESERVED_CAMPAIGN_IDS`, beside `new`, because every person on a launch carries `launch:any`.
+   Rejected: archiving on Parked or Killed (too much as a side effect of a status), and a default
+   status for old launches.
+2. **Just a list.** A newsletter or sign-up list is a launch today but not an idea, so
+   `idea.justAList` hides the card (one line with Make it an idea stays), the status badge and the
+   compare box, and leaves it out of comparisons and of People's In more than one idea.
+3. **`launches:many`.** A person in two or more live launches that aren't Just a list carries the tag
+   `launches:many` (`summarize` in `personLinks.ts`, through `derive()` in `personSync.ts`, so all
+   three callers get it), while `LAUNCH_IDEAS_ENABLED` is on. It can't collide: launch ids have no
+   colon, and no other tag starts `launches:`. A sync reads the brand's Just a list ids (an equality
+   read, no composite index) only for someone in two or more launches, and ticking or unticking Just
+   a list calls `flagPeopleIn(ctx, "launch:<id>")` so those people sync again. People filters by it
+   on both filter bars. Existing people get it from `backfill-person-links --contacts-only`.
+   Rejected: counting every launch, which costs no read but shows someone on the newsletter and in
+   one idea as "in more than one idea".
+4. **The words follow two switches.** The screens say idea only when nav v2 phase 3,
+   `NEXT_PUBLIC_NAV_IDEAS_ENABLED` (build and runtime) and `LAUNCH_IDEAS_ENABLED` (runtime) are all
+   on: `isIdeaWordsEnabled()`, worked out on the server. `LAUNCH_IDEAS_ENABLED` on with the words
+   off is a valid setting: the features work and still say launch. The admin layout passes the
+   answer to the shell (sidebar, header, ⌘K, ShellProvider) as a prop, as B did for People, and to
+   a new `WordsProvider` for client components deep in the launch screens. `ideaWord(on)` carries
+   the article and possessive ("an idea", "idea's"). A message a help page quotes is written out as
+   a literal pair, so the help test still finds it in the source. Help bodies take `ideaWords`, and
+   the How to drawer and ⌘K pass the shell's, since the browser reads server switches off;
+   `help.test.ts` checks that no help page says launch with the words on, apart from "Launch
+   product", the general sense ("about our launch", "such as a launch or an award"), the public
+   API's own archived message, link addresses and identifiers such as `launch_closed`. Home's stage 2
+   and help's "2 · Launch" become Idea; "Launch product" stays. Routes, the `campaigns` collection,
+   slugs, anchors and stored text (canvas card titles, the "Launch updates" unsubscribe category, old
+   Review titles) keep launch. Nav v1 keeps launch: the words need phase 3.
+5. **Scrapbook without a switch.** The Idea Board becomes the Scrapbook and its items clippings, for
+   everyone. Piece 0's search labels already say Scrapbook and Clipping in prod, so a switch would
+   only keep the screens disagreeing with search, and this way only one thing is ever called ideas.
+   The route (`/curate/idea-board`), the `idea_items` collection and the search kind `idea_board`
+   keep their names; the registry's `content_idea` is the Scrapbook clipping.
+6. **Vizzy names both words.** Vizzy can't read the switch, so the root, Campaign Ops and Lifecycle
+   Ops instructions each carry one line: "The app may call a launch an idea; same thing, same id."
+   Every message a tool hands Vizzy to relay says waitlist where it said launch, so it reads right
+   either way; docstrings and tool arguments (scope "launch", campaign ids) keep launch.
+   `agents/root_agent/tests/test_idea_words.py` checks the glossary and reads every tool module's
+   strings with `ast`. Vizzy is redeployed on dev once D merges, and on prod with D's promotion,
+   before the words switch goes on there, not with K. Rejected: both words in every module (about 22
+   files for no better answers).
+7. **Piece K owns the API's names.** The public API keeps launch: `/api/v2/signups`, its errors
+   (`launch_closed`, "This launch is archived, so it takes no new sign-ups."), the OpenAPI document
+   and the SDK. So do the emails end users receive and the marketing site. While the words are on,
+   the two developer pages that name a launch (Sign-ups from your site, Sending users) carry a note
+   that an idea is a launch with the same id and site key, and that the API keeps the word. Renaming
+   the API is piece K's, so it isn't lost here.
+8. **The freshness fix (group 5), behind `BLOG_FRESHNESS_ENABLED`.** When a tick ran out of time,
+   `sweepBrand` stopped, still set `nextAt` a day ahead and wrote counts, due rows and pages for the
+   articles it reached only. It reads articles in the same order every day, so a brand's oldest
+   articles were never looked at. Now the brand's record (`fw_<tenant>`) gets an optional
+   `lookStartedAt`, placed after `nextAt`. A look the deadline cuts short sets `nextAt` to now and
+   `lookStartedAt`, so it goes on at the next tick, which passes over the articles whose `sweptAt` is
+   on or after `lookStartedAt`. Meanwhile nothing drops off: an article not reached counts as its
+   last stored state and keeps its row from the previous due list, and `pages` lists every live
+   article. A look older than a day starts over. The look that reaches the last article clears
+   `lookStartedAt` and sets `nextAt` a day ahead, as before. No new switch, and no Idea file, so it
+   can be cherry-picked alone. Private #35 (freshness on in prod) waits until D is in prod. If #231
+   merges first, its erase also writes `lookStartedAt: null`.
+
+What follows: no new collection, index, rule or dependency. D reads `campaigns` (tenantId,
+createdAt DESC) and 0e's `ontology_events` (tenantId, subjectKey, at DESC), whose index must be
+READY in an environment before `LAUNCH_IDEAS_ENABLED` goes on there. Both switches ship `"false"`;
+the private dev overlay keeps them off until the hand-run sync, then `LAUNCH_IDEAS_ENABLED` goes on
+and the backfill runs, then the words switch (a rebuild).
+
+---
+
 ## ADR-0014 · Email and password sign-in behind one door (2026-11-24)
 
 Context: the admin app signed in with Google only (ADR-0003), enforced in `ensureAdminAccess`.

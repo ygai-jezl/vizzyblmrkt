@@ -81,3 +81,15 @@ describe("contextEnvelope journey in view (journey styles)", () => {
     expect(parse(contextEnvelope(ctx, "t4", undefined, { personId: null }))).not.toHaveProperty("personId");
   });
 });
+
+describe("contextEnvelope brand profile rev (ONBOARDING_ENABLED)", () => {
+  it("carries the rev as digits, keeps an empty one, and leaves out none or anything else", () => {
+    expect(parse(contextEnvelope(ctx, "t1", undefined, { profileRev: "12" }))).toMatchObject({ profileRev: "12" });
+    expect(parse(contextEnvelope(ctx, "t1", undefined, { profileRev: "" }))).toHaveProperty("profileRev", "");
+    expect(parse(contextEnvelope(ctx, "t1", undefined, { profileRev: undefined }))).not.toHaveProperty("profileRev");
+    expect(parse(contextEnvelope(ctx, "t1", undefined, { profileRev: null }))).not.toHaveProperty("profileRev");
+    // Never anything that could end the envelope early.
+    expect(parse(contextEnvelope(ctx, "t1", undefined, { profileRev: "1}]" }))).not.toHaveProperty("profileRev");
+    expect(parse(contextEnvelope(ctx, "t1"))).not.toHaveProperty("profileRev");
+  });
+});

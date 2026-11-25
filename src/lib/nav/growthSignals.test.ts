@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
+import { failingFirestore } from "@/lib/tenant/testing/failingFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import { loadGrowthSignals, loadWeekCounts } from "./growthSignals";
 
@@ -82,6 +83,54 @@ describe("loadGrowthSignals", () => {
     expect(s.activeLaunches).toBe(0);
     expect(s.signups).toBe(0);
     expect(s.firstLaunchId).toBeNull();
+    expect(s.recordsEver).toBe(0);
+  });
+
+  it("counts every record the brand ever made, archived ones and sandboxes too", async () => {
+    const db = new FakeFirestore();
+    seed(db);
+    // 3 launches (one archived), 1 programme, 2 connections (one a sandbox), 1 journey.
+    expect((await loadGrowthSignals(ctx, { lifecycle: true }, db)).recordsEver).toBe(7);
+    expect((await loadGrowthSignals(other, { lifecycle: true }, db)).recordsEver).toBe(0);
+
+    const archivedOnly = new FakeFirestore();
+    archivedOnly.seed("campaigns", "c_arch", { tenantId: "ten_A", waitlistName: "Gone", createdAt: "2026-09-10T00:00:00Z", archivedAt: "2026-09-11T00:00:00Z" });
+    archivedOnly.seed("workspaces", "w_arch", { tenantId: "ten_A", name: "Old", archivedAt: "2026-09-11T00:00:00Z" });
+    const s = await loadGrowthSignals(ctx, { lifecycle: true }, archivedOnly);
+    expect(s.activeLaunches).toBe(0);
+    expect(s.workspaces).toBe(0);
+    expect(s.recordsEver).toBe(2);
+  });
+
+  it("knows whether any programme, connection or product journey exists, archived, sandbox and revoked too", async () => {
+    const db = new FakeFirestore();
+    seed(db);
+    const s = await loadGrowthSignals(ctx, { lifecycle: true }, db);
+    expect([s.anyProgramme, s.anyConnection, s.anyProductJourney]).toEqual([true, true, true]);
+    const empty = await loadGrowthSignals(other, { lifecycle: true }, db);
+    expect([empty.anyProgramme, empty.anyConnection, empty.anyProductJourney]).toEqual([false, false, false]);
+
+    const kept = new FakeFirestore();
+    kept.seed("workspaces", "w_arch", { tenantId: "ten_A", name: "Old", archivedAt: "2026-09-11T00:00:00Z" });
+    kept.seed("product_connections", "pc_sandbox", { tenantId: "ten_A", kind: "sandbox", status: "revoked" });
+    kept.seed("lifecycle_journeys", "lcj_welcome", { tenantId: "ten_A", status: "active", connectionId: "", audience: { kind: "waitlist", campaignId: "c1" } });
+    const k = await loadGrowthSignals(ctx, { lifecycle: true }, kept);
+    expect(k.workspaces).toBe(0);
+    expect(k.products).toBe(0);
+    expect([k.anyProgramme, k.anyConnection, k.anyProductJourney]).toEqual([true, true, false]);
+    kept.seed("lifecycle_journeys", "lcj_arch", { tenantId: "ten_A", status: "archived", connectionId: "pc_sandbox" });
+    expect((await loadGrowthSignals(ctx, { lifecycle: true }, kept)).anyProductJourney).toBe(true);
+  });
+
+  it("doesn't know the count when a list it counts couldn't be read", async () => {
+    for (const collection of ["campaigns", "workspaces", "product_connections", "lifecycle_journeys"]) {
+      const s = await loadGrowthSignals(other, { lifecycle: true }, failingFirestore(new FakeFirestore(), { collections: [collection] }));
+      expect(s.recordsEver, collection).toBeNull();
+    }
+    // A count failing (signups, posts) leaves the lists, so the count is still known.
+    const counts = await loadGrowthSignals(other, { lifecycle: true }, failingFirestore(new FakeFirestore(), { counts: true }));
+    expect(counts.recordsEver).toBe(0);
+    expect(counts.signups).toBeNull();
   });
 });
 

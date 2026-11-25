@@ -23,6 +23,18 @@ import { helpMetadata } from "./metadata";
 import { HELP_PLACES, helpFor, parseHelpPath } from "./places";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
 import { VIZZY_READS_HINT } from "@/components/admin/audience/fieldsApi";
+import {
+  ABOUT_WORDS,
+  BASICS_WORDS,
+  COMING_UP_WORDS,
+  FACT_WORDS,
+  HOME_WORDS,
+  LEARNED_WORDS,
+  QUESTIONS_WORDS,
+  SUGGESTION_WORDS,
+  VOICE_WORDS,
+  WELCOME_WORDS,
+} from "@/lib/onboarding/words";
 
 
 /**
@@ -83,6 +95,10 @@ vi.hoisted(() => {
   process.env.ORGANISATION_JOIN_ENABLED = "true";
   process.env.PASSWORD_SIGNIN_ENABLED = "true";
   process.env.LAUNCH_IDEAS_ENABLED = "true";
+  // Tell Vizzy about your business, on the hub (the switch folds in no nav switch), with Talk with
+  // Vizzy by voice, so its lines and the messages it quotes are checked too.
+  process.env.ONBOARDING_ENABLED = "true";
+  process.env.ONBOARDING_VOICE_ENABLED = "true";
   // Password help shows only when a code can be delivered too (isPasswordSigninAvailable).
   process.env.MANDRILL_API_KEY = "test-key-not-real";
 });
@@ -988,5 +1004,131 @@ describe("what an erase takes from article freshness", () => {
       expect(aiTellsIn(text), name).toEqual([]);
     }
     expect(shared.split(SEARCH_CONSOLE_FRESHNESS_ERASED).length - 1).toBe(4);
+  });
+});
+
+describe("Tell Vizzy about your business (ONBOARDING_ENABLED)", () => {
+  const hub = (props: HelpBodyProps) => HELP_BODIES[""]!(props);
+  const ids = (props: HelpBodyProps) =>
+    elements(hub(props))
+      .filter((e) => e.type === H2)
+      .map((e) => String(e.props.id));
+  const md = (props: HelpBodyProps) => docToMarkdown(hub(props), "https://app.example.com");
+
+  it("is on the hub after the brand while the switch is on, and the Lead says Home starts where you are", () => {
+    expect(ids({ onboarding: true }).slice(0, 2)).toEqual(["brand", "about-you"]);
+    const text = md({ onboarding: true });
+    expect(text).toContain("## Tell Vizzy about your business");
+    expect(text).toContain("Five stages. Home shows where you are and your next action.");
+    expect(text).not.toContain("unlocks");
+    // The server's own answer, as /help and its Markdown copy read it.
+    expect(anchorsOf("").has("about-you")).toBe(true);
+  });
+
+  it("is gone with the switch off, and the Lead is as before", () => {
+    expect(ids({ onboarding: false })).not.toContain("about-you");
+    const text = md({ onboarding: false });
+    expect(text).not.toContain("Tell Vizzy about your business");
+    expect(text).toContain("Five stages, in order. Each one unlocks the next.");
+  });
+
+  it("names the buttons in the screens' own words, with no voice while it can't be had", () => {
+    const text = md({ onboarding: true, onboardingVoice: false });
+    for (const words of [WELCOME_WORDS.questions, WELCOME_WORDS.skip, QUESTIONS_WORDS.skip, QUESTIONS_WORDS.back, QUESTIONS_WORDS.done, QUESTIONS_WORDS.next]) {
+      expect(text).toContain(`**${words}**`);
+    }
+    expect(text).not.toContain("Talk with Vizzy");
+    expect(text).not.toContain("audio");
+  });
+
+  it("says how Here's what I learned works only with voice, in the screen's own words", () => {
+    const words = [LEARNED_WORDS.title, FACT_WORDS.remove, LEARNED_WORDS.undo, LEARNED_WORDS.readTranscript, LEARNED_WORDS.looksRight];
+    const voice = md({ onboarding: true, onboardingVoice: true });
+    for (const w of words) expect(voice).toContain(`**${w}**`);
+    const section = voice.slice(voice.indexOf("## Tell Vizzy about your business"), voice.indexOf("## 1. Get ready"));
+    for (const line of section.split("\n")) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
+    const off = md({ onboarding: true, onboardingVoice: false });
+    for (const w of [LEARNED_WORDS.looksRight, LEARNED_WORDS.readTranscript]) expect(off).not.toContain(w);
+  });
+
+  it("says how Talk with Vizzy works only with voice: the buttons, what is kept, and every message it shows", () => {
+    const voice = md({ onboarding: true, onboardingVoice: true });
+    for (const w of [WELCOME_WORDS.talk, VOICE_WORDS.mute, VOICE_WORDS.end, "Skip for now"]) expect(voice).toContain(`**${w}**`);
+    expect(voice).toContain("Vizzy keeps the words, never the audio.");
+    expect(voice).toContain("Gemini API");
+    expect(voice).toContain("one call a day");
+    for (const m of [VOICE_WORDS.blocked, VOICE_WORDS.usedToday, VOICE_WORDS.full, VOICE_WORDS.unavailable, VOICE_WORDS.dropped]) {
+      expect(voice).toContain(`"${m}"`);
+    }
+    const off = md({ onboarding: true, onboardingVoice: false });
+    for (const w of [VOICE_WORDS.usedToday, VOICE_WORDS.blocked, "Gemini API", "microphone"]) expect(off).not.toContain(w);
+  });
+
+  it("says where to change the answers later", () => {
+    const text = md({ onboarding: true, onboardingVoice: false });
+    expect(text).toContain(`**${ABOUT_WORDS.title}**`);
+    expect(text).toContain(`**${BASICS_WORDS.notPicked}**`);
+    expect(text).toContain("(https://app.example.com/admin/account/settings)");
+    // Reading and deleting conversations, and talking again, come with voice.
+    for (const w of [ABOUT_WORDS.view, ABOUT_WORDS.talkAgain]) expect(text).not.toContain(w);
+    const voice = md({ onboarding: true, onboardingVoice: true });
+    for (const w of [ABOUT_WORDS.view, ABOUT_WORDS.delete, ABOUT_WORDS.talkAgain]) expect(voice).toContain(`**${w}**`);
+    expect(voice).toContain("What Vizzy learned from it stays until you remove it.");
+  });
+
+  it("says what Vizzy reads in every chat, and how something heard in a later chat waits for Keep", () => {
+    const text = md({ onboarding: true, onboardingVoice: false });
+    expect(text).toContain("Vizzy reads your answers and the facts you kept in every chat");
+    expect(text).toContain("it reads the four answers only");
+    expect(text).toContain(`"${SUGGESTION_WORDS.waiting("25 Nov")}"`);
+    for (const w of [SUGGESTION_WORDS.keep, FACT_WORDS.remove]) expect(text).toContain(`**${w}**`);
+    for (const m of [SUGGESTION_WORDS.full, SUGGESTION_WORDS.decided]) expect(text).toContain(`"${m}"`);
+    const review = (onboarding: boolean) => docToMarkdown(HELP_BODIES["review-and-approvals"]!({ onboarding }), "https://app.example.com");
+    expect(review(true)).toContain("**About your business**: something new Vizzy heard about your business in a chat");
+    expect(review(true)).toContain("([Tell Vizzy about your business](");
+    expect(review(false)).not.toContain("About your business");
+  });
+
+  it("says how the answers order Home's next action", () => {
+    const text = md({ onboarding: true, onboardingVoice: false });
+    expect(text).toContain(`**${HOME_WORDS.nextAction}**`);
+    expect(text).toContain("A shop or a service never starts with connecting an app.");
+    expect(md({ onboarding: false })).not.toContain(HOME_WORDS.nextAction);
+  });
+
+  it("says what the sidebar shows, in Coming up's own words, only while the switch is on", () => {
+    expect(ids({ onboarding: true })).toContain("sidebar");
+    expect(anchorsOf("").has("sidebar")).toBe(true);
+    const text = md({ onboarding: true, onboardingVoice: false, ideaWords: true });
+    for (const w of [COMING_UP_WORDS.title, COMING_UP_WORDS.openEarly]) expect(text).toContain(`**${w}**`);
+    expect(text).toContain("## What the sidebar shows");
+    expect(text).toContain("Home, Review, Ideas, Brand and Settings always show.");
+    expect(text).toContain("nothing that shows is ever hidden again");
+    expect(text).toContain("If you skip the welcome, or answer only in Settings, you see every section as before.");
+    expect(md({ onboarding: true, ideaWords: false })).toContain("Home, Review, Launches, Brand and Settings always show.");
+    expect(ids({ onboarding: false })).not.toContain("sidebar");
+    expect(md({ onboarding: false })).not.toContain(COMING_UP_WORDS.title);
+  });
+
+  it("counts voice conversations on Plan and usage only with voice", () => {
+    vi.stubEnv("NEXT_PUBLIC_USAGE_METER_ENABLED", "true");
+    const plan = (onboardingVoice: boolean) => docToMarkdown(HELP_BODIES["plan-and-usage"]!({ onboardingVoice }), "https://app.example.com");
+    expect(plan(true)).toContain("**Voice conversations**: the seconds of each Talk with Vizzy call");
+    expect(plan(true)).toContain("the voice chat on your waitlist pages");
+    expect(plan(false)).not.toContain("Voice conversations");
+    expect(plan(false)).toContain("the voice chat in your browser");
+  });
+
+  it("uses no dashes as punctuation and none of the AI tells", () => {
+    const text = md({ onboarding: true });
+    const section = text.slice(text.indexOf("## Tell Vizzy about your business"), text.indexOf("## 1. Get ready"));
+    expect(section.length).toBeGreaterThan(100);
+    for (const line of section.split("\n")) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
   });
 });

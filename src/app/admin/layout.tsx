@@ -9,6 +9,7 @@ import {
 } from "@/lib/tenant";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
 import { SessionKeeper } from "@/components/admin/SessionKeeper";
+import { LeaveWelcomeByLoad } from "@/components/admin/onboarding/LeaveWelcomeByLoad";
 import type { BrandOption } from "@/components/admin/BrandSwitcher";
 import { AdminThemeRoot } from "@/components/admin/nav/AdminThemeRoot";
 import { AdminHeader } from "@/components/admin/nav/AdminHeader";
@@ -41,6 +42,8 @@ import { isOrganisationJoinEnabled } from "@/lib/plans/flags";
 import { isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 import { isIdeaWordsEnabled, isIdeasEnabled } from "@/lib/ideas/flags";
 import { WordsProvider } from "@/components/admin/nav/WordsProvider";
+import { isOnboardingEnabled, isOnboardingVoiceEnabled } from "@/lib/onboarding/flags";
+import { sidebarRevealFor } from "@/lib/onboarding/sidebarFit";
 
 export const dynamic = "force-dynamic";
 
@@ -146,9 +149,16 @@ export default async function AdminLayout({
     // Launches are called Ideas: the switch (phase 3) plus LAUNCH_IDEAS_ENABLED, a server switch.
     // The shell takes it as a prop, as for People; pages read it through WordsProvider.
     const ideaWords = isIdeaWordsEnabled();
+    // Coming up: only for a brand that told Vizzy about itself on the welcome (tenant.sidebarReveal),
+    // from the tenant doc read above. Any programme, archived too, shows Content (a free fact).
+    // Undefined: today's sidebar.
+    const reveal =
+      phase2 && isOnboardingEnabled() ? sidebarRevealFor(tenant, { hasProgramme: workspaces.length > 0 }) : undefined;
     const shell = (
       <>
         <SessionKeeper />
+        {/* The microphone stays on the welcome's own page load (next.config.ts). */}
+        <LeaveWelcomeByLoad />
         <SidebarV2
           brands={brands}
           launches={launches}
@@ -157,6 +167,7 @@ export default async function AdminLayout({
           email={ctx.email}
           people={people}
           ideas={ideaWords}
+          reveal={reveal}
         />
         <div className="flex min-w-0 flex-1 flex-col">
           <AdminHeader
@@ -215,6 +226,8 @@ export default async function AdminLayout({
             ideaWords={ideaWords}
             sharing={isConnectorsSharingEnabled()}
             join={isOrganisationJoinEnabled()}
+            onboarding={isOnboardingEnabled()}
+            onboardingVoice={isOnboardingVoiceEnabled()}
           >
             {shell}
           </ShellProvider>
@@ -228,6 +241,7 @@ export default async function AdminLayout({
   return (
     <div className="flex min-h-screen">
       <SessionKeeper />
+      <LeaveWelcomeByLoad />
       <AdminSidebar
         brands={brands}
         launches={launches}

@@ -68,6 +68,7 @@ import type { RecordFieldListDoc } from "@/lib/types/recordField";
 import type { DataConnection, DataConnectionActivity } from "@/lib/types/dataConnection";
 import type { MetricSnapshot } from "@/lib/types/metricSnapshot";
 import type { DataSignal } from "@/lib/types/dataSignal";
+import type { BusinessFact, OnboardingConversation } from "@/lib/types/onboarding";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -630,6 +631,13 @@ export interface TenantRepositories {
    * key, by fixed id, kept 30 days by a TTL on ttlAt (src/lib/connectors/signals/store.ts writes them).
    */
   dataSignals: TenantCollection<DataSignal>;
+  /**
+   * What an admin said to Vizzy about the business (ONBOARDING_ENABLED): one record per
+   * conversation, words only, with what Vizzy learned from it (src/lib/onboarding/store.ts).
+   */
+  onboardingConversations: TenantCollection<OnboardingConversation>;
+  /** What an admin kept of what Vizzy heard, each with the member's own words (src/lib/onboarding/store.ts). */
+  businessFacts: TenantCollection<BusinessFact>;
 }
 
 /**
@@ -796,5 +804,8 @@ export function forTenant(
     metricSnapshots: new TenantCollection<MetricSnapshot>(regionalDb, "metric_snapshots", t),
     // What those numbers suggest, with the search words or page path it fired on: regional too.
     dataSignals: new TenantCollection<DataSignal>(regionalDb, "data_signals", t),
+    // People's own words about the business, and what was kept of them: regional, like brand notes.
+    onboardingConversations: new TenantCollection<OnboardingConversation>(regionalDb, "onboarding_conversations", t),
+    businessFacts: new TenantCollection<BusinessFact>(regionalDb, "business_facts", t),
   };
 }

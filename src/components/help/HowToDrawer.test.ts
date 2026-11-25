@@ -19,6 +19,20 @@ describe("the How to drawer's help bodies", () => {
     expect(drawerBodyProps({ sharing: true, join: true } as never)).toMatchObject({ sharing: true, join: true });
   });
 
+  it("passes on getting to know a new brand, and its voice, from the shell", async () => {
+    const { drawerBodyProps } = await import("./HowToDrawer");
+    expect(drawerBodyProps(null)).toMatchObject({ onboarding: false, onboardingVoice: false });
+    expect(drawerBodyProps({ onboarding: true, onboardingVoice: true } as never)).toMatchObject({ onboarding: true, onboardingVoice: true });
+  });
+
+  it("shows Tell Vizzy about your business on Get set up with the shell's value, as in the browser", async () => {
+    vi.stubEnv("ONBOARDING_ENABLED", "");
+    const { drawerBodyProps } = await import("./HowToDrawer");
+    const GetSetUp = (await import("./pages/get-set-up")).default as ComponentType<HelpBodyProps>;
+    expect(renderToStaticMarkup(createElement(GetSetUp, drawerBodyProps({ onboarding: true } as never)))).toContain("Tell Vizzy about your business");
+    expect(renderToStaticMarkup(createElement(GetSetUp, drawerBodyProps(null)))).not.toContain("Tell Vizzy about your business");
+  });
+
   it("passes on ideas and their words from the shell", async () => {
     const { drawerBodyProps } = await import("./HowToDrawer");
     expect(drawerBodyProps(null)).toMatchObject({ ideas: false, ideaWords: false });

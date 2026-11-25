@@ -307,6 +307,35 @@ describe("organisationUsage", () => {
     expect(f.sso).toBeUndefined();
   });
 
+  it("lists Talk with Vizzy by voice and its seconds only where voice is on, or when some were counted this month", async () => {
+    vi.stubEnv("USAGE_METER_ENABLED", "true");
+    vi.stubEnv("ONBOARDING_ENABLED", "true");
+    vi.stubEnv("ONBOARDING_VOICE_ENABLED", "");
+    const off = await organisationUsage(ctxOf("ten_A", "us", "usr_owner"), deps);
+    expect(off.features.map((f) => f.feature)).not.toContain("onboarding_voice");
+    expect(off.monthly.map((r) => r.feature)).not.toContain("voice_seconds");
+    expect(off.organisationResources?.map((r) => r.resource)).not.toContain("voice_seconds");
+    expect(off.monthly.map((r) => r.feature)).toContain("model_tokens");
+
+    vi.stubEnv("ONBOARDING_VOICE_ENABLED", "true");
+    const on = await organisationUsage(ctxOf("ten_A", "us", "usr_owner"), deps);
+    expect(on.features.find((f) => f.feature === "onboarding_voice")).toMatchObject({ label: "Talk with Vizzy by voice", included: true });
+    expect(on.monthly.find((r) => r.feature === "voice_seconds")).toMatchObject({ label: "Voice conversations", used: 0, unit: "seconds" });
+
+    // Turned off later in the month: the seconds already counted still show, the plan line doesn't.
+    vi.stubEnv("ONBOARDING_VOICE_ENABLED", "");
+    us.seed("usage_meters", "um_ten_A_2026-11", {
+      tenantId: "ten_A",
+      month: "2026-11",
+      meters: { voice_seconds: { total: 252, calls: 1, lostCalls: 0, byPurpose: { onboarding_voice: 252 } } },
+      updatedAt: "2026-11-20T00:00:00.000Z",
+    });
+    const later = await organisationUsage(ctxOf("ten_A", "us", "usr_owner"), deps);
+    expect(later.features.map((f) => f.feature)).not.toContain("onboarding_voice");
+    expect(later.monthly.find((r) => r.feature === "voice_seconds")).toMatchObject({ used: 252 });
+    expect(later.organisationResources?.find((r) => r.resource === "voice_seconds")).toMatchObject({ used: 252 });
+  });
+
   it("ignores organisations and plan copies with plans off", async () => {
     vi.stubEnv("PLANS_ENABLED", "false");
     const s = await organisationUsage(ctxOf("ten_A", "us", "usr_owner"), deps);

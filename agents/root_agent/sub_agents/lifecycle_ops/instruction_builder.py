@@ -15,7 +15,8 @@ session: the app only names the person in view while it can), it adds how to rea
 the rules for it; and where a plan can be drafted for that person (`personPlansEnabled`,
 written by the same reads and by each brief), how to write one. Where that person's own fields
 can be read (a `personId` in the session, or `personFieldsEnabled` from a fields read, unless a
-read said they are off), how to read and suggest them. Pure / ADK-free — ReadonlyContext stays under TYPE_CHECKING — so
+read said they are off), how to read and suggest them. Last, what the brand told Vizzy about its
+business when the root has it cached (context/business_profile.py). Pure / ADK-free — ReadonlyContext stays under TYPE_CHECKING — so
 it remains unit-testable without ADK.
 """
 
@@ -23,6 +24,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ...context.business_profile import profile_block_for
 from ...context.language import language_directive
 from .prompts.instruction import (
     DATE_FACTS_ADDENDUM,
@@ -110,4 +112,7 @@ def build_lifecycle_ops_instruction(ctx: "ReadonlyContext") -> str:
             "The operator is on one person's page. \"This person\", \"they\" and \"them\" mean "
             f"that person: {reads} before you answer.{either}"
         )
+    profile = profile_block_for(state)
+    if profile:
+        parts.append(profile)
     return "\n\n".join(parts)

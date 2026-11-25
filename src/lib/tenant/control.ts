@@ -42,6 +42,21 @@ import {
   type StoredImageStyle,
 } from "@/lib/types/imageStyle";
 import { NotesRestSchema, type NotesRest } from "@/lib/types/brandNote";
+import {
+  BusinessProfileSchema,
+  OnboardingVoiceDaySchema,
+  PROFILE_KEYS,
+  ProfileAnswersInputSchema,
+  ProfileStatus,
+  ProfileVia,
+  SIDEBAR_REVEAL_MAX,
+  SidebarRevealSchema,
+  type BusinessProfile,
+  type ProfileAnswers,
+  type ProfileAnswersInput,
+  VOICE_DAY,
+  type OnboardingVoiceDay,
+} from "@/lib/types/businessProfile";
 
 /**
  * Control-plane writes — the `tenants` registry lives in the (default) database,
@@ -602,6 +617,251 @@ export async function setTenantNotesRest(
   const next = NotesRestSchema.parse(rest);
   await db.collection("tenants").doc(id).update({ brandNotesRest: { ...next }, updatedAt: new Date().toISOString() });
   return next;
+}
+
+/**
+ * Home's first visit (ONBOARDING_ENABLED): mark the brand's profile `started`, only when it has
+ * none. True only for the call that wrote it, so the welcome shows once per brand, even when two
+ * admins open Home together. A damaged value counts as a profile: the welcome never shows twice.
+ */
+export async function startBusinessProfile(
+  id: string,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<boolean> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return false;
+    const raw = snap.data()?.businessProfile;
+    if (raw !== undefined && raw !== null) return false;
+    const now = new Date().toISOString();
+    const profile: BusinessProfile = { status: "started", answers: {}, rev: 0, startedAt: now };
+    tx.update(ref, { businessProfile: profile, updatedAt: now });
+    return true;
+  });
+}
+
+/** A change to the brand's profile, from the welcome, the questions, a call or Settings. */
+export interface BusinessProfilePatch {
+  answers?: ProfileAnswersInput;
+  status?: "done" | "skipped";
+  /** How the answers came. Kept only when this patch changes an answer or finishes the profile. */
+  via?: ProfileVia;
+}
+
+const storedProfile = (raw: unknown): BusinessProfile | null => {
+  const parsed = BusinessProfileSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+};
+
+/**
+ * Change the brand's profile in one transaction:
+ * - the answers merge (an answer is changed, never cleared), and `rev` goes up when one changes;
+ * - `skipped` only replaces `started`, and `done` never goes back;
+ * - a brand with no profile, or a damaged one, gets one: `done`, unless the patch skips. Answers
+ *   given outside the welcome (Settings) finish nothing, so they never start the welcome's flow.
+ * Returns the profile before (null when there was none) and after, or null when there's no such
+ * brand. Writes nothing when nothing changes.
+ */
+export async function setBusinessProfile(
+  id: string,
+  patch: BusinessProfilePatch,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<{ before: BusinessProfile | null; after: BusinessProfile } | null> {
+  const input = ProfileAnswersInputSchema.parse(patch.answers ?? {});
+  const status = patch.status === undefined ? undefined : ProfileStatus.extract(["done", "skipped"]).parse(patch.status);
+  const via = patch.via === undefined ? undefined : ProfileVia.parse(patch.via);
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return null;
+    const before = storedProfile(snap.data()?.businessProfile);
+    const answers: ProfileAnswers = { ...(before?.answers ?? {}) };
+    let answered = false;
+    for (const key of PROFILE_KEYS) {
+      const value = input[key];
+      if (value !== undefined && value !== answers[key]) {
+        (answers as Record<string, string>)[key] = value;
+        answered = true;
+      }
+    }
+    const nextStatus: ProfileStatus = !before
+      ? (status ?? "done")
+      : status === "done" || (status === "skipped" && before.status === "started")
+        ? status
+        : before.status;
+    const moved = !before || nextStatus !== before.status;
+    if (before && !answered && !moved) return { before, after: before };
+    const now = new Date().toISOString();
+    const nextVia = via && (answered || (moved && nextStatus === "done")) ? via : before?.via;
+    const after: BusinessProfile = {
+      status: nextStatus,
+      ...(nextVia ? { via: nextVia } : {}),
+      answers,
+      rev: (before?.rev ?? 0) + (answered ? 1 : 0),
+      startedAt: before?.startedAt ?? now,
+      updatedAt: now,
+    };
+    tx.update(ref, { businessProfile: JSON.parse(JSON.stringify(after)), updatedAt: now });
+    return { before, after };
+  });
+}
+
+/**
+ * Something Vizzy knows about the brand changed beside the answers (a kept or removed fact): bump
+ * the profile's `rev` so Vizzy reads it again. Returns the new rev, or null without a profile.
+ */
+export async function bumpBusinessProfileRev(
+  id: string,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<number | null> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return null;
+    const before = storedProfile(snap.data()?.businessProfile);
+    if (!before) return null;
+    const now = new Date().toISOString();
+    const rev = before.rev + 1;
+    tx.update(ref, { businessProfile: JSON.parse(JSON.stringify({ ...before, rev, updatedAt: now })), updatedAt: now });
+    return rev;
+  });
+}
+
+/** Today's voice calls as stored, or a fresh day when the stored one is another day or damaged. */
+function voiceDay(raw: unknown, day: string): OnboardingVoiceDay {
+  const parsed = OnboardingVoiceDaySchema.safeParse(raw);
+  return parsed.success && parsed.data.day === day ? parsed.data : { day, starts: 0, done: false };
+}
+
+/**
+ * Talk with Vizzy's daily allowance (ONBOARDING_VOICE_ENABLED): take one start for `day` (UTC,
+ * voiceDayOf) in a transaction. "done_today" once a call where someone spoke has ended today,
+ * "too_many" after 3 starts, "missing" with no such brand. Only "ok" writes.
+ */
+export async function claimVoiceStart(
+  id: string,
+  day: string,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<"ok" | "done_today" | "too_many" | "missing"> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return "missing";
+    const today = voiceDay(snap.data()?.onboardingVoice, day);
+    if (today.done) return "done_today";
+    if (today.starts >= VOICE_DAY.MAX_STARTS) return "too_many";
+    tx.update(ref, { onboardingVoice: { ...today, starts: today.starts + 1 } });
+    return "ok";
+  });
+}
+
+/** Give a start back (the token couldn't be made). Only for that day; never below none. */
+export async function releaseVoiceStart(
+  id: string,
+  day: string,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<boolean> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return false;
+    const stored = OnboardingVoiceDaySchema.safeParse(snap.data()?.onboardingVoice);
+    if (!stored.success || stored.data.day !== day || stored.data.starts <= 0) return false;
+    tx.update(ref, { onboardingVoice: { ...stored.data, starts: stored.data.starts - 1 } });
+    return true;
+  });
+}
+
+/**
+ * A call where someone spoke has ended: that was the brand's call for `day` (the day it started).
+ * A day that is no longer the stored one changes nothing.
+ */
+export async function markVoiceDone(
+  id: string,
+  day: string,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<boolean> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return false;
+    const stored = OnboardingVoiceDaySchema.safeParse(snap.data()?.onboardingVoice);
+    if (!stored.success || stored.data.day !== day) return false;
+    if (stored.data.done) return true;
+    tx.update(ref, { onboardingVoice: { ...stored.data, done: true } });
+    return true;
+  });
+}
+
+/** `keys` added to `shown`: strings the schema can keep, once each, never past the cap. Nothing is removed. */
+function unionShown(shown: readonly string[], keys: readonly string[]): string[] {
+  const out = [...shown];
+  for (const key of keys) {
+    if (out.length >= SIDEBAR_REVEAL_MAX) break;
+    if (typeof key === "string" && key.length > 0 && key.length <= 32 && !out.includes(key)) out.push(key);
+  }
+  return out;
+}
+
+/**
+ * The welcome first finished with answers (ONBOARDING_ENABLED): start the brand's sidebar from the
+ * sections that fit and those that hold data. When it was started already, `shown` is added to it.
+ * A damaged value is left alone (it reads as today's sidebar). Returns the stored sections, or null
+ * when there's no such brand or the value is damaged. Writes only when something is added.
+ */
+export async function startSidebarReveal(
+  id: string,
+  shown: readonly string[],
+  at: string,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<string[] | null> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return null;
+    const raw = snap.data()?.sidebarReveal;
+    if (raw === undefined || raw === null) {
+      const next = unionShown([], shown);
+      tx.update(ref, { sidebarReveal: { shown: next, opened: [], startedAt: at.slice(0, 40) } });
+      return next;
+    }
+    const stored = SidebarRevealSchema.safeParse(raw);
+    if (!stored.success) return null;
+    const next = unionShown(stored.data.shown, shown);
+    if (next.length === stored.data.shown.length) return stored.data.shown;
+    tx.update(ref, { sidebarReveal: { ...stored.data, shown: next } });
+    return next;
+  });
+}
+
+/**
+ * Show more of a brand's sidebar for good: data arrived, or someone chose Open early (`opened`,
+ * kept as the key and when, with no user id; the newest 16). Only ever adds, and writes only when
+ * something is new. Returns the stored sections, or null when the brand has no `sidebarReveal`
+ * (or it's damaged): nothing here ever starts Coming up for a brand that didn't finish the welcome.
+ */
+export async function addSidebarShown(
+  id: string,
+  keys: readonly string[],
+  opened?: { key: string; at: string },
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<string[] | null> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return null;
+    const stored = SidebarRevealSchema.safeParse(snap.data()?.sidebarReveal);
+    if (!stored.success) return null;
+    const next = unionShown(stored.data.shown, keys);
+    if (next.length === stored.data.shown.length) return stored.data.shown;
+    const record = opened && next.includes(opened.key) && !stored.data.shown.includes(opened.key);
+    const nextOpened = record
+      ? [...stored.data.opened, { key: opened.key, at: opened.at.slice(0, 40) }].slice(-SIDEBAR_REVEAL_MAX)
+      : stored.data.opened;
+    tx.update(ref, { sidebarReveal: { ...stored.data, shown: next, opened: nextOpened } });
+    return next;
+  });
 }
 
 /** Record the fonts found on the brand's website (null = forget them). Everything else is kept. */

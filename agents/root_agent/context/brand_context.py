@@ -3,11 +3,13 @@
 Layers brand context (name, domain, industry) onto the base root prompt so the
 agent doesn't ask for info we already have.
 
-Phase 2: reads `brandSettings` from session state (populated by the proxy / a
-session-start hook) and falls back to the base prompt when absent — NO Firestore
-reads from inside the agent yet. The Firestore-backed hydration
-(`hydrate_brand_settings_into_state`, regional DB routing, tenant membership
-gating) lands in Phase 3 alongside the marketing tools that also need it.
+Reads `brandSettings` from session state when something puts it there, and falls back to the
+base prompt when absent (nothing does today). What the brand told Vizzy about its business (its
+name, the four answers and the facts an admin kept) reaches the root agent another way: the
+`apply_business_profile` before-model callback (callbacks/business_profile.py) fetches it when the
+envelope's `profileRev` changes, caches it in process (never in session state) and appends a
+fenced block to each model call; the sub-agents' instruction builders append the same cached
+block. The agent never reads Firestore.
 
 ADK's ReadonlyContext is imported under TYPE_CHECKING so this module (and
 `_format_brand_block`) stays importable without ADK installed.

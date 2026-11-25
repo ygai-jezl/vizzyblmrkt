@@ -79,6 +79,7 @@ const ALL_METERED: readonly MeteredFeature[] = [
   "next_up",
   "article_autopilot",
   "article_refresh",
+  "onboarding_voice",
 ];
 
 const NO_LIMITS: Record<Allowance, null> = {
@@ -112,7 +113,8 @@ export const PLANS: readonly Plan[] = [
     summaryAsIdeas: "One brand and one live idea, to try YouGrow with a small team.",
     pricePerUserMonthUsd: 0,
     hosted: true,
-    features: [],
+    // Talk with Vizzy is in every plan (src/lib/plans/brandAccess.ts).
+    features: ["onboarding_voice"],
     allowances: { brands: 1, users: 2, liveIdeas: 1, people: 1_000, emailsPerMonth: 1_000, aiCreditsPerMonth: 50 },
     perUser: [],
     monthlyCaps: { web_searches: 300 },
@@ -126,7 +128,7 @@ export const PLANS: readonly Plan[] = [
     summary: "Up to three brands, with Vizzy in Edit mode and brand search.",
     pricePerUserMonthUsd: 9,
     hosted: true,
-    features: ["edit_vizzy", "brand_search"],
+    features: ["edit_vizzy", "brand_search", "onboarding_voice"],
     allowances: { brands: 3, users: null, liveIdeas: 5, people: 10_000, emailsPerMonth: 5_000, aiCreditsPerMonth: 250 },
     perUser: ["aiCreditsPerMonth"],
     monthlyCaps: { web_searches: 1_500 },
@@ -171,6 +173,7 @@ export const FEATURE_LABELS: Record<PlanFeature, string> = {
   next_up: "Next up",
   article_autopilot: "Article autopilot",
   article_refresh: "Article refresh reviews",
+  onboarding_voice: "Talk with Vizzy by voice",
   ...(Object.fromEntries(ENTERPRISE_FEATURES.map((f) => [f.id, f.label])) as Record<EnterpriseFeature, string>),
 };
 

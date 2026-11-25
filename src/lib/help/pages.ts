@@ -77,6 +77,10 @@ export interface HelpBodyProps {
   sharing?: boolean;
   /** Owners bring in and move out brands (isOrganisationJoinEnabled(), a server switch: the drawer gets it from the admin shell). */
   join?: boolean;
+  /** Vizzy gets to know a new brand on the welcome (isOnboardingEnabled(), a server switch: the drawer gets it from the admin shell). */
+  onboarding?: boolean;
+  /** Talk with Vizzy by voice on the welcome (isOnboardingVoiceEnabled(), a server switch: the drawer gets it from the admin shell). */
+  onboardingVoice?: boolean;
 }
 
 /** Navigation headings, matching Home's stages, in the words used while launches are called launches. */

@@ -192,6 +192,9 @@ export {
   countFieldAgentActions,
 } from "./agentActions";
 export type { AgentProposal, AgentTransition, TransitionError } from "./agentActions";
+// A fact Vizzy heard in a chat, kept with its decision and the chat's lines in one transaction.
+export { keepSuggestedBusinessFact } from "./businessFacts";
+export type { KeepBusinessFactInput, KeepBusinessFactResult } from "./businessFacts";
 // The settings log: a setting and its version in one transaction (read the versions through forTenant).
 export { commitSettingsChange, readSetting, settingsDocId, settingsVersionId } from "./settingsLog";
 export type { SettingsChange, SettingsCommit, StoredSetting } from "./settingsLog";

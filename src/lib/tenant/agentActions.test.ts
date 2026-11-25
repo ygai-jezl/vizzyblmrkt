@@ -209,6 +209,43 @@ describe("transitionAgentAction", () => {
   });
 });
 
+describe("why a person dismissed a suggestion (declined.why)", () => {
+  it("is stored beside dismissed, and carried on the agent.declined row", async () => {
+    const { fake, db, id } = await proposed();
+    const r = await transitionAgentAction(ctx, id, { to: "declined", reason: "dismissed", why: "not_for_us", by: MEMBER, at: LATER }, { db });
+    expect(r).toMatchObject({ ok: true, action: { declined: { reason: "dismissed", why: "not_for_us" } } });
+    expect(fake.raw("agent_actions", id)).toMatchObject({ state: "declined", declined: { reason: "dismissed", why: "not_for_us" } });
+    const rows = trail(fake, id);
+    expect(rows.at(-1)).toMatchObject({ kind: "agent.declined", properties: { state: "declined", reason: "dismissed", why: "not_for_us" } });
+  });
+
+  it("is optional: No reason still dismisses, with no why", async () => {
+    const { fake, db, id } = await proposed();
+    await transitionAgentAction(ctx, id, { to: "declined", reason: "dismissed", by: MEMBER, at: LATER }, { db });
+    expect(fake.raw("agent_actions", id)!.declined).toEqual({ reason: "dismissed" });
+    expect(trail(fake, id).at(-1)!.properties).not.toHaveProperty("why");
+  });
+
+  it("is refused beside expired, stale or superseded, and on any move but a decline, writing nothing", async () => {
+    for (const reason of ["expired", "stale", "superseded"] as const) {
+      const { fake, db, id } = await proposed();
+      await expect(transitionAgentAction(ctx, id, { to: "declined", reason, why: "wrong", by: MEMBER, at: LATER }, { db })).rejects.toThrow(TenantValidationError);
+      expect(fake.raw("agent_actions", id)).toMatchObject({ state: "proposed", declined: null });
+    }
+    const { db, id } = await proposed();
+    await expect(transitionAgentAction(ctx, id, { to: "approved", why: "not_now", by: MEMBER, at: LATER }, { db })).rejects.toThrow(TenantValidationError);
+  });
+
+  it("leaves every row written before it readable", async () => {
+    const { fake, db, id } = await proposed();
+    await transitionAgentAction(ctx, id, { to: "declined", reason: "expired", by: MEMBER, at: LATER }, { db });
+    const store = regionalStoreFor(ctx, db);
+    const read = await store.runTransaction((txn) => readAgentActionTx(txn, store, ctx, id));
+    expect(read?.declined).toEqual({ reason: "expired" });
+    expect(fake.raw("agent_actions", id)!.declined).toEqual({ reason: "expired" });
+  });
+});
+
 describe("the transaction helpers inside a caller's transaction", () => {
   it("commit a contact and the decision together, and neither when the state is wrong", async () => {
     const { fake, db, id } = await proposed();

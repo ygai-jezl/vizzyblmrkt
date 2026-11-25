@@ -576,6 +576,15 @@ describe("the choices each Review section shows", () => {
     expect(REVIEW_SECTIONS.brand_map.from).toEqual(["brand_map_research", "situations", "situation_questions", "canvas.brand_map", "blog_research", "autopilot_research", "competitor_topics", "judge", "rising_search"]);
     expect(REVIEW_SECTIONS.content_hub.from).toEqual(["content_hub", "blog_write", "ebook", "blog_refresh"]);
   });
+
+  it("names Work's three sections by the rule or the chat behind them, checks and Ready to start after AI lines and Vizzy's tasks before its drafts", () => {
+    expect(REVIEW_SECTIONS.work_check.from).toEqual(["work_check_due"]);
+    expect(REVIEW_SECTIONS.work_ready.from).toEqual(["work_ready"]);
+    expect(REVIEW_SECTIONS.work_suggestion.from).toEqual(["vizzy_chat"]);
+    expect(REVIEW_ORDER.slice(0, 3)).toEqual(["ai_line", "work_check", "work_ready"]);
+    expect(REVIEW_ORDER.indexOf("work_suggestion")).toBe(REVIEW_ORDER.indexOf("agent_draft") - 1);
+    expect(new Set(REVIEW_ORDER).size).toBe(Object.keys(REVIEW_SECTIONS).length);
+  });
 });
 
 describe("articles due a refresh, in Review", () => {

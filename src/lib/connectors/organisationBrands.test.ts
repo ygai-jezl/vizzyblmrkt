@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { forTenant, getOrganisationConnection } from "@/lib/tenant";
+import { allocateWorkRefs, createWorkTask, forTenant, getOrganisationConnection } from "@/lib/tenant";
+import { aTask, aWrite } from "@/lib/work/testing/fixtures";
 import { timestampFirestore } from "@/lib/tenant/testing/timestampFirestore";
 import type { Region } from "@/lib/types/tenant";
 import { sealConnectorSecret } from "./vault";
@@ -137,6 +138,17 @@ describe("Bring in", () => {
     expect(joined).toMatchObject({ organisationId: ORG, tenantId: "ten_cafe", from: "org_ten_cafe", actor: "usr_priya" });
   });
 
+  it("takes the brand's Work tasks along, with new numbers, and leaves its old organisation's whole business tasks there", async () => {
+    const stores = { regionDb: w.regionDb, controlDb: w.us };
+    await allocateWorkRefs(ORG, 4, w.us);
+    const cafeTask = await createWorkTask(aTask({ organisationId: "org_ten_cafe", brandId: "ten_cafe", addedFrom: "ten_cafe", region: "eu", ref: 1 }), aWrite(), stores);
+    const cafeWhole = await createWorkTask(aTask({ organisationId: "org_ten_cafe", brandId: null, addedFrom: "ten_cafe", region: "eu", ref: 2 }), aWrite(), stores);
+    expect(await bringBrandIn(owner, "ten_cafe", deps())).toMatchObject({ ok: true });
+    expect(w.eu.raw("work_tasks", cafeTask.task.id)).toMatchObject({ organisationId: ORG, ref: 5, region: "eu" });
+    // Left behind with the organisation, which the move emptied: kept, never erased by the move.
+    expect(w.eu.raw("work_tasks", cafeWhole.task.id)).toMatchObject({ organisationId: "org_ten_cafe", ref: 2 });
+  });
+
   it("refuses a narrower plan, with nothing moved", async () => {
     const r = await bringBrandIn(owner, "ten_wholesale", deps());
     expect(r).toMatchObject({ ok: false, status: 409, error: "narrower", message: "Bringing in Fernhill Wholesale would move it from Enterprise to Ultra and turn off features it has. That needs a plan change first." });
@@ -171,6 +183,15 @@ describe("Bring in", () => {
 
 describe("Move out", () => {
   const changes = () => Object.values(w.us.dump("organisation_changes")) as Array<Record<string, unknown>>;
+
+  it("takes the brand's Work tasks to its new organisation, numbered from 1 there", async () => {
+    const stores = { regionDb: w.regionDb, controlDb: w.us };
+    const mine = await createWorkTask(aTask({ organisationId: ORG, brandId: US_BRAND.tenantId, addedFrom: US_BRAND.tenantId, region: "us", ref: 12 }), aWrite(), stores);
+    const plants = await createWorkTask(aTask({ organisationId: ORG, brandId: EU_BRAND.tenantId, addedFrom: EU_BRAND.tenantId, region: "eu", ref: 13 }), aWrite(), stores);
+    expect(await moveBrandOut(owner, US_BRAND.tenantId, deps())).toMatchObject({ ok: true, value: { organisationId: "org_ten_fernhill-us" } });
+    expect(w.us.raw("work_tasks", mine.task.id)).toMatchObject({ organisationId: "org_ten_fernhill-us", ref: 1 });
+    expect(w.eu.raw("work_tasks", plants.task.id)).toMatchObject({ organisationId: ORG, ref: 13 });
+  });
 
   it("moves a brand out to one of its own on the same plan, with Priya its only owner, and ends its part; the connections stay in Europe for the others", async () => {
     // Fernhill Group had another owner too: the new organisation never inherits them.

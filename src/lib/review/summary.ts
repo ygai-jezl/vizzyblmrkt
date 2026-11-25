@@ -72,6 +72,9 @@ export type ReviewKind =
   | "data_signal"
   | "content_refresh"
   | "person_suggestion"
+  | "work_check"
+  | "work_ready"
+  | "work_suggestion"
   | "business_fact";
 
 export interface ReviewItem {
@@ -171,6 +174,22 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
     description: "Changes to people's fields, and people to add, that Vizzy suggested. Nothing changes until someone on your team confirms.",
     from: ["canvas.person_fields", "canvas.new_person"],
   },
+  work_check: {
+    title: "Checks due today",
+    description:
+      "Tasks in Work to look at again today: on a date you set, when another task is done, or when a task's measure says to look. A measure's check asks if it worked.",
+    from: ["work_check_due"],
+  },
+  work_ready: {
+    title: "Ready to start",
+    description: "To do tasks with nothing in their way. Start the one you want next, and Work keeps which you picked.",
+    from: ["work_ready"],
+  },
+  work_suggestion: {
+    title: "Tasks Vizzy suggests",
+    description: "From your log, your numbers and the stage you're in. Nothing goes on the list until someone adds it, as written or edited.",
+    from: ["vizzy_chat"],
+  },
   business_fact: {
     title: "About your business",
     description: "Things Vizzy heard about your business in a chat. Vizzy uses one only once an admin keeps it in Settings, About your business.",
@@ -179,7 +198,25 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
 };
 
 /** Order of sections on the page (AI lines are time-bound, so they come first). */
-export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "data_source", "next_article", "data_signal", "content_refresh", "agent_draft", "person_suggestion", "business_fact", "repo_results", "brand_map", "competitor_news", "content_hub"];
+export const REVIEW_ORDER: ReviewKind[] = [
+  "ai_line",
+  "work_check",
+  "work_ready",
+  "failed_post",
+  "connection",
+  "data_source",
+  "next_article",
+  "data_signal",
+  "content_refresh",
+  "work_suggestion",
+  "agent_draft",
+  "person_suggestion",
+  "business_fact",
+  "repo_results",
+  "brand_map",
+  "competitor_news",
+  "content_hub",
+];
 
 // ---------------------------------------------------------------------------
 // Per-source rules (pure)

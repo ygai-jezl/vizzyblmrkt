@@ -22,6 +22,7 @@ const NOT_SERVED_YET: Record<string, string> = {
   likedShare: "the learning loops count it once they stamp what YouGrow makes (ADR-0017)",
   unusedShare: "the learning loops count it once they stamp what YouGrow makes (ADR-0017)",
   remadeShare: "the learning loops count it once they stamp what YouGrow makes (ADR-0017)",
+  conversions: "Nothing counts it yet; a Work measure shows it in the brand's own word.",
 };
 
 /**
@@ -31,6 +32,7 @@ const NOT_SERVED_YET: Record<string, string> = {
 const HELD_NOWHERE: Record<string, string> = {
   other: "no code spends under it, and every new call names its real purpose",
   next_action_order: "Home works the order out on each visit from the brand's answers and where it is, and keeps none of it",
+  work_ready: "It only orders Review's Ready to start, and the person's Start is a change row.",
 };
 
 /**

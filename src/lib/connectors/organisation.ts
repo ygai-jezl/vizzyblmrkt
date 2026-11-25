@@ -2,6 +2,7 @@ import {
   changeOrganisationConnection,
   disconnectOrganisationConnectionRecord,
   endPart,
+  eraseOrganisationWork,
   forTenant,
   getOrganisationConnection,
   isRateLimited,
@@ -15,6 +16,7 @@ import {
   type BrandRef,
   type SourceRef,
   type TenantContext,
+  type WorkStores,
 } from "@/lib/tenant";
 import type { DataConnection } from "@/lib/types/dataConnection";
 import type { OrganisationConnection } from "@/lib/types/organisationConnection";
@@ -244,21 +246,38 @@ export async function disconnectEmptiedOrganisation(organisationId: string, by: 
   const control = deps.controlDb ?? deps.db;
   const m = control ? await organisationMembership(organisationId, control) : await organisationMembership(organisationId);
   if (m.exists && m.brandIds.length > 0) return 0;
-  return clearOrganisationIdForReuse(organisationId, by, deps);
+  // Its connections only: the organisation's Work stays (its whole business tasks and their log)
+  // until the id is taken up again, so a move that empties it never erases what the team wrote.
+  return disconnectEveryConnection(organisationId, by, deps);
 }
 
-/**
- * Before an empty organisation id is taken up again (move-brand --to new, Move out, the backfill,
- * a new brand), disconnect every connected connection kept under it in any region, so the new
- * owners never inherit a sign in or an address. Returns how many.
- */
-export async function clearOrganisationIdForReuse(organisationId: string, by: string, deps: OrganisationActionDeps = {}): Promise<number> {
+/** Disconnect every connected connection kept under an organisation id, in any region. Returns how many. */
+async function disconnectEveryConnection(organisationId: string, by: string, deps: OrganisationActionDeps): Promise<number> {
   const conns = (await listOrganisationConnections(organisationId, {}, storesOf(deps))).filter((c) => c.status === "connected" || atGoogle(c));
   let n = 0;
   for (const c of conns) {
     const r = await disconnectOrganisationConnection(refOf(c), by, deps);
     if (r.disconnected) n += 1;
   }
+  return n;
+}
+
+/** Where the organisation's Work is read: each region's database, and the control plane's for its task counter. */
+export function workStoresOf(deps: OrganisationActionDeps): WorkStores {
+  return { ...storesOf(deps), controlDb: deps.controlDb ?? deps.db };
+}
+
+/**
+ * Before an empty organisation id is taken up again (move-brand --to new, Move out, the backfill,
+ * a new brand), disconnect every connected connection kept under it in any region, so the new
+ * owners never inherit a sign in or an address, and erase the Work left under it (its tasks, its
+ * log and its task counter, in every region; ADR-0018), so they never inherit a task either.
+ * Whatever any switch says. A region that can't be read or erased throws, so the id is not taken
+ * up. Returns how many connections were disconnected.
+ */
+export async function clearOrganisationIdForReuse(organisationId: string, by: string, deps: OrganisationActionDeps = {}): Promise<number> {
+  const n = await disconnectEveryConnection(organisationId, by, deps);
+  await eraseOrganisationWork(organisationId, by, workStoresOf(deps));
   return n;
 }
 

@@ -661,6 +661,17 @@ export const MEANINGS = {
     unit: "count",
     source: "the brand's plan or grant, and its refresh records this month",
   },
+  // A brand's win, in its own word, for a Work measure (ADR-0018). Nothing counts it yet.
+  conversions: {
+    name: "Conversions",
+    definition: "Times a person did what the brand counts as its win, such as a sign up, an order or a booking.",
+    grain: "one time a person did the brand's win",
+    unit: "count",
+    source: "the brand's own product or site, once something counts it",
+    caveat: "Shown in the brand's own word, such as sign ups, orders or bookings. Nothing counts it yet.",
+    better: "higher",
+    family: "result",
+  },
   // What people did with what YouGrow made, for the learning loops (ADR-0017). No tool returns
   // these yet: the loops count them once they stamp what YouGrow makes.
   editShare: {

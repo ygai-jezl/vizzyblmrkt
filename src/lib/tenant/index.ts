@@ -258,6 +258,33 @@ export type {
   EndPartResult,
   RepairOutcome,
 } from "./organisationConnections";
+// Work (ADR-0018): an organisation's tasks and daily log, in regional databases, and its task counter.
+export {
+  WORK_TASKS,
+  WORK_LOG,
+  newWorkTaskId,
+  newWorkLogId,
+  newWorkImportId,
+  createWorkTask,
+  changeWorkTask,
+  deleteWorkTask,
+  appendWorkLog,
+  getWorkTask,
+  findWorkTask,
+  findWorkTaskByRef,
+  listWorkTasks,
+  listWorkChecks,
+  countWorkTasks,
+  listWorkLog,
+  listTaskLog,
+  listTaskDecisions,
+  countWorkLog,
+  eraseOrganisationWork,
+  repointBrandWork,
+  countBrandWork,
+} from "./work";
+export type { WorkStores, WorkWrite, NewWorkTask, WorkTaskPatch, WorkChangePlan, WorkChangeResult, NewWorkLogRow, WorkRead, WorkEraseCounts } from "./work";
+export { WORK_REFS, allocateWorkRefs, raiseWorkRefs, peekWorkRefs, deleteWorkRefs } from "./workRefs";
 // Who may act for an organisation, read live.
 export { organisationContextFor, verifiedPersonOf, isBrandAdminLive, isBrandAdminByRow, mayMoveBrand } from "./organisationContext";
 export type { BrandMoveCheck, BrandMoveRefusal, OrganisationContext, VerifiedPerson } from "./organisationContext";

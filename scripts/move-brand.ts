@@ -28,6 +28,11 @@
  * region. An empty org_<tenantId> taken up again (--to new) has its connections disconnected first,
  * so it never carries a sign in. The dry run says how many would be.
  *
+ * Work (ADR-0018), whatever WORK_ENABLED says: the brand's tasks, and their log, move with it to
+ * the organisation it joins, each taking a new number there; whole business tasks stay with the
+ * organisation it leaves. An empty org_<tenantId> taken up again (--to new) has its leftover Work
+ * erased first. The dry run says how many tasks would move.
+ *
  * Export the deployment's own GRANTED_ONLY_FEATURES and FEATURE_MONTHLY_LIMITS first: the dry run
  * reads them from this shell, and prints what it read.
  *
@@ -90,9 +95,14 @@ async function main() {
     const left = from.brandIds.filter((id) => id !== tenantId).length;
     const held = left ? 0 : (await tenantLib.listOrganisationConnections(from.id)).filter((c) => c.status === "connected").length;
     say(`Its ${count(parts, "part")} from ${from.id} would end, and what was collected through them be erased.${left ? "" : ` ${from.id} would have no brands left, so its ${count(held, "connection")} would be disconnected in every region.`}`);
+    const tasks = await tenantLib.countBrandWork(brandRef, from.id);
+    if (tasks) say(`Its ${count(tasks, "Work task")} would move with it, each taking a new number in the organisation it joins.`);
   };
-  const afterMove = async () => {
+  const afterMove = async (toOrganisationId: string) => {
     if (!from) return;
+    // Work first: nothing after it may clear the organisation it left before its tasks move.
+    const work = await tenantLib.repointBrandWork(brandRef, from.id, toOrganisationId, actor!);
+    if (work.tasks) say(`${count(work.tasks, "Work task")} moved to ${toOrganisationId}.`);
     const ended = await orgConnections.endBrandParts(brandRef, { fromOrganisationId: from.id, by: actor! });
     const off = await orgConnections.disconnectEmptiedOrganisation(from.id, actor!);
     say(`${count(ended, "part")} from ${from.id} ended${off ? `; ${count(off, "connection")} of ${from.id}, left with no brands, disconnected` : ""}.`);
@@ -122,6 +132,8 @@ async function main() {
     await leaving();
     const carried = reusedId ? (await tenantLib.listOrganisationConnections(reusedId)).filter((c) => c.status === "connected").length : 0;
     if (carried) say(`${reusedId} still holds ${count(carried, "connection")}: they would be disconnected first, so the brand never takes up a sign in.`);
+    const leftover = reusedId ? (await tenantLib.countWorkTasks(reusedId)).count : 0;
+    if (leftover) say(`${reusedId} still holds ${count(leftover, "Work task")}: they and their log would be erased first, so the brand never takes up another team's tasks.`);
     const blocked = guardChanges([changes], ALLOW);
     if (!APPLY) {
       if (blocked) say(`--apply would be refused: ${blocked}`);
@@ -134,7 +146,7 @@ async function main() {
     const res = await tenantLib.moveBrandToNewOrganisation(tenantId, { plan, actor: actor!, takeUp: reusedId });
     if (!res) refuse(TOOL, `${tenantId} went missing.`);
     say(res.moved ? `done: ${tenantId} is in ${res.organisationId} on ${planById(plan)!.name}.` : `${tenantId} is on its own in ${res.organisationId} already; nothing changed.`);
-    if (res.moved) await afterMove();
+    if (res.moved) await afterMove(res.organisationId);
     return;
   }
 
@@ -168,7 +180,7 @@ async function main() {
   if (res === "full") refuse(TOOL, `${target.id} filled up meanwhile: nothing changed.`);
   if (res === "missing") refuse(TOOL, "The brand or the organisation went missing: nothing changed.");
   say(res === "already" ? `${tenantId} is in ${target.id} already; nothing changed.` : `done: ${tenantId} is in ${target.id} on ${targetPlan.name}.`);
-  if (res === "moved" && from && from.id !== target.id) await afterMove();
+  if (res === "moved" && from && from.id !== target.id) await afterMove(target.id);
 }
 
 main().catch((err) => {

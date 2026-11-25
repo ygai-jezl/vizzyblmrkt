@@ -1,4 +1,5 @@
 import { AGENT_ACTION_STATES } from "@/lib/types/agentAction";
+import { WORK_STATUSES } from "@/lib/work/types";
 import { STORED_EVENT_KINDS } from "./events";
 import type { OntologyType, PathDecision, PathRef, StoreRef } from "./types";
 
@@ -22,6 +23,8 @@ const CONTROL = "src/lib/tenant/control.ts";
 const TENANT_LOOKUP = "src/lib/tenant/registry.ts";
 const ORGS = "src/lib/tenant/organisations.ts";
 const ORG_CONNECTIONS = "src/lib/tenant/organisationConnections.ts";
+const WORK = "src/lib/tenant/work.ts";
+const WORK_REFS = "src/lib/tenant/workRefs.ts";
 const WORKSPACE_CONTENT = "src/lib/tenant/workspaceContent.ts";
 const KNOWLEDGE = "src/lib/tenant/knowledge.ts";
 const SCRAPER = "workers/knowledge-scraper/src/pipeline.ts";
@@ -1535,6 +1538,8 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { to: "member", via: "ownerIds and createdBy, as user ids; its users are the members of its brands, counted once", many: true },
       { to: "organisation_change", via: "organisation_changes.organisationId", many: true },
       { to: "organisation_connection", via: "organisation_connections.organisationId, in the region each was connected from", many: true },
+      { to: "work_task", via: "work_tasks.organisationId, in the region of the brand each names or was added from", many: true },
+      { to: "work_log", via: "work_log.organisationId, beside the tasks and brands its rows are about", many: true },
     ],
     events: [],
     erase: {
@@ -1576,6 +1581,84 @@ export const ONTOLOGY: readonly OntologyType[] = [
     export: { gap: "team member ids in `actor`, `from` and `to` stay as ids, with no export by team member" },
     search: { none: "a control plane change log with no brand content or people" },
     numbers: { none: NO_NUMBERS },
+  },
+  {
+    id: "work_task",
+    name: "Work task",
+    description:
+      "One task on an organisation's Work list (ADR-0018): anything the business has to do, at any stage of the Path. It holds a title, a description and notes, a status (To do, In progress, Waiting, Done or Dropped), a stage, Must have, the brand it names or none for the whole business, free links, typed links (a pull request, a switch, an idea, a loop line or a plan), the tasks blocking it, one check, how the team will know it worked (with the kind the rule or Vizzy proposed beside the one chosen), where it came from (a person, an import, a Vizzy suggestion and its evidence) and its last 20 changes. Numbered per organisation by a counter in the control plane. Kept in the regional database of the brand it names, or for a whole business task of the brand it was added from, and never moved; the list reads every provisioned region by organisationId. Written only through `src/lib/tenant/work.ts`, each change with its log row in the same transaction.",
+    place: "company",
+    status: "built",
+    madeBy: ["vizzy_chat", "work_check_due", "work_measure_kind"],
+    home: "organisation",
+    personal: "team",
+    stores: [
+      side("work_tasks", WORK, {
+        note: "one record per task, read by id, by (organisationId, open, closedAt) for the list and by equality on organisationId with brandId, ref or hasCheck, in every provisioned region; titles and notes are the team's own words, which Vizzy reads as data and never as instructions",
+        residencyGap:
+          "a whole business task is kept in the region of the brand it was added from, and its owners read it from a session in any of the organisation's brands, so its words reach a server in another region",
+      }),
+      control("work_refs", WORK_REFS, "one counter per organisation, the next task number, read by id; no person data"),
+    ],
+    links: [
+      { to: "organisation", via: "organisationId", many: false },
+      { to: "brand", via: "brandId (none for a whole business task), and addedFrom", many: false },
+      { to: "idea", via: "ideaId when it became an idea, and its idea typed links", many: true },
+      { to: "agent_action", via: "origin.agentActionId, on a task added from a Vizzy suggestion", many: false },
+      { to: "work_log", via: "work_log.taskId: its change, check and decision rows", many: true },
+      { to: "member", via: "origin.by, a measure's and a check's setBy, and who on each recent change, as user ids", many: true },
+      { to: "work_task", via: "blockedBy, and an after_task check", many: true },
+      { to: "product", via: "a Used measure's product event, by its connectionId", many: false },
+    ],
+    events: ["work.task_added", "work.task_changed"],
+    states: [...WORK_STATUSES],
+    erase: {
+      paths: [
+        brandPath("eraseOrganisationWork", WORK, "an empty organisation id taken up again starts with no Work: its tasks and log rows go in every region, and its task counter"),
+        brandPath("deleteWorkTask", WORK, "an admin or owner deletes one task; its log rows stay with the organisation's history"),
+      ],
+      gaps: [
+        "no path deletes an organisation, so its tasks are kept for its life",
+        "member ids in origin, setBy and recent stay as ids after the member leaves, and show as Former team member, as settings history does",
+      ],
+    },
+    export: { gap: "team member ids in origin, setBy and recent stay as ids, with no export by team member; the team reads its tasks on Work" },
+    search: { none: "found on Work and by Vizzy's get_work" },
+    numbers: { gap: "the count a measure's check keeps has no meaning of its own yet, so an agent reads it only as the check's sentence" },
+  },
+  {
+    id: "work_log",
+    name: "Work log",
+    description:
+      "The organisation's daily log on Work (ADR-0018): what people write each day (a workstream with its state, a note and up to 3 links), one row for every change to a task with the value before and after, each check marked, moved on or read (Better, Same, Worse or Too soon to tell, with the measure's kind and what Work counted), and each decision recorded on a task (the question, 2 to 4 options, who recommended which and why, the choice and who made it, with approving a plan among them), with who wrote it, from which tool. Append only: a row is only ever added, apart from its organisation changing when its brand moves to another. Kept in the region of the task or brand it is about, with no time to live, until the organisation's Work is erased. Today, workstreams carried over, tasks that moved and checks due are worked out when the Log is read; the loops read every row as a work event.",
+    place: "company",
+    status: "built",
+    madeBy: ["vizzy_chat"],
+    home: "organisation",
+    personal: "team",
+    stores: [
+      side("work_log", WORK, {
+        note: "append only, read by (organisationId, at) for a day and by equality on organisationId with taskId and kind for one task, in every provisioned region; no ttlAt, and not in the time to live setup",
+        residencyGap: "rows about a whole business task are kept beside it, in the region of the brand it was added from, and its owners read them from a session in any of the organisation's brands",
+      }),
+    ],
+    links: [
+      { to: "organisation", via: "organisationId", many: false },
+      { to: "brand", via: "brandId, the brand the row is about (none for the whole business)", many: false },
+      { to: "work_task", via: "taskId", many: false },
+      { to: "member", via: "source.who and a decision's chosen.by, as user ids", many: true },
+    ],
+    events: ["work.task_added", "work.task_changed", "work.logged", "work.checked", "work.decided"],
+    erase: {
+      paths: [brandPath("eraseOrganisationWork", WORK, "rows are kept until the organisation's Work is erased, with no time to live: an empty organisation id taken up again starts with no log")],
+      gaps: [
+        "no path deletes an organisation, so its log is kept for its life",
+        "member ids in source and in a decision's chosen.by stay as ids after the member leaves, as settings history does",
+      ],
+    },
+    export: { gap: "team member ids in source and chosen.by stay as ids, with no export by team member; the team reads its log on Work" },
+    search: { none: "found on Work's Log and by Vizzy's get_work" },
+    numbers: { none: "a log holds what people wrote and what changed; the counts the loops take from it have no meanings yet" },
   },
   {
     id: "social_connection",
@@ -2434,7 +2517,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "agent_action",
     name: "Agent action",
     description:
-      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business. Other drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.",
+      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business. Vizzy's Work task suggestions keep their details once decided (clearDetailsOnClose false), so what Vizzy proposed stays beside the task as a person added it, or beside why they dismissed it; so do the Log notes and decisions Vizzy drafts for Work, beside the row a person saved from them. Other drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.",
     place: "partner_agent",
     status: "built",
     madeBy: ["canvas.person_fields", "canvas.new_person", "rising_search", "losing_page", "within_reach"],

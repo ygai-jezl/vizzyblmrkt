@@ -1425,6 +1425,38 @@
           "order": "DESCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "work_tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "organisationId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "open",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "closedAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "work_log",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "organisationId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "at",
+          "order": "DESCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": [
@@ -1521,6 +1553,76 @@
     {
       "collectionGroup": "organisation_connection_activity",
       "fieldPath": "ttlAt",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "work_tasks",
+      "fieldPath": "description",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "work_tasks",
+      "fieldPath": "notes",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "work_tasks",
+      "fieldPath": "recent",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "work_tasks",
+      "fieldPath": "links",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "work_tasks",
+      "fieldPath": "typedLinks",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "work_tasks",
+      "fieldPath": "origin",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "work_tasks",
+      "fieldPath": "measure",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "work_tasks",
+      "fieldPath": "check",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "work_log",
+      "fieldPath": "note",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "work_log",
+      "fieldPath": "links",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "work_log",
+      "fieldPath": "before",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "work_log",
+      "fieldPath": "after",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "work_log",
+      "fieldPath": "decision",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "work_log",
+      "fieldPath": "check",
       "indexes": []
     }
   ]

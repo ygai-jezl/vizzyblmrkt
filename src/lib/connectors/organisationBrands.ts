@@ -8,6 +8,7 @@ import {
   listOrganisationConnections,
   mayMoveBrand,
   moveBrandToNewOrganisation,
+  repointBrandWork,
   reusableOrganisationId,
   type BrandMoveRefusal,
 } from "@/lib/tenant";
@@ -19,7 +20,7 @@ import type { OrganisationConnection } from "@/lib/types/organisationConnection"
 import type { Tenant } from "@/lib/types/tenant";
 import { bringInDoneWords, BRANDS_COPY, fullWords, moveOutDoneWords, moveRefusalWords, narrowerWords } from "@/components/admin/connectors/words";
 import { isConnectorsSharingEnabled } from "./flags";
-import { clearOrganisationIdForReuse, disconnectEmptiedOrganisation, endBrandParts, type OrganisationActionDeps } from "./organisation";
+import { clearOrganisationIdForReuse, disconnectEmptiedOrganisation, endBrandParts, workStoresOf, type OrganisationActionDeps } from "./organisation";
 import { regionName } from "./organisationConnect";
 import type { OrganisationOwner } from "./organisationOwner";
 import type { ServiceResult } from "./service";
@@ -40,6 +41,8 @@ import { storesOf } from "./sources";
  *   disconnects the connections of an organisation it leaves with no brands, whatever sharing says
  *   (picks 10 and 21). A failure there is left to the lane's housekeeping and sweep, and every
  *   part already reads nothing (partLive) from the moment the brand moved.
+ * - Every move takes the brand's Work tasks along to the organisation it joins (ADR-0018), first,
+ *   whatever WORK_ENABLED says; whole business tasks stay with the organisation it left.
  * - Names of brands and organisations reach only someone who owns both sides. Nobody's name or
  *   email crosses brands.
  */
@@ -243,9 +246,18 @@ export function moveRefused<T>(check: { why: BrandMoveRefusal; brand?: Tenant },
   return refuse(403, check.why, moveRefusalWords(check.brand?.tenantName ?? "this brand", check.why, move));
 }
 
-/** After a brand left an organisation: end its parts from it, and disconnect its connections when it is left with no brands. */
-async function afterLeaving(brand: Tenant, fromOrganisationId: string, by: string, deps: OrganisationBrandsDeps): Promise<{ ended: number; disconnected: number }> {
+/**
+ * After a brand left an organisation: take its Work tasks to the one it joined (first, before
+ * anything that could clear the one it left), end its parts from the one it left, and disconnect
+ * that one's connections when it is left with no brands.
+ */
+async function afterLeaving(brand: Tenant, fromOrganisationId: string, toOrganisationId: string, by: string, deps: OrganisationBrandsDeps): Promise<{ ended: number; disconnected: number }> {
   const out = { ended: 0, disconnected: 0 };
+  try {
+    await repointBrandWork({ tenantId: brand.id, region: brand.region }, fromOrganisationId, toOrganisationId, by, workStoresOf(deps));
+  } catch (err) {
+    warn(`moving ${brand.id}'s Work tasks from ${fromOrganisationId} to ${toOrganisationId} failed; they stay with ${fromOrganisationId}`, err);
+  }
   try {
     out.ended = await endBrandParts({ tenantId: brand.id, region: brand.region }, { fromOrganisationId, by }, deps);
   } catch (err) {
@@ -297,7 +309,7 @@ export async function bringBrandIn(owner: OrganisationOwner, tenantId: string, d
   if (res === "narrower") return refuse(409, "narrower", narrowerWords(brand.tenantName, planName(from.plan), planName(target.plan), narrowerOf(brand, target.plan) ?? "features"));
   if (res === "already") return refuse(409, "already", BRANDS_COPY.already);
   if (res !== "moved") return refuse(409, "changed", BRANDS_COPY.changed);
-  const after = await afterLeaving(brand, from.id, owner.person.userId, deps);
+  const after = await afterLeaving(brand, from.id, target.id, owner.person.userId, deps);
   return { ok: true, status: 200, value: { message: bringInDoneWords(brand.tenantName, target.name), organisationId: target.id, ...after } };
 }
 
@@ -337,6 +349,6 @@ export async function moveBrandOut(owner: OrganisationOwner, tenantId: string, d
   if (!res) return refuse(404, "not_found");
   if (res.changed) return refuse(409, "changed", BRANDS_COPY.changed);
   if (!res.moved) return refuse(409, "alone", BRANDS_COPY.alone);
-  const after = await afterLeaving(brand, from.id, by, deps);
+  const after = await afterLeaving(brand, from.id, res.organisationId, by, deps);
   return { ok: true, status: 200, value: { message: moveOutDoneWords(brand.tenantName, planName(from.plan)), organisationId: res.organisationId, ...after } };
 }

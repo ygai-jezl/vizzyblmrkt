@@ -95,6 +95,8 @@ env:
   #     GRANTED_ONLY_FEATURES                                       features only for brands granted them
   #     FEATURE_MONTHLY_LIMITS                                      next_up=100,competitor_articles=200
   #     PLANS_NEW_ORGANISATION_PLAN                                 free (unset: self_hosted, everything open)
+  #     LOOPS_OPERATOR_EMAILS                                       who sees this copy's own learning loop
+  #     LOOPS_SOURCE_REPO                                           this copy's own repo, as owner/name
   #     DATAFORSEO_USERNAME, DATAFORSEO_PASSWORD                    secrets, with SIGNALS_DATAFORSEO_ENABLED
   #   Connections
   #     GITHUB_APP_ID, GITHUB_APP_SLUG, GITHUB_APP_CLIENT_ID        your read only GitHub App
@@ -318,6 +320,22 @@ env:
     value: "false"
     availability:
       - BUILD
+      - RUNTIME
+
+  # == Work ==
+  # Work (ADR-0018): one list of tasks across the organisation's brands and regions, and a daily
+  # log, at /admin/work. Needs the work_tasks and work_log indexes READY. Off: no Work in the
+  # sidebar, ⌘K or Review, and its pages and routes answer 404. A brand move and an organisation id
+  # taken up again keep Work tidy whatever this says.
+  - variable: WORK_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Vizzy's Work tools (get_work, suggest_work_task, draft_work_log, draft_work_decision) and the
+  # Work starters in Ask Vizzy. Needs WORK_ENABLED and a Vizzy deploy with the tools.
+  - variable: WORK_VIZZY_ENABLED
+    value: "false"
+    availability:
       - RUNTIME
 
   # == Waitlists and invites ==

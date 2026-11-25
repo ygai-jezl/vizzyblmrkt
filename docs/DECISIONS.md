@@ -36,8 +36,13 @@ changed"):
 - **Revoke reaches too far.** "Revocation removes all OAuth 2.0 scopes previously granted to a
   project, invalidating any issued access or refresh tokens for all clients"
   (https://developers.google.com/identity/protocols/oauth2/web-server). Ending one brand's part never
-  revokes. Only Disconnect of the organisation's connection may, and only with
-  `CONNECTOR_GOOGLE_REVOKE_ENABLED`.
+  revokes. Only an owner's Disconnect of the organisation's connection (whose confirm warns) and the
+  operator's organisation purge may, and only with `CONNECTOR_GOOGLE_REVOKE_ENABLED`. A disconnect
+  nobody asked for (the lane's sweep, a move that empties the organisation, an id taken up again)
+  empties the sealed secrets, so YouGrow keeps no usable token, and never revokes: it would end the
+  same Google account's sign ins for other organisations and brands. A brand's own Disconnect (and
+  the brand purge) doesn't revoke either while its organisation holds a connected Google sign in
+  made by the same person, the only hint YouGrow keeps of who the Google account is.
 - **Quotas differ by provider.** GA4 counts per property and per project per property ("Core Tokens
   Per Project Per Property Per Hour | 14,000",
   https://developers.google.com/analytics/devguides/reporting/data/v1/quotas). Search Console counts
@@ -127,7 +132,12 @@ changed"):
     disconnected with `collect.erasePending: "all"`. Housekeeping ends a part only on positive
     evidence: the brand's raw registry record points at another organisation or none; the source
     record is missing or disconnected; or the part's entry is gone, `ending`, or `active` with
-    another part or brand record. Never on a switch state, never on a read error. **v5 rule 6
+    another part or brand record. Never on a switch state, never on a read error, and never on a
+    cached read: the lane's run wide cache serves read only checks, and an end reads the brand
+    record and the part again with no cache, then checks the evidence once more inside step one's
+    transaction, so a part given or changed while the lane runs survives. A suspended brand's part
+    ends on the same evidence (the lane gives suspended brands their parts' housekeeping only).
+    **v5 rule 6
     changes to:** "Leaving ends access at once. What was collected through the organisation is
     erased; the brand's own connection fills it again."
 11. **Brand admins run their own part:** readers, pause and Stop using. No Sign in again, no picker,
@@ -174,10 +184,18 @@ changed"):
     (`move-brand.ts --to new`, Move out, `backfill-organisations`, New brand), its connected
     organisation connections are disconnected first. The lane sweeps each region's connected
     organisation connections and disconnects those whose organisation is gone or has no brands
-    (its record readable and empty), which also catches moves an older build made.
+    (its record readable and empty), which also catches moves an older build made. It pages by
+    document id from a starting id that moves on every run and wraps round, so every record is
+    reached however many there are. Every listing by organisation reads every page, and an
+    organisation holds at most 20 connected connections per connector, in every region together.
+    Whether an empty `org_<tenantId>` is taken up again is read from its raw record, as the move
+    decides, so one that doesn't parse is cleared too.
 22. **Turning off or reverting never strands a sign in.** The organisation purge
     (`connectors-purge --organisation <orgId|all>`) runs whatever any switch says and loops every
-    provisioned region.
+    provisioned region. A part whose brand record couldn't be ended stays listed, as `ending`, so the
+    dry run never says nothing is left while a brand still reads it; and a stored record that
+    doesn't parse is counted as left (its address never deleted as a leftover), as the reseal counts
+    it as one that won't open.
 
 ### How a part is given, changed and taken back (three steps, two databases)
 
@@ -235,7 +253,7 @@ changed"):
 
 | Off | Stops | Stays until |
 | --- | --- | --- |
-| `CONNECTORS_SHARING_ENABLED` | the Shared connections section, connecting and giving parts, every part's live reads, collection and collected numbers | parts' numbers (unreadable) expire within 90 days, or Take back, Disconnect or the purge removes them; organisation records keep sealed tokens and Google addresses until Disconnect or the organisation purge; housekeeping for brands that left, and repairs of half-done gives and take backs, still run |
+| `CONNECTORS_SHARING_ENABLED` | the Shared connections section, connecting and giving parts, every part's live reads, collection and collected numbers | parts' numbers (unreadable) expire within 90 days, or Take back, Disconnect or the purge removes them; organisation records keep sealed tokens and Google addresses until Disconnect or the organisation purge; housekeeping for brands that left, and repairs of half-done gives and take backs, still run; the sweep and moves that empty an organisation disconnect its connections without revoking at Google (only an owner's Disconnect or the purge revokes, with `CONNECTOR_GOOGLE_REVOKE_ENABLED`) |
 | `ORGANISATION_JOIN_ENABLED` | Bring in and Move out | nothing: moves already made stay, as with `move-brand.ts` |
 | `PLANS_ENABLED` | organisations, so every part reads nothing | as for sharing; no part is ended for it |
 | `CONNECTORS_ENABLED` | everything | the purge, brand and organisation, still erases, whatever any switch says |

@@ -6,9 +6,8 @@ import {
   createTenant,
   addTenantMember,
   ensureBrandOrganisation,
-  getOrganisation,
   getTenantById,
-  organisationIdFor,
+  reusableOrganisationId,
   TenantIsolationError,
 } from "@/lib/tenant";
 import { clearOrganisationIdForReuse } from "@/lib/connectors/organisation";
@@ -134,9 +133,10 @@ export async function POST(req: Request) {
  */
 async function startOrganisation(tenantId: string, userId: string): Promise<void> {
   try {
-    // An empty org_<id> taken up again never carries a sign in (Connectors 3): its connections go first.
-    const own = await getOrganisation(organisationIdFor(tenantId));
-    if (own && own.brandIds.length === 0) await clearOrganisationIdForReuse(own.id, userId);
+    // An empty org_<id> taken up again never carries a sign in (Connectors 3): its connections go
+    // first. Read raw, as ensureBrandOrganisation decides, so one that doesn't parse is cleared too.
+    const reused = await reusableOrganisationId(tenantId);
+    if (reused) await clearOrganisationIdForReuse(reused, userId);
     const res = await ensureBrandOrganisation(tenantId, {
       plan: newOrganisationPlan(),
       createdBy: userId,

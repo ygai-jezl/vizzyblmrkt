@@ -1,4 +1,13 @@
-import { changeOrganisationConnection, getOrganisation, getOrganisationConnection, getTenantById, type OrganisationStores, type SourceRef, type TenantContext } from "@/lib/tenant";
+import {
+  changeOrganisationConnection,
+  getOrganisation,
+  getOrganisationConnection,
+  getTenantById,
+  listOrganisationConnections,
+  type OrganisationStores,
+  type SourceRef,
+  type TenantContext,
+} from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { DataConnection } from "@/lib/types/dataConnection";
 import type { Organisation } from "@/lib/types/organisation";
@@ -136,15 +145,16 @@ export async function checkPart(
   try {
     tenant = await cached(cache.tenants, ctx.tenantId, () => (control ? getTenantById(ctx.tenantId, control) : getTenantById(ctx.tenantId)));
     if (!tenant) return refused("left");
-    if (tenant.status === "suspended") return refused("suspended", null, tenant);
     if (tenant.organisationId !== src.organisationId) return refused("left", null, tenant);
     organisation = await cached(cache.organisations, src.organisationId, () => (control ? getOrganisation(src.organisationId, control) : getOrganisation(src.organisationId)));
-    if (!organisation || !organisation.brandIds.includes(ctx.tenantId)) return refused("not_listed", organisation, tenant);
+    if (!organisation || !organisation.brandIds.includes(ctx.tenantId)) return refused(tenant.status === "suspended" ? "suspended" : "not_listed", organisation, tenant);
     source = await cached(cache.sources, `${src.region}:${src.connectionId}`, () => getOrganisationConnection(src.organisationId, src.connectionId, src.region, storesOf(deps)));
   } catch {
     return refused("read_failed");
   }
   const no = (why: PartWhy) => refused(why, organisation, tenant);
+  // End evidence first, so a suspended brand's part still ends when its organisation ended it; a
+  // suspended brand with none reads nothing and ends nothing.
   if (!source) return no("source_missing");
   if (source.status !== "connected") return no("source_disconnected");
   if (source.connectorId !== conn.connectorId || source.method !== conn.method) return no("mismatch");
@@ -152,6 +162,7 @@ export async function checkPart(
   if (!part) return no("no_part");
   if (part.useId !== conn.id) return no("differs");
   if (part.state === "ending") return no("ending");
+  if (tenant.status === "suspended") return no("suspended");
   if (part.state === "pending") return no("pending");
   if (part.region !== ctx.region || part.account !== conn.account) return no("differs");
   if (opts.token) {
@@ -359,9 +370,13 @@ export async function sourceHeldUntil(ctx: Pick<TenantContext, "tenantId" | "reg
 /**
  * Hold collecting for every part of an organisation's connection until then (a quota answer the
  * provider counts per user or per token), with a "held" row. A later hold already set stays.
+ * With `day`, the quota day in the provider's own clock (Search Console's Pacific midnight), the
+ * strikes are counted on the organisation's record, whichever brand hit them: the second one that
+ * day holds to `dayUntil`, as one brand record's own second strike does (Connectors 2), because the
+ * shared sign in's quota is one user's, split across its brands.
  * Best effort: the brand's own record carries its own hold either way.
  */
-export async function holdSource(source: SourceRef, until: Date, reason: string, deps: SourceDeps = {}): Promise<void> {
+export async function holdSource(source: SourceRef, until: Date, reason: string, deps: SourceDeps = {}, day?: { day: string; dayUntil: Date }): Promise<void> {
   const at = (deps.now ?? new Date()).toISOString();
   await changeOrganisationConnection(
     source.organisationId,
@@ -369,9 +384,35 @@ export async function holdSource(source: SourceRef, until: Date, reason: string,
     source.region,
     (cur) => {
       if (cur.status !== "connected") return null;
-      if (cur.collectHold && Date.parse(cur.collectHold.until) >= until.getTime()) return null;
-      return { patch: { collectHold: { until: until.toISOString(), reason } }, activity: [{ kind: "held", by: "system", at, code: reason }] };
+      const strikes = day ? (cur.collectHold?.strikes?.day === day.day ? cur.collectHold.strikes.quota : 0) + 1 : null;
+      const [end, why] = day && strikes! >= 2 ? [day.dayUntil, "quota_day"] : [until, reason];
+      const held = cur.collectHold && Date.parse(cur.collectHold.until) >= end.getTime() ? cur.collectHold : null;
+      const next = { until: held ? held.until : end.toISOString(), reason: held ? held.reason : why, ...(day ? { strikes: { day: day.day, quota: strikes! } } : {}) };
+      if (held && !day) return null;
+      return { patch: { collectHold: next }, activity: held ? [] : [{ kind: "held", by: "system", at, code: why }] };
     },
     storesOf(deps),
   ).catch(() => null);
+}
+
+/**
+ * Before a brand's own Google sign in is revoked (its Disconnect, or the brand purge, with
+ * CONNECTOR_GOOGLE_REVOKE_ENABLED): whether its organisation holds a connected Google sign in, in
+ * any region, signed in by one of these people (the one disconnecting, or whoever made the brand's
+ * connection). Google's revoke ends every grant that Google account gave this app, so revoking then
+ * could end the organisation's sign in and every brand's part it serves. YouGrow keeps no Google
+ * account name, so the person is the only hint; true also when it can't be read, so a doubt never
+ * revokes. False when the brand is in no organisation.
+ */
+export async function organisationSignInMayShareAccount(ctx: Pick<TenantContext, "tenantId">, uids: ReadonlyArray<string | null | undefined>, deps: SourceDeps = {}): Promise<boolean> {
+  const people = new Set(uids.filter((u): u is string => Boolean(u)));
+  try {
+    const control = controlOf(deps);
+    const brand = control ? await getTenantById(ctx.tenantId, control) : await getTenantById(ctx.tenantId);
+    if (!brand?.organisationId) return false;
+    const conns = await listOrganisationConnections(brand.organisationId, {}, storesOf(deps));
+    return conns.some((c) => c.status === "connected" && c.method === "oauth_pkce" && c.signerUid !== null && people.has(c.signerUid));
+  } catch {
+    return true;
+  }
 }

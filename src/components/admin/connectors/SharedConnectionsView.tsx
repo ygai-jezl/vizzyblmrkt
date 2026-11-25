@@ -28,6 +28,7 @@ import {
   afterSignInWords,
   cantReadCountWords,
   connectedForWords,
+  signInReasonWords,
   disconnectTextWords,
   disconnectTitleWords,
   everyBrandHasPart,
@@ -182,7 +183,8 @@ export function SharedCard({
                       <span className="block">{p.brandName}</span>
                       {p.region !== c.region ? <span className={`block ${HINT}`}>{p.regionName}</span> : null}
                     </td>
-                    <td className={TD}>{dayWords(p.givenAt.slice(0, 10))}</td>
+                    {/* Since the part it reads now: a change dates it from the change (stateSince, set when a give or change goes active). */}
+                    <td className={TD}>{dayWords((p.state === "active" ? p.stateSince : p.givenAt).slice(0, 10))}</td>
                     {screen.collect ? (
                       <td className={TD}>
                         <span className={`block ${col.warn ? "text-amber-700 dark:text-amber-400" : ""}`}>{col.main}</span>
@@ -196,7 +198,7 @@ export function SharedCard({
                         <button
                           type="button"
                           className={`${BUTTON} ${SMALL}`}
-                          disabled={busy || !c.mine || p.state !== "active" || c.health.state === "broken"}
+                          disabled={busy || !c.mine || p.state !== "active" || c.health.state === "broken" || !screen.brands.some((b) => b.id === p.tenantId)}
                           aria-label={`Change ${whoseWords(p.brandName)} ${unit.one}`}
                           onClick={() => actions.change(c, p.tenantId)}
                         >
@@ -241,8 +243,8 @@ type Open =
 
 export interface SharedConnectionsProps {
   screen: SharedConnectionsScreen;
-  /** What a connect or sign in for the organisation came back with (the page's query). */
-  back: { status: string | null; connection: string | null };
+  /** What a connect or sign in for the organisation came back with (the page's query); `reason` when it failed. */
+  back: { status: string | null; connection: string | null; reason?: string | null };
   /** The server's time, so holds and dates read the same in the browser. */
   now: string;
 }
@@ -261,7 +263,9 @@ export function SharedConnectionsView({ screen, back, now }: SharedConnectionsPr
   const [open, setOpen] = useState<Open | null>(back.status === "signed_in_again" && returned ? { kind: "after", c: returned } : null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [note, setNote] = useState<{ tone: "ok" | "err"; text: string } | null>(back.status === "connected" ? { tone: "ok", text: connectedForWords(org) } : null);
+  const [note, setNote] = useState<{ tone: "ok" | "err"; text: string } | null>(
+    back.status === "connected" ? { tone: "ok", text: connectedForWords(org) } : back.status === "error" ? { tone: "err", text: signInReasonWords(back.reason) } : null,
+  );
   const [afters, setAfters] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState<string | null>(null);
 

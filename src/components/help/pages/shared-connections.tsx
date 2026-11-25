@@ -1,6 +1,6 @@
 import { H1, H2, Lead, P, Pairs, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
-import { CONNECTOR_ERRORS, SIGNIN_REASONS } from "@/lib/connectors/messages";
+import { CONNECTOR_ERRORS, KEPT_AT_GOOGLE_MESSAGE, SIGNIN_REASONS } from "@/lib/connectors/messages";
 
 /**
  * /help/shared-connections (CONNECTORS_SHARING_ENABLED, Connectors 3): an organisation connects
@@ -124,7 +124,12 @@ export default function SharedConnectionsHelp() {
         <li>
           Disconnect ends every brand&apos;s part and deletes what YouGrow collected for them. A Google address is deleted. A Google
           sign in is also removed at Google only when your copy of YouGrow does that, and then the same Google account&apos;s other
-          YouGrow connections need signing in again.
+          YouGrow connections need signing in again. A connection YouGrow disconnects by itself, because no brand is left for it,
+          has its saved sign in deleted but is never removed at Google, so nothing else signed in with that account stops.
+        </li>
+        <li>
+          When your copy of YouGrow removes sign ins at Google, a brand&apos;s own Google connection disconnected by someone who
+          also made a shared Google sign in for your organisation isn&apos;t removed at Google, so the shared one keeps working.
         </li>
         <li>
           A brand that moves to another organisation stops reading its parts at once, and what was collected through them is
@@ -137,6 +142,7 @@ export default function SharedConnectionsHelp() {
       <UL>
         <li>Up to 50 brands can have a part of one connection.</li>
         <li>Up to 5 Google addresses per organisation for each tool.</li>
+        <li>Up to 20 connections per organisation for each tool, counted in every region together.</li>
         <li>
           Search Console and Cloudflare count their limits per sign in or token, so when one says its limit was reached, collecting
           pauses for every brand on it for a while. Live reads go on. Google Analytics counts per property, so only that brand
@@ -160,6 +166,8 @@ export default function SharedConnectionsHelp() {
           [SIGNIN_REASONS.not_owner, "Ask an owner of your organisation to connect it, or connect it for this brand instead."],
           [SIGNIN_REASONS.sharing_off, "Ask whoever runs your YouGrow to turn sharing on, or connect it for each brand."],
           [CONNECTOR_ERRORS.org_share_limit, "Disconnect an address your organisation no longer uses on Settings › Organisation."],
+          [CONNECTOR_ERRORS.org_connection_limit, "Disconnect a connection your organisation no longer uses on Settings › Organisation, then connect again."],
+          [KEPT_AT_GOOGLE_MESSAGE, "Nothing to do: the shared connection keeps working. Remove YouGrow in that Google account only when nothing uses it."],
           ["This token can't list its zones, so YouGrow can't give a brand one. Give it Zone Read, or connect it for this brand instead.", "Make a token with Zone Read and paste it again."],
           [
             "Only the owner who signed in can see its list and give its parts. You can take one back, pause, disconnect, or sign in again yourself.",

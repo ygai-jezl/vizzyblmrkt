@@ -20,7 +20,7 @@ import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isGoogleRevokeEnab
 import { healthyAt } from "./health";
 import { shareMethod, tokenMethod, type ConnectorIcon, type ConnectMethodName, type ConnectorManifest } from "./manifest";
 import { connectorMessage, type ConnectorErrorCode } from "./messages";
-import { disconnectOrganisationConnection, organisationShareRoom, organisationTokenCheckRoom, type OrganisationActionDeps } from "./organisation";
+import { disconnectOrganisationConnection, organisationConnectionRoom, organisationShareRoom, organisationTokenCheckRoom, type OrganisationActionDeps } from "./organisation";
 import { organisationHookConnection, organisationOutcome, organisationToken, ownedConnection, sourceRefOf, type OrganisationOwner } from "./organisationOwner";
 import { getConnector, knownConnector, readyMethods } from "./registry";
 import { checkFields, cleanLabel, collectViewOf, providerRefusal, type CollectView, type ServiceResult } from "./service";
@@ -139,6 +139,7 @@ export async function connectOrganisationToken(owner: OrganisationOwner, body: O
   const fields = checkFields(m, body.fields ?? {}, "secrets");
   if (!fields.ok) return { ok: false, status: 400, error: "invalid_fields", message: `Check ${fields.labels.join(", and ")}.` };
   if (!isVaultConfigured()) return providerRefusal("vault_unconfigured");
+  if (!(await organisationConnectionRoom(owner.organisation.id, m.id, deps))) return providerRefusal("org_connection_limit");
   if (!(await organisationTokenCheckRoom(owner.organisation.id, m.id, deps))) return providerRefusal("busy");
 
   const now = nowOf(deps);
@@ -187,10 +188,11 @@ export async function shareConnectOrganisation(owner: OrganisationOwner, body: O
   if (!share || !readyMethods(m).includes("share_access")) return refuse(400, "method_not_supported");
   const project = identitiesProject();
   if (!project) return providerRefusal("share_unconfigured");
-  const shareOf = (sa: ConnectionServiceAccount) => ({ email: sa.email, role: share.role, steps: share.steps });
+  const shareOf = (sa: ConnectionServiceAccount) => ({ email: sa.email, role: share.role, steps: share.organisationSteps ?? share.steps });
 
   const waiting = await waitingOrganisationShare(owner.organisation.id, m.id, deps);
   if (waiting) return { ok: true, status: 200, value: { connectionId: waiting.id, share: shareOf(waiting.serviceAccount!), reused: true } };
+  if (!(await organisationConnectionRoom(owner.organisation.id, m.id, deps))) return providerRefusal("org_connection_limit");
   const room = await organisationShareRoom(owner.organisation.id, m.id, deps);
   if (!room.ok) return providerRefusal(room.code);
 
@@ -293,12 +295,13 @@ export function organisationDisconnectWords(r: { revoked: boolean; addressDelete
 /**
  * Disconnect an organisation's connection: every brand stops reading at once, each brand record
  * is ended and erased in its own region, the Google address is deleted, and a Google sign in is
- * revoked only with CONNECTOR_GOOGLE_REVOKE_ENABLED. Any owner.
+ * revoked only with CONNECTOR_GOOGLE_REVOKE_ENABLED (the confirm warns that it ends the Google
+ * account's other YouGrow connections too). Any owner. The only in-app disconnect that revokes.
  */
 export async function disconnectForOrganisation(owner: OrganisationOwner, sourceId: string, deps: OrganisationDeps = {}): Promise<ServiceResult<OrganisationDisconnectResult>> {
   const c = await ownedConnection(owner, sourceId, deps);
   if (!c) return refuse(404, "not_found");
-  const r = await disconnectOrganisationConnection(sourceRefOf(c), uidOf(owner), deps);
+  const r = await disconnectOrganisationConnection(sourceRefOf(c), uidOf(owner), deps, { revoke: isGoogleRevokeEnabled() });
   if (!r.found) return refuse(404, "not_found");
   if (r.disconnected) await recordChange(owner, c, "connection.disconnected", nowOf(deps).toISOString(), deps);
   const message = organisationDisconnectWords({ revoked: r.revoked, addressDeleted: r.addressDeleted, method: c.method, disconnectHint: knownConnector(c.connectorId)?.disconnect ?? null });
@@ -473,7 +476,11 @@ export async function sharedConnectionView(owner: OrganisationOwner, c: Organisa
           : null,
     };
   });
-  const stopped = c.recent.find((e) => e.kind === "part_ended" && e.code === "stopped_using");
+  // "<Brand> stopped using it" only while that brand has no part again: no entry now, and no give since (recent is newest first).
+  const stoppedAt = c.recent.findIndex((e) => e.kind === "part_ended" && e.code === "stopped_using");
+  const stoppedRow = stoppedAt >= 0 ? c.recent[stoppedAt]! : null;
+  const stopped =
+    stoppedRow && !c.parts.some((p) => p.tenantId === stoppedRow.tenantId) && !c.recent.slice(0, stoppedAt).some((e) => e.kind === "part_given" && e.tenantId === stoppedRow.tenantId) ? stoppedRow : null;
   const signer = signerOf(c, owner);
   return {
     id: c.id,

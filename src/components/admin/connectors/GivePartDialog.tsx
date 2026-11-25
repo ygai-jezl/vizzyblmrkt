@@ -71,9 +71,13 @@ export function ConnectionAbout({ c, org, extra }: { c: SharedConnectionView; or
   );
 }
 
-/** A radio card, as the property picker draws one: sky when chosen, greyed when it can't be. */
+/**
+ * A radio card, as the property picker draws one: sky when chosen, greyed when it can't be. Greyed is
+ * the hint colour on the label, never a fade of the whole card, so the note that says why stays as
+ * readable as any hint.
+ */
 export const OPTION = (on: boolean, off: boolean) =>
-  `flex items-start gap-3 rounded-lg border px-3 py-2.5 text-sm ${off ? "cursor-default border-neutral-200 opacity-60 dark:border-neutral-800" : on ? "cursor-pointer border-sky-400 bg-sky-50 dark:border-sky-700 dark:bg-sky-950/40" : "cursor-pointer border-neutral-200 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"}`;
+  `flex items-start gap-3 rounded-lg border px-3 py-2.5 text-sm ${off ? "cursor-default border-neutral-200 text-neutral-500 dark:border-neutral-800 dark:text-neutral-400" : on ? "cursor-pointer border-sky-400 bg-sky-50 dark:border-sky-700 dark:bg-sky-950/40" : "cursor-pointer border-neutral-200 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"}`;
 
 export interface GiveFormProps {
   c: SharedConnectionView;

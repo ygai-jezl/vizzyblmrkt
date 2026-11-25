@@ -470,6 +470,8 @@ export function stateOf(c: Pick<ConnectionView, "status" | "connectorOn" | "need
     if (c.part.reads === "off") return { label: "Turned off here", tone: "muted" };
     if (c.part.reads === "ended") return { label: PART_COPY.ended, tone: "muted" };
     if (c.part.reads === "pending") return { label: PART_COPY.pending, tone: "muted" };
+    // Couldn't be checked just now, so it reads nothing this time: never "Working".
+    if (c.part.reads === "unknown") return { label: PART_COPY.unknownCell, tone: "muted" };
     if (c.health.state === "paused") return { label: "Paused", tone: "muted" };
     if (c.health.state === "broken") return { label: needsWords(c.part.organisation), tone: "warn" };
   }
@@ -1014,6 +1016,9 @@ export const CONNECT_FOR_COPY = {
   organisation: (org: string) => `${org} (all its brands)`,
   keptIn: (region: string, brand: string) => `Kept in ${region}, where ${brand} keeps its data. Each brand's numbers stay in its own region.`,
   tokenHint: (org: string) => `For ${org}, include every zone its brands use under Zone Resources. YouGrow lists them, and you give each brand its own.`,
+  /** The share card's lead for the organisation: the address reads each brand's part. */
+  shareLead: (org: string) =>
+    `Give a Google address made for ${org} access to each of its brands' sites or properties. No password or token is stored, and it keeps working when people leave.`,
   tokenConnect: "Connect for the organisation",
   connecting: "Checking the token…",
   checkedGoOn: "The address can see what it needs. Give each brand its part on Settings › Organisation.",
@@ -1083,9 +1088,9 @@ export function sharedBrokenWords(c: { method: ConnectMethodName; connectorName:
   const when = (c.health.since ?? c.health.lastCheckedAt ?? "").slice(0, 10);
   const on = when ? ` on ${dayWords(when)}` : "";
   const who = brands === 0 ? "" : brands === 1 ? " Its brand stopped collecting." : brands === 2 ? " Both brands stopped collecting." : ` All ${brands} brands stopped collecting.`;
-  const fix = brands === 2 ? "both" : brands > 2 ? "all of them" : "it";
+  const fix = brands === 2 ? " for both" : brands > 2 ? " for all of them" : "";
   if (c.health.lastErrorCode === "secret_unopenable") return `YouGrow can't open this connection's saved token any more.${who} Disconnect it and connect again.`;
-  if (c.method === "oauth_pkce") return `Google ended this sign-in${on}.${who} Sign in again to fix it for ${fix}.`;
+  if (c.method === "oauth_pkce") return `Google ended this sign-in${on}.${who} Sign in again to fix it${fix}.`;
   if (c.method === "share_access") return `This Google address stopped working${on}.${who} Disconnect it and make a new one.`;
   return `${productWords(c.connectorName)} turned this token down${on}.${who} Disconnect it and connect a new token.`;
 }
@@ -1277,7 +1282,8 @@ export function accountOptionsFor(
         if (covered) return { id: a.id, label, off: false, note: coversWords(covered.id, nameOf(covered.tenantId)), warn: true };
       }
     }
-    if (a.ownBrandIds.some((id) => id !== to)) return { id: a.id, label, off: false, note: otherOwnWords(org, unit.one), warn: true };
+    // Another brand reads it with its own connection: counted, never named (only brands you run come by id).
+    if (a.ownCount - (to && a.ownAdminBrandIds.includes(to) ? 1 : 0) > 0) return { id: a.id, label, off: false, note: otherOwnWords(org, unit.one), warn: true };
     const host = accountHost(a);
     if (receiving?.rootDomain && host && !sameSite(host, receiving.rootDomain)) return { id: a.id, label, off: false, note: notOnWords(bareHost(receiving.rootDomain)), warn: true };
     return { id: a.id, label, off: false, note: null, warn: false };
@@ -1378,10 +1384,17 @@ export function bringInTextWords(c: BringInCandidate, org: string, plan: string)
 }
 
 /** The Move out confirm: "YouGrow gets an organisation of its own on Ultra, the same plan, with you as its only owner. …" */
-export function moveOutTextWords(b: Pick<OrganisationBrandView, "id" | "name" | "parts" | "keptFrom">, org: string, plan: string, brands: ReadonlyArray<Pick<OrganisationBrandView, "id" | "name">>): string {
+export function moveOutTextWords(
+  b: Pick<OrganisationBrandView, "id" | "name" | "parts" | "keptFrom">,
+  org: string,
+  plan: string,
+  brands: ReadonlyArray<Pick<OrganisationBrandView, "id" | "name">>,
+  sharing = true,
+): string {
   const others = brands.filter((x) => x.id !== b.id).map((x) => x.name);
   // Move out is offered only while the organisation has other brands, so it never leaves it empty.
-  const leaving = leavingWords(org, b.parts, { keep: { regions: b.keptFrom, others } });
+  // With sharing off nothing serves the others, so the keep line goes; parts still end, and their numbers are still deleted.
+  const leaving = leavingWords(org, b.parts, sharing ? { keep: { regions: b.keptFrom, others } } : {});
   return `${b.name} gets an organisation of its own on ${plan}, the same plan, with you as its only owner.${leaving}`;
 }
 

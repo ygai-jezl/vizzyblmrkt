@@ -51,6 +51,11 @@ export const searchConsoleManifest = {
         "Press Add user, paste the address YouGrow shows, choose Restricted, then press Add.",
         "Back in YouGrow, press Check access, then pick the site.",
       ],
+      organisationSteps: [
+        "In Search Console, open each site your brands use, then Settings, then Users and permissions.",
+        "Press Add user, paste the address YouGrow shows, choose Restricted, then press Add. Do this on every site you want to give a brand.",
+        "Back in YouGrow, press Check access, then give each brand its site on Settings › Organisation.",
+      ],
     },
   ],
   api: {

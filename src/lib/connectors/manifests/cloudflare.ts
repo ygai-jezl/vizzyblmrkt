@@ -73,6 +73,13 @@ export const cloudflareManifest = {
         "Create the token and copy it. Cloudflare shows it only once.",
         "Paste the token here and press Check. Pick your site's zone from the list, then press Connect. Nothing is saved before that.",
       ],
+      organisationSteps: [
+        "In Cloudflare, open My Profile, then API Tokens, or use the link here, which fills in the form for you.",
+        "Give the token three permissions: Zone Read, so YouGrow can list your zones; Zone Analytics Read, so it can read their numbers; and Account Analytics Read, asked for now so later features don't need a new token. Nothing reads with it today.",
+        "Under Account Resources, include the accounts your brands' sites are in. Under Zone Resources, include every zone your brands use, and only those.",
+        "Create the token and copy it. Cloudflare shows it only once.",
+        "Paste the token here and press Connect for the organisation. YouGrow lists the zones it reaches, and you give each brand its zone on Settings › Organisation.",
+      ],
       pick: {
         label: "Zone",
         cantList: "This token can't list your zones (that needs Zone Read), so type your site's Zone ID instead.",

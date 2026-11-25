@@ -17,6 +17,8 @@ import {
   listOrganisationConnections,
   listRegionOrganisationConnections,
   newOrganisationConnectionId,
+  pageRegionOrganisationConnections,
+  scanRegionOrganisationConnections,
   ORGANISATION_CONNECTION_ACTIVITY,
   ORGANISATION_CONNECTIONS,
   purgeOrganisationConnection,
@@ -156,6 +158,30 @@ describe("organisation connections: kept where connected, found in every region"
     await expect(listOrganisationConnections(ORG, {}, { regionDb: by(eu, broken) })).rejects.toThrow();
   });
 
+  it("reads every page of an organisation's connections, so a full page is never taken for the whole list", async () => {
+    // 205 made-up records in Europe, more than one page of 200.
+    const B32 = "abcdefghijklmnopqrstuvwxyz234567";
+    const idOf = (i: number) => `ocn_${"a".repeat(18)}${B32[Math.floor(i / 32)]}${B32[i % 32]}`;
+    const { id: _id, ...doc } = orgConn();
+    for (let i = 0; i < 205; i++) eu.seed(ORGANISATION_CONNECTIONS, idOf(i), { ...doc, connectorId: "cloudflare", method: "token_fields", recent: [] });
+    expect((await listOrganisationConnections(ORG, {}, stores)).length).toBe(205);
+    expect((await listOrganisationConnections(ORG, { connectorId: "cloudflare" }, stores)).length).toBe(205);
+    expect((await listRegionOrganisationConnections("eu", { connected: true }, stores)).length).toBe(205);
+    // Pages run in document id order.
+    const sorted = Array.from({ length: 205 }, (_, i) => idOf(i)).sort();
+    const first = await pageRegionOrganisationConnections("eu", { connected: true, limit: 100 }, stores);
+    expect(first).toMatchObject({ full: true, last: sorted[99] });
+    expect((await pageRegionOrganisationConnections("eu", { connected: true, after: first.last, limit: 100 }, stores)).records[0]!.id).toBe(sorted[100]);
+  });
+
+  it("counts a stored record that doesn't parse as unreadable, never as gone", async () => {
+    await createOrganisationConnection(orgConn(), [], stores);
+    eu.seed(ORGANISATION_CONNECTIONS, OCN2, { organisationId: ORG, status: "connected", secrets: { refresh: sealed } });
+    const r = await scanRegionOrganisationConnections("eu", {}, stores);
+    expect(r.records.map((c) => c.id)).toEqual([OCN]);
+    expect(r.unreadable).toEqual([OCN2]);
+  });
+
   it("lists one region's connected records for the sweep", async () => {
     await createOrganisationConnection(orgConn(), [], stores);
     await createOrganisationConnection(orgConn({ id: OCN2, organisationId: OTHER_ORG, status: "disconnected" }), [], stores);
@@ -263,6 +289,20 @@ describe("giving a part across regions, in three steps", () => {
     expect((await orgRecord()).parts[0]!.state).toBe("pending");
   });
 
+  it("ends the new part when the brand picked its own connection to it while the give ran", async () => {
+    const OWN = "dcn_oooooooooooooooooooo";
+    // Inside step two, before it commits, the brand's admin picks the same site on its own connection.
+    const sneak = async () => {
+      us.seed(DATA_CONNECTIONS, OWN, { ...brandRecord(OWN, SITE_US), tenantId: US_BRAND.tenantId, recent: [] });
+      return { ok: true as const, stage: () => undefined };
+    };
+    expect(await give(US_BRAND, USE_US, SITE_US, { alsoStage: sneak })).toEqual({ ok: false, why: "own_connection" });
+    // The part never read: its record is ended and its entry gone; the brand's own connection is untouched.
+    expect(us.raw(DATA_CONNECTIONS, USE_US)).toMatchObject({ status: "disconnected", source: SOURCE });
+    expect((await orgRecord()).parts).toEqual([]);
+    expect(us.raw(DATA_CONNECTIONS, OWN)).toMatchObject({ status: "connected" });
+  });
+
   it("refuses a disconnected source, another connector, and another organisation's record", async () => {
     await changeOrganisationConnection(ORG, OCN, "eu", () => ({ patch: { status: "disconnected" }, activity: [] }), stores);
     expect(await give()).toEqual({ ok: false, why: "not_connected" });
@@ -325,11 +365,33 @@ describe("changing and ending a part", () => {
     expect(await disconnectOrganisationConnectionRecord(SOURCE, { by: "usr_priya", at: T1 }, stores)).toBeNull();
   });
 
-  it("purges a record: activity, secrets and parts gone, one purged row left", async () => {
+  it("purges a record: activity and secrets gone, one purged row left, and parts gone once each was ended", async () => {
+    await endPart({ source: SOURCE, brand: US_BRAND, useId: USE_US, by: "purge:test", at: T1, code: "part_ended" }, stores);
     const r = await purgeOrganisationConnection(ORG, OCN, "eu", "purge:test", T1, stores);
-    expect(r).toMatchObject({ found: true, secretsDeleted: 2 });
+    expect(r).toMatchObject({ found: true, secretsDeleted: 2, partsLeft: 0 });
     expect(eu.raw(ORGANISATION_CONNECTIONS, OCN)).toMatchObject({ status: "disconnected", secrets: {}, parts: [] });
     expect(eu.dump(ORGANISATION_CONNECTION_ACTIVITY).map((a) => a.kind)).toEqual(["purged"]);
+  });
+
+  it("keeps, as ending, a part whose brand record wasn't ended, so the purge's dry run still counts it", async () => {
+    const r = await purgeOrganisationConnection(ORG, OCN, "eu", "purge:test", T1, stores);
+    expect(r).toMatchObject({ found: true, partsLeft: 1 });
+    expect(eu.raw(ORGANISATION_CONNECTIONS, OCN)).toMatchObject({ status: "disconnected", secrets: {} });
+    expect((await orgRecord()).parts).toMatchObject([{ tenantId: US_BRAND.tenantId, useId: USE_US, state: "ending", endedBy: "purge:test" }]);
+    // The brand record is still connected: the brand's housekeeping (its source reads disconnected) or the next purge ends it.
+    expect(us.raw(DATA_CONNECTIONS, USE_US)).toMatchObject({ status: "connected" });
+  });
+
+  it("ends nothing when housekeeping's evidence no longer holds inside step one, nor when step one can't run", async () => {
+    // The entry is active and matches: the guard says no, so nothing at all is written.
+    const r = await endPart({ source: SOURCE, brand: US_BRAND, useId: USE_US, by: "system", at: T1, code: "part_ended", evenIfSourceFails: true, onlyIf: () => false }, stores);
+    expect(r).toEqual({ ended: false, removed: false, connection: null });
+    expect((await orgRecord()).parts[0]!.state).toBe("active");
+    expect(us.raw(DATA_CONNECTIONS, USE_US)).toMatchObject({ status: "connected" });
+    // With a guard, a sign in database that can't be read ends nothing, whatever evenIfSourceFails says.
+    const down: OrganisationStores = { regionDb: by(failingFirestore(eu, { collections: [ORGANISATION_CONNECTIONS] }), us) };
+    await expect(endPart({ source: SOURCE, brand: US_BRAND, useId: USE_US, by: "system", at: T1, code: "part_ended", evenIfSourceFails: true, onlyIf: () => true }, down)).rejects.toThrow();
+    expect(us.raw(DATA_CONNECTIONS, USE_US)).toMatchObject({ status: "connected" });
   });
 });
 

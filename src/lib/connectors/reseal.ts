@@ -1,4 +1,4 @@
-import { changeOrganisationConnection, changeDataConnection, forTenant, listRegionOrganisationConnections, type TenantContext } from "@/lib/tenant";
+import { changeOrganisationConnection, changeDataConnection, forTenant, scanRegionOrganisationConnections, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { DataConnection } from "@/lib/types/dataConnection";
 import type { Region } from "@/lib/types/tenant";
@@ -109,8 +109,10 @@ export async function resealOrganisationRegion(region: Region, opts: { apply: bo
   if (opts.apply && !current) throw new Error("connectors_vault_key_unconfigured");
   const now = opts.now ?? new Date();
   const stores = opts.db ? { regionDb: () => opts.db! } : {};
-  const conns = await listRegionOrganisationConnections(region, {}, stores);
-  const report: BrandResealReport = { tenantId: `organisations:${region}`, connections: conns.length, secrets: 0, byKeyId: {}, offCurrent: 0, resealed: 0, unopenable: [] };
+  const { records: conns, unreadable } = await scanRegionOrganisationConnections(region, {}, stores);
+  const report: BrandResealReport = { tenantId: `organisations:${region}`, connections: conns.length + unreadable.length, secrets: 0, byKeyId: {}, offCurrent: 0, resealed: 0, unopenable: [] };
+  // A record that doesn't parse can't be resealed, and may hold secrets on the old key: never "zero left" while one is there.
+  for (const id of unreadable) report.unopenable.push({ connectionId: id, slot: "record", why: "does_not_parse" });
   for (const conn of conns) {
     for (const s of Object.values(conn.secrets)) {
       report.secrets += 1;

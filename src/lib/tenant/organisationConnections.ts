@@ -63,8 +63,8 @@ const ACTIVITY_KEEP_DAYS = 90;
 const DAY_MS = 86_400_000;
 /** A half done give or change is repaired only once it is this old, so a give still running is never undone. */
 export const REPAIR_AFTER_MS = 10 * 60_000;
-/** The most organisation connections one listing reads in one region. */
-const LIST_LIMIT = 200;
+/** The organisation connections one page of a listing reads in one region; listings read every page. */
+const LIST_PAGE = 200;
 const BASE32 = "abcdefghijklmnopqrstuvwxyz234567";
 
 /** Where each region's database comes from: the region's own, or (tests) a fake per region. */
@@ -210,8 +210,10 @@ export async function findOrganisationConnection(organisationId: string, id: str
 
 /**
  * An organisation's connections in every provisioned region (equality on `organisationId`, and on
- * `connectorId` when given), newest first. A region that can't be read throws: a purge or a sweep
- * must never take one region's silence for "none".
+ * `connectorId` when given), newest first. Every page is read (ordered by document id), so a
+ * caller that clears an id for reuse, a purge or a cap never takes a full page for the whole list.
+ * A region that can't be read throws: a purge or a sweep must never take one region's silence for
+ * "none".
  */
 export async function listOrganisationConnections(
   organisationId: string,
@@ -221,36 +223,90 @@ export async function listOrganisationConnections(
   if (!organisationId) return [];
   const out: OrganisationConnection[] = [];
   for (const region of provisionedRegions()) {
-    let q: QueryLike = regionStore(region, stores).collection(ORGANISATION_CONNECTIONS).where(ORG_FIELD, "==", organisationId);
-    if (opts.connectorId) q = q.where("connectorId", "==", opts.connectorId);
-    const snap = await q.limit(LIST_LIMIT).get();
-    for (const d of snap.docs) {
-      const c = parseStored(organisationId, d.id, d.data());
-      if (c) out.push(c);
+    let after: string | null = null;
+    for (;;) {
+      let q: QueryLike = regionStore(region, stores).collection(ORGANISATION_CONNECTIONS).where(ORG_FIELD, "==", organisationId);
+      if (opts.connectorId) q = q.where("connectorId", "==", opts.connectorId);
+      q = q.orderBy("__name__", "asc");
+      if (after) q = q.startAfter(after);
+      const snap = await q.limit(LIST_PAGE).get();
+      for (const d of snap.docs) {
+        const c = parseStored(organisationId, d.id, d.data());
+        if (c) out.push(c);
+      }
+      if (snap.docs.length < LIST_PAGE) break;
+      after = snap.docs[snap.docs.length - 1]!.id;
     }
   }
   return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+/** One page of every organisation's connections in one region, by document id, for system jobs. */
+export interface OrganisationConnectionPage {
+  records: OrganisationConnection[];
+  /** Ids of stored records that don't parse: never treated as gone, so nothing is decided on them. */
+  unreadable: string[];
+  /** The page's last document id, the next page's `after`; null for an empty page. */
+  last: string | null;
+  /** The page came back full, so another may follow. */
+  full: boolean;
+}
+
 /**
- * Every organisation's connections in one region, for system jobs only (the lane's sweep and the
- * organisation purge): with `connected`, equality on status. Records that don't parse are skipped.
+ * One page of every organisation's connections in one region (with `connected`, equality on
+ * status), ordered by document id and starting after `after`. For system jobs only: the lane's
+ * sweep, the organisation purge and the reseal.
  */
-export async function listRegionOrganisationConnections(region: Region, opts: { connected?: boolean; limit?: number } = {}, stores: OrganisationStores = {}): Promise<OrganisationConnection[]> {
+export async function pageRegionOrganisationConnections(
+  region: Region,
+  opts: { connected?: boolean; after?: string | null; limit?: number } = {},
+  stores: OrganisationStores = {},
+): Promise<OrganisationConnectionPage> {
+  const limit = opts.limit ?? LIST_PAGE;
   let q: QueryLike = regionStore(region, stores).collection(ORGANISATION_CONNECTIONS);
   if (opts.connected) q = q.where("status", "==", "connected");
-  if (opts.limit) q = q.limit(opts.limit);
-  const snap = await q.get();
-  const out: OrganisationConnection[] = [];
+  q = q.orderBy("__name__", "asc");
+  if (opts.after) q = q.startAfter(opts.after);
+  const snap = await q.limit(limit).get();
+  const records: OrganisationConnection[] = [];
+  const unreadable: string[] = [];
   for (const d of snap.docs) {
     try {
       const c = parseStored(null, d.id, d.data());
-      if (c) out.push(c);
+      if (c) records.push(c);
     } catch {
-      console.warn(`[organisation-connections] ${d.id} does not parse; skipped`);
+      console.warn(`[organisation-connections] ${d.id} does not parse; counted as unreadable`);
+      unreadable.push(d.id);
     }
   }
-  return out;
+  return { records, unreadable, last: snap.docs.length ? snap.docs[snap.docs.length - 1]!.id : null, full: snap.docs.length >= limit };
+}
+
+/**
+ * Every organisation's connections in one region, every page, with the ids of stored records that
+ * don't parse, so the organisation purge and the reseal count them as left rather than skip them.
+ */
+export async function scanRegionOrganisationConnections(
+  region: Region,
+  opts: { connected?: boolean } = {},
+  stores: OrganisationStores = {},
+): Promise<{ records: OrganisationConnection[]; unreadable: string[] }> {
+  const records: OrganisationConnection[] = [];
+  const unreadable: string[] = [];
+  let after: string | null = null;
+  for (;;) {
+    const page = await pageRegionOrganisationConnections(region, { connected: opts.connected, after }, stores);
+    records.push(...page.records);
+    unreadable.push(...page.unreadable);
+    if (!page.full || !page.last) break;
+    after = page.last;
+  }
+  return { records, unreadable };
+}
+
+/** Every organisation's connections in one region, every page; records that don't parse are left out (see scanRegionOrganisationConnections). */
+export async function listRegionOrganisationConnections(region: Region, opts: { connected?: boolean } = {}, stores: OrganisationStores = {}): Promise<OrganisationConnection[]> {
+  return (await scanRegionOrganisationConnections(region, opts, stores)).records;
 }
 
 /** A change read and planned in a transaction, its writes still to stage. */
@@ -310,6 +366,8 @@ export interface OrganisationPurgeCounts {
   activityDeleted: number;
   secretsDeleted: number;
   recentDeleted: number;
+  /** Parts still listed, whose brand record wasn't ended: kept as `ending`, so the dry run still counts them. */
+  partsLeft: number;
 }
 
 /** How many activity rows an organisation's connection has (the purge's dry run). */
@@ -325,14 +383,17 @@ export async function countOrganisationConnectionActivity(organisationId: string
 
 /**
  * The organisation purge's last step: delete a connection's activity rows, then, in one
- * transaction, empty its secrets, recent list and parts, mark it disconnected and leave one
- * "purged" row as the trace. Its brands' parts must be ended first (src/lib/connectors/purge.ts).
+ * transaction, empty its secrets and recent list, mark it disconnected and leave one "purged" row as
+ * the trace. Its brands' parts are ended first (src/lib/connectors/purge.ts), and each one ended
+ * leaves `parts`; an entry still listed is one whose brand record couldn't be ended, so it is kept,
+ * as `ending`, for the next run and the dry run's count (and the brand's own housekeeping ends it,
+ * since its source reads disconnected).
  */
 export async function purgeOrganisationConnection(organisationId: string, id: string, region: Region, by: string, at: string, stores: OrganisationStores = {}): Promise<OrganisationPurgeCounts> {
   checkActivity({ kind: "purged", by, at });
   const store = regionStore(region, stores);
   const first = await getOrganisationConnection(organisationId, id, region, stores);
-  if (!first) return { found: false, activityDeleted: 0, secretsDeleted: 0, recentDeleted: 0 };
+  if (!first) return { found: false, activityDeleted: 0, secretsDeleted: 0, recentDeleted: 0, partsLeft: 0 };
   let activityDeleted = 0;
   for (;;) {
     const page = await store.collection(ORGANISATION_CONNECTION_ACTIVITY).where(ORG_FIELD, "==", organisationId).where("connectionId", "==", id).limit(300).get();
@@ -344,19 +405,19 @@ export async function purgeOrganisationConnection(organisationId: string, id: st
   return store.runTransaction(async (txn): Promise<OrganisationPurgeCounts> => {
     const snap = await txn.get(ref);
     const current = snap.exists ? parseStored(organisationId, id, snap.data()) : null;
-    if (!current) return { found: false, activityDeleted, secretsDeleted: 0, recentDeleted: 0 };
+    if (!current) return { found: false, activityDeleted, secretsDeleted: 0, recentDeleted: 0, partsLeft: 0 };
     const purged: OrgActivityWrite = { kind: "purged", by, at };
     txn.update(ref, {
       secrets: {},
       recent: withRecent([], [purged]),
-      parts: [],
+      parts: current.parts.map((p) => (p.state === "ending" ? p : { ...p, state: "ending" as const, stateSince: at, endedBy: p.endedBy ?? by })),
       collectHold: null,
       status: "disconnected",
       disconnectedAt: current.disconnectedAt ?? at,
       updatedAt: at,
     });
     stageActivity(txn, store, current, [purged]);
-    return { found: true, activityDeleted, secretsDeleted: Object.keys(current.secrets).length, recentDeleted: current.recent.length };
+    return { found: true, activityDeleted, secretsDeleted: Object.keys(current.secrets).length, recentDeleted: current.recent.length, partsLeft: current.parts.length };
   });
 }
 
@@ -543,8 +604,10 @@ export type GivePartResult =
  * 1. in the sign in's database: the brand holds no part of this connection and the part isn't given
  *    (a pending one counts), then the part is added as `pending` with the brand record's id;
  * 2. in the brand's database, one transaction, every read first: the brand has no connection of its
- *    own to the part (looked up just before: these transactions read documents, not queries), then
- *    the brand record is made with its `source`, beside any extra write. A refusal undoes step one;
+ *    own to the part (looked up just before, and again just after it commits: these transactions
+ *    read documents, not queries, so an own connection picked in between ends the new part, which
+ *    never read, and the give answers `own_connection`), then the brand record is made with its
+ *    `source`, beside any extra write. A refusal undoes step one;
  * 3. in the sign in's database: `active`, if still `pending` with this record. If the part is gone,
  *    the brand record just made is ended and the give answers `gone`.
  * If step three can't be written the give stands, reading nothing, until housekeeping makes it
@@ -623,6 +686,23 @@ export async function givePart(input: GivePartInput, stores: OrganisationStores 
     await undo();
     if (isAlreadyExists(err)) throw new TenantIsolationError(`data_connections/${useId} already exists; refusing to overwrite`);
     throw err;
+  }
+
+  // The look for the brand's own connection ran before step two (a query can't join these
+  // transactions), so look again now: one picked meanwhile ends the new part before it reads.
+  const ownSince = await forTenant(brandCtx, brandStore)
+    .dataConnections.find({
+      where: [
+        ["connectorId", "==", record.connectorId],
+        ["account", "==", account],
+        ["status", "==", "connected"],
+      ],
+      limit: 5,
+    })
+    .catch(() => [] as DataConnection[]);
+  if (ownSince.some((c) => !c.source)) {
+    await endPart({ source, brand, useId, by, at, code: "part_ended", evenIfSourceFails: true }, stores).catch(() => null);
+    return { ok: false, why: "own_connection" };
   }
 
   // 3. Active, if the part is still there.
@@ -785,6 +865,13 @@ export interface EndPartInput {
   alsoStage?: StepTwoStage;
   /** Stop using: end the brand record even when the sign in's database can't be written. */
   evenIfSourceFails?: boolean;
+  /**
+   * Housekeeping: end only if this still holds on the freshest organisation record, read inside
+   * step one's transaction (the end's evidence, read again). False ends nothing; a step one that
+   * can't run ends nothing either, whatever `evenIfSourceFails` says. A record that is gone is
+   * evidence itself, so it ends without asking.
+   */
+  onlyIf?: (current: OrganisationConnection) => boolean;
 }
 
 export interface EndPartResult {
@@ -808,12 +895,15 @@ export async function endPart(input: EndPartInput, stores: OrganisationStores = 
   const brandStore = regionStore(brand.region, stores);
   const brandCtx = brandCtxOf(brand);
 
+  let blocked = false;
   try {
     await changeOrganisationConnection(
       source.organisationId,
       source.connectionId,
       source.region,
       (cur) => {
+        blocked = Boolean(input.onlyIf && !input.onlyIf(cur));
+        if (blocked) return null;
         const p = cur.parts.find((x) => x.useId === useId && x.tenantId === brand.tenantId);
         if (!p || p.state === "ending") return null;
         return { patch: { parts: replacePart(cur.parts, useId, { ...p, state: "ending", stateSince: at, endedBy: by }), updatedAt: at }, activity: [] };
@@ -821,8 +911,9 @@ export async function endPart(input: EndPartInput, stores: OrganisationStores = 
       stores,
     );
   } catch (err) {
-    if (!input.evenIfSourceFails) throw err;
+    if (input.onlyIf || !input.evenIfSourceFails) throw err;
   }
+  if (blocked) return { ended: false, removed: false, connection: null };
 
   const endStage = composeStages(partSettingStage(brand, { kind: "end", useId }, by, at, END_MESSAGES[input.code] ?? END_MESSAGES.part_ended!), input.alsoStage);
   const two = await brandStore.runTransaction(async (txn) => {

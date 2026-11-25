@@ -64,8 +64,13 @@ export interface OrganisationAccount extends ConnectorAccount {
   givenTo: { tenantId: string } | null;
   /** Given through another of the organisation's connections for this connector, in any region. */
   givenElsewhere: { tenantId: string } | null;
-  /** The organisation's brands that read it with their own connection. */
-  ownBrandIds: string[];
+  /**
+   * How many of the organisation's brands read it with their own connection. Only the ones the
+   * owner is an admin of come by id (`ownAdminBrandIds`, the brands they could give it to): any other
+   * brand's own setting stays its own, so the dialog warns without naming it (pick 13).
+   */
+  ownCount: number;
+  ownAdminBrandIds: string[];
 }
 
 export interface OrganisationAccountsList {
@@ -83,8 +88,9 @@ async function givenAcross(owner: OrganisationOwner, connectorId: string, deps: 
 /**
  * The parts the organisation's connection can see now, for the give dialog: its token lists them
  * (the manifest's accounts hook, Cloudflare's zones included), each marked when it is given already
- * here or through another of the organisation's connections, and with the organisation's brands that
- * read it with their own connection. For a Google sign in, only its signer may list it.
+ * here or through another of the organisation's connections, and with how many of the organisation's
+ * brands read it with their own connection (named by id only where the owner is that brand's
+ * admin). For a Google sign in, only its signer may list it.
  */
 export async function listOrganisationAccounts(owner: OrganisationOwner, sourceId: string, deps: OrganisationDeps = {}): Promise<ServiceResult<OrganisationAccountsList>> {
   const c = await ownedConnection(owner, sourceId, deps);
@@ -103,17 +109,24 @@ export async function listOrganisationAccounts(owner: OrganisationOwner, sourceI
 
   const [given, brands] = await Promise.all([givenAcross(owner, c.connectorId, deps), organisationBrands(owner, deps)]);
   // Each brand's own connections to this connector, read in its own region (equality only).
-  const own = new Map<string, string[]>();
+  const own = new Map<string, Array<{ id: string; isAdmin: boolean }>>();
   for (const b of brands) {
     const rows = await forTenant({ tenantId: b.id, region: b.region, source: "system" }, brandDbOf(b.region, deps))
       .dataConnections.find({ where: [["connectorId", "==", c.connectorId], ["status", "==", "connected"]], limit: 50 })
       .catch(() => [] as DataConnection[]);
-    for (const r of rows) if (!r.source && r.account) own.set(r.account, [...(own.get(r.account) ?? []), b.id]);
+    for (const r of rows) if (!r.source && r.account) own.set(r.account, [...(own.get(r.account) ?? []), { id: b.id, isAdmin: b.isAdmin }]);
   }
   const accounts = listed.accounts.map((a): OrganisationAccount => {
     const here = given.find((g) => g.account === a.id && g.connectionId === c.id);
     const elsewhere = here ? undefined : given.find((g) => g.account === a.id);
-    return { ...a, givenTo: here ? { tenantId: here.tenantId } : null, givenElsewhere: elsewhere ? { tenantId: elsewhere.tenantId } : null, ownBrandIds: own.get(a.id) ?? [] };
+    const readers = own.get(a.id) ?? [];
+    return {
+      ...a,
+      givenTo: here ? { tenantId: here.tenantId } : null,
+      givenElsewhere: elsewhere ? { tenantId: elsewhere.tenantId } : null,
+      ownCount: readers.length,
+      ownAdminBrandIds: readers.filter((r) => r.isAdmin).map((r) => r.id),
+    };
   });
   return { ok: true, status: 200, value: { accounts, more: listed.more } };
 }

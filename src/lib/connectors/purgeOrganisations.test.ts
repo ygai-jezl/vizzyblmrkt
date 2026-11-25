@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forTenant, getOrganisationConnection, type SourceRef } from "@/lib/tenant";
+import { failingFirestore } from "@/lib/tenant/testing/failingFirestore";
 import type { DataConnection } from "@/lib/types/dataConnection";
 import { organisationPurgeLines, purgeConnections, purgeOrganisations } from "./purge";
 import { resealOrganisationRegion } from "./reseal";
@@ -100,6 +101,31 @@ describe("the organisation purge", () => {
     expect((await getOrganisationConnection(OTHER_ORG, THEIRS, "eu", { regionDb: w.regionDb }))!.status).toBe("connected");
   });
 
+  it("never says nothing is left while a brand database couldn't be written: the part stays listed as ending", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    // The United States database refuses Fernhill US's record during the apply.
+    const usDown = failingFirestore(w.us, { collections: ["data_connections"] });
+    const regionDb = (r: "eu" | "us" | "asia") => (r === "us" ? usDown : w.regionDb(r));
+    const r = await purgeOrganisations(ORG, { ...opts(true), regionDb: regionDb as never });
+    expect(r.removed.find((x) => x.connectionId === OCN)).toMatchObject({ ended: 1, partsLeft: 1 });
+    expect(organisationPurgeLines(r).join("\n")).toContain("1 brands' parts NOT ended");
+    const again = await purgeOrganisations(ORG, opts(false));
+    expect(again.items.find((i) => i.connectionId === OCN)).toMatchObject({ status: "disconnected", secrets: 0, parts: 1 });
+    // Once the database is back, a second apply ends it and the dry run says nothing is left.
+    await purgeOrganisations(ORG, opts(true));
+    expect(((await forTenant({ ...US_BRAND, source: "system" }, w.us).dataConnections.getById(USE_US)) as DataConnection).status).toBe("disconnected");
+    expect((await purgeOrganisations(ORG, opts(false))).items.every((i) => i.parts === 0)).toBe(true);
+    vi.restoreAllMocks();
+  });
+
+  it("counts a stored record that doesn't parse as left, and never deletes its address as a leftover", async () => {
+    w.eu.seed("organisation_connections", "ocn_llllllllllllllllllll", { organisationId: ORG, status: "connected", secrets: { token: "made-up" } });
+    const r = await purgeOrganisations("all", opts(false));
+    expect(r.unreadable).toEqual([{ region: "eu", connectionId: "ocn_llllllllllllllllllll" }]);
+    expect(r.orphans.map((o) => o.email)).not.toContain(address("c"));
+    expect(organisationPurgeLines(r).join("\n")).toContain("ocn_llllllllllllllllllll (kept in eu) does not parse");
+  });
+
   it("covers every organisation with all, and refuses anything but an organisation id", async () => {
     expect((await purgeOrganisations("all", opts(false))).items.map((i) => i.connectionId).sort()).toEqual([OCN, THEIRS, US_SITE_OCN].sort());
     await expect(purgeOrganisations("ten_fernhill", opts(false))).rejects.toThrow();
@@ -135,5 +161,11 @@ describe("resealing organisation secrets", () => {
     expect((await resealOrganisationRegion("eu", { apply: false, db: w.eu })).offCurrent).toBe(0);
     const stored = (await getOrganisationConnection(ORG, OCN, "eu", { regionDb: w.regionDb }))!;
     expect(openConnectorSecret(ORG, OCN, "token", stored.secrets.token!)).toBe("made-up-org-token");
+  });
+
+  it("counts a stored record that doesn't parse as one that won't open, so the rotation is never called finished over it", async () => {
+    w.eu.seed("organisation_connections", "ocn_llllllllllllllllllll", { organisationId: ORG, status: "connected" });
+    const r = await resealOrganisationRegion("eu", { apply: false, db: w.eu });
+    expect(r.unopenable).toContainEqual({ connectionId: "ocn_llllllllllllllllllll", slot: "record", why: "does_not_parse" });
   });
 });

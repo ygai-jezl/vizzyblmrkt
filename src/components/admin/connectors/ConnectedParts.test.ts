@@ -198,6 +198,8 @@ describe("a part's words", () => {
     expect(W.stateOf({ ...GA, part: part({ reads: "off" }) })).toEqual({ label: "Turned off here", tone: "muted" });
     expect(W.stateOf({ ...GA, part: part({ organisation: null }), health: broken("2026-11-22T06:00:00.000Z") })).toEqual({ label: W.PART_COPY.needsOwner, tone: "warn" });
     expect(W.stateOf(GA)).toEqual({ label: "Working", tone: "ok" });
+    // Couldn't be checked just now: it reads nothing this time, so never "Working".
+    expect(W.stateOf({ ...GA, part: part({ reads: "unknown" }) })).toEqual({ label: W.PART_COPY.unknownCell, tone: "muted" });
     expect(W.fromWords(null)).toBe("From your organisation");
     expect(W.managedWords(null)).toBe("Managed by your organisation. Its owners can change it.");
     expect(W.partSourceWords("Google Search Console", "Fernhill Group")).toBe("Search Console comes from Fernhill Group, and its sign-in needs attention. An owner of Fernhill Group can fix it.");

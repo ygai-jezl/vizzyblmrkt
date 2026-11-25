@@ -145,6 +145,46 @@ describe("signing in with Google for the organisation", () => {
     expect(exchanges()).toBe(0);
   });
 
+  it("sends an owner whose sign in for the organisation didn't finish back to Settings › Organisation, saying why", async () => {
+    const s = await started(await list.POST(post("", { connectorId: "search-console", method: "oauth_pkce" })));
+    const res = await callbackRoute.GET(
+      new Request(`${ORIGIN}/api/admin/connectors/callback?${new URLSearchParams({ state: s.state, error: "access_denied" })}`, { headers: { host: "app.yougrow.test", cookie: s.cookie } }),
+    );
+    expect(where(res).pathname).toBe("/admin/account/organisation");
+    expect(where(res).searchParams.get("status")).toBe("error");
+    expect(where(res).searchParams.get("reason")).toBe("denied");
+    expect(Object.keys(eu.dump("organisation_connections"))).toHaveLength(0);
+  });
+
+  it("refuses a new sign in once the organisation holds 20 connections for the connector, in every region together", async () => {
+    const { id: _id, ...doc } = {
+      id: "",
+      organisationId: ORG,
+      region: "eu",
+      connectorId: "search-console",
+      method: "token_fields",
+      label: "Search Console",
+      createdBy: "usr_priya",
+      signerUid: null,
+      connectedFromTenantId: EU,
+      secrets: {},
+      health: { state: "ok", lastOkAt: T0, lastCheckedAt: T0, lastErrorCode: null, failures: 0, pausedUntil: null },
+      pausedAt: null,
+      pausedBy: null,
+      status: "connected",
+      createdAt: T0,
+      updatedAt: T0,
+      disconnectedAt: null,
+      collectHold: null,
+      parts: [],
+      recent: [],
+    };
+    for (let i = 0; i < 20; i++) (i % 2 ? us : eu).seed("organisation_connections", `ocn_${"c".repeat(18)}${"abcdefghijklmnopqrst"[i]}a`, { ...doc, region: i % 2 ? "us" : "eu" });
+    const res = await list.POST(post("", { connectorId: "search-console", method: "oauth_pkce" }));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "org_connection_limit" });
+  });
+
   it("finishes a brand's own sign in as the brand's, never as the organisation's", async () => {
     const res = await brandStart.POST(new Request(`${ORIGIN}/api/admin/connectors/search-console/start`, { method: "POST", headers: { "content-type": "application/json", host: "app.yougrow.test" }, body: "{}" }), {
       params: Promise.resolve({ connectorId: "search-console" }),

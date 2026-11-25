@@ -6,11 +6,12 @@ import {
   getOrganisationConnection,
   isRateLimited,
   listOrganisationConnections,
-  listRegionOrganisationConnections,
   organisationMembership,
+  pageRegionOrganisationConnections,
   provisionedRegions,
   removePartEntry,
   repairParts,
+  REPAIR_AFTER_MS,
   type BrandRef,
   type SourceRef,
   type TenantContext,
@@ -38,10 +39,16 @@ import { openConnectorSecret, VaultOpenError } from "./vault";
  *   organisation of a copy, and this cap is what stops one organisation filling it.
  * - Making an address and checking a pasted token are rate limited per organisation
  *   (`connector-share-org:` and `connector-check-org:`), whichever brand an owner acts from.
+ * - At most ORG_CONNECTIONS_CAP (20) connected connections per organisation per connector, counted
+ *   in every provisioned region, so every list of them stays small and is read whole.
  * - Disconnect at the organisation: its record disconnected with its secrets emptied and every part
  *   ending (every brand stops reading at once), then each brand record ended and erased in its own
- *   region, the Google address deleted, and a Google sign in revoked only with
- *   CONNECTOR_GOOGLE_REVOKE_ENABLED (Google's revoke ends every grant that account gave this app).
+ *   region and the Google address deleted. A Google sign in is revoked only when an owner pressed
+ *   Disconnect (whose confirm warns) or the operator purge runs, and only with
+ *   CONNECTOR_GOOGLE_REVOKE_ENABLED: Google's revoke ends every grant that account gave this app,
+ *   other organisations' and brands' sign ins included. A disconnect nobody asked for (the lane's
+ *   sweep, a move that empties the organisation, an id taken up again) empties the secrets, so
+ *   YouGrow keeps no usable token, and never revokes.
  * - Moves never leave a sign in behind (pick 21): a brand that leaves an organisation has its parts
  *   from it ended; an organisation left with no brands has every connection disconnected, in every
  *   region; and an organisation id taken up again carries no connected sign in.
@@ -62,6 +69,8 @@ export interface OrganisationActionDeps extends OrganisationDeps, Pick<GoogleDep
 export const ORG_SHARE_CREATE_LIMIT = { burst: 3, hourly: 10 };
 /** Token checks one organisation may make for one connector. */
 export const ORG_TOKEN_CHECK_LIMIT = { burst: 5, hourly: 30 };
+/** Connected connections one organisation may hold for one connector, in every region together. */
+export const ORG_CONNECTIONS_CAP = 20;
 
 const atGoogle = (c: OrganisationConnection) => c.method === "share_access" && Boolean(c.serviceAccount && !c.serviceAccount.deletedAt);
 
@@ -80,6 +89,12 @@ export async function organisationShareRoom(organisationId: string, connectorId:
   if ((await organisationShareAddresses(organisationId, connectorId, deps)) >= SHARE_ADDRESS_CAP) return { ok: false, code: "org_share_limit" };
   if (await limitOf(deps)(organisationId, { prefix: `connector-share-org:${connectorId}`, burstLimit: ORG_SHARE_CREATE_LIMIT.burst, hourlyLimit: ORG_SHARE_CREATE_LIMIT.hourly })) return { ok: false, code: "busy" };
   return { ok: true };
+}
+
+/** Whether the organisation may connect another connection for a connector (under ORG_CONNECTIONS_CAP, counted in every region). */
+export async function organisationConnectionRoom(organisationId: string, connectorId: string, deps: OrganisationDeps = {}): Promise<boolean> {
+  const held = (await listOrganisationConnections(organisationId, { connectorId }, storesOf(deps))).filter((c) => c.status === "connected").length;
+  return held < ORG_CONNECTIONS_CAP;
 }
 
 /** Whether the organisation may check another pasted token for a connector now (busy when not). */
@@ -111,11 +126,11 @@ export async function endOnePart(
   source: SourceRef,
   brand: BrandRef,
   useId: string,
-  what: { by: string; code: "part_ended" | "stopped_using" | "left" | "disconnected" },
+  what: { by: string; code: "part_ended" | "stopped_using" | "left" | "disconnected"; onlyIf?: (current: OrganisationConnection) => boolean },
   deps: OrganisationActionDeps = {},
 ): Promise<boolean> {
   const at = (deps.now ?? new Date()).toISOString();
-  const r = await endPart({ source, brand, useId, by: what.by, at, code: what.code, evenIfSourceFails: true }, storesOf(deps));
+  const r = await endPart({ source, brand, useId, by: what.by, at, code: what.code, evenIfSourceFails: true, ...(what.onlyIf ? { onlyIf: what.onlyIf } : {}) }, storesOf(deps));
   if (r.ended) await eraseBrandRecord(brand, useId, what.by, deps);
   return r.ended;
 }
@@ -155,12 +170,19 @@ export interface OrganisationDisconnectOutcome {
 
 /**
  * Disconnect an organisation's connection: every brand stops reading at once (step one), each brand
- * record is ended and erased in its own region, the Google address is deleted, and a Google sign in
- * is revoked only with CONNECTOR_GOOGLE_REVOKE_ENABLED. Safe to run again: a disconnected record has
- * any part still ending finished and an address a failed delete left deleted. Whatever any switch
- * says.
+ * record is ended and erased in its own region, and the Google address is deleted. A Google sign in
+ * is revoked only with `revoke` (an owner's Disconnect, whose confirm warns, and the operator
+ * purge pass it as CONNECTOR_GOOGLE_REVOKE_ENABLED); a disconnect nobody asked for empties the
+ * secrets and never revokes, because Google's revoke also ends that account's other sign ins with
+ * this app. Safe to run again: a disconnected record has any part still ending finished and an
+ * address a failed delete left deleted. Whatever any switch says.
  */
-export async function disconnectOrganisationConnection(source: SourceRef, by: string, deps: OrganisationActionDeps = {}): Promise<OrganisationDisconnectOutcome> {
+export async function disconnectOrganisationConnection(
+  source: SourceRef,
+  by: string,
+  deps: OrganisationActionDeps = {},
+  opts: { revoke?: boolean } = {},
+): Promise<OrganisationDisconnectOutcome> {
   const stores = storesOf(deps);
   const at = (deps.now ?? new Date()).toISOString();
   const step = await disconnectOrganisationConnectionRecord(source, { by, at }, stores);
@@ -171,13 +193,14 @@ export async function disconnectOrganisationConnection(source: SourceRef, by: st
     try {
       if (await endOnePart(source, { tenantId: p.tenantId, region: p.region }, p.useId, { by: p.endedBy ?? by, code: "part_ended" }, deps)) ended += 1;
     } catch (err) {
-      // Left ending: the lane's sweep finishes it.
-      warn(`ending ${p.useId} after Disconnect failed; the lane finishes it`, err);
+      // Left ending on the organisation's record: the brand's own housekeeping ends its record (its
+      // source reads disconnected), and the organisation purge's dry run still counts the entry.
+      warn(`ending ${p.useId} after Disconnect failed; the brand's housekeeping finishes it`, err);
     }
   }
   let revoked = false;
   const sealed = step?.before.method === "oauth_pkce" ? step.before.secrets[REFRESH_SLOT] : undefined;
-  if (sealed && isGoogleRevokeEnabled()) {
+  if (sealed && opts.revoke && isGoogleRevokeEnabled()) {
     try {
       revoked = await revokeGoogleToken(openConnectorSecret(source.organisationId, source.connectionId, REFRESH_SLOT, sealed), deps);
     } catch (err) {
@@ -236,11 +259,37 @@ export async function clearOrganisationIdForReuse(organisationId: string, by: st
 // --- Housekeeping --------------------------------------------------------------------------------
 
 /**
+ * The end evidence, read again inside step one's transaction on the freshest organisation record:
+ * true when the record is disconnected or for another connector or method, or the brand's entry is
+ * gone, names another brand record, or is `ending`; or is `active` with another part since longer
+ * than REPAIR_AFTER_MS. A `pending` entry (a give or change running, which the sweep repairs) and
+ * an `active` entry matching the brand record end nothing, and nor does an `active` one changed
+ * within REPAIR_AFTER_MS (a change that finished after the brand record was read).
+ */
+function stillEnded(brand: BrandRef, rec: Pick<DataConnection, "id" | "connectorId" | "method" | "account">, now: Date): (cur: OrganisationConnection) => boolean {
+  return (cur) => {
+    if (cur.status !== "connected" || cur.connectorId !== rec.connectorId || cur.method !== rec.method) return true;
+    const p = cur.parts.find((x) => x.tenantId === brand.tenantId);
+    if (!p || p.useId !== rec.id || p.state === "ending") return true;
+    if (p.state === "pending") return false;
+    if (p.region === brand.region && p.account === rec.account) return false;
+    return now.getTime() - Date.parse(p.stateSince) >= REPAIR_AFTER_MS;
+  };
+}
+
+/**
  * The brand side of housekeeping, for one brand's records, whatever sharing or plans say: a part
  * ends only on positive evidence (the brand points at another organisation or none, its source is
  * missing or disconnected, or its entry is gone, ending, or active with another part or record);
  * and a disconnected part whose entry its organisation's record still lists has the entry dropped.
- * A read error, a switch, a suspended brand or a pending give ends nothing.
+ * A read error, a switch, a pending give ends nothing; nor does a suspended brand without end
+ * evidence.
+ *
+ * Evidence is never taken from a cache: the lane's run wide PartCache may hold an organisation
+ * record read before an owner gave or changed a part. So when the cached check says ended, the
+ * brand record is read again and checked with fresh reads, and step one of the end checks the
+ * evidence once more inside its transaction (stillEnded), so a part given or changed meanwhile
+ * survives.
  */
 export async function partHousekeeping(
   ctx: TenantContext,
@@ -258,7 +307,16 @@ export async function partHousekeeping(
     try {
       if (c.status === "connected") {
         const check = await checkPart(ctx, c, shared);
-        if (!check.live && check.ended && (await endOnePart(source, brand, c.id, { by: "system", code: check.why === "left" ? "left" : "part_ended" }, shared))) out.ended += 1;
+        if (check.live || !check.ended) continue;
+        // Read again, afresh: the brand record, then the part with no cache.
+        const fresh = await forTenant(ctx, brandDb(ctx.region, deps)).dataConnections.getById(c.id);
+        if (!fresh || fresh.status !== "connected" || !fresh.source) continue;
+        const again = await checkPart(ctx, fresh, { ...deps, partCache: new PartCache() });
+        if (again.live || !again.ended) continue;
+        // A brand that left is the registry's evidence; any other is the organisation record's, checked once more in step one.
+        const left = again.why === "left";
+        const what = { by: "system", code: left ? ("left" as const) : ("part_ended" as const), ...(left ? {} : { onlyIf: stillEnded(brand, fresh, deps.now ?? new Date()) }) };
+        if (await endOnePart(fresh.source, brand, fresh.id, what, shared)) out.ended += 1;
         continue;
       }
       const src = await getOrganisationConnection(source.organisationId, source.connectionId, source.region, storesOf(shared));
@@ -279,12 +337,28 @@ export interface SweepResult {
   repaired: number;
 }
 
+/** A page of the sweep, and how often its starting point moves on. */
+const SWEEP_PAGE = 100;
+const SWEEP_TURN_MS = 30 * 60_000;
+/** The characters an organisation connection id is made of after `ocn_`, in sort order. */
+const ID_CHARS = "234567abcdefghijklmnopqrstuvwxyz";
+
 /**
- * The lane's sweep over every region's connected organisation connections (one equality query on
- * status per region per run): those whose organisation is gone or lists no brands are disconnected
- * (which also catches moves an older build made), and the parts a give, change or take back left
- * half done are repaired, on positive evidence only. Whatever any switch says; a region or an
- * organisation that can't be read is left for the next run.
+ * Where a run's sweep starts in each region: `ocn_` and one id character, moving on one character
+ * every SWEEP_TURN_MS. Ids are random, so a sweep cut short by the deadline starts elsewhere next
+ * time and every record is reached within a bounded number of runs.
+ */
+export function sweepStart(nowMs: number): string {
+  return `ocn_${ID_CHARS[Math.floor(nowMs / SWEEP_TURN_MS) % ID_CHARS.length]}`;
+}
+
+/**
+ * The lane's sweep over every region's connected organisation connections (equality on status,
+ * ordered by id, a page at a time, from a starting id that moves on each run and wraps round):
+ * those whose organisation is gone or lists no brands are disconnected (which also catches moves an
+ * older build made), and the parts a give, change or take back left half done are repaired, on
+ * positive evidence only. Whatever any switch says; a region or an organisation that can't be read
+ * is left for the next run.
  */
 export async function sweepOrganisationConnections(opts: { deadlineMs: number; clock?: () => number; minLeftMs?: number }, deps: OrganisationActionDeps = {}): Promise<SweepResult> {
   const clock = opts.clock ?? Date.now;
@@ -300,29 +374,46 @@ export async function sweepOrganisationConnections(opts: { deadlineMs: number; c
     }
     return hit;
   };
-  for (const region of provisionedRegions()) {
-    if (opts.deadlineMs - clock() < minLeft) break;
-    let conns: OrganisationConnection[];
+  const visit = async (c: OrganisationConnection) => {
     try {
-      conns = await listRegionOrganisationConnections(region, { connected: true, limit: 200 }, storesOf(deps));
+      const m = await membership(c.organisationId);
+      if (!m.exists || m.brandIds.length === 0) {
+        // Nobody asked for this disconnect, so it never revokes (see disconnectOrganisationConnection).
+        if ((await disconnectOrganisationConnection(refOf(c), "system", { ...deps, now: new Date(clock()) })).disconnected) result.disconnected += 1;
+        return;
+      }
+      if (c.parts.every((p) => p.state === "active")) return;
+      const repaired = await repairParts(c, { by: "system", now: new Date(clock()) }, storesOf(deps));
+      result.repaired += repaired.filter((r) => r.outcome !== "skipped").length;
+    } catch (err) {
+      warn(`sweeping ${c.id} failed; tried again next run`, err);
+    }
+  };
+  const start = sweepStart(clock());
+  const out = () => opts.deadlineMs - clock() < minLeft;
+  for (const region of provisionedRegions()) {
+    if (out()) break;
+    try {
+      // From the starting id to the end, then from the first id up to the start.
+      for (const pass of ["from_start", "wrap"] as const) {
+        let after: string | null = pass === "from_start" ? start : null;
+        let done = false;
+        while (!done && !out()) {
+          const page = await pageRegionOrganisationConnections(region, { connected: true, after, limit: SWEEP_PAGE }, storesOf(deps));
+          for (const c of page.records) {
+            if (out()) break;
+            if (pass === "wrap" && c.id > start) {
+              done = true;
+              break;
+            }
+            await visit(c);
+          }
+          if (!page.full || !page.last || (pass === "wrap" && page.last > start)) done = true;
+          after = page.last;
+        }
+      }
     } catch (err) {
       warn(`sweeping organisation connections in ${region} failed; tried again next run`, err);
-      continue;
-    }
-    for (const c of conns) {
-      if (opts.deadlineMs - clock() < minLeft) break;
-      try {
-        const m = await membership(c.organisationId);
-        if (!m.exists || m.brandIds.length === 0) {
-          if ((await disconnectOrganisationConnection(refOf(c), "system", { ...deps, now: new Date(clock()) })).disconnected) result.disconnected += 1;
-          continue;
-        }
-        if (c.parts.every((p) => p.state === "active")) continue;
-        const repaired = await repairParts(c, { by: "system", now: new Date(clock()) }, storesOf(deps));
-        result.repaired += repaired.filter((r) => r.outcome !== "skipped").length;
-      } catch (err) {
-        warn(`sweeping ${c.id} failed; tried again next run`, err);
-      }
     }
   }
   return result;

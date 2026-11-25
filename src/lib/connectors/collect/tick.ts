@@ -11,7 +11,7 @@ import { todayIn } from "../period";
 import { detectConnection, type DetectResult } from "../signals/detect";
 import { expireConnectorSignals, reconcileProposals } from "../signals/reconcile";
 import { partHousekeeping, sweepOrganisationConnections } from "../organisation";
-import { PartCache, partLive } from "../sources";
+import { PartCache, partLive, readableOnly } from "../sources";
 import { collectConnection, collectOf, isDue, MIN_START_MS, type CollectRunDeps, type CollectRunResult } from "./run";
 
 /**
@@ -40,7 +40,11 @@ import { collectConnection, collectOf, isDue, MIN_START_MS, type CollectRunDeps,
  * positive evidence; a disconnected part's stale entry is dropped). A brand's part is collected and
  * looked at for suggestions only while partLive honours it and its organisation's connection isn't
  * holding collection; otherwise it is skipped quietly, with no failure, so Review never asks a brand
- * admin to reconnect it. The reads behind partLive are kept for the run.
+ * admin to reconnect it. The reads behind partLive are kept for the run, for those read only checks;
+ * housekeeping never ends a part on them (it reads afresh first). A suggestion reads another
+ * connection's numbers (Google Analytics sessions beside Search Console's) only from one every way
+ * out may read now: a brand's own, or a part partLive honours. A suspended brand gets its parts'
+ * housekeeping only, so a part its organisation ended is still ended and erased.
  */
 
 export const LANE = {
@@ -103,7 +107,9 @@ export async function runConnectorsLane(opts: { deadlineMs: number }, deps: Lane
   if (!isLaneTick(clock())) return result;
   const collecting = isConnectorsCollectEnabled();
   const suggesting = isConnectorSignalsEnabled();
-  const tenants = (await (deps.listTenants ?? listAllTenants)()).filter((t) => t.status !== "suspended");
+  const all = await (deps.listTenants ?? listAllTenants)();
+  const tenants = all.filter((t) => t.status !== "suspended");
+  const suspended = all.filter((t) => t.status === "suspended");
   const offset = tenants.length ? Math.floor(clock() / (LANE.TICK_MS * LANE.EVERY)) % tenants.length : 0;
   const order = [...tenants.slice(offset), ...tenants.slice(0, offset)];
   let oldestDue: number | null = null;
@@ -115,6 +121,20 @@ export async function runConnectorsLane(opts: { deadlineMs: number }, deps: Lane
     result.repaired = swept.repaired;
   } catch (err) {
     console.warn("[connectors] the organisation connections sweep failed:", err instanceof Error ? err.message.slice(0, 200) : "error");
+  }
+  // Suspended brands: their parts' housekeeping only (nothing collected, nothing looked at), on positive evidence.
+  for (const t of suspended) {
+    if (opts.deadlineMs - clock() < MIN_START_MS) break;
+    const ctx: TenantContext = { tenantId: t.id, region: t.region, source: "system" };
+    const db = deps.regionDb?.(t.region) ?? deps.db;
+    try {
+      const conns = (await forTenant(ctx, db).dataConnections.find({ where: [["status", "==", "connected"]], limit: LANE.CONNECTIONS_PER_BRAND })).filter((c) => c.source);
+      if (!conns.length) continue;
+      const ended = await partHousekeeping(ctx, conns, { db, now: new Date(clock()), searchIndex: deps.searchIndex, regionDb: deps.regionDb, controlDb: deps.controlDb, partCache });
+      result.partsEnded = (result.partsEnded ?? 0) + ended.ended;
+    } catch (err) {
+      console.warn(`[connectors] part housekeeping for suspended ${t.id} failed:`, err instanceof Error ? err.message.slice(0, 200) : "error");
+    }
   }
   for (const t of order) {
     if (opts.deadlineMs - clock() < MIN_START_MS) break;
@@ -209,9 +229,22 @@ export function isDetectDue(c: DataConnection, today: string): boolean {
   return c.connectorId === searchConsoleManifest.id && c.status === "connected" && feedsPlanning(c.grants) && !!k?.lastDay && k.rolledOn === today && k.detectedOn !== today;
 }
 
-/** Look at a brand's due Search Console connections for suggestions, freshly read. Returns how many. */
+/**
+ * Look at a brand's due Search Console connections for suggestions, freshly read. Returns how many.
+ * The other connections a look reads beside it (Google Analytics sessions) are read afresh, once,
+ * and only those every way out may read now: a brand's own, or a part partLive honours with fresh
+ * reads, so a part that reads nothing never puts its numbers in a Search Console suggestion.
+ */
 async function detectBrand(ctx: TenantContext, conns: DataConnection[], deadlineMs: number, deps: LaneDeps & { clock: () => number; partCache: PartCache }): Promise<number> {
   let n = 0;
+  let others: DataConnection[] | null = null;
+  const othersNow = async () => {
+    if (!others) {
+      const connected = await forTenant(ctx, deps.db).dataConnections.find({ where: [["status", "==", "connected"]], limit: LANE.CONNECTIONS_PER_BRAND });
+      others = await readableOnly(ctx, connected, { ...deps, partCache: new PartCache() });
+    }
+    return others;
+  };
   for (const c of conns) {
     if (c.connectorId !== searchConsoleManifest.id || c.status !== "connected") continue;
     if (deadlineMs - deps.clock() < LANE.DETECT_MIN_MS) break;
@@ -221,7 +254,7 @@ async function detectBrand(ctx: TenantContext, conns: DataConnection[], deadline
     // A brand's part is looked at only while its organisation still gives it.
     if (fresh.source && !(await partLive(ctx, fresh, deps)).live) continue;
     try {
-      const r = await (deps.detect ?? detectConnection)(ctx, fresh, conns, { db: deps.db, now });
+      const r = await (deps.detect ?? detectConnection)(ctx, fresh, await othersNow(), { db: deps.db, now });
       if (r.status === "detected") n += 1;
     } catch (err) {
       console.warn(`[connectors] looking at ${c.id} for suggestions failed:`, err instanceof Error ? err.message.slice(0, 200) : "error");

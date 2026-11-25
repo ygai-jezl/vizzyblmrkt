@@ -57,7 +57,8 @@ async function purgeOrganisation(target: string) {
   }
   const report = await purgeOrganisations(target, { apply: APPLY, by: args.get("by") });
   for (const line of organisationPurgeLines(report)) console.log(`[${TOOL}] ${line}`);
-  const left = report.items.filter((i) => i.status === "connected" || i.secrets > 0 || i.address === "kept" || i.parts > 0).length + report.orphans.length;
+  // A part still listed is one whose brand record wasn't ended; a record that doesn't parse may hold a sign in.
+  const left = report.items.filter((i) => i.status === "connected" || i.secrets > 0 || i.address === "kept" || i.parts > 0).length + report.orphans.length + report.unreadable.length;
   if (!APPLY) console.log(`[${TOOL}] Dry run: nothing was changed. ${left ? `${left} still to purge: run again with --apply --by <label>.` : "Nothing is left: no organisation connection holds a sign in, a secret, a part or a Google address."}`);
   else console.log(`[${TOOL}] Run the dry run again: it should say nothing is left.`);
 }

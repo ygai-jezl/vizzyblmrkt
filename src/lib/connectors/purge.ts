@@ -6,7 +6,7 @@ import {
   endPart,
   forTenant,
   listOrganisationConnections,
-  listRegionOrganisationConnections,
+  scanRegionOrganisationConnections,
   OPERATOR_LABEL,
   provisionedRegions,
   purgeDataConnection,
@@ -31,7 +31,7 @@ import { countSignals } from "./signals/store";
 import { countSnapshots } from "./snapshots";
 import { brandTag, copyTag, deleteShareAccount, identitiesProject, listShareAccounts, orgTag, type ShareDeps } from "./shareAccess";
 import { disconnectOrganisationConnection } from "./organisation";
-import { storesOf } from "./sources";
+import { organisationSignInMayShareAccount, storesOf } from "./sources";
 import { REFRESH_SLOT } from "./tokenKeeper";
 import { openConnectorSecret, VaultOpenError } from "./vault";
 
@@ -104,6 +104,8 @@ export interface PurgeReport {
     {
       connectionId: string;
       revoked: boolean;
+      /** Revoke was on but skipped: the brand's organisation has a shared Google sign in made by the same person. */
+      revokeSkipped?: true;
       addressDeleted: boolean | null;
       snapshotsDeleted: number;
       /** Its data_signals rows deleted, its open suggestions declined as stale, and undecided questions it proposed withdrawn. */
@@ -241,7 +243,10 @@ export async function purgeConnections(
       report.removed.push({ connectionId: c.id, found: true, activityDeleted: 0, secretsDeleted: 0, recentDeleted: 0, revoked: false, addressDeleted: deleted, snapshotsDeleted: 0, signalsDeleted: 0, suggestionsDeclined: 0, questionsWithdrawn: 0, searchRemoved: null });
       continue;
     }
-    const signIn = c.source ? null : toRevoke(ctx, c);
+    let signIn = c.source ? null : toRevoke(ctx, c);
+    // Google's revoke ends every grant of that account: not while the organisation's shared sign in may be that account's.
+    const revokeSkipped = signIn !== null && (await organisationSignInMayShareAccount(ctx, [c.ownerUid], { db: opts.db, regionDb: opts.regionDb }));
+    if (revokeSkipped) signIn = null;
     // A part ends on its organisation's record too, wherever that is kept (never revoking anything).
     if (c.source && c.status === "connected") {
       await endPart({ source: c.source, brand: { tenantId: ctx.tenantId, region: ctx.region }, useId: c.id, by, at, code: "part_ended", evenIfSourceFails: true }, storesOf(opts)).catch(() => null);
@@ -262,7 +267,7 @@ export async function purgeConnections(
     const counts = await purgeDataConnection(ctx, c.id, by, at, opts.db);
     const revoked = signIn ? await revokeGoogleToken(signIn, { transport: opts.transport, log: opts.log }) : false;
     const addressDeleted = sa ? await deleteConnectionAddress(ctx, c.id, sa, by, { db: opts.db, ...share }) : null;
-    report.removed.push({ connectionId: c.id, ...counts, revoked, addressDeleted, snapshotsDeleted, signalsDeleted: erased.signals, suggestionsDeclined: erased.declined, questionsWithdrawn: erased.withdrawn, searchRemoved });
+    report.removed.push({ connectionId: c.id, ...counts, revoked, ...(revokeSkipped ? { revokeSkipped: true as const } : {}), addressDeleted, snapshotsDeleted, signalsDeleted: erased.signals, suggestionsDeclined: erased.declined, questionsWithdrawn: erased.withdrawn, searchRemoved });
   }
   if (!("skipped" in found)) {
     report.orphans = [];
@@ -288,7 +293,7 @@ export function purgeLines(r: PurgeReport): string[] {
     const hadSearches = r.items.find((i) => i.connectionId === x.connectionId)?.searchEntry;
     const searches = x.searchRemoved === false ? ", Google searches NOT removed from brand search (run again)" : x.searchRemoved && hadSearches !== false ? ", Google searches removed from brand search" : "";
     if (r.addressesOnly) lines.push(`${r.tenantId}: ${x.connectionId}${address}`);
-    else lines.push(`${r.tenantId}: ${x.connectionId} purged: ${x.secretsDeleted} secrets, ${x.recentDeleted} recent, ${x.activityDeleted} activity rows, ${x.snapshotsDeleted} collected snapshots and ${x.signalsDeleted} suggestions removed${x.suggestionsDeclined ? ` (${x.suggestionsDeclined} open, declined)` : ""}${x.questionsWithdrawn ? `, ${x.questionsWithdrawn} proposed brand map questions withdrawn` : ""}${searches}${x.revoked ? ", sign in revoked at Google" : ""}${address}`);
+    else lines.push(`${r.tenantId}: ${x.connectionId} purged: ${x.secretsDeleted} secrets, ${x.recentDeleted} recent, ${x.activityDeleted} activity rows, ${x.snapshotsDeleted} collected snapshots and ${x.signalsDeleted} suggestions removed${x.suggestionsDeclined ? ` (${x.suggestionsDeclined} open, declined)` : ""}${x.questionsWithdrawn ? `, ${x.questionsWithdrawn} proposed brand map questions withdrawn` : ""}${searches}${x.revoked ? ", sign in revoked at Google" : x.revokeSkipped ? ", sign in NOT revoked at Google (its organisation's shared sign in may use the same Google account)" : ""}${address}`);
   }
   for (const o of r.orphans) {
     const what = o.deleted === null ? "no live connection owns it" : o.deleted ? "deleted" : "NOT deleted; run again";
@@ -323,6 +328,8 @@ export interface OrganisationPurgeReport {
   removed: Array<{ connectionId: string; ended: number; revoked: boolean; addressDeleted: boolean | null } & OrganisationPurgeCounts>;
   /** Organisation addresses in the identities project that no organisation connection owns; deleted is null in a dry run. */
   orphans: Array<{ email: string; connectionId: string; deleted: boolean | null }>;
+  /** Stored organisation connections that don't parse ("all" only): never purged here and never called gone, so they count as left. */
+  unreadable: Array<{ region: Region; connectionId: string }>;
   shareSkipped: string | null;
 }
 
@@ -353,14 +360,19 @@ export async function purgeOrganisations(target: string, opts: OrganisationPurge
   const stores: OrganisationStores = opts.regionDb ? { regionDb: opts.regionDb } : {};
   const share: ShareDeps = { transport: opts.transport, log: opts.log, appToken: opts.appToken, sleep: opts.sleep, now: opts.now };
   const conns: OrganisationConnection[] = [];
+  const unreadable: Array<{ region: Region; connectionId: string }> = [];
   if (target === "all") {
-    for (const region of provisionedRegions()) conns.push(...(await listRegionOrganisationConnections(region, {}, stores)));
+    for (const region of provisionedRegions()) {
+      const scanned = await scanRegionOrganisationConnections(region, {}, stores);
+      conns.push(...scanned.records);
+      unreadable.push(...scanned.unreadable.map((connectionId) => ({ region, connectionId })));
+    }
   } else {
     if (!target.startsWith("org_")) throw new Error("--organisation takes an organisation id (org_...) or all");
     conns.push(...(await listOrganisationConnections(target, {}, stores)));
   }
   conns.sort((a, b) => a.id.localeCompare(b.id));
-  const report: OrganisationPurgeReport = { target, apply: opts.apply, items: [], removed: [], orphans: [], shareSkipped: null };
+  const report: OrganisationPurgeReport = { target, apply: opts.apply, items: [], removed: [], orphans: [], unreadable, shareSkipped: null };
   for (const c of conns) {
     report.items.push({
       organisationId: c.organisationId,
@@ -387,10 +399,13 @@ export async function purgeOrganisations(target: string, opts: OrganisationPurge
       const copy = copyTag();
       const tag = target === "all" ? null : orgTag(target);
       // Every organisation's connections in every region, so one region's records never see another's live addresses as orphans.
-      const owners = target === "all" ? conns : await allOrganisationConnections(stores);
+      const every = target === "all" ? { records: conns, unreadable: unreadable.map((u) => u.connectionId) } : await allOrganisationConnections(stores);
+      const owners = every.records;
       for (const a of listed.accounts) {
         const o = a.orgOwner;
         if (!o || o.copy !== copy || (tag && o.org !== tag)) continue;
+        // A record that doesn't parse may be live: its address is never called a leftover.
+        if (every.unreadable.includes(o.connectionId)) continue;
         const owner = owners.find((c) => c.id === o.connectionId);
         const owns = owner?.serviceAccount && owner.serviceAccount.uniqueId === a.uniqueId && !owner.serviceAccount.deletedAt && owner.status === "connected";
         if (!owns) orphans.push({ email: a.email, uniqueId: a.uniqueId, connectionId: o.connectionId });
@@ -405,7 +420,7 @@ export async function purgeOrganisations(target: string, opts: OrganisationPurge
   const at = (opts.now ?? new Date()).toISOString();
   for (const c of conns) {
     const ref = { organisationId: c.organisationId, connectionId: c.id, region: c.region };
-    const off = await disconnectOrganisationConnection(ref, by, { regionDb: opts.regionDb, controlDb: opts.controlDb, now: opts.now, searchIndex: opts.searchIndex, ...share });
+    const off = await disconnectOrganisationConnection(ref, by, { regionDb: opts.regionDb, controlDb: opts.controlDb, now: opts.now, searchIndex: opts.searchIndex, ...share }, { revoke: isGoogleRevokeEnabled() });
     const counts = await purgeOrganisationConnection(c.organisationId, c.id, c.region, by, at, stores);
     report.removed.push({ connectionId: c.id, ended: off.ended, revoked: off.revoked, addressDeleted: off.addressDeleted, ...counts });
   }
@@ -419,9 +434,13 @@ export async function purgeOrganisations(target: string, opts: OrganisationPurge
   return report;
 }
 
-async function allOrganisationConnections(stores: OrganisationStores): Promise<OrganisationConnection[]> {
-  const out: OrganisationConnection[] = [];
-  for (const region of provisionedRegions()) out.push(...(await listRegionOrganisationConnections(region, {}, stores)));
+async function allOrganisationConnections(stores: OrganisationStores): Promise<{ records: OrganisationConnection[]; unreadable: string[] }> {
+  const out = { records: [] as OrganisationConnection[], unreadable: [] as string[] };
+  for (const region of provisionedRegions()) {
+    const scanned = await scanRegionOrganisationConnections(region, {}, stores);
+    out.records.push(...scanned.records);
+    out.unreadable.push(...scanned.unreadable);
+  }
   return out;
 }
 
@@ -433,8 +452,10 @@ export function organisationPurgeLines(r: OrganisationPurgeReport): string[] {
   }
   for (const x of r.removed) {
     const address = x.addressDeleted === null ? "" : x.addressDeleted ? ", Google address deleted" : ", Google address NOT deleted (recorded as cleanup_failed; run again)";
-    lines.push(`${x.connectionId} purged: ${x.ended} brands' parts ended and erased, ${x.secretsDeleted} secrets, ${x.recentDeleted} recent, ${x.activityDeleted} activity rows removed${x.revoked ? ", sign in revoked at Google" : ""}${address}`);
+    const left = x.partsLeft ? `, ${x.partsLeft} brands' parts NOT ended (their brand database couldn't be written; kept as ending, run again)` : "";
+    lines.push(`${x.connectionId} purged: ${x.ended} brands' parts ended and erased, ${x.secretsDeleted} secrets, ${x.recentDeleted} recent, ${x.activityDeleted} activity rows removed${x.revoked ? ", sign in revoked at Google" : ""}${address}${left}`);
   }
+  for (const u of r.unreadable) lines.push(`${u.connectionId} (kept in ${u.region}) does not parse, so it was not purged and may still hold a sign in: look at it before reverting`);
   for (const o of r.orphans) {
     const what = o.deleted === null ? "no organisation connection owns it" : o.deleted ? "deleted" : "NOT deleted; run again";
     lines.push(`leftover organisation Google address ${o.email} (for ${o.connectionId}): ${what}`);

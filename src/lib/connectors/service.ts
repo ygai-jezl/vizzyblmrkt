@@ -17,13 +17,13 @@ import { checkLiveRequest, lagWords, readLive, type LiveAnswer } from "./live";
 import { collectedStream, keepsWords, shareMethod, tokenMethod, type ConnectMethodName, type ConnectorIcon, type ConnectorManifest } from "./manifest";
 import { addDays, daysIn, laterDay, todayIn } from "./period";
 import { oldestAlive } from "./snapshots";
-import { connectorMessage, productName, sourceBrokenMessage, tokenRefusedMessage, type ConnectorErrorCode } from "./messages";
+import { connectorMessage, productName, sourceBrokenMessage, tokenRefusedMessage, type ConnectorErrorCode, KEPT_AT_GOOGLE_MESSAGE } from "./messages";
 import { getConnector, knownConnector, listConnectors, readyMethods } from "./registry";
 import type { ConnectorFetchDeps } from "./safeFetch";
 import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isGoogleRevokeEnabled } from "./flags";
 import { revokeGoogleToken } from "./google";
 import { createShareAccount, deleteShareAccount, forgetShareTokens, identitiesProject, projectOfShareAccount, shareAccessToken, type ShareDeps, type ShareResult } from "./shareAccess";
-import { PartCache, partFactsOf, partFailure, sourceToken, storesOf, type PartFacts, type PartReads, type SourceDeps } from "./sources";
+import { organisationSignInMayShareAccount, PartCache, partFactsOf, partFailure, sourceToken, storesOf, type PartFacts, type PartReads, type SourceDeps } from "./sources";
 import { freshAccessToken, REFRESH_SLOT } from "./tokenKeeper";
 import { isVaultConfigured, openConnectorSecret, sealConnectorSecret, VaultOpenError, type SealedSecret } from "./vault";
 
@@ -71,6 +71,7 @@ const CONFLICTS: ReadonlySet<ConnectorErrorCode> = new Set([
   "share_pending",
   "share_limit",
   "org_share_limit",
+  "org_connection_limit",
   "managed_by_organisation",
   "part_ended",
   "source_broken",
@@ -1269,6 +1270,9 @@ export const STOPPED_USING_MESSAGE =
 export const REVOKED_MESSAGE =
   "Disconnected, and YouGrow's access was removed at Google too. Any other connection signed in with the same Google account has to sign in again.";
 
+/** What Disconnect says when revoke is on but YouGrow didn't revoke (src/lib/connectors/messages.ts). */
+export { KEPT_AT_GOOGLE_MESSAGE };
+
 /**
  * Disconnect: delete the sealed secrets, mark it disconnected and record it. The record stays, so
  * its activity can still be read. Admins only.
@@ -1287,6 +1291,7 @@ export async function disconnect(ctx: TenantContext, actor: ConnectorActor, id: 
   let signIn: SealedSecret | null = null;
   let address: ConnectionServiceAccount | null = null;
   let changed = false;
+  let ownerUid: string | null = null;
   const r = await manage(
     ctx,
     actor,
@@ -1296,6 +1301,7 @@ export async function disconnect(ctx: TenantContext, actor: ConnectorActor, id: 
       signIn = null;
       address = null;
       changed = false;
+      ownerUid = cur.ownerUid;
       if (cur.status === "disconnected") return null;
       changed = true;
       signIn = cur.method === "oauth_pkce" ? (cur.secrets[REFRESH_SLOT] ?? null) : null;
@@ -1316,12 +1322,17 @@ export async function disconnect(ctx: TenantContext, actor: ConnectorActor, id: 
     }
   }
   let revoked = false;
+  let keptAtGoogle = false;
   const sealed = signIn as SealedSecret | null;
   if (sealed && isGoogleRevokeEnabled()) {
-    try {
-      revoked = await revokeGoogleToken(openConnectorSecret(ctx.tenantId, id, REFRESH_SLOT, sealed), deps);
-    } catch (err) {
-      if (!(err instanceof VaultOpenError)) throw err;
+    // Google's revoke ends every grant of that account: never when the organisation's shared sign in may be that account's.
+    keptAtGoogle = await organisationSignInMayShareAccount(ctx, [actor.kind === "human" ? actor.uid : null, ownerUid], deps);
+    if (!keptAtGoogle) {
+      try {
+        revoked = await revokeGoogleToken(openConnectorSecret(ctx.tenantId, id, REFRESH_SLOT, sealed), deps);
+      } catch (err) {
+        if (!(err instanceof VaultOpenError)) throw err;
+      }
     }
   }
   const sa = address as ConnectionServiceAccount | null;
@@ -1332,7 +1343,7 @@ export async function disconnect(ctx: TenantContext, actor: ConnectorActor, id: 
     return { ok: true, status: 200, value: { connection, revoked: false, addressDeleted: deleted, message: deleted ? ADDRESS_DELETED_MESSAGE : ADDRESS_KEPT_MESSAGE } };
   }
   const m = knownConnector(r.value.connectorId);
-  return { ok: true, status: 200, value: { connection: r.value, revoked, addressDeleted: null, message: revoked ? REVOKED_MESSAGE : (m?.disconnect ?? "Disconnected.") } };
+  return { ok: true, status: 200, value: { connection: r.value, revoked, addressDeleted: null, message: revoked ? REVOKED_MESSAGE : keptAtGoogle ? KEPT_AT_GOOGLE_MESSAGE : (m?.disconnect ?? "Disconnected.") } };
 }
 
 /**

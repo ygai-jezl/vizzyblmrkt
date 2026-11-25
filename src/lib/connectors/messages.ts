@@ -46,6 +46,7 @@ export const CONNECTOR_ERRORS = {
     "This brand already has 5 shared Google addresses for this connector, the most one brand can have. Disconnect one you no longer use, or sign in with Google instead.",
   org_share_limit:
     "This organisation already has 5 Google addresses for this connector, the most one organisation can have. Disconnect one it no longer uses, or sign in with Google instead.",
+  org_connection_limit: "This organisation already has 20 connections for this connector, the most one organisation can have. Disconnect one it no longer uses first.",
   // A brand's part of its organisation's connection (Connectors 3, ADR-0014).
   managed_by_organisation: "Your organisation manages this connection. Its owners can change it.",
   part_ended: "Your organisation doesn't give this brand this part right now, so it reads nothing.",
@@ -55,6 +56,14 @@ export const CONNECTOR_ERRORS = {
 } as const;
 
 export type ConnectorErrorCode = keyof typeof CONNECTOR_ERRORS;
+
+/**
+ * What a brand's own Disconnect says when revoking is on but YouGrow didn't revoke, because the
+ * brand's organisation has a shared Google sign in made by the same person, which revoking could end
+ * for every brand (Connectors 3).
+ */
+export const KEPT_AT_GOOGLE_MESSAGE =
+  "Disconnected. YouGrow didn't remove its access at Google, because your organisation's shared connection may use the same Google account and would stop for every brand. Its saved sign in is deleted here.";
 
 export function isConnectorErrorCode(code: unknown): code is ConnectorErrorCode {
   return typeof code === "string" && Object.prototype.hasOwnProperty.call(CONNECTOR_ERRORS, code);

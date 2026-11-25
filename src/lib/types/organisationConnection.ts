@@ -109,7 +109,13 @@ export type OrganisationActivityEntry = z.infer<typeof OrganisationActivityEntry
  * token), so one brand's quota answer stops collection for all of them until then. Live reads never
  * wait on it. A GA4 hold stays on the brand's own record (GA4 counts per property).
  */
-export const CollectHoldSchema = z.object({ until: z.string(), reason: z.string().max(40) }).strict();
+/**
+ * The organisation's collect hold. `strikes` counts the quota answers of one quota day (in the
+ * provider's clock), whichever brand's part met them, so the second that day holds to its end.
+ */
+export const CollectHoldSchema = z
+  .object({ until: z.string(), reason: z.string().max(40), strikes: z.object({ day: z.string().max(10), quota: z.number().int().min(0).max(1000) }).strict().optional() })
+  .strict();
 export type CollectHold = z.infer<typeof CollectHoldSchema>;
 
 export const OrganisationConnectionSchema = z.object({

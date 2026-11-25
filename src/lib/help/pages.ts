@@ -63,9 +63,9 @@ export interface HelpBodyProps {
   connectorSignals?: boolean;
   /** The brand map is kept at any size (isBrandMapScaleEnabled()): proposed questions wait on its Subjects tab. */
   brandMapScale?: boolean;
-  /** Organisations share connections (isConnectorsSharingEnabled(), a server switch: the drawer reads it off). */
+  /** Organisations share connections (isConnectorsSharingEnabled(), a server switch: the drawer gets it from the admin shell). */
   sharing?: boolean;
-  /** Owners bring in and move out brands (isOrganisationJoinEnabled(), a server switch: the drawer reads it off). */
+  /** Owners bring in and move out brands (isOrganisationJoinEnabled(), a server switch: the drawer gets it from the admin shell). */
   join?: boolean;
 }
 

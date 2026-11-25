@@ -247,8 +247,14 @@ export async function collectConnection(ctx: TenantContext, id: string, opts: { 
   const shared = manifest.api.limits.source;
   if (conn.source && failure?.code === "rate_limited" && shared?.holds === "connection") {
     const least = Math.max((shared.holdMinutes ?? 0) * 60_000, (failure.retryAfterSec ?? 0) * 1000);
-    const until = shared.holdMinutes ? new Date(now.getTime() + least) : (hold?.until ?? new Date(now.getTime() + Math.max(QUOTA_HOLD_MS, least)));
-    await holdSource(conn.source, until, "quota", { ...deps, now });
+    if (shared.holdMinutes) await holdSource(conn.source, new Date(now.getTime() + least), "quota", { ...deps, now });
+    else {
+      // 15 minutes, then to the quota day's end on the shared sign in's second strike that day,
+      // whichever brand met it: its strikes are counted on the organisation's record.
+      const zone = quotaZone(stream);
+      const until = hold?.until ?? new Date(now.getTime() + Math.max(QUOTA_HOLD_MS, least));
+      await holdSource(conn.source, until, "quota", { ...deps, now }, { day: todayIn(now, zone), dayUntil: nextMidnight(now, zone) });
+    }
   }
   const noData = r.hold?.reason === "no_data";
   const worked = landed.length > 0 || (!failure && (r.probed || r.days.length > 0 || r.newest !== null));

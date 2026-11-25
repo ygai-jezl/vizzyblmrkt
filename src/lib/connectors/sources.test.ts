@@ -5,7 +5,7 @@ import { timestampFirestore } from "@/lib/tenant/testing/timestampFirestore";
 import type { DataConnection } from "@/lib/types/dataConnection";
 import { knownConnector } from "./registry";
 import { GOOGLE_TOKEN_URL } from "./google";
-import { checkPart, partFailure, partLive, PartCache, sourceToken } from "./sources";
+import { checkPart, holdSource, partFailure, partLive, PartCache, sourceToken } from "./sources";
 import { ACCESS_SLOT, REFRESH_SLOT } from "./tokenKeeper";
 import { openConnectorSecret, sealConnectorSecret, VaultOpenError } from "./vault";
 import { EU_BRAND, OCN, ORG, OTHER_ORG, orgWorld, seedFernhill, seedOrganisation, seedPart, seedSource, seedTenant, T0, US_BRAND, USE_EU, USE_US, type OrgWorld } from "./testing/organisation";
@@ -226,5 +226,22 @@ describe("the vault keeps an organisation's secrets and a brand's apart", () => 
     const brand = sealConnectorSecret(EU_BRAND.tenantId, USE_EU, "token", "made-up");
     expect(() => openConnectorSecret(ORG, USE_EU, "token", brand)).toThrow(VaultOpenError);
     expect(openConnectorSecret(ORG, OCN, "token", org)).toBe("made-up");
+  });
+});
+
+describe("a quota hold on the shared sign in", () => {
+  it("counts Search Console's strikes across brands: the second that day holds to the quota day's end", async () => {
+    const day = { day: "2026-11-24", dayUntil: new Date("2026-11-25T08:00:00.000Z") };
+    const fifteen = new Date(NOW.getTime() + 15 * 60_000);
+    const read = async () => (await getOrganisationConnection(ORG, OCN, "eu", { regionDb: w.regionDb }))!.collectHold;
+    // Fernhill US meets the first, 15 minutes.
+    await holdSource(source, fifteen, "quota", deps(), day);
+    expect(await read()).toEqual({ until: fifteen.toISOString(), reason: "quota", strikes: { day: "2026-11-24", quota: 1 } });
+    // Fernhill Plants meets the second the same day: to the next Pacific midnight, whichever brand it was.
+    await holdSource(source, fifteen, "quota", deps(), day);
+    expect(await read()).toEqual({ until: day.dayUntil.toISOString(), reason: "quota_day", strikes: { day: "2026-11-24", quota: 2 } });
+    // A new quota day starts counting again, and a later hold already set stays.
+    await holdSource(source, fifteen, "quota", deps(), { day: "2026-11-25", dayUntil: new Date("2026-11-26T08:00:00.000Z") });
+    expect(await read()).toEqual({ until: day.dayUntil.toISOString(), reason: "quota_day", strikes: { day: "2026-11-25", quota: 1 } });
   });
 });

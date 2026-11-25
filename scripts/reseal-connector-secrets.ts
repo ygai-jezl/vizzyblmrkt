@@ -84,7 +84,13 @@ async function main() {
 
   say(`${count(tenants.length, "brand")}, ${count(off, "secret")} off the current key before this run${APPLY ? `, ${resealed} resealed` : ""}, ${unopenable} won't open.`);
   if (!APPLY) {
-    say(off ? "Run again with --apply to reseal them." : "Nothing is left on an old key: the rotation is finished, and CONNECTORS_VAULT_KEY_PREVIOUS can be removed.");
+    say(
+      off
+        ? "Run again with --apply to reseal them."
+        : unopenable
+          ? `${unopenable} won't open or don't parse: look at them before CONNECTORS_VAULT_KEY_PREVIOUS is removed.`
+          : "Nothing is left on an old key: the rotation is finished, and CONNECTORS_VAULT_KEY_PREVIOUS can be removed.",
+    );
   } else {
     say("Run the dry run again: the rotation is finished when it counts 0 off the current key.");
   }

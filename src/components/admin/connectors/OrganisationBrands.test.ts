@@ -48,6 +48,7 @@ const screen = (over: Partial<OrganisationBrandsScreen> = {}): OrganisationBrand
   ],
   candidates: [cafe, wholesale],
   full: null,
+  sharing: true,
   ...over,
 });
 const html = (node: ReturnType<typeof createElement>) => textOf(renderToStaticMarkup(node));
@@ -55,6 +56,19 @@ const clean = (text: string) => {
   expect(dashesIn(text), text).toEqual([]);
   expect(aiTellsIn(text), text).toEqual([]);
 };
+
+describe("the Brands section with sharing off", () => {
+  it("has no parts column, and Move out says nothing keeps serving the others", () => {
+    const off = screen({ sharing: false });
+    const text = html(createElement(BrandsTable, { screen: off }));
+    expect(text).not.toContain(W.BRANDS_COPY.parts);
+    expect(text).not.toContain(W.BRANDS_COPY.couldntCount);
+    const move = W.moveOutTextWords(off.brands[0]!, "Fernhill Group", "Ultra", off.brands, false);
+    expect(move).not.toContain("keep serving");
+    // Its parts still end, and what they collected is still deleted.
+    expect(move).toContain("stop now, and what was collected through them is deleted.");
+  });
+});
 
 describe("the Brands section", () => {
   it("lists each brand with its region and the parts given to it, marking the brand you are in", () => {

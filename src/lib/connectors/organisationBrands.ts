@@ -18,6 +18,7 @@ import { MAX_ORGANISATION_BRANDS, type Organisation, type PlanId } from "@/lib/t
 import type { OrganisationConnection } from "@/lib/types/organisationConnection";
 import type { Tenant } from "@/lib/types/tenant";
 import { bringInDoneWords, BRANDS_COPY, fullWords, moveOutDoneWords, moveRefusalWords, narrowerWords } from "@/components/admin/connectors/words";
+import { isConnectorsSharingEnabled } from "./flags";
 import { clearOrganisationIdForReuse, disconnectEmptiedOrganisation, endBrandParts, type OrganisationActionDeps } from "./organisation";
 import { regionName } from "./organisationConnect";
 import type { OrganisationOwner } from "./organisationOwner";
@@ -84,6 +85,12 @@ export interface OrganisationBrandsScreen {
   candidates: BringInCandidate[];
   /** At the plan's brands allowance: Bring in needs a plan change first. */
   full: { limit: number } | null;
+  /**
+   * Sharing is on (CONNECTORS_SHARING_ENABLED): off, the table has no "Parts given to it" column and
+   * Move out doesn't say the connections keep serving the others. A move still ends the brand's
+   * parts, whatever sharing says.
+   */
+  sharing: boolean;
 }
 
 const controlOf = (deps: OrganisationBrandsDeps): FirestoreLike | undefined => deps.controlDb ?? deps.db;
@@ -218,6 +225,7 @@ export async function organisationBrandsScreen(owner: OrganisationOwner, deps: O
     brands: rows.filter((r): r is OrganisationBrandView => r !== null),
     candidates,
     full: org.brandIds.length >= limit ? { limit } : null,
+    sharing: isConnectorsSharingEnabled(),
   };
 }
 

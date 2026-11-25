@@ -9,7 +9,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: unknown }) => createElement("a", { href, ...rest }, children as never),
 }));
-const { ConnectFor, ListingView, TypedWhy } = await import("./ListingView");
+const { ConnectFor, ListingView, OrgTokenCard, ShareCard, TypedWhy } = await import("./ListingView");
 const { listingBanner } = await import("./listingBanner");
 const { CONNECT_FOR_COPY, LISTING_COPY, chosenAtFirst, limitsOf, moreListedWords, readsOf, replaceableOf, signInReasonWords, tokenCheckedWords, typedWhyWords, waitingShareOf, youNeedOf } = await import("./words");
 const { checkPastedToken, secretsOf } = await import("./tokenConnect");
@@ -382,6 +382,24 @@ describe("Connect for, for an owner of the brand's organisation (Connectors 3)",
     );
   });
 
+  it("gives the organisation's token its own steps: every zone its brands use, and no Check or zone to pick", () => {
+    const text = textOf(renderToStaticMarkup(createElement(OrgTokenCard, { listing: CF, heading: "h3", org: ORG })));
+    expect(text).toContain("Under Zone Resources, include every zone your brands use, and only those.");
+    expect(text).toContain("Paste the token here and press Connect for the organisation. YouGrow lists the zones it reaches, and you give each brand its zone on Settings › Organisation.");
+    expect(text).toContain("Connect for the organisation");
+    expect(text).not.toContain("include only the site");
+    expect(text).not.toContain("press Check");
+  });
+
+  it("leads the organisation's Google address with each brand's site or property, and ends its steps on Settings › Organisation", () => {
+    const org = { ...ORG, waitingShare: { id: "ocn_aaaaaaaaaaaaaaaaaaaa", email: "ygc-made-up-address@connect.example.iam.gserviceaccount.com" } };
+    const text = textOf(renderToStaticMarkup(createElement(ShareCard, { listing: SC, isAdmin: true, afterSignIn: false, heading: "h3", waiting: null, org })));
+    expect(text).toContain("Give a Google address made for Fernhill Group access to each of its brands' sites or properties.");
+    expect(text).toContain("Back in YouGrow, press Check access, then give each brand its site on Settings › Organisation.");
+    expect(text).not.toContain("access to your property");
+    expect(text).not.toContain("then pick the site");
+  });
+
   it("is not offered to a member, without an organisation, or for a connector that can't be shared", () => {
     expect(textOf(html({ listing: SC, organisation: ORG, isAdmin: false }))).not.toContain("Connect for");
     expect(textOf(html({ listing: SC }))).not.toContain("Connect for");
@@ -394,7 +412,9 @@ describe("Connect for, for an owner of the brand's organisation (Connectors 3)",
       CONNECT_FOR_COPY.keptIn("Europe", "Harbour Blooms"),
       CONNECT_FOR_COPY.tokenHint("Fernhill Group"),
       CONNECT_FOR_COPY.checkedGoOn,
+      CONNECT_FOR_COPY.shareLead("Fernhill Group"),
       textOf(html({ listing: CF, organisation: ORG })),
+      textOf(renderToStaticMarkup(createElement(OrgTokenCard, { listing: CF, heading: "h3", org: ORG }))),
     ];
     for (const line of lines) {
       expect(dashesIn(line), line).toEqual([]);

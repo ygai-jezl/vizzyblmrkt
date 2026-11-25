@@ -215,6 +215,26 @@ describe("a shared connection's card", () => {
     expect(text).not.toContain("Nothing is collected until");
   });
 
+  it("dates a changed part from its change, and offers no Change for a brand that left", () => {
+    const changed = conn({ parts: [part("ten_fernhill", "0123456789abcdef0123456789abcd01", { givenAt: "2026-11-12T09:00:00.000Z", stateSince: "2026-11-24T09:00:00.000Z" })] });
+    const text = textOf(card(changed));
+    expect(text).toContain("24 Nov");
+    expect(text).not.toContain("12 Nov");
+    // A part whose brand is no longer listed (it left, and housekeeping hasn't ended it yet): Take back only.
+    const gone = conn({ parts: [part("ten_fernhill", "0123456789abcdef0123456789abcd01", { tenantId: "ten_gone", brandName: "A brand that left" })] });
+    const buttons = [...card(gone).matchAll(/<button([^>]*)>/g)].map((m) => m[1]!);
+    expect(buttons.find((b) => b.includes('aria-label="Change A brand that left'))).toContain('disabled=""');
+    expect(buttons.find((b) => b.includes('aria-label="Take back from A brand that left"'))).not.toContain('disabled=""');
+  });
+
+  it("says Sign in again fixes it, with no dangling words, however many brands it serves", () => {
+    const g = { method: "oauth_pkce" as const, connectorName: "Google Analytics 4", health: { lastErrorCode: "signin_refused", since: "2026-11-21T06:00:00.000Z", lastCheckedAt: T } };
+    expect(W.sharedBrokenWords(g, 0)).toBe("Google ended this sign-in on 21 Nov. Sign in again to fix it.");
+    expect(W.sharedBrokenWords(g, 1)).toBe("Google ended this sign-in on 21 Nov. Its brand stopped collecting. Sign in again to fix it.");
+    expect(W.sharedBrokenWords(g, 2)).toBe("Google ended this sign-in on 21 Nov. Both brands stopped collecting. Sign in again to fix it for both.");
+    expect(W.sharedBrokenWords(g, 3)).toBe("Google ended this sign-in on 21 Nov. All 3 brands stopped collecting. Sign in again to fix it for all of them.");
+  });
+
   it("hides the Collected column while numbers aren't collected", () => {
     expect(textOf(card(conn(), screen([conn()], { collect: false })))).toContain("Part Given to Since Readers Actions");
   });
@@ -226,6 +246,11 @@ describe("a shared connection's card", () => {
 });
 
 describe("the Shared connections section", () => {
+  it("says why a sign in for the organisation didn't finish, here where the owner pressed it", () => {
+    const text = textOf(renderToStaticMarkup(createElement(SharedConnectionsView, { screen: screen([]), back: { status: "error", connection: null, reason: "denied" }, now: NOW.toISOString() })));
+    expect(text).toContain("Access wasn't given on Google's screen, so nothing was connected.");
+  });
+
   it("leads with what it does, says how a connect came back, and points nowhere new when nothing is shared", () => {
     const text = textOf(renderToStaticMarkup(createElement(SharedConnectionsView, { screen: screen([]), back: { status: "connected", connection: null }, now: NOW.toISOString() })));
     expect(text).toContain("Shared connections Connect once for the organisation, then give each brand its own site, property or zone. Each brand's team sees only its own.");
@@ -237,10 +262,10 @@ describe("the Shared connections section", () => {
 describe("giving a brand a part", () => {
   const SC_SIGNED = SC({ method: "oauth_pkce", signer: "you", serviceAccount: null, parts: [part("ten_fernhill", "sc-domain:fernhill.example")] });
   const accounts: OrganisationAccount[] = [
-    { id: "sc-domain:fernhill.example", label: "fernhill.example (whole domain)", detail: null, givenTo: { tenantId: "ten_fernhill" }, givenElsewhere: null, ownBrandIds: [] },
-    { id: "sc-domain:harbourblooms.example", label: "harbourblooms.example (whole domain)", detail: null, givenTo: null, givenElsewhere: null, ownBrandIds: [] },
-    { id: "https://shop.fernhill.example/", label: "https://shop.fernhill.example/", detail: null, givenTo: null, givenElsewhere: null, ownBrandIds: [] },
-    { id: "sc-domain:fernhill-us.example", label: "fernhill-us.example (whole domain)", detail: null, givenTo: null, givenElsewhere: null, ownBrandIds: ["ten_fernhill"] },
+    { id: "sc-domain:fernhill.example", label: "fernhill.example (whole domain)", detail: null, givenTo: { tenantId: "ten_fernhill" }, givenElsewhere: null, ownCount: 0, ownAdminBrandIds: [] },
+    { id: "sc-domain:harbourblooms.example", label: "harbourblooms.example (whole domain)", detail: null, givenTo: null, givenElsewhere: null, ownCount: 0, ownAdminBrandIds: [] },
+    { id: "https://shop.fernhill.example/", label: "https://shop.fernhill.example/", detail: null, givenTo: null, givenElsewhere: null, ownCount: 0, ownAdminBrandIds: [] },
+    { id: "sc-domain:fernhill-us.example", label: "fernhill-us.example (whole domain)", detail: null, givenTo: null, givenElsewhere: null, ownCount: 1, ownAdminBrandIds: ["ten_fernhill"] },
   ];
   const form = (over: Partial<Parameters<typeof GiveForm>[0]> = {}) =>
     textOf(
@@ -279,12 +304,20 @@ describe("giving a brand a part", () => {
   it("warns, without naming it, when another brand reads a site with its own connection, and marks a site not on the brand's own", () => {
     const text = form();
     expect(text).toContain("sc-domain:fernhill-us.example Another brand in Fernhill Group already reads this site with its own connection.");
+    // A brand you don't run reads it: counted, never named, and still warned about.
+    const unnamed = accounts.map((a) => (a.id === "sc-domain:fernhill-us.example" ? { ...a, ownAdminBrandIds: [] } : a));
+    expect(form({ accounts: unnamed })).toContain("sc-domain:fernhill-us.example Another brand in Fernhill Group already reads this site with its own connection.");
+    // The brand it would go to is the only one reading it itself: no warning about another brand.
+    expect(textOf(renderToStaticMarkup(createElement(GiveForm, { ...formProps(), brandId: "ten_fernhill" })))).not.toContain("Another brand in Fernhill Group already reads this site");
     expect(textOf(renderToStaticMarkup(createElement(GiveForm, { ...formProps(), brandId: "ten_fernhill-us" })))).toContain("sc-domain:harbourblooms.example Not on fernhill-us.example.");
   });
 
   it("greys a brand the owner isn't an admin of", () => {
     const notAdmin = screen([SC_SIGNED], { brands: BRANDS.map((b) => (b.id === "ten_harbour" ? { ...b, isAdmin: false } : b)) });
-    expect(textOf(renderToStaticMarkup(createElement(GiveForm, { ...formProps(), screen: notAdmin, brandId: "ten_fernhill-us" })))).toContain("Harbour Blooms You're not an admin of Harbour Blooms.");
+    const out = renderToStaticMarkup(createElement(GiveForm, { ...formProps(), screen: notAdmin, brandId: "ten_fernhill-us" }));
+    expect(textOf(out)).toContain("Harbour Blooms You're not an admin of Harbour Blooms.");
+    // Greyed in the hint colour, as the approved dialog draws it, never a fade that leaves the note hard to read.
+    expect(out).not.toContain("opacity-60");
   });
 
   it("shows no list to an owner who didn't sign in", () => {

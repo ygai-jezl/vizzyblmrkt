@@ -396,6 +396,7 @@ export default function ConnectedDataHelp({
               ["Turned off here", `${CONNECTOR_ERRORS.sharing_off} It comes back as it was when sharing is turned on again.`],
               [PART_COPY.ended, "Your organisation no longer gives it, so it reads nothing. It leaves Connected within the hour, and what was collected for it is deleted."],
               [PART_COPY.pending, "An owner is still giving it. It reads once that finishes."],
+              [PART_COPY.unknownCell, "YouGrow couldn't check it with your organisation just now, so it reads nothing this time. Reload the page in a minute."],
             ]}
           />
         </>

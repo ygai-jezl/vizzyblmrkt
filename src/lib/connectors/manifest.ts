@@ -195,6 +195,12 @@ const TokenFieldsMethodSchema = z
     /** How to make the token, step by step. */
     steps: z.array(Copy()).min(1).max(10),
     /**
+     * How to make one token for an organisation's brands (Connectors 3), step by step, shown instead
+     * of `steps` when an owner connects for the organisation, where nothing is picked: each brand is
+     * given its own part later.
+     */
+    organisationSteps: z.array(Copy()).min(1).max(10).optional(),
+    /**
      * Pick the account from a list after Check, where the token can list them (hooks.accounts):
      * the list's label, and the short note shown when the token can't list them, so the account
      * field is typed instead. Without it, every field is typed and Connect checks them together.
@@ -233,6 +239,8 @@ const ShareAccessMethodSchema = z
     scopes: z.array(HttpsUrl).length(1),
     /** Where to add the address, step by step, in the product's words. */
     steps: z.array(Copy()).min(1).max(8),
+    /** The same for an organisation's address (Connectors 3): added for every brand, then each brand given its part. */
+    organisationSteps: z.array(Copy()).min(1).max(8).optional(),
   })
   .strict();
 

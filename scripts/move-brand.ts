@@ -112,13 +112,14 @@ async function main() {
       say("nothing to change");
       return;
     }
+    // Read raw, as the move decides: an empty org_<id> that doesn't parse is taken up (and cleared) too.
+    const reusedId = await tenantLib.reusableOrganisationId(tenantId);
     const own = await tenantLib.getOrganisation(tenantLib.organisationIdFor(tenantId));
-    const targetId = !own || own.brandIds.length === 0 ? tenantLib.organisationIdFor(tenantId) : `${tenantLib.organisationIdFor(tenantId)}_<6 characters>`;
+    const targetId = reusedId || !own ? tenantLib.organisationIdFor(tenantId) : `${tenantLib.organisationIdFor(tenantId)}_<6 characters>`;
     say(`Would move it to a new organisation of its own, ${targetId}, on ${planById(plan)!.name}.`);
     const changes = showChanges(plan);
     if (from) say(`${from.id} is kept, with ${count(from.brandIds.filter((id) => id !== tenantId).length, "brand")}.`);
     await leaving();
-    const reusedId = own && own.brandIds.length === 0 ? own.id : null;
     const carried = reusedId ? (await tenantLib.listOrganisationConnections(reusedId)).filter((c) => c.status === "connected").length : 0;
     if (carried) say(`${reusedId} still holds ${count(carried, "connection")}: they would be disconnected first, so the brand never takes up a sign in.`);
     const blocked = guardChanges([changes], ALLOW);
@@ -129,7 +130,8 @@ async function main() {
     }
     if (blocked) refuse(TOOL, blocked);
     if (reusedId) await orgConnections.clearOrganisationIdForReuse(reusedId, actor!);
-    const res = await tenantLib.moveBrandToNewOrganisation(tenantId, { plan, actor: actor! });
+    // takeUp: only the id just cleared may be taken up again; any other existing one is passed over.
+    const res = await tenantLib.moveBrandToNewOrganisation(tenantId, { plan, actor: actor!, takeUp: reusedId });
     if (!res) refuse(TOOL, `${tenantId} went missing.`);
     say(res.moved ? `done: ${tenantId} is in ${res.organisationId} on ${planById(plan)!.name}.` : `${tenantId} is on its own in ${res.organisationId} already; nothing changed.`);
     if (res.moved) await afterMove();

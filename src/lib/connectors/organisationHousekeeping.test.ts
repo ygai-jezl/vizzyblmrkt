@@ -4,7 +4,8 @@ import { failingFirestore } from "@/lib/tenant/testing/failingFirestore";
 import type { DataConnection } from "@/lib/types/dataConnection";
 import type { Region, Tenant } from "@/lib/types/tenant";
 import { LANE, runConnectorsLane } from "./collect/tick";
-import { clearOrganisationIdForReuse, disconnectEmptiedOrganisation, disconnectOrganisationConnection, endBrandParts, partHousekeeping, sweepOrganisationConnections } from "./organisation";
+import { clearOrganisationIdForReuse, disconnectEmptiedOrganisation, disconnectOrganisationConnection, endBrandParts, partHousekeeping, sweepOrganisationConnections, sweepStart } from "./organisation";
+import { checkPart, PartCache } from "./sources";
 import { ACCESS_SLOT, REFRESH_SLOT } from "./tokenKeeper";
 import { openConnectorSecret, sealConnectorSecret } from "./vault";
 import { EU_BRAND, OCN, ORG, OTHER_ORG, orgWorld, seedFernhill, seedOrganisation, seedPart, seedSource, seedTenant, T0, US_BRAND, USE_EU, USE_US, type OrgWorld } from "./testing/organisation";
@@ -64,13 +65,13 @@ describe("Disconnect at the organisation", () => {
       secrets: { [ACCESS_SLOT]: sealConnectorSecret(ORG, G, ACCESS_SLOT, "made-up-access"), [REFRESH_SLOT]: sealConnectorSecret(ORG, G, REFRESH_SLOT, "made-up-refresh") },
     });
     const transport = vi.fn(async (_url: string) => new Response("{}", { status: 200 }));
-    expect((await disconnectOrganisationConnection(g, "usr_priya", deps({ transport }))).revoked).toBe(false);
+    expect((await disconnectOrganisationConnection(g, "usr_priya", deps({ transport }), { revoke: true })).revoked).toBe(false);
     expect(transport).not.toHaveBeenCalled();
 
     const H = "ocn_hhhhhhhhhhhhhhhhhhhh";
     const h = await seedSource(w, { id: H, connectorId: "search-console", method: "oauth_pkce", label: "Search Console", signerUid: "usr_priya", secrets: { [REFRESH_SLOT]: sealConnectorSecret(ORG, H, REFRESH_SLOT, "made-up-refresh-2") } });
     vi.stubEnv("CONNECTOR_GOOGLE_REVOKE_ENABLED", "true");
-    expect((await disconnectOrganisationConnection(h, "usr_priya", deps({ transport }))).revoked).toBe(true);
+    expect((await disconnectOrganisationConnection(h, "usr_priya", deps({ transport }), { revoke: true })).revoked).toBe(true);
     expect(String(transport.mock.calls[0]![0])).toContain("oauth2.googleapis.com/revoke");
 
     const S = "ocn_ssssssssssssssssssss";
@@ -108,6 +109,18 @@ describe("moves never leave a sign in behind", () => {
         [U, "disconnected", 0],
       ]),
     );
+  });
+
+  it("never revokes a Google sign in for a disconnect nobody asked for, even with revoke on", async () => {
+    vi.stubEnv("CONNECTOR_GOOGLE_REVOKE_ENABLED", "true");
+    const G = "ocn_gggggggggggggggggggg";
+    await seedSource(w, { id: G, connectorId: "search-console", method: "oauth_pkce", label: "Search Console", signerUid: "usr_priya", secrets: { [REFRESH_SLOT]: sealConnectorSecret(ORG, G, REFRESH_SLOT, "made-up-refresh") } });
+    seedOrganisation(w, ORG, []);
+    const transport = vi.fn(async (_url: string) => new Response("{}", { status: 200 }));
+    // A move that empties the organisation, an id taken up again, and the lane's sweep: secrets emptied, nothing revoked.
+    expect(await disconnectEmptiedOrganisation(ORG, "script:ops", deps({ transport }))).toBe(2);
+    expect(transport).not.toHaveBeenCalled();
+    expect((await orgRecord(G))!.secrets).toEqual({});
   });
 
   it("an emptied organisation taken up again has no live connection and no secret that opens", async () => {
@@ -148,6 +161,44 @@ describe("the brand side of housekeeping", () => {
     expect(await record(US_BRAND, USE_US)).toMatchObject({ status: "connected" });
   });
 
+  it("never ends a part on a stale cache: a part given while the lane ran survives", async () => {
+    // The lane's run wide cache read the record when only Fernhill Plants had a part.
+    const { endPart } = await import("@/lib/tenant");
+    await endPart({ source, brand: US_BRAND, useId: USE_US, by: "usr_priya", at: T0, code: "part_ended" }, { regionDb: w.regionDb });
+    const cache = new PartCache();
+    expect((await checkPart(ctx(EU_BRAND), (await record(EU_BRAND, USE_EU))!, { ...deps(), partCache: cache })).live).toBe(true);
+    // Meanwhile an owner gives Fernhill US a part, all three steps.
+    const NEW_US = "dcn_nnnnnnnnnnnnnnnnnnnn";
+    await seedPart(w, source, US_BRAND, { useId: NEW_US, account: ZONE_US });
+    expect(await partHousekeeping(ctx(US_BRAND), await conns(US_BRAND), deps({ partCache: cache }))).toEqual({ ended: 0, dropped: 0 });
+    expect(await record(US_BRAND, NEW_US)).toMatchObject({ status: "connected" });
+    expect((await orgRecord())!.parts.find((p) => p.tenantId === US_BRAND.tenantId)).toMatchObject({ useId: NEW_US, state: "active" });
+  });
+
+  it("never ends a part on a stale read: a part changed while the lane ran survives, and a real difference still ends", async () => {
+    const NEW_ZONE = "0123456789abcdef0123456789abcd03";
+    const cache = new PartCache();
+    const stale = await conns(US_BRAND);
+    expect((await checkPart(ctx(US_BRAND), stale.find((c) => c.id === USE_US)!, { ...deps(), partCache: cache })).live).toBe(true);
+    // An owner changes Fernhill US's zone: the brand record and the entry both read the new one, just now.
+    w.us.seed("data_connections", USE_US, { ...w.us.raw("data_connections", USE_US)!, account: NEW_ZONE });
+    await changeOrganisationConnection(ORG, OCN, "eu", (cur) => ({ patch: { parts: cur.parts.map((p) => (p.useId === USE_US ? { ...p, account: NEW_ZONE, stateSince: NOW.toISOString() } : p)) }, activity: [] }), { regionDb: w.regionDb });
+    expect((await partHousekeeping(ctx(US_BRAND), stale, deps({ partCache: cache }))).ended).toBe(0);
+    expect(await record(US_BRAND, USE_US)).toMatchObject({ status: "connected", account: NEW_ZONE });
+    // An entry that names another zone than the brand record reads, for longer than 10 minutes, is evidence.
+    await changeOrganisationConnection(ORG, OCN, "eu", (cur) => ({ patch: { parts: cur.parts.map((p) => (p.useId === USE_US ? { ...p, account: ZONE_US, stateSince: T0 } : p)) }, activity: [] }), { regionDb: w.regionDb });
+    expect((await partHousekeeping(ctx(US_BRAND), await conns(US_BRAND), deps())).ended).toBe(1);
+    expect(await record(US_BRAND, USE_US)).toMatchObject({ status: "disconnected" });
+  });
+
+  it("ends a suspended brand's part when its organisation disconnected it, and nothing else of it", async () => {
+    seedTenant(w, US_BRAND, ORG, { status: "suspended" });
+    expect((await partHousekeeping(ctx(US_BRAND), await conns(US_BRAND), deps())).ended).toBe(0);
+    await changeOrganisationConnection(ORG, OCN, "eu", () => ({ patch: { status: "disconnected" }, activity: [] }), { regionDb: w.regionDb });
+    expect((await partHousekeeping(ctx(US_BRAND), await conns(US_BRAND), deps())).ended).toBe(1);
+    expect(await record(US_BRAND, USE_US)).toMatchObject({ status: "disconnected" });
+  });
+
   it("drops the stale entry of a part whose brand record was disconnected another way", async () => {
     const { changeDataConnection } = await import("@/lib/tenant");
     await changeDataConnection(ctx(US_BRAND), USE_US, () => ({ patch: { status: "disconnected" }, activity: [] }), w.us);
@@ -172,6 +223,22 @@ describe("the lane's sweep", () => {
     expect(await sweepOrganisationConnections({ deadlineMs: NOW.getTime() + 25_000, clock: () => NOW.getTime() }, deps())).toEqual({ disconnected: 0, repaired: 1 });
     expect((await orgRecord())!.parts.find((p) => p.tenantId === US_BRAND.tenantId)!.state).toBe("active");
     expect((await orgRecord())!.status).toBe("connected");
+  });
+
+  it("starts somewhere new each run and wraps round, so every record is reached", async () => {
+    expect(sweepStart(0)).toBe("ocn_2");
+    expect(sweepStart(30 * 60_000)).toBe("ocn_3");
+    expect(new Set(Array.from({ length: 32 }, (_, i) => sweepStart(i * 30 * 60_000))).size).toBe(32);
+    // Two emptied organisations' records either side of where this run starts: both are swept.
+    const clock = () => NOW.getTime();
+    const start = sweepStart(clock());
+    const before = `ocn_2${"a".repeat(19)}`;
+    const after = `ocn_z${"a".repeat(19)}`;
+    expect(before < start && after > start).toBe(true);
+    seedOrganisation(w, "org_ten_gone", [], [], "Gone Co");
+    for (const id of [before, after]) await seedSource(w, { id, organisationId: "org_ten_gone", connectedFromTenantId: "ten_gone" });
+    expect((await sweepOrganisationConnections({ deadlineMs: clock() + 25_000, clock }, deps())).disconnected).toBe(2);
+    for (const id of [before, after]) expect((await getOrganisationConnection("org_ten_gone", id, "eu", { regionDb: w.regionDb }))!.status).toBe("disconnected");
   });
 
   it("decides nothing when the organisation can't be read", async () => {
@@ -211,6 +278,67 @@ describe("the lane with shared connections", () => {
     expect(collect).toHaveBeenCalledTimes(2);
     expect((await orgRecord())!.parts.map((p) => p.state)).toEqual(["active", "active"]);
     expect(await record(US_BRAND, USE_US)).toMatchObject({ status: "connected" });
+  });
+
+  it("never puts a Google Analytics part's numbers in a Search Console suggestion while the part reads nothing", async () => {
+    for (const on of ["CONNECTORS_ENABLED", "CONNECTORS_COLLECT_ENABLED", "CONNECTOR_SIGNALS_ENABLED", "PLANS_ENABLED"]) vi.stubEnv(on, "true");
+    const { createDataConnection } = await import("@/lib/tenant");
+    const { freshCollect } = await import("@/lib/types/dataConnection");
+    const G = "ocn_gggggggggggggggggggg";
+    const GA_US = "dcn_gggggggggggggggggggg";
+    const SC_US = "dcn_ssssssssssssssssssss";
+    const ga = await seedSource(w, { id: G, connectorId: "google-analytics", method: "share_access", label: "Google Analytics 4" });
+    await seedPart(w, ga, US_BRAND, { useId: GA_US, account: "properties/123456789", connectorId: "google-analytics", method: "share_access" });
+    const grants = [
+      { to: "members" as const, can: "read" as const },
+      { to: "agent:vizzy" as const, can: "read" as const },
+    ];
+    const today = new Date(LANE_TICK).toISOString().slice(0, 10);
+    await createDataConnection(
+      { ...US_BRAND, source: "system" },
+      {
+        id: SC_US,
+        connectorId: "search-console",
+        method: "share_access",
+        label: "Search Console",
+        account: "sc-domain:fernhill-us.example",
+        ownerUid: "usr_priya",
+        grants,
+        secrets: {},
+        health: { state: "ok", lastOkAt: T0, lastCheckedAt: T0, lastErrorCode: null, failures: 0, pausedUntil: null },
+        pausedAt: null,
+        pausedBy: null,
+        status: "connected",
+        createdAt: T0,
+        updatedAt: T0,
+        disconnectedAt: null,
+        collect: { ...freshCollect(), lastDay: "1969-12-30", rolledOn: today },
+      },
+      [],
+      w.us,
+    );
+    const seen: string[][] = [];
+    const detect = vi.fn(async (_ctx: unknown, _c: unknown, others: readonly DataConnection[]) => {
+      seen.push(others.map((o) => o.id).sort());
+      return { status: "nothing" as const, fired: { rising_search: 0, losing_page: 0, within_reach: 0 }, checked: [], proposed: 0, refreshed: 0, stale: 0 };
+    });
+    vi.stubEnv("CONNECTORS_SHARING_ENABLED", "false");
+    await lane({ detect });
+    expect(seen.at(-1)).not.toContain(GA_US);
+    expect(seen.at(-1)).toContain(SC_US);
+    vi.stubEnv("CONNECTORS_SHARING_ENABLED", "true");
+    await lane({ detect });
+    expect(seen.at(-1)).toContain(GA_US);
+  });
+
+  it("gives a suspended brand its parts' housekeeping only", async () => {
+    vi.stubEnv("CONNECTORS_ENABLED", "true");
+    await changeOrganisationConnection(ORG, OCN, "eu", () => ({ patch: { status: "disconnected" }, activity: [] }), { regionDb: w.regionDb });
+    const collect = vi.fn(async () => ({ status: "nothing" as const, days: 0 }));
+    const r = await lane({ collect, listTenants: () => Promise.resolve([{ id: US_BRAND.tenantId, region: "us", status: "suspended", organisationId: ORG } as Tenant]) });
+    expect(r).toMatchObject({ brands: 0, partsEnded: 1 });
+    expect(collect).not.toHaveBeenCalled();
+    expect(await record(US_BRAND, USE_US)).toMatchObject({ status: "disconnected" });
   });
 
   it("ends a part whose brand left and sweeps an emptied organisation, with sharing off", async () => {

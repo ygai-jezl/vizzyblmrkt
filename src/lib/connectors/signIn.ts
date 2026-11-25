@@ -27,6 +27,7 @@ import { VERIFY_HOOKS } from "./handlers";
 import { healthyAt } from "./health";
 import { oauthMethod, type ConnectorManifest } from "./manifest";
 import { connectorMessage, type SignInReason } from "./messages";
+import { organisationConnectionRoom } from "./organisation";
 import type { OrganisationOwner } from "./organisationOwner";
 import { getConnector, knownConnector, methodSwitchOn } from "./registry";
 import { newDataConnectionId, outcomePlan, type ServiceDeps, type ServiceResult } from "./service";
@@ -214,6 +215,8 @@ export async function startOrganisationSignIn(
     const src = await findOrganisationConnection(owner.organisation.id, sourceId, storesOf(deps));
     if (!src || src.connectorId !== m.id || src.status !== "connected") return refused(404, "not_found");
     if (src.method !== "oauth_pkce") return refused(400, "method_not_supported");
+  } else if (!(await organisationConnectionRoom(owner.organisation.id, m.id, deps))) {
+    return refused(409, "org_connection_limit", connectorMessage("org_connection_limit"));
   }
 
   const now = deps.now ?? new Date();
@@ -253,7 +256,7 @@ export async function startOrganisationSignIn(
  */
 export type FinishedSignIn =
   | { ok: true; connectorId: string; connectionId: string; reconnected: boolean; cookieName: string; organisation?: true; unreadable?: number }
-  | { ok: false; reason: SignInReason; connectorId: string | null; cookieName: string | null };
+  | { ok: false; reason: SignInReason; connectorId: string | null; cookieName: string | null; organisation?: true };
 
 interface SignedState {
   t: string;
@@ -307,7 +310,8 @@ export async function finishSignIn(
   if (!state) return { ok: false, reason: "bad_state", connectorId: null, cookieName: null };
   const cookieName = stateCookieName(state.n);
   const connectorId = knownConnector(state.c) ? state.c : null;
-  const fail = (reason: SignInReason): FinishedSignIn => ({ ok: false, reason, connectorId, cookieName });
+  // A sign in started for the organisation says so when it fails, so the owner goes back to Settings › Organisation.
+  const fail = (reason: SignInReason): FinishedSignIn => ({ ok: false, reason, connectorId, cookieName, ...(state.o ? { organisation: true as const } : {}) });
 
   if (state.t !== ctx.tenantId) return fail("bad_state");
   const uid = actor.kind === "human" ? actor.uid : "";

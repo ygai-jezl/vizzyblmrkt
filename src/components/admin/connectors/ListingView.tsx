@@ -248,7 +248,7 @@ function SignInCard({
   );
 }
 
-function ShareCard({
+export function ShareCard({
   listing,
   isAdmin,
   afterSignIn,
@@ -329,7 +329,7 @@ function ShareCard({
       <Title id="connect-share" className={H3}>
         {afterSignIn ? LISTING_COPY.shareTitleOr : LISTING_COPY.shareTitle}
       </Title>
-      <p className="text-sm leading-relaxed text-neutral-700 dark:text-neutral-300">{LISTING_COPY.shareLead}</p>
+      <p className="text-sm leading-relaxed text-neutral-700 dark:text-neutral-300">{org ? CONNECT_FOR_COPY.shareLead(org.name) : LISTING_COPY.shareLead}</p>
       {!isAdmin ? (
         <p className={HINT}>{LISTING_COPY.adminsOnly}</p>
       ) : !made ? (
@@ -348,7 +348,7 @@ function ShareCard({
                 </button>
               </span>
             </li>
-            {method.steps.map((step) => (
+            {(org ? (method.organisationSteps ?? method.steps) : method.steps).map((step) => (
               <li key={step}>{step}</li>
             ))}
           </ol>
@@ -581,7 +581,7 @@ function TokenCard({
  * A pasted token for the organisation: only its secret fields, since each brand gets its own zone
  * later. YouGrow checks it by listing the zones it reaches, then seals it for the organisation.
  */
-function OrgTokenCard({ listing, heading: Title, org }: { listing: ConnectorListing; heading: CardHeading; org: OrganisationListing }) {
+export function OrgTokenCard({ listing, heading: Title, org }: { listing: ConnectorListing; heading: CardHeading; org: OrganisationListing }) {
   const router = useRouter();
   const method = tokenMethodOf(listing)!;
   const secretFields = method.fields.filter((f) => f.secret);
@@ -610,12 +610,13 @@ function OrgTokenCard({ listing, heading: Title, org }: { listing: ConnectorList
       <Title id="connect-token" className={H3}>
         {LISTING_COPY.tokenTitle}
       </Title>
+      {/* The organisation's own steps: no Check and no zone to pick here, each brand gets its zone later. */}
       <ol className="list-decimal space-y-1.5 pl-5 text-sm leading-relaxed text-neutral-700 dark:text-neutral-300">
-        {method.steps.map((step) => (
+        {(method.organisationSteps ?? method.steps).map((step) => (
           <li key={step}>{step}</li>
         ))}
       </ol>
-      <p className={NOTE_WARN}>{CONNECT_FOR_COPY.tokenHint(org.name)}</p>
+      {method.organisationSteps ? null : <p className={NOTE_WARN}>{CONNECT_FOR_COPY.tokenHint(org.name)}</p>}
       {method.tokenLink ? (
         <a href={method.tokenLink} target="_blank" rel="noreferrer" className="inline-block text-sm font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-400">
           Open {listing.name} with the form filled in

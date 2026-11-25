@@ -26,7 +26,8 @@ async function soft<T>(what: string, load: () => Promise<T>): Promise<T | null> 
  * Settings › Organisation, read on the server for an owner: Shared connections while sharing is on
  * (CONNECTORS_SHARING_ENABLED), the organisation's connections from every region and who gets which
  * part, and Brands while the join is on (ORGANISATION_JOIN_ENABLED), its brands with Bring in and
- * Move out. A connect or sign in for the organisation comes back here (`status`, `connection`).
+ * Move out. A connect or sign in for the organisation comes back here (`status`, `connection`, and
+ * `reason` when it didn't finish).
  */
 export default async function OrganisationPage({ searchParams }: Props) {
   const owner: OrganisationOwner | null = await loadOrganisationPageOwner();
@@ -41,7 +42,7 @@ export default async function OrganisationPage({ searchParams }: Props) {
     <div className="space-y-8">
       {sections.sharing ? (
         shared ? (
-          <SharedConnectionsView screen={shared} back={{ status: one(sp.status), connection: one(sp.connection) }} now={new Date().toISOString()} />
+          <SharedConnectionsView screen={shared} back={{ status: one(sp.status), connection: one(sp.connection), reason: one(sp.reason) }} now={new Date().toISOString()} />
         ) : (
           <p role="alert" className={NOTE_ERR}>
             {SHARED_COPY.failed}

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createOrganisationConnection, forTenant, getOrganisationConnection, type SourceRef, type TenantContext } from "@/lib/tenant";
+import { createOrganisationConnection, endPart, forTenant, getOrganisationConnection, type SourceRef, type TenantContext } from "@/lib/tenant";
+import { organisationBrands, sharedConnectionView } from "./organisationConnect";
 import type { DataConnection } from "@/lib/types/dataConnection";
 import { organisationOwnerOf, type OrganisationOwner } from "./organisationOwner";
 import { changePartOf, givePartTo, listOrganisationAccounts, takeBackPart } from "./organisationParts";
@@ -166,7 +167,47 @@ describe("giving a brand a part", () => {
   });
 });
 
+describe("what owners see after a brand stops using a part", () => {
+  it("says who stopped using it until that brand is given a part again", async () => {
+    const stopped = async () => (await sharedConnectionView(owner, await orgRecord(), await organisationBrands(owner, deps()), deps())).stoppedUsing;
+    await give(US_BRAND.tenantId, ZONE_US);
+    const useId = (await orgRecord()).parts[0]!.useId;
+    await endPart({ source, brand: US_BRAND, useId, by: "usr_leo", at: NOW.toISOString(), code: "stopped_using" }, { regionDb: w.regionDb });
+    expect(await stopped()).toMatchObject({ brandName: "Fernhill US" });
+    await give(US_BRAND.tenantId, ZONE_OLD);
+    expect(await stopped()).toBeNull();
+  });
+});
+
 describe("the list a dialog shows", () => {
+  it("counts a brand the owner doesn't run that reads a part with its own connection, and never sends its id", async () => {
+    // Priya is no longer on Fernhill US's team; Fernhill US reads the old zone with its own connection.
+    w.us.seed("tenant_users", "priya-us", { userId: "usr_priya", tenantId: US_BRAND.tenantId, role: "member", joinedAt: T0 });
+    w.us.seed("data_connections", "dcn_ownownownownownownown", {
+      tenantId: US_BRAND.tenantId,
+      connectorId: "cloudflare",
+      method: "token_fields",
+      label: "Cloudflare",
+      account: ZONE_OLD,
+      ownerUid: "usr_leo",
+      grants: [],
+      secrets: {},
+      health: { state: "ok", lastOkAt: T0, lastCheckedAt: T0, lastErrorCode: null, failures: 0, pausedUntil: null },
+      pausedAt: null,
+      pausedBy: null,
+      status: "connected",
+      createdAt: T0,
+      updatedAt: T0,
+      disconnectedAt: null,
+      recent: [],
+    });
+    const r = await listOrganisationAccounts(await ownerOf(priyaCtx), OCN, deps());
+    expect(r.ok).toBe(true);
+    const old = (r.ok ? r.value.accounts : []).find((a) => a.id === ZONE_OLD)!;
+    expect(old).toMatchObject({ ownCount: 1, ownAdminBrandIds: [] });
+    expect(JSON.stringify(r.ok ? r.value : null)).not.toContain(US_BRAND.tenantId);
+  });
+
   it("marks what is given here or elsewhere and which brands read it with their own connection", async () => {
     await give(US_BRAND.tenantId, ZONE_US);
     w.eu.seed("data_connections", "dcn_ownownownownownownown", {
@@ -190,9 +231,9 @@ describe("the list a dialog shows", () => {
     const r = await listOrganisationAccounts(owner, OCN, deps());
     expect(r.ok).toBe(true);
     const byId = new Map((r.ok ? r.value.accounts : []).map((a) => [a.id, a]));
-    expect(byId.get(ZONE_US)).toMatchObject({ givenTo: { tenantId: US_BRAND.tenantId }, givenElsewhere: null, ownBrandIds: [] });
-    expect(byId.get(ZONE_OLD)).toMatchObject({ givenTo: null, ownBrandIds: [EU_BRAND.tenantId] });
-    expect(byId.get(ZONE_EU)).toMatchObject({ givenTo: null, givenElsewhere: null, ownBrandIds: [] });
+    expect(byId.get(ZONE_US)).toMatchObject({ givenTo: { tenantId: US_BRAND.tenantId }, givenElsewhere: null, ownCount: 0, ownAdminBrandIds: [] });
+    expect(byId.get(ZONE_OLD)).toMatchObject({ givenTo: null, ownCount: 1, ownAdminBrandIds: [EU_BRAND.tenantId] });
+    expect(byId.get(ZONE_EU)).toMatchObject({ givenTo: null, givenElsewhere: null, ownCount: 0, ownAdminBrandIds: [] });
   });
 
   it("for a Google sign in, shows its list and lets it give only to the owner who signed in", async () => {

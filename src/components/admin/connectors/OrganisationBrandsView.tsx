@@ -34,8 +34,8 @@ const DANGER = `${BUTTON} border-red-300 text-red-700 dark:border-red-900 dark:t
 const SMALL = "px-2 py-1 text-xs";
 
 /**
- * The organisation's brands as a table: name, region, the parts given to it, and Move out, which a
- * brand alone in its organisation doesn't have. No hooks, so a test can draw it.
+ * The organisation's brands as a table: name, region, the parts given to it (while sharing is on),
+ * and Move out, which a brand alone in its organisation doesn't have. No hooks, so a test can draw it.
  */
 export function BrandsTable({ screen, onMove, busy = false }: { screen: OrganisationBrandsScreen; onMove?: (id: string) => void; busy?: boolean }) {
   const canMove = screen.brands.length > 1;
@@ -46,7 +46,7 @@ export function BrandsTable({ screen, onMove, busy = false }: { screen: Organisa
           <tr>
             <th className={TH}>{BRANDS_COPY.brand}</th>
             <th className={TH}>{BRANDS_COPY.region}</th>
-            <th className={TH}>{BRANDS_COPY.parts}</th>
+            {screen.sharing ? <th className={TH}>{BRANDS_COPY.parts}</th> : null}
             <th className={TH}>
               <span className="sr-only">{BRANDS_COPY.actions}</span>
             </th>
@@ -60,7 +60,7 @@ export function BrandsTable({ screen, onMove, busy = false }: { screen: Organisa
                 {b.isThis ? <span className={CHIP}>{BRANDS_COPY.thisBrand}</span> : null}
               </td>
               <td className={TD}>{b.regionName}</td>
-              <td className={TD}>{b.parts ? String(b.parts.length) : <span className={HINT}>{BRANDS_COPY.couldntCount}</span>}</td>
+              {screen.sharing ? <td className={TD}>{b.parts ? String(b.parts.length) : <span className={HINT}>{BRANDS_COPY.couldntCount}</span>}</td> : null}
               <td className={`${TD} w-px whitespace-nowrap text-right`}>
                 {canMove ? (
                   <button type="button" className={`${BUTTON} ${SMALL}`} aria-haspopup="dialog" aria-label={moveOutTitleWords(b.name)} disabled={busy} onClick={() => onMove?.(b.id)}>
@@ -129,7 +129,7 @@ export function MoveOutBody({ screen, b, error }: { screen: OrganisationBrandsSc
           {moveRefusalWords(b.name, b.moveRefusal)}
         </p>
       ) : (
-        <p className="text-sm text-neutral-700 dark:text-neutral-300">{moveOutTextWords(b, screen.organisation.name, screen.organisation.planName, screen.brands)}</p>
+        <p className="text-sm text-neutral-700 dark:text-neutral-300">{moveOutTextWords(b, screen.organisation.name, screen.organisation.planName, screen.brands, screen.sharing)}</p>
       )}
       {error ? (
         <p role="alert" className={NOTE_ERR}>

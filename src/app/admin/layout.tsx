@@ -197,6 +197,8 @@ export default async function AdminLayout({
             connectorsSearchText={isConnectorsSearchTextEnabled()}
             connectorSignals={isConnectorSignalsEnabled()}
             brandMapScale={isBrandMapScaleEnabled()}
+            sharing={isConnectorsSharingEnabled()}
+            join={isOrganisationJoinEnabled()}
           >
             {shell}
           </ShellProvider>

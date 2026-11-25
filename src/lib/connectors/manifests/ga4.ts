@@ -63,6 +63,11 @@ export const ga4Manifest = {
         "Press Add, then Add users. Paste the address YouGrow shows, choose the Viewer role, then press Add.",
         "Back in YouGrow, press Check access, then pick the property.",
       ],
+      organisationSteps: [
+        "In Google Analytics, open Admin. Open Account access management to reach every property in the account, or pick one property and open Property access management.",
+        "Press Add, then Add users. Paste the address YouGrow shows, choose the Viewer role, then press Add. Do this for every property you want to give a brand.",
+        "Back in YouGrow, press Check access, then give each brand its property on Settings › Organisation.",
+      ],
     },
   ],
   api: {

@@ -212,6 +212,27 @@ describe("kept conversations", () => {
     expect((await getConversation(A, fresh.id, deps(db)))?.status).toBe("live");
   });
 
+  it("sets the seconds to count once, as it ends: the time open by the server's clock, at most 6 minutes", async () => {
+    const db = brandDb();
+    const c = await started(db);
+    const r = await endConversation(A, c.id, { reason: "person" }, deps(db, T0 + 252_400));
+    expect(r.ok && r.value.conversation.meteredSeconds).toBe(252);
+    // Ending again leaves them as they were.
+    const again = await endConversation(A, c.id, { reason: "person" }, deps(db, T0 + 600_000));
+    expect(again.ok && again.value.conversation.meteredSeconds).toBe(252);
+    const long = await started(db);
+    const late = await endConversation(A, long.id, { reason: "time" }, deps(db, T0 + 7 * 60_000));
+    expect(late.ok && late.value.conversation.meteredSeconds).toBe(ONBOARDING_LIMITS.MAX_CALL_SEC);
+    // A call left open counts its token's whole life.
+    const open = await started(db);
+    const [closed] = await closeStaleConversations(A, deps(db, T0 + 30 * 60_000));
+    expect(closed).toMatchObject({ id: open.id, meteredSeconds: 360 });
+    // A chat counts none.
+    const chat = await startConversation(A, { model: "text-model", source: "chat" }, deps(db));
+    const ended = chat.ok ? await endConversation(A, chat.value.id, { reason: "person" }, deps(db, T0 + 90_000)) : null;
+    expect(ended?.ok && ended.value.conversation.meteredSeconds).toBe(0);
+  });
+
   it("keeps what learning gave once, counting each try", async () => {
     const db = brandDb();
     const c = await started(db);

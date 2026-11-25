@@ -44,6 +44,7 @@ import {
 import { NotesRestSchema, type NotesRest } from "@/lib/types/brandNote";
 import {
   BusinessProfileSchema,
+  OnboardingVoiceDaySchema,
   PROFILE_KEYS,
   ProfileAnswersInputSchema,
   ProfileStatus,
@@ -51,6 +52,8 @@ import {
   type BusinessProfile,
   type ProfileAnswers,
   type ProfileAnswersInput,
+  VOICE_DAY,
+  type OnboardingVoiceDay,
 } from "@/lib/types/businessProfile";
 
 /**
@@ -720,6 +723,72 @@ export async function bumpBusinessProfileRev(
     const rev = before.rev + 1;
     tx.update(ref, { businessProfile: JSON.parse(JSON.stringify({ ...before, rev, updatedAt: now })), updatedAt: now });
     return rev;
+  });
+}
+
+/** Today's voice calls as stored, or a fresh day when the stored one is another day or damaged. */
+function voiceDay(raw: unknown, day: string): OnboardingVoiceDay {
+  const parsed = OnboardingVoiceDaySchema.safeParse(raw);
+  return parsed.success && parsed.data.day === day ? parsed.data : { day, starts: 0, done: false };
+}
+
+/**
+ * Talk with Vizzy's daily allowance (ONBOARDING_VOICE_ENABLED): take one start for `day` (UTC,
+ * voiceDayOf) in a transaction. "done_today" once a call where someone spoke has ended today,
+ * "too_many" after 3 starts, "missing" with no such brand. Only "ok" writes.
+ */
+export async function claimVoiceStart(
+  id: string,
+  day: string,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<"ok" | "done_today" | "too_many" | "missing"> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return "missing";
+    const today = voiceDay(snap.data()?.onboardingVoice, day);
+    if (today.done) return "done_today";
+    if (today.starts >= VOICE_DAY.MAX_STARTS) return "too_many";
+    tx.update(ref, { onboardingVoice: { ...today, starts: today.starts + 1 } });
+    return "ok";
+  });
+}
+
+/** Give a start back (the token couldn't be made). Only for that day; never below none. */
+export async function releaseVoiceStart(
+  id: string,
+  day: string,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<boolean> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return false;
+    const stored = OnboardingVoiceDaySchema.safeParse(snap.data()?.onboardingVoice);
+    if (!stored.success || stored.data.day !== day || stored.data.starts <= 0) return false;
+    tx.update(ref, { onboardingVoice: { ...stored.data, starts: stored.data.starts - 1 } });
+    return true;
+  });
+}
+
+/**
+ * A call where someone spoke has ended: that was the brand's call for `day` (the day it started).
+ * A day that is no longer the stored one changes nothing.
+ */
+export async function markVoiceDone(
+  id: string,
+  day: string,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+): Promise<boolean> {
+  const ref = db.collection("tenants").doc(id);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return false;
+    const stored = OnboardingVoiceDaySchema.safeParse(snap.data()?.onboardingVoice);
+    if (!stored.success || stored.data.day !== day) return false;
+    if (stored.data.done) return true;
+    tx.update(ref, { onboardingVoice: { ...stored.data, done: true } });
+    return true;
   });
 }
 

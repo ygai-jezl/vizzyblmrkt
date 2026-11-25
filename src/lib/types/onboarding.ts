@@ -29,6 +29,8 @@ export const ONBOARDING_LIMITS = {
   MAX_CONVERSATIONS: 20,
   /** How long a call may add words: the 6 minute token plus 2 minutes to send the rest. */
   LIVE_WINDOW_MS: 8 * 60_000,
+  /** The most seconds a call counts in the usage meter: its token's whole life (src/lib/onboarding/voice/config.ts). */
+  MAX_CALL_SEC: 360,
   /** Tries at learning from one conversation. */
   MAX_LEARN_TRIES: 3,
   /** Facts learned from one conversation (ids f0 to f7). */

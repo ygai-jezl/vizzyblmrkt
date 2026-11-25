@@ -52,6 +52,12 @@ export const EBOOK_IMAGE_MODEL =
 export const DEFAULT_LIVE_MODEL = "gemini-3.1-flash-live-preview";
 export const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL ?? DEFAULT_LIVE_MODEL;
 
+/** Talk with Vizzy, the voice call on the welcome (ONBOARDING_VOICE_ENABLED, src/lib/onboarding/voice).
+ *  A stable Live model with non-blocking function calls, which the call's silent notes need. The
+ *  waitlist's voice chat keeps LIVE_MODEL. */
+export const DEFAULT_ONBOARDING_LIVE_MODEL = "gemini-3.8-live";
+export const ONBOARDING_LIVE_MODEL = process.env.GEMINI_ONBOARDING_LIVE_MODEL ?? DEFAULT_ONBOARDING_LIVE_MODEL;
+
 /**
  * Resolve an operator-selected image-model SLUG (see lib/content/create/imageModels.ts) to the
  * actual, env-overridable model id. Keeps model selection env-configurable and off the client:

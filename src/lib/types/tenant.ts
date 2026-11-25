@@ -4,7 +4,7 @@ import { z } from "zod";
 import { ImageStyleSuggestionSchema, StoredImageStyleSchema } from "./imageStyle";
 import { NotesRestSchema } from "./brandNote";
 import { PlanIdSchema } from "./organisation";
-import { BusinessProfileSchema } from "./businessProfile";
+import { BusinessProfileSchema, OnboardingVoiceDaySchema } from "./businessProfile";
 
 /**
  * Core tenant (brand / workspace). Lives in the root-level `tenants` collection.
@@ -799,6 +799,9 @@ export const TenantSchema = z.object({
   /** What an admin told Vizzy about the business: the four answers and how far the welcome got
    *  (ONBOARDING_ENABLED, src/lib/types/businessProfile.ts). Unset: never started. Damaged reads as none. */
   businessProfile: BusinessProfileSchema.optional().catch(undefined),
+  /** Today's Talk with Vizzy calls (ONBOARDING_VOICE_ENABLED): one finished call and 3 starts per UTC
+   *  day (src/lib/types/businessProfile.ts). Unset or damaged: none today. */
+  onboardingVoice: OnboardingVoiceDaySchema.optional().catch(undefined),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

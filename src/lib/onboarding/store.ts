@@ -70,6 +70,16 @@ function keptTurn(t: VoiceTurn): ConversationTurn | null {
 
 const charsOf = (turns: readonly ConversationTurn[]) => turns.reduce((n, t) => n + t.text.length, 0);
 
+/**
+ * The seconds a voice call counts in the usage meter: the time it was open by the server's clock,
+ * from its start to its end, at most its token's 6 minutes. Chat counts none.
+ */
+function meteredSecondsOf(c: Pick<OnboardingConversation, "source" | "startedAt">, endedMs: number): number {
+  if (c.source !== "voice") return 0;
+  const open = Math.floor((endedMs - Date.parse(c.startedAt)) / 1000);
+  return Number.isFinite(open) ? Math.min(L.MAX_CALL_SEC, Math.max(0, open)) : 0;
+}
+
 /** The call's length: its last turn, never more than the time it was open, at most 15 minutes. */
 function lengthOf(turns: readonly ConversationTurn[], startedAt: string, endedMs: number): number {
   const last = turns.reduce((m, t) => Math.max(m, t.atSec), 0);
@@ -187,7 +197,8 @@ export async function appendTurns(
 /**
  * End a conversation (its member only), after an optional last upload, which is dropped when it
  * doesn't fit (a gap, the caps, or the window passed). Ending again changes nothing and says so,
- * so the caller can try learning again.
+ * so the caller can try learning again. The call that ends it sets the seconds to count
+ * (`meteredSeconds`): only that caller records them, so they are counted once.
  */
 export async function endConversation(
   ctx: TenantContext,
@@ -216,6 +227,8 @@ export async function endConversation(
       turns,
       chars: charsOf(turns),
       notes,
+      // Set once, by whatever ends the call: the caller records exactly this in the usage meter.
+      meteredSeconds: meteredSecondsOf(c, now),
     };
   });
   if (out.r) return out.r;
@@ -223,9 +236,15 @@ export async function endConversation(
   return { ok: true, value: { conversation: updated, already: false } };
 }
 
+/** How many conversations the brand keeps (at most 20: a new call waits for a delete). */
+export async function countConversations(ctx: TenantContext, deps: OnboardingDeps = {}): Promise<number> {
+  return conversationsOf(ctx, deps).count();
+}
+
 /**
  * Close the brand's live conversations whose window has passed (a tab closed mid call, with no end
- * sent), as of the end of their window. Returns the ones it closed, so the caller can count them.
+ * sent), as of the end of their window, with the seconds to count. Returns the ones it closed, so
+ * the caller can count them once.
  */
 export async function closeStaleConversations(ctx: TenantContext, deps: OnboardingDeps = {}): Promise<OnboardingConversation[]> {
   const now = nowMs(deps);
@@ -236,7 +255,13 @@ export async function closeStaleConversations(ctx: TenantContext, deps: Onboardi
     const done = await store.claim(s.id, (c) => {
       if (c.status !== "live") return null;
       const endedMs = Math.min(now, Date.parse(c.expiresAt));
-      return { status: "ended" as const, endedAt: iso(endedMs), endReason: "closed" as const, lengthSec: lengthOf(c.turns ?? [], c.startedAt, endedMs) };
+      return {
+        status: "ended" as const,
+        endedAt: iso(endedMs),
+        endReason: "closed" as const,
+        lengthSec: lengthOf(c.turns ?? [], c.startedAt, endedMs),
+        meteredSeconds: meteredSecondsOf(c, endedMs),
+      };
     });
     if (done) closed.push(done);
   }

@@ -57,3 +57,25 @@ export function ok(body: unknown): Response {
 export function badId(what: string): Response {
   return json(400, { error: "invalid_input", issues: [`${what}: not a valid id`] });
 }
+
+/**
+ * A call's upload, read whole and measured before it is parsed: 413 past `maxBytes` (a page sends
+ * its last words as it closes, under the browser's 64 kB limit), 400 when it isn't JSON. An empty
+ * body reads as `{}`.
+ */
+export async function readJsonBody(req: Request, maxBytes: number): Promise<{ ok: true; value: unknown } | { ok: false; response: Response }> {
+  const text = await req.text().catch(() => null);
+  if (text === null) return { ok: false, response: json(400, { error: "invalid_input", issues: ["body: unreadable"] }) };
+  if (new TextEncoder().encode(text).length > maxBytes) return { ok: false, response: json(413, { error: "too_large" }) };
+  if (!text.trim()) return { ok: true, value: {} };
+  try {
+    return { ok: true, value: JSON.parse(text) as unknown };
+  } catch {
+    return { ok: false, response: json(400, { error: "invalid_input", issues: ["body: not JSON"] }) };
+  }
+}
+
+/** Any error, never cached. */
+export function fail(status: number, error: string): Response {
+  return json(status, { error });
+}

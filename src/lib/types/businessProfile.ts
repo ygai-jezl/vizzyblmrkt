@@ -76,3 +76,26 @@ export const BusinessProfileSchema = z.object({
   updatedAt: z.string().max(40).optional().catch(undefined),
 });
 export type BusinessProfile = z.infer<typeof BusinessProfileSchema>;
+
+/** Talk with Vizzy's daily allowance per brand (ONBOARDING_VOICE_ENABLED), by UTC day. */
+export const VOICE_DAY = {
+  /** Starts a day, so a denied microphone or a dropped call doesn't wait for tomorrow. */
+  MAX_STARTS: 3,
+} as const;
+
+/**
+ * `tenant.onboardingVoice`: today's Talk with Vizzy calls for the brand. `done` is set once a call
+ * where someone spoke has ended: one such call a day. A day that isn't today counts as none.
+ * Kept on the brand record so a deleted conversation can't give the day back.
+ */
+export const OnboardingVoiceDaySchema = z.object({
+  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  starts: z.number().int().min(0).max(10),
+  done: z.boolean(),
+});
+export type OnboardingVoiceDay = z.infer<typeof OnboardingVoiceDaySchema>;
+
+/** The UTC day of a time ("2026-11-25"), as the voice allowance counts days. */
+export function voiceDayOf(at: number | string): string {
+  return new Date(at).toISOString().slice(0, 10);
+}

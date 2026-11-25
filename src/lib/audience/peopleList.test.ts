@@ -147,6 +147,19 @@ describe("in more than one launch (LAUNCH_IDEAS_ENABLED)", () => {
   });
 });
 
+describe("an unnamed launch on the list", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("is an Untitled launch, or an Untitled idea while launches are called ideas", async () => {
+    const db = await world();
+    db.seed("campaigns", "camp1", { tenantId: TENANT_ID, waitlistName: "" });
+    expect((await peopleFilters(ctx, db)).launches[0]?.name).toBe("Untitled launch");
+    for (const k of ["NEXT_PUBLIC_NAV_V2_ENABLED", "NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED", "NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED", "NEXT_PUBLIC_NAV_IDEAS_ENABLED", "LAUNCH_IDEAS_ENABLED"]) vi.stubEnv(k, "true");
+    expect((await peopleFilters(ctx, db)).launches[0]?.name).toBe("Untitled idea");
+    expect((await listPeople(ctx, q({ tag: "launch:camp1" }), db)).people[0]?.launches[0]?.name).toBe("Untitled idea");
+  });
+});
+
 describe("isPeopleTag", () => {
   it("accepts the groups the list shows and nothing else", () => {
     for (const ok of ["all", "launch:any", "launch:camp1", "via:site", "product:pcn_1", "stage:pcn_1:stuck", "quiet:pcn_1", "launches:many"]) expect(isPeopleTag(ok)).toBe(true);

@@ -32,6 +32,10 @@ describe("fields from elsewhere", () => {
       ["Voice chat", "text", "Sign-up voice chat", "No"],
     ]);
     expect(readOnlyFieldDefs("person", { campaigns: [], connections: [] }).map((d) => d.label)).not.toContain("Voice chat");
+    // An unnamed launch, in the words in use.
+    const unnamed = { campaigns: [{ id: "camp2", waitlistName: "", questions: [{ question_value: "Your role?", optional: true, answer_value: null }] }], connections: [] };
+    expect(readOnlyFieldDefs("person", unnamed)[1]?.source).toBe("Sign-up answer · A launch");
+    expect(readOnlyFieldDefs("person", unnamed, { ideas: true })[1]?.source).toBe("Sign-up answer · An idea");
     expect(readOnlyFieldDefs("company", { campaigns: [], connections: [] }).every((d) => d.source === "YouGrow" || d.source === "Company enrichment")).toBe(true);
   });
 

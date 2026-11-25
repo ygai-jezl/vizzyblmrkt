@@ -9,6 +9,8 @@ import { isFilterType, liveOptions, type FieldValue, type FieldType, type Record
 import { CHECKED, fieldTag, parseFieldTag } from "./fieldTags";
 import { readFieldList } from "./fieldList";
 import { MANY_LAUNCHES_TAG } from "@/lib/ideas/list";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { ideaWord } from "@/lib/nav/terms";
 
 /**
  * Audience → People (AUDIENCE_ONE_VIEW_ENABLED): one list of everyone a brand knows,
@@ -86,17 +88,18 @@ export interface PeopleRow {
   fields?: Record<string, FieldValue>;
 }
 
-/** Launch and product names by id, for the rows and the filters. */
+/** Launch and product names by id, for the rows and the filters. An unnamed launch names an idea while the words are on. */
 async function sourceNames(ctx: TenantContext, db?: FirestoreLike) {
   const [campaigns, connections] = await Promise.all([forTenant(ctx, db).campaigns.find({ limit: 500 }), loadPeopleConnections(ctx, db)]);
-  const launches = new Map(campaigns.map((c) => [c.id, c.waitlistName || "Untitled launch"]));
+  const word = ideaWord(isIdeaWordsEnabled());
+  const launches = new Map(campaigns.map((c) => [c.id, c.waitlistName || `Untitled ${word.one}`]));
   const products = new Map(
     [...connections.values()].map((c) => {
       const env = environmentOf(c);
       return [c.id, `${productNameOf(c)}${env ? ` · ${ENVIRONMENT_LABEL[env]}` : ""}`];
     }),
   );
-  return { launches, products };
+  return { launches, products, word };
 }
 
 function rowOf(c: Contact, names: Awaited<ReturnType<typeof sourceNames>>, fieldIds?: ReadonlySet<string>): PeopleRow {
@@ -108,7 +111,7 @@ function rowOf(c: Contact, names: Awaited<ReturnType<typeof sourceNames>>, field
     phone: c.email ? null : (c.phone ?? null),
     launches: (c.campaigns ?? [])
       .filter((l) => l.status !== "deleted")
-      .map((l) => ({ id: l.campaignId, name: names.launches.get(l.campaignId) ?? "A launch", status: l.status, via: l.joinedVia ?? "form" })),
+      .map((l) => ({ id: l.campaignId, name: names.launches.get(l.campaignId) ?? names.word.A, status: l.status, via: l.joinedVia ?? "form" })),
     products: (c.products ?? []).map((p) => ({
       id: p.connectionId,
       name: names.products.get(p.connectionId) ?? "A product",

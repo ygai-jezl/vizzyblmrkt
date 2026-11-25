@@ -3,6 +3,7 @@ import { requireAdminContext } from "@/lib/auth/session";
 import { isFieldFiltersEnabled, isFieldsEnabled, isVizzyTextFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { loadPeopleConnections } from "@/lib/audience/personSync";
 import { readOnlyFieldDefs } from "@/lib/audience/readOnlyFields";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { ENVIRONMENT_LABEL, environmentOf, productNameOf } from "@/lib/connect/environments";
 import { forTenant } from "@/lib/tenant";
 import { DataModel } from "@/components/admin/audience/DataModel";
@@ -27,12 +28,13 @@ export default async function DataModelPage() {
     return { id: c.id, catalog: c.catalog, name: `${productNameOf(c)}${env ? ` · ${ENVIRONMENT_LABEL[env]}` : ""}` };
   });
   const sources = { campaigns, connections: named };
+  const ideas = { ideas: isIdeaWordsEnabled() };
   return (
     <DataModel
       canEdit={ctx.role === "admin"}
       filters={isFieldFiltersEnabled()}
       vizzyText={isVizzyTextFieldsEnabled()}
-      readOnly={{ person: readOnlyFieldDefs("person", sources), company: readOnlyFieldDefs("company", sources) }}
+      readOnly={{ person: readOnlyFieldDefs("person", sources, ideas), company: readOnlyFieldDefs("company", sources, ideas) }}
     />
   );
 }

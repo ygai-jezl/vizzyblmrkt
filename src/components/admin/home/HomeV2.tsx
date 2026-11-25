@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
 import { ArrowRight, BookOpen, Check, Lock, TriangleAlert } from "lucide-react";
 import { isSetupGuideEnabled } from "@/lib/help/flags";
@@ -7,6 +8,9 @@ import { isEmailStyleUiEnabled } from "@/lib/email/flags";
 import { isBrandMapUiEnabled } from "@/lib/brandMap/flags";
 import { requireAdminContext } from "@/lib/auth/session";
 import { getTenantById } from "@/lib/tenant";
+import { startBusinessProfile } from "@/lib/tenant/control";
+import { isOnboardingEnabled } from "@/lib/onboarding/flags";
+import { shouldWelcome } from "@/lib/onboarding/firstVisit";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { computeGrowth, nextStepOf, type StageView } from "@/lib/nav/growth";
 import { ideaWord } from "@/lib/nav/terms";
@@ -232,6 +236,15 @@ export async function HomeV2() {
     getTenantById(ctx.tenantId).catch(() => null),
     loadReview(ctx, { lifecycle, includeContent: false }).catch(() => ({ aiLines: 0, items: [] as ReviewItem[] })),
   ]);
+  // A new brand's first admin meets Vizzy first, once per brand: only the call that marks the
+  // profile started redirects, and a failed write shows Home. redirect() throws, so never in a try.
+  if (
+    isOnboardingEnabled() &&
+    shouldWelcome(tenant, signals, ctx.role) &&
+    (await startBusinessProfile(ctx.tenantId).catch(() => false))
+  ) {
+    redirect("/admin/welcome");
+  }
   // Launches are called Ideas (worked out on the server): stage 2, its steps, the tile and the prompts.
   const ideas = isIdeaWordsEnabled();
   const growth = computeGrowth(signals, { ideas });

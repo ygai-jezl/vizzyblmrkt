@@ -14,10 +14,11 @@ import type { GrowthSignals, SetupSignals } from "./growth";
  * mirroring the CRM page's per-tab degradation.
  */
 
-async function soft<T>(label: string, p: Promise<T>, fallback: T): Promise<T> {
+async function soft<T>(label: string, p: Promise<T>, fallback: T, failed?: Set<string>): Promise<T> {
   try {
     return await p;
   } catch (err) {
+    failed?.add(label);
     console.warn(`[growth] ${label} unavailable:`, err instanceof Error ? err.message : err);
     return fallback;
   }
@@ -36,12 +37,14 @@ export async function loadGrowthSignals(
   ctx: TenantContext,
   opts: { lifecycle: boolean; invites?: boolean; setup?: SetupOptions },
   db?: FirestoreLike,
-): Promise<GrowthSignals & { lastEventAt: string | null; catalogSteps: number }> {
+): Promise<GrowthSignals & { lastEventAt: string | null; catalogSteps: number; recordsEver: number | null }> {
   const repos = forTenant(ctx, db);
   const setup = opts.setup ? loadSetupSignals(ctx, opts.setup, db) : Promise.resolve(undefined);
+  // The lists behind recordsEver: a read that fell back to empty makes it unknown, never 0.
+  const failed = new Set<string>();
   const [campaigns, liveWelcome, liveMovedWelcome, verified, unverified, workspaces, posts, newsletters, connections, journeys, invited] =
     await Promise.all([
-      soft("campaigns", repos.campaigns.find({ orderBy: [["createdAt", "desc"]], limit: 100 }), []),
+      soft("campaigns", repos.campaigns.find({ orderBy: [["createdAt", "desc"]], limit: 100 }), [], failed),
       soft("launch journeys", repos.journeys.count([["status", "==", "active"]]), 0),
       // Launches whose welcome journey moved to the lifecycle engine (engine move).
       soft(
@@ -54,7 +57,7 @@ export async function loadGrowthSignals(
       ),
       soft("signups", repos.signups.count([["status", "==", "verified_active"]]), null as number | null),
       soft("signups", repos.signups.count([["status", "==", "unverified"]]), null as number | null),
-      soft("workspaces", repos.workspaces.find({ where: [], limit: 200 }), []),
+      soft("workspaces", repos.workspaces.find({ where: [], limit: 200 }), [], failed),
       soft("posts", repos.scheduledPosts.count([["jobKind", "==", "publish"]]), 0),
       soft(
         "newsletters",
@@ -64,8 +67,8 @@ export async function loadGrowthSignals(
         ]),
         0,
       ),
-      opts.lifecycle ? soft("connections", repos.productConnections.find({ limit: 100 }), []) : Promise.resolve([]),
-      opts.lifecycle ? soft("journeys", repos.lifecycleJourneys.find({ limit: 100 }), []) : Promise.resolve([]),
+      opts.lifecycle ? soft("connections", repos.productConnections.find({ limit: 100 }), [], failed) : Promise.resolve([]),
+      opts.lifecycle ? soft("journeys", repos.lifecycleJourneys.find({ limit: 100 }), [], failed) : Promise.resolve([]),
       opts.lifecycle && opts.invites
         ? soft("invites", repos.invites.count([["invited", "==", true]]), null as number | null)
         : Promise.resolve(undefined),
@@ -104,6 +107,9 @@ export async function loadGrowthSignals(
     ...(setupSignals ? { setup: setupSignals } : {}),
     lastEventAt,
     catalogSteps: products.reduce((n, c) => n + (c.catalog?.onboardingSteps?.length ?? 0), 0),
+    // Everything the brand ever made: archived launches and programmes, sandboxes and waitlist
+    // journeys too (the welcome's first visit rule). Null when one of those reads failed.
+    recordsEver: failed.size > 0 ? null : campaigns.length + workspaces.length + connections.length + journeys.length,
   };
 }
 

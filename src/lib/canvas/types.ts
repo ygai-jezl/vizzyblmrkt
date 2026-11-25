@@ -1,4 +1,5 @@
 import type { TenantContext } from "@/lib/tenant";
+import type { CanvasKindName } from "./names";
 
 /**
  * Canvas authoring — the reusable abstraction that lets an agent build a visual
@@ -28,7 +29,8 @@ import type { TenantContext } from "@/lib/tenant";
  * persistence and the words it says back, behind one `authorDraft`, so the
  * agent endpoint stays generic.
  *
- * Adding a canvas = one new module under kinds/ + one line in registry.ts.
+ * Adding a canvas = its name in names.ts, one new module under kinds/ and one line in
+ * registry.ts, then its line in src/lib/loops/registry.ts (typecheck asks for each).
  */
 
 /** Where a draft lives. The kind resolves it from the request (never trusts tenant ids in it). */
@@ -91,9 +93,9 @@ export interface CanvasAuthorArgs {
   brief: string;
 }
 
-export interface CanvasKind {
-  /** Stable id used in the agent request + registry (e.g. "journey"). */
-  kind: string;
+export interface CanvasKind<K extends CanvasKindName = CanvasKindName> {
+  /** Stable id used in the agent request + registry (e.g. "journey"), one of CANVAS_KIND_NAMES. */
+  kind: K;
   /** Human label, e.g. "email journey". */
   label: string;
   /** Parse → load scope → build/fill → validate → persist as a DRAFT. Never activates or publishes. */

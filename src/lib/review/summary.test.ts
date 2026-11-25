@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
+import { LOOPS } from "@/lib/loops/registry";
 import type { TenantContext } from "@/lib/tenant/types";
 import {
   agentJourneyItem,
@@ -545,7 +546,33 @@ describe("What your numbers suggest", () => {
     vi.stubEnv("CONNECTOR_SIGNALS_ENABLED", "false");
     expect((await loadReview(admin, { lifecycle: false, includeContent: false }, db)).items.filter((i) => i.kind === "data_signal")).toEqual([]);
     expect(REVIEW_ORDER.indexOf("data_signal")).toBe(REVIEW_ORDER.indexOf("next_article") + 1);
-    expect(REVIEW_SECTIONS.data_signal).toEqual({ title: "What your numbers suggest", description: "Searches and pages from Search Console worth an article. Plan one, or dismiss it." });
+    expect(REVIEW_SECTIONS.data_signal).toEqual({
+      title: "What your numbers suggest",
+      description: "Searches and pages from Search Console worth an article. Plan one, or dismiss it.",
+      from: ["rising_search", "losing_page", "within_reach"],
+    });
+  });
+});
+
+describe("the choices each Review section shows", () => {
+  it("names kinds the learning registry has, and null only for failures and health", () => {
+    const kinds = new Set(Object.keys(LOOPS));
+    const none: string[] = [];
+    for (const kind of REVIEW_ORDER) {
+      const from = REVIEW_SECTIONS[kind].from;
+      if (from === null) {
+        none.push(kind);
+        continue;
+      }
+      expect(from.length, kind).toBeGreaterThan(0);
+      expect(new Set(from).size, kind).toBe(from.length);
+      for (const k of from) expect(kinds.has(k), `${kind} shows ${k}, which src/lib/loops/registry.ts has no line for`).toBe(true);
+    }
+    expect(none.sort()).toEqual(["connection", "data_source", "failed_post"]);
+    // Sections whose rows come from more than one choice name each one.
+    expect(REVIEW_SECTIONS.content_refresh.from).toEqual(["blog_refresh", "refresh_due"]);
+    expect(REVIEW_SECTIONS.next_article.from).toEqual(["next_up", "autopilot", "judge"]);
+    expect(REVIEW_SECTIONS.agent_draft.from).toEqual(["canvas.journey", "canvas.lifecycle", "canvas.journey_style", "canvas.invite_wave", "canvas.content_plan", "autopilot"]);
   });
 });
 

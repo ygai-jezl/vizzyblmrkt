@@ -1,6 +1,6 @@
 import { FEATURE_LABELS, allowanceText, planById, planSummary, type Allowance, type Plan } from "@/lib/plans/catalog";
 import type { CapKey } from "@/lib/plans/limits";
-import { PURPOSE_LABELS, type ResourcePurpose } from "@/lib/plans/resources";
+import { purposeLabel } from "@/lib/plans/resources";
 import type { AllowanceRow, FeatureRow, MonthlyRow, UsageBrandRow, UsageSummary } from "@/lib/plans/usage";
 import type { Region } from "@/lib/types/tenant";
 import { ideaWord, peopleArea } from "@/lib/nav/terms";
@@ -77,7 +77,7 @@ function byFeature(byPurpose: Record<string, number> | undefined): string | null
   const parts = Object.entries(byPurpose ?? {})
     .filter(([, n]) => n > 0)
     .sort((a, b) => b[1] - a[1])
-    .map(([p, n]) => `${PURPOSE_LABELS[p as ResourcePurpose] ?? p} ${fmt(n)}`);
+    .map(([p, n]) => `${purposeLabel(p)} ${fmt(n)}`);
   return parts.length ? parts.join(" · ") : null;
 }
 

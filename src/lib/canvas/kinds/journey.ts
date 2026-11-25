@@ -86,7 +86,7 @@ function summaryFor(status: string, warnings: string[]): string {
   return warnings.length === 0 ? base : `${base} Heads up: ${warnings.join("; ")}.`;
 }
 
-export const journeyCanvasKind: CanvasKind = {
+export const journeyCanvasKind: CanvasKind<"journey"> = {
   kind: "journey",
   label: "email journey",
 

@@ -3,12 +3,35 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { MEANINGS } from "@/lib/metrics/meanings";
+import { LOOPS } from "@/lib/loops/registry";
 import { readSearchKind, SEARCH_KIND_ALIASES, SEARCH_KINDS } from "@/lib/search/types";
 import { EVENT_KINDS } from "./events";
 import { ONTOLOGY, storesOf, typeById } from "./registry";
 import { PATH_TRIGGERS, PERSONALS, PLACES, PLANNED_IN, SPINE_STEPS, STORE_DBS, type OntologyType, type PathDecision, type PathRef } from "./types";
 
 const ROOT = process.cwd();
+
+/**
+ * Meanings no tool returns yet, each with its reason. The list only shrinks: a meaning leaves it
+ * once a type claims it with the tool that returns it.
+ */
+const NOT_SERVED_YET: Record<string, string> = {
+  editShare: "the learning loops count it once they stamp what YouGrow makes (ADR-0017)",
+  keptShare: "the learning loops count it once they stamp what YouGrow makes (ADR-0017)",
+  declineShare: "the learning loops count it once they stamp what YouGrow makes (ADR-0017)",
+  likedShare: "the learning loops count it once they stamp what YouGrow makes (ADR-0017)",
+  unusedShare: "the learning loops count it once they stamp what YouGrow makes (ADR-0017)",
+  remadeShare: "the learning loops count it once they stamp what YouGrow makes (ADR-0017)",
+};
+
+/**
+ * Choices in the learning registry that no type's madeBy names, each with its reason. Every other
+ * kind is held by some type, so a new kind with nowhere to live shows up here.
+ */
+const HELD_NOWHERE: Record<string, string> = {
+  other: "no code spends under it, and every new call names its real purpose",
+  competitor_coverage: "the flags are worked out each time the coverage view is read, and never saved",
+};
 
 /**
  * People types whose search may name kinds anyway, each with its reason. Every other type that
@@ -135,9 +158,40 @@ describe("the ontology registry", () => {
     }
   });
 
-  it("claims every number's meaning", () => {
+  it("claims every number's meaning, apart from those no tool returns yet", () => {
     const claimed = new Set<string>(ONTOLOGY.flatMap((t) => ("meanings" in t.numbers ? t.numbers.meanings : [])));
-    for (const k of Object.keys(MEANINGS)) expect(claimed.has(k), `no type claims the meaning ${k}`).toBe(true);
+    for (const k of Object.keys(MEANINGS)) {
+      if (k in NOT_SERVED_YET) expect(claimed.has(k), `${k} is claimed now: take it off NOT_SERVED_YET`).toBe(false);
+      else expect(claimed.has(k), `no type claims the meaning ${k}`).toBe(true);
+    }
+    for (const [k, why] of Object.entries(NOT_SERVED_YET)) {
+      expect(Object.keys(MEANINGS), k).toContain(k);
+      expect(why.trim(), k).not.toBe("");
+    }
+  });
+
+  it("says which choices YouGrow makes each type holds, naming only kinds the learning registry has", () => {
+    const kinds = new Set(Object.keys(LOOPS));
+    for (const t of ONTOLOGY) {
+      expect(Array.isArray(t.madeBy), t.id).toBe(true);
+      expect(new Set(t.madeBy).size, `${t.id} names a kind twice`).toBe(t.madeBy.length);
+      for (const k of t.madeBy) expect(kinds.has(k), `${t.id} names ${k}, which src/lib/loops/registry.ts has no line for`).toBe(true);
+      if (t.status === "planned") expect(t.madeBy, `${t.id} is planned, so it holds nothing yet`).toEqual([]);
+    }
+    // A sanity check on the lists: the stores of what YouGrow makes say so, not just a few.
+    expect(ONTOLOGY.filter((t) => t.madeBy.length > 0).length).toBeGreaterThan(20);
+  });
+
+  it("holds every choice in the learning registry in some type, or says why no store keeps it", () => {
+    const held = new Set<string>(ONTOLOGY.flatMap((t) => t.madeBy));
+    for (const k of Object.keys(LOOPS)) {
+      if (k in HELD_NOWHERE) expect(held.has(k), `${k} is held now: take it off HELD_NOWHERE`).toBe(false);
+      else expect(held.has(k), `no type's madeBy names ${k}`).toBe(true);
+    }
+    for (const [k, why] of Object.entries(HELD_NOWHERE)) {
+      expect(Object.keys(LOOPS), k).toContain(k);
+      expect([...dashesIn(why), ...aiTellsIn(why)], k).toEqual([]);
+    }
   });
 
   it("has a type on each step of the spine", () => {

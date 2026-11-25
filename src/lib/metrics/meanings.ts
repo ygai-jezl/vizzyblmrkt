@@ -12,6 +12,17 @@ export interface Meaning {
   unit: "count" | "ratio" | "percent" | "date" | "rank";
   source: string;
   caveat?: string;
+  /**
+   * Which way is better, for the learning loops (src/lib/loops/registry.ts). Set on every
+   * meaning a loop names as its check, guard or result.
+   */
+  better?: "higher" | "lower";
+  /**
+   * What kind of number it is, for the learning loops: taste (what people did with what YouGrow
+   * made), effort (the work it took), use (whether it was used at all) or result (what it led to).
+   * A loop's guard never shares its check's family.
+   */
+  family?: "taste" | "effort" | "use" | "result";
 }
 
 export const MEANINGS = {
@@ -65,6 +76,8 @@ export const MEANINGS = {
     unit: "ratio",
     source: "unique opens and sends",
     caveat: "Inflated by automatic opens; compare emails with each other, not with other tools.",
+    better: "higher",
+    family: "result",
   },
   clickRate: {
     name: "Click rate",
@@ -72,6 +85,8 @@ export const MEANINGS = {
     grain: "a group of emails",
     unit: "ratio",
     source: "unique clicks and sends",
+    better: "higher",
+    family: "result",
   },
   totalOpens: {
     name: "Total opens",
@@ -151,6 +166,8 @@ export const MEANINGS = {
     unit: "ratio",
     source: "the post's settled numbers, 7 days after publishing",
     caveat: "Comments and shares count more than likes. Only posts 7 days old or more have it.",
+    better: "higher",
+    family: "result",
   },
   linkedinEngagement: {
     name: "LinkedIn engagement",
@@ -239,6 +256,8 @@ export const MEANINGS = {
     unit: "count",
     source: "Google Search Console, web search results",
     caveat: "Google leaves out rare searches to protect privacy, so clicks by search add up to less than the site's total.",
+    better: "higher",
+    family: "result",
   },
   searchImpressions: {
     name: "Search impressions",
@@ -468,14 +487,85 @@ export const MEANINGS = {
     unit: "count",
     source: "the brand's plan or grant, and its refresh records this month",
   },
+  // What people did with what YouGrow made, for the learning loops (ADR-0017). No tool returns
+  // these yet: the loops count them once they stamp what YouGrow makes.
+  editShare: {
+    name: "Edit share",
+    definition: "Of the things YouGrow made, the share a person changed before using them.",
+    grain: "one kind of thing YouGrow made, in one place, over a period",
+    unit: "ratio",
+    source: "YouGrow's own counts of what people did with what it made",
+    caveat: "Nothing counts it yet. A small edit and a rewrite count the same.",
+    better: "lower",
+    family: "taste",
+  },
+  keptShare: {
+    name: "Kept share",
+    definition: "Of the things YouGrow made, the share used with no change at all.",
+    grain: "one kind of thing YouGrow made, in one place, over a period",
+    unit: "ratio",
+    source: "YouGrow's own counts of what people did with what it made",
+    caveat: "Nothing counts it yet. Kept is not the same as good: something kept unread still counts.",
+    better: "higher",
+    family: "taste",
+  },
+  declineShare: {
+    name: "Declined share",
+    definition: "Of the suggestions YouGrow made, the share a person dismissed or declined.",
+    grain: "one kind of suggestion, in one place, over a period",
+    unit: "ratio",
+    source: "YouGrow's own counts of decisions in Review and where the suggestion was shown",
+    caveat: "Nothing counts it yet.",
+    better: "lower",
+    family: "taste",
+  },
+  likedShare: {
+    name: "Liked share",
+    definition: "Of the images YouGrow made that a person voted on, the share voted up.",
+    grain: "one image style, in one place, over a period",
+    unit: "ratio",
+    source: "the thumbs and ratings people give images in the brand kit",
+    caveat: "Nothing counts it yet. Only images someone voted on count, so a few votes can swing it.",
+    better: "higher",
+    family: "taste",
+  },
+  unusedShare: {
+    name: "Unused share",
+    definition: "Of the things YouGrow made, the share still not used 14 days after they were made.",
+    grain: "one kind of thing YouGrow made, in one place, over a period",
+    unit: "ratio",
+    source: "YouGrow's own counts of what people did with what it made",
+    caveat: "Nothing counts it yet. Known only 14 days after each thing is made.",
+    better: "lower",
+    family: "use",
+  },
+  remadeShare: {
+    name: "Remade share",
+    definition: "Of the things YouGrow made, the share a person asked it to make again.",
+    grain: "one kind of thing YouGrow made, in one place, over a period",
+    unit: "ratio",
+    source: "YouGrow's own counts of what people did with what it made",
+    caveat: "Nothing counts it yet.",
+    better: "lower",
+    family: "use",
+  },
 } as const satisfies Record<string, Meaning>;
 
 export type MeaningKey = keyof typeof MEANINGS;
 
+/**
+ * A meaning as an answer gives it: everything but better and family, which only the learning
+ * loops read for now, so answers stay as they were until a loop's numbers reach an agent.
+ */
+export function shownMeaning(m: Meaning): Meaning {
+  const { better, family, ...shown } = m;
+  return shown;
+}
+
 /** The meanings of the given keys, for a response. */
 export function meaningsOf(keys: Iterable<string>): Partial<Record<MeaningKey, Meaning>> {
   const out: Partial<Record<MeaningKey, Meaning>> = {};
-  for (const k of keys) if (k in MEANINGS) out[k as MeaningKey] = MEANINGS[k as MeaningKey];
+  for (const k of keys) if (k in MEANINGS) out[k as MeaningKey] = shownMeaning(MEANINGS[k as MeaningKey]);
   return out;
 }
 

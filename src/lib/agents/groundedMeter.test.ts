@@ -50,6 +50,21 @@ describe("Gemini use is always metered", () => {
     );
   });
 
+  it('never spends under the purpose "other": every call names what it is for', () => {
+    // src/lib/loops/registry.ts says other is no choice because nothing spends under it. Files
+    // allowed to, each with its reason (none today; the list may only shrink).
+    const ALLOWED_OTHER: Record<string, string> = {};
+    const call = /\b(?:aiUsage|usageMeter|usageFor)\(\s*[^,()]+,\s*(?:["'][a-z_]+["']\s*,\s*)?["']other["']/;
+    const named = /\b(?:purpose|searchPurpose)\s*[:=]\s*["']other["']|["']other["']\s+as\s+ResourcePurpose\b/;
+    const spenders = [...new Set([...matching(call), ...matching(named)])].sort();
+    expect(spenders).toEqual(Object.keys(ALLOWED_OTHER).sort());
+    // The scan finds a call when there is one.
+    expect(call.test('usage: aiUsage(ctx, "other"),')).toBe(true);
+    expect(call.test('usageMeter(ctx, "google_lookups", "other")')).toBe(true);
+    expect(call.test('aiUsage(ctx, "blog_write")')).toBe(false);
+    expect(named.test('const p = { purpose: "other" };')).toBe(true);
+  });
+
   it("the no-op usage is for tests only", () => {
     expect(matching(/\bNO_USAGE\b/)).toEqual([join("lib", "agents", "gemini.ts")]);
     expect(matching(/\bNO_METER\b/)).toEqual([]);

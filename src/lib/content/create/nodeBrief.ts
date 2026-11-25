@@ -180,7 +180,7 @@ export async function generateNodeBrief(
     task,
   });
 
-  const raw = await generateText(prompt, { usage: aiUsage(ctx, "content_write") }).catch(() => null);
+  const raw = await generateText(prompt, { usage: aiUsage(ctx, "content_brief") }).catch(() => null);
   const j = raw ? parseFirstJson(raw) : null;
   const modelBrief =
     j && typeof j === "object" && typeof (j as Record<string, unknown>).brief === "string"

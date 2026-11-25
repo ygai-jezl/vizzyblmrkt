@@ -313,7 +313,7 @@ export async function authorContentPlanDraft(
   };
 }
 
-export const contentPlanCanvasKind: CanvasKind = {
+export const contentPlanCanvasKind: CanvasKind<"content_plan"> = {
   kind: "content_plan",
   label: "content plan",
   authorDraft: (args) => authorContentPlanDraft(args),

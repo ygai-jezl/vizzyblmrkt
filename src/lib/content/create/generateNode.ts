@@ -7,6 +7,7 @@ import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { composePrompt, brandVoiceSection, audienceSection } from "@/lib/agents/prompts/compose";
 import { generateText, parseFirstJson, generateTextWithDeadline } from "@/lib/agents/gemini";
 import { aiUsage } from "@/lib/plans/meter";
+import type { ResourcePurpose } from "@/lib/plans/resources";
 import { draftEmailCopy } from "@/lib/content/create/emailCopy";
 import { channelBlueprint } from "@/lib/content/channels";
 import { transformFor } from "@/lib/content/transformationMatrix";
@@ -181,6 +182,21 @@ function nodeWarnings(node: ContentNode, body: string, applied: Record<string, s
   return w;
 }
 
+/**
+ * What a node's writing is counted as on the usage meter: a CITABLE blog hub is a blog article,
+ * any other hub (a newsletter, an eBook hub, a blog hub from a template) is hub content, an email
+ * node is a workflow email, and spokes and promos are posts.
+ */
+export function writingPurposeOf(
+  type: ContentNode["type"],
+  citableBlog: boolean,
+): ResourcePurpose<"model_tokens"> {
+  if (citableBlog) return "blog_write";
+  if (type === "hub") return "content_hub";
+  if (type === "email") return "content_email";
+  return "content_write";
+}
+
 export async function generateNode(
   input: GenerateNodeInput,
   retrieve: RetrieveFn = retrieveSemanticKnowledgeContext,
@@ -226,7 +242,7 @@ export async function generateNode(
     node.type === "hub" && node.channel === "blog" && !input.skeletonBody?.trim() && isBlogCitableEnabled();
   // The answers to its questions are read live: one changed on Brand › What we've seen wins.
   const brief = citableBlog ? await refreshAnswers(ctx, briefOf(plan), {}, `${workspaceId}/${plan.id}`) : briefOf(plan);
-  const usage = aiUsage(ctx, citableBlog ? "blog_write" : "content_write");
+  const usage = aiUsage(ctx, writingPurposeOf(node.type, citableBlog));
 
   // Ground: scoped → pre-filter by the first scope topic (findNearest takes one).
   const scopedTopic =

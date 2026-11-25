@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { MEANINGS, numberKeys } from "@/lib/metrics/meanings";
+import { MEANINGS, numberKeys, shownMeaning } from "@/lib/metrics/meanings";
 
 const hook = vi.hoisted(() => ({ live: vi.fn() }));
 vi.mock("./handlers", () => ({ VERIFY_HOOKS: {}, LIVE_HOOKS: { "cloudflare.zoneDaily": (...a: unknown[]) => hook.live(...a) } }));
@@ -86,7 +86,7 @@ describe("readLive", () => {
       { day: "2026-11-13", cfRequests: 13, cfPageViews: 5, cfVisits: 2 },
       { day: "2026-11-14", cfRequests: 14, cfPageViews: 5, cfVisits: 2 },
     ]);
-    for (const k of numberKeys(r.answer)) expect(r.answer.meanings[k as keyof typeof MEANINGS], k).toEqual(MEANINGS[k as keyof typeof MEANINGS]);
+    for (const k of numberKeys(r.answer)) expect(r.answer.meanings[k as keyof typeof MEANINGS], k).toEqual(shownMeaning(MEANINGS[k as keyof typeof MEANINGS]));
     expect(Object.keys(r.answer.meanings)).toEqual(["cfRequests", "cfPageViews", "cfVisits"]);
     expect(r.answer).toMatchObject({
       connectorId: "cloudflare",

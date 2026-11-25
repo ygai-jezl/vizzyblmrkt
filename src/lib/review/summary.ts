@@ -19,7 +19,7 @@ import type { InviteWave } from "@/lib/types/invite";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
 import { isWaitlistEngineUiEnabled } from "@/lib/lifecycle/waitlist/flags";
 import type { BrandMap, BrandMapSuggestionFrom } from "@/lib/types/brandMap";
-import { isBlogFreshnessEnabled, isBrandMapEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
+import { isBlogFreshnessEnabled, isBlogRefreshEnabled, isBrandMapEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 import { proposalsWaiting, suggestionsWaiting } from "@/lib/brandMap/waiting";
 import { readBrandMap } from "@/lib/brandMap/store";
 import { BRAND_KIT_COMPETITORS_ROUTE, BRAND_KIT_MAP_ROUTE } from "@/lib/content/brandKit";
@@ -574,10 +574,31 @@ const RUN_FAILED: Record<string, string> = {
 /** Most articles due a refresh listed in Review. */
 const MAX_REFRESH_ITEMS = 10;
 
-/** Live articles due a refresh (BLOG_FRESHNESS_ENABLED), from the freshness watch: one item each. */
-export function refreshItems(due: FreshnessDueItem[]): ReviewItem[] {
-  return due
-    .filter((d) => d.state === "due")
+/** A finished refresh review waiting for a person (BLOG_REFRESH_ENABLED): its article, and how many changes. */
+export interface ReadyReview {
+  planId: string;
+  workspaceId: string;
+  title: string;
+  changes: number;
+  by: "person" | "autopilot" | "vizzy";
+}
+
+/**
+ * Live articles with a refresh ready to look at (BLOG_REFRESH_ENABLED) first, then those due a
+ * refresh (BLOG_FRESHNESS_ENABLED), from the freshness watch: one item each, an article once.
+ */
+export function refreshItems(due: FreshnessDueItem[], ready: ReadyReview[] = []): ReviewItem[] {
+  const readyItems = ready.slice(0, MAX_REFRESH_ITEMS).map((r) => ({
+    id: `content_refresh_ready:${r.planId}`,
+    kind: "content_refresh" as const,
+    title: `Refresh ready: ${r.changes} change${r.changes === 1 ? "" : "s"} to look at`,
+    detail: `${r.title}${r.by === "autopilot" ? " · the autopilot ran the review" : r.by === "vizzy" ? " · Vizzy ran the review" : ""}`,
+    href: refreshHref({ planId: r.planId, workspaceId: r.workspaceId }),
+    action: "Look at changes",
+  }));
+  const readyPlans = new Set(ready.map((r) => r.planId));
+  return [...readyItems, ...due
+    .filter((d) => d.state === "due" && !readyPlans.has(d.planId))
     .slice(0, MAX_REFRESH_ITEMS)
     .map((d) => ({
       id: `content_refresh:${d.planId}`,
@@ -587,7 +608,16 @@ export function refreshItems(due: FreshnessDueItem[]): ReviewItem[] {
       details: d.reasons.map((r) => r.detail),
       href: refreshHref(d),
       action: "Open article",
-    }));
+    }))];
+}
+
+/** Reviews finished and waiting for a person, newest first, with their article's title from the watch's list or the plan. */
+async function readyReviews(ctx: TenantContext, due: FreshnessDueItem[], db?: FirestoreLike): Promise<ReadyReview[]> {
+  const rows = await forTenant(ctx, db).articleReviews.find({ where: [["state", "==", "ready"]], limit: MAX_REFRESH_ITEMS });
+  const titles = new Map(due.map((d) => [d.planId, d.title] as const));
+  return rows
+    .sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))
+    .map((r) => ({ planId: r.planId, workspaceId: r.workspaceId, title: titles.get(r.planId) ?? "A live article", changes: r.proposals.length, by: r.by }));
 }
 
 export function nextArticleItems(runs: AutopilotRun[], nowMs = Date.now()): ReviewItem[] {
@@ -711,6 +741,8 @@ export async function loadReview(
   const dueArticles = isBlogFreshnessEnabled()
     ? await soft("articles due a refresh", readDueArticles(ctx, { db }), [] as FreshnessDueItem[])
     : [];
+  // Refresh reviews done and waiting for a person (BLOG_REFRESH_ENABLED).
+  const readyArticles = isBlogRefreshEnabled() ? await soft("refreshes ready", readyReviews(ctx, dueArticles, db), [] as ReadyReview[]) : [];
   // New person drafts only where this user can open the form: admins, who alone add someone
   // (decision 28), with the People list on screen. Field suggestions show to everyone, since the
   // person's page tells a member that an admin confirms.
@@ -743,7 +775,7 @@ export async function loadReview(
     ...competitorItems(competitors, competitorNews),
     ...nextArticleItems(autopilotRuns),
     ...numberSuggestions,
-    ...refreshItems(dueArticles),
+    ...refreshItems(dueArticles, readyArticles),
     ...(opts.includeContent ? await loadContentHubItems(ctx, activeWorkspaces) : []),
   ].filter((i): i is ReviewItem => !!i);
 

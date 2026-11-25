@@ -1,4 +1,8 @@
 import { createHash } from "node:crypto";
+import { isBlogRefreshEnabled } from "@/lib/brandMap/flags";
+import { startReview } from "@/lib/content/blog/refreshReview";
+import { mayStartReview } from "@/lib/content/blog/refreshGate";
+import { autopilotHolds } from "./planLock";
 import { usageMeter } from "@/lib/plans/meter";
 import { reconcileWithSavedMap } from "@/lib/content/blog/mapActions";
 import { checkPlanBlogFacts, matchPlanSeen, researchPlanBlog } from "@/lib/content/blog/hubActions";
@@ -11,7 +15,7 @@ import { monthlyLimit } from "@/lib/plans/limits";
 import { forTenant, getTenantById } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import { createContentPlan, getContentPlan, updateContentPlan } from "@/lib/tenant/workspaceContent";
-import { AutopilotSettingsSchema, type AutopilotRun } from "@/lib/types/autopilot";
+import { AutopilotSettingsSchema, type AutopilotRun, type NextUpPick } from "@/lib/types/autopilot";
 import type { ContentPlan } from "@/lib/types/contentPlan";
 import type { Tenant } from "@/lib/types/tenant";
 import type { Workspace } from "@/lib/types/workspace";
@@ -64,6 +68,28 @@ async function ours(ctx: TenantContext, run: AutopilotRun, deps: DraftDeps): Pro
 }
 const stopped = (x: unknown): x is StepPatch => Boolean(x && typeof x === "object" && "step" in x);
 
+/**
+ * A refresh pick, taken by a Draft run (BLOG_REFRESH_ENABLED): the review starts on the live article
+ * and the run is done. The review stops at proposals for a person; nothing is ever applied. Null
+ * when it can't be taken now (no grant or reviews left, the article held or gone), so the run
+ * takes the next pick instead.
+ */
+async function takeRefresh(ctx: TenantContext, pick: NextUpPick, deps: DraftDeps): Promise<StepPatch | null> {
+  if (!pick.planId || !pick.workspaceId) return null;
+  if (!(await mayStartReview(ctx, { db: deps.db, now: deps.now, loadTenant: deps.loadTenant }).then((m) => m.ok).catch(() => false))) return null;
+  const plan = await getContentPlan(ctx, pick.workspaceId, pick.planId, deps.db).catch(() => null);
+  if (!plan || autopilotHolds(plan)) return null;
+  const started = await startReview(ctx, { plan, by: "autopilot" }, { db: deps.db, now: deps.now }).catch(() => null);
+  if (!started?.ok || !started.started) return null;
+  await dropPick(ctx, pick.questionId, deps);
+  return {
+    step: "done",
+    refreshOf: plan.id,
+    workspaceId: plan.workspaceId,
+    question: { questionId: pick.questionId, text: pick.question, subjectId: pick.subjectId, subjectName: pick.subjectName },
+  };
+}
+
 /** A scheduled run takes Next up's best pick no other run has (choosing again when Next up is old). */
 export const pickStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
   if (run.question) return { step: "find" };
@@ -71,8 +97,10 @@ export const pickStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
   const others = await heldQuestionIds(ctx, deps);
   let doc = await readNextUp(ctx, deps);
   const now = (deps.now ?? (() => new Date()))().getTime();
-  // A refresh pick (BLOG_FRESHNESS_ENABLED) waits for a person until runs can refresh: a run writes new.
-  const writable = (p: { questionId: string; kind?: string }) => p.kind !== "refresh" && !others.includes(p.questionId);
+  // A refresh pick (BLOG_FRESHNESS_ENABLED) is a Draft run's to take once reviews are on (BLOG_REFRESH_ENABLED);
+  // otherwise it waits for a person, and the run writes something new.
+  const refreshes = run.mode === "draft" && isBlogRefreshEnabled();
+  const writable = (p: { questionId: string; kind?: string }) => (p.kind !== "refresh" || refreshes) && !others.includes(p.questionId);
   if (!doc || !doc.picks.some(writable) || now - Date.parse(doc.at) > STALE_PICKS_MS) {
     const got = await pickNextUp(ctx, { by: "schedule", deadlineMs: opts.deadlineMs - 5_000 }, {
       db: deps.db,
@@ -82,7 +110,16 @@ export const pickStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
     });
     doc = got.ok ? got.doc : doc;
   }
-  const pick = doc?.picks.find(writable);
+  // In Next up's order: a refresh pick that can't be taken now is passed over, never dropped.
+  let pick: NextUpPick | undefined;
+  for (const p of (doc?.picks ?? []).filter(writable)) {
+    if (p.kind !== "refresh") {
+      pick = p;
+      break;
+    }
+    const taken = await takeRefresh(ctx, p, deps);
+    if (taken) return taken;
+  }
   if (!pick) return { step: "stopped", error: "nothing_to_pick" };
   await dropPick(ctx, pick.questionId, deps);
   return { step: "find", question: { questionId: pick.questionId, text: pick.question, subjectId: pick.subjectId, subjectName: pick.subjectName } };

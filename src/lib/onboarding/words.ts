@@ -173,6 +173,20 @@ export const HOME_WORDS = {
   nextAction: "Your next action",
 } as const;
 
+/**
+ * The sidebar's Coming up (menu.html, coming-row.html, common.js). Each section's line on when it
+ * comes in is in src/lib/onboarding/sidebarFit.ts (comingUpWhy).
+ */
+export const COMING_UP_WORDS = {
+  title: "Coming up",
+  rowAria: (n: number) => `Coming up: ${n} more ${n === 1 ? "section" : "sections"}`,
+  sub: "Picked from what you told Vizzy.",
+  openEarly: "Open early",
+  itemAria: (label: string, why: string) => `Open ${label} early. ${why}`,
+  /** After the shortcut, drawn as a key: "⌘K" on a Mac, "Ctrl K" elsewhere. */
+  foot: "finds every section, shown or not.",
+} as const;
+
 const DAY_MONTH = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 const DAY_MONTH_YEAR = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 

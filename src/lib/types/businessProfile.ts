@@ -99,3 +99,23 @@ export type OnboardingVoiceDay = z.infer<typeof OnboardingVoiceDaySchema>;
 export function voiceDayOf(at: number | string): string {
   return new Date(at).toISOString().slice(0, 10);
 }
+
+/** At most this many sections and Open early records are kept (there are 5 today). */
+export const SIDEBAR_REVEAL_MAX = 16;
+
+/**
+ * `tenant.sidebarReveal`: the sidebar's sections for a brand that told Vizzy about itself on the
+ * welcome (ONBOARDING_ENABLED, src/lib/onboarding/sidebarFit.ts). Written once, when the welcome
+ * first finishes, then only ever added to: data that arrives, Open early, a page visited. Unset:
+ * today's sidebar. Keys are read as plain strings and filtered (src/lib/nav/reveal.ts), so a
+ * rollback never breaks the parse. `opened` keeps no user id: it belongs to the brand.
+ */
+export const SidebarRevealSchema = z.object({
+  shown: z.array(z.string().max(32)).max(SIDEBAR_REVEAL_MAX),
+  opened: z
+    .array(z.object({ key: z.string().max(32), at: z.string().max(40) }))
+    .max(SIDEBAR_REVEAL_MAX)
+    .default([]),
+  startedAt: z.string().max(40),
+});
+export type SidebarRevealStored = z.infer<typeof SidebarRevealSchema>;

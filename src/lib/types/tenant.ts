@@ -4,7 +4,7 @@ import { z } from "zod";
 import { ImageStyleSuggestionSchema, StoredImageStyleSchema } from "./imageStyle";
 import { NotesRestSchema } from "./brandNote";
 import { PlanIdSchema } from "./organisation";
-import { BusinessProfileSchema, OnboardingVoiceDaySchema } from "./businessProfile";
+import { BusinessProfileSchema, OnboardingVoiceDaySchema, SidebarRevealSchema } from "./businessProfile";
 
 /**
  * Core tenant (brand / workspace). Lives in the root-level `tenants` collection.
@@ -802,6 +802,9 @@ export const TenantSchema = z.object({
   /** Today's Talk with Vizzy calls (ONBOARDING_VOICE_ENABLED): one finished call and 3 starts per UTC
    *  day (src/lib/types/businessProfile.ts). Unset or damaged: none today. */
   onboardingVoice: OnboardingVoiceDaySchema.optional().catch(undefined),
+  /** The sidebar's sections once the welcome first finished with answers (ONBOARDING_ENABLED,
+   *  src/lib/onboarding/sidebarFit.ts): only ever added to. Unset or damaged: today's sidebar. */
+  sidebarReveal: SidebarRevealSchema.optional().catch(undefined),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

@@ -81,6 +81,14 @@ const PERSON_KEPT_ON_PRODUCT_ROWS =
   "while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)";
 const NOT_PERSONAL = "the brand's own work, with no one's personal data";
 const NO_NUMBERS = "no numbers an agent reads";
+
+/** Getting to know you: the kept conversations and facts (ONBOARDING_ENABLED). */
+const ONBOARDING = "src/lib/onboarding/store.ts";
+const SPOKEN_GAPS = [
+  "no path deletes a whole brand and everything it holds",
+  "the member's user id in `by` stays after they leave the team; no path removes it",
+  "a person's erase does not find a conversation that names them: it is free text",
+];
 const planned = (piece: string) => `planned: ${piece} decides it with the store`;
 /** The event history and agent actions: erased and exported whatever any switch says. */
 const HISTORY_ERASE: PathDecision = {
@@ -1331,6 +1339,49 @@ export const ONTOLOGY: readonly OntologyType[] = [
     erase: { gap: "no path deletes a member's chats with Vizzy" },
     export: { gap: "no path exports a member's chats with Vizzy" },
     search: { none: "members' own conversations" },
+    numbers: { none: NO_NUMBERS },
+  },
+  {
+    id: "onboarding_conversation",
+    name: "Conversation with Vizzy",
+    description:
+      "A team member's conversation with Vizzy about the business, on the welcome page, kept as words only (no audio), with what Vizzy learned from it until an admin confirms it. Read by the brand's admins in Settings, About your business, and by Vizzy.",
+    place: "partner_agent",
+    status: "built",
+    home: "brand",
+    personal: "team",
+    stores: [regional("onboarding_conversations", "one record per conversation, at most 200 turns and 40,000 characters; `by` holds the member's user id only")],
+    links: [
+      { to: "member", via: "by", many: false },
+      { to: "business_fact", via: "the facts kept from it", many: true },
+    ],
+    events: [],
+    erase: { paths: [brandPath("deleteConversation", ONBOARDING, "an admin deletes it; the facts kept from it stay")], gaps: SPOKEN_GAPS },
+    export: {
+      paths: [{ fn: "getConversation", file: ONBOARDING, trigger: "member", when: "an admin reads the whole transcript in Settings, About your business" }],
+      gaps: ["a person's export does not include a conversation that names them"],
+    },
+    search: { none: "a team member's own conversation, read whole by admins and by Vizzy, kept out of brand search" },
+    numbers: { none: NO_NUMBERS },
+  },
+  {
+    id: "business_fact",
+    name: "Business fact",
+    description:
+      "Something Vizzy heard about the business and an admin kept: a timeline, channel, starting point, constraint or goal, each with the member's own words. With the four answers on the brand record, it is the brand's profile, which Vizzy reads in every chat.",
+    place: "company",
+    status: "built",
+    home: "brand",
+    personal: "team",
+    stores: [regional("business_facts", "one record per fact, at most 40 per brand; the quote is the member's own words")],
+    links: [{ to: "onboarding_conversation", via: "conversationId", many: false }],
+    events: [],
+    erase: {
+      paths: [brandPath("removeBusinessFact", ONBOARDING, "an admin removes it on Here's what I learned or in Settings")],
+      gaps: ["no path deletes a whole brand and everything it holds", "a person's erase does not find a fact that names them: it is free text"],
+    },
+    export: { paths: [{ fn: "listBusinessFacts", file: ONBOARDING, trigger: "member", when: "an admin reads them in Settings, About your business" }] },
+    search: { none: "a short profile Vizzy reads whole, not searched" },
     numbers: { none: NO_NUMBERS },
   },
 

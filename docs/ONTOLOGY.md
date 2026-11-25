@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts`. Don't edit this file: change the 
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one.
 
-100 types: 79 built and 21 planned.
+102 types: 81 built and 21 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -1272,6 +1272,25 @@ One per refresh review of a live blog article: why it ran (its clock and reasons
 
 A rail beside the spine: the company itself, on the organisation.
 
+### Business fact (`business_fact`)
+
+Something Vizzy heard about the business and an admin kept: a timeline, channel, starting point, constraint or goal, each with the member's own words. With the four answers on the brand record, it is the brand's profile, which Vizzy reads in every chat.
+
+- Status: built
+- Home: the brand's region
+- Personal: the brand's own team
+- Stores:
+  - `business_facts`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per fact, at most 40 per brand; the quote is the member's own words.
+- Links: `onboarding_conversation` through conversationId
+- Erase:
+  - `removeBusinessFact` in `src/lib/onboarding/store.ts`, on removing the record (an admin removes it on Here's what I learned or in Settings)
+  - Gap: no path deletes a whole brand and everything it holds
+  - Gap: a person's erase does not find a fact that names them: it is free text
+- Export:
+  - `listBusinessFacts` in `src/lib/onboarding/store.ts`, on the team member themselves (an admin reads them in Settings, About your business)
+- Search: none. A short profile Vizzy reads whole, not searched.
+- Numbers: none. No numbers an agent reads.
+
 ### Legal entity (`legal_entity`)
 
 A company the founders formed, added whenever it exists, under its registered name. Brands point at it.
@@ -1359,6 +1378,27 @@ A team member's chats with Vizzy, kept by Agent Engine as sessions.
 - Erase: gap. No path deletes a member's chats with Vizzy.
 - Export: gap. No path exports a member's chats with Vizzy.
 - Search: none. Members' own conversations.
+- Numbers: none. No numbers an agent reads.
+
+### Conversation with Vizzy (`onboarding_conversation`)
+
+A team member's conversation with Vizzy about the business, on the welcome page, kept as words only (no audio), with what Vizzy learned from it until an admin confirms it. Read by the brand's admins in Settings, About your business, and by Vizzy.
+
+- Status: built
+- Home: the brand's region
+- Personal: the brand's own team
+- Stores:
+  - `onboarding_conversations`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per conversation, at most 200 turns and 40,000 characters; `by` holds the member's user id only.
+- Links: `member` through by; `business_fact` through the facts kept from it (many)
+- Erase:
+  - `deleteConversation` in `src/lib/onboarding/store.ts`, on removing the record (an admin deletes it; the facts kept from it stay)
+  - Gap: no path deletes a whole brand and everything it holds
+  - Gap: the member's user id in `by` stays after they leave the team; no path removes it
+  - Gap: a person's erase does not find a conversation that names them: it is free text
+- Export:
+  - `getConversation` in `src/lib/onboarding/store.ts`, on the team member themselves (an admin reads the whole transcript in Settings, About your business)
+  - Gap: a person's export does not include a conversation that names them
+- Search: none. A team member's own conversation, read whole by admins and by Vizzy, kept out of brand search.
 - Numbers: none. No numbers an agent reads.
 
 ### MCP client (`mcp_client`)
@@ -1807,6 +1847,14 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 - Vizzy chat (`vizzy_chat`):
   - Erase: no path deletes a member's chats with Vizzy
   - Export: no path exports a member's chats with Vizzy
+- Conversation with Vizzy (`onboarding_conversation`):
+  - Erase: no path deletes a whole brand and everything it holds
+  - Erase: the member's user id in `by` stays after they leave the team; no path removes it
+  - Erase: a person's erase does not find a conversation that names them: it is free text
+  - Export: a person's export does not include a conversation that names them
+- Business fact (`business_fact`):
+  - Erase: no path deletes a whole brand and everything it holds
+  - Erase: a person's erase does not find a fact that names them: it is free text
 - Brand (`brand`):
   - Erase: no path deletes a whole brand and everything it holds
 - Member (`member`):

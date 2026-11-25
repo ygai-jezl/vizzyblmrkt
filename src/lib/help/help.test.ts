@@ -23,7 +23,7 @@ import { helpMetadata } from "./metadata";
 import { HELP_PLACES, helpFor, parseHelpPath } from "./places";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
 import { VIZZY_READS_HINT } from "@/components/admin/audience/fieldsApi";
-import { ABOUT_WORDS, BASICS_WORDS, FACT_WORDS, HOME_WORDS, LEARNED_WORDS, QUESTIONS_WORDS, VOICE_WORDS, WELCOME_WORDS } from "@/lib/onboarding/words";
+import { ABOUT_WORDS, BASICS_WORDS, COMING_UP_WORDS, FACT_WORDS, HOME_WORDS, LEARNED_WORDS, QUESTIONS_WORDS, VOICE_WORDS, WELCOME_WORDS } from "@/lib/onboarding/words";
 
 
 /**
@@ -1073,6 +1073,20 @@ describe("Tell Vizzy about your business (ONBOARDING_ENABLED)", () => {
     expect(text).toContain(`**${HOME_WORDS.nextAction}**`);
     expect(text).toContain("A shop or a service never starts with connecting an app.");
     expect(md({ onboarding: false })).not.toContain(HOME_WORDS.nextAction);
+  });
+
+  it("says what the sidebar shows, in Coming up's own words, only while the switch is on", () => {
+    expect(ids({ onboarding: true })).toContain("sidebar");
+    expect(anchorsOf("").has("sidebar")).toBe(true);
+    const text = md({ onboarding: true, onboardingVoice: false, ideaWords: true });
+    for (const w of [COMING_UP_WORDS.title, COMING_UP_WORDS.openEarly]) expect(text).toContain(`**${w}**`);
+    expect(text).toContain("## What the sidebar shows");
+    expect(text).toContain("Home, Review, Ideas, Brand and Settings always show.");
+    expect(text).toContain("nothing that shows is ever hidden again");
+    expect(text).toContain("If you skip the welcome, or answer only in Settings, you see every section as before.");
+    expect(md({ onboarding: true, ideaWords: false })).toContain("Home, Review, Launches, Brand and Settings always show.");
+    expect(ids({ onboarding: false })).not.toContain("sidebar");
+    expect(md({ onboarding: false })).not.toContain(COMING_UP_WORDS.title);
   });
 
   it("counts voice conversations on Plan and usage only with voice", () => {

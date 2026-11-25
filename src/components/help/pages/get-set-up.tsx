@@ -2,7 +2,7 @@ import { H1, H2, H3, Lead, P, UL } from "@/components/developers/Doc";
 import { Messages, NextPage, Open, Warning } from "@/components/help/blocks";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { isOnboardingEnabled, isOnboardingVoiceEnabled } from "@/lib/onboarding/flags";
-import { ABOUT_WORDS, BASICS_WORDS, FACT_WORDS, HOME_WORDS, VOICE_WORDS, WELCOME_WORDS } from "@/lib/onboarding/words";
+import { ABOUT_WORDS, BASICS_WORDS, COMING_UP_WORDS, FACT_WORDS, HOME_WORDS, VOICE_WORDS, WELCOME_WORDS } from "@/lib/onboarding/words";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
 /**
@@ -12,7 +12,8 @@ import type { HelpBodyProps } from "@/lib/help/pages";
  * welcome asks, and Home starts where the brand is rather than at stage 1. With voice too
  * (`onboardingVoice`), it says how Talk with Vizzy works, what is kept and what isn't, and how
  * Here's what I learned works after a call. It also says where to change the answers later (Settings,
- * About your business) and how they order Home's Your next action.
+ * About your business) and how they order Home's Your next action. #sidebar says how the sidebar's
+ * Coming up works for a brand that answered on the welcome.
  */
 export default function GetSetUpHelp({
   ideaWords = isIdeaWordsEnabled(),
@@ -112,6 +113,22 @@ export default function GetSetUpHelp({
             first for an idea, content first when you want an audience, and your product first for an app that wants
             customers. A shop or a service never starts with connecting an app. With no answers, it starts at the first stage
             not done.
+          </P>
+
+          <H2 id="sidebar">What the sidebar shows</H2>
+          <P>
+            When you tell Vizzy about your business on the welcome, the sidebar starts with the sections that fit it. Home,
+            Review, {ideaWords ? "Ideas" : "Launches"}, Brand and Settings always show. The rest wait under{" "}
+            <strong>{COMING_UP_WORDS.title}</strong>, each with a line on when it comes in.
+          </P>
+          <P>
+            <strong>{COMING_UP_WORDS.openEarly}</strong> shows one now, and it stays. A section also shows by itself once it has
+            something of yours in it, or once you open its page another way, and nothing that shows is ever hidden again. ⌘K
+            (Ctrl K on Windows) finds every section, shown or not.
+          </P>
+          <P>
+            If you skip the welcome, or answer only in Settings, you see every section as before. Changing an answer later only
+            ever adds sections.
           </P>
         </>
       ) : null}

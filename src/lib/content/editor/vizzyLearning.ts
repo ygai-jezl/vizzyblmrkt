@@ -22,6 +22,37 @@ export const LearnRequestSchema = z.object({
   entries: z.array(LearnEntrySchema).min(1).max(LEARN_LIMITS.ENTRIES),
 });
 
+/**
+ * Sent instead when Edit mode closes with changes Vizzy can't learn from this visit (learning
+ * isn't on for the brand, the person switched it off, or the list didn't load): how many there
+ * were and nothing else, so the server can log why (ADR-0021). Never reaches Memory Bank.
+ */
+export const LearnSkippedSchema = z.object({ skipped: z.number().int().min(1).max(LEARN_LIMITS.ENTRIES) }).strict();
+
+export type LearnCloseBody = z.input<typeof LearnRequestSchema> | z.infer<typeof LearnSkippedSchema>;
+
+/**
+ * What Edit mode sends when it closes: the kept and undone changes when Vizzy may learn from them,
+ * only their count when it may not, nothing when there were none. Pure.
+ */
+export function learnCloseBody(
+  available: boolean,
+  learn: boolean,
+  log: readonly Pick<LearnEntry, "instruction" | "kind" | "outcome" | "before" | "after">[],
+): LearnCloseBody | null {
+  if (!log.length) return null;
+  if (!available || !learn) return { skipped: Math.min(log.length, LEARN_LIMITS.ENTRIES) };
+  return {
+    entries: log.slice(0, LEARN_LIMITS.ENTRIES).map((e) => ({
+      instruction: e.instruction.slice(0, LEARN_LIMITS.INSTRUCTION),
+      kind: e.kind,
+      outcome: e.outcome,
+      before: e.before,
+      after: e.after,
+    })),
+  };
+}
+
 const words = (s: string) => s.split(/\s+/).filter(Boolean);
 
 /** The runs of words taken out and put in, in order (a word level diff). */

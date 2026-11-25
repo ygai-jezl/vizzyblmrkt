@@ -1,7 +1,8 @@
-import { forTenant } from "@/lib/tenant";
+import { forTenant, getTenantById } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import { isMemoryBankConfigured, listEditMemories } from "@/lib/agents/memoryBank";
 import { brandCanUse } from "@/lib/plans/brandAccess";
+import { brandLearnFacts, onceTenant, type BrandLearnFacts, type LearnKind, type LearnVia, type TenantLoad } from "@/lib/loops/learnLog";
 import { isEditModeVizzyLearningEnabled } from "./flags";
 
 /**
@@ -14,6 +15,28 @@ async function membershipOf(ctx: TenantContext) {
   if (!ctx.userId) return null;
   const [m] = await forTenant(ctx).members.find({ where: [["userId", "==", ctx.userId]], limit: 1 });
   return m ?? null;
+}
+
+/** Whether a brand may learn from edits of one kind, and what its log line says about the brand. */
+export type LearningAccess =
+  | { ok: true; via: LearnVia; facts: BrandLearnFacts }
+  | { ok: false; reason: "plan"; facts: BrandLearnFacts };
+
+/**
+ * Whether the brand may learn from edits of this kind (Edit mode or post edits): both need the
+ * learning key, edit_vizzy_learning, through brandCanUse. Reads the brand at most once, for the
+ * answer and the facts its loop_learn line carries (src/lib/loops/learnLog.ts).
+ */
+export async function learningAccess(
+  ctx: Pick<TenantContext, "tenantId" | "region">,
+  kind: LearnKind,
+  load: TenantLoad = getTenantById,
+): Promise<LearningAccess> {
+  const once = onceTenant(load);
+  const key = await brandCanUse(ctx, "edit_vizzy_learning", once);
+  const editVizzy = kind === "edit_mode" ? await brandCanUse(ctx, "edit_vizzy", once) : undefined;
+  const facts = await brandLearnFacts(ctx, once, editVizzy);
+  return key ? { ok: true, via: "learning_key", facts } : { ok: false, reason: "plan", facts };
 }
 
 /** Whether the person has switched learning off in this brand. */

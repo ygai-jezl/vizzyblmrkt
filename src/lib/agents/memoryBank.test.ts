@@ -108,6 +108,12 @@ describe("learning", () => {
     });
   });
 
+  it("never counts a missing bank as learned", async () => {
+    await expect(
+      learnFromEdits(me, [{ instruction: "shorter", kind: "selection", outcome: "kept", before: "a long line", after: "a line" }], fakeIo({})),
+    ).rejects.toThrow("memory_bank_404");
+  });
+
   it("refuses to run without a Memory Bank", async () => {
     vi.stubEnv("VIZZY_MEMORY_BANK_ID", "");
     await expect(listEditMemories(me, fakeIo({}))).rejects.toThrow("memory_bank_not_configured");

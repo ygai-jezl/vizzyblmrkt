@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { EditMemory } from "@/lib/agents/memoryBank";
+import { learnCloseBody } from "@/lib/content/editor/vizzyLearning";
 import type { VizzyLogEntry } from "./useVizzyEdit";
 
 /**
  * What Vizzy remembers about how the person edits, in Edit mode: loaded when Edit mode opens,
- * forgotten on request, and this visit's kept and undone changes sent when it closes. Hidden
- * entirely when learning isn't on for this copy or brand (the route says so).
+ * forgotten on request, and this visit's kept and undone changes sent when it closes (only their
+ * count when Vizzy may not learn from them). Hidden entirely when learning isn't on for this copy
+ * or brand (the route says so).
  */
 
 const SEEN_KEY = "yg-vizzy-memories-seen";
@@ -160,21 +162,16 @@ export function useVizzyLearning(enabled: boolean): VizzyLearning {
 
   const send = useCallback(
     (log: readonly VizzyLogEntry[]) => {
-      if (!available || !learn || !log.length) return;
-      const entries = log.slice(0, 20).map((e) => ({
-        instruction: e.instruction.slice(0, 1000),
-        kind: e.kind,
-        outcome: e.outcome,
-        before: e.before,
-        after: e.after,
-      }));
+      // The changes when Vizzy may learn from them, else only how many (the server logs why).
+      const body = learnCloseBody(available, learn, log);
+      if (!body) return;
       // keepalive: Edit mode is closing, and the request should outlive it.
       void fetch("/api/admin/editor/vizzy/learn", {
         method: "POST",
         credentials: "same-origin",
         keepalive: true,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ entries }),
+        body: JSON.stringify(body),
       }).catch(() => {});
     },
     [available, learn],

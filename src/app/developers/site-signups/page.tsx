@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { C, Code, Fields, H1, H2, Lead, Note, OL, P, UL } from "@/components/developers/Doc";
 import { WhoGetsWhichEmails } from "@/components/help/blocks";
+import { IdeasApiNote } from "@/components/developers/IdeasApiNote";
 import { docsOrigin } from "@/lib/developers/flags";
 import { isSiteSignupsEnabled } from "@/lib/waitlist/siteFlags";
 import { SITE_SIGNUP_LIMITS, SITE_SIGNUPS_PATH } from "@/lib/waitlist/siteSignupContract";
@@ -24,6 +25,7 @@ export default function SiteSignupsDocs() {
         onboarding journeys only, never broadcasts or the weekly newsletter. A newsletter list is a launch, filled from your
         box with this call.
       </Note>
+      <IdeasApiNote />
 
       <H2 id="when">Who gets which emails</H2>
       <WhoGetsWhichEmails />

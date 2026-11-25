@@ -17,7 +17,8 @@ import { HEALTH_HELP, SEARCH_TEXT_HELP, SIGNALS_HELP, VIZZY_COLLECTED_HELP } fro
 import { allConnectors } from "@/lib/connectors/catalog";
 import { CONNECTOR_ERRORS, tokenRefusedMessage } from "@/lib/connectors/messages";
 import { helpLlmsTxt, helpPageMarkdown } from "./agentFiles";
-import { HELP_PAGES, helpPage, shownHelpPages } from "./pages";
+import { HELP_PAGES, helpGroups, helpPage, nextHelpPage, shownHelpPages, type HelpBodyProps } from "./pages";
+import { helpMetadata } from "./metadata";
 import { HELP_PLACES, helpFor, parseHelpPath } from "./places";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
 import { VIZZY_READS_HINT } from "@/components/admin/audience/fieldsApi";
@@ -129,6 +130,25 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+let appSource: string | null = null;
+/**
+ * Whether the app really shows a message a help page quotes: it is in src outside the help, word for
+ * word, or the app builds it from a connector's name, as a turned down token's message is.
+ */
+function isAppMessage(message: string): boolean {
+  appSource ??= sourceFiles(SRC)
+    .filter((f) => !f.includes(join("components", "help")) && !f.includes(join("app", "help")))
+    .map((f) => readFileSync(f, "utf8"))
+    .join("\n")
+    // Apostrophes and quotes may be written as entities or escapes in source.
+    .replace(/&apos;|&#39;|\\'/g, "'")
+    .replace(/&quot;|\\"/g, '"');
+  if (appSource.includes(message)) return true;
+  return allConnectors().some((m) =>
+    [true, false].some((chat) => tokenRefusedMessage(m.name, "connected", chat) === message || tokenRefusedMessage(m.name, "connecting", chat) === message),
+  );
+}
+
 describe("the help pages", () => {
   it("each has a body, a drawer loader, a page route and a Markdown copy", () => {
     for (const p of HELP_PAGES) {
@@ -176,21 +196,10 @@ describe("the help pages", () => {
   });
 
   it("quote only messages the app really shows", () => {
-    const corpus = sourceFiles(SRC)
-      .filter((f) => !f.includes(join("components", "help")) && !f.includes(join("app", "help")))
-      .map((f) => readFileSync(f, "utf8"))
-      .join("\n")
-      // Apostrophes and quotes may be written as entities or escapes in source.
-      .replace(/&apos;|&#39;|\\'/g, "'")
-      .replace(/&quot;|\\"/g, '"');
-    // Messages the app builds from a manifest's name, as a turned down token's are, count as shown.
-    const generated = new Set(
-      allConnectors().flatMap((m) => [true, false].flatMap((chat) => [tokenRefusedMessage(m.name, "connected", chat), tokenRefusedMessage(m.name, "connecting", chat)])),
-    );
     for (const { page, els } of pages) {
       for (const el of els.filter((e) => e.type === Messages)) {
         for (const [message] of el.props.rows as Array<[string, ReactNode]>) {
-          expect(corpus.includes(message) || generated.has(message), `${page.path} quotes "${message}", which isn't in src`).toBe(true);
+          expect(isAppMessage(message), `${page.path} quotes "${message}", which isn't in src`).toBe(true);
         }
       }
     }
@@ -389,6 +398,164 @@ describe("ideas on Launch and waitlist", () => {
     const people = (ideas: boolean) => docToMarkdown(HELP_BODIES["your-audience"]!({ people: true, ideas }), "https://app.example.com");
     expect(people(true)).toContain("**In more than one launch**");
     expect(people(false)).not.toContain("In more than one launch");
+  });
+});
+
+describe("Ideas in place of Launches", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  /** Every section a body can show, so every line is read. */
+  const ALL: HelpBodyProps = {
+    people: true,
+    fields: true,
+    fieldFilters: true,
+    addPerson: true,
+    timeline: true,
+    vizzyFields: true,
+    vizzyTextFields: true,
+    vizzyAddPerson: true,
+    catalogHistory: true,
+    connectorsChat: true,
+    connectorsCollect: true,
+    connectorsSearchText: true,
+    connectorSignals: true,
+    brandMapScale: true,
+    ideas: true,
+  };
+  // Told, not read: the How to drawer renders in the browser, where server switches read off.
+  const body = (slug: string, ideaWords: boolean) => HELP_BODIES[slug]!({ ...ALL, ideaWords });
+  const md = (slug: string, ideaWords: boolean) => docToMarkdown(body(slug, ideaWords), "https://app.example.com");
+  /** The words on as the server sees them: nav v2 phase 3 and the words switch (LAUNCH_IDEAS_ENABLED is on above). */
+  const wordsOnServer = () => {
+    for (const name of ["NEXT_PUBLIC_NAV_V2_ENABLED", "NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED", "NEXT_PUBLIC_NAV_V2_PHASE3_ENABLED", "NEXT_PUBLIC_NAV_IDEAS_ENABLED"]) {
+      vi.stubEnv(name, "true");
+    }
+  };
+
+  /** "launch" kept on purpose while the words are on. */
+  const KEPT = [
+    // Home's stage 4, and help's "4 · Launch product".
+    "Launch product",
+    // The general sense: an example of what to ask Vizzy, and a competitor's news about itself.
+    "about our launch",
+    "such as a launch or an award",
+    // The public API's own message (409 launch_closed). Piece K renames the API.
+    "This launch is archived, so it takes no new sign-ups.",
+  ];
+  /**
+   * Each line that names a launch as people read it. Link addresses (slugs, anchors, /admin/launches)
+   * and identifiers (launch_closed, LAUNCH_SITE_SIGNUPS_ENABLED) aren't read; nor is Launched, the
+   * idea status.
+   */
+  function launchesIn(text: string): string[] {
+    let rest = text.replace(/\]\([^)]*\)/g, "]").replace(/\b\w*_\w*\b/g, "");
+    for (const kept of KEPT) rest = rest.split(kept).join("");
+    return rest.split("\n").filter((line) => /\blaunch(es)?\b/i.test(line));
+  }
+
+  it("never say launch on any page while the words are on, apart from what is kept on purpose", () => {
+    vi.stubEnv("NEXT_PUBLIC_NAV_V2_ENABLED", "true");
+    for (const p of HELP_PAGES) expect(launchesIn(md(p.slug, true)), p.path).toEqual([]);
+  });
+
+  it("say idea where they said launch, in the screens' own words", () => {
+    vi.stubEnv("NEXT_PUBLIC_NAV_V2_ENABLED", "true");
+    const launch = md("launch-and-waitlist", true);
+    for (const words of [
+      "# Idea and waitlist",
+      "## Create an idea",
+      "**New idea**",
+      "Type an **Idea name**",
+      "**Create idea**",
+      "**Idea checklist**",
+      "**Archive idea**",
+      "## Compare ideas side by side",
+      "**All ideas**",
+      "In more than one idea",
+      '"Idea name is required."',
+      "Your idea is made. Add the hypothesis on its Overview.",
+    ]) {
+      expect(launch, words).toContain(words);
+    }
+    expect(md("", true)).toContain("## 2. Idea");
+    expect(md("", true)).toContain("[Create an idea]");
+    expect(md("", true)).toContain("## 4. Launch product");
+    expect(md("newsletter-from-your-site", true)).toContain("## Make the newsletter waitlist");
+    expect(md("newsletter-from-your-site", true)).toContain("On the Idea card, tick **Just a list**");
+    expect(md("your-audience", true)).toContain("**In more than one idea**");
+    expect(md("your-audience", true)).toContain("**Ideas**: each idea they joined");
+    expect(md("plan-and-usage", true)).toContain("| Live ideas |");
+    expect(md("invite-your-waitlist", true)).toContain('"This idea is archived."');
+    expect(md("email-style", true)).toContain("Next: [Idea and waitlist]");
+  });
+
+  it("keep today's words while they are off", () => {
+    vi.stubEnv("NEXT_PUBLIC_NAV_V2_ENABLED", "true");
+    const launch = md("launch-and-waitlist", false);
+    for (const words of ["# Launch and waitlist", "## Create a launch", "**New launch**", "Type a **Launch name**", "**Create launch**", "**Launch checklist**", "**Archive launch**", "## Compare launches side by side", "In more than one launch"]) {
+      expect(launch, words).toContain(words);
+    }
+    for (const words of ["# Idea and waitlist", "Create an idea", "**Idea name**", "**New idea**", "Compare ideas"]) expect(launch, words).not.toContain(words);
+    expect(md("", false)).toContain("## 2. Launch");
+    expect(md("newsletter-from-your-site", false)).toContain("## Make the newsletter launch");
+    expect(md("your-audience", false)).toContain("**Launches**: each launch they joined");
+    expect(md("plan-and-usage", false)).toContain("| Live launches |");
+    expect(md("invite-your-waitlist", false)).toContain('"This launch is archived."');
+    expect(md("email-style", false)).toContain("Next: [Launch and waitlist]");
+    // The server's answer, used by /help, llms.txt and the page titles: off in this file.
+    expect(helpPage("launch-and-waitlist")?.label).toBe("Launch and waitlist");
+    expect(helpGroups().find((g) => g.key === "launch")?.label).toBe("2 · Launch");
+    expect(helpLlmsTxt("https://app.example.com")).toContain("launch a waitlist");
+  });
+
+  it("quote only messages the screens show with the words on, written out in full", () => {
+    vi.stubEnv("NEXT_PUBLIC_NAV_V2_ENABLED", "true");
+    for (const p of HELP_PAGES) {
+      for (const el of elements(body(p.slug, true)).filter((e) => e.type === Messages)) {
+        for (const [message] of el.props.rows as Array<[string, ReactNode]>) {
+          expect(isAppMessage(message), `${p.path} quotes "${message}", which isn't in src`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("keep house style and link only to sections and pages that exist, with the words on", () => {
+    vi.stubEnv("NEXT_PUBLIC_NAV_V2_ENABLED", "true");
+    for (const p of HELP_PAGES) {
+      const on = md(p.slug, true);
+      for (const line of on.split("\n")) expect(dashesIn(line), `${p.path}: ${line}`).toEqual([]);
+      // The words add none of the AI tells (a page may already use one, such as "Unlock invites").
+      expect(aiTellsIn(on).sort(), p.path).toEqual(aiTellsIn(md(p.slug, false)).sort());
+      for (const el of elements(body(p.slug, true))) {
+        const href = el.props.href;
+        if (typeof href !== "string") continue;
+        if (href.startsWith("/help")) expectHelpPath(href, p.path);
+        else if (href.startsWith("/admin")) expect(adminRouteExists(href), `${p.path} links to ${href}`).toBe(true);
+      }
+    }
+  });
+
+  it("list Launch and waitlist as Idea and waitlist under 2 · Idea, keeping its slug, when told or when the server says so", () => {
+    // ⌘K and the How to drawer pass the shell's answer.
+    expect(shownHelpPages({ ideaWords: true }).find((p) => p.slug === "launch-and-waitlist")).toMatchObject({
+      label: "Idea and waitlist",
+      path: "/help/launch-and-waitlist",
+    });
+    expect(helpPage("launch-and-waitlist", { ideaWords: true })?.summary).toBe("Create an idea, turn on the welcome email, then share your waitlist page.");
+    expect(nextHelpPage("email-style", { ideaWords: true })?.label).toBe("Idea and waitlist");
+    expect(helpGroups(true).map((g) => g.label)).toEqual(["", "1 · Get ready", "2 · Idea", "3 · Grow audience", "4 · Launch product", "5 · Onboard & retain", "Fix"]);
+    expect(helpPage("your-audience", { ideaWords: true, fields: false })?.summary).toBe(
+      "Everyone from your ideas' waitlists, your own site and your products in one list, one page per person, and erasing or exporting them everywhere.",
+    );
+    // The server's answer: /help's navigation, the page titles, llms.txt and every page's Markdown.
+    wordsOnServer();
+    expect(shownHelpPages().find((p) => p.slug === "launch-and-waitlist")?.label).toBe("Idea and waitlist");
+    expect(helpGroups().find((g) => g.key === "launch")?.label).toBe("2 · Idea");
+    expect(helpMetadata("launch-and-waitlist").title).toBe("Idea and waitlist · YouGrow Help");
+    const index = helpLlmsTxt("https://app.example.com");
+    expect(index).toContain("## 2 · Idea");
+    expect(index).toContain("test an idea with a waitlist");
+    expect(launchesIn(index)).toEqual([]);
+    for (const p of HELP_PAGES) expect(launchesIn(helpPageMarkdown(p.slug, "https://app.example.com")!), p.path).toEqual([]);
   });
 });
 

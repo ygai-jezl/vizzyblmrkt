@@ -2,9 +2,11 @@ import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
 import { isOneViewEnabled, isPeopleNameEnabled } from "@/lib/audience/flags";
 import type { HelpBodyProps } from "@/lib/help/pages";
-import { peopleArea } from "@/lib/nav/terms";
+import { ideaWord, peopleArea } from "@/lib/nav/terms";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 
-export default function PeopleHelp({ people = isPeopleNameEnabled() }: HelpBodyProps = {}) {
+/** With ideas in the words (`ideaWords`, isIdeaWordsEnabled()) a launch is called an idea. */
+export default function PeopleHelp({ people = isPeopleNameEnabled(), ideaWords = isIdeaWordsEnabled() }: HelpBodyProps = {}) {
   // One People list (AUDIENCE_ONE_VIEW_ENABLED) in place of the Product users tab. People (the
   // area's new name) needs it, so the How to drawer, which can't read server switches, passes it.
   const oneView = people || isOneViewEnabled();
@@ -42,7 +44,7 @@ export default function PeopleHelp({ people = isPeopleNameEnabled() }: HelpBodyP
             by name or email.
           </li>
           <li>
-            Click their row. Their page shows each launch they joined too, and each product they use has a part like the
+            Click their row. Their page shows each {ideaWord(ideaWords).one} they joined too, and each product they use has a part like the
             one below. See <Open href="/help/your-audience">{people ? "People" : "Your audience"}</Open>.
           </li>
         </Steps>

@@ -13,10 +13,10 @@ import {
 import { SUGGESTION_MESSAGES, SUGGESTION_NOTES } from "@/lib/audience/suggestionWords";
 import { TIMELINE_EMPTY } from "@/lib/audience/timelineWords";
 import { FIELD_MESSAGES, VIZZY_READS_HINT } from "@/components/admin/audience/fieldsApi";
-import { CONSENT_WAYS, NEW_PERSON_MESSAGES, NEW_PERSON_NOTES } from "@/lib/audience/newPerson";
+import { CONSENT_WAYS, NEW_PERSON_AS_IDEAS, NEW_PERSON_MESSAGES, NEW_PERSON_NOTES } from "@/lib/audience/newPerson";
 import type { HelpBodyProps } from "@/lib/help/pages";
-import { peopleArea } from "@/lib/nav/terms";
-import { isIdeasEnabled } from "@/lib/ideas/flags";
+import { ideaWord, peopleArea } from "@/lib/nav/terms";
+import { isIdeasEnabled, isIdeaWordsEnabled } from "@/lib/ideas/flags";
 
 /**
  * Shown only while AUDIENCE_ONE_VIEW_ENABLED is on (src/lib/help/pages.ts). With People on
@@ -27,7 +27,8 @@ import { isIdeasEnabled } from "@/lib/ideas/flags";
  * and their fields shows while AUDIENCE_VIZZY_FIELDS_ENABLED is on, with "Vizzy can read this field"
  * for text fields while AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED is too, and Vizzy filling in New person
  * while AUDIENCE_VIZZY_ADD_PERSON_ENABLED is. In more than one launch shows while
- * LAUNCH_IDEAS_ENABLED is on.
+ * LAUNCH_IDEAS_ENABLED is on. With ideas in the words (`ideaWords`, isIdeaWordsEnabled()) a launch
+ * is called an idea, and the messages quoted are the ones the screens show then.
  */
 export default function YourAudienceHelp({
   people = isPeopleNameEnabled(),
@@ -39,8 +40,10 @@ export default function YourAudienceHelp({
   vizzyTextFields = isVizzyTextFieldsEnabled(),
   vizzyAddPerson = isVizzyAddPersonEnabled(),
   ideas = isIdeasEnabled(),
+  ideaWords = isIdeaWordsEnabled(),
 }: HelpBodyProps = {}) {
   const area = peopleArea(people);
+  const w = ideaWord(ideaWords);
   // Text fields Vizzy may read need Vizzy's fields, which need fields.
   const vizzyText = fields && vizzyFields && vizzyTextFields;
   // Vizzy's New person drafts need New person.
@@ -49,7 +52,7 @@ export default function YourAudienceHelp({
     <article>
       <H1>{people ? "People" : "Your audience"}</H1>
       <Lead>
-        Everyone you know, in one list: people who joined a launch, people from your own site&apos;s sign-up box, and the
+        Everyone you know, in one list: people who joined {w.a}, people from your own site&apos;s sign-up box, and the
         users of your connected products. One row and one page per person, whatever brought them.
       </Lead>
       <Meta
@@ -66,7 +69,7 @@ export default function YourAudienceHelp({
         before={
           <>
             <li>
-              A <Open href="/help/launch-and-waitlist">launch</Open> with sign-ups, or a{" "}
+              {ideaWords ? "An" : "A"} <Open href="/help/launch-and-waitlist">{w.one}</Open> with sign-ups, or a{" "}
               <Open href="/help/connect-your-product">connected product</Open> that has sent its users
             </li>
           </>
@@ -74,7 +77,7 @@ export default function YourAudienceHelp({
         unlocks={
           <>
             <li>Seeing how many people you have, and how many you can email</li>
-            <li>One page for each person, with their launches and their product together</li>
+            <li>One page for each person, with their {w.many} and their product together</li>
             <li>Erasing or exporting a person everywhere at once</li>
             {fields ? <li>Your own fields on people and companies, with every change kept</li> : null}
             {addPerson ? <li>Adding someone you met by hand, with how they agreed to hear from you</li> : null}
@@ -91,22 +94,22 @@ export default function YourAudienceHelp({
         </li>
         {fieldFilters ? (
           <li>
-            Pick who to show at the top: <strong>Everyone</strong>, or one launch, product or stage from the{" "}
-            <strong>Launch</strong>, <strong>Product</strong> and <strong>Stage</strong> menus. Stages are{" "}
+            Pick who to show at the top: <strong>Everyone</strong>, or one {w.one}, product or stage from the{" "}
+            <strong>{w.One}</strong>, <strong>Product</strong> and <strong>Stage</strong> menus. Stages are{" "}
             <strong>New</strong>, <strong>Onboarding</strong>, <strong>Stuck</strong>, <strong>Activated</strong> and{" "}
             <strong>Quiet</strong>.
           </li>
         ) : (
           <li>
-            Pick a group at the top: <strong>Everyone</strong>, one of your launches, <strong>From your site</strong>, or one
+            Pick a group at the top: <strong>Everyone</strong>, one of your {w.many}, <strong>From your site</strong>, or one
             of your products. A product also shows its stages: <strong>New</strong>, <strong>Onboarding</strong>,{" "}
             <strong>Stuck</strong>, <strong>Activated</strong> and <strong>Quiet</strong>.
           </li>
         )}
         {ideas ? (
           <li>
-            Press <strong>In more than one launch</strong> to see everyone on two or more of your launches, and how many there
-            are. Launches marked <Open href="/help/launch-and-waitlist#idea">Just a list</Open> don&apos;t count.
+            Press <strong>In more than one {w.one}</strong> to see everyone on two or more of your {w.many}, and how many
+            there are. {w.Many} marked <Open href="/help/launch-and-waitlist#idea">Just a list</Open> don&apos;t count.
           </li>
         ) : null}
         <li>
@@ -174,20 +177,20 @@ export default function YourAudienceHelp({
           </Steps>
           <P>
             On the page of someone added by hand, <strong>Consent, in one place</strong> says who added them and whether they agreed. An
-            admin can press <strong>Record that they agreed</strong> later. Consent for people from a launch or your product comes from
+            admin can press <strong>Record that they agreed</strong> later. Consent for people from {w.a} or your product comes from
             there, not from here.
           </P>
           <P>
             If they change their mind, an admin presses <strong>Withdraw</strong> there, adds a note if they like, and presses{" "}
             <strong>Withdraw</strong> again. It is saved with their name and the time, the person can no longer be emailed from what your
-            team recorded, and Marketing emails says Withdrawn. If they also joined a launch or use your product, whatever they agreed
+            team recorded, and Marketing emails says Withdrawn. If they also joined {w.a} or use your product, whatever they agreed
             to there still stands, so they may still get emails from there. To record that they agreed again later, press{" "}
             <strong>Record that they agreed</strong>, as the first time. Everyone else on your team sees where it stands but can&apos;t
             change it.
           </P>
           <P>
             For someone added by hand, can email means your team recorded that they agreed. Nothing is sent to them yet: journeys and
-            broadcasts reach people added by hand once lists come. They stay in People whatever happens to their launches or products,
+            broadcasts reach people added by hand once lists come. They stay in People whatever happens to their {w.many} or products,
             keep the name you typed, and are exported and erased like anyone else.
           </P>
           <P>
@@ -211,7 +214,7 @@ export default function YourAudienceHelp({
       <P>Click a row to open everything about them:</P>
       <UL>
         <li>
-          <strong>Launches</strong>: each launch they joined, whether they confirmed, their referrals, their invite and their
+          <strong>{w.Many}</strong>: each {w.one} they joined, whether they confirmed, their referrals, their invite and their
           waitlist journey.
         </li>
         <li>
@@ -219,7 +222,7 @@ export default function YourAudienceHelp({
           <Open href="/help/people">one person&apos;s view</Open>.
         </li>
         <li>
-          <strong>Emails from your launches</strong>, and <strong>Consent, in one place</strong>: whether you can email
+          <strong>Emails from your {w.many}</strong>, and <strong>Consent, in one place</strong>: whether you can email
           them and why not.
         </li>
         {timeline ? (
@@ -240,9 +243,9 @@ export default function YourAudienceHelp({
           <H2 id="timeline">The timeline</H2>
           <P>A person&apos;s page shows what happened to them, newest first. Press <strong>Show older</strong> for more.</P>
           <UL>
-            <li>joining a launch&apos;s waitlist, and leaving it;</li>
+            <li>joining {w.a}&apos;s waitlist, and leaving it;</li>
             <li>starting to use one of your products, moving from one stage to another in it, going quiet and coming back;</li>
-            <li>the emails your launches sent them, and what they did with them;</li>
+            <li>the emails your {w.many} sent them, and what they did with them;</li>
             <li>a voice chat on a sign-up page, which an admin can read;</li>
             {addPerson ? <li>being added by hand, agreeing to marketing emails, and withdrawing;</li> : null}
             {fields ? <li>each change to your own fields, with who made it and the values before and after;</li> : null}
@@ -296,7 +299,7 @@ export default function YourAudienceHelp({
           </P>
           <P>Beside your own fields, a person&apos;s page shows fields from elsewhere, read only, each with where it comes from:</P>
           <UL>
-            <li>their answers to a launch&apos;s sign-up questions, labelled with the launch;</li>
+            <li>their answers to {w.a}&apos;s sign-up questions, labelled with the {w.one};</li>
             <li>each product&apos;s stage for them, and the traits and facts your product sends;</li>
             <li>their company&apos;s size, from company enrichment;</li>
             <li>
@@ -310,7 +313,7 @@ export default function YourAudienceHelp({
             fields in use, 300 in all, and 50 options a field.
           </P>
           <P>
-            Values stay when someone leaves every launch and product: they drop out of Everyone and your filters, search still finds
+            Values stay when someone leaves every {w.one} and product: they drop out of Everyone and your filters, search still finds
             them, and their filters come back if they return. Erasing them, or erasing them from the only product they came from,
             removes the values too.
           </P>
@@ -352,7 +355,7 @@ export default function YourAudienceHelp({
                 email, phone, link or team member fields, or the person&apos;s name or address.
               </li>
             )}
-            <li>It works for anyone in People, including people who only joined a launch or were added by hand.</li>
+            <li>It works for anyone in People, including people who only joined {w.a} or were added by hand.</li>
           </UL>
           <Steps>
             <li>Ask Vizzy, for example &quot;Suggest a status for them&quot;. It reads their fields and saves a suggestion.</li>
@@ -395,19 +398,21 @@ export default function YourAudienceHelp({
       <H2 id="erase">Export or erase someone</H2>
       <P>
         On their page, an admin can press <strong>Export their data</strong> for a file of everything held about them, or{" "}
-        <strong>Erase everywhere</strong>. Erasing deletes their sign-ups on every launch, their user record in every
+        <strong>Erase everywhere</strong>. Erasing deletes their sign-ups on every {w.one}, their user record in every
         product, their journeys and their email history. Their unsubscribe keeps working, without their address. It
         can&apos;t be undone.
       </P>
       <P>
         To remove them from one product only, press <strong>Erase from this product</strong> in that product&apos;s part
-        of their page. Their launches stay.
+        of their page. Their {w.many} stay.
       </P>
 
       <H2 id="check">Check it worked</H2>
       <Checks>
-        <li>Someone who signed up to a launch appears in People, under that launch.</li>
-        <li>The same email sent by your product shows on the same row, with the product beside the launch.</li>
+        <li>
+          Someone who signed up to {w.a} appears in People, under that {w.one}.
+        </li>
+        <li>The same email sent by your product shows on the same row, with the product beside the {w.one}.</li>
         {addPerson ? <li>Someone you add by hand shows in People marked Added by hand, and adding them again opens their page.</li> : null}
         {timeline ? <li>After a stage moves in your product, the person&apos;s timeline shows the move.</li> : null}
       </Checks>
@@ -436,10 +441,13 @@ export default function YourAudienceHelp({
             ? ([
                 [NEW_PERSON_MESSAGES.email_or_phone, "Type an email address, or a phone number for someone with no email."],
                 [NEW_PERSON_MESSAGES.note_needed, "With Other picked, say in a few words how they agreed."],
-                [NEW_PERSON_MESSAGES.consent_elsewhere, "Nothing to fix. Their consent shows under Consent, in one place, from their launch or product."],
+                [
+                  ideaWords ? NEW_PERSON_AS_IDEAS.consent_elsewhere : NEW_PERSON_MESSAGES.consent_elsewhere,
+                  `Nothing to fix. Their consent shows under Consent, in one place, from their ${w.one} or product.`,
+                ],
                 [NEW_PERSON_MESSAGES.fields_not_saved, "Open their page and set the values in Fields."],
                 [NEW_PERSON_MESSAGES.nothing_to_withdraw, "Nothing to fix. Someone may have withdrawn it already; reload the page."],
-                [NEW_PERSON_NOTES.withdrawElsewhere, "To stop those too, they unsubscribe from any email: that stops all of your marketing email to their address."],
+                [ideaWords ? NEW_PERSON_AS_IDEAS.withdrawElsewhere : NEW_PERSON_NOTES.withdrawElsewhere, "To stop those too, they unsubscribe from any email: that stops all of your marketing email to their address."],
                 [NEW_PERSON_NOTES.nothingSent, "Nothing to fix. People added by hand get emails once lists reach them."],
                 ...(vizzyAdds
                   ? ([

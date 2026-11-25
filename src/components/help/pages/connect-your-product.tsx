@@ -5,8 +5,14 @@ import { isPeopleNameEnabled } from "@/lib/audience/flags";
 import { isCatalogHistoryEnabled } from "@/lib/connect/v2/flags";
 import type { HelpBodyProps } from "@/lib/help/pages";
 import { peopleArea } from "@/lib/nav/terms";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 
-export default function ConnectYourProductHelp({ people = isPeopleNameEnabled(), catalogHistory = isCatalogHistoryEnabled() }: HelpBodyProps = {}) {
+/** With ideas in the words (`ideaWords`, isIdeaWordsEnabled()) a newsletter list is a waitlist; stage 4 stays Launch product. */
+export default function ConnectYourProductHelp({
+  people = isPeopleNameEnabled(),
+  catalogHistory = isCatalogHistoryEnabled(),
+  ideaWords = isIdeaWordsEnabled(),
+}: HelpBodyProps = {}) {
   return (
     <article>
       <H1>Connect your product</H1>
@@ -144,10 +150,10 @@ export default function ConnectYourProductHelp({ people = isPeopleNameEnabled(),
           <H2 id="newsletter">Your app&apos;s users and your newsletter</H2>
           <P>
             People your app sends get onboarding journeys only, never broadcasts or the weekly newsletter. Want a newsletter
-            list? Use a launch&apos;s site key, not <C>users.update</C>. See{" "}
+            list? Use {ideaWords ? "a waitlist" : "a launch"}&apos;s site key, not <C>users.update</C>. See{" "}
             <Open href="/help/newsletter-from-your-site">Newsletter from your own site</Open>.
           </P>
-          <WhoGetsWhichEmails />
+          <WhoGetsWhichEmails ideaWords={ideaWords} />
         </>
       ) : null}
 

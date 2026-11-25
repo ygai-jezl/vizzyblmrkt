@@ -3,6 +3,7 @@ import { isAutopilotEnabled } from "@/lib/autopilot/flags";
 import { isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
 import { isVizzyAddPersonEnabled, isVizzyFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsSharingEnabled } from "@/lib/connectors/flags";
+import { isOnboardingEnabled } from "@/lib/onboarding/flags";
 import { SIGNALS_HELP } from "@/lib/connectors/helpText";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
 import type { HelpBodyProps } from "@/lib/help/pages";
@@ -13,7 +14,8 @@ import type { HelpBodyProps } from "@/lib/help/pages";
  * CONNECTORS_COLLECT_ENABLED is, and what your numbers suggest while CONNECTOR_SIGNALS_ENABLED is
  * too (the How to drawer passes the shell's answers). While organisations share connections
  * (CONNECTORS_SHARING_ENABLED, a server switch), a data source your organisation gives your brand
- * names the organisation and who can fix it.
+ * names the organisation and who can fix it. While getting to know a brand is on (ONBOARDING_ENABLED),
+ * admins also see what Vizzy heard about the business in a chat.
  */
 export default function ReviewAndApprovalsHelp({
   vizzyFields = isVizzyFieldsEnabled(),
@@ -21,6 +23,7 @@ export default function ReviewAndApprovalsHelp({
   connectorsCollect = isConnectorsCollectEnabled(),
   connectorSignals = isConnectorSignalsEnabled(),
   sharing = isConnectorsSharingEnabled(),
+  onboarding = isOnboardingEnabled(),
 }: HelpBodyProps = {}) {
   const numbers = connectorsCollect && connectorSignals;
   return (
@@ -92,6 +95,13 @@ export default function ReviewAndApprovalsHelp({
           <li>
             <strong>Suggestions about people</strong>: New person forms Vizzy filled in, listed for admins only. Each opens the form,
             where an admin checks it, says how they agreed and adds them (<Open href="/help/your-audience#add">Add someone by hand</Open>).
+          </li>
+        ) : null}
+        {onboarding ? (
+          <li>
+            <strong>About your business</strong>: something new Vizzy heard about your business in a chat, listed for admins
+            only. <strong>Check</strong> opens Settings, About your business, where an admin keeps or removes it (
+            <Open href="/help#about-you">Tell Vizzy about your business</Open>).
           </li>
         ) : null}
         <li>

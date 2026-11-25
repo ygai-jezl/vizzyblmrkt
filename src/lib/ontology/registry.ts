@@ -81,6 +81,14 @@ const PERSON_KEPT_ON_PRODUCT_ROWS =
   "while AUDIENCE_ONE_VIEW_ENABLED is off a person's erase keeps their product users, so a product user's rows keep that person's personId until the product user is erased (src/lib/crm/eraseWorker.ts step 2)";
 const NOT_PERSONAL = "the brand's own work, with no one's personal data";
 const NO_NUMBERS = "no numbers an agent reads";
+
+/** Getting to know you: the kept conversations and facts (ONBOARDING_ENABLED). */
+const ONBOARDING = "src/lib/onboarding/store.ts";
+const SPOKEN_GAPS = [
+  "no path deletes a whole brand and everything it holds",
+  "the member's user id in `by` stays after they leave the team; no path removes it",
+  "a person's erase does not find a conversation that names them: it is free text",
+];
 const planned = (piece: string) => `planned: ${piece} decides it with the store`;
 /** The event history and agent actions: erased and exported whatever any switch says. */
 const HISTORY_ERASE: PathDecision = {
@@ -1411,6 +1419,54 @@ export const ONTOLOGY: readonly OntologyType[] = [
     search: { none: "members' own conversations" },
     numbers: { none: NO_NUMBERS },
   },
+  {
+    id: "onboarding_conversation",
+    name: "Conversation with Vizzy",
+    description:
+      "A team member's conversation with Vizzy about the business, kept as words only (no audio): a call on the welcome page, with what Vizzy learned from it until an admin confirms it, or the three lines of a later chat whose fact an admin kept. Read by the brand's admins in Settings, About your business, and by Vizzy.",
+    place: "partner_agent",
+    status: "built",
+    home: "brand",
+    personal: "team",
+    stores: [regional("onboarding_conversations", "one record per conversation, at most 200 turns and 40,000 characters; `by` holds the member's user id only")],
+    links: [
+      { to: "member", via: "by", many: false },
+      { to: "business_fact", via: "the facts kept from it", many: true },
+    ],
+    events: [],
+    erase: { paths: [brandPath("deleteConversation", ONBOARDING, "an admin deletes it; the facts kept from it stay")], gaps: SPOKEN_GAPS },
+    export: {
+      paths: [{ fn: "getConversation", file: ONBOARDING, trigger: "member", when: "an admin reads the whole transcript in Settings, About your business" }],
+      gaps: ["a person's export does not include a conversation that names them"],
+    },
+    search: { none: "a team member's own conversation, read whole by admins and by Vizzy, kept out of brand search" },
+    numbers: { none: NO_NUMBERS },
+    madeBy: ["onboarding_voice", "onboarding"],
+  },
+  {
+    id: "business_fact",
+    name: "Business fact",
+    description:
+      "Something Vizzy heard about the business and an admin kept: a timeline, channel, starting point, constraint or goal, each with the member's own words. It comes from a call on the welcome, or from a later chat, where it waits as an agent action until an admin keeps it. With the four answers on the brand record, it is the brand's profile, which Vizzy reads in every chat.",
+    place: "company",
+    status: "built",
+    home: "brand",
+    personal: "team",
+    stores: [regional("business_facts", "one record per fact, at most 40 per brand; the quote is the member's own words")],
+    links: [
+      { to: "onboarding_conversation", via: "conversationId", many: false },
+      { to: "agent_action", via: "the chat suggestion it was kept from (its result names the fact)", many: false },
+    ],
+    events: [],
+    erase: {
+      paths: [brandPath("removeBusinessFact", ONBOARDING, "an admin removes it on Here's what I learned or in Settings")],
+      gaps: ["no path deletes a whole brand and everything it holds", "a person's erase does not find a fact that names them: it is free text"],
+    },
+    export: { paths: [{ fn: "listBusinessFacts", file: ONBOARDING, trigger: "member", when: "an admin reads them in Settings, About your business" }] },
+    search: { none: "a short profile Vizzy reads whole, not searched" },
+    numbers: { none: NO_NUMBERS },
+    madeBy: ["onboarding", "vizzy_chat"],
+  },
 
   // ===== Platform: what runs everything ======================================================
   {
@@ -1419,7 +1475,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     description: "The tenant: the face people see (name, voice, domains, sender) and the data wall (region, consent, keys, connections). Every record carries its id.",
     place: "platform",
     status: "built",
-    madeBy: [],
+    madeBy: ["sidebar_fit"],
     home: "control",
     personal: "team",
     stores: [
@@ -2364,7 +2420,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "agent_action",
     name: "Agent action",
     description:
-      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B). Other drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.",
+      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business. Other drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.",
     place: "partner_agent",
     status: "built",
     madeBy: ["canvas.person_fields", "canvas.new_person", "rising_search", "losing_page", "within_reach"],
@@ -2379,6 +2435,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { to: "idea", via: "the target, when it is an idea", many: false },
       { to: "data_signal", via: "the target, when it is a suggestion from collected numbers", many: false },
       { to: "brand_question", via: "the target, when it is a question proposed from Search Console", many: false },
+      { to: "brand", via: "the target, when it is something Vizzy heard about the business in a chat", many: false },
       { to: "ontology_event", via: "agentActionId, its agent kinds of event", many: true },
     ],
     events: ["agent.proposed", "agent.approved", "agent.acted", "agent.undone", "agent.declined"],

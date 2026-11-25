@@ -25,8 +25,8 @@ const slugOf = (path: string | undefined) => (path ? (parseHelpPath(path)?.slug 
 /**
  * What a help body in the drawer is told: every switch the admin shell was given by the server
  * (the drawer renders in the browser, where server switches read off), so a page says the same in
- * the drawer as on /help. Sharing, the join, ideas and their words are server switches too, so
- * they come this way.
+ * the drawer as on /help. Sharing, the join, ideas and their words, and getting to know a new brand
+ * are server switches too, so they come this way.
  */
 export function drawerBodyProps(shell: ReturnType<typeof useShell>): Required<HelpBodyProps> {
   return {
@@ -48,6 +48,8 @@ export function drawerBodyProps(shell: ReturnType<typeof useShell>): Required<He
     join: shell?.join ?? false,
     ideas: shell?.ideas ?? false,
     ideaWords: shell?.ideaWords ?? false,
+    onboarding: shell?.onboarding ?? false,
+    onboardingVoice: shell?.onboardingVoice ?? false,
   };
 }
 

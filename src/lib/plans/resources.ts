@@ -70,6 +70,7 @@ export const RESOURCES = {
       "images",
       "vizzy_chat",
       "product_map",
+      "onboarding",
       "other",
     ],
   },
@@ -104,6 +105,14 @@ export const RESOURCES = {
     capped: false,
     shownAs: "article_autopilot",
     purposes: ["autopilot"],
+  },
+  /** Seconds of Talk with Vizzy calls (Gemini Live audio, billed by the second), counted once as each ends. */
+  voice_seconds: {
+    label: "Voice conversations",
+    unit: "seconds",
+    capped: false,
+    shownAs: null,
+    purposes: ["onboarding_voice"],
   },
 } as const;
 
@@ -156,6 +165,7 @@ export const PURPOSE_LABELS: Record<ResourcePurpose, string> = {
   images: "Images",
   vizzy_chat: "Vizzy chat",
   product_map: "Learning your product",
+  onboarding: "Getting to know you",
   other: "Other",
   blog_hero: "Blog hero images",
   post_image: "Post images",
@@ -166,6 +176,7 @@ export const PURPOSE_LABELS: Record<ResourcePurpose, string> = {
   carousel: "Carousels",
   get_from_google: "Get from Google",
   autopilot: "Autopilot",
+  onboarding_voice: "Talk with Vizzy",
 };
 
 /**

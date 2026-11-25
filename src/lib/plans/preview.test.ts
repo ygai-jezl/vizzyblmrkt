@@ -22,7 +22,8 @@ describe("plan change previews", () => {
     const c = accessChanges(brand(), "free");
     const lost = c.features.filter((f) => f.before && !f.after).map((f) => f.feature);
     expect(lost).toEqual(expect.arrayContaining(["next_up", "competitors"]));
-    expect(lost.sort()).toEqual([...METERED_FEATURES].sort());
+    // Every metered feature but Talk with Vizzy by voice, which every plan includes.
+    expect(lost.sort()).toEqual(METERED_FEATURES.filter((f) => f !== "onboarding_voice").sort());
     expect(c.features.find((f) => f.feature === "competitors")?.hidden).toBe(EXCLUDED_EFFECT.competitors);
     expect(c.features.find((f) => f.feature === "next_up")?.hidden).toBe(EXCLUDED_EFFECT.next_up);
     expect(c.narrower).toBe(true);

@@ -6,6 +6,7 @@ import { IMAGE_LIMIT_MESSAGE, WEB_SEARCH_LIMIT_MESSAGE } from "@/lib/plans/resou
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
 import { isAddPersonEnabled } from "@/lib/audience/peopleFlags";
 import { isConnectorsSharingEnabled } from "@/lib/connectors/flags";
+import { isOnboardingVoiceEnabled } from "@/lib/onboarding/flags";
 import type { HelpBodyProps } from "@/lib/help/pages";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { ideaWord } from "@/lib/nav/terms";
@@ -20,6 +21,7 @@ export default function PlanAndUsageHelp({
   sharing = isConnectorsSharingEnabled(),
   join = isOrganisationJoinEnabled(),
   ideaWords = isIdeaWordsEnabled(),
+  onboardingVoice = isOnboardingVoiceEnabled(),
 }: HelpBodyProps = {}) {
   const meter = isUsageMeterUiEnabled();
   const w = ideaWord(ideaWords);
@@ -142,10 +144,23 @@ export default function PlanAndUsageHelp({
               heroes, post images, email images, ebook images, customised images and carousels). Your copy of YouGrow sets how
               many a brand may make in a month.
             </li>
-            <li>
-              Not counted: the model Google runs for Vizzy&apos;s memory, the voice chat in your browser, and turning your
-              knowledge into search.
-            </li>
+            {onboardingVoice ? (
+              <>
+                <li>
+                  <strong>Voice conversations</strong>: the seconds of each Talk with Vizzy call, from its start to its end,
+                  counted once the call ends. It has no limit.
+                </li>
+                <li>
+                  Not counted: the model Google runs for Vizzy&apos;s memory, the voice chat on your waitlist pages, and turning
+                  your knowledge into search.
+                </li>
+              </>
+            ) : (
+              <li>
+                Not counted: the model Google runs for Vizzy&apos;s memory, the voice chat in your browser, and turning your
+                knowledge into search.
+              </li>
+            )}
             <li>Ask Vizzy how much your brand has used this month, and what is left.</li>
           </>
         ) : null}

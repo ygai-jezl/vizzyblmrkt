@@ -4,6 +4,7 @@ import { z } from "zod";
 import { ImageStyleSuggestionSchema, StoredImageStyleSchema } from "./imageStyle";
 import { NotesRestSchema } from "./brandNote";
 import { PlanIdSchema } from "./organisation";
+import { BusinessProfileSchema, OnboardingVoiceDaySchema, SidebarRevealSchema } from "./businessProfile";
 
 /**
  * Core tenant (brand / workspace). Lives in the root-level `tenants` collection.
@@ -795,6 +796,15 @@ export const TenantSchema = z.object({
   /** The next article autopilot's settings (CREATE_ARTICLE_AUTOPILOT_ENABLED, src/lib/autopilot).
    *  Unset: off. A damaged value reads as off. */
   autopilot: AutopilotSettingsSchema.optional().catch(undefined),
+  /** What an admin told Vizzy about the business: the four answers and how far the welcome got
+   *  (ONBOARDING_ENABLED, src/lib/types/businessProfile.ts). Unset: never started. Damaged reads as none. */
+  businessProfile: BusinessProfileSchema.optional().catch(undefined),
+  /** Today's Talk with Vizzy calls (ONBOARDING_VOICE_ENABLED): one finished call and 3 starts per UTC
+   *  day (src/lib/types/businessProfile.ts). Unset or damaged: none today. */
+  onboardingVoice: OnboardingVoiceDaySchema.optional().catch(undefined),
+  /** The sidebar's sections once the welcome first finished with answers (ONBOARDING_ENABLED,
+   *  src/lib/onboarding/sidebarFit.ts): only ever added to. Unset or damaged: today's sidebar. */
+  sidebarReveal: SidebarRevealSchema.optional().catch(undefined),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

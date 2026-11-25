@@ -40,3 +40,25 @@ def test_instruction_documents_condition_catalog_and_default_edge():
     assert "default" in text
     # names the invented keys as an explicit anti-example (don't use these)
     assert "usedVoiceChat" in text and "never invent" in text.lower()
+
+
+def test_appends_what_the_brand_told_vizzy_when_the_root_has_it_cached():
+    import types as _types
+
+    from root_agent_pkg.context import business_profile as _bpc
+    from root_agent_pkg.sub_agents.campaign_ops.instruction_builder import build_campaign_ops_instruction as _build
+    from root_agent_pkg.sub_agents.campaign_ops.prompts.instruction import CAMPAIGN_OPS_INSTRUCTION as _base
+
+    _bpc.cache_clear()
+    state = {"tenantId": "ten_A", "userId": "usr_1", "profileRev": "3"}
+    # Nothing cached (a new replica, or no profile): exactly as before.
+    assert _build(_types.SimpleNamespace(state=state)) == _build(_types.SimpleNamespace(state={})) == _base
+    _bpc.cache_put("ten_A", "usr_1", "3", "## About this business\n<yg_business_profile>\nWhat you run: A shop or products\n</yg_business_profile>")
+    try:
+        out = _build(_types.SimpleNamespace(state=state))
+        assert out.startswith(_base)
+        assert out.endswith("</yg_business_profile>")
+        # Another person's, or an older rev's, is never used.
+        assert _build(_types.SimpleNamespace(state={**state, "userId": "usr_2"})) == _base
+    finally:
+        _bpc.cache_clear()

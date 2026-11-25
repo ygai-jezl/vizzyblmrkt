@@ -262,6 +262,28 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Vizzy gets to know a new brand: the welcome at /admin/welcome with the 4 quick questions and
+  # Skip for now, the brand's profile, About your business in Settings and Home's Your next action
+  # (needs NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED; Settings needs phase 3). No AI. Existing brands are
+  # never sent to the welcome: they start from Settings.
+  - variable: ONBOARDING_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Talk with Vizzy by voice on the welcome (needs ONBOARDING_ENABLED and GEMINI_LIVE_API_KEY, the
+  # Gemini API's Live API through AI Studio; a brand needs a grant when GRANTED_ONLY_FEATURES lists
+  # onboarding_voice).
+  - variable: ONBOARDING_VOICE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Vizzy reads the words from calls in chat: a kept fact's quote from a call and a call's
+  # transcript (needs ONBOARDING_ENABLED). What it reads stays with the chat in Agent Runtime, in
+  # one region, after the call is deleted: turn it on once the privacy policy says so.
+  - variable: ONBOARDING_CALL_WORDS_IN_CHAT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Organisations and plans ==
   # Organisations and plans (src/lib/plans): an organisation above brands with a plan. Off, a

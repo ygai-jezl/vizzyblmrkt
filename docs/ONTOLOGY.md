@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts` and `src/lib/loops/registry.ts`. D
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one. The Learning section at the end lists every place YouGrow makes a choice for a brand, and how that choice learns or why it doesn't.
 
-101 types: 80 built and 21 planned.
+103 types: 82 built and 21 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -1321,6 +1321,26 @@ One per refresh review of a live blog article: why it ran (its clock and reasons
 
 A rail beside the spine: the company itself, on the organisation.
 
+### Business fact (`business_fact`)
+
+Something Vizzy heard about the business and an admin kept: a timeline, channel, starting point, constraint or goal, each with the member's own words. It comes from a call on the welcome, or from a later chat, where it waits as an agent action until an admin keeps it. With the four answers on the brand record, it is the brand's profile, which Vizzy reads in every chat.
+
+- Status: built
+- Home: the brand's region
+- Personal: the brand's own team
+- Stores:
+  - `business_facts`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per fact, at most 40 per brand; the quote is the member's own words.
+- Links: `onboarding_conversation` through conversationId; `agent_action` through the chat suggestion it was kept from (its result names the fact)
+- Erase:
+  - `removeBusinessFact` in `src/lib/onboarding/store.ts`, on removing the record (an admin removes it on Here's what I learned or in Settings)
+  - Gap: no path deletes a whole brand and everything it holds
+  - Gap: a person's erase does not find a fact that names them: it is free text
+- Export:
+  - `listBusinessFacts` in `src/lib/onboarding/store.ts`, on the team member themselves (an admin reads them in Settings, About your business)
+- Search: none. A short profile Vizzy reads whole, not searched.
+- Numbers: none. No numbers an agent reads.
+- Made by: `onboarding`, `vizzy_chat` (see Learning)
+
 ### Legal entity (`legal_entity`)
 
 A company the founders formed, added whenever it exists, under its registered name. Brands point at it.
@@ -1412,6 +1432,28 @@ A team member's chats with Vizzy, kept by Agent Engine as sessions.
 - Numbers: none. No numbers an agent reads.
 - Made by: `vizzy_chat` (see Learning)
 
+### Conversation with Vizzy (`onboarding_conversation`)
+
+A team member's conversation with Vizzy about the business, kept as words only (no audio): a call on the welcome page, with what Vizzy learned from it until an admin confirms it, or the three lines of a later chat whose fact an admin kept. Read by the brand's admins in Settings, About your business, and by Vizzy.
+
+- Status: built
+- Home: the brand's region
+- Personal: the brand's own team
+- Stores:
+  - `onboarding_conversations`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per conversation, at most 200 turns and 40,000 characters; `by` holds the member's user id only.
+- Links: `member` through by; `business_fact` through the facts kept from it (many)
+- Erase:
+  - `deleteConversation` in `src/lib/onboarding/store.ts`, on removing the record (an admin deletes it; the facts kept from it stay)
+  - Gap: no path deletes a whole brand and everything it holds
+  - Gap: the member's user id in `by` stays after they leave the team; no path removes it
+  - Gap: a person's erase does not find a conversation that names them: it is free text
+- Export:
+  - `getConversation` in `src/lib/onboarding/store.ts`, on the team member themselves (an admin reads the whole transcript in Settings, About your business)
+  - Gap: a person's export does not include a conversation that names them
+- Search: none. A team member's own conversation, read whole by admins and by Vizzy, kept out of brand search.
+- Numbers: none. No numbers an agent reads.
+- Made by: `onboarding_voice`, `onboarding` (see Learning)
+
 ### MCP client (`mcp_client`)
 
 An outside agent connected to the brand's MCP server, and what it may read and ask to write.
@@ -1466,14 +1508,14 @@ What the brand asked a partner to set up, which fields were sent (names only, va
 
 ### Agent action (`agent_action`)
 
-One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B). Other drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.
+One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business. Other drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.
 
 - Status: built
 - Home: the brand's region
 - Personal: yes, the brand's people
 - Stores:
   - `agent_actions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per suggestion, written only through `src/lib/tenant/agentActions.ts`; its proposal, basis, result and undo may hold personal values.
-- Links: `person` through personId, and the target when it is a person; `company` through the target, when it is a company; `idea` through the target, when it is an idea; `data_signal` through the target, when it is a suggestion from collected numbers; `brand_question` through the target, when it is a question proposed from Search Console; `ontology_event` through agentActionId, its agent kinds of event (many)
+- Links: `person` through personId, and the target when it is a person; `company` through the target, when it is a company; `idea` through the target, when it is an idea; `data_signal` through the target, when it is a suggestion from collected numbers; `brand_question` through the target, when it is a question proposed from Search Console; `brand` through the target, when it is something Vizzy heard about the business in a chat; `ontology_event` through agentActionId, its agent kinds of event (many)
 - Events: `agent.proposed`, `agent.approved`, `agent.acted`, `agent.undone`, `agent.declined`
 - States: `proposed`, `approved`, `acted`, `undone`, `declined`
 - Person fields: `personId` (written with the row)
@@ -1530,6 +1572,7 @@ The tenant: the face people see (name, voice, domains, sender) and the data wall
 - Export: none. The brand's own settings, read on its settings screens.
 - Search: none. Its voice and kit are searched as brand_kit.
 - Numbers: none. No numbers an agent reads.
+- Made by: `sidebar_fit` (see Learning)
 
 ### Member (`member`)
 
@@ -1859,6 +1902,14 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 - Vizzy chat (`vizzy_chat`):
   - Erase: no path deletes a member's chats with Vizzy
   - Export: no path exports a member's chats with Vizzy
+- Conversation with Vizzy (`onboarding_conversation`):
+  - Erase: no path deletes a whole brand and everything it holds
+  - Erase: the member's user id in `by` stays after they leave the team; no path removes it
+  - Erase: a person's erase does not find a conversation that names them: it is free text
+  - Export: a person's export does not include a conversation that names them
+- Business fact (`business_fact`):
+  - Erase: no path deletes a whole brand and everything it holds
+  - Erase: a person's erase does not find a fact that names them: it is free text
 - Brand (`brand`):
   - Erase: no path deletes a whole brand and everything it holds
 - Member (`member`):
@@ -1941,11 +1992,11 @@ Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Ev
 
 A call site is a file where a kind is made, counted once for each kind: a meter call that names its purpose, a canvas's module, the file that holds a rule, or the file that calls a model with no meter.
 
-84 kinds: 0 learn, 0 fleet only, 20 own, 27 gap and 37 none.
+88 kinds: 0 learn, 0 fleet only, 20 own, 28 gap and 40 none.
 
-104 call sites: 0 learn, 0 fleet only, 30 own, 32 gap and 42 none.
+108 call sites: 0 learn, 0 fleet only, 30 own, 33 gap and 45 none.
 
-Not learning: 74 of 104 call sites, under gap and none lines.
+Not learning: 78 of 108 call sites, under gap and none lines.
 
 ### Where own lines keep what they learned
 
@@ -2082,6 +2133,8 @@ No line says this yet.
   - `src/lib/nextUp/pick.ts`
 - `refresh_due` (rule, Refresh due), look again by 2027-05-01. Marking an article checked restarts its clock, but which reasons make articles due early never changes with what your team marks checked.
   - `src/lib/content/blog/freshnessWatch.ts`
+- `next_action_order` (rule, Your next action order), look again by 2027-05-01. Home lists the steps of the stage that fits the brand's four answers by a fixed rule, and whether the team then did those steps never changes the order.
+  - `src/lib/onboarding/homeOrder.ts`
 
 ### None
 
@@ -2121,6 +2174,8 @@ No line says this yet.
   - `src/app/api/admin/agent/chat/route.ts`
 - `product_map` (AI purpose, Learning your product). It reads what your product's code does today, a fact rather than a taste, and a person decides what goes in the catalog.
   - `workers/knowledge-scraper/src/productMap/usage.ts`
+- `onboarding` (AI purpose, Getting to know you). It turns what the founder said into the four answers and facts in their own words, and the founder keeps, changes or removes each one before anything is saved.
+  - `src/app/api/admin/onboarding/conversations/[id]/end/route.ts`
 - `other` (AI purpose, Other). Not a choice: no code spends under this name today, and every new call should name its real purpose.
   - No call site in the code.
 - `customize_image` (AI purpose, Customised images). It edits a photo your team supplied the way they asked, and a learned look would restage their real product.
@@ -2129,6 +2184,8 @@ No line says this yet.
   - `src/lib/distribute/carousel/build.ts`
 - `get_from_google` (AI purpose, Get from Google). A person asks for this lookup and Google returns its results, so YouGrow makes no choice here to learn.
   - `src/lib/signals/collect.ts`
+- `onboarding_voice` (AI purpose, Talk with Vizzy). Vizzy talks with one founder in the moment to cover four questions, and learning from what they said would carry it into calls with other brands.
+  - `src/lib/onboarding/voice/calls.ts`
 - `canvas.invite_wave` (canvas). A launch sends only a few invite waves, so neither their size nor their copy learns, and a person sets the size and presses Send.
   - `src/lib/canvas/kinds/inviteWave.ts`
 - `canvas.content_plan` (canvas). The plan only gathers pieces, and each piece, such as an article or a post, says how it learns under its own kind of writing.
@@ -2159,6 +2216,8 @@ No line says this yet.
   - `src/lib/waitlist/scoring.ts`
 - `auto_plug` (rule, Auto plug comment). The promo comment fires only at the threshold a person set and it posts in public, so it should do exactly what they set.
   - `src/lib/distribute/autoPlug.ts`
+- `sidebar_fit` (rule, Sidebar sections that wait). A section waits under Coming up only until the brand puts something in it or opens it early, and from then on it always shows, so the person's own choice is what is kept.
+  - `src/lib/onboarding/sidebarFit.ts`
 - `waitlist_voice_chat` (model call with no meter, Waitlist voice chat). The voice chat answers one person on a waitlist in the moment, and learning from what they said would carry it into chats with other people.
   - `src/lib/hooks/useLiveConversation.ts`
 - `edit_memory` (model call with no meter, Memory Bank memories). This is Memory Bank's own learner, which picks what to remember from each member's edits, and it is judged by the Edit mode changes and the LinkedIn and X drafts those memories shape.

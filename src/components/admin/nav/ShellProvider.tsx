@@ -64,6 +64,10 @@ interface Shell {
   sharing: boolean;
   /** Owners bring in and move out brands (isOrganisationJoinEnabled(), from the server), for the How to drawer. */
   join: boolean;
+  /** Vizzy gets to know a new brand on the welcome (isOnboardingEnabled(), from the server), for the How to drawer. */
+  onboarding: boolean;
+  /** Talk with Vizzy by voice on the welcome (isOnboardingVoiceEnabled(), from the server), for the How to drawer. */
+  onboardingVoice: boolean;
   /**
    * Hear about each draft Vizzy saves in this chat (returns the unsubscribe), so a page whose
    * data isn't the server's render (the journey editor, a person's page) can reload it. Null
@@ -119,6 +123,8 @@ export function ShellProvider({
   ideaWords = false,
   sharing = false,
   join = false,
+  onboarding = false,
+  onboardingVoice = false,
   children,
 }: {
   names: CrumbNames;
@@ -166,6 +172,10 @@ export function ShellProvider({
   sharing?: boolean;
   /** Owners bring in and move out brands (isOrganisationJoinEnabled(), from the server): the How to drawer says so. */
   join?: boolean;
+  /** Vizzy gets to know a new brand on the welcome (isOnboardingEnabled(), from the server): the How to drawer says so. */
+  onboarding?: boolean;
+  /** Talk with Vizzy by voice on the welcome (isOnboardingVoiceEnabled(), from the server): the How to drawer says so. */
+  onboardingVoice?: boolean;
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? "/admin";
@@ -255,9 +265,11 @@ export function ShellProvider({
       ideaWords,
       sharing,
       join,
+      onboarding,
+      onboardingVoice,
       onCanvasSaved: journeyInContext || personInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, brandMapScale, ideas, ideaWords, sharing, join, saved],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, brandMapScale, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, saved],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

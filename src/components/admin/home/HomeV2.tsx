@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
 import { ArrowRight, BookOpen, Check, Lock, TriangleAlert } from "lucide-react";
 import { isSetupGuideEnabled } from "@/lib/help/flags";
@@ -7,6 +8,9 @@ import { isEmailStyleUiEnabled } from "@/lib/email/flags";
 import { isBrandMapUiEnabled } from "@/lib/brandMap/flags";
 import { requireAdminContext } from "@/lib/auth/session";
 import { getTenantById } from "@/lib/tenant";
+import { isOnboardingEnabled } from "@/lib/onboarding/flags";
+import { shouldWelcome } from "@/lib/onboarding/firstVisit";
+import { nextActionStage, nextActionTitle } from "@/lib/onboarding/homeOrder";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { computeGrowth, nextStepOf, type StageView } from "@/lib/nav/growth";
 import { ideaWord } from "@/lib/nav/terms";
@@ -73,13 +77,13 @@ function GrowthTrack({ stages }: { stages: StageView[] }) {
   );
 }
 
-function NextSteps({ stage }: { stage: StageView }) {
+function NextSteps({ stage, title }: { stage: StageView; title: string }) {
   const done = stage.steps.filter((s) => s.done).length;
   const next = nextStepOf(stage);
   return (
     <section className={CARD}>
       <div className="mb-2 flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-semibold">Next for {stage.label.toLowerCase()}</h2>
+        <h2 className="text-sm font-semibold">{title}</h2>
         <span className="text-xs text-shell-muted">
           {done} of {stage.steps.length} done
         </span>
@@ -219,7 +223,9 @@ function NeedsYou({ items, total }: { items: ReviewItem[]; total: number }) {
 /**
  * Home with nav v2 phase 2: where the brand is on its growth path, the next step,
  * what needs a decision, this week's numbers (all real, "—" when unknown), and
- * Vizzy — the same conversation as the side panel on other pages.
+ * Vizzy — the same conversation as the side panel on other pages. With ONBOARDING_ENABLED the
+ * steps card is "Your next action", and lists the stage that fits what the brand told Vizzy
+ * (src/lib/onboarding/homeOrder.ts).
  */
 export async function HomeV2() {
   const ctx = await requireAdminContext();
@@ -232,11 +238,22 @@ export async function HomeV2() {
     getTenantById(ctx.tenantId).catch(() => null),
     loadReview(ctx, { lifecycle, includeContent: false }).catch(() => ({ aiLines: 0, items: [] as ReviewItem[] })),
   ]);
+  // A new brand's first admin meets Vizzy first. Home only redirects: the welcome marks itself shown
+  // when it renders (markWelcomeShown), so a redirect lost to a racing refresh comes back on the next
+  // visit to Home. redirect() throws, so never in a try.
+  const onboarding = isOnboardingEnabled();
+  if (onboarding && shouldWelcome(tenant, signals, ctx.role)) {
+    redirect("/admin/welcome");
+  }
   // Launches are called Ideas (worked out on the server): stage 2, its steps, the tile and the prompts.
   const ideas = isIdeaWordsEnabled();
   const growth = computeGrowth(signals, { ideas });
   const current = growth.stages.find((s) => s.key === growth.current) ?? null;
   const position = current ? growth.stages.indexOf(current) + 1 : 0;
+  // Your next action: the card lists the stage that fits the brand's answers (no extra read: they
+  // are on the brand record above). The track, the line under the title, the tiles and the prompts
+  // keep the current stage. It is null only when every stage is done, as `current` is.
+  const cardStage = onboarding ? nextActionStage(growth, tenant?.businessProfile?.answers) : current;
 
   const aiLines: ReviewItem[] = review.aiLines
     ? [
@@ -269,15 +286,19 @@ export async function HomeV2() {
       {growth.allRunning ? null : <GrowthTrack stages={growth.stages} />}
 
       <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr]">
-        {guide && current ? (
+        {guide && cardStage ? (
           // The setup guide: the next steps even on the first visit, with Vizzy's offer beside them.
           <>
-            <NextSteps stage={current} />
+            <NextSteps stage={cardStage} title={nextActionTitle(onboarding, cardStage)} />
             {growth.firstRun ? <FirstRun ideas={ideas} /> : <NeedsYou items={needs.slice(0, 3)} total={needs.length} />}
           </>
         ) : (
           <>
-            {growth.firstRun ? <FirstRun ideas={ideas} /> : current ? <NextSteps stage={current} /> : null}
+            {growth.firstRun ? (
+              <FirstRun ideas={ideas} />
+            ) : cardStage ? (
+              <NextSteps stage={cardStage} title={nextActionTitle(onboarding, cardStage)} />
+            ) : null}
             <NeedsYou items={needs.slice(0, 3)} total={needs.length} />
           </>
         )}

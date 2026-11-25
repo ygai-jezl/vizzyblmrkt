@@ -37,6 +37,8 @@ export const EXCLUDED_EFFECT: Record<MeteredFeature, string> = {
   edit_vizzy: "Vizzy stops editing in Edit mode. Saved content is kept.",
   // src/lib/content/editor/vizzyLearningAccess.ts
   edit_vizzy_learning: "Vizzy stops learning from edits. What it learned is kept.",
+  // src/app/admin/welcome/layout.tsx (the welcome), src/app/api/admin/onboarding/voice/start/route.ts
+  onboarding_voice: "Talk with Vizzy is hidden on the welcome and in Settings. The 4 quick questions stay, and kept conversations are kept.",
 };
 
 export interface FeatureChange {

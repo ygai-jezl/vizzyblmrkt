@@ -1,4 +1,4 @@
-import { isBlogFreshnessEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
+import { isBlogFreshnessEnabled, isBlogRefreshEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 import { listBrandMapPages } from "@/lib/brandMap/pages";
 import { subjectCoverage } from "@/lib/brandMap/recount";
 import { readBrandMap } from "@/lib/brandMap/store";
@@ -23,6 +23,8 @@ import type { BrandMapPage } from "@/lib/types/brandMapPage";
 import { computeCoverage } from "./coverage";
 import { articleFigures } from "./figures";
 import { articleFreshness, assignClock, nextEvents, OLD_SOURCE_YEARS, oldFigureYears } from "./freshness";
+import { nextDates } from "./dates";
+import { fetchSourcePage } from "./research";
 import { inlineLinks } from "./markdown";
 import { outlineArticle } from "./outline";
 
@@ -52,7 +54,12 @@ export const FRESHNESS_WATCH = {
   OPEN_QUESTIONS: 2,
   /** How long a look waits when its tick ran out of time before it reached any article. */
   EMPTY_CUT_WAIT_MS: 30 * 60_000,
+  /** Refreshed articles whose page is read again for its dates, per brand per look (BLOG_REFRESH_ENABLED). */
+  PAGE_BEHIND_PER_DAY: 10,
 } as const;
+
+/** Said when a refreshed article's live page doesn't show its new Updated date yet. */
+export const PAGE_BEHIND_SAID = "Your page doesn't show the update yet. Republish it with the new copy and date.";
 
 export { articlePageKey, bareHost, freshnessWatchId } from "./freshnessPages";
 
@@ -70,6 +77,14 @@ export interface FreshnessDeps {
   /** Open questions on each of the given subjects. */
   openQuestions?: (ctx: TenantContext, subjectIds: string[]) => Promise<Map<string, number>>;
   checkLink?: (url: string) => Promise<LinkState>;
+  /** The dates a live page gives itself (null when it can't be read). */
+  pageDates?: (url: string) => Promise<{ published: string | null; modified: string | null } | null>;
+}
+
+async function defaultPageDates(url: string): Promise<{ published: string | null; modified: string | null } | null> {
+  const page = await fetchSourcePage(url);
+  if (!page || page.refused) return null;
+  return page.dates ?? { published: null, modified: null };
 }
 
 async function defaultLosing(ctx: TenantContext, db?: FirestoreLike): Promise<Map<string, string>> {
@@ -121,7 +136,7 @@ async function defaultOpenQuestions(ctx: TenantContext, subjectIds: string[], db
 }
 
 /** A link is dead when its site answers 404 or 410. Anything else (a timeout, robots) tells us nothing. */
-async function defaultCheckLink(url: string): Promise<LinkState> {
+export async function checkLinkState(url: string): Promise<LinkState> {
   try {
     const robots = await robotsFor(new URL(url).origin);
     if (!mayFetch(robots, url)) return "unknown";
@@ -164,13 +179,14 @@ function dueRow(a: LiveArticle, f: Pick<FreshnessDueItem, "state" | "reasons" | 
 }
 
 /** Look at one brand's live articles now: their clocks, their states, and the brand's due list. */
-export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refreshClock">, deps: FreshnessDeps & { deadlineMs?: number } = {}): Promise<FreshnessWatchDoc> {
+export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refreshClock" | "refreshKeepTesting">, deps: FreshnessDeps & { deadlineMs?: number } = {}): Promise<FreshnessWatchDoc> {
   const now = (deps.now ?? (() => new Date()))();
   const db = deps.db;
   const repo = forTenant(ctx, db).freshnessWatch;
   const prior = await repo.getById(freshnessWatchId(ctx.tenantId));
   const today = now.toISOString().slice(0, 10);
   let linksToday = prior?.linksDay === today ? prior.linksToday : 0;
+  let pageBehindReads = 0;
   // An erase that takes Search Console's figures out while this look runs moves the record's count
   // on (freshnessErase.ts). This look read those figures before it, so from then on it writes none.
   // A read that fails can't tell, so that article gets none either.
@@ -194,7 +210,7 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
     (deps.reachPages ?? ((c) => defaultReach(c, db)))(ctx).catch(() => new Map<string, string>()),
     (deps.openQuestions ?? ((c, ids) => defaultOpenQuestions(c, ids, db)))(ctx, subjects).catch(() => new Map<string, number>()),
   ]);
-  const checkLink = deps.checkLink ?? defaultCheckLink;
+  const checkLink = deps.checkLink ?? checkLinkState;
 
   // The clocks each subject already has, so a new article's clock keeps each subject mixed.
   const clocksBySubject = new Map<string, Partial<Record<FreshnessClock, number>>>();
@@ -246,7 +262,10 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
     const subject = a.plan.blog?.subjectId ?? "";
     const setting = tenant.refreshClock;
     const fixed = setting === 20 || setting === 30 || setting === 45 ? setting : null;
-    const clock = fixed
+    // A fixed clock accepted from the readout keeps a tenth of new articles testing; one already in the test stays.
+    const keepTesting = Boolean(fixed && tenant.refreshKeepTesting && isBlogRefreshEnabled());
+    const testing = keepTesting && (stored ? stored.arm === "test" : (deps.rand ?? Math.random)() < 0.1);
+    const clock = fixed && !testing
       ? { clockDays: fixed, arm: "fixed" as const }
       : stored
         ? { clockDays: stored.clockDays, arm: stored.arm }
@@ -286,7 +305,18 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
     const pageDates = a.hub.blog?.dates?.page;
     if (pageDates && !pageDates.published && !pageDates.modified) signals.push({ kind: "no_page_date", detail: "Your page shows no date", hard: false });
 
-    const dates = a.hub.blog!.dates!;
+    let dates = a.hub.blog!.dates!;
+    // A refresh moved Updated (BLOG_REFRESH_ENABLED): read the page again until it shows that day.
+    if (isBlogRefreshEnabled() && dates.updated?.source === "change" && a.url && pageBehindReads < FRESHNESS_WATCH.PAGE_BEHIND_PER_DAY) {
+      pageBehindReads += 1;
+      const read = await (deps.pageDates ?? defaultPageDates)(a.url).catch(() => null);
+      if (read) {
+        const next = nextDates(dates, { page: read, now });
+        if (next.updated?.source === "change") signals.push({ kind: "page_behind", detail: PAGE_BEHIND_SAID, hard: false });
+        await updateContentPlanNode(ctx, a.plan.workspaceId, a.plan.id, a.hub.id, {}, db, { setDates: (current) => (current ? nextDates(current, { page: read, now }) : current) }).catch(() => null);
+        dates = next;
+      }
+    }
     const state = articleFreshness(
       { publishedAt: dates.published?.at ?? null, updatedAt: dates.updated?.at ?? null, checkedAt: stored?.checkedAt ?? null, clockDays: clock.clockDays, signals },
       now,
@@ -401,6 +431,12 @@ export async function runFreshness(opts: { deadlineMs: number }, deps: Freshness
     try {
       result.brands += 1;
       const doc = await sweepBrand(ctx, t, { ...deps, deadlineMs: opts.deadlineMs });
+      // Refreshes whose 28 days after are final get their Search Console results (BLOG_REFRESH_ENABLED),
+      // once a look has finished, not at each tick of one going on.
+      if (isBlogRefreshEnabled() && !doc.lookStartedAt) {
+        const { measureOutcomes } = await import("./refreshOutcome");
+        await measureOutcomes(ctx, { db: deps.db, now: deps.now }).catch(() => 0);
+      }
       result.articles += doc.counts.fresh + doc.counts.soon + doc.counts.due;
       result.due += doc.counts.due;
     } catch (err) {

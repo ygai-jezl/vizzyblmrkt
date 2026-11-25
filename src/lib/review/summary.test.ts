@@ -600,4 +600,18 @@ describe("articles due a refresh, in Review", () => {
     expect(REVIEW_ORDER.indexOf("content_refresh")).toBe(REVIEW_ORDER.indexOf("data_signal") + 1);
     expect(REVIEW_SECTIONS.content_refresh.title).toBe("Articles due a refresh");
   });
+
+  it("puts a refresh ready to look at first, once per article (BLOG_REFRESH_ENABLED)", async () => {
+    vi.stubEnv("BLOG_REFRESH_ENABLED", "true");
+    const db = new FakeFirestore();
+    db.seed("freshness_watch", "fw_ten_A", { tenantId: "ten_A", due: [due("p1"), due("p3")] });
+    db.seed("article_reviews", "ar_p1", { tenantId: "ten_A", planId: "p1", workspaceId: "ws1", state: "ready", by: "autopilot", proposals: [{}, {}, {}], finishedAt: "2026-11-25T10:00:00.000Z" });
+    db.seed("article_reviews", "ar_x", { tenantId: "ten_B", planId: "x", workspaceId: "ws1", state: "ready", by: "person", proposals: [{}], finishedAt: "2026-11-25T10:00:00.000Z" });
+    const items = (await loadReview(ctx, { lifecycle: false, includeContent: false }, db)).items.filter((i) => i.kind === "content_refresh");
+    expect(items.map((i) => [i.id, i.title])).toEqual([
+      ["content_refresh_ready:p1", "Refresh ready: 3 changes to look at"],
+      ["content_refresh:p3", "Due a refresh: Article p3"],
+    ]);
+    expect(items[0]).toMatchObject({ detail: "Article p1 · the autopilot ran the review", action: "Look at changes", href: "/admin/workspace/ws1/create/p1?freshness=1" });
+  });
 });

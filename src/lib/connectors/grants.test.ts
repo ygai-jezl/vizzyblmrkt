@@ -7,6 +7,7 @@ const member: ConnectorActor = { kind: "human", uid: "usr_member", role: "member
 const noRole: ConnectorActor = { kind: "human", uid: "usr_x", role: undefined };
 const vizzyForAdmin: ConnectorActor = { kind: "agent", agent: "vizzy", forRole: "admin" };
 const vizzyForMember: ConnectorActor = { kind: "agent", agent: "vizzy", forRole: "member" };
+const reviewJob: ConnectorActor = { kind: "job", job: "article_review" };
 
 const NONE: ConnectionGrant[] = [];
 const MEMBERS: ConnectionGrant[] = [{ to: "members", can: "read" }];
@@ -29,6 +30,11 @@ const TABLE: Array<[string, ConnectorActor, string, ConnectionGrant[], Connector
   ["vizzy for an admin", vizzyForAdmin, "both", BOTH, ["see", "read_live"]],
   ["vizzy for a member", vizzyForMember, "vizzy", VIZZY, ["see"]],
   ["vizzy for a member", vizzyForMember, "both", BOTH, ["see", "read_live"]],
+  // A review job keeps what it reads for the team and Vizzy: only a connection both may read.
+  ["a review job", reviewJob, "none", NONE, []],
+  ["a review job", reviewJob, "members", MEMBERS, []],
+  ["a review job", reviewJob, "vizzy", VIZZY, []],
+  ["a review job", reviewJob, "both", BOTH, ["see", "read_live"]],
 ];
 
 describe("the grants table", () => {

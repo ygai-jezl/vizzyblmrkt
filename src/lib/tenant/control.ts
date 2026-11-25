@@ -286,14 +286,20 @@ export async function setTenantAutopilot(
  */
 export async function setTenantRefresh(
   id: string,
-  settings: { refreshClock: "test" | 20 | 30 | 45; refreshShare: number },
+  settings: { refreshClock: "test" | 20 | 30 | 45; refreshShare: number; refreshKeepTesting?: boolean },
   db: FirestoreLike = getDb() as unknown as FirestoreLike,
 ): Promise<boolean> {
   const ref = db.collection("tenants").doc(id);
   return db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists) return false;
-    tx.update(ref, { refreshClock: settings.refreshClock, refreshShare: settings.refreshShare, updatedAt: new Date().toISOString() });
+    tx.update(ref, {
+      refreshClock: settings.refreshClock,
+      refreshShare: settings.refreshShare,
+      // Keeping a tenth testing only means something beside a fixed clock.
+      ...(settings.refreshKeepTesting !== undefined ? { refreshKeepTesting: settings.refreshClock !== "test" && settings.refreshKeepTesting } : {}),
+      updatedAt: new Date().toISOString(),
+    });
     return true;
   });
 }

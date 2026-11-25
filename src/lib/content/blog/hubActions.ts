@@ -46,7 +46,7 @@ export function isCitableBlogPlan(plan: ContentPlan): boolean {
  * origins it allow-listed and the sending domains it verified. Research uses those to
  * tell the brand's own pages from everyone else's.
  */
-async function tenantBrand(ctx: TenantContext): Promise<{ name: string | null; sites: string[]; notesRest: NotesRest }> {
+export async function tenantBrand(ctx: TenantContext): Promise<{ name: string | null; sites: string[]; notesRest: NotesRest }> {
   try {
     const tenant = await getTenantById(ctx.tenantId);
     return { name: tenant?.tenantName?.trim() || null, sites: tenantDomains(tenant), notesRest: NotesRestSchema.parse(tenant?.brandNotesRest ?? {}) };

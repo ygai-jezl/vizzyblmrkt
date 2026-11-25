@@ -107,6 +107,25 @@ describe("the freshness watch", () => {
     expect((await hubOf(db)).freshness!.openAtStart).toBe(33);
   });
 
+  it("reads a refreshed article's page again until it shows the new Updated (BLOG_REFRESH_ENABLED)", async () => {
+    vi.stubEnv("BLOG_REFRESH_ENABLED", "true");
+    const { db, tenant } = world();
+    const plan = (await getContentPlan(A, "ws1", "plan_1", db))!;
+    const hub = plan.graph.nodes[0]!;
+    hub.blog = { ...hub.blog!, dates: { ...hub.blog!.dates!, updated: { at: "2026-11-23T10:00:00.000Z", source: "change" } } };
+    db.seed(PLANS, "plan_1", plan);
+    let page: { published: string | null; modified: string | null } = { published: "2026-10-20", modified: null };
+    const d = { ...deps(db), pageDates: async () => page };
+    await sweepBrand(A, tenant, d);
+    expect((await hubOf(db)).freshness!.reasons.map((r) => r.kind)).toContain("page_behind");
+    expect((await hubOf(db)).dates!.updated).toEqual({ at: "2026-11-23T10:00:00.000Z", source: "change" });
+    // Republished: the page's own date takes over, and the reason goes.
+    page = { published: "2026-10-20", modified: "2026-11-23T16:00:00Z" };
+    await sweepBrand(A, tenant, d);
+    expect((await hubOf(db)).dates!.updated).toEqual({ at: "2026-11-23T16:00:00.000Z", source: "page" });
+    expect((await hubOf(db)).freshness!.reasons.map((r) => r.kind)).not.toContain("page_behind");
+  });
+
   it("uses a clock the brand fixed, and Not live takes the clock away", async () => {
     const { db, tenant } = world({ refreshClock: 45 });
     await sweepBrand(A, tenant, deps(db));

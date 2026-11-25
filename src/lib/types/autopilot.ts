@@ -144,6 +144,8 @@ export interface AutopilotRun {
   trays: Trays | null;
   workspaceId: string | null;
   planId: string | null;
+  /** A refresh run (BLOG_REFRESH_ENABLED): the live article whose review it started. Not a draft, so not counted against article_autopilot. */
+  refreshOf?: string | null;
   /** Nodes still to write after the hub (teaser, promo, posts). */
   nodesLeft: string[];
   /** The hub body as written, to tell whether a person has changed it since. */

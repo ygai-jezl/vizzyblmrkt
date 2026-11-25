@@ -24,6 +24,8 @@ const liveWatch = vi.hoisted(() => ({ runLiveWatch: vi.fn(async () => ({ brands:
 vi.mock("@/lib/content/blog/liveWatch", () => (loaded.add("live-watch"), liveWatch));
 const freshness = vi.hoisted(() => ({ runFreshness: vi.fn(async () => ({ brands: 1, articles: 3, due: 1 })) }));
 vi.mock("@/lib/content/blog/freshnessWatch", () => (loaded.add("freshness"), freshness));
+const refresh = vi.hoisted(() => ({ runRefreshReviews: vi.fn(async () => ({ brands: 1, advanced: 2 })) }));
+vi.mock("@/lib/content/blog/refreshReview", () => (loaded.add("refresh"), refresh));
 const lane = vi.hoisted(() => ({ runConnectorsLane: vi.fn(async () => ({ brands: 2, connections: 1, days: 3, failed: 0, erased: 0, behindMin: 4 })) }));
 vi.mock("@/lib/connectors/collect/tick", () => (loaded.add("connectors"), lane));
 // The clean-up runs for real over a fake account list; only its hourly gate and Auth are stubbed.
@@ -259,6 +261,7 @@ describe("each job's code loads only when its switch is on", () => {
     ["autopilot", "@/lib/autopilot/tick", autopilot],
     ["live-watch", "@/lib/content/blog/liveWatch", liveWatch],
     ["freshness", "@/lib/content/blog/freshnessWatch", freshness],
+    ["refresh", "@/lib/content/blog/refreshReview", refresh],
     ["connectors", "@/lib/connectors/collect/tick", lane],
     ["auth-cleanup", "@/lib/auth/cleanup", cleanup],
   ];
@@ -338,6 +341,17 @@ describe("each job's code loads only when its switch is on", () => {
     const [{ deadlineMs }] = freshness.runFreshness.mock.calls[0] as unknown as [{ deadlineMs: number }];
     expect(deadlineMs - before).toBeLessThanOrEqual(20_000 + 50);
     expect(jobLines().map((line) => line.split(" ")[1])).toEqual(["freshness"]);
+  });
+
+  it("moves refresh reviews from their own code only with their switch on, within their own time", async () => {
+    for (const k of ["BLOG_DATES_ENABLED", "BRAND_MAP_ENABLED", "BRAND_MAP_PAGES_ENABLED", "BLOG_FRESHNESS_ENABLED", "BLOG_REFRESH_ENABLED"]) vi.stubEnv(k, "true");
+    const post = await freshRoute();
+    const before = Date.now();
+    const res = await post(machine());
+    expect(await res.json()).toMatchObject({ ok: true, refresh: { brands: 1, advanced: 2 } });
+    expect([...loaded].sort()).toEqual(["freshness", "refresh"]);
+    const [{ deadlineMs }] = refresh.runRefreshReviews.mock.calls[0] as unknown as [{ deadlineMs: number }];
+    expect(deadlineMs - before).toBeLessThanOrEqual(90_000 + 50);
   });
 
   it("never fails the scheduler's call when article freshness fails", async () => {

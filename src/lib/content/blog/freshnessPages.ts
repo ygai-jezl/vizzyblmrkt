@@ -45,6 +45,17 @@ export function signalPageKey(host: string | undefined, account: string, path: s
   return pageKey(bareHost(host ?? account), path);
 }
 
+/**
+ * Whether a Search Console property reads this host: a URL-prefix property its own host, a domain
+ * property ("sc-domain:") that domain and every subdomain of it.
+ */
+export function accountCovers(account: string, host: string): boolean {
+  const a = bareHost(account);
+  const h = bareHost(host);
+  if (!a || !h) return false;
+  return h === a || (account.trim().toLowerCase().startsWith("sc-domain:") && h.endsWith(`.${a}`));
+}
+
 /** The brand's freshness watch record, or null while freshness is off or the watch hasn't looked yet. */
 export async function readFreshnessWatch(ctx: TenantContext, deps: { db?: FirestoreLike } = {}): Promise<FreshnessWatchDoc | null> {
   if (!isBlogFreshnessEnabled()) return null;

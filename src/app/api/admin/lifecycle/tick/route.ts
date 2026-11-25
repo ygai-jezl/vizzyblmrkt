@@ -10,7 +10,7 @@ import { isCompetitorArticlesEnabled, isCompetitorsEnabled } from "@/lib/competi
 import { isSearchIndexEnabled } from "@/lib/search/flags";
 import { isSignalsDataForSeoEnabled } from "@/lib/signals/flags";
 import { isAutopilotEnabled } from "@/lib/autopilot/flags";
-import { isBlogFreshnessEnabled, isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
+import { isBlogFreshnessEnabled, isBlogLiveWatchEnabled, isBlogRefreshEnabled } from "@/lib/brandMap/flags";
 import { isConnectorsEnabled } from "@/lib/connectors/flags";
 import { logTickMemory, timedTickJob } from "@/lib/lifecycle/tickLog";
 
@@ -58,6 +58,8 @@ const LIVE_WATCH_BUDGET_MS = 25_000;
 const CONNECTORS_BUDGET_MS = 25_000;
 /** Article freshness (BLOG_FRESHNESS_ENABLED): each brand's live articles once a day, a few brands a tick. */
 const FRESHNESS_BUDGET_MS = 20_000;
+/** Article refresh reviews (BLOG_REFRESH_ENABLED): a step or two of running reviews; research can take a minute. */
+const REFRESH_BUDGET_MS = 90_000;
 /** Unconfirmed password accounts (PASSWORD_SIGNIN_ENABLED): once an hour, a short run. */
 const AUTH_CLEANUP_BUDGET_MS = 10_000;
 
@@ -74,9 +76,10 @@ export async function POST(req: Request) {
   const liveWatch = isBlogLiveWatchEnabled();
   const connectors = isConnectorsEnabled();
   const freshness = isBlogFreshnessEnabled();
+  const refresh = isBlogRefreshEnabled();
   const authCleanup = isPasswordSigninEnabled();
   const journeys = product || waitlist || people;
-  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors || freshness || authCleanup))) {
+  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors || freshness || refresh || authCleanup))) {
     return machine
       ? NextResponse.json({ ok: true, skipped: "lifecycle_disabled" })
       : NextResponse.json({ error: "not_found" }, { status: 404 });
@@ -143,6 +146,16 @@ export async function POST(req: Request) {
             return null;
           })
         : Promise.resolve(null);
+      const refreshRun = refresh
+        ? timedTickJob("refresh", async () => {
+            const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + REFRESH_BUDGET_MS);
+            const { runRefreshReviews } = await import("@/lib/content/blog/refreshReview");
+            return runRefreshReviews({ deadlineMs });
+          }).catch((err: unknown) => {
+            console.warn(`[refresh] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+            return null;
+          })
+        : Promise.resolve(null);
       const authCleanupRun = authCleanup
         ? timedTickJob("auth-cleanup", async () => {
             const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + AUTH_CLEANUP_BUDGET_MS);
@@ -194,6 +207,7 @@ export async function POST(req: Request) {
       const liveWatchResult = await liveWatchRun;
       const connectorsResult = await connectorsRun;
       const freshnessResult = await freshnessRun;
+      const refreshResult = await refreshRun;
       const authCleanupResult = await authCleanupRun;
       return NextResponse.json({
         ok: true,
@@ -207,6 +221,7 @@ export async function POST(req: Request) {
         ...(liveWatchResult?.brands ? { liveWatch: liveWatchResult } : {}),
         ...(connectorsResult?.brands ? { connectors: connectorsResult } : {}),
         ...(freshnessResult?.brands ? { freshness: freshnessResult } : {}),
+        ...(refreshResult?.brands ? { refresh: refreshResult } : {}),
         ...(authCleanupResult ? { authCleanup: authCleanupResult } : {}),
       });
     } finally {

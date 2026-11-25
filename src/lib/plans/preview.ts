@@ -31,6 +31,8 @@ export const EXCLUDED_EFFECT: Record<MeteredFeature, string> = {
   next_up: "No new lookups are made, and the autopilot's scheduled runs stop. Saved lookups are kept.",
   // src/lib/autopilot/adminApi.ts (Draft refused), src/lib/autopilot/draftSteps.ts
   article_autopilot: "Draft runs are refused and the autopilot only suggests. Drafts already written are kept.",
+  // src/lib/content/blog/refreshGate.ts (every way a review starts asks there)
+  article_refresh: "New refresh reviews are refused. Reviews already made, their proposals and article versions are kept.",
   // src/app/api/admin/editor/vizzy/route.ts
   edit_vizzy: "Vizzy stops editing in Edit mode. Saved content is kept.",
   // src/lib/content/editor/vizzyLearningAccess.ts

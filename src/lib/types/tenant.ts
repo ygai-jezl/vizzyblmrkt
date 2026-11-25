@@ -790,6 +790,8 @@ export const TenantSchema = z.object({
   refreshClock: z.union([z.literal("test"), z.literal(20), z.literal(30), z.literal(45)]).optional().catch(undefined),
   /** The most refresh picks Next up may make of its three (0 to 3). Unset: 1. */
   refreshShare: z.number().int().min(0).max(3).optional().catch(undefined),
+  /** With a fixed clock accepted from the clock readout, a tenth of new live articles keep testing (BLOG_REFRESH_ENABLED). */
+  refreshKeepTesting: z.boolean().optional().catch(undefined),
   /** The next article autopilot's settings (CREATE_ARTICLE_AUTOPILOT_ENABLED, src/lib/autopilot).
    *  Unset: off. A damaged value reads as off. */
   autopilot: AutopilotSettingsSchema.optional().catch(undefined),

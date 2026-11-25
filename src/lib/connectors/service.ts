@@ -145,7 +145,7 @@ function forMethod<T extends { ok: boolean }>(conn: Pick<DataConnection, "method
 }
 
 const nowOf = (deps: ServiceDeps) => deps.now ?? new Date();
-export const byOf = (actor: ConnectorActor) => (actor.kind === "agent" ? `agent:${actor.agent}` : actor.uid || "system");
+export const byOf = (actor: ConnectorActor) => (actor.kind === "agent" ? `agent:${actor.agent}` : actor.kind === "job" ? `job:${actor.job}` : actor.uid || "system");
 
 // --- What people see ---------------------------------------------------------------------------
 

@@ -19,7 +19,7 @@ import { isBlogBrandMapEnabled, isBlogEditorialEnabled } from "@/lib/content/blo
 import { isSeenOn, isSeenQuestionsOn, isSeenRestOn } from "@/lib/content/blog/hubActions";
 import { refreshAnswers } from "@/lib/content/blog/seen";
 import { askOfPlan, loadArticleMap } from "@/lib/content/blog/mapActions";
-import { isBlogDatesEnabled, isBlogFreshnessEnabled, isBlogLiveWatchEnabled, isBrandMapPagesEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
+import { isBlogDatesEnabled, isBlogFreshnessEnabled, isBlogLiveWatchEnabled, isBlogRefreshEnabled, isBrandMapPagesEnabled, isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 import { resolveTimezone } from "@/lib/lifecycle/sendWindow";
 
 export const dynamic = "force-dynamic";
@@ -121,6 +121,7 @@ export default async function ContentPlanPage({
         liveWatchOn={isBlogLiveWatchEnabled()}
         {...(datesTimeZone ? { datesTimeZone } : {})}
         {...(isBlogFreshnessEnabled() ? { freshnessOn: true, openHub: (await searchParams)?.freshness === "1" } : {})}
+        refreshOn={isBlogRefreshEnabled()}
         editorialOn={isBlogEditorialEnabled()}
         seenOn={isSeenOn()}
         seenQuestionsOn={isSeenQuestionsOn()}

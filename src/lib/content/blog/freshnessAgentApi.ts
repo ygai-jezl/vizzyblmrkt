@@ -1,10 +1,12 @@
-import { isBlogFreshnessEnabled } from "@/lib/brandMap/flags";
+import { isBlogFreshnessEnabled, isBlogRefreshEnabled } from "@/lib/brandMap/flags";
 import { isCanvasAuthConfigured, tenantContextFromCanvasToken, verifyCanvasContext } from "@/lib/canvas/auth";
 import { meaningsOf, numberKeys } from "@/lib/metrics/meanings";
 import { isRateLimited, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { readFreshnessWatch } from "./freshnessPages";
 import { refreshHref } from "./freshnessHref";
+import { clockReadout, readoutLine } from "./refreshReadout";
+import { listRecords } from "./refreshRecords";
 
 /**
  * For Vizzy's list_articles_due (/api/agent/articles-due, BLOG_FRESHNESS_ENABLED): the brand's live
@@ -45,6 +47,8 @@ export async function agentArticlesDue(ctx: TenantContext, deps: { db?: Firestor
     articlesFresh: watch.counts.fresh,
     byClock: (["20", "30", "45"] as const).map((c) => ({ clockDays: Number(c), liveArticles: watch.byClock[c] ?? 0 })),
     articles: watch.due.map((d) => ({
+      /** For review_article (BLOG_REFRESH_CHAT_ENABLED). */
+      articleId: d.planId,
       title: d.title,
       liveAddress: d.url,
       state: d.state === "due" ? "due a refresh" : "review soon",
@@ -54,6 +58,32 @@ export async function agentArticlesDue(ctx: TenantContext, deps: { db?: Firestor
       link: refreshHref(d),
     })),
     note: NOTE,
+    ...(isBlogRefreshEnabled() ? { whichClockWorks: await whichClockWorks(ctx, deps) } : {}),
   };
   return { status: 200, body: { ...body, meanings: meaningsOf(numberKeys(body)) } };
+}
+
+const pct = (x: number) => `${x >= 0 ? "+" : ""}${Math.round(x * 100)}%`;
+
+/** The clock readout (BLOG_REFRESH_ENABLED), as the Refresh clock card shows it: ranges, never one winner. */
+async function whichClockWorks(ctx: TenantContext, deps: { db?: FirestoreLike }) {
+  const r = clockReadout(await listRecords(ctx, deps).catch(() => []));
+  return {
+    says: readoutLine(r),
+    since: r.since,
+    clocks: r.clocks.map((c) => ({
+      clockDays: c.clockDays,
+      refreshes: c.refreshes,
+      nothingShare: c.nothingShare,
+      proposedAvg: c.proposedAvg,
+      acceptedAvg: c.acceptedAvg,
+      costCentsAvg: c.costCentsAvg,
+      withResults: c.withResults,
+      resultsNeeded: c.resultsNeeded,
+      clickLift: c.clickLift?.mean ?? null,
+      clickLiftRange: c.clickLift ? `${pct(c.clickLift.low)} to ${pct(c.clickLift.high)}` : null,
+      clicksPerDollar: c.clicksPerDollar,
+    })),
+    suggestion: r.suggestion?.text ?? null,
+  };
 }

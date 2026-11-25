@@ -57,4 +57,14 @@ describe("get_usage", () => {
     });
     expect(owner.body).toMatchObject({ organisation: { name: "Acme", brandNames: ["Acme"], thisMonth: [{ key: "web_searches", usedThisMonth: 400 }] } });
   });
+
+  it("explains the voice seconds only when their row is there", async () => {
+    const plain = (await agentUsage(ctx, { summary: async () => summary() })).body as { note: string };
+    expect(plain.note).not.toContain("Talk with Vizzy");
+    const voice = summary();
+    voice.monthly.push({ feature: "voice_seconds", label: "Voice conversations", unit: "seconds", used: 252, limit: null, from: null, included: true, needs: null, byPurpose: { onboarding_voice: 252 } });
+    const withVoice = (await agentUsage(ctx, { summary: async () => voice })).body as { note: string; thisBrand: Array<Record<string, unknown>> };
+    expect(withVoice.note).toContain("Voice conversations counts the seconds of each Talk with Vizzy call, from its start to its end.");
+    expect(withVoice.thisBrand.find((x) => x.key === "voice_seconds")).toMatchObject({ usedThisMonth: 252, byFeature: [{ feature: "Talk with Vizzy", usedThisMonth: 252 }] });
+  });
 });

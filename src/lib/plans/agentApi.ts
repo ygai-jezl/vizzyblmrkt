@@ -18,8 +18,15 @@ const LIMIT = { prefix: "usage_agent", burstLimit: 10, hourlyLimit: 120 };
 
 export const NOTE =
   "Counts run from the 1st of the month (UTC). A null monthlyLimit means no limit. AI model use counts the tokens of every Gemini call the app makes for this brand, Vizzy's chat included; " +
-  "it doesn't count the Memory Bank's own model or the voice chat on waitlist pages. Voice conversations counts the seconds of each Talk with Vizzy call, from its start to its end. " +
-  "To change a limit or plan, ask whoever runs this copy of YouGrow.";
+  "it doesn't count the Memory Bank's own model or the voice chat on waitlist pages. To change a limit or plan, ask whoever runs this copy of YouGrow.";
+
+/** Said only where Talk with Vizzy by voice is on, or its seconds are listed. */
+export const VOICE_NOTE = "Voice conversations counts the seconds of each Talk with Vizzy call, from its start to its end.";
+
+/** The note for a usage answer: the voice sentence only when its row is there. */
+export function usageNote(rows: ReadonlyArray<{ feature?: string; key?: string }>): string {
+  return rows.some((r) => (r.feature ?? r.key) === "voice_seconds") ? `${NOTE} ${VOICE_NOTE}` : NOTE;
+}
 
 export async function usageAgentGate(req: Request): Promise<{ ok: true; ctx: TenantContext } | { ok: false; result: ApiResult }> {
   if (!isUsageMeterEnabled()) return { ok: false, result: { status: 503, body: { error: "unavailable" } } };
@@ -72,7 +79,7 @@ export async function agentUsage(ctx: TenantContext, deps: UsageDeps & { summary
           },
         }
       : {}),
-    note: NOTE,
+    note: usageNote([...summary.monthly, ...(summary.organisationResources ?? []).map((r) => ({ key: r.resource }))]),
   };
   return { status: 200, body: { ...body, meanings: meaningsOf(numberKeys(body)) } };
 }

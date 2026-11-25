@@ -329,7 +329,7 @@ export const MEANINGS = {
   },
   usedThisMonth: {
     name: "Used this month",
-    definition: "How much of a paid resource or costly feature the brand used since the 1st of the month: web searches for research, AI model tokens, images, Google lookups, competitor articles read, autopilot drafts or seconds of Talk with Vizzy calls.",
+    definition: "How much of a paid resource or costly feature the brand used since the 1st of the month, such as web searches for research, AI model tokens, images, Google lookups, competitor articles read or autopilot drafts. Each row says what it counts.",
     grain: "one brand (or, under organisation, all its brands) in one calendar month, UTC; by feature or by model where listed",
     unit: "count",
     source: "the usage meter, and each feature's own records for the older counters",

@@ -782,6 +782,14 @@ export const TenantSchema = z.object({
   /** Where this brand's questions are looked up on Google (BRAND_SIGNALS_ENABLED, src/lib/signals).
    *  Unset: United States, English. A search market, NOT data residency (that is `region`). */
   searchMarket: SearchMarketSchema.optional().catch(undefined),
+  /** The brand's time zone (IANA, e.g. "Europe/London"), for its articles' dates (BLOG_DATES_ENABLED,
+   *  src/lib/content/blog/dates.ts). Unset or damaged: UTC. */
+  timeZone: z.string().max(64).optional().catch(undefined),
+  /** Live articles' refresh clock (BLOG_FRESHNESS_ENABLED): "test" (unset) spreads 20, 30 and 45 days
+   *  across them to learn which works; a number fixes one clock. Damaged: the test. */
+  refreshClock: z.union([z.literal("test"), z.literal(20), z.literal(30), z.literal(45)]).optional().catch(undefined),
+  /** The most refresh picks Next up may make of its three (0 to 3). Unset: 1. */
+  refreshShare: z.number().int().min(0).max(3).optional().catch(undefined),
   /** The next article autopilot's settings (CREATE_ARTICLE_AUTOPILOT_ENABLED, src/lib/autopilot).
    *  Unset: off. A damaged value reads as off. */
   autopilot: AutopilotSettingsSchema.optional().catch(undefined),

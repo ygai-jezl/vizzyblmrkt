@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { BlogArticleMetaSchema } from "@/lib/types/contentPlan";
 import { CITABLE_LETTERS, citableGaps, evaluateCitable } from "./citable";
 import { SAMPLE_ARTICLE, SAMPLE_BRIEF } from "./testing/sampleArticle";
@@ -31,6 +31,14 @@ describe("the CITABLE check", () => {
     expect(gaps.length).toBeGreaterThan(3);
     expect(gaps.length).toBeLessThanOrEqual(8);
     expect(gaps.join(" ")).toContain("Key facts box");
+  });
+
+  it("with true dates on, the date item says the article shows its dates", () => {
+    const item = () => evaluateCitable(SAMPLE_ARTICLE, { brief: SAMPLE_BRIEF }).items.find((i) => i.id === "l_updated")!;
+    expect(item()).toMatchObject({ label: "Shows when it was last updated", status: "pass" });
+    vi.stubEnv("NEXT_PUBLIC_BLOG_DATES_ENABLED", "true");
+    expect(item()).toMatchObject({ label: "Shows its dates", status: "pass" });
+    vi.unstubAllEnvs();
   });
 
   it("reads each item off the article", () => {

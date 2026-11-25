@@ -3,23 +3,15 @@ import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { workerSecretMatches } from "@/lib/http/workerSecret";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
-import { drainLifecycleTenant, runLifecycleTick } from "@/lib/lifecycle/runner";
 import { isWaitlistEngineEnabled } from "@/lib/lifecycle/waitlist/flags";
-import { runWaitlistTick } from "@/lib/lifecycle/waitlist/tick";
 import { isPersonLinksEnabled } from "@/lib/audience/flags";
 import { isCompetitorArticlesEnabled, isCompetitorsEnabled } from "@/lib/competitors/flags";
-import { runArticleReads } from "@/lib/competitors/articleTick";
-import { runCompetitorChecks } from "@/lib/competitors/tick";
 import { isSearchIndexEnabled } from "@/lib/search/flags";
-import { runSearchSweeps } from "@/lib/search/sweep";
 import { isSignalsDataForSeoEnabled } from "@/lib/signals/flags";
-import { runSignals } from "@/lib/signals/tick";
 import { isAutopilotEnabled } from "@/lib/autopilot/flags";
-import { runAutopilot } from "@/lib/autopilot/tick";
-import { isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
-import { runLiveWatch } from "@/lib/content/blog/liveWatch";
+import { isBlogFreshnessEnabled, isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
 import { isConnectorsEnabled } from "@/lib/connectors/flags";
-import { runConnectorsLane } from "@/lib/connectors/collect/tick";
+import { logTickMemory, timedTickJob } from "@/lib/lifecycle/tickLog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,6 +33,10 @@ export const dynamic = "force-dynamic";
  * so does collecting finished Google lookups (SIGNALS_DATAFORSEO_ENABLED). Connected data's lane
  * (CONNECTORS_ENABLED) runs about every 30 minutes, at a tick of its own: its housekeeping whatever
  * the collect switch says, and collecting with CONNECTORS_COLLECT_ENABLED (ADR-0012).
+ *
+ * Each job's code is loaded inside the branch that runs it, so a job whose switch is off never
+ * loads (and never holds memory on the instance). Only the switches are read up front. A job's
+ * deadline is set before its code loads, so loading counts against its own budget.
  */
 const SCHEDULER_LIMIT_MS = 105_000;
 const COMPETITORS_BUDGET_MS = 25_000;
@@ -56,6 +52,8 @@ const AUTOPILOT_BUDGET_MS = 90_000;
 const LIVE_WATCH_BUDGET_MS = 25_000;
 /** Connected data's lane (CONNECTORS_ENABLED): every 15th tick, at offset 7. */
 const CONNECTORS_BUDGET_MS = 25_000;
+/** Article freshness (BLOG_FRESHNESS_ENABLED): each brand's live articles once a day, a few brands a tick. */
+const FRESHNESS_BUDGET_MS = 20_000;
 
 export async function POST(req: Request) {
   const started = Date.now();
@@ -69,87 +67,147 @@ export async function POST(req: Request) {
   const autopilot = isAutopilotEnabled();
   const liveWatch = isBlogLiveWatchEnabled();
   const connectors = isConnectorsEnabled();
+  const freshness = isBlogFreshnessEnabled();
   const journeys = product || waitlist || people;
-  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors))) {
+  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors || freshness))) {
     return machine
       ? NextResponse.json({ ok: true, skipped: "lifecycle_disabled" })
       : NextResponse.json({ error: "not_found" }, { status: 404 });
   }
   if (machine) {
-    const result = journeys ? await runLifecycleTick({}, { product, waitlist }) : {};
-    let competitorChecks = null;
-    let articleReads = null;
-    const searchSweep = search
-      ? runSearchSweeps({ deadlineMs: Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + SEARCH_BUDGET_MS) }).catch((err: unknown) => {
-          console.warn(`[search] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
-          return null;
-        })
-      : Promise.resolve(null);
-    const signalCollect = signals
-      ? runSignals({ deadlineMs: Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + SIGNALS_BUDGET_MS) }).catch((err: unknown) => {
-          console.warn(`[signals] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
-          return null;
-        })
-      : Promise.resolve(null);
-    const autopilotRun = autopilot
-      ? runAutopilot({ deadlineMs: Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + AUTOPILOT_BUDGET_MS) }).catch((err: unknown) => {
-          console.warn(`[autopilot] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
-          return null;
-        })
-      : Promise.resolve(null);
-    const liveWatchRun = liveWatch
-      ? runLiveWatch({ deadlineMs: Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + LIVE_WATCH_BUDGET_MS) }).catch((err: unknown) => {
-          console.warn(`[live-watch] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
-          return null;
-        })
-      : Promise.resolve(null);
-    const connectorsRun = connectors
-      ? runConnectorsLane({ deadlineMs: Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + CONNECTORS_BUDGET_MS) }).catch((err: unknown) => {
-          console.warn(`[connectors] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
-          return null;
-        })
-      : Promise.resolve(null);
-    if (competitors) {
-      // The checks and the article reads run side by side, each within its own budget.
-      const [checks, reads] = await Promise.all([
-        runCompetitorChecks({ deadlineMs: Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + COMPETITORS_BUDGET_MS) }).catch((err: unknown) => {
-          console.warn(`[competitors] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
-          return null;
-        }),
-        isCompetitorArticlesEnabled()
-          ? runArticleReads({ deadlineMs: Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + ARTICLES_BUDGET_MS) }).catch((err: unknown) => {
-              console.warn(`[competitors] article reads failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
-              return null;
-            })
-          : Promise.resolve(null),
-      ]);
-      competitorChecks = checks;
-      articleReads = reads;
+    // Each job logs "[tick] <job> <ms>ms" as it ends, and the instance's memory is logged once
+    // the tick is done (tickLog.ts).
+    try {
+      const result = journeys
+        ? await timedTickJob("journeys", async () => {
+            const { runLifecycleTick } = await import("@/lib/lifecycle/runner");
+            return runLifecycleTick({}, { product, waitlist });
+          })
+        : {};
+      let competitorChecks = null;
+      let articleReads = null;
+      const searchSweep = search
+        ? timedTickJob("search", async () => {
+            const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + SEARCH_BUDGET_MS);
+            const { runSearchSweeps } = await import("@/lib/search/sweep");
+            return runSearchSweeps({ deadlineMs });
+          }).catch((err: unknown) => {
+            console.warn(`[search] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+            return null;
+          })
+        : Promise.resolve(null);
+      const signalCollect = signals
+        ? timedTickJob("signals", async () => {
+            const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + SIGNALS_BUDGET_MS);
+            const { runSignals } = await import("@/lib/signals/tick");
+            return runSignals({ deadlineMs });
+          }).catch((err: unknown) => {
+            console.warn(`[signals] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+            return null;
+          })
+        : Promise.resolve(null);
+      const autopilotRun = autopilot
+        ? timedTickJob("autopilot", async () => {
+            const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + AUTOPILOT_BUDGET_MS);
+            const { runAutopilot } = await import("@/lib/autopilot/tick");
+            return runAutopilot({ deadlineMs });
+          }).catch((err: unknown) => {
+            console.warn(`[autopilot] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+            return null;
+          })
+        : Promise.resolve(null);
+      const liveWatchRun = liveWatch
+        ? timedTickJob("live-watch", async () => {
+            const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + LIVE_WATCH_BUDGET_MS);
+            const { runLiveWatch } = await import("@/lib/content/blog/liveWatch");
+            return runLiveWatch({ deadlineMs });
+          }).catch((err: unknown) => {
+            console.warn(`[live-watch] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+            return null;
+          })
+        : Promise.resolve(null);
+      const freshnessRun = freshness
+        ? timedTickJob("freshness", async () => {
+            const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + FRESHNESS_BUDGET_MS);
+            const { runFreshness } = await import("@/lib/content/blog/freshnessWatch");
+            return runFreshness({ deadlineMs });
+          }).catch((err: unknown) => {
+            console.warn(`[freshness] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+            return null;
+          })
+        : Promise.resolve(null);
+      const connectorsRun = connectors
+        ? timedTickJob("connectors", async () => {
+            const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + CONNECTORS_BUDGET_MS);
+            const { runConnectorsLane } = await import("@/lib/connectors/collect/tick");
+            return runConnectorsLane({ deadlineMs });
+          }).catch((err: unknown) => {
+            console.warn(`[connectors] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+            return null;
+          })
+        : Promise.resolve(null);
+      if (competitors) {
+        // The checks and the article reads run side by side, each within its own budget.
+        const [checks, reads] = await Promise.all([
+          timedTickJob("competitors", async () => {
+            const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + COMPETITORS_BUDGET_MS);
+            const { runCompetitorChecks } = await import("@/lib/competitors/tick");
+            return runCompetitorChecks({ deadlineMs });
+          }).catch((err: unknown) => {
+            console.warn(`[competitors] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+            return null;
+          }),
+          isCompetitorArticlesEnabled()
+            ? timedTickJob("competitor-articles", async () => {
+                const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + ARTICLES_BUDGET_MS);
+                const { runArticleReads } = await import("@/lib/competitors/articleTick");
+                return runArticleReads({ deadlineMs });
+              }).catch((err: unknown) => {
+                console.warn(`[competitors] article reads failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+                return null;
+              })
+            : Promise.resolve(null),
+        ]);
+        competitorChecks = checks;
+        articleReads = reads;
+      }
+      const searchResult = await searchSweep;
+      const signalResult = await signalCollect;
+      const autopilotResult = await autopilotRun;
+      const liveWatchResult = await liveWatchRun;
+      const connectorsResult = await connectorsRun;
+      const freshnessResult = await freshnessRun;
+      return NextResponse.json({
+        ok: true,
+        mode: "all_tenants",
+        ...result,
+        ...(competitors ? { competitors: competitorChecks } : {}),
+        ...(articleReads ? { competitorArticles: articleReads } : {}),
+        ...(searchResult?.scanned ? { search: searchResult } : {}),
+        ...(signalResult?.tenants ? { signals: signalResult } : {}),
+        ...(autopilotResult?.tenants ? { autopilot: autopilotResult } : {}),
+        ...(liveWatchResult?.brands ? { liveWatch: liveWatchResult } : {}),
+        ...(connectorsResult?.brands ? { connectors: connectorsResult } : {}),
+        ...(freshnessResult?.brands ? { freshness: freshnessResult } : {}),
+      });
+    } finally {
+      logTickMemory();
     }
-    const searchResult = await searchSweep;
-    const signalResult = await signalCollect;
-    const autopilotResult = await autopilotRun;
-    const liveWatchResult = await liveWatchRun;
-    const connectorsResult = await connectorsRun;
-    return NextResponse.json({
-      ok: true,
-      mode: "all_tenants",
-      ...result,
-      ...(competitors ? { competitors: competitorChecks } : {}),
-      ...(articleReads ? { competitorArticles: articleReads } : {}),
-      ...(searchResult?.scanned ? { search: searchResult } : {}),
-      ...(signalResult?.tenants ? { signals: signalResult } : {}),
-      ...(autopilotResult?.tenants ? { autopilot: autopilotResult } : {}),
-      ...(liveWatchResult?.brands ? { liveWatch: liveWatchResult } : {}),
-      ...(connectorsResult?.brands ? { connectors: connectorsResult } : {}),
-    });
   }
 
   const blocked = sameOriginGuard(req);
   if (blocked) return blocked;
   const admin = await getAdminContext();
   if (!admin) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const result = product ? await drainLifecycleTenant(admin) : {};
-  const waitlistResult = waitlist ? await runWaitlistTick(admin) : null;
+  let result = {};
+  if (product) {
+    const { drainLifecycleTenant } = await import("@/lib/lifecycle/runner");
+    result = await drainLifecycleTenant(admin);
+  }
+  let waitlistResult = null;
+  if (waitlist) {
+    const { runWaitlistTick } = await import("@/lib/lifecycle/waitlist/tick");
+    waitlistResult = await runWaitlistTick(admin);
+  }
   return NextResponse.json({ ok: true, mode: "tenant", ...result, ...(waitlistResult ? { waitlist: waitlistResult } : {}) });
 }

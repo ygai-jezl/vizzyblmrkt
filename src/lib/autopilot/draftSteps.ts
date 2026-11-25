@@ -71,7 +71,9 @@ export const pickStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
   const others = await heldQuestionIds(ctx, deps);
   let doc = await readNextUp(ctx, deps);
   const now = (deps.now ?? (() => new Date()))().getTime();
-  if (!doc || !doc.picks.some((p) => !others.includes(p.questionId)) || now - Date.parse(doc.at) > STALE_PICKS_MS) {
+  // A refresh pick (BLOG_FRESHNESS_ENABLED) waits for a person until runs can refresh: a run writes new.
+  const writable = (p: { questionId: string; kind?: string }) => p.kind !== "refresh" && !others.includes(p.questionId);
+  if (!doc || !doc.picks.some(writable) || now - Date.parse(doc.at) > STALE_PICKS_MS) {
     const got = await pickNextUp(ctx, { by: "schedule", deadlineMs: opts.deadlineMs - 5_000 }, {
       db: deps.db,
       loadTenant: (deps as DraftDeps).loadTenant,
@@ -80,7 +82,7 @@ export const pickStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
     });
     doc = got.ok ? got.doc : doc;
   }
-  const pick = doc?.picks.find((p) => !others.includes(p.questionId));
+  const pick = doc?.picks.find(writable);
   if (!pick) return { step: "stopped", error: "nothing_to_pick" };
   await dropPick(ctx, pick.questionId, deps);
   return { step: "find", question: { questionId: pick.questionId, text: pick.question, subjectId: pick.subjectId, subjectName: pick.subjectName } };

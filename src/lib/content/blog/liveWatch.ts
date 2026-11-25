@@ -6,7 +6,8 @@ import { listRecentContentPlans, updateContentPlan } from "@/lib/tenant/workspac
 import type { ContentNode, ContentPlan } from "@/lib/types/contentPlan";
 import type { Tenant } from "@/lib/types/tenant";
 import type { LiveWatchAddress, LiveWatchDoc } from "@/lib/types/liveWatch";
-import { isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
+import { isBlogDatesEnabled, isBlogLiveWatchEnabled } from "@/lib/brandMap/flags";
+import { nextDates } from "./dates";
 import { readBrandMap } from "@/lib/brandMap/store";
 import { autopilotHolds } from "@/lib/autopilot/planLock";
 import { platformOrigin } from "@/lib/platform/origin";
@@ -18,8 +19,8 @@ import { robotsSitemaps } from "./crawlers";
 import { articleAddressProblem } from "./address";
 import { normalizeUrl } from "./brief";
 import { outlineArticle } from "./outline";
-import { fetchSourcePage, readH1, readPageMeta, readPostMeta } from "./research";
-import { checkLive, nextLiveMark, pageMatches, type LiveCheck, type PageReader } from "./live";
+import { fetchSourcePage, readH1, readPageDates, readPageMeta, readPostMeta } from "./research";
+import { checkLive, nextLiveMark, pageDatesOf, pageMatches, type LiveCheck, type PageReader } from "./live";
 import { writeLiveMark } from "./foundLive";
 import { freshLiveWatchDoc, liveWatchDocId } from "./liveWatchWake";
 
@@ -294,6 +295,8 @@ interface OpenedPage {
   h1: string;
   text: string;
   publishedAt: string | null;
+  /** The dates the page gives itself, as written. */
+  dates: { published: string | null; modified: string | null };
 }
 
 /** Open a page found on the sitemap, as the brand's robots.txt allows. */
@@ -302,7 +305,14 @@ async function openPage(url: string, robots: Robots, fetchDeps: FetchDeps): Prom
   const got = await fetchHtml(url, fetchDeps);
   if (!got.ok) return null;
   const html = got.text;
-  return { url: got.url || url, title: readPageMeta(html).title, h1: readH1(html), text: htmlToText(html), publishedAt: readPostMeta(html).publishedAt };
+  return {
+    url: got.url || url,
+    title: readPageMeta(html).title,
+    h1: readH1(html),
+    text: htmlToText(html),
+    publishedAt: readPostMeta(html).publishedAt,
+    dates: readPageDates(html),
+  };
 }
 
 /** Run `work` over `items`, `limit` at a time. */
@@ -332,6 +342,10 @@ async function markFound(ctx: TenantContext, article: WaitingArticle, url: strin
       nodeId: article.hub.id,
       mark: (stored) => nextLiveMark(stored, { url, at, by: "check", check, found, auto: true }),
       approve: true,
+      // Found live sets the day it went up: the page's own date, else when it was first seen.
+      ...(isBlogDatesEnabled()
+        ? { dates: (stored, live) => (live ? nextDates(stored, { page: pageDatesOf(check), liveAt: live.at, now: new Date(at) }) : undefined) }
+        : {}),
     },
     { db: deps.db },
   );
@@ -469,7 +483,7 @@ async function sitemapPass(
       if (page.publishedAt && Date.parse(page.publishedAt) < article.writtenMs - DAY_MS) continue;
       const m = pageMatches(page, { titles: article.titles, body: article.hub.body }, { strict: true });
       if (!m.matched || (best && (best.check.textShare ?? 0) >= m.textShare)) continue;
-      best = { article, check: { reachable: true, refused: false, title: page.title, matched: true, heading: m.heading, textShare: m.textShare } };
+      best = { article, check: { reachable: true, refused: false, title: page.title, matched: true, heading: m.heading, textShare: m.textShare, pageDates: page.dates } };
     }
     if (!best) continue;
     open.splice(open.indexOf(best.article), 1);

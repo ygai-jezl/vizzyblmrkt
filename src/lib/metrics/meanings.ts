@@ -350,6 +350,42 @@ export const MEANINGS = {
     source: "worked out from the two numbers above",
     caveat: "Calls made at the same moment can go a little past a limit.",
   },
+  articlesDue: {
+    name: "Articles due a refresh",
+    definition: "Live blog articles past their refresh clock, or with a strong reason to look again: falling Google clicks, a dead link or an old figure.",
+    grain: "one live blog article",
+    unit: "count",
+    source: "the freshness watch, which looks at each live article once a day",
+    caveat: "As of the watch's last look (lookedAt), not this moment.",
+  },
+  articlesReviewSoon: {
+    name: "Articles to review soon",
+    definition: "Live blog articles within 5 days of their refresh clock, or with a weaker reason to look again, such as being just off page one or an old source.",
+    grain: "one live blog article",
+    unit: "count",
+    source: "the freshness watch, which looks at each live article once a day",
+  },
+  articlesFresh: {
+    name: "Fresh articles",
+    definition: "Live blog articles with no reason to look again yet.",
+    grain: "one live blog article",
+    unit: "count",
+    source: "the freshness watch, which looks at each live article once a day",
+  },
+  clockDays: {
+    name: "Refresh clock",
+    definition: "Days a live article goes, from when it went live, was last updated or was last checked, before it is due a refresh: 20, 30 or 45.",
+    grain: "one live blog article (or, under byClock, one clock)",
+    unit: "count",
+    source: "the brand's refresh clock setting; in the clock test each new live article gets one of the three at random",
+  },
+  liveArticles: {
+    name: "Live articles on this clock",
+    definition: "Live blog articles that have this refresh clock.",
+    grain: "one live blog article",
+    unit: "count",
+    source: "the freshness watch",
+  },
 } as const satisfies Record<string, Meaning>;
 
 export type MeaningKey = keyof typeof MEANINGS;

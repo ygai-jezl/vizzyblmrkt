@@ -12,6 +12,7 @@
  */
 
 import { isTableStart, readTable } from "../markdownTable";
+import type { Dateline } from "./dates";
 
 export type ArticleBlock =
   | { kind: "heading"; level: 1 | 2 | 3 | 4; text: string }
@@ -377,13 +378,25 @@ export function renderInlineHtml(text: string): string {
   return inlineHtml(parseInline(text));
 }
 
+const DATE_LINE = /^last\s+updated\s*[:\-–]\s*(\d{4}-\d{2}-\d{2})\b(.*)$/i;
+
 /** The date in a "Last updated: 2026-10-07" line, or null when the line is something else. */
 export function lastUpdatedOf(text: string): string | null {
-  const m = /^last\s+updated\s*[:\-–]\s*(\d{4}-\d{2}-\d{2})\b/i.exec(plainInline(text));
-  return m?.[1] ?? null;
+  return DATE_LINE.exec(plainInline(text))?.[1] ?? null;
 }
 
-function blockHtml(block: ArticleBlock, ids: Map<string, number>): string {
+/** What follows the date on that line, such as " · By Ana Ruiz, Head of Growth" ("" when nothing). */
+export function afterDateOf(text: string): string {
+  return DATE_LINE.exec(plainInline(text))?.[2]?.trimEnd() ?? "";
+}
+
+/** The date line as HTML (BLOG_DATES_ENABLED): each date in a <time> with its time and offset. */
+function datelineHtml(dl: Dateline, after: string): string {
+  const time = (d: { iso: string; text: string }) => `<time datetime="${escapeHtml(d.iso)}">${escapeHtml(d.text)}</time>`;
+  return `<p class="dateline">Published ${time(dl.published)}${dl.updated ? ` · Updated ${time(dl.updated)}` : ""}${escapeHtml(after)}</p>`;
+}
+
+function blockHtml(block: ArticleBlock, ids: Map<string, number>, dateline: Dateline | null = null): string {
   switch (block.kind) {
     case "heading": {
       if (block.level === 1) return `<h1>${renderInlineHtml(block.text)}</h1>`;
@@ -396,7 +409,9 @@ function blockHtml(block: ArticleBlock, ids: Map<string, number>): string {
     }
     case "paragraph": {
       const date = lastUpdatedOf(block.text);
-      if (date) return `<p class="last-updated">Last updated: <time datetime="${date}">${date}</time></p>`;
+      // The byline an editorial article carries on the same line stays with it.
+      if (date && dateline) return datelineHtml(dateline, afterDateOf(block.text));
+      if (date) return `<p class="last-updated">Last updated: <time datetime="${date}">${date}</time>${escapeHtml(afterDateOf(block.text))}</p>`;
       return `<p>${renderInlineHtml(block.text)}</p>`;
     }
     case "list": {
@@ -430,10 +445,10 @@ function blockHtml(block: ArticleBlock, ids: Map<string, number>): string {
 }
 
 /** The article as clean, semantic HTML to paste into a CMS. Everything is escaped. */
-export function renderArticleHtml(markdown: string): string {
+export function renderArticleHtml(markdown: string, opts: { dateline?: Dateline | null } = {}): string {
   const ids = new Map<string, number>();
   const body = parseArticle(markdown)
-    .map((b) => blockHtml(b, ids))
+    .map((b) => blockHtml(b, ids, opts.dateline ?? null))
     .join("\n");
   return `<article>\n${body}\n</article>`;
 }

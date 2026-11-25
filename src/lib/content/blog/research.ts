@@ -114,6 +114,8 @@ export interface FetchedPage {
   /** The page's first heading (its <h1>), as text. A site often gives the page its own title
    *  for search and keeps the article's own title as the heading. */
   h1?: string;
+  /** The dates the page gives itself, as written (only when it gives one). */
+  dates?: { published: string | null; modified: string | null };
 }
 
 // The listing of a programme's pages lives with the knowledge base now (the brand map reads
@@ -362,6 +364,16 @@ export function readPageMeta(html: string, now = new Date()): Pick<FetchedPage, 
   return { title, siteName: metaContent(html, "og:site_name").slice(0, 120), year };
 }
 
+/** The dates a page gives itself, as written (a day or a full timestamp), from its meta tags,
+ *  JSON-LD or <time> element. Null where it gives none. */
+export function readPageDates(html: string): { published: string | null; modified: string | null } {
+  const ld = (key: string) => new RegExp(`"${key}"\\s*:\\s*"([^"]{8,40})"`, "i").exec(html)?.[1] ?? "";
+  const published =
+    metaContent(html, "article:published_time") || ld("datePublished") || /<time[^>]+datetime=["']([^"']{8,40})["']/i.exec(html)?.[1] || "";
+  const modified = metaContent(html, "article:modified_time") || ld("dateModified") || metaContent(html, "og:updated_time") || "";
+  return { published: published.trim().slice(0, 40) || null, modified: modified.trim().slice(0, 40) || null };
+}
+
 /** A post's title, description and published date (ISO day), read from its own markup. */
 export function readPostMeta(html: string, now = new Date()): { title: string; description: string; publishedAt: string | null } {
   const { title } = readPageMeta(html, now);
@@ -396,7 +408,15 @@ export async function fetchSourcePage(url: string): Promise<FetchedPage | null> 
     const html = await readTextCapped(res, PAGE_BYTES);
     const ogImage = metaContent(html, "og:image").slice(0, 2000);
     const h1 = readH1(html);
-    return { url: res.url || url, ...readPageMeta(html), text: htmlToText(html), ...(ogImage ? { ogImage } : {}), ...(h1 ? { h1 } : {}) };
+    const dates = readPageDates(html);
+    return {
+      url: res.url || url,
+      ...readPageMeta(html),
+      text: htmlToText(html),
+      ...(ogImage ? { ogImage } : {}),
+      ...(h1 ? { h1 } : {}),
+      ...(dates.published || dates.modified ? { dates } : {}),
+    };
   } catch {
     return null;
   }

@@ -63,7 +63,11 @@ export interface BlogHubControls {
   /** Articles are written in the editorial shape (CREATE_BLOG_EDITORIAL_ENABLED): the author's role and bio can be set. */
   editorial?: boolean;
   /** Check, mark or clear that the article is live at its address. Present with onSetAddress. */
-  onLive?: (nodeId: string, action: LiveAction) => Promise<LiveResult>;
+  onLive?: (nodeId: string, action: LiveAction, day?: string) => Promise<LiveResult>;
+  /** True dates (BLOG_DATES_ENABLED): the brand's time zone for the date line, the copy and the markup. */
+  datesTimeZone?: string;
+  /** Article freshness (BLOG_FRESHNESS_ENABLED): "Checked, nothing to change" on a live article. */
+  onChecked?: (nodeId: string) => Promise<{ ok: boolean; error?: string }>;
   /** Found live (BLOG_LIVE_WATCH_ENABLED): YouGrow checks the address on its own, or finds the article on the sitemap. */
   liveWatch?: boolean;
   /** The hero image (BLOG_HERO_ENABLED); absent = no hero card. */

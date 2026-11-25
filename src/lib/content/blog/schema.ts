@@ -4,6 +4,7 @@ import { outlineArticle } from "./outline";
 import type { ArticleMap } from "./articleMap";
 import { mentionsName } from "./names";
 import { fold } from "@/lib/brandMap/changes";
+import type { Dateline } from "./dates";
 
 /**
  * Suggested schema markup for a blog article — JSON-LD the site that hosts the article
@@ -30,6 +31,9 @@ export interface BlogSchemaInput {
   /** The brand map the article is written from: its confirmed profile links and identifiers
    *  become `sameAs`. Without one, the markup is exactly as before. */
   map?: ArticleMap | null;
+  /** True dates (BLOG_DATES_ENABLED): Published and Updated with their time and offset. Without
+   *  one, both dates are the article's "Last updated" day, as before. */
+  dateline?: Dateline | null;
 }
 
 export interface BlogSchemaSuggestion {
@@ -146,7 +150,11 @@ export function suggestBlogSchema(input: BlogSchemaInput): BlogSchemaSuggestion 
     ...(webPage ? { "@id": `${pageUrl}#article`, isPartOf: webPage, mainEntityOfPage: webPage } : {}),
     headline: clip(o.title, HEADLINE_MAX),
     ...(description ? { description } : {}),
-    ...(o.lastUpdated ? { datePublished: o.lastUpdated, dateModified: o.lastUpdated } : {}),
+    ...(input.dateline
+      ? { datePublished: input.dateline.published.iso, dateModified: (input.dateline.updated ?? input.dateline.published).iso }
+      : o.lastUpdated
+        ? { datePublished: o.lastUpdated, dateModified: o.lastUpdated }
+        : {}),
     ...(author ? { author: person } : publisherRef ? { author: publisherRef } : {}),
     ...(publisherRef ? { publisher: publisherRef } : {}),
     ...(images.length ? { image: images.length === 1 ? images[0] : images } : {}),
@@ -191,7 +199,11 @@ export function suggestBlogSchema(input: BlogSchemaInput): BlogSchemaSuggestion 
     notes.push(`Add ${author}'s profile page under Publisher, so search engines can tell who wrote it.`);
   }
   notes.push(
-    "datePublished is set to the Last updated date. Once the page is live, keep datePublished at the day it first went up and change only dateModified.",
+    !input.dateline
+      ? "datePublished is set to the Last updated date. Once the page is live, keep datePublished at the day it first went up and change only dateModified."
+      : input.dateline.known
+        ? "datePublished is the day the page went up, and dateModified its last real change, with the time in your time zone. They match the date line."
+        : "datePublished is today, the day you copy it. Once YouGrow sees the page live, it uses the day it went up.",
   );
   if (!o.faq.length) notes.push("The article answers no question outright (no FAQ), so no FAQPage markup is suggested.");
   if (organization) {

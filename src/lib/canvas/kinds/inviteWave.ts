@@ -9,7 +9,7 @@ import { aiUsage } from "@/lib/plans/meter";
 import { resolveBrandVoiceText } from "@/lib/content/create/brandContext";
 import { resolveCampaignLocale } from "@/lib/i18n/locale";
 import { isInvitesEnabled } from "@/lib/invites/flags";
-import { INVITE_LOCK_TEXT } from "@/lib/invites/lockText";
+import { INVITE_LOCK_TEXT_FOR_VIZZY } from "@/lib/invites/lockText";
 import { inviteProductName } from "@/lib/invites/eligibility";
 import { defaultInviteCopy, ensureInviteLink } from "@/lib/invites/render";
 import { createWaveDraft, loadInviteSetup, updateWaveDraft } from "@/lib/invites/waves";
@@ -107,7 +107,8 @@ export async function authorInviteWaveDraft(
 
   const setup = await loadInviteSetup(ctx, campaignId, deps.db);
   if (!setup) return { ok: false, status: 404, error: "campaign_not_found" };
-  if (setup.lock) return { ok: false, status: 409, error: "invites_locked", issues: [INVITE_LOCK_TEXT[setup.lock]] };
+  // Vizzy relays the reason whatever the app calls a launch, so it names the waitlist.
+  if (setup.lock) return { ok: false, status: 409, error: "invites_locked", issues: [INVITE_LOCK_TEXT_FOR_VIZZY[setup.lock]] };
   const connection = setup.eligible[0]!;
 
   // The copy: the agent's own words if it sent them, else written on-brand, else the default.

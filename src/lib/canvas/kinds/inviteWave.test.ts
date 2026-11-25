@@ -8,6 +8,7 @@ vi.mock("@/lib/tenant", async (importOriginal) => {
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { __resetRateLimitState } from "@/lib/tenant/rateLimit";
 import { ctx, seedConnection, seedLaunch, seedSignup } from "@/lib/invites/testing/fixtures";
+import { INVITE_LOCK_TEXT_FOR_VIZZY } from "@/lib/invites/lockText";
 import { authorInviteWaveDraft } from "./inviteWave";
 
 const write = vi.fn(async () => ({ subject: "You're in", body: "Hi {{first_name}}, Fernlight is ready for you." }));
@@ -43,6 +44,19 @@ describe("invite_wave canvas kind", () => {
       issues: ["Connect your product first."],
     });
     expect(await author(world(), { scope: { campaignId: "nope" } })).toMatchObject({ ok: false, status: 404 });
+  });
+
+  it("gives Vizzy a lock reason that reads right whatever the app calls a launch", async () => {
+    const db = world();
+    seedLaunch(db, { archivedAt: "2026-11-20T09:00:00.000Z" });
+    expect(await author(db, { scope: { campaignId: "beta" } })).toMatchObject({
+      ok: false,
+      status: 409,
+      error: "invites_locked",
+      issues: ["This waitlist is archived. Restore it on its Settings tab first."],
+    });
+    // No reason Vizzy relays says launch, or idea, on its own.
+    for (const text of Object.values(INVITE_LOCK_TEXT_FOR_VIZZY)) expect(text).not.toMatch(/\b(launch|idea)/i);
   });
 
   it("drafts a wave (never sends) with on-brand copy that always carries the link", async () => {

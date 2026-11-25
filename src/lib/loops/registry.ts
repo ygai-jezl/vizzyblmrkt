@@ -171,6 +171,7 @@ export const LOOPS = {
   situations: own("brand_map", "A buying situation your team already has or dismissed is never proposed again by research."),
   situation_questions: own("brand_question", "A question your team dismissed on the brand map is never proposed or linked to a situation again."),
   brand_strategy: gap("The brand strategy keeps each focus star a person kept or removed and each claim they edited, before and after, but nothing learns from them yet.", LATER),
+  competitor_find: gap("The brand strategy keeps which competitors the finder found that a person ticked to monitor or left out, but the finder learns nothing from them yet.", LATER),
   blog_research: gap("Research can read the Learned list through the brand context, but nothing records which facts and sources your team kept or cut.", LATER),
   autopilot_research: gap("The autopilot's research is never compared with what your team kept in the article, so it cannot learn which sources fit.", LATER),
   blog_refresh: own("article_review", "A change your team dismissed on an article is kept with the last 50 on its review and not proposed for that article again."),

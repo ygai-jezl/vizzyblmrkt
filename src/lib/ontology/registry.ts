@@ -1189,7 +1189,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
       "The brand's strategy, one record per brand, approved by a person: who it's for (audiences and 3 to 5 focus buying situations), who it competes with (in groups, found by the competitor finder or watched), where it wins and where they do (claims, each with its proof or shown as a gap), what it is not, and the quarter's goal. Keeps the draft a person edits, the approved one everything reads, the last 5 approved, and the stars, ticks and edits people made.",
     place: "content",
     status: "built",
-    madeBy: ["brand_strategy"],
+    madeBy: ["brand_strategy", "competitor_find"],
     home: "brand",
     personal: "none",
     stores: [regional("brand_strategy", "one document per brand; `by` and decisions hold the admin's email or user id")],

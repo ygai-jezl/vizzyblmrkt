@@ -25,6 +25,8 @@ export const EXCLUDED_EFFECT: Record<MeteredFeature, string> = {
   competitors: "Saved competitors are kept, but Brand › Competitors shows none and watching them stops.",
   // src/lib/competitors/planningApi.ts, src/lib/competitors/articleTick.ts
   competitor_articles: "Articles already read are kept, and no new competitor articles are read.",
+  // src/lib/brandStrategy/finder.ts (findCompetitors asks before every run)
+  competitor_finder: "Full competitor finder runs are refused, and a brand that hasn't used its one quick answer can still run it. Competitors already found are kept.",
   // src/lib/search/sweep.ts (the index), src/app/api/agent/search/route.ts (answers not_included)
   brand_search: "The search index stops updating and search answers not included. The index is kept.",
   // src/lib/signals/tick.ts, src/lib/autopilot/tick.ts (the autopilot needs Next up)

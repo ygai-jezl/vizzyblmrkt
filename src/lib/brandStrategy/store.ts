@@ -341,6 +341,11 @@ export function fullRunsInMonth(doc: Pick<BrandStrategyDoc, "finder"> | null, no
   return (doc?.finder.fullRuns ?? []).filter((at) => at.startsWith(month)).length;
 }
 
+/** Full competitor finder runs this calendar month, against the competitor_finder cap. */
+export async function finderRunsThisMonth(ctx: TenantContext, deps: StrategyDeps = {}): Promise<number> {
+  return fullRunsInMonth(await readBrandStrategyDoc(ctx, deps), (deps.now ?? (() => new Date()))());
+}
+
 /** Save what a finder run found, and count the run (`quick` once per brand, `full` against the month). */
 export async function saveFound(ctx: TenantContext, input: { mode: "quick" | "full"; found: FoundCompetitor[] }, deps: StrategyDeps = {}): Promise<StrategyResult<BrandStrategyDoc>> {
   const at = nowIso(deps);

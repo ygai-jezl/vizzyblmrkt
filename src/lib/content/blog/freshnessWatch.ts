@@ -4,7 +4,7 @@ import { subjectCoverage } from "@/lib/brandMap/recount";
 import { readBrandMap } from "@/lib/brandMap/store";
 import { mayFetch, robotsFor } from "@/lib/competitors/fetch";
 import { rolledId } from "@/lib/connectors/keys";
-import { bareHost, freshnessWatchId, LIVE_ARTICLES, liveArticles, signalPageKey } from "./freshnessPages";
+import { bareHost, freshnessWatchId, LIVE_ARTICLES, liveArticles, signalPageKey, withoutSearchConsole } from "./freshnessPages";
 import { searchConsoleManifest } from "@/lib/connectors/manifests/searchConsole";
 import { openSuggestions, planningConnections } from "@/lib/connectors/signals/review";
 import { RULES } from "@/lib/connectors/signals/detect";
@@ -149,6 +149,21 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
   const prior = await repo.getById(freshnessWatchId(ctx.tenantId));
   const today = now.toISOString().slice(0, 10);
   let linksToday = prior?.linksDay === today ? prior.linksToday : 0;
+  // An erase that takes Search Console's figures out while this look runs moves the record's count
+  // on (freshnessErase.ts). This look read those figures before it, so from then on it writes none.
+  // A read that fails can't tell, so that article gets none either.
+  const clearsAtStart = prior?.searchConsoleClears ?? 0;
+  let searchConsoleErased = false;
+  const erasedSinceStart = async () => {
+    if (searchConsoleErased) return true;
+    const stored = await repo.getById(freshnessWatchId(ctx.tenantId)).then(
+      (d) => d,
+      () => "failed" as const,
+    );
+    if (stored === "failed") return true;
+    searchConsoleErased = (stored?.searchConsoleClears ?? 0) !== clearsAtStart;
+    return searchConsoleErased;
+  };
 
   const articles = await liveArticles(ctx, db);
   const subjects = [...new Set(articles.map((a) => a.plan.blog?.subjectId).filter((s): s is string => Boolean(s)))];
@@ -203,12 +218,15 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
       }
     }
 
+    // Search Console's figures only while no erase took them out since this look began, checked
+    // just before they are written.
+    const searchConsole = Boolean(a.key && (losing.has(a.key) || reach.has(a.key))) && !(await erasedSinceStart());
     const signals: FreshnessReason[] = [];
-    if (a.key && losing.has(a.key)) signals.push({ kind: "losing_clicks", detail: losing.get(a.key)!.slice(0, 200), hard: true });
+    if (searchConsole && losing.has(a.key!)) signals.push({ kind: "losing_clicks", detail: losing.get(a.key!)!.slice(0, 200), hard: true });
     if (deadLinks.length) signals.push({ kind: "dead_link", detail: `${deadLinks.length} link${deadLinks.length === 1 ? "" : "s"} no longer open${deadLinks.length === 1 ? "s" : ""}`, hard: true });
     const oldYears = oldFigureYears(articleFigures(a.hub.body).map((f) => f.display), now);
     if (oldYears.length) signals.push({ kind: "old_figure", detail: `A figure from ${oldYears.join(", ")}`, hard: true });
-    if (a.key && reach.has(a.key)) signals.push({ kind: "within_reach", detail: reach.get(a.key)!.slice(0, 200), hard: false });
+    if (searchConsole && reach.has(a.key!)) signals.push({ kind: "within_reach", detail: reach.get(a.key!)!.slice(0, 200), hard: false });
     const oldSources = (a.plan.blog?.sources ?? []).filter((s) => s.year !== null && s.year <= year - OLD_SOURCE_YEARS);
     if (oldSources.length) signals.push({ kind: "old_source", detail: `Cites ${oldSources.length} source${oldSources.length === 1 ? "" : "s"} from ${Math.min(...oldSources.map((s) => s.year!))} or earlier`, hard: false });
     // New questions: open ones on its subject past the count when its clock started (set at the first look after).
@@ -283,8 +301,24 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
     linksToday,
     updatedAt: now.toISOString(),
   };
-  await repo.upsert(freshnessWatchId(ctx.tenantId), () => doc, () => doc);
-  return { id: freshnessWatchId(ctx.tenantId), tenantId: ctx.tenantId, ...doc };
+  let written = doc;
+  await repo.upsert(
+    freshnessWatchId(ctx.tenantId),
+    () => doc,
+    (current) => {
+      written = doc;
+      if ((current.searchConsoleClears ?? 0) === clearsAtStart) return doc;
+      // An erase took Search Console's figures out while this look ran: none of them on the list, and
+      // the erase's "due now" kept, so the next look puts back what is still readable.
+      written = {
+        ...doc,
+        due: doc.due.map((d) => ({ ...d, reasons: withoutSearchConsole(d.reasons) })),
+        nextAt: Date.parse(current.nextAt) < Date.parse(doc.nextAt) ? current.nextAt : doc.nextAt,
+      };
+      return written;
+    },
+  );
+  return { id: freshnessWatchId(ctx.tenantId), tenantId: ctx.tenantId, ...written };
 }
 
 export interface FreshnessResult {

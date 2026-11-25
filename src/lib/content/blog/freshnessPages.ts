@@ -3,7 +3,7 @@ import { pageKey } from "@/lib/connectors/keys";
 import { forTenant } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { listRecentContentPlans } from "@/lib/tenant/workspaceContent";
-import type { ContentNode, ContentPlan } from "@/lib/types/contentPlan";
+import type { ContentNode, ContentPlan, FreshnessReason, FreshnessReasonKind } from "@/lib/types/contentPlan";
 import type { FreshnessDueItem, FreshnessWatchDoc } from "@/lib/types/freshness";
 
 /**
@@ -12,6 +12,12 @@ import type { FreshnessDueItem, FreshnessWatchDoc } from "@/lib/types/freshness"
  */
 
 export const freshnessWatchId = (tenantId: string) => `fw_${tenantId}`;
+
+/** The freshness reasons whose words carry Search Console's numbers. */
+export const SEARCH_CONSOLE_REASONS: ReadonlySet<FreshnessReasonKind> = new Set<FreshnessReasonKind>(["losing_clicks", "within_reach"]);
+
+export const fromSearchConsole = (reasons: readonly FreshnessReason[] | undefined) => (reasons ?? []).some((r) => SEARCH_CONSOLE_REASONS.has(r.kind));
+export const withoutSearchConsole = (reasons: readonly FreshnessReason[]) => reasons.filter((r) => !SEARCH_CONSOLE_REASONS.has(r.kind));
 
 /** A Search Console host or a site address as a bare host: no scheme, "sc-domain:", "www." or path. */
 export function bareHost(host: string): string {

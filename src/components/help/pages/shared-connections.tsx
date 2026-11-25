@@ -1,5 +1,6 @@
 import { H1, H2, Lead, P, Pairs, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
+import { SEARCH_CONSOLE_FRESHNESS_ERASED } from "@/lib/connectors/helpText";
 import { CONNECTOR_ERRORS, KEPT_AT_GOOGLE_MESSAGE, SIGNIN_REASONS } from "@/lib/connectors/messages";
 
 /**
@@ -100,11 +101,11 @@ export default function SharedConnectionsHelp() {
         rows={[
           [
             "Change",
-            "The brand stops reading the old part at once. Its numbers from the old part are deleted, with the Search Console figures in article freshness notes, and 90 days fill again from the new one within a day.",
+            `The brand stops reading the old part at once. Its numbers from the old part are deleted, with ${SEARCH_CONSOLE_FRESHNESS_ERASED}. Then 90 days fill again from the new one within a day.`,
           ],
           [
             "Take back",
-            "The brand stops reading it now, and what YouGrow collected for it is deleted, with its suggestions and the Search Console figures in article freshness notes. A Google address can still read the site until you remove it there.",
+            `The brand stops reading it now, and what YouGrow collected for it is deleted, with its suggestions and ${SEARCH_CONSOLE_FRESHNESS_ERASED}. A Google address can still read the site until you remove it there.`,
           ],
         ]}
       />
@@ -125,11 +126,11 @@ export default function SharedConnectionsHelp() {
       <UL>
         <li>Pause stops every brand reading it live and collecting it. Numbers already collected stay readable.</li>
         <li>
-          Disconnect ends every brand&apos;s part and deletes what YouGrow collected for them and the Search Console figures in
-          article freshness notes. A Google address is deleted. A Google sign in is also removed at Google only when your copy
-          of YouGrow does that, and then the same Google account&apos;s other YouGrow connections need signing in again. A
-          connection YouGrow disconnects by itself, because no brand is left for it, has its saved sign in deleted but is never
-          removed at Google, so nothing else signed in with that account stops.
+          Disconnect ends every brand&apos;s part and deletes what YouGrow collected for them, with {SEARCH_CONSOLE_FRESHNESS_ERASED}.
+          A Google address is deleted. A Google sign in is also removed at Google only when your copy of YouGrow does that, and
+          then the same Google account&apos;s other YouGrow connections need signing in again. A connection YouGrow disconnects by
+          itself, because no brand is left for it, has its saved sign in deleted but is never removed at Google, so nothing else
+          signed in with that account stops.
         </li>
         <li>
           When your copy of YouGrow removes sign ins at Google, a brand&apos;s own Google connection disconnected by someone who
@@ -137,8 +138,8 @@ export default function SharedConnectionsHelp() {
         </li>
         <li>
           A brand that moves to another organisation stops reading its parts at once, and what was collected through them is
-          deleted, with the Search Console figures in article freshness notes. Your connections keep serving the brands left, in
-          any region. When no brand is left, every connection the organisation holds is disconnected.
+          deleted, with {SEARCH_CONSOLE_FRESHNESS_ERASED}. Your connections keep serving the brands left, in any region. When no
+          brand is left, every connection the organisation holds is disconnected.
         </li>
       </UL>
 

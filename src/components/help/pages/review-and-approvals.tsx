@@ -224,6 +224,7 @@ export default function ReviewAndApprovalsHelp({
                   "Someone on your team planned or dismissed it a moment ago. Refresh Review.",
                 ],
                 ["Choose the programme to write it in, or add one first.", "Press Plan an article again and choose a programme, or add one under Content first."],
+                ["That suggestion couldn't be checked just now. Try again in a minute.", "A check behind it didn't answer for a moment. The suggestion is still there: press Plan an article again."],
               ] as Array<[string, string]>)
             : []),
           [

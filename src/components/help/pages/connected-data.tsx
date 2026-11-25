@@ -3,7 +3,7 @@ import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from 
 import { ConnectorTile } from "@/components/admin/connectors/ConnectorTile";
 import { CONNECTED_COPY, PART_COPY, PICKER_COPY, SCREEN_COPY, activityWords } from "@/components/admin/connectors/words";
 import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsSearchTextEnabled, isConnectorsSharingEnabled } from "@/lib/connectors/flags";
-import { COLLECT_HELP, connectedDataHelp, SEARCH_TEXT_HELP, SIGNALS_HELP, VIZZY_COLLECTED_HELP, type ConnectorHelp } from "@/lib/connectors/helpText";
+import { COLLECT_HELP, connectedDataHelp, SEARCH_CONSOLE_FRESHNESS_ERASED, SEARCH_TEXT_HELP, SIGNALS_HELP, VIZZY_COLLECTED_HELP, type ConnectorHelp } from "@/lib/connectors/helpText";
 import { CONNECTOR_ERRORS, tokenRefusedMessage } from "@/lib/connectors/messages";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
@@ -377,9 +377,9 @@ export default function ConnectedDataHelp({
             </li>
             <li>
               <strong>{PART_COPY.stopUsing}</strong> ends it for your brand at once and deletes what YouGrow collected for it,
-              with the suggestions its numbers made and the Search Console figures in article freshness notes. Your
-              organisation&apos;s owners see that it stopped. It never removes access at Google or Cloudflare, since the same
-              sign in can serve your other brands.
+              with the suggestions its numbers made and {SEARCH_CONSOLE_FRESHNESS_ERASED}. Your organisation&apos;s owners see
+              that it stopped. It never removes access at Google or Cloudflare, since the same sign in can serve your other
+              brands.
             </li>
             <li>
               When your brand leaves the organisation, its parts end the same way, and Connected says when it left. A
@@ -397,7 +397,7 @@ export default function ConnectedDataHelp({
               ["Turned off here", `${CONNECTOR_ERRORS.sharing_off} It comes back as it was when sharing is turned on again.`],
               [
                 PART_COPY.ended,
-                "Your organisation no longer gives it, so it reads nothing. It leaves Connected within the hour, and what was collected for it is deleted, with the Search Console figures in article freshness notes.",
+                `Your organisation no longer gives it, so it reads nothing. It leaves Connected within the hour, and what was collected for it is deleted, with ${SEARCH_CONSOLE_FRESHNESS_ERASED}.`,
               ],
               [PART_COPY.pending, "An owner is still giving it. It reads once that finishes."],
               [PART_COPY.unknownCell, "YouGrow couldn't check it with your organisation just now, so it reads nothing this time. Reload the page in a minute."],

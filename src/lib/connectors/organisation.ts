@@ -18,6 +18,7 @@ import {
 } from "@/lib/tenant";
 import type { DataConnection } from "@/lib/types/dataConnection";
 import type { OrganisationConnection } from "@/lib/types/organisationConnection";
+import { FRESHNESS_CLEAR } from "@/lib/content/blog/freshnessErase";
 import { eraseConnectionData, type SearchIndexOf } from "./erase";
 import { isGoogleRevokeEnabled } from "./flags";
 import { revokeGoogleToken, type GoogleDeps } from "./google";
@@ -63,6 +64,8 @@ export interface OrganisationDeps extends SourceDeps, Pick<ConnectorFetchDeps, "
 
 export interface OrganisationActionDeps extends OrganisationDeps, Pick<GoogleDeps, "transport" | "log">, ShareDeps {
   searchIndex?: SearchIndexOf;
+  /** When each erase's article step stops (eraseConnectionData): the lane's deadline, or a request's own. */
+  deadlineMs?: number;
 }
 
 /** New Google addresses one organisation may make for one connector: a few a minute, ten an hour. */
@@ -112,7 +115,7 @@ const warn = (what: string, err: unknown) => console.warn(`[connectors] ${what}:
 async function eraseBrandRecord(brand: BrandRef, useId: string, by: string, deps: OrganisationActionDeps): Promise<void> {
   const ctx: TenantContext = { tenantId: brand.tenantId, region: brand.region, source: "system" };
   try {
-    await eraseConnectionData(ctx, useId, "all", { by, now: deps.now, db: brandDb(brand.region, deps), searchIndex: deps.searchIndex });
+    await eraseConnectionData(ctx, useId, "all", { by, now: deps.now, db: brandDb(brand.region, deps), searchIndex: deps.searchIndex, deadlineMs: deps.deadlineMs });
   } catch (err) {
     warn(`erase after a part ended failed for ${useId}; the lane tries again`, err);
   }
@@ -188,10 +191,13 @@ export async function disconnectOrganisationConnection(
   const step = await disconnectOrganisationConnectionRecord(source, { by, at }, stores);
   const current = step?.after ?? (await getOrganisationConnection(source.organisationId, source.connectionId, source.region, stores));
   if (!current) return { found: false, disconnected: false, ended: 0, revoked: false, addressDeleted: null };
+  // One deadline for every brand's article step, so an owner's Disconnect of a connection with many
+  // brands answers in time: a brand whose step didn't fit stays pending for its lane.
+  const each: OrganisationActionDeps = { ...deps, deadlineMs: deps.deadlineMs ?? Date.now() + FRESHNESS_CLEAR.BUDGET_MS };
   let ended = 0;
   for (const p of current.parts) {
     try {
-      if (await endOnePart(source, { tenantId: p.tenantId, region: p.region }, p.useId, { by: p.endedBy ?? by, code: "part_ended" }, deps)) ended += 1;
+      if (await endOnePart(source, { tenantId: p.tenantId, region: p.region }, p.useId, { by: p.endedBy ?? by, code: "part_ended" }, each)) ended += 1;
     } catch (err) {
       // Left ending on the organisation's record: the brand's own housekeeping ends its record (its
       // source reads disconnected), and the organisation purge's dry run still counts the entry.
@@ -379,7 +385,7 @@ export async function sweepOrganisationConnections(opts: { deadlineMs: number; c
       const m = await membership(c.organisationId);
       if (!m.exists || m.brandIds.length === 0) {
         // Nobody asked for this disconnect, so it never revokes (see disconnectOrganisationConnection).
-        if ((await disconnectOrganisationConnection(refOf(c), "system", { ...deps, now: new Date(clock()) })).disconnected) result.disconnected += 1;
+        if ((await disconnectOrganisationConnection(refOf(c), "system", { ...deps, now: new Date(clock()), deadlineMs: Date.now() + (opts.deadlineMs - clock()) })).disconnected) result.disconnected += 1;
         return;
       }
       if (c.parts.every((p) => p.state === "active")) return;

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { changeOrganisationConnection, forTenant, type TenantContext } from "@/lib/tenant";
+import { failingFirestore } from "@/lib/tenant/testing/failingFirestore";
 import { getAgentAction } from "@/lib/ontology/agentActions";
 import { isAgentActionId } from "@/lib/types/agentAction";
 import { freshCollect } from "@/lib/types/dataConnection";
@@ -110,6 +111,10 @@ describe("every way out checks the part live", () => {
     expect(await plan()).toEqual({ ok: false, error: "not_found" });
     expect(await state()).toBe("proposed");
     seedTenant(w, US_BRAND, ORG);
+    // A read behind partLive failing hides the part too, but it isn't gone: the person is asked to try again.
+    const down = { ...where(), controlDb: failingFirestore(w.us, { collections: ["tenants"] }) };
+    expect(await planFromSignal(CTX, signalId, {}, { ...down, now: NOW, loadTenant: async () => null })).toEqual({ ok: false, error: "busy" });
+    expect(await state()).toBe("proposed");
     expect(await plan()).toEqual({ ok: true, value: { href: "/admin/workspace/ws_care/create?numbers=search&text=pet%20safe%20hanging%20plants" } });
     expect(await state()).toBe("acted");
   });

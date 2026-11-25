@@ -23,7 +23,8 @@ import { collectConnection, collectOf, isDue, MIN_START_MS, type CollectRunDeps,
  * Brands take turns from a rotating offset, one data_connections query each (equality on the
  * brand only), suspended brands skipped. For each brand:
  * - housekeeping, whenever CONNECTORS_ENABLED is on, whatever collect or signals say: retrying an
- *   erase a connection still has pending, and, for a brand with Search Console, declining its
+ *   erase a connection still has pending (its article step stopping at the lane's deadline, what is
+ *   left staying pending for the next run), and, for a brand with Search Console, declining its
  *   suggestions from collected numbers that are past their 30 days and putting the questions they
  *   proposed on the brand map in step (src/lib/connectors/signals/reconcile.ts);
  * - collecting, only with CONNECTORS_COLLECT_ENABLED: each due connection, one at a time, under its
@@ -71,7 +72,7 @@ export interface LaneDeps extends CollectRunDeps {
   housekeeping?: (
     ctx: TenantContext,
     connections: DataConnection[],
-    deps: { db?: LaneDeps["db"]; now?: Date; searchIndex?: SearchIndexOf; regionDb?: LaneDeps["regionDb"]; controlDb?: LaneDeps["controlDb"]; partCache?: PartCache },
+    deps: { db?: LaneDeps["db"]; now?: Date; searchIndex?: SearchIndexOf; regionDb?: LaneDeps["regionDb"]; controlDb?: LaneDeps["controlDb"]; partCache?: PartCache; deadlineMs?: number },
   ) => Promise<{ erased: number; expired?: number; partsEnded?: number }>;
   /** The sweep of organisation connections (tests stub it). */
   sweep?: typeof sweepOrganisationConnections;
@@ -117,6 +118,8 @@ export async function runConnectorsLane(opts: { deadlineMs: number }, deps: Lane
   let oldestDue: number | null = null;
   // One cache of the reads behind partLive for the whole run.
   const partCache = new PartCache();
+  // An erase's article step stops on the real clock: the lane's deadline, as the time left from now.
+  const eraseBy = () => Date.now() + (opts.deadlineMs - clock());
   try {
     const swept = await (deps.sweep ?? sweepOrganisationConnections)({ deadlineMs: opts.deadlineMs, clock, minLeftMs: MIN_START_MS }, { ...deps, now: new Date(clock()) });
     result.swept = swept.disconnected;
@@ -134,11 +137,11 @@ export async function runConnectorsLane(opts: { deadlineMs: number }, deps: Lane
       const records = await forTenant(ctx, db).dataConnections.find({ limit: LANE.CONNECTIONS_PER_BRAND });
       const parts = records.filter((c) => c.source && c.status === "connected");
       if (parts.length) {
-        const ended = await partHousekeeping(ctx, parts, { db, now: new Date(clock()), searchIndex: deps.searchIndex, regionDb: deps.regionDb, controlDb: deps.controlDb, partCache });
+        const ended = await partHousekeeping(ctx, parts, { db, now: new Date(clock()), searchIndex: deps.searchIndex, regionDb: deps.regionDb, controlDb: deps.controlDb, partCache, deadlineMs: eraseBy() });
         result.partsEnded = (result.partsEnded ?? 0) + ended.ended;
       }
       // A part ended just now was erased as it ended; one whose erase failed on an earlier run is tried again here.
-      const { erased } = await retryPendingErases(ctx, records, { db, now: new Date(clock()), searchIndex: deps.searchIndex });
+      const { erased } = await retryPendingErases(ctx, records, { db, now: new Date(clock()), searchIndex: deps.searchIndex, deadlineMs: eraseBy() });
       result.erased += erased;
     } catch (err) {
       console.warn(`[connectors] part housekeeping for suspended ${t.id} failed:`, err instanceof Error ? err.message.slice(0, 200) : "error");
@@ -152,7 +155,15 @@ export async function runConnectorsLane(opts: { deadlineMs: number }, deps: Lane
     try {
       const conns = await forTenant(ctx, brand.db).dataConnections.find({ limit: LANE.CONNECTIONS_PER_BRAND });
       result.brands += 1;
-      const kept = await (deps.housekeeping ?? laneHousekeeping)(ctx, conns, { db: brand.db, now: new Date(clock()), searchIndex: deps.searchIndex, regionDb: deps.regionDb, controlDb: deps.controlDb, partCache });
+      const kept = await (deps.housekeeping ?? laneHousekeeping)(ctx, conns, {
+        db: brand.db,
+        now: new Date(clock()),
+        searchIndex: deps.searchIndex,
+        regionDb: deps.regionDb,
+        controlDb: deps.controlDb,
+        partCache,
+        deadlineMs: eraseBy(),
+      });
       result.erased += kept.erased;
       result.expired += kept.expired ?? 0;
       result.partsEnded = (result.partsEnded ?? 0) + (kept.partsEnded ?? 0);
@@ -194,7 +205,7 @@ export async function runConnectorsLane(opts: { deadlineMs: number }, deps: Lane
 export async function laneHousekeeping(
   ctx: TenantContext,
   connections: DataConnection[],
-  deps: { db?: LaneDeps["db"]; now?: Date; searchIndex?: SearchIndexOf; regionDb?: LaneDeps["regionDb"]; controlDb?: LaneDeps["controlDb"]; partCache?: PartCache } = {},
+  deps: { db?: LaneDeps["db"]; now?: Date; searchIndex?: SearchIndexOf; regionDb?: LaneDeps["regionDb"]; controlDb?: LaneDeps["controlDb"]; partCache?: PartCache; deadlineMs?: number } = {},
 ): Promise<{ erased: number; expired: number; partsEnded: number }> {
   // Parts first, whatever sharing or plans say: one ended now is erased here, and a stale entry dropped.
   let partsEnded = 0;

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { failingFirestore } from "@/lib/tenant/testing/failingFirestore";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { changeDataConnection, forTenant, type TenantContext } from "@/lib/tenant";
 import { getAgentAction } from "@/lib/ontology/agentActions";
@@ -122,6 +123,16 @@ describe("Plan an article", () => {
     // Back to feeding planning: it plans.
     await changeDataConnection(A, ID, () => ({ patch: { status: "connected" }, activity: [] }), db);
     expect(await plan(signalId)).toMatchObject({ ok: true, value: { href: expect.stringContaining("/admin/workspace/ws_blog/create?numbers=page") } });
+  });
+
+  it("asks to try again, and leaves it proposed, when the connections can't be read just now", async () => {
+    await workspace("ws_blog", "Plant care blog");
+    const { signalId, actionId } = await seedSuggestion(A, db, ID, "losing");
+    // Only the connections fail: the suggestion and its action read as usual.
+    const down = failingFirestore(db, { collections: ["data_connections"] });
+    expect(await planFromSignal(A, signalId, {}, { db: down, now: NOW, loadTenant: async () => null })).toEqual({ ok: false, error: "busy" });
+    expect((await action(actionId)).state).toBe("proposed");
+    expect(await planFromSignal(A, signalId, {}, { db, now: NOW, loadTenant: async () => null })).toMatchObject({ ok: true });
   });
 
   it("asks which programme when there are several, and takes the autopilot's", async () => {

@@ -410,6 +410,29 @@ export async function listRecentContentPlans(
   return rows;
 }
 
+/**
+ * A page of a workspace's plans in id order, after the id `after`, for a pass that must reach every
+ * plan however many there are (an erase): `next` is the id to start the next page after, or null at
+ * the end. Ordered on the id only, so no composite index.
+ */
+export async function pageContentPlans(
+  ctx: TenantContext,
+  workspaceId: string,
+  opts: { after?: string | null; limit: number },
+  db?: FirestoreLike,
+): Promise<{ plans: ContentPlan[]; next: string | null }> {
+  const limit = Math.min(Math.max(opts.limit, 1), 500);
+  let q = contentPlans(ctx, workspaceId, db).orderBy("__name__", "asc");
+  if (opts.after) q = q.startAfter(opts.after);
+  const snap = await q.limit(limit).get();
+  const plans: ContentPlan[] = [];
+  for (const d of snap.docs) {
+    const parsed = ContentPlanSchema.safeParse(d.data());
+    if (parsed.success && parsed.data.tenantId === ctx.tenantId && parsed.data.workspaceId === workspaceId) plans.push(parsed.data);
+  }
+  return { plans, next: snap.docs.length === limit ? snap.docs[snap.docs.length - 1]!.id : null };
+}
+
 export async function getContentPlan(
   ctx: TenantContext,
   workspaceId: string,

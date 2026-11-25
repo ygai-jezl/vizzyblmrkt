@@ -84,6 +84,41 @@ describe("Disconnect at the organisation", () => {
   });
 });
 
+describe("the article step of each brand's erase", () => {
+  // Search Console parts: their erase also reads every article the brand has (freshnessErase.ts).
+  const sc = async (id: string, useId: string, brand: { tenantId: string; region: Region }) => {
+    const s = await seedSource(w, { id, connectorId: "search-console", method: "oauth_pkce", label: "Search Console", signerUid: "usr_priya", secrets: {} });
+    await seedPart(w, s, brand, { useId, account: `sc-domain:${brand.tenantId}.example`, connectorId: "search-console", method: "oauth_pkce" });
+    return s;
+  };
+  const pendingOf = async (brand: { tenantId: string; region: Region }, id: string) => (await record(brand, id))?.collect?.erasePending ?? null;
+
+  it("has one deadline for every brand in an owner's Disconnect: a brand whose step didn't fit stays pending for its lane", async () => {
+    const g = await sc("ocn_gggggggggggggggggggg", "dcn_gggggggggggggggggggg", US_BRAND);
+    // With no deadline given, the request gives its own, here time enough.
+    expect((await disconnectOrganisationConnection(g, "usr_priya", deps())).ended).toBe(1);
+    expect(await record(US_BRAND, "dcn_gggggggggggggggggggg")).toMatchObject({ status: "disconnected" });
+    expect(await pendingOf(US_BRAND, "dcn_gggggggggggggggggggg")).toBeNull();
+    // A deadline already reached: the part still ends at once, and what is left waits for the lane.
+    const h = await sc("ocn_hhhhhhhhhhhhhhhhhhhh", "dcn_hhhhhhhhhhhhhhhhhhhh", EU_BRAND);
+    expect((await disconnectOrganisationConnection(h, "usr_priya", deps({ deadlineMs: Date.now() }))).ended).toBe(1);
+    expect(await record(EU_BRAND, "dcn_hhhhhhhhhhhhhhhhhhhh")).toMatchObject({ status: "disconnected" });
+    expect(await pendingOf(EU_BRAND, "dcn_hhhhhhhhhhhhhhhhhhhh")).toBe("all");
+  });
+
+  it("stops at the lane's deadline in the sweep, read on the lane's own clock", async () => {
+    await sc("ocn_gggggggggggggggggggg", "dcn_gggggggggggggggggggg", US_BRAND);
+    seedTenant(w, US_BRAND, OTHER_ORG);
+    seedTenant(w, EU_BRAND, OTHER_ORG);
+    seedOrganisation(w, ORG, []);
+    // The lane's clock is its own: 25 seconds left on it is 25 seconds now, so the erase finishes.
+    const clock = () => NOW.getTime();
+    expect((await sweepOrganisationConnections({ deadlineMs: clock() + 25_000, clock }, deps())).disconnected).toBe(2);
+    expect(await record(US_BRAND, "dcn_gggggggggggggggggggg")).toMatchObject({ status: "disconnected" });
+    expect(await pendingOf(US_BRAND, "dcn_gggggggggggggggggggg")).toBeNull();
+  });
+});
+
 describe("moves never leave a sign in behind", () => {
   it("ends a leaving brand's parts, and keeps the connection for the brands left, wherever they are", async () => {
     // Fernhill Plants, the brand it was connected from, moves out: its sign in stays in Europe for Fernhill US.

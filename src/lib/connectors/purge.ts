@@ -260,8 +260,9 @@ export async function purgeConnections(
       (cur) => ({ patch: { status: "disconnected", disconnectedAt: cur.disconnectedAt ?? at, collect: { ...(cur.collect ?? freshCollect()), erasePending: pendingWith(cur.collect?.erasePending ?? null, "all"), nextAt: null } }, activity: [] }),
       opts.db,
     );
-    // Everything it collected goes next, with no row of its own: the purged row is the trace.
-    const erased = await eraseConnectionData(ctx, c.id, "all", { by, now: opts.now, db: opts.db, record: false, searchIndex: opts.searchIndex });
+    // Everything it collected goes next, with no row of its own: the purged row is the trace. The
+    // record goes after, so nothing is left for the lane (lastTry).
+    const erased = await eraseConnectionData(ctx, c.id, "all", { by, now: opts.now, db: opts.db, record: false, searchIndex: opts.searchIndex, lastTry: true });
     const snapshotsDeleted = erased.snapshots;
     const searchRemoved = erased.search === "skipped" ? null : erased.search === "removed";
     const counts = await purgeDataConnection(ctx, c.id, by, at, opts.db);

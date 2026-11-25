@@ -7,7 +7,7 @@ import { BlogArticleMetaSchema, BlogBriefSchema } from "@/lib/types/contentPlan"
 import type { Tenant } from "@/lib/types/tenant";
 import { agentArticlesDue } from "./freshnessAgentApi";
 import { readDueArticles } from "./freshnessPages";
-import { freshnessWatchId, runFreshness, sweepBrand } from "./freshnessWatch";
+import { FRESHNESS_WATCH, freshnessWatchId, runFreshness, sweepBrand } from "./freshnessWatch";
 import { setArticleLive } from "./live";
 import { sampleHub, samplePlan } from "./testing/samplePlan";
 
@@ -18,8 +18,8 @@ import { sampleHub, samplePlan } from "./testing/samplePlan";
  */
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "system" };
+const B: TenantContext = { tenantId: "ten_B", region: "us", source: "system" };
 const ADMIN: TenantContext = { ...A, source: "idtoken", role: "admin" };
-const PLANS = "workspaces/ws1/content_plans";
 const DAY = 86_400_000;
 const NOW = new Date("2026-11-24T12:00:00.000Z");
 /** A week and a day on, so every article's links are due a check again. */
@@ -29,17 +29,22 @@ const NEXT_TICK = new Date(LATER.getTime() + 2 * 60_000);
 
 const LINK = (p: string) => `https://research.example.org/${p}`;
 const tenant = { id: "ten_A", region: "us", status: "active" } as unknown as Tenant;
+const tenantB = { id: "ten_B", region: "us", status: "active" } as unknown as Tenant;
 
 /** A made-up live article with an old figure (so it is due), its own page and these outbound links. */
-function seedArticle(db: FakeFirestore, id: string, createdAt: string, slug: string, links: string[]) {
-  const url = `https://acme.example/blog/${slug}`;
+function seedArticle(db: FakeFirestore, id: string, createdAt: string, slug: string, links: string[], brand: { tenantId: string; workspaceId: string; host: string } = { tenantId: "ten_A", workspaceId: "ws1", host: "acme.example" }) {
+  const url = `https://${brand.host}/blog/${slug}`;
   const body = `# ${slug}\n\nIn 2023, 38% of buyers asked an AI assistant first. ${links.map((l, i) => `See [source ${i + 1}](${l}).`).join(" ")}`;
   const hub = sampleHub({
     body,
     status: "approved",
     blog: { ...BlogArticleMetaSchema.parse({}), live: { url, at: "2026-10-21T08:00:00.000Z", by: "check", titleMatched: true }, dates: { published: { at: "2026-10-20", source: "page" } } },
   });
-  db.seed(PLANS, id, samplePlan({ id, createdAt, updatedAt: createdAt, blog: BlogBriefSchema.parse({ subjectId: "sub_1" }), strategy: { objective: "brand_visibility", hubUrl: url } }, hub));
+  db.seed(
+    `workspaces/${brand.workspaceId}/content_plans`,
+    id,
+    samplePlan({ id, tenantId: brand.tenantId, workspaceId: brand.workspaceId, createdAt, updatedAt: createdAt, blog: BlogBriefSchema.parse({ subjectId: "sub_1" }), strategy: { objective: "brand_visibility", hubUrl: url } }, hub),
+  );
 }
 
 /** Two live articles: the watch reaches plan_new first, as plans are read newest first. */
@@ -138,13 +143,15 @@ describe("a freshness look cut short", () => {
     checked.length = 0;
     for (const at of [LATER, NEXT_TICK]) {
       const doc = await sweepBrand(A, tenant, { ...deps(db, at), deadlineMs: Date.now() - 1 });
+      // It reached no article, so it waits a while rather than take the next tick too.
+      const waits = new Date(at.getTime() + FRESHNESS_WATCH.EMPTY_CUT_WAIT_MS).toISOString();
       expect(doc.counts).toEqual(first.counts);
       expect(doc.byClock).toEqual(first.byClock);
       expect(doc.due).toEqual(first.due);
       expect(doc.pages).toEqual(first.pages);
-      expect(doc.nextAt).toBe(at.toISOString());
+      expect(doc.nextAt).toBe(waits);
       expect(doc.lookStartedAt).toBe(LATER.toISOString());
-      expect(await watch(db)).toMatchObject({ nextAt: at.toISOString(), lookStartedAt: LATER.toISOString(), counts: first.counts, due: first.due, pages: first.pages });
+      expect(await watch(db)).toMatchObject({ nextAt: waits, lookStartedAt: LATER.toISOString(), counts: first.counts, due: first.due, pages: first.pages });
     }
     expect(checked).toEqual([]);
     expect(await sweptAt(db, "plan_new")).toBe(NOW.toISOString());
@@ -180,5 +187,73 @@ describe("a freshness look cut short", () => {
     expect(await sweptAt(db, "plan_new")).toBe(twoDaysOn.toISOString());
     expect(await sweptAt(db, "plan_old")).toBe(twoDaysOn.toISOString());
     expect(await watch(db)).toMatchObject({ lookStartedAt: null, nextAt: new Date(twoDaysOn.getTime() + DAY).toISOString() });
+  });
+
+  it("waits a while after a tick that ran out before any article, rather than take every tick", async () => {
+    const db = world();
+    await tick(db, NOW);
+    // The brand's reads before its first article take all the time the tick has.
+    const slowReads = (db: FakeFirestore, now: Date) => {
+      checked.length = 0;
+      const deadlineMs = Date.now() + 60_000;
+      return runFreshness(
+        { deadlineMs },
+        {
+          ...deps(db, now),
+          losingPages: async () => {
+            vi.spyOn(Date, "now").mockReturnValue(deadlineMs + 1);
+            return new Map<string, string>();
+          },
+        },
+      ).finally(() => vi.restoreAllMocks());
+    };
+    expect(await slowReads(db, LATER)).toMatchObject({ brands: 1 });
+    expect(checked).toEqual([]);
+    expect(await sweptAt(db, "plan_new")).toBe(NOW.toISOString());
+
+    // Not at the next tick, nor the ones after, for half an hour.
+    expect(await tick(db, NEXT_TICK)).toMatchObject({ brands: 0 });
+    expect(await tick(db, new Date(LATER.getTime() + FRESHNESS_WATCH.EMPTY_CUT_WAIT_MS - 1))).toMatchObject({ brands: 0 });
+    // Then it looks again, and finishes.
+    const back = new Date(LATER.getTime() + FRESHNESS_WATCH.EMPTY_CUT_WAIT_MS);
+    expect(await tick(db, back)).toEqual({ brands: 1, articles: 2, due: 2 });
+    expect(await sweptAt(db, "plan_old")).toBe(back.toISOString());
+    expect(await watch(db)).toMatchObject({ lookStartedAt: null, nextAt: new Date(back.getTime() + DAY).toISOString() });
+  });
+
+  it("looks first at the brand that has waited longest, so a look going on gives way to it", async () => {
+    const db = world();
+    db.seed("workspaces", "wsB", { tenantId: "ten_B", name: "Blog", createdAt: "2026-01-01T00:00:00.000Z" });
+    seedArticle(db, "plan_b", "2026-10-08T08:00:00.000Z", "b", [LINK("e")], { tenantId: "ten_B", workspaceId: "wsB", host: "fernhill.example" });
+    /** A tick across both brands, listed A then B; cut: out of time at the first link check. */
+    const lane = (now: Date, cut = false) => {
+      checked.length = 0;
+      const deadlineMs = Date.now() + 60_000;
+      return runFreshness(
+        { deadlineMs },
+        {
+          ...deps(db, now, () => {
+            if (cut) vi.spyOn(Date, "now").mockReturnValue(deadlineMs + 1);
+          }),
+          listTenants: async () => [tenant, tenantB],
+        },
+      ).finally(() => vi.restoreAllMocks());
+    };
+    const sweptB = async () => (await getContentPlan(B, "wsB", "plan_b", db))!.graph.nodes[0]!.blog?.freshness?.sweptAt ?? null;
+
+    expect(await lane(NOW)).toMatchObject({ brands: 2 });
+    // A day on, A's look is cut after its first article, and B has no time.
+    expect(await lane(LATER, true)).toMatchObject({ brands: 1 });
+    expect(await sweptB()).toBe(NOW.toISOString());
+    // B has waited since its look was due, A only since the last tick: B goes first.
+    expect(await lane(NEXT_TICK, true)).toMatchObject({ brands: 1 });
+    expect(checked).toEqual([LINK("e")]);
+    expect(await sweptB()).toBe(NEXT_TICK.toISOString());
+    expect(await sweptAt(db, "plan_old")).toBe(NOW.toISOString());
+    // Then A goes on where it stopped.
+    const after = new Date(NEXT_TICK.getTime() + 2 * 60_000);
+    expect(await lane(after)).toMatchObject({ brands: 1 });
+    expect(checked).toEqual([LINK("a"), LINK("b")]);
+    expect(await sweptAt(db, "plan_old")).toBe(after.toISOString());
   });
 });

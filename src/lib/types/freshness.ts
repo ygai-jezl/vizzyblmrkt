@@ -22,7 +22,10 @@ export interface FreshnessDueItem {
 export interface FreshnessWatchDoc {
   id: string;
   tenantId: string;
-  /** When the brand is next looked at: once a day, or at the next tick while a look cut short goes on. */
+  /**
+   * When the brand is next looked at: once a day, or at the next tick while a look cut short goes on
+   * (half an hour on when its tick ran out before it reached any article).
+   */
   nextAt: string;
   /**
    * When the look still going on began: a look its tick's time cuts short sets it, the next tick goes

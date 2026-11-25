@@ -90,6 +90,28 @@ async function takeRefresh(ctx: TenantContext, pick: NextUpPick, deps: DraftDeps
   };
 }
 
+/**
+ * A pick close to a live article (NEXT_UP_REPEATS_ENABLED), taken by a Draft run: a refresh review
+ * of that article starts, carrying the question, and the run is done. It is never drafted as a new
+ * article. Null when it can't be added now, so the run passes over it and a person decides.
+ */
+async function takeClose(ctx: TenantContext, pick: NextUpPick, deps: DraftDeps): Promise<StepPatch | null> {
+  const to = pick.closeTo;
+  if (!to?.planId || !to.workspaceId) return null;
+  if (!(await mayStartReview(ctx, { db: deps.db, now: deps.now, loadTenant: deps.loadTenant }).then((m) => m.ok).catch(() => false))) return null;
+  const plan = await getContentPlan(ctx, to.workspaceId, to.planId, deps.db).catch(() => null);
+  if (!plan || autopilotHolds(plan)) return null;
+  const started = await startReview(ctx, { plan, by: "autopilot", question: { id: pick.questionId, text: pick.question } }, { db: deps.db, now: deps.now }).catch(() => null);
+  if (!started?.ok || !started.started) return null;
+  await dropPick(ctx, pick.questionId, deps);
+  return {
+    step: "done",
+    refreshOf: plan.id,
+    workspaceId: plan.workspaceId,
+    question: { questionId: pick.questionId, text: pick.question, subjectId: pick.subjectId, subjectName: pick.subjectName },
+  };
+}
+
 /** A scheduled run takes Next up's best pick no other run has (choosing again when Next up is old). */
 export const pickStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
   if (run.question) return { step: "find" };
@@ -113,6 +135,12 @@ export const pickStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
   // In Next up's order: a refresh pick that can't be taken now is passed over, never dropped.
   let pick: NextUpPick | undefined;
   for (const p of (doc?.picks ?? []).filter(writable)) {
+    // Close to a live article: added to it by a Draft run when it can be, otherwise left for a person.
+    if (p.closeTo) {
+      const added = refreshes ? await takeClose(ctx, p, deps) : null;
+      if (added) return added;
+      continue;
+    }
     if (p.kind !== "refresh") {
       pick = p;
       break;

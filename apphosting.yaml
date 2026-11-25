@@ -1051,6 +1051,13 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Keep the AI original of every piece a writer makes, with the prompt, model and sources that
+  # made it, and how a person changed it before approving it, shown as the AI draft card on the
+  # article and a line on each post.
+  - variable: CONTENT_AI_ORIGINALS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # The eBook studio and on brand social post images.
   - variable: CREATE_EBOOK_ENABLED
     value: "false"

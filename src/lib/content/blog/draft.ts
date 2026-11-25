@@ -89,6 +89,10 @@ export interface BlogDraft {
   meta: BlogArticleMeta;
   warnings: string[];
   report: CitableReport;
+  /** The prompt that wrote it (the editorial writer or the standard one). */
+  promptId?: string;
+  /** The repair pass's copy was kept over the first pass's. */
+  repaired?: boolean;
 }
 
 interface ParsedDraft {
@@ -447,6 +451,7 @@ export async function draftBlogArticle(input: BlogDraftInput, deps: BlogDraftDep
   const raw = await generate(compose(task), thinking);
   let best = raw ? checkDraft(raw, input, reference, today, editorial) : null;
   if (!best) return null;
+  let repaired = false;
 
   // A figure nobody can trace is the fact check's to fix, sentence by sentence — not a
   // reason to rewrite the whole article.
@@ -474,6 +479,7 @@ export async function draftBlogArticle(input: BlogDraftInput, deps: BlogDraftDep
         slug: revised.meta.slug || best.meta.slug,
       };
       best = revised;
+      repaired = true;
     }
   }
 
@@ -485,7 +491,7 @@ export async function draftBlogArticle(input: BlogDraftInput, deps: BlogDraftDep
   };
   const warnings = blogWarnings(meta, best.report);
   if (best.cut) warnings.push("article_too_long");
-  return { body: best.body, meta, warnings, report: best.report };
+  return { body: best.body, meta, warnings, report: best.report, promptId: editorial ? "content.blog_draft_editorial" : "content.blog_draft", repaired };
 }
 
 /** The warnings a blog hub carries on its node, from what the checks found. */

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { keepApprovedSeen } from "@/lib/content/blog/hubActions";
+import { recordApprovals } from "@/lib/content/create/aiOriginals";
 import { AUTOPILOT_RUNNING, autopilotHolds } from "@/lib/autopilot/planLock";
 import { closeDraftRows, draftDoneWith } from "@/lib/autopilot/answers";
 import { z } from "zod";
@@ -98,6 +99,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
   }
   // An autopilot draft's notes count as used once a person approves it.
   await keepApprovedSeen(ctx, { workspaceId, before: plan, after: updated });
+  // Each piece approved in this save keeps its AI original beside the approved copy (CONTENT_AI_ORIGINALS_ENABLED).
+  await recordApprovals(ctx, { before: plan, after: updated });
   // Approved or archived: an autopilot draft's question rows in Review close.
   if (updated?.autopilot && !draftDoneWith(plan) && draftDoneWith(updated)) await closeDraftRows(ctx, updated);
   indexPlanAfterSave(ctx, updated);

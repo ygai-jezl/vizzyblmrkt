@@ -8,6 +8,7 @@ import { getCompetitor, listChanges, listPosts, onBrandMap } from "@/lib/competi
 import { articlesForDetail } from "@/lib/competitors/coverage";
 import { detailOf } from "@/lib/competitors/view";
 import { brandCanUse } from "@/lib/plans/brandAccess";
+import { isStrategyCompetitorsEnabled } from "@/lib/brandStrategy/flags";
 import { CompetitorDetail } from "@/components/admin/brand-kit/CompetitorDetail";
 
 export const dynamic = "force-dynamic";
@@ -34,7 +35,7 @@ export default async function CompetitorRoute({ params }: { params: Promise<{ co
       >
         <ChevronLeft size={14} /> Competitors
       </Link>
-      <CompetitorDetail initial={detailOf(c, changes, posts, mapped.has(c.id), articles)} canEdit={ctx.role === "admin"} />
+      <CompetitorDetail initial={detailOf(c, changes, posts, mapped.has(c.id), articles)} canEdit={ctx.role === "admin"} grouping={isStrategyCompetitorsEnabled()} />
     </div>
   );
 }

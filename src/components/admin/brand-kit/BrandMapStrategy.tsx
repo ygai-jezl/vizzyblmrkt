@@ -17,7 +17,7 @@ import { api } from "@/components/admin/connect/api";
 import { Banner, Button, inputClass } from "@/components/admin/connect/ui";
 import { AddLine, RemoveButton, smallLabel } from "./BrandMapParts";
 import { useMapMove } from "./brandMapMove";
-import { APPROVED_NOTE, GAP_LABEL, PROPOSED_NOTE, droppedNote, foundNote, monitoredNote, notCompetitorNote, starsNotUpdatedNote, strategyErrorText } from "./strategyMessages";
+import { APPROVED_NOTE, GAP_LABEL, PROPOSED_NOTE, droppedNote, finderNote, foundNote, monitoredNote, notCompetitorNote, starsNotUpdatedNote, strategyErrorText } from "./strategyMessages";
 import { BrandMapContentPlan } from "./BrandMapContentPlan";
 import { CompetitorGroupPicker } from "./CompetitorGroupPicker";
 
@@ -248,10 +248,7 @@ export function BrandMapStrategy({ canEdit, contentPlan = false }: { canEdit: bo
         }
       >
         {view.finder.on ? (
-          <p className="text-[11px] text-neutral-500">
-            Quick: one answer from Google{view.finder.granted ? "" : view.finder.quickUsed ? ", used" : ", once"}.
-            {view.finder.granted ? ` Full: three answers merged and checked, then a search that fits your business${view.finder.limit !== null ? ` (${Math.max(0, view.finder.limit - view.finder.used)} left this month)` : ""}.` : ""}
-          </p>
+          <p className="text-[11px] text-neutral-500">{finderNote(view.finder)}</p>
         ) : null}
         {live ? (
           <>

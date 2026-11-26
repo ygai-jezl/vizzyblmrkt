@@ -56,8 +56,10 @@ const store = vi.hoisted(() => ({
   markSeen: vi.fn(async () => 2),
 }));
 vi.mock("@/lib/competitors/store", () => store);
-const strategy = vi.hoisted(() => ({ logStrategyDecisions: vi.fn(async () => true), noteMonitored: vi.fn(async () => true) }));
+const strategy = vi.hoisted(() => ({ logStrategyDecisions: vi.fn(async () => true), noteMonitored: vi.fn(async () => true), readBrandStrategyDoc: vi.fn(async (): Promise<unknown> => null), fullRunsInMonth: vi.fn(() => 0) }));
 vi.mock("@/lib/brandStrategy/store", () => strategy);
+const tenants = vi.hoisted(() => ({ getTenantById: vi.fn(async () => null) }));
+vi.mock("@/lib/tenant", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/tenant")>()), getTenantById: tenants.getTenantById }));
 
 const { GET, POST } = await import("./route");
 const item = await import("./[competitorId]/route");
@@ -180,6 +182,23 @@ describe("the Competitors APIs", () => {
     expect(strategy.noteMonitored).toHaveBeenCalledWith(admin, { name: "Acme Dental", site: "acme-dental.example" }, {});
     session.getAdminContext.mockResolvedValue(member);
     expect((await item.PATCH(req("PATCH", { group: "most" }), params)).status).toBe(403);
+  });
+
+  it("joined, the list carries the finder's suggestions that aren't watched or left out; off, it doesn't", async () => {
+    store.listCompetitors.mockResolvedValue([COMPETITOR] as never);
+    strategy.readBrandStrategyDoc.mockResolvedValue({
+      rev: 3,
+      draft: { competitorGroups: [{ kind: "big", competitors: [{ name: "Alpha", site: "alpha.example", foundTimes: 2, evidence: [], ticked: false, from: "finder" }, { name: "Acme Dental", site: "acme-dental.example", foundTimes: 1, evidence: [], ticked: false, from: "finder" }, { name: "Left", site: "left.example", foundTimes: 1, evidence: [], ticked: false, from: "finder" }] }] },
+      approved: null,
+      finder: { quickAt: null, fullRuns: [], notCompetitors: [{ name: "Left", site: null }] },
+    });
+    const off = (await (await GET(req("GET"))).json()) as Record<string, unknown>;
+    expect(Object.keys(off)).toEqual(["competitors"]);
+    for (const [k, v] of Object.entries({ BRAND_MAP_ENABLED: "true", BRAND_STRATEGY_ENABLED: "true", STRATEGY_COMPETITORS_ENABLED: "true" })) vi.stubEnv(k, v);
+    const on = (await (await GET(req("GET"))).json()) as { competitors: Array<{ id: string }>; suggestions: Array<{ name: string; group: string }> };
+    expect(on.competitors.map((c) => c.id)).toEqual(["cmp_abcdef123456"]);
+    expect(on.suggestions).toEqual([{ name: "Alpha", site: "alpha.example", group: "big", foundTimes: 2, evidence: [] }]);
+    store.listCompetitors.mockResolvedValue([]);
   });
 
   it("Stop watching removes it and resets the Review count", async () => {

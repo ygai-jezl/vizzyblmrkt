@@ -9,6 +9,7 @@ import type { TenantContext } from "@/lib/tenant/types";
 import { CompetitorPatchSchema, MonitorInputSchema } from "@/lib/types/competitor";
 import { forgetReviewCount } from "@/lib/review/summary";
 import { isStrategyCompetitorsEnabled } from "@/lib/brandStrategy/flags";
+import { competitorsDoor } from "@/lib/brandStrategy/adminApi";
 import { logStrategyDecisions, noteMonitored } from "@/lib/brandStrategy/store";
 import { isCompetitorsEnabled } from "./flags";
 import { advanceCompetitor, type StepDeps } from "./steps";
@@ -73,12 +74,6 @@ function invalid(issues: { path: PropertyKey[]; message: string }[]): Response {
   );
 }
 
-async function listView(ctx: TenantContext, deps: ApiDeps) {
-  const competitors = await listCompetitors(ctx, deps);
-  const [changes, mapped] = await Promise.all([unseenChanges(ctx, deps), onBrandMap(ctx, competitors, deps)]);
-  return competitors.map((c) => summaryOf(c, changes, mapped.has(c.id)));
-}
-
 async function detailView(ctx: TenantContext, id: string, deps: ApiDeps) {
   const c = await getCompetitor(ctx, id, deps);
   if (!c) return null;
@@ -91,8 +86,14 @@ async function detailView(ctx: TenantContext, id: string, deps: ApiDeps) {
   return detailOf(c, changes, posts, mapped.has(c.id), articles);
 }
 
+/** The list; joined to the strategy (STRATEGY_COMPETITORS_ENABLED), the finder's suggestions too. */
 export async function listFromRequest(ctx: TenantContext, deps: ApiDeps = {}): Promise<Response> {
-  return NextResponse.json({ competitors: await listView(ctx, deps) }, { headers: noStore });
+  const competitors = await listCompetitors(ctx, deps);
+  const [changes, mapped, door] = await Promise.all([unseenChanges(ctx, deps), onBrandMap(ctx, competitors, deps), competitorsDoor(ctx, competitors, deps).catch(() => null)]);
+  return NextResponse.json(
+    { competitors: competitors.map((c) => summaryOf(c, changes, mapped.has(c.id))), ...(door ? { suggestions: door.suggestions } : {}) },
+    { headers: noStore },
+  );
 }
 
 export async function detailFromRequest(ctx: TenantContext, id: string, deps: ApiDeps = {}): Promise<Response> {

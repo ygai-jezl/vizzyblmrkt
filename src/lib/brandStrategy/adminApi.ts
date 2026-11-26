@@ -17,7 +17,7 @@ import type { BrandMapSituation } from "@/lib/types/brandMapRecords";
 import type { Competitor } from "@/lib/types/competitor";
 import type { Tenant } from "@/lib/types/tenant";
 import { BRAND_STRATEGY_LIMITS as L, StrategyEditSchema, competitorsOf, type BrandStrategyDoc, type CompetitorGroupKind, type Strategy, type StrategyCompetitor } from "@/lib/types/brandStrategy";
-import { liveCompetitors } from "./competitors";
+import { liveCompetitors, suggestionsOf, type LiveCompetitor } from "./competitors";
 import { findCompetitors, type FinderDeps } from "./finder";
 import { isBrandStrategyEnabled, isCompetitorFinderEnabled, isStrategyCompetitorsEnabled } from "./flags";
 import { proposeStrategy, type ProposeDeps } from "./propose";
@@ -46,6 +46,18 @@ export interface ViewDeps {
   loadTenant?: (id: string) => Promise<Tenant | null>;
 }
 
+/** Whether the competitor finder can run for the brand, and how many full runs it has left. */
+export interface FinderState {
+  on: boolean;
+  granted: boolean;
+  quickUsed: boolean;
+  used: number;
+  limit: number | null;
+}
+
+/** One of the finder's suggestions, as both doors show it. */
+export type Suggestion = Pick<LiveCompetitor, "name" | "site" | "group" | "foundTimes" | "evidence">;
+
 /** A situation as the tab shows it. */
 export interface ViewSituation {
   id: string;
@@ -73,7 +85,7 @@ export interface StrategyView {
   identity: { category: string; statement: string; isNot: string[]; avoid: Array<{ term: string; useInstead: string }> };
   /** Where the goal starts: what the brand wants first, and the goals its people told Vizzy. */
   goalStart: { want: string; goals: string[] };
-  finder: { on: boolean; granted: boolean; quickUsed: boolean; used: number; limit: number | null };
+  finder: FinderState;
   canPropose: boolean;
   canMonitor: boolean;
   /** The strategy joined to Competitors (STRATEGY_COMPETITORS_ENABLED): the live list, groups and Not a competitor. */
@@ -98,6 +110,31 @@ function stateOf(doc: BrandStrategyDoc | null, joined: boolean): StrategyView["s
   if (!doc || (!doc.draft && !doc.approved)) return "none";
   if (!doc.approved) return "draft";
   return sameStrategy(doc.draft, doc.approved, joined) || !doc.draft ? "approved" : "changed";
+}
+
+/** The finder for this brand: on, included, its one quick answer used, and full runs this month. */
+export async function finderState(
+  ctx: TenantContext,
+  doc: BrandStrategyDoc | null,
+  deps: { now?: () => Date },
+  load: (id: string) => Promise<Tenant | null>,
+): Promise<FinderState> {
+  const on = isCompetitorFinderEnabled();
+  const granted = on ? await brandCanUse(ctx, "competitor_finder", load).catch(() => false) : false;
+  const limit = on && granted ? await brandMonthlyLimit(ctx, "competitor_finder", load).catch(() => null) : null;
+  return { on, granted, quickUsed: Boolean(doc?.finder.quickAt), used: fullRunsInMonth(doc, (deps.now ?? (() => new Date()))()), limit };
+}
+
+/**
+ * Brand › Competitors as the second door (STRATEGY_COMPETITORS_ENABLED): the finder's suggestions
+ * that aren't watched or marked Not a competitor, and whether the finder can run. Null while off.
+ */
+export async function competitorsDoor(ctx: TenantContext, watched: Competitor[], deps: ViewDeps = {}): Promise<{ suggestions: Suggestion[]; finder: FinderState } | null> {
+  if (!isStrategyCompetitorsEnabled()) return null;
+  const [doc, tenant] = await Promise.all([readBrandStrategyDoc(ctx, deps).catch(() => null), (deps.loadTenant ?? getTenantById)(ctx.tenantId).catch(() => null)]);
+  const draft = doc?.draft ?? doc?.approved ?? null;
+  const suggestions = suggestionsOf(liveCompetitors(draft, watched, doc?.finder.notCompetitors ?? [])).map(({ name, site, group, foundTimes, evidence }) => ({ name, site, group, foundTimes, evidence }));
+  return { suggestions, finder: await finderState(ctx, doc, deps, async () => tenant) };
 }
 
 /** The brand's watched competitors for the live list, or null when it doesn't have Competitors. */
@@ -127,9 +164,7 @@ export async function strategyView(ctx: TenantContext, deps: ViewDeps = {}): Pro
   const identity = read?.state === "ok" ? read.map.identity : null;
   // The brand record is read once, for every plan check below.
   const load = async () => tenant;
-  const finderOn = isCompetitorFinderEnabled();
-  const granted = finderOn ? await brandCanUse(ctx, "competitor_finder", load).catch(() => false) : false;
-  const limit = finderOn && granted ? await brandMonthlyLimit(ctx, "competitor_finder", load).catch(() => null) : null;
+  const finder = await finderState(ctx, doc, deps, load);
   const canMonitor = isCompetitorsEnabled() && (await brandCanUse(ctx, "competitors", load).catch(() => false));
   const joined = isStrategyCompetitorsEnabled();
   return {
@@ -153,7 +188,7 @@ export async function strategyView(ctx: TenantContext, deps: ViewDeps = {}): Pro
       want: answerLabel("want", tenant?.businessProfile?.answers.want),
       goals: facts.filter((f) => f.kind === "goal").map((f) => f.text).slice(0, 5),
     },
-    finder: { on: finderOn, granted, quickUsed: Boolean(doc?.finder.quickAt), used: fullRunsInMonth(doc, (deps.now ?? (() => new Date()))()), limit },
+    finder,
     canPropose: isGeminiConfigured(),
     canMonitor,
     joined,

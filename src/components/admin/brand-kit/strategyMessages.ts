@@ -56,8 +56,18 @@ export function foundNote(found: number, gapSkipped = false, joined = false): st
   return gapSkipped ? `${base} ${GAP_SKIPPED_NOTE}` : base;
 }
 
+/** What Find competitors and Full search do for this brand, under the buttons on both doors. */
+export function finderNote(f: { granted: boolean; quickUsed: boolean; used: number; limit: number | null }): string {
+  const quick = `Quick: one answer from Google${f.granted ? "" : f.quickUsed ? ", used" : ", once"}.`;
+  if (!f.granted) return quick;
+  return `${quick} Full: three answers merged and checked, then a search that fits your business${f.limit !== null ? ` (${Math.max(0, f.limit - f.used)} left this month)` : ""}.`;
+}
+
 /** After Monitor on a competitor the strategy names. */
 export const monitoredNote = (name: string) => `${name} is on Brand › Competitors now.`;
+
+/** After Monitor on a suggestion, on Brand › Competitors. */
+export const watchingNote = (name: string) => `Watching ${name} now. It shows on the Strategy tab too.`;
 
 /** After Not a competitor. */
 export const notCompetitorNote = (name: string) => `${name} won't be suggested again.`;

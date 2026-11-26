@@ -5,6 +5,8 @@ import type { Journey } from "@/lib/types/journey";
 import type { LifecycleJourney } from "@/lib/types/lifecycle";
 import { journeyIdFor } from "@/lib/journey/service";
 import { waitlistJourneyId } from "@/lib/lifecycle/waitlist/ids";
+import { isWaitlistAbWinnerEnabled } from "@/lib/lifecycle/waitlist/flags";
+import { liveWinners } from "@/lib/lifecycle/waitlist/winners";
 import { CONTROL } from "@/lib/journey/allocation";
 import { computeBqEmailBreakdown, type RawEngagement } from "./bigquery";
 
@@ -281,7 +283,9 @@ interface SequenceStep {
 /**
  * The email steps of a launch's sequence (`journey_{launch}`): from its original
  * journey, or — for a launch that started on the lifecycle engine (engine move)
- * — from its journey there (each email's pool; A/B pools list their arms).
+ * — from its journey there (each email's pool; A/B pools list their arms). With
+ * WAITLIST_AB_WINNER_ENABLED a launch moved there lists its journey there too, so
+ * the tests and picks shown are the ones new signups get.
  */
 async function sequenceSteps(
   ctx: TenantContext,
@@ -290,33 +294,35 @@ async function sequenceSteps(
 ): Promise<{ steps: SequenceStep[]; journeyIds: string[] } | null> {
   const repo = forTenant(ctx, db);
   const journey = await repo.journeys.getById(journeyId);
-  if (journey) {
-    return {
-      journeyIds: [journeyId, waitlistJourneyId(journey.campaignId)],
-      steps: journey.graph.nodes
-        .filter((n) => n.type === "email")
-        .map((node) => {
-          const ab = node.data.abTest;
-          return {
-            nodeId: node.id,
-            label: node.data.label || node.data.subject || "Untitled email",
-            ab: ab
-              ? { armIds: [CONTROL, ...ab.variants.map((v) => v.variantId)], status: ab.status, winnerVariantId: ab.winnerVariantId ?? null }
-              : null,
-          };
-        }),
-    };
-  }
+  const original = (j: Journey) => ({
+    journeyIds: [journeyId, waitlistJourneyId(j.campaignId)],
+    steps: j.graph.nodes
+      .filter((n) => n.type === "email")
+      .map((node) => {
+        const ab = node.data.abTest;
+        return {
+          nodeId: node.id,
+          label: node.data.label || node.data.subject || "Untitled email",
+          ab: ab
+            ? { armIds: [CONTROL, ...ab.variants.map((v) => v.variantId)], status: ab.status, winnerVariantId: ab.winnerVariantId ?? null }
+            : null,
+        };
+      }),
+  });
+  const movedFirst =
+    !!journey && isWaitlistAbWinnerEnabled() && (await repo.campaigns.getById(journey.campaignId).catch(() => null))?.waitlistEngine === "lifecycle";
+  if (journey && !movedFirst) return original(journey);
   if (!journeyId.startsWith("journey_")) return null;
   const moved = await repo.lifecycleJourneys.getById(waitlistJourneyId(journeyId.slice("journey_".length))).catch(() => null);
-  if (!moved) return null;
+  if (!moved) return journey ? original(journey) : null;
+  const winners = liveWinners(moved, moved.draft.pools);
   return {
     journeyIds: [journeyId, moved.id],
     steps: moved.draft.graph.nodes
       .filter((n) => n.type === "email")
       .map((node) => {
         const pool = moved.draft.pools.find((p) => p.id === node.data.poolId);
-        const winner = pool ? (moved.abWinners?.[pool.id] ?? null) : null;
+        const winner = pool ? (winners[pool.id] ?? null) : null;
         return {
           nodeId: node.id,
           label: node.data.label || pool?.items[0]?.subject || "Untitled email",

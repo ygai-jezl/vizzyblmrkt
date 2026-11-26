@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forTenant } from "@/lib/tenant";
+import { readFieldList, saveFieldListChange } from "@/lib/audience/fieldList";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { failingFirestore } from "@/lib/tenant/testing/failingFirestore";
 import { BEFORE_HISTORY_TEXT, decodeCursor, listHistory, parseHistorySubject, type HistoryPage } from "./sources";
@@ -121,6 +122,17 @@ describe("listHistory", () => {
     const { entries } = await page();
     expect(entries.find((e) => e.kind === "journeys" && e.rev === 1)!.by).toBe("A team member");
     expect(JSON.stringify(entries)).not.toContain("sam@example.com");
+  });
+
+  it("names a team member with no name set by their sign in address on the page, and never to Vizzy", async () => {
+    // Tom is on the team with no display name.
+    const list = await readFieldList(ctx, "company", w.db);
+    await saveFieldListChange(member, "company", { baseRev: list.rev, change: { op: "add", label: "Pot size", type: "text" }, by: { type: "member", id: "usr_tom" }, nowIso: T(25) }, w.db);
+    const onPage = (await page({ kind: "fields" })).entries[0]!;
+    expect(line(onPage)).toBe("Company fields v2 · tom@example.com");
+    const r = await listHistory(ctx, { kind: "fields" }, { db: w.db, lookup, addresses: false });
+    expect(r.ok && r.page.entries[0]!.by).toBe("A team member");
+    expect(JSON.stringify(r)).not.toMatch(/@/);
   });
 
   it("marks the live version when a restore filled the draft, and archived journeys and revoked products read only", async () => {

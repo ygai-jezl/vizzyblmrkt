@@ -46,7 +46,8 @@ export default function HistoryAndRestoreHelp() {
         <li>Someone who has left your team shows as Former team member.</li>
         <li>An owner of your organisation who isn&apos;t on this brand&apos;s team shows as An owner of your organisation.</li>
         <li>
-          An address is never shown: a change saved with one before history kept names shows as A team member.
+          Someone on the team with no name set shows as their sign in address. An address kept on a change saved before history
+          kept names is never shown: that change shows as A team member.
         </li>
         <li>
           A journey&apos;s live version is marked <strong>{HISTORY_COPY.live}</strong>. When a restore has filled its draft, the live

@@ -29,9 +29,10 @@ import { BEFORE_HISTORY_TEXT } from "./words";
  *
  * KINDS says when each kind shows (while its own screen is on) and whether it can be restored here;
  * a kind is read only unless it says otherwise, so a later kind joins with one entry. One cursor
- * token holds each source's place. Who did it is a name looked up now, never an address: someone
- * no longer on the team is "Former team member", an owner of the organisation off the team (with
- * plans on) is "An owner of your organisation", and an address kept on an old record is "A team
+ * token holds each source's place. Who did it is a name looked up now (a team member with no name
+ * set reads as their sign in address, except for Vizzy, which never reads one): someone no longer
+ * on the team is "Former team member", an owner of the organisation off the team (with plans on) is
+ * "An owner of your organisation", and an address kept on an old record is never shown: "A team
  * member". A source that can't be read (an index still building) is left out and the page says so.
  */
 
@@ -112,7 +113,10 @@ export interface HistoryEntry {
   subject: string;
   rev: number;
   at: string;
-  /** Who, in words, never an address. */
+  /**
+   * Who, in words: a team member's name, or their sign in address when they have no name set
+   * (never with `addresses: false`, what Vizzy reads). An address kept on an old record is never shown.
+   */
   by: string;
   /** Why, in the saver's words, or what happened. */
   message: string | null;

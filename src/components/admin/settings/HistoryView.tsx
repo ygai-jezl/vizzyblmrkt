@@ -12,7 +12,8 @@ import { RestorePreview } from "./RestorePreview";
  * Settings › History (SETTINGS_HISTORY_ENABLED): every change to the brand's fields, journeys,
  * product catalogs and shared connections, newest first, filtered by kind. Anyone on the team
  * reads it and exports a version; admins preview a restore and make it. Who did it is a name
- * looked up on the server, never an address.
+ * looked up on the server (a team member's sign in address when they have no name set), never an
+ * address kept on an old record.
  */
 
 const pill = (on: boolean) =>

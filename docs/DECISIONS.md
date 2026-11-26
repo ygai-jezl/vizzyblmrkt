@@ -29,12 +29,13 @@ never go. Branch `feat/org-history`. Two new composite indexes, no rules change,
    versions on `(tenantId, publishedAt DESC)` and catalog versions on `(tenantId, savedAt DESC)`, the
    two new indexes. One cursor token holds each source's place. A source that can't be read (an
    index still building) is left out and the page says so, rather than failing.
-3. **Who did it, never an address.** Names are looked up when shown (`teamMemberNames`), now also for
+3. **Who did it, by name.** Names are looked up when shown (`teamMemberNames`), now also for
    someone whose verified claims put them on the brand (the brand they first signed in with gives
-   them no `tenant_users` row). With plans on, an owner of the organisation off the team reads "An
-   owner of your organisation"; an address kept on an old record (a journey's `publishedBy` from before
-   user ids) reads "A team member"; anyone else "Former team member". With `{ addresses: false }`
-   (what Vizzy reads) a name is never an address.
+   them no `tenant_users` row). Someone on the team with no name set reads as their sign in address,
+   as Data model's Changes box already shows them. With plans on, an owner of the organisation off
+   the team reads "An owner of your organisation"; an address kept on an old record (a journey's
+   `publishedBy` from before user ids) is never shown and reads "A team member"; anyone else "Former
+   team member". With `{ addresses: false }` (what Vizzy reads) a name is never an address.
 4. **Preview, then restore as a new version** (`src/lib/settings/restorePlan.ts`, `restore.ts`). The
    preview shows what comes back, what is archived, what changes back and what a restore never
    undoes (emails sent, payments, people already in a journey, erased values), worked out by the

@@ -115,7 +115,10 @@ describe("previewRestore: a catalog", () => {
       "From now on": ["Stages in this product are read with this catalog."],
       "Never undone": [NEVER_UNDONE],
     });
-    expect((await preview("catalog:pcn_life", 1)).savedBy).toBe("YouGrow");
+    // Version 1, from before history, didn't have the booking step: the step added since is removed.
+    const v1 = await preview("catalog:pcn_life", 1);
+    expect(v1.savedBy).toBe("YouGrow");
+    expect(rows(v1)["Changes back"]).toEqual(["Renamed step ‘First visit’ to ‘Run an audit’", "Removed step ‘Book a visit’"]);
   });
 
   it("has no restore with catalog history off, or for a revoked product", async () => {

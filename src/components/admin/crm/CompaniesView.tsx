@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Company } from "@/lib/types/company";
 import { CompanyDetail } from "./CompanyDetail";
 
@@ -17,12 +17,18 @@ export function CompaniesView({
   initialRows,
   initialCursor,
   fields = false,
+  reload = false,
+  canRemove = false,
 }: {
   isAdmin: boolean;
   initialRows: Company[];
   initialCursor: string | null;
   /** Company fields are on (AUDIENCE_FIELDS_ENABLED). */
   fields?: boolean;
+  /** Load the first page again on opening: a pasted list added companies since the page loaded. */
+  reload?: boolean;
+  /** An admin with Paste a list on (RAISE_PASTE_ENABLED): Remove company on a company with no people. */
+  canRemove?: boolean;
 }) {
   const [rows, setRows] = useState<Company[]>(initialRows);
   const [cursor, setCursor] = useState<string | null>(initialCursor);
@@ -43,6 +49,12 @@ export function CompaniesView({
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    if (reload) void load({ reset: true, q: "", cursor: null });
+    // Once, when the tab opens after an add.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -117,7 +129,14 @@ export function CompaniesView({
       ) : null}
 
       {selected ? (
-        <CompanyDetail companyId={selected} isAdmin={isAdmin} fields={fields} onClose={() => setSelected(null)} />
+        <CompanyDetail
+          companyId={selected}
+          isAdmin={isAdmin}
+          fields={fields}
+          canRemove={canRemove}
+          onRemoved={(id) => setRows((prev) => prev.filter((c) => c.id !== id))}
+          onClose={() => setSelected(null)}
+        />
       ) : null}
     </div>
   );

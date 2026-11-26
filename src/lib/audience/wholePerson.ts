@@ -64,14 +64,17 @@ export interface WholePerson {
    */
   fields: { values: FieldValues; readOnly: ReadOnlyValue[]; voiceChats: VoiceChatSummary[] } | null;
   /**
-   * Someone on the team added them by hand (New person): who, when and from where, and how they
-   * agreed to marketing email, if they did. Names are looked up now; anyone who has left shows as
-   * "Former team member". Shown whatever AUDIENCE_ADD_PERSON_ENABLED says. Null for everyone else.
+   * Someone on the team added them by hand (New person) or from a pasted list: who, when and from
+   * where, and how they agreed to marketing email, if they did. Names are looked up now; anyone who
+   * has left shows as "Former team member". Shown whatever AUDIENCE_ADD_PERSON_ENABLED says. Null
+   * for everyone else.
    */
   added: {
     by: string;
     at: string;
     via: AddedVia;
+    /** Where a pasted list came from, in the admin's own words (`via: "paste"`); null otherwise. */
+    source: string | null;
     consent: { how: string; howLabel: string; note: string | null; by: string; at: string } | null;
     /** The team withdrew the agreement it recorded: who, when and their note. Null unless withdrawn. */
     withdrawn: { note: string | null; by: string; at: string } | null;
@@ -152,6 +155,7 @@ export async function loadWholePerson(
       by: contact.addedBy.kind === "agent" ? "Vizzy, confirmed by your team" : memberLabel(contact.addedBy.id, names),
       at: contact.addedBy.at,
       via: contact.addedBy.via,
+      source: contact.addedBy.source ?? null,
       consent: consent ? { how: consent.how, howLabel: consentWayLabel(consent.how), note: consent.note, by: memberLabel(consent.recordedBy, names), at: consent.at } : null,
       withdrawn: withdrawn ? { note: withdrawn.note, by: memberLabel(withdrawn.recordedBy, names), at: withdrawn.at } : null,
     };

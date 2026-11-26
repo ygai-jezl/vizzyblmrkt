@@ -12,6 +12,8 @@ import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { forTenant } from "@/lib/tenant";
 import { isViewsEnabled } from "@/lib/views/flags";
 import { isViewId } from "@/lib/types/savedView";
+import { isAgentActionId } from "@/lib/types/agentAction";
+import { canPaste } from "@/lib/crm/paste/flags";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
 import { withInviteStages } from "@/lib/invites/audience";
 import { loadFunnel } from "@/lib/invites/funnel";
@@ -41,7 +43,7 @@ async function tab<T>(label: string, p: Promise<ListResult<T>>): Promise<ListRes
 export default async function CrmPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; launch?: string; tab?: string; group?: string; new?: string; draft?: string; view?: string }>;
+  searchParams: Promise<{ q?: string; launch?: string; tab?: string; group?: string; new?: string; draft?: string; view?: string; paste?: string }>;
 }) {
   const ctx = await requireAdminContext();
   const sp = await searchParams;
@@ -68,6 +70,10 @@ export default async function CrmPage({
   const canAddPerson = oneView && canAddPeople(ctx.role);
   // A New person form Vizzy filled in (?draft=, only its id): the form opens with what it holds.
   const newPersonDraft = canAddPerson && isVizzyAddPersonEnabled() && sp.draft ? sp.draft.slice(0, 64) : null;
+  // Paste a list, for admins (RAISE_PASTE_ENABLED): the button beside the tabs, and the sheet open on
+  // a waiting list when Review or Vizzy's card sends ?paste= (only its id).
+  const canPasteList = phase3 && canPaste(ctx.role);
+  const pasteBatchId = canPasteList && isAgentActionId(sp.paste) ? sp.paste : null;
   // With person records on, people who only use a product aren't sign-ups: the Signups tab leaves them out.
   const signupsOnly = isPersonLinksEnabled() ? { launchesOnly: true } : {};
   const [companies, contacts, engaged, funnel] = await Promise.all([
@@ -116,6 +122,8 @@ export default async function CrmPage({
         newPerson={canAddPerson && sp.new === "person"}
         newPersonDraft={newPersonDraft}
         views={views}
+        canPaste={canPasteList}
+        pasteBatchId={pasteBatchId}
       />
     </div>
   );

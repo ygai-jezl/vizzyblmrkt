@@ -8,6 +8,7 @@ import { addPerson, withdrawHandConsent } from "./addPerson";
 import { decideFieldSuggestion, suggestFieldChanges } from "./fieldSuggestions";
 import { parseNewPerson } from "./newPerson";
 import { personIdOf, syncPerson, syncProductLink } from "./personSync";
+import { deterministicAgentActionId } from "@/lib/crm/identifiers";
 import { expireAgentActions } from "@/lib/tenant";
 import { compareTimelineEntries, FIELD_MOVED_DETAIL, loadPersonTimeline, TIMELINE_KIND_ORDER, type TimelineEntry } from "./personTimelineView";
 
@@ -159,6 +160,17 @@ describe("loadPersonTimeline", () => {
       ["Agreed to marketing emails", "Told me in person. Recorded by Alex Morgan"],
     ]);
     expect(await loadPersonTimeline({ ...ctx, tenantId: "ten_other" }, personIdOf(TENANT_ID, "sam@labs.test"), { db })).toBeNull();
+  });
+
+  it("shows being added from a pasted list, by whom and where it is from, with no agreement", async () => {
+    const { db } = await world();
+    const nia = parseNewPerson({ email: "nia@fernhill-plants.test", firstName: "Nia" });
+    if (!nia.ok) throw new Error(nia.error);
+    const card = deterministicAgentActionId(TENANT_ID, "paste.add_rows|abc123");
+    await addPerson(ctx, { ...nia.value, via: "paste", agreed: null, draftId: null, source: "A local lenders list", agentActionId: card }, { db, nowIso: iso(T0 + 6 * DAY) });
+    const page = (await loadPersonTimeline(ctx, personIdOf(TENANT_ID, "nia@fernhill-plants.test"), { db, lookup }))!;
+    expect(page.entries.map((e) => [e.text, e.detail])).toEqual([["Added from a pasted list", "By Alex Morgan. Where it's from: A local lenders list"]]);
+    expect(page.entries[0]).toMatchObject({ kind: "created", at: iso(T0 + 6 * DAY) });
   });
 
   it("shows a withdrawal, with who recorded it and their note", async () => {

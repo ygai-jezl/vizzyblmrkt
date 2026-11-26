@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { ClipboardPaste } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { Contact } from "@/lib/types/contact";
 import type { Company } from "@/lib/types/company";
 import type { EngagedContact } from "@/lib/types/engagedContact";
@@ -11,6 +12,9 @@ import { EngagedView } from "./EngagedView";
 import { ProductUsersView } from "./ProductUsersView";
 import { PeopleList } from "../people/PeopleList";
 import { AudienceList } from "../audience/AudienceList";
+import { PASTE_WORDS } from "@/lib/crm/paste/words";
+import { PasteListSheet } from "./PasteListSheet";
+import { withoutPaste } from "./pasteApi";
 
 const TABS = ["contacts", "product", "people", "companies", "engaged"] as const;
 type Tab = (typeof TABS)[number];
@@ -41,6 +45,8 @@ export function CrmClient({
   newPerson = false,
   newPersonDraft = null,
   views = null,
+  canPaste = false,
+  pasteBatchId = null,
 }: {
   isAdmin: boolean;
   initialContacts: Contact[];
@@ -74,6 +80,13 @@ export function CrmClient({
   newPersonDraft?: string | null;
   /** Views on People (CRM_VIEWS_ENABLED), and a saved view the page arrived with (?view=). */
   views?: { initialViewId: string | null } | null;
+  /**
+   * An admin with Paste a list on (RAISE_PASTE_ENABLED): Paste a list beside the tabs, and Remove
+   * company on a company with no people.
+   */
+  canPaste?: boolean;
+  /** The page arrived from Review or Vizzy's card on a waiting list (?paste=), by its id. */
+  pasteBatchId?: string | null;
 }) {
   /** AUDIENCE_ONE_VIEW_ENABLED: one People tab in place of Signups and Product users. */
   const oneView = Boolean(audience?.oneView);
@@ -96,9 +109,25 @@ export function CrmClient({
     // `null`, not the router's own state object: that is how the router learns the new address.
     window.history.replaceState(null, "", url);
   };
+  const router = useRouter();
+  /** Paste a list is open, on a waiting list (from ?paste=) or on an empty box. */
+  const [pasting, setPasting] = useState<{ batchId: string | null } | null>(canPaste && pasteBatchId ? { batchId: pasteBatchId } : null);
+  /** Bumped once a pasted list is added, so People and Companies load again. */
+  const [added, setAdded] = useState(0);
+  // Review's link or Vizzy's card while the page is already open.
+  useEffect(() => {
+    if (canPaste && pasteBatchId) setPasting({ batchId: pasteBatchId });
+  }, [canPaste, pasteBatchId]);
+  const closePaste = () => {
+    // Drop ?paste=, keeping the tab, so the link can open the list again.
+    if (pasting?.batchId && new URLSearchParams(window.location.search).has("paste")) {
+      router.replace(withoutPaste(window.location.pathname, window.location.search));
+    }
+    setPasting(null);
+  };
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-2 text-sm">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
         {oneView ? (
           <button className={pill(tab === "people")} onClick={() => setTab("people")}>
             People
@@ -119,10 +148,28 @@ export function CrmClient({
         <button className={pill(tab === "engaged")} onClick={() => setTab("engaged")}>
           Engaged
         </button>
+        {canPaste ? (
+          <button
+            type="button"
+            onClick={() => setPasting({ batchId: null })}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-neutral-300 px-3 py-1 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
+          >
+            <ClipboardPaste size={14} aria-hidden /> {PASTE_WORDS.button}
+          </button>
+        ) : null}
       </div>
+      {pasting ? (
+        <PasteListSheet
+          key={pasting.batchId ?? "box"}
+          open
+          batchId={pasting.batchId}
+          onClose={closePaste}
+          onAdded={() => setAdded((n) => n + 1)}
+        />
+      ) : null}
       {tab === "people" ? (
         <AudienceList
-          key={initialGroup?.tag ?? "list"}
+          key={`${initialGroup?.tag ?? "list"}:${added}`}
           initialQuery={initialQuery}
           initialLaunch={initialLaunch}
           fieldFilters={fieldFilters}
@@ -144,7 +191,15 @@ export function CrmClient({
       ) : tab === "product" ? (
         personView ? <PeopleList /> : <ProductUsersView />
       ) : tab === "companies" ? (
-        <CompaniesView isAdmin={isAdmin} initialRows={initialCompanies} initialCursor={companiesCursor} fields={fields} />
+        <CompaniesView
+          key={`companies:${added}`}
+          isAdmin={isAdmin}
+          initialRows={initialCompanies}
+          initialCursor={companiesCursor}
+          reload={added > 0}
+          fields={fields}
+          canRemove={canPaste}
+        />
       ) : (
         <EngagedView isAdmin={isAdmin} initialRows={initialEngaged} initialCursor={engagedCursor} />
       )}

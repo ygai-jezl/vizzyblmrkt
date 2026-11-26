@@ -805,6 +805,15 @@ export const MEANINGS = {
     unit: "count",
     source: "the brand's plan or grant, and its refresh records this month",
   },
+  viewPeople: {
+    name: "People in a view",
+    definition: "People in the brand's People list who match a saved view's filters now.",
+    grain: "one person",
+    unit: "count",
+    source: "the brand's People list, checked when asked (get_view_counts)",
+    caveat:
+      "A view with no group of 5,000 people or fewer to start from checks the brand's 5,000 most recently active people: when `capped` is true there are at least this many.",
+  },
   // What people did with what YouGrow made, for the learning loops (ADR-0017). No tool returns
   // these yet: the loops count them once they stamp what YouGrow makes.
   editShare: {

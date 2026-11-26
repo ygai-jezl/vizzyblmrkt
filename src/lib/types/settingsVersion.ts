@@ -19,8 +19,10 @@ import { EventActorSchema } from "./agentAction";
 /**
  * What a setting is about. Piece B's field lists are the first; later pieces add their own.
  * `connections:shared` (Connectors 3) is the parts a brand's organisation gives it, one item each.
+ * `views:person` (piece C) is the team's saved views on People, one item each; Only me views are
+ * kept outside the log.
  */
-export const SETTINGS_SUBJECTS = ["fields:person", "fields:company", "connections:shared"] as const;
+export const SETTINGS_SUBJECTS = ["fields:person", "fields:company", "connections:shared", "views:person"] as const;
 export type SettingsSubject = (typeof SETTINGS_SUBJECTS)[number];
 
 export function isSettingsSubject(v: unknown): v is SettingsSubject {

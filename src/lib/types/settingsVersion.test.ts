@@ -60,6 +60,7 @@ describe("a settings version", () => {
     expect(isSettingsSubject("fields:person")).toBe(true);
     expect(isSettingsSubject("fields:company")).toBe(true);
     expect(isSettingsSubject("connections:shared")).toBe(true);
+    expect(isSettingsSubject("views:person")).toBe(true);
     expect(isSettingsSubject("fields:idea")).toBe(false);
   });
 });

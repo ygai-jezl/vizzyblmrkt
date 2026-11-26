@@ -209,6 +209,9 @@ export type { ClaimResult, CommitResult, NextActionWrite, OutcomeInput, OutcomeE
 // The settings log: a setting and its version in one transaction (read the versions through forTenant).
 export { commitSettingsChange, readSetting, settingsDocId, settingsVersionId } from "./settingsLog";
 export type { SettingsChange, SettingsCommit, StoredSetting } from "./settingsLog";
+// Only me views on People (piece C): the signed in member's own, saved with a rev check.
+export { readMemberViews, commitMemberViews, memberViewsDocId } from "./memberViews";
+export type { StoredMemberViews, MemberViewsCommit } from "./memberViews";
 // Field values: the one writer, with their events, tags and an agent action's decision in one transaction.
 export { setRecordFieldValues, repairFieldTags, moveRecordFieldValues, RECORD_BYTE_BUDGET } from "./recordFieldWrites";
 export type { SetFieldValuesInput, SetFieldValuesResult, SetFieldValuesError } from "./recordFieldWrites";

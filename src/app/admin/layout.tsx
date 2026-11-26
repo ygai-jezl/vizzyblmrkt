@@ -47,6 +47,7 @@ import { WordsProvider } from "@/components/admin/nav/WordsProvider";
 import { isOnboardingEnabled, isOnboardingVoiceEnabled } from "@/lib/onboarding/flags";
 import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
 import { isNextActionCardEnabled } from "@/lib/nextAction/flags";
+import { isAgentRecordEnabled } from "@/lib/agentRecord/flags";
 import { sidebarRevealFor } from "@/lib/onboarding/sidebarFit";
 
 export const dynamic = "force-dynamic";
@@ -238,6 +239,7 @@ export default async function AdminLayout({
             onboardingVoice={isOnboardingVoiceEnabled()}
             settingsHistory={isSettingsHistoryEnabled()}
             nextActionCard={isNextActionCardEnabled()}
+            agentRecord={isAgentRecordEnabled()}
           >
             {shell}
           </ShellProvider>

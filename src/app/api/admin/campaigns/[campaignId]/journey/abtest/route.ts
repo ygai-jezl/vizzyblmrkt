@@ -3,6 +3,8 @@ import { z } from "zod";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { promoteVariant } from "@/lib/journey/abTest";
+import { promoteLaunchWinner } from "@/lib/lifecycle/waitlist/abTest";
+import { isWaitlistAbWinnerEnabled } from "@/lib/lifecycle/waitlist/flags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,15 +39,13 @@ export async function POST(req: Request, { params }: RouteParams) {
     return NextResponse.json({ error: "invalid_input" }, { status: 400 });
   }
 
-  const res = await promoteVariant(
-    ctx,
-    campaignId,
-    parsed.data.nodeId,
-    parsed.data.winnerVariantId,
-    { requireMinSample: MIN_SAMPLE },
-  );
+  // With WAITLIST_AB_WINNER_ENABLED the pick reaches every journey of the launch, on either
+  // engine; off, it changes the original journey only, as before.
+  const res = isWaitlistAbWinnerEnabled()
+    ? await promoteLaunchWinner(ctx, campaignId, parsed.data.nodeId, parsed.data.winnerVariantId, { requireMinSample: MIN_SAMPLE })
+    : await promoteVariant(ctx, campaignId, parsed.data.nodeId, parsed.data.winnerVariantId, { requireMinSample: MIN_SAMPLE });
   if (!res.ok) {
-    const status = res.error === "insufficient_data" ? 409 : 404;
+    const status = res.error === "insufficient_data" || res.error === "already_promoted" ? 409 : 404;
     return NextResponse.json({ error: res.error }, { status });
   }
   return NextResponse.json({ ok: true });

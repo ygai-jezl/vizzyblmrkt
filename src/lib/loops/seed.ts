@@ -16,7 +16,7 @@ import { checkLookText } from "./write";
  * brand's own region, with `createdBy: "seed"` and `setBy: "seeded"`, in one regional transaction
  * that also writes `seededAt`. Until then images use the old field, stamped legacy.
  *
- * The lane seeds a brand on its first visit (4.6); Reset seeds first when the brand isn't seeded
+ * The lane seeds a brand on its first visit (src/lib/loops/tick.ts); Reset seeds first when the brand isn't seeded
  * yet, so clearing the old copy never loses a look (decision 17). The old copy stays where it is,
  * for switching versions off, until Forget, Reset or the dated cleanup clears it.
  *

@@ -13,6 +13,7 @@ import { isAutopilotEnabled } from "@/lib/autopilot/flags";
 import { isBlogFreshnessEnabled, isBlogLiveWatchEnabled, isBlogRefreshEnabled } from "@/lib/brandMap/flags";
 import { isConnectorsEnabled } from "@/lib/connectors/flags";
 import { logTickMemory, timedTickJob } from "@/lib/lifecycle/tickLog";
+import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,6 +42,10 @@ export const dynamic = "force-dynamic";
  *
  * The clean-up of unconfirmed password accounts (PASSWORD_SIGNIN_ENABLED) rides it beside them, at
  * most once an hour across instances (src/lib/auth/cleanup.ts).
+ *
+ * The learning loops lane (src/lib/loops/tick.ts) rides it too while image style versions are on
+ * (IMAGE_STYLE_VERSIONS_ENABLED and the switches it needs), every 5th tick at offset 1, within its
+ * own 20 second budget.
  */
 const SCHEDULER_LIMIT_MS = 105_000;
 const COMPETITORS_BUDGET_MS = 25_000;
@@ -62,6 +67,8 @@ const FRESHNESS_BUDGET_MS = 20_000;
 const REFRESH_BUDGET_MS = 90_000;
 /** Unconfirmed password accounts (PASSWORD_SIGNIN_ENABLED): once an hour, a short run. */
 const AUTH_CLEANUP_BUDGET_MS = 10_000;
+/** The learning loops lane (IMAGE_STYLE_VERSIONS_ENABLED): a page of brands, about every 10 minutes. */
+const LOOPS_BUDGET_MS = 20_000;
 
 export async function POST(req: Request) {
   const started = Date.now();
@@ -78,8 +85,10 @@ export async function POST(req: Request) {
   const freshness = isBlogFreshnessEnabled();
   const refresh = isBlogRefreshEnabled();
   const authCleanup = isPasswordSigninEnabled();
+  // Step 5 adds LOOPS_ENABLED here.
+  const loops = isImageStyleVersionsOn();
   const journeys = product || waitlist || people;
-  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors || freshness || refresh || authCleanup))) {
+  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors || freshness || refresh || authCleanup || loops))) {
     return machine
       ? NextResponse.json({ ok: true, skipped: "lifecycle_disabled" })
       : NextResponse.json({ error: "not_found" }, { status: 404 });
@@ -176,6 +185,21 @@ export async function POST(req: Request) {
             return null;
           })
         : Promise.resolve(null);
+      const loopsRun = loops
+        ? timedTickJob(
+            "loops",
+            async () => {
+              const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + LOOPS_BUDGET_MS);
+              const { runLoopsLane } = await import("@/lib/loops/tick");
+              return runLoopsLane({ deadlineMs });
+            },
+            Date.now,
+            (r) => (r.skipped === "tick" ? "" : `brands=${r.brands} rows=${r.rows} heapDeltaMiB=${r.heapDeltaMiB}${r.skipped ? ` skipped=${r.skipped}` : ""}`),
+          ).catch((err: unknown) => {
+            console.warn(`[loops] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+            return null;
+          })
+        : Promise.resolve(null);
       if (competitors) {
         // The checks and the article reads run side by side, each within its own budget.
         const [checks, reads] = await Promise.all([
@@ -209,6 +233,7 @@ export async function POST(req: Request) {
       const freshnessResult = await freshnessRun;
       const refreshResult = await refreshRun;
       const authCleanupResult = await authCleanupRun;
+      const loopsResult = await loopsRun;
       return NextResponse.json({
         ok: true,
         mode: "all_tenants",
@@ -223,6 +248,7 @@ export async function POST(req: Request) {
         ...(freshnessResult?.brands ? { freshness: freshnessResult } : {}),
         ...(refreshResult?.brands ? { refresh: refreshResult } : {}),
         ...(authCleanupResult ? { authCleanup: authCleanupResult } : {}),
+        ...(loopsResult?.brands ? { loops: { brands: loopsResult.brands, idle: loopsResult.idle, learned: loopsResult.learned, verdicts: loopsResult.verdicts } } : {}),
       });
     } finally {
       logTickMemory();

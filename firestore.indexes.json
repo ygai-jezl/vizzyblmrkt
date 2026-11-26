@@ -658,6 +658,20 @@
       ]
     },
     {
+      "collectionGroup": "image_assets",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tenantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "brand_logos",
       "queryScope": "COLLECTION",
       "fields": [

@@ -18,7 +18,7 @@ import { BRAND_SCOPE, imageScopeOf } from "../read";
 import { voteReasonLabel } from "../reasons";
 import { IMAGE_STYLE_SCOPES, LOOP_RULES, type ImageStyleScope } from "../registry";
 import { LOOK_SIZES, nextLook, type Verdict } from "../verdict";
-import { checkLookText, proposeLearned } from "../write";
+import { checkLookText, lookHash, proposeLearned } from "../write";
 
 /**
  * The votes learner (learning loops step 4, 3.4 and 3.11 of the plan for steps 4 and 5): each
@@ -135,6 +135,8 @@ export interface VotesLearnerResult {
   outcomes: ScopeOutcome[];
   /** Whether image rows were read this visit. */
   readRows: boolean;
+  /** How many image rows were read this visit. */
+  rows?: number;
 }
 
 export interface VotesLearnerDeps {
@@ -148,7 +150,7 @@ export interface VotesLearnerDeps {
   counts?: CountsReader;
   /** The lane's own state, when the lane already read it. */
   laneState?: LaneState;
-  /** The scopes with an open Go back card (the lane reads them from Review, 4.6). */
+  /** The scopes with an open Go back card (the lane reads them from the cards, src/lib/loops/cards.ts). */
   goBackOpen?: (ctx: TenantContext) => Promise<ReadonlySet<string>>;
   loadTenant?: TenantLoad;
   log?: (entry: LearnLogEntry) => void;
@@ -215,7 +217,7 @@ export function isHolding(h: HoldState): boolean {
 }
 
 /**
- * A version's own check as the verdict run keeps it on `lv:` (4.6 stores it; the hold reads it).
+ * A version's own check as the verdict run keeps it on `lv:` (src/lib/loops/imageVerdict.ts stores it; the hold reads it).
  * - counted: its votes that count toward checking the next change, past the scope's warm up (the
  *   scope's first LOOP_RULES.warmUp votes never count, however many versions they fall in);
  * - settled: its check read better, same or worse; it reached the last look its before window
@@ -338,10 +340,10 @@ function usable(row: LearnerRow, fails: ReadonlyMap<string, number>): boolean {
   return (row.brandVoteVia === "vote" || row.brandVoteVia === "upload") && (fails.get(row.id) ?? row.styleProfileFails ?? 0) < LOOP_RULES.profileTries;
 }
 
-/** The images every version of a scope left out: an Undo's trigger likes and a Forget's evidence. */
-async function excludedFor(ctx: TenantContext, scope: string, db?: FirestoreLike): Promise<Set<string>> {
+/** The images every version of a scope left out (an Undo's trigger likes and a Forget's evidence), and the looks it forgot. */
+async function excludedFor(ctx: TenantContext, scope: string, db?: FirestoreLike): Promise<{ ids: Set<string>; forgot: Set<string> }> {
   const rows = await listPatternVersions(ctx, scope, VERSION_ROWS, db);
-  return new Set(rows.flatMap((r) => r.excludedEvidence ?? []));
+  return { ids: new Set(rows.flatMap((r) => r.excludedEvidence ?? [])), forgot: new Set(rows.flatMap((r) => (r.forgotHash ? [r.forgotHash] : []))) };
 }
 
 // ----- The prompt -----
@@ -580,7 +582,7 @@ async function visit(
       continue;
     }
     const excluded = await excludedFor(ctx, scope, db);
-    const ok = (r: LearnerRow) => teaches(scope, r) && usable(r, fails) && !excluded.has(r.id);
+    const ok = (r: LearnerRow) => teaches(scope, r) && usable(r, fails) && !excluded.ids.has(r.id);
     const have = liked.filter((r) => ok(r) && isNew(r)).length;
     if (have < need) {
       outcomes.push({ scope, outcome: "waiting", why: "likes", have, need });
@@ -670,6 +672,11 @@ async function visit(
       await refused(words.reason, words.code);
       continue;
     }
+    // A look a person forgot is never learned again, word for word.
+    if (excluded.forgot.has(lookHash(words.text))) {
+      await refused("trust", "forgotten");
+      continue;
+    }
 
     const ids = [...evidence.up, ...evidence.down].map((r) => r.id).slice(0, EVIDENCE_IDS_MAX);
     const result = await proposeLearned(ctx, scope, { op: lookInUse ? "replace" : "add", text: words.text }, ids, { basedOn: pointer?.v ?? 0, now, db });
@@ -694,5 +701,5 @@ async function visit(
   await mergeLaneState(ctx, patch, db).catch((err) => {
     console.warn("[loops] keeping the votes learner's mark failed", err instanceof Error ? err.message.slice(0, 200) : "error");
   });
-  return { outcomes, readRows: true };
+  return { outcomes, readRows: true, rows: liked.length + (disliked?.length ?? 0) };
 }

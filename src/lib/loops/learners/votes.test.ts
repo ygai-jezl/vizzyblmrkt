@@ -20,9 +20,10 @@ import type { StyleProfile } from "@/lib/types/styleProfile";
  * - every stage step 4 reaches is reachable (stamped, signalled, learning, checked), along with
  *   the What it learned card's states b to d.
  *
- * The verdict run and the fold come in a later commit group (4.6), so this file stands in for
- * them: it adds up every week's counters, and works out each version's check from the image rows
- * with the real verdict(), as the verdict run will.
+ * The fold and the verdict run (src/lib/loops/fold.ts and imageVerdict.ts) run in the lane about
+ * once a day, so this file stands in for them to replay months in a few lines: it adds up every
+ * week's counters, and works out each version's check from the image rows with the real
+ * verdict(), as the verdict run does.
  */
 
 const store = vi.hoisted(() => ({ db: null as unknown as FakeFirestore }));
@@ -81,7 +82,7 @@ async function rows<T>(collection: string): Promise<T[]> {
   return store.db.dump(collection).filter((d) => d.tenantId === hearth.tenantId) as T[];
 }
 
-/** Adds up every week's shards, as the fold will (4.6): the only loop documents with a time to live here. */
+/** Adds up every week's shards, as the fold does: the only loop documents with a time to live here. */
 async function everyWeek(): Promise<Record<string, unknown>> {
   const out: Record<string, unknown> = {};
   const add = (into: Record<string, unknown>, from: Record<string, unknown>) => {
@@ -95,7 +96,7 @@ async function everyWeek(): Promise<Record<string, unknown>> {
 }
 
 /**
- * A version's check as the verdict run will keep it (4.6): its outputs are the style's images
+ * A version's check as the verdict run keeps it (imageVerdict.ts): its outputs are the style's images
  * made at least 14 days ago, leaving out the holdback, person off and customised images; a check
  * entry is an image voted within 14 days of being made, a hit an up vote; the guard is every such
  * image, a hit a remake within 14 days. Before is the images made while the version before was in
@@ -137,7 +138,7 @@ async function checkOf(scope: string, v: number, adoptedAt: string): Promise<{ c
   };
 }
 
-/** The counts reader the lane will use once the fold and the verdict run exist (4.6), stood in for here. */
+/** The counts reader the lane uses after the fold and the verdict run, stood in for here. */
 const counts: VotesDeps["counts"] = async (_ctx, pointers) => {
   const all = (await everyWeek()) as { c?: Record<string, Record<string, Record<string, Record<string, Record<string, number>>>>> };
   const versions: LoopCounts["versions"] = {};
@@ -378,7 +379,7 @@ const ADOPTED = "2027-02-01T09:00:00.000Z";
 /** A look that has done its hold: 20 made, 10 counted, its check settled. */
 const released: Totals = { c: { post_image: { learned: { made: 20, voted: 12, liked: 8 } } }, check: { counted: 10, settled: true, at: ADOPTED } };
 
-async function brand(db: FakeFirestore, pointers: Partial<BrandPointers> = {}, looks: Array<{ scope: string; v: number; text: string | null; excluded?: string[] }> = []) {
+async function brand(db: FakeFirestore, pointers: Partial<BrandPointers> = {}, looks: Array<{ scope: string; v: number; text: string | null; excluded?: string[]; forgotHash?: string }> = []) {
   store.db = db;
   await runLoopsTransaction(
     hearth,
@@ -401,6 +402,7 @@ async function brand(db: FakeFirestore, pointers: Partial<BrandPointers> = {}, l
             setBy: "learned",
             items: l.text ? [{ id: `look${l.v}`, type: "rule", text: l.text, trust: "own_content", from: "votes" }] : [],
             ...(l.excluded ? { excludedEvidence: l.excluded } : {}),
+            ...(l.forgotHash ? { forgotHash: l.forgotHash } : {}),
           },
           db,
         );
@@ -601,6 +603,17 @@ describe("the votes learner", () => {
     const got = await runFor(w.db, { counts: countsWith({}, 5) });
     expect(got.readRows).toBe(false);
     expect(w.used()).not.toContain("image_assets");
+  });
+
+  it("never adopts a look a person forgot, word for word", async () => {
+    const db = new FakeFirestore();
+    const { lookHash } = await import("../write");
+    const FORGOTTEN = "Dark studio backdrop, single loaf, hard side light.";
+    await brand(db, {}, [{ scope: NATURAL, v: 1, text: null, forgotHash: lookHash(FORGOTTEN) }]);
+    for (let i = 0; i < 3; i++) await row(db);
+    const r = await runFor(db, { synthesize: async () => `  ${FORGOTTEN.toUpperCase()} ` });
+    expect(r.outcomes.find((o) => o.scope === NATURAL)).toMatchObject({ outcome: "refused", reason: "trust", code: "forgotten" });
+    expect(await getPatternVersion(hearth, NATURAL, 2, db)).toBeNull();
   });
 
   it("adopts nothing when the model is missing, fails or times out, and says so in the log and counts", async () => {

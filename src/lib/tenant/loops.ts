@@ -115,6 +115,38 @@ export async function addToLoopDay(ctx: TenantContext, id: string, deltas: Count
   await forTenant(ctx, db).loopDays.increment(ownId(ctx, id), { d: deltas }, opts.ttlAt ? { ttlAt: opts.ttlAt } : {});
 }
 
+/**
+ * Merge fields into a loop document's `d`, in one write with no read: the verdict run keeps a
+ * version's check and reads on its `lv:` this way (learning loops step 4, 3.8).
+ */
+export async function mergeLoopDay(ctx: TenantContext, id: string, d: Record<string, unknown>, db?: FirestoreLike): Promise<void> {
+  await regionalDb(ctx, db)
+    .collection(LOOP_DAYS)
+    .doc(ownId(ctx, id))
+    .set({ [TENANT_FIELD]: ctx.tenantId, d }, { merge: true });
+}
+
+/** Inside runLoopsTransaction: loop documents by id, each checked to be this brand's; a missing one is null. Reads only. */
+export async function readLoopDaysTx(txn: TransactionLike, ctx: TenantContext, ids: readonly string[], db?: FirestoreLike): Promise<Array<LoopDayDoc | null>> {
+  const col = regionalDb(ctx, db).collection(LOOP_DAYS);
+  const snaps = await Promise.all(ids.map((id) => txn.get(col.doc(ownId(ctx, id)))));
+  return snaps.map((snap) => {
+    if (!snap.exists) return null;
+    const data = snap.data() ?? {};
+    if (data[TENANT_FIELD] !== ctx.tenantId) throw new TenantIsolationError(`${LOOP_DAYS}/${snap.id} is not this brand's`);
+    return { id: snap.id, ...data } as LoopDayDoc;
+  });
+}
+
+/**
+ * Inside runLoopsTransaction, after its reads: replace a loop document's `d` (and its time to live,
+ * for a week's documents). The fold writes a folded week, a version's totals and the lane's state
+ * this way, all in one commit (learning loops step 4).
+ */
+export function setLoopDayTx(txn: TransactionLike, ctx: TenantContext, id: string, d: Record<string, unknown>, opts: { ttlAt?: Date } = {}, db?: FirestoreLike): void {
+  txn.set(regionalDb(ctx, db).collection(LOOP_DAYS).doc(ownId(ctx, id)), { [TENANT_FIELD]: ctx.tenantId, d, ...(opts.ttlAt ? { ttlAt: opts.ttlAt } : {}) });
+}
+
 /** The brand's pointers (`lb:`), or none yet. */
 export async function readBrandPointers(ctx: TenantContext, db?: FirestoreLike): Promise<BrandPointers> {
   const [doc] = await readLoopDays(ctx, [loopDayId.brand(ctx.tenantId)], db);

@@ -62,6 +62,94 @@ export async function listAllTenants(
 }
 
 /**
+ * One brand as the loops lane pages through them (learning loops step 4, src/lib/loops/tick.ts):
+ * only the fields it needs, read as a projection, so a page of brands stays small. The looks kept
+ * on the brand record from before versions come too, for the seed and for clearing a forgotten
+ * look's old copy, so a visit never reads the whole record.
+ */
+export interface TenantPageRow {
+  id: string;
+  region: Tenant["region"];
+  status: Tenant["status"] | null;
+  organisationId: string | null;
+  orgPlan: string | null;
+  grantedFeatures: string[];
+  /** The brand look from before versions, and when it was written. */
+  learnedImageStyle: string | null;
+  learnedImageStyleUpdatedAt: string | null;
+  /** Each style's look from before versions, by the style id it was kept under. */
+  styleLooks: Record<string, { directive: string | null; updatedAt: string | null }>;
+}
+
+/** The fields a page of brands reads. */
+export const TENANT_PAGE_FIELDS = [
+  "region",
+  "status",
+  "organisationId",
+  "orgPlan",
+  "grantedFeatures",
+  "brandKit.learnedImageStyle",
+  "brandKit.learnedImageStyleUpdatedAt",
+  "imageStyle.learned",
+] as const;
+
+const str = (v: unknown): string | null => (typeof v === "string" && v.length > 0 ? v : null);
+const obj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
+
+/** A projected tenant document as a page row; a row with no readable region is left out. */
+export function tenantPageRow(id: string, data: Record<string, unknown>): TenantPageRow | null {
+  const region = TenantSchema.shape.region.safeParse(data.region);
+  if (!region.success) return null;
+  const status = TenantSchema.shape.status.safeParse(data.status);
+  const styleLooks: TenantPageRow["styleLooks"] = {};
+  for (const [style, entry] of Object.entries(obj(obj(data.imageStyle).learned))) {
+    const e = obj(entry);
+    styleLooks[style] = { directive: str(e.directive), updatedAt: str(e.updatedAt) };
+  }
+  return {
+    id,
+    region: region.data,
+    status: status.success ? status.data : null,
+    organisationId: str(data.organisationId),
+    orgPlan: str(data.orgPlan),
+    grantedFeatures: Array.isArray(data.grantedFeatures) ? data.grantedFeatures.filter((g): g is string => typeof g === "string") : [],
+    learnedImageStyle: str(obj(data.brandKit).learnedImageStyle),
+    learnedImageStyleUpdatedAt: str(obj(data.brandKit).learnedImageStyleUpdatedAt),
+    styleLooks,
+  };
+}
+
+/**
+ * A page of brands in document id order, after `after` (null for the first page), projected to
+ * TENANT_PAGE_FIELDS: the loops lane's way through every brand, one page a run, instead of the
+ * whole registry each run. Cross brand on purpose, like the other reads here: it answers which
+ * brands exist, and each visit then works through forTenant with that brand's own context.
+ */
+export async function listTenantPage(after: string | null, limit: number, db: FirestoreLike = defaultDb()): Promise<TenantPageRow[]> {
+  let q = db.collection("tenants").orderBy("__name__", "asc");
+  if (after) q = q.startAfter(after);
+  q = q.limit(Math.max(1, Math.min(500, Math.floor(limit))));
+  if (q.select) q = q.select(...TENANT_PAGE_FIELDS);
+  const snap = await q.get();
+  return snap.docs.flatMap((d) => {
+    const row = tenantPageRow(d.id, d.data());
+    return row ? [row] : [];
+  });
+}
+
+/** One brand as a page row (the person actions' Forget reads its old looks this way), or null. */
+export async function getTenantPageRow(id: string, db: FirestoreLike = defaultDb()): Promise<TenantPageRow | null> {
+  const snap = await db.collection("tenants").doc(id).get();
+  return snap.exists ? tenantPageRow(snap.id, snap.data() ?? {}) : null;
+}
+
+/** How many brands the registry holds: one count() read, for the lane's page size. */
+export async function countTenants(db: FirestoreLike = defaultDb()): Promise<number> {
+  const snap = await db.collection("tenants").count().get();
+  return snap.data().count;
+}
+
+/**
  * Resolve the tenant(s) whose email sending uses a given MailChimp audience
  * (list) id. Used by the MailChimp audience webhook to map an unsubscribe/clean
  * event (which carries only the email + `list_id`) back to the owning tenant,

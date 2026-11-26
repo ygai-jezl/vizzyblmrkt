@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 import { forTenant } from "@/lib/tenant";
 import { readBrandPointersTx, runLoopsTransaction, writeBrandPointersTx } from "@/lib/tenant/loops";
@@ -66,6 +67,14 @@ export function checkLookText(text: unknown): LookText {
   const refused = textRefusalOf(t);
   if (refused) return { ok: false, reason: "trust", code: refused };
   return { ok: true, text: t };
+}
+
+/**
+ * A look's words as Forget remembers them (`forgotHash` on its version row): a hash of the words,
+ * spaces and case aside, so the learner never adopts the same look again and the words are gone.
+ */
+export function lookHash(text: string): string {
+  return createHash("sha256").update(text.replace(/\s+/g, " ").trim().toLowerCase()).digest("hex");
 }
 
 const isLearningScope = (scope: string): scope is ImageStyleScope => (IMAGE_STYLE_SCOPES as readonly string[]).includes(scope);

@@ -386,6 +386,10 @@ export const LOOP_RULES = {
   learnCallsPerDay: 2000,
   /** Each verdict read takes at most 500 image rows, enough for the last look at 120 outputs with room for the images it leaves out. */
   verdictRows: 500,
+  /** A run makes at most 2 verdict reads, one look's before and after windows, so it never holds more than 1000 image rows. */
+  laneVerdictReads: 2,
+  /** The lane logs that the fold is behind once the oldest week not yet folded is 42 days old, four weeks before its shards go. */
+  foldBehindDays: 42,
 
   // ----- Storage (loop_days, src/lib/tenant/loops.ts) -----
   /** A week's counters are split over 5 shards, so a busy brand's writes never queue on one document. */
@@ -406,4 +410,6 @@ export const LOOP_RULES = {
   // ----- Cards -----
   /** A kind whose cards were ignored more than half the time for 4 weeks drops to a notice, so learning stops asking people who don't answer. */
   noticeOnly: { ignoredShare: 0.5, weeks: 4 },
+  /** A brand that gives no reason on 8 of 10 or more thumbs down over 4 weeks gets the reason row closed, so asking why never becomes a chore. */
+  reasonFatigue: { skipped: 0.8, downVotes: 10, weeks: 4 },
 } as const;

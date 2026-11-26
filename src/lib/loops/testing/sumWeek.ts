@@ -3,7 +3,7 @@ import type { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { LOOP_RULES } from "../registry";
 
 /**
- * For tests: a brand's week of counters as one tree, its shards added up, as the fold will add
+ * For tests: a brand's week of counters as one tree, its shards added up, as the fold adds
  * them (learning loops step 4).
  */
 export function sumWeek(db: FakeFirestore, tenantId: string, isoWeek: string): Record<string, unknown> {

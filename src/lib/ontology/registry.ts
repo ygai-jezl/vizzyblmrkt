@@ -1386,6 +1386,31 @@ export const ONTOLOGY: readonly OntologyType[] = [
     numbers: { gap: "no tool returns the counts yet; get_image_style returns what each style learned once its screens come in" },
   },
   {
+    id: "loop_lane",
+    name: "Learning lane bookkeeping",
+    description:
+      "The learning loops lane's own bookkeeping for this copy of YouGrow: where its page through the brands has got to, how many brands there are, and how many learner calls it made today. Counts across brands come later, with one mark per organisation.",
+    place: "platform",
+    status: "built",
+    madeBy: [],
+    home: "control",
+    personal: "none",
+    stores: [
+      control(
+        "loop_lane",
+        "src/lib/tenant/loopLane.ts",
+        "one `lane` document under the one map `d`; its cursor is the last brand id the lane visited",
+        "the control plane is in the United States for every region; the lane holds a brand id the brand records there already hold, and counts",
+      ),
+    ],
+    links: [],
+    events: [],
+    erase: { none: "the copy's own bookkeeping: a cursor that moves on each run and counts with no one's data" },
+    export: { none: NOT_PERSONAL },
+    search: { none: "the lane's own bookkeeping" },
+    numbers: { none: "the lane's own bookkeeping: a cursor and counts with no meaning to count" },
+  },
+  {
     id: "live_watch",
     name: "Live watch",
     description: "Found live's working state: when to look at the brand's site next, which article addresses it checks, and which of the site's pages it already opened.",
@@ -2549,10 +2574,10 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "agent_action",
     name: "Agent action",
     description:
-      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business. Other drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.",
+      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business, and the learning lane's offers to go back to an earlier learned image look. Other drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.",
     place: "partner_agent",
     status: "built",
-    madeBy: ["canvas.person_fields", "canvas.new_person", "rising_search", "losing_page", "within_reach"],
+    madeBy: ["canvas.person_fields", "canvas.new_person", "rising_search", "losing_page", "within_reach", "loop_learn"],
     home: "brand",
     personal: "people",
     stores: [
@@ -2565,6 +2590,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { to: "data_signal", via: "the target, when it is a suggestion from collected numbers", many: false },
       { to: "brand_question", via: "the target, when it is a question proposed from Search Console", many: false },
       { to: "brand", via: "the target, when it is something Vizzy heard about the business in a chat", many: false },
+      { to: "post_learning", via: "the target, when it offers to go back from a learned image look", many: false },
       { to: "ontology_event", via: "agentActionId, its agent kinds of event", many: true },
     ],
     events: ["agent.proposed", "agent.approved", "agent.acted", "agent.undone", "agent.declined"],

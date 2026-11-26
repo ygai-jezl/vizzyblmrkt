@@ -88,3 +88,42 @@ export async function getPatternVersion(
   const p = LearnedPatternVersionSchema.safeParse({ ...snap.data(), id: snap.id });
   return p.success ? p.data : null;
 }
+
+function versionRef(ctx: TenantContext, channel: string, version: number, db?: FirestoreLike) {
+  return regionalDb(ctx, db).collection(LEARNED_PATTERN_VERSIONS).doc(patternVersionDocId(ctx.tenantId, channel, version));
+}
+
+/**
+ * Inside a regional transaction: one version row as it is now, or null (learning loops step 4).
+ * The person actions read the version they restore this way, so a Forget at the same moment can't
+ * slip its words back in. A row of another brand reads as missing.
+ */
+export async function readPatternVersionTx(
+  txn: TransactionLike,
+  ctx: TenantContext,
+  channel: string,
+  version: number,
+  db?: FirestoreLike,
+): Promise<LearnedPatternVersion | null> {
+  const snap = await txn.get(versionRef(ctx, channel, version, db));
+  if (!snap.exists) return null;
+  const data = snap.data() ?? {};
+  if (data.tenantId !== ctx.tenantId) return null;
+  const p = LearnedPatternVersionSchema.safeParse({ ...data, id: snap.id });
+  return p.success ? p.data : null;
+}
+
+/**
+ * Inside a regional transaction, after its reads: take the words out of an older version row's
+ * items, keeping each item's id, type and trust (learning loops step 4, Forget). The one change
+ * this append only collection allows: a person asked for the words to go, so they really go.
+ */
+export function removeWordsTx(
+  txn: TransactionLike,
+  ctx: TenantContext,
+  row: Pick<LearnedPatternVersion, "channel" | "version" | "items">,
+  db?: FirestoreLike,
+): void {
+  const items = (row.items ?? []).map((i) => ({ id: i.id, type: i.type, text: null, ref: null, trust: i.trust, from: i.from }));
+  txn.update(versionRef(ctx, row.channel, row.version, db), { items });
+}

@@ -67,7 +67,12 @@ export type UnstampedCount = UnstampedReason | "stamp_lost" | `token_${StampRefu
 export type LearnOutcome = "learned" | LearnReason;
 const LEARN_OUTCOMES: readonly string[] = ["learned", ...LEARN_REASONS];
 
-/** What happened to a learning card (Go back cards from step 4; the attention rule reads these). */
+/**
+ * What happened to a learning card (Go back cards from step 4; the attention rule reads these):
+ * proposed; acted (Go back); declined (Keep this look); expired, when it closed with no answer,
+ * left 14 days or made moot by a person's own Undo, Forget or Edit; and ignored, when it was left
+ * 14 days, the only one the attention rule counts against answers.
+ */
 export const CARD_SIGNALS = ["proposed", "expired", "acted", "declined", "ignored"] as const;
 export type CardSignal = (typeof CARD_SIGNALS)[number];
 
@@ -186,4 +191,13 @@ export async function countLearnOutcome(ctx: TenantContext, kind: LoopKind, outc
 export async function countCard(ctx: TenantContext, kind: LoopKind, signal: CardSignal, deps: CountDeps = {}): Promise<void> {
   if (!(CARD_SIGNALS as readonly string[]).includes(signal)) return;
   await addToWeek(ctx, kind, { k: { [kind]: { [signal]: 1 } } }, "a card", deps);
+}
+
+/**
+ * Add one to a learned version's own signal, such as undone or reversed: a person's action on the
+ * look itself rather than on one image, counted under the image learner's kind
+ * (`c.<scope>.loop_learn.v<v>.learned.<signal>`). Never throws.
+ */
+export async function countVersionSignal(ctx: TenantContext, scope: string, v: number, signal: "undone" | "reversed", deps: CountDeps = {}): Promise<void> {
+  await addToWeek(ctx, "loop_learn", { c: { [scope]: { loop_learn: { [`v${v}`]: { learned: { [signal]: 1 } } } } } }, signal, deps);
 }

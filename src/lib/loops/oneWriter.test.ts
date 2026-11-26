@@ -79,10 +79,11 @@ const TENANT_LEARN_HELPERS: Record<string, string> = {
   withPreservedLearnedStyle: "It carries the learned looks over when the brand kit is saved, so a save never wipes them, and writes nothing new itself.",
 };
 
-/** Where the version row and the brand's pointer are written together: the one writer, the seed, and later the person actions. */
+/** Where the version row and the brand's pointer are written together: the one writer, the seed and the person actions. */
 const TOGETHER_WRITERS: Record<string, readonly string[]> = {
-  appendPatternVersionTx: ["src/lib/loops/seed.ts", "src/lib/loops/write.ts", "src/lib/tenant/patternVersions.ts"],
-  writeBrandPointersTx: ["src/lib/loops/seed.ts", "src/lib/loops/write.ts", "src/lib/tenant/loops.ts"],
+  appendPatternVersionTx: ["src/lib/loops/actions.ts", "src/lib/loops/seed.ts", "src/lib/loops/write.ts", "src/lib/tenant/patternVersions.ts"],
+  writeBrandPointersTx: ["src/lib/loops/actions.ts", "src/lib/loops/seed.ts", "src/lib/loops/write.ts", "src/lib/tenant/loops.ts"],
+  removeWordsTx: ["src/lib/loops/actions.ts", "src/lib/tenant/patternVersions.ts"],
 };
 
 describe("the one writer", () => {
@@ -92,7 +93,7 @@ describe("the one writer", () => {
     for (const f of callers) expect(f, `${f} calls proposeLearned`).toMatch(/^src\/lib\/loops\/learners\//);
   });
 
-  it("is the only place, with the seed and the person actions to come, that writes a version row and its pointer together", () => {
+  it("is the only place, with the seed and the person actions, that writes a version row and its pointer together", () => {
     for (const [name, files] of Object.entries(TOGETHER_WRITERS)) expect(using(name), name).toEqual([...files].sort());
   });
 

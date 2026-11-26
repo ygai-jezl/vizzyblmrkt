@@ -64,8 +64,11 @@ export const TERMINAL_FOR_DETAILS = ["acted", "declined"] as const satisfies rea
 export const DECLINE_REASONS = ["dismissed", "expired", "stale", "superseded"] as const;
 export type DeclineReason = (typeof DECLINE_REASONS)[number];
 
-/** The agents that propose. "lifecycle" is for the AI lines follow-up. */
-export const AGENT_NAMES = ["vizzy", "autopilot", "connector_signals", "lifecycle"] as const;
+/**
+ * The agents that propose. "lifecycle" is for the AI lines follow-up; "learning" is the learning
+ * loops' lane, which offers to go back to an earlier learned look (learning loops step 4).
+ */
+export const AGENT_NAMES = ["vizzy", "autopilot", "connector_signals", "lifecycle", "learning"] as const;
 export type AgentName = (typeof AGENT_NAMES)[number];
 
 // --- Signals -----------------------------------------------------------------------------------

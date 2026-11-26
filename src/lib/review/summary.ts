@@ -47,6 +47,8 @@ import { productName } from "@/lib/connectors/messages";
 import { PartCache, partFactsOf, type PartFacts, type SourceDeps } from "@/lib/connectors/sources";
 import type { DataConnection } from "@/lib/types/dataConnection";
 import type { LoopKind } from "@/lib/loops/registry";
+import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
+import { learnedReviewItems } from "@/lib/loops/cards";
 
 /**
  * Review (nav v2 phase 2): every decision waiting on a person, in one place,
@@ -72,7 +74,8 @@ export type ReviewKind =
   | "data_signal"
   | "content_refresh"
   | "person_suggestion"
-  | "business_fact";
+  | "business_fact"
+  | "learned";
 
 export interface ReviewItem {
   id: string;
@@ -171,6 +174,11 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
     description: "Changes to people's fields, and people to add, that Vizzy suggested. Nothing changes until someone on your team confirms.",
     from: ["canvas.person_fields", "canvas.new_person"],
   },
+  learned: {
+    title: "What YouGrow learned",
+    description: "Looks YouGrow learned that did worse than the look before. Nothing goes back on its own, and a card goes after 14 days.",
+    from: ["loop_learn"],
+  },
   business_fact: {
     title: "About your business",
     description: "Things Vizzy heard about your business in a chat. Vizzy uses one only once an admin keeps it in Settings, About your business.",
@@ -179,7 +187,7 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
 };
 
 /** Order of sections on the page (AI lines are time-bound, so they come first). */
-export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "data_source", "next_article", "data_signal", "content_refresh", "agent_draft", "person_suggestion", "business_fact", "repo_results", "brand_map", "competitor_news", "content_hub"];
+export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "learned", "failed_post", "connection", "data_source", "next_article", "data_signal", "content_refresh", "agent_draft", "person_suggestion", "business_fact", "repo_results", "brand_map", "competitor_news", "content_hub"];
 
 // ---------------------------------------------------------------------------
 // Per-source rules (pure)
@@ -808,6 +816,8 @@ export async function loadReview(
   const dataSources = isConnectorsCollectEnabled() && ctx.role === "admin" ? await soft("data sources", dataSourceItems(ctx, { db }), [] as ReviewItem[]) : [];
   // What collected numbers suggest: admins only, while signals are on, from planning connections.
   const numberSuggestions = isConnectorSignalsEnabled() && ctx.role === "admin" ? await soft("number suggestions", signalReviewItems(ctx, { db }), [] as ReviewItem[]) : [];
+  // Go back cards for learned image looks (IMAGE_STYLE_VERSIONS_ENABLED): admins act, members see them.
+  const learned = isImageStyleVersionsOn() ? await soft("learned looks", learnedReviewItems(ctx, { db }), [] as ReviewItem[]) : [];
   const liveConnections = connections.filter((c) => c.kind === "custom" && c.status !== "revoked");
   const latestRuns = await Promise.all(
     liveConnections.map((c) => soft("repo analyses", listRepoAnalyses(ctx, c.id, db), [] as RepoAnalysis[])),
@@ -820,6 +830,7 @@ export async function loadReview(
     ...[...failedPosts]
       .sort((a, b) => (b.scheduledAt ?? "").localeCompare(a.scheduledAt ?? ""))
       .map((p) => failedPostItem(p, workspaceNames.get(p.workspaceId))),
+    ...learned,
     ...connections.map(connectionItem),
     ...dataSources,
     ...agentJourneys.map((j) => agentJourneyItem(j, j.audience?.kind === "waitlist" ? launchNames.get(j.audience.campaignId) : undefined)),

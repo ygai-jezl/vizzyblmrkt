@@ -70,6 +70,13 @@ export const BrandPointersSchema = z.object({
   fleetOptOut: z.object({ at: Iso }).optional(),
   /** When the looks on the brand record were copied into versions. */
   seededAt: Iso.optional(),
+  /**
+   * By scope, when a person last forgot its look (3.5): the lane clears the scope's old copy on the
+   * brand record if it was written before then, and tries again on each visit until it is gone.
+   */
+  forgot: z.record(z.string().max(40), z.object({ at: Iso })).optional(),
+  /** When a person resumed Go back suggestions, so the attention rule reads only weeks since (3.5). */
+  cardsResumedAt: Iso.optional(),
 });
 export type BrandPointers = z.infer<typeof BrandPointersSchema>;
 
@@ -88,8 +95,39 @@ export const VersionCheckSchema = z.object({
   /** Its own check has settled: it read better, same or worse, reached the last look it can get, or can't be checked. */
   settled: z.boolean(),
   at: Iso,
+  /** The version's made and voted counters when it was read, so the next read waits until they move. */
+  seen: z.number().optional(),
+  /** Some of its images were too new to read then, so it is read again once they are 14 days old. */
+  pending: z.boolean().optional(),
 });
 export type VersionCheck = z.infer<typeof VersionCheckSchema>;
+
+const TallySchema = z.object({ hits: z.number().int().min(0), n: z.number().int().min(0) });
+
+/**
+ * One read of a version's check at a look (the verdict run, 3.8), kept on `lv:` under `looks` by
+ * the look, so the card and History say it in words (src/lib/loops/verdictWords.ts). Counts only.
+ */
+export const LookReadSchema = z.object({
+  call: z.enum(["better", "same", "worse", "too_few"]),
+  decidedBy: z.enum(["check", "guard"]),
+  /** Votes a side the call was read at (the guard's images on a guard worse), or null below the first look. */
+  look: z.number().int().min(0).nullable(),
+  /** The liked counts at the check's look, before and since. */
+  check: z.object({ before: TallySchema, after: TallySchema }).nullable(),
+  /** The remade counts at the guard's look, before and since. */
+  guard: z.object({ before: TallySchema, after: TallySchema }).nullable(),
+  /** The check's votes before the change that count, its warm up left out. */
+  usableBefore: z.number().int().min(0),
+  /** Its votes since the change that count. */
+  after: z.number().int().min(0),
+  /** The check's next look, or null at the last one this change can reach. */
+  next: z.number().int().min(0).nullable(),
+  /** At a too few look: the likes since that would have read better, or null when none could. */
+  need: z.number().int().min(0).nullable(),
+  at: Iso,
+});
+export type LookRead = z.infer<typeof LookReadSchema>;
 
 /** A counter tree's leaves by kind, arm and signal: `c.<kind>.<arm>.<signal>`. */
 const KindArmSignals = z.record(z.string().max(40), z.record(z.string().max(20), z.record(z.string().max(60), z.number())));
@@ -103,6 +141,10 @@ export const VersionTotalsSchema = z.object({
   throughWeek: z.string().regex(ISO_WEEK_RE).optional(),
   c: KindArmSignals.default({}),
   check: VersionCheckSchema.optional(),
+  /** Its reads, by the look each was read at ("0" below the first look): the newest is what the card says. */
+  looks: z.record(z.string().max(8), LookReadSchema).optional(),
+  /** The Go back card the verdict run proposed for it, by the look that read worse. */
+  card: z.object({ id: z.string().max(64), look: z.number().int().min(0), at: Iso }).optional(),
 });
 export type VersionTotals = z.infer<typeof VersionTotalsSchema>;
 
@@ -135,6 +177,10 @@ export const LaneStateSchema = z.object({
   heartbeatWeek: z.string().regex(ISO_WEEK_RE).optional(),
   /** The usage meter's totals the lane last saw, by purpose. */
   meterSeen: z.record(z.string().max(60), z.number()).optional(),
+  /** A hash of the open week's counters at the lane's last full visit: unchanged, and the visit can be idle. */
+  seen: z.object({ week: z.string().regex(ISO_WEEK_RE), hash: z.string().max(16) }).optional(),
+  /** Until when nothing is due by time alone (a look's week, a read waiting on images to age), as the last full visit worked out. */
+  quietUntil: Iso.optional(),
 });
 export type LaneState = z.infer<typeof LaneStateSchema>;
 

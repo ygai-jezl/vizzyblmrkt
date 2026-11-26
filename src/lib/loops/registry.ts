@@ -387,6 +387,10 @@ export const LOOP_RULES = {
   /** A folded week is kept 2 years after it ends, so checks and results can reach back across seasons. */
   foldedKeepDays: 730,
 
+  // ----- Stamps (src/lib/loops/stamp.ts) -----
+  /** A stamp handed to the browser is good for 7 days, time to save a draft later that week, and a copied one soon stops counting. */
+  stampTokenDays: 7,
+
   // ----- Counts across brands (step 5) -----
   /** An organisation counts at most 20 outputs per cell per week, so one busy organisation can't outweigh the rest. */
   orgOutputsCap: 20,

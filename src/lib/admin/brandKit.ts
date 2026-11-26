@@ -4,6 +4,8 @@ import type { TenantContext } from "@/lib/tenant/types";
 import type { WhereClause } from "@/lib/tenant/repository";
 import type { Region } from "@/lib/types/tenant";
 import { ImageAssetSchema, type ImageAsset } from "@/lib/types/imageAsset";
+import type { Made } from "@/lib/types/loopStamp";
+import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 
 export const BRAND_KIT_PAGE_SIZE = 60;
 
@@ -133,21 +135,43 @@ export async function listBrandNegatives(
   });
 }
 
-export type RecordImageInput = Omit<ImageAsset, "id" | "tenantId" | "createdAt">;
+export type RecordImageInput = Omit<ImageAsset, "id" | "tenantId" | "createdAt" | "made"> & {
+  /**
+   * The id minted with newImageAssetId before learnedFor ran, so the holdback's hash and the row
+   * name the same image (learning loops step 4, decision 3). Minted here when left out.
+   */
+  id?: string;
+  /** Its stamp from learnedFor, settled where it was made, or why it has none (decision 19). */
+  made?: Made;
+};
+
+/** A new image's id, minted before learnedFor runs (learning loops step 4) and passed to recordImageAsset. */
+export function newImageAssetId(): string {
+  return randomUUID();
+}
+
+/** An image id is a document id: letters, digits, underscores and hyphens only. */
+const IMAGE_ASSET_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 
 /**
  * Persist a generated image into the registry. Called from the creative service with a
  * minimal { tenantId, region } scope (enough for forTenant). THROWS on failure — the
  * Customise flow wants the record to succeed. Generation-path callers wrap this in
  * `.catch(...)` so a Firestore blip never fails an already-stored image.
+ *
+ * Its stamp (`made`) is kept only while image style versions are on, so with them off the row is
+ * exactly as before (decision 22). The id it was given is refused if a row already has it.
  */
 export async function recordImageAsset(
   scope: { tenantId: string; region: Region },
   input: RecordImageInput,
 ): Promise<ImageAsset> {
-  const id = randomUUID();
+  const { id: given, made, ...rest } = input;
+  const id = given ?? newImageAssetId();
+  if (!IMAGE_ASSET_ID_RE.test(id)) throw new Error("recordImageAsset needs an image id of letters, digits, underscores and hyphens");
   const doc = ImageAssetSchema.parse({
-    ...input,
+    ...rest,
+    ...(made && isImageStyleVersionsOn() ? { made } : {}),
     id,
     tenantId: scope.tenantId,
     createdAt: new Date().toISOString(),

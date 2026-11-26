@@ -60,6 +60,26 @@ export async function listOpenAgentActions(
   return parsed(ctx, rows).filter((a) => a.expiresAt > now);
 }
 
+/**
+ * One action's newest suggestions in one state, newest first, through the same index as the open
+ * ones (action and state, createdAt desc), with none left out: for Vizzy's get_work, the Work
+ * suggestions people dismissed lately and why, so it doesn't word one back.
+ */
+export async function listRecentAgentActions(
+  ctx: TenantContext,
+  opts: { action: string; state: AgentActionState; limit?: number; db?: FirestoreLike },
+): Promise<AgentAction[]> {
+  const rows = await forTenant(ctx, opts.db).agentActions.find({
+    where: [
+      ["action", "==", opts.action],
+      ["state", "==", opts.state],
+    ],
+    orderBy: [["createdAt", "desc"]],
+    limit: clamp(opts.limit, OPEN_PAGE),
+  });
+  return parsed(ctx, rows);
+}
+
 export interface ActionPage {
   actions: AgentAction[];
   /** The page's last id: the next page's `after`. */

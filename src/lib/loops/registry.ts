@@ -284,7 +284,7 @@ export const LOOP_RULES = {
   holdbackPowerZ: 0.84,
   /** A scope's first 10 outputs never serve as a before window, so a cold start is never what a change is judged against. */
   warmUp: 10,
-  /** About 1 decision in 20 per scope leaves out shared defaults and items adopted without a card, so the fleet can check that learning helps. */
+  /** About 1 decision in 20 per scope leaves out defaults learned across brands and image styles adopted from votes, never a rule a person kept, so the fleet can check that learning helps. */
   holdbackOneIn: 20,
   /** At most 6 learned rule items reach a prompt, so the prompt never grows without limit. */
   ruleItems: 6,

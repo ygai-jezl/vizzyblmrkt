@@ -146,3 +146,22 @@ describe("a filter being built", () => {
     expect(isComplete({ on: TRADE.key, op: "is", value: false })).toBe(true);
   });
 });
+
+describe("a view from what the list was showing", () => {
+  it("turns the group and Only people we can email into filters", async () => {
+    const { filtersFromGroup } = await import("./conditions");
+    expect(filtersFromGroup("all", false)).toEqual([]);
+    expect(filtersFromGroup("all", true)).toEqual([{ on: "can_email", op: "is", value: true }]);
+    expect(filtersFromGroup("launch:camp_1", false)).toEqual([{ on: "launch", op: "any_of", value: ["camp_1"] }]);
+    expect(filtersFromGroup("via:site", false)).toEqual([{ on: "via", op: "any_of", value: ["site"] }]);
+    expect(filtersFromGroup("launches:many", false)).toEqual([{ on: "launches_many", op: "is", value: true }]);
+    expect(filtersFromGroup("stage:con_1:stuck", false)).toEqual([{ on: "stage", op: "any_of", value: ["con_1:stuck"] }]);
+    expect(filtersFromGroup("quiet:con_1", false)).toEqual([{ on: "quiet", op: "any_of", value: ["con_1"] }]);
+    expect(filtersFromGroup("group:con_1:ws.4:a", false)).toEqual([{ on: "group", op: "any_of", value: ["con_1:ws.4:a"] }]);
+    expect(filtersFromGroup(`field:${TYPE.key}:opt_whole001`, false)).toEqual([{ on: TYPE.key, op: "any_of", value: ["opt_whole001"] }]);
+    expect(filtersFromGroup(`field:${TRADE.key}:yes`, false)).toEqual([{ on: TRADE.key, op: "is", value: true }]);
+    // Each one starts a match all view from the same group, so it counts the same.
+    expect(startTags(filtersFromGroup("launch:camp_1", false)[0]!, null)).toEqual(["launch:camp_1"]);
+    expect(startTags(filtersFromGroup(`field:${TRADE.key}:yes`, false)[0]!, TRADE)).toEqual([`field:${TRADE.key}:yes`]);
+  });
+});

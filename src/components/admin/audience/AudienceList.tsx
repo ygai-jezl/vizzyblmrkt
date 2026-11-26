@@ -3,21 +3,29 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { UserPlus } from "lucide-react";
+import { Plus, UserPlus } from "lucide-react";
 import { personHref } from "@/lib/audience/paths";
 import type { PeopleFilters, PeopleRow } from "@/lib/audience/peopleList";
 import type { NewPersonVia } from "@/lib/audience/newPerson";
 import { parseFieldTag } from "@/lib/audience/fieldTags";
 import { MANY_LAUNCHES_TAG } from "@/lib/ideas/list";
 import { ideaWord } from "@/lib/nav/terms";
-import type { FieldValue } from "@/lib/types/recordField";
+import type { FieldValue, RecordField } from "@/lib/types/recordField";
+import { filtersFromGroup } from "@/lib/views/conditions";
+import { DEFAULT_COLUMNS, isBuiltInFilter, VIEW_LIMITS } from "@/lib/views/types";
+import { VIEW_MESSAGES, viewErrorText, type ViewNames } from "@/lib/views/words";
 import { api } from "../connect/api";
 import { inputClass } from "../connect/ui";
-import { Chip, type ChipTone } from "../people/Chip";
+import { CanEmailCell, StageCell, WhereFromCell } from "./PeopleCells";
 import { ago, day } from "../people/format";
 import { cellText, filterLabel, PeopleFilterBar, type ActiveGroup } from "./PeopleFilterBar";
 import { NewPersonDialog } from "./NewPersonDialog";
 import { useWords } from "../nav/WordsProvider";
+import { loadFieldLists, type Team } from "./fieldsApi";
+import { newDraft } from "../views/FilterBuilder";
+import { PeopleView, type OpenView } from "../views/PeopleView";
+import { ViewMenu } from "../views/ViewMenu";
+import { bringBackView, listViews, type ShownView, type ViewLists } from "../views/viewsApi";
 
 /**
  * Audience → People (AUDIENCE_ONE_VIEW_ENABLED): one row per person, whatever brought
@@ -25,20 +33,20 @@ import { useWords } from "../nav/WordsProvider";
  * one group at a time, built from the brand's own launches and products; picking a
  * product shows its stages. Every row opens the person. With AUDIENCE_ADD_PERSON_ENABLED an admin
  * can add someone by hand (New person), here or from ⌘K (`?new=person`). With the words on
- * (useWords().ideas) a launch is an idea.
+ * (useWords().ideas) a launch is an idea. With CRM_VIEWS_ENABLED (`views`) the Views menu opens saved
+ * views, and Add filter turns the list into a view starting from the group it shows (PeopleView);
+ * a saved view has its own link, `?view=viw_...`.
  */
 
-const STAGE_LABEL = { new: "New", onboarding: "Onboarding", stuck: "Stuck", activated: "Activated", member: "Member", quiet: "Quiet" } as const;
-const STAGE_TONE: Record<keyof typeof STAGE_LABEL, ChipTone> = {
-  new: "blue",
-  onboarding: "blue",
-  stuck: "amber",
-  activated: "green",
-  member: "neutral",
-  quiet: "amber",
-};
-const LAUNCH_STATUS: Record<string, string> = { verified_active: "Confirmed", unverified: "Not confirmed", offboarded: "Offboarded" };
-const BLOCKED: Record<string, string> = { unsubscribe: "Unsubscribed", spam: "Marked as spam", hard_bounce: "Address bounced" };
+/** Keep the open saved view in the address bar (?view=), so it has a link and Back returns to it. */
+function setViewParam(id: string | null) {
+  const url = new URL(window.location.href);
+  if (id) url.searchParams.set("view", id);
+  else url.searchParams.delete("view");
+  window.history.replaceState(null, "", url);
+}
+
+const STAGE_LABEL = { new: "New", onboarding: "Onboarding", stuck: "Stuck", activated: "Activated" } as const;
 
 /** The list's address for a group (or a search), and a page after the first. */
 function listUrl(f: { show: string; canEmail: boolean; search: string }, next: string | null): string {
@@ -68,6 +76,7 @@ export function AudienceList({
   fields = false,
   newPerson = false,
   newPersonDraft = null,
+  views = null,
 }: {
   /** A search the page arrived with (?q=, from ⌘K). */
   initialQuery?: string;
@@ -85,6 +94,8 @@ export function AudienceList({
   newPerson?: boolean;
   /** The page arrived from a form Vizzy filled in (?draft=, AUDIENCE_VIZZY_ADD_PERSON_ENABLED): open it filled in. */
   newPersonDraft?: string | null;
+  /** Views on People (CRM_VIEWS_ENABLED): whether they are on, the member's role, and a view the page arrived with (?view=). */
+  views?: { isAdmin: boolean; initialViewId: string | null } | null;
 }) {
   const router = useRouter();
   const { ideas } = useWords();
@@ -103,6 +114,13 @@ export function AudienceList({
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  /** With views: every People field (archived ones too), the team, the saved views, and the view open now. */
+  const [viewFields, setViewFields] = useState<RecordField[] | null>(null);
+  const [team, setTeam] = useState<Team>([]);
+  const [lists, setLists] = useState<ViewLists | null>(null);
+  const [openView, setOpenView] = useState<(OpenView & { nonce: number }) | null>(null);
+  const [viewNotice, setViewNotice] = useState<string | null>(null);
+  const opened = useRef(0);
   /** New person is open, and from where. */
   const [adding, setAdding] = useState<NewPersonVia | null>(canAddPerson && newPersonDraft ? "vizzy" : canAddPerson && newPerson ? "palette" : null);
 
@@ -121,6 +139,49 @@ export function AudienceList({
   useEffect(() => {
     void api<PeopleFilters>("/api/admin/audience/list/filters").then((r) => (r.ok ? setFilters(r.data) : setError(true)));
   }, []);
+
+  const reloadViews = () => listViews().then((r) => (r.ok ? setLists(r.data) : null));
+  useEffect(() => {
+    if (!views) return;
+    void loadFieldLists().then((r) => {
+      setViewFields(r.ok ? r.data.lists.person.items : []);
+      if (r.ok) setTeam(r.data.team);
+    });
+    void reloadViews();
+    // Once, when the list opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [views !== null]);
+
+  const openSaved = (v: ShownView) => {
+    setViewNotice(null);
+    setOpenView({ match: v.definition.match, filters: v.definition.filters, columns: v.definition.columns, sort: v.definition.sort, saved: v, from: "Everyone", q: "", nonce: ++opened.current });
+    setViewParam(v.id);
+  };
+  const closeView = () => {
+    setOpenView(null);
+    setViewParam(null);
+  };
+
+  // A saved view's link (?view=): open it once the saved views are in.
+  const linked = useRef(false);
+  useEffect(() => {
+    if (!views?.initialViewId || !lists || linked.current) return;
+    linked.current = true;
+    const v = [...lists.team, ...lists.mine, ...lists.archived].find((x) => x.id === views.initialViewId);
+    if (v) openSaved(v);
+    else {
+      setViewNotice(VIEW_MESSAGES.view_not_found);
+      setViewParam(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lists]);
+
+  const bringBack = async (v: ShownView) => {
+    const r = await bringBackView(v.id, v.version);
+    if (!r.ok) return setViewNotice(viewErrorText(r.data.error));
+    await reloadViews();
+    openSaved(r.data.view);
+  };
 
   // A pause after typing before searching, so each key doesn't start a query.
   useEffect(() => {
@@ -213,6 +274,58 @@ export function AudienceList({
     );
   }
 
+  const viewNames: ViewNames | null =
+    views && viewFields && filters
+      ? { fields: viewFields, launches: filters.launches, products: filters.products, team, group: initialGroup, ideas }
+      : null;
+  const multiProductList = (filters?.products.length ?? 0) > 1;
+
+  if (views && openView && viewNames) {
+    return (
+      <>
+        {newPersonDialog}
+        <PeopleView
+          key={openView.nonce}
+          open={openView}
+          names={viewNames}
+          manyLaunches={filters?.manyLaunches !== undefined}
+          everyone={filters?.everyone ?? null}
+          isAdmin={views.isAdmin}
+          lists={lists}
+          multiProduct={multiProductList}
+          newPersonButton={newPersonButton}
+          onOpen={(v) => (v ? openSaved(v) : closeView())}
+          onSaved={(v) => {
+            void reloadViews();
+            setViewParam(v ? v.id : null);
+          }}
+          onBringBack={(v) => void bringBack(v)}
+        />
+      </>
+    );
+  }
+
+  /** Add filter: the list becomes a view, starting from the group it shows and Only people we can email. */
+  const addFilter = () => {
+    if (!viewNames) return;
+    const tag = search ? "all" : show;
+    const start = filtersFromGroup(tag, canEmail && !search);
+    const fieldColumns = start.map((f) => f.on).filter((on) => !isBuiltInFilter(on));
+    const firstField = viewNames.fields.find((f) => !f.archivedAt && f.object === "person");
+    setViewNotice(null);
+    setOpenView({
+      match: "all",
+      filters: start,
+      columns: [...new Set([...DEFAULT_COLUMNS, ...fieldColumns])].slice(0, VIEW_LIMITS.columns),
+      sort: null,
+      saved: null,
+      from: (filters && !search ? filterLabel(show, filters, initialGroup, ideas) : null) ?? "Everyone",
+      q: search,
+      addOne: newDraft(firstField?.key ?? "last_active", viewNames.fields),
+      nonce: ++opened.current,
+    });
+  };
+
   const inProduct = product ? filters?.products.find((p) => p.id === product) : null;
   const multiProduct = (filters?.products.length ?? 0) > 1;
   // With field filters: the active field's column first, then the next, at most two.
@@ -224,6 +337,20 @@ export function AudienceList({
 
   return (
     <div className="space-y-3">
+      {views ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <ViewMenu lists={lists} everyone={filters?.everyone ?? null} current={null} isAdmin={views.isAdmin} onPick={(v) => (v ? openSaved(v) : undefined)} onBringBack={(v) => void bringBack(v)} />
+          <button
+            type="button"
+            disabled={!viewNames}
+            onClick={addFilter}
+            className="inline-flex items-center gap-1 rounded-md border border-neutral-300 px-2.5 py-1.5 text-sm hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
+          >
+            <Plus size={14} aria-hidden /> Add filter
+          </button>
+          {viewNotice ? <span className="text-sm text-red-700 dark:text-red-400">{viewNotice}</span> : null}
+        </div>
+      ) : null}
       {fieldFilters && filters ? (
         <PeopleFilterBar filters={filters} show={show} search={search} canEmail={canEmail} group={initialGroup} onPick={(tag) => pick(tag)} onCanEmail={setCanEmail} />
       ) : filters ? (
@@ -340,40 +467,10 @@ export function AudienceList({
                       {p.name && (p.email ?? p.phone) ? <span className="text-xs text-neutral-500">{p.email ?? p.phone}</span> : null}
                     </td>
                     <td className="px-3 py-2">
-                      <span className="flex max-w-[18rem] flex-wrap gap-1">
-                        {p.launches.map((l) => (
-                          <Chip key={l.id} tone="neutral" title={`${LAUNCH_STATUS[l.status] ?? l.status}${l.via === "site" ? ", from your site" : ""}`}>
-                            {l.name}
-                          </Chip>
-                        ))}
-                        {p.products.map((x, i) => (
-                          <Chip key={`${x.id}:${i}`} tone="blue">
-                            {x.name}
-                          </Chip>
-                        ))}
-                        {p.addedByHand ? <Chip tone="neutral">Added by hand</Chip> : null}
-                      </span>
+                      <WhereFromCell p={p} />
                     </td>
                     <td className="px-3 py-2">
-                      <span className="flex flex-wrap gap-1">
-                        {p.products.map((x, i) => (
-                          <span key={`${x.id}:${i}`} className="flex gap-1">
-                            {x.stage === "member" ? null : (
-                              <Chip tone={STAGE_TONE[x.stage]} title={multiProduct ? x.name : undefined}>
-                                {STAGE_LABEL[x.stage]}
-                              </Chip>
-                            )}
-                            {x.quiet ? <Chip tone="amber">Quiet</Chip> : null}
-                          </span>
-                        ))}
-                        {p.products.length === 0
-                          ? p.launches.slice(0, 1).map((l) => (
-                              <Chip key={l.id} tone={l.status === "verified_active" ? "green" : "neutral"}>
-                                {LAUNCH_STATUS[l.status] ?? l.status}
-                              </Chip>
-                            ))
-                          : null}
-                      </span>
+                      <StageCell p={p} multiProduct={multiProduct} />
                     </td>
                     {fieldColumns.map((f) => (
                       <td key={f.id} className="px-3 py-2">
@@ -381,31 +478,7 @@ export function AudienceList({
                       </td>
                     ))}
                     <td className="whitespace-nowrap px-3 py-2">
-                      {p.reach === "yes" ? (
-                        p.addedByHand && !p.launches.length && !p.products.length ? (
-                          <Chip tone="green" title="Your team recorded that they agreed. Nothing is sent to people added by hand yet.">
-                            Yes, recorded
-                          </Chip>
-                        ) : (
-                          <Chip tone="green">Yes</Chip>
-                        )
-                      ) : p.addedByHand && !p.blocked && !p.launches.length && !p.products.length ? (
-                        p.consentWithdrawn ? (
-                          <Chip tone="neutral" title="Your team recorded that they withdrew their agreement.">
-                            Withdrawn
-                          </Chip>
-                        ) : (
-                          <Chip tone="neutral">Not yet</Chip>
-                        )
-                      ) : p.reach === "limited" ? (
-                        <Chip tone="amber" title="Some emails only: service emails, the confirmation, or not every category">
-                          Some
-                        </Chip>
-                      ) : (
-                        <Chip tone="red" title={p.blocked ? BLOCKED[p.blocked] : undefined}>
-                          {p.blocked ? BLOCKED[p.blocked] : "No"}
-                        </Chip>
-                      )}
+                      <CanEmailCell p={p} />
                     </td>
                     <td className="whitespace-nowrap px-3 py-2 text-neutral-500">
                       {p.activeAt ? <span title={day(p.activeAt)}>{ago(p.activeAt)}</span> : null}

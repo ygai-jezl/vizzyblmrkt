@@ -10,6 +10,8 @@ import { groupLabel, parseGroupTag } from "@/lib/audience/peopleList";
 import { ideaWord, peopleArea, peopleSubtitle } from "@/lib/nav/terms";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { forTenant } from "@/lib/tenant";
+import { isViewsEnabled } from "@/lib/views/flags";
+import { isViewId } from "@/lib/types/savedView";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
 import { withInviteStages } from "@/lib/invites/audience";
 import { loadFunnel } from "@/lib/invites/funnel";
@@ -39,7 +41,7 @@ async function tab<T>(label: string, p: Promise<ListResult<T>>): Promise<ListRes
 export default async function CrmPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; launch?: string; tab?: string; group?: string; new?: string; draft?: string }>;
+  searchParams: Promise<{ q?: string; launch?: string; tab?: string; group?: string; new?: string; draft?: string; view?: string }>;
 }) {
   const ctx = await requireAdminContext();
   const sp = await searchParams;
@@ -60,6 +62,8 @@ export default async function CrmPage({
   const fieldFilters = oneView && isFieldFiltersEnabled();
   const groupTag = fieldFilters && !q && sp.group ? `group:${sp.group.slice(0, 300)}` : null;
   const group = groupTag && parseGroupTag(groupTag) ? { tag: groupTag, label: (await groupLabel(ctx, groupTag).catch(() => null)) ?? "this group" } : null;
+  // Views on People: the Views menu and Add filter, and a saved view's own link (?view=viw_...).
+  const views = oneView && isViewsEnabled() ? { initialViewId: isViewId(sp.view) ? sp.view : null } : null;
   // New person, for admins: the button on People, and the form open when ⌘K sends ?new=person.
   const canAddPerson = oneView && canAddPeople(ctx.role);
   // A New person form Vizzy filled in (?draft=, only its id): the form opens with what it holds.
@@ -111,6 +115,7 @@ export default async function CrmPage({
         canAddPerson={canAddPerson}
         newPerson={canAddPerson && sp.new === "person"}
         newPersonDraft={newPersonDraft}
+        views={views}
       />
     </div>
   );

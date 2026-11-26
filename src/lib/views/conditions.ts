@@ -244,3 +244,23 @@ export function isComplete(f: Partial<ViewFilter>): f is ViewFilter {
   if (isEmptyOp(f.op)) return f.value === undefined;
   return f.value !== undefined && f.value !== null && (!Array.isArray(f.value) || f.value.length > 0) && f.value !== "";
 }
+
+/**
+ * The filters for what the People list was showing when someone pressed Add filter: its group (a
+ * `memberOf` tag, as listPeople reads it) and Only people we can email. A view rebuilt from a group
+ * this way counts the same as the group.
+ */
+export function filtersFromGroup(tag: string, canEmail: boolean): ViewFilter[] {
+  const out: ViewFilter[] = [];
+  const [kind, ...rest] = tag.split(":");
+  const value = rest.join(":");
+  if (tag === MANY_LAUNCHES_TAG) out.push({ on: "launches_many", op: "is", value: true });
+  else if (kind === "launch" || kind === "via" || kind === "product" || kind === "stage" || kind === "quiet" || kind === "group") {
+    if (value && builtInValueOk(kind, value)) out.push({ on: kind, op: "any_of", value: [value] });
+  } else if (kind === "field") {
+    const [fieldId, option] = rest;
+    if (fieldId && FIELD_ID.test(fieldId) && option) out.push(option === CHECKED ? { on: fieldId, op: "is", value: true } : { on: fieldId, op: "any_of", value: [option] });
+  }
+  if (canEmail) out.push({ on: "can_email", op: "is", value: true });
+  return out;
+}

@@ -34,7 +34,6 @@ import {
   type MetricBlock,
   type PackLine,
   type RaiseDoc,
-  type RaiseDocSummary,
   type Slide,
 } from "./types";
 import { NOTE_WORDS } from "./words";
@@ -160,8 +159,7 @@ export async function deckView(ctx: TenantContext, doc: RaiseDoc, deps: ApiDeps 
 
 export async function listFromRequest(ctx: TenantContext, deps: ApiDeps = {}): Promise<Response> {
   const [docs, granted] = await Promise.all([listRaiseDocs(ctx, deps), canUseRaiseKit(ctx, deps).catch(() => false)]);
-  const out: RaiseDocSummary[] = docs;
-  return json({ docs: out, granted, canMake: ctx.role === "admin" && granted && docs.length < L.decks, limit: L.decks });
+  return json({ docs, granted, canMake: ctx.role === "admin" && granted && docs.length < L.decks, limit: L.decks });
 }
 
 const NewDeckBody = z.object({

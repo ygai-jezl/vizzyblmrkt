@@ -4,6 +4,8 @@ import { block, preSeedSlides, slide } from "./testing/fixtures";
 import type { Slide } from "./types";
 import { CHECK_WORDS } from "./words";
 
+/** Built from its code point, so no literal dash sits in the source. */
+const EM_DASH = String.fromCharCode(0x2014);
 const codes = (slides: Slide[], audience: "investor" | "lender" = "investor") => deckChecks({ audience, slides }).map((c) => c.code);
 const only = (code: CheckCode, slides: Slide[], audience: "investor" | "lender" = "investor") => deckChecks({ audience, slides }).filter((c) => c.code === code);
 
@@ -100,7 +102,7 @@ describe("deck checks", () => {
   });
 
   it("find dashes and stock phrases in slide text and notes", () => {
-    expect(only("house_style", deckWith(1, { headline: "Stock counts — a weekly chore for shops" }))).toHaveLength(1);
+    expect(only("house_style", deckWith(1, { headline: `Stock counts ${EM_DASH} a weekly chore for shops` }))).toHaveLength(1);
     expect(only("house_style", deckWith(1, { notes: "We help shops unlock their time." })).map((c) => c.message)).toEqual([CHECK_WORDS.house_style("unlock")]);
     expect(only("house_style", deckWith(1, { headline: "A follow-up for every pre-seed shop" }))).toEqual([]);
   });

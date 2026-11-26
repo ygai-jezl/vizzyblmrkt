@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const session = vi.hoisted(() => ({ getAdminContext: vi.fn() }));
 vi.mock("@/lib/auth/session", () => session);
 const limits = vi.hoisted(() => ({ isRateLimited: vi.fn(async () => false) }));
-vi.mock("@/lib/tenant", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/tenant")>()), isRateLimited: limits.isRateLimited }));
+vi.mock("@/lib/tenant", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/tenant")>()), isRateLimited: limits.isRateLimited, getTenantById: vi.fn(async () => null) }));
 
 const main = await import("./route");
 const propose = await import("./propose/route");
@@ -75,6 +75,22 @@ describe("/api/admin/brand-kit/map/strategy", () => {
       expect(r.status).toBe(400);
       expect(await r.json()).toEqual({ error: "invalid_input" });
     }
+  });
+
+  it("what they write 503s unless joined, 401s signed out, and any member reads it", async () => {
+    const get = () => competitors.GET(req("/competitors", "GET"));
+    const off = await get();
+    expect(off.status).toBe(503);
+    expect(await off.json()).toEqual({ error: "strategy_competitors_disabled" });
+    vi.stubEnv("STRATEGY_COMPETITORS_ENABLED", "true");
+    vi.stubEnv("COMPETITORS_ENABLED", "true");
+    session.getAdminContext.mockResolvedValueOnce(null);
+    expect((await get()).status).toBe(401);
+    session.getAdminContext.mockResolvedValueOnce({ ...admin, role: "member" });
+    const read = await get();
+    expect(read.status).toBe(200);
+    // Their articles aren't read in this environment: nothing to set against the strategy.
+    expect(await read.json()).toEqual({ competitors: { articles: false, days: 90, profiles: [], against: null } });
   });
 
   it("401s when signed out", async () => {

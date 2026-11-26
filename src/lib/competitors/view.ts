@@ -368,7 +368,7 @@ export function articleTotals(list: CompetitorArticle[], sections: CompetitorSec
 }
 
 /** One of each kind of article, and more than one ("1 case study", "2 case studies"). */
-const FORMAT_WORDS: Record<ArticleFormat, [string, string]> = {
+export const FORMAT_WORDS: Record<ArticleFormat, [string, string]> = {
   how_to: ["how to", "how tos"],
   list: ["list post", "list posts"],
   comparison: ["comparison", "comparisons"],

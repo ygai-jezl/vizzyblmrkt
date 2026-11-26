@@ -15,6 +15,7 @@ import {
   embedArticle,
   finishArticle,
   listArticles,
+  listRecentReadArticles,
   monthlyCapReached,
   nearestCompetitorArticles,
   questionsNobodyCovers,
@@ -90,6 +91,24 @@ describe("the article queue", () => {
     // The brand's own cap (src/lib/plans/limits.ts) is what counts.
     const own = { featureLimits: { competitor_articles: 1 } } as unknown as Tenant;
     expect(await monthlyCapReached(A, { ...d, loadTenant: async () => own })).toBe(true);
+  });
+
+  it("lists the reads of this month and the 3 before, read ones only, newest first, and only the brand's own", async () => {
+    const d = deps("2026-11-26T12:00:00.000Z");
+    const months = ["2026-11", "2026-10", "2026-09", "2026-08", "2026-07"];
+    await queueArticles(A, "cmp_rival0001", months.map((_, i) => post(i + 1)), d);
+    await queueArticles(B, "cmp_theirs001", [post(9, "cmp_theirs001")], d);
+    for (const [i, month] of months.entries()) {
+      const id = `cmp_rival0001_p${i + 1}`;
+      await claimArticle(A, id, "l", d);
+      await finishArticle(A, id, "l", { status: i === 1 ? "failed" : "read", readMonth: month }, d);
+    }
+    await claimArticle(B, "cmp_theirs001_p9", "l", d);
+    await finishArticle(B, "cmp_theirs001_p9", "l", { status: "read", readMonth: "2026-11" }, d);
+    // November, September and August: October failed, July is more than 3 months back.
+    expect((await listRecentReadArticles(A, d)).map((a) => a.id)).toEqual(["cmp_rival0001_p4", "cmp_rival0001_p3", "cmp_rival0001_p1"]);
+    // Across a new year: January reads back to October.
+    expect((await listRecentReadArticles(A, { ...d, now: () => new Date("2027-01-05T00:00:00.000Z") })).map((a) => a.id)).toEqual(["cmp_rival0001_p1"]);
   });
 
   it("removes a competitor's articles and their vectors, and a read in progress then saves nothing", async () => {

@@ -163,6 +163,25 @@ export async function readsThisMonth(ctx: TenantContext, deps: ArticleStoreDeps 
   return repoOf(ctx, deps).count([["readMonth", "==", monthOf(nowOf(deps))]]);
 }
 
+/** Months read back for the last 90 days: this month and the 3 before always hold them. */
+export const RECENT_MONTHS = 4;
+/** Reads looked at per month, at most. */
+const MONTH_MAX = 500;
+
+/**
+ * The articles read this month and the 3 before, newest first: one equality query per month on the
+ * month a read counts against, as readsThisMonth's, so no index is needed, and 500 a month at most.
+ * An article is read after it is published, so every one published in the last 90 days is here.
+ */
+export async function listRecentReadArticles(ctx: TenantContext, deps: ArticleStoreDeps = {}): Promise<CompetitorArticle[]> {
+  const now = nowOf(deps);
+  const months = Array.from({ length: RECENT_MONTHS }, (_, i) => monthOf(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1))));
+  const repo = repoOf(ctx, deps);
+  const rows = (await Promise.all(months.map((m) => repo.find({ where: [["readMonth", "==", m]], limit: MONTH_MAX })))).flat();
+  const seen = new Set<string>();
+  return rows.filter((a) => a.status === "read" && !seen.has(a.id) && Boolean(seen.add(a.id))).sort(newest);
+}
+
 export async function monthlyCapReached(ctx: TenantContext, deps: ArticleStoreDeps = {}): Promise<boolean> {
   const cap = await brandMonthlyLimit(ctx, "competitor_articles", deps.loadTenant);
   return (await readsThisMonth(ctx, deps)) >= cap;

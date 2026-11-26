@@ -77,6 +77,8 @@ describe("fields from elsewhere", () => {
           launchName: "Spring launch",
         },
         { signup: { id: "s2", aiConversation: { completed: false, transcript: [], capturedAt: AT, bonusApplied: false } }, launchName: "Autumn launch" },
+        // Saved by the old browser code when the call dropped: no words from the person.
+        { signup: { id: "s3", aiConversation: { completed: true, transcript: [], capturedAt: AT, bonusApplied: true } }, launchName: "Winter launch" },
       ],
       products: [],
       users: [],

@@ -31,7 +31,7 @@ import { whoNamer, whoOfSaver } from "./sources";
 export { ERASE_AFTER_DAYS, erasableFrom, erasedSinceArchive, fieldErasable } from "./eraseDates";
 
 /**
- * An owner erases the values of an archived field (Settings › History, ADR-0021,
+ * An owner erases the values of an archived field (Settings › History, ADR-0023,
  * SETTINGS_ERASE_ENABLED). The one destructive path here, so every step is checked and counted:
  *
  * - **Who:** an owner of the brand's organisation with a real admin row for the brand, both read

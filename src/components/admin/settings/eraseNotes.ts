@@ -5,7 +5,7 @@ import { ago } from "../people/format";
 import { dayText, ERASE_COPY } from "./historyWords";
 
 /**
- * What Data model and Settings › History say about an archived field's erase (ADR-0021). Pure, so
+ * What Data model and Settings › History say about an archived field's erase (ADR-0023). Pure, so
  * the screens and their tests read the same words. Everyone who sees an archived field is told
  * when its values are being erased or were erased (why Bring back is gone, and why it would come
  * back empty); only an owner who can erase is told when it was archived and from when its values

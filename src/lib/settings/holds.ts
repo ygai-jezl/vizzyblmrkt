@@ -3,7 +3,7 @@ import type { TenantContext } from "@/lib/tenant";
 import type { RecordFieldObject } from "@/lib/types/recordField";
 
 /**
- * Legal hold, as an erase asks it (ADR-0021): may this field's values be erased now? The core asks
+ * Legal hold, as an erase asks it (ADR-0023): may this field's values be erased now? The core asks
  * the Enterprise registry whether legal hold runs in this deployment. While its code is absent (no
  * src/ee code for it yet, so every deployment today) nothing is held. Once piece M supplies the code,
  * it passes a reader here and callers don't change; a deployment that runs legal hold with no reader

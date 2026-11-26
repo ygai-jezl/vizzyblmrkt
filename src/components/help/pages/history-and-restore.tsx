@@ -4,7 +4,7 @@ import { ERASE_COPY, ERASE_MESSAGES, HISTORY_COPY, RESTORE_MESSAGES } from "@/co
 import { BEFORE_HISTORY_TEXT, NEVER_UNDONE } from "@/lib/settings/words";
 
 /**
- * /help/history-and-restore (SETTINGS_HISTORY_ENABLED, ADR-0021): Settings › History, where the
+ * /help/history-and-restore (SETTINGS_HISTORY_ENABLED, ADR-0023): Settings › History, where the
  * team reads every change to the brand's fields, journeys, product catalogs and shared connections,
  * an admin previews and restores an older version, and anyone exports one. The words it quotes are
  * the app's own (src/components/admin/settings/historyWords.ts).

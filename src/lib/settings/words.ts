@@ -1,5 +1,5 @@
 /**
- * Settings › History's fixed words that the server says and the help page quotes (ADR-0021). Pure,
+ * Settings › History's fixed words that the server says and the help page quotes (ADR-0023). Pure,
  * with no imports, so the How to drawer can load the help page in the browser.
  */
 

@@ -188,7 +188,7 @@ export const RecordFieldSchema = z
     archivedBy: UserId.nullable().optional(),
     replacedBy: z.string().regex(FIELD_ID).nullable().optional(),
     vizzyReads: z.literal(true).optional(),
-    /** An erase of its values is running (Settings › History, ADR-0021): it stays archived until it ends. */
+    /** An erase of its values is running (Settings › History, ADR-0023): it stays archived until it ends. */
     erasingSince: Instant.nullable().optional(),
     /** When its values were last erased, and who erased them (a user id). A restore keeps both. */
     erasedAt: Instant.nullable().optional(),

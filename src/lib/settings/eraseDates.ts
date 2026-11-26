@@ -1,7 +1,7 @@
 import type { RecordField } from "@/lib/types/recordField";
 
 /**
- * When an archived field's values can be erased (ADR-0021): 30 days after it was last archived,
+ * When an archived field's values can be erased (ADR-0023): 30 days after it was last archived,
  * and not once an erase has run since. Pure, so Data model shows the same dates the server checks.
  */
 

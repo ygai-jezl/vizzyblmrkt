@@ -65,7 +65,7 @@ export type Personal = (typeof PERSONALS)[number];
  * - launch: deleting a launch;
  * - retention: a time to live or a rolling limit;
  * - brand: someone removing the record itself;
- * - field: an owner erasing an archived field's values (Settings › History, ADR-0021).
+ * - field: an owner erasing an archived field's values (Settings › History, ADR-0023).
  */
 export const PATH_TRIGGERS = ["person", "product_user", "member", "launch", "retention", "brand", "field"] as const;
 export type PathTrigger = (typeof PATH_TRIGGERS)[number];

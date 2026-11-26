@@ -89,7 +89,7 @@ export interface LaunchDeletionAudit {
 }
 
 /**
- * An owner's erase of an archived field's values (Settings › History, ADR-0021): "initiated" before
+ * An owner's erase of an archived field's values (Settings › History, ADR-0023): "initiated" before
  * the first page is erased, then "completed" or "failed". Who (a user id, never an address), where,
  * which field (its id, never its name) and counts only, never a value.
  */

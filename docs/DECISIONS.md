@@ -4,7 +4,7 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
-## ADR-0021 · Settings history: one list per brand, restore as a new version, and erasing archived values (2026-11-26)
+## ADR-0023 · Settings history: one list per brand, restore as a new version, and erasing archived values (2026-11-26)
 
 Context: piece O part 2 of the build plan (O2, approved 26 Nov 2026). Piece O part 1 (piece B) keeps
 every settings change as a version (`settings_versions`, ADR-0010), every published journey version

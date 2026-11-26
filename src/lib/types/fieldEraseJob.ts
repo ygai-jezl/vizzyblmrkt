@@ -1,7 +1,7 @@
 import type { RecordFieldObject } from "./recordField";
 
 /**
- * One field's erase job (Settings › History, ADR-0021), in the brand's regional `field_erase_jobs`:
+ * One field's erase job (Settings › History, ADR-0023), in the brand's regional `field_erase_jobs`:
  * one per brand, object and field, with a fixed id hashed from the three (fieldEraseJobId), so a
  * double click can't start two. A count is a job too: the erase can only start once a count of the
  * same field has finished since it was last archived. The lifecycle tick moves a running job on a

@@ -17,7 +17,7 @@ import { itemChangeText } from "./archive";
 import { BEFORE_HISTORY_TEXT } from "./words";
 
 /**
- * Settings › History's sources (piece O part 2, ADR-0021): three stores turned into one list of
+ * Settings › History's sources (piece O part 2, ADR-0023): three stores turned into one list of
  * HistoryEntry, newest first, for the brand in the context only.
  *
  * - The settings log (`settings_versions`): one query per subject on B's (tenantId, subject, rev

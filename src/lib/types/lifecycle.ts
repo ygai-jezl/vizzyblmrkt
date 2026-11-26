@@ -483,7 +483,7 @@ export const LifecycleJourneySchema = z.object({
     .nullable()
     .optional(),
   /**
-   * The published version a restore put in the draft (Settings › History, ADR-0021): which version,
+   * The published version a restore put in the draft (Settings › History, ADR-0023): which version,
    * who put it back by user id, and when. Later edits keep it, since the draft is still built on that
    * version; Publish copies the version onto the new one as `restoredFrom` and clears it.
    */

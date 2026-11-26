@@ -408,7 +408,7 @@ const ERASE_MESSAGE: Record<FieldEraseStep, (label: string) => string> = {
 };
 
 /**
- * An erase's marks on an archived field (Settings › History, ADR-0021), saved through the settings
+ * An erase's marks on an archived field (Settings › History, ADR-0023), saved through the settings
  * log as a version with the source `erase`: `start` marks it `erasingSince`; `done` stamps `erasedAt`
  * and `erasedBy` and clears the mark; `stop` clears the mark alone. The field keeps its options and
  * its archive date (assertNoRemoval refuses dropping options). Starting refuses a field that isn't

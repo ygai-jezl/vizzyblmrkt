@@ -2,7 +2,7 @@ import { isFieldsEnabled } from "@/lib/audience/peopleFlags";
 import { isPlansEnabled } from "@/lib/plans/flags";
 
 /**
- * Settings history (piece O part 2, ADR-0021). Server switches, read when a page or route runs,
+ * Settings history (piece O part 2, ADR-0023). Server switches, read when a page or route runs,
  * so flipping one needs no new build. Each is off unless "true": listed "false" in apphosting.yaml
  * and turned on per deployment.
  */

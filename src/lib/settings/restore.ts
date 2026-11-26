@@ -11,7 +11,7 @@ import { getSettingsVersion } from "./history";
 import { kindRestores, type HistorySubject } from "./sources";
 
 /**
- * Restoring and exporting a version from Settings › History (ADR-0021), for the brand in the
+ * Restoring and exporting a version from Settings › History (ADR-0023), for the brand in the
  * context. Each restore goes through the kind's own writer, from the base the preview showed, so a
  * stale one answers 409 and writes nothing:
  * - a field list through restoreFieldListVersion: a new version on top, fields it didn't have

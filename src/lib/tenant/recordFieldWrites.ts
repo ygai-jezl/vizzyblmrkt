@@ -429,7 +429,7 @@ export interface EraseFieldValuesPage {
 }
 
 /**
- * One page of an archived field's erase (Settings › History, ADR-0021): the brand's people or
+ * One page of an archived field's erase (Settings › History, ADR-0023): the brand's people or
  * companies in document id order (an equality on the brand, so no composite index, and a company's
  * updatedAt, which the erase changes, never decides the order). Each one holding `fields.<id>` or a
  * `field:<id>:` tag loses both in one transaction that first re-reads the field list: unless the

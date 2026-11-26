@@ -16,7 +16,7 @@ import { NEVER_UNDONE } from "./words";
 import { catalogName, journeyName, kindRestores, settingsSubjectName, whoNamer, whoOfActor, whoOfSaver, type HistoryDeps, type HistoryKind, type HistorySubject, type Who } from "./sources";
 
 /**
- * What a restore does, before it is made (Settings › History, ADR-0021): for each kind, what comes
+ * What a restore does, before it is made (Settings › History, ADR-0023): for each kind, what comes
  * back, what is archived, what changes back and what a restore never undoes. Field lists show
  * exactly what restoreFieldListVersion will save (planFieldListRestore); a journey's restore fills
  * its draft only, so the live version, its people and its email style stay; a catalog's is read

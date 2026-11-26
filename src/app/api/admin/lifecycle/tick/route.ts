@@ -43,7 +43,7 @@ export const dynamic = "force-dynamic";
  * The clean-up of unconfirmed password accounts (PASSWORD_SIGNIN_ENABLED) rides it beside them, at
  * most once an hour across instances (src/lib/auth/cleanup.ts).
  *
- * An owner's erase of an archived field's values (SETTINGS_ERASE_ENABLED, ADR-0021) moves on beside
+ * An owner's erase of an archived field's values (SETTINGS_ERASE_ENABLED, ADR-0023) moves on beside
  * them too, a page at a time from each running job's cursor; with the switch off a job waits.
  */
 const SCHEDULER_LIMIT_MS = 105_000;

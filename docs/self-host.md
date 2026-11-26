@@ -563,7 +563,7 @@ draft only) and JSON export. It needs the `lifecycle_versions` and `catalog_revi
 `firestore.indexes.json` READY first, and nothing else.
 
 **Erasing archived values.** `SETTINGS_ERASE_ENABLED` lets an owner erase an archived field's values
-30 days after its archive (ADR-0021). It needs `SETTINGS_HISTORY_ENABLED`, plans on (`PLANS_ENABLED`)
+30 days after its archive (ADR-0023). It needs `SETTINGS_HISTORY_ENABLED`, plans on (`PLANS_ENABLED`)
 and an owner of the organisation with a real `tenant_users` admin row for the brand (owners are added
 with `scripts/set-plan.ts --organisation <orgId> --add-owner <uid>`). `npm run selfhost` keeps it off.
 

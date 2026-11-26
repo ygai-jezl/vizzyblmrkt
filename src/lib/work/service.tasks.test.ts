@@ -214,6 +214,17 @@ describe("checks due (work_check_due), past the tasks read one by one", () => {
     expect(due.regionsDown).toEqual([]);
     expect(value(await listTasks(nina, filtersOf(new URLSearchParams("due=1")), w.deps)).counts.due).toBe(35);
   });
+
+  it("reads past the newest 500 closed tasks when the checks wait on older ones", async () => {
+    const check = (taskId: string) => ({ kind: "after_task" as const, at: null, taskId, note: "", setBy: NINA, setAt: "2026-11-01T09:00:00.000Z", which: null, counted: null });
+    for (let i = 0; i < 35; i++) {
+      const old = taskId();
+      await createWorkTask(aTask({ id: old, ref: 100 + i, title: `Old ${i}`, status: "done", closedAt: "2026-01-01T09:00:00.000Z" }), aWrite(), w.deps);
+      await createWorkTask(aTask({ id: taskId(), ref: 200 + i, title: `Check ${i}`, check: check(old) }), aWrite(), w.deps);
+    }
+    for (let i = 0; i < 500; i++) await createWorkTask(aTask({ id: taskId(), ref: 1000 + i, title: `Newer ${i}`, status: "done", closedAt: "2026-11-01T09:00:00.000Z" }), aWrite(), w.deps);
+    expect((await dueChecks(await w.scope(PEOPLE.nina), w.deps)).tasks).toHaveLength(35);
+  });
 });
 
 describe("one task", () => {

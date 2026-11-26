@@ -214,20 +214,25 @@ export async function loadTasks(scope: WorkScope, opts: { brandId: string | null
 
 /**
  * Tasks by id: null when gone, absent when unread. First those read; with more than LOOKUPS still
- * wanted, every task in the organisation read at once (open, and up to 5,000 closed in each
- * region, of every brand); then one by one, up to LOOKUPS. A region that didn't answer goes in
- * `down`, so the caller says so; any id still unread is warned about, and its rules wait.
+ * wanted, the organisation's tasks of every brand read at once as the list reads them (the open
+ * ones and the newest 500 closed in each region), then every closed one (up to 5,000 in each
+ * region) if still more than LOOKUPS are wanted; then one by one, up to LOOKUPS. A region that
+ * didn't answer goes in `down`, so the caller says so; any id still unread is warned about, and
+ * its rules wait.
  */
 async function lookupMap(scope: WorkScope, known: readonly WorkTask[], wanted: Iterable<string>, deps: WorkDeps, down?: Set<Region>): Promise<Map<string, WorkTask | null>> {
   const map = new Map<string, WorkTask | null>(known.map((t) => [t.id, t]));
   let missing = [...new Set(wanted)].filter((id) => !map.has(id));
-  if (missing.length > LOOKUPS) {
-    const [open, closed] = await Promise.all([
-      listWorkTasks(scope.organisationId, { open: true }, deps),
-      listWorkTasks(scope.organisationId, { open: false, limit: WORK_LIMITS.tasks }, deps),
+  for (const closedLimit of [RECENT_CLOSED, WORK_LIMITS.tasks]) {
+    if (missing.length <= LOOKUPS) break;
+    const reads = await Promise.all([
+      ...(closedLimit === RECENT_CLOSED ? [listWorkTasks(scope.organisationId, { open: true }, deps)] : []),
+      listWorkTasks(scope.organisationId, { open: false, limit: closedLimit }, deps),
     ]);
-    for (const t of [...open.rows, ...closed.rows]) if (!map.has(t.id)) map.set(t.id, t);
-    for (const r of [...open.unanswered, ...closed.unanswered]) down?.add(r);
+    for (const read of reads) {
+      for (const t of read.rows) if (!map.has(t.id)) map.set(t.id, t);
+      for (const r of read.unanswered) down?.add(r);
+    }
     missing = missing.filter((id) => !map.has(id));
   }
   const unread = missing.length - LOOKUPS;

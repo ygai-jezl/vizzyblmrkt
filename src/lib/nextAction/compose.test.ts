@@ -108,6 +108,14 @@ describe("writing a card", () => {
     expect(await writeCard(inputs(), CHECK, NO_USAGE, { another: false }, { generate: async () => "no json here" })).toEqual({ ok: false, reason: "schema" });
   });
 
+  it("never offers the model an action the founder dismissed: not in the list, not in the enum", async () => {
+    const generate = vi.fn(async () => good);
+    await writeCard(inputs(), { ...CHECK, quiet: new Set(["ask.in_person_signups"]) }, NO_USAGE, { another: false }, { generate });
+    const [prompt, opts] = generate.mock.calls[0]! as unknown as [string, { schema: unknown }];
+    expect(prompt).not.toContain("- ask.in_person_signups:");
+    expect(opts.schema).toEqual(responseSchema(["page.create_launch", "ask.waitlist_page"]));
+  });
+
   it("on Show another, names what was set aside and asks for more variety", async () => {
     const generate = vi.fn(async () => good);
     await writeCard(inputs(), CHECK, NO_USAGE, { another: true, replacedTitles: ["Pick a newsletter rhythm"] }, { generate });

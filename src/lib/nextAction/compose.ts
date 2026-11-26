@@ -56,8 +56,11 @@ export function responseSchema(allowed: readonly ActionId[]): Record<string, unk
   };
 }
 
-/** The prompt for these inputs; on Show another, with the titles of the card set aside. */
-export function composePrompt(inputs: NextActionInputs, replacedTitles: readonly string[] = []): string {
+/**
+ * The prompt for these inputs; on Show another, with the titles of the card set aside. `offer`: the
+ * ids the model may use, the brand's list less what the founder dismissed (default: the list).
+ */
+export function composePrompt(inputs: NextActionInputs, replacedTitles: readonly string[] = [], offer: readonly ActionId[] = inputs.allowed): string {
   return renderPrompt("next_action.compose", {
     brand_name: brandForPrompt(inputs.brandName),
     answers: answersForPrompt(inputs.answers),
@@ -65,7 +68,7 @@ export function composePrompt(inputs: NextActionInputs, replacedTitles: readonly
     state: stateForPrompt(inputs.growth, inputs.signals),
     outcomes: outcomesForPrompt(inputs.outcomes),
     another: anotherForPrompt(replacedTitles),
-    actions: actionsForPrompt(inputs.allowed),
+    actions: actionsForPrompt(offer),
   });
 }
 
@@ -75,7 +78,9 @@ export interface ComposeDeps {
 
 /**
  * Ask for a card and check it. `another`: the founder pressed Show another, so a little more
- * variety and the titles of the card set aside. A missing or empty answer is "model".
+ * variety and the titles of the card set aside. The model is offered the brand's ids less those the
+ * founder dismissed (`check.quiet`), as the schema's enum; the check still drops any that slip in.
+ * A missing or empty answer is "model".
  */
 export async function writeCard(
   inputs: NextActionInputs,
@@ -85,8 +90,9 @@ export async function writeCard(
   deps: ComposeDeps = {},
 ): Promise<CardCheck> {
   const generate = deps.generate ?? generateJsonWithSchema;
-  const raw = await generate(composePrompt(inputs, opts.another ? (opts.replacedTitles ?? []) : []), {
-    schema: responseSchema(inputs.allowed),
+  const offer = inputs.allowed.filter((id) => !check.quiet.has(id));
+  const raw = await generate(composePrompt(inputs, opts.another ? (opts.replacedTitles ?? []) : [], offer), {
+    schema: responseSchema(offer),
     timeoutMs: COMPOSE_TIMEOUT_MS,
     temperature: opts.another ? 0.8 : 0.3,
     thinkingBudget: THINKING,

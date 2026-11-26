@@ -2016,7 +2016,12 @@ export const ONTOLOGY: readonly OntologyType[] = [
     },
     export: { gap: "team member ids stay as ids, with no export by team member; a person's export names each field of theirs with its label" },
     search: { none: "a field's values are found with its person" },
-    numbers: { none: "a value belongs to one record and is not a brand metric" },
+    // A value belongs to one record; the investor and funding board (RAISE_PIPELINE_ENABLED) counts the
+    // board's ready-made fields across People, by stage and pass reason, for Vizzy.
+    numbers: {
+      meanings: ["pipelinePeople", "stagePeople", "passedPeople", "reasonPasses", "noReasonPasses", "quietPeople", "nextStepPastPeople", "overduePeople", "openFollowUps", "quietAfterDays"],
+      tool: "get_raise_pipeline",
+    },
   },
   {
     id: "consent_purpose",

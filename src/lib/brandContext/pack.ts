@@ -22,6 +22,8 @@ import { learnedLines } from "@/lib/autopilot/learned";
 import { readSearchPlanning, searchConsoleLines, type SearchPlanning } from "@/lib/connectors/signals/planning";
 import { readDueArticles } from "@/lib/content/blog/freshnessPages";
 import type { FreshnessDueItem } from "@/lib/types/freshness";
+import { readBrandStrategy, type Strategy } from "@/lib/brandStrategy/store";
+import { parseSituation } from "@/lib/brandMap/situations";
 
 /**
  * The context pack (BRAND_CONTEXT_ENABLED): everything the brand knows about one question,
@@ -31,6 +33,9 @@ import type { FreshnessDueItem } from "@/lib/types/freshness";
  * seen, so nothing guesses past it.
  *
  *   map       where the question sits on the brand map, and how far along it is
+ *   strategy  the brand's approved strategy (BRAND_STRATEGY_ENABLED): its focus situations (and
+ *             whether this question is asked in one), the quarter's goal, what it is not, and
+ *             where it wins, each claim with its proof (claims without proof are left out)
  *   yours     what the brand already made that is closest (brand search: words and meaning), led by
  *             any of its live articles on the subject that is due a refresh (BLOG_FRESHNESS_ENABLED)
  *   theirs    what competitors wrote: the subject's flag, angles taken, whether any answers it
@@ -53,6 +58,8 @@ export interface PackLine {
 export interface ContextPack {
   about: { query: string; questionId: string | null; subjectId: string | null };
   map: PackLine[];
+  /** The approved brand strategy (BRAND_STRATEGY_ENABLED); absent or empty without one. */
+  strategy?: PackLine[];
   yours: PackLine[];
   theirs: PackLine[];
   research: PackLine[];
@@ -90,6 +97,8 @@ export interface PackDeps {
   searchPlanning?: (ctx: TenantContext) => Promise<SearchPlanning | null>;
   /** The freshness watch's due list (BLOG_FRESHNESS_ENABLED); empty while off. */
   dueArticles?: (ctx: TenantContext) => Promise<FreshnessDueItem[]>;
+  /** The approved brand strategy (BRAND_STRATEGY_ENABLED); null while off or none is approved. */
+  strategy?: (ctx: TenantContext) => Promise<Strategy | null>;
 }
 
 
@@ -142,6 +151,39 @@ export function dueArticleLines(subjectId: string | null, due: FreshnessDueItem[
         ...(d.url ? { url: d.url } : {}),
       };
     });
+}
+
+export const STRATEGY_SOURCE = "Brand strategy";
+
+/**
+ * The approved strategy as lines: its focus situations (and whether this question is asked in
+ * one), the quarter's goal, what the brand is not, and where it wins with each claim's proof. A
+ * claim without proof is a gap to close, never a fact, so it is left out.
+ */
+export async function strategyLines(ctx: TenantContext, strategy: Strategy | null, questionId: string | null, deps: Pick<PackDeps, "db"> = {}): Promise<PackLine[]> {
+  if (!strategy) return [];
+  const store = brandMapRecords(ctx, deps.db);
+  const [situations, question] = await Promise.all([
+    strategy.focusSituationIds.length ? store.getMany("sit", strategy.focusSituationIds).catch(() => []) : Promise.resolve([]),
+    questionId ? store.get("q", questionId).catch(() => null) : Promise.resolve(null),
+  ]);
+  const focus = situations.flatMap((r) => {
+    const sit = parseSituation(r);
+    return sit && sit.status !== "dismissed" ? [sit] : [];
+  });
+  const asked = Array.isArray(question?.situationIds) ? focus.find((f) => (question.situationIds as string[]).includes(f.id)) : undefined;
+  const lines: PackLine[] = [];
+  if (focus.length) lines.push({ text: cut(`Focus buying situations: ${focus.map((f) => `"${f.text}"`).join("; ")}.`), source: STRATEGY_SOURCE });
+  if (asked) lines.push({ text: cut(`This question is asked in a focus situation: "${asked.text}".`), source: STRATEGY_SOURCE });
+  if (strategy.goal) lines.push({ text: cut(`This quarter's goal: ${strategy.goal.text}${strategy.goal.measure ? ` (measured by ${strategy.goal.measure})` : ""}.`), source: STRATEGY_SOURCE });
+  const isNot = strategy.isNotProposals.filter((x) => x.state === "accepted").map((x) => x.text);
+  if (isNot.length) lines.push({ text: cut(`What the brand is not: ${isNot.join("; ")}.`), source: STRATEGY_SOURCE });
+  for (const c of strategy.claims.filter((x) => x.proof && x.side === "you").slice(0, 2)) {
+    lines.push({ text: cut(`Where the brand wins: ${c.text}.`), source: STRATEGY_SOURCE, url: c.proof!.url });
+  }
+  const theirs = strategy.claims.find((x) => x.proof && x.side === "them");
+  if (theirs) lines.push({ text: cut(`Where ${theirs.competitor ?? "a competitor"} wins: ${theirs.text}.`), source: STRATEGY_SOURCE, url: theirs.proof!.url });
+  return lines.slice(0, PART_MAX);
 }
 
 interface MapRead {
@@ -265,6 +307,9 @@ export async function contextPack(ctx: TenantContext, ask: PackAsk, deps: PackDe
   const pack: ContextPack = {
     about: { query, questionId, subjectId },
     map: map.lines.slice(0, PART_MAX),
+    strategy: await (deps.strategy ?? ((c) => readBrandStrategy(c, { db: deps.db })))(ctx)
+      .then((s) => strategyLines(ctx, s, questionId, deps))
+      .catch(() => []),
     yours: [],
     theirs: [],
     research: [],
@@ -344,8 +389,9 @@ export async function contextPack(ctx: TenantContext, ask: PackAsk, deps: PackDe
   return pack;
 }
 
-const PARTS: Array<[keyof Pick<ContextPack, "map" | "yours" | "theirs" | "research" | "numbers" | "learned">, string]> = [
+const PARTS: Array<[keyof Pick<ContextPack, "map" | "strategy" | "yours" | "theirs" | "research" | "numbers" | "learned">, string]> = [
   ["map", "Where it sits on the brand map"],
+  ["strategy", "The brand's approved strategy"],
   ["yours", "What the brand already made that is closest"],
   ["theirs", "What competitors wrote"],
   ["research", "Earlier research near it"],
@@ -361,7 +407,7 @@ export function packText(pack: ContextPack, opts: { parts?: Array<(typeof PARTS)
   const untag = (s: string) => s.replace(/<\/?context_pack[^>]*>/gi, "");
   const want = new Set(opts.parts ?? PARTS.map(([k]) => k));
   const parts = PARTS.filter(([key]) => want.has(key)).flatMap(([key, title]) =>
-    pack[key].length ? [`${title}:`, ...pack[key].map((l) => `- ${untag(l.text)} [${untag(l.source)}${l.at ? `, ${l.at}` : ""}]`)] : [],
+    (pack[key] ?? []).length ? [`${title}:`, ...(pack[key] ?? []).map((l) => `- ${untag(l.text)} [${untag(l.source)}${l.at ? `, ${l.at}` : ""}]`)] : [],
   );
   const missing = pack.missing.length ? [`Not known: ${pack.missing.map(untag).join(" ")}`] : [];
   return [`<context_pack question="${untag(pack.about.query).replace(/"/g, "'")}">`, ...parts, ...missing, "</context_pack>"].join("\n");
@@ -373,7 +419,7 @@ export function packText(pack: ContextPack, opts: { parts?: Array<(typeof PARTS)
  */
 export function packPromptBlock(pack: ContextPack | null, use: "research" | "writer"): string {
   if (!pack) return "";
-  const parts = use === "writer" ? (["map", "yours", "theirs", "learned"] as const) : undefined;
+  const parts = use === "writer" ? (["map", "strategy", "yours", "theirs", "learned"] as const) : undefined;
   const text = packText(pack, parts ? { parts: [...parts] } : {});
   const how =
     use === "writer"

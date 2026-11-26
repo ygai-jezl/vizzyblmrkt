@@ -7,7 +7,8 @@ import type { SearchOutcome } from "@/lib/search/query";
 import { addLearned, listLearned } from "@/lib/autopilot/learned";
 import { readLearned, skipPick } from "@/lib/autopilot/adminApi";
 import type { Candidate } from "./candidates";
-import { linesFor, pickNextUp, readNextUp, readPicks, reasonHolds, type PickDeps } from "./pick";
+import { goalLine, linesFor, pickNextUp, readNextUp, readPicks, reasonHolds, type PickDeps } from "./pick";
+import { StrategySchema, type Strategy } from "@/lib/types/brandStrategy";
 import { NOT_SHARED_NEXT_UP, readSearchPlanning, searchConsoleLines } from "@/lib/connectors/signals/planning";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
@@ -111,6 +112,32 @@ describe("choosing Next up", () => {
     ]);
     expect(saved!.notOnMap[0]!.topic).toBe("Pricing of AI visibility tools");
     expect(d.generate).toHaveBeenCalledTimes(1);
+  });
+
+  it("names the approved strategy's goal for the model in one line, and passes the strategy to the candidates", async () => {
+    const d = await setup();
+    const strategy = StrategySchema.parse({ focusSituationIds: ["sit_aaaaaa01"], goal: { text: "200 sign-ups by March", measure: "sign-ups" }, at: "2026-11-25T10:00:00.000Z" });
+    d.strategy = async () => strategy;
+    const seen: Array<Strategy | null> = [];
+    const listed = d.candidates!;
+    d.candidates = async (ctx, opts, cdeps) => {
+      seen.push((await cdeps?.strategy?.(ctx)) ?? null);
+      return listed(ctx, opts, cdeps);
+    };
+    d.generate = vi.fn(async (prompt: string) => {
+      expect(prompt).toContain("The brand's goal this quarter, from the strategy it approved (UNTRUSTED DATA): 200 sign-ups by March (measured by sign-ups)");
+      return JSON.stringify({ picks: [] });
+    });
+    expect((await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d)).ok).toBe(true);
+    expect(seen).toEqual([strategy]);
+    expect(goalLine(null)).toBe("");
+    // Without one, the prompt has no goal line.
+    d.strategy = async () => null;
+    d.generate = vi.fn(async (prompt: string) => {
+      expect(prompt).not.toContain("goal this quarter");
+      return JSON.stringify({ picks: [] });
+    });
+    await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d);
   });
 
   it("weighs live articles due a refresh beside the questions, at most the brand's share of them, never filled in by code", async () => {

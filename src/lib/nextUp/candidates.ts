@@ -10,11 +10,14 @@ import type { BrandMapPage } from "@/lib/types/brandMapPage";
 import type { FreshnessReason } from "@/lib/types/contentPlan";
 import type { CloseTo } from "@/lib/types/autopilot";
 import { isNextUpRepeatsEnabled } from "@/lib/autopilot/flags";
+import { questionKey } from "@/lib/brandMap/keys";
+import { readBrandStrategy, type Strategy } from "@/lib/brandStrategy/store";
 
 /**
  * Next up's candidates: the brand map's open questions worth weighing, narrowed in code so one
  * Gemini call can choose among them. Questions on a buying situation the brand focuses on come
- * first, then the least answered subjects, taking turns across subjects so one subject can't fill
+ * first (on a map of any size, with an approved brand strategy: its focus situations, whichever
+ * subjects their questions are on), then the least answered subjects, taking turns across subjects so one subject can't fill
  * the list. A question already planned, drafted or answered, in an active run, or skipped lately
  * is left out.
  */
@@ -39,6 +42,8 @@ export interface Candidate {
 
 export interface CandidateDeps {
   db?: FirestoreLike;
+  /** The approved brand strategy (BRAND_STRATEGY_ENABLED); null while off or none is approved. */
+  strategy?: (ctx: TenantContext) => Promise<Strategy | null>;
 }
 
 /** At most this many go to the model. */
@@ -93,6 +98,34 @@ async function focusIds(ctx: TenantContext, deps: CandidateDeps): Promise<Set<st
   return ids;
 }
 
+/** The open questions on an approved strategy's focus situations: their ids, their words and their subjects. */
+interface StrategyFocus {
+  ids: Set<string>;
+  keys: Set<string>;
+  subjects: Set<string>;
+}
+
+/**
+ * The approved strategy's focus questions (BRAND_STRATEGY_ENABLED), read on every map size. On a
+ * small map the questions are matched by id, or by their words, since the map's own list keeps
+ * them. Null without an approved strategy, or one with no focus.
+ */
+async function strategyFocus(ctx: TenantContext, deps: CandidateDeps): Promise<StrategyFocus | null> {
+  const strategy = await (deps.strategy ?? ((c) => readBrandStrategy(c, { db: deps.db })))(ctx).catch(() => null);
+  if (!strategy?.focusSituationIds.length) return null;
+  const out: StrategyFocus = { ids: new Set(), keys: new Set(), subjects: new Set() };
+  for (const id of strategy.focusSituationIds.slice(0, 5)) {
+    const read = await readSituation(ctx, id, { db: deps.db }).catch(() => null);
+    for (const q of read?.questions ?? []) {
+      if (q.status !== "decided" || q.state !== "open") continue;
+      out.ids.add(q.id);
+      out.keys.add(questionKey(q.text));
+      out.subjects.add(q.subjectId);
+    }
+  }
+  return out;
+}
+
 /**
  * The candidates, best first. `exclude` holds question ids not to offer (active runs, recent skips).
  */
@@ -103,17 +136,20 @@ export async function nextUpCandidates(ctx: TenantContext, opts: { exclude?: Set
   if (!read || read.state !== "ok") return [];
   const map = read.map;
   let groups: Candidate[][];
+  const strategy = await strategyFocus(ctx, deps);
 
   if (isBrandMapScaleEnabled() && map.moved) {
-    const subjects = (await listSubjects(ctx, { status: "decided" }, { db: deps.db }).catch(() => []))
-      .filter((s) => s.counts.open > 0)
+    const open = (await listSubjects(ctx, { status: "decided" }, { db: deps.db }).catch(() => [])).filter((s) => s.counts.open > 0);
+    const neediest = [...open]
       .sort((a, b) =>
         isNextUpRepeatsEnabled()
           ? subjectNeed(b.answeredShare / 1000, b.counts.open) - subjectNeed(a.answeredShare / 1000, a.counts.open) || b.counts.open - a.counts.open
           : a.answeredShare - b.answeredShare || b.counts.open - a.counts.open,
       )
       .slice(0, MAX_SUBJECTS);
-    const focus = await focusIds(ctx, deps);
+    // An approved strategy's focus questions are read whichever subject they are on.
+    const subjects = [...neediest, ...open.filter((s) => strategy?.subjects.has(s.id) && !neediest.includes(s))];
+    const focus = new Set([...(await focusIds(ctx, deps)), ...(strategy?.ids ?? [])]);
     groups = [];
     for (const s of subjects) {
       const cov = await subjectCoverage(ctx, s.id, { db: deps.db }).catch(() => null);
@@ -123,8 +159,9 @@ export async function nextUpCandidates(ctx: TenantContext, opts: { exclude?: Set
   } else {
     const rows = await listBrandMapPages(ctx, deps.db).catch(() => [] as BrandMapPage[]);
     const cov = computeCoverage(map, rows);
+    const onFocus = (c: Candidate) => Boolean(strategy && (strategy.ids.has(c.questionId) || strategy.keys.has(questionKey(c.question))));
     groups = cov.subjects
-      .map((s) => fromCoverage(s, s.questions, rows))
+      .map((s) => fromCoverage(s, s.questions, rows).map((c) => (onFocus(c) ? { ...c, focus: true } : c)))
       .filter((g) => g.length)
       .sort((a, b) =>
         isNextUpRepeatsEnabled()

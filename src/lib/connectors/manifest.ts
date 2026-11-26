@@ -436,9 +436,12 @@ export const ProduceSchema = z
     for (const by of p.liveBy) {
       if (!Object.values(p.joins).includes(LIVE_BY_JOINS[by])) ctx.addIssue({ code: "custom", message: `liveBy ${by} has no key that joins on it` });
     }
+    // An MCP stream whose call takes the page is filtered by its tool, so its rows needn't carry it.
+    const pageFilled = Object.values(p.mcp?.fill ?? {}).some((f) => f === "page" || f === "pageUrl");
     for (const f of p.liveFilters ?? []) {
-      if (!Object.values(p.joins).includes(f)) ctx.addIssue({ code: "custom", message: `liveFilters ${f} has no key that joins on it` });
+      if (!Object.values(p.joins).includes(f) && !(f === "page" && pageFilled)) ctx.addIssue({ code: "custom", message: `liveFilters ${f} has no key that joins on it` });
     }
+    if (pageFilled && !(p.liveFilters ?? []).includes("page")) ctx.addIssue({ code: "custom", message: "an mcp call that takes a page needs liveFilters page, so a read can give one" });
     if (new Set(p.measures).size !== p.measures.length) ctx.addIssue({ code: "custom", message: "a measure is listed twice" });
     for (const by of p.collect?.by ?? []) {
       if (!p.liveBy.includes(by)) ctx.addIssue({ code: "custom", message: `collect.by ${by} is not one of its liveBy groupings` });

@@ -2,6 +2,7 @@ import { parseManifest, type ConnectMethodName } from "@/lib/connectors/manifest
 import { cloudflareManifest } from "@/lib/connectors/manifests/cloudflare";
 import { ga4Manifest } from "@/lib/connectors/manifests/ga4";
 import { searchConsoleManifest } from "@/lib/connectors/manifests/searchConsole";
+import { vizzyblManifest } from "@/lib/connectors/manifests/vizzybl";
 import { listingOf, type ConnectionView, type ConnectorListing } from "@/lib/connectors/service";
 
 /**
@@ -9,7 +10,7 @@ import { listingOf, type ConnectionView, type ConnectorListing } from "@/lib/con
  * them, and connections for the made-up brand Acme. Nothing here reaches a provider.
  */
 
-const MANIFESTS = { cloudflare: cloudflareManifest, "search-console": searchConsoleManifest, "google-analytics": ga4Manifest } as const;
+const MANIFESTS = { cloudflare: cloudflareManifest, "search-console": searchConsoleManifest, "google-analytics": ga4Manifest, vizzybl: vizzyblManifest } as const;
 
 /** A connector as the list route answers it, with the sign-in methods ready on this copy. */
 export function listingFor(id: keyof typeof MANIFESTS, ready: ConnectMethodName[]): ConnectorListing {

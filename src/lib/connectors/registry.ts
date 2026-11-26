@@ -1,4 +1,4 @@
-import { isCloudflareConnectorEnabled, isGa4ConnectorEnabled, isGa4SignInEnabled, isMcpConnectorsEnabled, isSearchConsoleConnectorEnabled } from "./flags";
+import { isCloudflareConnectorEnabled, isGa4ConnectorEnabled, isGa4SignInEnabled, isMcpConnectorsEnabled, isSearchConsoleConnectorEnabled, isVizzyblConnectorEnabled } from "./flags";
 import { isGoogleSignInConfigured } from "./google";
 import { isShareAccessConfigured } from "./shareAccess";
 import { allConnectors, knownConnector } from "./catalog";
@@ -40,6 +40,7 @@ export const CONNECTOR_SWITCHES: Readonly<Record<string, () => boolean>> = {
   CONNECTOR_CLOUDFLARE_ENABLED: isCloudflareConnectorEnabled,
   CONNECTOR_SEARCH_CONSOLE_ENABLED: isSearchConsoleConnectorEnabled,
   CONNECTOR_GA4_ENABLED: isGa4ConnectorEnabled,
+  CONNECTOR_VIZZYBL_ENABLED: isVizzyblConnectorEnabled,
 };
 
 /** The switches a sign-in method may name for itself, read through src/lib/connectors/flags.ts. */

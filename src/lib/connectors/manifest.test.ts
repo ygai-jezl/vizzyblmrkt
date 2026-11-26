@@ -165,12 +165,13 @@ describe("connector manifests", () => {
     expect(issues({ ...base(), icon: { ...icon, svg: "<svg onload=alert(1)>" } }).length).toBeGreaterThan(0);
   });
 
-  it("gives every built-in connector its marks, owned by Google or Cloudflare, and keeps the letters as the fallback", () => {
+  it("gives every built-in connector its marks, owned by Google, Cloudflare or Vizzybl, and keeps the letters as the fallback", () => {
     const icons = MANIFESTS.map((m) => parseManifest(m)).map((m) => [m.id, m.icon?.owner, m.icon?.light]);
     expect(icons).toEqual([
       ["search-console", "Google LLC", "/marks/connectors/search-console/icon.png"],
       ["google-analytics", "Google LLC", "/marks/connectors/google-analytics/icon.svg"],
       ["cloudflare", "Cloudflare, Inc.", "/marks/connectors/cloudflare/icon.png"],
+      ["vizzybl", "Vizzybl", "/marks/connectors/vizzybl/icon.svg"],
     ]);
     expect(parseManifest(cloudflareManifest).initials).toBe("CF");
     // Only Google Analytics asks for its wide logo beside its data, linked to it, at least 154 by 50.

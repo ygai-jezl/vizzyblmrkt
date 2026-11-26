@@ -1215,6 +1215,12 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Vizzybl, an AI answers tool, read from its MCP server with an API key: AI share of voice,
+  # monitored prompts and the pages AI answers cite (needs CONNECTORS_ENABLED and CONNECTOR_MCP_ENABLED).
+  - variable: CONNECTOR_VIZZYBL_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Google Search Console by signing in with Google or by sharing access (needs
   # CONNECTORS_ENABLED, plus CONNECTOR_GOOGLE_CLIENT_ID and the secret
   # CONNECTOR_GOOGLE_CLIENT_SECRET, or CONNECTORS_IDENTITIES_PROJECT, in your environment file:

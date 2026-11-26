@@ -34,6 +34,15 @@ export function isMcpConnectorsEnabled(): boolean {
 }
 
 /**
+ * Vizzybl, an AI answers tool, read from its own MCP server with an API key (ADR-0019). Needs
+ * CONNECTORS_ENABLED here, and CONNECTOR_MCP_ENABLED before its way to connect is ready, so it is
+ * listed only with both.
+ */
+export function isVizzyblConnectorEnabled(): boolean {
+  return isConnectorsEnabled() && process.env.CONNECTOR_VIZZYBL_ENABLED === "true";
+}
+
+/**
  * Google Search Console in the catalogue (Connectors 1b). Needs CONNECTORS_ENABLED, and a Google
  * sign in client (CONNECTOR_GOOGLE_CLIENT_ID and its secret) before Sign in with Google is offered.
  */

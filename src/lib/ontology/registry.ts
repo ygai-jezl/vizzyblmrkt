@@ -2116,7 +2116,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "data_connection",
     name: "Data connection",
     description:
-      "A brand's link to an outside source of numbers, such as a Cloudflare zone, a Search Console site or a Google Analytics property: which connector, how it signs in, its health, who may read it live, and its secrets (a pasted token, or a Google sign in's access and refresh tokens), sealed with the brand, connection and slot bound in. A shared connection keeps no secret, only the Google address made for it. It may also be a part its organisation gave it (Connectors 3): then `source` names the organisation's connection and the region it is kept in, it keeps no secret and no address, and its token is read through the organisation's. Each change goes into an activity log kept 90 days.",
+      "A brand's link to an outside source of numbers, such as a Cloudflare zone, a Search Console site, a Google Analytics property or an AI answers tool's brand: which connector, how it signs in, its health, who may read it live, and its secrets (a pasted token or MCP server key, or a Google sign in's access and refresh tokens), sealed with the brand, connection and slot bound in. A shared connection keeps no secret, only the Google address made for it. It may also be a part its organisation gave it (Connectors 3): then `source` names the organisation's connection and the region it is kept in, it keeps no secret and no address, and its token is read through the organisation's. Each change goes into an activity log kept 90 days.",
     place: "signals",
     status: "built",
     madeBy: [],
@@ -2240,7 +2240,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "connector_stream",
     name: "Connector stream",
     description:
-      "Data collected from a connected source once a day, as its manifest's stream and its collect block describe it: Search Console's search numbers, Google Analytics' traffic and Cloudflare's zone totals. Every built stream is about the brand's own site, never a person (a stream marked personal is refused until the data processing agreement covers it).",
+      "Data collected from a connected source once a day, as its manifest's stream and its collect block describe it: Search Console's search numbers, Google Analytics' traffic, Cloudflare's zone totals and an AI answers tool's daily share of voice. Every built stream is about the brand's own site, never a person (a stream marked personal is refused until the data processing agreement covers it).",
     place: "signals",
     status: "built",
     madeBy: [],

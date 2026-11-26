@@ -35,6 +35,8 @@ describe("adding totals across days", () => {
     ).toEqual({ searchClicks: 40, searchImpressions: 400, searchCtr: 0.1, searchPosition: 7 });
     expect(rollTotals([{ ga4Sessions: 5, ga4ActiveUsers: 4, ga4Views: 9 }, { ga4Sessions: 6, ga4ActiveUsers: 5, ga4Views: 10 }])).toEqual({ ga4Sessions: 11, ga4ActiveUsers: null, ga4Views: 19 });
     expect(rollTotals([{ cfRequests: 10, cfVisits: 3, cfUniqueVisitors: 2 }, { cfRequests: 20, cfVisits: null, cfUniqueVisitors: 2 }])).toEqual({ cfRequests: 30, cfVisits: null, cfUniqueVisitors: null });
+    // A share, a rank or a score never adds up across days (ADR-0019): only counts do.
+    expect(rollTotals([{ aiShareOfVoice: 31.4, aiMentions: 142, aiRank: 2, aiSentiment: 18 }, { aiShareOfVoice: 29.9, aiMentions: 130, aiRank: 3, aiSentiment: 20 }])).toEqual({ aiShareOfVoice: null, aiMentions: 272, aiRank: null, aiSentiment: null });
   });
 });
 

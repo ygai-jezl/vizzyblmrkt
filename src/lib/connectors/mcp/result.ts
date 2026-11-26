@@ -67,8 +67,11 @@ export function keyText(v: unknown): string | null {
   return clean ? clean.slice(0, MAX_KEY) : null;
 }
 
-/** A number as a number, or null: never a string that looks like one. */
-export const numberAt = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+/**
+ * A number as a number, or null: never a string that looks like one. A path that names a list
+ * counts its items, so a manifest can say how many engines or competitors a row lists.
+ */
+export const numberAt = (v: unknown): number | null => (Array.isArray(v) ? v.length : typeof v === "number" && Number.isFinite(v) ? v : null);
 
 /**
  * A stream's rows from a tool's data: each row's keys and numbers from their paths. Null when the

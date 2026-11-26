@@ -108,5 +108,19 @@
   "widget.leaderboard.title": "Meilleurs parrains",
   "widget.leaderboard.someone": "Quelqu'un",
   "widget.leaderboard.referrals.one": "{count} parrainage",
-  "widget.leaderboard.referrals.other": "{count} parrainages"
+  "widget.leaderboard.referrals.other": "{count} parrainages",
+  "article.lastUpdated": "Dernière mise à jour",
+  "article.published": "Publié",
+  "article.updated": "Mis à jour",
+  "article.by": "Par {name}",
+  "article.keyFacts": "Faits clés",
+  "article.tldr": "En bref",
+  "article.answer": "Réponse",
+  "article.tip": "Astuce",
+  "article.faq": "Questions fréquentes",
+  "article.nextStep": "Prochaine étape",
+  "article.keyTakeaways": "À retenir",
+  "article.bottomLine": "En conclusion",
+  "article.sources": "Sources",
+  "article.aboutAuthor": "À propos de l'auteur"
 }

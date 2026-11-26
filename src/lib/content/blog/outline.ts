@@ -8,6 +8,7 @@ import {
   type ArticleBlock,
   type ArticleLink,
 } from "./markdown";
+import { withOtherLanguages } from "./labels";
 
 /**
  * What a blog article is made of, read off its Markdown: the title, the "Last updated"
@@ -68,16 +69,19 @@ export interface ArticleOutline {
   links: ArticleLink[];
 }
 
-const KEY_FACTS = /^key\s+(facts|numbers|stats|statistics)\b/i;
-const TLDR = /^(tl\s*;?\s*dr|key\s+takeaways?|takeaways|at\s+a\s+glance)\b/i;
+// Each label in English as always, or in any other language the message catalog has (labels.ts).
+const KEY_FACTS = withOtherLanguages(/^key\s+(facts|numbers|stats|statistics)\b/i, ["keyFacts"]);
+const TLDR = withOtherLanguages(/^(tl\s*;?\s*dr|key\s+takeaways?|takeaways|at\s+a\s+glance)\b/i, ["tldr", "keyTakeaways"]);
 /** A box that holds a section's direct answer. */
-const ANSWER = /^((the\s+)?(direct|quick|short)\s+answer|answer|in\s+short|the\s+short\s+version)\b/i;
-const FAQ = /^(frequently\s+asked\s+questions|faqs?|common\s+questions|questions\s+(people|buyers)\s+ask)\b/i;
-const SOURCES = /^(sources|references|citations|sources\s+and\s+references)\s*$/i;
+const ANSWER = withOtherLanguages(/^((the\s+)?(direct|quick|short)\s+answer|answer|in\s+short|the\s+short\s+version)\b/i, ["answer"]);
+const FAQ = withOtherLanguages(/^(frequently\s+asked\s+questions|faqs?|common\s+questions|questions\s+(people|buyers)\s+ask)\b/i, ["faq"]);
+const SOURCES = withOtherLanguages(/^(sources|references|citations|sources\s+and\s+references)\s*$/i, ["sources"], { whole: true });
 /** The author box code adds to an editorial article: about the author, not a section of the article. */
-const ABOUT_AUTHOR = /^about\s+the\s+author\b/i;
-const NEXT_STEP =
-  /^(next\s+steps?|what\s+to\s+do\s+next|get\s+started|your\s+next\s+step|(the\s+)?bottom\s+line|conclusion|final\s+thoughts|wrapping\s+up)\b/i;
+const ABOUT_AUTHOR = withOtherLanguages(/^about\s+the\s+author\b/i, ["aboutAuthor"]);
+const NEXT_STEP = withOtherLanguages(
+  /^(next\s+steps?|what\s+to\s+do\s+next|get\s+started|your\s+next\s+step|(the\s+)?bottom\s+line|conclusion|final\s+thoughts|wrapping\s+up)\b/i,
+  ["nextStep", "bottomLine"],
+);
 
 function firstList(blocks: ArticleBlock[]): string[] | null {
   const list = blocks.find((b) => b.kind === "list");

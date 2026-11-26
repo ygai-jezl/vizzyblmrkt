@@ -114,7 +114,7 @@ function emptyDoc(tenantId: string, now: string) {
     approved: null as Strategy | null,
     history: [] as Strategy[],
     decisions: [] as StrategyDecision[],
-    finder: { quickAt: null as string | null, fullRuns: [] as string[], notCompetitors: [] as NotCompetitor[] },
+    finder: { quickAt: null as string | null, fullRuns: [] as string[], notCompetitors: [] as NotCompetitor[], monitoredFinds: [] as NotCompetitor[] },
     createdAt: now,
     updatedAt: now,
     id: brandStrategyDocId(tenantId),
@@ -547,18 +547,24 @@ export async function dismissFound(ctx: TenantContext, input: { name: string; si
 
 /**
  * Monitor on one the finder suggested (STRATEGY_COMPETITORS_ENABLED), from either door: logged as
- * `competitor_ticked`, as a tick was, without moving the strategy's revision. Nothing when the
- * finder never suggested it.
+ * `competitor_ticked`, as a tick was, and kept in `finder.monitoredFinds` (50 at most), so if it
+ * is no longer watched later it leaves the list rather than coming back as a suggestion. Neither
+ * moves the strategy's revision. Nothing when the finder never suggested it.
  */
 export async function noteMonitored(ctx: TenantContext, input: { name: string; site: string | null }, deps: StrategyDeps = {}): Promise<boolean> {
-  return logStrategyDecisions(
-    ctx,
-    (doc) => {
-      const hit = doc.draft ? competitorsOf(doc.draft).find((c) => c.from === "finder" && sameCompetitor(c, input)) : undefined;
-      return hit ? [{ kind: "competitor_ticked", ref: hit.name }] : [];
-    },
-    deps,
-  );
+  const at = nowIso(deps);
+  const by = byOf(ctx);
+  const kept = await repoOf(ctx, deps).claim(brandStrategyDocId(ctx.tenantId), (current) => {
+    const doc = parseBrandStrategy(current);
+    const hit = doc?.draft ? competitorsOf(doc.draft).find((c) => c.from === "finder" && sameCompetitor(c, input)) : undefined;
+    if (!doc || !hit) return null;
+    const named = { name: hit.name, site: hit.site ?? input.site };
+    return {
+      decisions: withDecisions(doc.decisions, [decision("competitor_ticked", hit.name, at, by)]),
+      finder: { ...doc.finder, monitoredFinds: [named, ...doc.finder.monitoredFinds.filter((n) => !sameCompetitor(n, named))].slice(0, L.monitoredFinds) },
+    };
+  });
+  return Boolean(kept);
 }
 
 /**
@@ -590,7 +596,7 @@ export async function approveStrategy(
     if (doc.rev !== input.baseRev) throw new Refused(409, "strategy_changed", doc);
     const starred = doc.draft.focusSituationIds.filter((id) => decided.has(id)).length;
     if (starred < Math.min(L.focusMin, decided.size)) throw new Refused(400, "too_few_focus", doc);
-    const live = input.watched !== undefined ? liveCompetitors(doc.draft, input.watched, doc.finder.notCompetitors) : null;
+    const live = input.watched !== undefined ? liveCompetitors(doc.draft, input.watched, doc.finder.notCompetitors, doc.finder.monitoredFinds) : null;
     const approved = StrategySchema.parse({ ...doc.draft, ...(live ? { ...approvedCopy(live), competitorsLive: true } : {}), at, by });
     return {
       approved,

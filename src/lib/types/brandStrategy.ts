@@ -52,6 +52,8 @@ export const BRAND_STRATEGY_LIMITS = {
   finderRuns: 24,
   /** Names a person marked Not a competitor, newest first: the finder never suggests them again. */
   notCompetitors: 50,
+  /** The finder's suggestions a person pressed Monitor on, newest first: once no longer watched, they don't come back as suggestions. */
+  monitoredFinds: 50,
 } as const;
 
 const L = BRAND_STRATEGY_LIMITS;
@@ -315,6 +317,12 @@ export const BrandStrategyDocSchema = z.object({
       fullRuns: z.array(Stamp).max(L.finderRuns).catch([]).default([]),
       /** Not a competitor, newest first (STRATEGY_COMPETITORS_ENABLED): kept out of every later run. */
       notCompetitors: tolerantArray(NotCompetitorSchema, L.notCompetitors),
+      /**
+       * Suggestions a person pressed Monitor on, newest first (STRATEGY_COMPETITORS_ENABLED): one they
+       * stop watching later leaves the list rather than coming back as a suggestion. Older records
+       * read with it empty, which is right for them.
+       */
+      monitoredFinds: tolerantArray(NotCompetitorSchema, L.monitoredFinds),
     })
     .prefault({}),
   createdAt: Stamp.catch("").default(""),

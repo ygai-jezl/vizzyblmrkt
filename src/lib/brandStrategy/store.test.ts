@@ -355,7 +355,10 @@ describe("what a person decided stays, and runs and approvals hold", () => {
     expect(await noteMonitored(A, { name: "Alpha Ltd", site: "alpha.example" }, { db })).toBe(true);
     const doc = await readBrandStrategyDoc(A, { db });
     expect(doc?.decisions[0]).toMatchObject({ kind: "competitor_ticked", ref: "Alpha" });
+    expect(doc?.finder.monitoredFinds).toEqual([{ name: "Alpha", site: "alpha.example" }]);
     expect(doc?.rev).toBe(made.ok ? made.value.rev : -1);
+    // Another brand's record is never touched.
+    expect(await noteMonitored(B, { name: "Alpha", site: "alpha.example" }, { db })).toBe(false);
   });
 
   it("joined, approval keeps the live list as the history copy, and the draft keeps its own finds", async () => {

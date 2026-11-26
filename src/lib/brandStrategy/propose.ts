@@ -359,7 +359,7 @@ export async function gatherStrategyInput(ctx: TenantContext, deps: ProposeDeps 
   }
   // Joined: the finder's suggestions that aren't watched or marked Not a competitor.
   const found = joined
-    ? suggestionsOf(liveCompetitors(doc?.draft ?? null, competitors, doc?.finder.notCompetitors ?? []))
+    ? suggestionsOf(liveCompetitors(doc?.draft ?? null, competitors, doc?.finder.notCompetitors ?? [], doc?.finder.monitoredFinds ?? []))
     : doc?.draft
       ? competitorsOf(doc.draft)
       : [];

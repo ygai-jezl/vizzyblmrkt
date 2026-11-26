@@ -237,7 +237,8 @@ export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnab
             propose anything. Each sits in the group an admin chose with <strong>Choose a group</strong>, here or on Brand ›
             Competitors, or under <strong>Not grouped yet</strong>. Below them, <strong>Suggested by the finder</strong> lists what
             the finder found that you don&apos;t watch: <strong>Monitor</strong> starts watching it in the finder&apos;s group, and{" "}
-            <strong>Not a competitor</strong> keeps it out of every later search. A competitor you stop watching leaves the list.
+            <strong>Not a competitor</strong> keeps it out of every later search. A competitor you stop watching leaves the list,
+            and one you watched from the finder&apos;s suggestions isn&apos;t suggested again.
             Approving keeps the list as it was then, and a competitor you watch, group or find after that doesn&apos;t mark the
             strategy changed.
           </P>

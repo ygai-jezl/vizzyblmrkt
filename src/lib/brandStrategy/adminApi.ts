@@ -146,7 +146,7 @@ export async function competitorsDoor(
   if (!isStrategyCompetitorsEnabled()) return null;
   const [doc, tenant] = await Promise.all([readBrandStrategyDoc(ctx, deps).catch(() => null), (deps.loadTenant ?? getTenantById)(ctx.tenantId).catch(() => null)]);
   const draft = doc?.draft ?? doc?.approved ?? null;
-  const live = liveCompetitors(draft, watched, doc?.finder.notCompetitors ?? []);
+  const live = liveCompetitors(draft, watched, doc?.finder.notCompetitors ?? [], doc?.finder.monitoredFinds ?? []);
   const suggestions = suggestionsOf(live).map(({ name, site, group, foundTimes, evidence }) => ({ name, site, group, foundTimes, evidence }));
   // A group an older draft gave a watched competitor with none on its record: shown as a hint only.
   const was = Object.fromEntries(live.flatMap((c) => (c.id && c.was ? [[c.id, c.was] as const] : [])));
@@ -198,7 +198,7 @@ export async function strategyView(ctx: TenantContext, deps: ViewDeps = {}): Pro
       .map((s) => ({ id: s.id, text: s.text, focus: focus.has(s.id), questions: s.counts.questions, answered: s.counts.answered })),
     // Joined: every watched competitor at once, before any Propose too, then the finder's suggestions.
     competitors: joined
-      ? liveCompetitors(draft, canMonitor ? watched : null, doc?.finder.notCompetitors ?? [])
+      ? liveCompetitors(draft, canMonitor ? watched : null, doc?.finder.notCompetitors ?? [], doc?.finder.monitoredFinds ?? [])
       : draft
         ? competitorsOf(draft).map((c) => ({ ...c, monitored: isMonitored(c, watched) }))
         : [],

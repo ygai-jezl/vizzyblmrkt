@@ -1,14 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Stop watching removes from brand search whatever the switches say (ADR-0025): an in-memory index stands in.
+vi.mock("@/lib/tenant/searchIndex", async (original) => (await import("@/lib/search/testing/memorySearch")).withMemorySearch(await original<object>()));
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { Tenant } from "@/lib/types/tenant";
 import { situationKey } from "@/lib/brandMap/keys";
 import { readBrandMap, saveBrandMap } from "@/lib/brandMap/store";
-import { monitorCompetitor, updateCompetitor } from "@/lib/competitors/store";
+import { monitorCompetitor, removeCompetitor, updateCompetitor } from "@/lib/competitors/store";
 import { agentBrandStrategy } from "./agentApi";
 import { approveFromRequest, isNotFromRequest, notCompetitorFromRequest, saveFromRequest, sameStrategy, strategyView } from "./adminApi";
-import { readBrandStrategyDoc, saveFound, saveProposal, type ProposedStrategy } from "./store";
+import { noteMonitored, readBrandStrategyDoc, saveFound, saveProposal, type ProposedStrategy } from "./store";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "usr_a", role: "admin" };
 const MEMBER: TenantContext = { ...A, userId: "usr_m", role: "member" };
@@ -195,6 +197,21 @@ describe("the Strategy tab joined to Competitors", () => {
     expect((await strategyView(A, view(db))).state).toBe("approved");
     const agent = await agentBrandStrategy(A, { db, now: () => new Date(T0) });
     expect(agent.body).toMatchObject({ changedSinceApproved: false });
+  });
+
+  it("a suggestion watched from here and then not watched leaves the list, and isn't logged left out", async () => {
+    const { db, rev } = await brand();
+    const found = await saveFound(A, { mode: "quick", found: [find("Alpha"), find("Beta")] }, { db, now: () => new Date(T0) });
+    const watched = await monitorCompetitor(A, { website: "alpha.example", name: "Alpha", group: "big" }, { db, now: () => new Date(T0) });
+    await noteMonitored(A, { name: "Alpha", site: "alpha.example" }, { db });
+    expect((await strategyView(A, view(db))).competitors.map((c) => `${c.name}:${c.monitored}`)).toEqual(["Alpha:true", "Beta:false"]);
+    await removeCompetitor(A, watched.ok ? watched.value.competitor.id : "", { db });
+    expect((await strategyView(A, view(db))).competitors.map((c) => c.name)).toEqual(["Beta"]);
+    const doc = await readBrandStrategyDoc(A, { db });
+    await approveFromRequest(A, { baseRev: doc!.rev }, view(db));
+    const after = await readBrandStrategyDoc(A, { db });
+    expect(after?.decisions.filter((d) => d.kind === "competitor_left_out").map((d) => d.ref)).toEqual(["Beta"]);
+    expect(found.ok && rev).toBeTruthy();
   });
 
   it("approves nothing when the competitors can't be read, and says so", async () => {

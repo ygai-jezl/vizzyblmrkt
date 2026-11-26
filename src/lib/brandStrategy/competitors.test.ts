@@ -47,6 +47,13 @@ describe("the live competitor list", () => {
     expect(liveCompetitors(draft, [watch("cmp_aaaaaaaa03", "Nope", "nope.example")], [{ name: "Nope", site: null }]).map((c) => `${c.name}:${c.monitored}`)).toContain("Nope:true");
   });
 
+  it("drops a suggestion a person monitored from here once they stop watching it, and shows it while watched", () => {
+    const draft = draftOf(entry("Alpha"), entry("Beta"));
+    const monitored = [{ name: "Alpha", site: "alpha.example" }];
+    expect(liveCompetitors(draft, [], [], monitored).map((c) => c.name)).toEqual(["Beta"]);
+    expect(liveCompetitors(draft, [watch("cmp_aaaaaaaa01", "Alpha", "alpha.example")], [], monitored).map((c) => `${c.name}:${c.monitored}`)).toEqual(["Alpha:true", "Beta:false"]);
+  });
+
   it("shows the draft as it is, with its ticks, for a brand that can't read its competitors", () => {
     const draft = draftOf(entry("Ticked", { ticked: true }), entry("Copied", { from: "watched", ticked: true }), entry("Left"));
     const list = liveCompetitors(draft, null, [{ name: "Left", site: null }]);

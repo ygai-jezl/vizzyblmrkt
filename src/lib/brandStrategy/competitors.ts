@@ -21,7 +21,8 @@ import {
  *    draft gave it is only a hint (`was`), so choosing it saves it to the record.
  *  - Then what the finder suggested that isn't watched (matched by site, or by the name folded),
  *    leaving out every name a person marked Not a competitor.
- *  - A draft entry copied in as watched that the brand no longer watches drops out.
+ *  - A draft entry copied in as watched that the brand no longer watches drops out, and so does a
+ *    suggestion a person pressed Monitor on (`monitoredFinds`) and then stopped watching.
  *
  * `watched` is null when the brand can't read its competitors (it doesn't have the feature): the
  * draft's list then shows as it is, with its ticks.
@@ -47,7 +48,12 @@ export const sameCompetitor = (a: Named, b: Named) => Boolean((a.site && b.site 
 /** Whether a person marked this one Not a competitor. */
 export const isNotCompetitor = (c: Named, not: NotCompetitor[]) => not.some((n) => sameCompetitor(n, c));
 
-export function liveCompetitors(draft: Pick<Strategy, "competitorGroups"> | null, watched: Watched[] | null, notCompetitors: NotCompetitor[]): LiveCompetitor[] {
+export function liveCompetitors(
+  draft: Pick<Strategy, "competitorGroups"> | null,
+  watched: Watched[] | null,
+  notCompetitors: NotCompetitor[],
+  monitoredFinds: NotCompetitor[] = [],
+): LiveCompetitor[] {
   const entries = draft ? competitorsOf(draft) : [];
   if (!watched) {
     return entries.filter((c) => !(c.from === "finder" && isNotCompetitor(c, notCompetitors))).map((c) => ({ ...c, id: null, was: null, monitored: false }));
@@ -73,7 +79,8 @@ export function liveCompetitors(draft: Pick<Strategy, "competitorGroups"> | null
     };
   });
   entries.forEach((e, i) => {
-    if (used.has(i) || e.from === "watched" || isNotCompetitor(e, notCompetitors)) return;
+    // Not watched now: one copied in as watched, or one a person monitored from here and stopped, is gone.
+    if (used.has(i) || e.from === "watched" || isNotCompetitor(e, notCompetitors) || (e.from === "finder" && isNotCompetitor(e, monitoredFinds))) return;
     out.push({ ...e, id: null, was: null, monitored: false });
   });
   return out;

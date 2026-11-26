@@ -99,6 +99,17 @@ describe("the roadmap", () => {
     expect(roadmap.slice(0, 6).filter((e) => e.action !== "write")).toHaveLength(2);
   });
 
+  it("leaves out a refresh or combine whose live article's refresh a person skipped in Next up", () => {
+    const slots = [
+      slot("slt_open0001"),
+      slot("slt_refr0001", { kind: "refresh", coveredBy: ["p_plan1"] }),
+      slot("slt_refr0002", { kind: "refresh", coveredBy: ["p_plan2"] }),
+      slot("slt_comb0001", { kind: "combine", coveredBy: ["p_plan2", "p_plan3"] }),
+    ];
+    const { roadmap } = makeRoadmap({ ...base, refreshShare: 1, slots, pillars: [pillar("pil_aaaaaa01")], skipped: new Set(["refresh:plan2"]) });
+    expect(roadmap.filter((e) => e.action !== "write").map((e) => e.slotId)).toEqual(["slt_refr0001"]);
+  });
+
   it("gives two focus pillars a block when the plan has more than 3, the strongest first", () => {
     const pillars = ["pil_aaaaaa01", "pil_aaaaaa02", "pil_aaaaaa03", "pil_aaaaaa04"].map((id) => pillar(id));
     const slots = pillars.flatMap((p, k) => Array.from({ length: 3 }, (_, i) => slot(`slt_${k}${i}aaaaaa`, { pillarId: p.id, scores: { ...slot("x").scores, total: 10 * (k + 1) } })));

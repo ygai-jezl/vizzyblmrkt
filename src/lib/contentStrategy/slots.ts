@@ -5,7 +5,7 @@ import { CLOSE_SIM } from "@/lib/nextUp/repeats";
 import type { BrandMapPage } from "@/lib/types/brandMapPage";
 import type { BlogIntent } from "@/lib/types/contentPlan";
 import { CONTENT_STRATEGY_LIMITS as L, type ContentSlot, type ContentStage, type PageKind } from "@/lib/types/contentStrategy";
-import { newSlotId } from "./store";
+import { newSlotId } from "./ids";
 
 /**
  * Slots: the brand map's decided questions merged into the articles they belong in (decision 4:
@@ -257,15 +257,16 @@ export function sharedResults(a: readonly string[], b: readonly string[]): numbe
 /**
  * Google's check of each slot's top questions (its first three): one that shares fewer than 3 of
  * the top 10 results with the slot's first question goes into a slot of its own; one that shares 3
- * or more confirms the slot. A question with no lookup is left as meaning grouped it. Pure, apart
- * from new ids.
+ * or more confirms the slot. A question with no lookup is left as meaning grouped it. At most 400
+ * slots are kept; `leftOut` says how many the split pushed past that. Pure, apart from new ids.
  */
 export function splitBySerp(
   slots: MadeSlot[],
   tops: (questionId: string) => readonly string[] | null,
   byId: ReadonlyMap<string, SlotQuestion>,
   due: ReadonlySet<string> = new Set(),
-): MadeSlot[] {
+  max: number = L.slots,
+): { slots: MadeSlot[]; leftOut: number } {
   const out: MadeSlot[] = [];
   for (const slot of slots) {
     const leadTop = slot.questionIds.length > 1 ? tops(slot.questionIds[0]!) : null;
@@ -293,5 +294,5 @@ export function splitBySerp(
       out.push({ ...own, facts: { ...own.facts, serp: "split" } });
     }
   }
-  return out.slice(0, L.slots);
+  return { slots: out.slice(0, max), leftOut: Math.max(0, out.length - max) };
 }

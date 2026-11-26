@@ -7,7 +7,7 @@ import { BrandMapPageSchema, type BrandMapPage } from "@/lib/types/brandMapPage"
 import { NOT_ARTICLE_KINDS, type ContentPlan, type ContentSlot, type PickSlot, type RoadmapEntry } from "@/lib/types/contentStrategy";
 import { isContentStrategyNextUpEnabled } from "./flags";
 import { questionsNow, questionTexts, type QuestionDeps } from "./questions";
-import { combineId } from "./roadmap";
+import { combineId, isSlotSkipped } from "./roadmap";
 import { readContentStrategy } from "./store";
 
 /**
@@ -55,9 +55,19 @@ async function pageRows(ctx: TenantContext, ids: string[], deps: RoadmapDeps): P
 const titleOf = (p: BrandMapPage) => (p.title || p.primaryQuestion || p.url || "Untitled").slice(0, 200);
 
 /**
+ * The question ids of every slot a person skipped a pick of lately, or that an active run holds
+ * (`exclude`): skipping a pick skips its slot, so neither the roadmap nor the free list offers the
+ * slot again through another of its questions. Pure.
+ */
+export function skippedSlotQuestions(plan: Pick<ContentPlan, "slots">, exclude: ReadonlySet<string>): Set<string> {
+  return new Set(plan.slots.filter((s) => isSlotSkipped(s, exclude)).flatMap((s) => s.questionIds));
+}
+
+/**
  * The roadmap's next open entries as candidates, in roadmap order, each with its slot. An entry
- * whose slot is written, being written, skipped lately (`exclude`) or no longer on the map is
- * passed over. `refreshes` are the freshness watch's candidates, matched by their live article.
+ * whose slot is written, being written, no longer on the map, or had any of its picks skipped
+ * lately (`exclude`: one of its questions, its combine or a refresh of its live article) is passed
+ * over. `refreshes` are the freshness watch's candidates, matched by their live article.
  */
 export async function roadmapCandidates(
   ctx: TenantContext,
@@ -84,6 +94,8 @@ export async function roadmapCandidates(
   for (const e of entries) {
     if (out.length >= max) break;
     const s = slots.get(e.slotId)!;
+    // One article per slot: a skip of any of its picks, or a run holding one of its questions, holds the slot.
+    if (isSlotSkipped(s, opts.exclude)) continue;
     const slot = pickSlotOf(plan, s, e);
     const firstOpen = s.questionIds.map((id) => questions.get(id)).find((q) => q && q.state === "open" && !opts.exclude.has(q.id));
     const asCandidate = (q: NonNullable<typeof firstOpen>, closeTo?: CloseTo): Candidate => ({
@@ -100,7 +112,7 @@ export async function roadmapCandidates(
     });
     if (e.action === "combine") {
       const live = s.coveredBy.map((id) => pages.get(id)).filter((p): p is BrandMapPage => Boolean(p && p.state === "live"));
-      if (live.length < 2 || opts.exclude.has(combineId(s))) continue;
+      if (live.length < 2) continue;
       const combinePages: RepeatPair["pages"] = live.map((p) => ({ title: titleOf(p), url: p.url, planId: p.planId, workspaceId: p.workspaceId }));
       add({ questionId: combineId(s), question: s.title, subjectId: s.subjectIds[0] ?? "", subjectName: "two live articles", answered: 0, total: 0, lastArticleAt: null, focus: false, slot, combine: { pages: combinePages } });
       continue;

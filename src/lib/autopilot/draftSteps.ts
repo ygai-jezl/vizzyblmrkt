@@ -137,7 +137,6 @@ export const pickStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
   // In Next up's order: a refresh pick that can't be taken now is passed over, never dropped.
   let pick: NextUpPick | undefined;
   for (const p of (doc?.picks ?? []).filter(writable)) {
-    if (p.kind === "combine") continue;
     // Close to a live article: added to it by a Draft run when it can be, otherwise left for a person.
     if (p.closeTo) {
       const added = refreshes ? await takeClose(ctx, p, deps) : null;

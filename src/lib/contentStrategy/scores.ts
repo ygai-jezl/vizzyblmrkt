@@ -18,6 +18,12 @@ const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
 
 type Scored = Pick<ContentSlot, "id" | "questionIds" | "stage" | "pillarId" | "coveredBy" | "facts">;
 
+/** Percentages of a count by stage. Pure. */
+export function mixOf(stages: readonly ContentStage[]): Record<ContentStage, number> {
+  const n = Math.max(1, stages.length);
+  return Object.fromEntries(CONTENT_STAGES.map((s) => [s, Math.round((100 * stages.filter((x) => x === s).length) / n)])) as Record<ContentStage, number>;
+}
+
 /** The stage mix of the slots already live, as percentages. Pure. */
 export function liveMix(slots: ReadonlyArray<Pick<ContentSlot, "stage" | "coveredBy">>): Record<ContentStage, number> {
   const live = slots.filter((s) => s.coveredBy.length);

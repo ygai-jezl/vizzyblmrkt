@@ -27,7 +27,7 @@ import { mayStartReview } from "@/lib/content/blog/refreshGate";
 import { MAX_CANDIDATES } from "./candidates";
 import { findRepeats, linkAnswered, NO_REPEATS, type Repeats } from "./repeats";
 import { readBrandStrategy, type Strategy } from "@/lib/brandStrategy/store";
-import { freePicksOf, mixRoadmap, planForNextUp, roadmapCandidates } from "@/lib/contentStrategy/nextUp";
+import { freePicksOf, mixRoadmap, planForNextUp, roadmapCandidates, skippedSlotQuestions } from "@/lib/contentStrategy/nextUp";
 import { PAGE_KIND_LABEL, ROADMAP_SHARE, type ContentPlan, type PickSlot } from "@/lib/types/contentStrategy";
 
 /**
@@ -379,8 +379,10 @@ export async function pickNextUp(
   if (repeats.linked.length && read.map.moved) await (deps.link ?? linkAnswered)(ctx, repeats.linked, { db: deps.db, now: deps.now }).catch(() => 0);
   const dropped = new Set([...repeats.linked.map((l) => l.questionId), ...repeats.inProgress]);
   const withClose = (q: Candidate): Candidate => (repeats.close.has(q.questionId) && !q.closeTo ? { ...q, closeTo: repeats.close.get(q.questionId)! } : q);
+  // With a plan, a slot a person skipped a pick of isn't offered free through its other questions either.
+  const heldBySlot = plan ? skippedSlotQuestions(plan, excluded) : new Set<string>();
   const questions = listed
-    .filter((q) => !dropped.has(q.questionId))
+    .filter((q) => !dropped.has(q.questionId) && !heldBySlot.has(q.questionId))
     .slice(0, MAX_CANDIDATES)
     .map((q) => (repeats.close.has(q.questionId) ? { ...q, closeTo: repeats.close.get(q.questionId)! } : q));
   const roadmap = fromRoadmap.filter((c) => c.refresh || c.combine || !dropped.has(c.questionId)).map((c) => (c.refresh || c.combine ? c : withClose(c)));

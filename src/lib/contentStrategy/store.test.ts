@@ -197,6 +197,39 @@ describe("a person's change to the plan", () => {
     expect(applyPlanEdit(full, { op: "join", baseRev: 0, slotId: "slt_aaaaaa02", intoSlotId: "slt_aaaaaa01" }, AT, null, look)).toMatchObject({ ok: false, error: "slot_full" });
   });
 
+  it("a join takes the action its live articles need: one live makes a refresh, two a combine, never a write", () => {
+    const done = slot("slt_bbbbbb01", ["q_bbbbbb01"], { coveredBy: ["p_plan1"] });
+    const open = slot("slt_bbbbbb02", ["q_bbbbbb02"]);
+    const other = slot("slt_bbbbbb03", ["q_bbbbbb03"], { coveredBy: ["p_plan2"], kind: "refresh" });
+    const p = plan({ slots: [done, open, other], roadmap: [{ week: "2026-W49", slotId: "slt_bbbbbb02", action: "write" }, { week: "2026-W50", slotId: "slt_bbbbbb03", action: "refresh" }] });
+    const one = applyPlanEdit(p, { op: "join", baseRev: 0, slotId: "slt_bbbbbb01", intoSlotId: "slt_bbbbbb02" }, AT, null, look);
+    expect(one.ok && one.plan.slots.find((s) => s.id === "slt_bbbbbb02")).toMatchObject({ coveredBy: ["p_plan1"], kind: "refresh" });
+    expect(one.ok && one.plan.roadmap[0]).toEqual({ week: "2026-W49", slotId: "slt_bbbbbb02", action: "refresh" });
+    if (!one.ok) return;
+    const two = applyPlanEdit(one.plan, { op: "join", baseRev: 0, slotId: "slt_bbbbbb03", intoSlotId: "slt_bbbbbb02" }, AT, null, look);
+    expect(two.ok && two.plan.slots.find((s) => s.id === "slt_bbbbbb02")).toMatchObject({ coveredBy: ["p_plan1", "p_plan2"], kind: "combine" });
+    expect(two.ok && two.plan.roadmap).toEqual([{ week: "2026-W49", slotId: "slt_bbbbbb02", action: "combine" }]);
+  });
+
+  it("a split works both slots out from their own questions: coverage, focus, kind, the roadmap action and the scores", () => {
+    const both = slot("slt_bbbbbb01", ["q_aaaaaa01", "q_aaaaaa02"], { kind: "combine", coveredBy: ["p_plan1", "p_plan2"], facts: { focus: 1, impressions: 40, paa: null, theirs: 0, serp: null } });
+    const p = plan({ slots: [both], roadmap: [{ week: "2026-W49", slotId: "slt_bbbbbb01", action: "combine" }] });
+    const q = (id: string, over: object) => ({ id, text: texts[id]!, intent: "definition" as const, subjectId: "sub_aaaaaa01", focus: false, impressions: null, state: "answered" as const, live: [] as string[], ...over });
+    const questions = new Map([
+      ["q_aaaaaa01", q("q_aaaaaa01", { live: ["p_plan1"], state: "open", impressions: 40 })],
+      ["q_aaaaaa02", q("q_aaaaaa02", { live: ["p_plan2"], focus: true })],
+    ]);
+    const r = applyPlanEdit(p, { op: "split", baseRev: 0, slotId: "slt_bbbbbb01", questionId: "q_aaaaaa02" }, AT, null, { ...look, questions });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const [kept, out] = r.plan.slots;
+    // Focus is counted once, on the question that has it; each keeps its own live article.
+    expect(kept).toMatchObject({ id: "slt_bbbbbb01", coveredBy: ["p_plan1"], kind: "refresh", facts: { focus: 0, impressions: 40 }, scores: { fit: 0 } });
+    expect(out).toMatchObject({ questionIds: ["q_aaaaaa02"], coveredBy: ["p_plan2"], facts: { focus: 1, impressions: null }, scores: { fit: 100 } });
+    // The kept slot's combine becomes the refresh it needs now; the one split out, done already, isn't scheduled.
+    expect(r.plan.roadmap).toEqual([{ week: "2026-W49", slotId: "slt_bbbbbb01", action: "refresh" }]);
+  });
+
   it("skips a pick off the roadmap with its reason, and moves one to another week of the plan", () => {
     const skipped = applyPlanEdit(plan(), { op: "skip", baseRev: 0, slotId: "slt_aaaaaa02", reason: "Not this quarter" }, AT, null, look);
     expect(skipped.ok && skipped.plan.roadmap.map((e) => e.slotId)).toEqual(["slt_aaaaaa01"]);

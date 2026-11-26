@@ -4,10 +4,12 @@ import {
   CONTENT_STRATEGY_LIMITS as L,
   NOT_ARTICLE_KINDS,
   type ContentPillar,
+  type ContentPlan,
   type ContentSlot,
   type ContentStage,
   type FocusBlock,
   type Funnel,
+  type RoadmapAction,
   type RoadmapEntry,
 } from "@/lib/types/contentStrategy";
 
@@ -50,7 +52,7 @@ export interface RoadmapInput {
   duePageIds?: readonly string[];
   /** Slots Next up found two live articles repeating. */
   repeatSlotIds?: ReadonlySet<string>;
-  /** Question ids (or `combine:<question id>`) a person skipped lately. */
+  /** Question ids, `combine:<question id>` or `refresh:<planId>` a person skipped lately. */
   skipped?: ReadonlySet<string>;
 }
 
@@ -59,6 +61,35 @@ export const isOpenSlot = (s: Pick<ContentSlot, "coveredBy" | "inProgress" | "ki
 
 /** The id Next up gives a combine pick: stable across plans, so a skip holds. */
 export const combineId = (s: Pick<ContentSlot, "questionIds">) => `combine:${s.questionIds[0] ?? ""}`;
+
+/** The plan of an article page (`p_<planId>`), or null for a page of the brand's site. */
+export const planIdOfPage = (pageId: string) => (pageId.startsWith("p_") ? pageId.slice(2) : null);
+
+/** The ids Next up gives refreshing a slot's live articles (`refresh:<planId>`). */
+export const refreshIdsOf = (s: Pick<ContentSlot, "coveredBy">) => s.coveredBy.flatMap((p) => (planIdOf(p) ? [`refresh:${planIdOf(p)}`] : []));
+const planIdOf = planIdOfPage;
+
+/**
+ * Whether a person skipped any pick of this slot lately: one of its questions, its combine or a
+ * refresh of its live article. Skipping a pick skips the slot (one article per slot). Pure.
+ */
+export function isSlotSkipped(s: Pick<ContentSlot, "questionIds" | "coveredBy">, skipped: ReadonlySet<string>): boolean {
+  return s.questionIds.some((q) => skipped.has(q)) || skipped.has(combineId(s)) || refreshIdsOf(s).some((r) => skipped.has(r));
+}
+
+/**
+ * The roadmap action a slot needs now, from the live articles that answer it: two or more, combine;
+ * one, refresh (when its kind says there is something to refresh); none, write (when it is an
+ * article). Null: nothing to put on the roadmap. Pure.
+ */
+export function entryActionOf(s: Pick<ContentSlot, "coveredBy" | "kind">): RoadmapAction | null {
+  if (s.coveredBy.length >= 2) return "combine";
+  if (s.coveredBy.length === 1) return s.kind === "refresh" ? "refresh" : null;
+  return NOT_ARTICLE_KINDS.has(s.kind) ? null : "write";
+}
+
+/** The plan's weeks, in order. Pure. */
+export const weeksOf = (plan: Pick<ContentPlan, "blocks" | "roadmap">) => [...new Set([...plan.blocks.flatMap((b) => b.weeks), ...plan.roadmap.map((e) => e.week)])].sort();
 
 /** The funnel stage furthest under its share if one more is added, in funnel order on a tie. Pure. */
 export function stagesByNeed(counts: Record<ContentStage, number>, funnel: Funnel): ContentStage[] {
@@ -69,7 +100,7 @@ export function stagesByNeed(counts: Record<ContentStage, number>, funnel: Funne
 /** The roadmap and its focus blocks. Pure. */
 export function makeRoadmap(input: RoadmapInput): { roadmap: RoadmapEntry[]; blocks: FocusBlock[] } {
   const skipped = input.skipped ?? new Set<string>();
-  const isSkipped = (s: Pick<ContentSlot, "questionIds">) => s.questionIds.some((q) => skipped.has(q));
+  const isSkipped = (s: Pick<ContentSlot, "questionIds" | "coveredBy">) => isSlotSkipped(s, skipped);
   const byScore = <T extends { scores: { total: number } }>(list: T[]) => list.map((s, i) => ({ s, i })).sort((a, b) => b.s.scores.total - a.s.scores.total || a.i - b.i).map((x) => x.s);
 
   const open = byScore(input.slots.filter((s) => isOpenSlot(s) && !isSkipped(s)));
@@ -94,7 +125,7 @@ export function makeRoadmap(input: RoadmapInput): { roadmap: RoadmapEntry[]; blo
     const k = Math.min(...s.coveredBy.map((p) => (due.includes(p) ? due.indexOf(p) : Number.POSITIVE_INFINITY)));
     return Number.isFinite(k) ? k : due.length + 1;
   };
-  const combines = byScore(input.slots.filter((s) => s.kind === "combine" && !skipped.has(combineId(s)) && !isSkipped(s))).sort(
+  const combines = byScore(input.slots.filter((s) => s.kind === "combine" && !isSkipped(s))).sort(
     (a, b) => Number(input.repeatSlotIds?.has(b.id) ?? false) - Number(input.repeatSlotIds?.has(a.id) ?? false),
   );
   const refreshes = byScore(input.slots.filter((s) => s.kind === "refresh" && !isSkipped(s))).sort((a, b) => dueRank(a) - dueRank(b));

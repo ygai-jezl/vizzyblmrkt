@@ -6,22 +6,22 @@ import { isoWeekOf } from "@/lib/connectors/period";
 import { forTenant, isRateLimited } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import {
-  CONTENT_STAGES,
   NOT_ARTICLE_KINDS,
   PLAN_SOURCE_LABEL,
   PillarId,
   PlanEditSchema,
   type ContentPlan,
+  type ContentSlot,
   type ContentStage,
   type ContentStrategyDoc,
   type PageKind,
   type RoadmapAction,
 } from "@/lib/types/contentStrategy";
 import { isContentStrategyEnabled, isContentStrategyNextUpEnabled } from "./flags";
-import { makeContentPlan, type MakeDeps } from "./make";
+import { makeContentPlan, questionFactsFor, type MakeDeps } from "./make";
 import { questionTexts } from "./questions";
-import { combineId, isOpenSlot } from "./roadmap";
-import { slotWhy } from "./scores";
+import { combineId, isOpenSlot, refreshIdsOf, weeksOf } from "./roadmap";
+import { mixOf, slotWhy } from "./scores";
 import { approvePlan, deleteContentStrategy, readContentStrategyDoc, savePlanEdit, type PlanResult } from "./store";
 
 /**
@@ -113,8 +113,6 @@ function stateOf(doc: ContentStrategyDoc | null): ContentPlanView["state"] {
   return doc.draft ? "changed" : "approved";
 }
 
-/** The plan's weeks, in order. Pure. */
-export const weeksOf = (plan: ContentPlan) => [...new Set([...plan.blocks.flatMap((b) => b.weeks), ...plan.roadmap.map((e) => e.week)])].sort();
 
 /** The roadmap's entries from this week on, for the next few weeks that have any. Pure. */
 export function nextEntries(plan: ContentPlan, thisWeek: string, weeks = NEXT_WEEKS) {
@@ -144,11 +142,6 @@ export function pillarSummary(plan: ContentPlan): Array<ViewPillar & { slotIds: 
   });
 }
 
-/** Percentages of a count by stage. Pure. */
-export function mixOf(stages: readonly ContentStage[]): Record<ContentStage, number> {
-  const n = Math.max(1, stages.length);
-  return Object.fromEntries(CONTENT_STAGES.map((s) => [s, Math.round((100 * stages.filter((x) => x === s).length) / n)])) as Record<ContentStage, number>;
-}
 
 /** The live articles named by page id, with their titles (a few reads). */
 export async function livePages(ctx: TenantContext, ids: string[], deps: ViewDeps): Promise<Map<string, ViewPage>> {
@@ -272,14 +265,27 @@ export async function editFromRequest(ctx: TenantContext, body: unknown, deps: V
   const doc = await readContentStrategyDoc(ctx, deps).catch(() => null);
   const plan = doc?.draft ?? doc?.approved ?? null;
   const slot = "slotId" in edit ? plan?.slots.find((s) => s.id === edit.slotId) : undefined;
-  const texts = edit.op === "split" && slot ? await questionTexts(ctx, slot.questionIds, deps) : new Map<string, string>();
-  const r = await savePlanEdit(ctx, edit, { questionText: (id) => texts.get(id) ?? null }, deps);
+  // A split works both slots out again from their own questions, so it reads what is known of them now.
+  const facts = edit.op === "split" && slot ? await questionFactsFor(ctx, slot.questionIds, slot.coveredBy, deps).catch(() => null) : null;
+  const texts = new Map([...(facts?.questions.values() ?? [])].map((q) => [q.id, q.text] as const));
+  if (edit.op === "split" && slot && !texts.size) for (const [id, t] of await questionTexts(ctx, slot.questionIds, deps)) texts.set(id, t);
+  const r = await savePlanEdit(ctx, edit, { questionText: (id) => texts.get(id) ?? null, ...(facts ? { questions: facts.questions, due: facts.due } : {}) }, deps);
   if (r.ok && edit.op === "skip" && slot) {
     const entry = plan?.roadmap.find((e) => e.slotId === slot.id);
-    const questionId = entry?.action === "combine" ? combineId(slot) : (slot.questionIds[0] ?? null);
-    await addLearned(ctx, { kind: "skipped_pick", text: slot.title, reason: edit.reason, questionId, from: "person" }, deps).catch(() => null);
+    await addLearned(ctx, { kind: "skipped_pick", text: slot.title, reason: edit.reason, questionId: skipIdOf(slot, entry?.action ?? "write"), from: "person" }, deps).catch(() => null);
   }
   return answer(ctx, r, deps);
+}
+
+/**
+ * The id a skipped roadmap entry goes on the Learned list under, as Next up names the same pick:
+ * `combine:<first question>` for a combine, `refresh:<planId>` for a refresh of an article written
+ * here, the slot's first question otherwise. Pure.
+ */
+export function skipIdOf(slot: Pick<ContentSlot, "questionIds" | "coveredBy">, action: RoadmapAction): string | null {
+  if (action === "combine") return combineId(slot);
+  if (action === "refresh") return refreshIdsOf(slot)[0] ?? slot.questionIds[0] ?? null;
+  return slot.questionIds[0] ?? null;
 }
 
 const ApproveBody = z.object({ baseRev: z.number().int().min(0) }).strict();

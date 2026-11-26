@@ -1,12 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { ContentPlanView, ViewEntry, ViewPillar } from "@/lib/contentStrategy/adminApi";
+import type { ContentPlanView, ViewEntry } from "@/lib/contentStrategy/adminApi";
 import { CONTENT_STRATEGY_LIMITS as L, PAGE_KIND_LABEL, type ContentStage, type PageKind } from "@/lib/types/contentStrategy";
 import { api } from "@/components/admin/connect/api";
 import { Banner, Button, inputClass } from "@/components/admin/connect/ui";
 import { smallLabel } from "./BrandMapParts";
-import { NOT_ARTICLES_LABEL, PLAN_APPROVED_NOTE, PLAN_APPROVED_QUIET_NOTE, madeNote, planErrorText } from "./contentPlanMessages";
+import { NOT_ARTICLES_LABEL, PLAN_APPROVED_NOTE, PLAN_APPROVED_QUIET_NOTE, hubLine, madeNote, planErrorText } from "./contentPlanMessages";
 
 /**
  * The Content plan section of the Strategy tab (CONTENT_STRATEGY_ENABLED): the brand's plan for the
@@ -36,12 +36,6 @@ const day = (iso: string | null) => {
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
 };
 const wk = (w: string) => `Wk ${w.slice(-2)}`;
-
-function hubLine(p: ViewPillar): string {
-  if (!p.hub) return "hub: none yet";
-  if (p.hub.kind === "home") return "hub: your page";
-  return p.hub.live ? `hub: ${p.hub.title}` : "hub: none yet";
-}
 
 function Funnel({ view }: { view: ContentPlanView }) {
   const t = view.funnel.target;

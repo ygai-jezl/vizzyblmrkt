@@ -1,4 +1,5 @@
 import { errorText } from "@/components/admin/connect/api";
+import type { ViewPillar } from "@/lib/contentStrategy/adminApi";
 
 /**
  * What the Content plan section says (Brand › Brand map › Strategy). Client safe. The help page
@@ -42,4 +43,11 @@ export function madeNote(notes: { lookupsAsked?: number; byMeaning?: boolean; le
   if (notes?.lookupsAsked) parts.push(`Google was asked about ${notes.lookupsAsked} ${notes.lookupsAsked === 1 ? "question" : "questions"}: making the plan again later uses what comes back.`);
   if (notes?.leftOut) parts.push(`${notes.leftOut} smaller ${notes.leftOut === 1 ? "slot was" : "slots were"} left out past the limit of 400.`);
   return parts.join(" ");
+}
+
+/** A pillar's hub, said the way Vizzy says it: your page, a live article, or the slot to write first. */
+export function hubLine(p: Pick<ViewPillar, "hub">): string {
+  if (!p.hub) return "hub: none yet";
+  if (p.hub.kind === "home") return "hub: your page";
+  return p.hub.live ? `hub: ${p.hub.title}` : `hub to write first: ${p.hub.title}`;
 }

@@ -3,10 +3,10 @@ import { meaningsOf, numberKeys } from "@/lib/metrics/meanings";
 import { isRateLimited, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { CONTENT_STAGES, NOT_ARTICLE_KINDS, PAGE_KIND_LABEL } from "@/lib/types/contentStrategy";
-import { livePages, mixOf, nextEntries, pillarSummary, thisWeekOf } from "./adminApi";
+import { livePages, nextEntries, pillarSummary, thisWeekOf } from "./adminApi";
 import { isContentStrategyChatEnabled } from "./flags";
 import { isOpenSlot } from "./roadmap";
-import { slotWhy } from "./scores";
+import { mixOf, slotWhy } from "./scores";
 import { readContentStrategyDoc } from "./store";
 
 /**

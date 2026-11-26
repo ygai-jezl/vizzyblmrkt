@@ -6,6 +6,7 @@ import { computeCoverage } from "@/lib/content/blog/coverage";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { BrandMapPage } from "@/lib/types/brandMapPage";
+import type { BlogIntent } from "@/lib/types/contentPlan";
 
 /**
  * The brand map's questions as the content plan names them, by id: their words, their subject and
@@ -16,6 +17,12 @@ import type { BrandMapPage } from "@/lib/types/brandMapPage";
 export interface QuestionNow {
   id: string;
   text: string;
+  intent: BlogIntent;
+  /** Its buying situations (a moved map's records keep them; a small map's list doesn't). */
+  situationIds: string[];
+  /** The live article Next up linked it to by meaning, and the pages a person unlinked. */
+  answeredBy: { pageId: string } | null;
+  notAnsweredBy: string[];
   subjectId: string;
   subjectName: string;
   state: "open" | "planned" | "drafted" | "answered";
@@ -53,7 +60,19 @@ export async function questionsNow(ctx: TenantContext, ids: string[], deps: Ques
       const s = subjects.get(q.subjectId);
       if (!s || s.status !== "decided") continue;
       const state = s.answeredIds.includes(q.id) ? "answered" : s.draftedIds.includes(q.id) ? "drafted" : s.plannedIds.includes(q.id) ? "planned" : "open";
-      out.set(q.id, { id: q.id, text: q.text, subjectId: s.id, subjectName: s.name, state, answered: s.counts.answered, total: s.counts.questions });
+      out.set(q.id, {
+        id: q.id,
+        text: q.text,
+        intent: q.intent,
+        situationIds: q.situationIds,
+        answeredBy: q.answeredBy,
+        notAnsweredBy: q.notAnsweredBy,
+        subjectId: s.id,
+        subjectName: s.name,
+        state,
+        answered: s.counts.answered,
+        total: s.counts.questions,
+      });
     }
     return out;
   }
@@ -62,7 +81,7 @@ export async function questionsNow(ctx: TenantContext, ids: string[], deps: Ques
   for (const s of cov.subjects) {
     for (const q of s.questions) {
       if (!want.includes(q.id)) continue;
-      out.set(q.id, { id: q.id, text: q.text, subjectId: s.id, subjectName: s.name, state: q.state, answered: s.answered, total: s.questions.length });
+      out.set(q.id, { id: q.id, text: q.text, intent: q.intent, situationIds: [], answeredBy: null, notAnsweredBy: [], subjectId: s.id, subjectName: s.name, state: q.state, answered: s.answered, total: s.questions.length });
     }
   }
   return out;

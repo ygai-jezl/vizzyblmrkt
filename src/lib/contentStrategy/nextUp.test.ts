@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { skipPick } from "@/lib/autopilot/adminApi";
+import { addLearned, learnedLine } from "@/lib/autopilot/learned";
 import { pickStep } from "@/lib/autopilot/draftSteps";
 import { saveBrandMap } from "@/lib/brandMap/store";
 import { withDerivedFacts } from "@/lib/content/blog/pageRow";
@@ -12,7 +13,7 @@ import type { AutopilotRun, NextUpPick } from "@/lib/types/autopilot";
 import { BrandMapDecidedSchema } from "@/lib/types/brandMap";
 import { BrandMapPageFactsSchema } from "@/lib/types/brandMapPage";
 import { ContentPlanSchema, type ContentPlan, type PickSlot } from "@/lib/types/contentStrategy";
-import { freePicksOf, mixRoadmap, planForNextUp, roadmapCandidates, slotQuestionsFor } from "./nextUp";
+import { freePicksOf, mixRoadmap, planForNextUp, roadmapCandidates, skippedSlotQuestions, slotQuestionsFor } from "./nextUp";
 import { approvePlan, saveMadePlan } from "./store";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
@@ -117,6 +118,20 @@ describe("the roadmap's next open entries as candidates", () => {
     expect(out[2]!.closeTo).toMatchObject({ planId: "plan3", title: "Running an audit" });
   });
 
+  it("skips the whole slot when any of its picks was skipped: never offering it again through its next question", async () => {
+    const db = await seeded();
+    const two = ContentPlanSchema.parse({ ...PLAN, slots: [{ id: "slt_cccccc01", title: "Costs and audits", questionIds: ["q_aaaaaa03", "q_aaaaaa04"], subjectIds: ["sub_aaaaaa01"], scores }], roadmap: [{ week: "2026-W48", slotId: "slt_cccccc01", action: "write" }] });
+    expect((await roadmapCandidates(A, two, { exclude: new Set(), refreshes: [] }, { db })).map((c) => c.questionId)).toEqual(["q_aaaaaa03"]);
+    expect(await roadmapCandidates(A, two, { exclude: new Set(["q_aaaaaa03"]), refreshes: [] }, { db })).toEqual([]);
+    expect([...skippedSlotQuestions(two, new Set(["q_aaaaaa03"]))]).toEqual(["q_aaaaaa03", "q_aaaaaa04"]);
+  });
+
+  it("never offers a refresh someone skipped as an addition to its live article instead", async () => {
+    const db = await seeded();
+    const out = await roadmapCandidates(A, PLAN, { exclude: new Set(["refresh:plan3"]), refreshes: [] }, { db });
+    expect(out.map((c) => c.questionId)).toEqual(["combine:q_aaaaaa01", "q_aaaaaa03"]);
+  });
+
   it("uses the freshness watch's candidate for a due article, and passes over what was skipped", async () => {
     const db = await seeded();
     const due = cand("refresh:plan3", { refresh: { planId: "plan3", workspaceId: "ws1", reasons: [] }, subjectName: "a live article" });
@@ -171,6 +186,14 @@ describe("Next up with an approved plan", () => {
     expect(picks[1]!.chips.map((c) => c.label)).toEqual(["Content plan"]);
   });
 
+  it("leaves a skipped slot out of the free picks too", async () => {
+    const two = ContentPlanSchema.parse({ ...PLAN, slots: [{ id: "slt_cccccc01", title: "Costs and audits", questionIds: ["q_aaaaaa03", "q_aaaaaa04"], subjectIds: ["sub_aaaaaa01"], scores }], roadmap: [{ week: "2026-W48", slotId: "slt_cccccc01", action: "write" }] });
+    const d = await setup({ contentPlan: async () => two, candidates: async () => [cand("q_aaaaaa04"), ...free], generate: vi.fn(async () => JSON.stringify({ picks: [] })) });
+    await addLearned(A, { kind: "skipped_pick", text: "How much does tracking cost?", questionId: "q_aaaaaa03", from: "person" }, { db: d.db, now: () => NOW });
+    const r = await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d);
+    expect(r.ok && r.doc.picks.map((p) => p.questionId)).toEqual(["q_ffffff01", "q_ffffff02", "q_ffffff03"]);
+  });
+
   it("picks exactly as before without an approved plan", async () => {
     let prompt = "";
     const d = await setup({ contentPlan: async () => null, generate: vi.fn(async (p: string) => ((prompt = p), JSON.stringify({ picks: [] }))) });
@@ -219,11 +242,14 @@ describe("the autopilot and a combine pick", () => {
     expect((await readNextUp(A, { db }))?.picks.map((p) => p.questionId)).toEqual(["combine:q_aaaaaa01"]);
   });
 
-  it("a person can say Not now to it, kept on the Learned list", async () => {
+  it("a person can say Not now to it, kept on the Learned list in its own words", async () => {
     const db = new FakeFirestore();
     await forTenant(A, db).nextUp.create("nu_ten_A", { picks: [pick({ questionId: "combine:q_aaaaaa01", kind: "combine" })], notOnMap: [], missing: [], candidates: 1, at: NOW.toISOString(), by: "person" } as never);
     const r = await skipPick(A, { questionId: "combine:q_aaaaaa01", question: "AI visibility tracking, explained" }, { db });
     expect(r.status).toBe(200);
+    const entry = { id: "l1", tenantId: "ten_A", kind: "skipped_pick" as const, text: "AI visibility tracking, explained", reason: "", questionId: "combine:q_aaaaaa01", from: "person" as const, at: "", by: null };
+    expect(learnedLine(entry)).toBe('Skipped combining the live articles that answer: "AI visibility tracking, explained"');
+    expect(learnedLine({ ...entry, questionId: "q_aaaaaa01" })).toBe('Skipped as a next article: "AI visibility tracking, explained"');
   });
 });
 

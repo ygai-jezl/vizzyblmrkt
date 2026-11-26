@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { forTenant } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import {
@@ -13,8 +12,12 @@ import {
   type PlanDecisionKind,
   type PlanEdit,
   type PlanSummary,
+  type PageKind,
 } from "@/lib/types/contentStrategy";
 import { isContentStrategyEnabled } from "./flags";
+import { entryActionOf, weeksOf } from "./roadmap";
+import { scoreSlots } from "./scores";
+import { slotFrom, type SlotQuestion } from "./slots";
 
 export type { ContentPlan, ContentSlot, ContentStrategyDoc, PlanDecision, PlanEdit } from "@/lib/types/contentStrategy";
 
@@ -54,15 +57,7 @@ class Refused extends Error {
   }
 }
 
-/** A new slot's id. */
-export function newSlotId(): string {
-  return `slt_${randomBytes(8).toString("hex")}`;
-}
-
-/** A new pillar's id. */
-export function newPillarId(): string {
-  return `pil_${randomBytes(8).toString("hex")}`;
-}
+export { newPillarId, newSlotId } from "./ids";
 
 /** A stored document as the app reads it, or null when it no longer reads. */
 export function parseContentStrategy(raw: Record<string, unknown> | null): ContentStrategyDoc | null {
@@ -194,6 +189,36 @@ export async function saveMadePlan(ctx: TenantContext, plan: ContentPlan, deps: 
 /** What a split needs to know of the question it takes out: its words, for the new slot's title. */
 export interface EditLookups {
   questionText: (questionId: string) => string | null;
+  /** What is known of each question now (its coverage, focus and demand), for a split; read by the caller. */
+  questions?: ReadonlyMap<string, SlotQuestion>;
+  /** Live article pages due a refresh. */
+  due?: ReadonlySet<string>;
+}
+
+/** A joined slot's kind, from the live articles that answer it now. Pure. */
+export function kindAfterJoin(live: number, a: PageKind, b: PageKind): PageKind {
+  if (live >= 2) return "combine";
+  if (live === 1) return "refresh";
+  const pick = [a, b].find((k) => k !== "combine" && k !== "refresh");
+  return pick ?? "guide";
+}
+
+/**
+ * After slots change: each named slot's roadmap entry takes the action its live articles need now
+ * (a combine is never left as a write the autopilot would draft), or goes when there is nothing
+ * left to do; and every slot is scored again, since scores weigh the whole plan. Changes `plan`.
+ */
+function settle(plan: ContentPlan, slotIds: string[]): void {
+  const changed = new Set(slotIds);
+  const byId = new Map(plan.slots.map((s) => [s.id, s] as const));
+  plan.roadmap = plan.roadmap.flatMap((e) => {
+    if (!changed.has(e.slotId)) return [e];
+    const s = byId.get(e.slotId);
+    const action = s ? entryActionOf(s) : null;
+    return action ? [{ ...e, action }] : [];
+  });
+  const scores = scoreSlots(plan.slots, plan.rules.funnel);
+  for (const s of plan.slots) s.scores = scores.get(s.id) ?? s.scores;
 }
 
 /** Order the roadmap by week, keeping the order within a week. Pure. */
@@ -221,22 +246,47 @@ export function applyPlanEdit(
     if (!slot || !slot.questionIds.includes(edit.questionId)) return { ok: false, status: 404, error: "no_slot" };
     if (slot.questionIds.length < 2) return { ok: false, status: 409, error: "slot_single" };
     if (next.slots.length >= L.slots) return { ok: false, status: 409, error: "plan_full" };
+    // Both slots are worked out again from their own questions: their coverage, focus and demand.
+    const known = look.questions;
+    const qOf = (id: string, kept: boolean): SlotQuestion =>
+      known?.get(id) ?? {
+        id,
+        text: look.questionText(id) ?? slot.title,
+        intent: "other",
+        subjectId: slot.subjectIds[0] ?? "",
+        focus: false,
+        impressions: null,
+        state: "open",
+        // With nothing read about them, the questions that stay keep the slot's live articles.
+        live: kept && !known ? slot.coveredBy : [],
+      };
+    const due = look.due ?? new Set<string>();
+    const remaining = slot.questionIds.filter((q) => q !== edit.questionId);
     const wasFirst = slot.questionIds[0] === edit.questionId;
-    slot.questionIds = slot.questionIds.filter((q) => q !== edit.questionId);
-    if (wasFirst) slot.title = clip(look.questionText(slot.questionIds[0]!) ?? slot.title, L.slotTitle) || slot.title;
-    const title = clip(look.questionText(edit.questionId) ?? "", L.slotTitle) || slot.title;
-    const out: ContentSlot = {
-      ...structuredClone(slot),
-      id: newSlotId(),
-      title,
-      questionIds: [edit.questionId],
-      kind: slot.kind === "combine" || slot.kind === "refresh" ? "guide" : slot.kind,
-      coveredBy: [],
-      inProgress: false,
-      hub: false,
+    const keptMade = slotFrom(remaining.map((id) => qOf(id, true)), due);
+    const outMade = slotFrom([qOf(edit.questionId, false)], due);
+    const kept: ContentSlot = {
+      ...slot,
+      ...keptMade,
+      id: slot.id,
+      title: wasFirst ? clip(look.questionText(remaining[0]!) ?? slot.title, L.slotTitle) || slot.title : slot.title,
+      subjectIds: keptMade.subjectIds.length ? keptMade.subjectIds : slot.subjectIds,
+      // What competitors write is counted by subject, and Google's check by the first question.
+      facts: { ...keptMade.facts, theirs: slot.facts.theirs, paa: wasFirst ? null : slot.facts.paa, serp: slot.facts.serp },
       from: "person",
     };
-    next.slots.splice(next.slots.indexOf(slot) + 1, 0, out);
+    const out: ContentSlot = {
+      ...outMade,
+      title: clip(look.questionText(edit.questionId) ?? "", L.slotTitle) || outMade.title,
+      subjectIds: outMade.subjectIds.length ? outMade.subjectIds : slot.subjectIds,
+      facts: { ...outMade.facts, theirs: slot.facts.theirs, paa: wasFirst ? slot.facts.paa : null, serp: null },
+      pillarId: slot.pillarId,
+      hub: false,
+      scores: slot.scores,
+      from: "person",
+    };
+    next.slots.splice(next.slots.indexOf(slot), 1, kept, out);
+    settle(next, [kept.id]);
     return { ok: true, plan: ContentPlanSchema.parse(next), decisions: [decision("slot_split", slot.id, at, by, edit.questionId, out.id)] };
   }
 
@@ -249,11 +299,11 @@ export function applyPlanEdit(
     into.questionIds = questionIds;
     into.subjectIds = [...new Set([...into.subjectIds, ...from.subjectIds])].slice(0, L.questionsPerSlot);
     into.coveredBy = [...new Set([...into.coveredBy, ...from.coveredBy])].slice(0, L.coveredBy);
-    if (into.coveredBy.length >= 2) into.kind = "combine";
-    into.inProgress = into.inProgress || from.inProgress;
+    // What live articles answer it now decides its kind: two or more, combine; one, refresh.
+    into.kind = kindAfterJoin(into.coveredBy.length, into.kind, from.kind);
+    into.inProgress = !into.coveredBy.length && (into.inProgress || from.inProgress);
     into.hub = into.hub || from.hub;
     into.from = "person";
-    for (const k of ["fit", "demand", "gap", "depth", "balance", "total"] as const) into.scores[k] = Math.max(into.scores[k], from.scores[k]);
     into.facts.focus += from.facts.focus;
     into.facts.theirs = Math.max(into.facts.theirs, from.facts.theirs);
     if (from.facts.impressions !== null) into.facts.impressions = (into.facts.impressions ?? 0) + from.facts.impressions;
@@ -267,6 +317,7 @@ export function applyPlanEdit(
       return [{ ...e, slotId: into.id }];
     });
     for (const p of next.pillars) if (p.hub?.kind === "slot" && p.hub.slotId === from.id) p.hub = { kind: "slot", slotId: into.id };
+    settle(next, [into.id]);
     return { ok: true, plan: ContentPlanSchema.parse(next), decisions: [decision("slot_joined", into.id, at, by, from.id, into.id)] };
   }
 
@@ -287,7 +338,7 @@ export function applyPlanEdit(
     next.roadmap = next.roadmap.filter((e) => e !== entry);
     return { ok: true, plan: ContentPlanSchema.parse(next), decisions: [decision("pick_skipped", entry.slotId, at, by, entry.week, edit.reason || null)] };
   }
-  const weeks = new Set([...next.blocks.flatMap((b) => b.weeks), ...next.roadmap.map((e) => e.week)]);
+  const weeks = new Set(weeksOf(next));
   if (!weeks.has(edit.week)) return { ok: false, status: 400, error: "unknown_week" };
   if (entry.week === edit.week) return { ok: true, plan, decisions: [] };
   const before = entry.week;

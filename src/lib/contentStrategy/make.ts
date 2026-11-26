@@ -10,7 +10,7 @@ import { readBrandMap } from "@/lib/brandMap/store";
 import { QUESTION_TITLE } from "@/lib/brandNotes/store";
 import { readBrandStrategy, type Strategy } from "@/lib/brandStrategy/store";
 import { competitorCoverage, type CoverageView } from "@/lib/competitors/coverage";
-import { meaningWords } from "@/lib/content/blog/coverage";
+import { matchQuestion, meaningWords } from "@/lib/content/blog/coverage";
 import { readDueArticles } from "@/lib/content/blog/freshnessPages";
 import { readSearchPlanning, type SearchPlanning } from "@/lib/connectors/signals/planning";
 import { DEFAULT_REFRESH_SHARE, readNextUp } from "@/lib/nextUp/pick";
@@ -18,7 +18,7 @@ import { aiUsage } from "@/lib/plans/meter";
 import { lookUpQuestion, type LookupOutcome } from "@/lib/signals/collect";
 import { isBrandSignalsEnabled, isSignalsDataForSeoEnabled } from "@/lib/signals/flags";
 import { isFresh, queryKey, readySignals } from "@/lib/signals/store";
-import { getTenantById } from "@/lib/tenant";
+import { forTenant, getTenantById } from "@/lib/tenant";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import { listAllBrandMapPages } from "@/lib/tenant/brandMapPages";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
@@ -28,7 +28,6 @@ import type { BrandSignal } from "@/lib/types/brandSignal";
 import type { BlogIntent } from "@/lib/types/contentPlan";
 import type { FreshnessDueItem } from "@/lib/types/freshness";
 import {
-  CONTENT_STAGES,
   CONTENT_STRATEGY_LIMITS as L,
   ContentPlanSchema,
   DEFAULT_FUNNEL,
@@ -41,8 +40,9 @@ import {
 import type { Tenant } from "@/lib/types/tenant";
 import { choosePillars, hubsOf, type PillarSubject, type PlanCallDeps } from "./pillars";
 import { makeRoadmap, weeksFrom } from "./roadmap";
-import { scoreSlots } from "./scores";
+import { mixOf, scoreSlots } from "./scores";
 import { INTENT_STAGE, makeSlots, pageIdOfPlan, questionCoverage, splitBySerp, topUrls, type CoverageSubject, type MadeSlot, type SlotQuestion } from "./slots";
+import { questionsNow, type QuestionNow } from "./questions";
 import { saveMadePlan } from "./store";
 
 /**
@@ -261,6 +261,7 @@ export async function makeContentPlan(ctx: TenantContext, deps: MakeDeps = {}): 
   if (vectors) sources.add("meaning");
   const made = makeSlots(questions, vectors, { duePageIds: dueSet });
   let slots: MadeSlot[] = made.slots;
+  let leftOut = made.leftOut;
 
   // Google's check: what the brand already looked up, and a few new lookups for top questions.
   let lookupsAsked = 0;
@@ -285,7 +286,8 @@ export async function makeContentPlan(ctx: TenantContext, deps: MakeDeps = {}): 
         }
       }
     }
-    const checked = splitBySerp(slots, tops, byId, dueSet);
+    const { slots: checked, leftOut: cut } = splitBySerp(slots, tops, byId, dueSet);
+    leftOut += cut;
     if (checked.some((s) => s.facts.serp)) sources.add("google_results");
     slots = checked.map((s) => {
       const lead = byId.get(s.questionIds[0]!);
@@ -363,10 +365,7 @@ export async function makeContentPlan(ctx: TenantContext, deps: MakeDeps = {}): 
   const skipped = new Set(learned.filter((e) => e.kind === "skipped_pick" && e.questionId && Date.parse(e.at) >= since).map((e) => e.questionId!));
   const { roadmap, blocks } = makeRoadmap({ slots: placed, pillars: pillared.pillars, weeks: weeksFrom(now), perWeek, funnel, refreshShare, duePageIds: due, repeatSlotIds, skipped });
 
-  const stageCount = { learn: 0, consider: 0, choose: 0 };
-  for (const q of map.questions) stageCount[INTENT_STAGE[q.intent] ?? "learn"] += 1;
-  const total = Math.max(1, map.questions.length);
-  const stageMix = Object.fromEntries(CONTENT_STAGES.map((s) => [s, Math.round((100 * stageCount[s]) / total)])) as ContentPlan["stageMix"];
+  const stageMix = mixOf(map.questions.map((q) => INTENT_STAGE[q.intent] ?? "learn"));
 
   const plan: ContentPlan = ContentPlanSchema.parse({
     slots: placed,
@@ -376,7 +375,7 @@ export async function makeContentPlan(ctx: TenantContext, deps: MakeDeps = {}): 
     rules: { roadmapShare: ROADMAP_SHARE, funnel, perWeek, refreshShare, oneArticlePerSlot: true, hubFirst: true },
     questions: map.questions.length,
     stageMix,
-    leftOut: made.leftOut,
+    leftOut,
     sources: [...sources],
     made: pillared.made,
     at: now.toISOString(),
@@ -384,5 +383,44 @@ export async function makeContentPlan(ctx: TenantContext, deps: MakeDeps = {}): 
   });
   const saved = await saveMadePlan(ctx, plan, { db: deps.db, now: deps.now });
   if (!saved.ok) return saved;
-  return { ok: true, doc: saved.value, notes: { lookupsAsked, byMeaning: Boolean(vectors), leftOut: made.leftOut, slots: plan.slots.length } };
+  return { ok: true, doc: saved.value, notes: { lookupsAsked, byMeaning: Boolean(vectors), leftOut, slots: plan.slots.length } };
 }
+
+/**
+ * What is known now of a few questions, for splitting a slot: their words, intents, subjects,
+ * coverage by the slot's live articles (`pages`), focus and Search Console demand, and which of
+ * those articles are due a refresh. A few reads, never the whole map.
+ */
+export async function questionFactsFor(
+  ctx: TenantContext,
+  ids: string[],
+  pages: string[],
+  deps: Pick<MakeDeps, "db" | "strategy" | "searchPlanning" | "due"> = {},
+): Promise<{ questions: Map<string, SlotQuestion>; due: Set<string> }> {
+  const now = await questionsNow(ctx, ids, { db: deps.db, pages: async () => [] }).catch(() => new Map<string, QuestionNow>());
+  const rows = (await Promise.all(pages.map((id) => forTenant(ctx, deps.db).brandMapPages.getById(id).catch(() => null))))
+    .map((r) => (r ? BrandMapPageSchema.safeParse(r) : null))
+    .flatMap((r) => (r?.success && r.data.state === "live" ? [r.data] : []));
+  const [strategy, planning, dueItems] = await Promise.all([
+    soft((deps.strategy ?? ((c) => readBrandStrategy(c, { db: deps.db })))(ctx), null),
+    soft((deps.searchPlanning ?? ((c) => readSearchPlanning(c, { db: deps.db })))(ctx), null),
+    isBlogFreshnessEnabled() || deps.due ? soft((deps.due ?? ((c) => readDueArticles(c, { db: deps.db })))(ctx), [] as FreshnessDueItem[]) : Promise.resolve([] as FreshnessDueItem[]),
+  ]);
+  const focus = await focusOf(ctx, strategy, { db: deps.db });
+  const impressions = impressionsOf(planning);
+  const questions = new Map<string, SlotQuestion>();
+  for (const q of now.values()) {
+    questions.set(q.id, {
+      id: q.id,
+      text: q.text,
+      intent: q.intent,
+      subjectId: q.subjectId,
+      focus: focus.ids.has(q.id) || focus.keys.has(questionKey(q.text)) || q.situationIds.some((s) => focus.situations.has(s)),
+      impressions: impressions.has(q.id) ? impressions.get(q.id)! : null,
+      state: q.state,
+      live: rows.filter((r) => matchQuestion({ id: q.id, text: q.text, answeredBy: q.answeredBy, notAnsweredBy: q.notAnsweredBy }, r) === "sure").map((r) => r.id),
+    });
+  }
+  return { questions, due: new Set(dueItems.filter((d) => d.state === "due").map((d) => pageIdOfPlan(d.planId))) };
+}
+

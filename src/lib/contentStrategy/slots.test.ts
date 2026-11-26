@@ -149,7 +149,8 @@ describe("slots: Google's check", () => {
   it("keeps questions sharing 3 or more of the top 10 results, and splits one that shares fewer", () => {
     expect(sharedResults(tops.q_aaaaaa01!, tops.q_aaaaaa02!)).toBe(3);
     const { slots } = makeSlots(qs.slice(0, 3), [vec("tracking"), vec("tracking", 0.05), vec("tracking", 0.1)]);
-    const checked = splitBySerp(slots, (id) => tops[id] ?? null, byId);
+    const { slots: checked, leftOut } = splitBySerp(slots, (id) => tops[id] ?? null, byId);
+    expect(leftOut).toBe(0);
     expect(checked.map((s) => [s.questionIds, s.facts.serp])).toEqual([
       [["q_aaaaaa01", "q_aaaaaa02"], "same"],
       [["q_aaaaaa03"], "split"],
@@ -159,6 +160,13 @@ describe("slots: Google's check", () => {
 
   it("leaves a slot as meaning grouped it when its questions weren't looked up", () => {
     const { slots } = makeSlots([qs[0]!, qs[3]!], [vec("tracking"), vec("tracking", 0.05)]);
-    expect(splitBySerp(slots, (id) => tops[id] ?? null, byId)).toEqual(slots);
+    expect(splitBySerp(slots, (id) => tops[id] ?? null, byId).slots).toEqual(slots);
+  });
+
+  it("counts the slots a split pushes past the limit as left out", () => {
+    const { slots } = makeSlots(qs.slice(0, 3), [vec("tracking"), vec("tracking", 0.05), vec("tracking", 0.1)]);
+    const checked = splitBySerp(slots, (id) => tops[id] ?? null, byId, new Set(), 1);
+    expect(checked.slots.map((s) => s.questionIds)).toEqual([["q_aaaaaa01", "q_aaaaaa02"]]);
+    expect(checked.leftOut).toBe(1);
   });
 });

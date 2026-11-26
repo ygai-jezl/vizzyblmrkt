@@ -6,7 +6,7 @@ import { clean, fence, hasAddress, oneLine } from "@/lib/brandMap/lineChecks";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { CONTENT_STRATEGY_LIMITS as L, NOT_ARTICLE_KINDS, PAGE_KIND_LABEL, type ContentPillar, type PlanMade } from "@/lib/types/contentStrategy";
 import type { MadeSlot } from "./slots";
-import { newPillarId } from "./store";
+import { newPillarId } from "./ids";
 
 /**
  * Pillars: the 3 to 6 big themes the plan's slots fall into, each with a hub (a subject's home

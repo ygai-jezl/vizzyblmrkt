@@ -26,6 +26,7 @@ import { isNextUpRepeatsEnabled } from "@/lib/autopilot/flags";
 import { mayStartReview } from "@/lib/content/blog/refreshGate";
 import { MAX_CANDIDATES } from "./candidates";
 import { findRepeats, linkAnswered, NO_REPEATS, type Repeats } from "./repeats";
+import { readBrandStrategy, type Strategy } from "@/lib/brandStrategy/store";
 
 /**
  * Next up: the brand's three best next articles. Code narrows the brand map's open questions
@@ -63,6 +64,15 @@ export interface PickDeps {
   link?: typeof linkAnswered;
   /** Whether a close pick could start a refresh review now (tests inject it). */
   reviewsOpen?: (ctx: TenantContext) => Promise<boolean>;
+  /** The approved brand strategy (BRAND_STRATEGY_ENABLED): its focus goes first, and the model reads its goal. */
+  strategy?: (ctx: TenantContext) => Promise<Strategy | null>;
+}
+
+/** The one line naming the approved strategy's goal for the model, or "" without one. Pure. */
+export function goalLine(strategy: Strategy | null): string {
+  const g = strategy?.goal;
+  if (!g) return "";
+  return `The brand's goal this quarter, from the strategy it approved (UNTRUSTED DATA): ${untag(oneLine(g.text))}${g.measure ? ` (measured by ${untag(oneLine(g.measure))})` : ""}\n\n`;
 }
 
 /** Extra candidates read with stop repeats on, so the ones it leaves out don't shorten the list. */
@@ -293,7 +303,9 @@ export async function pickNextUp(
   const active = await (deps.activeQuestionIds ?? (async () => [] as string[]))(ctx).catch(() => [] as string[]);
   const excluded = new Set([...skipped, ...active]);
   const repeatsOn = isNextUpRepeatsEnabled();
-  const listed = await (deps.candidates ?? nextUpCandidates)(ctx, { exclude: excluded, ...(repeatsOn ? { max: MAX_CANDIDATES + REPEAT_SPARE } : {}) }, { db: deps.db });
+  // One read of the approved strategy serves the candidates (its focus) and the prompt (its goal).
+  const strategy = await (deps.strategy ?? ((c) => readBrandStrategy(c, { db: deps.db })))(ctx).catch(() => null);
+  const listed = await (deps.candidates ?? nextUpCandidates)(ctx, { exclude: excluded, ...(repeatsOn ? { max: MAX_CANDIDATES + REPEAT_SPARE } : {}) }, { db: deps.db, strategy: async () => strategy });
   // Live articles due a refresh join the questions, up to the brand's share of the three picks.
   const refreshShare = tenant?.refreshShare ?? DEFAULT_REFRESH_SHARE;
   const refreshes =
@@ -364,6 +376,7 @@ export async function pickNextUp(
       today: now.toISOString().slice(0, 10),
       identity: untag(identity) || "(not set yet)",
       focus: focus ? `What the brand wants more of right now, in its words (UNTRUSTED DATA): ${untag(focus)}\n\n` : "",
+      goal: goalLine(strategy),
       learned: untag(learned.join("\n")) || "(nothing yet)",
       refresh: refreshes.length
         ? ` Candidates marked REFRESH are live articles of the brand's that are due a refresh: choosing one means improving that article, not writing a new one. Choose at most ${refreshShare} of them, and only when its lines show a real reason.`

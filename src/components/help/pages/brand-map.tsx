@@ -8,6 +8,8 @@ import { isCompetitorsUiEnabled } from "@/lib/competitors/flags";
 import { isAutopilotEnabled, isNextUpEnabled, isNextUpRepeatsEnabled } from "@/lib/autopilot/flags";
 import { isUsageMeterUiEnabled } from "@/lib/plans/flags";
 import { WEB_SEARCH_LIMIT_MESSAGE } from "@/lib/plans/resources";
+import { isBrandStrategyUiEnabled } from "@/lib/brandStrategy/flags";
+import { STRATEGY_ERRORS } from "@/components/admin/brand-kit/strategyMessages";
 
 export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnabled(), brandMapScale = isBrandMapScaleEnabled(), aiAnswers = isAiAnswersPlanningEnabled() }: HelpBodyProps = {}) {
   // Linked from Review and Connected data whenever signals are on; at any size the questions wait here.
@@ -180,6 +182,60 @@ export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnab
         </li>
       </Steps>
       <P>The PDF isn&apos;t kept. Only what it found is.</P>
+
+      {isBrandStrategyUiEnabled() ? (
+        <>
+          <H2 id="strategy">Approve your strategy</H2>
+          <P>
+            The <strong>Strategy</strong> tab holds one strategy for your brand: who it&apos;s for, who you compete with, where
+            you win, what you&apos;re not, and this quarter&apos;s goal. Once you approve it, articles, research, Next up and
+            Vizzy use it. Members can read it; admins change and approve it.
+          </P>
+          <Steps>
+            <li>
+              Open <strong>Strategy</strong> and press <strong>Propose with Vizzy</strong>. It reads your brand map, your buying
+              situations, your site, your knowledge, your competitors and what you told Vizzy about your business. This takes
+              up to a minute.
+            </li>
+            <li>
+              Under <strong>Who it&apos;s for</strong>, star 3 to 5 focus situations. Vizzy suggests the ones where people ask
+              the most and the fewest live articles answer.
+            </li>
+            <li>
+              Under <strong>Who you compete with</strong>, press <strong>Find competitors</strong>. It asks Google who buyers
+              weigh instead of you, and keeps only the names Google&apos;s results back. Press <strong>Monitor</strong> on the
+              ones to watch on <Open href="/admin/brand-kit/competitors">Brand › Competitors</Open>.
+            </li>
+            <li>
+              Under <strong>Where you win, and where they do</strong>, check each claim. One marked <strong>gap</strong> has no
+              proof yet: it is never used as fact until a page on your site or your docs shows it.
+            </li>
+            <li>
+              Press <strong>Add</strong> on a proposed line under <strong>What you&apos;re not</strong> to add it to Who you are,
+              or <strong>No</strong> so it isn&apos;t proposed again.
+            </li>
+            <li>
+              Under <strong>The quarter&apos;s goal</strong>, press <strong>Edit</strong> to say the goal and how you&apos;ll
+              know. It starts from what you told Vizzy you want first.
+            </li>
+            <li>
+              Press <strong>Approve strategy</strong>. Your focus situations get their star on Buying situations, and Next up
+              offers their questions first.
+            </li>
+          </Steps>
+          <P>
+            Every brand can run the quick competitor search once. <strong>Full search</strong> asks three times, keeps the
+            names that come up most, then runs a search that fits your business: 4 a month by default, on plans that include
+            the full competitor finder. Its Google searches count toward your brand&apos;s{" "}
+            <Open href="/help/plan-and-usage#use">web searches for research</Open>.
+          </P>
+          <P>
+            What you star, tick, edit or turn down is kept with the strategy, with the 5 strategies approved before it, so
+            YouGrow can learn from it later. Nothing learns from it yet. <strong>Start over</strong> removes all of it; your
+            brand map stays as it is.
+          </P>
+        </>
+      ) : null}
 
       <H2 id="write-next">Write this next</H2>
       <P>
@@ -367,6 +423,16 @@ export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnab
             "Press Load the latest to see their version, or Save mine anyway to keep yours.",
           ],
           ["That PDF is too large (14 MB at most).", "Split it into smaller PDFs and read each one."],
+          ...(isBrandStrategyUiEnabled()
+            ? ([
+                [STRATEGY_ERRORS.strategy_changed!, "Look at what was saved, then make your change again."],
+                [STRATEGY_ERRORS.finder_quick_used!, "Ask whoever runs your copy of YouGrow about the full competitor finder, or add competitors on Brand › Competitors."],
+                [STRATEGY_ERRORS.finder_monthly_limit!, "Wait for the 1st, or add competitors on Brand › Competitors by hand."],
+                [STRATEGY_ERRORS.nothing_found!, "Check What you are on Who you are says what you do in plain words, then try again."],
+                [STRATEGY_ERRORS.map_not_saved!, "Press Save brand map on Who you are, then press Add again."],
+                [STRATEGY_ERRORS.too_few_focus!, "Star more situations under Who it's for, then press Approve strategy again."],
+              ] as Array<[string, string]>)
+            : []),
           [
             "The AI model isn't set up in this environment, so research can't run.",
             "Whoever runs your YouGrow needs to set up the AI model. Until then, fill the map in yourself.",

@@ -43,6 +43,7 @@ from .tools.results import get_email_results, get_post_results
 from .tools.connectors import get_connected_numbers, get_number_suggestions, list_connections, read_connected_live
 from .tools.context_pack import get_brand_context
 from .tools.next_up import get_next_up
+from .tools.brand_strategy import get_brand_strategy
 from .tools.usage import get_usage
 from .tools.articles_due import list_articles_due
 from .tools.article_review import review_article
@@ -80,6 +81,7 @@ root_agent = LlmAgent(
     # (read only; a person acts on each in Review or on the brand map);
     # get_brand_context reads everything the brand knows about one question (read only);
     # get_next_up reads the brand's three best next articles, with why (read only);
+    # get_brand_strategy reads the brand's approved strategy, each claim with its proof (read only);
     # get_usage reads what the brand used this month against its limits, each number explained;
     # list_articles_due reads the brand's live articles due a refresh, with why (read only);
     # review_article starts or moves on a refresh review of one and says what it proposes (never applies);
@@ -114,6 +116,7 @@ root_agent = LlmAgent(
         get_number_suggestions,
         get_brand_context,
         get_next_up,
+        get_brand_strategy,
         get_usage,
         list_articles_due,
         review_article,

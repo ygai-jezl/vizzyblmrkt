@@ -37,6 +37,8 @@ import { BrandMapMoveProvider } from "@/components/admin/brand-kit/brandMapMove"
 import { BrandMapSituations } from "@/components/admin/brand-kit/BrandMapSituations";
 import { BrandMapImport } from "@/components/admin/brand-kit/BrandMapImport";
 import { BrandMapSubjectsTab } from "@/components/admin/brand-kit/BrandMapSubjectsTab";
+import { BrandMapStrategy } from "@/components/admin/brand-kit/BrandMapStrategy";
+import { isBrandStrategyEnabled } from "@/lib/brandStrategy/flags";
 import { homesOf, mapPageOf } from "@/lib/brandMap/contentMapLayout";
 import { decidedOf } from "@/components/admin/brand-kit/brandMapForm";
 
@@ -92,6 +94,8 @@ export default async function BrandMapPage() {
     competitors !== null && isCompetitorArticlesPlanningEnabled() && (await brandCanUse(ctx, "competitor_articles").catch(() => false));
 
   const nextUp = isNextUpEnabled() && map !== null && (await brandCanUse(ctx, "next_up").catch(() => false));
+  // The brand strategy (BRAND_STRATEGY_ENABLED): its own tab, hidden while the switch is off.
+  const strategy = isBrandStrategyEnabled() ? [{ id: "strategy", label: "Strategy", node: <BrandMapStrategy canEdit={ctx.role === "admin"} /> }] : [];
   const tabs = (
     <BrandMapTabs
       editor={
@@ -136,8 +140,9 @@ export default async function BrandMapPage() {
                 : []),
               { id: "subjects", label: "Subjects", node: <BrandMapSubjectsTab canEdit={ctx.role === "admin"} programmes={programmes} ungroupedTotals={map?.ungroupedTotals ?? null} competitorArticles={competitorArticles} /> },
               ...(isBrandMapImportEnabled() ? [{ id: "research", label: "Your research", node: <BrandMapImport canEdit={ctx.role === "admin"} programmes={programmes} /> }] : []),
+              ...strategy,
             ]
-          : []
+          : strategy
       }
       contentMap={
         scale ? (

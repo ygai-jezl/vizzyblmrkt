@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts` and `src/lib/loops/registry.ts`. D
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one. The Learning section at the end lists every place YouGrow makes a choice for a brand, and how that choice learns or why it doesn't.
 
-103 types: 82 built and 21 planned.
+104 types: 83 built and 21 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -1153,6 +1153,23 @@ A research file the brand brought in, read into findings for the brand map.
 - Numbers: none. No numbers an agent reads.
 - Made by: `brand_map_research` (see Learning)
 
+### Brand strategy (`brand_strategy`)
+
+The brand's strategy, one record per brand, approved by a person: who it's for (audiences and 3 to 5 focus buying situations), who it competes with (in groups, found by the competitor finder or watched), where it wins and where they do (claims, each with its proof or shown as a gap), what it is not, and the quarter's goal. Keeps the draft a person edits, the approved one everything reads, the last 5 approved, and the stars, ticks and edits people made.
+
+- Status: built
+- Home: the brand's region
+- Personal: no
+- Stores:
+  - `brand_strategy`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One document per brand; `by` and decisions hold the admin's email or user id.
+- Links: `brand_map` through its audiences and identity, and the focus situations it stars on approval; `competitor` through the competitors a person ticked to monitor (many)
+- Erase:
+  - `deleteBrandStrategy` in `src/lib/brandStrategy/store.ts`, on removing the record (an admin presses Start over on the Strategy tab)
+- Export: none. The brand's own work, with no one's personal data.
+- Search: none. One short record per brand, read whole by the writer, research, Next up and Vizzy.
+- Numbers: `focusQuestions`, `focusLiveArticles`, `foundTimes`, through `get_brand_strategy`
+- Made by: `brand_strategy`, `competitor_find` (see Learning)
+
 ### What we've seen note (`brand_note`)
 
 A first hand note from the brand's team about what they have seen, or an open question asked of the team. A note may name a customer.
@@ -1992,11 +2009,11 @@ Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Ev
 
 A call site is a file where a kind is made, counted once for each kind: a meter call that names its purpose, a canvas's module, the file that holds a rule, or the file that calls a model with no meter.
 
-89 kinds: 0 learn, 0 fleet only, 20 own, 29 gap and 40 none.
+91 kinds: 0 learn, 0 fleet only, 20 own, 31 gap and 40 none.
 
-109 call sites: 0 learn, 0 fleet only, 30 own, 34 gap and 45 none.
+111 call sites: 0 learn, 0 fleet only, 30 own, 36 gap and 45 none.
 
-Not learning: 79 of 109 call sites, under gap and none lines.
+Not learning: 81 of 111 call sites, under gap and none lines.
 
 ### Where own lines keep what they learned
 
@@ -2082,6 +2099,10 @@ No line says this yet.
   - `src/lib/content/imageStyle/resolve.ts`
 - `spintax_variant` (rule, Recurring post variant), look again by 2027-03-31. A recurring post picks one of its written variants at random each time, and how each variant did is never used to favour the better one.
   - `src/lib/distribute/spintax.ts`
+- `brand_strategy` (AI purpose, Proposing the brand strategy), look again by 2027-05-01. The brand strategy keeps each focus star a person kept or removed and each claim they edited, before and after, but nothing learns from them yet.
+  - `src/lib/brandStrategy/propose.ts`
+- `competitor_find` (AI purpose, Finding competitors), look again by 2027-05-01. The brand strategy keeps which competitors the finder found that a person ticked to monitor or left out, but the finder learns nothing from them yet.
+  - `src/lib/brandStrategy/finder.ts`
 - `blog_research` (AI purpose, Blog research), look again by 2027-05-01. Research can read the Learned list through the brand context, but nothing records which facts and sources your team kept or cut.
   - `src/lib/content/blog/research.ts`
 - `autopilot_research` (AI purpose, Autopilot research), look again by 2027-05-01. The autopilot's research is never compared with what your team kept in the article, so it cannot learn which sources fit.

@@ -343,6 +343,70 @@ export async function addBrandMapName(
   return out.value ? { ok: true, value: out.value } : { ok: false, status: 409, error: "map_unreadable" };
 }
 
+/**
+ * Add a line to what the brand is not (a person pressed Add on the Strategy tab, BRAND_STRATEGY_ENABLED).
+ * A person decided it, so it is added straight away and `rev` moves, as addBrandMapName does. A line
+ * already there (any case) is only reported. Refused when the brand map is off (503), doesn't read
+ * (409), has never been saved (409 `map_not_saved`: save it first), is full (409 `is_not_full`), or
+ * the line clashes with the map (400 `invalid_map`).
+ */
+export async function addBrandMapIsNot(
+  ctx: TenantContext,
+  input: { text: string },
+  deps: { db?: FirestoreLike; nowMs?: number } = {},
+): Promise<MapResult<{ how: "added" | "already" }>> {
+  if (!isBrandMapEnabled()) return { ok: false, status: 503, error: "brand_map_disabled" };
+  const text = input.text.replace(/\s+/g, " ").trim().slice(0, LIMITS.isNotText);
+  if (!text) return { ok: false, status: 400, error: "invalid_input" };
+  const now = iso(deps.nowMs);
+  const by = ctx.email ?? ctx.userId ?? null;
+  const out: { value: { how: "added" | "already" } | null; fail: MapResult<{ how: "added" | "already" }> | null } = { value: null, fail: null };
+  try {
+    const saved = await forTenant(ctx, deps.db).brandMaps.claim(brandMapDocId(ctx.tenantId), (current) => {
+      const map = parseBrandMap(current);
+      if (!map) throw new Unreadable();
+      if (!isMapSaved(map)) {
+        out.fail = { ok: false, status: 409, error: "map_not_saved" };
+        return null;
+      }
+      if (map.identity.isNot.some((t) => fold(t) === fold(text))) {
+        out.value = { how: "already" };
+        return null;
+      }
+      const before = decidedOf(map);
+      const applied = applyChange(before, { type: "add_is_not", text });
+      if (applied.issue) {
+        out.fail = { ok: false, status: 409, error: "is_not_full" };
+        return null;
+      }
+      const had = new Set(checkDecided(before, { ownSites: [] }).map((i) => `${i.path}|${i.message}`));
+      const fresh = checkDecided(applied.decided, { ownSites: [] }).filter((i) => !had.has(`${i.path}|${i.message}`));
+      if (fresh.length) {
+        out.fail = { ok: false, status: 400, error: "invalid_map", issues: fresh };
+        return null;
+      }
+      out.value = { how: "added" };
+      const patch = {
+        identity: applied.decided.identity,
+        rev: map.rev + 1,
+        suggestions: map.suggestions.filter((s) => !isSatisfied(applied.decided, s.change)),
+        decidedAt: now,
+        decidedBy: by,
+        updatedAt: now,
+      };
+      if (sizeOf({ ...map, ...patch }) > LIMITS.bytes) throw new TooLarge();
+      return patch;
+    });
+    if (!saved && !out.value && !out.fail) return { ok: false, status: 404, error: "no_brand_map" };
+  } catch (err) {
+    if (err instanceof Unreadable) return { ok: false, status: 409, error: "map_unreadable" };
+    if (err instanceof TooLarge) return { ok: false, status: 413, error: "map_too_large" };
+    throw err;
+  }
+  if (out.fail) return out.fail;
+  return out.value ? { ok: true, value: out.value } : { ok: false, status: 409, error: "map_unreadable" };
+}
+
 /** One suggestion to file. */
 export interface SuggestionInput {
   change: BrandMapChange;

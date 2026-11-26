@@ -120,13 +120,18 @@ describe("buildLiveSystemInstruction", () => {
 });
 
 describe("buildLiveConnectConfig", () => {
-  it("locks audio in/out with transcription + resumption", () => {
+  it("locks audio in/out with transcription, and no session resumption", () => {
     const config = buildLiveConnectConfig(campaign());
     expect(config.responseModalities).toEqual(["AUDIO"]);
     expect(typeof config.systemInstruction).toBe("string");
     expect(config.inputAudioTranscription).toBeDefined();
     expect(config.outputAudioTranscription).toBeDefined();
-    expect(config.sessionResumption).toBeDefined();
+    // The browser never reconnects with a resumption handle, and Talk with Vizzy's working
+    // config on the same model leaves it out too.
+    expect(config).not.toHaveProperty("sessionResumption");
+    expect(Object.keys(config).sort()).toEqual(
+      ["inputAudioTranscription", "outputAudioTranscription", "responseModalities", "systemInstruction"],
+    );
   });
 
   it("uses an empty transcription config — `languageCodes` errors the Developer-API token mint", () => {

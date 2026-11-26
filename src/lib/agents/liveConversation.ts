@@ -72,8 +72,12 @@ export function buildLiveSystemInstruction(
 /**
  * The Live session config locked into the ephemeral token. Voice in/out, with
  * input + output transcription enabled so the spoken conversation is captured as
- * text ("golden data"). `sessionResumption` lets a longer call reconnect past the
- * per-session time cap.
+ * text ("golden data"). The same shape as Talk with Vizzy's working config
+ * (src/lib/onboarding/voice/config.ts), less its voice and tools.
+ *
+ * Left out on purpose: session resumption (the chat ends within a few minutes,
+ * well inside one Live connection, and the browser never reconnects with a
+ * resumption handle).
  */
 export function buildLiveConnectConfig(
   campaign: Campaign,
@@ -94,7 +98,6 @@ export function buildLiveConnectConfig(
     systemInstruction: buildLiveSystemInstruction(campaign, lang, brandVoice),
     inputAudioTranscription: {},
     outputAudioTranscription: {},
-    sessionResumption: {},
   };
 
   // Half-cascade models steer better with an explicit language code; native-audio

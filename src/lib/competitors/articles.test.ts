@@ -15,6 +15,7 @@ import {
   embedArticle,
   finishArticle,
   listArticles,
+  listRecentReadArticles,
   monthlyCapReached,
   nearestCompetitorArticles,
   questionsNobodyCovers,
@@ -44,6 +45,18 @@ function deps(at = "2026-11-17T12:00:00.000Z"): ArticleStoreDeps & { db: FakeFir
   const clock = { t: Date.parse(at) };
   return { db: new FakeFirestore(), now: () => new Date(clock.t), clock };
 }
+
+/** A record read this month, as the tenant layer stores it. */
+const readRecord = (i: number) => ({
+  tenantId: "ten_A",
+  competitorId: "cmp_rival0001",
+  url: `https://rival.test/blog/r-${i}`,
+  title: `Read ${i}`,
+  publishedAt: "2026-11-01",
+  status: "read",
+  queuedAt: "2026-11-01T00:00:00.000Z",
+  readMonth: "2026-11",
+});
 
 describe("the article queue", () => {
   it("queues each post once, and only the competitor's own", async () => {
@@ -90,6 +103,43 @@ describe("the article queue", () => {
     // The brand's own cap (src/lib/plans/limits.ts) is what counts.
     const own = { featureLimits: { competitor_articles: 1 } } as unknown as Tenant;
     expect(await monthlyCapReached(A, { ...d, loadTenant: async () => own })).toBe(true);
+  });
+
+  it("lists the reads of this month and the 3 before, read ones only, newest first, and only the brand's own", async () => {
+    const d = deps("2026-11-26T12:00:00.000Z");
+    const months = ["2026-11", "2026-10", "2026-09", "2026-08", "2026-07"];
+    await queueArticles(A, "cmp_rival0001", months.map((_, i) => post(i + 1)), d);
+    await queueArticles(B, "cmp_theirs001", [post(9, "cmp_theirs001")], d);
+    for (const [i, month] of months.entries()) {
+      const id = `cmp_rival0001_p${i + 1}`;
+      await claimArticle(A, id, "l", d);
+      await finishArticle(A, id, "l", { status: i === 1 ? "failed" : "read", readMonth: month }, d);
+    }
+    await claimArticle(B, "cmp_theirs001_p9", "l", d);
+    await finishArticle(B, "cmp_theirs001_p9", "l", { status: "read", readMonth: "2026-11" }, d);
+    // November, September and August: October failed, July is more than 3 months back.
+    const recent = await listRecentReadArticles(A, { ...d, loadTenant: async () => null });
+    expect(recent.articles.map((a) => a.id)).toEqual(["cmp_rival0001_p4", "cmp_rival0001_p3", "cmp_rival0001_p1"]);
+    expect(recent.truncated).toBe(false);
+    // Across a new year: January reads back to October.
+    expect((await listRecentReadArticles(A, { ...d, loadTenant: async () => null, now: () => new Date("2027-01-05T00:00:00.000Z") })).articles.map((a) => a.id)).toEqual(["cmp_rival0001_p1"]);
+  });
+
+  it("reads each month up to the brand's cap and a margin, keeps read ones only, and says when a month had more", async () => {
+    const d = deps("2026-11-26T12:00:00.000Z");
+    const own = { featureLimits: { competitor_articles: 2 } } as unknown as Tenant;
+    // 60 records read this month: skipped and failed ones carry the month too.
+    for (let i = 1; i <= 60; i += 1) {
+      d.db.seed("competitor_articles", `cmp_rival0001_r${i}`, { ...readRecord(i), status: i % 3 ? "read" : "skipped" } as never);
+    }
+    const capped = await listRecentReadArticles(A, { ...d, loadTenant: async () => own });
+    // The cap of 2 and a margin of 50: 52 records looked at, the skipped ones among them left out.
+    expect(capped.truncated).toBe(true);
+    expect(capped.articles.every((a) => a.status === "read")).toBe(true);
+    expect(capped.articles.length).toBeLessThanOrEqual(52);
+    const roomy = await listRecentReadArticles(A, { ...d, loadTenant: async () => null });
+    expect(roomy).toMatchObject({ truncated: false });
+    expect(roomy.articles).toHaveLength(40);
   });
 
   it("removes a competitor's articles and their vectors, and a read in progress then saves nothing", async () => {

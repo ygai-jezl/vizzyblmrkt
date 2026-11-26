@@ -50,6 +50,10 @@ export const BRAND_STRATEGY_LIMITS = {
   decisionText: 200,
   /** Full finder runs remembered (for the monthly count). */
   finderRuns: 24,
+  /** Names a person marked Not a competitor, newest first: the finder never suggests them again. */
+  notCompetitors: 50,
+  /** The finder's suggestions a person pressed Monitor on, newest first: once no longer watched, they don't come back as suggestions. */
+  monitoredFinds: 50,
 } as const;
 
 const L = BRAND_STRATEGY_LIMITS;
@@ -114,6 +118,16 @@ export const StrategyCompetitorGroupSchema = z.object({
   competitors: tolerantArray(StrategyCompetitorSchema, L.keptPerGroup),
 });
 export type StrategyCompetitorGroup = z.infer<typeof StrategyCompetitorGroupSchema>;
+
+/** A name the finder found that a person marked Not a competitor (STRATEGY_COMPETITORS_ENABLED). */
+export const NotCompetitorSchema = z.object({
+  name: Line(L.competitorName),
+  site: z.string().trim().max(253).nullable().catch(null).default(null),
+});
+export type NotCompetitor = z.infer<typeof NotCompetitorSchema>;
+
+/** The words for a watched competitor nobody has put in a group yet. */
+export const NOT_GROUPED_LABEL = "Not grouped yet";
 
 // ----- Where you win, and where they do -------------------------------------------------------
 
@@ -188,6 +202,7 @@ export const STRATEGY_SOURCES = [
   "situations",
   "coverage",
   "competitors",
+  "competitor_articles",
   "finder",
   "site_pages",
   "knowledge",
@@ -203,6 +218,7 @@ export const STRATEGY_SOURCE_LABEL: Record<StrategySource, string> = {
   situations: "Buying situations",
   coverage: "Questions and live articles",
   competitors: "Competitors you watch",
+  competitor_articles: "What your competitors write",
   finder: "The competitor finder",
   site_pages: "Your site's pages",
   knowledge: "Your knowledge",
@@ -225,6 +241,18 @@ export const StrategySchema = z.object({
   proposedFocusIds: z.array(SituationId).max(L.focusMax).catch([]).default([]),
   audiences: z.array(Line(L.audienceText)).max(L.audiences).catch([]).default([]),
   competitorGroups: tolerantArray(StrategyCompetitorGroupSchema, COMPETITOR_GROUP_KINDS.length),
+  /**
+   * Watched competitors nobody had put in a group, as approved (STRATEGY_COMPETITORS_ENABLED): the
+   * approved copy keeps the whole list. Always empty in a draft, and while it is off.
+   */
+  ungrouped: tolerantArray(StrategyCompetitorSchema, L.keptPerGroup),
+  /**
+   * An approved copy made while the strategy was joined to Competitors: its competitor lists are
+   * the live list as it was then, so they are never compared with the draft's, whatever the switch
+   * says now. False on every draft. Records stored before these fields read with it false, with
+   * `ungrouped: []` and `finder.notCompetitors: []`: those defaults are right, nothing needs moving.
+   */
+  competitorsLive: z.boolean().catch(false).default(false),
   claims: tolerantArray(StrategyClaimSchema, L.claims),
   isNotProposals: tolerantArray(IsNotProposalSchema, L.isNot),
   goal: StrategyGoalSchema.nullable().catch(null).default(null),
@@ -246,6 +274,8 @@ export const STRATEGY_DECISION_KINDS = [
   "competitor_ticked",
   "competitor_unticked",
   "competitor_left_out",
+  /** A person put a watched competitor in a group, or took it out of one (before and after). */
+  "competitor_grouped",
   "claim_added",
   "claim_edited",
   "claim_removed",
@@ -285,6 +315,14 @@ export const BrandStrategyDocSchema = z.object({
     .object({
       quickAt: Stamp.nullable().catch(null).default(null),
       fullRuns: z.array(Stamp).max(L.finderRuns).catch([]).default([]),
+      /** Not a competitor, newest first (STRATEGY_COMPETITORS_ENABLED): kept out of every later run. */
+      notCompetitors: tolerantArray(NotCompetitorSchema, L.notCompetitors),
+      /**
+       * Suggestions a person pressed Monitor on, newest first (STRATEGY_COMPETITORS_ENABLED): one they
+       * stop watching later leaves the list rather than coming back as a suggestion. Older records
+       * read with it empty, which is right for them.
+       */
+      monitoredFinds: tolerantArray(NotCompetitorSchema, L.monitoredFinds),
     })
     .prefault({}),
   createdAt: Stamp.catch("").default(""),

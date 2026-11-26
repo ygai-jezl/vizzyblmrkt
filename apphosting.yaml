@@ -886,6 +886,13 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Strategy and Competitors joined: the watched competitors list on the Strategy tab with a group
+  # each, Find competitors and Not a competitor on Brand › Competitors too, and what their articles
+  # say read by Propose and shown on the tab (needs BRAND_STRATEGY_ENABLED and COMPETITORS_ENABLED).
+  - variable: STRATEGY_COMPETITORS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # The content strategy: one approved plan per brand on the Strategy tab (questions merged into
   # slots by meaning, 3 to 6 pillars with a hub each, scores and a 12 week roadmap), made in code
   # with at most one Gemini call (needs BRAND_STRATEGY_ENABLED). The NEXT_PUBLIC twin shows its

@@ -9,6 +9,8 @@ import { COMPETITOR_LIMITS, type ChangedSection, type CompetitorChange } from "@
 import { GOOGLE_NOTE, PROBLEM_TEXT, STATUS_LABEL, changeSummaryOf, formatLabel, type ArticleView, type CompetitorDetail as Detail } from "@/lib/competitors/view";
 import { BRAND_MAP_NOTE, shortDate, statsLine } from "./CompetitorsPage";
 import { CompetitorArticles } from "./CompetitorArticles";
+import { CompetitorGroupPicker } from "./CompetitorGroupPicker";
+import type { CompetitorGroupKind } from "@/lib/types/brandStrategy";
 
 /**
  * Brand › Competitors › one competitor: what changed (newest first), how their site is built,
@@ -130,7 +132,19 @@ function Months({ months }: { months: Array<{ month: string; pages: number }> })
   );
 }
 
-export function CompetitorDetail({ initial, canEdit }: { initial: Detail; canEdit: boolean }) {
+/** `grouping`: the strategy joined to Competitors (STRATEGY_COMPETITORS_ENABLED), so it has a group picker. */
+export function CompetitorDetail({
+  initial,
+  canEdit,
+  grouping = false,
+  groupWas = null,
+}: {
+  initial: Detail;
+  canEdit: boolean;
+  grouping?: boolean;
+  /** No group on its record, but an older strategy draft had one: shown as a hint. */
+  groupWas?: CompetitorGroupKind | null;
+}) {
   const router = useRouter();
   const [c, setC] = useState(initial);
   const [tab, setTab] = useState<Tab>(initial.changes.length ? "changes" : "site");
@@ -186,6 +200,17 @@ export function CompetitorDetail({ initial, canEdit }: { initial: Detail; canEdi
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {grouping ? (
+            <CompetitorGroupPicker
+              id={c.id}
+              name={c.name}
+              group={c.group}
+              was={groupWas}
+              canEdit={canEdit}
+              onSaved={(group, next) => setC(next ?? { ...c, group })}
+              onError={(text) => setError(text)}
+            />
+          ) : null}
           <Badge tone={c.status === "watching" ? "green" : c.status === "needs_you" ? "red" : c.status === "paused" ? "neutral" : "amber"}>
             {c.status === "reading" && c.progress?.total ? `Reading their site, ${c.progress.done} of ${c.progress.total}` : STATUS_LABEL[c.status]}
           </Badge>

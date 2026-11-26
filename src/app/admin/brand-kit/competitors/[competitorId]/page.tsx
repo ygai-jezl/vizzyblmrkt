@@ -9,6 +9,7 @@ import { articlesForDetail } from "@/lib/competitors/coverage";
 import { detailOf } from "@/lib/competitors/view";
 import { brandCanUse } from "@/lib/plans/brandAccess";
 import { isStrategyCompetitorsEnabled } from "@/lib/brandStrategy/flags";
+import { competitorsDoor } from "@/lib/brandStrategy/adminApi";
 import { CompetitorDetail } from "@/components/admin/brand-kit/CompetitorDetail";
 
 export const dynamic = "force-dynamic";
@@ -20,11 +21,14 @@ export default async function CompetitorRoute({ params }: { params: Promise<{ co
   const { competitorId } = await params;
   const c = await getCompetitor(ctx, competitorId);
   if (!c) notFound();
-  const [changes, posts, mapped, articles] = await Promise.all([
+  const grouping = isStrategyCompetitorsEnabled();
+  const [changes, posts, mapped, articles, door] = await Promise.all([
     listChanges(ctx, c.id),
     listPosts(ctx, c.id),
     onBrandMap(ctx, [c]),
     articlesForDetail(ctx, c.id).catch(() => null),
+    // An older draft's group for it, shown as a hint while its record has none.
+    grouping ? competitorsDoor(ctx, [c]).catch(() => null) : Promise.resolve(null),
   ]);
 
   return (
@@ -35,7 +39,7 @@ export default async function CompetitorRoute({ params }: { params: Promise<{ co
       >
         <ChevronLeft size={14} /> Competitors
       </Link>
-      <CompetitorDetail initial={detailOf(c, changes, posts, mapped.has(c.id), articles)} canEdit={ctx.role === "admin"} grouping={isStrategyCompetitorsEnabled()} />
+      <CompetitorDetail initial={detailOf(c, changes, posts, mapped.has(c.id), articles)} canEdit={ctx.role === "admin"} grouping={grouping} groupWas={door?.was[c.id] ?? null} />
     </div>
   );
 }

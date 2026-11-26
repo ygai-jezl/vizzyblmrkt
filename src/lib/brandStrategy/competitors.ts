@@ -17,8 +17,8 @@ import {
  * and client safe.
  *
  *  - First every competitor the brand watches, before any Propose too. Its group is the one a
- *    person chose on the competitor, else the one an older draft gave it, else none ("Not grouped
- *    yet").
+ *    person chose on the competitor's record, else none ("Not grouped yet"); a group an older
+ *    draft gave it is only a hint (`was`), so choosing it saves it to the record.
  *  - Then what the finder suggested that isn't watched (matched by site, or by the name folded),
  *    leaving out every name a person marked Not a competitor.
  *  - A draft entry copied in as watched that the brand no longer watches drops out.
@@ -31,7 +31,10 @@ import {
 export type LiveCompetitor = StrategyCompetitor & {
   /** Its record on Brand › Competitors when watched; null for a suggestion. */
   id: string | null;
+  /** Watched: the group on its record. A suggestion: the finder's group. */
   group: CompetitorGroupKind | null;
+  /** Watched with no group on its record: the group an older draft gave it, as a hint only. */
+  was: CompetitorGroupKind | null;
   monitored: boolean;
 };
 
@@ -47,7 +50,7 @@ export const isNotCompetitor = (c: Named, not: NotCompetitor[]) => not.some((n) 
 export function liveCompetitors(draft: Pick<Strategy, "competitorGroups"> | null, watched: Watched[] | null, notCompetitors: NotCompetitor[]): LiveCompetitor[] {
   const entries = draft ? competitorsOf(draft) : [];
   if (!watched) {
-    return entries.filter((c) => !(c.from === "finder" && isNotCompetitor(c, notCompetitors))).map((c) => ({ ...c, id: null, monitored: false }));
+    return entries.filter((c) => !(c.from === "finder" && isNotCompetitor(c, notCompetitors))).map((c) => ({ ...c, id: null, was: null, monitored: false }));
   }
   const used = new Set<number>();
   const out: LiveCompetitor[] = watched.map((w) => {
@@ -64,13 +67,14 @@ export function liveCompetitors(draft: Pick<Strategy, "competitorGroups"> | null
       ticked: true,
       from: entry?.from === "finder" ? "finder" : "watched",
       id: w.id,
-      group: w.group ?? entry?.group ?? null,
+      group: w.group ?? null,
+      was: w.group ? null : (entry?.group ?? null),
       monitored: true,
     };
   });
   entries.forEach((e, i) => {
     if (used.has(i) || e.from === "watched" || isNotCompetitor(e, notCompetitors)) return;
-    out.push({ ...e, id: null, monitored: false });
+    out.push({ ...e, id: null, was: null, monitored: false });
   });
   return out;
 }
@@ -83,10 +87,11 @@ export const suggestionsOf = (list: LiveCompetitor[]) => list.filter((c) => !c.m
  * ones first and all kept), and the watched ones nobody grouped. Pure.
  */
 export function approvedCopy(list: LiveCompetitor[]): { competitorGroups: StrategyCompetitorGroup[]; ungrouped: StrategyCompetitor[] } {
-  const plain = ({ id: _i, monitored: _m, group: _g, ...c }: LiveCompetitor): StrategyCompetitor => {
+  const plain = ({ id: _i, monitored: _m, group: _g, was: _w, ...c }: LiveCompetitor): StrategyCompetitor => {
     void _i;
     void _m;
     void _g;
+    void _w;
     return c;
   };
   return {

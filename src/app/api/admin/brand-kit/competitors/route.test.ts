@@ -198,6 +198,9 @@ describe("the Competitors APIs", () => {
     const on = (await (await GET(req("GET"))).json()) as { competitors: Array<{ id: string }>; suggestions: Array<{ name: string; group: string }> };
     expect(on.competitors.map((c) => c.id)).toEqual(["cmp_abcdef123456"]);
     expect(on.suggestions).toEqual([{ name: "Alpha", site: "alpha.example", group: "big", foundTimes: 2, evidence: [] }]);
+    // Its record has no group: the draft's "big" comes as a hint only, never as its group.
+    expect((on as unknown as { was: Record<string, string> }).was).toEqual({ cmp_abcdef123456: "big" });
+    expect((on.competitors[0] as { group?: string }).group).toBeUndefined();
     store.listCompetitors.mockResolvedValue([]);
   });
 

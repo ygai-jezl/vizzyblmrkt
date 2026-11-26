@@ -11,52 +11,75 @@ import type { CompetitorDetail } from "@/lib/competitors/view";
  * members read it. Choosing a group never changes the strategy's revision.
  */
 
-const SELECT =
-  "rounded border border-neutral-300 bg-white px-1.5 py-0.5 text-[11px] disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-950";
+const SELECT = "rounded border border-neutral-300 bg-white px-1.5 py-0.5 text-[11px] disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-950";
+
+/** The hint for a competitor with no group on its record that an older draft had put in one. */
+export const wasLabel = (was: CompetitorGroupKind) => `Was: ${COMPETITOR_GROUP_LABEL[was]}`;
 
 export function CompetitorGroupPicker({
   id,
   name,
   group,
+  was = null,
   canEdit,
   onSaved,
   onError,
 }: {
   id: string;
   name: string;
+  /** The group on the competitor's record: what both pages show. */
   group: CompetitorGroupKind | null | undefined;
+  /** No group on the record, but an older draft had one: a hint, never shown as chosen. */
+  was?: CompetitorGroupKind | null;
   canEdit: boolean;
   onSaved: (group: CompetitorGroupKind, competitor: CompetitorDetail | undefined) => void;
   onError: (text: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
-  if (!canEdit) return <span className="text-[11px] text-neutral-500">{group ? COMPETITOR_GROUP_LABEL[group] : NOT_GROUPED_LABEL}</span>;
+  const hint = !group && was ? <span className="text-[11px] text-neutral-500">{wasLabel(was)}</span> : null;
+  if (!canEdit) {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <span className="text-[11px] text-neutral-500">{group ? COMPETITOR_GROUP_LABEL[group] : NOT_GROUPED_LABEL}</span>
+        {hint}
+      </span>
+    );
+  }
   return (
-    <select
-      aria-label={`Group for ${name}`}
-      className={SELECT}
-      value={group ?? ""}
-      disabled={busy}
-      onChange={async (e) => {
-        const next = e.target.value as CompetitorGroupKind;
-        if (!next || next === group) return;
-        setBusy(true);
-        const r = await api<{ competitor?: CompetitorDetail; error?: string }>(`/api/admin/brand-kit/competitors/${id}`, { method: "PATCH", body: JSON.stringify({ group: next }) });
-        setBusy(false);
-        if (r.ok) onSaved(next, r.data.competitor);
-        else onError(errorText(r.data));
-      }}
-    >
-      {group ? null : (
-        <option value="" disabled>
-          Choose a group
-        </option>
-      )}
-      {COMPETITOR_GROUP_KINDS.map((k) => (
-        <option key={k} value={k}>
-          {COMPETITOR_GROUP_LABEL[k]}
-        </option>
-      ))}
-    </select>
+    <span className="inline-flex items-center gap-1.5">
+      <select
+        aria-label={`Group for ${name}`}
+        className={SELECT}
+        value={group ?? ""}
+        disabled={busy}
+        onChange={async (e) => {
+          const next = e.target.value as CompetitorGroupKind;
+          if (!next || next === group) return;
+          setBusy(true);
+          const r = await api<{
+            competitor?: CompetitorDetail;
+            error?: string;
+          }>(`/api/admin/brand-kit/competitors/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ group: next }),
+          });
+          setBusy(false);
+          if (r.ok) onSaved(next, r.data.competitor);
+          else onError(errorText(r.data));
+        }}
+      >
+        {group ? null : (
+          <option value="" disabled>
+            Choose a group
+          </option>
+        )}
+        {COMPETITOR_GROUP_KINDS.map((k) => (
+          <option key={k} value={k}>
+            {COMPETITOR_GROUP_LABEL[k]}
+          </option>
+        ))}
+      </select>
+      {hint}
+    </span>
   );
 }

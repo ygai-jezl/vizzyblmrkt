@@ -10,6 +10,7 @@ import { GOOGLE_NOTE, PROBLEM_TEXT, STATUS_LABEL, changeSummaryOf, formatLabel, 
 import { BRAND_MAP_NOTE, shortDate, statsLine } from "./CompetitorsPage";
 import { CompetitorArticles } from "./CompetitorArticles";
 import { CompetitorGroupPicker } from "./CompetitorGroupPicker";
+import type { CompetitorGroupKind } from "@/lib/types/brandStrategy";
 
 /**
  * Brand › Competitors › one competitor: what changed (newest first), how their site is built,
@@ -132,7 +133,18 @@ function Months({ months }: { months: Array<{ month: string; pages: number }> })
 }
 
 /** `grouping`: the strategy joined to Competitors (STRATEGY_COMPETITORS_ENABLED), so it has a group picker. */
-export function CompetitorDetail({ initial, canEdit, grouping = false }: { initial: Detail; canEdit: boolean; grouping?: boolean }) {
+export function CompetitorDetail({
+  initial,
+  canEdit,
+  grouping = false,
+  groupWas = null,
+}: {
+  initial: Detail;
+  canEdit: boolean;
+  grouping?: boolean;
+  /** No group on its record, but an older strategy draft had one: shown as a hint. */
+  groupWas?: CompetitorGroupKind | null;
+}) {
   const router = useRouter();
   const [c, setC] = useState(initial);
   const [tab, setTab] = useState<Tab>(initial.changes.length ? "changes" : "site");
@@ -193,6 +205,7 @@ export function CompetitorDetail({ initial, canEdit, grouping = false }: { initi
               id={c.id}
               name={c.name}
               group={c.group}
+              was={groupWas}
               canEdit={canEdit}
               onSaved={(group, next) => setC(next ?? { ...c, group })}
               onError={(text) => setError(text)}

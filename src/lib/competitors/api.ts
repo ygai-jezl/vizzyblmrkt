@@ -91,7 +91,7 @@ export async function listFromRequest(ctx: TenantContext, deps: ApiDeps = {}): P
   const competitors = await listCompetitors(ctx, deps);
   const [changes, mapped, door] = await Promise.all([unseenChanges(ctx, deps), onBrandMap(ctx, competitors, deps), competitorsDoor(ctx, competitors, deps).catch(() => null)]);
   return NextResponse.json(
-    { competitors: competitors.map((c) => summaryOf(c, changes, mapped.has(c.id))), ...(door ? { suggestions: door.suggestions } : {}) },
+    { competitors: competitors.map((c) => summaryOf(c, changes, mapped.has(c.id))), ...(door ? { suggestions: door.suggestions, was: door.was } : {}) },
     { headers: noStore },
   );
 }

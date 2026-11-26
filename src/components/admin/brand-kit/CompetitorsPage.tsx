@@ -8,7 +8,7 @@ import { BRAND_KIT_COMPETITORS_ROUTE } from "@/lib/content/brandKit";
 import { COMPETITOR_LIMITS } from "@/lib/types/competitor";
 import { STATUS_LABEL, type CompetitorDetail, type CompetitorSummary } from "@/lib/competitors/view";
 import type { FinderState, Suggestion } from "@/lib/brandStrategy/adminApi";
-import { COMPETITOR_GROUP_LABEL } from "@/lib/types/brandStrategy";
+import { COMPETITOR_GROUP_LABEL, type CompetitorGroupKind } from "@/lib/types/brandStrategy";
 import { CompetitorGroupPicker } from "./CompetitorGroupPicker";
 import { finderNote, foundNote, notCompetitorNote, strategyErrorText, watchingNote } from "./strategyMessages";
 
@@ -87,11 +87,12 @@ export function CompetitorsPage({
   initial: CompetitorSummary[];
   canEdit: boolean;
   prefillName: string;
-  door?: { suggestions: Suggestion[]; finder: FinderState } | null;
+  door?: { suggestions: Suggestion[]; finder: FinderState; was: Record<string, CompetitorGroupKind> } | null;
 }) {
   const [list, setList] = useState(initial);
   const [suggestions, setSuggestions] = useState(door?.suggestions ?? []);
   const [finder, setFinder] = useState(door?.finder ?? null);
+  const [was, setWas] = useState(door?.was ?? {});
   const [doorNote, setDoorNote] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
   const [website, setWebsite] = useState("");
   const [name, setName] = useState(prefillName);
@@ -151,10 +152,11 @@ export function CompetitorsPage({
 
   /** The list and the finder's suggestions as they are now. */
   async function refresh() {
-    const r = await api<{ competitors?: CompetitorSummary[]; suggestions?: Suggestion[] }>(LIST);
+    const r = await api<{ competitors?: CompetitorSummary[]; suggestions?: Suggestion[]; was?: Record<string, CompetitorGroupKind> }>(LIST);
     if (!r.ok) return;
     if (r.data.competitors) setList(r.data.competitors);
     if (r.data.suggestions) setSuggestions(r.data.suggestions);
+    if (r.data.was) setWas(r.data.was);
   }
 
   async function doorRun(path: string, body: unknown, done: (data: Record<string, unknown>) => string) {
@@ -304,6 +306,7 @@ export function CompetitorsPage({
                       id={c.id}
                       name={c.name}
                       group={c.group}
+                      was={was[c.id] ?? null}
                       canEdit={canEdit}
                       onSaved={(group) => setList((all) => all.map((x) => (x.id === c.id ? { ...x, group } : x)))}
                       onError={(text) => setDoorNote({ tone: "err", text })}

@@ -363,7 +363,7 @@ describe("what a person decided stays, and runs and approvals hold", () => {
     let doc = await saveProposal(A, proposal({ watched: [] }), { db, ...at(T0) });
     doc = await saveFound(A, { mode: "quick", found: [find("Alpha"), find("Rivalco", { group: "big" })] }, { db, ...at(T0 + 500) });
     const watched = [
-      { id: "cmp_aaaaaaaa01", name: "Rivalco", site: "rivalco.example", group: null },
+      { id: "cmp_aaaaaaaa01", name: "Rivalco", site: "rivalco.example", group: "big" as const },
       { id: "cmp_aaaaaaaa02", name: "Newco", site: "newco.example" },
     ];
     const r = await approveStrategy(A, { baseRev: doc.ok ? doc.value.rev : 0, watched }, { db, ...at(T0 + 1000) });

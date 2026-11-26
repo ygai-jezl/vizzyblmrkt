@@ -72,7 +72,7 @@ export interface ViewSituation {
  * (STRATEGY_COMPETITORS_ENABLED), `id` is its record when watched and `group` is null for one
  * nobody has grouped yet; off, every one has the group the strategy gave it.
  */
-export type ViewCompetitor = StrategyCompetitor & { id?: string | null; group: CompetitorGroupKind | null; monitored: boolean };
+export type ViewCompetitor = StrategyCompetitor & { id?: string | null; group: CompetitorGroupKind | null; was?: CompetitorGroupKind | null; monitored: boolean };
 
 export interface StrategyView {
   rev: number;
@@ -138,12 +138,19 @@ export async function finderState(
  * Brand › Competitors as the second door (STRATEGY_COMPETITORS_ENABLED): the finder's suggestions
  * that aren't watched or marked Not a competitor, and whether the finder can run. Null while off.
  */
-export async function competitorsDoor(ctx: TenantContext, watched: Competitor[], deps: ViewDeps = {}): Promise<{ suggestions: Suggestion[]; finder: FinderState } | null> {
+export async function competitorsDoor(
+  ctx: TenantContext,
+  watched: Competitor[],
+  deps: ViewDeps = {},
+): Promise<{ suggestions: Suggestion[]; finder: FinderState; was: Record<string, CompetitorGroupKind> } | null> {
   if (!isStrategyCompetitorsEnabled()) return null;
   const [doc, tenant] = await Promise.all([readBrandStrategyDoc(ctx, deps).catch(() => null), (deps.loadTenant ?? getTenantById)(ctx.tenantId).catch(() => null)]);
   const draft = doc?.draft ?? doc?.approved ?? null;
-  const suggestions = suggestionsOf(liveCompetitors(draft, watched, doc?.finder.notCompetitors ?? [])).map(({ name, site, group, foundTimes, evidence }) => ({ name, site, group, foundTimes, evidence }));
-  return { suggestions, finder: await finderState(ctx, doc, deps, async () => tenant) };
+  const live = liveCompetitors(draft, watched, doc?.finder.notCompetitors ?? []);
+  const suggestions = suggestionsOf(live).map(({ name, site, group, foundTimes, evidence }) => ({ name, site, group, foundTimes, evidence }));
+  // A group an older draft gave a watched competitor with none on its record: shown as a hint only.
+  const was = Object.fromEntries(live.flatMap((c) => (c.id && c.was ? [[c.id, c.was] as const] : [])));
+  return { suggestions, finder: await finderState(ctx, doc, deps, async () => tenant), was };
 }
 
 /**

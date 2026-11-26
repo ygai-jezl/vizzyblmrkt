@@ -292,7 +292,9 @@ export function BrandMapStrategy({ canEdit, contentPlan = false }: { canEdit: bo
                           ✓ watched
                           {c.id && profiles.get(c.id)?.read ? ` · ${profiles.get(c.id)!.read} ${profiles.get(c.id)!.read === 1 ? "article" : "articles"} read` : ""}
                         </span>
-                        {c.id ? <CompetitorGroupPicker id={c.id} name={c.name} group={c.group} canEdit={canEdit} onSaved={() => void load()} onError={(text) => setNote({ tone: "err", text })} /> : null}
+                        {c.id ? (
+                          <CompetitorGroupPicker id={c.id} name={c.name} group={c.group} was={c.was ?? null} canEdit={canEdit} onSaved={() => void load()} onError={(text) => setNote({ tone: "err", text })} />
+                        ) : null}
                       </span>
                       {c.id && profiles.get(c.id)?.line ? <p className="text-xs text-neutral-500">{profiles.get(c.id)!.line}</p> : null}
                     </li>

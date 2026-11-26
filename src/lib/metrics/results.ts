@@ -28,19 +28,22 @@ const detailOf = ({ totals, complete }: { totals: SendTotals; complete: boolean 
 
 /**
  * Each email of a launch's welcome sequence that runs an A/B test (WAITLIST_AB_WINNER_ENABLED):
- * its versions and the winner a person picked, read from the breakdown the Analytics tab shows,
- * on whichever engine the launch sends from.
+ * its versions, the winner a person picked and when, and when earlier winners were picked for
+ * tests run again since, read from the breakdown the Analytics tab shows, on whichever engine the
+ * launch sends from. Never who picked: these are aggregates.
  */
 async function emailTests(ctx: TenantContext, launchId: string) {
   const { nodes } = await computeHybridSequenceBreakdown(ctx, journeyIdFor(launchId));
   return nodes
-    .filter((n) => n.abTest)
+    .filter((n) => n.abTest || (n.earlierPicksAt?.length ?? 0) > 0)
     .map((n) => {
       const winner = n.status === "promoted" ? n.arms.find((a) => a.variantId === n.winnerVariantId) : undefined;
       return {
         email: n.label,
         winnerPicked: n.status === "promoted",
         winner: winner?.label ?? null,
+        winnerPickedAt: n.pickedAt ?? null,
+        earlierPicksAt: n.earlierPicksAt ?? [],
         versions: n.arms.map((a) => ({
           version: a.label,
           sends: a.sent,

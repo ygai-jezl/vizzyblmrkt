@@ -102,13 +102,25 @@ describe("email tests on a launch (WAITLIST_AB_WINNER_ENABLED)", () => {
     src.computeHybridSequenceBreakdown.mockResolvedValue({
       truncated: false,
       nodes: [
-        { ...arm("x", "", 112), nodeId: "email1", label: "Welcome", abTest: true, status: "promoted", winnerVariantId: "var_b", arms: [arm("control", "Control", 60), arm("var_b", "Variant A", 52)] },
-        { ...arm("x", "", 40), nodeId: "email2", label: "Nudge", abTest: false, arms: [] },
+        {
+          ...arm("x", "", 112),
+          nodeId: "email1",
+          label: "Welcome",
+          abTest: true,
+          status: "promoted",
+          winnerVariantId: "var_b",
+          arms: [arm("control", "Control", 60), arm("var_b", "Variant A", 52)],
+          pickedAt: "2026-11-02T09:00:00.000Z",
+          earlierPicksAt: ["2026-10-01T09:00:00.000Z"],
+        },
+        { ...arm("x", "", 40), nodeId: "email2", label: "Nudge", abTest: false, arms: [], pickedAt: null, earlierPicksAt: [] },
+        // A test stopped after its winner was picked: the pick stays readable.
+        { ...arm("x", "", 30), nodeId: "email3", label: "Last call", abTest: false, arms: [], pickedAt: null, earlierPicksAt: ["2026-10-20T09:00:00.000Z"] },
       ],
     }),
   );
 
-  it("says which version of each test won, every number explained", async () => {
+  it("says which version of each test won and when, every number explained", async () => {
     vi.stubEnv("WAITLIST_AB_WINNER_ENABLED", "true");
     const r = await emailResults(ctx, { scope: "launch", id: "c1" });
     expect(src.computeHybridSequenceBreakdown).toHaveBeenCalledWith(ctx, "journey_c1");
@@ -117,11 +129,14 @@ describe("email tests on a launch (WAITLIST_AB_WINNER_ENABLED)", () => {
         email: "Welcome",
         winnerPicked: true,
         winner: "Variant A",
+        winnerPickedAt: "2026-11-02T09:00:00.000Z",
+        earlierPicksAt: ["2026-10-01T09:00:00.000Z"],
         versions: [
           { version: "Control", sends: 60, delivered: 60, uniqueOpens: 30, uniqueClicks: 1, unsubscribes: 0, openRate: 0.5, clickRate: 1 / 60 },
           { version: "Variant A", sends: 52, delivered: 52, uniqueOpens: 26, uniqueClicks: 1, unsubscribes: 0, openRate: 0.5, clickRate: 1 / 52 },
         ],
       },
+      { email: "Last call", winnerPicked: false, winner: null, winnerPickedAt: null, earlierPicksAt: ["2026-10-20T09:00:00.000Z"], versions: [] },
     ]);
     everyNumberHasAMeaning(r.body);
   });

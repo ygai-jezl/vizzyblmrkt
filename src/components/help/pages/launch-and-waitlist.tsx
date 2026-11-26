@@ -196,9 +196,11 @@ export default function LaunchAndWaitlistHelp({ ideas = isIdeasEnabled(), ideaWo
           </P>
           <P>
             To test that email again, turn <strong>A/B test this email</strong> off and on in the new journey editor, then
-            publish: the new test runs and the earlier pick stops applying. In the original editor, press{" "}
-            <strong>Start a new test</strong>.
-            {isResultsChatEnabled() ? " Ask Vizzy how the emails did, and it says which version of each test won." : null}
+            publish: the new test runs and the earlier pick stops applying. Until you publish, the Analytics tab shows
+            the earlier pick. In the original editor, press <strong>Start a new test</strong>.
+            {isResultsChatEnabled()
+              ? " Ask Vizzy how the emails did, and it says which version of each test won and when it was picked."
+              : null}
           </P>
         </>
       ) : null}

@@ -27,6 +27,7 @@ describe("the email test winner on Launch and waitlist", () => {
     expect(text).toContain("People who already had the email keep the version they got.");
     expect(text).toContain("**A/B test this email**");
     expect(text).toContain("**Start a new test**");
+    expect(text).toContain("Until you publish, the Analytics tab shows the earlier pick.");
     expect(text).toContain(MESSAGE);
     expect(SCREEN).toContain(`"${MESSAGE}"`);
     expect(text).not.toContain("Ask Vizzy how the emails did");
@@ -40,7 +41,7 @@ describe("the email test winner on Launch and waitlist", () => {
   it("says Vizzy reads the winner only where Vizzy reads results", () => {
     vi.stubEnv("WAITLIST_AB_WINNER_ENABLED", "true");
     vi.stubEnv("RESULTS_CHAT_ENABLED", "true");
-    expect(md()).toContain("Ask Vizzy how the emails did, and it says which version of each test won.");
+    expect(md()).toContain("Ask Vizzy how the emails did, and it says which version of each test won and when it was picked.");
   });
 
   it("off: says nothing about it", () => {

@@ -5,6 +5,8 @@ import type { EmailMessage } from "@/lib/email";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { Journey } from "@/lib/types/journey";
 import type { ContentPool, LifecycleDraft } from "@/lib/types/lifecycle";
+import { computeSequenceEmailBreakdown } from "@/lib/analytics/email";
+import { promoteVariant } from "@/lib/journey/abTest";
 import { allocateVariant } from "@/lib/journey/allocation";
 import { enrolSignupInWaitlistJourney } from "@/lib/journey/router";
 import { publishLifecycleJourney, saveLifecycleDraft } from "../service";
@@ -34,6 +36,17 @@ const GRAPH = {
   ],
   edges: [{ id: "a", source: "trigger", target: "welcome", sourceHandle: null }],
 };
+/** The same email two days after joining, so someone can be on a version while it changes. */
+const WAIT_GRAPH = {
+  nodes: [GRAPH.nodes[0]!, { id: "wait", type: "wait", position: { x: 0, y: 0 }, data: { waitHours: 48 } }, GRAPH.nodes[1]!],
+  edges: [
+    { id: "a", source: "trigger", target: "wait", sourceHandle: null },
+    { id: "b", source: "wait", target: "welcome", sourceHandle: null },
+  ],
+};
+const PEOPLE = ["grace", "lin", "noor", "omar", "priya", "quinn", "rosa", "sam"];
+/** Someone the test gives the control: only a pick gets them Variant B. */
+const CONTROL_PERSON = PEOPLE.find((id) => allocateVariant("welcome", id, AB).variantId === "control")!;
 
 beforeEach(() => {
   vi.stubEnv("WAITLIST_ENGINE_ENABLED", "true");
@@ -47,7 +60,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-function world(opts: { original?: boolean; launch?: Record<string, unknown> } = {}) {
+function world(opts: { original?: boolean; launch?: Record<string, unknown>; wait?: boolean } = {}) {
   const db = new FakeFirestore();
   seedLaunch(db, opts.launch);
   if (opts.original !== false) {
@@ -55,7 +68,7 @@ function world(opts: { original?: boolean; launch?: Record<string, unknown> } = 
       tenantId: TENANT_ID,
       campaignId: CAMPAIGN_ID,
       status: "active",
-      graph: GRAPH,
+      graph: opts.wait ? WAIT_GRAPH : GRAPH,
       createdAt: new Date(T0 - 48 * H).toISOString(),
       updatedAt: new Date(T0 - 48 * H).toISOString(),
     });
@@ -81,13 +94,30 @@ function world(opts: { original?: boolean; launch?: Record<string, unknown> } = 
   const original = async () => (await repo.journeys.getById(ORIGINAL)) as Journey;
   const originalTest = async () => (await original()).graph.nodes.find((n) => n.id === "welcome")!.data.abTest;
   const sent: EmailMessage[] = [];
+  const tick = () => runWaitlistTick(system, { db, now: () => Date.now(), send: async (m) => (sent.push(m), { sent: true, provider: "mandrill", id: "lc" }) });
+  const got = (id: string) => sent.filter((m) => m.to === `${id}@example.test`).map((m) => m.subject);
   const join = async (id: string) => {
     const s = seedSignup(db, id);
     await enrolSignupInWaitlistJourney(system, CAMPAIGN_ID, s, db);
-    await runWaitlistTick(system, { db, now: () => Date.now(), send: async (m) => (sent.push(m), { sent: true, provider: "mandrill", id: "lc" }) });
-    return sent.filter((m) => m.to === `${id}@example.test`).map((m) => m.subject);
+    await tick();
+    return got(id);
   };
-  return { db, sends, moved, original, originalTest, join };
+  /** The welcome email's versions in the new editor, saved, and published unless told not to. */
+  const editTest = async (ids: string[], o: { publish?: boolean } = {}) => {
+    const draft = structuredClone((await moved()).draft) as LifecycleDraft;
+    draft.pools = draft.pools.map((p) =>
+      p.id === POOL
+        ? {
+            ...p,
+            items: ids.map((id) => p.items.find((i) => i.id === id) ?? { ...p.items[0]!, id, label: id, subject: `Welcome ${id}` }),
+            abTest: { splitPercent: 50 },
+          }
+        : p,
+    );
+    expect((await saveLifecycleDraft(ctx, MOVED, draft, { db, nowMs: Date.now() })).ok).toBe(true);
+    if (o.publish !== false) expect((await publishLifecycleJourney(ctx, MOVED, { db, nowMs: Date.now() })).ok).toBe(true);
+  };
+  return { db, sends, moved, original, originalTest, join, tick, got, editTest };
 }
 
 const pick = (db: FakeFirestore, winner: string, opts: { nodeId?: string; as?: TenantContext } = {}) =>
@@ -110,6 +140,13 @@ describe("liveWinners", () => {
   it("lets a stopped or restarted test go its own way", () => {
     expect(liveWinners({ abWinners: { p1: "var_b" }, abWinnerHistory: [picked] }, [pool(["control"], false)])).toEqual({});
     expect(liveWinners({ abWinners: { p1: "control" }, abWinnerHistory: [{ ...picked, itemId: "control" }] }, [pool(["control", "var_c"])])).toEqual({});
+  });
+
+  it("keeps a pick for an earlier shape of its test, and not once the winner has left it", () => {
+    const three = { ...picked, arms: ["control", "var_b", "var_c"] };
+    expect(liveWinners({ abWinners: { p1: "var_b" }, abWinnerHistory: [three] }, [pool(["control", "var_b"])])).toEqual({ p1: "var_b" });
+    expect(liveWinners({ abWinners: { p1: "var_b" }, abWinnerHistory: [three] }, [pool(["control", "var_c"])])).toEqual({});
+    expect(liveWinners({ abWinners: { p1: "var_b" }, abWinnerHistory: [picked] }, [pool(["control", "var_b", "var_c"])])).toEqual({});
   });
 
   it("keeps a winner with no recorded pick, as before", () => {
@@ -253,5 +290,103 @@ describe("promoteLaunchWinner", () => {
       const arm = allocateVariant("welcome", id, restarted).variantId;
       expect(await w.join(id)).toEqual([arm === "control" ? "Welcome" : "Welcome C"]);
     }
+  });
+});
+
+describe("a pick and the other journey's test", () => {
+  it("leaves the original's earlier test running when a test restarted in the new editor picks its control", async () => {
+    const w = world();
+    await switchEngine(ctx, CAMPAIGN_ID, "switch", { db: w.db, nowMs: T0 });
+    // Restarted after the move: Control against Variant C, while the original still runs Control against Variant B.
+    await w.editTest(["control", "var_c"]);
+    w.sends("control");
+
+    expect(await pick(w.db, "control")).toEqual({ ok: true, applied: ["lifecycle"] });
+    expect(await w.originalTest()).toMatchObject({ enabled: true, status: "running" });
+    expect((await w.moved()).abWinners).toEqual({ [POOL]: "control" });
+  });
+
+  it("reaches the original where its test is an earlier shape of the one picked from", async () => {
+    const w = world();
+    await switchEngine(ctx, CAMPAIGN_ID, "switch", { db: w.db, nowMs: T0 });
+    await w.editTest(["control", "var_b", "var_c"]);
+    w.sends("var_b");
+
+    expect(await pick(w.db, "var_b")).toEqual({ ok: true, applied: ["lifecycle", "original"] });
+    expect(await w.originalTest()).toMatchObject({ status: "promoted", winnerVariantId: "var_b" });
+  });
+
+  it("after a rollback, leaves the lifecycle journey's restarted test running", async () => {
+    const w = world();
+    await switchEngine(ctx, CAMPAIGN_ID, "switch", { db: w.db, nowMs: T0 });
+    await w.editTest(["control", "var_c"]);
+    await switchEngine(ctx, CAMPAIGN_ID, "rollback", { db: w.db, nowMs: T0 + H });
+    w.sends("control", { journeyId: ORIGINAL });
+
+    expect(await pick(w.db, "control")).toEqual({ ok: true, applied: ["original"] });
+    expect((await w.moved()).abWinners).toBeUndefined();
+  });
+});
+
+describe("people already on a journey when the pick is made", () => {
+  it("gives the winner to someone who joined before a version was added to the test", async () => {
+    const w = world({ wait: true });
+    await switchEngine(ctx, CAMPAIGN_ID, "switch", { db: w.db, nowMs: T0 });
+    expect(await w.join(CONTROL_PERSON)).toEqual([]); // on the first version (Control against Variant B), waiting two days
+    vi.setSystemTime(T0 + H);
+    await w.editTest(["control", "var_b", "var_c"]);
+    w.sends("var_b");
+    expect(await pick(w.db, "var_b")).toMatchObject({ ok: true });
+
+    vi.setSystemTime(T0 + 50 * H);
+    await w.tick();
+    expect(w.got(CONTROL_PERSON)).toEqual(["Welcome B"]);
+  });
+});
+
+describe("the Analytics tab's view of a moved launch (WAITLIST_AB_WINNER_ENABLED)", () => {
+  const welcome = async (db: FakeFirestore) => (await computeSequenceEmailBreakdown(ctx, ORIGINAL, db)).nodes.find((n) => n.nodeId === "welcome")!;
+  const view = (n: Awaited<ReturnType<typeof welcome>>) => ({ abTest: n.abTest, status: n.status, winner: n.winnerVariantId, arms: n.arms.map((a) => a.variantId) });
+
+  it("still shows a test decided before the move, with its winner", async () => {
+    const w = world();
+    w.sends("var_b", { journeyId: ORIGINAL });
+    expect(await promoteVariant(ctx, CAMPAIGN_ID, "welcome", "var_b", {}, w.db)).toEqual({ ok: true });
+    await switchEngine(ctx, CAMPAIGN_ID, "switch", { db: w.db, nowMs: T0 });
+    const decided = { abTest: true, status: "promoted", winner: "var_b", arms: ["control", "var_b"] };
+
+    expect(view(await welcome(w.db))).toEqual(decided);
+    vi.stubEnv("WAITLIST_AB_WINNER_ENABLED", "true");
+    expect(view(await welcome(w.db))).toEqual(decided);
+    expect(await welcome(w.db)).toMatchObject({ pickedAt: null, earlierPicksAt: [] });
+  });
+
+  it("shows the published test a pick checks, and when its winners were picked", async () => {
+    vi.stubEnv("WAITLIST_AB_WINNER_ENABLED", "true");
+    const w = world();
+    await switchEngine(ctx, CAMPAIGN_ID, "switch", { db: w.db, nowMs: T0 });
+    w.sends("var_b");
+    expect(await pick(w.db, "var_b")).toMatchObject({ ok: true });
+    const pickedAt = new Date(T0 + H).toISOString();
+    expect(await welcome(w.db)).toMatchObject({ status: "promoted", winnerVariantId: "var_b", pickedAt, earlierPicksAt: [] });
+
+    // Restarted in the draft only: new signups still get the winner, so the tab still shows it.
+    await w.editTest(["control", "var_c"], { publish: false });
+    expect(view(await welcome(w.db))).toEqual({ abTest: true, status: "promoted", winner: "var_b", arms: ["control", "var_b"] });
+    expect(await pick(w.db, "control")).toEqual({ ok: false, error: "already_promoted" });
+
+    // Published: the new test runs, and the earlier pick is listed with its time.
+    expect((await publishLifecycleJourney(ctx, MOVED, { db: w.db, nowMs: T0 + 2 * H })).ok).toBe(true);
+    expect(view(await welcome(w.db))).toEqual({ abTest: true, status: "running", winner: null, arms: ["control", "var_c"] });
+    expect(await welcome(w.db)).toMatchObject({ pickedAt: null, earlierPicksAt: [pickedAt] });
+  });
+
+  it("adds no pick times while the switch is off", async () => {
+    const w = world({ original: false, launch: { waitlistEngine: "lifecycle" } });
+    await publishWaitlist(w.db, { draft: welcomeDraft({ abTest: { splitPercent: 50 } }) });
+    const node = (await computeSequenceEmailBreakdown(ctx, ORIGINAL, w.db)).nodes[0]!;
+    expect(node.abTest).toBe(true);
+    expect(node).not.toHaveProperty("pickedAt");
+    expect(node).not.toHaveProperty("earlierPicksAt");
   });
 });

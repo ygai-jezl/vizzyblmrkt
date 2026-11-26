@@ -5,6 +5,7 @@ import { isVizzyAddPersonEnabled, isVizzyFieldsEnabled } from "@/lib/audience/pe
 import { isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsSharingEnabled } from "@/lib/connectors/flags";
 import { isOnboardingEnabled } from "@/lib/onboarding/flags";
 import { SIGNALS_HELP } from "@/lib/connectors/helpText";
+import { isWorkEnabled, isWorkVizzyEnabled } from "@/lib/work/flags";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
@@ -14,8 +15,10 @@ import type { HelpBodyProps } from "@/lib/help/pages";
  * CONNECTORS_COLLECT_ENABLED is, and what your numbers suggest while CONNECTOR_SIGNALS_ENABLED is
  * too (the How to drawer passes the shell's answers). While organisations share connections
  * (CONNECTORS_SHARING_ENABLED, a server switch), a data source your organisation gives your brand
- * names the organisation and who can fix it. While getting to know a brand is on (ONBOARDING_ENABLED),
- * admins also see what Vizzy heard about the business in a chat.
+ * names the organisation and who can fix it. Work's sections show while WORK_ENABLED is on, and
+ * Tasks Vizzy suggests while WORK_VIZZY_ENABLED is too (both server switches, from the shell).
+ * While getting to know a brand is on (ONBOARDING_ENABLED), admins also see what Vizzy heard about
+ * the business in a chat.
  */
 export default function ReviewAndApprovalsHelp({
   vizzyFields = isVizzyFieldsEnabled(),
@@ -23,6 +26,8 @@ export default function ReviewAndApprovalsHelp({
   connectorsCollect = isConnectorsCollectEnabled(),
   connectorSignals = isConnectorSignalsEnabled(),
   sharing = isConnectorsSharingEnabled(),
+  work = isWorkEnabled(),
+  workVizzy = isWorkVizzyEnabled(),
   onboarding = isOnboardingEnabled(),
 }: HelpBodyProps = {}) {
   const numbers = connectorsCollect && connectorSignals;
@@ -60,6 +65,19 @@ export default function ReviewAndApprovalsHelp({
         <li>
           <strong>AI lines for upcoming emails</strong>: personal lines waiting for approval.
         </li>
+        {work ? (
+          <>
+            <li>
+              <strong>Checks due today</strong>: tasks in Work to look at again today. A measure&apos;s check asks if the task
+              worked, with Better, Same, Worse and Too soon to tell; any other check has Done and Tomorrow. Everyone on the team
+              sees these (<Open href="/help/work#checks">Checks</Open>).
+            </li>
+            <li>
+              <strong>Ready to start</strong>: To do tasks with nothing in their way. Start moves one to In progress (
+              <Open href="/help/work#tasks">Your tasks</Open>).
+            </li>
+          </>
+        ) : null}
         <li>
           <strong>Posts that need you</strong>: scheduled posts that couldn&apos;t publish.
         </li>
@@ -80,6 +98,12 @@ export default function ReviewAndApprovalsHelp({
                 opens it on Connected (<Open href="/help/connected-data#from-organisation">A part from your organisation</Open>).
               </>
             ) : null}
+          </li>
+        ) : null}
+        {work && workVizzy ? (
+          <li>
+            <strong>Tasks Vizzy suggests</strong>: tasks Vizzy suggested in chat, with Add to Work, Edit then add and Dismiss.
+            Nothing goes on Work until someone adds it (<Open href="/help/work#vizzy">Work in Review, and Vizzy</Open>).
           </li>
         ) : null}
         <li>

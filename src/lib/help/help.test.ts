@@ -95,6 +95,9 @@ vi.hoisted(() => {
   process.env.ORGANISATION_JOIN_ENABLED = "true";
   process.env.PASSWORD_SIGNIN_ENABLED = "true";
   process.env.LAUNCH_IDEAS_ENABLED = "true";
+  // Work and Vizzy's Work tools (ADR-0018): /help/work, and Work's lines on Review and approvals.
+  process.env.WORK_ENABLED = "true";
+  process.env.WORK_VIZZY_ENABLED = "true";
   // Tell Vizzy about your business, on the hub (the switch folds in no nav switch), with Talk with
   // Vizzy by voice, so its lines and the messages it quotes are checked too.
   process.env.ONBOARDING_ENABLED = "true";
@@ -350,6 +353,17 @@ describe("links into the help", () => {
     expect(helpFor("/admin/somewhere-new")).toBe("/help");
   });
 
+  it("sends Work's pages to the Work page, and leaves /admin/workspace its own", () => {
+    expect(helpFor("/admin/work")).toBe("/help/work");
+    expect(helpFor("/admin/work/73")).toBe("/help/work");
+    expect(helpFor("/admin/work/new")).toBe("/help/work#tasks");
+    expect(helpFor("/admin/work/log")).toBe("/help/work#log");
+    expect(helpFor("/admin/workspace")).toBe("/help/programmes-and-knowledge#start");
+    expect(helpFor("/admin/workspace/w1/templatize")).toBe("/help/write-and-schedule#write");
+    expect(helpFor("/admin/workspaces")).toBe("/help/programmes-and-knowledge#start");
+    expect(HELP_PLACES).toEqual(expect.arrayContaining(["/help/work", "/help/work#tasks", "/help/work#log"]));
+  });
+
   it("opens the People list's page from the People area only with People on", () => {
     expect(helpFor("/admin/crm")).toBe("/help/people");
     expect(helpFor("/admin/crm/people/pu_3f9a")).toBe("/help/people");
@@ -443,6 +457,8 @@ describe("Ideas in place of Launches", () => {
     connectorSignals: true,
     brandMapScale: true,
     ideas: true,
+    work: true,
+    workVizzy: true,
   };
   // Told, not read: the How to drawer renders in the browser, where server switches read off.
   const body = (slug: string, ideaWords: boolean) => HELP_BODIES[slug]!({ ...ALL, ideaWords });

@@ -4,6 +4,145 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0018 · Work: one list of tasks and a daily log for the organisation (2026-11-26)
+
+Context: a team keeps its backlog and its daily notes in a sheet or a doc, outside YouGrow, so
+nothing in the app knows what the business is working on, what got done, or whether a change
+worked. The company loop (the learning loops design, ADR-0017's Declare step first) needs exactly
+that, and most of it can't be backfilled: who added a task, what it was before a change, what
+Vizzy suggested beside what a person kept, why a suggestion was dismissed, and a person's read of
+whether a task worked. Work records those signals from day one, before anything learns from
+them, and gives every business, a plant shop as much as a software company, one list at every
+stage of the Path. Loops step 1 is ADR-0017; ADR-0019 is kept for loops step 3, the verdict, in a
+pull request of its own.
+
+Decided (the owner approved plan-work v2 on 25 Nov 2026; the build departs from it in the places
+named below, and from its base and its third index on the owner's instruction):
+
+1. **Two regional collections, read as one list.** `work_tasks` and an append only `work_log`
+   follow the Connectors 3 pattern (ADR-0015): a task tagged with a brand lives in that brand's
+   regional database, a whole business task in the region of the brand it was added from
+   (`addedFrom`). `src/lib/tenant/work.ts` is the only Firestore code. Lists read every provisioned
+   region by `organisationId` with `Promise.allSettled` and name the regions that didn't answer,
+   where C3's own lists throw, so one region down hides only its tasks and the screen says which.
+   Every task change writes its change row (field, before, after, each at its own cap) and the
+   task's last 20 changes in the same transaction. `work_log` has no time to live and is not in
+   the TTL setup: rows go only when the organisation id is erased. Open tasks store
+   `closedAt: null`, because an ordered query drops documents without the field.
+   Rejected: one collection in the control plane, which would keep EU and Asia brands' tasks in
+   the US.
+2. **Refs from a counter in the control plane (a departure).** Refs are numbered per organisation,
+   but "the highest plus one" can't be read and taken across regional databases in one transaction
+   (ADR-0002), and a query for the highest would need an index of its own. So
+   `work_refs/{organisationId}` (`src/lib/tenant/workRefs.ts`) holds the next ref, taken in its own
+   transaction before the task is written; a failed write leaves a gap. An import keeps its
+   sheet's numbers and raises the counter. This is a third collection where the plan said two. It
+   holds no person data and is read only by id. It is never a field on the organisation, whose
+   move rewrites it whole.
+3. **Who sees what, read live.** The Plan and usage rule: owners, and everyone in a one brand
+   organisation, see the whole organisation; everyone else sees their own brand's tasks, and whole
+   business tasks are for owners unless an owner tags a brand. Members add, edit, log, record
+   decisions and accept; admins and owners delete and import. A brand with no organisation yet
+   (plans off) is its own under `org_<tenantId>`, the id the backfill gives it later, so its tasks
+   need no migration; Work refuses if that id is taken or a brand and its organisation disagree. A
+   brand id from a request must be one of the organisation's, and its region always comes from
+   the registry. A task's brand can change only to a brand in the same region, so a task never
+   moves database.
+4. **Origin, the proposed kind and recommendations come from the server.** A task's origin is
+   person, import (with the sheet's file name and row, a small addition), a Vizzy suggestion (its
+   agent action and evidence) or a coding agent, which v1 refuses until piece K. The proposed kind
+   of win (`measure.proposed`) is worked out on the server by `src/lib/work/measureKind.ts` on
+   every save. A decision's recommendation is never read from a body: it comes only from a draft
+   Vizzy stored.
+5. **Typed links beside free links.** Pull request (a repo the brand selected, stored as the
+   connection's `fullPath`, ignoring case, so a GitLab subgroup fits where the plan wrote
+   owner/name), switch (a name or none and why), idea, plan (an https page with a title and an
+   optional version) and loop line. Pull requests and switches need a connected repo. Loop lines,
+   and Used measures that count this copy's own purposes, types or `LOOPS` kinds, are for the
+   people `LOOPS_OPERATOR_EMAILS` names, and a loop line also needs a pull request from
+   `LOOPS_SOURCE_REPO`. Both settings are read on the server only, empty in public code, and set
+   only in a deployment's own settings. Vizzy's token carries no email, so Vizzy is never an
+   operator.
+6. **Decisions and plan approvals are log rows.** A decision is a `work_log` row of kind decision:
+   2 to 4 options, the choice, `agreed` worked out, why, and `replaces` when a mind changes, which
+   is a new row. Approving a plan is a decision tied to the plan link's url and version, with
+   Approve, Change it or Not now and no recommendation. A changed url or version shows Not
+   approved yet. Nobody drafts one: the agent route, the draft's shape, the admin route and the
+   Python client each refuse it.
+7. **How we'll know it worked: four kinds of win.** Used, Moves a number, Runs better and Done is
+   the win, each but Done with a look (1 to 365 days after Done, or 10, 20 or 40 outputs, which
+   set no check yet) and an optional then that looks later. Done sets the measure's check at 08:00
+   brand time and replaces an open check; the one tap read (Better, Same, Worse, Too soon to tell)
+   is taken only on that check. Too soon to tell asks again 7 days on, and the then's check is set
+   only after Better, Same or Worse. `conversions` joins the meanings, in the brand's own word, on
+   `NOT_SERVED_YET`, and Moves a number shares the loops registry's `VENDOR` rule, now exported.
+8. **The Used count without a new index (a departure).** The plan's `product_events (tenantId,
+   connectionId, event, receivedAt)` index is not approved yet, so it is not in
+   `firestore.indexes.json`. `src/lib/work/counted.ts` reads the newest 2,000 events of the
+   connection between Done and the check through the existing (tenantId, connectionId, receivedAt
+   desc) index and counts the event's name in memory. Fewer rows means the count is exact; 2,000
+   means "at least N in the newest 2,000 events, back to <date>" (`counted.capped` and
+   `counted.backTo`, a small addition). The exact `count()` is `countProductEventsExact`, tested
+   and wired nowhere, so turning it on once the index is approved and READY is one call. A purpose
+   counts meter units over the months the look touches, and hides the brand count below
+   `LOOP_RULES.cellOrgs` organisations. Rejected for now: `product_event_days`, exact per UTC day
+   by name with no index, which can come later.
+9. **Review gets three sections, for members too.** Checks due today (`work_check_due`), Ready to
+   start (`work_ready`; Start is a change row with the tool `review_ready`, so picks are kept) and
+   Tasks Vizzy suggests (`vizzy_chat`). Review's date check offers Done, Tomorrow and Open, where
+   the canvas drew Done and Tomorrow. The count's cache key gains the owner flag while Work is on.
+10. **A suggestion keeps both sides, and why it was dismissed.** A Vizzy suggestion is an agent
+    action (`work_task.suggest`) aimed at the task id it will take (`work_task` joins
+    `AGENT_TARGET_TYPES`), with `clearDetailsOnClose: false`. Add to Work and Edit then add write
+    the task, its origin and the action's result `{task, edited}` in one transaction, so only
+    brands in the session brand's region are offered (a departure: one transaction can't span
+    databases). Ticking Must have is never an edit; changing the kind of win is. Dismiss stores an
+    optional `declined.why` (Not now, Not for us, Already on it, Wrong) beside `dismissed`, carried
+    on `agent.declined`; it is refused beside expired, stale and superseded, and every other row
+    reads as before. Not now lets the same suggestion back after 30 days through the next dedupe
+    round; any other reason or none keeps it away. Suggestions expire after 30 days.
+11. **Vizzy reads Work and only suggests and drafts.** Behind `WORK_VIZZY_ENABLED`, which needs
+    `WORK_ENABLED`: `/api/agent/work` (one route; a canvas kind would force a `canvas.*` loops
+    line) serves `get_work`, `suggest_work_task`, `draft_work_log` and `draft_work_decision`, with
+    read and write rate limits. Chat cards are links, so a drafted note or decision is a stored
+    agent action (`work_log.draft`, `work_decision.draft`, target `work_log`, a new agent target)
+    that opens the Log box or the task filled in, and expires after 7 days (a departure: the plan
+    put the buttons on the card). `SIGNAL_KINDS` gains `work_log` and `work_task` for evidence.
+    `get_work` answers in words, never bare numbers, so it needs no new meanings, and it calls the
+    team's words data, never instructions.
+12. **Housekeeping runs whatever the switch says.** An empty organisation id taken up again erases
+    its leftover Work and its ref counter; a move that empties an organisation never does.
+    move-brand, Bring in and Move out repoint the moved brand's tasks and log rows first, giving
+    moved tasks new refs from the target's counter with a change row.
+13. **Registry lines.** Ontology types `work_task` and `work_log` (home organisation, personal
+    team, search none), the rule lines `work_check_due` (none), `work_ready` and
+    `work_measure_kind` (gaps, revisit 2027-05-01), `vizzy_chat` moved from none to a gap, and the
+    events `work.task_added`, `work.task_changed`, `work.logged`, `work.checked` and
+    `work.decided` through the pure `fromWorkLog`, not stored.
+
+Enforced where: `src/lib/tenant/work.test.ts` (regions, a region down, append only, no `ttlAt`,
+erase and repoint), `src/lib/work/indexes.test.ts` (every query shape uses an index in
+`firestore.indexes.json`, the product event fallback uses only the existing one, and the exact
+shape is listed nowhere), `src/lib/work/*.test.ts` for the rules above, the route tests and
+`src/lib/work/routesGate.test.ts` (origin, switch, sign in, then scope on every route),
+`src/app/api/agent/work/route.test.ts` and pytest for Vizzy, the loops, ontology, events and
+Review tests for the registry lines, and `src/lib/help/help.test.ts` with
+`src/lib/help/workSwitch.test.ts` for `/help/work`.
+
+What follows: 2 switches, `WORK_ENABLED` and `WORK_VIZZY_ENABLED`, `"false"` in `apphosting.yaml`;
+2 settings, `LOOPS_OPERATOR_EMAILS` and `LOOPS_SOURCE_REPO`, empty in `.env.example`. Three new
+collections (`work_tasks` and `work_log` regional, `work_refs` in the control plane), two
+composite indexes, (organisationId, open, closedAt desc) and (organisationId, at desc), and 14
+field exemptions, all three databases, READY before `WORK_ENABLED` goes on. No new service,
+scheduler job, secret, rule or dependency. The base is dev `43cff9bb`, not the plan's `2aed3d3e`,
+and N's `REVEAL` is not in it, so Work adds its sidebar entry under Ask Vizzy directly and N adds
+`work: "always"` if it merges after. The help page is `/help/work`, and the pull request template
+gains an optional `Work task:` line, a ref with no `#`. Release: `WORK_ENABLED` first, then a Vizzy
+redeploy, then `WORK_VIZZY_ENABLED`. Later: the third index for an exact Used count, piece K's Work
+slice, loops steps 2 to 6 reading and writing Work, and the delivery line.
+
+---
+
 ## ADR-0019 · Connectors are data: the MCP method and features read by kind of data (2026-11-26)
 
 Context: piece B of the brand strategy plan (v4.2, all 13 picks accepted 25 Nov). The owner, 25 Nov:

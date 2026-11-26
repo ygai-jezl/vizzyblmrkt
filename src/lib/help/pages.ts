@@ -6,6 +6,7 @@ import { isOrganisationJoinEnabled, isPlansUiEnabled } from "@/lib/plans/flags";
 import { isConnectorsScreenEnabled, isConnectorsSharingEnabled } from "@/lib/connectors/flags";
 import { isPasswordSigninAvailable } from "@/lib/auth/flags";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { isWorkEnabled } from "@/lib/work/flags";
 
 /**
  * The /help pages, in reading order: one list for the help navigation, the
@@ -28,7 +29,7 @@ export interface HelpPage {
    * A page about a switched-off feature: listed and served only while its switch is on.
    * The switches are read on the server, so client lists (⌘K) leave these pages out.
    */
-  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin";
+  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "work";
 }
 
 /**
@@ -79,6 +80,10 @@ export interface HelpBodyProps {
   sharing?: boolean;
   /** Owners bring in and move out brands (isOrganisationJoinEnabled(), a server switch: the drawer gets it from the admin shell). */
   join?: boolean;
+  /** Work, the one list of tasks and the daily log (isWorkEnabled(), a server switch: the drawer gets it from the admin shell). */
+  work?: boolean;
+  /** Vizzy's Work tools: suggestions in Review and drafts in chat (isWorkVizzyEnabled(), a server switch, from the shell too). */
+  workVizzy?: boolean;
   /** Vizzy gets to know a new brand on the welcome (isOnboardingEnabled(), a server switch: the drawer gets it from the admin shell). */
   onboarding?: boolean;
   /** Talk with Vizzy by voice on the welcome (isOnboardingVoiceEnabled(), a server switch: the drawer gets it from the admin shell). */
@@ -137,6 +142,13 @@ export const HELP_PAGES: HelpPage[] = [
     "Sign in with your email and a password: create your account, confirm it with a code, reset or change your password, and sign out everywhere.",
     "password_signin",
   ),
+  page(
+    "work",
+    "Work",
+    "start",
+    "One list of everything the business has to do, at every stage and across your brands, and a log of what got done each day.",
+    "work",
+  ),
   page("email-sending", "Email sending", "ready", "Verify the domain you send from, then add your From address, privacy policy link and postal address."),
   page("your-brand", "Your brand", "ready", "Add your logo, colours and fonts, and write your brand voice so everything Vizzy writes sounds like you."),
   page("email-style", "Email style", "ready", "Give every email your logo, colours and fonts."),
@@ -194,6 +206,7 @@ export function isHelpPageShown(p: Pick<HelpPage, "onlyWhen">): boolean {
   // As /login decides: the switch on and a way to deliver the code, so the page never describes
   // password screens the sign-in page doesn't show.
   if (p.onlyWhen === "password_signin") return isPasswordSigninAvailable();
+  if (p.onlyWhen === "work") return isWorkEnabled();
   return true;
 }
 

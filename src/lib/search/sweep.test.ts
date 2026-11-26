@@ -166,6 +166,24 @@ describe("sweepBrand", () => {
       expect(c.indexed).toBe(0);
       expect(await store.getManifest("subject:sub_1")).toBeNull();
     });
+
+    it("on a family turn, never puts back a record removed while it read the brand", async () => {
+      vi.stubEnv("SEARCH_FAMILY_INDEX_ENABLED", "true");
+      const store = await setup();
+      // A note's subject removed (forced, at once) after the map was read and before the listing.
+      const read = async () => {
+        const stubs = [stubOf({ ...before, title: "Repotting figs again", body: "Repotting figs again" })];
+        await store.removeSource("subject:sub_1");
+        return { stubs, complete: new Set<SearchKind>(["subject"]) };
+      };
+      const c = await sweepBrand(ctx, { familyNow: true }, { store, embed: unitEmbed, read });
+      expect(c).toMatchObject({ indexed: 0, unchanged: 1 });
+      expect(await store.getManifest("subject:sub_1")).toBeNull();
+      // Off its turn nothing of the family is read, and the check lists the index once.
+      const list = vi.spyOn(store, "listManifests");
+      await sweepBrand(ctx, { familyNow: false }, { store, embed: unitEmbed, read: reader([], []) });
+      expect(list).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("tries text kept without vectors again only after a while", async () => {

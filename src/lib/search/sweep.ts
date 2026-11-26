@@ -64,6 +64,11 @@ export async function sweepBrand(
   const readAt = clock();
   // Strictly after: a write in the same millisecond the read began is taken as before it.
   const writtenSince = (m: SearchManifest) => (Date.parse(m.indexedAt) || 0) > readAt;
+  // On a family turn, what the index held before the read too: a record removed while the check
+  // read (a note deleted or ticked as naming a customer, removed at once and forced) must not come
+  // back from the older read for 6 hours. One more listing a turn, not a check.
+  const familyRead = isSearchFamilyIndexEnabled() && opts.familyNow !== false && !opts.dryRun;
+  const before = familyRead ? new Set((await store.listManifests()).map((m) => m.sourceKey)) : null;
   const { stubs, complete, failed: unread } = await (deps.read ?? readBrandStubs)(ctx, { familyOnly: opts.familyOnly, familyNow: opts.familyNow, kinds: opts.kinds });
   const manifests = new Map((await store.listManifests()).map((m) => [m.sourceKey, m]));
   const counts: SweepCounts = { records: stubs.length, changed: 0, indexed: 0, unchanged: 0, removed: 0, failed: 0, partial: false, unread: [...(unread ?? [])].sort(), byKind: {} };
@@ -113,10 +118,11 @@ export async function sweepBrand(
     }
     const key = storedSourceKey(st.kind, st.ref);
     // Its manifest again, just before writing: one written since this check began reading stands,
-    // and one removed since the listing (a removal is forced at once) stays removed.
+    // and one removed since it began (a removal is forced at once) stays removed.
     const listed = manifests.get(key) ?? null;
     const prev = await store.getManifest(key).catch(() => listed);
-    if ((listed && !prev) || (prev && writtenSince(prev))) {
+    const removedSince = !prev && (listed !== null || Boolean(before?.has(key)));
+    if (removedSince || (prev && writtenSince(prev))) {
       counts.unchanged += 1;
       continue;
     }

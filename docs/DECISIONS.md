@@ -72,7 +72,9 @@ change or secret.
    - **A save written through while a check reads the brand stands.** The check notes when it began
      reading; a record whose manifest was written after that (text, or a status alone, which now
      stamps the manifest too) is left as it is, never indexed from the older read and never
-     removed as gone, and one removed after the check listed the index stays removed. Each record
+     removed as gone, and one removed after the check began reading stays removed (on a family
+     turn the check lists the index before reading too, so a note deleted or ticked as naming a
+     customer mid-read can't come back from the older read: one more listing a turn). Each record
      the check is about to index has its manifest read again first: one more read per changed
      record, beside its embedding. Before the family the next check, 10 minutes on, put such a
      race right; on a family turn it would have stayed 6 hours.

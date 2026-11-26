@@ -82,6 +82,12 @@ export default function HistoryAndRestoreHelp() {
           deleted.
         </li>
         <li>
+          <strong>Stays empty</strong>: a field whose values were erased since it was archived. It comes back with no values.
+        </li>
+        <li>
+          <strong>Stays archived</strong>: a field whose values are being erased. It stays archived until the erase ends.
+        </li>
+        <li>
           <strong>Never undone</strong>: what no restore takes back (see <Open href="/help/history-and-restore#never-undone">below</Open>).
         </li>
       </UL>

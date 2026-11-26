@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forTenant } from "@/lib/tenant";
-import { readFieldList, saveFieldListChange } from "@/lib/audience/fieldList";
+import { readFieldList, restoreFieldListVersion, saveFieldEraseMark, saveFieldListChange } from "@/lib/audience/fieldList";
 import { commitSettingsChange } from "@/lib/tenant";
 import { NEVER_UNDONE, previewRestore, type RestorePreview } from "./restorePlan";
 import { parseHistorySubject } from "./sources";
@@ -53,6 +53,32 @@ describe("previewRestore: an erased field", () => {
     expect((await preview("fields:person", 1)).rows.find((r) => r.label === "Archived")!.note).toBeUndefined();
     for (const n of ["PLANS_ENABLED", "SETTINGS_ERASE_ENABLED"]) vi.stubEnv(n, "true");
     expect((await preview("fields:person", 1)).rows.find((r) => r.label === "Archived")!.note).toBe("Its 30 days before anyone can erase its values start today.");
+  });
+
+  it("says a field whose values are being erased stays archived, as the restore saves it", async () => {
+    const maya = { type: "member", id: "usr_maya" } as const;
+    const marked = await saveFieldEraseMark(ctx, "person", { key: "fld_000000000002", step: "start", by: "usr_priya", nowIso: T(10) }, w.db);
+    expect(marked.ok).toBe(true);
+    const p = await preview("fields:person", 2);
+    expect(rows(p)["Stays archived"]).toEqual(["‘Delivery day’: its values are being erased"]);
+    expect(rows(p)).not.toHaveProperty("Comes back");
+    // The restore itself keeps it archived and marked.
+    const list = await readFieldList(ctx, "person", w.db);
+    expect((await restoreFieldListVersion(ctx, "person", { rev: 2, baseRev: list.rev, by: maya, nowIso: T(20) }, w.db)).ok).toBe(true);
+    expect((await readFieldList(ctx, "person", w.db)).items.find((f) => f.key === "fld_000000000002")).toMatchObject({ archivedAt: T(9), erasingSince: T(10) });
+  });
+
+  it("says a field erased once, then brought back, filled in and archived again, comes back with its values", async () => {
+    const maya = { type: "member", id: "usr_maya" } as const;
+    await saveFieldEraseMark(ctx, "person", { key: "fld_000000000002", step: "start", by: "usr_priya", nowIso: T(10, 9) }, w.db);
+    await saveFieldEraseMark(ctx, "person", { key: "fld_000000000002", step: "done", by: "usr_priya", nowIso: T(10, 11) }, w.db);
+    let list = await readFieldList(ctx, "person", w.db);
+    await saveFieldListChange(ctx, "person", { baseRev: list.rev, change: { op: "restore", key: "fld_000000000002" }, by: maya, nowIso: T(11) }, w.db);
+    list = await readFieldList(ctx, "person", w.db);
+    await saveFieldListChange(ctx, "person", { baseRev: list.rev, change: { op: "archive", key: "fld_000000000002" }, by: maya, nowIso: T(12) }, w.db);
+    const p = await preview("fields:person", 2);
+    expect(rows(p)["Comes back"]).toEqual(["‘Delivery day’, with the values people already have"]);
+    expect(rows(p)).not.toHaveProperty("Stays empty");
   });
 });
 

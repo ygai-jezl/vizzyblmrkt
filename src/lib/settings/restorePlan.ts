@@ -10,6 +10,7 @@ import { LifecycleDraftSchema, type LifecycleDraft } from "@/lib/types/lifecycle
 import { ConnectionCatalogSchema } from "@/lib/types/productConnection";
 import { fieldListProblems, FIELD_LIST_SUBJECT, hasOptions, type RecordField, type RecordFieldObject } from "@/lib/types/recordField";
 import { getSettingsVersion } from "./history";
+import { erasedSinceArchive } from "./eraseDates";
 import { isSettingsEraseEnabled } from "./flags";
 import { NEVER_UNDONE } from "./words";
 import { catalogName, journeyName, kindRestores, settingsSubjectName, whoNamer, whoOfActor, whoOfSaver, type HistoryDeps, type HistoryKind, type HistorySubject, type Who } from "./sources";
@@ -25,7 +26,7 @@ import { catalogName, journeyName, kindRestores, settingsSubjectName, whoNamer, 
 export { NEVER_UNDONE } from "./words";
 
 export interface PreviewRow {
-  /** "Comes back", "Archived", "Changes back", "Stays empty", "The draft", "Stays as it is", "Never undone". */
+  /** "Comes back", "Archived", "Changes back", "Stays empty", "Stays archived", "The draft", "Stays as it is", "Never undone". */
   label: string;
   lines: string[];
   /** A quieter line under them. */
@@ -106,9 +107,18 @@ async function fieldsPreview(ctx: TenantContext, object: RecordFieldObject, rev:
   const now = new Map(current.items.map((f) => [f.key, f]));
   const rows: PreviewRow[] = [];
   const after = new Map(items.map((f) => [f.key, f]));
-  // A field whose values were erased comes back empty: an erase survives a restore.
-  const back = plan.back.filter((f) => !after.get(f.key)?.erasedAt);
-  const empty = plan.back.filter((f) => after.get(f.key)?.erasedAt);
+  // Read from what the restore saves, not planRestore's first pass: an erase survives a restore.
+  // A field whose values are being erased stays archived until the erase ends.
+  const erasing = plan.back.filter((f) => after.get(f.key)?.archivedAt);
+  const returning = plan.back.filter((f) => !after.get(f.key)?.archivedAt);
+  // A field whose values were erased since it was last archived comes back empty. One erased
+  // before, brought back and filled in again, then archived again, comes back with those values.
+  const erasedNow = (f: RecordField) => {
+    const was = now.get(f.key);
+    return !!was && erasedSinceArchive(was);
+  };
+  const back = returning.filter((f) => !erasedNow(f));
+  const empty = returning.filter(erasedNow);
   if (back.length) rows.push({ label: "Comes back", lines: back.map((f) => `${quote(f.label)}, with the values people already have`) });
   if (plan.archived.length) {
     rows.push({
@@ -119,7 +129,8 @@ async function fieldsPreview(ctx: TenantContext, object: RecordFieldObject, rev:
   }
   const changed = plan.changed.filter((f) => !f.archivedAt && now.get(f.key) && !now.get(f.key)!.archivedAt);
   if (changed.length) rows.push({ label: "Changes back", lines: changed.map((f) => changedLine(now.get(f.key)!, items.find((x) => x.key === f.key) ?? f)) });
-  if (empty.length) rows.push({ label: "Stays empty", lines: empty.map((f) => `${quote(f.label)}: its values were erased on ${shortDay(after.get(f.key)!.erasedAt!)}`) });
+  if (empty.length) rows.push({ label: "Stays empty", lines: empty.map((f) => `${quote(f.label)}: its values were erased on ${shortDay(now.get(f.key)!.erasedAt!)}`) });
+  if (erasing.length) rows.push({ label: "Stays archived", lines: erasing.map((f) => `${quote(f.label)}: its values are being erased`) });
   if (!rows.length) rows.push({ label: "Changes back", lines: ["Nothing: the fields are as this version had them"] });
   rows.push({ label: "Never undone", lines: [NEVER_UNDONE] });
   const full = fieldListProblems(items, object).length > 0;

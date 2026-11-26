@@ -41,6 +41,8 @@ export const EXCLUDED_EFFECT: Record<MeteredFeature, string> = {
   edit_vizzy_learning: "Vizzy stops learning from edits. What it learned is kept.",
   // src/app/admin/welcome/layout.tsx (the welcome), src/app/api/admin/onboarding/voice/start/route.ts
   onboarding_voice: "Talk with Vizzy is hidden on the welcome and in Settings. The 4 quick questions stay, and kept conversations are kept.",
+  // src/lib/raise/docs/adminApi.ts (New deck), src/lib/canvas/kinds/raiseDeck.ts (Vizzy's drafts and revises)
+  raise_kit: "Vizzy stops drafting decks and New deck is hidden. Decks already made are kept, and you can still edit, present and save them as PDF.",
 };
 
 export interface FeatureChange {

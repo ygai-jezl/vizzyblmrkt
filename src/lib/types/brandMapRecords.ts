@@ -184,6 +184,17 @@ export const BrandMapQuestionRecordSchema = z.object({
    * `reason` their numbers.
    */
   fromConnectionId: z.string().regex(/^dcn_[a-z2-7]{20}$/).nullable().catch(null).default(null),
+  /**
+   * A live article that answers it by meaning (NEXT_UP_REPEATS_ENABLED), found by Next up: it counts
+   * as answered by that page. Display data like the counts: writing it never moves the revision.
+   */
+  answeredBy: z
+    .object({ pageId: z.string().min(1).max(200), sim: z.number().min(0).max(1), at: z.string().max(40) })
+    .nullable()
+    .catch(null)
+    .default(null),
+  /** Pages a person said don't answer it (Unlink): never matched to it again. */
+  notAnsweredBy: z.array(z.string().min(1).max(200)).max(10).catch([]).default([]),
 });
 export type BrandMapQuestionRecord = z.infer<typeof BrandMapQuestionRecordSchema>;
 

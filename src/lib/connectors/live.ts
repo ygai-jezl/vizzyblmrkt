@@ -2,6 +2,7 @@ import { z } from "zod";
 import { meaningsOf, type Meaning, type MeaningKey } from "@/lib/metrics/meanings";
 import { LIVE_BY, LIVE_LIMITS, streamOf, type ConnectorManifest, type LiveBy } from "./manifest";
 import { LIVE_HOOKS } from "./handlers";
+import { needsPage } from "./mcp/result";
 import type { HookFailure, HookInput, LiveQuery, LiveRow } from "./handlers/types";
 import type { ConnectorFetchDeps } from "./safeFetch";
 import { cleanPagePath } from "./paths";
@@ -45,7 +46,7 @@ export const LiveRequestSchema = z
   .strict();
 export type LiveRequest = z.input<typeof LiveRequestSchema>;
 
-export type LiveRequestError = "invalid_input" | "unknown_stream" | "bad_dates" | "too_many_days" | "by_not_allowed" | "page_not_allowed";
+export type LiveRequestError = "invalid_input" | "unknown_stream" | "bad_dates" | "too_many_days" | "by_not_allowed" | "page_not_allowed" | "page_needed";
 
 /** Check a request against the manifest and the hard caps. A period, or both from and to: never both. */
 export function checkLiveRequest(manifest: ConnectorManifest, raw: unknown, now: Date): { ok: true; query: LiveQuery } | { ok: false; error: LiveRequestError } {
@@ -58,6 +59,8 @@ export function checkLiveRequest(manifest: ConnectorManifest, raw: unknown, now:
   if (!stream) return { ok: false, error: "unknown_stream" };
   if (!stream.liveBy.includes(q.by)) return { ok: false, error: "by_not_allowed" };
   if (q.page !== undefined && !(stream.liveFilters ?? []).includes("page")) return { ok: false, error: "page_not_allowed" };
+  // An MCP stream whose call takes a page is read for one page only (ADR-0019).
+  if (q.page === undefined && needsPage(stream.mcp)) return { ok: false, error: "page_needed" };
   const base = { stream: q.stream, by: q.by, limit: q.limit, ...(q.page !== undefined ? { page: q.page } : {}) };
   if (q.period) {
     if (PERIOD_DAYS[q.period] > LIVE_LIMITS.maxDays) return { ok: false, error: "too_many_days" };

@@ -81,7 +81,7 @@ describe("Browse's words", () => {
 
   it("keep the manifests' fine categories, and group them only for display", () => {
     const byId = Object.fromEntries(allConnectors().map((m) => [m.id, m.category]));
-    expect(byId).toEqual({ "search-console": "search", "google-analytics": "analytics", cloudflare: "traffic" });
+    expect(byId).toEqual({ "search-console": "search", "google-analytics": "analytics", cloudflare: "traffic", vizzybl: "search" });
     expect(groupOf("analytics")).toEqual({ id: "search-analytics", label: "Search and analytics" });
     expect(groupOf("search")).toEqual({ id: "search-analytics", label: "Search and analytics" });
     expect(groupOf("traffic")).toEqual({ id: "website-traffic", label: "Website and traffic" });
@@ -90,7 +90,8 @@ describe("Browse's words", () => {
   });
 
   it("list the connectors in the approved Browse screen's order", () => {
-    expect(allConnectors().map((m) => m.name)).toEqual(["Google Search Console", "Google Analytics 4", "Cloudflare"]);
+    // Then the data only connectors that read an MCP server (ADR-0019).
+    expect(allConnectors().map((m) => m.name)).toEqual(["Google Search Console", "Google Analytics 4", "Cloudflare", "Vizzybl"]);
   });
 
   it("rank a connector's state: attention, then a property to pick, then paused, then connected", () => {

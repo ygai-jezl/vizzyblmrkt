@@ -177,6 +177,10 @@ so turn it on by hand once you have read this.
 
 - Tokens are sealed with `CONNECTORS_VAULT_KEY`, a core secret the `secrets` step makes as
   `connectors-vault-key`. Without it, connecting is refused.
+- Connectors that read their vendor's own MCP server with a pasted key need `CONNECTOR_MCP_ENABLED`
+  as well as their own switch (ADR-0019). Next up weighs AI answers from such a connector with
+  `CONNECTOR_AI_ANSWERS_ENABLED`, once an admin lets members and Vizzy read it. All three stay off
+  until you turn them on.
 - Each change to a connection is kept 90 days. The time to live that deletes older rows is set by
   `FIRESTORE_DATABASES='(default)' bash infra/lifecycle/setup.sh ttl <your-project-id>`, which the
   `connect` step runs on a new copy. A copy set up before connected data runs it once by hand; it

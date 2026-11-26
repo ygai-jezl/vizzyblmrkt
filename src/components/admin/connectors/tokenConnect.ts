@@ -24,6 +24,11 @@ const LABEL_MAX = 60;
  * gives the new connection the old one's grants. The grants come from the page, so a failed try
  * keeps them for the next one; a failed grants call is said, never swallowed. `label` names the
  * connection, such as the zone picked after Check (acme.example), so Connected and Disconnect can.
+ *
+ * `inPlace` (an MCP server's key, ADR-0019, whose account comes from the key): the server checks
+ * the new key against the connection's own account first and only then swaps the sealed key, so
+ * nothing is disconnected or erased, its grants and collected numbers stay, and a key for another
+ * account is refused in plain words with nothing changed.
  */
 export async function connectWithToken(
   connectorId: string,
@@ -32,7 +37,12 @@ export async function connectWithToken(
   chat: boolean,
   call: ApiCall = callApi,
   label?: string,
+  inPlace = false,
 ): Promise<TokenConnectOutcome> {
+  if (replace && inPlace) {
+    const swapped = await call<ConnectionView>(ROUTES.connect(connectorId), { method: "POST", body: { fields, replace: replace.id } });
+    return swapped.ok ? { kind: "connected" } : { kind: "refused", message: swapped.message };
+  }
   if (replace) {
     const gone = await call(ROUTES.connection(replace.id), { method: "DELETE" });
     if (!gone.ok && gone.status !== 404) return { kind: "refused", message: gone.message };

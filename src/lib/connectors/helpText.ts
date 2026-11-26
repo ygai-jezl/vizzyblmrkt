@@ -2,7 +2,7 @@ import { meaningsOf } from "@/lib/metrics/meanings";
 import { HEALTH_STATES, type HealthState } from "@/lib/types/dataConnection";
 import { allConnectors } from "./catalog";
 import { lagWords } from "./lag";
-import { collectedStream, keepsWords, oauthMethod, shareMethod, type ConnectorIcon, type ConnectorManifest } from "./manifest";
+import { collectedStream, keepsWords, mcpMethod, oauthMethod, shareMethod, type ConnectorIcon, type ConnectorManifest } from "./manifest";
 import { CONNECTOR_ERRORS, SIGNIN_REASONS } from "./messages";
 
 /**
@@ -30,6 +30,8 @@ export interface ConnectorHelp {
    * a list after Check, with the note shown when the token can't list them and the field typed instead.
    */
   token: {
+    /** token: an API token; key: an MCP server's key (ADR-0019), whose account comes from the key. */
+    kind: "token" | "key";
     permissions: string[];
     steps: string[];
     link: string | null;
@@ -64,6 +66,7 @@ function shareSteps(m: ConnectorManifest, steps: readonly string[]): string[] {
 
 export function connectorHelp(m: ConnectorManifest): ConnectorHelp {
   const token = m.connect.find((c) => c.method === "token_fields");
+  const key = mcpMethod(m);
   const signIn = oauthMethod(m);
   const share = shareMethod(m);
   const measures = [...new Set(m.produces.flatMap((p) => p.measures))];
@@ -89,8 +92,11 @@ export function connectorHelp(m: ConnectorManifest): ConnectorHelp {
               help: token.pick && f.key === token.account ? [`Typed only when Check doesn't list your ${token.pick.label.toLowerCase()}.`, f.help].filter(Boolean).join(" ") : (f.help ?? null),
             })),
             pick: token.pick ? { label: token.pick.label, cantList: token.pick.cantList, typed: token.fields.find((f) => f.key === token.account)?.label ?? "" } : null,
+            kind: "token",
           }
-        : null,
+        : key
+          ? { kind: "key", permissions: key.permissions, steps: key.steps, link: key.tokenLink ?? null, fields: [{ label: key.auth.field.label, help: key.auth.field.help ?? null }], pick: null }
+          : null,
     signIn: signIn ? { steps: signInSteps(m), reads: m.shares.filter((s) => s.direction === "read" && s.needs.some((n) => signIn.scopes.includes(n))).map((s) => s.what) } : null,
     share: share
       ? { role: share.role, steps: shareSteps(m, share.steps), reads: m.shares.filter((s) => s.direction === "read" && s.needs.some((n) => share.scopes.includes(n))).map((s) => s.what) }

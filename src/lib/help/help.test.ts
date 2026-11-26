@@ -16,7 +16,7 @@ import { SOURCE_COPY } from "@/components/admin/chat/SourceLine";
 import { COLLECT_HELP, HEALTH_HELP, SEARCH_CONSOLE_FRESHNESS_ERASED, SEARCH_TEXT_HELP, SIGNALS_HELP, VIZZY_COLLECTED_HELP } from "@/lib/connectors/helpText";
 import { SUGGESTION_BUSY } from "@/lib/connectors/signals/review";
 import { allConnectors } from "@/lib/connectors/catalog";
-import { CONNECTOR_ERRORS, tokenRefusedMessage } from "@/lib/connectors/messages";
+import { CONNECTOR_ERRORS, otherAccountKeyMessage, tokenRefusedMessage } from "@/lib/connectors/messages";
 import { helpLlmsTxt, helpPageMarkdown } from "./agentFiles";
 import { HELP_PAGES, helpGroups, helpPage, nextHelpPage, shownHelpPages, type HelpBodyProps } from "./pages";
 import { helpMetadata } from "./metadata";
@@ -51,6 +51,8 @@ vi.hoisted(() => {
   process.env.NEXT_PUBLIC_BRAND_NOTES_QUESTIONS_ENABLED = "true";
   process.env.NEXT_PUBLIC_BRAND_NOTES_REST_ENABLED = "true";
   process.env.NEXT_PUBLIC_BRAND_MAP_SITUATION_ASK_ENABLED = "true";
+  process.env.NEXT_PUBLIC_BRAND_STRATEGY_ENABLED = "true";
+  process.env.NEXT_PUBLIC_CONTENT_STRATEGY_ENABLED = "true";
   process.env.NEXT_PUBLIC_BLOG_AI_SUMMARY_LINKS_ENABLED = "true";
   process.env.LAUNCH_SITE_SIGNUPS_ENABLED = "true";
   process.env.AUDIENCE_PERSON_LINKS_ENABLED = "true";
@@ -168,7 +170,7 @@ function isAppMessage(message: string): boolean {
     .replace(/&quot;|\\"/g, '"');
   if (appSource.includes(message)) return true;
   return allConnectors().some((m) =>
-    [true, false].some((chat) => tokenRefusedMessage(m.name, "connected", chat) === message || tokenRefusedMessage(m.name, "connecting", chat) === message),
+    [true, false].some((chat) => tokenRefusedMessage(m.name, "connected", chat) === message || tokenRefusedMessage(m.name, "connecting", chat) === message) || otherAccountKeyMessage(m.name) === message,
   );
 }
 
@@ -780,6 +782,23 @@ describe("Connected data", () => {
     expect(text).toContain("myaccount.google.com/permissions");
   });
 
+  it("has a Vizzybl section from its manifest: the key's steps, what it never does, and its quoted messages (ADR-0019)", () => {
+    const text = md(true);
+    expect(text).toMatch(/^## Vizzybl$/m);
+    expect(text).toContain("### With an API key");
+    expect(text).toContain("Make a key with the scope read:*, or with read:brand, read:visibility, read:prompts and read:citations. Leave every write scope off.");
+    expect(text).toContain("**API key**: A key with read scopes only. YouGrow seals it and never shows it again.");
+    expect(text).toContain("YouGrow never runs an audit, adds a prompt or scrapes one, so it spends none of your Vizzybl credits.");
+    expect(text).toContain("**AI share of voice**");
+    expect(text).toContain("For Vizzybl: a plan that comes with API keys (Ultra or Enterprise), and a key with read scopes only");
+    expect(text).toContain(tokenRefusedMessage("Vizzybl", "connected", true));
+    expect(text).toContain(tokenRefusedMessage("Vizzybl", "connecting", true));
+    expect(text).toContain(CONNECTOR_ERRORS.tool_missing);
+    // A Reconnect with another account's key, only for a tool connected by key.
+    expect(text).toContain(otherAccountKeyMessage("Vizzybl"));
+    expect(text).not.toContain(otherAccountKeyMessage("Cloudflare"));
+  });
+
   it("lists only the statuses Connected shows, and says where a disconnected connection goes", () => {
     const text = md(true);
     for (const label of STATE_LABELS) expect(text, label).toMatch(new RegExp(`^\\| ${label} \\|`, "m"));
@@ -968,6 +987,40 @@ describe("What your numbers suggest (CONNECTOR_SIGNALS_ENABLED)", () => {
     } finally {
       process.env.CONNECTOR_SIGNALS_ENABLED = was.signals;
       process.env.BRAND_MAP_SCALE_ENABLED = was.scale;
+    }
+  });
+
+  it("explains the AI answers chip in Next up only while Next up weighs AI answers (ADR-0019)", () => {
+    const map = (aiAnswers: boolean) => docToMarkdown(HELP_BODIES["brand-map"]!({ aiAnswers }), "https://app.example.com");
+    expect(map(true)).toContain('an **AI answers** chip gives the numbers of a prompt it monitors that is close in wording to the question, such as "best geo tools" answered by 6 engines, you named 0 times');
+    expect(map(true)).toContain("[Connected data](https://app.example.com/help/connected-data.md)");
+    expect(map(false)).not.toContain("AI answers");
+  });
+
+  it("explains the Strategy tab while its switch is on, and leaves it out while it is off", () => {
+    const text = helpPageMarkdown("brand-map", "https://app.example.com")!;
+    expect(text).toContain("## Approve your strategy");
+    expect(text).toContain("One marked **gap** has no proof yet");
+    const was = process.env.NEXT_PUBLIC_BRAND_STRATEGY_ENABLED;
+    process.env.NEXT_PUBLIC_BRAND_STRATEGY_ENABLED = "false";
+    try {
+      expect(helpPageMarkdown("brand-map", "https://app.example.com")).not.toContain("Approve your strategy");
+    } finally {
+      process.env.NEXT_PUBLIC_BRAND_STRATEGY_ENABLED = was;
+    }
+  });
+
+  it("explains the Content plan while its switch is on, and leaves it out while it is off", () => {
+    const text = helpPageMarkdown("brand-map", "https://app.example.com")!;
+    expect(text).toContain("## Plan the quarter's content");
+    expect(text).toContain("**Not articles (done by hand for now)**");
+    expect(text).toContain("Next up takes 3 of every 4 picks from the approved plan");
+    const was = process.env.NEXT_PUBLIC_CONTENT_STRATEGY_ENABLED;
+    process.env.NEXT_PUBLIC_CONTENT_STRATEGY_ENABLED = "false";
+    try {
+      expect(helpPageMarkdown("brand-map", "https://app.example.com")).not.toContain("Plan the quarter's content");
+    } finally {
+      process.env.NEXT_PUBLIC_CONTENT_STRATEGY_ENABLED = was;
     }
   });
 

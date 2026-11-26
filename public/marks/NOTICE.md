@@ -4,6 +4,7 @@ Every file under `public/marks/` is a logo, icon or button that belongs to anoth
 
 - Google Analytics, Google Search Console and the Sign in with Google button belong to Google LLC.
 - Cloudflare and the Cloudflare logo are trademarks and/or registered trademarks of Cloudflare, Inc. in the United States and other jurisdictions.
+- Vizzybl and its name belong to Vizzybl.
 
 The Accounts tab (Settings › Connections › Accounts) also draws the GitHub, GitLab, LinkedIn and X marks, from the Simple Icons paths in `src/components/site/BrandIcons.tsx`. They belong to GitHub, Inc., GitLab Inc., LinkedIn Corporation and X Corp.
 
@@ -28,7 +29,7 @@ To stop showing a connector's marks, delete the `icon` field from its manifest i
 
 ## Files
 
-Downloaded on 22 Nov 2026 from the owners' own servers. `src/lib/connectors/marks.test.ts` checks every file here is listed, unchanged (by its SHA-256) and safe to serve.
+Downloaded on 22 Nov 2026 from the owners' own servers, but for the Vizzybl mark, drawn for YouGrow on 26 Nov 2026 (below). `src/lib/connectors/marks.test.ts` checks every file here is listed, unchanged (by its SHA-256) and safe to serve.
 
 | File | What | Owner | Source | SHA-256 |
 | --- | --- | --- | --- | --- |
@@ -37,9 +38,12 @@ Downloaded on 22 Nov 2026 from the owners' own servers. `src/lib/connectors/mark
 | `connectors/google-analytics/lockup-light.png` | Google Analytics logo with its name, for light backgrounds | Google LLC | https://developers.google.com/static/analytics/images/terms/lockup_ic_Analytics_horiz_272px_clr.png | `002312435b861aa805e73809a785548140378fdfae4d3d4d7d66864ddf494b09` |
 | `connectors/google-analytics/lockup-dark.png` | Google Analytics logo with its name, for dark backgrounds | Google LLC | https://developers.google.com/static/analytics/images/terms/lockup_ic_Analytics_horiz_272px_wht.png | `4ca3e35eaddac99d7c4d4457579655e14e6863f903d35a6bebfde6905e40e621` |
 | `connectors/cloudflare/icon.png` | The cloud from the Cloudflare logo ("CF-Logo 1.png" in the press kit's Logos.zip), cropped to the cloud with its colours unchanged | Cloudflare, Inc. | https://cf-assets.www.cloudflare.com/dzlvafdwdttg/2Twekn3xyYyd94qDYAl0ed/9ab649caa40958f195166e0d9f5d9a04/Logos.zip | `c3ed0d2bb4e9de7a6c49518d59aa6305235755cd90e80206ea93242f272b5ef2` |
+| `connectors/vizzybl/icon.svg` | A plain letter V on Vizzybl's indigo, drawn for YouGrow | Vizzybl | Drawn for YouGrow | `5b9a1e4397729145d218ec51763eb84da474a07617beea99a777e3d86028b921` |
 | `google/signin-light.png` | Sign in with Google button, light theme, pill, 3x ("Android + Web/PNG @3x/Light" in the zip) | Google LLC | https://developers.google.com/static/identity/images/signin-assets.zip | `1785e04475553fcec1b63524af33ebfde36ff422008c371589a014c03bf224a4` |
 | `google/signin-dark.png` | Sign in with Google button, dark theme, pill, 3x ("Android + Web/PNG @3x/Dark" in the zip) | Google LLC | https://developers.google.com/static/identity/images/signin-assets.zip | `c2170246da7db96313062aba5e8e39b15431b2e2fd202c563a81c498f8b2b1f8` |
 
 The Cloudflare icon is a crop. The press kit's Logos.zip holds only the full logo with the word Cloudflare (`CF-Logo 1.png` and `CF Logo 2.jpg`), with no cloud on its own, so the icon is that logo cut to its cloud, colours unchanged. Cloudflare's trademark guidelines say not to modify its marks, so the crop is a change to clear with Cloudflare along with the permission request. Until it is cleared, deleting the `icon` field from `src/lib/connectors/manifests/cloudflare.ts` shows CF instead.
+
+The Vizzybl mark isn't a file of Vizzybl's: it is a plain letter V in white on Vizzybl's indigo (#6366f1), drawn for YouGrow so its tile shows a mark, until Vizzybl gives one of its own. Deleting the `icon` field from `src/lib/connectors/manifests/vizzybl.ts` shows VZ instead.
 
 The Sign in with Google button is the PNG version from Google's zip. The zip's SVG versions draw the G's colours with an embedded HTML element (`foreignObject`), which YouGrow doesn't serve, and taking it out would change the G.

@@ -160,7 +160,7 @@ export type StartResult = { ok: true; review: ArticleReviewDoc; started: boolean
  */
 export async function startReview(
   ctx: TenantContext,
-  args: { plan: ContentPlan; nodeId?: string; by: ReviewBy },
+  args: { plan: ContentPlan; nodeId?: string; by: ReviewBy; question?: { id: string; text: string } },
   deps: ReviewDeps = {},
 ): Promise<StartResult> {
   if (!isBlogRefreshEnabled()) return { ok: false, status: 503, error: "unavailable" };
@@ -179,6 +179,7 @@ export async function startReview(
     reasons: (f?.reasons ?? []).map((r) => r.detail).slice(0, 8),
     dueAt: f?.dueAt ?? null,
     waitedDays: f && f.state === "due" ? Math.max(0, Math.floor((now.getTime() - Date.parse(f.dueAt)) / 86_400_000)) : null,
+    ...(args.question ? { question: { id: args.question.id, text: args.question.text.slice(0, 300) } } : {}),
   };
   const fresh = (dismissed: string[]): Omit<ArticleReviewDoc, "id" | "tenantId"> => ({
     planId: plan.id,
@@ -430,6 +431,9 @@ async function researchStep(ctx: TenantContext, { review, plan, usage, deadlineM
 
 // ---- Step 4: brand and numbers ---------------------------------------------------------------
 
+/** How the question a review was started for is said in its evidence. */
+export const ASKED_DETAIL = "On your brand map: you chose to add it to this article";
+
 async function defaultOpenQuestions(ctx: TenantContext, subjectId: string, db?: FirestoreLike): Promise<string[]> {
   const read = await readBrandMap(ctx, db).catch(() => null);
   if (!read || read.state !== "ok") return [];
@@ -485,8 +489,12 @@ async function brandStep(ctx: TenantContext, { review, plan, usage }: StepInput,
       : Promise.resolve(null),
   ]);
 
+  // The question it was started for comes first, whatever the headings say: a person chose to add it here.
+  const asked = review.why.question ?? null;
+  if (asked) evidence.push({ kind: "open_question", text: asked.text, url: null, year: null, detail: ASKED_DETAIL });
   for (const q of open) {
     if (evidence.length >= REVIEW.MAX_QUESTIONS) break;
+    if (asked && norm(q) === norm(asked.text)) continue;
     if (!answeredIn(q, headings)) evidence.push({ kind: "open_question", text: q, url: null, year: null, detail: "Open on your brand map, on this article's subject" });
   }
   for (const c of (knowledge?.chunks ?? []).slice(0, 4)) {

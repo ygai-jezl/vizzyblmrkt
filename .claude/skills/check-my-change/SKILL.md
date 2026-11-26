@@ -63,6 +63,9 @@ npm run agents:check
 - Copy you wrote keeps to house style. This finds em and en dashes in your diff:
   `git diff -U0 | grep -n -e "$(printf '\342\200\224')" -e "$(printf '\342\200\223')"`
 - A changed screen or message has its help page updated (the pull request template asks).
+- The branch is up to date with `dev`: fetch, then rebase onto it before the first push, or merge
+  it in after that (AGENTS.md, Finishing). On a `docs/ONTOLOGY.md` conflict, take `dev`'s copy and
+  run `npm run ontology:doc` again. Run the checks again after either.
 
 ## Report
 

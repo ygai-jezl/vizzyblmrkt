@@ -21,8 +21,7 @@ import type { FreshnessDueItem, FreshnessWatchDoc } from "@/lib/types/freshness"
 import type { Tenant } from "@/lib/types/tenant";
 import type { BrandMapPage } from "@/lib/types/brandMapPage";
 import { computeCoverage } from "./coverage";
-import { articleFigures } from "./figures";
-import { articleFreshness, assignClock, nextEvents, OLD_SOURCE_YEARS, oldFigureYears } from "./freshness";
+import { articleFreshness, assignClock, inNewArticleGrace, nextEvents, OLD_SOURCE_YEARS, oldFigureYears } from "./freshness";
 import { nextDates } from "./dates";
 import { fetchSourcePage } from "./research";
 import { inlineLinks } from "./markdown";
@@ -292,10 +291,12 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
     const signals: FreshnessReason[] = [];
     if (searchConsole && losing.has(a.key!)) signals.push({ kind: "losing_clicks", detail: losing.get(a.key!)!.slice(0, 200), hard: true });
     if (deadLinks.length) signals.push({ kind: "dead_link", detail: `${deadLinks.length} link${deadLinks.length === 1 ? "" : "s"} no longer open${deadLinks.length === 1 ? "s" : ""}`, hard: true });
-    const oldYears = oldFigureYears(articleFigures(a.hub.body).map((f) => f.display), now);
+    // A new or just updated article: its figures and sources were chosen days ago (NEW_ARTICLE_GRACE_DAYS).
+    const settling = inNewArticleGrace({ publishedAt: a.hub.blog?.dates?.published?.at ?? null, updatedAt: a.hub.blog?.dates?.updated?.at ?? null }, now);
+    const oldYears = settling ? [] : oldFigureYears(a.hub.body, now);
     if (oldYears.length) signals.push({ kind: "old_figure", detail: `A figure from ${oldYears.join(", ")}`, hard: true });
     if (searchConsole && reach.has(a.key!)) signals.push({ kind: "within_reach", detail: reach.get(a.key!)!.slice(0, 200), hard: false });
-    const oldSources = (a.plan.blog?.sources ?? []).filter((s) => s.year !== null && s.year <= year - OLD_SOURCE_YEARS);
+    const oldSources = settling ? [] : (a.plan.blog?.sources ?? []).filter((s) => s.year !== null && s.year <= year - OLD_SOURCE_YEARS);
     if (oldSources.length) signals.push({ kind: "old_source", detail: `Cites ${oldSources.length} source${oldSources.length === 1 ? "" : "s"} from ${Math.min(...oldSources.map((s) => s.year!))} or earlier`, hard: false });
     // New questions: open ones on its subject past the count when its clock started (set at the first look after).
     const openNow = subject && open.has(subject) ? open.get(subject)! : null;

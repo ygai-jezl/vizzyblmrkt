@@ -37,7 +37,7 @@ import {
 } from "@/lib/audience/peopleFlags";
 import { parseThemePreference, THEME_COOKIE } from "@/lib/theme";
 import { isCatalogHistoryEnabled } from "@/lib/connect/v2/flags";
-import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsSearchTextEnabled, isConnectorsSharingEnabled } from "@/lib/connectors/flags";
+import { isAiAnswersPlanningEnabled, isConnectorsChatEnabled, isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsSearchTextEnabled, isConnectorsSharingEnabled } from "@/lib/connectors/flags";
 import { isOrganisationJoinEnabled } from "@/lib/plans/flags";
 import { isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 import { isIdeaWordsEnabled, isIdeasEnabled } from "@/lib/ideas/flags";
@@ -221,6 +221,7 @@ export default async function AdminLayout({
             connectorsCollect={isConnectorsCollectEnabled()}
             connectorsSearchText={isConnectorsSearchTextEnabled()}
             connectorSignals={isConnectorSignalsEnabled()}
+            aiAnswers={isAiAnswersPlanningEnabled()}
             brandMapScale={isBrandMapScaleEnabled()}
             ideas={isIdeasEnabled()}
             ideaWords={ideaWords}

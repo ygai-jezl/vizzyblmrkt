@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Removals from brand search are forced whatever the switches say (ADR-0023): an in-memory index stands in.
+vi.mock("@/lib/tenant/searchIndex", async (original) => (await import("@/lib/search/testing/memorySearch")).withMemorySearch(await original<object>()));
+import { MemorySearchIndex } from "@/lib/search/memoryStore";
 import { forTenant } from "@/lib/tenant";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { BRAND_MAP_VECTORS, brandMapVectorDocId } from "@/lib/tenant/brandMapVectors";
@@ -15,6 +18,8 @@ import {
   markNotesUsed,
   nearestNotes,
   nearestOpenQuestions,
+  noteVectors,
+  alreadyOnFile,
   notesById,
   notesForSubjects,
   QUESTION_HEADROOM,
@@ -274,8 +279,8 @@ describe("What we've seen: open questions", () => {
       where: () => vectors,
       findNearest: () => ({ get: async () => ({ empty: false, size: rows.length, docs: rows.map((r, i) => ({ id: `v${i}`, data: () => r })) }) }),
     };
-    expect((await nearestOpenQuestions(A, [1, 0], { limit: 3 }, { ...d, vectors })).map((n) => n.note.id)).toEqual([a!.id]);
-    expect(await nearestOpenQuestions(A, [1, 0], { limit: 3, exclude: [a!.id] }, { ...d, vectors })).toEqual([]);
+    expect((await nearestOpenQuestions(A, { onIndex: false, values: [1, 0] }, { limit: 3 }, { ...d, vectors })).map((n) => n.note.id)).toEqual([a!.id]);
+    expect(await nearestOpenQuestions(A, { onIndex: false, values: [1, 0] }, { limit: 3, exclude: [a!.id] }, { ...d, vectors })).toEqual([]);
   });
 });
 
@@ -357,3 +362,104 @@ describe("What we've seen: drafts holding notes, and dated uses (BRAND_NOTES_RES
     expect((await getNote(A, id, d))?.uses).toBeUndefined();
   });
 });
+
+describe("What we've seen in brand search (ADR-0023)", () => {
+  beforeEach(() => {
+    vi.stubEnv("SEARCH_INDEX_ENABLED", "true");
+    vi.stubEnv("SEARCH_FAMILY_INDEX_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  const unit = (v: number[]) => {
+    const n = Math.hypot(...v);
+    return v.map((x) => x / n);
+  };
+  /** brand search's model: what is about checking points one way, the rest another. */
+  const fresh = () =>
+    vi.fn(async (items: Array<{ content: string; title?: string }>, _region: string, _task: string) => items.map((i) => (/check|track/i.test(i.content) ? unit([1, 0.1]) : unit([0, 1]))));
+  function withIndex() {
+    const d = deps();
+    const index = new MemorySearchIndex();
+    return { ...d, index, search: index.storeFor(A), embedSearch: fresh() };
+  }
+  const entries = async (d: ReturnType<typeof withIndex>) => (await d.search.listManifests()).map((m) => `${m.sourceKey} ${m.status ?? "none"}`).sort();
+
+  it("keeps notes and questions there with their statuses as they are written, asked and answered", async () => {
+    const d = withIndex();
+    const made = await createNote(A, note({ text: "We check visibility weekly; daily checks were noise." }), { source: "typed" }, d);
+    if (!made.ok) throw new Error("not made");
+    const [q] = await askQuestions(A, { questions: ["How often do you check?"], article: { ref: "ws1/p1", title: "Cadence" } }, d);
+    expect(await entries(d)).toEqual([`note:${made.value.id} kept`, `question:note_${q!.id} asked`]);
+    const before = d.embedSearch.mock.calls.length;
+    await answerQuestion(A, q!.id, "Weekly, after the Monday report.", { done: true }, d);
+    expect(await entries(d)).toEqual([`note:${made.value.id} kept`, `note:${q!.id} kept`, `question:note_${q!.id} answered`].sort());
+    // The question's text didn't change: only the note was embedded.
+    expect(d.embedSearch.mock.calls.slice(before).flatMap((c) => c[0]).map((i) => i.content)).toEqual(["Asked: How often do you check?\n\nWeekly, after the Monday report."]);
+    await answerQuestion(A, q!.id, "", {}, d);
+    expect(await entries(d)).toEqual([`note:${made.value.id} kept`, `question:note_${q!.id} asked`]);
+  });
+
+  it("never keeps a note that may name a customer, and takes one out at once, even with indexing off", async () => {
+    const d = withIndex();
+    const named = await createNote(A, note({ canName: true }), { source: "typed" }, d);
+    const plain = await createNote(A, note(), { source: "typed" }, d);
+    if (!named.ok || !plain.ok) throw new Error("not made");
+    expect(await entries(d)).toEqual([`note:${plain.value.id} kept`]);
+    vi.stubEnv("SEARCH_INDEX_ENABLED", "false");
+    await updateNote(A, plain.value.id, { canName: true }, d);
+    expect(await entries(d)).toEqual([]);
+  });
+
+  it("removes a note's entries at once with indexing off", async () => {
+    const d = withIndex();
+    const [q] = await askQuestions(A, { questions: ["How often do you check?"], article: { ref: "ws1/p1", title: "Cadence" } }, d);
+    await answerQuestion(A, q!.id, "Weekly, after the Monday report.", { done: true }, d);
+    vi.stubEnv("SEARCH_INDEX_ENABLED", "false");
+    expect((await removeNote(A, q!.id, d)).ok).toBe(true);
+    expect(await entries(d)).toEqual([]);
+  });
+
+  it("reads brand search only with note reads on, never a note that names a customer, and never a vector from the other store", async () => {
+    const d = withIndex();
+    const old = vi.fn(() => {
+      throw new Error("the old store was asked");
+    });
+    const vectors = { where: () => vectors, findNearest: old } as unknown as KnowledgeCollectionLike;
+    const kept = await createNote(A, note({ text: "We check visibility weekly; daily checks were noise." }), { source: "typed" }, d);
+    const [open] = await askQuestions(A, { questions: ["How often do you check?"], article: { ref: "ws1/p1", title: "Cadence" } }, d);
+    if (!kept.ok) throw new Error("not made");
+    vi.stubEnv("SEARCH_NOTE_READS_ENABLED", "true");
+    const all = { ...d, vectors, query: vi.fn(async () => [1, 0]) };
+
+    expect((await nearestNotes(A, "How often should we check?", { limit: 5 }, all)).map((n) => n.note.id)).toEqual([kept.value.id]);
+    expect(d.embedSearch.mock.calls.at(-1)?.[2]).toBe("RETRIEVAL_QUERY");
+    const [query] = await noteVectors(A, ["How often should we check?"], "query", all);
+    expect(query?.onIndex).toBe(true);
+    expect((await nearestOpenQuestions(A, query!, { limit: 3 }, all)).map((n) => n.note.id)).toEqual([open!.id]);
+    const [asked] = await noteVectors(A, ["How often do you check visibility?"], "question", all);
+    expect(d.embedSearch.mock.calls.at(-1)?.[0]).toEqual([{ content: "How often do you check visibility?", title: "How often do you check visibility?" }]);
+    expect(await alreadyOnFile(A, asked!, { questionSim: 0.9, noteSim: 0.9 }, all)).toBe(true);
+    expect(await alreadyOnFile(A, asked!, { questionSim: 1.01, noteSim: 1.01 }, all)).toBe(false);
+    // A vector made for brand_map_vectors finds nothing here, and the old store is never asked.
+    const stale = { onIndex: false, values: [1, 0] };
+    expect(await nearestOpenQuestions(A, stale, { limit: 3 }, all)).toEqual([]);
+    expect(await nearestNotes(A, "x", { limit: 3, vector: stale }, all)).toEqual([]);
+    expect(await alreadyOnFile(A, stale, { questionSim: 0, noteSim: 0 }, all)).toBe(false);
+    expect(old).not.toHaveBeenCalled();
+    expect(all.query).not.toHaveBeenCalled();
+    // A note ticked as naming a customer: found through its subject only.
+    await updateNote(A, kept.value.id, { canName: true }, all);
+    expect(await nearestNotes(A, "How often should we check?", { limit: 5 }, all)).toEqual([]);
+  });
+
+  it("with note reads on, asks keep brand_map_vectors on its own model: given vectors are never written there", async () => {
+    const d = withIndex();
+    vi.stubEnv("SEARCH_NOTE_READS_ENABLED", "true");
+    const given = await noteVectors(A, ["How often do you check?"], "question", d);
+    const [q] = await askQuestions(A, { questions: ["How often do you check?"], article: { ref: "ws1/p1", title: "Cadence" }, vectors: given as never }, d);
+    expect(d.embed).toHaveBeenCalledWith([{ content: "How often do you check?", title: "A question for the team" }], "us");
+    const stored = d.db.raw(BRAND_MAP_VECTORS, brandMapVectorDocId("ten_A", "question", q!.id));
+    expect(JSON.stringify(stored?.embedding)).not.toContain(String(given[0]!.values[0]));
+  });
+});
+

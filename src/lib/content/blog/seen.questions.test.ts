@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Removals from brand search are forced whatever the switches say (ADR-0023): an in-memory index stands in.
+vi.mock("@/lib/tenant/searchIndex", async (original) => (await import("@/lib/search/testing/memorySearch")).withMemorySearch(await original<object>()));
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { KnowledgeCollectionLike, TenantContext } from "@/lib/tenant/types";
 import { BlogBriefSchema, type ContentPlan } from "@/lib/types/contentPlan";

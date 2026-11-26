@@ -445,6 +445,7 @@ describe("Ideas in place of Launches", () => {
     connectorSignals: true,
     brandMapScale: true,
     searchFamily: true,
+    searchNoteReads: true,
     ideas: true,
   };
   // Told, not read: the How to drawer renders in the browser, where server switches read off.
@@ -935,12 +936,20 @@ describe("Search", () => {
     expect(off).not.toContain(SEARCH_TEXT_HELP.why);
   });
 
+  it("says on Your brand that a note naming a customer reaches articles only by its subject, only with note reads on (ADR-0023)", () => {
+    const md = (searchNoteReads: boolean) => docToMarkdown(HELP_BODIES["your-brand"]!({ searchNoteReads }), "https://app.example.com");
+    vi.stubEnv("NEXT_PUBLIC_BRAND_NOTES_ENABLED", "true");
+    expect(md(true)).toContain("A note ticked as naming a customer goes into an article only when it is linked to the article's subject");
+    expect(md(false)).not.toContain("A note ticked as naming a customer");
+    vi.unstubAllEnvs();
+  });
+
   it("says a subject is found by its first questions, and how soon the brand map is found, only with the family switch on (ADR-0023)", () => {
     const md = (searchFamily: boolean) => docToMarkdown(HELP_BODIES.search!({ searchFamily }), "https://app.example.com");
     const on = md(true);
     expect(on).toContain("A subject on your brand map is also found by its first questions.");
     expect(on).toContain("Proposed subjects and buying situations don't show here until you add them to your map.");
-    expect(on).toContain("subjects and buying situations as soon as you save them");
+    expect(on).toContain("subjects, buying situations and What we've seen notes as soon as you save them");
     const off = md(false);
     expect(off).not.toContain("first questions");
     expect(off).toContain("New and changed things are found within about 10 minutes. An article you save is usually found straight away.");

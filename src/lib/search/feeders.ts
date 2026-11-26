@@ -38,7 +38,7 @@ import type { LifecycleJourney } from "@/lib/types/lifecycle";
 import type { RepoAnalysis } from "@/lib/types/repoAnalysis";
 import type { Template } from "@/lib/types/template";
 import type { Tenant } from "@/lib/types/tenant";
-import { isFamilyRecord, situationBody, situationSearchSource, subjectSearchSource } from "./family";
+import { isFamilyRecord, noteSearchSources, situationBody, situationSearchSource, subjectSearchSource } from "./family";
 import { isSearchFamilyIndexEnabled } from "./flags";
 import { contentHash } from "./text";
 import type { SearchKind, SearchSource, SearchStub } from "./types";
@@ -450,7 +450,8 @@ export async function readBrandStubs(ctx: TenantContext, opts: StubsOptions = {}
  * With the family (`family`, SEARCH_FAMILY_INDEX_ENABLED): subjects and situations decided or
  * proposed, with their statuses, and each subject with its first questions. Questions are read once
  * with status in [decided, proposed] (the same brand-and-status index) and grouped by subject; the
- * brand map's own questions still go in decided only.
+ * brand map's own questions still go in decided only. Notes are kept with their statuses, and an
+ * answered question keeps a question entry beside its note (noteSearchSources).
  */
 export async function brandMapStubs(records: Pick<BrandMapRecordStore, "pageAll">, notes: BrandNote[], opts: { family?: boolean } = {}): Promise<SearchStub[]> {
   const out: SearchStub[] = [];
@@ -487,8 +488,8 @@ export async function brandMapStubs(records: Pick<BrandMapRecordStore, "pageAll"
     }
   }
   for (const n of notes) {
-    const src = noteSource(n);
-    if (src) out.push(stubOf(src));
+    // With the family, kept notes and the questions asked of the team carry their statuses.
+    for (const src of opts.family ? noteSearchSources(n) : [noteSource(n)].filter((x): x is SearchSource => x !== null)) out.push(stubOf(src));
   }
   return out;
 }

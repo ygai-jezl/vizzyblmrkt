@@ -69,6 +69,8 @@ export interface HelpBodyProps {
   brandMapScale?: boolean;
   /** The brand map family is in brand search for every brand (isSearchFamilyIndexEnabled(), ADR-0023). */
   searchFamily?: boolean;
+  /** What we've seen's readers use brand search, so a note naming a customer is found only by its subject (isSearchNoteReadsEnabled(), ADR-0023). */
+  searchNoteReads?: boolean;
   /** A launch is an idea with a status, a hypothesis, an outcome and a hand-off (isIdeasEnabled()). */
   ideas?: boolean;
   /**

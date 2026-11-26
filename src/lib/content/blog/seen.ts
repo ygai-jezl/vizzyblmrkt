@@ -3,7 +3,8 @@ import { generateTextWithDeadline, type AiUsage } from "@/lib/agents/gemini";
 import { aiUsage } from "@/lib/plans/meter";
 import { forTenant } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
-import { embedDocuments, embedQuery } from "@/lib/agents/embeddings";
+import { cutOff, type CutOff } from "@/lib/search/family";
+import { isSearchNoteReadsEnabled } from "@/lib/search/flags";
 import {
   BlogSeenSchema,
   SEEN_ADDED_BY_YOU,
@@ -26,9 +27,10 @@ import {
   nearestOpenQuestions,
   notesById,
   notesForSubjects,
-  QUESTION_TITLE,
+  noteVectors,
   releaseHolds,
   updateNote,
+  type NoteVector,
   type NotesDeps,
 } from "@/lib/brandNotes/store";
 import { suggestKind } from "@/lib/brandNotes/prompts";
@@ -69,8 +71,14 @@ const RESTING_NOTES = 5;
  * 0.46 to 0.73, unrelated ones up to 0.60, so no cutoff separates them. At 0.55 one to four
  * related notes per question never reached the check; the check called 13 notes strong and
  * none of them wrongly. So the cutoff stays low and the check stays strict.
+ *
+ * Each cut-off here is a pair (ADR-0023): `old` for brand_map_vectors (text-embedding-005), `new` for
+ * brand search (gemini-embedding-001) once SEARCH_NOTE_READS_ENABLED is on. The `new` values are
+ * provisional until scripts/measure-question-dupes.ts --model new is run.
  */
-export const CANDIDATE_MIN_SIM = 0.5;
+export const CANDIDATE_MIN_SIM: CutOff = { old: 0.5, new: 0.5 };
+/** The cut-offs for the store the note readers use now. */
+const notesOnIndex = () => isSearchNoteReadsEnabled();
 
 export const ADDED_BY_YOU = SEEN_ADDED_BY_YOU;
 const WHY_LINKED = "Linked to this article's subject";
@@ -175,14 +183,13 @@ export async function matchSeen(
   const brand = args.brandName.replace(/["\n]/g, " ").slice(0, 120);
   const spark = oneLine(args.plan.scope.spark).slice(0, 600) || "(none)";
   const about = [question, args.plan.scope.spark].filter(Boolean).join("\n");
-  // With open questions, one query vector serves both searches.
-  const vector = article ? await (deps.query ?? embedQuery)(about.slice(0, 2000), ctx.region).catch(() => null) : undefined;
+  // With open questions, one query vector serves both searches, made for the store the readers use.
+  const vector = article ? ((await noteVectors(ctx, [about.slice(0, 2000)], "query", deps).catch(() => []))[0] ?? null) : undefined;
+  const minSim = cutOff(CANDIDATE_MIN_SIM, notesOnIndex());
 
   const [linked, near] = await Promise.all([
     args.brief.subjectId ? notesForSubjects(ctx, [args.brief.subjectId], deps).catch(() => []) : Promise.resolve([] as BrandNote[]),
-    nearestNotes(ctx, about, { limit: rest ? REST_CANDIDATES : CANDIDATES, minSim: CANDIDATE_MIN_SIM, ...(vector !== undefined ? { vector } : {}) }, deps).catch(
-      () => [],
-    ),
+    nearestNotes(ctx, about, { limit: rest ? REST_CANDIDATES : CANDIDATES, minSim, ...(vector !== undefined ? { vector } : {}) }, deps).catch(() => []),
   ]);
   const sim = new Map(near.map((n) => [n.note.id, n.sim]));
   const linkedOk = linked.filter((n) => !skip(n.id)).sort((a, b) => (sim.get(b.id) ?? 0) - (sim.get(a.id) ?? 0));
@@ -292,7 +299,7 @@ function asQuestion(n: BrandNote, article?: string): BlogSeenQuestion {
   };
 }
 /** How close in meaning an open question must be to be offered for reuse; the model decides. */
-const OPEN_MIN_SIM = CANDIDATE_MIN_SIM;
+const OPEN_MIN_SIM: CutOff = CANDIDATE_MIN_SIM;
 const OPEN_CANDIDATES = 5;
 /** Questions asked for beyond the ones needed, so one that repeats what the brand has can be dropped. */
 const SPARE_QUESTIONS = 2;
@@ -311,9 +318,10 @@ const ASKED_ALREADY = 6;
  *   - question to note: a note that answers it scored 0.726 to 0.873, one on the same subject
  *     that doesn't 0.643 to 0.773. No cutoff separates them, so 0.85 drops only the closest and
  *     never a question a note leaves open.
+ * Both are pairs (ADR-0023), as CANDIDATE_MIN_SIM is: the numbers above are `old`.
  */
-export const DUP_QUESTION_SIM = 0.93;
-export const DUP_NOTE_SIM = 0.85;
+export const DUP_QUESTION_SIM: CutOff = { old: 0.93, new: 0.93 };
+export const DUP_NOTE_SIM: CutOff = { old: 0.85, new: 0.85 };
 
 /**
  * An article's questions for its team, kept as open questions (BRAND_NOTES_QUESTIONS_ENABLED).
@@ -336,7 +344,7 @@ async function articleQuestions(
     matched: boolean;
     same: boolean;
     oldAsks: string[];
-    vector: number[] | null;
+    vector: NoteVector | null;
     brand: string;
     question: string;
     spark: string;
@@ -359,7 +367,7 @@ async function articleQuestions(
 
   const keep = new Set(answered.map((q) => q.id));
   const open = (
-    a.vector ? await nearestOpenQuestions(ctx, a.vector, { limit: OPEN_CANDIDATES, minSim: OPEN_MIN_SIM, exclude: keep }, deps).catch(() => []) : []
+    a.vector ? await nearestOpenQuestions(ctx, a.vector, { limit: OPEN_CANDIDATES, minSim: cutOff(OPEN_MIN_SIM, a.vector.onIndex), exclude: keep }, deps).catch(() => []) : []
   ).filter((o) => !a.rest || (o.note.askedFor?.length ?? 0) < a.rest.maxUses);
   if (a.rest) return freshQuestions(ctx, { ...a, answered, room, open }, deps);
   const vars = { brand_name: a.brand, question: a.question, spark: a.spark, audience: a.audience };
@@ -401,7 +409,7 @@ async function freshQuestions(
     ? await nearestOpenQuestions(
         ctx,
         a.vector,
-        { limit: ASKED_ALREADY, minSim: OPEN_MIN_SIM, exclude: [...a.answered.map((q) => q.id), ...openIds], statuses: ["asked", "answered"] },
+        { limit: ASKED_ALREADY, minSim: cutOff(OPEN_MIN_SIM, a.vector.onIndex), exclude: [...a.answered.map((q) => q.id), ...openIds], statuses: ["asked", "answered"] },
         deps,
       ).catch(() => [])
     : [];
@@ -454,25 +462,27 @@ const cosine = (x: number[], y: number[]) => {
 
 /**
  * The first `want` questions that repeat, by meaning, nothing on What we've seen and none of the
- * others, with their vectors (made once, kept with the questions). Embeddings down: the first
- * `want` as they are, so an article still asks.
+ * others, with their vectors (made once by noteVectors for the store the readers use, kept with
+ * the questions). Embeddings down: the first `want` as they are, so an article still asks.
  */
 export async function uniqueQuestions(
   ctx: TenantContext,
   candidates: string[],
   want: number,
   deps: NotesDeps = {},
-): Promise<{ questions: string[]; vectors: number[][] | null }> {
+): Promise<{ questions: string[]; vectors: NoteVector[] | null }> {
   if (want <= 0 || !candidates.length) return { questions: [], vectors: null };
-  const made = await (deps.embed ?? embedDocuments)(candidates.map((content) => ({ content, title: QUESTION_TITLE })), ctx.region).catch(() => null);
-  if (!made || made.length !== candidates.length || made.some((v) => !v?.length)) return { questions: candidates.slice(0, want), vectors: null };
-  const vectors = made as number[][];
-  const onFile = await Promise.all(vectors.map((v) => alreadyOnFile(ctx, v, { questionSim: DUP_QUESTION_SIM, noteSim: DUP_NOTE_SIM }, deps)));
+  const made = await noteVectors(ctx, candidates, "question", deps).catch(() => null);
+  if (!made || made.length !== candidates.length || made.some((v) => !v)) return { questions: candidates.slice(0, want), vectors: null };
+  const vectors = made as NoteVector[];
+  const onIndex = vectors[0]!.onIndex;
+  const same = cutOff(DUP_QUESTION_SIM, onIndex);
+  const onFile = await Promise.all(vectors.map((v) => alreadyOnFile(ctx, v, { questionSim: same, noteSim: cutOff(DUP_NOTE_SIM, onIndex) }, deps)));
   const questions: string[] = [];
-  const kept: number[][] = [];
+  const kept: NoteVector[] = [];
   candidates.forEach((q, i) => {
     const v = vectors[i]!;
-    if (questions.length === want || onFile[i] || kept.some((k) => cosine(k, v) >= DUP_QUESTION_SIM)) return;
+    if (questions.length === want || onFile[i] || kept.some((k) => cosine(k.values, v.values) >= same)) return;
     questions.push(q);
     kept.push(v);
   });

@@ -996,6 +996,12 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # What we've seen's note and question readers read brand search; a note that names a customer
+  # is then found only through its subject (needs SEARCH_FAMILY_INDEX_ENABLED and the backfill).
+  - variable: SEARCH_NOTE_READS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Vizzy reads how emails and posts did (get_email_results, get_post_results), each number
   # with its meaning (src/lib/metrics/meanings.ts). Aggregates only; needs a redeployed agent.
   - variable: RESULTS_CHAT_ENABLED

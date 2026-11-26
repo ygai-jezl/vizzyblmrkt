@@ -40,7 +40,7 @@ import { isCatalogHistoryEnabled } from "@/lib/connect/v2/flags";
 import { isAiAnswersPlanningEnabled, isConnectorsChatEnabled, isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsSearchTextEnabled, isConnectorsSharingEnabled } from "@/lib/connectors/flags";
 import { isOrganisationJoinEnabled } from "@/lib/plans/flags";
 import { isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
-import { isSearchFamilyIndexEnabled } from "@/lib/search/flags";
+import { isSearchFamilyIndexEnabled, isSearchNoteReadsEnabled } from "@/lib/search/flags";
 import { isIdeaWordsEnabled, isIdeasEnabled } from "@/lib/ideas/flags";
 import { WordsProvider } from "@/components/admin/nav/WordsProvider";
 import { isOnboardingEnabled, isOnboardingVoiceEnabled } from "@/lib/onboarding/flags";
@@ -225,6 +225,7 @@ export default async function AdminLayout({
             aiAnswers={isAiAnswersPlanningEnabled()}
             brandMapScale={isBrandMapScaleEnabled()}
             searchFamily={isSearchFamilyIndexEnabled()}
+            searchNoteReads={isSearchNoteReadsEnabled()}
             ideas={isIdeasEnabled()}
             ideaWords={ideaWords}
             sharing={isConnectorsSharingEnabled()}

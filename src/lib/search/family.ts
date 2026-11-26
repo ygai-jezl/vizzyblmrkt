@@ -1,3 +1,4 @@
+import type { BrandNote } from "@/lib/types/brandNote";
 import { CHUNK_CHARS } from "./text";
 import type { SearchKind, SearchSource, SearchStatus } from "./types";
 
@@ -112,3 +113,23 @@ export function situationBody(r: MapRecord): SearchSource | null {
     ? { kind: "situation", ref: r.ref, title: text, body: lines(text, s(r.who) && `Who: ${s(r.who)}`, s(r.want) && `Wants: ${s(r.want)}`, s(r.feel) && `Feels: ${s(r.feel)}`, s(r.wText)), url: MAP_URL }
     : null;
 }
+
+const NOTES_URL = "/admin/brand-kit/notes";
+
+/**
+ * A What we've seen note as the family keeps it (SEARCH_FAMILY_INDEX_ENABLED): a kept note, `kept`;
+ * an open question, `asked` under `note_{id}`. An answered question is a kept note AND keeps its
+ * question entry, `answered`, whose text is the question only, so asking and answering moves its
+ * status and embeds nothing. A note that may name a customer is never kept (decision 40): its
+ * entries go.
+ */
+export function noteSearchSources(n: Pick<BrandNote, "id" | "text" | "status" | "canName" | "source"> & { question?: string | null }): SearchSource[] {
+  if (n.canName) return [];
+  const question = s(n.question).trim();
+  const ask = (status: "asked" | "answered"): SearchSource => ({ kind: "question", ref: noteQuestionRef(n.id), title: question, body: question, url: NOTES_URL, status });
+  if (n.status === "asked") return question ? [ask("asked")] : [];
+  if (n.status !== "kept" || !n.text.trim()) return [];
+  const note: SearchSource = { kind: "note", ref: n.id, title: n.text.slice(0, 120), body: lines(question && `Asked: ${question}`, n.text), url: NOTES_URL, status: "kept" };
+  return n.source === "question" && question ? [note, ask("answered")] : [note];
+}
+

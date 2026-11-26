@@ -99,7 +99,7 @@ export default function SearchHelp({ connectorsSearchText = isConnectorsSearchTe
       ) : null}
       <P>
         {searchFamily
-          ? "New and changed things are found within about 10 minutes, and subjects and buying situations as soon as you save them. The questions on your brand map, What we've seen and what your competitors write can take up to 6 hours."
+          ? "New and changed things are found within about 10 minutes, and subjects, buying situations and What we've seen notes as soon as you save them. The questions on your brand map and what your competitors write can take up to 6 hours."
           : "New and changed things are found within about 10 minutes."}{" "}
         An article you save is usually found straight away. Each brand&apos;s search is kept apart from every other
         brand&apos;s, in the same region as the rest of your data.

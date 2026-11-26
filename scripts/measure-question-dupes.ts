@@ -3,6 +3,7 @@
  * come out, for every reader of the brand map family (scripts/lib/questionDupes.ts):
  *   - a proposed subject against one on the map (LOOKS_LIKE), a Google search against a subject
  *     (NEAR_SUBJECT), a question against a buying situation;
+ *   - an article's question against kept notes (CANDIDATE_MIN_SIM) and open questions (OPEN_MIN_SIM);
  *   - a new question for the team against the same ask reworded and a different ask
  *     (DUP_QUESTION_SIM), and against a note that answers it and one that doesn't (DUP_NOTE_SIM).
  * Prints each group's range and where a cut-off would separate them. The cut-offs are pairs (ADR-0023):

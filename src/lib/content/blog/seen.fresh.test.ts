@@ -4,6 +4,8 @@ import { forTenant } from "@/lib/tenant";
 import type { KnowledgeCollectionLike, TenantContext } from "@/lib/tenant/types";
 import { BlogBriefSchema, type ContentPlan } from "@/lib/types/contentPlan";
 import { answerQuestion, askQuestions, createNote, listNotes, QUESTION_TITLE } from "@/lib/brandNotes/store";
+import { MemorySearchIndex } from "@/lib/search/memoryStore";
+import type { SearchKind, SearchStore } from "@/lib/search/types";
 import { DUP_QUESTION_SIM, matchSeen, uniqueQuestions, type SeenDeps } from "./seen";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1" };
@@ -42,6 +44,25 @@ function vectorsByMeaning(rows: Array<{ kind: string; ref: string; status: strin
   return search(null);
 }
 
+/**
+ * The same rows as brand search holds them (ADR-0023): its writes go to an in-memory index, and its
+ * nearest scores the rows by cosine, an open question under note_{id}.
+ */
+function searchByMeaning(rows: Array<{ kind: string; ref: string; status: string; embedding: number[] }>): SearchStore {
+  return {
+    ...new MemorySearchIndex().storeFor(A),
+    nearest: async (kinds, vector, opts) =>
+      rows
+        .filter((r) => (kinds as string[]).includes(r.kind) && (opts.statuses as string[]).includes(r.status))
+        .map((r) => {
+          const ref = r.kind === "question" ? `note_${r.ref}` : r.ref;
+          return { sourceKey: `${r.kind}:${ref}`, kind: r.kind as SearchKind, ref, status: r.status as "kept", score: Math.max(0, Math.min(1, cos(vector, r.embedding))) };
+        })
+        .sort((x, y) => y.score - x.score)
+        .slice(0, opts.limit),
+  };
+}
+
 const CANDIDATES = [
   "When did a monitoring result change what a client published that week?",
   "Which prompt did you stop tracking, and why?",
@@ -63,6 +84,11 @@ function setup(meaning: Record<string, number[]> = {}) {
     embed: vi.fn(async (items: Array<{ content: string; title?: string }>) => items.map((i) => meaning[i.content] ?? apart(k++))),
     query: async () => QUERY,
     vectors: vectorsByMeaning(rows),
+    // Brand search's model sees the same meanings: a query is the article's question.
+    embedSearch: vi.fn(async (items: Array<{ content: string; title?: string }>, _region: string, task: string) =>
+      items.map((i) => (task === "RETRIEVAL_QUERY" ? QUERY : (meaning[i.content] ?? apart(k++)))),
+    ),
+    search: searchByMeaning(rows),
     generate,
   };
   return { db, deps, rows, generate };
@@ -73,7 +99,15 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllEnvs());
 
-describe("every article asks its team for something new, when notes rest after use", () => {
+describe.each([
+  ["brand_map_vectors", false],
+  ["brand search", true],
+])("every article asks its team for something new, when notes rest after use, read from %s", (_store, onIndex) => {
+  beforeEach(() => {
+    // ADR-0023: the same fixtures with the note readers on brand search.
+    for (const v of ["SEARCH_INDEX_ENABLED", "SEARCH_FAMILY_INDEX_ENABLED", "SEARCH_NOTE_READS_ENABLED"]) vi.stubEnv(v, onIndex ? "true" : "false");
+  });
+
   it("asks three new questions even when a note matched, shown what the brand already has", async () => {
     const { deps, rows, generate } = setup();
     const made = await createNote(A, { text: "A brand dropped out of answers for two weeks.", kind: "tested", subjectIds: [], canName: false }, { source: "typed" }, deps);
@@ -144,7 +178,7 @@ describe("uniqueQuestions", () => {
 
   it("treats two questions as the same from the cutoff up, and keeps them apart below it", async () => {
     const near = (sim: number) => at(sim);
-    const { deps } = setup({ a: near(1), b: near(DUP_QUESTION_SIM + 0.001), c: near(DUP_QUESTION_SIM - 0.05) });
+    const { deps } = setup({ a: near(1), b: near(DUP_QUESTION_SIM.old + 0.001), c: near(DUP_QUESTION_SIM.old - 0.05) });
     expect((await uniqueQuestions(A, ["a", "b", "c"], 3, deps)).questions).toEqual(["a", "c"]);
   });
 });

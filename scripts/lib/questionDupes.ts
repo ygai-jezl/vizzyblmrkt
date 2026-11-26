@@ -202,8 +202,24 @@ export const QUESTION_NOTES: Group = {
   apart: NOTE_TRIPLES.map(([q, , other]) => [teamQuestionSide(q), noteSide(other)]),
 };
 
+/** CANDIDATE_MIN_SIM: an article's question, asked as a query, against kept notes (nearestNotes). */
+export const NOTES: Group = {
+  name: "Article question against note",
+  cutOff: "CANDIDATE_MIN_SIM (src/lib/content/blog/seen.ts)",
+  repeats: NOTE_TRIPLES.map(([q, answers]) => [query(q), noteSide(answers)]),
+  apart: NOTE_TRIPLES.map(([q, , other]) => [query(q), noteSide(other)]),
+};
+
+/** OPEN_MIN_SIM: an article's question, asked as a query, against open questions (nearestOpenQuestions). */
+export const OPEN_QUESTIONS: Group = {
+  name: "Article question against open question",
+  cutOff: "OPEN_MIN_SIM, which is CANDIDATE_MIN_SIM (src/lib/content/blog/seen.ts)",
+  repeats: SAME.map(([a, b]) => [query(a), teamQuestionSide(b)]),
+  apart: DIFFERENT.map(([a, b]) => [query(a), teamQuestionSide(b)]),
+};
+
 /** Every group, in the order the report prints them. */
-export const GROUPS: Group[] = [SUBJECTS, SEARCHES, SITUATIONS, QUESTIONS, QUESTION_NOTES];
+export const GROUPS: Group[] = [SUBJECTS, SEARCHES, SITUATIONS, NOTES, OPEN_QUESTIONS, QUESTIONS, QUESTION_NOTES];
 
 // ── Measuring ───────────────────────────────────────────────────────────────────────────────
 

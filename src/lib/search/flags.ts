@@ -64,3 +64,12 @@ export function isSearchFamilyIndexEnabled(): boolean {
 export function isSearchSubjectReadsEnabled(): boolean {
   return isSearchFamilyIndexEnabled() && process.env.SEARCH_SUBJECT_READS_ENABLED === "true";
 }
+
+/**
+ * Note and question readers (What we've seen's matching, its repeat checks, Vizzy's notes search)
+ * use the index only (needs SEARCH_FAMILY_INDEX_ENABLED). A note that may name a customer isn't in
+ * the index, so it is then found only through its subject link. Off: they use brand_map_vectors.
+ */
+export function isSearchNoteReadsEnabled(): boolean {
+  return isSearchFamilyIndexEnabled() && process.env.SEARCH_NOTE_READS_ENABLED === "true";
+}

@@ -1,6 +1,6 @@
 import type { TenantContext } from "@/lib/tenant";
 import type { MeaningKey } from "@/lib/metrics/meanings";
-import { close, meaningWords } from "@/lib/content/blog/coverage";
+import { close, wordingCloseness } from "@/lib/content/blog/coverage";
 import { queryKey } from "@/lib/signals/store";
 import { readByUse, type UseDeps } from "../byUse";
 import { isAiAnswersPlanningEnabled } from "../flags";
@@ -40,15 +40,6 @@ export async function readAiAnswers(ctx: TenantContext, deps: Omit<UseDeps, "job
   return { prompts };
 }
 
-/** How close two texts are in the words that carry meaning: shared over all, from 0 to 1. */
-function overlap(a: string, b: string): number {
-  const x = new Set(meaningWords(a));
-  const y = new Set(meaningWords(b));
-  let shared = 0;
-  for (const w of x) if (y.has(w)) shared += 1;
-  return x.size + y.size - shared ? shared / (x.size + y.size - shared) : 0;
-}
-
 /**
  * The monitored prompt a question matches: the same words (as the brand map keys them), else one
  * close in wording (most of its meaning words shared, coverage's own rule), the closest first and
@@ -58,7 +49,7 @@ export function matchPrompt(question: string, prompts: readonly MonitoredPrompt[
   const key = queryKey(question);
   const same = prompts.find((p) => queryKey(p.text) === key);
   if (same) return same;
-  const near = prompts.filter((p) => close(question, p.text)).map((p) => ({ p, score: overlap(question, p.text) }));
+  const near = prompts.filter((p) => close(question, p.text)).map((p) => ({ p, score: wordingCloseness(question, p.text) }));
   near.sort((a, b) => b.score - a.score || (b.p.m.promptEngines ?? 0) - (a.p.m.promptEngines ?? 0));
   return near[0]?.p ?? null;
 }

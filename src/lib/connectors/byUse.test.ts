@@ -176,3 +176,34 @@ describe("readByUse", () => {
     expect((await readByUse(A, "signals.ai_answers", { ...ask, period: "last_7_days" }, d)).reads[0]!.from).toBe("live");
   });
 });
+
+describe("readByUse reads connections at once", () => {
+  it("starts every connection's read before any finishes, keeping their order", async () => {
+    await seed(A, "dcn_aaaaaaaaaaaaaaaaaaaa");
+    await seed(A, "dcn_bbbbbbbbbbbbbbbbbbbb", { account: "other.example" });
+    const started: string[] = [];
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    const live = vi.fn(async (_c: TenantContext, _a: unknown, id: string) => {
+      started.push(id);
+      if (started.length === 2) release();
+      await gate;
+      return { ok: true as const, status: 200 as const, value: liveAnswer("now", [{ prompt: id, cfVisits: 1 }]) };
+    });
+    const r = await readByUse(A, "signals.ai_answers", { measures: ["cfVisits"], by: "topic", period: "last_28_days" }, { ...deps().deps, live });
+    expect(started).toHaveLength(2);
+    expect(r.reads.map((x) => x.rows[0]!.keys.topic).sort()).toEqual(["dcn_aaaaaaaaaaaaaaaaaaaa", "dcn_bbbbbbbbbbbbbbbbbbbb"]);
+  });
+
+  it("counts a read that throws as failed, and keeps the others", async () => {
+    await seed(A, "dcn_aaaaaaaaaaaaaaaaaaaa");
+    await seed(A, "dcn_bbbbbbbbbbbbbbbbbbbb", { account: "other.example" });
+    const live = vi.fn(async (_c: TenantContext, _a: unknown, id: string) => {
+      if (id === "dcn_aaaaaaaaaaaaaaaaaaaa") throw new Error("socket closed");
+      return { ok: true as const, status: 200 as const, value: liveAnswer("now", []) };
+    });
+    const r = await readByUse(A, "signals.ai_answers", { measures: ["cfVisits"], by: "topic", period: "last_28_days" }, { ...deps().deps, live });
+    expect(r.failed).toEqual([{ connectionId: "dcn_aaaaaaaaaaaaaaaaaaaa", code: "network" }]);
+    expect(r.reads.map((x) => x.connectionId)).toEqual(["dcn_bbbbbbbbbbbbbbbbbbbb"]);
+  });
+});

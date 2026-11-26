@@ -174,15 +174,24 @@ describe("connectorFetch for a protocol that isn't plain JSON (an MCP server, AD
     expect(sent).toEqual({ "mcp-session-id": "made-up-1", authorization: `Bearer ${TOKEN}`, accept: "application/json, text/event-stream", "content-type": "application/json" });
   });
 
-  it("ends the read once enough came, and still caps the body", async () => {
+  it("ends an event stream once an event is enough, asking about each completed event once, and still caps the body", async () => {
+    const seen: string[] = [];
     const open = new ReadableStream<Uint8Array>({
       start(controller) {
-        controller.enqueue(new TextEncoder().encode("data: done\n\n"));
+        controller.enqueue(new TextEncoder().encode("data: one\n\ndata: do"));
+        controller.enqueue(new TextEncoder().encode("ne\n\n"));
       },
     });
     fetchMock.mockResolvedValueOnce(new Response(open, { status: 200, headers: { "content-type": "text/event-stream" } }));
-    expect(await connectorFetch(call({ text: { until: (t) => t.includes("done") } }), deps())).toMatchObject({ ok: true, body: "data: done\n\n" });
+    const untilEvent = (e: string) => (seen.push(e), e === "data: done");
+    expect(await connectorFetch(call({ text: { untilEvent } }), deps())).toMatchObject({ ok: true, body: "data: one\n\ndata: done\n\n" });
+    expect(seen).toEqual(["data: one", "data: done"]);
+    // Only an event stream is read by events: JSON is read to its end.
+    seen.length = 0;
+    fetchMock.mockResolvedValueOnce(new Response('{"a":"data: done\n\n"}', { status: 200, headers: { "content-type": "application/json" } }));
+    expect(await connectorFetch(call({ text: { untilEvent } }), deps())).toMatchObject({ ok: true, body: '{"a":"data: done\n\n"}' });
+    expect(seen).toEqual([]);
     fetchMock.mockResolvedValueOnce(new Response("x".repeat(manifest.api.maxBytes + 10), { status: 200, headers: { "content-type": "text/event-stream" } }));
-    expect(await connectorFetch(call({ text: { until: () => false } }), deps())).toMatchObject({ ok: false, code: "body_too_large" });
+    expect(await connectorFetch(call({ text: { untilEvent: () => false } }), deps())).toMatchObject({ ok: false, code: "body_too_large" });
   });
 });

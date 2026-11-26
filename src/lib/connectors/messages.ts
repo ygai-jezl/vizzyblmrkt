@@ -83,6 +83,14 @@ export function tokenRefusedMessage(name: string, when: "connected" | "connectin
 }
 
 /**
+ * Reconnect with a key that belongs to another account than the one the connection reads (an MCP
+ * server's key names its own account, ADR-0019): nothing was changed or erased.
+ */
+export function otherAccountKeyMessage(name: string): string {
+  return `${name} says this key belongs to another account, so nothing was changed. Paste the key for the account this connection reads, or connect the new one as a connection of its own.`;
+}
+
+/**
  * A shared connection that had worked, whose Google address was taken off the property later
  * (Connectors 2: the daily collect notices it the next day), dated when the failures began.
  */

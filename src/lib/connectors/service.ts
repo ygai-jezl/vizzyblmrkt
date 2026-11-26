@@ -5,7 +5,7 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import { REGION_CONFIGS } from "@/lib/tenant/region";
 import type { Region } from "@/lib/types/tenant";
 import { meaningsOf } from "@/lib/metrics/meanings";
-import { ConnectionGrantSchema, freshCollect, type ActivityKind, type ConnectionGrant, type ConnectionServiceAccount, type DataConnection } from "@/lib/types/dataConnection";
+import { ConnectionGrantSchema, DATA_CONNECTION_ID_RE, freshCollect, type ActivityKind, type ConnectionGrant, type ConnectionServiceAccount, type DataConnection } from "@/lib/types/dataConnection";
 import { eraseConnectionData, pendingWith, type SearchIndexOf } from "./erase";
 import { can, feedsPlanning, grantsCode, normaliseGrants, type ConnectorActor } from "./grants";
 import { searchConsoleManifest } from "./manifests/searchConsole";
@@ -18,7 +18,7 @@ import { checkLiveRequest, lagWords, readLive, type LiveAnswer } from "./live";
 import { collectedStream, keepsWords, pastedFieldsOf, shareMethod, tokenMethod, type ConnectMethodName, type ConnectorIcon, type ConnectorManifest } from "./manifest";
 import { addDays, daysIn, laterDay, todayIn } from "./period";
 import { oldestAlive } from "./snapshots";
-import { connectorMessage, productName, sourceBrokenMessage, tokenRefusedMessage, type ConnectorErrorCode, KEPT_AT_GOOGLE_MESSAGE } from "./messages";
+import { connectorMessage, otherAccountKeyMessage, productName, sourceBrokenMessage, tokenRefusedMessage, type ConnectorErrorCode, KEPT_AT_GOOGLE_MESSAGE } from "./messages";
 import { getConnector, knownConnector, listConnectors, readyMethods } from "./registry";
 import type { ConnectorFetchDeps } from "./safeFetch";
 import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isGoogleRevokeEnabled } from "./flags";
@@ -472,6 +472,8 @@ export const ConnectBodySchema = z
   .object({
     fields: z.record(z.string().max(64), z.string().max(4096)).refine((f) => Object.keys(f).length <= 10, "too many fields"),
     label: z.string().trim().min(1).max(60).optional(),
+    /** Reconnect in place: the connection whose secret the new one replaces, once checked against its account. */
+    replace: z.string().regex(DATA_CONNECTION_ID_RE).optional(),
   })
   .strict();
 
@@ -524,6 +526,7 @@ export async function connect(ctx: TenantContext, actor: ConnectorActor, connect
   const fields = checkFields(m, parsed.data.fields);
   if (!fields.ok) return { ok: false, status: 400, error: "invalid_fields", message: `Check ${fields.labels.join(", and ")}.` };
   if (!isVaultConfigured()) return providerRefusal("vault_unconfigured");
+  if (parsed.data.replace) return reconnectInPlace(ctx, actor, m, pasted, fields.values, parsed.data.replace, deps);
 
   const connected = async (account: string) =>
     (
@@ -580,6 +583,51 @@ export async function connect(ctx: TenantContext, actor: ConnectorActor, connect
     deps.db,
   );
   return { ok: true, status: 201, value: viewOf(conn, actor, now) };
+}
+
+/**
+ * Reconnect in place: a new token or key for a connection whose old one was turned down. The new
+ * one is checked against the connection's own account before anything changes (an MCP key names
+ * its account through the verify tool, so a key for another account is refused in plain words);
+ * then only its sealed secrets and health change, so its grants, history and collected numbers
+ * stay. A refused, failed or mismatched try changes and erases nothing. A brand's part is its
+ * organisation's to sign in again. Admins only.
+ */
+async function reconnectInPlace(
+  ctx: TenantContext,
+  actor: ConnectorActor,
+  m: ConnectorManifest,
+  pasted: NonNullable<ReturnType<typeof pastedFieldsOf>>,
+  values: Record<string, string>,
+  id: string,
+  deps: ServiceDeps,
+): Promise<ServiceResult<ConnectionView>> {
+  const conn = await load(ctx, id, deps);
+  if (!conn || !can(actor, "see", conn.grants)) return refuse(404, "not_found");
+  if (!can(actor, "connect", conn.grants)) return refuse(403, "forbidden");
+  if (conn.source) return managedByOrganisation();
+  if (conn.connectorId !== m.id || conn.method !== "token_fields" || conn.status !== "connected") return refuse(409, "not_replaceable", "This connection can't take a new token here. Connect it again from its Listing.");
+  const otherAccount = refuse(409, "other_account", otherAccountKeyMessage(m.name));
+  const typed = pasted.account ? values[pasted.account]! : "";
+  if (typed && typed !== conn.account) return otherAccount;
+  const now = nowOf(deps);
+  const verify = VERIFY_HOOKS[m.verify.hook];
+  if (!verify) return refuse(503, "connector_unavailable");
+  // Checked as the connection, against the account it reads: an MCP key for another account is account_refused.
+  const result = await verify({ manifest: m, connection: { id: conn.id, tenantId: ctx.tenantId, pausedAt: null, health: healthyAt(now) }, account: conn.account, token: values[pasted.bearer]! }, deps);
+  if (!result.ok) return result.code === "account_refused" && !pasted.account ? otherAccount : connectingRefusal(m, result.code);
+  if (result.account && result.account !== conn.account) return otherAccount;
+  const secrets: Record<string, SealedSecret> = {};
+  for (const f of pasted.fields) if (f.secret) secrets[f.key] = sealConnectorSecret(ctx.tenantId, conn.id, f.key, values[f.key]!, now);
+  const at = now.toISOString();
+  const r = await changeDataConnection(
+    ctx,
+    id,
+    (cur) => (cur.status === "connected" && cur.account === conn.account ? { patch: { secrets, health: healthyAt(now), updatedAt: at }, activity: [{ kind: "verified", by: byOf(actor), at, code: "token_replaced" }] } : null),
+    deps.db,
+  );
+  if (!r.ok) return r.why === "unchanged" ? refuse(409, "not_replaceable", "This connection changed while the new token was checked. Reload the page and try again.") : refuse(404, "not_found");
+  return { ok: true, status: 200, value: viewOf(r.connection, actor, now) };
 }
 
 // --- Check a token before connecting -----------------------------------------------------------

@@ -455,7 +455,8 @@ function TokenCard({
     // Named by the zone picked from the list; a Reconnect on the same account keeps its name.
     const picked = stage === "listed" ? checked?.accounts.find((a) => a.id === chosen)?.label : undefined;
     const kept = replace && replace.label !== replace.connectorName && replace.details?.account === chosen ? replace.label : undefined;
-    const r = await connectWithToken(listing.id, values, replace, chat, undefined, picked ?? kept);
+    // An MCP key reconnects in place: checked against the connection's account before anything changes.
+    const r = await connectWithToken(listing.id, values, replace, chat, undefined, picked ?? kept, key);
     if (r.kind === "connected") {
       router.push(CONNECTED_PATH);
       router.refresh();
@@ -490,7 +491,7 @@ function TokenCard({
           Open {listing.name} with the form filled in
         </a>
       ) : null}
-      {replace && !lost ? <p className={NOTE_WARN}>{LISTING_COPY.tokenReconnect}</p> : null}
+      {replace && !lost ? <p className={NOTE_WARN}>{key ? LISTING_COPY.keyReconnect : LISTING_COPY.tokenReconnect}</p> : null}
       {lost ? (
         <p role="alert" className={NOTE_WARN}>
           {lost}{" "}

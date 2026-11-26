@@ -4,7 +4,7 @@ import { LIVE_LIMITS, mcpMethod, streamOf, type ConnectorManifest, type McpStrea
 import type { ConnectorErrorCode } from "../messages";
 import { addDays, cappedNote, daysIn, nothingYetNote, resolveWindow } from "../period";
 import { withMcpSession, type McpTarget } from "./client";
-import { callArgs, keyText, needsPage, pageUrlOf, resultData, streamRows, valueAt, type FillValues } from "./result";
+import { callArgs, keyText, needsPage, pageUrlOf, resultData, streamRows, valueAt, type FillValues, type RowRules } from "./result";
 
 /**
  * The one MCP engine's hooks (ADR-0019), named by every MCP connector's manifest (MCP_HOOKS): no
@@ -21,15 +21,19 @@ import { callArgs, keyText, needsPage, pageUrlOf, resultData, streamRows, valueA
  *   call takes no days says its numbers are as they stand now.
  * - mcp.collect keeps one row a day of a stream collected by day: the days due, newest first while
  *   it fills, read in one call, each day's numbers as the day's totals. A day the tool doesn't list
- *   is kept with no numbers (not measured), never as zeros: final when it is older than
- *   MCP_SETTLE_DAYS, so the cursor moves on, and read again on later runs while it is newer, as
- *   the provider may still be working it out. A tool that says it has more rows than it sent
- *   covers only the days it listed; the others wait for the next run.
+ *   is kept with no numbers (not measured), never as zeros. A day is final only once it is
+ *   MCP_SETTLE_DAYS older than the newest day due, listed or not, so a day the provider was still
+ *   working out is read again on later runs and the cursor still moves past one it never measured.
+ *   A tool that says it has more rows than it sent covers only the days it listed; the others wait
+ *   for the next run.
+ * - Rows follow their keys' places: a key that joins on page keeps only the brand's own pages (an
+ *   address on another site is left empty, so it never joins the brand's page of the same path),
+ *   and a key that joins on day is written as the day in the stream's zone, a timestamp included.
  */
 
 /** Collecting: a day D is read from 03:00 in the stream's zone once its lag has passed. */
 export const MCP_COLLECT_HOUR = 3;
-/** A day the tool doesn't list within this many days of the newest due may still come, so it is read again. */
+/** A day within this many days of the newest due may still change, so it is read again until it is older. */
 export const MCP_SETTLE_DAYS = 2;
 
 const failed = (code: ConnectorErrorCode): HookFailure => ({ ok: false, code, retryAfterSec: null });
@@ -72,6 +76,12 @@ export const mcpVerify: VerifyHook = async (input, deps) => {
 /** The stream's key that joins on day, when it has one. */
 const dayKeyOf = (stream: ProducedStream) => Object.entries(stream.joins).find(([, shared]) => shared === "day")?.[0] ?? null;
 
+/** What the stream's joins say about its keys' values, for this connection's account. */
+function rulesOf(stream: ProducedStream, account: string): RowRules {
+  const joined = (key: string) => new Set(Object.entries(stream.joins).filter(([, shared]) => shared === key).map(([k]) => k));
+  return { pageKeys: joined("page"), dayKeys: joined("day"), account, timeZone: stream.timeZone ?? "UTC" };
+}
+
 /** The fills a read offers: its days, its rows, the account and the page. */
 function fillsFor(account: string, from: string, to: string, limit: number, page: string | undefined): FillValues {
   const pageUrl = pageUrlOf(account, page);
@@ -98,7 +108,7 @@ export const mcpLive: LiveHook = async (input, deps) => {
 
   const r = await withMcpSession(target, deps, (session) => session.callTool(block.tool, args));
   if (!r.ok) return r;
-  const mapped = streamRows(resultData(r.result), block);
+  const mapped = streamRows(resultData(r.result), block, rulesOf(stream, input.account));
   const notes: string[] = [];
   if (dated && window.capped) notes.push(cappedNote(manifest.name, lastComplete));
   if (!dated) notes.push(asTheyStandNote(manifest.name));
@@ -135,7 +145,7 @@ export const mcpCollect: CollectHook = async (input, deps) => {
 
   const r = await withMcpSession(target, deps, (session) => session.callTool(block.tool, args));
   if (!r.ok) return { ...base, failure: r };
-  const mapped = streamRows(resultData(r.result), block);
+  const mapped = streamRows(resultData(r.result), block, rulesOf(stream, input.account));
   // Rows that aren't where the manifest says are never kept as days with no numbers.
   if (!mapped) return { ...base, failure: failed("bad_response") };
   const byDay = new Map(mapped.rows.filter((row) => typeof row[dayKey] === "string").map((row) => [String(row[dayKey]), row] as const));
@@ -154,7 +164,7 @@ export const mcpCollect: CollectHook = async (input, deps) => {
     const row = byDay.get(day);
     const totals: Record<string, number | null> = {};
     for (const m of stream.measures) totals[m] = row && typeof row[m] === "number" ? (row[m] as number) : null;
-    out.days.push({ day, final: row !== undefined || day <= settled, docs: [{ by: "day", totals, rows: [], more: false }] });
+    out.days.push({ day, final: day <= settled, docs: [{ by: "day", totals, rows: [], more: false }] });
   }
   return out;
 };

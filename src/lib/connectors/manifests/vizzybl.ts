@@ -16,9 +16,11 @@ import type { ConnectorManifestInput } from "../manifest";
  *   get_citation_stats: startDate, endDate). Each answers with the JSON of the public API's data,
  *   and a list with its pagination, so rows sit under `data` (vizzybl.ai/api/v1 reference).
  * - Limits: Vizzybl allows about 60 calls a minute and 1,000 an hour per key, and about 20 a minute
- *   for its citation tools. Every tool call here is three requests (initialize, initialized, the
- *   call), and safe fetch counts each, so the limits below keep tool calls under the citation
- *   tools' rate.
+ *   and 400 an hour for its citation tools. Safe fetch counts every request: a read is three
+ *   (initialize, initialized, the tool call), a check four (tools/list too), and a server that
+ *   names a session adds a fifth to close it (Vizzybl's names none). Sized on the most, five, the
+ *   limits below keep tool calls under the citation tools' rate: at least 11 a minute and 220 an
+ *   hour, at most 18 and 366 when no session is named.
  * - The check:instance allow entry for this file says why it names vizzybl.ai: it is this vendor
  *   connector's own API host (decision 12).
  */
@@ -66,10 +68,10 @@ export const vizzyblManifest: ConnectorManifestInput = {
   ],
   api: {
     hosts: ["mcp.vizzybl.ai"],
-    // About 15 tool calls a minute and 300 an hour per key, each three requests: under the citation tools' 20 a minute.
+    // Requests, not tool calls: 3 to 5 each (see above), so 11 to 18 tool calls a minute and 220 to 366 an hour.
     limits: {
-      connection: { perMinute: 45, perHour: 900 },
-      brand: { perMinute: 60, perHour: 1200 },
+      connection: { perMinute: 55, perHour: 1100 },
+      brand: { perMinute: 55, perHour: 1100 },
     },
     timeoutMs: 20_000,
     maxBytes: 512 * 1024,
@@ -133,7 +135,7 @@ export const vizzyblManifest: ConnectorManifestInput = {
         rowsPerDay: 500,
         keepDays: 90,
         where: "Collected once a day and kept 90 days in your brand's region; Disconnect deletes them.",
-        lag: "Each day is collected the next day, and a day Vizzybl hasn't finished is read again later.",
+        lag: "Each day is collected the next day and read again for 2 more days, in case Vizzybl is still working it out.",
         keeps: "Each day keeps your share of voice, mentions, rank and sentiment.",
       },
       mcp: {
@@ -198,7 +200,8 @@ export const vizzyblManifest: ConnectorManifestInput = {
       stream: "cited_pages",
       description: "The pages AI answers cite most for your monitored prompts, yours and others', with their share of every citation.",
       shape: "numbers",
-      keys: ["page", "domain"],
+      // page is your own page's path, empty for another site's; url is every page's full address.
+      keys: ["page", "url", "domain"],
       measures: ["aiCitations", "aiCitationShare"],
       joins: { page: "page" },
       lagDays: 1,
@@ -210,7 +213,7 @@ export const vizzyblManifest: ConnectorManifestInput = {
         tool: "get_citation_stats",
         fill: { startDate: "from", endDate: "to" },
         rows: "mostCitedUrls",
-        keys: { page: "url", domain: "domain" },
+        keys: { page: "url", url: "url", domain: "domain" },
         measures: { aiCitations: "count", aiCitationShare: "citationShare" },
       },
     },

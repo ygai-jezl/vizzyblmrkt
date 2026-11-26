@@ -1,11 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { EMPTY_CURSOR } from "../collect/schedule";
 import { checkLiveRequest, readLive } from "../live";
 import { collectedStream, parseManifest } from "../manifest";
 import { fakeMcpServer, MCP_TEST_URL as URL_, testMcpManifest, toolCalls } from "../testing/mcpServer";
 import { answerMessages, eventStreamMessages, MCP_PROTOCOL_VERSIONS, openMcpSession, responseTo } from "./client";
 import { mcpCollect, mcpLive, mcpVerify, noRowsNote, asTheyStandNote } from "./hooks";
-import { callArgs, jsonIn, keyText, streamRows, valueAt } from "./result";
+import { callArgs, dayOf, jsonIn, keyText, ownPage, streamRows, valueAt } from "./result";
 
 /**
  * The one MCP engine (ADR-0019) against a made-up MCP server: nothing reaches the network, the
@@ -65,8 +65,15 @@ describe("the MCP client", () => {
     const r = await mcpVerify(input(""), depsOf(server.transport));
     expect(r).toEqual({ ok: true, account: "acme.example", label: "Acme" });
     expect(server.requests[0]!.headers["mcp-session-id"]).toBeUndefined();
+    await vi.waitFor(() => expect(server.requests.at(-1)!.httpMethod).toBe("DELETE"));
     for (const q of server.requests.slice(1)) expect(q.headers["mcp-session-id"]).toBe("made-up-session-1");
-    expect(server.requests.at(-1)!.httpMethod).toBe("DELETE");
+  });
+
+  it("answers without waiting for the session's close", async () => {
+    const server = fakeMcpServer({ tools: TOOLS, sessionId: "made-up-session-1" });
+    // A DELETE that never answers: the read must not wait for it.
+    const transport: typeof server.transport = (url, init, opts) => (init.method === "DELETE" ? new Promise<Response>(() => {}) : server.transport(url, init, opts));
+    expect(await mcpVerify(input(""), depsOf(transport))).toMatchObject({ ok: true });
   });
 
   it("sends no DELETE when the server names no session", async () => {
@@ -193,19 +200,37 @@ describe("mcp.collect", () => {
     expect(r.newest).toBe("2026-11-20");
     expect(r.days).toHaveLength(90);
     const day = (d: string) => r.days.find((x) => x.day === d)!;
-    expect(day("2026-11-20")).toEqual({ day: "2026-11-20", final: true, docs: [{ by: "day", totals: { cfRequests: 12 }, rows: [], more: false }] });
+    // The newest day is kept, and stays open to be read again until it settles.
+    expect(day("2026-11-20")).toEqual({ day: "2026-11-20", final: false, docs: [{ by: "day", totals: { cfRequests: 12 }, rows: [], more: false }] });
     // A day the tool doesn't list is kept with no numbers, never zero: final once it is old enough.
     expect(day("2026-11-17").docs[0]!.totals).toEqual({ cfRequests: null });
     expect(day("2026-11-17").final).toBe(true);
   });
 
+  it("keeps a recent day the tool listed open, so a half finished day is read again until it settles", async () => {
+    const r = await mcpCollect({ ...input(), ask: ask() }, depsOf(fakeMcpServer({ tools: TOOLS }).transport));
+    const final = (d: string) => r.days.find((x) => x.day === d)!.final;
+    // Newest due 20 Nov: within 2 days of it a listed day may still change.
+    expect([final("2026-11-18"), final("2026-11-19"), final("2026-11-20")]).toEqual([true, false, false]);
+    expect(r.days.find((x) => x.day === "2026-11-20")!.docs[0]!.totals).toEqual({ cfRequests: 12 });
+  });
+
+  it("reads a day the tool writes as a timestamp as that day", async () => {
+    const stamped = fakeMcpServer({ tools: { ...TOOLS, history: () => ({ data: [{ date: "2026-11-20T00:00:00Z", count: 12 }, { date: "2026-11-19T23:30:00-02:00", count: 9 }], pagination: { hasMore: false } }) } });
+    const collected = await mcpCollect({ ...input(), ask: ask() }, depsOf(stamped.transport));
+    // 23:30 at UTC-2 on 19 Nov is 01:30 UTC on 20 Nov: the later row for that day wins.
+    expect(collected.days.find((d) => d.day === "2026-11-20")!.docs[0]!.totals).toEqual({ cfRequests: 9 });
+    const live = await mcpLive({ ...input(), query: { stream: "daily", period: "last_7_days", by: "day", limit: 100 }, today: "2026-11-21" }, depsOf(stamped.transport));
+    expect(live).toMatchObject({ ok: true, rows: [{ day: "2026-11-20", cfRequests: 12 }, { day: "2026-11-20", cfRequests: 9 }] });
+  });
+
   it("reads a recent day the tool doesn't list yet again later", async () => {
     const late = fakeMcpServer({ tools: { ...TOOLS, history: () => ({ data: [{ date: "2026-11-18", count: 7 }], pagination: { hasMore: false } }) } });
     const r = await mcpCollect({ ...input(), ask: ask({ lastDay: "2026-11-17", finalThrough: "2026-11-17", backfilledTo: "2026-08-20", filled: true, timeZone: "UTC" }) }, depsOf(late.transport));
-    expect(r.days.map((d) => [d.day, d.final])).toEqual([
-      ["2026-11-18", true],
-      ["2026-11-19", false],
-      ["2026-11-20", false],
+    expect(r.days.map((d) => [d.day, d.final, d.docs[0]!.totals?.cfRequests])).toEqual([
+      ["2026-11-18", true, 7],
+      ["2026-11-19", false, null],
+      ["2026-11-20", false, null],
     ]);
   });
 
@@ -240,6 +265,21 @@ describe("reading a result as data", () => {
     expect(streamRows({ data: [{ n: "4", m: 4 }] }, { rows: "data", keys: {}, measures: { a: "n", b: "m" } })).toEqual({ rows: [{ a: null, b: 4 }], more: false });
     expect(streamRows({ data: {} }, { rows: "data", keys: {}, measures: {} })).toBeNull();
     expect(jsonIn('Some words.\n{"a":1}\nMore words.')).toEqual({ a: 1 });
+    // A list in words is the list, whichever opening comes first, and braces after it don't matter.
+    expect(jsonIn('Rows:\n[{"a":1},{"a":2}]\nSee {docs}.')).toEqual([{ a: 1 }, { a: 2 }]);
+    expect(jsonIn('Note {not json} then {"a":"}"}')).toEqual({ a: "}" });
+    expect(jsonIn("no json here")).toBeUndefined();
+    expect(jsonIn('{"a": [1, 2}')).toBeUndefined();
+    // A page key keeps only the brand's own pages; a day key is a day.
+    expect(ownPage("https://acme.example/pricing", "acme.example")).toBe("https://acme.example/pricing");
+    expect(ownPage("https://www.acme.example/pricing", "acme.example")).toBe("https://www.acme.example/pricing");
+    expect(ownPage("https://rival.example/pricing", "acme.example")).toBeNull();
+    expect(ownPage("https://acme.example.rival.example/x", "acme.example")).toBeNull();
+    expect(ownPage("/pricing", "acme.example")).toBe("/pricing");
+    expect(dayOf("2026-11-20")).toBe("2026-11-20");
+    expect(dayOf("2026-11-20T23:30:00-02:00")).toBe("2026-11-21");
+    expect(dayOf("2026-11-20T23:30:00-02:00", "America/Los_Angeles")).toBe("2026-11-20");
+    expect(dayOf("20 Nov 2026")).toBeNull();
     expect(callArgs({ args: { x: 1 }, fill: { y: "page" } }, {})).toBeNull();
     expect(callArgs({ args: { x: 1 }, fill: { y: "from" } }, { from: "2026-11-01" })).toEqual({ x: 1, y: "2026-11-01" });
   });

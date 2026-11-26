@@ -41,11 +41,12 @@ export interface ConnectorCall {
   /** Headers a protocol needs (an MCP session id). Authorization, cookies and the host are never taken from here. */
   headers?: Readonly<Record<string, string>>;
   /**
-   * Read the body as text, whatever its type: an empty body is fine, and `until` may end the read
-   * early once what came is enough (an event stream left open). `headers` names the response
-   * headers to give back, in lower case; content-type always comes back.
+   * Read the body as text, whatever its type: an empty body is fine. For an event stream,
+   * `untilEvent` is asked about each event as it completes and ends the read once one is enough
+   * (a stream the server leaves open). `headers` names the response headers to give back, in
+   * lower case; content-type always comes back.
    */
-  text?: { headers?: readonly string[]; until?: (text: string) => boolean };
+  text?: { headers?: readonly string[]; untilEvent?: (event: string) => boolean };
 }
 
 export type ConnectorResponse =
@@ -163,7 +164,8 @@ export async function connectorFetch(call: ConnectorCall, deps: ConnectorFetchDe
   let readCode: ConnectorErrorCode | null = null;
   try {
     if (call.text) {
-      const { text, truncated } = await readTextUpTo(res, manifest.api.maxBytes, call.text.until);
+      const stream = (res.headers.get("content-type") ?? "").toLowerCase().includes("text/event-stream");
+      const { text, truncated } = await readTextUpTo(res, manifest.api.maxBytes, stream ? call.text.untilEvent : undefined);
       if (truncated) readCode = "body_too_large";
       else body = text;
     } else {
@@ -189,13 +191,16 @@ export async function connectorFetch(call: ConnectorCall, deps: ConnectorFetchDe
   return { ok: true, status: res.status, body };
 }
 
+/** Where an event stream's events end: a blank line. */
+const EVENT_END = /\r?\n\r?\n|\r\r/;
+
 /**
- * A body as UTF-8 text up to `maxBytes`, saying whether it was cut there. `until`, asked after each
- * piece, ends the read once what came is enough, so a stream the server leaves open never waits
- * for the timeout.
+ * A body as UTF-8 text up to `maxBytes`, saying whether it was cut there. For an event stream,
+ * `untilEvent` is asked about each event once, as it completes, and ends the read once one is
+ * enough, so a stream the server leaves open never waits for the timeout.
  */
-async function readTextUpTo(res: Response, maxBytes: number, until?: (text: string) => boolean): Promise<{ text: string; truncated: boolean }> {
-  if (!until) {
+async function readTextUpTo(res: Response, maxBytes: number, untilEvent?: (event: string) => boolean): Promise<{ text: string; truncated: boolean }> {
+  if (!untilEvent) {
     const { bytes, truncated } = await readBytesUpTo(res, maxBytes);
     return { text: bytes.toString("utf8"), truncated };
   }
@@ -203,6 +208,8 @@ async function readTextUpTo(res: Response, maxBytes: number, until?: (text: stri
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let text = "";
+  /** What came after the last completed event. */
+  let pending = "";
   let total = 0;
   const stop = async () => {
     try {
@@ -220,8 +227,12 @@ async function readTextUpTo(res: Response, maxBytes: number, until?: (text: stri
       await stop();
       return { text, truncated: true };
     }
-    text += decoder.decode(value, { stream: true });
-    if (until(text)) {
+    const piece = decoder.decode(value, { stream: true });
+    text += piece;
+    pending += piece;
+    const events = pending.split(EVENT_END);
+    pending = events.pop() ?? "";
+    if (events.some((e) => untilEvent(e))) {
       await stop();
       return { text, truncated: false };
     }

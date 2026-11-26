@@ -72,3 +72,14 @@ describe("taking off picks that weighed AI answers", () => {
     expect(await dropAiAnswersPicks(A, { db })).toBe(0);
   });
 });
+
+describe("one wording closeness, shared with coverage", () => {
+  it("is coverage's own share of meaning words, and close is it at 0.6 or more", async () => {
+    const { close, wordingCloseness } = await import("@/lib/content/blog/coverage");
+    expect(wordingCloseness("best geo tools for agencies", "Which GEO tools are best for agencies?")).toBe(1);
+    expect(wordingCloseness("best geo tools", "geo pricing")).toBeCloseTo(1 / 4);
+    expect(wordingCloseness("", "geo tools")).toBe(0);
+    expect(close("best geo tools", "geo pricing")).toBe(false);
+    expect(close("best geo tools for agencies", "geo tools agencies")).toBe(true);
+  });
+});

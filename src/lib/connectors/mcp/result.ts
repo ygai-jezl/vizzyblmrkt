@@ -1,5 +1,6 @@
 import type { LiveRow } from "../handlers/types";
 import type { McpFill, McpStream } from "../manifest";
+import { todayIn } from "../period";
 import type { McpToolResult } from "./client";
 
 /**
@@ -20,27 +21,57 @@ export function resultData(result: McpToolResult): unknown {
   return jsonIn(block.text);
 }
 
-/** The JSON a text holds: all of it, or the first object or list inside it. */
+/** Openings tried in a text wrapped in words before giving up. */
+const MAX_OPENINGS = 20;
+
+/**
+ * The JSON a text holds: all of it, else the first object or list inside it, whichever starts
+ * first, read to its own balanced end (strings and escapes respected), so a list in words is read
+ * as the list and braces in the words after it don't matter.
+ */
 export function jsonIn(text: string): unknown {
   try {
     return JSON.parse(text);
   } catch {
     /* words around it: look inside */
   }
-  for (const [open, close] of [
-    ["{", "}"],
-    ["[", "]"],
-  ] as const) {
-    const from = text.indexOf(open);
-    const to = text.lastIndexOf(close);
-    if (from < 0 || to <= from) continue;
+  let tried = 0;
+  for (let i = 0; i < text.length && tried < MAX_OPENINGS; i++) {
+    if (text[i] !== "{" && text[i] !== "[") continue;
+    tried += 1;
+    const end = balancedEnd(text, i);
+    if (end < 0) continue;
     try {
-      return JSON.parse(text.slice(from, to + 1));
+      return JSON.parse(text.slice(i, end + 1));
     } catch {
-      /* not this one */
+      /* balanced but not JSON (a brace in the words): the next opening */
     }
   }
   return undefined;
+}
+
+/** Where the object or list opening at `start` closes, or -1 when it never does or closes wrongly. */
+function balancedEnd(text: string, start: number): number {
+  const want: string[] = [];
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i]!;
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (c === "\\") escaped = true;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') inString = true;
+    else if (c === "{") want.push("}");
+    else if (c === "[") want.push("]");
+    else if (c === "}" || c === "]") {
+      if (want.pop() !== c) return -1;
+      if (!want.length) return i;
+    }
+  }
+  return -1;
 }
 
 /** The value at a path (`$` is the value itself), or undefined when the path isn't there. */
@@ -74,15 +105,57 @@ export function keyText(v: unknown): string | null {
 export const numberAt = (v: unknown): number | null => (Array.isArray(v) ? v.length : typeof v === "number" && Number.isFinite(v) ? v : null);
 
 /**
- * A stream's rows from a tool's data: each row's keys and numbers from their paths. Null when the
- * rows aren't where the manifest says (the provider changed its answer), so nothing is read as zero.
+ * What a key's place in the stream means for its value: a key that joins on page is one of the
+ * brand's own pages, and one that joins on day is a day in the stream's zone.
  */
-export function streamRows(data: unknown, block: Pick<McpStream, "rows" | "more" | "keys" | "measures">): { rows: LiveRow[]; more: boolean } | null {
+export interface RowRules {
+  /** Keys that join on page: an address on another site is never one of the brand's pages, so it is left empty. */
+  pageKeys?: ReadonlySet<string>;
+  /** Keys that join on day: a date or a timestamp, written as the day in `timeZone`. */
+  dayKeys?: ReadonlySet<string>;
+  /** The connection's account, a bare host for an MCP connector: the brand's own site. */
+  account?: string;
+  timeZone?: string;
+}
+
+/**
+ * A page as one of the brand's own: a path as given, or an address on the account's host or one
+ * of its subdomains. Another site's address is null, so its path never joins the brand's page.
+ */
+export function ownPage(value: string, account: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return value;
+  }
+  const site = account.toLowerCase().replace(/^www\./, "");
+  const host = url.hostname.toLowerCase();
+  return /^https?:$/.test(url.protocol) && site && (host === site || host.endsWith(`.${site}`)) ? value : null;
+}
+
+/** A day as YYYY-MM-DD in a zone: a plain day as given, a timestamp as its day there; null for anything else. */
+export function dayOf(value: string, timeZone = "UTC"): string | null {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  if (!/^\d{4}-\d{2}-\d{2}[T ]/.test(value)) return null;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : todayIn(new Date(ms), timeZone);
+}
+
+/**
+ * A stream's rows from a tool's data: each row's keys and numbers from their paths, a page key
+ * kept only for the brand's own pages and a day key written as a day. Null when the rows aren't
+ * where the manifest says (the provider changed its answer), so nothing is read as zero.
+ */
+export function streamRows(data: unknown, block: Pick<McpStream, "rows" | "more" | "keys" | "measures">, rules: RowRules = {}): { rows: LiveRow[]; more: boolean } | null {
   const list = valueAt(data, block.rows);
   if (!Array.isArray(list)) return null;
   const rows = list.map((item) => {
     const row: LiveRow = {};
-    for (const [key, path] of Object.entries(block.keys)) row[key] = keyText(valueAt(item, path));
+    for (const [key, path] of Object.entries(block.keys)) {
+      const text = keyText(valueAt(item, path));
+      row[key] = text === null ? null : rules.pageKeys?.has(key) ? ownPage(text, rules.account ?? "") : rules.dayKeys?.has(key) ? dayOf(text, rules.timeZone) : text;
+    }
     for (const [measure, path] of Object.entries(block.measures)) row[measure] = numberAt(valueAt(item, path));
     return row;
   });

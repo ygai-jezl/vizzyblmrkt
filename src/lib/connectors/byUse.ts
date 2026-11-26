@@ -28,7 +28,8 @@ import { readableOnly } from "./sources";
  * - Collected numbers are read where the stream keeps them for the period (the rolled 28 and 90
  *   day docs, while CONNECTORS_COLLECT_ENABLED is on); everything else is read live, as one of the
  *   brand's scheduled jobs, which may read only a connection that feeds planning.
- * - A read that fails leaves that connection out, with its code, and never stops the others.
+ * - Connections are read at once, in parallel. A read that fails leaves that connection out, with
+ *   its code, and never stops the others.
  *
  * Search Console's planning lines (src/lib/connectors/signals/planning.ts) still read its manifest
  * directly; they move onto this reader next.
@@ -126,31 +127,33 @@ export async function readByUse(ctx: TenantContext, use: ConnectorUse, ask: UseA
   const declared = all.filter((c) => c.account && feedsPlanning(c.grants) && (manifestOf(c.connectorId)?.uses ?? []).includes(use));
   const conns = await readableOnly(ctx, declared, deps);
   const live = deps.live ?? readLiveFor;
-  const out: UseResult = { reads: [], failed: [] };
-  for (const conn of conns) {
+  /** One connection's read: its rows, its failure, or nothing when no stream gives what is asked. */
+  const readOne = async (conn: DataConnection): Promise<{ read: UseRead } | { failed: { connectionId: string; code: string } } | null> => {
     const m = manifestOf(conn.connectorId)!;
     const stream = streamForUse(m, ask);
-    if (!stream) continue;
+    if (!stream) return null;
     const base = { connectionId: conn.id, connectorId: m.id, connector: m.name, stream: stream.stream, meanings: meaningsOf(stream.measures.filter((k) => ask.measures.includes(k as MeaningKey))) };
     const kept = await collectedRows(ctx, conn, stream, ask, deps).catch(() => null);
-    if (kept) {
-      out.reads.push({ ...base, ...kept });
-      continue;
-    }
+    if (kept) return { read: { ...base, ...kept } };
     const r = await live(ctx, { kind: "job", job: deps.job }, conn.id, { stream: stream.stream, period: ask.period, by: ask.by, limit: Math.min(ask.limit ?? LIVE_LIMITS.maxRows, LIVE_LIMITS.maxRows) }, deps).catch(
       (): ServiceResult<LiveAnswer> => ({ ok: false, status: 502, error: "network" }),
     );
-    if (!r.ok) {
-      out.failed.push({ connectionId: conn.id, code: r.error });
-      continue;
-    }
+    if (!r.ok) return { failed: { connectionId: conn.id, code: r.error } };
     const a = r.value;
     const rows = a.rows.map((row) => {
       const keys: UseRow["keys"] = {};
       for (const k of stream.keys) keys[keyName(stream, k)] = typeof row[k] === "string" ? (row[k] as string) : null;
       return { keys, m: numbersOf(stream, row) };
     });
-    out.reads.push({ ...base, from: "live", period: { from: a.period.from, to: a.period.to, timeZone: a.period.timeZone }, rows, more: a.more, notes: a.notes });
-  }
+    return { read: { ...base, from: "live", period: { from: a.period.from, to: a.period.to, timeZone: a.period.timeZone }, rows, more: a.more, notes: a.notes } };
+  };
+  // Every connection at once: each read is its own provider's, and one slow one never holds up the rest.
+  const settled = await Promise.allSettled(conns.map(readOne));
+  const out: UseResult = { reads: [], failed: [] };
+  settled.forEach((s, i) => {
+    if (s.status === "rejected") out.failed.push({ connectionId: conns[i]!.id, code: "failed" });
+    else if (s.value && "read" in s.value) out.reads.push(s.value.read);
+    else if (s.value) out.failed.push(s.value.failed);
+  });
   return out;
 }

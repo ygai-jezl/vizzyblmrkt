@@ -4,7 +4,7 @@ import { ConnectorTile } from "@/components/admin/connectors/ConnectorTile";
 import { CONNECTED_COPY, PART_COPY, PICKER_COPY, SCREEN_COPY, activityWords } from "@/components/admin/connectors/words";
 import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsSearchTextEnabled, isConnectorsSharingEnabled } from "@/lib/connectors/flags";
 import { COLLECT_HELP, connectedDataHelp, SEARCH_CONSOLE_FRESHNESS_ERASED, SEARCH_TEXT_HELP, SIGNALS_HELP, VIZZY_COLLECTED_HELP, type ConnectorHelp } from "@/lib/connectors/helpText";
-import { CONNECTOR_ERRORS, tokenRefusedMessage } from "@/lib/connectors/messages";
+import { CONNECTOR_ERRORS, otherAccountKeyMessage, tokenRefusedMessage } from "@/lib/connectors/messages";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
 /** "A and B", or "A, B and C". */
@@ -417,6 +417,9 @@ export default function ConnectedDataHelp({
               ? [
                   [tokenRefusedMessage(c.name, "connected", connectorsChat), "Make a new token with the same permissions, then press Reconnect on Connected and paste it."],
                   [tokenRefusedMessage(c.name, "connecting", connectorsChat), "Copy the token again with nothing cut off, or make a new one with the permissions in the steps above."],
+                  ...(c.token.kind === "key"
+                    ? ([[otherAccountKeyMessage(c.name), "The key you pasted on Reconnect is for another account in that tool, so the connection kept its old key. Paste the key for this connection's account, or connect the other account on its own."]] as Array<[string, string]>)
+                    : []),
                 ]
               : [],
           ),

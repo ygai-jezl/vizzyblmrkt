@@ -90,8 +90,8 @@ export function responseTo(messages: readonly unknown[], id: number): RpcAnswer 
   return null;
 }
 
-/** True once an event stream holds the response to `id`, so the read can end there. */
-const answered = (id: number) => (text: string) => responseTo(eventStreamMessages(text), id) !== null;
+/** True once an event of an event stream is the response to `id`, so the read can end there. */
+const answered = (id: number) => (event: string) => responseTo(eventStreamMessages(event), id) !== null;
 
 /** An MCP answer's HTTP failure in the platform's codes: a lost session or missing endpoint is the provider's, not an account. */
 function mcpCode(code: ConnectorErrorCode, status: number | null): ConnectorErrorCode {
@@ -175,7 +175,7 @@ async function send(
       json: message,
       accept: ACCEPT,
       headers,
-      text: { headers: wantHeaders, ...(id !== null ? { until: answered(id) } : {}) },
+      text: { headers: wantHeaders, ...(id !== null ? { untilEvent: answered(id) } : {}) },
     },
     deps,
   );
@@ -218,13 +218,16 @@ export async function openMcpSession(target: McpTarget, deps: ConnectorFetchDeps
   return { ok: true, session };
 }
 
-/** Open a session, run `work` in it, and close it, whatever `work` answered. */
+/**
+ * Open one session, run every call of `work` in it, and close it, whatever `work` answered. The
+ * close isn't waited for: it never changes the answer, so it goes after.
+ */
 export async function withMcpSession<T extends { ok: boolean }>(target: McpTarget, deps: ConnectorFetchDeps, work: (s: McpSession) => Promise<T | Fail>): Promise<T | Fail> {
   const opened = await openMcpSession(target, deps);
   if (!opened.ok) return opened;
   try {
     return await work(opened.session);
   } finally {
-    await opened.session.close();
+    void opened.session.close();
   }
 }

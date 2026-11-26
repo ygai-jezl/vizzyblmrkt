@@ -16,7 +16,7 @@ import { SOURCE_COPY } from "@/components/admin/chat/SourceLine";
 import { COLLECT_HELP, HEALTH_HELP, SEARCH_CONSOLE_FRESHNESS_ERASED, SEARCH_TEXT_HELP, SIGNALS_HELP, VIZZY_COLLECTED_HELP } from "@/lib/connectors/helpText";
 import { SUGGESTION_BUSY } from "@/lib/connectors/signals/review";
 import { allConnectors } from "@/lib/connectors/catalog";
-import { CONNECTOR_ERRORS, tokenRefusedMessage } from "@/lib/connectors/messages";
+import { CONNECTOR_ERRORS, otherAccountKeyMessage, tokenRefusedMessage } from "@/lib/connectors/messages";
 import { helpLlmsTxt, helpPageMarkdown } from "./agentFiles";
 import { HELP_PAGES, helpGroups, helpPage, nextHelpPage, shownHelpPages, type HelpBodyProps } from "./pages";
 import { helpMetadata } from "./metadata";
@@ -168,7 +168,7 @@ function isAppMessage(message: string): boolean {
     .replace(/&quot;|\\"/g, '"');
   if (appSource.includes(message)) return true;
   return allConnectors().some((m) =>
-    [true, false].some((chat) => tokenRefusedMessage(m.name, "connected", chat) === message || tokenRefusedMessage(m.name, "connecting", chat) === message),
+    [true, false].some((chat) => tokenRefusedMessage(m.name, "connected", chat) === message || tokenRefusedMessage(m.name, "connecting", chat) === message) || otherAccountKeyMessage(m.name) === message,
   );
 }
 
@@ -792,6 +792,9 @@ describe("Connected data", () => {
     expect(text).toContain(tokenRefusedMessage("Vizzybl", "connected", true));
     expect(text).toContain(tokenRefusedMessage("Vizzybl", "connecting", true));
     expect(text).toContain(CONNECTOR_ERRORS.tool_missing);
+    // A Reconnect with another account's key, only for a tool connected by key.
+    expect(text).toContain(otherAccountKeyMessage("Vizzybl"));
+    expect(text).not.toContain(otherAccountKeyMessage("Cloudflare"));
   });
 
   it("lists only the statuses Connected shows, and says where a disconnected connection goes", () => {

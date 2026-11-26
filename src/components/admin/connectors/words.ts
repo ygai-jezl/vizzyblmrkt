@@ -166,6 +166,8 @@ export const LISTING_COPY = {
   keyTitle: "Connect with an API key",
   keyCheck: "YouGrow checks the key before anything is saved, and reads which account it belongs to.",
   checkingKey: "Checking the key…",
+  keyReconnect:
+    "Connecting again checks the new key against the account this connection reads before anything changes. Only the key is replaced: who can read it and what was collected stay.",
   check: "Check",
   checking: "Checking the token…",
   checkFirst: "Press Check: YouGrow checks the token and lists what it can read. Nothing is saved until you press Connect.",

@@ -57,6 +57,7 @@ const TOOLS = {
     mostCitedUrls: [
       { url: "https://acme.example/pricing?utm=x", domain: "acme.example", count: 18, citationShare: 0.3, sourceType: "corporate" },
       { url: "https://reviews.example/best-geo", domain: "reviews.example", count: 12, citationShare: 0.2, sourceType: "editorial" },
+      { url: "https://rival.example/pricing", domain: "rival.example", count: 6, citationShare: 0.1, sourceType: "competitor" },
     ],
     totals: { totalCitations: 60 },
   }),
@@ -93,6 +94,16 @@ describe("the Vizzybl manifest", () => {
     for (const scope of mcpMethod(manifest)!.permissions) expect(scope).toMatch(/^read:/);
     expect(manifest.shares.filter((s) => s.direction === "never").map((s) => s.what)).toEqual(["Audits and prompt scrapes", "Anything else"]);
     expect(JSON.stringify(manifest.shares)).toContain("spends none of your Vizzybl credits");
+  });
+
+  it("sizes its limits on requests, not tool calls, under Vizzybl's citation tools' rate", () => {
+    const { connection } = manifest.api.limits;
+    // A read is 3 requests, a check 4, and 5 with a session to close: tool calls stay under 20 a minute and 400 an hour.
+    for (const perCall of [3, 4, 5]) {
+      expect(connection.perMinute / perCall, `${perCall} a call`).toBeLessThan(20);
+      expect(connection.perHour / perCall, `${perCall} a call`).toBeLessThan(400);
+    }
+    expect(connection.perMinute / 5).toBeGreaterThanOrEqual(10);
   });
 
   it("takes only a Vizzybl key", () => {
@@ -165,7 +176,7 @@ describe("the engine against answers shaped like Vizzybl's", () => {
     expect(r).toMatchObject({ ok: true, answer: { rows: [{ prompt: "best geo tools for agencies", engines: "chatgpt, perplexity", aiCitations: 4 }] } });
   });
 
-  it("reads the most cited pages for the days asked, each page as its path beside its domain", async () => {
+  it("reads the most cited pages for the days asked: the brand's own as a path, another site's only by its address", async () => {
     const server = fakeMcpServer({ tools: TOOLS });
     const r = await readLive({ ...input, query: { stream: "cited_pages", period: "last_28_days", by: "page", limit: 100 } }, deps(server));
     expect(toolCalls(server.requests)).toEqual([{ name: "get_citation_stats", args: { startDate: "2026-10-24", endDate: "2026-11-20" } }]);
@@ -173,21 +184,24 @@ describe("the engine against answers shaped like Vizzybl's", () => {
       ok: true,
       answer: {
         rows: [
-          { page: "/pricing", domain: "acme.example", aiCitations: 18, aiCitationShare: 0.3 },
-          { page: "/best-geo", domain: "reviews.example", aiCitations: 12, aiCitationShare: 0.2 },
+          { page: "/pricing", url: "https://acme.example/pricing?utm=x", domain: "acme.example", aiCitations: 18, aiCitationShare: 0.3 },
+          { page: null, url: "https://reviews.example/best-geo", domain: "reviews.example", aiCitations: 12, aiCitationShare: 0.2 },
+          // A competitor's /pricing never shares the brand's page key.
+          { page: null, url: "https://rival.example/pricing", domain: "rival.example", aiCitations: 6, aiCitationShare: 0.1 },
         ],
       },
     });
   });
 
-  it("collects the daily share of voice, a day Vizzybl didn't list kept empty", async () => {
+  it("collects the daily share of voice, a day Vizzybl didn't list kept empty, the newest days read again until they settle", async () => {
     const server = fakeMcpServer({ tools: TOOLS });
     const r = await mcpCollect({ ...input, ask: { stream: collectedStream(manifest)!, cursor: { ...EMPTY_CURSOR, lastDay: "2026-11-17", finalThrough: "2026-11-17", backfilledTo: "2026-08-20", filled: true, timeZone: "UTC" }, now: NOW, canStart: () => true } }, deps(server));
     expect(r.days.map((d) => [d.day, d.final, d.docs[0]!.totals])).toEqual([
       ["2026-11-18", true, { aiShareOfVoice: null, aiMentions: null, aiRank: null, aiSentiment: null }],
-      ["2026-11-19", true, { aiShareOfVoice: 29.9, aiMentions: 130, aiRank: null, aiSentiment: null }],
-      ["2026-11-20", true, { aiShareOfVoice: 31.4, aiMentions: 142, aiRank: 2, aiSentiment: 18 }],
+      ["2026-11-19", false, { aiShareOfVoice: 29.9, aiMentions: 130, aiRank: null, aiSentiment: null }],
+      ["2026-11-20", false, { aiShareOfVoice: 31.4, aiMentions: 142, aiRank: 2, aiSentiment: 18 }],
     ]);
+    expect(manifest.produces[0]!.collect!.lag).toBe("Each day is collected the next day and read again for 2 more days, in case Vizzybl is still working it out.");
   });
 });
 
@@ -232,6 +246,38 @@ describe("connecting Vizzybl, and what reads it", () => {
     expect(server.requests.filter((q) => q.method === "tools/call").every((q) => q.headers.authorization === `Bearer ${KEY}`)).toBe(true);
     server = fakeMcpServer({ tools: { ...TOOLS, get_brand: () => ({ brandName: "Other", primaryDomain: "other.example" }) } });
     expect(await check(A, admin, ID, deps())).toMatchObject({ ok: true, value: { check: { ok: false, code: "account_refused" }, connection: { health: { state: "broken" } } } });
+  });
+
+  it("reconnects in place with a key for the same brand: checked first, then only the key changes, and nothing is erased", async () => {
+    await connect(A, admin, "vizzybl", { fields: { apiKey: KEY } }, deps());
+    await setGrants(A, admin, ID, { grants: PLANNING }, deps());
+    const before = db.raw("data_connections", ID)!;
+    const NEW = "vzbl_live_madeupkeynew000000000";
+    server = fakeMcpServer({ tools: TOOLS });
+    const r = await connect(A, admin, "vizzybl", { fields: { apiKey: NEW }, replace: ID }, deps());
+    expect(r).toMatchObject({ ok: true, status: 200, value: { id: ID, status: "connected", details: { account: "acme.example", grants: PLANNING } } });
+    const after = db.raw("data_connections", ID)!;
+    expect(after.secrets).not.toEqual(before.secrets);
+    expect(db.dump("data_connections")).toHaveLength(1);
+    expect(db.dump("data_connection_activity").map((a) => `${a.kind}${a.code ? `:${a.code}` : ""}`)).toContain("verified:token_replaced");
+    expect(db.dump("data_connection_activity").map((a) => a.kind)).not.toContain("disconnected");
+    // The new key is the one read with.
+    await readLiveFor(A, admin, ID, { stream: "ai_visibility", period: "last_7_days" }, deps());
+    expect(server.requests.filter((q) => q.method === "tools/call").at(-1)!.headers.authorization).toBe(`Bearer ${NEW}`);
+  });
+
+  it("refuses a Reconnect with another brand's key, or a key Vizzybl turns down, changing and erasing nothing", async () => {
+    await connect(A, admin, "vizzybl", { fields: { apiKey: KEY } }, deps());
+    const before = db.raw("data_connections", ID)!;
+    server = fakeMcpServer({ tools: { ...TOOLS, get_brand: () => ({ brandName: "Other", primaryDomain: "other.example" }) } });
+    const other = await connect(A, admin, "vizzybl", { fields: { apiKey: "vzbl_live_otherbrandkey000000000" }, replace: ID }, deps());
+    expect(other).toEqual({ ok: false, status: 409, error: "other_account", message: "Vizzybl says this key belongs to another account, so nothing was changed. Paste the key for the account this connection reads, or connect the new one as a connection of its own." });
+    server = fakeMcpServer({ tools: TOOLS, status: 401 });
+    expect(await connect(A, admin, "vizzybl", { fields: { apiKey: "vzbl_live_refusedkey0000000000" }, replace: ID }, deps())).toMatchObject({ ok: false, error: "token_refused" });
+    expect(db.raw("data_connections", ID)).toEqual(before);
+    expect(db.dump("data_connection_activity").map((a) => a.kind)).toEqual(["connected"]);
+    // Another brand's connection, or an unknown one, is never replaced.
+    expect(await connect(A, admin, "vizzybl", { fields: { apiKey: KEY }, replace: "dcn_zzzzzzzzzzzzzzzzzzzz" }, deps())).toMatchObject({ ok: false, status: 404 });
   });
 
   it("feeds readByUse and Next up only once members and Vizzy may both read it", async () => {

@@ -1,13 +1,14 @@
 import { randomBytes } from "node:crypto";
 import type { AiUsage } from "@/lib/agents/gemini";
 import { TEXT_MODEL } from "@/lib/agents/modelConfig";
-import { isBrandMapUiEnabled } from "@/lib/brandMap/flags";
-import { isEmailStyleUiEnabled } from "@/lib/email/flags";
+import { isBrandMapEnabled, isBrandMapUiEnabled } from "@/lib/brandMap/flags";
+import { isBrandKitLogosEnabled, isBrandVoiceEnabled } from "@/lib/content/brandKit";
+import { isEmailStyleEnabled, isEmailStyleUiEnabled } from "@/lib/email/flags";
 import { isSetupGuideEnabled } from "@/lib/help/flags";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
-import { isNavV2Enabled } from "@/lib/nav/flags";
+import { isNavV2Enabled, isNavV2Phase2Enabled } from "@/lib/nav/flags";
 import { computeGrowth, type GrowthSignals } from "@/lib/nav/growth";
 import { loadGrowthSignals, type SetupOptions } from "@/lib/nav/growthSignals";
 import { suggestBusinessFact, type SuggestFactError } from "@/lib/onboarding/factSuggestions";
@@ -83,12 +84,20 @@ export function homeSignalOptions(): { lifecycle: boolean; invites: boolean; set
   return { lifecycle: isLifecycleEnabled(), invites: isInvitesUiEnabled() && isInvitesEnabled(), ...(setup ? { setup } : {}) };
 }
 
-/** What the allowlist reads, for this brand and person now. */
+/** What the allowlist reads, for this brand and person now: each page's own switch, as the page checks it. */
 export function actionEnv(ctx: Pick<TenantContext, "role">, signals: ActionEnv["signals"]): ActionEnv {
   return {
     role: ctx.role,
     signals,
-    areas: { emailStyle: isEmailStyleUiEnabled(), brandMap: isBrandMapUiEnabled(), invites: isInvitesUiEnabled() && isInvitesEnabled(), about: isNavV2Enabled() },
+    areas: {
+      emailStyle: isEmailStyleUiEnabled() && isEmailStyleEnabled(),
+      brandMap: isBrandMapUiEnabled() && isBrandMapEnabled(),
+      invites: isInvitesUiEnabled() && isInvitesEnabled(),
+      about: isNavV2Enabled(),
+      logos: isBrandKitLogosEnabled(),
+      voice: isBrandVoiceEnabled(),
+      review: isNavV2Phase2Enabled() || isLifecycleEnabled(),
+    },
   };
 }
 

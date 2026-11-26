@@ -7,7 +7,7 @@ import { forTenant, getTenantById, readNextActionCard } from "@/lib/tenant";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import { nextActionDocId, type NextActionRecord } from "@/lib/types/nextAction";
-import { composeNextAction, homeNextAction, recordStepOutcome, reasonLine, type NextActionDeps } from "./service";
+import { actionEnv, composeNextAction, homeNextAction, recordStepOutcome, reasonLine, type NextActionDeps } from "./service";
 import type { TransactionLike } from "@/lib/tenant/types";
 
 /**
@@ -460,6 +460,19 @@ describe("another brand, and erase", () => {
     expect(prompt).toContain("- dismissed, 26 Nov: [ask.waitlist_page]");
     expect(prompt).not.toContain("We have a list");
     expect((await readNextActionCard(A, { db }))!.card!.steps.map((s) => s.action)).not.toContain("ask.waitlist_page");
+  });
+});
+
+describe("the allowlist's switches", () => {
+  it("offers logos, brand voice, Email style and the brand map only while their pages are on", () => {
+    const signals = { firstLaunchId: null, firstWorkspaceId: null, firstProductId: null, lifecycle: false, activeLaunches: 0 };
+    expect(actionEnv(A, signals).areas).toMatchObject({ logos: false, voice: false, emailStyle: false, brandMap: false, review: false });
+    for (const k of ["BRAND_KIT_LOGOS_ENABLED", "BRAND_VOICE_ENABLED", "NEXT_PUBLIC_EMAIL_STYLE_ENABLED", "NEXT_PUBLIC_BRAND_MAP_ENABLED", "NEXT_PUBLIC_NAV_V2_ENABLED", "NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED"]) vi.stubEnv(k, "true");
+    // The client mirrors alone are not enough: the pages read the server switches.
+    expect(actionEnv(A, signals).areas).toMatchObject({ logos: true, voice: true, emailStyle: false, brandMap: false });
+    vi.stubEnv("EMAIL_STYLE_ENABLED", "true");
+    vi.stubEnv("BRAND_MAP_ENABLED", "true");
+    expect(actionEnv(A, signals).areas).toMatchObject({ emailStyle: true, brandMap: true });
   });
 });
 

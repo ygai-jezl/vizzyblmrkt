@@ -8,17 +8,22 @@ import { ASK_ACTION_IDS, PAGE_ACTION_IDS, type ActionId, type AskActionId, type 
  * exist) or "ask Vizzy this" (one of our own prompts). Never a free URL or a free path: the model
  * picks an id, and this file alone turns it into a path or a prompt.
  *
- * Which ids a brand may use depends on what it has switched on (lifecycle, invites, Email style,
- * the brand map) and what exists (a page about the newest launch needs a launch), and only admins
- * get the card at all. Pure, and client safe.
+ * Which ids a brand may use depends on what it has switched on (each page's own switch, as the page
+ * checks it: lifecycle, invites, Email style, the brand map, logos, brand voice, Review) and what
+ * exists (a page about the newest launch needs a launch), and only admins get the card at all. Pure,
+ * and client safe.
  */
 
 /** What the allowlist reads about the brand and the person. */
 export interface ActionEnv {
   role: TenantRole | undefined;
   signals: Pick<GrowthSignals, "firstLaunchId" | "firstWorkspaceId" | "firstProductId" | "lifecycle" | "activeLaunches">;
-  /** Areas this copy has on: Email style, the brand map, invites, and About your business. */
-  areas: { emailStyle: boolean; brandMap: boolean; invites: boolean; about: boolean };
+  /**
+   * Areas this copy has on, each as its page checks it (a page that is off answers 404): Email
+   * style, the brand map, invites, About your business, logos, brand voice, and Review (nav v2's
+   * Review, or lifecycle's approval queue).
+   */
+  areas: { emailStyle: boolean; brandMap: boolean; invites: boolean; about: boolean; logos: boolean; voice: boolean; review: boolean };
 }
 
 interface PageAction {
@@ -54,8 +59,8 @@ export const PAGE_ACTIONS: Record<PageActionId, PageAction> = {
     path: (env) => (env.areas.invites && env.signals.lifecycle ? launchPage("invites")(env) : null),
   },
   "page.sending": { what: "verify the sending domain and add the sender details", label: "Set up sending", path: always("/admin/account") },
-  "page.logo": { what: "add the brand's logo", label: "Add your logo", path: always("/admin/brand-kit/logos") },
-  "page.voice": { what: "set the brand voice", label: "Set your voice", path: always("/admin/brand-kit/voice") },
+  "page.logo": { what: "add the brand's logo", label: "Add your logo", path: (env) => (env.areas.logos ? "/admin/brand-kit/logos" : null) },
+  "page.voice": { what: "set the brand voice", label: "Set your voice", path: (env) => (env.areas.voice ? "/admin/brand-kit/voice" : null) },
   "page.email_style": { what: "style the brand's emails", label: "Style your emails", path: (env) => (env.areas.emailStyle ? "/admin/brand-kit/email-style" : null) },
   "page.brand_map": { what: "save the brand map that blog articles are written from", label: "Open the brand map", path: (env) => (env.areas.brandMap ? "/admin/brand-kit/map" : null) },
   "page.start_programme": { what: "start a content programme for posts, newsletters and articles", label: "Start it", path: always("/admin/workspace") },
@@ -71,7 +76,7 @@ export const PAGE_ACTIONS: Record<PageActionId, PageAction> = {
   },
   "page.journeys": { what: "build an onboarding journey for the product's users", label: "Open Journeys", path: withLifecycle("/admin/lifecycle") },
   "page.people": { what: "see the people who signed up", label: "See who joined", path: always("/admin/crm") },
-  "page.review": { what: "decide what waits in Review", label: "Open Review", path: always("/admin/approvals") },
+  "page.review": { what: "decide what waits in Review", label: "Open Review", path: (env) => (env.areas.review ? "/admin/approvals" : null) },
   "page.about": { what: "check the answers and facts in About your business", label: "Open About your business", path: (env) => (env.areas.about ? "/admin/account/settings#about" : null) },
 };
 
@@ -84,7 +89,12 @@ export const ASK_ACTIONS: Record<AskActionId, AskAction> = {
   "ask.share_post": { what: "Vizzy drafts a post that shares the waitlist page", label: "Draft a post", prompt: "Draft a post that shares my waitlist page", when: hasLaunch },
   "ask.plan_posts": { what: "Vizzy plans next week's posts", label: "Plan it with Vizzy", prompt: "Plan next week's posts" },
   "ask.newsletter": { what: "Vizzy drafts the first newsletter", label: "Draft it with Vizzy", prompt: "Draft my first newsletter" },
-  "ask.brand_voice": { what: "Vizzy writes the brand voice from the website", label: "Write it with Vizzy", prompt: "Write my brand voice from my website" },
+  "ask.brand_voice": {
+    what: "Vizzy writes the brand voice from the website",
+    label: "Write it with Vizzy",
+    prompt: "Write my brand voice from my website",
+    when: (env) => env.areas.voice,
+  },
   "ask.in_person_signups": {
     what: "Vizzy plans a sign-up card or QR code for where the brand meets people in person",
     label: "Plan it with Vizzy",

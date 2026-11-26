@@ -893,6 +893,13 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # The weekly strategy check: compares the approved strategy with what watched competitors publish
+  # and raises one Review row when something material changed, with Dismiss for 30 days, and Vizzy
+  # reading it (needs STRATEGY_COMPETITORS_ENABLED and COMPETITOR_ARTICLES_ENABLED).
+  - variable: STRATEGY_CHECK_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # The content strategy: one approved plan per brand on the Strategy tab (questions merged into
   # slots by meaning, 3 to 6 pillars with a hub each, scores and a 12 week roadmap), made in code
   # with at most one Gemini call (needs BRAND_STRATEGY_ENABLED). The NEXT_PUBLIC twin shows its

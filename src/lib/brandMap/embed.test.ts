@@ -13,6 +13,8 @@ import { ensureMoved } from "./move";
 import { addQuestion, createSubject } from "./records";
 import { createSituation } from "./situations";
 import { fileSuggestions } from "./filing";
+import { proposedQuestion } from "./proposals";
+import { withdrawProposedBy } from "@/lib/connectors/signals/reconcile";
 
 const ctx: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
 const NOW = Date.parse("2026-10-15T10:00:00.000Z");
@@ -213,6 +215,28 @@ describe("the map's meaning in brand search (ADR-0023)", () => {
     expect(embed).not.toHaveBeenCalled();
     expect(db.raw(BRAND_MAP_VECTORS, brandMapVectorDocId("ten_A", "subject", id))).toBeUndefined();
     expect(await search.getManifest(`subject:${id}`)).toMatchObject({ status: "decided" });
+  });
+
+  it("keeps a search a connection proposed out of its subject's text, so erasing the connection leaves none of it in brand search", async () => {
+    const { db, id } = await mapWithFigs();
+    const index = new MemorySearchIndex();
+    const search = index.storeFor(ctx);
+    const store = brandMapRecords(ctx, db);
+    const connection = "dcn_aaaaaaaaaaaaaaaaaaaa";
+    const now = new Date(NOW).toISOString();
+    await proposedQuestion(ctx, store, { subjectId: id, text: "fig repotting soil mix", from: "search_console", reason: "Rising search", evidence: "fig repotting soil mix", now, fromConnectionId: connection, order: 1 });
+    await proposedQuestion(ctx, store, { subjectId: id, text: "Which pot suits a fig?", from: "research", reason: "Research", evidence: "", now, order: 2 });
+    const text = () => [...(index.chunks.get("ten_A")?.values() ?? [])].filter((c) => c.ref === id).map((c) => c.text).join("\n");
+
+    await embedSubjects(ctx, [id], { db, ...oldModel, vectors: oldSearch().self, search, embedSearch: fresh() });
+    // A decided subject is shown to people: neither proposal is in its text, the search least of all.
+    expect(text()).toBe("Repotting figs\n\nWhen do I repot a fig?");
+    const [swept] = await brandMapStubs(store, [], { family: true });
+    expect((await swept!.load())?.body).toBe(text());
+
+    // Erasing the connection withdraws its question and rewrites no subject: there was nothing to take out.
+    expect(await withdrawProposedBy(ctx, connection, "all", { db })).toBe(1);
+    expect(text()).not.toContain("soil mix");
   });
 
   it("leaves brand search alone while the family switch is off", async () => {

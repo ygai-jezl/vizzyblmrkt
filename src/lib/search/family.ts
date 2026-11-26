@@ -74,13 +74,22 @@ function mapStatus(r: MapRecord): Extract<SearchStatus, "decided" | "proposed"> 
 }
 
 /**
- * A subject's first questions, as the sweep and write-through both read them: not dismissed or
- * merged away, by their order, then when they were made, then id. The first SUBJECT_QUESTIONS.
+ * A question a connection proposed that nobody has decided (a rising search, `from: search_console`
+ * with its `fromConnectionId`). Its words are the connection's data: erasing the connection
+ * withdraws it (ADR-0013) without touching its subject, so they never go into a subject's text.
+ * Once a person decides it, it is theirs.
  */
-export function firstQuestions(questions: ReadonlyArray<Record<string, unknown>>): string[] {
+const proposedByConnection = (q: Record<string, unknown>): boolean => q.status !== "decided" && (Boolean(q.fromConnectionId) || q.from === "search_console");
+
+/**
+ * A subject's first questions, as the sweep and write-through both read them: not dismissed or
+ * merged away, never one a connection proposed, by their order, then when they were made, then id.
+ * The first SUBJECT_QUESTIONS. With `decidedOnly`, decided ones only.
+ */
+export function firstQuestions(questions: ReadonlyArray<Record<string, unknown>>, opts: { decidedOnly?: boolean } = {}): string[] {
   const num = (v: unknown) => (typeof v === "number" ? v : 0);
   return questions
-    .filter((q) => q.status !== "dismissed" && !q.mergedInto && s(q.text).trim())
+    .filter((q) => (opts.decidedOnly ? q.status === "decided" : q.status !== "dismissed") && !q.mergedInto && !proposedByConnection(q) && s(q.text).trim())
     .sort((a, b) => num(a.order) - num(b.order) || s(a.createdAt).localeCompare(s(b.createdAt)) || s(a.id ?? a.ref).localeCompare(s(b.id ?? b.ref)))
     .slice(0, SUBJECT_QUESTIONS)
     .map((q) => s(q.text).trim());
@@ -89,14 +98,16 @@ export function firstQuestions(questions: ReadonlyArray<Record<string, unknown>>
 /**
  * A subject as the brand map family keeps it (SEARCH_FAMILY_INDEX_ENABLED): its name, its
  * description, then its first questions, cut to one chunk so the subject has one vector, with its
- * status. The sweep and write-through both make it here, so their text is the same. Null when it
- * is dismissed or merged away.
+ * status. A decided subject is shown to people, so its text carries decided questions only and no
+ * proposal reaches people's search through it; a proposed one carries its proposed questions too,
+ * so "looks like" compares it as brand_map_vectors did. The sweep and write-through both make it
+ * here, so their text is the same. Null when it is dismissed or merged away.
  */
 export function subjectSearchSource(r: MapRecord, questions: ReadonlyArray<Record<string, unknown>>): SearchSource | null {
   const status = mapStatus(r);
   const name = s(r.name).trim();
   if (!status || !name) return null;
-  const body = lines(name, s(r.description), ...firstQuestions(questions)).slice(0, CHUNK_CHARS).trim();
+  const body = lines(name, s(r.description), ...firstQuestions(questions, { decidedOnly: status === "decided" })).slice(0, CHUNK_CHARS).trim();
   return { kind: "subject", ref: r.ref, title: name, body, url: MAP_URL, status };
 }
 

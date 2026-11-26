@@ -232,7 +232,12 @@ describe("the brand map family (ADR-0023)", () => {
         { id: "s2", tenantId: "t", ref: "s2", name: "Fig leaves dropping", status: "proposed" },
         { id: "s3", tenantId: "t", ref: "s3", name: "Old name", status: "decided", mergedInto: "s1" },
       ],
-      q: [q("q1", "s1", "When do I repot a fig?"), q("q2", "s1", "Which pot for a fig?", { status: "proposed", order: 1 })],
+      q: [
+        q("q1", "s1", "When do I repot a fig?"),
+        q("q2", "s1", "Which pot for a fig?", { status: "proposed", order: 1 }),
+        q("q3", "s2", "Why do fig leaves drop in winter?", { status: "proposed", from: "research" }),
+        q("q4", "s2", "fig leaves dropping indoors", { status: "proposed", from: "search_console", fromConnectionId: "dcn_aaaaaaaaaaaaaaaaaaaa", order: 1 }),
+      ],
       sit: [
         { id: "t1", tenantId: "t", ref: "t1", text: "My fig has outgrown its pot", status: "decided" },
         { id: "t2", tenantId: "t", ref: "t2", text: "Buying a fig as a gift", status: "proposed" },
@@ -250,7 +255,7 @@ describe("the brand map family (ADR-0023)", () => {
       ["q", { where: [["status", "in", ["decided", "proposed"]]] }],
       ["sit", { where: [["status", "in", ["decided", "proposed"]]] }],
     ]);
-    // The merged away subject is left out; the proposed question is in its subject's text but isn't a record of its own.
+    // The merged away subject is left out; proposed questions are never records of their own.
     expect(stubs.map((st) => `${st.kind}:${st.ref}:${st.status ?? "none"}`)).toEqual([
       "subject:s1:decided",
       "subject:s2:proposed",
@@ -258,8 +263,22 @@ describe("the brand map family (ADR-0023)", () => {
       "situation:t1:decided",
       "situation:t2:proposed",
     ]);
+    // A decided subject is shown to people: its text carries its decided questions only.
     const s1 = await stubs[0]!.load();
-    expect(s1?.body).toBe("Repotting figs\n\nWhen do I repot a fig?\n\nWhich pot for a fig?");
+    expect(s1?.body).toBe("Repotting figs\n\nWhen do I repot a fig?");
+    // A proposed one carries its proposed questions, but never a search a connection proposed (ADR-0013).
+    const s2 = await stubs[1]!.load();
+    expect(s2?.body).toBe("Fig leaves dropping\n\nWhy do fig leaves drop in winter?");
+  });
+
+  it("never puts a search a connection proposed into a subject's text, until a person decides it", () => {
+    const fromSearch = q("q5", "s1", "pet safe hanging plants", { status: "proposed", from: "search_console", fromConnectionId: "dcn_aaaaaaaaaaaaaaaaaaaa" });
+    const research = q("q6", "s1", "Which pots suit a fig?", { status: "proposed", from: "research", order: 1 });
+    const decided = q("q7", "s1", "When do I repot a fig?", { order: 2 });
+    expect(firstQuestions([fromSearch, research, decided])).toEqual(["Which pots suit a fig?", "When do I repot a fig?"]);
+    expect(firstQuestions([fromSearch, research, decided], { decidedOnly: true })).toEqual(["When do I repot a fig?"]);
+    expect(firstQuestions([{ ...fromSearch, status: "decided" }])).toEqual(["pet safe hanging plants"]);
+    expect(subjectSearchSource({ ref: "s1", name: "Pet safe plants", status: "proposed" }, [fromSearch])?.body).toBe("Pet safe plants");
   });
 
   it("makes a subject's text from its name, description and first 10 questions in their order, one chunk long", () => {

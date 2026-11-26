@@ -51,6 +51,12 @@ change or secret.
    with gcloud through `searchDatabaseArgs`). That path is not built.
 5. **A subject's text is its name, description and first 10 questions** (not dismissed or merged
    away, by `order`, `createdAt`, id), cut to one chunk (1,200 characters), so it has one vector.
+   A decided subject is shown to people, so its text carries decided questions only: no proposal
+   reaches people's search through it. A proposed subject carries its proposed questions too, so
+   "looks like" compares it as `brand_map_vectors` did. Neither ever carries a question a
+   connection proposed that nobody has decided (`from: search_console`, `fromConnectionId`):
+   erasing the connection withdraws that question without touching its subject (ADR-0013), so its
+   words must never be in the subject's chunk or vector.
    The sweep and write-through both make it with `subjectSearchSource`; the sweep reads questions
    once with `status in [decided, proposed]` (the existing `(tenantId, status, ref)` index; the
    emulator doesn't check it) and groups them by subject. People now also find a subject by its

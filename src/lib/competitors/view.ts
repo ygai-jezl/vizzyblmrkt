@@ -12,6 +12,7 @@ import type {
   CompetitorSection,
   CompetitorStatus,
 } from "@/lib/types/competitor";
+import type { CompetitorGroupKind } from "@/lib/types/brandStrategy";
 import { isFileHost } from "./hosts";
 import { cleanTitle } from "./titles";
 
@@ -25,6 +26,8 @@ export interface CompetitorSummary {
   name: string;
   website: string;
   site: string;
+  /** The group a person put it in (STRATEGY_COMPETITORS_ENABLED); missing on one never grouped. */
+  group?: CompetitorGroupKind | null;
   status: CompetitorStatus;
   problem: CompetitorProblem | null;
   /** While its sitemap is being read: files read and files known. */
@@ -168,6 +171,8 @@ export function summaryOf(c: Competitor, changes: CompetitorChange[], onBrandMap
     nextCheckAt: c.status === "watching" ? earliest(c.news ? c.nextPostsCheckAt : null, c.sitemap ? c.nextSiteCheckAt : null) : null,
     lastCheckAt: latest(c.lastPostsCheckAt, c.lastSiteCheckAt),
     onBrandMap,
+    // Only once someone has grouped it: a record made while it is off reads as before.
+    ...(c.group !== undefined ? { group: c.group } : {}),
     createdAt: c.createdAt,
   };
 }

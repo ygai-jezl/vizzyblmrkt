@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CompetitorGroupKind } from "./brandStrategy";
 
 /**
  * Competitors (COMPETITORS_ENABLED): another business's website a brand watches. One document per
@@ -218,6 +219,11 @@ export interface Competitor {
   /** The site changed enough this month to put words to its shape again. */
   relabel: boolean;
   news: CompetitorNews | null;
+  /**
+   * The group a person put it in, the same groups the brand strategy uses (STRATEGY_COMPETITORS_ENABLED),
+   * from Brand › Competitors or the Strategy tab. Missing or null: not grouped yet.
+   */
+  group?: CompetitorGroupKind | null;
   /** Missing on competitors added before there was a choice: "direct". */
   reader?: CompetitorReader;
   googleFind?: GoogleFind | null;
@@ -411,6 +417,8 @@ const Name = z
 export const MonitorInputSchema = z.object({
   website: z.string().trim().min(3).max(2048),
   name: Name,
+  /** The finder's group, when it is Monitor on one it found (STRATEGY_COMPETITORS_ENABLED; left out while off). */
+  group: CompetitorGroupKind.nullable().optional(),
 });
 export type MonitorInput = z.infer<typeof MonitorInputSchema>;
 
@@ -423,6 +431,8 @@ export const CompetitorPatchSchema = z
     /** Their sitemap, typed by a person (when we couldn't find one). */
     sitemapUrl: z.string().trim().min(3).max(2048).optional(),
     paused: z.boolean().optional(),
+    /** The group a person chose, or null for not grouped (STRATEGY_COMPETITORS_ENABLED; left out while off). */
+    group: CompetitorGroupKind.nullable().optional(),
   })
   .refine((p) => Object.keys(p).length > 0, "nothing to change");
 export type CompetitorPatch = z.infer<typeof CompetitorPatchSchema>;

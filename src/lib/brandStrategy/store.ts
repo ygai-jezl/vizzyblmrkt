@@ -173,6 +173,32 @@ const decision = (kind: StrategyDecisionKind, ref: string, at: string, by: strin
   by,
 });
 
+/** A decision to log, without when and by whom (logStrategyDecisions adds them). */
+export type DecisionRow = { kind: StrategyDecisionKind; ref: string; before?: string | null; after?: string | null };
+
+/**
+ * Add decisions to the record without moving `rev`: they change no part of the draft (a group a
+ * person chose on a watched competitor, from either page), so a person with the Strategy tab open
+ * isn't told the strategy changed. `rows` may be worked out from the record as it is now. Nothing
+ * is kept for a brand with no strategy record yet. Answers whether any were kept.
+ */
+export async function logStrategyDecisions(
+  ctx: TenantContext,
+  rows: DecisionRow[] | ((doc: BrandStrategyDoc) => DecisionRow[]),
+  deps: StrategyDeps = {},
+): Promise<boolean> {
+  const at = nowIso(deps);
+  const by = byOf(ctx);
+  const kept = await repoOf(ctx, deps).claim(brandStrategyDocId(ctx.tenantId), (current) => {
+    const doc = parseBrandStrategy(current);
+    if (!doc) return null;
+    const list = typeof rows === "function" ? rows(doc) : rows;
+    if (!list.length) return null;
+    return { decisions: withDecisions(doc.decisions, list.map((r) => decision(r.kind, r.ref, at, by, r.before ?? null, r.after ?? null))) };
+  });
+  return Boolean(kept);
+}
+
 /** The meaning of a goal's measure when YouGrow knows it: its key or its name, any case. */
 export function measureKeyOf(words: string): MeaningKey | null {
   const w = fold(words);

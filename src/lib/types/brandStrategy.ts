@@ -246,6 +246,8 @@ export const STRATEGY_DECISION_KINDS = [
   "competitor_ticked",
   "competitor_unticked",
   "competitor_left_out",
+  /** A person put a watched competitor in a group, or took it out of one (before and after). */
+  "competitor_grouped",
   "claim_added",
   "claim_edited",
   "claim_removed",

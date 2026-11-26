@@ -14,6 +14,7 @@ import {
   decideIsNot,
   deleteBrandStrategy,
   fullRunsInMonth,
+  logStrategyDecisions,
   measureKeyOf,
   readBrandStrategy,
   readBrandStrategyDoc,
@@ -203,6 +204,25 @@ describe("the brand strategy's record", () => {
     expect(doc.ok && doc.value.draft?.goal?.text).toBe("Our own goal");
     expect(measureKeyOf("open rate")).toBe("openRate");
     expect(measureKeyOf("sign-ups")).toBeNull();
+  });
+
+  it("logs a group a person chose without moving the revision, and only on the brand's own record", async () => {
+    const db = new FakeFirestore();
+    // No record yet: nothing is made just to hold a decision.
+    expect(await logStrategyDecisions(A, [{ kind: "competitor_grouped", ref: "Rivalco", before: null, after: "big" }], { db })).toBe(false);
+    expect(await readBrandStrategyDoc(A, { db })).toBeNull();
+    const made = await saveProposal(A, proposal(), { db, ...at(T0) });
+    await saveProposal(B, proposal(), { db, ...at(T0) });
+    const rev = made.ok ? made.value.rev : 0;
+    expect(await logStrategyDecisions(A, [{ kind: "competitor_grouped", ref: "Rivalco", before: null, after: "big" }], { db, ...at(T0 + 1000) })).toBe(true);
+    const doc = await readBrandStrategyDoc(A, { db });
+    expect(doc?.rev).toBe(rev);
+    expect(doc?.decisions[0]).toEqual({ kind: "competitor_grouped", ref: "Rivalco", before: null, after: "big", at: "2026-11-25T10:00:01.000Z", by: "admin@a.example.com" });
+    // A person's edit from before the log still saves: the revision didn't move.
+    expect((await saveStrategyDraft(A, { baseRev: rev, audiences: ["Founders"] }, { db })).ok).toBe(true);
+    // Worked out from the record, nothing to add: nothing changes.
+    expect(await logStrategyDecisions(A, () => [], { db })).toBe(false);
+    expect((await readBrandStrategyDoc(B, { db }))?.decisions.some((d) => d.kind === "competitor_grouped")).toBe(false);
   });
 
   it("deletes the whole record", async () => {

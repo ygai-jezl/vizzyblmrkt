@@ -56,6 +56,8 @@ const store = vi.hoisted(() => ({
   markSeen: vi.fn(async () => 2),
 }));
 vi.mock("@/lib/competitors/store", () => store);
+const strategy = vi.hoisted(() => ({ logStrategyDecisions: vi.fn(async () => true) }));
+vi.mock("@/lib/brandStrategy/store", () => strategy);
 
 const { GET, POST } = await import("./route");
 const item = await import("./[competitorId]/route");
@@ -148,6 +150,31 @@ describe("the Competitors APIs", () => {
     expect(await seen.json()).toEqual({ ok: true, marked: 2 });
     expect(review.forgetReviewCount).toHaveBeenCalledWith("ten_A");
     expect((await SEEN(req("POST", { competitorId: "../etc" }))).status).toBe(400);
+  });
+
+  it("leave a group out while the strategy isn't joined to Competitors, as any field it didn't know", async () => {
+    expect((await item.PATCH(req("PATCH", { group: "most" }), params)).status).toBe(400);
+    expect((await item.PATCH(req("PATCH", { group: "everything", paused: true }), params)).status).toBe(400);
+    expect(store.updateCompetitor).toHaveBeenLastCalledWith(admin, "cmp_abcdef123456", { paused: true }, {});
+    await POST(req("POST", { ...MONITOR, group: "most" }));
+    expect(store.monitorCompetitor).toHaveBeenLastCalledWith(admin, MONITOR, {});
+    expect(strategy.logStrategyDecisions).not.toHaveBeenCalled();
+  });
+
+  it("joined: a group a person changes is kept, and logged on the strategy before and after", async () => {
+    for (const [k, v] of Object.entries({ BRAND_MAP_ENABLED: "true", BRAND_STRATEGY_ENABLED: "true", STRATEGY_COMPETITORS_ENABLED: "true" })) vi.stubEnv(k, v);
+    store.updateCompetitor.mockResolvedValue({ ok: true, value: { ...COMPETITOR, group: "big" } });
+    expect((await item.PATCH(req("PATCH", { group: "everything" }), params)).status).toBe(400);
+    expect((await item.PATCH(req("PATCH", { group: "big" }), params)).status).toBe(200);
+    expect(store.updateCompetitor).toHaveBeenLastCalledWith(admin, "cmp_abcdef123456", { group: "big" }, {});
+    expect(strategy.logStrategyDecisions).toHaveBeenCalledWith(admin, [{ kind: "competitor_grouped", ref: "Acme Dental", before: null, after: "big" }], {});
+    // The same group again changes nothing to log.
+    store.getCompetitor.mockResolvedValue({ ...COMPETITOR, group: "big" });
+    strategy.logStrategyDecisions.mockClear();
+    await item.PATCH(req("PATCH", { group: "big" }), params);
+    expect(strategy.logStrategyDecisions).not.toHaveBeenCalled();
+    session.getAdminContext.mockResolvedValue(member);
+    expect((await item.PATCH(req("PATCH", { group: "most" }), params)).status).toBe(403);
   });
 
   it("Stop watching removes it and resets the Review count", async () => {

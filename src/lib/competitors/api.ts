@@ -8,6 +8,8 @@ import { isRateLimited } from "@/lib/tenant/rateLimit";
 import type { TenantContext } from "@/lib/tenant/types";
 import { CompetitorPatchSchema, MonitorInputSchema } from "@/lib/types/competitor";
 import { forgetReviewCount } from "@/lib/review/summary";
+import { isStrategyCompetitorsEnabled } from "@/lib/brandStrategy/flags";
+import { logStrategyDecisions } from "@/lib/brandStrategy/store";
 import { isCompetitorsEnabled } from "./flags";
 import { advanceCompetitor, type StepDeps } from "./steps";
 import {
@@ -100,7 +102,7 @@ export async function detailFromRequest(ctx: TenantContext, id: string, deps: Ap
 
 /** Monitor: start watching, then do the first steps while the person waits. */
 export async function monitorFromRequest(ctx: TenantContext, body: unknown, deps: ApiDeps = {}): Promise<Response> {
-  const parsed = MonitorInputSchema.safeParse(body);
+  const parsed = MonitorInputSchema.safeParse(groupOff(body));
   if (!parsed.success) return invalid(parsed.error.issues);
   if (await (deps.limit ?? isRateLimited)(`tenant:${ctx.tenantId}`, MONITOR_LIMIT, { db: deps.db })) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
@@ -112,11 +114,31 @@ export async function monitorFromRequest(ctx: TenantContext, body: unknown, deps
   return NextResponse.json({ competitor: detail, brandMap: r.value.brandMap }, { status: 201 });
 }
 
+/**
+ * A body as it reads while Strategy and Competitors aren't joined: its `group` left out, as any
+ * field the page didn't know was before, so nothing about a competitor's group changes.
+ */
+function groupOff(body: unknown): unknown {
+  if (isStrategyCompetitorsEnabled() || !body || typeof body !== "object" || Array.isArray(body)) return body;
+  const { group: _g, ...rest } = body as Record<string, unknown>;
+  void _g;
+  return rest;
+}
+
+/**
+ * Rename it, choose its news page or sitemap, pause or resume, or put it in a group. A group that
+ * changes is logged on the brand strategy as `competitor_grouped` (before and after), without
+ * moving the strategy's revision.
+ */
 export async function updateFromRequest(ctx: TenantContext, id: string, body: unknown, deps: ApiDeps = {}): Promise<Response> {
-  const parsed = CompetitorPatchSchema.safeParse(body);
+  const parsed = CompetitorPatchSchema.safeParse(groupOff(body));
   if (!parsed.success) return invalid(parsed.error.issues);
+  const before = parsed.data.group !== undefined ? await getCompetitor(ctx, id, deps) : null;
   const r = await updateCompetitor(ctx, id, parsed.data, deps);
   if (!r.ok) return fail(r);
+  if (before && (before.group ?? null) !== (r.value.group ?? null)) {
+    await logStrategyDecisions(ctx, [{ kind: "competitor_grouped", ref: r.value.name, before: before.group ?? null, after: r.value.group ?? null }], deps).catch(() => false);
+  }
   return NextResponse.json({ competitor: await detailView(ctx, id, deps) });
 }
 

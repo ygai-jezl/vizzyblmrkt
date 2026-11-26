@@ -129,6 +129,13 @@ Never:
 Run `npm run typecheck`, `npm run lint` and `npm test`, and quote their summary lines in your report (Vitest's `Test Files` and `Tests` lines).
 Branch from `dev` and open pull requests against `dev`, one piece of work each, using `.github/pull_request_template.md`. `CONTRIBUTING.md` has the rest.
 
+Keep a pull request mergeable (several sessions merge into `dev` the same day):
+- Fetch and branch from the latest `dev` when you start, not from an old checkout.
+- Commit `docs/ONTOLOGY.md` from `npm run ontology:doc` as your last commit. If it conflicts, take `dev`'s copy and run the command again; never merge it by hand.
+- Rebase onto the latest `dev` before your first push. After that, merge `dev` in instead (force-pushing stays off), and run the checks again.
+- In a shared list (`MEANINGS`, the ontology and loops registries, `apphosting.yaml`), add your entry in its group, not above the entry every pull request uses. On a conflict there, take `dev`'s file and add your entries again.
+- When a pull request merges, update your other open ones that touch the same files.
+
 ## Cursor Cloud specific instructions
 
 Cloud agents start on a fresh Ubuntu machine with no Google Cloud access, and need none:

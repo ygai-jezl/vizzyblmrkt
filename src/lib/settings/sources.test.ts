@@ -3,7 +3,7 @@ import { forTenant } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { failingFirestore } from "@/lib/tenant/testing/failingFirestore";
 import { BEFORE_HISTORY_TEXT, decodeCursor, listHistory, parseHistorySubject, type HistoryPage } from "./sources";
-import { buildWorld, ctx, lookup, switchesOn, T, type World } from "./testing/world";
+import { buildWorld, ctx, lookup, member, switchesOn, T, type World } from "./testing/world";
 
 let w: World;
 beforeEach(async () => {
@@ -84,6 +84,22 @@ describe("listHistory", () => {
     expect((await page({ subject: "catalog:pcn_life" })).entries.map((e) => e.rev)).toEqual([3, 2, 1]);
     expect(await listHistory(ctx, { subject: "journey:../x" }, { db: w.db })).toEqual({ ok: false, error: "invalid_subject" });
     expect(parseHistorySubject("catalog:pcn_life")).toEqual({ kind: "catalogs", store: "catalogs", connectionId: "pcn_life" });
+  });
+
+  it("never reads more of one journey's versions than it has, whatever place a cursor claims", async () => {
+    const key = `journey:${w.journeyId}`;
+    // Every read by id goes through the repository: count those of journey versions.
+    const getById = vi.spyOn(Object.getPrototypeOf(forTenant(ctx, w.db).lifecycleVersions) as { getById: () => unknown }, "getById");
+    const versionReads = () => getById.mock.contexts.filter((c) => (c as { name?: string }).name === "lifecycle_versions").length;
+    for (const place of [200_000, Number.MAX_SAFE_INTEGER]) {
+      getById.mockClear();
+      const cursor = Buffer.from(JSON.stringify({ v: 1, p: { [key]: place } }), "utf8").toString("base64url");
+      const r = await listHistory(member, { subject: key, cursor }, { db: w.db, lookup });
+      expect(r.ok && r.page.entries.map((e) => e.rev)).toEqual([2, 1]);
+      // The journey has two published versions: those two are read, nothing more.
+      expect(versionReads()).toBe(2);
+    }
+    getById.mockRestore();
   });
 
   it("shows a kind only while its own screen is on; catalogs always list, and restore with their switch", async () => {

@@ -287,13 +287,18 @@ function journeysSource(ctx: TenantContext, db?: FirestoreLike): Source {
   };
 }
 
-/** One journey's versions, by id from its newest down: the place is the last version read. */
+/**
+ * One journey's versions, by id from its newest down: the place is the last version read. The
+ * cursor comes from the browser (and from Vizzy), so the place is never trusted above the journey's
+ * own newest version: a made-up one can't make a request read more versions than the journey has.
+ */
 function oneJourneySource(ctx: TenantContext, journeyId: string, db?: FirestoreLike): Source {
   return {
     key: journeySubject(journeyId),
     fetch: async (place, n) => {
       const repo = forTenant(ctx, db);
-      let from = typeof place === "number" ? place - 1 : ((await repo.lifecycleJourneys.getById(journeyId))?.publishedVersion ?? 0);
+      const newest = (await repo.lifecycleJourneys.getById(journeyId))?.publishedVersion ?? 0;
+      let from = typeof place === "number" ? Math.min(place - 1, newest) : newest;
       const out: Row[] = [];
       while (from >= 1 && out.length < n) {
         const want = Array.from({ length: Math.min(n - out.length, from) }, (_, i) => from - i);

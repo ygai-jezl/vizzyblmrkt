@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Removals from brand search are forced whatever the switches say (ADR-0025): an in-memory index stands in.
+vi.mock("@/lib/tenant/searchIndex", async (original) => (await import("@/lib/search/testing/memorySearch")).withMemorySearch(await original<object>()));
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
+import { MemorySearchIndex } from "@/lib/search/memoryStore";
 import { situationKey } from "./keys";
 import { ensureMoved } from "./move";
 import { decideProposals, proposedQuestion, proposedSubject } from "./proposals";
@@ -52,6 +55,23 @@ describe("buying situations", () => {
     expect(await editSituation(ctx, bid, { baseRev: 0, focus: true }, deps)).toMatchObject({ ok: true, value: { focus: true, rev: 1 } });
     expect(await editSituation(ctx, bid, { baseRev: 0, want: "Be named too" }, deps)).toMatchObject({ ok: false, status: 409, error: "record_changed", current: { rev: 1 } });
     expect((await listSituations(ctx, deps)).map((s) => s.id)).toEqual([bid, a.ok ? a.value.id : ""]);
+  });
+
+  it("writes a change to how they feel, or when, through to brand search at once (ADR-0025)", async () => {
+    vi.stubEnv("SEARCH_INDEX_ENABLED", "true");
+    vi.stubEnv("SEARCH_FAMILY_INDEX_ENABLED", "true");
+    const db = await setup();
+    const search = new MemorySearchIndex().storeFor(ctx);
+    const embedSearch = vi.fn(async (items: unknown[]) => items.map(() => [1, 0, 0]));
+    const deps = { db, nowMs: NOW, embed: { embed: async () => [], search, embedSearch } };
+    const made = await createSituation(ctx, { text: "My fig has outgrown its pot" }, deps);
+    const id = made.ok ? made.value.id : "";
+    const body = async () => (await search.listManifests()).length && embedSearch.mock.calls.at(-1)![0];
+    expect(await editSituation(ctx, id, { baseRev: 0, feel: "Worried it will die" }, deps)).toMatchObject({ ok: true });
+    expect(JSON.stringify(await body())).toContain("Feels: Worried it will die");
+    expect(await editSituation(ctx, id, { baseRev: 1, wText: "after winter" }, deps)).toMatchObject({ ok: true });
+    expect(JSON.stringify(await body())).toContain("after winter");
+    expect(embedSearch).toHaveBeenCalledTimes(3);
   });
 
   it("opens with its questions, the subjects they're on and how far along each is, and counts them", async () => {

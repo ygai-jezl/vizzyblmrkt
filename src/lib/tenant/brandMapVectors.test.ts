@@ -1,9 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "./testing/fakeFirestore";
 import type { KnowledgeCollectionLike, TenantContext } from "./types";
 import {
   BRAND_MAP_VECTORS,
   brandMapVectorDocId,
+  countBrandMapVectors,
+  deleteBrandMapVectors,
+  listBrandMapVectorRefs,
   nearestBrandMapRecords,
   removeBrandMapVector,
   setBrandMapVectorStatus,
@@ -65,3 +68,44 @@ describe("the brand map's embeddings", () => {
     expect(withProposals.map((n) => n.ref)).toEqual(["sub_proposed"]);
   });
 });
+
+describe("retiring the store (ADR-0025)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const retire = (reads: string[]) => {
+    for (const k of ["SEARCH_INDEX_ENABLED", "SEARCH_FAMILY_INDEX_ENABLED", "SEARCH_OLD_VECTORS_RETIRED_ENABLED", ...reads]) vi.stubEnv(k, "true");
+  };
+
+  it("stops writes and status updates only with the retire switch and all three read switches on, and keeps removals", async () => {
+    const db = new FakeFirestore();
+    const id = brandMapVectorDocId("ten_A", "subject", "sub_1");
+    retire(["SEARCH_SUBJECT_READS_ENABLED", "SEARCH_NOTE_READS_ENABLED"]);
+    await writeBrandMapVector(A, { kind: "subject", ref: "sub_1", status: "proposed" }, [0.1], db);
+    expect(db.raw(BRAND_MAP_VECTORS, id)).toMatchObject({ status: "proposed" });
+
+    retire(["SEARCH_SUBJECT_READS_ENABLED", "SEARCH_NOTE_READS_ENABLED", "SEARCH_COMPETITOR_READS_ENABLED"]);
+    await writeBrandMapVector(A, { kind: "subject", ref: "sub_2", status: "decided" }, [0.1], db);
+    expect(db.raw(BRAND_MAP_VECTORS, brandMapVectorDocId("ten_A", "subject", "sub_2"))).toBeUndefined();
+    await setBrandMapVectorStatus(A, { kind: "subject", ref: "sub_1", status: "decided" }, db);
+    expect(db.raw(BRAND_MAP_VECTORS, id)?.status).toBe("proposed");
+    await removeBrandMapVector(A, "subject", "sub_1", db);
+    expect(db.raw(BRAND_MAP_VECTORS, id)).toBeUndefined();
+  });
+
+  it("counts and deletes one brand's vectors of a kind, never another brand's or kind's", async () => {
+    const db = new FakeFirestore();
+    for (let i = 0; i < 305; i++) await writeBrandMapVector(A, { kind: "note", ref: `bn_${i}`, status: "kept" }, [0.1], db);
+    await writeBrandMapVector(A, { kind: "subject", ref: "sub_1", status: "decided" }, [0.1], db);
+    await writeBrandMapVector(B, { kind: "note", ref: "bn_x", status: "kept" }, [0.1], db);
+    expect(await countBrandMapVectors(A, "note", db)).toBe(305);
+    // Listed a page at a time, refs only.
+    const refs = await listBrandMapVectorRefs(A, "note", db);
+    expect(refs).toHaveLength(305);
+    expect(new Set(refs).size).toBe(305);
+    expect(refs).not.toContain("bn_x");
+    expect(await deleteBrandMapVectors(A, "note", db)).toBe(305);
+    expect(await countBrandMapVectors(A, "note", db)).toBe(0);
+    expect(await countBrandMapVectors(A, "subject", db)).toBe(1);
+    expect(await countBrandMapVectors(B, "note", db)).toBe(1);
+  });
+});
+

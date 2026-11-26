@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Removals from brand search are forced whatever the switches say (ADR-0025): an in-memory index stands in.
+vi.mock("@/lib/tenant/searchIndex", async (original) => (await import("@/lib/search/testing/memorySearch")).withMemorySearch(await original<object>()));
 
 // Brand › Competitors: switch, then sign-in, then (to change anything) admin, then the brand's access.
 const session = vi.hoisted(() => ({ getAdminContext: vi.fn() }));

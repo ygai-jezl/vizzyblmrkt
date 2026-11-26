@@ -17,6 +17,7 @@ import { consentWayLabel } from "./newPerson";
 import { parseMoveFieldId } from "./personMoves";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { ideaWord, type IdeaWord } from "@/lib/nav/terms";
+import { voiceChatDone } from "@/lib/waitlist/voiceChat";
 
 /**
  * One person's timeline (AUDIENCE_TIMELINE_ENABLED), newest first, a page at a time: what their
@@ -309,7 +310,7 @@ async function besideEntries(ctx: TenantContext, contact: Contact, names: Names,
   }
   for (const s of signups) {
     const chat = s?.aiConversation;
-    if (!s || !chat?.completed || !chat.capturedAt) continue;
+    if (!s || !chat || !voiceChatDone(chat) || !chat.capturedAt) continue;
     out.push({ id: `voice:${s.id}`, at: chat.capturedAt, kind: "voice_chat", text: `Voice chat on the ${names.launches.get(s.campaignId) ?? names.word.one} sign-up page`, detail: null, signupId: s.id });
   }
   for (const m of emails.slice(0, BESIDE_MAX)) {

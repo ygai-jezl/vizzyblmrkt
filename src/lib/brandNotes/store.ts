@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { embedDocuments, embedQuery } from "@/lib/agents/embeddings";
+import { noteIdOfQuestionRef, noteQuestionRef, noteSearchSources } from "@/lib/search/family";
+import { embedForFamily, indexFamily, nearestFamily, removeFamily, type FamilyDeps } from "@/lib/search/familyIndex";
+import { isOldVectorsRetired, isSearchFamilyIndexEnabled, isSearchNoteReadsEnabled } from "@/lib/search/flags";
 import { forTenant, getTenantById } from "@/lib/tenant";
 import { nearestBrandMapRecords, removeBrandMapVector, setBrandMapVectorStatus, writeBrandMapVector } from "@/lib/tenant/brandMapVectors";
 import type { FirestoreLike, KnowledgeCollectionLike, TenantContext } from "@/lib/tenant/types";
@@ -29,9 +32,15 @@ import { noteRest, usesOf } from "./rest";
  * of its own (source `question`, status `asked`, no text), linked to every article that asked it.
  * Its question is embedded apart (kind `question`) so another article can find and reuse it.
  * Answered, it becomes a kept note like any other, embedded with its question.
+ *
+ * Brand search (ADR-0025): with SEARCH_FAMILY_INDEX_ENABLED every note and question is written there
+ * too (noteSearchSources), beside brand_map_vectors. With SEARCH_NOTE_READS_ENABLED the readers use
+ * brand search only. A note that may name a customer is never there (decision 40), so it is then
+ * found only through its subject link. Removing a note, or ticking that it names a customer, takes
+ * its entries out at once, forced, whatever any switch says.
  */
 
-export interface NotesDeps {
+export interface NotesDeps extends FamilyDeps {
   db?: FirestoreLike;
   now?: () => Date;
   /** Test seams. */
@@ -63,6 +72,8 @@ export async function embedNote(
   note: Pick<BrandNote, "id" | "text" | "status"> & { question?: string | null },
   deps: NotesDeps = {},
 ): Promise<boolean> {
+  // Retired (ADR-0025): brand search holds the note's meaning; nothing is embedded here.
+  if (isOldVectorsRetired()) return false;
   try {
     const content = [note.question, note.text].filter((s) => s?.trim()).join("\n");
     const [vector] = await (deps.embed ?? embedDocuments)([{ content, title: "What we've seen" }], ctx.region);
@@ -80,6 +91,52 @@ export interface NoteOrigin {
   sourceRef?: string | null;
   status?: BrandNoteStatus;
   createdBy?: string | null;
+}
+
+/**
+ * A vector for the note readers, made by noteVectors, with the store whose model made it. A reader
+ * given a vector from the other store finds nothing rather than compare two models.
+ */
+export interface NoteVector {
+  onIndex: boolean;
+  values: number[];
+}
+
+/** Whether the note readers use brand search now. */
+const readsIndex = () => isSearchNoteReadsEnabled();
+/** The numbers of a vector made for the store the readers use now, or null. */
+const usable = (v: NoteVector | null | undefined): number[] | null => (v && v.onIndex === readsIndex() ? v.values : null);
+
+/**
+ * Vectors the note readers can be given, made the way the store they use embeds: `query` for an
+ * article's question asked of notes and questions, `question` for a question about to be asked,
+ * compared with those already asked (documents titled QUESTION_TITLE on brand_map_vectors, titled
+ * with the question itself on brand search, as its indexer titles them). A slot is null when that
+ * text couldn't be embedded.
+ */
+export async function noteVectors(ctx: TenantContext, texts: string[], as: "query" | "question", deps: NotesDeps = {}): Promise<Array<NoteVector | null>> {
+  if (!texts.length) return [];
+  const tag = (onIndex: boolean) => (v: number[] | null | undefined): NoteVector | null => (v?.length ? { onIndex, values: v } : null);
+  if (readsIndex()) return (await embedForFamily(ctx, texts, as === "query" ? { query: true } : { title: (t) => t }, deps)).map(tag(true));
+  if (as === "query") return Promise.all(texts.map(async (t) => tag(false)(await (deps.query ?? embedQuery)(t.slice(0, 2000), ctx.region).catch(() => null))));
+  const made = await (deps.embed ?? embedDocuments)(texts.map((content) => ({ content, title: QUESTION_TITLE })), ctx.region).catch(() => texts.map(() => null));
+  return texts.map((_, i) => tag(false)(made[i]));
+}
+
+/** A note's entries in brand search follow it (SEARCH_FAMILY_INDEX_ENABLED): what it should have is written, the rest taken out. */
+async function indexNote(ctx: TenantContext, note: BrandNote, deps: NotesDeps): Promise<void> {
+  if (!isSearchFamilyIndexEnabled()) return;
+  const sources = noteSearchSources(note);
+  await indexFamily(ctx, sources, deps);
+  const kinds = new Set(sources.map((src) => src.kind));
+  if (!kinds.has("note")) await removeFamily(ctx, "note", [note.id], deps);
+  if (!kinds.has("question") && note.source === "question") await removeFamily(ctx, "question", [noteQuestionRef(note.id)], deps);
+}
+
+/** Both of a note's entries out of brand search at once, forced, whatever any switch says. */
+async function unindexNote(ctx: TenantContext, id: string, deps: NotesDeps): Promise<void> {
+  await removeFamily(ctx, "note", [id], deps);
+  await removeFamily(ctx, "question", [noteQuestionRef(id)], deps);
 }
 
 export async function createNote(ctx: TenantContext, input: BrandNoteInput, origin: NoteOrigin, deps: NotesDeps = {}): Promise<NotesResult<BrandNote>> {
@@ -101,6 +158,7 @@ export async function createNote(ctx: TenantContext, input: BrandNoteInput, orig
     updatedAt: at,
   });
   await embedNote(ctx, note, deps);
+  await indexNote(ctx, note, deps);
   return { ok: true, value: note };
 }
 
@@ -122,9 +180,13 @@ export async function updateNote(ctx: TenantContext, id: string, patch: BrandNot
     updatedAt: at,
   }));
   if (!updated) return { ok: false, status: 404, error: "not_found" };
-  if (answering) await setBrandMapVectorStatus(ctx, { kind: "question", ref: id, status: "answered" }, deps.db).catch(() => undefined);
+  if (answering && !isOldVectorsRetired()) await setBrandMapVectorStatus(ctx, { kind: "question", ref: id, status: "answered" }, deps.db).catch(() => undefined);
   // Its meaning, or whether articles may use it, changed: the stored embedding follows.
   if (updated.status !== "asked" && (patch.text !== undefined || patch.status !== undefined)) await embedNote(ctx, updated, deps);
+  // Brand search: a note ticked as naming a customer leaves it at once (decision 40); otherwise it follows.
+  if (updated.canName) {
+    if (patch.canName === true) await unindexNote(ctx, id, deps);
+  } else if (patch.text !== undefined || patch.status !== undefined || patch.canName !== undefined) await indexNote(ctx, updated, deps);
   return { ok: true, value: updated };
 }
 
@@ -133,6 +195,7 @@ export async function removeNote(ctx: TenantContext, id: string, deps: NotesDeps
   await notesOf(ctx, deps).delete(id);
   await removeBrandMapVector(ctx, "note", id, deps.db).catch(() => undefined);
   await removeBrandMapVector(ctx, "question", id, deps.db).catch(() => undefined);
+  await unindexNote(ctx, id, deps);
   return { ok: true, value: null };
 }
 
@@ -240,20 +303,25 @@ export async function notesForSubjects(ctx: TenantContext, subjectIds: string[],
   return found.filter((n) => n.status === "kept");
 }
 
-/** The kept notes nearest some text in meaning (or a query vector already made from it, null when that failed), most similar first; [] when embeddings are down. */
+/**
+ * The kept notes nearest some text in meaning (or a query vector already made from it by noteVectors,
+ * null when that failed), most similar first; [] when embeddings are down. On brand search a note
+ * that may name a customer is never among them (decision 40).
+ */
 export async function nearestNotes(
   ctx: TenantContext,
   text: string,
-  opts: { limit: number; minSim?: number; vector?: number[] | null },
+  opts: { limit: number; minSim?: number; vector?: NoteVector | null },
   deps: NotesDeps = {},
 ): Promise<Array<{ note: BrandNote; sim: number }>> {
-  const vector = opts.vector !== undefined ? opts.vector : await (deps.query ?? embedQuery)(text.slice(0, 2000), ctx.region).catch(() => null);
+  const onIndex = readsIndex();
+  const vector = opts.vector !== undefined ? usable(opts.vector) : usable((await noteVectors(ctx, [text], "query", deps))[0]);
   if (!vector) return [];
-  const near = await nearestBrandMapRecords(ctx, { kind: "note", vector, limit: opts.limit, statuses: ["kept"], minSim: opts.minSim }, deps.vectors).catch(
-    () => [],
-  );
+  const near = onIndex
+    ? (await nearestFamily(ctx, ["note"], vector, { statuses: ["kept"], limit: opts.limit, minScore: opts.minSim }, deps).catch(() => [])).map((h) => ({ ref: h.ref, sim: h.score }))
+    : await nearestBrandMapRecords(ctx, { kind: "note", vector, limit: opts.limit, statuses: ["kept"], minSim: opts.minSim }, deps.vectors).catch(() => []);
   const notes = await Promise.all(near.map(async (n) => ({ note: await getNote(ctx, n.ref, deps), sim: n.sim })));
-  return notes.filter((n): n is { note: BrandNote; sim: number } => n.note !== null && n.note.status === "kept");
+  return notes.filter((n): n is { note: BrandNote; sim: number } => n.note !== null && n.note.status === "kept" && !(onIndex && n.note.canName));
 }
 
 /** Questions aren't saved when the brand is this close to its backstop: room stays for real notes. */
@@ -268,11 +336,12 @@ const asArticle = (a: NoteArticle): NoteArticle => ({
 export const QUESTION_TITLE = "A question for the team";
 
 /**
- * Embed open questions' questions in one call (best effort), each searched by whether it is
- * answered. Vectors already made for the same questions (`given`, by question) are used as they are.
+ * Embed open questions' questions in one call (best effort) for brand_map_vectors, each searched by
+ * whether it is answered. Vectors already made for the same questions on that store's model
+ * (`given`, by question) are used as they are; brand search's never are.
  */
 async function embedQuestions(ctx: TenantContext, notes: BrandNote[], deps: NotesDeps, given?: Map<string, number[]>): Promise<void> {
-  if (!notes.length) return;
+  if (!notes.length || isOldVectorsRetired()) return;
   try {
     const all = given && notes.every((n) => given.has(n.question ?? ""));
     const vectors = all
@@ -298,12 +367,14 @@ async function embedQuestions(ctx: TenantContext, notes: BrandNote[], deps: Note
  */
 export async function askQuestions(
   ctx: TenantContext,
-  args: { questions: string[]; article: NoteArticle; /** Their vectors (QUESTION_TITLE), in the same order, when already made. */ vectors?: number[][] | null },
+  args: { questions: string[]; article: NoteArticle; /** Their vectors (noteVectors "question"), in the same order, when already made. */ vectors?: NoteVector[] | null },
   deps: NotesDeps = {},
 ): Promise<BrandNote[]> {
   const notes = notesOf(ctx, deps);
   const clean = (q: string) => oneLine(q).slice(0, BRAND_NOTE_LIMITS.MAX_QUESTION);
-  const given = args.vectors?.length === args.questions.length ? new Map(args.questions.map((q, i) => [clean(q), args.vectors![i]!])) : undefined;
+  // Only the old store's own vectors are reused for it; with note reads on it embeds apart.
+  const oldModel = args.vectors?.length === args.questions.length && args.vectors.every((v) => !v.onIndex);
+  const given = oldModel ? new Map(args.questions.map((q, i) => [clean(q), args.vectors![i]!.values])) : undefined;
   const questions = [...new Set(args.questions.map(clean).filter(Boolean))];
   if (!questions.length) return [];
   if ((await notes.count()) + questions.length > BRAND_NOTE_LIMITS.MAX_NOTES - QUESTION_HEADROOM) return [];
@@ -330,6 +401,7 @@ export async function askQuestions(
     ),
   );
   await embedQuestions(ctx, made, deps, given);
+  if (isSearchFamilyIndexEnabled()) await indexFamily(ctx, made.flatMap((n) => noteSearchSources(n)), deps);
   return made;
 }
 
@@ -381,29 +453,38 @@ export async function answerQuestion(
     };
   });
   if (!updated) return { ok: false, status: 404, error: "not_found" };
-  if (wasOpen !== !answered) {
+  if (wasOpen !== !answered && !isOldVectorsRetired()) {
     await setBrandMapVectorStatus(ctx, { kind: "question", ref: id, status: answered ? "answered" : "asked" }, deps.db).catch(() => undefined);
   }
   if (!answered) await removeBrandMapVector(ctx, "note", id, deps.db).catch(() => undefined);
   else if (wasOpen || opts.done) await embedNote(ctx, updated, deps);
+  // Brand search follows on the same beats: its question's status moves with no embedding, and its note comes or goes.
+  if (wasOpen !== !answered || (answered && opts.done)) await indexNote(ctx, updated, deps);
   return { ok: true, value: updated };
 }
 
 /**
- * Questions close in meaning to a query vector, most similar first, leaving out some ids: open
- * ones by default, or answered ones too (`statuses`).
+ * Questions close in meaning to a query vector (noteVectors "query"), most similar first, leaving
+ * out some ids: open ones by default, or answered ones too (`statuses`).
  */
 export async function nearestOpenQuestions(
   ctx: TenantContext,
-  vector: number[],
+  given: NoteVector,
   opts: { limit: number; minSim?: number; exclude?: Iterable<string>; statuses?: Array<"asked" | "answered"> },
   deps: NotesDeps = {},
 ): Promise<Array<{ note: BrandNote; sim: number }>> {
+  const vector = usable(given);
+  if (!vector) return [];
   const exclude = new Set(opts.exclude ?? []);
   const statuses = opts.statuses ?? ["asked"];
-  const near = await nearestBrandMapRecords(ctx, { kind: "question", vector, limit: opts.limit + exclude.size, statuses, minSim: opts.minSim }, deps.vectors).catch(
-    () => [],
-  );
+  const limit = opts.limit + exclude.size;
+  // On brand search a question's ref is note_{id}; the brand map's own questions are never kept here.
+  const near = readsIndex()
+    ? (await nearestFamily(ctx, ["question"], vector, { statuses, limit, minScore: opts.minSim, keep: (h) => noteIdOfQuestionRef(h.ref) !== null }, deps).catch(() => [])).map((h) => ({
+        ref: noteIdOfQuestionRef(h.ref)!,
+        sim: h.score,
+      }))
+    : await nearestBrandMapRecords(ctx, { kind: "question", vector, limit, statuses, minSim: opts.minSim }, deps.vectors).catch(() => []);
   const found = await Promise.all(near.filter((n) => !exclude.has(n.ref)).map(async (n) => ({ note: await getNote(ctx, n.ref, deps), sim: n.sim })));
   const wanted = (n: BrandNote | null) =>
     n?.source === "question" && ((n.status === "asked" && statuses.includes("asked")) || (n.status === "kept" && statuses.includes("answered")));
@@ -412,15 +493,24 @@ export async function nearestOpenQuestions(
 
 /**
  * Whether What we've seen already holds something this close in meaning to a question about to
- * be asked (its vector made with QUESTION_TITLE): a question asked or answered, at `questionSim`,
+ * be asked (its vector made by noteVectors "question"): a question asked or answered, at `questionSim`,
  * or a kept note, at `noteSim`. False when the search can't run, so a question is never lost to it.
  */
 export async function alreadyOnFile(
   ctx: TenantContext,
-  vector: number[],
+  given: NoteVector,
   opts: { questionSim: number; noteSim: number },
   deps: NotesDeps = {},
 ): Promise<boolean> {
+  const vector = usable(given);
+  if (!vector) return false;
+  if (readsIndex()) {
+    const [questions, notes] = await Promise.all([
+      nearestFamily(ctx, ["question"], vector, { statuses: ["asked", "answered"], limit: 1, minScore: opts.questionSim, keep: (h) => noteIdOfQuestionRef(h.ref) !== null }, deps).catch(() => []),
+      nearestFamily(ctx, ["note"], vector, { statuses: ["kept"], limit: 1, minScore: opts.noteSim }, deps).catch(() => []),
+    ]);
+    return questions.length > 0 || notes.length > 0;
+  }
   const [questions, notes] = await Promise.all([
     nearestBrandMapRecords(ctx, { kind: "question", vector, limit: 1, statuses: ["asked", "answered"], minSim: opts.questionSim }, deps.vectors).catch(() => []),
     nearestBrandMapRecords(ctx, { kind: "note", vector, limit: 1, statuses: ["kept"], minSim: opts.noteSim }, deps.vectors).catch(() => []),

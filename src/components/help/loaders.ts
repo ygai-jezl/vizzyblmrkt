@@ -25,5 +25,6 @@ export const HELP_LOADERS: Record<string, () => Promise<{ default: ComponentType
   "people": () => import("./pages/people"),
   "search": () => import("./pages/search"),
   "your-audience": () => import("./pages/your-audience"),
+  "history-and-restore": () => import("./pages/history-and-restore"),
   "troubleshooting": () => import("./pages/troubleshooting"),
 };

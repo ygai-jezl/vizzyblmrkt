@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { isStoredTimestamp, timestampFirestore } from "@/lib/tenant/testing/timestampFirestore";
 import { forTenant, transitionAgentAction, type TenantContext } from "@/lib/tenant";
@@ -10,7 +10,7 @@ import { planningId } from "../keys";
 import { addDays } from "../period";
 import { cutRows, putSnapshot, ttlFor } from "../snapshots";
 import { LAST_DAY, page, search, seedSearchConsole, writeDays, writePlanning } from "../testing/signals";
-import { addDay, CAPS, detectConnection, losingPages, newTally, pageOf, risingSearches, topicOf, withinReach, type MapView } from "./detect";
+import { addDay, CAPS, detectConnection, losingPages, NEAR_SUBJECT, newTally, pageOf, risingSearches, topicOf, withinReach, type MapView } from "./detect";
 import { DATA_SIGNAL_ACTION, SIGNALS_REVIEW_HREF } from "./names";
 import { dismissSignal } from "./review";
 import { blankSignal } from "./store";
@@ -230,6 +230,31 @@ describe("looking at a connection", () => {
       { key: "sub_pets00000000", m: { nearbySearches: 2, searchImpressions: 420, searchClicks: 13 } },
     ]);
     expect((await load()).collect!.detectedOn).toBe("2026-11-23");
+  });
+
+  it("maps a search to a subject at the cut-off of the store subject readers use, switch off and on (ADR-0025)", async () => {
+    // Two different values, so detection wired to the other store's cut-off can't pass.
+    const was = { ...NEAR_SUBJECT };
+    Object.assign(NEAR_SUBJECT, { old: 0.75, new: 0.65 });
+    onTestFinished(() => void Object.assign(NEAR_SUBJECT, was));
+    // Every search sits at 0.7 from its subject: between the two.
+    const between = mapView({ nearest: async (texts) => texts.map((t) => (t.includes("pet") ? { ref: "sub_pets00000000", sim: 0.7 } : t.includes("monstera") ? { ref: "sub_water0000000", sim: 0.7 } : null)) });
+    const look = async () => {
+      db = new FakeFirestore();
+      await seedSearchConsole(A, db, ID);
+      await topics();
+      await rolledTopics();
+      await detectConnection(A, await load(), [], { db, now: NOW, map: async () => between });
+      const rising = (await rows()).find((x) => x.rule === "rising_search");
+      const lines = (db.raw("metric_snapshots", planningId(ID, 0, "search_performance", "subject"))!.rows as Array<{ key: string }>).map((r) => r.key);
+      return { subject: rising?.subjectId ?? null, lines };
+    };
+
+    // Off: brand_map_vectors' cut-off, which 0.7 doesn't reach.
+    expect(await look()).toEqual({ subject: null, lines: [] });
+    // On: brand search's, which it does.
+    for (const k of ["SEARCH_INDEX_ENABLED", "SEARCH_FAMILY_INDEX_ENABLED", "SEARCH_SUBJECT_READS_ENABLED"]) vi.stubEnv(k, "true");
+    expect(await look()).toEqual({ subject: "sub_pets00000000", lines: ["sub_water0000000", "sub_pets00000000"] });
   });
 
   it("leaves out a rising search the map already asks, in the same words or close in meaning", async () => {

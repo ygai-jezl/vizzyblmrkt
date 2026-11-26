@@ -88,8 +88,8 @@ export interface PeopleRow {
   fields?: Record<string, FieldValue>;
 }
 
-/** Launch and product names by id, for the rows and the filters. An unnamed launch names an idea while the words are on. */
-async function sourceNames(ctx: TenantContext, db?: FirestoreLike) {
+/** Launch and product names by id, for the rows and the filters. An unnamed launch names an idea while the words are on. Views read rows with them too. */
+export async function sourceNames(ctx: TenantContext, db?: FirestoreLike) {
   const [campaigns, connections] = await Promise.all([forTenant(ctx, db).campaigns.find({ limit: 500 }), loadPeopleConnections(ctx, db)]);
   const word = ideaWord(isIdeaWordsEnabled());
   const launches = new Map(campaigns.map((c) => [c.id, c.waitlistName || `Untitled ${word.one}`]));
@@ -102,7 +102,8 @@ async function sourceNames(ctx: TenantContext, db?: FirestoreLike) {
   return { launches, products, word };
 }
 
-function rowOf(c: Contact, names: Awaited<ReturnType<typeof sourceNames>>, fieldIds?: ReadonlySet<string>): PeopleRow {
+/** One person as a row of the list (views show the same rows). */
+export function rowOf(c: Contact, names: Awaited<ReturnType<typeof sourceNames>>, fieldIds?: ReadonlySet<string>): PeopleRow {
   const name = [c.firstName, c.lastName].filter(Boolean).join(" ").trim() || null;
   return {
     id: c.id,

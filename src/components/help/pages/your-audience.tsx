@@ -15,8 +15,12 @@ import { TIMELINE_EMPTY } from "@/lib/audience/timelineWords";
 import { FIELD_MESSAGES, VIZZY_READS_HINT } from "@/components/admin/audience/fieldsApi";
 import { CONSENT_WAYS, NEW_PERSON_AS_IDEAS, NEW_PERSON_MESSAGES, NEW_PERSON_NOTES } from "@/lib/audience/newPerson";
 import type { HelpBodyProps } from "@/lib/help/pages";
+import { HISTORY_LINE } from "@/components/admin/settings/historyWords";
+import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
 import { ideaWord, peopleArea } from "@/lib/nav/terms";
 import { isIdeasEnabled, isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { isViewsEnabled } from "@/lib/views/flags";
+import { VIEW_MESSAGES } from "@/lib/views/words";
 
 /**
  * Shown only while AUDIENCE_ONE_VIEW_ENABLED is on (src/lib/help/pages.ts). With People on
@@ -28,7 +32,8 @@ import { isIdeasEnabled, isIdeaWordsEnabled } from "@/lib/ideas/flags";
  * for text fields while AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED is too, and Vizzy filling in New person
  * while AUDIENCE_VIZZY_ADD_PERSON_ENABLED is. In more than one launch shows while
  * LAUNCH_IDEAS_ENABLED is on. With ideas in the words (`ideaWords`, isIdeaWordsEnabled()) a launch
- * is called an idea, and the messages quoted are the ones the screens show then.
+ * is called an idea, and the messages quoted are the ones the screens show then. Views on People
+ * (filters, columns, sort and saved views) show while CRM_VIEWS_ENABLED is on (`views`).
  */
 export default function YourAudienceHelp({
   people = isPeopleNameEnabled(),
@@ -41,6 +46,8 @@ export default function YourAudienceHelp({
   vizzyAddPerson = isVizzyAddPersonEnabled(),
   ideas = isIdeasEnabled(),
   ideaWords = isIdeaWordsEnabled(),
+  views = isViewsEnabled(),
+  settingsHistory = isSettingsHistoryEnabled(),
 }: HelpBodyProps = {}) {
   const area = peopleArea(people);
   const w = ideaWord(ideaWords);
@@ -48,6 +55,8 @@ export default function YourAudienceHelp({
   const vizzyText = fields && vizzyFields && vizzyTextFields;
   // Vizzy's New person drafts need New person.
   const vizzyAdds = addPerson && vizzyAddPerson;
+  // Views need fields (CRM_VIEWS_ENABLED needs AUDIENCE_FIELDS_ENABLED).
+  const viewsOn = fields && views;
   return (
     <article>
       <H1>{people ? "People" : "Your audience"}</H1>
@@ -82,6 +91,7 @@ export default function YourAudienceHelp({
             {fields ? <li>Your own fields on people and companies, with every change kept</li> : null}
             {addPerson ? <li>Adding someone you met by hand, with how they agreed to hear from you</li> : null}
             {vizzyFields ? <li>Vizzy suggesting changes to someone&apos;s fields, which an admin confirms</li> : null}
+            {viewsOn ? <li>Views of the people you need, with your own filters, columns and sort, kept for your team or for you</li> : null}
           </>
         }
       />
@@ -144,6 +154,90 @@ export default function YourAudienceHelp({
           </P>
           <P>
             An archived field or option leaves the menus, and the people who had it keep it: bring it back and its filter returns.
+          </P>
+        </>
+      ) : null}
+
+      {viewsOn ? (
+        <>
+          <H2 id="views">Views: filters, columns and sort</H2>
+          <Steps>
+            <li>
+              On the People list press <strong>Add filter</strong>. The list becomes a view, starting from what it showed: Everyone, or the{" "}
+              {w.one}, product or stage you picked.
+            </li>
+            <li>
+              Pick one of <Open href="/help/your-audience#fields">your fields</Open>, or <strong>{w.One}</strong>,{" "}
+              <strong>How they joined</strong>,{ideas ? <> <strong>In more than one {w.one}</strong>,</> : null} <strong>Product</strong>,{" "}
+              <strong>Stage</strong>, <strong>Quiet</strong>, <strong>Can email</strong>, <strong>Last active</strong>, <strong>First seen</strong>{" "}
+              or <strong>Email domain</strong>. Then pick how to compare, such as <strong>is any of</strong> or <strong>in the last</strong>, and a
+              value. The count updates as each filter is complete.
+            </li>
+            <li>
+              At the top of the filters, pick <strong>All of these</strong> or <strong>Any of these</strong>.
+            </li>
+            <li>
+              <strong>Columns</strong> picks up to 10 columns, Person always first. Drag a column, or use its arrows, to move it.{" "}
+              <strong>Sort</strong> sorts by any column with an order, such as an amount or a date. Click a column&apos;s name to sort by it too.
+            </li>
+            <li>
+              Search inside the view by name, email or domain with its own search box. The search box is never saved. Press{" "}
+              <strong>Views</strong>, then <strong>Everyone</strong>, to go back to the list.
+            </li>
+          </Steps>
+          <P>
+            Email, phone and link fields can only be filtered by whether they are empty. Days are counted in your brand&apos;s time zone, or UTC
+            when none is set. A filter starts working once it has a value: a new one changes nothing until you pick it.
+          </P>
+          <P>
+            A view with All of these starts from the smallest of its groups, such as {w.a}, a product, a stage or an option of a field. A group
+            of 5,000 people or fewer is checked in full. A bigger group is checked for its 5,000 most recently active people, and with no such
+            group (only a date filter, say, or Any of these) the view checks your 5,000 most recently active people. Words in its search box
+            check the 5,000 most recently active people the search finds. Each time, the view says so and how many people there are in all.
+            Load more shows the next 50 people who match.
+          </P>
+
+          <H2 id="saved-views">Saved views</H2>
+          <Steps>
+            <li>
+              Press <strong>Save view</strong>, type a name, and pick who can use it: <strong>Everyone on the team</strong> or{" "}
+              <strong>Only me</strong>.
+            </li>
+            <li>
+              It joins the <strong>Views</strong> menu, under <strong>Team views</strong> or <strong>Only me</strong>, and has its own link to
+              share with your team.
+            </li>
+            <li>
+              To change one, open it from Views, change it and press <strong>Save changes</strong>. The menu beside its name renames it, saves it
+              as a new view, archives a team view or deletes one of your own.
+            </li>
+          </Steps>
+          <P>
+            Only admins save, change and archive team views; anyone can save their own, and can press <strong>Save as my view</strong> on a
+            team view to keep a copy to change.{" "}
+            {settingsHistory ? (
+              <>
+                Each change to a team view is kept in <Open href="/help/history-and-restore#team-views">History</Open>, where an admin puts one
+                view back as it was. Your own views are never in it.
+              </>
+            ) : (
+              "Each change to a team view is kept in the settings history."
+            )}{" "}
+            An archived team view is kept too: an admin brings it back from <strong>Archived team views</strong> in Views. Your own views are
+            seen by nobody else, and deleting one removes it for good. A brand keeps up to 50 team views in use and 200 in
+            all, and each person up to 50 of their own.
+          </P>
+          <P>
+            A saved view keeps its filters, columns and sort, never words you typed: a filter on a text field&apos;s words or on the email domain
+            works while you look and is marked <strong>Typed words</strong> until you remove it to save. A team member in a filter is kept by
+            who they are; someone who has left the team shows as Former team member. If a field a view uses is archived, its filter is
+            marked <strong>Archived</strong> and ignored until the field is brought back. Its column is marked Archived in Columns: untick it
+            to make room for another.
+          </P>
+          <P>
+            Ask Vizzy how many people are in a saved view, for example &quot;how many people are in Wholesale, ordered lately?&quot;. Vizzy
+            reads your team&apos;s views and your own, counts up to 3 at a time, and never makes or changes one. A view that uses a field Vizzy
+            can&apos;t read (email, phone, link, team member, or a text field nobody let it read) gets no count.
           </P>
         </>
       ) : null}
@@ -293,10 +387,18 @@ export default function YourAudienceHelp({
               list never tick it again; an admin ticks it again if it should be.
             </P>
           ) : null}
-          <P>
-            <strong>Changes</strong> lists every change to the list, with who made it and when. Someone who has left your team shows as
-            Former team member. Restoring an older list comes with settings history.
-          </P>
+          {settingsHistory ? (
+            <P>
+              <strong>Changes</strong> lists the latest changes to the list, with who made it and when. Someone who has left your team
+              shows as Former team member. Under it, &quot;{HISTORY_LINE.link}&quot; opens{" "}
+              <Open href="/help/history-and-restore">History</Open>, where an admin previews and restores an older list.
+            </P>
+          ) : (
+            <P>
+              <strong>Changes</strong> lists every change to the list, with who made it and when. Someone who has left your team shows as
+              Former team member. Restoring an older list comes with settings history.
+            </P>
+          )}
           <P>Beside your own fields, a person&apos;s page shows fields from elsewhere, read only, each with where it comes from:</P>
           <UL>
             <li>their answers to {w.a}&apos;s sign-up questions, labelled with the {w.one};</li>
@@ -456,6 +558,29 @@ export default function YourAudienceHelp({
                     ] as Array<[string, string]>)
                   : []),
                 ["You can still add people.", "Nothing to fix now. See Plan and usage for your plan's people."],
+              ] as Array<[string, string]>)
+            : []),
+          ...(viewsOn
+            ? ([
+                [VIEW_MESSAGES.capped, "Nothing to fix. To check everyone, start the view from a smaller group with All of these, such as an option of one of your fields."],
+                [VIEW_MESSAGES.capped_group, "Nothing to fix. To check everyone in it, add a filter on a smaller group, such as an option of one of your fields, so the view starts there."],
+                [VIEW_MESSAGES.capped_search, "Type more of the name, email or domain, so the search finds fewer people."],
+                [VIEW_MESSAGES.typed_words, "Remove the filters marked Typed words, then save. You can still use them while you look."],
+                [VIEW_MESSAGES.team_views_full, "Change a team view you no longer use, or archive one to make room. Archived views still count towards the 200."],
+                [VIEW_MESSAGES.my_views_full, "Delete one of your own views you no longer use, then save."],
+                [VIEW_MESSAGES.views_busy, "Wait a moment, then change the view again or reload the page."],
+                [VIEW_MESSAGES.archived_field, "Bring the field back in Data model to use the filter again, or remove the filter."],
+                [VIEW_MESSAGES.archived_option, "Bring the option back in Data model, or take it out of the filter."],
+                [VIEW_MESSAGES.admins_only, "Save it with Only me as your own view, or ask an admin to save it for the team."],
+                [VIEW_MESSAGES.view_changed, "Open the view again from Views, then make your change on top of theirs."],
+                [VIEW_MESSAGES.view_too_large, "Remove a filter, or some of the values in one, then save."],
+                [VIEW_MESSAGES.views_changed, "Someone else saved a view at the same moment. Save again."],
+                [VIEW_MESSAGES.archived_view, "An admin presses Bring back on the view, or opens Archived team views in Views. Until then it isn't in the Views menu."],
+                [VIEW_MESSAGES.view_not_found, "The view was archived or deleted, or it is someone's own view. Open Views to pick one you can use."],
+                [VIEW_MESSAGES.rate_limited, "Wait a minute, then change the view again. Each change runs it, so finish a filter before the next."],
+                [VIEW_MESSAGES.sort_ignored, "Pick another sort under Sort, or bring the field back in Data model."],
+                [VIEW_MESSAGES.invalid_name, "Type a shorter name, then save."],
+                [VIEW_MESSAGES.invalid_view, "Remove the filters marked Archived or without a value, then save."],
               ] as Array<[string, string]>)
             : []),
           ...(timeline ? ([[TIMELINE_EMPTY, "Nothing to fix. Their timeline fills as things happen to them."]] as Array<[string, string]>) : []),

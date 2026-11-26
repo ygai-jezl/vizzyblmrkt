@@ -1,10 +1,11 @@
-"""Pure, ADK-free client logic for the get_audience_counts tool.
+"""Pure, ADK-free client logic for the get_audience_counts and get_view_counts tools.
 
 Mirrors insights_client.py: the request/response logic lives here (no ADK import)
 so it stays unit-testable without ADK; the only side effect, the HTTP GET, is
 isolated in `_get` so tests can monkeypatch it. Auth reuses the signed canvas
-capability token (`ctxToken` in session state); the /api/agent/audience/counts
-route takes the tenant from that token, never from here.
+capability token (`ctxToken` in session state); the /api/agent/audience/counts and
+/api/agent/audience/views routes take the tenant (and, for views, the member asking)
+from that token, never from here.
 """
 
 from __future__ import annotations
@@ -12,9 +13,13 @@ from __future__ import annotations
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 
 COUNTS_PATH = "/api/agent/audience/counts"
+VIEWS_PATH = "/api/agent/audience/views"
+#: Views one call counts; the app counts at most this many too.
+MAX_VIEW_COUNTS = 3
 _TIMEOUT_SECONDS = 30
 
 _ERRORS = {
@@ -65,3 +70,44 @@ def get_counts(state: "dict | None") -> dict:
         return {"status": "unavailable", "message": "Counting people isn't configured (no callback URL)."}
     status_code, body_text = _get(base + COUNTS_PATH, token)
     return parse_counts_response(status_code, body_text)
+
+
+_VIEW_ERRORS = {
+    "unavailable": "Saved views on People aren't switched on in this environment yet.",
+    "http_404": "Saved views on People aren't switched on in this environment yet.",
+    "canvas_auth_unconfigured": "Reading saved views from chat isn't enabled in this environment yet.",
+    "unauthorized": "My session to the app expired. Please send your message again.",
+    "rate_limited": "I've counted views several times just now. Please try again in a few minutes.",
+}
+
+
+def parse_view_counts_response(status_code: int, body_text: str) -> dict:
+    """Normalize the views endpoint's response into a tool result to answer from."""
+    try:
+        body = json.loads(body_text) if body_text else {}
+    except (json.JSONDecodeError, ValueError):
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    if 200 <= status_code < 300:
+        return {"status": "success", **body}
+    code = body.get("error") or f"http_{status_code}"
+    return {
+        "status": "error",
+        "code": code,
+        "message": _VIEW_ERRORS.get(code, "I couldn't read the saved views just now. Please try again."),
+    }
+
+
+def get_view_counts(state: "dict | None", views: "list | None" = None) -> dict:
+    """List the brand's saved views on People, and count up to 3 named ones. Never raises."""
+    token = (state or {}).get("ctxToken")
+    if not token:
+        return {"status": "unavailable", "message": "Reading saved views isn't available in this session yet."}
+    base = os.environ.get("CANVAS_CALLBACK_URL", "").rstrip("/")
+    if not base:
+        return {"status": "unavailable", "message": "Reading saved views isn't configured (no callback URL)."}
+    names = [str(v).strip()[:100] for v in (views or []) if str(v).strip()]
+    query = urllib.parse.urlencode([("count", n) for n in names[:10]])
+    status_code, body_text = _get(base + VIEWS_PATH + (f"?{query}" if query else ""), token)
+    return parse_view_counts_response(status_code, body_text)

@@ -13,6 +13,7 @@ import { getLiveTokenClient } from "@/lib/agents/gemini";
 import { LIVE_MODEL, buildLiveConnectConfig } from "@/lib/agents/liveConversation";
 import { activeBrandVoiceText } from "@/lib/content/create/activeBrandVoice";
 import { isLiveSupportedLocale, resolveCampaignLocale } from "@/lib/i18n/locale";
+import { voiceChatDone } from "@/lib/waitlist/voiceChat";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -107,8 +108,9 @@ export async function POST(
   if (!owner || owner.status === "deleted" || owner.status === "offboarded") {
     return NextResponse.json({ error: "no_signup" }, { status: 403 });
   }
-  // One conversation per signup.
-  if (owner.aiConversation?.completed) {
+  // One conversation per signup. A saved chat in which the person said nothing
+  // (a call that dropped) does not count, so they can try again.
+  if (voiceChatDone(owner.aiConversation)) {
     return NextResponse.json({ error: "already_completed" }, { status: 409 });
   }
 

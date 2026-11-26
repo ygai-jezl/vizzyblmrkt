@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 /**
  * Every composite query piece B's code makes, by shape, and the index it needs in firestore.indexes.json:
  * the two it adds (settings and catalog history) and the ones it relies on from before (People filters,
- * the timeline, Review's suggestions, the tick's expiry). A person's page reads their suggestions by
+ * the timeline, Review's suggestions, the tick's expiry), and the two Settings › History adds (piece O
+ * part 2), whose merged list reads every kind newest first. A person's page reads their suggestions by
  * equality filters only, which needs no composite index.
  * Only Firestore itself refuses a query with no index (the emulator and the fake serve anything),
  * so a new query shape added without its index passes every other test and fails once deployed.
@@ -39,6 +40,9 @@ const SHAPES: Shape[] = [
   { collection: "agent_actions", eq: ["action", "state"], order: "createdAt", desc: true, by: "listOpenAgentActions for Review (src/lib/review/summary.ts)" },
   // Actions past their expiry, on the lifecycle tick.
   { collection: "agent_actions", eq: ["state"], order: "expiresAt", by: "expireAgentActions via expireDueAgentActions (src/lib/lifecycle/runner.ts)" },
+  // Settings › History (piece O part 2): every published journey version and every catalog version, newest first.
+  { collection: "lifecycle_versions", order: "publishedAt", desc: true, by: "journeysSource for listHistory (src/lib/settings/sources.ts)" },
+  { collection: "catalog_revisions", order: "savedAt", desc: true, by: "catalogsSource for listHistory (src/lib/settings/sources.ts)" },
 ];
 
 type IndexField = { fieldPath: string; order?: string; arrayConfig?: string };

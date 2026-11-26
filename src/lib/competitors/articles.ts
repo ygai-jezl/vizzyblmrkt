@@ -1,9 +1,12 @@
 import { embedDocuments, embedQuery } from "@/lib/agents/embeddings";
+import { articleIdOfRef, competitorArticleRef, competitorArticleSource } from "@/lib/search/family";
+import { embedForFamily, indexFamily, nearestFamily, removeFamily, type FamilyDeps } from "@/lib/search/familyIndex";
+import { isOldVectorsRetired, isSearchCompetitorReadsEnabled, isSearchFamilyIndexEnabled } from "@/lib/search/flags";
 import { forTenant } from "@/lib/tenant";
 import { nearestBrandMapRecords, removeBrandMapVector, writeBrandMapVector } from "@/lib/tenant/brandMapVectors";
 import type { FirestoreLike, KnowledgeCollectionLike, TenantContext } from "@/lib/tenant/types";
 import { brandMonthlyLimit } from "@/lib/plans/limits";
-import type { CompetitorArticle, CompetitorPost } from "@/lib/types/competitor";
+import type { Competitor, CompetitorArticle, CompetitorPost } from "@/lib/types/competitor";
 import type { Tenant } from "@/lib/types/tenant";
 import { readByOlderReader } from "./articleRead";
 
@@ -15,9 +18,14 @@ import { readByOlderReader } from "./articleRead";
  * Every query here is an equality on one field (beside the brand), so none needs a composite
  * index. Totals are worked out from the records when a page asks, never stored, so two runs can't
  * lose a count.
+ *
+ * Meaning (ADR-0025): a read article is embedded in brand_map_vectors and, with
+ * SEARCH_FAMILY_INDEX_ENABLED, in brand search (kind competitor, ref {competitorId}/{articleId},
+ * status kept). With SEARCH_COMPETITOR_READS_ENABLED the readers use brand search only, and keep
+ * only refs with a slash: a competitor's own summary never answers "which article covers this".
  */
 
-export interface ArticleStoreDeps {
+export interface ArticleStoreDeps extends FamilyDeps {
   db?: FirestoreLike;
   now?: () => Date;
   /** Test seams. */
@@ -209,11 +217,16 @@ export async function linkTopicArticles(
   return linked;
 }
 
-/** Stop watching: a competitor's articles and their vectors go too. */
+/**
+ * Stop watching: a competitor's articles and their vectors go too, and their entries in brand
+ * search (with the competitor's summary) at once, forced, whatever any switch says.
+ */
 export async function removeArticles(ctx: TenantContext, competitorId: string, deps: ArticleStoreDeps = {}): Promise<number> {
   const repo = repoOf(ctx, deps);
   const rows = await repo.find({ where: [["competitorId", "==", competitorId]], limit: 5_000 });
-  for (const a of rows) if (a.status === "read") await removeBrandMapVector(ctx, "competitor_article", a.id, deps.db).catch(() => undefined);
+  const read = rows.filter((a) => a.status === "read");
+  for (const a of read) await removeBrandMapVector(ctx, "competitor_article", a.id, deps.db).catch(() => undefined);
+  await removeFamily(ctx, "competitor", [competitorId, ...read.map((a) => competitorArticleRef(competitorId, a.id))], deps);
   return repo.deleteWhere([["competitorId", "==", competitorId]]);
 }
 
@@ -224,22 +237,46 @@ export async function removeArticles(ctx: TenantContext, competitorId: string, d
 const articleText = (a: Pick<CompetitorArticle, "title" | "question" | "angle" | "summary">) =>
   [a.title, a.question, a.angle, a.summary].filter((s) => s?.trim()).join("\n");
 
-/** Embed what an article covers (best effort: a read is kept even when this fails). */
+/**
+ * Embed what an article covers (best effort: a read is kept even when this fails), in both stores
+ * (ADR-0025). Brand search titles it with its competitor's name, read when not given.
+ */
 export async function embedArticle(
   ctx: TenantContext,
-  a: Pick<CompetitorArticle, "id" | "title" | "question" | "angle" | "summary">,
+  a: Pick<CompetitorArticle, "id" | "competitorId" | "title" | "question" | "angle" | "summary">,
   deps: ArticleStoreDeps = {},
+  competitor?: Pick<Competitor, "id" | "name">,
 ): Promise<boolean> {
+  let indexed = false;
+  if (isSearchFamilyIndexEnabled()) {
+    const c = competitor ?? (await forTenant(ctx, deps.db).competitors.getById(a.competitorId).catch(() => null));
+    const src = c ? competitorArticleSource(c, a, { family: true }) : null;
+    if (src) indexed = Boolean((await indexFamily(ctx, [src], deps))[0]?.vector);
+  }
+  // Retired (ADR-0025): nothing is embedded for brand_map_vectors.
+  if (isOldVectorsRetired()) return indexed;
   try {
     const [vector] = await (deps.embed ?? embedDocuments)([{ content: articleText(a), title: "Competitor article" }], ctx.region);
-    if (!vector) return false;
+    if (!vector) return indexed;
     await writeBrandMapVector(ctx, { kind: "competitor_article", ref: a.id, status: "kept" }, vector, deps.db);
     return true;
   } catch (err) {
     console.warn("[competitors] embedding an article failed", err instanceof Error ? err.message.slice(0, 200) : "error");
-    return false;
+    return indexed;
   }
 }
+
+/** An article's entry in brand search taken out at once, forced (a listing page read again). */
+export async function unindexArticle(ctx: TenantContext, a: Pick<CompetitorArticle, "id" | "competitorId">, deps: ArticleStoreDeps = {}): Promise<void> {
+  await removeFamily(ctx, "competitor", [competitorArticleRef(a.competitorId, a.id)], deps);
+}
+
+/** Article ids among brand search's competitor hits: only refs with a slash, never a summary. */
+const articleHits = (hits: Array<{ ref: string; score: number }>) =>
+  hits.flatMap((h) => {
+    const id = articleIdOfRef(h.ref);
+    return id ? [{ ref: id, sim: h.score }] : [];
+  });
 
 /**
  * Which of these questions no competitor article is near in meaning (their ids, in order). Null when
@@ -251,6 +288,19 @@ export async function questionsNobodyCovers(
   minSim: number,
   deps: ArticleStoreDeps = {},
 ): Promise<string[] | null> {
+  if (isSearchCompetitorReadsEnabled()) {
+    const vectors = await embedForFamily(ctx, questions.map((q) => q.text), { query: true }, deps);
+    const checked = await Promise.all(
+      questions.map(async (q, i) => {
+        const vector = vectors[i];
+        if (!vector) return null;
+        const near = await nearestFamily(ctx, ["competitor"], vector, { statuses: ["kept"], limit: 1, minScore: minSim, keep: (h) => articleIdOfRef(h.ref) !== null }, deps).catch(() => null);
+        return near ? { id: q.id, covered: near.length > 0 } : null;
+      }),
+    );
+    if (checked.some((c) => c === null)) return null;
+    return checked.flatMap((c) => (c && !c.covered ? [c.id] : []));
+  }
   const checked = await Promise.all(
     questions.map(async (q) => {
       const vector = await (deps.query ?? embedQuery)(q.text.slice(0, 2000), ctx.region).catch(() => null);
@@ -270,11 +320,12 @@ export async function nearestCompetitorArticles(
   opts: { limit: number; minSim?: number },
   deps: ArticleStoreDeps = {},
 ): Promise<Array<{ article: CompetitorArticle; sim: number }>> {
-  const vector = await (deps.query ?? embedQuery)(text.slice(0, 2000), ctx.region).catch(() => null);
+  const onIndex = isSearchCompetitorReadsEnabled();
+  const [vector] = onIndex ? await embedForFamily(ctx, [text], { query: true }, deps) : [await (deps.query ?? embedQuery)(text.slice(0, 2000), ctx.region).catch(() => null)];
   if (!vector) return [];
-  const near = await nearestBrandMapRecords(ctx, { kind: "competitor_article", vector, limit: opts.limit, statuses: ["kept"], minSim: opts.minSim }, deps.vectors).catch(
-    () => [],
-  );
+  const near = onIndex
+    ? articleHits(await nearestFamily(ctx, ["competitor"], vector, { statuses: ["kept"], limit: opts.limit, minScore: opts.minSim, keep: (h) => articleIdOfRef(h.ref) !== null }, deps).catch(() => []))
+    : await nearestBrandMapRecords(ctx, { kind: "competitor_article", vector, limit: opts.limit, statuses: ["kept"], minSim: opts.minSim }, deps.vectors).catch(() => []);
   const repo = repoOf(ctx, deps);
   const found = await Promise.all(near.map(async (n) => ({ article: await repo.getById(n.ref), sim: n.sim })));
   return found.filter((f): f is { article: CompetitorArticle; sim: number } => f.article?.status === "read");

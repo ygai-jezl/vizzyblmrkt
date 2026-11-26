@@ -110,6 +110,12 @@ export default function ReviewAndApprovalsHelp({
         <li>
           <strong>Brand map suggestions</strong> and <strong>Content waiting for approval</strong>.
         </li>
+        <li>
+          <strong>Your strategy against competitors</strong>: where your copy of YouGrow checks your approved strategy each
+          week, one row when your competitors moved on it, with each reason in full. <strong>Review the strategy</strong> opens
+          the Strategy tab, and an admin can <strong>Dismiss</strong> it for 30 days (
+          <Open href="/help/brand-map">Brand map</Open>).
+        </li>
         {isAutopilotEnabled() ? (
           <li>
             <strong>Your next article</strong>: a question autopilot sorted and left ready to write, questions a draft asks

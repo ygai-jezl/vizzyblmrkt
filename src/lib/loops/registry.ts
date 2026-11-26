@@ -216,6 +216,7 @@ export const LOOPS = {
   product_map: none("It reads what your product's code does today, a fact rather than a taste, and a person decides what goes in the catalog."),
   onboarding: none("It turns what the founder said into the four answers and facts in their own words, and the founder keeps, changes or removes each one before anything is saved."),
   next_action: own("next_action_card", "A step your team dismissed stays off the card for 30 days, and the next card for the brand reads what was done, answered, dismissed with its reason or left untouched."),
+  raise_write: gap("Vizzy keeps its own draft of each slide beside the version a person saves, but the next deck learns nothing from those changes yet.", LATER),
   other: none("Not a choice: no code spends under this name today, and every new call should name its real purpose."),
   blog_hero: own("brand_kit", "Where learning from image votes is turned on, blog heroes made on the article follow the look learned from your thumbs and ratings, but a hero Vizzy makes during a chat skips it."),
   post_image: own("brand_kit", "Where learning from image votes is turned on, painted post images follow the look learned from your thumbs and ratings, but drawn styles, format cards and charts skip it."),

@@ -17,7 +17,7 @@ export const STRATEGY_ERRORS: Record<string, string> = {
   nothing_to_propose: "Say what you are on Who you are, or add buying situations, first.",
   nothing_to_find: "Say what you are on Who you are first: the finder asks who buyers weigh instead of you.",
   propose_failed: "Vizzy didn't come back with a strategy it could check. Try again in a minute.",
-  finder_quick_used: "This brand has used its one quick answer. The full finder comes with a plan that includes it.",
+  finder_quick_used: "This brand has used its one quick answer. The full competitor finder comes with plans that include it.",
   finder_not_included: "The full competitor finder isn't included for this brand.",
   finder_monthly_limit: "This brand has used its full finder runs for this month. They start again next month.",
   find_failed: "The finder got no answer from Google. Try again in a minute.",

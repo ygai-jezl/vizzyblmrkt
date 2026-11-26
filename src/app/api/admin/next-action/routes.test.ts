@@ -125,6 +125,17 @@ describe("POST /api/admin/next-action", () => {
     expect((await readNextActionCard(A, { db }))!.failure).toBe("allowlist");
   });
 
+  it("Show another that can't write a card answers failed with the card the founder has, and keeps it", async () => {
+    const first = (await (await post(compose, "next-action", { reason: "state" })).json()) as { view: { cardId: string } };
+    model.answer = null;
+    const res = await post(compose, "next-action", { reason: "another" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { composed: boolean; failed: string; view: { cardId: string } };
+    expect(body).toMatchObject({ composed: false, failed: "model" });
+    expect(body.view.cardId).toBe(first.view.cardId);
+    expect((await readNextActionCard(A, { db }))!.cardId).toBe(first.view.cardId);
+  });
+
   it("is rate limited per admin, more tightly for Show another", async () => {
     limits.isRateLimited.mockResolvedValueOnce(true);
     expect((await post(compose, "next-action", { reason: "another" })).status).toBe(429);

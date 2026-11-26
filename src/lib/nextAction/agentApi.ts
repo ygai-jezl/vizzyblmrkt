@@ -43,8 +43,9 @@ function doesOf(s: CardStepView): Record<string, unknown> {
  */
 export async function agentReadNextAction(ctx: TenantContext, deps: { db?: FirestoreLike; nowMs?: number } = {}): Promise<ApiResult> {
   if (ctx.role !== "admin") return { status: 403, body: { error: "admins_only" } };
-  const state = await loadNextActionState(ctx, {}, { db: deps.db });
   const now = deps.nowMs ?? Date.now();
+  // The record is read with its outcomes trimmed as of now: none older than 90 days reaches Vizzy.
+  const state = await loadNextActionState(ctx, {}, { db: deps.db, now: () => now });
   const view = cardView(state.record, state.env, state.signals, now);
   const record = state.record;
   return {

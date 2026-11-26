@@ -31,7 +31,11 @@ import {
  * - commitNextActionWrite: the new card (or the fallback) goes in, and the old card's open steps are
  *   declined as superseded and kept as ignored.
  * - recordNextActionOutcome: a step done, answered or dismissed (with the founder's reason).
- * - forgetNextActionCard: the record goes, with its outcomes, and its open steps are declined.
+ * - forgetNextActionCard: the card and every word in its outcomes go, and its open steps are
+ *   declined; the day's count and which steps were dismissed (ids and times only) stay.
+ *
+ * Outcomes are trimmed whenever the record is read as well as written, so one older than 90 days is
+ * never read again, even before the record is next written.
  */
 
 export const NEXT_ACTION_CARDS = "next_action_cards";
@@ -42,8 +46,11 @@ function recordRef(store: FirestoreLike, ctx: TenantContext): DocRefLike {
   return store.collection(NEXT_ACTION_CARDS).doc(nextActionDocId(ctx.tenantId));
 }
 
-/** The stored record, checked and parsed; null when there is none or it can't be read. */
-function parseSnap(ctx: TenantContext, snap: DocSnapLike): NextActionRecord | null {
+/**
+ * The stored record, checked and parsed, with its outcomes trimmed as of `nowMs`; null when there is
+ * none or it can't be read.
+ */
+function parseSnap(ctx: TenantContext, snap: DocSnapLike, nowMs: number): NextActionRecord | null {
   if (!snap.exists) return null;
   const data = snap.data() ?? {};
   if (data[TENANT_FIELD] !== ctx.tenantId) throw new TenantIsolationError(`${NEXT_ACTION_CARDS}/${snap.id} belongs to another tenant`);
@@ -52,7 +59,7 @@ function parseSnap(ctx: TenantContext, snap: DocSnapLike): NextActionRecord | nu
     console.warn(`[next-action] ${NEXT_ACTION_CARDS}/${snap.id} can't be read; it is written again`);
     return null;
   }
-  return parsed.data;
+  return { ...parsed.data, outcomes: trimOutcomes(parsed.data.outcomes, nowMs) };
 }
 
 /** The record as stored, without its id, stamped with the brand. */
@@ -60,22 +67,49 @@ function stored(ctx: TenantContext, r: Omit<NextActionRecord, "id" | "tenantId">
   return JSON.parse(JSON.stringify({ ...r, [TENANT_FIELD]: ctx.tenantId })) as Record<string, unknown>;
 }
 
-/** The brand's record: the card on Home now and the newest outcomes. Null when there is none. */
-export async function readNextActionCard(ctx: TenantContext, opts: { db?: FirestoreLike } = {}): Promise<NextActionRecord | null> {
+/**
+ * The brand's record: the card on Home now and the newest outcomes, trimmed as of `nowMs` (default
+ * now). Null when there is none.
+ */
+export async function readNextActionCard(ctx: TenantContext, opts: { db?: FirestoreLike; nowMs?: number } = {}): Promise<NextActionRecord | null> {
   const store = regionalStoreFor(ctx, opts.db);
-  return parseSnap(ctx, await recordRef(store, ctx).get());
+  return parseSnap(ctx, await recordRef(store, ctx).get(), opts.nowMs ?? Date.now());
 }
 
+const newestFirst = (a: Outcome, b: Outcome) => b.at.localeCompare(a.at);
+
 /**
- * The outcomes kept: newest first, the newest 30, none older than 90 days. Pure: every write of the
- * record runs it, so older outcomes (and the reasons in them) leave on the next write.
+ * The outcomes kept, newest first: the newest 30, and besides them the newest dismissal of each step
+ * from the last 30 days, so a step stays off the card for its quiet days however many outcomes came
+ * after; none older than 90 days. Pure: every read and write of the record runs it, so an older
+ * outcome (and the reason in it) is never read again and leaves on the next write.
  */
 export function trimOutcomes(outcomes: readonly Outcome[], nowMs: number): Outcome[] {
   const since = nowMs - L.OUTCOME_DAYS * DAY_MS;
-  return [...outcomes]
-    .filter((o) => Date.parse(o.at) >= since)
-    .sort((a, b) => b.at.localeCompare(a.at))
-    .slice(0, L.OUTCOMES);
+  const quietSince = nowMs - L.QUIET_DAYS * DAY_MS;
+  const recent = outcomes.filter((o) => Date.parse(o.at) >= since).sort(newestFirst);
+  const newest = recent.slice(0, L.OUTCOMES);
+  const quiet = new Set(newest.filter((o) => o.state === "dismissed").map((o) => o.actionKey));
+  const older = recent.slice(L.OUTCOMES).filter((o) => {
+    if (o.state !== "dismissed" || Date.parse(o.at) < quietSince || quiet.has(o.actionKey)) return false;
+    quiet.add(o.actionKey);
+    return true;
+  });
+  return [...newest, ...older].sort(newestFirst);
+}
+
+/**
+ * The dismissals still in their quiet days, with no words: what a forgotten card leaves, so a step
+ * the founder dismissed stays off the next card. Newest per step.
+ */
+export function quietOnly(outcomes: readonly Outcome[], nowMs: number): Outcome[] {
+  const quietSince = nowMs - L.QUIET_DAYS * DAY_MS;
+  const seen = new Set<string>();
+  return [...outcomes].sort(newestFirst).flatMap((o) => {
+    if (o.state !== "dismissed" || Date.parse(o.at) < quietSince || seen.has(o.actionKey)) return [];
+    seen.add(o.actionKey);
+    return [{ ...o, title: "", reason: null, answer: null }];
+  });
 }
 
 const utcDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
@@ -126,7 +160,7 @@ export async function claimNextActionWrite(
   return retryOnceOnExists(() =>
     store.runTransaction(async (txn): Promise<ClaimResult> => {
       const snap = await txn.get(ref);
-      const record = parseSnap(ctx, snap);
+      const record = parseSnap(ctx, snap, opts.nowMs);
       if (record?.leaseUntil && Date.parse(record.leaseUntil) > opts.nowMs) return { ok: false, reason: "busy", record };
       const today = utcDay(opts.nowMs);
       const used = record && record.composeDay === today ? record.composeCount : 0;
@@ -141,22 +175,37 @@ export async function claimNextActionWrite(
   );
 }
 
-/** Let go of a hold without writing a card (a write that failed on the way). */
-export async function releaseNextActionWrite(ctx: TenantContext, leaseId: string, opts: { db?: FirestoreLike } = {}): Promise<void> {
+/**
+ * Let go of a hold without writing a card (a write that failed on the way, or Show another that
+ * could not write one). `spentAt`: the model was asked, so the call counts toward the brand's cards
+ * for that UTC day, as a written card does.
+ */
+export async function releaseNextActionWrite(ctx: TenantContext, leaseId: string, opts: { db?: FirestoreLike; spentAt?: number } = {}): Promise<void> {
   const store = regionalStoreFor(ctx, opts.db);
   const ref = recordRef(store, ctx);
   await store.runTransaction(async (txn) => {
-    const record = parseSnap(ctx, await txn.get(ref));
-    if (record?.leaseId === leaseId) txn.update(ref, { leaseUntil: null, leaseId: null });
+    const record = parseSnap(ctx, await txn.get(ref), opts.spentAt ?? Date.now());
+    if (record?.leaseId !== leaseId) return;
+    const patch: Record<string, unknown> = { leaseUntil: null, leaseId: null };
+    if (opts.spentAt !== undefined) {
+      const day = utcDay(opts.spentAt);
+      patch.composeDay = day;
+      patch.composeCount = (record.composeDay === day ? record.composeCount : 0) + 1;
+    }
+    txn.update(ref, patch);
   });
 }
 
 /** A step's title on a card, for its outcome. */
 const titleOf = (card: ActionCard | null, key: StepKey) => card?.steps.find((s) => s.key === key)?.title ?? "";
 
+/** Who records a goal the brand reached: nobody pressed anything, its count got there. */
+const GOAL_ACTOR: EventActor = { type: "system", id: "next_action" };
+
 /**
- * Read the open steps' agent actions and plan each one's decline (superseded). A step whose action
- * moved meanwhile, or is gone, is left as it is.
+ * Read the open steps' agent actions and plan each one's move: a goal the brand reached (`reached`)
+ * is acted as done, any other open step is declined (superseded). A step whose action moved
+ * meanwhile, or is gone, is left as it is.
  */
 async function planSupersede(
   txn: TransactionLike,
@@ -165,7 +214,8 @@ async function planSupersede(
   steps: readonly CardStepRecord[],
   by: EventActor,
   at: string,
-): Promise<{ plans: AgentTransitionOk[]; ignored: CardStepRecord[] }> {
+  reached: ReadonlySet<StepKey> = new Set(),
+): Promise<{ plans: AgentTransitionOk[]; ignored: CardStepRecord[]; done: CardStepRecord[] }> {
   const open = steps.filter((s) => s.state === "open");
   // A stored action this build can't read is left for the expiry tick; another brand's still throws.
   const current = await Promise.all(
@@ -177,18 +227,14 @@ async function planSupersede(
     ),
   );
   const plans: AgentTransitionOk[] = [];
-  current.forEach((a) => {
+  current.forEach((a, i) => {
     if (!a) return;
-    const plan = planAgentTransition(a, {
-      to: "declined",
-      reason: "superseded",
-      by,
-      at,
-      expectRev: a.rev,
-    });
+    const plan = reached.has(open[i]!.key)
+      ? planAgentTransition(a, { to: "acted", by: GOAL_ACTOR, at, expectRev: a.rev, result: { outcome: "done", goal: "reached" } })
+      : planAgentTransition(a, { to: "declined", reason: "superseded", by, at, expectRev: a.rev });
     if (plan.ok) plans.push(plan);
   });
-  return { plans, ignored: open };
+  return { plans, ignored: open.filter((s) => !reached.has(s.key)), done: open.filter((s) => reached.has(s.key)) };
 }
 
 export interface NextActionWrite {
@@ -207,6 +253,8 @@ export interface NextActionWrite {
   reason: "state" | "another";
   model: string;
   promptVersion: number;
+  /** Goals on the old card the brand reached: recorded as done, not ignored. */
+  reached?: readonly StepKey[];
 }
 
 export type CommitResult = { ok: true; record: NextActionRecord; superseded: number } | { ok: false; reason: "lost" };
@@ -223,21 +271,20 @@ export async function commitNextActionWrite(ctx: TenantContext, w: NextActionWri
   return retryOnceOnExists(() =>
     store.runTransaction(async (txn): Promise<CommitResult> => {
       const snap = await txn.get(ref);
-      const record = parseSnap(ctx, snap);
+      const record = parseSnap(ctx, snap, nowMs);
       if (!record || record.leaseId !== w.leaseId) return { ok: false, reason: "lost" };
-      const { plans, ignored } = await planSupersede(txn, store, ctx, record.steps, w.by, w.at);
-      const gone: Outcome[] = record.cardId
-        ? ignored.map((s) => ({
-            at: w.at,
-            cardId: record.cardId!,
-            step: s.key,
-            actionKey: s.actionKey,
-            title: titleOf(record.card, s.key),
-            state: "ignored" as const,
-            reason: null,
-            answer: null,
-          }))
-        : [];
+      const { plans, ignored, done } = await planSupersede(txn, store, ctx, record.steps, w.by, w.at, new Set(w.reached ?? []));
+      const row = (s: CardStepRecord, state: "ignored" | "done"): Outcome => ({
+        at: w.at,
+        cardId: record.cardId!,
+        step: s.key,
+        actionKey: s.actionKey,
+        title: titleOf(record.card, s.key),
+        state,
+        reason: null,
+        answer: null,
+      });
+      const gone: Outcome[] = record.cardId ? [...done.map((s) => row(s, "done")), ...ignored.map((s) => row(s, "ignored"))] : [];
       const today = utcDay(nowMs);
       const next: Omit<NextActionRecord, "id" | "tenantId"> = {
         status: w.status,
@@ -305,7 +352,7 @@ export async function recordNextActionOutcome(ctx: TenantContext, input: Outcome
   return retryOnceOnExists(() =>
     store.runTransaction(async (txn): Promise<OutcomeResult> => {
       const snap = await txn.get(ref);
-      const record = parseSnap(ctx, snap);
+      const record = parseSnap(ctx, snap, nowMs);
       if (!record?.card || !record.cardId) return { ok: false, error: "not_found" };
       if (record.cardId !== input.cardId) return { ok: false, error: "card_changed" };
       const step = record.card.steps.find((s) => s.key === input.step);
@@ -367,20 +414,35 @@ export async function recordNextActionOutcome(ctx: TenantContext, input: Outcome
 }
 
 /**
- * Forget the brand's card and its outcomes (an admin removed a fact or deleted a conversation in
- * About your business, so nothing written from them stays). Its open steps are declined as
- * superseded in the same transaction. False when there was no record.
+ * Forget the brand's card (an admin removed a fact or deleted a conversation in About your
+ * business, so nothing written from them stays): the card, its steps and every title, reason and
+ * answer in the outcomes go, and its open steps are declined as superseded in the same transaction.
+ * Two things stay, with no words: the day's count, so the 20 a day still holds, and which steps were
+ * dismissed in the last 30 days (ids and times), so "won't suggest it again for 30 days" still
+ * holds. A write in progress loses its hold, so a card written from the removed words never goes
+ * in. False when there was no record.
  */
 export async function forgetNextActionCard(ctx: TenantContext, opts: { at: string; by: EventActor; db?: FirestoreLike }): Promise<boolean> {
   const store = regionalStoreFor(ctx, opts.db);
   const ref = recordRef(store, ctx);
+  const nowMs = Date.parse(opts.at);
   return retryOnceOnExists(() =>
     store.runTransaction(async (txn) => {
       const snap = await txn.get(ref);
       if (!snap.exists) return false;
-      const record = parseSnap(ctx, snap);
+      const record = parseSnap(ctx, snap, nowMs);
       const { plans } = record ? await planSupersede(txn, store, ctx, record.steps, opts.by, opts.at) : { plans: [] };
-      txn.delete(ref);
+      const base = blank(opts.at);
+      txn.set(
+        ref,
+        stored(ctx, {
+          ...base,
+          composeDay: record?.composeDay ?? base.composeDay,
+          composeCount: record?.composeCount ?? 0,
+          outcomes: record ? quietOnly(record.outcomes, nowMs) : [],
+          createdAt: record?.createdAt ?? base.createdAt,
+        }),
+      );
       for (const plan of plans) stageAgentTransition(txn, store, ctx, plan);
       return true;
     }),

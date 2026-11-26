@@ -96,4 +96,14 @@ describe("GET /api/agent/next-action", () => {
     // Another brand sees none of it.
     expect(await (await route.GET(call(OTHER))).json()).toMatchObject({ status: "none", card: null, recent: [] });
   });
+
+  it("never hands Vizzy an outcome, or the reason in it, older than 90 days", async () => {
+    await composeNextAction(ADMIN, { reason: "state" }, { db, usage: NO_USAGE, generate: async () => JSON.stringify(ANSWER) });
+    const rec = (await readNextActionCard(ADMIN, { db }))!;
+    const old = { at: new Date(Date.now() - 91 * 86_400_000).toISOString(), cardId: rec.cardId, step: "s2", actionKey: "page.create_launch", title: "Create your first idea", state: "dismissed", reason: "Words from long ago", answer: null };
+    await db.collection("next_action_cards").doc(rec.id).update({ outcomes: [old] });
+    const body = await (await route.GET(call(ADMIN))).json();
+    expect(body.recent).toEqual([]);
+    expect(JSON.stringify(body)).not.toContain("Words from long ago");
+  });
 });

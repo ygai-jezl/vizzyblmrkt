@@ -30,11 +30,20 @@ import type { EventActor } from "@/lib/ontology/events";
 import { agentDedupeKey, type AgentActionId } from "@/lib/types/agentAction";
 import { ONBOARDING_LIMITS } from "@/lib/types/onboarding";
 import type { Tenant } from "@/lib/types/tenant";
-import { NEXT_ACTION_LIMITS, stepActionKey, type ActionId, type CardStepRecord, type NextActionRecord, type Step, type StepKey } from "@/lib/types/nextAction";
+import {
+  NEXT_ACTION_LIMITS,
+  stepActionKey,
+  type ActionId,
+  type CardStepRecord,
+  type FallbackReason,
+  type NextActionRecord,
+  type Step,
+  type StepKey,
+} from "@/lib/types/nextAction";
 import { allowedActions, type ActionEnv } from "./actions";
 import { writeCard, type ComposeDeps } from "./compose";
 import { PROMPT_VERSION, doneSince, inputHash, quietKeys, type NextActionInputs } from "./inputs";
-import { cardView, type CardView } from "./view";
+import { cardView, goalReached, type CardView } from "./view";
 
 /**
  * Your next action, end to end (NEXT_ACTION_CARD_ENABLED, ADR-0020): what a card is written from,
@@ -83,6 +92,22 @@ export function actionEnv(ctx: Pick<TenantContext, "role">, signals: ActionEnv["
   };
 }
 
+/**
+ * The card's steps as the inputs count them: a goal the brand reached counts as decided, so a card
+ * whose other steps are all decided is written again once the count gets there.
+ */
+export function stepsAsDecided(record: NextActionRecord | null, signals: Pick<GrowthSignals, "signups" | "postsScheduled" | "newslettersSent">): CardStepRecord[] {
+  if (!record) return [];
+  const reached = reachedGoals(record, signals);
+  return record.steps.map((s) => (reached.has(s.key) ? { ...s, state: "done" as const } : s));
+}
+
+/** The open goal steps on the card whose count got to its target. */
+export function reachedGoals(record: NextActionRecord | null, signals: Pick<GrowthSignals, "signups" | "postsScheduled" | "newslettersSent">): Set<StepKey> {
+  const open = new Set((record?.steps ?? []).filter((s) => s.state === "open").map((s) => s.key));
+  return new Set((record?.card?.steps ?? []).filter((s) => open.has(s.key) && s.progress && goalReached(s.progress, signals)).map((s) => s.key));
+}
+
 export interface NextActionState {
   tenant: Tenant | null;
   signals: GrowthSignals;
@@ -99,11 +124,12 @@ export async function loadNextActionState(
   pre: { tenant?: Tenant | null; signals?: GrowthSignals } = {},
   deps: NextActionDeps = {},
 ): Promise<NextActionState> {
+  const nowMs = (deps.now ?? Date.now)();
   const [tenant, signals, facts, record] = await Promise.all([
     pre.tenant !== undefined ? pre.tenant : getTenantById(ctx.tenantId, deps.db).catch(() => null),
     pre.signals ?? loadGrowthSignals(ctx, homeSignalOptions(), deps.db),
     listBusinessFacts(ctx, { db: deps.db }),
-    readNextActionCard(ctx, { db: deps.db }),
+    readNextActionCard(ctx, { db: deps.db, nowMs }),
   ]);
   const env = actionEnv(ctx, signals);
   const allowed = allowedActions(env);
@@ -115,7 +141,7 @@ export async function loadNextActionState(
     signals,
     outcomes: record?.outcomes ?? [],
     allowed,
-    current: record ? { cardId: record.cardId, steps: record.steps } : null,
+    current: record ? { cardId: record.cardId, steps: stepsAsDecided(record, signals) } : null,
     model: TEXT_MODEL,
   };
   return { tenant, signals, env, allowed, inputs, hash: inputHash(inputs), record };
@@ -136,10 +162,26 @@ export function cardFits(tenant: Pick<Tenant, "businessProfile"> | null): boolea
  */
 export const CARD_MAX_DAYS = NEXT_ACTION_LIMITS.STEP_DAYS - 2;
 
-/** Whether the kept card was written from these inputs, and recently enough. */
+/**
+ * How long a fallback stands for the same inputs before Home asks again. A model that did not answer
+ * (a timeout, 429 or 5xx) is tried again soon; an answer that failed the checks a little later, as
+ * the next answer may pass. Both stay within the brand's cards for the day.
+ */
+export const FALLBACK_RETRY_MS: Record<FallbackReason, number> = {
+  model: 30 * 60_000,
+  schema: 6 * 3_600_000,
+  allowlist: 6 * 3_600_000,
+  writing: 6 * 3_600_000,
+  empty: 6 * 3_600_000,
+};
+
+/** Whether the kept card (or fallback) was written from these inputs, and recently enough. */
 export function isFresh(state: Pick<NextActionState, "record" | "hash">, nowMs: number): boolean {
   const r = state.record;
-  return !!r && r.inputHash === state.hash && nowMs - Date.parse(r.composedAt) < CARD_MAX_DAYS * DAY_MS;
+  if (!r || r.inputHash !== state.hash) return false;
+  const age = nowMs - Date.parse(r.composedAt);
+  if (r.status === "fallback" && r.failure) return age < FALLBACK_RETRY_MS[r.failure];
+  return age < CARD_MAX_DAYS * DAY_MS;
 }
 
 /** What Home draws, and whether it should ask for a new card. Reads only: never the model. */
@@ -185,13 +227,22 @@ export type ComposeResult = {
   record: NextActionRecord | null;
   /** Why nothing was written: another write holds it, or the brand's cards for today are used. */
   held?: "busy" | "limited";
+  /** Show another could not write a card: the card on Home stays as it was. */
+  failed?: FallbackReason;
   state: NextActionState;
 };
 
+/** Decline steps proposed for a card that never went in: nobody saw them. Never throws. */
+async function declineUnshown(ctx: TenantContext, steps: readonly CardStepRecord[], by: EventActor, at: string, deps: NextActionDeps): Promise<void> {
+  await Promise.all(steps.map((s) => transitionAgentAction(ctx, s.agentActionId, { to: "declined", reason: "superseded", by, at }, { db: deps.db }).catch(() => null)));
+}
+
 /**
  * Write a new card when the inputs changed ("state") or the founder asked for another ("another").
- * Any model or check failure is kept as the fallback for these inputs, so the same inputs never
- * ask the model twice. Never throws for a failed card; a store error lets go of the hold and throws.
+ * On "state", a model or check failure is kept as the fallback for these inputs for a while
+ * (FALLBACK_RETRY_MS), so the same inputs don't ask the model again at once. On "another", a failure
+ * writes nothing: the card on Home stays, and the call still counts toward the day. Never throws for
+ * a failed card; a store error declines any steps already proposed, lets go of the hold and throws.
  */
 export async function composeNextAction(ctx: TenantContext, opts: { reason: "state" | "another" }, deps: NextActionDeps = {}): Promise<ComposeResult> {
   const now = deps.now ?? Date.now;
@@ -201,6 +252,10 @@ export async function composeNextAction(ctx: TenantContext, opts: { reason: "sta
   const claim = await claimNextActionWrite(ctx, { nowMs: now(), leaseMs: LEASE_MS, db: deps.db });
   if (!claim.ok) return { composed: false, record: claim.record, held: claim.reason, state };
   const leaseId = claim.leaseId;
+  const another = opts.reason === "another";
+  const by: EventActor = another ? { type: "member", id: ctx.userId ?? null } : { type: "system", id: "next_action" };
+  let asked = false;
+  let proposed: CardStepRecord[] = [];
   try {
     const record = claim.record;
     if (opts.reason === "state" && isFresh({ record, hash: state.hash }, now())) {
@@ -208,25 +263,35 @@ export async function composeNextAction(ctx: TenantContext, opts: { reason: "sta
       return { composed: false, record, state };
     }
     const outcomes = record?.outcomes ?? [];
-    const another = opts.reason === "another";
-    const inputs: NextActionInputs = { ...state.inputs, outcomes, current: record ? { cardId: record.cardId, steps: record.steps } : null };
+    const reached = reachedGoals(record, state.signals);
+    const inputs: NextActionInputs = { ...state.inputs, outcomes, current: record ? { cardId: record.cardId, steps: stepsAsDecided(record, state.signals) } : null };
     const replaced = another && record?.card ? record.card.steps : [];
+    asked = true;
     const result = await writeCard(
       inputs,
       {
         allowed: new Set(state.allowed),
         quiet: quietKeys(outcomes, now()),
-        doneSinceLast: doneSince(outcomes, record?.cardId ?? null),
+        doneSinceLast: doneSince(outcomes, record?.cardId ?? null) || reached.size > 0,
         ...(replaced.length ? { replaced: new Set(replaced.map(stepActionKey)) } : {}),
       },
       deps.usage ?? aiUsage(ctx, "next_action", { tenant: state.tenant, db: deps.db }),
       { another, replacedTitles: replaced.map((s) => s.title) },
       { generate: deps.generate },
     );
+    if (!result.ok && another) {
+      // The founder keeps the card they have; the call counts toward the brand's cards today.
+      await releaseNextActionWrite(ctx, leaseId, { db: deps.db, spentAt: now() });
+      return { composed: false, record, failed: result.reason, state };
+    }
     const at = new Date(now()).toISOString();
-    const by: EventActor = another ? { type: "member", id: ctx.userId ?? null } : { type: "system", id: "next_action" };
     const cardId = result.ok ? newCardId() : null;
-    const steps = result.ok ? await Promise.all(result.card.steps.map((s) => proposeStep(ctx, cardId!, s, by, at, deps))) : [];
+    if (result.ok) {
+      const settled = await Promise.allSettled(result.card.steps.map((s) => proposeStep(ctx, cardId!, s, by, at, deps)));
+      proposed = settled.flatMap((p) => (p.status === "fulfilled" ? [p.value] : []));
+      const refused = settled.find((p): p is PromiseRejectedResult => p.status === "rejected");
+      if (refused) throw refused.reason;
+    }
     const commit = await commitNextActionWrite(
       ctx,
       {
@@ -238,24 +303,25 @@ export async function composeNextAction(ctx: TenantContext, opts: { reason: "sta
         inputHash: inputHash({ ...inputs, current: null }),
         cardId,
         card: result.ok ? result.card : null,
-        steps,
+        steps: proposed,
         failure: result.ok ? null : result.reason,
         reason: opts.reason,
         model: TEXT_MODEL,
         promptVersion: PROMPT_VERSION,
+        reached: [...reached],
       },
       { db: deps.db },
     );
     if (!commit.ok) {
       // Another write took the record over: this card's steps were never shown.
-      await Promise.all(
-        steps.map((s) => transitionAgentAction(ctx, s.agentActionId, { to: "declined", reason: "superseded", by, at }, { db: deps.db }).catch(() => null)),
-      );
-      return { composed: false, record: await readNextActionCard(ctx, { db: deps.db }), held: "busy", state };
+      await declineUnshown(ctx, proposed, by, at, deps);
+      return { composed: false, record: await readNextActionCard(ctx, { db: deps.db, nowMs: now() }), held: "busy", state };
     }
     return { composed: true, record: commit.record, state };
   } catch (err) {
-    await releaseNextActionWrite(ctx, leaseId, { db: deps.db }).catch(() => undefined);
+    // Steps proposed for a card that never went in are declined, not left for the expiry tick.
+    await declineUnshown(ctx, proposed, by, new Date(now()).toISOString(), deps);
+    await releaseNextActionWrite(ctx, leaseId, { db: deps.db, ...(asked ? { spentAt: now() } : {}) }).catch(() => undefined);
     throw err;
   }
 }

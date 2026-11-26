@@ -1,12 +1,12 @@
 import type { GrowthSignals } from "@/lib/nav/growth";
-import type { GoalMetric, NextActionRecord, StepKey, StepState } from "@/lib/types/nextAction";
+import type { GoalMetric, NextActionRecord, Progress, StepKey, StepState } from "@/lib/types/nextAction";
 import { allowedActions, resolveAction, type ActionEnv } from "./actions";
 import { recheckCard } from "./card";
 
 /**
  * The card as Home draws it (ADR-0020): each button resolved on the server to a path from the list
- * or one of our prompts, a goal's count read from the brand's data, and dismissed or replaced steps
- * left out. Pure, and client safe in its output: the view holds no ids from the allowlist's inside.
+ * or one of our prompts, a goal's count read from the brand's data (a goal reached is done), and
+ * dismissed or replaced steps left out. Pure, and client safe in its output: the view holds no ids from the allowlist's inside.
  */
 
 export interface CardStepView {
@@ -30,10 +30,18 @@ export interface CardView {
   total: number;
 }
 
-function countOf(metric: GoalMetric, s: Pick<GrowthSignals, "signups" | "postsScheduled" | "newslettersSent">): number | null {
+type Counts = Pick<GrowthSignals, "signups" | "postsScheduled" | "newslettersSent">;
+
+function countOf(metric: GoalMetric, s: Counts): number | null {
   if (metric === "signups") return s.signups;
   if (metric === "posts") return s.postsScheduled;
   return s.newslettersSent;
+}
+
+/** Whether the brand's count got to a goal's target: the goal is done, with nothing to press. */
+export function goalReached(goal: Pick<Progress, "metric" | "target">, s: Counts): boolean {
+  const now = countOf(goal.metric, s);
+  return now !== null && now >= goal.target;
 }
 
 /**
@@ -56,7 +64,8 @@ export function cardView(
   });
   if (!shown.length) return null;
   const steps: CardStepView[] = shown.map((s, i) => {
-    const state = stateOf.get(s.key) as CardStepView["state"];
+    const kept = stateOf.get(s.key) as CardStepView["state"];
+    const state = kept === "open" && s.progress && goalReached(s.progress, signals) ? "done" : kept;
     const resolved = s.action ? resolveAction(s.action, env) : null;
     const picked = record.outcomes.find((o) => o.cardId === record.cardId && o.step === s.key && o.state === "answered")?.answer ?? null;
     return {

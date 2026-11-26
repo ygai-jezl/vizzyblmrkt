@@ -1537,12 +1537,17 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "next_action_card",
     name: "Your next action",
     description:
-      "The card Vizzy writes for Home's Your next action: 1 to 3 steps from the brand's four answers, the facts an admin kept and where the brand is, each with a line on why in the founder's own terms, and the newest 30 outcomes of earlier steps (done, answered, dismissed with the reason a person gave, or replaced untouched), which the next card reads. One record per brand. Each step is also an agent action, which holds only ids.",
+      "The card Vizzy writes for Home's Your next action: 1 to 3 steps from the brand's four answers, the facts an admin kept and where the brand is, each with a line on why in the founder's own terms, and the newest 30 outcomes of earlier steps (done, answered, dismissed with the reason a person gave, or replaced untouched) with each step's newest dismissal of the last 30 days, which the next card reads. One record per brand. Each step is also an agent action, which holds only ids.",
     place: "partner_agent",
     status: "built",
     home: "brand",
     personal: "team",
-    stores: [regional("next_action_cards", "one record per brand: the card, the hash of what it was written from, and the newest 30 outcomes; a dismissal's reason is the member's own words")],
+    stores: [
+      regional(
+        "next_action_cards",
+        "one record per brand: the card, the hash of what it was written from, the day's count, and the newest 30 outcomes with each step's newest dismissal of the last 30 days; a dismissal's reason is the member's own words",
+      ),
+    ],
     links: [
       { to: "brand", via: "one record per brand", many: false },
       { to: "agent_action", via: "each step's agentActionId", many: true },
@@ -1551,8 +1556,16 @@ export const ONTOLOGY: readonly OntologyType[] = [
     events: [],
     erase: {
       paths: [
-        brandPath("forgetNextActionCard", NEXT_ACTION, "an admin removes a fact or deletes a conversation in About your business, so nothing written from them stays"),
-        retention("trimOutcomes", NEXT_ACTION, "outcomes past the newest 30, or older than 90 days, leave when the record is next written"),
+        brandPath(
+          "forgetNextActionCard",
+          NEXT_ACTION,
+          "an admin removes a fact or deletes a conversation in About your business: the card and every title, reason and answer go; only the day's count and which steps were dismissed (ids and times) stay",
+        ),
+        retention(
+          "trimOutcomes",
+          NEXT_ACTION,
+          "outcomes past the newest 30 (besides each step's newest dismissal of the last 30 days), or older than 90 days, are never read again and leave when the record is next written",
+        ),
       ],
       gaps: ["no path deletes a whole brand and everything it holds", "a person's erase does not find a reason that names them: it is free text"],
     },

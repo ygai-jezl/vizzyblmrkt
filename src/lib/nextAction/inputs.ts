@@ -93,7 +93,9 @@ const day = (iso: string) => {
 export function outcomesForPrompt(outcomes: readonly Outcome[]): string {
   const lines = outcomes.slice(0, PROMPT_OUTCOMES).map((o) => {
     const extra = o.state === "dismissed" && o.reason ? `, because: ${fencedLine(o.reason)}` : o.state === "answered" && o.answer ? `: ${fencedLine(o.answer)}` : "";
-    return `- ${o.state}, ${day(o.at)}: ${fencedLine(o.title)} [${o.actionKey}]${extra}`;
+    // A forgotten card keeps its dismissals with no words: the id says which step.
+    const title = fencedLine(o.title);
+    return `- ${o.state}, ${day(o.at)}: ${title ? `${title} ` : ""}[${o.actionKey}]${extra}`;
   });
   return lines.length ? lines.join("\n") : "none yet";
 }

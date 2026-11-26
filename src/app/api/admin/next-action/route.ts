@@ -16,7 +16,8 @@ const STATE_LIMIT = { prefix: "next_action_state", burstLimit: 10, hourlyLimit: 
  * Your next action (admins, NEXT_ACTION_CARD_ENABLED): write a new card off Home's request path.
  * `state`: Home's card is out of date (its inputs changed), so a card is written only when the
  * inputs still differ; `another`: the founder pressed Show another. Answers with the card to draw,
- * or `view: null` for the steps list. The brand is always the session's.
+ * or `view: null` for the steps list; `failed` when Show another could not write a card, and the
+ * card on Home stays. The brand is always the session's.
  */
 export async function POST(req: Request) {
   const g = await nextActionAdmin(req);
@@ -28,7 +29,7 @@ export async function POST(req: Request) {
   try {
     const r = await composeNextAction(g.ctx, { reason: parsed.data.reason });
     const view = viewAfter(r, Date.now());
-    return ok({ view, composed: r.composed, ...(r.held ? { held: r.held } : {}) });
+    return ok({ view, composed: r.composed, ...(r.held ? { held: r.held } : {}), ...(r.failed ? { failed: r.failed } : {}) });
   } catch (err) {
     console.warn("[next-action] the card was not written:", err instanceof Error ? err.message.slice(0, 200) : "error");
     return fail(503, "unavailable");

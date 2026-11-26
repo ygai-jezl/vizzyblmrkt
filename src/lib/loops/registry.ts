@@ -96,7 +96,7 @@ export const LEARNED_STORES = {
   content_plan: "An article's brief keeps up to 50 notes a person took out of it.",
   broadcast: "Each one off launch email keeps its open and click rates once its report is read.",
   refresh_record: "Each refresh record keeps its clock, what a person decided and the clicks 28 days on.",
-  next_action_card: "The card's record keeps the newest 30 outcomes of its steps, with the reason a person gave for each dismissal.",
+  next_action_card: "The card's record keeps the newest 30 outcomes of its steps and each step's newest dismissal of the last 30 days, with the reason a person gave for it.",
 } as const satisfies Record<string, string>;
 
 export type LearnedStore = keyof typeof LEARNED_STORES;

@@ -8,6 +8,7 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import { nextActionDocId, type NextActionRecord } from "@/lib/types/nextAction";
 import { composeNextAction, homeNextAction, recordStepOutcome, reasonLine, type NextActionDeps } from "./service";
+import type { TransactionLike } from "@/lib/tenant/types";
 
 /**
  * Your next action end to end on the in-memory database: when a card is written, the fallback, the
@@ -196,6 +197,110 @@ describe("writing a card", () => {
     }
   });
 
+  it("tries the model again after a short wait when it did not answer, and later for an answer that failed its checks", async () => {
+    for (const [answer, retry] of [
+      [null, 30 * 60_000],
+      [{ steps: [{ ...GOOD.steps[0], why: "Unlock growth with your waitlist this week." }] }, 6 * 3_600_000],
+    ] as const) {
+      db = new FakeFirestore();
+      db.seed("tenants", "ten_A", { ...TENANT, businessProfile: { status: "done", answers: {}, rev: 0, startedAt: "2026-11-25T00:00:00.000Z" } });
+      clock = T0;
+      const failed = deps(answer);
+      const first = await composeNextAction(A, { reason: "state" }, failed);
+      clock = T0 + retry - 1000;
+      expect((await homeNextAction(A, { tenant: first.state.tenant, signals: first.state.signals }, failed)).stale).toBe(false);
+      clock = T0 + retry;
+      expect((await homeNextAction(A, { tenant: first.state.tenant, signals: first.state.signals }, failed)).stale).toBe(true);
+      const healthy = deps();
+      expect((await composeNextAction(A, { reason: "state" }, healthy)).composed).toBe(true);
+      expect(healthy.generate).toHaveBeenCalledTimes(1);
+      expect((await readNextActionCard(A, { db }))!.status).toBe("card");
+    }
+  });
+
+  it("Show another that can't write a card keeps the card on Home, and the call counts toward the day", async () => {
+    await composeNextAction(A, { reason: "state" }, deps());
+    const before = (await readNextActionCard(A, { db }))!;
+    for (const answer of [null, { steps: [{ ...GOOD.steps[1], why: "Unlock growth at your stall." }] }]) {
+      clock += 60_000;
+      const r = await composeNextAction(A, { reason: "another" }, deps(answer));
+      expect(r).toMatchObject({ composed: false, failed: answer === null ? "model" : "writing" });
+      const after = (await readNextActionCard(A, { db }))!;
+      expect(after.cardId).toBe(before.cardId);
+      expect(after.status).toBe("card");
+      expect(after.steps.map((s) => s.state)).toEqual(["open", "open", "open"]);
+      expect(after.leaseId).toBeNull();
+      for (const s of after.steps) expect((await getAgentAction(A, s.agentActionId, { db }))!.state).toBe("proposed");
+    }
+    expect((await readNextActionCard(A, { db }))!.composeCount).toBe(3);
+  });
+
+  it("declines the steps it proposed, and counts the call, when the card can't be put in", async () => {
+    const d = deps();
+    const original = db.runTransaction.bind(db);
+    // The store refuses the write that puts the card in.
+    db.runTransaction = (<R>(fn: (txn: TransactionLike) => Promise<R>) =>
+      original((txn) =>
+        fn({
+          ...txn,
+          set: (ref, data) => {
+            if ((data as { status?: string }).status === "card") throw new Error("store unavailable");
+            txn.set(ref, data);
+          },
+        }),
+      )) as typeof db.runTransaction;
+    await expect(composeNextAction(A, { reason: "state" }, d)).rejects.toThrow("store unavailable");
+    db.runTransaction = original;
+    const rec = (await readNextActionCard(A, { db }))!;
+    expect(rec).toMatchObject({ card: null, leaseId: null, composeCount: 1 });
+    const proposed = [...(db.cols.get("agent_actions")?.values() ?? [])] as Array<{ state: string; declined: unknown }>;
+    expect(proposed).toHaveLength(3);
+    for (const a of proposed) expect([a.state, a.declined]).toEqual(["declined", { reason: "superseded" }]);
+  });
+
+  it("keeps a dismissed step off the card for its 30 days, however many cards come after it", async () => {
+    await composeNextAction(A, { reason: "state" }, deps());
+    const rec = (await readNextActionCard(A, { db }))!;
+    clock += 1000;
+    await recordStepOutcome(A, { cardId: rec.cardId!, step: "s1", outcome: "dismissed", reason: "We have a list" }, deps());
+    // Each Show another sets two untouched steps aside: 16 of them push past the newest 30 outcomes.
+    let last = deps();
+    for (let i = 0; i < 16; i += 1) {
+      clock += 60_000;
+      last = deps();
+      expect((await composeNextAction(A, { reason: "another" }, last)).composed).toBe(true);
+    }
+    const after = (await readNextActionCard(A, { db }))!;
+    expect(after.outcomes.filter((o) => o.state === "ignored").length).toBeGreaterThanOrEqual(30);
+    expect(after.outcomes.find((o) => o.state === "dismissed")).toMatchObject({ actionKey: "ask.waitlist_page", reason: "We have a list" });
+    const opts = (last.generate.mock.calls[0] as unknown as [string, { schema: { properties: { steps: { items: { properties: { action: { enum: string[] } } } } } } }])[1];
+    expect(opts.schema.properties.steps.items.properties.action.enum).not.toContain("ask.waitlist_page");
+    expect(after.card!.steps.map((s) => s.action)).not.toContain("ask.waitlist_page");
+  });
+
+  it("a goal the brand reached is done: Home ticks it, and with every other step decided a new card comes", async () => {
+    const goal = {
+      steps: [GOOD.steps[0], { title: "Your goal: 2 sign-ups", why: "You said two regulars would tell you it works.", action: "none", goalMetric: "signups", goalTarget: 2 }],
+      note: "",
+    };
+    await composeNextAction(A, { reason: "state" }, deps(goal));
+    const rec = (await readNextActionCard(A, { db }))!;
+    clock += 1000;
+    await recordStepOutcome(A, { cardId: rec.cardId!, step: "s1", outcome: "done" }, deps());
+    const d = deps();
+    expect((await composeNextAction(A, { reason: "state" }, d)).composed).toBe(false);
+    // Two people sign up: the goal is reached.
+    for (const id of ["sg_1", "sg_2"]) db.seed("signups", id, { tenantId: "ten_A", status: "verified_active", createdAt: "2026-11-26T09:30:00.000Z" });
+    const home = await homeNextAction(A, { tenant: await getTenantById("ten_A", db), signals: (await composeNextAction(A, { reason: "state" }, d)).state.signals }, d);
+    // The compose above already wrote the next card, because the goal counts as decided.
+    expect(d.generate).toHaveBeenCalledTimes(1);
+    expect(home.stale).toBe(false);
+    const next = (await readNextActionCard(A, { db }))!;
+    expect(next.cardId).not.toBe(rec.cardId);
+    expect(next.outcomes.find((o) => o.cardId === rec.cardId && o.step === "s2")).toMatchObject({ state: "done", actionKey: "goal.signups" });
+    expect((await getAgentAction(A, rec.steps[1]!.agentActionId, { db }))!).toMatchObject({ state: "acted", result: { outcome: "done", goal: "reached" } });
+  });
+
   it("writes at most 20 cards a brand a day, and one at a time", async () => {
     const d = deps();
     await composeNextAction(A, { reason: "state" }, d);
@@ -325,18 +430,36 @@ describe("another brand, and erase", () => {
     expect((await forTenant(A, db).nextActionCards.getById(nextActionDocId("ten_A")))!.tenantId).toBe("ten_A");
   });
 
-  it("removing a fact or deleting a conversation forgets the card and its outcomes, and declines its open steps", async () => {
+  it("removing a fact or deleting a conversation forgets the card and every word in its outcomes, and declines its open steps", async () => {
     await composeNextAction(A, { reason: "state" }, deps());
     const rec = (await readNextActionCard(A, { db })) as NextActionRecord;
     await recordStepOutcome(A, { cardId: rec.cardId!, step: "s1", outcome: "dismissed", reason: "Not now" }, deps());
     expect((await removeBusinessFact(A, "bf_000000000000000a", { db, now: () => clock })).ok).toBe(true);
-    expect(await readNextActionCard(A, { db })).toBeNull();
+    const forgotten = (await readNextActionCard(A, { db }))!;
+    expect(forgotten).toMatchObject({ card: null, cardId: null, steps: [], inputHash: "", composeCount: 1 });
+    expect(forgotten.outcomes.map((o) => [o.state, o.actionKey, o.title, o.reason])).toEqual([["dismissed", "ask.waitlist_page", "", null]]);
     for (const s of rec.steps.slice(1)) expect((await getAgentAction(A, s.agentActionId, { db }))!.declined).toEqual({ reason: "superseded" });
-    // Deleting a conversation does the same; with no card there is nothing to do.
+    // Deleting a conversation does the same.
     await composeNextAction(A, { reason: "state" }, deps());
+    expect((await readNextActionCard(A, { db }))!.card).not.toBeNull();
     await forTenant(A, db).onboardingConversations.create(`oc_${"a".repeat(32)}`, { source: "chat", by: "usr_admin", status: "ended", startedAt: "2026-11-25T00:00:00.000Z", turns: [], createdAt: "2026-11-25T00:00:00.000Z" } as never);
     expect((await deleteConversation(A, `oc_${"a".repeat(32)}`, { db, now: () => clock })).ok).toBe(true);
-    expect(await readNextActionCard(A, { db })).toBeNull();
+    expect((await readNextActionCard(A, { db }))!.card).toBeNull();
+  });
+
+  it("a step dismissed before a fact was removed stays off the next card for its 30 days", async () => {
+    await composeNextAction(A, { reason: "state" }, deps());
+    const rec = (await readNextActionCard(A, { db }))!;
+    await recordStepOutcome(A, { cardId: rec.cardId!, step: "s1", outcome: "dismissed", reason: "We have a list" }, deps());
+    await removeBusinessFact(A, "bf_000000000000000a", { db, now: () => clock });
+    clock += 60_000;
+    const d = deps();
+    expect((await composeNextAction(A, { reason: "state" }, d)).composed).toBe(true);
+    const [prompt, opts] = d.generate.mock.calls[0] as unknown as [string, { schema: { properties: { steps: { items: { properties: { action: { enum: string[] } } } } } } }];
+    expect(opts.schema.properties.steps.items.properties.action.enum).not.toContain("ask.waitlist_page");
+    expect(prompt).toContain("- dismissed, 26 Nov: [ask.waitlist_page]");
+    expect(prompt).not.toContain("We have a list");
+    expect((await readNextActionCard(A, { db }))!.card!.steps.map((s) => s.action)).not.toContain("ask.waitlist_page");
   });
 });
 

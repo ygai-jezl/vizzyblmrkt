@@ -1,7 +1,7 @@
 import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
 import { isBlogFreshnessUiEnabled, isBlogLiveWatchEnabled, isBlogRefreshUiEnabled, isBrandMapScaleEnabled, isBrandMapSituationAskUiEnabled } from "@/lib/brandMap/flags";
-import { isConnectorSignalsEnabled } from "@/lib/connectors/flags";
+import { isAiAnswersPlanningEnabled, isConnectorSignalsEnabled } from "@/lib/connectors/flags";
 import { SIGNALS_HELP } from "@/lib/connectors/helpText";
 import type { HelpBodyProps } from "@/lib/help/pages";
 import { isCompetitorsUiEnabled } from "@/lib/competitors/flags";
@@ -9,7 +9,7 @@ import { isAutopilotEnabled, isNextUpEnabled, isNextUpRepeatsEnabled } from "@/l
 import { isUsageMeterUiEnabled } from "@/lib/plans/flags";
 import { WEB_SEARCH_LIMIT_MESSAGE } from "@/lib/plans/resources";
 
-export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnabled(), brandMapScale = isBrandMapScaleEnabled() }: HelpBodyProps = {}) {
+export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnabled(), brandMapScale = isBrandMapScaleEnabled(), aiAnswers = isAiAnswersPlanningEnabled() }: HelpBodyProps = {}) {
   // Linked from Review and Connected data whenever signals are on; at any size the questions wait here.
   // The How to drawer passes the server's switches: it can't read them itself.
   const fromSearches = connectorSignals;
@@ -203,6 +203,15 @@ export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnab
               with the question&apos;s own words, such as &quot;880 impressions, position 11.3&quot;, and another the searches
               near its subject. When Search Console isn&apos;t shared with your team and Vizzy, <strong>Not weighed</strong>{" "}
               says so.
+            </P>
+          ) : null}
+          {aiAnswers ? (
+            <P>
+              With an AI answers tool connected and shared with your team and Vizzy, an <strong>AI answers</strong> chip gives
+              the numbers of a prompt it monitors that is close in wording to the question, such as &quot;best geo tools&quot;
+              answered by 6 engines, you named 0 times: how many AI engines answer it, how often their answers named you and
+              your competitors, and how many citations they gave. See{" "}
+              <Open href="/help/connected-data#vizzybl">Connected data</Open> to connect one.
             </P>
           ) : null}
           <Steps>

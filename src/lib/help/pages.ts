@@ -63,6 +63,8 @@ export interface HelpBodyProps {
   connectorsSearchText?: boolean;
   /** Collected numbers suggest what to write (isConnectorSignalsEnabled()). */
   connectorSignals?: boolean;
+  /** Next up weighs AI answers (isAiAnswersPlanningEnabled(), ADR-0019). */
+  aiAnswers?: boolean;
   /** The brand map is kept at any size (isBrandMapScaleEnabled()): proposed questions wait on its Subjects tab. */
   brandMapScale?: boolean;
   /** A launch is an idea with a status, a hypothesis, an outcome and a hand-off (isIdeasEnabled()). */

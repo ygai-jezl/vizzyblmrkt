@@ -780,6 +780,20 @@ describe("Connected data", () => {
     expect(text).toContain("myaccount.google.com/permissions");
   });
 
+  it("has a Vizzybl section from its manifest: the key's steps, what it never does, and its quoted messages (ADR-0019)", () => {
+    const text = md(true);
+    expect(text).toMatch(/^## Vizzybl$/m);
+    expect(text).toContain("### With an API key");
+    expect(text).toContain("Make a key with the scope read:*, or with read:brand, read:visibility, read:prompts and read:citations. Leave every write scope off.");
+    expect(text).toContain("**API key**: A key with read scopes only. YouGrow seals it and never shows it again.");
+    expect(text).toContain("YouGrow never runs an audit, adds a prompt or scrapes one, so it spends none of your Vizzybl credits.");
+    expect(text).toContain("**AI share of voice**");
+    expect(text).toContain("For Vizzybl: a plan that comes with API keys (Ultra or Enterprise), and a key with read scopes only");
+    expect(text).toContain(tokenRefusedMessage("Vizzybl", "connected", true));
+    expect(text).toContain(tokenRefusedMessage("Vizzybl", "connecting", true));
+    expect(text).toContain(CONNECTOR_ERRORS.tool_missing);
+  });
+
   it("lists only the statuses Connected shows, and says where a disconnected connection goes", () => {
     const text = md(true);
     for (const label of STATE_LABELS) expect(text, label).toMatch(new RegExp(`^\\| ${label} \\|`, "m"));
@@ -969,6 +983,13 @@ describe("What your numbers suggest (CONNECTOR_SIGNALS_ENABLED)", () => {
       process.env.CONNECTOR_SIGNALS_ENABLED = was.signals;
       process.env.BRAND_MAP_SCALE_ENABLED = was.scale;
     }
+  });
+
+  it("explains the AI answers chip in Next up only while Next up weighs AI answers (ADR-0019)", () => {
+    const map = (aiAnswers: boolean) => docToMarkdown(HELP_BODIES["brand-map"]!({ aiAnswers }), "https://app.example.com");
+    expect(map(true)).toContain('an **AI answers** chip gives the numbers of a prompt it monitors that is close in wording to the question, such as "best geo tools" answered by 6 engines, you named 0 times');
+    expect(map(true)).toContain("[Connected data](https://app.example.com/help/connected-data.md)");
+    expect(map(false)).not.toContain("AI answers");
   });
 
   it("keeps the section other pages link to with the brand map's scale switch off, sending rising searches to Review", () => {

@@ -147,11 +147,12 @@ export default function ConnectedDataHelp({
           <>
             <li>For Cloudflare: an account that can make API tokens for your site</li>
             <li>For Google: a Google account that can see the site or property, or someone who can add users to it</li>
+            <li>For Vizzybl: a plan that comes with API keys (Ultra or Enterprise), and a key with read scopes only</li>
           </>
         }
         unlocks={
           <>
-            <li>Your traffic and search numbers, each with what it means</li>
+            <li>Your traffic, search and AI answers numbers, each with what it means</li>
             {connectorsChat ? <li>Vizzy answering questions about them, when an admin allows it</li> : null}
           </>
         }
@@ -419,7 +420,8 @@ export default function ConnectedDataHelp({
                 ]
               : [],
           ),
-          [help.messages.account_refused, "Check the Zone ID, and that the token includes that site, then connect again."],
+          [help.messages.account_refused, "Check the Zone ID, and that the token includes that site, then connect again. For Vizzybl, the key now belongs to another brand: connect that brand's key again."],
+          [help.messages.tool_missing, "The tool's server changed what it offers. Whoever runs your copy updates YouGrow, then press Check now on Connected."],
           ...help.connectors.flatMap((c): Array<[string, string]> =>
             c.token?.pick ? [[c.token.pick.cantList, `Type the ${c.token.pick.typed}, or make the token again with ${andList(c.token.permissions)} to pick from a list.`]] : [],
           ),

@@ -1,21 +1,25 @@
 import type { GrowthSignals } from "@/lib/nav/growth";
 import type { GoalMetric, NextActionRecord, Progress, StepKey, StepState } from "@/lib/types/nextAction";
 import { allowedActions, resolveAction, type ActionEnv } from "./actions";
+import { arrangeCard } from "./arrange";
 import { recheckCard } from "./card";
 
 /**
  * The card as Home draws it (ADR-0020): each button resolved on the server to a path from the list
  * or one of our prompts, a goal's count read from the brand's data (a goal reached is done), and
- * dismissed or replaced steps left out. Pure, and client safe in its output: the view holds no ids from the allowlist's inside.
+ * dismissed or replaced steps left out; done steps first, as notes (arrange.ts). Pure, and client
+ * safe in its output: the view holds no ids from the allowlist's inside.
  */
 
 export interface CardStepView {
   key: StepKey;
-  /** 1, 2, 3 in the order shown. */
+  /** The number shown, counting the done notes first (arrange.ts). */
   n: number;
   title: string;
   why: string;
   state: Extract<StepState, "open" | "done" | "answered">;
+  /** Done or answered today (UTC), for the note's "Done today". */
+  today: boolean;
   button: { label: string; href: string | null; prompt: string | null } | null;
   question: { label: string; options: string[]; picked: string | null; keeps: boolean } | null;
   goal: { now: number | null; target: number } | null;
@@ -51,7 +55,7 @@ export function goalReached(goal: Pick<Progress, "metric" | "target">, s: Counts
 export function cardView(
   record: NextActionRecord | null,
   env: ActionEnv,
-  signals: Pick<GrowthSignals, "signups" | "postsScheduled" | "newslettersSent">,
+  signals: Counts,
   nowMs: number,
 ): CardView | null {
   if (!record || record.status !== "card" || !record.cardId) return null;
@@ -63,17 +67,20 @@ export function cardView(
     return st === "open" || st === "done" || st === "answered";
   });
   if (!shown.length) return null;
+  const today = new Date(nowMs).toISOString().slice(0, 10);
   const steps: CardStepView[] = shown.map((s, i) => {
     const kept = stateOf.get(s.key) as CardStepView["state"];
     const state = kept === "open" && s.progress && goalReached(s.progress, signals) ? "done" : kept;
     const resolved = s.action ? resolveAction(s.action, env) : null;
-    const picked = record.outcomes.find((o) => o.cardId === record.cardId && o.step === s.key && o.state === "answered")?.answer ?? null;
+    const own = record.outcomes.find((o) => o.cardId === record.cardId && o.step === s.key && (o.state === "done" || o.state === "answered"));
+    const picked = own?.state === "answered" ? own.answer : null;
     return {
       key: s.key,
       n: i + 1,
       title: s.title,
       why: s.why,
       state,
+      today: !!own && own.at.slice(0, 10) === today,
       button:
         s.button && resolved
           ? { label: s.button, href: resolved.kind === "page" ? resolved.href : null, prompt: resolved.kind === "ask" ? resolved.prompt : null }
@@ -84,12 +91,9 @@ export function cardView(
   });
   // The note is about the card before this one: when its newest step was done.
   const doneAt = record.outcomes.find((o) => o.cardId !== record.cardId && (o.state === "done" || o.state === "answered"))?.at;
-  const today = new Date(nowMs).toISOString().slice(0, 10);
-  return {
+  return arrangeCard({
     cardId: record.cardId,
     steps,
     note: card.note ? { text: card.note.text, today: !!doneAt && doneAt.slice(0, 10) === today } : null,
-    done: steps.filter((s) => s.state !== "open").length,
-    total: steps.length,
-  };
+  });
 }

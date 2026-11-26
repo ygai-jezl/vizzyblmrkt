@@ -1,23 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 import { ArrowRight, Check, RefreshCw, Sparkles, X } from "lucide-react";
 import { useShell } from "../nav/ShellProvider";
 import type { CardStepView, CardView } from "@/lib/nextAction/view";
 import { NEXT_ACTION_WORDS as W } from "@/lib/nextAction/words";
+import { NextActionFlow, type Posted } from "./nextActionFlow";
 
 /**
  * Home's Your next action as the card Vizzy wrote (NEXT_ACTION_CARD_ENABLED, ADR-0020), drawn with
- * our own pieces from the mockups: the steps with why, each step's button (a page from the server's
- * list, or a question for Vizzy in the chat below), a quick question inline, a goal, Dismiss with an
- * optional reason, and Show another. Home renders it on the server from the kept card; when that
- * card is out of date (`stale`) it asks for a new one once, and shows the steps list (`children`)
- * until a card comes. Admins only: the server never renders it for a member.
+ * our own pieces from the mockups: what was done as green notes first, then the open steps with
+ * why, each step's button (a page from the server's list, or a question for Vizzy in the chat below),
+ * a quick question inline, a goal, Dismiss with an optional reason, and Show another. Home renders it
+ * on the server from the kept card; when that card is out of date (`stale`) it asks for a new one
+ * once, and shows the steps list (`children`) until a card comes. What a press does is in
+ * nextActionFlow.ts. Admins only: the server never renders it for a member.
  */
-
-type Outcome = "done" | "dismissed" | "answered";
-type Posted = { status: number; body: Record<string, unknown> };
 
 async function postJson(url: string, body: unknown, keepalive = false): Promise<Posted> {
   try {
@@ -28,72 +27,40 @@ async function postJson(url: string, body: unknown, keepalive = false): Promise<
   }
 }
 
-/** The card with one step changed or left out, its numbers and counts again. */
-function withStep(view: CardView, key: string, change: (s: CardStepView) => CardStepView | null): CardView {
-  const steps = view.steps.flatMap((s) => {
-    if (s.key !== key) return [s];
-    const next = change(s);
-    return next ? [next] : [];
-  });
-  const numbered = steps.map((s, i) => ({ ...s, n: i + 1 }));
-  return { ...view, steps: numbered, done: numbered.filter((s) => s.state !== "open").length, total: numbered.length };
-}
-
 const QUIET = "border border-shell-line text-shell-ink hover:bg-shell-hover";
 const MAIN = "bg-shell-ink text-shell-side hover:opacity-90";
-const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-shell-accent focus-visible:ring-offset-1";
+// The ring's offset takes the card's colour, so focus shows no white halo in the dark shell.
+const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-shell-accent focus-visible:ring-offset-1 focus-visible:ring-offset-shell-card";
+const DONE_NOTE =
+  "mx-4 mb-2 flex items-center gap-2.5 rounded-lg border border-[color:var(--ob-ok-line)] bg-[color:var(--ob-ok-bg)] px-3 py-2 text-[13px] leading-[18px] text-[color:var(--ob-ok-text)]";
+
+/** One green note: the card before's note, or a step done or answered on this card. */
+function DoneNote({ text, today }: { text: string; today: boolean }) {
+  return (
+    <li className={DONE_NOTE}>
+      <span className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full bg-[color:var(--ob-ok-text)] text-[color:var(--ob-ok-bg)]">
+        <Check size={12} strokeWidth={3} aria-hidden />
+      </span>
+      <span className="min-w-0">{text}</span>
+      {today ? <span className="ml-auto shrink-0 text-xs opacity-80">{W.doneToday}</span> : null}
+    </li>
+  );
+}
+
+/** A done step's note: its title, and the answer picked. */
+const doneText = (s: CardStepView) => (s.question?.picked ? `${s.title}: ${s.question.picked}` : s.title);
 
 export function NextActionCard({ initial, stale, children }: { initial: CardView | null; stale: boolean; children?: ReactNode }) {
   const shell = useShell();
-  const [view, setView] = useState<CardView | null>(initial);
-  const [writing, setWriting] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [live, setLive] = useState("");
+  const [flow] = useState(() => new NextActionFlow(initial, { post: postJson }));
+  const { view, writing, message, notice, live } = useSyncExternalStore(flow.subscribe, flow.snapshot, flow.snapshot);
   const asked = useRef(false);
-
-  const compose = useCallback(async (reason: "state" | "another", retries = 1): Promise<void> => {
-    setWriting(true);
-    setMessage(null);
-    if (reason === "state") setLive(W.writing);
-    const r = await postJson("/api/admin/next-action", { reason });
-    if (r.status === 200 && r.body.held === "busy" && retries > 0) {
-      // Another tab is writing it: look once more shortly.
-      window.setTimeout(() => void compose(reason, retries - 1), 6000);
-      return;
-    }
-    if (r.status === 200) {
-      const next = (r.body.view ?? null) as CardView | null;
-      if (r.body.held === "limited" && reason === "another") setMessage(W.limited);
-      else if (r.body.composed || reason === "state") setView(next);
-      setLive(next ? W.ready : "");
-    } else if (reason === "another") {
-      setMessage(r.status === 429 ? W.tooFast : W.anotherFailed);
-    }
-    setWriting(false);
-  }, []);
 
   useEffect(() => {
     if (!stale || asked.current) return;
     asked.current = true;
-    void compose("state");
-  }, [stale, compose]);
-
-  const record = useCallback(
-    async (step: CardStepView, outcome: Outcome, extra: { reason?: string; choice?: number } = {}, keepalive = false): Promise<Posted | null> => {
-      if (!view) return null;
-      return postJson("/api/admin/next-action/outcome", { cardId: view.cardId, step: step.key, outcome, ...extra }, keepalive);
-    },
-    [view],
-  );
-
-  /** After a step is decided: once none is open, Home's card is used up, so ask for a new one. */
-  const settle = useCallback(
-    (next: CardView) => {
-      setView(next);
-      if (!next.steps.some((s) => s.state === "open")) void compose("state");
-    },
-    [compose],
-  );
+    void flow.compose("state");
+  }, [stale, flow]);
 
   if (!view) {
     return (
@@ -106,9 +73,11 @@ export function NextActionCard({ initial, stale, children }: { initial: CardView
     );
   }
 
-  const firstOpen = view.steps.find((s) => s.state === "open")?.key;
-  const firstButton = view.steps.find((s) => s.state === "open" && s.button)?.key;
+  const decided = view.steps.filter((s) => s.state !== "open");
+  const open = view.steps.filter((s) => s.state === "open");
+  const firstButton = open.find((s) => s.button)?.key;
   const pct = view.total ? Math.round((view.done / view.total) * 100) : 0;
+  const cardId = view.cardId;
 
   return (
     <section aria-labelledby="next-action-h" className="overflow-hidden rounded-xl border border-shell-line bg-shell-card">
@@ -131,57 +100,34 @@ export function NextActionCard({ initial, stale, children }: { initial: CardView
         </span>
       </div>
 
-      {view.note ? (
-        <p className="mx-4 mb-3 flex items-center gap-2.5 rounded-lg border border-[color:var(--ob-ok-line)] bg-[color:var(--ob-ok-bg)] px-3 py-2 text-[13px] leading-[18px] text-[color:var(--ob-ok-text)]">
-          <span className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full bg-[color:var(--ob-ok-text)] text-[color:var(--ob-ok-bg)]">
-            <Check size={12} strokeWidth={3} aria-hidden />
-          </span>
-          <span className="min-w-0">{view.note.text}</span>
-          {view.note.today ? <span className="ml-auto shrink-0 text-xs opacity-80">{W.doneToday}</span> : null}
+      {view.note || decided.length ? (
+        <ul aria-label={W.doneLabel} className="flex flex-col pb-1">
+          {view.note ? <DoneNote text={view.note.text} today={view.note.today} /> : null}
+          {decided.map((s) => (
+            <DoneNote key={`${cardId}:${s.key}`} text={doneText(s)} today={s.today} />
+          ))}
+        </ul>
+      ) : null}
+
+      {notice ? (
+        <p role="status" className="mx-4 mb-2 text-xs text-shell-faint">
+          {notice}
         </p>
       ) : null}
 
       <ol className="flex flex-col">
-        {view.steps.map((step) => (
+        {open.map((step, i) => (
           <StepRow
-            key={step.key}
+            // Keyed by card too, so a new card never inherits a row's open form or answer.
+            key={`${cardId}:${step.key}`}
             step={step}
-            next={step.key === firstOpen}
+            next={i === 0}
             main={step.key === firstButton}
             canAsk={!!shell}
-            onPage={() => {
-              // The page opens at once; the record goes with it.
-              void record(step, "done", {}, true);
-            }}
-            onAsk={() => {
-              if (!step.button?.prompt) return;
-              shell?.ask(step.button.prompt);
-              void record(step, "done");
-              settle(withStep(view, step.key, (s) => ({ ...s, state: "done" })));
-            }}
-            onAnswer={async (choice) => {
-              const label = step.question?.options[choice] ?? null;
-              const r = await record(step, "answered", { choice });
-              if (!r || r.status !== 200) return { ok: false, line: r?.status === 409 ? W.cardChanged : W.saveFailed };
-              const line = r.body.suggestion === "waiting" ? W.answerWaiting : r.body.suggestion === "already_known" ? W.answerKnown : W.answerGot;
-              settle(withStep(view, step.key, (s) => ({ ...s, state: "answered", question: s.question ? { ...s.question, picked: label } : null })));
-              return { ok: true, line };
-            }}
-            onDismiss={async (reason) => {
-              const r = await record(step, "dismissed", reason ? { reason } : {});
-              if (!r || r.status !== 200) {
-                setMessage(r?.status === 409 ? W.cardChanged : W.saveFailed);
-                return false;
-              }
-              setLive(W.dismissed);
-              const next = withStep(view, step.key, () => null);
-              if (next.steps.length) settle(next);
-              else {
-                setView(null);
-                void compose("state");
-              }
-              return true;
-            }}
+            onPage={() => flow.page(cardId, step)}
+            onAsk={() => void flow.ask(cardId, step, (prompt) => shell?.ask(prompt))}
+            onAnswer={(choice) => flow.answer(cardId, step, choice)}
+            onDismiss={(reason) => flow.dismiss(cardId, step, reason)}
           />
         ))}
       </ol>
@@ -199,7 +145,7 @@ export function NextActionCard({ initial, stale, children }: { initial: CardView
         </span>
         <button
           type="button"
-          onClick={() => void compose("another")}
+          onClick={() => void flow.compose("another")}
           disabled={writing}
           className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium text-shell-muted hover:bg-shell-hover hover:text-shell-ink disabled:opacity-50 ${FOCUS}`}
         >
@@ -240,7 +186,6 @@ function StepRow({
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [answerLine, setAnswerLine] = useState<string | null>(null);
-  const open = step.state === "open";
 
   useEffect(() => {
     if (dismissing) inputRef.current?.focus();
@@ -261,8 +206,7 @@ function StepRow({
   };
 
   const btnClass = `inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-[13px] font-medium ${main ? MAIN : QUIET} ${FOCUS}`;
-  const button =
-    open && step.button ? (
+  const button = step.button ? (
       step.button.href ? (
         <Link href={step.button.href} onClick={onPage} className={btnClass}>
           {step.button.label}
@@ -282,45 +226,42 @@ function StepRow({
     <li className="flex items-start gap-3 border-t border-shell-line px-4 py-3.5">
       <span
         className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-semibold ${
-          !open ? "bg-shell-ink text-shell-side" : next ? "border-2 border-shell-accent text-shell-accent" : "border border-shell-faint text-shell-muted"
+          next ? "border-2 border-shell-accent text-shell-accent" : "border border-shell-faint text-shell-muted"
         }`}
       >
-        {open ? step.n : <Check size={12} strokeWidth={3} aria-label={W.done} />}
+        {step.n}
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
-          <p className={`text-sm font-semibold ${open ? "text-shell-ink" : "text-shell-muted"}`}>{step.title}</p>
+          <p className="text-sm font-semibold text-shell-ink">{step.title}</p>
           <p className="mt-0.5 text-[13px] leading-[18px] text-shell-muted">{step.why}</p>
 
           {step.question ? (
             <>
               <div role="group" aria-label={step.question.label} className="mt-2.5 flex flex-wrap items-center gap-1.5">
                 <span className="mr-1 text-xs font-medium text-shell-ink">{step.question.label}</span>
-                {step.question.options.map((label, i) => {
-                  const picked = step.question?.picked === label;
-                  return (
-                    <button
-                      key={label}
-                      type="button"
-                      aria-pressed={picked}
-                      disabled={!open || busy}
-                      onClick={async () => {
-                        setBusy(true);
-                        const r = await onAnswer(i);
-                        setBusy(false);
-                        setAnswerLine(r.line);
-                      }}
-                      className={`rounded-full border px-3 py-1 text-[13px] ${
-                        picked ? "border-shell-ink bg-shell-ink text-shell-side" : "border-shell-line bg-shell-card text-shell-ink hover:border-shell-ink"
-                      } disabled:cursor-default ${FOCUS}`}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
+                {step.question.options.map((label, i) => (
+                  <button
+                    key={label}
+                    type="button"
+                    aria-pressed={false}
+                    disabled={busy}
+                    onClick={async () => {
+                      setBusy(true);
+                      setAnswerLine(null);
+                      const r = await onAnswer(i);
+                      setBusy(false);
+                      // A saved answer turns the step into a done note; only a failure stays here.
+                      if (!r.ok) setAnswerLine(r.line);
+                    }}
+                    className={`rounded-full border border-shell-line bg-shell-card px-3 py-1 text-[13px] text-shell-ink hover:border-shell-ink disabled:cursor-default ${FOCUS}`}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
               {answerLine ? (
-                <p role="status" className="mt-1.5 text-xs text-shell-faint">
+                <p role="alert" className="mt-1.5 text-xs text-amber-700 dark:text-amber-400">
                   {answerLine}
                 </p>
               ) : null}
@@ -374,20 +315,17 @@ function StepRow({
 
         <div className="flex shrink-0 items-center gap-1">
           {button}
-          {!open ? <span className="text-xs text-shell-faint">{W.done}</span> : null}
-          {open ? (
-            <button
-              ref={dismissRef}
-              type="button"
-              aria-label={W.dismissLabel(step.title)}
-              aria-expanded={dismissing}
-              aria-controls={dismissing ? formId : undefined}
-              onClick={() => (dismissing ? cancel() : setDismissing(true))}
-              className={`grid h-7 w-7 place-items-center rounded-md text-shell-faint hover:bg-shell-hover hover:text-shell-ink ${FOCUS}`}
-            >
-              <X size={14} aria-hidden />
-            </button>
-          ) : null}
+          <button
+            ref={dismissRef}
+            type="button"
+            aria-label={W.dismissLabel(step.title)}
+            aria-expanded={dismissing}
+            aria-controls={dismissing ? formId : undefined}
+            onClick={() => (dismissing ? cancel() : setDismissing(true))}
+            className={`grid h-7 w-7 place-items-center rounded-md text-shell-faint hover:bg-shell-hover hover:text-shell-ink ${FOCUS}`}
+          >
+            <X size={14} aria-hidden />
+          </button>
         </div>
       </div>
     </li>

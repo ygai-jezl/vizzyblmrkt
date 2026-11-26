@@ -1187,7 +1187,18 @@ describe("Tell Vizzy about your business (ONBOARDING_ENABLED)", () => {
     expect(text).toContain("won't suggest that step again for 30 days");
     expect(text).toContain("Members see the steps list.");
     expect(text).toContain("Removing a fact or deleting a conversation clears the card");
-    for (const m of [NEXT_ACTION_WORDS.answerWaiting, NEXT_ACTION_WORDS.limited, NEXT_ACTION_WORDS.tooFast, NEXT_ACTION_WORDS.anotherFailed, NEXT_ACTION_WORDS.cardChanged]) {
+    expect(text).toContain("a step you dismissed still stays off it");
+    expect(text).toContain(`marked ${NEXT_ACTION_WORDS.doneToday} on the day you did it`);
+    for (const m of [
+      NEXT_ACTION_WORDS.answerWaiting,
+      NEXT_ACTION_WORDS.answerTooMany,
+      NEXT_ACTION_WORDS.answerFull,
+      NEXT_ACTION_WORDS.answerNotSaved,
+      NEXT_ACTION_WORDS.limited,
+      NEXT_ACTION_WORDS.tooFast,
+      NEXT_ACTION_WORDS.anotherFailed,
+      NEXT_ACTION_WORDS.cardChanged,
+    ]) {
       expect(text).toContain(`"${m}"`);
     }
     const section = text.slice(text.indexOf(`## ${NEXT_ACTION_WORDS.title}`), text.indexOf("## What the sidebar shows"));

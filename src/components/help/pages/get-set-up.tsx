@@ -153,7 +153,8 @@ export default function GetSetUpHelp({
               <P>
                 A step&apos;s button opens the page that does it, or asks Vizzy in the chat below. Some steps ask one quick
                 question: your answer waits in <strong>{ABOUT_WORDS.title}</strong> for you to keep, and Vizzy plans with it once
-                you do. A goal you named shows how far you&apos;ve got.
+                you do. A goal you named shows how far you&apos;ve got, and counts as done once you get there. What you&apos;ve
+                done moves to the top of the card as a green note, marked {NEXT_ACTION_WORDS.doneToday} on the day you did it.
               </P>
               <P>
                 <strong>{NEXT_ACTION_WORDS.dismiss}</strong> takes a step off the card. Add a reason if you like: Vizzy reads it,
@@ -163,12 +164,16 @@ export default function GetSetUpHelp({
               <P>
                 Vizzy writes a new card when something changes, such as your first idea, your first sign-ups or a fact you kept,
                 and once every step on the card is done or dismissed. It never writes one on every visit, and Home never waits for
-                it. Removing a fact or deleting a conversation clears the card, and Vizzy writes a new one. When Vizzy can&apos;t
-                write one, Home lists the steps of the stage that fits your answers instead.
+                it. Removing a fact or deleting a conversation clears the card and everything it said, and Vizzy writes a new one;
+                a step you dismissed still stays off it. When Vizzy can&apos;t write one, Home lists the steps of the stage that
+                fits your answers instead, and tries again later.
               </P>
               <Messages
                 rows={[
                   [NEXT_ACTION_WORDS.answerWaiting, `Open Settings › General, under ${ABOUT_WORDS.title}, and press Keep on it.`],
+                  [NEXT_ACTION_WORDS.answerTooMany, `Keep or remove what waits under ${ABOUT_WORDS.title} in Settings › General. Your answer is on the card.`],
+                  [NEXT_ACTION_WORDS.answerFull, `Remove a fact you no longer need under ${ABOUT_WORDS.title} in Settings › General.`],
+                  [NEXT_ACTION_WORDS.answerNotSaved, `Your answer is on the card. Tell Vizzy in the chat if you want it in ${ABOUT_WORDS.title}.`],
                   [NEXT_ACTION_WORDS.limited, "Vizzy writes up to 20 cards a brand a day. The card you have stays until tomorrow."],
                   [NEXT_ACTION_WORDS.tooFast, "Wait a minute, then press Show another again."],
                   [NEXT_ACTION_WORDS.anotherFailed, "The card you have still works. Press Show another again in a minute."],

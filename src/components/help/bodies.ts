@@ -23,6 +23,7 @@ import PeopleHelp from "./pages/people";
 import SearchHelp from "./pages/search";
 import LanguagesHelp from "./pages/languages";
 import YourAudienceHelp from "./pages/your-audience";
+import PasteAListHelp from "./pages/paste-a-list";
 import HistoryAndRestoreHelp from "./pages/history-and-restore";
 import TroubleshootingHelp from "./pages/troubleshooting";
 
@@ -51,6 +52,7 @@ export const HELP_BODIES: Record<string, (props?: HelpBodyProps) => ReactNode> =
   "people": PeopleHelp,
   "search": SearchHelp,
   "your-audience": YourAudienceHelp,
+  "paste-a-list": PasteAListHelp,
   "history-and-restore": HistoryAndRestoreHelp,
   "troubleshooting": TroubleshootingHelp,
 };

@@ -33,6 +33,16 @@ describe("the How to drawer's help bodies", () => {
     expect(renderToStaticMarkup(createElement(GetSetUp, drawerBodyProps(null)))).not.toContain("Tell Vizzy about your business");
   });
 
+  it("passes on Paste a list, and pasting into Ask Vizzy, from the shell", async () => {
+    vi.stubEnv("RAISE_PASTE_ENABLED", "");
+    const { drawerBodyProps } = await import("./HowToDrawer");
+    expect(drawerBodyProps(null)).toMatchObject({ paste: false, vizzyPaste: false });
+    expect(drawerBodyProps({ paste: true, vizzyPaste: true } as never)).toMatchObject({ paste: true, vizzyPaste: true });
+    const Review = (await import("./pages/review-and-approvals")).default as ComponentType<HelpBodyProps>;
+    expect(renderToStaticMarkup(createElement(Review, drawerBodyProps({ paste: true } as never)))).toContain("Pasted lists");
+    expect(renderToStaticMarkup(createElement(Review, drawerBodyProps(null)))).not.toContain("Pasted lists");
+  });
+
   it("passes on ideas and their words from the shell", async () => {
     const { drawerBodyProps } = await import("./HowToDrawer");
     expect(drawerBodyProps(null)).toMatchObject({ ideas: false, ideaWords: false });

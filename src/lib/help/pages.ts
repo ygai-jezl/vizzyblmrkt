@@ -8,6 +8,7 @@ import { isPasswordSigninAvailable } from "@/lib/auth/flags";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
 import { isContentLanguageEnabled } from "@/lib/i18n/flags";
+import { isPasteEnabled } from "@/lib/crm/paste/flags";
 
 /**
  * The /help pages, in reading order: one list for the help navigation, the
@@ -30,7 +31,7 @@ export interface HelpPage {
    * A page about a switched-off feature: listed and served only while its switch is on.
    * The switches are read on the server, so client lists (⌘K) leave these pages out.
    */
-  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "settings_history" | "content_language";
+  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "settings_history" | "content_language" | "paste";
 }
 
 /**
@@ -97,6 +98,10 @@ export interface HelpBodyProps {
   nextActionCard?: boolean;
   /** Review lists the email and image style and the notes Vizzy suggested (isAgentRecordEnabled(), a server switch: the drawer gets it from the admin shell). */
   agentRecord?: boolean;
+  /** Admins paste a list on People (isPasteEnabled(), a server switch: the drawer gets it from the admin shell). */
+  paste?: boolean;
+  /** A list can be pasted into Ask Vizzy too (isVizzyPasteEnabled(), a server switch: the drawer gets it from the admin shell). */
+  vizzyPaste?: boolean;
 }
 
 /** Navigation headings, matching Home's stages, in the words used while launches are called launches. */
@@ -189,6 +194,13 @@ export const HELP_PAGES: HelpPage[] = [
     "Everyone from your launches, your own site and your products in one list, one page per person, and erasing or exporting them everywhere.",
     "audience_one_view",
   ),
+  page(
+    "paste-a-list",
+    "Paste a list",
+    "grow",
+    "Paste rows from a sheet to add people and companies with one approval, and where to find a list to start from.",
+    "paste",
+  ),
   page("connect-your-product", "Connect your product", "product", "Connect your app, learn its onboarding steps from its code, and hand the rest to your developer."),
   page("invite-your-waitlist", "Invite your waitlist", "product", "Bring the people on your waitlist into your product, in waves."),
   page("onboarding-journeys", "Onboarding journeys", "retain", "Build an onboarding journey, test it on real people, then switch it to live."),
@@ -218,6 +230,7 @@ export function isHelpPageShown(p: Pick<HelpPage, "onlyWhen">): boolean {
   if (p.onlyWhen === "password_signin") return isPasswordSigninAvailable();
   if (p.onlyWhen === "settings_history") return isSettingsHistoryEnabled();
   if (p.onlyWhen === "content_language") return isContentLanguageEnabled();
+  if (p.onlyWhen === "paste") return isPasteEnabled();
   return true;
 }
 

@@ -18,7 +18,7 @@ import { SUGGESTION_BUSY } from "@/lib/connectors/signals/review";
 import { allConnectors } from "@/lib/connectors/catalog";
 import { CONNECTOR_ERRORS, otherAccountKeyMessage, tokenRefusedMessage } from "@/lib/connectors/messages";
 import { helpLlmsTxt, helpPageMarkdown } from "./agentFiles";
-import { HELP_PAGES, helpGroups, helpPage, nextHelpPage, shownHelpPages, type HelpBodyProps } from "./pages";
+import { HELP_PAGES, helpGroups, helpPage, isHelpPageShown, nextHelpPage, shownHelpPages, type HelpBodyProps } from "./pages";
 import { helpMetadata } from "./metadata";
 import { HELP_PLACES, helpFor, parseHelpPath } from "./places";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
@@ -39,6 +39,8 @@ import {
   WELCOME_WORDS,
 } from "@/lib/onboarding/words";
 import { NEXT_ACTION_WORDS } from "@/lib/nextAction/words";
+import { PUBLIC_LIST } from "@/lib/crm/paste/publicLists";
+import { COMPANY_REMOVE, PASTE_MESSAGES, ROW_REASONS } from "@/lib/crm/paste/words";
 
 
 /**
@@ -111,6 +113,8 @@ vi.hoisted(() => {
   process.env.SETTINGS_HISTORY_ENABLED = "true";
   // Your next action as Vizzy's card, so its section and the messages it quotes are checked too.
   process.env.NEXT_ACTION_CARD_ENABLED = "true";
+  // Paste a list on People (S2b), with its help page and the lines that point to it.
+  process.env.RAISE_PASTE_ENABLED = "true";
   // Password help shows only when a code can be delivered too (isPasswordSigninAvailable).
   process.env.MANDRILL_API_KEY = "test-key-not-real";
 });
@@ -1338,6 +1342,92 @@ describe("Drafts from Vizzy and the agent record (AGENT_RECORD_ENABLED)", () => 
     for (const line of on.split("\n")) {
       expect(dashesIn(line), line).toEqual([]);
       expect(aiTellsIn(line), line).toEqual([]);
+    }
+  });
+});
+
+describe("Paste a list (RAISE_PASTE_ENABLED)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const page = () => HELP_PAGES.find((p) => p.slug === "paste-a-list")!;
+  const md = (slug: string, props: HelpBodyProps = {}) => docToMarkdown(HELP_BODIES[slug]!(props), "https://app.example.com");
+  const ids = (props: HelpBodyProps) =>
+    elements(HELP_BODIES["paste-a-list"]!(props))
+      .filter((e) => e.type === H2)
+      .map((e) => String(e.props.id));
+
+  it("is listed after the People list's page, and only while the switch is on", () => {
+    const slugs = HELP_PAGES.map((p) => p.slug);
+    expect(slugs.indexOf("paste-a-list")).toBe(slugs.indexOf("your-audience") + 1);
+    expect(isHelpPageShown(page())).toBe(true);
+    expect(shownHelpPages().map((p) => p.slug)).toContain("paste-a-list");
+    vi.stubEnv("RAISE_PASTE_ENABLED", "");
+    expect(isHelpPageShown(page())).toBe(false);
+    expect(shownHelpPages().map((p) => p.slug)).not.toContain("paste-a-list");
+    // It needs New person too.
+    vi.stubEnv("RAISE_PASTE_ENABLED", "true");
+    vi.stubEnv("AUDIENCE_ADD_PERSON_ENABLED", "");
+    expect(isHelpPageShown(page())).toBe(false);
+  });
+
+  it("quotes the kit's credit, the three guidance lines and why a row is left out", () => {
+    const text = md("paste-a-list", { vizzyPaste: false });
+    expect(text).toContain(PUBLIC_LIST.credit);
+    expect(text).toContain(`[${PUBLIC_LIST.kit.label}](${PUBLIC_LIST.kit.url})`);
+    for (const o of PUBLIC_LIST.others) expect(text).toContain(`[${o.label}](${o.url})`);
+    for (const g of PUBLIC_LIST.guidance) expect(text).toContain(g);
+    expect(text).toContain(PUBLIC_LIST.footnote);
+    expect(text).toContain("Needs an email, a phone or a web address");
+    expect(text).toContain("No AI reads your rows: the app's own code does");
+    expect(text).toContain("Fernhill Plants, a plant shop raising a loan");
+  });
+
+  it("lists every message the sheet shows, word for word", () => {
+    const text = md("paste-a-list");
+    for (const m of [
+      ...Object.values(ROW_REASONS),
+      PASTE_MESSAGES.source_needed,
+      PASTE_MESSAGES.no_header,
+      PASTE_MESSAGES.too_many_rows,
+      PASTE_MESSAGES.too_many_columns,
+      PASTE_MESSAGES.too_long,
+      PASTE_MESSAGES.too_large,
+      PASTE_MESSAGES.nothing_to_add,
+      PASTE_MESSAGES.paste_gone,
+      PASTE_MESSAGES.changed,
+      COMPANY_REMOVE.has_people,
+    ]) {
+      expect(text).toContain(m);
+    }
+  });
+
+  it("shows pasting into Ask Vizzy only while that is on too", () => {
+    expect(ids({ vizzyPaste: true })).toContain("vizzy");
+    expect(md("paste-a-list", { vizzyPaste: true })).toContain("Vizzy never records that anyone agreed to emails");
+    expect(ids({ vizzyPaste: false })).not.toContain("vizzy");
+    expect(md("paste-a-list", { vizzyPaste: false })).not.toContain("Ask Vizzy");
+    expect(ids({ vizzyPaste: false })).toEqual(["paste", "rows", "columns", "source", "add", "public-list", "remove", "check", "messages"]);
+  });
+
+  it("names your own fields only while fields are on", () => {
+    expect(md("paste-a-list", { fields: true })).toContain("fills that field");
+    expect(md("paste-a-list", { fields: false })).not.toContain("fills that field");
+  });
+
+  it("points to it from People and from Review only while it is on", () => {
+    const audience = (paste: boolean) => md("your-audience", { people: true, fields: true, addPerson: true, paste });
+    expect(audience(true)).toContain("To add many at once, use [Paste a list](https://app.example.com/help/paste-a-list.md).");
+    expect(audience(false)).not.toContain("To add many at once");
+    const review = (paste: boolean) => md("review-and-approvals", { paste });
+    expect(review(true)).toContain("**Pasted lists**: lists your team pasted on People, waiting for an admin to add them");
+    expect(review(false)).not.toContain("Pasted lists");
+  });
+
+  it("uses no dashes as punctuation and none of the AI tells, with every section shown", () => {
+    for (const props of [{ vizzyPaste: true, fields: true, people: true }, { vizzyPaste: false, fields: false, people: false }]) {
+      for (const line of md("paste-a-list", props).split("\n")) {
+        expect(dashesIn(line), line).toEqual([]);
+        expect(aiTellsIn(line), line).toEqual([]);
+      }
     }
   });
 });

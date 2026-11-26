@@ -21,6 +21,7 @@ import { ideaWord, peopleArea } from "@/lib/nav/terms";
 import { isIdeasEnabled, isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { isViewsEnabled } from "@/lib/views/flags";
 import { VIEW_MESSAGES } from "@/lib/views/words";
+import { isPasteEnabled } from "@/lib/crm/paste/flags";
 
 /**
  * Shown only while AUDIENCE_ONE_VIEW_ENABLED is on (src/lib/help/pages.ts). With People on
@@ -33,7 +34,8 @@ import { VIEW_MESSAGES } from "@/lib/views/words";
  * while AUDIENCE_VIZZY_ADD_PERSON_ENABLED is. In more than one launch shows while
  * LAUNCH_IDEAS_ENABLED is on. With ideas in the words (`ideaWords`, isIdeaWordsEnabled()) a launch
  * is called an idea, and the messages quoted are the ones the screens show then. Views on People
- * (filters, columns, sort and saved views) show while CRM_VIEWS_ENABLED is on (`views`).
+ * (filters, columns, sort and saved views) show while CRM_VIEWS_ENABLED is on (`views`). Adding
+ * many at once points to Paste a list while RAISE_PASTE_ENABLED is on (`paste`).
  */
 export default function YourAudienceHelp({
   people = isPeopleNameEnabled(),
@@ -48,6 +50,7 @@ export default function YourAudienceHelp({
   ideaWords = isIdeaWordsEnabled(),
   views = isViewsEnabled(),
   settingsHistory = isSettingsHistoryEnabled(),
+  paste = isPasteEnabled(),
 }: HelpBodyProps = {}) {
   const area = peopleArea(people);
   const w = ideaWord(ideaWords);
@@ -269,6 +272,11 @@ export default function YourAudienceHelp({
               instead and nothing is added.
             </li>
           </Steps>
+          {paste ? (
+            <P>
+              To add many at once, use <Open href="/help/paste-a-list">Paste a list</Open>.
+            </P>
+          ) : null}
           <P>
             On the page of someone added by hand, <strong>Consent, in one place</strong> says who added them and whether they agreed. An
             admin can press <strong>Record that they agreed</strong> later. Consent for people from {w.a} or your product comes from

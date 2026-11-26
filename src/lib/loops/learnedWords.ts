@@ -241,6 +241,9 @@ export const FORGET_DONE = "Forgotten. YouGrow won't learn this look again from 
 export const FORGET_UNDONE_DONE = "Forgotten. YouGrow won't learn the undone look again from the images that taught it.";
 export const FORGET_OFFER = "Don't learn this again: Forget";
 export const KEPT_DONE = "Kept. YouGrow only asks again if a later check reads worse.";
+/** Review's Go back card after Go back and then Undo: the card is answered, so it doesn't come back. */
+export const GO_BACK_UNDONE = "Undone. The newer look is back in use.";
+export const OPEN_WHAT_IT_LEARNED = "Open What it learned";
 
 /** "Back to version 3 from 4 Feb." */
 export const backToLine = (v: number, at: string | null | undefined): string => {

@@ -67,6 +67,103 @@ function useMenu(): { open: boolean; toggle: () => void; close: () => void; ref:
   return { open, toggle: () => setOpen((o) => !o), close: () => setOpen(false), ref };
 }
 
+const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
+
+/**
+ * The keys of a modal dialog, bound on the document while it is open: Escape closes it wherever
+ * focus is, and Tab keeps focus inside it. Returns the unbind.
+ */
+export function bindDialogKeys(target: Pick<EventTarget, "addEventListener" | "removeEventListener">, opts: { close: () => void; root?: () => HTMLElement | null }): () => void {
+  const onKey = (e: Event) => {
+    const key = (e as KeyboardEvent).key;
+    if (key === "Escape") {
+      e.preventDefault();
+      opts.close();
+      return;
+    }
+    const root = opts.root?.();
+    if (key !== "Tab" || !root) return;
+    const items = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE));
+    if (items.length === 0) return;
+    const first = items[0]!;
+    const last = items[items.length - 1]!;
+    const active = root.ownerDocument.activeElement;
+    const back = (e as KeyboardEvent).shiftKey;
+    if (!root.contains(active) || (back && active === first) || (!back && active === last)) {
+      e.preventDefault();
+      (back ? last : first).focus();
+    }
+  };
+  target.addEventListener("keydown", onKey);
+  return () => target.removeEventListener("keydown", onKey);
+}
+
+/**
+ * Forget's confirm (screen 1, state h): focus moves to Cancel when it opens and back to the row's
+ * More button when it closes; Escape and Cancel close it.
+ */
+export function ForgetDialog({
+  title,
+  body,
+  also,
+  alsoBrand,
+  busy,
+  returnTo,
+  onAlso,
+  onCancel,
+  onConfirm,
+}: {
+  title: string;
+  body: string;
+  also: string | null;
+  alsoBrand: boolean;
+  busy: boolean;
+  /** Where focus goes back to once the dialog closes. */
+  returnTo: HTMLElement | null;
+  onAlso: (checked: boolean) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const root = useRef<HTMLDivElement>(null);
+  const cancel = useRef<HTMLButtonElement>(null);
+  const close = useRef(onCancel);
+  close.current = onCancel;
+  useEffect(() => {
+    cancel.current?.focus();
+    const unbind = bindDialogKeys(document, { close: () => close.current(), root: () => root.current });
+    return () => {
+      unbind();
+      if (returnTo?.isConnected) returnTo.focus();
+    };
+  }, [returnTo]);
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
+      <div ref={root} role="dialog" aria-modal="true" aria-labelledby="forget-h" aria-describedby="forget-body" className="w-full max-w-md space-y-3 rounded-lg bg-white p-4 shadow-lg dark:bg-neutral-950">
+        <h3 id="forget-h" className="text-base font-semibold">
+          {title}
+        </h3>
+        <p id="forget-body" className="text-sm text-neutral-700 dark:text-neutral-300">
+          {body}
+        </p>
+        {also ? (
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" checked={alsoBrand} onChange={(e) => onAlso(e.target.checked)} className="mt-0.5" />
+            <span>{also}</span>
+          </label>
+        ) : null}
+        <div className="flex justify-end gap-2">
+          <button ref={cancel} type="button" onClick={onCancel} className={BTN}>
+            Cancel
+          </button>
+          <button type="button" disabled={busy} onClick={onConfirm} className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50">
+            Forget
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function WhatItLearnedCard({ initial }: { initial: LearnedCardView }) {
   const [view, setView] = useState<LearnedCardView>(initial);
   const [busy, setBusy] = useState<Busy>(null);
@@ -74,6 +171,8 @@ export function WhatItLearnedCard({ initial }: { initial: LearnedCardView }) {
   const [done, setDone] = useState<Record<string, Done>>({});
   const [forget, setForget] = useState<{ scope: string; title: string; body: string; also: string | null; undone: boolean } | null>(null);
   const [alsoBrand, setAlsoBrand] = useState(false);
+  /** The row's More button, where focus goes back to when Forget's confirm closes. */
+  const [returnTo, setReturnTo] = useState<HTMLElement | null>(null);
   const menu = useMenu();
   const admin = view.role === "admin";
 
@@ -109,8 +208,9 @@ export function WhatItLearnedCard({ initial }: { initial: LearnedCardView }) {
     await reload();
   }
 
-  async function openForget(row: LookRowView, undone: boolean) {
+  async function openForget(row: LookRowView, undone: boolean, from: HTMLElement | null) {
     menu.close();
+    setReturnTo(from ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null));
     if (undone) {
       setForget({ scope: row.scope, ...forgetUndoneConfirm(row.scope), undone: true });
       return;
@@ -215,7 +315,7 @@ export function WhatItLearnedCard({ initial }: { initial: LearnedCardView }) {
               busy={busy}
               done={done[row.scope] ?? null}
               onUndo={() => void undo(row)}
-              onForget={(undone) => void openForget(row, undone)}
+              onForget={(undone, from) => void openForget(row, undone, from)}
               onEdit={async (text) => {
                 const r = await learnedAction<{ v?: number }>({ op: "edit", scope: row.scope, text });
                 if (!r.ok) return r.data.error === "text_refused" ? (r.data.message ?? LOOK_REFUSED_MESSAGE) : (r.data.message ?? "Couldn't save the words. Try again.");
@@ -251,28 +351,17 @@ export function WhatItLearnedCard({ initial }: { initial: LearnedCardView }) {
       ) : null}
 
       {forget ? (
-        <div role="dialog" aria-modal="true" aria-labelledby="forget-h" className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
-          <div className="w-full max-w-md space-y-3 rounded-lg bg-white p-4 shadow-lg dark:bg-neutral-950">
-            <h3 id="forget-h" className="text-base font-semibold">
-              {forget.title}
-            </h3>
-            <p className="text-sm text-neutral-700 dark:text-neutral-300">{forget.body}</p>
-            {forget.also ? (
-              <label className="flex items-start gap-2 text-sm">
-                <input type="checkbox" checked={alsoBrand} onChange={(e) => setAlsoBrand(e.target.checked)} className="mt-0.5" />
-                <span>{forget.also}</span>
-              </label>
-            ) : null}
-            <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setForget(null)} className={BTN}>
-                Cancel
-              </button>
-              <button type="button" disabled={busy !== null} onClick={() => void confirmForget()} className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50">
-                Forget
-              </button>
-            </div>
-          </div>
-        </div>
+        <ForgetDialog
+          title={forget.title}
+          body={forget.body}
+          also={forget.also}
+          alsoBrand={alsoBrand}
+          busy={busy !== null}
+          returnTo={returnTo}
+          onAlso={setAlsoBrand}
+          onCancel={() => setForget(null)}
+          onConfirm={() => void confirmForget()}
+        />
       ) : null}
     </section>
   );
@@ -300,11 +389,13 @@ function LookRow({
   busy: Busy;
   done: Done | null;
   onUndo: () => void;
-  onForget: (undone: boolean) => void;
+  /** Open Forget's confirm; `from` is where focus goes back to when it closes. */
+  onForget: (undone: boolean, from: HTMLElement | null) => void;
   onEdit: (text: string) => Promise<string | null>;
   onAnswer: (op: "go_back" | "keep") => void;
 }) {
   const menu = useMenu();
+  const more = useRef<HTMLButtonElement>(null);
   const [history, setHistory] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(row.words ?? "");
@@ -348,7 +439,7 @@ function LookRow({
                 <Undo2 size={14} aria-hidden /> Undo
               </button>
             )}
-            <button type="button" aria-label={`More for ${row.name}`} aria-haspopup="menu" aria-expanded={menu.open} onClick={menu.toggle} className="rounded-md p-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-900">
+            <button ref={more} type="button" aria-label={`More for ${row.name}`} aria-haspopup="menu" aria-expanded={menu.open} onClick={menu.toggle} className="rounded-md p-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-900">
               <MoreHorizontal size={16} aria-hidden />
             </button>
             {menu.open ? (
@@ -366,7 +457,15 @@ function LookRow({
                 >
                   Edit the words
                 </button>
-                <button type="button" role="menuitem" className={`${ITEM} text-red-700 dark:text-red-300`} onClick={() => onForget(false)}>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={`${ITEM} text-red-700 dark:text-red-300`}
+                  onClick={() => {
+                    menu.close();
+                    onForget(false, more.current);
+                  }}
+                >
                   Forget
                 </button>
                 {row.history.length >= 2 ? (
@@ -475,32 +574,39 @@ function LookRow({
             </button>
           </div>
         ) : null}
-        {history && row.history.length >= 2 ? (
-          <div role="list" aria-label={`History of ${row.name}`} className="space-y-1 rounded-md border border-neutral-200 p-2 text-xs dark:border-neutral-800">
-            <p className="flex items-center justify-between font-medium">
-              <span>History</span>
-              <button type="button" onClick={() => setHistory(false)} className="text-neutral-600 underline underline-offset-2 dark:text-neutral-400">
-                Hide
-              </button>
-            </p>
-            {row.history.map((h) => (
-              <p key={h.v} role="listitem" className={h.now ? "font-medium text-neutral-900 dark:text-neutral-100" : "text-neutral-700 dark:text-neutral-300"}>
-                {h.text}
-              </p>
-            ))}
-          </div>
-        ) : null}
+        {history && row.history.length >= 2 ? <HistoryList name={row.name} history={row.history} onHide={() => setHistory(false)} /> : null}
         {done?.text ? (
           <p role="status" className="flex flex-wrap items-center gap-2 text-neutral-700 dark:text-neutral-300">
             <span>{done.text}</span>
             {done.offerForget ? (
-              <button type="button" onClick={() => onForget(true)} className="font-medium underline underline-offset-2">
+              <button type="button" onClick={(e) => onForget(true, more.current ?? e.currentTarget)} className="font-medium underline underline-offset-2">
                 {FORGET_OFFER}
               </button>
             ) : null}
           </p>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+/** A row's History: its heading and Hide above a list that holds only the version lines. */
+export function HistoryList({ name, history, onHide }: { name: string; history: LookRowView["history"]; onHide: () => void }) {
+  return (
+    <div className="space-y-1 rounded-md border border-neutral-200 p-2 text-xs dark:border-neutral-800">
+      <p className="flex items-center justify-between font-medium">
+        <span>History</span>
+        <button type="button" onClick={onHide} className="text-neutral-600 underline underline-offset-2 dark:text-neutral-400">
+          Hide
+        </button>
+      </p>
+      <ul aria-label={`History of ${name}`} className="space-y-1">
+        {history.map((h) => (
+          <li key={h.v} className={h.now ? "font-medium text-neutral-900 dark:text-neutral-100" : "text-neutral-700 dark:text-neutral-300"}>
+            {h.text}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

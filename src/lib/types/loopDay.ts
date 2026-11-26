@@ -53,6 +53,11 @@ export const ScopePointerSchema = z.object({
   setBy: z.enum(VERSION_SET_BY),
   adoptedAt: Iso,
   keptAt: Iso.optional(),
+  /**
+   * The look of the worse read a person kept the version at (decision 16), from a Go back card or
+   * from the card's own notice: no card is offered again unless a later look reads worse.
+   */
+  keptLook: z.number().int().min(0).optional(),
 });
 export type ScopePointer = z.infer<typeof ScopePointerSchema>;
 
@@ -177,7 +182,7 @@ export const LaneStateSchema = z.object({
   heartbeatWeek: z.string().regex(ISO_WEEK_RE).optional(),
   /** The usage meter's totals the lane last saw, by purpose. */
   meterSeen: z.record(z.string().max(60), z.number()).optional(),
-  /** A hash of the open week's counters at the lane's last full visit: unchanged, and the visit can be idle. */
+  /** A hash of the open week's counters and the brand's pointers at the lane's last full visit: unchanged, and the visit can be idle. */
   seen: z.object({ week: z.string().regex(ISO_WEEK_RE), hash: z.string().max(16) }).optional(),
   /** Until when nothing is due by time alone (a look's week, a read waiting on images to age), as the last full visit worked out. */
   quietUntil: Iso.optional(),

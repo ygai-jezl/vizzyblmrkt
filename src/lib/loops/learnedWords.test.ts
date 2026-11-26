@@ -130,7 +130,7 @@ describe("the What it learned card's words", () => {
     expect(say(W.undoDoneLine({ scope: NATURAL, restored: 1, restoredAt: "2027-01-14T09:00:00.000Z", wasPerson: true, brandLook: true }))).toBe(
       "Back to the look learned on 14 Jan. YouGrow learns from your votes again.",
     );
-    for (const line of [W.FORGET_DONE, W.FORGET_UNDONE_DONE, W.FORGET_OFFER, W.KEPT_DONE, W.RESET_CONFIRM, W.EDIT_HELPER]) say(line);
+    for (const line of [W.FORGET_DONE, W.FORGET_UNDONE_DONE, W.FORGET_OFFER, W.KEPT_DONE, W.GO_BACK_UNDONE, W.OPEN_WHAT_IT_LEARNED, W.RESET_CONFIRM, W.EDIT_HELPER]) say(line);
     const confirm = W.forgetConfirm({ scope: NATURAL, liked: 3, disliked: 2, brandOverlap: 0 });
     expect(confirm.title).toBe("Forget the Natural photo look?");
     expect(say(confirm.body)).toBe("YouGrow stops using it, clears its words, and won't learn again from the 3 images you liked and 2 you didn't that taught it. Your votes stay. This can't be undone.");

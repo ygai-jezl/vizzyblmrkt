@@ -22,10 +22,15 @@ export const LOOK_REFUSED_MESSAGE = "This look can't be saved: it has a link, em
 const EMAIL = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/;
 const SCHEME_OR_WWW = /\b(?:https?:\/\/|www\.)\S/i;
 /**
- * A bare address such as hearthbakery.com/menu. Only endings that are rarely a word, so a missing
+ * A bare address such as hearthbakery.com. Only endings that are rarely a word, so a missing
  * space after a full stop ("dark wood.It needs light") is never taken for a link.
  */
-const BARE_DOMAIN = /\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.(?:com|net|org|io|ai|app|dev|shop|store|info|biz|xyz|online|site|co\.uk|org\.uk)\b/i;
+const BARE_DOMAIN = /\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.(?:com|net|org|io|ai|app|dev|shop|store|info|biz|xyz|online|site|co\.uk|org\.uk|co|ly|uk|de|fr|eu|nl|ca|au)\b/i;
+/**
+ * A host with a path on any ending, such as bit.ly/abc or t.me/hearth: a slash straight after a
+ * dotted word never comes up in the words a team writes about its images.
+ */
+const HOST_PATH = /\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}\/\S/i;
 const HANDLE = /(?<![\w.@])@[A-Za-z0-9_]{2,}/;
 /** A run of digits with spaces, dots, brackets, plus signs or hyphens between them. */
 const DIGIT_RUN = /\+?\d[\d\s().+-]{7,}\d/g;
@@ -35,7 +40,7 @@ const PHONE_DIGITS = 9;
 /** Why these words can't be kept, or null when they can. */
 export function textRefusalOf(text: string): TextRefusal | null {
   if (EMAIL.test(text)) return "email";
-  if (SCHEME_OR_WWW.test(text) || BARE_DOMAIN.test(text)) return "link";
+  if (SCHEME_OR_WWW.test(text) || BARE_DOMAIN.test(text) || HOST_PATH.test(text)) return "link";
   if (HANDLE.test(text)) return "handle";
   for (const run of text.match(DIGIT_RUN) ?? []) {
     if ((run.match(/\d/g) ?? []).length >= PHONE_DIGITS) return "phone";

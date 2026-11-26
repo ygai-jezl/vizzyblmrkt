@@ -78,6 +78,12 @@ export const ImageAssetSchema = z.object({
   remadeAt: z.string().nullable().optional(),
   /** The id of the image made in its place. Never a member id. */
   remadeBy: z.string().max(128).nullable().optional(),
+  /**
+   * A held back image's one free remake, reserved by the request making it (src/lib/loops/remake.ts),
+   * so two at once can't both be off the allowance. It lapses after a few minutes, as when that
+   * image failed, and goes once the image is marked remade.
+   */
+  remakeClaimAt: z.string().nullable().optional(),
   /** How the brand's verdict was given: a thumbs vote, or an upload, which counts as liked. */
   brandVoteVia: z.enum(["vote", "upload"]).nullable().optional(),
   /** ISO of the first vote, set once and never reset, so re-rating an old like can't count as a new one. */

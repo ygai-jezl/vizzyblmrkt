@@ -2,13 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { listOpenAgentActions } from "@/lib/ontology/agentActions";
 import { loopDayId, readLoopDays, runLoopsTransaction, writeBrandPointersTx } from "@/lib/tenant/loops";
 import { appendPatternVersionTx } from "@/lib/tenant/patternVersions";
+import type { LearnedPatternVersion } from "@/lib/types/learnedPatternVersion";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import { VersionTotalsSchema, type BrandPointers, type VersionTotals } from "@/lib/types/loopDay";
 import type { LoopStamp } from "@/lib/types/loopStamp";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
+import { keepLook, undoLook } from "./actions";
 import { GO_BACK_ACTION, goBackReviewItem, learnedReviewItems } from "./cards";
-import { newVerdictRun, runImageVerdicts, seenOf, verdictDue } from "./imageVerdict";
+import { newVerdictRun, readVersionVerdict, runImageVerdicts, seenOf, verdictDue } from "./imageVerdict";
+import { holdStateOf, isHolding } from "./learners/votes";
 import { madeIdOf } from "./stamp";
 
 /**
@@ -89,7 +92,7 @@ async function pointTo(scopes: BrandPointers["scopes"]) {
               avoid: [],
               judgeRationale: "",
               evidence: [],
-              createdBy: "auto",
+              createdBy: v === p.v && p.setBy === "seeded" ? "seed" : "auto",
               createdAt: v === p.v ? p.adoptedAt : V1_AT,
               loop: "image_style",
               setBy: v === p.v ? p.setBy : "learned",
@@ -188,12 +191,13 @@ describe("runImageVerdicts", () => {
     expect(await listOpenAgentActions(lumen, { action: GO_BACK_ACTION, now: NOW.toISOString(), db })).toEqual([]);
   });
 
-  it("reads a carried over version as having nothing before it", async () => {
-    images("illustration", ILLUSTRATION, 1, "2026-11-01T00:00:00.000Z", 30, { liked: 20, remade: 1, arm: "none" });
+  it("reads a carried over version as having nothing before it, and its images from the seed on", async () => {
+    legacy("illustration", "2026-11-01T00:00:00.000Z", 30);
+    images("illustration", ILLUSTRATION, 1, "2027-01-05T00:00:00.000Z", 30, { liked: 20, remade: 1 });
     await pointTo({ [ILLUSTRATION]: { v: 1, setBy: "seeded", adoptedAt: V1_AT } });
     const r = await runImageVerdicts(lumen, { scopes: { [ILLUSTRATION]: { v: 1, setBy: "seeded", adoptedAt: V1_AT } }, seededAt: V1_AT }, { [ILLUSTRATION]: totals() }, newVerdictRun(), { db, now: NOW });
     expect(r.verdicts[0]!.read).toMatchObject({ call: "too_few", usableBefore: 0, after: 30 });
-    expect(r.verdicts[0]!.check.settled).toBe(true);
+    expect(r.verdicts[0]!.check).toMatchObject({ settled: true, counted: 20 });
   });
 
   it("keeps to the run's budget, one version a run, and reads again only once its counters move", async () => {
@@ -213,5 +217,173 @@ describe("runImageVerdicts", () => {
     expect(seenOf(moved)).toBe(81);
     expect(verdictDue(moved, new Date(NOW.getTime() + 3_600_000)).due).toBe(false);
     expect(verdictDue(moved, new Date(NOW.getTime() + DAY + 1)).due).toBe(true);
+  });
+});
+
+/** Images from before versions: voted, but with no stamp, no first vote time and no remake kept. */
+function legacy(style: string, from: string, n: number, stepMs = DAY) {
+  for (let i = 0; i < n; i++) {
+    const id = `old_${String(++seq).padStart(4, "0")}`;
+    db.seed("image_assets", id, {
+      tenantId: lumen.tenantId,
+      workspaceId: "ws_lumen",
+      filename: `${id}.png`,
+      mimeType: "image/png",
+      kind: "social",
+      style,
+      createdAt: new Date(Date.parse(from) + i * stepMs).toISOString(),
+      brandVote: i % 2 ? "up" : "down",
+    });
+  }
+}
+
+/** Version rows of one scope, as given, and the pointer to the last. */
+async function versionRows(scope: string, rows: Array<Partial<LearnedPatternVersion> & { v: number; at: string }>, pointer: BrandPointers["scopes"][string]) {
+  await runLoopsTransaction(
+    lumen,
+    async (txn) => {
+      for (const r of rows) {
+        appendPatternVersionTx(
+          txn,
+          lumen,
+          {
+            channel: scope,
+            version: r.v,
+            directive: null,
+            perform: [],
+            avoid: [],
+            judgeRationale: "",
+            evidence: [],
+            createdBy: r.createdBy ?? "auto",
+            createdAt: r.at,
+            loop: "image_style",
+            setBy: r.setBy ?? "learned",
+            items: r.items ?? [{ id: `look${r.v}`, type: "rule", text: `Look ${r.v} for ${scope}.`, trust: "own_content", from: "votes" }],
+            change: { op: "add", itemId: `look${r.v}` },
+          },
+          db,
+        );
+      }
+      writeBrandPointersTx(txn, lumen, { scopes: { [scope]: pointer! }, seededAt: "2026-12-01T00:00:00.000Z" }, db);
+    },
+    db,
+  );
+}
+
+const pointersOf = async (): Promise<BrandPointers> => {
+  const { readBrandPointers } = await import("@/lib/tenant/loops");
+  return readBrandPointers(lumen, db);
+};
+
+describe("which images a version reads (review round 1)", () => {
+  const NATURAL = "image_style.natural_photo";
+  const BRAND = "image_style.brand";
+
+  it("reads a carried over look's images from the seed on, however many older images the brand has, so its hold can end", async () => {
+    const SEED_AT = "2027-01-01T00:00:00.000Z";
+    // 520 images from before versions, then 60 made with the carried over look.
+    legacy("natural_photo", "2026-08-01T00:00:00.000Z", 520, DAY / 4);
+    images("natural_photo", NATURAL, 1, "2027-01-02T00:00:00.000Z", 60, { liked: 40, remade: 5 });
+    await versionRows(NATURAL, [{ v: 1, at: SEED_AT, setBy: "seeded", createdBy: "seed" }], { v: 1, setBy: "seeded", adoptedAt: SEED_AT });
+    const t = totals({ post_image: { learned: { made: 60, voted: 60, liked: 40 } } });
+    const r = await runImageVerdicts(lumen, await pointersOf(), { [NATURAL]: t }, newVerdictRun(), { db, now: NOW });
+    const v = r.verdicts[0]!;
+    expect(v.read.after).toBe(60);
+    // The scope's first 10 votes are its warm up; the other 50 count toward checking the next look.
+    expect(v.check).toMatchObject({ counted: 50, settled: true });
+    expect(isHolding(holdStateOf({ ...t, check: v.check }))).toBe(false);
+  });
+
+  it("leaves out images from before versions, which never had a remake kept, so equal remake rates never read worse", async () => {
+    const V2 = "2027-02-01T00:00:00.000Z";
+    legacy("natural_photo", "2026-06-01T00:00:00.000Z", 100);
+    // Under the carried over look and then version 2: half remade under each.
+    images("natural_photo", NATURAL, 1, "2027-01-05T00:00:00.000Z", 20, { liked: 10, remade: 10 });
+    images("natural_photo", NATURAL, 2, "2027-02-02T00:00:00.000Z", 80, { liked: 40, remade: 40 });
+    const got = await readVersionVerdict(lumen, { scope: NATURAL, v: 2, adoptedAt: V2, prevAdoptedAt: null, seen: 0 }, { db, now: NOW });
+    expect(got.read.call).not.toBe("worse");
+    expect(got.read.guard?.before.n ?? 0).toBeLessThanOrEqual(20);
+  });
+
+  it("gives the brand look the images stamped with it, whatever style they were painted in, so its check counts and its hold ends", async () => {
+    const V1 = "2027-01-01T00:00:00.000Z";
+    const V2 = "2027-03-01T00:00:00.000Z";
+    // Natural photo and Product still life have no look of their own: their images use the brand look.
+    images("natural_photo", BRAND, 1, "2027-01-02T00:00:00.000Z", 40, { liked: 30, remade: 2 });
+    images("product_still_life", BRAND, 2, "2027-03-02T00:00:00.000Z", 40, { liked: 30, remade: 2 });
+    await versionRows(BRAND, [{ v: 1, at: V1 }, { v: 2, at: V2 }], { v: 2, setBy: "learned", adoptedAt: V2 });
+    const t = totals({ post_image: { learned: { made: 40, voted: 40, liked: 30 } } });
+    const r = await runImageVerdicts(lumen, await pointersOf(), { [BRAND]: t }, newVerdictRun(), { db, now: NOW });
+    const v = r.verdicts[0]!;
+    expect(v.read.after).toBe(40);
+    expect(v.read.check?.after.n).toBeGreaterThan(0);
+    expect(v.check.counted).toBe(40);
+    expect(isHolding(holdStateOf({ ...t, check: v.check }))).toBe(false);
+  });
+
+  it("reads a style's first look against the style's images made with the brand look before it", async () => {
+    const V1 = "2027-03-01T00:00:00.000Z";
+    images("natural_photo", BRAND, 1, "2027-01-02T00:00:00.000Z", 40, { liked: 30, remade: 2 });
+    images("natural_photo", NATURAL, 1, "2027-03-02T00:00:00.000Z", 40, { liked: 30, remade: 2 });
+    // Made with the brand look after Natural photo's own began: not Natural photo's own outputs.
+    images("natural_photo", BRAND, 1, "2027-03-02T00:00:00.000Z", 5, { liked: 0, remade: 5 });
+    await versionRows(NATURAL, [{ v: 1, at: V1 }], { v: 1, setBy: "learned", adoptedAt: V1 });
+    const r = await runImageVerdicts(lumen, await pointersOf(), { [NATURAL]: totals() }, newVerdictRun(), { db, now: NOW });
+    expect(r.verdicts[0]!.read).toMatchObject({ usableBefore: 30, after: 40 });
+  });
+
+  it("offers no Go back card on a Forget's version, nor back to a look whose words a Forget took out", async () => {
+    const V1 = "2027-01-01T00:00:00.000Z";
+    const FORGOT = "2027-02-15T00:00:00.000Z";
+    // The scope's warm up, spent before its first look.
+    images("natural_photo", NATURAL, 0, "2026-11-01T00:00:00.000Z", 20, { liked: 10, remade: 2, arm: "none" });
+    images("natural_photo", NATURAL, 1, "2027-01-02T00:00:00.000Z", 40, { liked: 34, remade: 4 });
+    images("natural_photo", NATURAL, 2, "2027-02-16T00:00:00.000Z", 40, { liked: 14, remade: 4, arm: "none" });
+    await versionRows(NATURAL, [{ v: 1, at: V1, items: [{ id: "look1", type: "rule", text: null, trust: "own_content", from: "votes" }] }, { v: 2, at: FORGOT, createdBy: "forget", items: [] }], { v: 2, setBy: "learned", adoptedAt: FORGOT });
+    const r = await runImageVerdicts(lumen, await pointersOf(), { [NATURAL]: totals() }, newVerdictRun(), { db, now: NOW });
+    expect(r.verdicts[0]!.read.call).toBe("worse");
+    expect(r.verdicts[0]!.card).toBeUndefined();
+
+    // A learned look after it reads worse, but the look before it can't come back: no card either.
+    db = new FakeFirestore();
+    images("natural_photo", NATURAL, 0, "2026-11-01T00:00:00.000Z", 20, { liked: 10, remade: 2, arm: "none" });
+    images("natural_photo", NATURAL, 1, "2027-01-02T00:00:00.000Z", 40, { liked: 34, remade: 4 });
+    images("natural_photo", NATURAL, 2, "2027-02-16T00:00:00.000Z", 40, { liked: 14, remade: 4 });
+    await versionRows(NATURAL, [{ v: 1, at: V1, items: [{ id: "look1", type: "rule", text: null, trust: "own_content", from: "votes" }] }, { v: 2, at: FORGOT }], { v: 2, setBy: "learned", adoptedAt: FORGOT });
+    const s = await runImageVerdicts(lumen, await pointersOf(), { [NATURAL]: totals() }, newVerdictRun(), { db, now: NOW });
+    expect(s.verdicts[0]!.read.call).toBe("worse");
+    expect(s.verdicts[0]!.card).toBeUndefined();
+    expect(await listOpenAgentActions(lumen, { action: GO_BACK_ACTION, now: NOW.toISOString(), db })).toEqual([]);
+  });
+
+  it("reads an Undo back to the carried over look as a version of its own, from the Undo on", async () => {
+    const SEED_AT = "2027-01-01T00:00:00.000Z";
+    const V2 = "2027-02-01T00:00:00.000Z";
+    images("natural_photo", NATURAL, 1, "2027-01-02T00:00:00.000Z", 25, { liked: 20, remade: 2 });
+    images("natural_photo", NATURAL, 2, "2027-02-02T00:00:00.000Z", 30, { liked: 6, remade: 2 });
+    await versionRows(NATURAL, [{ v: 1, at: SEED_AT, setBy: "seeded", createdBy: "seed" }, { v: 2, at: V2 }], { v: 2, setBy: "learned", adoptedAt: V2 });
+    const undone = await undoLook(lumen, NATURAL, { db, now: new Date("2027-04-01T00:00:00.000Z") });
+    expect(undone).toMatchObject({ ok: true, v: 3 });
+    const pointers = await pointersOf();
+    expect(pointers.scopes[NATURAL]).toMatchObject({ v: 3, setBy: "seeded" });
+    // Nothing made since the Undo: version 3 has no outputs yet, and none of version 2's count as its own.
+    const r = await runImageVerdicts(lumen, pointers, { [NATURAL]: { c: {} } }, newVerdictRun(), { db, now: new Date("2027-04-02T00:00:00.000Z") });
+    expect(r.verdicts[0]!.read.after).toBe(0);
+    expect(r.verdicts[0]!.check.counted).toBe(0);
+  });
+
+  it("offers no card for a look kept from the card's own notice, at that read", async () => {
+    await illustration();
+    const first = await runImageVerdicts(lumen, await pointersOf(), { [ILLUSTRATION]: totals() }, newVerdictRun(), { db, now: NOW, noticeOnly: async () => true });
+    expect(first.verdicts[0]).toMatchObject({ card: "notice", read: { call: "worse", look: 40 } });
+    expect(await keepLook(lumen, { scope: ILLUSTRATION }, { db, now: NOW })).toEqual({ ok: true, v: 2 });
+    const pointers = await pointersOf();
+    expect(pointers.scopes[ILLUSTRATION]).toMatchObject({ keptAt: NOW.toISOString(), keptLook: 40 });
+    // Cards come back (Resume suggestions): the same read at the same look offers nothing.
+    const later = new Date(NOW.getTime() + 2 * DAY);
+    const second = await runImageVerdicts(lumen, pointers, { [ILLUSTRATION]: totals({ post_image: { learned: { made: 41, voted: 40 } } }) }, newVerdictRun(), { db, now: later, noticeOnly: async () => false });
+    expect(second.verdicts[0]!.read).toMatchObject({ call: "worse", look: 40 });
+    expect(second.verdicts[0]!.card).toBeUndefined();
+    expect(await listOpenAgentActions(lumen, { action: GO_BACK_ACTION, now: later.toISOString(), db })).toEqual([]);
   });
 });

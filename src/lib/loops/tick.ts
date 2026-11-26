@@ -31,8 +31,9 @@ import { seedBrand } from "./seed";
  *   100, with N the registry counted about weekly, so each brand is visited about once a day.
  * - Per brand, 4 at a time, each step stopping at the deadline:
  *   1. the idle check, one batched read of `lb:`, `ls:` and the open week's 5 shards: a brand
- *      seeded and folded, whose people's signals this week haven't moved since the last full
- *      visit and with nothing due by time, is left at that;
+ *      seeded and folded, whose people's signals this week and whose pointers (a Pause or Resume,
+ *      an Undo, a Keep) haven't moved since the last full visit, and with nothing due by time, is
+ *      left at that;
  *   2. the seed (src/lib/loops/seed.ts), on its first visit;
  *   3. a forgotten look's old copy on the brand record, cleared until it is gone;
  *   4. the fold of closed weeks (src/lib/loops/fold.ts);
@@ -126,6 +127,21 @@ export function signalHash(shards: readonly unknown[]): string {
   return fnv1a(leaves.sort().join(";")).toString(36);
 }
 
+/** A value with its keys in order, so the same pointers always hash the same. */
+function stable(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(stable);
+  if (!isObj(v)) return v;
+  return Object.fromEntries(Object.keys(v).sort().map((k) => [k, stable(v[k])]));
+}
+
+/**
+ * What the idle check compares: the open week's signals (signalHash) and the brand's pointers, so a
+ * person's Resume, Undo or Keep, which write only `lb:`, makes the next visit full.
+ */
+export function visitHash(shards: readonly unknown[], pointers: BrandPointers): string {
+  return fnv1a(`${signalHash(shards)}|${JSON.stringify(stable(pointers))}`).toString(36);
+}
+
 /** Go back cards the open week counted already, for the weekly budget. */
 function cardsProposed(shards: readonly unknown[]): number {
   let n = 0;
@@ -199,7 +215,7 @@ async function visitBrand(row: TenantPageRow, run: { learn: LearnRun; verdicts: 
   const lane0 = LaneStateSchema.safeParse(ls?.d ?? {});
   const lane: LaneState = lane0.success ? lane0.data : {};
   const shards = shardDocs.map((d) => d?.d);
-  const hash = signalHash(shards);
+  const hash = visitHash(shards, pointers);
   const folded = Boolean(lane.foldedThrough && lane.foldedThrough >= lastClosedWeek(now));
   const forgotPending = Object.entries(pointers.forgot ?? {}).filter(([scope, { at }]) => hasOldCopy(row, scope, at));
   const quiet = lane.seen?.week === week && lane.seen.hash === hash && Boolean(lane.quietUntil) && now.toISOString() < lane.quietUntil!;
@@ -281,7 +297,8 @@ async function visitBrand(row: TenantPageRow, run: { learn: LearnRun; verdicts: 
   // When nothing is due by time alone, until the next full visit.
   const times = [weekWait, dueAt, soonestExpiry(open), new Date(now.getTime() + LANE.QUIET_MAX_DAYS * DAY_MS).toISOString()].filter((t): t is string => !!t);
   const quietUntil = retry ? now.toISOString() : times.sort()[0]!;
-  await mergeLaneState(ctx, { seen: { week, hash }, quietUntil, runs: (lane.runs ?? 0) + 1, lastRunAt: now.toISOString() }, db).catch((err) => {
+  // The pointers as the visit left them: a seed or a look it learned is not a change to look at again.
+  await mergeLaneState(ctx, { seen: { week, hash: visitHash(shards, pointers) }, quietUntil, runs: (lane.runs ?? 0) + 1, lastRunAt: now.toISOString() }, db).catch((err) => {
     console.warn("[loops] keeping the lane's state failed", err instanceof Error ? err.message.slice(0, 200) : "error");
   });
   return out;

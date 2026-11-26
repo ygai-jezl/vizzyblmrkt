@@ -729,6 +729,34 @@ describe("the votes learner", () => {
     expect(late.outcomes.find((o) => o.scope === NATURAL)).toMatchObject({ outcome: "waiting", why: "unprofiled" });
   });
 
+  it("reads the time left once a queued profile's turn comes, so one waiting behind another brand's never runs past the deadline", async () => {
+    let t = T0.getTime();
+    const deadline = t + 20_000;
+    const run = newLearnRun({ deadlineMs: deadline });
+    const started: Array<{ left: number; timeoutMs: number }> = [];
+    // Each profile uses all the time it is given: the model times out.
+    const timesOut: VotesDeps["profile"] = async (_c, _r, o) => {
+      started.push({ left: deadline - t, timeoutMs: o.timeoutMs ?? 0 });
+      await new Promise((r) => setImmediate(r));
+      t += o.timeoutMs ?? 0;
+      return null;
+    };
+    const dbs = [new FakeFirestore(), new FakeFirestore()];
+    for (const db of dbs) {
+      await brand(db);
+      for (let i = 0; i < 3; i++) await row(db, { styleProfile: null });
+    }
+    const results = await Promise.all(dbs.map((db) => runFor(db, { profile: timesOut, clock: () => t }, run)));
+    // The first gets 15 seconds; the second's turn comes with 5 left, under 12, so it waits for the next run.
+    expect(started).toEqual([{ left: 20_000, timeoutMs: LOOP_RULES.learnCallMs }]);
+    for (const s of started) expect(s.left - s.timeoutMs).toBeGreaterThanOrEqual(2_000);
+    expect(run.calls).toBe(1);
+    expect(results.map((r) => r.outcomes.find((o) => o.scope === NATURAL))).toEqual([
+      expect.objectContaining({ outcome: "waiting", why: "unprofiled" }),
+      expect.objectContaining({ outcome: "waiting", why: "unprofiled" }),
+    ]);
+  });
+
   it("gives a profile the run's time left through timeoutMs, and leaves out an image whose profile failed twice", async () => {
     const db = new FakeFirestore();
     await brand(db);

@@ -1,20 +1,24 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { History } from "lucide-react";
 import type { ReviewItem } from "@/lib/review/summary";
-import { KEPT_DONE, backToLine } from "@/lib/loops/learnedWords";
+import { GO_BACK_UNDONE, KEPT_DONE, OPEN_WHAT_IT_LEARNED, backToLine } from "@/lib/loops/learnedWords";
 import { learnedAction } from "@/components/admin/brand-kit/learnedClient";
 
 /**
  * Review, What YouGrow learned (learning loops step 4, screen 3): a Go back card for a learned image
  * look that did worse than the look before. Go back puts the earlier look back (with Undo on its done
  * line); Keep this look keeps the newer one, and YouGrow only asks again if a later check reads
- * worse. Admins only: the page draws a member the card with Open and a line saying so.
+ * worse. An Undo after Go back leaves a done line with a link to What it learned: the card was
+ * answered, so it never comes back. Admins only: the page draws a member the card with Open and a
+ * line saying so.
  */
 
 type RowItem = ReviewItem & { goBack: NonNullable<ReviewItem["goBack"]> };
 type Busy = "go_back" | "keep" | "undo" | null;
+type DoneLine = { text: string; undo: boolean; href?: string };
 
 const GHOST = "rounded-md px-3 py-1.5 text-sm text-shell-muted hover:bg-shell-hover hover:text-shell-ink disabled:opacity-50";
 const ACT = "shrink-0 rounded-md border border-shell-line px-3 py-1.5 text-sm font-medium hover:bg-shell-hover disabled:opacity-50";
@@ -22,7 +26,7 @@ const ACT = "shrink-0 rounded-md border border-shell-line px-3 py-1.5 text-sm fo
 export function GoBackRow({ item }: { item: RowItem }) {
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<{ text: string; undo: boolean } | null>(null);
+  const [done, setDone] = useState<DoneLine | null>(null);
 
   async function send(op: "go_back" | "keep") {
     setBusy(op);
@@ -45,7 +49,7 @@ export function GoBackRow({ item }: { item: RowItem }) {
       setError(r.data.message ?? "Couldn't undo. Try again.");
       return;
     }
-    setDone(null);
+    setDone({ text: GO_BACK_UNDONE, undo: false, href: item.href });
   }
 
   return <GoBackRowView item={item} busy={busy} error={error} done={done} onSend={(op) => void send(op)} onUndo={() => void undo()} />;
@@ -63,7 +67,7 @@ export function GoBackRowView({
   item: RowItem;
   busy: Busy;
   error: string | null;
-  done: { text: string; undo: boolean } | null;
+  done: DoneLine | null;
   onSend: (op: "go_back" | "keep") => void;
   onUndo: () => void;
 }) {
@@ -75,6 +79,11 @@ export function GoBackRowView({
           <button type="button" disabled={busy !== null} onClick={onUndo} className="font-medium text-shell-ink underline underline-offset-2 disabled:opacity-50">
             Undo
           </button>
+        ) : null}
+        {done.href ? (
+          <Link href={done.href} className="font-medium text-shell-ink underline underline-offset-2">
+            {OPEN_WHAT_IT_LEARNED}
+          </Link>
         ) : null}
         {error ? <span className="text-red-600 dark:text-red-400">{error}</span> : null}
       </li>

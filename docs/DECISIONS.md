@@ -72,7 +72,9 @@ Decided:
    and best of N. The arm is never shown before a person votes. The first remake of a held back
    image within 14 days is metered under `loop_learn`, now an images purpose that the cap leaves
    out and the meter never checks, so at worst a brand gets about 5% more images than its
-   allowance. Plan and usage shows a capped row's count toward its cap, so used and left agree.
+   allowance. That free remake is reserved on the earlier row (`remakeClaimAt`) in a transaction
+   before the new image is made, so of several at once only one is free; the reservation lapses
+   after 5 minutes, so an image that failed lets it go. Plan and usage shows a capped row's count toward its cap, so used and left agree.
 7. **Counting.** `countSignal` (`src/lib/loops/count.ts`) is one merged write of increments to one
    of 5 random shards of the ISO week: never a read, never a transaction, never failing the work.
    It counts made, kept, edited, declined, voted, liked, remade, undone and reversed per scope,
@@ -115,8 +117,14 @@ Decided:
     Ceilings: 6 learner calls a run and 2,000 a day per copy, profiles included; 2 images profiled a
     run, one at a time; 2 verdict reads a run of at most 500 rows each.
 11. **The verdict for image looks.** `src/lib/loops/imageVerdict.ts` runs ADR-0022's verdict on a
-    style's images either side of a version's start, leaving out held back, person off, customised
-    and uploaded images, and images made less than 14 days ago. The check counts images voted within
+    scope's images either side of a version's start, leaving out held back, person off, customised
+    and uploaded images, images made less than 14 days ago, and images with no stamp, made before
+    versions when no first vote or remake was kept. The brand look's images are those stamped with
+    its scope, whatever style they were painted in; a style's are its images, and since its version
+    began only those stamped with its own scope. Only the seed's own version 1 is carried over: it
+    reads nothing before it and its images from the seed on, and the version after it reads back to
+    the scope's start. No card is offered for a version with no look (a Forget, or an Undo of a first
+    look), nor back to a look whose words a Forget took out. The check counts images voted within
     14 days, a hit being an up vote; the guard counts every such image, a hit being a remake within
     14 days. The window before is read newest first on the existing `(tenantId, createdAt desc)`
     index; the window after is read oldest first, which needs a new composite index,
@@ -128,8 +136,9 @@ Decided:
     origin check, `getAdminContext()`, an admin role and the switch on: Undo, Pause and Resume (one
     level, image learning), Forget (a retire version, the words removed from older rows, the old
     field cleared, the search entry removed and open cards declined), Forget of the look an Undo
-    left, Edit the words (`setBy: person`, through the same text check), Keep (`keptAt`, no new
-    version), Go back, Resume suggestions, and the learning setting, Help check that learning works,
+    left, Edit the words (`setBy: person`, through the same text check), Keep (`keptAt` and the
+    look of the read kept, `keptLook`, no new version, whether from a card or the card's notice),
+    Go back, Resume suggestions, and the learning setting, Help check that learning works,
     whose off puts `fleetOptOut` on the pointers so none of the brand's images is held back. A Go
     back card is an `agent_actions` row with agent `learning`, target `learned_item` and action
     `learned.go_back`, its payload `{scope, from, to}` and never the look's words: deduped per
@@ -168,7 +177,13 @@ Where the build follows the code, not the plan (the plan's intent kept):
 - Reset seeds first, and a seed that fails resets nothing. The meter skips its cap check for
   `loop_learn` itself, and remakes are metered through `remakeUsage`.
 - Actions gain Forget of the look an Undo left and the setting's Help check; Undo and Go back answer
-  with the restored version's date; version rows count uploads among the liked (`evidenceCounts`).
+  with the restored version's date, and carry the restored look's `evidenceIds`, so a Forget of it
+  leaves out the images that taught it; version rows count uploads among the liked (`evidenceCounts`).
+- Images made before `seededAt` are not outputs of the seeded version, as the plan had them: those
+  made before versions have no stamp, first vote time or remake, so their outcomes aren't known. The
+  version after a seeded one still reads back to the scope's start, over stamped images only.
+- The lane's idle check hashes the brand's pointers along with the week's signals, so a Resume,
+  Undo or Keep, which write only `lb:`, makes the next visit full.
 - `TenantCollection.increment` also takes ids with the tenant id between colons, and the tenant layer
   gains projected reads (`findFields`).
 - `skipPick` keeps the stored pick's question, never the request's words, and answers 404 for a pick

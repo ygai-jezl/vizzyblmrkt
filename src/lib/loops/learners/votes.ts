@@ -621,10 +621,21 @@ async function visit(
       }
       run.profilesLeft--;
       tried.add(row.id);
-      const left = run.deadlineMs - clock() - DEADLINE_MARGIN_MS;
-      const kept = await oneAtATime(run, () =>
-        keepProfile(ctx, row, { profile: deps.profile ?? defaultProfile, timeoutMs: Math.max(1, Math.min(LOOP_RULES.learnCallMs, left)), db }),
-      );
+      // Another brand's profile may hold the queue: the time left is read once this one's turn comes.
+      const kept = await oneAtATime(run, async () => {
+        const left = run.deadlineMs - clock();
+        if (left < LOOP_RULES.learnStartMs) return null;
+        return keepProfile(ctx, row, { profile: deps.profile ?? defaultProfile, timeoutMs: Math.max(1, Math.min(LOOP_RULES.learnCallMs, left - DEADLINE_MARGIN_MS)), db });
+      });
+      if (!kept) {
+        // Too little time once its turn came: not a call, and the image waits for the next run.
+        run.callsLeft++;
+        run.dayLeft++;
+        run.calls--;
+        run.profilesLeft++;
+        tried.delete(row.id);
+        break;
+      }
       if (kept.ok) {
         const fresh = await forTenant(ctx, db).imageAssets.getById(row.id);
         row.styleProfile = fresh?.styleProfile ?? row.styleProfile;

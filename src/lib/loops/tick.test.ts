@@ -3,7 +3,8 @@ import { readLoopLane } from "@/lib/tenant/loopLane";
 import { LOOP_DAYS, readBrandPointers, readLaneState, runLoopsTransaction, writeBrandPointersTx } from "@/lib/tenant/loops";
 import { getPatternVersion } from "@/lib/tenant/patternVersions";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
-import { containerMemoryLimit, isLoopsTick, memoryTooHigh, pageSizeFor, runLoopsLane, signalHash } from "./tick";
+import { setImageLearningPaused } from "./actions";
+import { containerMemoryLimit, isLoopsTick, memoryTooHigh, pageSizeFor, runLoopsLane, signalHash, visitHash } from "./tick";
 
 /** The loops lane (learning loops step 4, 4.5): its page through the brands, the idle check, the guard and the seed. */
 
@@ -70,7 +71,7 @@ describe("a brand's visit", () => {
     expect((await getPatternVersion({ tenantId: "ten_hearth", region: "us", source: "system" }, "image_style.brand", 1, db))?.setBy).toBe("seeded");
     const state = await readLaneState({ tenantId: "ten_hearth", region: "us", source: "system" }, db);
     expect(state.foldedThrough).toBeDefined();
-    expect(state.seen?.hash).toBe(signalHash([]));
+    expect(state.seen?.hash).toBe(visitHash([], pointers));
     expect(state.quietUntil! > NOW.toISOString()).toBe(true);
 
     const opened = () => ({ loopDays: db.collectionCalls(LOOP_DAYS), images: db.collectionCalls("image_assets"), versions: db.collectionCalls("learned_pattern_versions") });
@@ -82,6 +83,19 @@ describe("a brand's visit", () => {
     expect(after.loopDays - before.loopDays).toBe(7);
     expect(after.images - before.images).toBe(0);
     expect(after.versions - before.versions).toBe(0);
+  });
+
+  it("visits a brand fully again after a person's Pause or Resume, which write only its pointers", async () => {
+    brand("ten_hearth");
+    const ctx = { tenantId: "ten_hearth", region: "us" as const, source: "system" as const };
+    await lane();
+    expect(await setImageLearningPaused(ctx, true, { db, now: NOW })).toEqual({ ok: true });
+    // Paused: a full visit, then quiet for days, as nothing is due by time.
+    expect(await lane()).toMatchObject({ brands: 1, idle: 0 });
+    expect(await lane()).toMatchObject({ brands: 1, idle: 1 });
+    // Resume: the likes that came in during the pause are learned from on the next visit, not a week on.
+    expect(await setImageLearningPaused(ctx, false, { db, now: NOW })).toEqual({ ok: true });
+    expect(await lane()).toMatchObject({ brands: 1, idle: 0 });
   });
 
   it("clears a forgotten look's old copy on the brand record until it is gone", async () => {
@@ -128,5 +142,9 @@ describe("the guards", () => {
     expect(signalHash([people, undefined])).toBe(signalHash([undefined, people]));
     expect(signalHash([{ ...people, r: { loop_learn: { error: 3 } } }])).toBe(signalHash([people]));
     expect(signalHash([{ o: { image: { liked: 1 } } }])).not.toBe(signalHash([]));
+    // The pointers count too, whatever order their keys are in.
+    const p = { scopes: { "image_style.natural_photo": { v: 1, setBy: "learned" as const, adoptedAt: "2026-12-01T09:00:00.000Z" } }, seededAt: "2026-12-01T09:00:00.000Z" };
+    expect(visitHash([people], p)).toBe(visitHash([people], { seededAt: p.seededAt, scopes: p.scopes }));
+    expect(visitHash([people], { ...p, pause: { image_style: { at: "2026-12-02T09:00:00.000Z" } } })).not.toBe(visitHash([people], p));
   });
 });

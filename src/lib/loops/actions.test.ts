@@ -207,6 +207,18 @@ describe("Forget", () => {
     expect(await undoLook(hearth, NATURAL, deps())).toEqual({ ok: false, error: "forgotten" });
   });
 
+  it("leaves out the images that taught a look an Undo brought back, and offers to forget the brand look with it", async () => {
+    expect(await undoLook(hearth, NATURAL, deps())).toMatchObject({ ok: true, v: 3, restored: 1 });
+    // Version 3 is version 1's look again, with the images that taught it.
+    expect((await getPatternVersion(hearth, NATURAL, 3, db))?.evidenceIds).toEqual(["e1", "e2", "e3", "d1"]);
+    // All 4 also taught the brand look, so the confirm offers to forget it too.
+    expect(await forgetPreview(hearth, NATURAL, deps())).toEqual({ ok: true, liked: 3, disliked: 1, uploaded: 0, brandOverlap: 4 });
+    expect(await forgetLook(hearth, NATURAL, {}, deps())).toMatchObject({ ok: true, v: 4 });
+    const v4 = await getPatternVersion(hearth, NATURAL, 4, db);
+    expect(v4).toMatchObject({ createdBy: "forget", forgotHash: lookHash(LOOK1) });
+    expect(v4?.excludedEvidence?.sort()).toEqual(["d1", "e1", "e2", "e3"]);
+  });
+
   it("forgets the brand look too when asked", async () => {
     const r = await forgetLook(hearth, NATURAL, { alsoBrand: true }, deps());
     expect(r).toMatchObject({ ok: true, scopes: [NATURAL, BRAND] });
@@ -236,6 +248,17 @@ describe("Keep and Go back", () => {
     // A kept look's card at the same look is never offered again for 30 days.
     const again = await proposeGoBack(hearth, { scope: NATURAL, from: 2, to: 1, proposedThisWeek: 0, previous: { id }, basis: { read: { ...worse, look: 20 }, since: V2_AT, evidence: null } }, { db, now: NOW });
     expect(again.outcome).toBe("quiet");
+  });
+
+  it("Keep from the card's own notice keeps the look of the read it answered", async () => {
+    db.seed(LOOP_DAYS, `lv:ten_hearth:${NATURAL}:2`, { tenantId: "ten_hearth", d: { c: {}, looks: { "10": worse, "20": { ...worse, look: 20 } } } });
+    expect(await keepLook(hearth, { scope: NATURAL }, deps())).toEqual({ ok: true, v: 2 });
+    expect((await readBrandPointers(hearth, db)).scopes[NATURAL]).toMatchObject({ keptAt: NOW.toISOString(), keptLook: 20 });
+    // A Go back or an Undo starts a new version, with nothing kept.
+    await undoLook(hearth, NATURAL, deps());
+    const p = (await readBrandPointers(hearth, db)).scopes[NATURAL];
+    expect(p?.keptAt).toBeUndefined();
+    expect(p?.keptLook).toBeUndefined();
   });
 
   it("Go back writes the named version's look again, counts reversed and acts on the card", async () => {

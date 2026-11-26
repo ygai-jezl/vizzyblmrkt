@@ -5,7 +5,7 @@ import type { LearnedCardView, LookRowView } from "@/lib/loops/learnedView";
 import * as W from "@/lib/loops/learnedWords";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
-const { WhatItLearnedCard } = await import("./WhatItLearnedCard");
+const { WhatItLearnedCard, ForgetDialog, HistoryList, bindDialogKeys } = await import("./WhatItLearnedCard");
 const { VoteWhy, whyShows, opensByItself } = await import("./VoteWhy");
 const { HowThisWasMade, ImageDetailModal } = await import("./ImageDetailModal");
 const { ImageStyleCard } = await import("./ImageStyleCard");
@@ -113,7 +113,7 @@ describe("What it learned (screen 1)", () => {
     const goBack = html(
       createElement(WhatItLearnedCard, {
         initial: card({
-          rows: [row({ tag: W.NOT_LEARNING_WHILE_OPEN, check: { text: "Your images were remade more since 9 Mar: 20 of 40 against 4 of 40 before.", tone: "bad" }, goBack: { text: W.goBackWaiting(3), href: "/admin/review#learned" } })],
+          rows: [row({ tag: W.NOT_LEARNING_WHILE_OPEN, check: { text: "Your images were remade more since 9 Mar: 20 of 40 against 4 of 40 before.", tone: "bad" }, goBack: { text: W.goBackWaiting(3), href: "/admin/approvals#learned" } })],
         }),
       }),
     );
@@ -123,6 +123,57 @@ describe("What it learned (screen 1)", () => {
     const notice = html(createElement(WhatItLearnedCard, { initial: card({ rows: [row({ notice: true, check: { text: "Liked less often since 9 Mar: 12 of 40 against 30 of 40 before. Go back to the earlier look?", tone: "bad" } })] }) }));
     expect(notice).toContain(">Go back<");
     expect(notice).toContain(">Keep this look<");
+  });
+});
+
+describe("Forget's confirm and History (screen 1, states h and g)", () => {
+  it("is a labelled modal dialog with Cancel and Forget", () => {
+    const c = W.forgetConfirm({ scope: "image_style.natural_photo", liked: 3, disliked: 1, brandOverlap: 2 });
+    const out = html(createElement(ForgetDialog, { ...c, alsoBrand: false, busy: false, returnTo: null, onAlso: () => {}, onCancel: () => {}, onConfirm: () => {} }));
+    expect(out).toContain('role="dialog"');
+    expect(out).toContain('aria-modal="true"');
+    expect(out).toContain('aria-labelledby="forget-h"');
+    expect(out).toContain('aria-describedby="forget-body"');
+    expect(out).toContain(">Cancel</button>");
+    expect(out).toContain(">Forget</button>");
+  });
+
+  it("closes on Escape wherever focus is, and lets go of the keys once closed", () => {
+    const doc = new EventTarget();
+    const close = vi.fn();
+    const key = (k: string) => {
+      const e = new Event("keydown", { cancelable: true });
+      Object.assign(e, { key: k });
+      doc.dispatchEvent(e);
+      return e;
+    };
+    const unbind = bindDialogKeys(doc, { close });
+    key("Enter");
+    expect(close).not.toHaveBeenCalled();
+    expect(key("Escape").defaultPrevented).toBe(true);
+    expect(close).toHaveBeenCalledTimes(1);
+    unbind();
+    key("Escape");
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps History's heading and Hide out of its list, which holds only the version lines", () => {
+    const out = html(
+      createElement(HistoryList, {
+        name: "Natural photo",
+        history: [
+          { v: 2, text: "Version 2, 9 Mar, learned from 20 images you liked and 8 you didn't. In use.", now: true },
+          { v: 1, text: "Version 1, 2 Jan, carried over. Can't be checked: nothing came before it.", now: false },
+        ],
+        onHide: () => {},
+      }),
+    );
+    expect(out).not.toContain('role="list"');
+    const list = out.slice(out.indexOf("<ul"), out.indexOf("</ul>"));
+    expect(list).toContain('aria-label="History of Natural photo"');
+    expect(list.match(/<li/g)).toHaveLength(2);
+    expect(list).not.toContain("Hide");
+    expect(out.indexOf(">Hide</button>")).toBeLessThan(out.indexOf("<ul"));
   });
 });
 
@@ -203,6 +254,15 @@ describe("Review's Go back card (screen 3)", () => {
     expect(kept).toContain("Kept. YouGrow only asks again if a later check reads worse.");
     expect(kept).not.toContain(">Undo<");
   });
+
+  it("after Go back and then Undo, says so with a link to What it learned, and never draws the answered card again", () => {
+    const undone = view({ done: { text: W.GO_BACK_UNDONE, undo: false, href: item.href } });
+    expect(undone).toContain("Undone. The newer look is back in use.");
+    expect(undone).toContain('href="/admin/brand-kit/image-style#learned"');
+    expect(undone).toContain(">Open What it learned</a>");
+    expect(undone).not.toContain(">Go back<");
+    expect(undone).not.toContain(">Keep this look<");
+  });
 });
 
 describe("the learning setting (screen 5) and the Image style card", () => {
@@ -222,5 +282,8 @@ describe("the learning setting (screen 5) and the Image style card", () => {
     const out = html(createElement(ImageStyleCard, { initial: { defaultStyleId: "natural_photo" }, suggestion: null, palette: [], canEdit: true, versions: true }));
     const selected = out.slice(out.indexOf('aria-pressed="true"'));
     expect(selected.slice(0, 1200)).toContain("text-neutral-600");
+    // In dark mode the number reads lighter, as the engine line does, never neutral-600 on the dark blue.
+    const number = selected.slice(selected.indexOf("font-mono"), selected.indexOf("font-mono") + 120);
+    expect(number).toContain("dark:text-neutral-400");
   });
 });

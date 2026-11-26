@@ -138,13 +138,17 @@ export default function WhatYouGrowLearnedHelp() {
           When Review asks to go back to an earlier look, <strong>Keep this look</strong> keeps the newer one. YouGrow only asks
           again if a later check reads worse.
         </li>
+        <li>
+          <strong>Go back</strong> puts the earlier look back, with Undo next to it. Undo brings the newer look back and answers
+          the card, so it doesn&apos;t come back.
+        </li>
       </UL>
 
       <H2 id="holdback">About 1 image in 20</H2>
       <P>
         About 1 image in 20 is made without what YouGrow learned, so it can check that learning helps. Only the learned look and
-        the reference images picked from your votes are left out; your logo, icons and graphics stay. You only see which one it
-        was after you vote, so it can&apos;t sway your vote.
+        the reference images picked from your votes are left out; your logo, icons and graphics stay. You see which one it was
+        after you vote, or when you open How this was made in an image&apos;s details, so it doesn&apos;t sway your vote.
       </P>
       <P>
         Looks you set or keep are always used. To always use what it learned, turn off{" "}

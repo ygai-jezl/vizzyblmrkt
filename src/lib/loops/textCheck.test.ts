@@ -12,6 +12,7 @@ describe("the loops' text check", () => {
       "like the 2020-2024 range, 1200 x 1200 crops",
       "Maya liked the 3 loaves at 9 am",
       "e.g. warmer colours, less blue",
+      "light and/or shade, 50/50 crops at f/2.8",
     ]) {
       expect(textRefusalOf(ok), ok).toBeNull();
     }
@@ -21,6 +22,10 @@ describe("the loops' text check", () => {
     expect(textRefusalOf("see https://hearth.example/menu")).toBe("link");
     expect(textRefusalOf("like www.lumen.test")).toBe("link");
     expect(textRefusalOf("copy hearthbakery.com/loaves")).toBe("link");
+    // A host with a path on any ending, and the common short link and country endings.
+    for (const link of ["see hearthbakery.de/brot", "hearth.co/menu", "t.me/hearth", "see bit.ly/abc", "lumen.studio/work", "hearth.co", "hearthbakery.de", "bit.ly"]) {
+      expect(textRefusalOf(link), link).toBe("link");
+    }
     expect(textRefusalOf("ask maya@example.com first")).toBe("email");
     expect(textRefusalOf("more like @hearthbakery")).toBe("handle");
     expect(textRefusalOf("call 020 7946 0958")).toBe("phone");

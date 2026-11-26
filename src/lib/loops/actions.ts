@@ -39,8 +39,11 @@ import { checkLookText, lookHash } from "./write";
  * - Edit the words writes a look set by a person, which is never held back and which the learner
  *   leaves alone; the same text check as the learner's refuses links, email addresses, handles and
  *   phone numbers, and the person sees LOOK_REFUSED_MESSAGE.
- * - Keep puts keptAt on the pointer with no new version; Go back writes the named earlier
- *   version's look again. Both answer a Go back card, or the worse read on the card's own notice.
+ * - Keep puts keptAt on the pointer, with the look of the worse read it kept, and writes no new
+ *   version; Go back writes the named earlier version's look again. Both answer a Go back card, or
+ *   the worse read on the card's own notice.
+ * - Undo and Go back carry the restored look's evidence with it, so a later Forget of it leaves
+ *   out the images that taught it.
  * Server only.
  */
 
@@ -187,6 +190,8 @@ async function restore(
         change: { op: "revert", itemId: look?.id ?? lookOf(curRow)?.id ?? `look${input.from}` },
         ...(input.excluded.length ? { excludedEvidence: input.excluded.slice(0, EVIDENCE_IDS_MAX) } : {}),
         ...(target?.evidenceCounts && look ? { evidenceCounts: target.evidenceCounts } : {}),
+        // The images that taught the look come back with it, so a Forget of it leaves them out too.
+        ...(look && target?.evidenceIds?.length ? { evidenceIds: target.evidenceIds.slice(0, EVIDENCE_IDS_MAX) } : {}),
         ...(byOf(ctx) ? { by: byOf(ctx) } : {}),
       }),
       deps.db,
@@ -445,27 +450,38 @@ async function answerOf(
   ctx: TenantContext,
   input: { cardId?: unknown; scope?: unknown },
   deps: ActionDeps,
-): Promise<{ ok: true; scope: ImageStyleScope; from: number; to: number; card: AgentAction | null } | { ok: false; error: ActionError }> {
+): Promise<{ ok: true; scope: ImageStyleScope; from: number; to: number; card: AgentAction | null; look: number | null } | { ok: false; error: ActionError }> {
   if (!isImageStyleVersionsOn()) return { ok: false, error: "switch" };
+  /** The version's reads: the newest is what the card and its notice say. */
+  const readsOf = async (scope: string, v: number) => {
+    const [doc] = await readLoopDays(ctx, [loopDayId.version(ctx.tenantId, scope, v)], deps.db);
+    const totals = VersionTotalsSchema.safeParse(doc?.d ?? {});
+    return totals.success ? totals.data : null;
+  };
   if (input.cardId !== undefined) {
     if (!isAgentActionId(input.cardId)) return { ok: false, error: "not_found" };
     const card = await getAgentAction(ctx, input.cardId, { db: deps.db });
     const g = card ? goBackOf(card) : null;
     if (!card || !g || !isLearningScope(g.scope)) return { ok: false, error: "not_found" };
     if (card.state !== "proposed") return { ok: false, error: "moved" };
-    return { ok: true, scope: g.scope, from: g.from, to: g.to, card };
+    const totals = await readsOf(g.scope, g.from);
+    const looks = [newestRead(totals?.looks)?.look, totals?.card?.look].filter((n): n is number => typeof n === "number");
+    return { ok: true, scope: g.scope, from: g.from, to: g.to, card, look: looks.length ? Math.max(...looks) : null };
   }
   if (!isLearningScope(input.scope)) return { ok: false, error: "scope" };
   const pointers = await readBrandPointers(ctx, deps.db);
   const cur = pointers.scopes[input.scope];
   if (!cur || cur.v <= 0) return { ok: false, error: "not_found" };
-  const [doc] = await readLoopDays(ctx, [loopDayId.version(ctx.tenantId, input.scope, cur.v)], deps.db);
-  const totals = VersionTotalsSchema.safeParse(doc?.d ?? {});
-  if (newestRead(totals.success ? totals.data.looks : undefined)?.call !== "worse") return { ok: false, error: "not_worse" };
-  return { ok: true, scope: input.scope, from: cur.v, to: cur.v - 1, card: null };
+  const read = newestRead((await readsOf(input.scope, cur.v))?.looks);
+  if (read?.call !== "worse") return { ok: false, error: "not_worse" };
+  return { ok: true, scope: input.scope, from: cur.v, to: cur.v - 1, card: null, look: read.look };
 }
 
-/** Keep this look: keptAt on the pointer, no new version, so the windows carry on; a card asks again only if a later check reads worse. */
+/**
+ * Keep this look: keptAt on the pointer with the look of the read it kept, no new version, so the
+ * windows carry on; a card asks again only if a later look reads worse, whether the person kept it
+ * from a card or from the card's own notice.
+ */
 export async function keepLook(ctx: TenantContext, input: { cardId?: unknown; scope?: unknown }, deps: ActionDeps = {}): Promise<ActionResult> {
   const a = await answerOf(ctx, input, deps);
   if (!a.ok) return fail(a.error);
@@ -474,7 +490,8 @@ export async function keepLook(ctx: TenantContext, input: { cardId?: unknown; sc
     const pointers = await readBrandPointersTx(txn, ctx, deps.db);
     const cur = pointers.scopes[a.scope];
     if (!cur || cur.v !== a.from) return fail("moved");
-    writeBrandPointersTx(txn, ctx, { ...pointers, scopes: { ...pointers.scopes, [a.scope]: { ...cur, keptAt: at } } }, deps.db);
+    const keptLook = Math.max(a.look ?? -1, cur.keptLook ?? -1);
+    writeBrandPointersTx(txn, ctx, { ...pointers, scopes: { ...pointers.scopes, [a.scope]: { ...cur, keptAt: at, ...(keptLook >= 0 ? { keptLook } : {}) } } }, deps.db);
     return { ok: true, v: cur.v };
   });
   if (r.ok && a.card) {

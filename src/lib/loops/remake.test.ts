@@ -6,7 +6,7 @@ import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { ImageAsset } from "@/lib/types/imageAsset";
 import type { LoopStamp } from "@/lib/types/loopStamp";
 import type { Tenant } from "@/lib/types/tenant";
-import { readRemake, recordRemake, withinOutcomeDays } from "./remake";
+import { REMAKE_HOLD_MS, readRemake, recordRemake, withinOutcomeDays } from "./remake";
 import { sumWeek } from "./testing/sumWeek";
 
 /**
@@ -157,6 +157,22 @@ describe("the allowance rule (decision 3)", () => {
     const second = await readRemake(hearth, "post_image", "loaf.png", { db, now: NOW });
     expect(second.purpose).toBe("post_image");
     expect(await aiUsage(hearth, second.purpose, deps).check("images")).toEqual({ limited: true, used: 3, limit: 3 });
+  });
+
+  it("makes only one of several remakes at once of a held back image free, and lets the free one go after a while when its image failed", async () => {
+    const db = withImage({ made: stampOn("holdback") });
+    const at = await Promise.all([1, 2, 3].map(() => readRemake(hearth, "post_image", "loaf.png", { db, now: NOW })));
+    expect(at.map((r) => r.purpose).sort()).toEqual(["loop_learn", "post_image", "post_image"]);
+    expect(at.every((r) => r.counts)).toBe(true);
+    // The one that reserved it failed and never recorded: a minute on it is still held, later it is free again.
+    expect((await readRemake(hearth, "post_image", "loaf.png", { db, now: new Date(NOW.getTime() + 60_000) })).purpose).toBe("post_image");
+    const after = new Date(NOW.getTime() + REMAKE_HOLD_MS + 1);
+    const again = await readRemake(hearth, "post_image", "loaf.png", { db, now: after });
+    expect(again.purpose).toBe("loop_learn");
+    // Recorded: the image is remade once, and the reservation goes.
+    expect(await recordRemake(hearth, again, "img_loaf2", { db, now: after })).toBe(true);
+    expect(db.raw("image_assets", "img_loaf")).toMatchObject({ remadeAt: after.toISOString(), remadeBy: "img_loaf2", remakeClaimAt: null });
+    expect((await readRemake(hearth, "post_image", "loaf.png", { db, now: after })).purpose).toBe("post_image");
   });
 
   it("meters a remake of an image on the learned look, or of a held back one after 14 days, as usual", async () => {

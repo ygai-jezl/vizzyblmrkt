@@ -247,7 +247,7 @@ export function ImageStyleCard({
                 <ImageStyleSwatch id={s.id} className="aspect-video w-full" />
                 <span className="flex items-center justify-between gap-2">
                   <span className="text-sm font-medium">
-                    <span className={`mr-1 font-mono text-xs ${on ? "text-neutral-600" : "text-neutral-500"}`}>{s.number}</span>
+                    <span className={`mr-1 font-mono text-xs ${on ? "text-neutral-600" : "text-neutral-500"} dark:text-neutral-400`}>{s.number}</span>
                     {s.label}
                   </span>
                   {on ? (

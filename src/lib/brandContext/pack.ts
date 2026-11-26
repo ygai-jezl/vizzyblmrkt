@@ -304,12 +304,14 @@ export async function contextPack(ctx: TenantContext, ask: PackAsk, deps: PackDe
   const query = (map.query ?? ask.text ?? "").replace(/\s+/g, " ").trim().slice(0, 300);
   const subjectId = map.subjectId ?? ask.subjectId ?? null;
   const questionId = ask.questionId ?? null;
+  // The approved strategy is read beside everything else below.
+  const strategyP = (deps.strategy ?? ((c) => readBrandStrategy(c, { db: deps.db })))(ctx)
+    .then((s) => strategyLines(ctx, s, questionId, deps))
+    .catch((): PackLine[] => []);
   const pack: ContextPack = {
     about: { query, questionId, subjectId },
     map: map.lines.slice(0, PART_MAX),
-    strategy: await (deps.strategy ?? ((c) => readBrandStrategy(c, { db: deps.db })))(ctx)
-      .then((s) => strategyLines(ctx, s, questionId, deps))
-      .catch(() => []),
+    strategy: [],
     yours: [],
     theirs: [],
     research: [],
@@ -320,11 +322,12 @@ export async function contextPack(ctx: TenantContext, ask: PackAsk, deps: PackDe
   };
   if (!query && !subjectId) {
     missing.push("No question to look for.");
+    pack.strategy = await strategyP;
     return pack;
   }
 
   const tenantP = (deps.loadTenant ?? getTenantById)(ctx.tenantId).catch(() => null);
-  const [found, flags, theirs, uncovered, signal, planning, due] = await Promise.all([
+  const [found, flags, theirs, uncovered, signal, planning, due, strategy] = await Promise.all([
     query ? (deps.search ?? ((c, q, o) => searchBrand(c, q, o)))(ctx, query, { limit: SEARCH_LIMIT }).catch(() => null) : Promise.resolve(null),
     subjectId ? (deps.flags ?? ((c) => competitorSubjectFlags(c, { db: deps.db })))(ctx).catch(() => null) : Promise.resolve(null),
     (deps.competitors ?? ((c, a) => competitorContext(c, a, { db: deps.db })))(ctx, { subjectId, text: query || null }).catch(() => null),
@@ -334,7 +337,9 @@ export async function contextPack(ctx: TenantContext, ask: PackAsk, deps: PackDe
       : Promise.resolve(null),
     (deps.searchPlanning ?? ((c) => readSearchPlanning(c, { db: deps.db })))(ctx).catch(() => null),
     subjectId ? (deps.dueArticles ?? ((c) => readDueArticles(c, { db: deps.db })))(ctx).catch(() => [] as FreshnessDueItem[]) : Promise.resolve([] as FreshnessDueItem[]),
+    strategyP,
   ]);
+  pack.strategy = strategy;
 
   // Yours leads with the brand's own live article on the subject when it is due a refresh.
   pack.yours.push(...dueArticleLines(subjectId, due));

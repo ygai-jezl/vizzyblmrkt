@@ -86,44 +86,45 @@ function interleave(groups: Candidate[][], max: number): Candidate[] {
   return out;
 }
 
-/** Open questions on the brand's focus situations (large maps only). */
-async function focusIds(ctx: TenantContext, deps: CandidateDeps): Promise<Set<string>> {
-  if (!isBrandMapSituationsEnabled()) return new Set();
-  const focus = (await listSituations(ctx, { db: deps.db }).catch(() => [])).filter((s) => s.status === "decided" && s.focus);
-  const ids = new Set<string>();
-  for (const s of focus.slice(0, 5)) {
-    const read = await readSituation(ctx, s.id, { db: deps.db }).catch(() => null);
-    for (const q of read?.questions ?? []) if (q.status === "decided" && q.state === "open") ids.add(q.id);
-  }
-  return ids;
-}
-
-/** The open questions on an approved strategy's focus situations: their ids, their words and their subjects. */
-interface StrategyFocus {
+/** The open questions on the brand's focus situations: their ids, their words and their subjects. */
+interface FocusQuestions {
   ids: Set<string>;
   keys: Set<string>;
   subjects: Set<string>;
 }
 
 /**
- * The approved strategy's focus questions (BRAND_STRATEGY_ENABLED), read on every map size. On a
- * small map the questions are matched by id, or by their words, since the map's own list keeps
- * them. Null without an approved strategy, or one with no focus.
+ * The open questions on the brand's focus situations, each situation read once: the ones starred
+ * on a large map (BRAND_MAP_SITUATIONS_ENABLED), and an approved brand strategy's focus
+ * (BRAND_STRATEGY_ENABLED) on every map size. `strategy` holds only the strategy's, whose subjects
+ * are read even outside the neediest; on a small map they are matched by id, or by their words,
+ * since the map's own list keeps them.
  */
-async function strategyFocus(ctx: TenantContext, deps: CandidateDeps): Promise<StrategyFocus | null> {
-  const strategy = await (deps.strategy ?? ((c) => readBrandStrategy(c, { db: deps.db })))(ctx).catch(() => null);
-  if (!strategy?.focusSituationIds.length) return null;
-  const out: StrategyFocus = { ids: new Set(), keys: new Set(), subjects: new Set() };
-  for (const id of strategy.focusSituationIds.slice(0, 5)) {
+async function focusQuestions(ctx: TenantContext, opts: { moved: boolean }, deps: CandidateDeps): Promise<{ all: Set<string>; strategy: FocusQuestions | null }> {
+  const approved = await (deps.strategy ?? ((c) => readBrandStrategy(c, { db: deps.db })))(ctx).catch(() => null);
+  const fromStrategy = (approved?.focusSituationIds ?? []).slice(0, 5);
+  const starred =
+    opts.moved && isBrandMapSituationsEnabled()
+      ? (await listSituations(ctx, { db: deps.db }).catch(() => []))
+          .filter((s) => s.status === "decided" && s.focus)
+          .slice(0, 5)
+          .map((s) => s.id)
+      : [];
+  const all = new Set<string>();
+  const strategy: FocusQuestions | null = fromStrategy.length ? { ids: new Set(), keys: new Set(), subjects: new Set() } : null;
+  const theirs = new Set(fromStrategy);
+  for (const id of [...new Set([...fromStrategy, ...starred])]) {
     const read = await readSituation(ctx, id, { db: deps.db }).catch(() => null);
     for (const q of read?.questions ?? []) {
       if (q.status !== "decided" || q.state !== "open") continue;
-      out.ids.add(q.id);
-      out.keys.add(questionKey(q.text));
-      out.subjects.add(q.subjectId);
+      all.add(q.id);
+      if (!strategy || !theirs.has(id)) continue;
+      strategy.ids.add(q.id);
+      strategy.keys.add(questionKey(q.text));
+      strategy.subjects.add(q.subjectId);
     }
   }
-  return out;
+  return { all, strategy };
 }
 
 /**
@@ -136,9 +137,10 @@ export async function nextUpCandidates(ctx: TenantContext, opts: { exclude?: Set
   if (!read || read.state !== "ok") return [];
   const map = read.map;
   let groups: Candidate[][];
-  const strategy = await strategyFocus(ctx, deps);
+  const moved = isBrandMapScaleEnabled() && Boolean(map.moved);
+  const { all: focus, strategy } = await focusQuestions(ctx, { moved }, deps);
 
-  if (isBrandMapScaleEnabled() && map.moved) {
+  if (moved) {
     const open = (await listSubjects(ctx, { status: "decided" }, { db: deps.db }).catch(() => [])).filter((s) => s.counts.open > 0);
     const neediest = [...open]
       .sort((a, b) =>
@@ -149,7 +151,6 @@ export async function nextUpCandidates(ctx: TenantContext, opts: { exclude?: Set
       .slice(0, MAX_SUBJECTS);
     // An approved strategy's focus questions are read whichever subject they are on.
     const subjects = [...neediest, ...open.filter((s) => strategy?.subjects.has(s.id) && !neediest.includes(s))];
-    const focus = new Set([...(await focusIds(ctx, deps)), ...(strategy?.ids ?? [])]);
     groups = [];
     for (const s of subjects) {
       const cov = await subjectCoverage(ctx, s.id, { db: deps.db }).catch(() => null);

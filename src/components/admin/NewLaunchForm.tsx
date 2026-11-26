@@ -26,14 +26,27 @@ const CONTACT_OPTIONS: RequiredContactDetail[] = ["EMAIL", "PHONE", "BOTH", "EIT
  *
  * With the words on (useWords().ideas) it names an idea instead. "Launch name is required." and
  * its idea twin are written out, since the help page quotes them.
+ *
+ * From Work's Make it an idea (`workTask`, WORK_ENABLED, worked out on the server), the name starts
+ * as the task's title and, once the launch exists, the task is linked to it (PATCH the task with
+ * the idea). If that link fails the launch is made all the same, and the form says so.
  */
-export function NewLaunchForm({ hypothesis: withHypothesis = false }: { hypothesis?: boolean }) {
+export function NewLaunchForm({
+  hypothesis: withHypothesis = false,
+  initialName = "",
+  workTask = null,
+}: {
+  hypothesis?: boolean;
+  initialName?: string;
+  workTask?: { ref: number; brandId: string } | null;
+}) {
   const router = useRouter();
   const { ideas } = useWords();
   const w = ideaWord(ideas);
-  const [name, setName] = useState("");
+  const [name, setName] = useState(initialName);
   const [hypothesis, setHypothesis] = useState("");
   const [madeId, setMadeId] = useState<string | null>(null);
+  const [linkFailed, setLinkFailed] = useState(false);
   const [slug, setSlug] = useState("");
   const [contact, setContact] = useState<RequiredContactDetail>("EMAIL");
   const [verify, setVerify] = useState(false);
@@ -82,6 +95,15 @@ export function NewLaunchForm({ hypothesis: withHypothesis = false }: { hypothes
     }
 
     const { id } = (await res.json()) as { id: string };
+    // Work's task is linked to the launch it became; the launch stands either way.
+    const linked = workTask
+      ? await fetch(`/api/admin/work/tasks/${workTask.ref}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ idea: { brandId: workTask.brandId, ideaId: id }, via: "work_page" }),
+        }).then((r) => r.ok, () => false)
+      : true;
+    if (!linked) setLinkFailed(true);
     if (withHypothesis && hypothesis.trim()) {
       const saved = await fetch(`/api/admin/campaigns/${encodeURIComponent(id)}/idea`, {
         method: "PATCH",
@@ -93,6 +115,11 @@ export function NewLaunchForm({ hypothesis: withHypothesis = false }: { hypothes
         setStatus("idle");
         return;
       }
+    }
+    if (!linked) {
+      setMadeId(id);
+      setStatus("idle");
+      return;
     }
     router.push(`/admin/launches/${id}`);
     router.refresh();
@@ -197,7 +224,7 @@ export function NewLaunchForm({ hypothesis: withHypothesis = false }: { hypothes
 
       {madeId ? (
         <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
-          <p>{ideaMessages(ideas).hypothesisNotSaved}</p>
+          <p>{linkFailed ? (ideas ? `The idea was made, but task #${workTask?.ref} couldn't be linked to it. Link it from the task's Connected to.` : `The launch was made, but task #${workTask?.ref} couldn't be linked to it. Link it from the task's Connected to.`) : ideaMessages(ideas).hypothesisNotSaved}</p>
           <Link
             href={`/admin/launches/${madeId}`}
             className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"

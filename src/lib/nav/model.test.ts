@@ -369,3 +369,33 @@ describe("Ideas in place of Launches", () => {
     }
   });
 });
+
+describe("Work (WORK_ENABLED)", () => {
+  const start = (flags: NavFlags) => buildNav(flags).find((s) => s.key === "start")!.items.map((i) => i.key);
+
+  it("is last in the top group, only while the switch is on", () => {
+    expect(start({ ...ALL_ON, work: true })).toEqual(["home", "review", "work"]);
+    expect(start(ALL_ON)).toEqual(["home", "review"]);
+    expect(allItems({ ...ALL_ON, work: true }).find((i) => i.key === "work")).toMatchObject({ href: "/admin/work", label: "Work" });
+  });
+
+  it("lights Work on its pages, and never on Content's /admin/workspace", () => {
+    const items = allItems({ ...ALL_ON, work: true });
+    for (const path of ["/admin/work", "/admin/work/log", "/admin/work/new", "/admin/work/73"]) expect(activeNavKey(path, items), path).toBe("work");
+    expect(activeNavKey("/admin/workspace", items)).toBe("content");
+    expect(activeNavKey("/admin/workspace/w1/curate", items)).toBe("content");
+  });
+
+  it("has crumbs for the list, the Log, the add page and a task by its ref, never its title", () => {
+    const names: CrumbNames = { launches: {}, workspaces: {} };
+    const labels = (path: string) => breadcrumbsFor(path, names).map((c) => c.label);
+    expect(labels("/admin/work")).toEqual(["Work"]);
+    expect(labels("/admin/work/log")).toEqual(["Work", "Log"]);
+    expect(labels("/admin/work/new")).toEqual(["Work", "New task"]);
+    expect(labels("/admin/work/73")).toEqual(["Work", "Task #73"]);
+    expect(labels("/admin/work/not-a-ref")).toEqual(["Work", "Task"]);
+    expect(breadcrumbsFor("/admin/work/73", names)[0]).toEqual({ label: "Work", href: "/admin/work" });
+    // Content keeps its own crumbs.
+    expect(labels("/admin/workspace")).toEqual(["Content"]);
+  });
+});

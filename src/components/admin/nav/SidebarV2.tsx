@@ -13,6 +13,7 @@ import {
   ChevronRight,
   House,
   Inbox,
+  ListTodo,
   PenLine,
   Rocket,
   Route,
@@ -42,6 +43,7 @@ import { useReviewCount } from "./useApprovalCount";
 const ICONS: Record<NavKey, LucideIcon> = {
   home: House,
   review: Inbox,
+  work: ListTodo,
   launches: Rocket,
   content: PenLine,
   products: Box,
@@ -57,10 +59,10 @@ const PHASE2 = isNavV2Phase2Enabled();
 const GUIDE = isSetupGuideEnabled();
 
 /**
- * The sidebar's sections; `people` (from the server) names the Audience item People, and `ideas`
- * (from the server) the Launches item Ideas.
+ * The sidebar's sections; `people` (from the server) names the Audience item People, `ideas`
+ * (from the server) the Launches item Ideas, and `work` (WORK_ENABLED, from the server) adds Work.
  */
-function sectionsFor(people: boolean, ideas: boolean) {
+function sectionsFor(people: boolean, ideas: boolean, work: boolean) {
   return buildNav({
     lifecycle: isLifecycleUiEnabled(),
     brandKit: isBrandKitUiEnabled(),
@@ -69,6 +71,7 @@ function sectionsFor(people: boolean, ideas: boolean) {
     phase3: isNavV2Phase3Enabled(),
     people,
     ideas,
+    work,
   });
 }
 
@@ -82,6 +85,8 @@ export interface SidebarV2Props {
   people?: boolean;
   /** Launches are called Ideas (isIdeaWordsEnabled(), worked out by the layout on the server). */
   ideas?: boolean;
+  /** Work is on (isWorkEnabled(), worked out by the layout on the server): last in the top group, under Ask Vizzy. */
+  work?: boolean;
   /**
    * Coming up (ONBOARDING_ENABLED, worked out by the layout from the tenant doc): the sections this
    * brand shows and each waiting one's line. Undefined: today's sidebar, every section shown.
@@ -178,10 +183,10 @@ function StageDot({ status }: { status: StageStatus }) {
  * launches instead of one row per launch; Brand and Settings at the bottom.
  * Phase 2 adds search (⌘K), Ask Vizzy (⌘J) and the growth-path dots.
  */
-export function SidebarV2({ brands, launches, archivedLaunches, ctx, email, people = false, ideas = false, reveal }: SidebarV2Props) {
+export function SidebarV2({ brands, launches, archivedLaunches, ctx, email, people = false, ideas = false, work = false, reveal }: SidebarV2Props) {
   const pathname = usePathname() ?? "/admin";
   const router = useRouter();
-  const sections = useMemo(() => sectionsFor(people, ideas), [people, ideas]);
+  const sections = useMemo(() => sectionsFor(people, ideas, work), [people, ideas, work]);
   const allItems = useMemo(() => sections.flatMap((s) => s.items), [sections]);
   const shell = useShell();
   const reviewCount = useReviewCount();
@@ -282,10 +287,12 @@ export function SidebarV2({ brands, launches, archivedLaunches, ctx, email, peop
     // Understand is left out when nothing in it shows (Coming up).
     const s = section(key);
     if (!s) return null;
+    // Work belongs to the organisation, not one brand: it sits last in the top group, under Ask Vizzy.
+    const after = key === "start" ? s.items.filter((i) => i.key === "work") : [];
     return (
       <div key={key} className="space-y-0.5">
         {s.title && heading(s.title, key === "grow" ? growth?.position : null)}
-        {s.items.map(renderItem)}
+        {s.items.filter((i) => !after.includes(i)).map(renderItem)}
         {key === "start" && shell ? (
           <button
             type="button"
@@ -299,6 +306,7 @@ export function SidebarV2({ brands, launches, archivedLaunches, ctx, email, peop
             {kbd(`${mod}J`)}
           </button>
         ) : null}
+        {after.map(renderItem)}
       </div>
     );
   };

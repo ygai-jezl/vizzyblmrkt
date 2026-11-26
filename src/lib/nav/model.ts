@@ -13,6 +13,7 @@ import { ideaWord } from "./terms";
 export type NavKey =
   | "home"
   | "review"
+  | "work"
   | "launches"
   | "content"
   | "products"
@@ -63,6 +64,12 @@ export interface NavFlags {
    * /admin/launches.
    */
   ideas?: boolean;
+  /**
+   * Work (WORK_ENABLED, a server switch the layout passes down): the organisation's tasks and its
+   * daily Log, last in the top group. Its key and route are "work" and /admin/work, beside Content's
+   * /admin/workspace: matching is by `${prefix}/`, so the two never light each other.
+   */
+  work?: boolean;
 }
 
 export function buildNav(flags: NavFlags): NavSection[] {
@@ -78,6 +85,7 @@ export function buildNav(flags: NavFlags): NavSection[] {
         ...(showReview
           ? [{ key: "review", href: "/admin/approvals", label: "Review", match: ["/admin/approvals"] } as NavItem]
           : []),
+        ...(flags.work ? [{ key: "work", href: "/admin/work", label: "Work", match: ["/admin/work"] } as NavItem] : []),
       ],
     },
     {
@@ -336,6 +344,15 @@ export function breadcrumbsFor(
       }
       const tabs = p3 ? LAUNCH_TABS_V3 : LAUNCH_TABS;
       return [root, launch, { label: tab ? (tabs[tab] ?? titleCase(tab)) : "Overview" }];
+    }
+    case "work": {
+      // One task is its ref, never its title: these labels are also what Vizzy is told about the
+      // page, and a title is the team's own text.
+      if (!id) return [{ label: "Work" }];
+      const root: Crumb = { label: "Work", href: "/admin/work" };
+      if (id === "log") return [root, { label: "Log" }];
+      if (id === "new") return [root, { label: "New task" }];
+      return [root, { label: /^\d{1,6}$/.test(id) ? `Task #${id}` : "Task" }];
     }
     case "workspace": {
       if (!id) return [{ label: "Content" }];

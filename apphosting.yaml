@@ -352,6 +352,11 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # A picked email test winner reaches the journey a launch sends from, on either engine.
+  - variable: WAITLIST_AB_WINNER_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Sign-ups from a brand's own site: a launch's site key and POST /api/v2/signups
   # (needs CONNECT_SECRET_ENC_KEY, which seals the key's secret).
   - variable: LAUNCH_SITE_SIGNUPS_ENABLED

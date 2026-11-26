@@ -57,6 +57,11 @@ never go. Branch `feat/org-history`. Two new composite indexes, no rules change,
 5. **Export is JSON with no one's values**: a settings version (`yougrow.settings-version`), a
    journey document (`exportJourneyDocument` with `which: { version: n }`, importable as a new draft)
    or a catalog version (`yougrow.catalog-version`). Anyone on the team exports.
+6. **Vizzy reads, never acts.** `get_settings_history` (`/api/agent/settings-history`, the same
+   switch, the brand in the signed canvas token) reads every entry with display names only, never an
+   address, and with a subject and version that version's export JSON. One switch covers the page
+   and Vizzy's read: no customer data, no AI, and the tool says history is off until it is on.
+   Proposing a restore waits for Agent record.
 
 ### Not decided here
 

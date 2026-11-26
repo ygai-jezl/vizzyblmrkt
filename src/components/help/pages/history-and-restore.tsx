@@ -59,6 +59,10 @@ export default function HistoryAndRestoreHelp() {
         </li>
       </UL>
       <P>Everyone on the team sees the same list and can export. Only admins see Preview restore.</P>
+      <P>
+        Vizzy reads the same history: ask it who changed your welcome journey last week, or what a field&apos;s options were in an
+        older version. It never restores anything.
+      </P>
 
       <H2 id="preview">Preview a restore</H2>
       <Steps>

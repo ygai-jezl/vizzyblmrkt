@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stubOf } from "./feeders";
+import { indexSource } from "./indexer";
 import { MemorySearchIndex } from "./memoryStore";
 import { FAMILY_TURNS, isFamilyTurn, isSweepTick, runSearchSweeps, sweepBrand } from "./sweep";
 import type { SearchKind, SearchSource, SearchStore } from "./types";
@@ -109,6 +110,62 @@ describe("sweepBrand", () => {
     const read = async () => ({ stubs: [stubOf(src("idea_board", "i1", "a"))], complete: new Set<SearchKind>(["idea_board"]), failed: new Set<SearchKind>(["subject", "note"]) });
     expect(await sweepBrand(ctx, {}, { store, embed: unitEmbed, read })).toMatchObject({ indexed: 1, failed: 0, unread: ["note", "subject"] });
     expect((await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: reader([], ["idea_board"]) })).unread).toEqual([]);
+  });
+
+  describe("a save written through while it reads the brand (ADR-0023)", () => {
+    // A subject the sweep reads as it was, proposed and with its old name.
+    const before: SearchSource = { kind: "subject", ref: "sub_1", title: "Repotting figs", body: "Repotting figs", status: "proposed" };
+    // A save a second after the check began, as write-through stamps it.
+    const later = () => new Date(Date.now() + 1000);
+    let index: MemorySearchIndex;
+    async function setup() {
+      index = new MemorySearchIndex();
+      const store = index.storeFor(ctx);
+      await indexSource(ctx, before, { store, embed: unitEmbed, granted: true });
+      return store;
+    }
+    const textOf = (ref: string) => [...(index.chunks.get(ctx.tenantId)?.values() ?? [])].filter((c) => c.ref === ref).map((c) => c.text);
+    const saving = (store: SearchStore, saved: SearchSource | null, stubs = [before]) => async () => {
+      const read = stubs.map(stubOf);
+      if (saved) await indexSource(ctx, saved, { store, embed: unitEmbed, granted: true, now: later });
+      return { stubs: read, complete: new Set<SearchKind>(["subject"]) };
+    };
+
+    it("keeps a rename saved since the read began, never the text it read", async () => {
+      const store = await setup();
+      const renamed = { ...before, title: "Repotting fiddle leaf figs", body: "Repotting fiddle leaf figs" };
+      const c = await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: saving(store, renamed) });
+      expect(c).toMatchObject({ changed: 1, indexed: 0, unchanged: 1 });
+      expect(textOf("sub_1")).toEqual(["Repotting fiddle leaf figs"]);
+    });
+
+    it("keeps a status saved since the read began, never the status it read", async () => {
+      const store = await setup();
+      const c = await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: saving(store, { ...before, status: "decided" }) });
+      expect(c).toMatchObject({ changed: 1, unchanged: 1 });
+      expect((await store.getManifest("subject:sub_1"))?.status).toBe("decided");
+      expect((await store.meaning([1, 0, 0], { limit: 5 })).map((h) => h.status)).toEqual(["decided"]);
+    });
+
+    it("never removes a record saved since the read began, nor puts back one removed since the listing", async () => {
+      const store = await setup();
+      // A new subject saved while the check read the map: not in what it read, and not gone.
+      const fresh: SearchSource = { kind: "subject", ref: "sub_2", title: "Pet safe plants", body: "Pet safe plants", status: "proposed" };
+      await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: saving(store, fresh) });
+      expect(await store.getManifest("subject:sub_2")).not.toBeNull();
+      // sub_1 removed (forced) after the check listed the index: its stale read doesn't bring it back.
+      const removing: SearchStore = {
+        ...store,
+        listManifests: async () => {
+          const listed = await store.listManifests();
+          await store.removeSource("subject:sub_1");
+          return listed;
+        },
+      };
+      const c = await sweepBrand(ctx, {}, { store: removing, embed: unitEmbed, read: reader([before, fresh], ["subject"]) });
+      expect(c.indexed).toBe(0);
+      expect(await store.getManifest("subject:sub_1")).toBeNull();
+    });
   });
 
   it("tries text kept without vectors again only after a while", async () => {

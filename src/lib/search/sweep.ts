@@ -8,7 +8,7 @@ import type { embedForSearch } from "@/lib/agents/embeddings";
 import { readBrandStubs, type BrandStubs, type StubsOptions } from "./feeders";
 import { isSearchFamilyIndexEnabled, isSearchIndexEnabled } from "./flags";
 import { estimateIndex, indexSource, storedSourceKey } from "./indexer";
-import type { SearchKind, SearchStore } from "./types";
+import type { SearchKind, SearchManifest, SearchStore } from "./types";
 
 /**
  * The scheduled check: compares what a brand has with what its index holds, indexes what is new
@@ -58,6 +58,12 @@ export async function sweepBrand(
 ): Promise<SweepCounts> {
   const clock = deps.clock ?? Date.now;
   const store = deps.store ?? searchStoreFor(ctx);
+  // A record written (through, or by another check) from now on is newer than what this check
+  // reads, so it stands: indexing the stub read here would put back older text or status, which on
+  // a family turn would stay until the next turn, 6 hours on.
+  const readAt = clock();
+  // Strictly after: a write in the same millisecond the read began is taken as before it.
+  const writtenSince = (m: SearchManifest) => (Date.parse(m.indexedAt) || 0) > readAt;
   const { stubs, complete, failed: unread } = await (deps.read ?? readBrandStubs)(ctx, { familyOnly: opts.familyOnly, familyNow: opts.familyNow, kinds: opts.kinds });
   const manifests = new Map((await store.listManifests()).map((m) => [m.sourceKey, m]));
   const counts: SweepCounts = { records: stubs.length, changed: 0, indexed: 0, unchanged: 0, removed: 0, failed: 0, partial: false, unread: [...(unread ?? [])].sort(), byKind: {} };
@@ -66,7 +72,7 @@ export async function sweepBrand(
   // Keys under the name each kind is written as now: an entry stored under another name is gone,
   // so a renamed kind moves over in one check (and back, if its switch is turned off).
   const present = new Set(stubs.map((st) => storedSourceKey(st.kind, st.ref)));
-  const gone = [...manifests.values()].filter((m) => !present.has(m.sourceKey) && complete.has(m.kind));
+  const gone = [...manifests.values()].filter((m) => !present.has(m.sourceKey) && complete.has(m.kind) && !writtenSince(m));
   const now = clock();
   const changed = stubs.filter((st) => {
     const m = manifests.get(storedSourceKey(st.kind, st.ref));
@@ -106,7 +112,14 @@ export async function sweepBrand(
       break;
     }
     const key = storedSourceKey(st.kind, st.ref);
-    const prev = manifests.get(key) ?? null;
+    // Its manifest again, just before writing: one written since this check began reading stands,
+    // and one removed since the listing (a removal is forced at once) stays removed.
+    const listed = manifests.get(key) ?? null;
+    const prev = await store.getManifest(key).catch(() => listed);
+    if ((listed && !prev) || (prev && writtenSince(prev))) {
+      counts.unchanged += 1;
+      continue;
+    }
     let source;
     try {
       source = await st.load();

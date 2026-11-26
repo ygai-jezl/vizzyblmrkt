@@ -69,6 +69,23 @@ change or secret.
    update, ask, and an answer when the person is done), and competitor articles (`embedArticle`).
    The brand map's own questions and competitors' summaries reach people's search within 6 hours
    for granted brands, not about 10 minutes.
+   - **A save written through while a check reads the brand stands.** The check notes when it began
+     reading; a record whose manifest was written after that (text, or a status alone, which now
+     stamps the manifest too) is left as it is, never indexed from the older read and never
+     removed as gone, and one removed after the check listed the index stays removed. Each record
+     the check is about to index has its manifest read again first: one more read per changed
+     record, beside its embedding. Before the family the next check, 10 minutes on, put such a
+     race right; on a family turn it would have stayed 6 hours.
+   - **Cost the plan didn't count: every check lists every manifest.** A granted brand's check,
+     every 10 minutes, still reads all its manifests (`listManifests`), and with the family on
+     these include proposed subjects and situations and answered questions, not only on the
+     family turn. A granted brand holding 5,000 research proposals reads about 5,000 more
+     manifests a check, about 720,000 a day (about $0.43 a day at $0.06 per 100,000 reads); a small
+     shop, a few dozen. The search databases have no index on `search_sources.kind`, so filtering
+     the listing by kind would scan the same documents. Skipping the family's manifests between
+     turns needs that index (gcloud on `search`, `search-eu` and `search-asia`, ask first) or the
+     family's manifests in their own collection. Left for the owner to decide after the dev
+     backfill shows real counts.
 7. **With a read switch on, its readers use brand search only** (decision 4), with no per-brand
    check, because the release backfills first. On an error, subjects fall back to shared words as
    before, situations and notes find none, and the covered check answers "couldn't check" (null).

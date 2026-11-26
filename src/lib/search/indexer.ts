@@ -138,10 +138,19 @@ async function indexMany(ctx: Ctx, items: IndexItem[], deps: IndexDeps, wantVect
       }
       if (prev && prev.hash === text.hash && prev.embedded) {
         const status = item.source.status ?? null;
-        if ((prev.status ?? null) !== status) await store.setStatus(sourceKey, status);
-        if (item.version && prev.version !== item.version) {
+        const moved = (prev.status ?? null) !== status;
+        if (moved) await store.setStatus(sourceKey, status);
+        // The manifest follows: the version the check read, and, when the status moved, when. A
+        // check that read the record before this write then leaves it alone (sweep.ts).
+        if (moved || (item.version && prev.version !== item.version)) {
           const { status: _was, ...rest } = prev;
-          await store.putManifest({ ...rest, kind, version: item.version, ...(status ? { status } : {}) });
+          await store.putManifest({
+            ...rest,
+            kind,
+            ...(item.version ? { version: item.version } : {}),
+            ...(moved ? { indexedAt: (deps.now ?? (() => new Date()))().toISOString() } : {}),
+            ...(status ? { status } : {}),
+          });
         }
         out[i] = { outcome: "unchanged", vector: wantVectors ? await store.vectorOf(sourceKey).catch(() => null) : null };
         continue;

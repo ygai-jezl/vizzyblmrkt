@@ -1,3 +1,5 @@
+import { cutOff, type CutOff } from "@/lib/search/family";
+import { isSearchCompetitorReadsEnabled } from "@/lib/search/flags";
 import { brandCanUse } from "@/lib/plans/brandAccess";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { ArticleFormat, CompetitorArticle } from "@/lib/types/competitor";
@@ -45,8 +47,12 @@ export interface CompetitorContext {
 /** Articles offered to one planning step, at most. */
 const MAX_ANGLES = 6;
 const MAX_STATS = 6;
-/** How close in meaning an article must be to count as on the same question. */
-const MIN_SIM = 0.65;
+/**
+ * How close in meaning an article must be to count as on the same question: on brand_map_vectors
+ * (`old`), or on brand search with SEARCH_COMPETITOR_READS_ENABLED (`new`, provisional until
+ * scripts/measure-question-dupes.ts --model new is run, ADR-0023).
+ */
+export const MIN_SIM: CutOff = { old: 0.65, new: 0.65 };
 
 /** What competitors wrote on a subject or near a question, or null (switch off, not granted, nothing found). */
 export async function competitorContext(
@@ -59,7 +65,7 @@ export async function competitorContext(
   const text = (ask.text ?? "").trim();
   const [onSubject, near, competitors] = await Promise.all([
     ask.subjectId ? articlesOnSubject(ctx, ask.subjectId, deps).catch(() => []) : Promise.resolve([] as CompetitorArticle[]),
-    text ? nearestCompetitorArticles(ctx, text, { limit: MAX_ANGLES, minSim: MIN_SIM }, deps).catch(() => []) : Promise.resolve([]),
+    text ? nearestCompetitorArticles(ctx, text, { limit: MAX_ANGLES, minSim: cutOff(MIN_SIM, isSearchCompetitorReadsEnabled()) }, deps).catch(() => []) : Promise.resolve([]),
     listCompetitors(ctx, deps).catch(() => []),
   ]);
   const names = new Map(competitors.map((c) => [c.id, c.name]));

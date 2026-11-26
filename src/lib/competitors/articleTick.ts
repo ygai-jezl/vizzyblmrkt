@@ -22,6 +22,7 @@ import {
   claimArticle,
   embedArticle,
   finishArticle,
+  unindexArticle,
   monthOf,
   queueArticles,
   readsThisMonth,
@@ -200,7 +201,11 @@ export async function readOneArticle(
   // read again, and its meaning leaves the brand map's vectors.
   const listing = async (readBy: "direct" | "google") => {
     await finishArticle(ctx, a.id, leaseId, { status: "skipped", problem: "listing", readMonth: monthOf(now), version: READER_VERSION[readBy] }, deps);
-    if (refresh) await removeBrandMapVector(ctx, "competitor_article", a.id, deps.db).catch(() => undefined);
+    if (refresh) {
+      await removeBrandMapVector(ctx, "competitor_article", a.id, deps.db).catch(() => undefined);
+      // And from brand search, at once and forced (ADR-0023).
+      await unindexArticle(ctx, a, deps);
+    }
     return "skipped" as const;
   };
   const title = (t: string) => cleanTitle(t, [c.name, c.site]);
@@ -216,7 +221,7 @@ export async function readOneArticle(
     if (!found) return notRead(ctx, a, leaseId, "no_answer", true, refresh, deps);
     if (found.format === "listing") return listing("google");
     const done = await saved({ readBy: "google", title: title(a.title), ...found });
-    if (done) await embedArticle(ctx, done, deps);
+    if (done) await embedArticle(ctx, done, deps, c);
     return done ? "read" : "failed";
   }
 
@@ -249,7 +254,7 @@ export async function readOneArticle(
     trust: page.trust,
     ...found,
   });
-  if (done) await embedArticle(ctx, done, deps);
+  if (done) await embedArticle(ctx, done, deps, c);
   return done ? "read" : "failed";
 }
 

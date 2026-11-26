@@ -5,7 +5,8 @@
  *     (NEAR_SUBJECT), a question against a buying situation;
  *   - an article's question against kept notes (CANDIDATE_MIN_SIM) and open questions (OPEN_MIN_SIM);
  *   - a new question for the team against the same ask reworded and a different ask
- *     (DUP_QUESTION_SIM), and against a note that answers it and one that doesn't (DUP_NOTE_SIM).
+ *     (DUP_QUESTION_SIM), and against a note that answers it and one that doesn't (DUP_NOTE_SIM);
+ *   - a question against a competitor article that answers it, or one that doesn't (COVERED_SIM, MIN_SIM).
  * Prints each group's range and where a cut-off would separate them. The cut-offs are pairs (ADR-0023):
  * `old` for brand_map_vectors, `new` for brand search; re-run this before changing either.
  *

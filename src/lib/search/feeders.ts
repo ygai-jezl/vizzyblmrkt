@@ -38,7 +38,7 @@ import type { LifecycleJourney } from "@/lib/types/lifecycle";
 import type { RepoAnalysis } from "@/lib/types/repoAnalysis";
 import type { Template } from "@/lib/types/template";
 import type { Tenant } from "@/lib/types/tenant";
-import { isFamilyRecord, noteSearchSources, situationBody, situationSearchSource, subjectSearchSource } from "./family";
+import { competitorArticleSource, isFamilyRecord, noteSearchSources, situationBody, situationSearchSource, subjectSearchSource } from "./family";
 import { isSearchFamilyIndexEnabled } from "./flags";
 import { contentHash } from "./text";
 import type { SearchKind, SearchSource, SearchStub } from "./types";
@@ -302,16 +302,20 @@ export function learnedSource(e: LearnedEntry): SearchSource {
   return { kind: "learned", ref: e.id, title: learnedLine(e).slice(0, 160), body: lines(learnedLine(e), e.at.slice(0, 10)), url: "/admin/brand-kit/map" };
 }
 
-/** A competitor's site summary, and what each of its articles covers (never their quotes or authors). */
-export function competitorSources(c: Competitor, articles: CompetitorArticle[]): SearchSource[] {
+/**
+ * A competitor's site summary, and what each of its articles covers (never their quotes or
+ * authors). With the family (`family`, SEARCH_FAMILY_INDEX_ENABLED) each article is `kept`; the
+ * summary never has a status.
+ */
+export function competitorSources(c: Competitor, articles: CompetitorArticle[], opts: { family?: boolean } = {}): SearchSource[] {
   const url = `/admin/brand-kit/competitors/${c.id}`;
   const out: SearchSource[] = [];
   const summary = (c as { analysis?: { summary?: string } | null }).analysis?.summary;
   if (summary?.trim()) out.push({ kind: "competitor", ref: c.id, title: c.name, body: summary, url });
   for (const a of articles) {
     if (a.competitorId !== c.id) continue;
-    const body = lines(s(a.summary), s(a.question) && `Answers: ${s(a.question)}`, s(a.angle) && `Angle: ${s(a.angle)}`);
-    if (body) out.push({ kind: "competitor", ref: `${c.id}/${a.id}`, title: `${c.name}: ${a.title}`, body, url });
+    const src = competitorArticleSource(c, a, opts);
+    if (src) out.push(src);
   }
   return out;
 }
@@ -425,7 +429,7 @@ export async function readBrandStubs(ctx: TenantContext, opts: StubsOptions = {}
   await read(["learned"], async () => (isAutopilotLearningEnabled() ? (await listLearned(ctx)).map((e) => stubOf(learnedSource(e))) : []));
   await read(["competitor"], async () => {
     const [competitors, articles] = await Promise.all([listCompetitors(ctx), listReadArticles(ctx)]);
-    return competitors.flatMap((c) => competitorSources(c, articles)).map(stubOf);
+    return competitors.flatMap((c) => competitorSources(c, articles, { family })).map(stubOf);
   });
   await read(["repo_map"], async () => {
     const out: SearchStub[] = [];

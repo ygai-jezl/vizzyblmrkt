@@ -949,7 +949,7 @@ describe("Search", () => {
     const on = md(true);
     expect(on).toContain("A subject on your brand map is also found by its first questions.");
     expect(on).toContain("Proposed subjects and buying situations don't show here until you add them to your map.");
-    expect(on).toContain("subjects, buying situations and What we've seen notes as soon as you save them");
+    expect(on).toContain("Subjects, buying situations and What we've seen notes are found as soon as you save them, and a competitor's article as soon as it is read.");
     const off = md(false);
     expect(off).not.toContain("first questions");
     expect(off).toContain("New and changed things are found within about 10 minutes. An article you save is usually found straight away.");

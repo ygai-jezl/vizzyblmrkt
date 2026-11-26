@@ -1,4 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Removals from brand search are forced whatever the switches say (ADR-0023): an in-memory index stands in.
+vi.mock("@/lib/tenant/searchIndex", async (original) => (await import("@/lib/search/testing/memorySearch")).withMemorySearch(await original<object>()));
 import { forTenant } from "@/lib/tenant";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { KnowledgeCollectionLike, TenantContext } from "@/lib/tenant/types";
@@ -14,6 +16,8 @@ import { saveBrandMap } from "@/lib/brandMap/store";
 import { competitorCoverage } from "./coverage";
 import { addTopicsFromRequest, subjectCompetitorsOf, subjectCompetitorsFromRequest, subjectFlagsFromRequest, theirQuestionsOf } from "./planningApi";
 import { monitorCompetitor } from "./store";
+import { MemorySearchIndex } from "@/lib/search/memoryStore";
+import type { SearchStore } from "@/lib/search/types";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "system" };
 
@@ -86,6 +90,52 @@ describe("competitorContext", () => {
     expect(anglesBlock(c)).toBe("- Rival (case study, 2026-11-02): Near by meaning\n- Rival (case study, 2026-11-02): Angle a1");
     expect(questionsBlock(c)).toBe("- Question a2?\n- Question a1?");
     expect(statsBlock(c)).toBe("- 2% (average sign up rate): https://research.example.org/r");
+  });
+});
+
+describe("on brand search (ADR-0023)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  /** The same fixtures as brand search keeps them: a2 near by meaning, and the competitor's summary right on top of it. */
+  async function index(): Promise<SearchStore> {
+    const store = new MemorySearchIndex().storeFor(A);
+    const put = async (ref: string, status: "kept" | undefined, v: number[]) =>
+      store.putSource(
+        { sourceKey: `competitor:${ref}`, kind: "competitor", ref, hash: "h", chunks: 1, embedded: true, indexedAt: "", ...(status ? { status } : {}) },
+        [{ tenantId: "ten_A", kind: "competitor", ref, sourceKey: `competitor:${ref}`, chunk: 0, title: ref, text: ref, url: "", lang: "en", updatedAt: "", ...(status ? { status } : {}), embedding: v }],
+        0,
+      );
+    await put(`${rival}/a2`, "kept", [1, 0]);
+    await put(`${rival}/a1`, "kept", [0, 1]);
+    await put(rival, undefined, [1, 0]);
+    return store;
+  }
+  const on = () => {
+    for (const k of ["SEARCH_INDEX_ENABLED", "SEARCH_FAMILY_INDEX_ENABLED", "SEARCH_COMPETITOR_READS_ENABLED"]) vi.stubEnv(k, "true");
+  };
+
+  it("gives the same angles with reads on, from brand search alone", async () => {
+    on();
+    const search = await index();
+    const embedSearch = vi.fn(async (items: unknown[]) => items.map(() => [1, 0]));
+    const old = vi.fn();
+    const c = await competitorContext(A, { subjectId: "sub_forms", text: "forms" }, { db, canUse: async () => true, search, embedSearch, vectors: { where: () => ({}) as never, findNearest: old } as never, query: vi.fn() });
+    expect(c?.angles.map((a) => a.angle)).toEqual(["Near by meaning", "Angle a1"]);
+    expect(old).not.toHaveBeenCalled();
+  });
+
+  it("names the questions no article covers with reads on, never counting a competitor's summary", async () => {
+    on();
+    process.env.CREATE_SUGGEST_ANGLE_ENABLED = "true";
+    const search = await index();
+    const questions = async () => [
+      { id: "q1", text: "Covered by them?", status: "decided" },
+      { id: "q2", text: "Nobody answers this?", status: "decided" },
+    ];
+    // q2 points where only a1 is, below the cut-off; the summary isn't an article.
+    const embedSearch = vi.fn(async (items: Array<{ content: string }>) => items.map((i) => (i.content.startsWith("Covered") ? [1, 0] : [0.6, -0.8])));
+    const res = await subjectCompetitorsFromRequest(A, "sub_forms", { db, canUse: async () => true, questions, search, embedSearch });
+    expect((await res.json()).competitors).toMatchObject({ uncovered: ["q2"], suggestAngle: true });
+    delete process.env.CREATE_SUGGEST_ANGLE_ENABLED;
   });
 });
 

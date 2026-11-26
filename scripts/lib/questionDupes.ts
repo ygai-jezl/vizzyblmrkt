@@ -218,8 +218,43 @@ export const OPEN_QUESTIONS: Group = {
   apart: DIFFERENT.map(([a, b]) => [query(a), teamQuestionSide(b)]),
 };
 
+/**
+ * A competitor article: old as its title, question, angle and summary under "Competitor article";
+ * new as the indexer writes it, under "{competitor}: {title}".
+ */
+export function articleSide(a: { competitor: string; title: string; question: string; angle: string; summary: string }): Side {
+  return {
+    text: a.title,
+    as: { old: { task: "document", title: "Competitor article" }, new: { task: "document", title: `${a.competitor}: ${a.title}` } },
+    texts: { old: [a.title, a.question, a.angle, a.summary].join("\n"), new: lines(a.summary, `Answers: ${a.question}`, `Angle: ${a.angle}`) },
+  };
+}
+
+const REPOT_GUIDE = articleSide({ competitor: "Leafy Shop", title: "How to repot a fiddle leaf fig", question: "When should you repot a fiddle leaf fig?", angle: "Step by step, with photos", summary: "Repot in spring when roots circle the pot, one size up, with fast draining soil." });
+const WHITENING_GUIDE = articleSide({ competitor: "Bright Smiles", title: "Eating after whitening", question: "What can you eat after teeth whitening?", angle: "A 48 hour food list", summary: "Avoid coffee, red wine and curry for two days; white foods are safe." });
+const CAKE_GUIDE = articleSide({ competitor: "Tiered Bakes", title: "Wedding cake sizes", question: "How big a cake do you need for your guests?", angle: "A portion chart", summary: "A three tier cake serves about 100; add a kitchen cake for more guests." });
+const STARTER_GUIDE = articleSide({ competitor: "Crumb Club", title: "Reviving a sluggish starter", question: "Why is my sourdough starter not rising?", angle: "Troubleshooting", summary: "Feed twice a day at room temperature with wholemeal flour until it doubles." });
+
+/** COVERED_SIM and MIN_SIM: a question, asked as a query, against a competitor article that answers it, or one that doesn't. */
+export const ARTICLES: Group = {
+  name: "Question against competitor article",
+  cutOff: "COVERED_SIM (src/lib/competitors/planningApi.ts, src/lib/brandContext/pack.ts) and MIN_SIM (src/lib/competitors/planning.ts)",
+  repeats: [
+    [query("When is the best time to repot a fig tree?"), REPOT_GUIDE],
+    [query("Can I drink coffee after whitening my teeth?"), WHITENING_GUIDE],
+    [query("What size wedding cake for 100 guests?"), CAKE_GUIDE],
+    [query("How do I fix a starter that won't rise?"), STARTER_GUIDE],
+  ],
+  apart: [
+    [query("Why are my fiddle leaf fig's leaves turning brown?"), REPOT_GUIDE],
+    [query("Does whitening hurt sensitive teeth?"), WHITENING_GUIDE],
+    [query("How far ahead should we book a cake tasting?"), CAKE_GUIDE],
+    [query("How do I shape a sourdough loaf?"), STARTER_GUIDE],
+  ],
+};
+
 /** Every group, in the order the report prints them. */
-export const GROUPS: Group[] = [SUBJECTS, SEARCHES, SITUATIONS, NOTES, OPEN_QUESTIONS, QUESTIONS, QUESTION_NOTES];
+export const GROUPS: Group[] = [SUBJECTS, SEARCHES, SITUATIONS, NOTES, OPEN_QUESTIONS, QUESTIONS, QUESTION_NOTES, ARTICLES];
 
 // ── Measuring ───────────────────────────────────────────────────────────────────────────────
 

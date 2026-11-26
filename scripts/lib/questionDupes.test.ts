@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { QUESTION_TITLE } from "@/lib/brandNotes/store";
-import { GROUPS, measure, OLD_QUESTION_TITLE, reportLines, SUBJECTS, type Embedder } from "./questionDupes";
+import { ARTICLES, GROUPS, measure, OLD_QUESTION_TITLE, reportLines, SUBJECTS, type Embedder } from "./questionDupes";
 
 // scripts/measure-question-dupes.ts: each side embedded as its reader embeds it, on each model (ADR-0023).
 
@@ -13,6 +13,10 @@ describe("the calibration groups", () => {
     expect(onMap.texts?.new).toBe("Repotting a fiddle leaf fig\n\nWhen should I repot a fiddle leaf fig?\n\nWhat size pot does a fiddle leaf fig need?");
     expect(onMap.texts?.old).toBe("Repotting a fiddle leaf fig\nWhen should I repot a fiddle leaf fig?\nWhat size pot does a fiddle leaf fig need?");
     for (const g of GROUPS) expect(g.repeats.length && g.apart.length, g.name).toBeTruthy();
+    const [question, article] = ARTICLES.repeats[0]!;
+    expect(question.as).toEqual({ old: { task: "query" }, new: { task: "query" } });
+    expect(article.as).toEqual({ old: { task: "document", title: "Competitor article" }, new: { task: "document", title: "Leafy Shop: How to repot a fiddle leaf fig" } });
+    expect(article.texts?.new.startsWith("Repot in spring")).toBe(true);
   });
 
   it("embeds queries as queries and documents with their titles, per model, and reports each group", async () => {

@@ -73,3 +73,12 @@ export function isSearchSubjectReadsEnabled(): boolean {
 export function isSearchNoteReadsEnabled(): boolean {
   return isSearchFamilyIndexEnabled() && process.env.SEARCH_NOTE_READS_ENABLED === "true";
 }
+
+/**
+ * Competitor article readers (which questions no competitor covers, the articles nearest a
+ * question) use the index only (needs SEARCH_FAMILY_INDEX_ENABLED). A competitor's own summary is
+ * never one of them. Off: they use brand_map_vectors.
+ */
+export function isSearchCompetitorReadsEnabled(): boolean {
+  return isSearchFamilyIndexEnabled() && process.env.SEARCH_COMPETITOR_READS_ENABLED === "true";
+}

@@ -10,7 +10,7 @@ import { saveBrandMap } from "@/lib/brandMap/store";
 import type { SearchHit, SearchOutcome } from "@/lib/search/query";
 import { claimSignal, finishSignal, FIRST_LOOK_MS, recordPosted } from "@/lib/signals/store";
 import type { FreshnessDueItem } from "@/lib/types/freshness";
-import { contextPack, dueArticleLines, FRESHNESS_SOURCE, packOwnUrls, packPromptBlock, packText, PART_MAX, STRATEGY_SOURCE, type PackDeps } from "./pack";
+import { contextPack, COVERED_SIM, dueArticleLines, FRESHNESS_SOURCE, packOwnUrls, packPromptBlock, packText, PART_MAX, STRATEGY_SOURCE, type PackDeps } from "./pack";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import { situationKey } from "@/lib/brandMap/keys";
 import { StrategySchema } from "@/lib/types/brandStrategy";
@@ -109,6 +109,21 @@ describe("the context pack", () => {
       "No competitor article answers this question.",
       'Rival A: "Share of voice in 2026". Angle: a case study',
     ]);
+  });
+
+  it("checks coverage at the cut-off for the store the competitor readers use (ADR-0023)", async () => {
+    const asked: number[] = [];
+    for (const on of [false, true]) {
+      for (const k of ["SEARCH_INDEX_ENABLED", "SEARCH_FAMILY_INDEX_ENABLED", "SEARCH_COMPETITOR_READS_ENABLED"]) vi.stubEnv(k, on ? "true" : "false");
+      const deps = await setup(false);
+      deps.uncovered = async (_ctx, _qs, minSim) => {
+        asked.push(minSim);
+        return ["q_aaaaaaaa"];
+      };
+      const pack = await contextPack(A, { questionId: "q_aaaaaaaa" }, deps);
+      expect(pack.theirs.map((l) => l.text)).toContain("No competitor article answers this question.");
+    }
+    expect(asked).toEqual([COVERED_SIM.old, COVERED_SIM.new]);
   });
 
   it("falls back to the brand map's pages without brand search, and says what it couldn't see", async () => {

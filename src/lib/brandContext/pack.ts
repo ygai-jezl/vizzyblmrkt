@@ -1,3 +1,5 @@
+import { cutOff, type CutOff } from "@/lib/search/family";
+import { isSearchCompetitorReadsEnabled } from "@/lib/search/flags";
 import { isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 import { listBrandMapPages } from "@/lib/brandMap/pages";
 import { parseQuestion } from "@/lib/brandMap/records";
@@ -105,8 +107,8 @@ export interface PackDeps {
 /** Lines per part, at most: the pack stays a few hundred words. */
 export const PART_MAX = 5;
 const SEARCH_LIMIT = 12;
-/** As planningApi: an article this close in meaning answers the question. */
-const COVERED_SIM = 0.65;
+/** As planningApi: an article this close in meaning answers the question. A pair, one for each store (ADR-0023). */
+export const COVERED_SIM: CutOff = { old: 0.65, new: 0.65 };
 
 /** What the brand made that counts as "already said". */
 const OWN_KINDS = new Set<SearchKind>(["article", "newsletter", "ebook", "post", "journey_email", "broadcast", "note", "idea_board", "knowledge"]);
@@ -331,7 +333,7 @@ export async function contextPack(ctx: TenantContext, ask: PackAsk, deps: PackDe
     query ? (deps.search ?? ((c, q, o) => searchBrand(c, q, o)))(ctx, query, { limit: SEARCH_LIMIT }).catch(() => null) : Promise.resolve(null),
     subjectId ? (deps.flags ?? ((c) => competitorSubjectFlags(c, { db: deps.db })))(ctx).catch(() => null) : Promise.resolve(null),
     (deps.competitors ?? ((c, a) => competitorContext(c, a, { db: deps.db })))(ctx, { subjectId, text: query || null }).catch(() => null),
-    query ? (deps.uncovered ?? ((c, qs, m) => questionsNobodyCovers(c, qs, m, { db: deps.db })))(ctx, [{ id: questionId ?? "ask", text: query }], COVERED_SIM).catch(() => null) : Promise.resolve(null),
+    query ? (deps.uncovered ?? ((c, qs, m) => questionsNobodyCovers(c, qs, m, { db: deps.db })))(ctx, [{ id: questionId ?? "ask", text: query }], cutOff(COVERED_SIM, isSearchCompetitorReadsEnabled())).catch(() => null) : Promise.resolve(null),
     query && isBrandSignalsEnabled()
       ? tenantP.then((t) => signalFor(ctx, query, brandMarket(t?.searchMarket), { db: deps.db })).catch(() => null)
       : Promise.resolve(null),

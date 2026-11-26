@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Removals from brand search are forced whatever the switches say (ADR-0023): an in-memory index stands in.
+vi.mock("@/lib/tenant/searchIndex", async (original) => (await import("@/lib/search/testing/memorySearch")).withMemorySearch(await original<object>()));
 import { forTenant } from "@/lib/tenant";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
@@ -271,6 +273,24 @@ describe("reading again what an older reader read", () => {
     expect(await one(listing)).toMatchObject({ status: "skipped", problem: "listing", version: 3, leaseId: null });
     expect(await one(named)).toMatchObject({ status: "read", title: "Post 1", version: 3 });
     expect(await tick()).toMatchObject({ refreshed: 0, skipped: 0 });
+  });
+
+  it("keeps read articles in brand search, and takes one out at once when reading again finds a listing (ADR-0023)", async () => {
+    vi.stubEnv("SEARCH_INDEX_ENABLED", "true");
+    vi.stubEnv("SEARCH_FAMILY_INDEX_ENABLED", "true");
+    const { testSearchIndex } = await import("@/lib/search/testing/memorySearch");
+    const index = testSearchIndex.storeFor(A);
+    await index.clear();
+    const id = await competitor(2);
+    await tick();
+    const entries = async () => (await index.listManifests()).map((m) => `${m.sourceKey} ${m.status}`).sort();
+    const [p1, p2] = (await listArticles(A, id, deps)).sort((a, b) => a.title.localeCompare(b.title));
+    expect(await entries()).toEqual([`competitor:${id}/${p1!.id} kept`, `competitor:${id}/${p2!.id} kept`]);
+    await older(id, "Post 2");
+    vi.stubEnv("SEARCH_INDEX_ENABLED", "false");
+    deps.generate.mockImplementation(async (prompt: string) => JSON.stringify(prompt.includes("Post 2") ? { ...ANSWER, format: "listing" } : ANSWER));
+    expect(await tick()).toMatchObject({ skipped: 1 });
+    expect(await entries()).toEqual([`competitor:${id}/${p1!.id} kept`]);
   });
 
   it("keeps what the older reader found when reading again finds nothing, and doesn't try it again", async () => {

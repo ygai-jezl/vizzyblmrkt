@@ -1,4 +1,5 @@
 import type { BrandNote } from "@/lib/types/brandNote";
+import type { Competitor, CompetitorArticle } from "@/lib/types/competitor";
 import { CHUNK_CHARS } from "./text";
 import type { SearchKind, SearchSource, SearchStatus } from "./types";
 
@@ -131,5 +132,20 @@ export function noteSearchSources(n: Pick<BrandNote, "id" | "text" | "status" | 
   if (n.status !== "kept" || !n.text.trim()) return [];
   const note: SearchSource = { kind: "note", ref: n.id, title: n.text.slice(0, 120), body: lines(question && `Asked: ${question}`, n.text), url: NOTES_URL, status: "kept" };
   return n.source === "question" && question ? [note, ask("answered")] : [note];
+}
+
+/**
+ * What one competitor article covers, as brand search keeps it: never its quotes or author. In the
+ * family (SEARCH_FAMILY_INDEX_ENABLED) it is `kept`, so the readers find it; the competitor's own
+ * summary has no status, so people find it and the readers never do. Null when there's nothing to say.
+ */
+export function competitorArticleSource(
+  c: Pick<Competitor, "id" | "name">,
+  a: Pick<CompetitorArticle, "id" | "title" | "summary" | "question" | "angle">,
+  opts: { family?: boolean } = {},
+): SearchSource | null {
+  const body = lines(s(a.summary), s(a.question) && `Answers: ${s(a.question)}`, s(a.angle) && `Angle: ${s(a.angle)}`);
+  if (!body) return null;
+  return { kind: "competitor", ref: competitorArticleRef(c.id, a.id), title: `${c.name}: ${a.title}`, body, url: `/admin/brand-kit/competitors/${c.id}`, ...(opts.family ? { status: "kept" as const } : {}) };
 }
 

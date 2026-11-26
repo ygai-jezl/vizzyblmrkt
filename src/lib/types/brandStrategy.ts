@@ -50,6 +50,8 @@ export const BRAND_STRATEGY_LIMITS = {
   decisionText: 200,
   /** Full finder runs remembered (for the monthly count). */
   finderRuns: 24,
+  /** Names a person marked Not a competitor, newest first: the finder never suggests them again. */
+  notCompetitors: 50,
 } as const;
 
 const L = BRAND_STRATEGY_LIMITS;
@@ -114,6 +116,16 @@ export const StrategyCompetitorGroupSchema = z.object({
   competitors: tolerantArray(StrategyCompetitorSchema, L.keptPerGroup),
 });
 export type StrategyCompetitorGroup = z.infer<typeof StrategyCompetitorGroupSchema>;
+
+/** A name the finder found that a person marked Not a competitor (STRATEGY_COMPETITORS_ENABLED). */
+export const NotCompetitorSchema = z.object({
+  name: Line(L.competitorName),
+  site: z.string().trim().max(253).nullable().catch(null).default(null),
+});
+export type NotCompetitor = z.infer<typeof NotCompetitorSchema>;
+
+/** The words for a watched competitor nobody has put in a group yet. */
+export const NOT_GROUPED_LABEL = "Not grouped yet";
 
 // ----- Where you win, and where they do -------------------------------------------------------
 
@@ -225,6 +237,11 @@ export const StrategySchema = z.object({
   proposedFocusIds: z.array(SituationId).max(L.focusMax).catch([]).default([]),
   audiences: z.array(Line(L.audienceText)).max(L.audiences).catch([]).default([]),
   competitorGroups: tolerantArray(StrategyCompetitorGroupSchema, COMPETITOR_GROUP_KINDS.length),
+  /**
+   * Watched competitors nobody had put in a group, as approved (STRATEGY_COMPETITORS_ENABLED): the
+   * approved copy keeps the whole list. Always empty in a draft, and while it is off.
+   */
+  ungrouped: tolerantArray(StrategyCompetitorSchema, L.keptPerGroup),
   claims: tolerantArray(StrategyClaimSchema, L.claims),
   isNotProposals: tolerantArray(IsNotProposalSchema, L.isNot),
   goal: StrategyGoalSchema.nullable().catch(null).default(null),
@@ -287,6 +304,8 @@ export const BrandStrategyDocSchema = z.object({
     .object({
       quickAt: Stamp.nullable().catch(null).default(null),
       fullRuns: z.array(Stamp).max(L.finderRuns).catch([]).default([]),
+      /** Not a competitor, newest first (STRATEGY_COMPETITORS_ENABLED): kept out of every later run. */
+      notCompetitors: tolerantArray(NotCompetitorSchema, L.notCompetitors),
     })
     .prefault({}),
   createdAt: Stamp.catch("").default(""),

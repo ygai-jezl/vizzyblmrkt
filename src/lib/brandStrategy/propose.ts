@@ -31,6 +31,7 @@ import {
   type StrategyProof,
   type StrategySource,
 } from "@/lib/types/brandStrategy";
+import { isStrategyCompetitorsEnabled } from "./flags";
 import { measureKeyOf, newClaimId, readBrandStrategyDoc, saveProposal, type ProposedStrategy, type StrategyResult } from "./store";
 import type { BrandStrategyDoc } from "@/lib/types/brandStrategy";
 
@@ -379,7 +380,13 @@ export async function proposeStrategy(ctx: TenantContext, deps: ProposeDeps = {}
   const { proposal, dropped } = checkStrategy(parsed, input, now.toISOString());
   const saved: StrategyResult<BrandStrategyDoc> = await saveProposal(
     ctx,
-    { ...proposal, watched: input.watched, sources: input.sources, made: { promptId: PROPOSE_PROMPT, version: getPrompt(PROPOSE_PROMPT).version, model: TEXT_MODEL } },
+    {
+      ...proposal,
+      // Joined to Competitors, the tab lists the watched ones live: nothing is copied into the draft.
+      watched: isStrategyCompetitorsEnabled() ? [] : input.watched,
+      sources: input.sources,
+      made: { promptId: PROPOSE_PROMPT, version: getPrompt(PROPOSE_PROMPT).version, model: TEXT_MODEL },
+    },
     { db: deps.db, now: deps.now },
   );
   if (!saved.ok) return saved;

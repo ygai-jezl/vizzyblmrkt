@@ -56,7 +56,7 @@ const store = vi.hoisted(() => ({
   markSeen: vi.fn(async () => 2),
 }));
 vi.mock("@/lib/competitors/store", () => store);
-const strategy = vi.hoisted(() => ({ logStrategyDecisions: vi.fn(async () => true) }));
+const strategy = vi.hoisted(() => ({ logStrategyDecisions: vi.fn(async () => true), noteMonitored: vi.fn(async () => true) }));
 vi.mock("@/lib/brandStrategy/store", () => strategy);
 
 const { GET, POST } = await import("./route");
@@ -159,6 +159,7 @@ describe("the Competitors APIs", () => {
     await POST(req("POST", { ...MONITOR, group: "most" }));
     expect(store.monitorCompetitor).toHaveBeenLastCalledWith(admin, MONITOR, {});
     expect(strategy.logStrategyDecisions).not.toHaveBeenCalled();
+    expect(strategy.noteMonitored).not.toHaveBeenCalled();
   });
 
   it("joined: a group a person changes is kept, and logged on the strategy before and after", async () => {
@@ -173,6 +174,10 @@ describe("the Competitors APIs", () => {
     strategy.logStrategyDecisions.mockClear();
     await item.PATCH(req("PATCH", { group: "big" }), params);
     expect(strategy.logStrategyDecisions).not.toHaveBeenCalled();
+    // Monitor carries the finder's group, and one the finder suggested is kept as a tick.
+    expect((await POST(req("POST", { ...MONITOR, group: "most" }))).status).toBe(201);
+    expect(store.monitorCompetitor).toHaveBeenLastCalledWith(admin, { ...MONITOR, group: "most" }, {});
+    expect(strategy.noteMonitored).toHaveBeenCalledWith(admin, { name: "Acme Dental", site: "acme-dental.example" }, {});
     session.getAdminContext.mockResolvedValue(member);
     expect((await item.PATCH(req("PATCH", { group: "most" }), params)).status).toBe(403);
   });

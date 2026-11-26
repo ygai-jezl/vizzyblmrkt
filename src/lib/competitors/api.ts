@@ -9,7 +9,7 @@ import type { TenantContext } from "@/lib/tenant/types";
 import { CompetitorPatchSchema, MonitorInputSchema } from "@/lib/types/competitor";
 import { forgetReviewCount } from "@/lib/review/summary";
 import { isStrategyCompetitorsEnabled } from "@/lib/brandStrategy/flags";
-import { logStrategyDecisions } from "@/lib/brandStrategy/store";
+import { logStrategyDecisions, noteMonitored } from "@/lib/brandStrategy/store";
 import { isCompetitorsEnabled } from "./flags";
 import { advanceCompetitor, type StepDeps } from "./steps";
 import {
@@ -109,6 +109,8 @@ export async function monitorFromRequest(ctx: TenantContext, body: unknown, deps
   }
   const r = await monitorCompetitor(ctx, parsed.data, deps);
   if (!r.ok) return fail(r);
+  // Joined: Monitor on one the finder suggested is what a tick was, kept on the strategy.
+  if (isStrategyCompetitorsEnabled()) await noteMonitored(ctx, { name: r.value.competitor.name, site: r.value.competitor.site }, deps).catch(() => false);
   await advanceCompetitor(ctx, r.value.competitor.id, (deps.clock ?? Date.now)() + ADVANCE_MS, deps);
   const detail = await detailView(ctx, r.value.competitor.id, deps);
   return NextResponse.json({ competitor: detail, brandMap: r.value.brandMap }, { status: 201 });

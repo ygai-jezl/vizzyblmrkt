@@ -7,6 +7,7 @@ import {
   BRAND_STRATEGY_LIMITS as L,
   COMPETITOR_GROUP_KINDS,
   COMPETITOR_GROUP_LABEL,
+  NOT_GROUPED_LABEL,
   STRATEGY_SOURCE_LABEL,
   claimShown,
   type ClaimShown,
@@ -16,8 +17,9 @@ import { api } from "@/components/admin/connect/api";
 import { Banner, Button, inputClass } from "@/components/admin/connect/ui";
 import { AddLine, RemoveButton, smallLabel } from "./BrandMapParts";
 import { useMapMove } from "./brandMapMove";
-import { APPROVED_NOTE, GAP_LABEL, PROPOSED_NOTE, droppedNote, foundNote, starsNotUpdatedNote, strategyErrorText } from "./strategyMessages";
+import { APPROVED_NOTE, GAP_LABEL, PROPOSED_NOTE, droppedNote, foundNote, monitoredNote, notCompetitorNote, starsNotUpdatedNote, strategyErrorText } from "./strategyMessages";
 import { BrandMapContentPlan } from "./BrandMapContentPlan";
+import { CompetitorGroupPicker } from "./CompetitorGroupPicker";
 
 /**
  * The Strategy tab (BRAND_STRATEGY_ENABLED): the brand strategy, one per brand, approved by a
@@ -125,15 +127,27 @@ export function BrandMapStrategy({ canEdit, contentPlan = false }: { canEdit: bo
     if (!c.site) return;
     setBusy(true);
     setNote(null);
-    const r = await api<{ error?: string }>(COMPETITORS, { method: "POST", body: JSON.stringify({ name: c.name, website: c.site }) });
+    // Joined, Monitor carries the finder's group, and the list is live: nothing else to save.
+    const r = await api<{ error?: string }>(COMPETITORS, {
+      method: "POST",
+      body: JSON.stringify({ name: c.name, website: c.site, ...(view?.joined && c.group ? { group: c.group } : {}) }),
+    });
     setBusy(false);
     // Already watched counts as done: the tick is what this records.
     if (!r.ok && r.data.error !== "already_watching") {
       setNote({ tone: "err", text: strategyErrorText(r.data) });
       return;
     }
-    await edit({ ticked: [{ name: c.name, ticked: true }] }, `${c.name} is on Brand › Competitors now.`);
+    if (view?.joined) {
+      await load();
+      setNote({ tone: "ok", text: monitoredNote(c.name) });
+      return;
+    }
+    await edit({ ticked: [{ name: c.name, ticked: true }] }, monitoredNote(c.name));
   }
+
+  const notCompetitor = (c: ViewCompetitor) =>
+    run(`${STRATEGY}/competitors/not`, { method: "POST", body: JSON.stringify({ name: c.name, site: c.site }) }, () => notCompetitorNote(c.name));
 
   const stateLine =
     view.state === "approved" && view.approved
@@ -145,6 +159,16 @@ export function BrandMapStrategy({ canEdit, contentPlan = false }: { canEdit: bo
           : "No strategy yet";
 
   const groups = COMPETITOR_GROUP_KINDS.map((kind) => ({ kind, list: view.competitors.filter((c) => c.group === kind) })).filter((g) => g.list.length);
+  // Joined to Competitors: the watched ones by the group a person chose, then the finder's suggestions.
+  const live = view.joined && view.canMonitor;
+  const watchedList = view.competitors.filter((c) => c.monitored);
+  const watchedGroups = [
+    ...COMPETITOR_GROUP_KINDS.map((kind) => ({ key: kind as string, label: COMPETITOR_GROUP_LABEL[kind], list: watchedList.filter((c) => c.group === kind) })),
+    { key: "none", label: NOT_GROUPED_LABEL, list: watchedList.filter((c) => !c.group) },
+  ].filter((g) => g.list.length);
+  const suggestions = view.competitors.filter((c) => !c.monitored && c.from === "finder");
+  const find = (mode: "quick" | "full") =>
+    run(`${STRATEGY}/competitors`, { method: "POST", body: JSON.stringify({ mode }) }, (d) => foundNote(d.found ?? 0, d.gapSkipped, live));
   const proposedNot = (draft?.isNotProposals ?? []).filter((x) => x.state === "proposed");
 
   return (
@@ -211,11 +235,11 @@ export function BrandMapStrategy({ canEdit, contentPlan = false }: { canEdit: bo
         aside={
           canEdit && view.finder.on ? (
             <span className="flex flex-wrap items-center gap-2">
-              <Button disabled={busy || (!view.finder.granted && view.finder.quickUsed)} onClick={() => void run(`${STRATEGY}/competitors`, { method: "POST", body: JSON.stringify({ mode: "quick" }) }, (d) => foundNote(d.found ?? 0, d.gapSkipped))}>
+              <Button disabled={busy || (!view.finder.granted && view.finder.quickUsed)} onClick={() => void find("quick")}>
                 Find competitors
               </Button>
               {view.finder.granted ? (
-                <Button disabled={busy} onClick={() => void run(`${STRATEGY}/competitors`, { method: "POST", body: JSON.stringify({ mode: "full" }) }, (d) => foundNote(d.found ?? 0, d.gapSkipped))}>
+                <Button disabled={busy} onClick={() => void find("full")}>
                   Full search
                 </Button>
               ) : null}
@@ -229,8 +253,54 @@ export function BrandMapStrategy({ canEdit, contentPlan = false }: { canEdit: bo
             {view.finder.granted ? ` Full: three answers merged and checked, then a search that fits your business${view.finder.limit !== null ? ` (${Math.max(0, view.finder.limit - view.finder.used)} left this month)` : ""}.` : ""}
           </p>
         ) : null}
-        {!groups.length ? <p className="text-xs text-neutral-500">No competitors yet.</p> : null}
-        {groups.map((g) => (
+        {live ? (
+          <>
+            {!watchedGroups.length && !suggestions.length ? <p className="text-xs text-neutral-500">No competitors yet. Watch one on Brand › Competitors, or press Find competitors.</p> : null}
+            {watchedGroups.map((g) => (
+              <div key={g.key} className="space-y-1">
+                <span className={smallLabel}>{g.label}</span>
+                <ul className="space-y-1 text-sm">
+                  {g.list.map((c) => (
+                    <li key={c.id ?? c.name} className="space-y-0.5">
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <span>{c.name}</span>
+                        <span className="text-xs text-green-700 dark:text-green-400">✓ watched</span>
+                        {c.id ? <CompetitorGroupPicker id={c.id} name={c.name} group={c.group} canEdit={canEdit} onSaved={() => void load()} onError={(text) => setNote({ tone: "err", text })} /> : null}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+            {suggestions.length ? (
+              <div className="space-y-1">
+                <span className={smallLabel}>Suggested by the finder</span>
+                <ul className="space-y-1 text-sm">
+                  {suggestions.map((c) => (
+                    <li key={c.name} className="flex flex-wrap items-center gap-1.5" title={c.evidence.map((e) => e.title || e.domain).join(" · ") || undefined}>
+                      <span>{c.name}</span>
+                      {c.site ? <span className="text-xs text-neutral-500">{c.site}</span> : null}
+                      {c.group ? <span className="text-[11px] text-neutral-500">· {COMPETITOR_GROUP_LABEL[c.group]}</span> : null}
+                      {c.foundTimes > 1 ? <span className="text-[11px] text-neutral-500">named {c.foundTimes} times</span> : null}
+                      {canEdit && c.site ? (
+                        <button type="button" disabled={busy} className={SMALL} onClick={() => void monitor(c)}>
+                          Monitor
+                        </button>
+                      ) : null}
+                      {canEdit ? (
+                        <button type="button" disabled={busy} className={SMALL} onClick={() => void notCompetitor(c)}>
+                          Not a competitor
+                        </button>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </>
+        ) : null}
+        {!live && !groups.length ? <p className="text-xs text-neutral-500">No competitors yet.</p> : null}
+        {(live ? [] : groups).map((g) => (
           <div key={g.kind} className="space-y-1">
             <span className={smallLabel}>{COMPETITOR_GROUP_LABEL[g.kind]}</span>
             <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
@@ -249,6 +319,11 @@ export function BrandMapStrategy({ canEdit, contentPlan = false }: { canEdit: bo
                       <input type="checkbox" checked={c.ticked} disabled={busy} onChange={(e) => void edit({ ticked: [{ name: c.name, ticked: e.target.checked }] })} />
                       Tick
                     </label>
+                  ) : null}
+                  {view.joined && canEdit && c.from === "finder" && !c.monitored ? (
+                    <button type="button" disabled={busy} className={SMALL} onClick={() => void notCompetitor(c)}>
+                      Not a competitor
+                    </button>
                   ) : null}
                 </li>
               ))}

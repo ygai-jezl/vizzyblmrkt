@@ -48,8 +48,9 @@ export const EBOOK_IMAGE_MODEL =
   process.env.GEMINI_EBOOK_IMAGE_MODEL ?? DEFAULT_EBOOK_IMAGE_MODEL;
 
 /** Gemini Live voice conversation (post-signup waitlist voice chat). The stable native-audio Live
- *  model Talk with Vizzy runs on too: the preview model it used before is shut down. See
- *  liveConversation.ts for the cascaded-model language-code caveat. */
+ *  model Talk with Vizzy runs on too; Google names it as the replacement for
+ *  gemini-3.1-flash-live-preview, the preview model this used before. See liveConversation.ts for
+ *  the cascaded-model language-code caveat. */
 export const DEFAULT_LIVE_MODEL = "gemini-3.8-live";
 export const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL ?? DEFAULT_LIVE_MODEL;
 

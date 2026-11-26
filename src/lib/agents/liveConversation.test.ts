@@ -151,7 +151,7 @@ describe("buildLiveConnectConfig", () => {
     expect(buildLiveConnectConfig(campaign(), "fr").speechConfig).toBeUndefined();
   });
 
-  it("defaults the model to the stable gemini-3.8-live, not the shut down preview", () => {
+  it("defaults the model to the stable gemini-3.8-live, not the preview", () => {
     expect(DEFAULT_LIVE_MODEL).toBe("gemini-3.8-live");
     // GEMINI_LIVE_MODEL still overrides it; unset, the default is used.
     if (!process.env.GEMINI_LIVE_MODEL) expect(LIVE_MODEL).toBe("gemini-3.8-live");

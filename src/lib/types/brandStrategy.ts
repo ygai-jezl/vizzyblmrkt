@@ -364,7 +364,7 @@ export const StrategyCheckSchema = z.object({
   lookedAt: Stamp.nullable().catch(null).default(null),
   /** When it looks next; null: at the next check tick. */
   nextAt: Stamp.nullable().catch(null).default(null),
-  /** The day new articles count from: the later of approval, a dismissal, or a row that closed itself. */
+  /** The day new articles count from: the day after the later of approval, a dismissal, or a row that closed itself. */
   since: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   /** The focus situations that were a gap when a row last could be raised; null until the first look. */
   gapIds: z.array(SituationId).max(C.focus).nullable().catch(null).default(null),

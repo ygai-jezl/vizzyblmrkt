@@ -825,8 +825,11 @@ export async function loadReview(
 
   const autopilotRuns = isAutopilotEnabled() ? await soft("autopilot runs", recentRuns(ctx, 60, { db }), [] as AutopilotRun[]) : [];
   // The weekly strategy check's open row (STRATEGY_CHECK_ENABLED): one read of the strategy record.
+  // It needs their articles too, as the tick does, so a row left from before a change of plan doesn't stay.
   const strategyCheck =
-    competitorsOn && isStrategyCheckEnabled() ? await soft("strategy check", readBrandStrategyDoc(ctx, { db }).then((d) => (d?.approved ? d.check : null)), null) : null;
+    competitorsOn && isStrategyCheckEnabled() && (await soft("competitor articles access", brandCanUse(ctx, "competitor_articles"), false))
+      ? await soft("strategy check", readBrandStrategyDoc(ctx, { db }).then((d) => (d?.approved ? d.check : null)), null)
+      : null;
   // Articles due a refresh (BLOG_FRESHNESS_ENABLED): the freshness watch's list, one read.
   const dueArticles = isBlogFreshnessEnabled()
     ? await soft("articles due a refresh", readDueArticles(ctx, { db }), [] as FreshnessDueItem[])

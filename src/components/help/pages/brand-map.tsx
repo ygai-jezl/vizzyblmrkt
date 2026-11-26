@@ -256,12 +256,12 @@ export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnab
           <P>
             Where your copy of YouGrow checks the strategy each week, it sets your approved focus situations against what your
             competitors published, and asks for a look in <Open href="/admin/approvals">Review</Open> only when something
-            material changed: 3 or more of their articles on one focus situation published since you approved, a focus
+            material changed: 3 or more of their articles on one focus situation published after the day you approved, a focus
             situation that is newly a gap, or an alternative on your brand map named in 3 or more of their articles that you
             don&apos;t watch. An article with no publish date never counts as new. <strong>Review the strategy</strong> opens
             this tab, where <strong>Propose with Vizzy</strong> keeps your edits. An admin can <strong>Dismiss</strong> the row
-            instead: it stays away 30 days, then counts from that day. Approving again starts the check over, and Vizzy reads
-            what it saw.
+            instead: it stays away 30 days, then counts what they published after the day you dismissed it. Approving again
+            starts the check over, and Vizzy reads what it saw.
           </P>
           <P>
             What you star, tick, edit or turn down is kept with the strategy, with the 5 strategies approved before it, so

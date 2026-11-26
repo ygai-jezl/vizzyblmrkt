@@ -6,6 +6,8 @@ import type { Tenant } from "@/lib/types/tenant";
 import { situationKey } from "@/lib/brandMap/keys";
 import { saveBrandMap } from "@/lib/brandMap/store";
 import { monitorCompetitor } from "@/lib/competitors/store";
+import { forTenant } from "@/lib/tenant";
+import { brandStrategyDocId } from "@/lib/types/brandStrategy";
 import { isCheckTick, runStrategyChecks } from "./check";
 import { approveStrategy, dismissStrategyCheck, readBrandStrategyDoc, saveProposal, type ProposedStrategy } from "./store";
 
@@ -119,7 +121,7 @@ describe("the weekly strategy check", () => {
     const doc = (await readBrandStrategyDoc(ctx, { db }))!;
     expect(doc.rev).toBe(rev);
     expect(doc.check).toMatchObject({
-      since: "2026-11-02",
+      since: "2026-11-03",
       lookedAt: T1.toISOString(),
       nextAt: new Date(T1.getTime() + 7 * 86_400_000).toISOString(),
       open: { reasons: [{ kind: "new_articles", ref: "sit_aaaaaa02", count: 3, by: [{ name: "Rivalco", count: 3 }] }], actedAt: null },
@@ -148,11 +150,18 @@ describe("the weekly strategy check", () => {
 
   it("looks at 3 brands a run at most, the one waiting longest first", async () => {
     const db = new FakeFirestore();
-    for (const id of ["ten_A", "ten_B", "ten_C", "ten_D"]) await brand(id, db, { approve: true });
-    expect(await run(db, ["ten_A", "ten_B", "ten_C", "ten_D"], T1)).toMatchObject({ brands: 3 });
+    const ids = ["ten_A", "ten_B", "ten_C", "ten_D"];
+    for (const id of ids) await brand(id, db, { approve: true });
+    // Each was due a look at a different time: D longest ago, then C, B and A.
+    for (const [i, id] of ids.entries()) {
+      await forTenant(ADMIN(id), db).brandStrategy.claim(brandStrategyDocId(id), (cur) => ({ check: { ...((cur as Record<string, unknown>).check as object), nextAt: new Date(T1.getTime() - (i + 1) * 86_400_000).toISOString() } }));
+    }
+    expect(await run(db, ids, T1)).toMatchObject({ brands: 3 });
+    const looked = async (id: string) => (await readBrandStrategyDoc(ADMIN(id), { db }))!.check?.lookedAt ?? null;
+    expect(await Promise.all(ids.map(looked))).toEqual([null, T1.toISOString(), T1.toISOString(), T1.toISOString()]);
     const next = checkTickFrom(new Date(T1.getTime() + 60_000).toISOString());
-    expect(await run(db, ["ten_A", "ten_B", "ten_C", "ten_D"], next)).toMatchObject({ brands: 1 });
-    expect((await readBrandStrategyDoc(ADMIN("ten_D"), { db }))!.check?.lookedAt).toBe(next.toISOString());
+    expect(await run(db, ids, next)).toMatchObject({ brands: 1 });
+    expect(await looked("ten_A")).toBe(next.toISOString());
   });
 });
 
@@ -165,7 +174,7 @@ describe("what people do with the row", () => {
     expect(await dismissStrategyCheck(ctx, { db, now: () => T1 })).toBe(true);
     const doc = (await readBrandStrategyDoc(ctx, { db }))!;
     expect(doc.rev).toBe(before.rev);
-    expect(doc.check).toMatchObject({ open: null, dismissedUntil: new Date(T1.getTime() + 30 * 86_400_000).toISOString(), since: T1.toISOString().slice(0, 10) });
+    expect(doc.check).toMatchObject({ open: null, dismissedUntil: new Date(T1.getTime() + 30 * 86_400_000).toISOString(), since: "2026-11-27" });
     expect(doc.decisions[0]).toMatchObject({ kind: "check_dismissed", ref: before.check!.open!.key, after: "new_articles sit_aaaaaa02 3", by: "admin@ten_A.example.com" });
     // Nothing open: nothing to dismiss.
     expect(await dismissStrategyCheck(ctx, { db, now: () => T1 })).toBe(false);
@@ -182,7 +191,7 @@ describe("what people do with the row", () => {
     expect(doc.decisions.filter((d) => d.kind === "check_acted")).toHaveLength(1);
     expect(doc.check?.open?.actedAt).toBe(later.toISOString());
     const approved = await approveStrategy(ctx, { baseRev: doc.rev }, { db, now: () => later });
-    expect(approved.ok && approved.value.check).toMatchObject({ open: null, since: later.toISOString().slice(0, 10), nextAt: null, lookedAt: null });
+    expect(approved.ok && approved.value.check).toMatchObject({ open: null, since: "2026-11-27", nextAt: null, lookedAt: null });
   });
 
   it("with the switch off, a Propose keeps nothing about it, and approving clears an old check", async () => {

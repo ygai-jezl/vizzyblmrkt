@@ -1,6 +1,6 @@
 import { fold } from "@/lib/brandMap/changes";
 import { dayWords } from "@/lib/connectors/period";
-import type { CoverageFlag } from "@/lib/competitors/coverage";
+import { windowStart, type CoverageFlag } from "@/lib/competitors/coverage";
 import { competitorProfiles } from "@/lib/competitors/profile";
 import type { Competitor, CompetitorArticle } from "@/lib/types/competitor";
 import {
@@ -18,16 +18,18 @@ import {
  *
  * A look sets the approved strategy's focus situations against what the watched competitors
  * published, and asks for a person's look only when something material changed:
- *  - 3 or more of their articles on one focus situation, published since the check's `since` (the
- *    later of approval, a dismissal, or a row that closed itself), by publish date only: an article
- *    with no publish date might be old, so it never counts as new;
+ *  - 3 or more of their articles on one focus situation, published in the last 90 days and on or
+ *    after the check's `since` (the day after the later of approval, a dismissal, or a row that
+ *    closed itself, so what was just looked at doesn't count again), by publish date only: an
+ *    article with no publish date might be old, so it never counts as new;
  *  - a focus situation newly a gap: they write on it, and no live article of the brand's answers it;
  *  - an alternative on the brand map they name in 3 or more articles that the brand doesn't watch,
  *    raised once.
  *
  * At most one row is open. While it is, each look works its reasons out again from the same
  * starting point; when none are left, it closes itself. Dismiss keeps it quiet 30 days, and the
- * starting point moves to that day.
+ * starting point moves to the day after. The first look after an approval only notes which focus
+ * situations are a gap; later looks raise the new ones.
  */
 
 const DAY_MS = 86_400_000;
@@ -61,12 +63,13 @@ export function clipText(s: string, n: number = C.text): string {
 
 const byCount = (a: { name: string; count: number }, b: { name: string; count: number }) => b.count - a.count || a.name.localeCompare(b.name);
 
-/** What the check sees now, counting new articles from `since` (a day). Pure. */
+/** What the check sees now, counting new articles from `since` (a day), within the same 90 days as every other number. Pure. */
 export function lookNow(input: LookInput, since: string): Look {
   const focusSits = input.focusIds.flatMap((id) => input.situations.filter((s) => s.id === id));
   const view = competitorProfiles({ articles: input.articles, competitors: input.competitors, situations: focusSits, alternatives: input.alternatives, nowMs: input.nowMs, since: null });
   const names = new Map(input.competitors.map((c) => [c.id, c.name] as const));
-  const fresh = input.articles.filter((a) => a.status === "read" && names.has(a.competitorId) && Boolean(a.publishedAt) && a.publishedAt!.slice(0, 10) >= since);
+  const from = [since, windowStart(input.nowMs)].sort()[1]!;
+  const fresh = input.articles.filter((a) => a.status === "read" && names.has(a.competitorId) && Boolean(a.publishedAt) && a.publishedAt!.slice(0, 10) >= from);
   const newBy = new Map<string, Array<{ name: string; count: number }>>();
   for (const s of focusSits) {
     const counts = new Map<string, number>();
@@ -118,14 +121,23 @@ function withRaised(before: string[], added: string[]): string[] {
   return out.slice(0, C.raisedNames);
 }
 
-/** The check as approving leaves it: due at the next check tick, counting from the approval's day. */
-export function freshCheck(approvedAt: string, prev: Pick<StrategyCheck, "raisedNames"> | null): StrategyCheck {
-  return StrategyCheckSchema.parse({ since: approvedAt.slice(0, 10), raisedNames: prev?.raisedNames ?? [] });
+/** The day after a moment (YYYY-MM-DD): counting starts there, so what was looked at that day doesn't count again. */
+export const dayAfter = (iso: string) => new Date(Date.parse(`${iso.slice(0, 10)}T00:00:00.000Z`) + DAY_MS).toISOString().slice(0, 10);
+
+/** The names an open row raised: kept as raised once it closes, however it closes. */
+const namedIn = (check: Pick<StrategyCheck, "open"> | null) => (check?.open?.reasons ?? []).filter((r) => r.kind === "named").map((r) => r.ref);
+
+/**
+ * The check as approving leaves it: due at the next check tick, counting from the day after the
+ * approval, with every name raised so far (the open row's too) kept as raised.
+ */
+export function freshCheck(approvedAt: string, prev: Pick<StrategyCheck, "raisedNames" | "open"> | null): StrategyCheck {
+  return StrategyCheckSchema.parse({ since: dayAfter(approvedAt), raisedNames: withRaised(prev?.raisedNames ?? [], namedIn(prev)) });
 }
 
-/** Where counting starts again: today, with the gaps and names seen now as the ones already known. */
-function movedOn(check: StrategyCheck, today: string, names: string[]): Pick<StrategyCheck, "since" | "gapIds" | "raisedNames"> {
-  return { since: today, gapIds: gapsOf(check.focus), raisedNames: withRaised(check.raisedNames, names) };
+/** Where counting starts again: the day after, with the gaps and names seen now as the ones already known. */
+function movedOn(check: StrategyCheck, nowIso: string, names: string[]): Pick<StrategyCheck, "since" | "gapIds" | "raisedNames"> {
+  return { since: dayAfter(nowIso), gapIds: gapsOf(check.focus), raisedNames: withRaised(check.raisedNames, names) };
 }
 
 /**
@@ -137,24 +149,37 @@ export function nextCheck(prev: StrategyCheck | null, approvedAt: string, input:
   const nowMs = Date.parse(nowIso);
   const quiet = Boolean(base.dismissedUntil && Date.parse(base.dismissedUntil) > nowMs);
   const look = lookNow(input, base.since);
-  const seen: StrategyCheck = { ...base, lookedAt: nowIso, nextAt: plusDays(nowIso, C.everyDays), focus: look.focus, named: look.named, dismissedUntil: quiet ? base.dismissedUntil : null };
+  const seen: StrategyCheck = {
+    ...base,
+    lookedAt: nowIso,
+    nextAt: plusDays(nowIso, C.everyDays),
+    focus: look.focus,
+    named: look.named,
+    dismissedUntil: quiet ? base.dismissedUntil : null,
+    // The first look only notes which focus situations are a gap: later looks raise the new ones.
+    gapIds: base.gapIds ?? gapsOf(look.focus),
+  };
   // Dismissed: the numbers stay current for Vizzy, and nothing is raised or moved on.
   if (quiet) return seen;
-  const reasons = materialReasons(look, base);
+  const reasons = materialReasons(look, seen);
   if (base.open) {
-    if (reasons.length) return { ...seen, open: { ...base.open, key: reasonsKey(reasons), reasons } };
-    // Nothing material is left: the row closes itself, and counting starts again today.
-    return { ...seen, open: null, ...movedOn(seen, nowIso.slice(0, 10), base.open.reasons.filter((r) => r.kind === "named").map((r) => r.ref)) };
+    if (reasons.length) {
+      const key = reasonsKey(reasons);
+      // A row about something new is a new row: a Propose on it is kept again.
+      return { ...seen, open: { ...base.open, key, reasons, actedAt: key === base.open.key ? base.open.actedAt : null } };
+    }
+    // Nothing material is left: the row closes itself, and counting starts again tomorrow.
+    return { ...seen, open: null, ...movedOn(seen, nowIso, namedIn(base)) };
   }
   if (reasons.length) return { ...seen, open: { key: reasonsKey(reasons), raisedAt: nowIso, reasons, actedAt: null } };
   // A quiet look: the gaps it saw are the ones the next look compares with.
   return { ...seen, gapIds: gapsOf(look.focus) };
 }
 
-/** The check after an admin dismisses its row: quiet 30 days, counting again from today. Pure. */
+/** The check after an admin dismisses its row: quiet 30 days, counting again from the day after. Pure. */
 export function dismissedCheck(check: StrategyCheck, nowIso: string): StrategyCheck {
-  const named = [...(check.open?.reasons ?? []).filter((r) => r.kind === "named").map((r) => r.ref), ...check.named.filter((n) => n.count >= C.namedArticles).map((n) => n.name)];
-  return { ...check, open: null, dismissedUntil: plusDays(nowIso, C.dismissDays), ...movedOn(check, nowIso.slice(0, 10), named) };
+  const named = [...namedIn(check), ...check.named.filter((n) => n.count >= C.namedArticles).map((n) => n.name)];
+  return { ...check, open: null, dismissedUntil: plusDays(nowIso, C.dismissDays), ...movedOn(check, nowIso, named) };
 }
 
 /** Whether the check is due a look at `nowMs`. */

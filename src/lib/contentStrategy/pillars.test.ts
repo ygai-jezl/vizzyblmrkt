@@ -4,7 +4,7 @@ import { checkPillars, choosePillars, hubsOf, pillarsFromGroups, planPrompt, typ
 import type { MadeSlot } from "./slots";
 
 const usage = {} as AiUsage;
-const EM = "—";
+const EM = "\u2014";
 
 function slot(id: string, subjectId: string, over: Partial<MadeSlot> = {}): MadeSlot {
   return {

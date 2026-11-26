@@ -1201,7 +1201,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     erase: { paths: [brandPath("deleteBrandStrategy", "src/lib/brandStrategy/store.ts", "an admin presses Start over on the Strategy tab")] },
     export: { none: NOT_PERSONAL },
     search: { none: "one short record per brand, read whole by the writer, research, Next up and Vizzy" },
-    numbers: { none: NO_NUMBERS },
+    numbers: { meanings: ["focusQuestions", "focusLiveArticles", "foundTimes"], tool: "get_brand_strategy" },
   },
   {
     id: "brand_note",

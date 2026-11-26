@@ -5,6 +5,7 @@ import type { TenantContext } from "@/lib/tenant";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import type { MetricSnapshot, RolledSpan, SnapshotBasis, SnapshotBy, SnapshotNote, SnapshotRow } from "@/lib/types/metricSnapshot";
 import { ROLLED_SPANS } from "@/lib/types/metricSnapshot";
+import { MEANINGS, type MeaningKey } from "@/lib/metrics/meanings";
 import { planningId, rolledId, topicKey } from "./keys";
 import { addDays, laterDay } from "./period";
 import { compareRows, cutRows, putSnapshot, readDayDocs, ttlFor, type SnapshotOwner, type StoreDeps } from "./snapshots";
@@ -22,7 +23,8 @@ import { compareRows, cutRows, putSnapshot, readDayDocs, ttlFor, type SnapshotOw
  * - click rate is worked out again from clicks and impressions;
  * - position is weighted by impressions;
  * - counts of people (active users, unique visitors) can't be added across days, so they stay empty
- *   in rolled totals and in rows that add days (a day's own row on a by-day doc keeps them);
+ *   in rolled totals and in rows that add days (a day's own row on a by-day doc keeps them), and
+ *   neither can a number that isn't a count (a share, a rank or a score: notAdded);
  * - a window's total needs every day's: one day without it leaves that total empty;
  * - range totals come only from the day docs' totals (Search Console adds days by property and
  *   pages by page, so page rows never add up to the total);
@@ -37,13 +39,19 @@ import { compareRows, cutRows, putSnapshot, readDayDocs, ttlFor, type SnapshotOw
 export const PEOPLE_KEYS: ReadonlySet<string> = new Set(["ga4ActiveUsers", "cfUniqueVisitors"]);
 /** Worked out again, never added. */
 const RATE_KEYS: ReadonlySet<string> = new Set(["searchCtr", "searchPosition", "merged"]);
+/**
+ * A number its meaning says isn't a count (a share, a rank, a score, such as AI share of voice or
+ * sentiment, ADR-0019) never adds up across days: a period's figure is the provider's own, so it
+ * stays empty in rolled totals and rows that add days, and each day keeps its own.
+ */
+export const notAdded = (k: string): boolean => !RATE_KEYS.has(k) && Object.prototype.hasOwnProperty.call(MEANINGS, k) && MEANINGS[k as MeaningKey].unit !== "count";
 
 /** Every number in a day's totals, added across days as each one allows. */
 export function rollTotals(days: ReadonlyArray<Record<string, number | null> | null>): Record<string, number | null> {
   const keys = new Set(days.flatMap((d) => Object.keys(d ?? {})));
   const out: Record<string, number | null> = {};
   for (const k of keys) {
-    if (PEOPLE_KEYS.has(k) || RATE_KEYS.has(k)) continue;
+    if (PEOPLE_KEYS.has(k) || RATE_KEYS.has(k) || notAdded(k)) continue;
     const values = days.map((d) => d?.[k]);
     out[k] = values.every((v) => typeof v === "number") ? (values as number[]).reduce((a, b) => a + b, 0) : null;
   }
@@ -62,6 +70,7 @@ export function rollTotals(days: ReadonlyArray<Record<string, number | null> | n
     out.searchPosition = shown ? weighted / shown : null;
   }
   for (const k of PEOPLE_KEYS) if (keys.has(k)) out[k] = null;
+  for (const k of keys) if (notAdded(k)) out[k] = null;
   return out;
 }
 
@@ -108,7 +117,7 @@ export class RowRoller {
       acc.seenOn.add(doc.day ?? "");
       if (typeof r.m.merged === "number" && r.m.merged > acc.merged) acc.merged = r.m.merged;
       for (const [k, v] of Object.entries(r.m)) {
-        if (PEOPLE_KEYS.has(k) || RATE_KEYS.has(k)) continue;
+        if (PEOPLE_KEYS.has(k) || RATE_KEYS.has(k) || notAdded(k)) continue;
         acc.sums[k] = (acc.sums[k] ?? 0) + v;
       }
       if (typeof r.m.searchPosition === "number" && typeof r.m.searchImpressions === "number" && r.m.searchImpressions > 0) {

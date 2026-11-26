@@ -145,6 +145,8 @@ export const KEPT_OFF = {
   CONNECTORS_ENABLED: { addon: null, why: "connected data is new: turn it on by hand" },
   NEXT_PUBLIC_CONNECTORS_ENABLED: { addon: null, why: "connected data is new: turn it on by hand" },
   CONNECTOR_CLOUDFLARE_ENABLED: { addon: null, why: "connected data is new: turn it on by hand" },
+  CONNECTOR_MCP_ENABLED: { addon: null, why: "connected data is new: turn it on by hand" },
+  CONNECTOR_VIZZYBL_ENABLED: { addon: null, why: "connected data is new: turn it on by hand, with CONNECTOR_MCP_ENABLED" },
   CONNECTOR_SEARCH_CONSOLE_ENABLED: { addon: null, why: "needs a Google OAuth client or the identities project (docs/self-host.md, Connect Google data on your own copy)" },
   CONNECTOR_GA4_ENABLED: { addon: null, why: "needs the identities project, or a Google OAuth client with CONNECTOR_GA4_SIGNIN_ENABLED (docs/self-host.md, Google Analytics and share access)" },
   CONNECTOR_GA4_SIGNIN_ENABLED: {
@@ -168,6 +170,7 @@ export const KEPT_OFF = {
     addon: null,
     why: "suggestions from collected numbers do nothing until CONNECTORS_COLLECT_ENABLED is on, need the agent action indexes READY and the data_signals time to live, and come only from connections Vizzy may read (docs/self-host.md, Upgrading to collected numbers)",
   },
+  CONNECTOR_AI_ANSWERS_ENABLED: { addon: null, why: "Next up weighing AI answers does nothing until an AI answers connector is connected and shared with your team and Vizzy" },
   CONNECTORS_SHARING_ENABLED: {
     addon: null,
     why: "organisations sharing connections need plans on (PLANS_ENABLED, every organisation on Self-hosted), the organisation_connection_activity time to live and the index file deployed without --force (docs/self-host.md, Shared connections across your brands)",

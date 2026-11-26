@@ -13,6 +13,9 @@ agents/root_agent/tests/**                # agent tests: example data, never rea
 src/lib/site/content.json                 # marketing site content: the public site describes the hosted service
 sdk/node/**                               # the published Node SDK: its default origin is the hosted service, overridable
 
+# Vendor connectors
+src/lib/connectors/manifests/vizzybl.ts   # a vendor connector's own API host
+
 # Docs about how we host it
 docs/DECISIONS.md                         # decision records about our own hosting
 

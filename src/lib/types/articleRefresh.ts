@@ -122,7 +122,16 @@ export interface ArticleReviewDoc {
   /** YYYY-MM it started, against the monthly cap. */
   month: string;
   /** Why it ran: the article's freshness when it started. */
-  why: { state: "fresh" | "soon" | "due" | null; clockDays: number | null; arm: "test" | "fixed" | null; reasons: string[]; dueAt: string | null; waitedDays: number | null };
+  why: {
+    state: "fresh" | "soon" | "due" | null;
+    clockDays: number | null;
+    arm: "test" | "fixed" | null;
+    reasons: string[];
+    dueAt: string | null;
+    waitedDays: number | null;
+    /** The brand map question it was started for (Next up's "Add to that article"), when it was. */
+    question?: { id: string; text: string } | null;
+  };
   /** What step 1 read, so later steps and Apply know the copy it looked at. */
   reading: { bodyHash: string; headings: string[]; figures: string[]; links: string[]; liveUrl: string } | null;
   evidence: ReviewEvidence[];

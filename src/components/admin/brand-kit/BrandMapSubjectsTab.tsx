@@ -468,6 +468,9 @@ export function BrandMapSubjectsTab({
 
 /** The tag on a question a rising Google search proposed (CONNECTOR_SIGNALS_ENABLED). */
 const FROM_SEARCHES = "From Google searches";
+/** A question Next up found answered by a live article by meaning (NEXT_UP_REPEATS_ENABLED). */
+export const MATCHED_BY_MEANING = "Matched by meaning";
+export const UNLINKED = "Unlinked. That article won't be matched to this question again, and Next up can offer it.";
 /** A proposed question: Add, Edit (change its words before adding it) and Dismiss. */
 function ProposedQuestion({
   q,
@@ -707,6 +710,12 @@ function SubjectDetail({
               <div className="flex flex-wrap items-center gap-1.5">
                 <QuestionStatus q={states.get(q.id)} action={programmes ? <WriteNext questionId={q.id} programmes={programmes} /> : null} />
                 {q.from === "search_console" ? <Badge>{FROM_SEARCHES}</Badge> : null}
+                {q.answeredBy ? <Badge>{MATCHED_BY_MEANING}</Badge> : null}
+                {q.answeredBy && canEdit ? (
+                  <button type="button" disabled={busy} onClick={() => void act(() => api(`${MAP}/questions/${encodeURIComponent(q.id)}/unlink`, { method: "POST" }), UNLINKED)} className={SMALL}>
+                    Unlink
+                  </button>
+                ) : null}
               </div>
             </li>
           ))}

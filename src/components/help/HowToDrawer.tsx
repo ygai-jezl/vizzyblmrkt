@@ -43,6 +43,7 @@ export function drawerBodyProps(shell: ReturnType<typeof useShell>): Required<He
     connectorsCollect: shell?.connectorsCollect ?? false,
     connectorsSearchText: shell?.connectorsSearchText ?? false,
     connectorSignals: shell?.connectorSignals ?? false,
+    aiAnswers: shell?.aiAnswers ?? false,
     brandMapScale: shell?.brandMapScale ?? false,
     sharing: shell?.sharing ?? false,
     join: shell?.join ?? false,

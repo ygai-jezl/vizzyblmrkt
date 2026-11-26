@@ -37,6 +37,7 @@ import {
   shareMethodOf,
   tokenCheckedWords,
   tokenMethodOf,
+  tokenReady,
   typedWhyWords,
   waitingShareOf,
   waitingSignInOf,
@@ -78,7 +79,7 @@ type CardHeading = "h3" | "h4";
 export function ListingView({ listing, connections, isAdmin, chat, banner, replace, organisation = null }: ListingProps) {
   const signIn = listing.ready.includes("oauth_pkce");
   const share = listing.ready.includes("share_access") && shareMethodOf(listing) !== null;
-  const token = listing.ready.includes("token_fields") && tokenMethodOf(listing) !== null;
+  const token = tokenReady(listing);
   const ways = [signIn, share, token].filter(Boolean).length;
   const heading: CardHeading = ways > 1 ? "h4" : "h3";
   const status = connectorStatus(listing.id, connections);
@@ -386,9 +387,12 @@ function TokenCard({
   const router = useRouter();
   const method = tokenMethodOf(listing)!;
   const pick = method.pick ?? null;
-  const accountField = method.fields.find((f) => f.key === method.account)!;
+  // An MCP key has no account field: its account comes from the key, so nothing is picked or typed.
+  const account = method.account ?? "";
+  const key = method.method === "mcp";
+  const accountField = method.fields.find((f) => f.key === account)!;
   const [values, setValues] = useState<Record<string, string>>(() =>
-    Object.fromEntries(method.fields.map((f) => [f.key, f.key === method.account && replace?.details && !pick ? replace.details.account : ""])),
+    Object.fromEntries(method.fields.map((f) => [f.key, f.key === account && replace?.details && !pick ? replace.details.account : ""])),
   );
   /** After Check, on a Listing that picks from a list: what the token can see, or that the account is typed. */
   const [checked, setChecked] = useState<{ accounts: ConnectorAccount[]; more: boolean } | null>(null);
@@ -408,11 +412,11 @@ function TokenCard({
 
   /** A pick Listing shows the account only after Check: from the list, or typed when it can't list. */
   const stage = !pick ? "all" : !checked ? "token" : typing || !checked.accounts.length ? "typed" : "listed";
-  const shown = method.fields.filter((f) => stage === "all" || f.secret || (stage === "typed" && f.key === method.account));
+  const shown = method.fields.filter((f) => stage === "all" || f.secret || (stage === "typed" && f.key === account));
   const set = (key: string, value: string) => {
     // A changed token has to be checked again before it connects.
     const recheck = Boolean(pick && method.fields.find((f) => f.key === key)?.secret);
-    setValues((v) => ({ ...v, [key]: value, ...(recheck ? { [method.account]: "" } : {}) }));
+    setValues((v) => ({ ...v, [key]: value, ...(recheck ? { [account]: "" } : {}) }));
     if (recheck) {
       setChecked(null);
       setTyping(false);
@@ -421,7 +425,7 @@ function TokenCard({
   /** Switch between the list and typing the account, so the list never shows one it doesn't have. */
   const typeInstead = (on: boolean) => {
     setTyping(on);
-    setValues((v) => ({ ...v, [method.account]: on ? "" : chosenAtFirst(checked?.accounts ?? [], replace?.details?.account) }));
+    setValues((v) => ({ ...v, [account]: on ? "" : chosenAtFirst(checked?.accounts ?? [], replace?.details?.account) }));
   };
 
   async function check() {
@@ -440,7 +444,7 @@ function TokenCard({
     setChecked({ accounts, more: r.kind === "listed" && r.more });
     setTyping(false);
     // A Reconnect starts on the zone it replaces, picked from the list or typed in.
-    setValues((v) => ({ ...v, [method.account]: r.kind === "listed" ? chosenAtFirst(accounts, replace?.details?.account) : (replace?.details?.account ?? "") }));
+    setValues((v) => ({ ...v, [account]: r.kind === "listed" ? chosenAtFirst(accounts, replace?.details?.account) : (replace?.details?.account ?? "") }));
   }
 
   async function submit(e: FormEvent) {
@@ -451,7 +455,8 @@ function TokenCard({
     // Named by the zone picked from the list; a Reconnect on the same account keeps its name.
     const picked = stage === "listed" ? checked?.accounts.find((a) => a.id === chosen)?.label : undefined;
     const kept = replace && replace.label !== replace.connectorName && replace.details?.account === chosen ? replace.label : undefined;
-    const r = await connectWithToken(listing.id, values, replace, chat, undefined, picked ?? kept);
+    // An MCP key reconnects in place: checked against the connection's account before anything changes.
+    const r = await connectWithToken(listing.id, values, replace, chat, undefined, picked ?? kept, key);
     if (r.kind === "connected") {
       router.push(CONNECTED_PATH);
       router.refresh();
@@ -467,14 +472,14 @@ function TokenCard({
   }
 
   const input = "h-9 w-full rounded-md border border-neutral-300 bg-transparent px-3 font-mono text-sm dark:border-neutral-700";
-  const chosen = values[method.account] ?? "";
+  const chosen = values[account] ?? "";
 
   return (
     // A token never goes in an address: the fields have no name, so the browser has nothing to send
     // on its own, and the form posts rather than putting fields in the URL. The handler sends them.
     <form method="post" aria-labelledby="connect-token" className={`${CARD} space-y-4`} onSubmit={submit}>
       <Title id="connect-token" className={H3}>
-        {LISTING_COPY.tokenTitle}
+        {key ? LISTING_COPY.keyTitle : LISTING_COPY.tokenTitle}
       </Title>
       <ol className="list-decimal space-y-1.5 pl-5 text-sm leading-relaxed text-neutral-700 dark:text-neutral-300">
         {method.steps.map((step) => (
@@ -486,7 +491,7 @@ function TokenCard({
           Open {listing.name} with the form filled in
         </a>
       ) : null}
-      {replace && !lost ? <p className={NOTE_WARN}>{LISTING_COPY.tokenReconnect}</p> : null}
+      {replace && !lost ? <p className={NOTE_WARN}>{key ? LISTING_COPY.keyReconnect : LISTING_COPY.tokenReconnect}</p> : null}
       {lost ? (
         <p role="alert" className={NOTE_WARN}>
           {lost}{" "}
@@ -520,10 +525,10 @@ function TokenCard({
           ))}
           {stage === "listed" && checked ? (
             <div className="space-y-1">
-              <label htmlFor={`field-${method.account}`} className="block text-sm font-medium">
+              <label htmlFor={`field-${account}`} className="block text-sm font-medium">
                 {pick!.label}
               </label>
-              <select id={`field-${method.account}`} required value={chosen} onChange={(e) => set(method.account, e.target.value)} className={input}>
+              <select id={`field-${account}`} required value={chosen} onChange={(e) => set(account, e.target.value)} className={input}>
                 {chosen ? null : (
                   <option value="" disabled>
                     {LISTING_COPY.chooseOne}
@@ -554,7 +559,7 @@ function TokenCard({
             // Typed because the token can't list them, or because more were listed than fit: each in its own words.
             <TypedWhy text={typedWhyWords(listing.name, accountField.label, pick!, checked.accounts.length > 0)} listed={checked.accounts.length > 0} onPick={() => typeInstead(false)} />
           ) : (
-            <p className={HINT}>{stage === "token" ? LISTING_COPY.checkFirst : LISTING_COPY.tokenCheck}</p>
+            <p className={HINT}>{stage === "token" ? LISTING_COPY.checkFirst : key ? LISTING_COPY.keyCheck : LISTING_COPY.tokenCheck}</p>
           )}
           {error ? (
             <p role="alert" className={NOTE_ERR}>
@@ -563,7 +568,7 @@ function TokenCard({
           ) : null}
           <div className="flex flex-wrap gap-2">
             <button type="submit" className={BUTTON_PRIMARY} disabled={busy !== null || !ready || (stage !== "token" && stage !== "all" && !chosen)}>
-              {stage === "token" ? (busy === "check" ? LISTING_COPY.checking : LISTING_COPY.check) : busy === "connect" ? "Checking the token…" : "Connect"}
+              {stage === "token" ? (busy === "check" ? LISTING_COPY.checking : LISTING_COPY.check) : busy === "connect" ? (key ? LISTING_COPY.checkingKey : "Checking the token…") : "Connect"}
             </button>
             <Link href="/admin/account/connections/browse" className={BUTTON}>
               Cancel

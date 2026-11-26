@@ -71,8 +71,8 @@ export async function collectSignal(
   return "failed";
 }
 
-/** purpose: who asked, for the usage meter (a person's "Get from Google", or the autopilot). Default: a person. */
-export type LookupAsk = { query: string; questionId: string | null; subjectId: string | null; purpose?: "get_from_google" | "autopilot" };
+/** purpose: who asked, for the usage meter (a person's "Get from Google", the autopilot, or Make the plan). Default: a person. */
+export type LookupAsk = { query: string; questionId: string | null; subjectId: string | null; purpose?: "get_from_google" | "autopilot" | "content_strategy" };
 
 export type LookupOutcome =
   | { ok: true; signal: BrandSignal; reused: boolean }

@@ -1,7 +1,14 @@
 import { z } from "zod";
 import { brandCanUse } from "@/lib/plans/brandAccess";
 import type { TenantContext } from "@/lib/tenant/types";
-import { isAutopilotEnabled, isNextUpEnabled } from "./flags";
+import { isAutopilotEnabled, isNextUpEnabled, isNextUpRepeatsEnabled } from "./flags";
+import { isBlogRefreshEnabled } from "@/lib/brandMap/flags";
+import { mayStartReview } from "@/lib/content/blog/refreshGate";
+import { startReview } from "@/lib/content/blog/refreshReview";
+import { refreshHref } from "@/lib/content/blog/freshnessHref";
+import { getContentPlan } from "@/lib/tenant/workspaceContent";
+import { AUTOPILOT_RUNNING, autopilotHolds } from "./planLock";
+import { nextUpDocId, type NextUpPick } from "@/lib/types/autopilot";
 import { addLearned, clearLearned, learnedLine, listLearned, removeLearned, type LearnedDeps } from "./learned";
 import { isRateLimited } from "@/lib/tenant/rateLimit";
 import { dropPick, pickNextUp, readNextUp, type PickDeps } from "@/lib/nextUp/pick";
@@ -91,7 +98,7 @@ const Skip = z.object({
   questionId: z
     .string()
     .trim()
-    .regex(/^(q_[A-Za-z0-9]{6,40}|refresh:[A-Za-z0-9_-]{6,80})$/),
+    .regex(/^(q_[A-Za-z0-9]{6,40}|refresh:[A-Za-z0-9_-]{6,80}|combine:q_[A-Za-z0-9]{6,40})$/),
   question: z.string().trim().min(1).max(300),
   reason: z.string().trim().max(200).optional(),
 });
@@ -105,6 +112,61 @@ export async function skipPick(ctx: TenantContext, raw: unknown, deps: NextUpAdm
   await addLearned(ctx, { kind: "skipped_pick", text: parsed.data.question, reason: parsed.data.reason ?? "", questionId: parsed.data.questionId, from: "person" }, deps);
   const doc = await dropPick(ctx, parsed.data.questionId, deps);
   return { status: 200, body: { nextUp: doc ?? (await readNextUp(ctx, deps)) } };
+}
+
+const Close = z.object({
+  questionId: z
+    .string()
+    .trim()
+    .regex(/^q_[A-Za-z0-9]{6,40}$/),
+  action: z.enum(["add", "write_anyway"]),
+});
+
+const withoutClose = ({ closeTo: _drop, ...rest }: NextUpPick): NextUpPick => rest;
+
+export interface ClosePickDeps extends NextUpAdminDeps {
+  loadTenant?: (id: string) => Promise<Tenant | null>;
+  review?: typeof startReview;
+}
+
+/**
+ * A pick close to a live article (NEXT_UP_REPEATS_ENABLED). `add`: a refresh review of that article
+ * starts, carrying the question, and the pick is done; the person goes to the article. `write_anyway`:
+ * the pick stays, without its close mark, and the question isn't marked close again for 90 days.
+ * Both are kept on the Learned list. Members may, as for Not now.
+ */
+export async function closePick(ctx: TenantContext, raw: unknown, deps: ClosePickDeps = {}): Promise<ApiResult> {
+  const blocked = await nextUpGate(ctx, deps);
+  if (blocked) return blocked;
+  if (!isNextUpRepeatsEnabled()) return { status: 503, body: { error: "unavailable" } };
+  const parsed = Close.safeParse(raw);
+  if (!parsed.success) return { status: 400, body: { error: "invalid_input" } };
+  const { questionId, action } = parsed.data;
+  const doc = await readNextUp(ctx, deps);
+  const pick = doc?.picks.find((p) => p.questionId === questionId && p.closeTo);
+  if (!pick?.closeTo) return { status: 404, body: { error: "not_found" } };
+
+  if (action === "write_anyway") {
+    await addLearned(ctx, { kind: "wrote_anyway", text: pick.question, questionId, from: "person" }, deps);
+    const next = await forTenant(ctx, deps.db).nextUp.claim(nextUpDocId(ctx.tenantId), (cur) =>
+      cur.picks.some((p) => p.questionId === questionId && p.closeTo) ? { picks: cur.picks.map((p) => (p.questionId === questionId ? withoutClose(p) : p)) } : null,
+    );
+    return { status: 200, body: { nextUp: next ?? (await readNextUp(ctx, deps)) } };
+  }
+
+  const to = pick.closeTo;
+  if (!to.planId || !to.workspaceId) return { status: 409, body: { error: "not_written_here" } };
+  if (!isBlogRefreshEnabled()) return { status: 503, body: { error: "refresh_unavailable" } };
+  const may = await mayStartReview(ctx, { db: deps.db, ...(deps.loadTenant ? { loadTenant: deps.loadTenant } : {}) });
+  if (!may.ok) return { status: may.status, body: { error: may.error } };
+  const plan = await getContentPlan(ctx, to.workspaceId, to.planId, deps.db);
+  if (!plan) return { status: 404, body: { error: "article_gone" } };
+  if (autopilotHolds(plan)) return { status: 409, body: AUTOPILOT_RUNNING };
+  const started = await (deps.review ?? startReview)(ctx, { plan, by: "person", question: { id: questionId, text: pick.question } }, { db: deps.db });
+  if (!started.ok) return { status: started.status, body: { error: started.error } };
+  await addLearned(ctx, { kind: "added_to_article", text: pick.question, reason: to.title, questionId, from: "person" }, deps);
+  const next = await dropPick(ctx, questionId, deps);
+  return { status: 200, body: { link: refreshHref({ planId: plan.id, workspaceId: plan.workspaceId }), started: started.started, nextUp: next ?? (await readNextUp(ctx, deps)) } };
 }
 
 // ---- Find and sort ---------------------------------------------------------------------------------

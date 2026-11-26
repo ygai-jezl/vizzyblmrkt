@@ -38,10 +38,12 @@ const chunks = <T>(items: T[], size: number): T[][] => {
 export async function candidateRows(
   ctx: TenantContext,
   subject: Pick<BrandMapSubjectRecord, "id" | "urlKey">,
-  questions: Array<Pick<BrandMapQuestionRecord, "id" | "text" | "textKey">>,
+  questions: Array<Pick<BrandMapQuestionRecord, "id" | "text" | "textKey"> & Partial<Pick<BrandMapQuestionRecord, "answeredBy">>>,
   deps: Deps = {},
 ): Promise<BrandMapPage[]> {
   const pages = forTenant(ctx, deps.db).brandMapPages;
+  // The live pages questions were matched to by meaning, read by id.
+  const linked = [...new Set(questions.map((q) => q.answeredBy?.pageId).filter((id): id is string => Boolean(id)))].slice(0, 100);
   const ids = questions.map((q) => q.id);
   const keys = [...new Set(questions.map((q) => q.textKey).filter(Boolean))];
   const words = [...new Set(questions.flatMap((q) => meaningWords(q.text)))].slice(0, MAX_WORDS);
@@ -51,6 +53,7 @@ export async function candidateRows(
     ...chunks(keys, MAX_IN).map((c) => pages.find({ where: [["textKeys", "array-contains-any", c]], limit: ROWS_PER_QUERY })),
     ...(subject.urlKey ? [pages.find({ where: [["urlKey", "==", subject.urlKey]], limit: 50 })] : []),
     ...chunks(words, MAX_IN).map((c) => pages.find({ where: [["words", "array-contains-any", c]], limit: WORD_ROWS })),
+    ...(linked.length ? [Promise.all(linked.map((id) => pages.getById(id).catch(() => null))).then((rows) => rows.filter((r): r is NonNullable<typeof r> => Boolean(r)))] : []),
   ];
   const found = new Map<string, BrandMapPage>();
   for (const batch of await Promise.all(reads.map((r) => r.catch(() => [])))) {
@@ -84,7 +87,16 @@ export async function subjectCoverage(ctx: TenantContext, subjectId: string, dep
   const decided = questions.filter((q) => q.status === "decided");
   const rows = (await candidateRows(ctx, subject, decided, deps)).filter((r) => r.id !== opts.exclude);
   const c = computeCoverage(
-    { subjects: [{ id: subject.id, name: subject.name, home: subject.home, questions: decided.map((q) => ({ id: q.id, text: q.text, intent: q.intent })) }] },
+    {
+      subjects: [
+        {
+          id: subject.id,
+          name: subject.name,
+          home: subject.home,
+          questions: decided.map((q) => ({ id: q.id, text: q.text, intent: q.intent, answeredBy: q.answeredBy, notAnsweredBy: q.notAnsweredBy })),
+        },
+      ],
+    },
     rows,
   );
   return { subject, questions, coverage: c.subjects[0]!, overlaps: c.overlaps, missingLinks: c.missingLinks, siblings: c.siblings, answered: c.answered, rows };

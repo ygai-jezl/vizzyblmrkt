@@ -78,7 +78,7 @@ async function recordChange(owner: OrganisationOwner, c: Pick<OrganisationConnec
 const notYetChecked = (): OrganisationConnection["health"] => ({ state: "check", lastOkAt: null, lastCheckedAt: null, lastErrorCode: null, failures: 0, pausedUntil: null });
 
 /** A new organisation connection's record, kept in the region of the brand it is connected from. */
-function newRecord(owner: OrganisationOwner, m: ConnectorManifest, id: string, method: ConnectMethodName, at: string, rest: Partial<OrganisationConnection>): Omit<OrganisationConnection, "recent"> {
+function newRecord(owner: OrganisationOwner, m: ConnectorManifest, id: string, method: OrganisationConnection["method"], at: string, rest: Partial<OrganisationConnection>): Omit<OrganisationConnection, "recent"> {
   return {
     id,
     organisationId: owner.organisation.id,

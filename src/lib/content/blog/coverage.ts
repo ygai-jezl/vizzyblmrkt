@@ -67,7 +67,9 @@ export interface Coverage {
   siblings: ArticleMap["siblings"];
 }
 
-type MapSubjects = { subjects: Array<{ id: string; name: string; home?: string | null; questions: Array<{ id: string; text: string; intent: BlogIntent }> }> };
+/** A map question as coverage reads it: with the live page it was matched to by meaning, and the pages a person unlinked. */
+type MapQuestion = { id: string; text: string; intent: BlogIntent; answeredBy?: { pageId: string } | null; notAnsweredBy?: readonly string[] };
+type MapSubjects = { subjects: Array<{ id: string; name: string; home?: string | null; questions: MapQuestion[] }> };
 type PageFacts = Pick<BrandMapPage, "primaryRef" | "primaryQuestion" | "questions" | "title">;
 
 const RANK: Record<BrandMapPageState, number> = { live: 3, approved: 2, draft: 1, planned: 0 };
@@ -84,19 +86,36 @@ const words = (s: string) => new Set((s.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?
 /** The words that carry meaning, as close wording compares them: two texts close in wording always share one. */
 export const meaningWords = (s: string): string[] => [...words(s)];
 
-/** Close wording: most of the words that carry meaning are shared. */
-function close(a: string, b: string): boolean {
+/** The share of two sets of meaning words that both hold, from 0 to 1. */
+function shareOf(x: ReadonlySet<string>, y: ReadonlySet<string>): number {
+  let shared = 0;
+  for (const w of x) if (y.has(w)) shared += 1;
+  const all = x.size + y.size - shared;
+  return all ? shared / all : 0;
+}
+
+/** How close two texts are in wording: the share of their meaning words they have in common, from 0 to 1. */
+export function wordingCloseness(a: string, b: string): number {
+  return shareOf(words(a), words(b));
+}
+
+/** Close wording: most of the words that carry meaning are shared. Next up matches AI answers' prompts by it too. */
+export function close(a: string, b: string): boolean {
   const x = words(a);
   const y = words(b);
   if (x.size < 2 || y.size < 2) return false;
-  let shared = 0;
-  for (const w of x) if (y.has(w)) shared += 1;
-  return shared / (x.size + y.size - shared) >= 0.6;
+  return shareOf(x, y) >= 0.6;
 }
 
 /** Does a page answer this map question: for sure, probably, or not? */
-export function matchQuestion(q: { id: string; text: string }, page: PageFacts): "sure" | "probably" | null {
+export function matchQuestion(
+  q: { id: string; text: string; answeredBy?: { pageId: string } | null; notAnsweredBy?: readonly string[] },
+  page: PageFacts & { id?: string },
+): "sure" | "probably" | null {
   if (page.primaryRef === q.id || page.questions.some((x) => x.ref === q.id)) return "sure";
+  // Matched by meaning to this page (Next up's stop repeats), and a person hasn't unlinked it.
+  if (page.id && (q.notAnsweredBy ?? []).includes(page.id)) return null;
+  if (page.id && q.answeredBy?.pageId === page.id) return "sure";
   const key = textKey(q.text);
   const said = [page.primaryQuestion, page.title, ...page.questions.map((x) => x.text)].filter(Boolean);
   if (key && said.some((s) => textKey(s) === key)) return "sure";

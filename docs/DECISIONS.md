@@ -467,6 +467,123 @@ O'Brien and Fleming 1979 (https://doi.org/10.2307/2530245); Lan and DeMets 1983
 
 ---
 
+## ADR-0019 · Connectors are data: the MCP method and features read by kind of data (2026-11-26)
+
+Context: piece B of the brand strategy plan (v4.2, all 13 picks accepted 25 Nov). The owner, 25 Nov:
+"the connector should be written exactly as per how all our connectors are going to be written, we
+will have hundreds to add and maintain, we treat them the same", and "vizzybl has an MCP connector as
+well". Until now each connector was a manifest plus hand written hooks in
+`src/lib/connectors/handlers`, and planning code imported Search Console's manifest by name. Neither
+scales to hundreds of connectors. Most SaaS vendors now run a remote MCP server, so the standard is:
+connect to it, describe each stream as data, and let features ask for a kind of data. Branch
+`feat/connector-mcp`. No dependency, index, rules or infra change.
+
+### Decided
+
+1. **A fourth connect method, `mcp`** (`src/lib/connectors/manifest.ts`). The manifest gives the
+   server's endpoint (its host one of `api.hosts`), how it signs in (`auth.kind: "bearer"`: a key
+   pasted as one sealed field, as Cloudflare's token is), the verify tool and where in its result
+   the account the key reads is named (and its label). OAuth to an MCP server (dynamic client
+   registration or a client metadata document) is a later `auth.kind` of the same method. An MCP
+   connector connects by `mcp` alone and is never shared across an organisation's brands (no
+   `limits.source`), until that is built for it.
+2. **One engine, written once** (`src/lib/connectors/mcp/`): a small Streamable HTTP client
+   (`client.ts`, no dependency): JSON-RPC over POST, `initialize` with protocol version 2025-06-18
+   (it also speaks 2025-03-26 and 2025-11-25) and no client capabilities, then
+   `notifications/initialized`, `tools/list` and `tools/call`; every request accepts JSON and an event
+   stream, and the answer is the message with the request's id; an `Mcp-Session-Id` the server names
+   is echoed with `MCP-Protocol-Version`, and the session is closed with DELETE. Every request goes
+   through safe fetch with the manifest's hosts, limits, timeout and byte cap; safe fetch gains a text
+   read (with an early stop once the answer is in, for a stream left open), the response headers a
+   protocol needs, and headers of its own that can never replace Authorization. A 401 or 403 is
+   `token_refused`, which marks the connection broken (access lost); a 404 is the provider's
+   (`provider_error`), a tool that says it failed or a JSON-RPC error `query_refused`, and a tool the
+   manifest calls that the server no longer lists `tool_missing` (new words).
+3. **Hooks are the engine's, never the connector's.** An MCP manifest names `mcp.verify`, `mcp.live`
+   and `mcp.collect` (`MCP_HOOKS`), and the schema refuses hooks of its own. Verify lists the tools
+   (every tool the manifest calls must be offered), calls the verify tool and reads the account; on
+   Check now the key must still read the same account (`account_refused`).
+4. **Streams as data.** Each stream of an MCP connector has an `mcp` block: the tool, fixed `args`,
+   `fill` (arguments filled on each read from `from`, `to`, `limit`, `account`, `page` or `pageUrl`),
+   `rows` (a dotted path into structuredContent, or the JSON in the first text block, the first JSON
+   object or list in it when words wrap it), `more`, and a path for each key and each number. The
+   schema checks every key and number has exactly one path. A number's path that names a list counts
+   it. Keys are kept as one line of text, lists joined with commas; numbers only as numbers. Rows
+   that aren't where the manifest says give no rows and a note, never zeros. A stream whose call takes
+   no days says its numbers are as they stand now; one whose call takes a page is read for one page
+   only (`page_needed` before any call).
+5. **Collected by day only**, one row of totals a day, as Cloudflare's zone totals. A day the tool
+   doesn't list is kept with no numbers, final once it is more than 2 days older than the newest day
+   due (so the cursor moves on) and read again on later runs while newer (`MCP_SETTLE_DAYS`).
+6. **A key is kept as a token connection** (`method: "token_fields"`): the record says how YouGrow
+   holds the secret, the manifest how it calls. Older builds parse it, find no known connector and
+   read nothing; nothing in `DATA_CONNECTION_METHODS` changes. `connect` takes the account from the
+   verify tool, refuses a second connection to it, and names the connection by its label.
+7. **Features read kinds of data, never vendors.** A new use, `signals.ai_answers`, beside
+   `signals.search`, `signals.traffic` and `signals.bots`. `readByUse(ctx, use, { measures, by,
+   period })` (`src/lib/connectors/byUse.ts`) finds the brand's connected connections whose manifest
+   declares the use and that feed planning (`feedsPlanning`: members and Vizzy may both read them),
+   checks a part is still given (`readableOnly`), picks the stream giving every number asked for,
+   and returns rows keyed by the shared key each key joins on and numbers by meaning: from the rolled
+   28 or 90 day docs where the stream keeps them and collecting is on, else read live as the brand's
+   new `next_up` job (which, like `article_review`, may read only a connection that feeds planning).
+   A failed read leaves that connection out with its code. Search Console's planning lines
+   (`src/lib/connectors/signals/planning.ts`) still read its manifest; they move onto the reader
+   next, with GA4 and Cloudflare onto the data only engine where their vendors offer one.
+8. **Numbers that aren't counts never add up.** A meaning's unit now includes `score`; rolled totals
+   and rows that add days leave out any number whose meaning isn't a count (a share, a rank, a score),
+   as they already left out counts of people. Nothing collected before changes: its rates were
+   already worked out again.
+9. **Next up weighs AI answers** (`CONNECTOR_AI_ANSWERS_ENABLED`). A candidate question with the same
+   words as a monitored prompt, or close in wording (coverage's own `close()`: most of the meaning
+   words shared), gets one line and an `AI answers` chip (kind `num`): how many AI engines answer the
+   prompt, how often their answers named the brand and how many competitors, and how many citations
+   they gave, a number the tool didn't give left out. Every number is in the line, so `reasonHolds`
+   keeps a pick as it does for Search Console. The line counts brand mentions, not the brand's own
+   citations: a prompt's citations are to every site. The match is a rule
+   (`RULE_DECISIONS.ai_answer_match`, a `gap` line). Stored picks with an AI answers chip are taken
+   off when their connection stops feeding planning or is disconnected, as Search Console's are.
+10. **Vizzybl, the first data only connector** (`src/lib/connectors/manifests/vizzybl.ts`,
+    `CONNECTOR_VIZZYBL_ENABLED`). Its MCP server, an API key (`vzbl_live_`, made under Settings, API
+    Keys, on its Ultra and Enterprise plans) with `read:*` or the four read scopes, verified with
+    `get_brand` (the brand's main domain is the account, its name the label). Streams: AI share of
+    voice by day, collected (`get_visibility_history`); monitored prompts (`list_prompts`, status
+    monitored); the prompts citing one page (`find_prompts_citing`, the page on the brand's main
+    domain); the most cited pages (`get_citation_stats`, for the days asked). Ten new meanings:
+    `aiShareOfVoice`, `aiMentions`, `aiRank`, `aiSentiment`, `promptEngines`,
+    `promptBrandMentions`, `promptCompetitors`, `promptCitations`, `aiCitations` and
+    `aiCitationShare`, claimed by `data_connection` (and the first four by `metric_snapshot`).
+    Reads only: it never runs an audit, adds a prompt or scrapes one, which spend the brand's
+    credits (decision 13). Limits: 45 requests a minute and 900 an hour per connection, so about
+    15 tool calls a minute (each is three requests) under its citation tools' 20. A plain V mark,
+    drawn for YouGrow. `scripts/instance-values.allow` gains one entry, the manifest, with the reason
+    "a vendor connector's own API host" (decision 12).
+11. **The standard is a skill**, `.claude/skills/add-a-connector/SKILL.md`, named in AGENTS.md: MCP
+    first, else an API token, else OAuth; the data only manifest; a meaning for every number; uses;
+    shares in plain words; the mark; registry lines; help; the allow entry; the tests.
+
+### Switches
+
+All server side, `"false"` in the Connectors group of `apphosting.yaml`, empty in `.env.example`
+and in `KEPT_OFF` (addon null) for `npm run selfhost`.
+
+| Switch | Needs | Off |
+| --- | --- | --- |
+| `CONNECTOR_MCP_ENABLED` | `CONNECTORS_ENABLED` | no MCP connector is offered and nothing calls an MCP server; sealed keys stay sealed |
+| `CONNECTOR_VIZZYBL_ENABLED` | `CONNECTORS_ENABLED`, and `CONNECTOR_MCP_ENABLED` for its way to connect | Vizzybl isn't listed or read |
+| `CONNECTOR_AI_ANSWERS_ENABLED` | `CONNECTORS_ENABLED` and a connection with `signals.ai_answers` that feeds planning | Next up says nothing of AI answers |
+
+`CONNECTOR_MCP_ENABLED` and `CONNECTOR_AI_ANSWERS_ENABLED` are platform switches: no manifest may
+claim one.
+
+### Not in this piece
+
+OAuth for MCP servers; moving Search Console, GA4 and Cloudflare onto `readByUse` or the data only
+engine; manifests a vendor publishes (piece 6 of the connectors plan); writing to Vizzybl. The
+Listing has no separate Check for an MCP key: Connect checks it with the verify tool before saving.
+
+---
+
 ## ADR-0018 · Getting to know you: what a new brand tells Vizzy, and how Vizzy uses it (PR A) (2026-11-25)
 
 Context: a new brand lands on an empty Home and a sidebar of every section, and Vizzy knows

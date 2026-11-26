@@ -10,6 +10,7 @@ import { runArchitect } from "@/lib/content/create/architectRun";
 import { fillPlanNode } from "@/lib/content/create/fillPlan";
 import { IntakeSchema, planFromIntake } from "@/lib/content/create/intake";
 import { dropPick, pickNextUp, readNextUp } from "@/lib/nextUp/pick";
+import { slotQuestionsFor } from "@/lib/contentStrategy/nextUp";
 import { tenantMayUse } from "@/lib/plans/brandAccess";
 import { monthlyLimit } from "@/lib/plans/limits";
 import { forTenant, getTenantById } from "@/lib/tenant";
@@ -90,6 +91,28 @@ async function takeRefresh(ctx: TenantContext, pick: NextUpPick, deps: DraftDeps
   };
 }
 
+/**
+ * A pick close to a live article (NEXT_UP_REPEATS_ENABLED), taken by a Draft run: a refresh review
+ * of that article starts, carrying the question, and the run is done. It is never drafted as a new
+ * article. Null when it can't be added now, so the run passes over it and a person decides.
+ */
+async function takeClose(ctx: TenantContext, pick: NextUpPick, deps: DraftDeps): Promise<StepPatch | null> {
+  const to = pick.closeTo;
+  if (!to?.planId || !to.workspaceId) return null;
+  if (!(await mayStartReview(ctx, { db: deps.db, now: deps.now, loadTenant: deps.loadTenant }).then((m) => m.ok).catch(() => false))) return null;
+  const plan = await getContentPlan(ctx, to.workspaceId, to.planId, deps.db).catch(() => null);
+  if (!plan || autopilotHolds(plan)) return null;
+  const started = await startReview(ctx, { plan, by: "autopilot", question: { id: pick.questionId, text: pick.question } }, { db: deps.db, now: deps.now }).catch(() => null);
+  if (!started?.ok || !started.started) return null;
+  await dropPick(ctx, pick.questionId, deps);
+  return {
+    step: "done",
+    refreshOf: plan.id,
+    workspaceId: plan.workspaceId,
+    question: { questionId: pick.questionId, text: pick.question, subjectId: pick.subjectId, subjectName: pick.subjectName },
+  };
+}
+
 /** A scheduled run takes Next up's best pick no other run has (choosing again when Next up is old). */
 export const pickStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
   if (run.question) return { step: "find" };
@@ -100,7 +123,8 @@ export const pickStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
   // A refresh pick (BLOG_FRESHNESS_ENABLED) is a Draft run's to take once reviews are on (BLOG_REFRESH_ENABLED);
   // otherwise it waits for a person, and the run writes something new.
   const refreshes = run.mode === "draft" && isBlogRefreshEnabled();
-  const writable = (p: { questionId: string; kind?: string }) => (p.kind !== "refresh" || refreshes) && !others.includes(p.questionId);
+  // A combine pick (CONTENT_STRATEGY_NEXT_UP_ENABLED) is never drafted: it waits for a person, like a close pick.
+  const writable = (p: { questionId: string; kind?: string }) => p.kind !== "combine" && (p.kind !== "refresh" || refreshes) && !others.includes(p.questionId);
   if (!doc || !doc.picks.some(writable) || now - Date.parse(doc.at) > STALE_PICKS_MS) {
     const got = await pickNextUp(ctx, { by: "schedule", deadlineMs: opts.deadlineMs - 5_000 }, {
       db: deps.db,
@@ -113,6 +137,12 @@ export const pickStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
   // In Next up's order: a refresh pick that can't be taken now is passed over, never dropped.
   let pick: NextUpPick | undefined;
   for (const p of (doc?.picks ?? []).filter(writable)) {
+    // Close to a live article: added to it by a Draft run when it can be, otherwise left for a person.
+    if (p.closeTo) {
+      const added = refreshes ? await takeClose(ctx, p, deps) : null;
+      if (added) return added;
+      continue;
+    }
     if (p.kind !== "refresh") {
       pick = p;
       break;
@@ -155,7 +185,9 @@ export const createStep: StepFn = async (ctx, run, opts, deps: DraftDeps) => {
   let plan = await getContentPlan(ctx, workspace.id, planId, deps.db);
   if (!plan) {
     const q = run.question;
-    const asks = (run.trays?.use ?? []).map((i) => (i.kind === "also" ? `Also searched: ${i.text}` : i.text)).join("\n");
+    // Written for a slot of the approved content plan: the slot's other questions go in the brief too.
+    const slotAsks = await slotQuestionsFor(ctx, q.questionId, { db: deps.db }).catch(() => [] as string[]);
+    const asks = [...slotAsks, ...(run.trays?.use ?? []).map((i) => (i.kind === "also" ? `Also searched: ${i.text}` : i.text))].join("\n");
     const intake = IntakeSchema.parse({
       name: q.text.slice(0, 200),
       strategy: { objective: "brand_visibility", hubUrl: null },

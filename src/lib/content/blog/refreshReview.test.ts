@@ -339,3 +339,28 @@ describe("Apply", () => {
     expect(next).toMatchObject({ state: "nothing", proposals: [] });
   });
 });
+
+describe("a review started for a brand map question (Next up's Add to that article)", () => {
+  const ASKED = { id: "q_askedqst1", text: "Can I see which prompts cite my competitors?" };
+  const factCheck = vi.fn(async () => ({ ok: false, status: 502, error: "check_unavailable" }) as never);
+
+  it("leads with the question, and applying a change for it marks it answered in the brief", async () => {
+    const db = new FakeFirestore();
+    const plan = seed(db);
+    await startReview(ctx, { plan, by: "person", question: ASKED }, deps(db));
+    let seen = "";
+    const generate = async (prompt: string) => {
+      seen = prompt;
+      const id = new RegExp(`(e\\d+) \\[open_question\\] ${ASKED.text.replace(/[?]/g, "\\?")}`).exec(prompt)?.[1] ?? "e0";
+      return JSON.stringify({ changes: [{ kind: "new_question", old: null, new: SECTION, after: "How does it work?", evidence: [id], why: "You chose to add it here" }] });
+    };
+    const r = await runAll(deps(db, { generate, pageSearches: async () => ({ rows: [], note: null }) }));
+    expect(seen).toContain(`[open_question] ${ASKED.text}`);
+    expect(r!.evidence.find((e) => e.kind === "open_question")).toMatchObject({ text: ASKED.text, detail: "On your brand map: you chose to add it to this article" });
+    const p = r!.proposals.find((x) => x.kind === "new_question");
+    expect(p).toBeTruthy();
+    const out = await applyReview(ctx, { workspace: { id: "ws1", name: "Acme" }, planId: "plan_1", ids: [p!.id] }, { db, now: () => NOW, factCheck });
+    expect(out.ok).toBe(true);
+    expect((db.raw(PLANS, "plan_1") as ContentPlan).blog?.questions).toEqual(expect.arrayContaining([expect.objectContaining({ question: ASKED.text, ref: ASKED.id })]));
+  });
+});

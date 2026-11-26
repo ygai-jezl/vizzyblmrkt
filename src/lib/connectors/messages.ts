@@ -25,6 +25,7 @@ export const CONNECTOR_ERRORS = {
   body_too_large: "The answer was too big to read. Ask for fewer days.",
   bad_response: "The provider's answer wasn't what YouGrow expected, so nothing was read.",
   query_refused: "The provider refused the question, often because the days are further back than your plan with them keeps.",
+  tool_missing: "The provider's server no longer offers something this connector reads, so nothing was read. Ask whoever runs your copy of YouGrow to update it.",
   host_not_allowed: "YouGrow stopped a call to an address this connector doesn't list.",
   busy: "This connection was asked a lot in the last few minutes. Try again shortly.",
   paused: "This connection is paused. An admin can resume it.",
@@ -79,6 +80,14 @@ export function isConnectorErrorCode(code: unknown): code is ConnectorErrorCode 
 export function tokenRefusedMessage(name: string, when: "connected" | "connecting", chat: boolean): string {
   if (when === "connecting") return `${name} turned the token down, so nothing was saved. Paste the whole token again, or make a new one with the permissions listed here.`;
   return `${name} turned the token down. ${chat ? "Vizzy can't read it" : "Nobody can read it"} until you reconnect.`;
+}
+
+/**
+ * Reconnect with a key that belongs to another account than the one the connection reads (an MCP
+ * server's key names its own account, ADR-0019): nothing was changed or erased.
+ */
+export function otherAccountKeyMessage(name: string): string {
+  return `${name} says this key belongs to another account, so nothing was changed. Paste the key for the account this connection reads, or connect the new one as a connection of its own.`;
 }
 
 /**

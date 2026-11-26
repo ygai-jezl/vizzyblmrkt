@@ -7,7 +7,8 @@ import type { SearchOutcome } from "@/lib/search/query";
 import { addLearned, listLearned } from "@/lib/autopilot/learned";
 import { readLearned, skipPick } from "@/lib/autopilot/adminApi";
 import type { Candidate } from "./candidates";
-import { linesFor, pickNextUp, readNextUp, readPicks, reasonHolds, type PickDeps } from "./pick";
+import { goalLine, linesFor, pickNextUp, readNextUp, readPicks, reasonHolds, type PickDeps } from "./pick";
+import { StrategySchema, type Strategy } from "@/lib/types/brandStrategy";
 import { NOT_SHARED_NEXT_UP, readSearchPlanning, searchConsoleLines } from "@/lib/connectors/signals/planning";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
@@ -111,6 +112,32 @@ describe("choosing Next up", () => {
     ]);
     expect(saved!.notOnMap[0]!.topic).toBe("Pricing of AI visibility tools");
     expect(d.generate).toHaveBeenCalledTimes(1);
+  });
+
+  it("names the approved strategy's goal for the model in one line, and passes the strategy to the candidates", async () => {
+    const d = await setup();
+    const strategy = StrategySchema.parse({ focusSituationIds: ["sit_aaaaaa01"], goal: { text: "200 sign-ups by March", measure: "sign-ups" }, at: "2026-11-25T10:00:00.000Z" });
+    d.strategy = async () => strategy;
+    const seen: Array<Strategy | null> = [];
+    const listed = d.candidates!;
+    d.candidates = async (ctx, opts, cdeps) => {
+      seen.push((await cdeps?.strategy?.(ctx)) ?? null);
+      return listed(ctx, opts, cdeps);
+    };
+    d.generate = vi.fn(async (prompt: string) => {
+      expect(prompt).toContain("The brand's goal this quarter, from the strategy it approved (UNTRUSTED DATA): 200 sign-ups by March (measured by sign-ups)");
+      return JSON.stringify({ picks: [] });
+    });
+    expect((await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d)).ok).toBe(true);
+    expect(seen).toEqual([strategy]);
+    expect(goalLine(null)).toBe("");
+    // Without one, the prompt has no goal line.
+    d.strategy = async () => null;
+    d.generate = vi.fn(async (prompt: string) => {
+      expect(prompt).not.toContain("goal this quarter");
+      return JSON.stringify({ picks: [] });
+    });
+    await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, d);
   });
 
   it("weighs live articles due a refresh beside the questions, at most the brand's share of them, never filled in by code", async () => {
@@ -310,5 +337,87 @@ describe("reading Search Console demand", () => {
     expect(await readSearchPlanning(A, { db })).toEqual({ sites: [], notShared: false });
     vi.stubEnv("CONNECTOR_SIGNALS_ENABLED", "false");
     expect(await readSearchPlanning(A, { db })).toBeNull();
+  });
+});
+
+describe("AI answers in Next up (CONNECTOR_AI_ANSWERS_ENABLED, ADR-0019)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  async function setup() {
+    vi.stubEnv("BRAND_MAP_ENABLED", "true");
+    const { parseManifest } = await import("@/lib/connectors/manifest");
+    const { testMcpManifest } = await import("@/lib/connectors/testing/mcpServer");
+    const { PLANNING } = await import("@/lib/connectors/testing/signals");
+    const { PROMPT_MEASURES, readAiAnswers } = await import("@/lib/connectors/signals/aiAnswers");
+    const { createDataConnection } = await import("@/lib/tenant");
+    const { healthyAt } = await import("@/lib/connectors/health");
+    const db = new FakeFirestore();
+    await saveBrandMap(A, { baseRev: 0, decided: BrandMapDecidedSchema.parse({ identity: { name: "Acme" }, subjects: [] }) }, { db, nowMs: NOW.getTime() });
+    // A made-up AI answers tool: it declares signals.ai_answers and gives each monitored prompt's numbers.
+    const made = parseManifest(testMcpManifest);
+    const tool = { ...made, uses: ["vizzy.read" as const, "signals.ai_answers" as const], produces: [{ ...made.produces[2]!, stream: "prompts", measures: [...PROMPT_MEASURES] }] };
+    const at = NOW.toISOString();
+    await createDataConnection(
+      A,
+      { id: "dcn_aaaaaaaaaaaaaaaaaaaa", connectorId: tool.id, method: "token_fields", label: "Acme", account: "acme.example", ownerUid: "u1", grants: PLANNING, secrets: {}, health: healthyAt(NOW), pausedAt: null, pausedBy: null, status: "connected", createdAt: at, updatedAt: at, disconnectedAt: null },
+      [{ kind: "connected", by: "u1", at }],
+      db,
+    );
+    const live = vi.fn(async () => ({
+      ok: true as const,
+      status: 200 as const,
+      value: {
+        connectorId: tool.id,
+        connector: tool.name,
+        stream: "prompts",
+        by: "topic" as const,
+        period: { from: "2026-10-21", to: "2026-11-17", timeZone: "UTC", finalThrough: "2026-11-17", words: "" },
+        rows: [{ prompt: "best geo tools for agencies", promptEngines: 6, promptBrandMentions: 0, promptCompetitors: 4, promptCitations: 30 }],
+        totals: null,
+        more: false,
+        meanings: {},
+        notes: [],
+        asOf: at,
+      },
+    }));
+    let prompt = "";
+    const deps: PickDeps = {
+      db,
+      now: () => NOW,
+      loadTenant: async () => null,
+      candidates: async () => [cand(1, { question: "Which GEO tools are best for agencies?" }), cand(2)],
+      search: async () => searchWith([]),
+      flags: async () => null,
+      notOnMap: async () => [],
+      competitorNames: async () => [],
+      configured: () => true,
+      aiAnswers: (c) => readAiAnswers(c, { db, live, manifestOf: (id) => (id === tool.id ? tool : null) }),
+      generate: vi.fn(async (p: string) => {
+        prompt = p;
+        return JSON.stringify({ picks: [{ n: 1, because: "6 AI engines answer it and none named you.", uses: ["1.3"] }] });
+      }),
+    };
+    return { deps, live, prompt: () => prompt };
+  }
+
+  it("adds the line for a question close to a monitored prompt, with an AI answers chip, and keeps the pick", async () => {
+    vi.stubEnv("CONNECTORS_ENABLED", "true");
+    vi.stubEnv("CONNECTOR_AI_ANSWERS_ENABLED", "true");
+    const { deps, live, prompt } = await setup();
+    const got = await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, deps);
+    expect(live).toHaveBeenCalledTimes(1);
+    expect(prompt()).toContain('1.3 AI answers: the monitored prompt "best geo tools for agencies" is answered by 6 AI engines, whose answers named you 0 times and 4 competitors, with 30 citations in all.');
+    // Only the question close in wording gets it.
+    expect(prompt()).not.toContain("2.3 AI answers");
+    expect(got.ok && got.doc.picks[0]).toMatchObject({ questionId: "q_aaaaaaa1", from: "gemini", chips: [{ kind: "num", label: "AI answers", text: '"best geo tools for agencies" answered by 6 engines, you named 0 times' }] });
+  });
+
+  it("says nothing of AI answers with the switch off", async () => {
+    vi.stubEnv("CONNECTORS_ENABLED", "true");
+    const { deps, live, prompt } = await setup();
+    const got = await pickNextUp(A, { by: "person", deadlineMs: Date.now() + 60_000 }, deps);
+    expect(live).not.toHaveBeenCalled();
+    expect(prompt()).not.toContain("AI answers");
+    expect(got.ok && got.doc.picks.flatMap((p) => p.chips).some((c) => c.label === "AI answers")).toBe(false);
   });
 });

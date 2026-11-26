@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { PickSlot } from "./contentStrategy";
 
 /**
  * Next article autopilot: the Learned list, Next up's picks, the brand's settings and the runs.
@@ -7,8 +8,13 @@ import { z } from "zod";
 
 // ---- The Learned list (autopilot_learned) ---------------------------------------------------------
 
-/** skipped_pick: a person said Not now to a pick. moved: an item moved between trays. left_out: the judge, or a person, left something out. */
-export type LearnedKind = "skipped_pick" | "moved" | "left_out" | "added_back";
+/**
+ * skipped_pick: a person said Not now to a pick. moved: an item moved between trays. left_out: the
+ * judge, or a person, left something out. added_to_article and wrote_anyway: what a person did with
+ * a pick close to a live article. unlinked: a person said an article doesn't answer a question it
+ * was matched to by meaning.
+ */
+export type LearnedKind = "skipped_pick" | "moved" | "left_out" | "added_back" | "added_to_article" | "wrote_anyway" | "unlinked";
 
 export interface LearnedEntry {
   id: string;
@@ -50,7 +56,7 @@ export type AutopilotSettings = z.infer<typeof AutopilotSettingsSchema>;
 // ---- Next up (next_up, one doc per brand) ----------------------------------------------------------
 
 export interface NextUpChip {
-  /** map: the brand map. you: the brand's own content. them: competitors. num: numbers (Google through DataForSEO, Search Console collected). */
+  /** map: the brand map. you: the brand's own content. them: competitors. num: numbers (Google through DataForSEO, Search Console collected, AI answers). */
   kind: "map" | "you" | "them" | "num";
   label: string;
   text: string;
@@ -67,10 +73,37 @@ export interface NextUpPick {
   /** gemini: chosen and explained by the model. code: filled in by code when the model gave too few. */
   from: "gemini" | "code";
   /** refresh (BLOG_FRESHNESS_ENABLED): improve a live article (`planId` in `workspaceId`) rather than write a
-   *  new one; its questionId is "refresh:<planId>". Absent: write, as before. */
-  kind?: "write" | "refresh";
+   *  new one; its questionId is "refresh:<planId>". combine (CONTENT_STRATEGY_NEXT_UP_ENABLED): two live
+   *  articles answer one question, so a person keeps one and folds the other in; its questionId is
+   *  "combine:<the slot's first question id>", and it is never drafted. Absent: write, as before. */
+  kind?: "write" | "refresh" | "combine";
   planId?: string;
   workspaceId?: string;
+  /** Stop repeats (NEXT_UP_REPEATS_ENABLED): a live article this question is close to in meaning. */
+  closeTo?: CloseTo;
+  /** The content plan's slot it fills (CONTENT_STRATEGY_NEXT_UP_ENABLED): absent for a free pick. */
+  slot?: PickSlot;
+  /** A combine pick: the live articles that answer the same question. */
+  combine?: { pages: RepeatPair["pages"] };
+}
+
+/** A live article a question is close to in meaning: better added to it than written again. */
+export interface CloseTo {
+  /** The article's plan; null for a page of the brand's site that YouGrow didn't write. */
+  planId: string | null;
+  workspaceId: string | null;
+  title: string;
+  url: string | null;
+  liveAt: string | null;
+  /** How close in meaning, from 0 to 1 (cosine of the two embedded). */
+  sim: number;
+}
+
+/** Two live articles that answer one question. */
+export interface RepeatPair {
+  question: string;
+  pages: Array<{ title: string; url: string | null; planId: string | null; workspaceId: string | null }>;
+  sim: number;
 }
 
 /** The brand's one Next up doc (`next_up`). */
@@ -87,6 +120,14 @@ export interface NextUpDoc {
   candidates: number;
   at: string;
   by: "person" | "schedule";
+  /** Stop repeats: questions left out because an article being written already covers them. */
+  leftOut?: number;
+  /** Stop repeats: questions this pick linked as answered by a live article, by meaning. */
+  linkedByMeaning?: number;
+  /** Stop repeats: live articles that answer the same question. */
+  repeatsLive?: RepeatPair[];
+  /** Stop repeats: a close pick can start a refresh review now (the brand has reviews left). */
+  reviewsOpen?: boolean;
 }
 
 // ---- Runs (autopilot_runs) -------------------------------------------------------------------------

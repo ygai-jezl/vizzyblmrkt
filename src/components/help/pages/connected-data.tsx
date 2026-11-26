@@ -4,7 +4,7 @@ import { ConnectorTile } from "@/components/admin/connectors/ConnectorTile";
 import { CONNECTED_COPY, PART_COPY, PICKER_COPY, SCREEN_COPY, activityWords } from "@/components/admin/connectors/words";
 import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsSearchTextEnabled, isConnectorsSharingEnabled } from "@/lib/connectors/flags";
 import { COLLECT_HELP, connectedDataHelp, SEARCH_CONSOLE_FRESHNESS_ERASED, SEARCH_TEXT_HELP, SIGNALS_HELP, VIZZY_COLLECTED_HELP, type ConnectorHelp } from "@/lib/connectors/helpText";
-import { CONNECTOR_ERRORS, tokenRefusedMessage } from "@/lib/connectors/messages";
+import { CONNECTOR_ERRORS, otherAccountKeyMessage, tokenRefusedMessage } from "@/lib/connectors/messages";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
 /** "A and B", or "A, B and C". */
@@ -55,7 +55,7 @@ function ConnectorSection({ c, collect }: { c: ConnectorHelp; collect: boolean }
       ) : null}
       {c.token ? (
         <>
-          <H3>With an API token</H3>
+          <H3>{c.token.kind === "key" ? "With an API key" : "With an API token"}</H3>
           <Steps>
             {c.token.steps.map((s) => (
               <li key={s}>{s}</li>
@@ -63,9 +63,9 @@ function ConnectorSection({ c, collect }: { c: ConnectorHelp; collect: boolean }
           </Steps>
           {c.token.link ? (
             <P>
-              The link on the {c.name} page opens {c.name}&apos;s token form with the {c.token.permissions.length === 1 ? "permission" : "permissions"} filled in:{" "}
+              The link on the {c.name} page opens {c.name}&apos;s {c.token.kind === "key" ? "key" : "token"} form with the {c.token.permissions.length === 1 ? "permission" : "permissions"} filled in:{" "}
               <a href={c.token.link} className="font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-400">
-                make a token
+                make a {c.token.kind === "key" ? "key" : "token"}
               </a>
               .
             </P>
@@ -147,11 +147,12 @@ export default function ConnectedDataHelp({
           <>
             <li>For Cloudflare: an account that can make API tokens for your site</li>
             <li>For Google: a Google account that can see the site or property, or someone who can add users to it</li>
+            <li>For Vizzybl: a plan that comes with API keys (Ultra or Enterprise), and a key with read scopes only</li>
           </>
         }
         unlocks={
           <>
-            <li>Your traffic and search numbers, each with what it means</li>
+            <li>Your traffic, search and AI answers numbers, each with what it means</li>
             {connectorsChat ? <li>Vizzy answering questions about them, when an admin allows it</li> : null}
           </>
         }
@@ -416,10 +417,14 @@ export default function ConnectedDataHelp({
               ? [
                   [tokenRefusedMessage(c.name, "connected", connectorsChat), "Make a new token with the same permissions, then press Reconnect on Connected and paste it."],
                   [tokenRefusedMessage(c.name, "connecting", connectorsChat), "Copy the token again with nothing cut off, or make a new one with the permissions in the steps above."],
+                  ...(c.token.kind === "key"
+                    ? ([[otherAccountKeyMessage(c.name), "The key you pasted on Reconnect is for another account in that tool, so the connection kept its old key. Paste the key for this connection's account, or connect the other account on its own."]] as Array<[string, string]>)
+                    : []),
                 ]
               : [],
           ),
-          [help.messages.account_refused, "Check the Zone ID, and that the token includes that site, then connect again."],
+          [help.messages.account_refused, "Check the Zone ID, and that the token includes that site, then connect again. For Vizzybl, the key now belongs to another brand: connect that brand's key again."],
+          [help.messages.tool_missing, "The tool's server changed what it offers. Whoever runs your copy updates YouGrow, then press Check now on Connected."],
           ...help.connectors.flatMap((c): Array<[string, string]> =>
             c.token?.pick ? [[c.token.pick.cantList, `Type the ${c.token.pick.typed}, or make the token again with ${andList(c.token.permissions)} to pick from a list.`]] : [],
           ),

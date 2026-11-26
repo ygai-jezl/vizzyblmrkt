@@ -38,36 +38,120 @@ function Chips({ chips }: { chips: NextUpChip[] }) {
   );
 }
 
+export const CLOSE_FAILED: Record<string, string> = {
+  not_included: "Refresh reviews aren't included in this brand's plan.",
+  monthly_limit: "This brand has used its refresh reviews for this month.",
+};
+export const CLOSE_DIDNT_START = "That didn't start. Try again in a moment.";
+export const REPEATS_LIVE_SAID = "Two live articles answer one question. Keep one, fold the other in, and redirect its address.";
+
+const liveSince = (iso: string | null) => {
+  const d = iso ? new Date(iso) : null;
+  return d && !Number.isNaN(d.getTime()) ? ` · live since ${d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : "";
+};
+
+/** Where a close pick's article opens: the article in YouGrow, else the page on the brand's site. */
+function closeLink(to: NonNullable<NextUpPick["closeTo"]>): { href: string; external: boolean } | null {
+  if (to.planId && to.workspaceId) return { href: refreshHref({ planId: to.planId, workspaceId: to.workspaceId }), external: false };
+  return to.url ? { href: to.url, external: true } : null;
+}
+
 function Pick({
   pick,
   top,
   programmes,
+  reviewsOpen = false,
   onSkip,
+  onClose,
   children,
 }: {
   pick: NextUpPick;
   top: boolean;
   programmes: Array<{ id: string; name: string }> | null;
+  /** A close pick can start a refresh review now (Add to that article). */
+  reviewsOpen?: boolean;
   onSkip: (reason: string) => Promise<void>;
+  /** A close pick: add it to the live article, or write it anyway. Resolves to a line saying what went wrong, or null. */
+  onClose?: (action: "add" | "write_anyway") => Promise<string | null>;
   children?: ReactNode;
 }) {
   const [skipping, setSkipping] = useState(false);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
+  const [closeSaid, setCloseSaid] = useState<string | null>(null);
+  const close = pick.closeTo ?? null;
+  const link = close ? closeLink(close) : null;
+  const act = async (action: "add" | "write_anyway") => {
+    if (!onClose) return;
+    setBusy(true);
+    setCloseSaid(await onClose(action));
+    setBusy(false);
+  };
   return (
     <li className={`space-y-2 rounded-md border p-3 ${top ? "border-blue-400 dark:border-blue-500" : "border-neutral-200 dark:border-neutral-800"}`}>
       <div>
         {pick.kind === "refresh" ? <p className="text-[11px] font-medium uppercase tracking-wide text-blue-700 dark:text-blue-300">Refresh a live article</p> : null}
+        {pick.kind === "combine" ? <p className="text-[11px] font-medium uppercase tracking-wide text-blue-700 dark:text-blue-300">Combine two live articles</p> : null}
         <p className="text-sm font-medium">&ldquo;{pick.question}&rdquo;</p>
-        {pick.kind === "refresh" ? null : <p className={HINT}>Subject: {pick.subjectName}</p>}
+        {pick.kind === "refresh" || pick.kind === "combine" ? null : <p className={HINT}>Subject: {pick.subjectName}</p>}
+        {pick.slot ? (
+          <p className={HINT}>
+            From your content plan: {pick.slot.pillar ?? "no pillar"} · {pick.slot.kind} · {pick.slot.stage}
+          </p>
+        ) : null}
       </div>
       <p className="rounded bg-neutral-50 px-2 py-1.5 text-xs text-neutral-800 dark:bg-neutral-900 dark:text-neutral-200">
         <b className="font-medium">Why now:</b> {pick.because}
       </p>
       <Chips chips={pick.chips} />
+      {close ? (
+        <p className="rounded border border-blue-300 px-2 py-1.5 text-xs text-neutral-800 dark:border-blue-700 dark:text-neutral-200">
+          <b className="font-medium">Close to your live article:</b> &ldquo;{close.title}&rdquo;{liveSince(close.liveAt)}. Adding to it may serve buyers better than a new article.
+        </p>
+      ) : null}
+      {pick.kind === "combine" && pick.combine ? (
+        <p className="rounded border border-blue-300 px-2 py-1.5 text-xs text-neutral-800 dark:border-blue-700 dark:text-neutral-200">
+          <b className="font-medium">These answer the same question:</b>{" "}
+          {pick.combine.pages.map((p, i) => (
+            <span key={`${p.title}-${i}`}>
+              {i ? " and " : ""}
+              {p.planId && p.workspaceId ? (
+                <a href={refreshHref({ planId: p.planId, workspaceId: p.workspaceId })} className="underline">
+                  &ldquo;{p.title}&rdquo;
+                </a>
+              ) : (
+                <>&ldquo;{p.title}&rdquo;</>
+              )}
+            </span>
+          ))}
+          . Keep one and fold the other in; the autopilot never drafts this.
+        </p>
+      ) : null}
+      {closeSaid ? (
+        <p role="alert" className="text-xs text-red-700 dark:text-red-400">
+          {closeSaid}
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center gap-2">
         {children}
-        {pick.kind === "refresh" && pick.planId && pick.workspaceId ? (
+        {close ? (
+          <>
+            {reviewsOpen && close.planId && onClose ? (
+              <button type="button" className={PRIMARY} disabled={busy} onClick={() => void act("add")}>
+                {busy ? "Starting…" : "Add to that article"}
+              </button>
+            ) : link ? (
+              <a href={link.href} className={BUTTON} {...(link.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}>
+                Open that article
+              </a>
+            ) : null}
+            {onClose ? (
+              <button type="button" className={BUTTON} disabled={busy} onClick={() => void act("write_anyway")}>
+                Write it anyway
+              </button>
+            ) : null}
+          </>
+        ) : pick.kind === "combine" ? null : pick.kind === "refresh" && pick.planId && pick.workspaceId ? (
           <a href={refreshHref({ planId: pick.planId, workspaceId: pick.workspaceId })} className={BUTTON}>
             Open article
           </a>
@@ -203,6 +287,22 @@ function NextUpCard({
     if (res?.ok) setCurrent(((await res.json()) as { nextUp: NextUpDoc | null }).nextUp);
   };
 
+  /** A close pick: add it to the live article (then open it), or write it anyway (it stays, without the mark). */
+  const closeAct = async (pick: NextUpPick, action: "add" | "write_anyway"): Promise<string | null> => {
+    const res = await fetch("/api/admin/brand-kit/autopilot/next-up/close", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ questionId: pick.questionId, action }),
+    }).catch(() => null);
+    const body = res ? ((await res.json().catch(() => ({}))) as { nextUp?: NextUpDoc | null; link?: string; error?: string }) : {};
+    if (res?.ok) {
+      if (body.nextUp !== undefined) setCurrent(body.nextUp);
+      if (action === "add" && body.link) window.location.href = body.link;
+      return null;
+    }
+    return (body.error && CLOSE_FAILED[body.error]) || CLOSE_DIDNT_START;
+  };
+
   if (current === undefined) return null;
   return (
     <section className={CARD} aria-labelledby="next-up">
@@ -249,7 +349,7 @@ function NextUpCard({
           {current.picks.length ? (
             <ol className="space-y-2">
               {current.picks.map((p, i) => (
-                <Pick key={p.questionId} pick={p} top={i === 0} programmes={programmes} onSkip={(r) => skip(p, r)}>
+                <Pick key={p.questionId} pick={p} top={i === 0} programmes={programmes} reviewsOpen={current.reviewsOpen === true} onSkip={(r) => skip(p, r)} onClose={(a) => closeAct(p, a)}>
                   <FoundTrays pick={p} isAdmin={isAdmin} programmes={programmes} />
                 </Pick>
               ))}
@@ -257,6 +357,34 @@ function NextUpCard({
           ) : (
             <p className={HINT}>Nothing left to suggest. Choose again for a fresh look.</p>
           )}
+          {current.repeatsLive?.length ? (
+            <ul className="space-y-1.5">
+              {current.repeatsLive.map((r) => (
+                <li key={r.pages.map((x) => x.url ?? x.title).join("|")} className="rounded-md border border-dashed border-amber-400 px-3 py-2 text-xs dark:border-amber-600">
+                  {REPEATS_LIVE_SAID}
+                  <span className={`block ${HINT}`}>
+                    {r.pages.map((x, k) => (
+                      <span key={k}>
+                        {k ? " and " : ""}
+                        {x.url ? (
+                          <a href={x.url} target="_blank" rel="noopener noreferrer" className="underline">
+                            {x.title}
+                          </a>
+                        ) : (
+                          x.title
+                        )}
+                      </span>
+                    ))}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {current.leftOut ? (
+            <p className={HINT}>
+              {current.leftOut} {current.leftOut === 1 ? "question" : "questions"} left out: already in articles you&apos;re writing.
+            </p>
+          ) : null}
           <NotOnMap topics={current.notOnMap} isAdmin={isAdmin} />
           {current.missing.length ? <p className={HINT}>Not weighed: {current.missing.join(" ")}</p> : null}
         </div>

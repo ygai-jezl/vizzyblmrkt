@@ -6,6 +6,7 @@ import type { Tenant } from "@/lib/types/tenant";
 import { situationKey } from "@/lib/brandMap/keys";
 import { readBrandMap, saveBrandMap } from "@/lib/brandMap/store";
 import { monitorCompetitor, updateCompetitor } from "@/lib/competitors/store";
+import { agentBrandStrategy } from "./agentApi";
 import { approveFromRequest, isNotFromRequest, notCompetitorFromRequest, saveFromRequest, sameStrategy, strategyView } from "./adminApi";
 import { readBrandStrategyDoc, saveFound, saveProposal, type ProposedStrategy } from "./store";
 
@@ -115,6 +116,8 @@ describe("the Strategy tab's view", () => {
     expect(sameStrategy(s, found)).toBe(false);
     expect(sameStrategy(s, found, true)).toBe(true);
     expect(sameStrategy(s, { ...(found as object), audiences: ["Someone else"] } as never, true)).toBe(false);
+    // An approved copy made joined is compared without its lists, even with the switch off now.
+    expect(sameStrategy(s, { ...(found as object), competitorsLive: true } as never)).toBe(true);
   });
 
   it("off, lists only what the strategy holds, as before", async () => {
@@ -168,15 +171,30 @@ describe("the Strategy tab joined to Competitors", () => {
 
   it("approving keeps the live list, and a competitor watched after doesn't mark it changed", async () => {
     const { db, rev } = await brand();
-    await monitorCompetitor(A, { website: "rivalco.example", name: "Rivalco", group: "most" }, { db });
+    await monitorCompetitor(A, { website: "rivalco.example", name: "Rivalco", group: "most" }, { db, now: () => new Date(T0) });
     const approved = (await (await approveFromRequest(A, { baseRev: rev }, view(db))).json()) as { strategy: { state: string } };
     expect(approved.strategy.state).toBe("approved");
     const doc = await readBrandStrategyDoc(A, { db });
     expect(doc?.approved?.competitorGroups.map((g) => g.competitors.map((c) => c.name))).toEqual([["Rivalco"]]);
-    await monitorCompetitor(A, { website: "newco.example", name: "Newco" }, { db });
+    // Watched later: listed after, by when it was added.
+    await monitorCompetitor(A, { website: "newco.example", name: "Newco" }, { db, now: () => new Date(T0 + 1000) });
     const v = await strategyView(A, view(db));
     expect(v.state).toBe("approved");
     expect(v.competitors.map((c) => c.name)).toEqual(["Rivalco", "Newco"]);
+  });
+
+  it("an approval made joined still reads approved after the switch is turned off, to the tab and to Vizzy", async () => {
+    vi.stubEnv("BRAND_STRATEGY_CHAT_ENABLED", "true");
+    const { db, rev } = await brand();
+    await monitorCompetitor(A, { website: "rivalco.example", name: "Rivalco", group: "most" }, { db });
+    await approveFromRequest(A, { baseRev: rev }, view(db));
+    const doc = await readBrandStrategyDoc(A, { db });
+    expect(doc?.approved?.competitorsLive).toBe(true);
+    expect(doc?.draft?.competitorsLive).toBe(false);
+    vi.stubEnv("STRATEGY_COMPETITORS_ENABLED", "false");
+    expect((await strategyView(A, view(db))).state).toBe("approved");
+    const agent = await agentBrandStrategy(A, { db, now: () => new Date(T0) });
+    expect(agent.body).toMatchObject({ changedSinceApproved: false });
   });
 
   it("approves nothing when the competitors can't be read, and says so", async () => {

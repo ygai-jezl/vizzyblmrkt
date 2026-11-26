@@ -244,6 +244,13 @@ export const StrategySchema = z.object({
    * approved copy keeps the whole list. Always empty in a draft, and while it is off.
    */
   ungrouped: tolerantArray(StrategyCompetitorSchema, L.keptPerGroup),
+  /**
+   * An approved copy made while the strategy was joined to Competitors: its competitor lists are
+   * the live list as it was then, so they are never compared with the draft's, whatever the switch
+   * says now. False on every draft. Records stored before these fields read with it false, with
+   * `ungrouped: []` and `finder.notCompetitors: []`: those defaults are right, nothing needs moving.
+   */
+  competitorsLive: z.boolean().catch(false).default(false),
   claims: tolerantArray(StrategyClaimSchema, L.claims),
   isNotProposals: tolerantArray(IsNotProposalSchema, L.isNot),
   goal: StrategyGoalSchema.nullable().catch(null).default(null),

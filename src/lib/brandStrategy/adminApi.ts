@@ -96,14 +96,23 @@ const MAX_SITUATIONS = 200;
 const noStore = { "cache-control": "no-store" };
 
 /**
- * The draft and the approved strategy say the same, whoever saved them when. `ignoreCompetitors`
- * (the strategy joined to Competitors): the competitor list is live, so a competitor watched,
- * grouped or found since approving never marks the strategy changed.
+ * The draft and the approved strategy say the same, whoever saved them when. The competitor lists
+ * are left out while the strategy is joined to Competitors (`ignoreCompetitors`), and whenever the
+ * approved copy was made joined: the list is live then, so a competitor watched, grouped or found
+ * since approving never marks the strategy changed, even after the switch is turned off.
  */
 export function sameStrategy(a: Strategy | null, b: Strategy | null, ignoreCompetitors = false): boolean {
   if (!a || !b) return false;
-  const strip = (s: Strategy) => JSON.stringify({ ...s, at: "", by: null, ...(ignoreCompetitors ? { competitorGroups: [], ungrouped: [] } : {}) });
+  const ignore = ignoreCompetitors || Boolean(a.competitorsLive) || Boolean(b.competitorsLive);
+  const strip = (s: Strategy) => JSON.stringify(sortedKeys({ ...s, at: "", by: null, competitorsLive: false, ...(ignore ? { competitorGroups: [], ungrouped: [] } : {}) }));
   return strip(a) === strip(b);
+}
+
+/** The same value with every object's keys in order, so two records compare by what they hold, not how they were built. */
+function sortedKeys(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(sortedKeys);
+  if (!v || typeof v !== "object") return v;
+  return Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortedKeys((v as Record<string, unknown>)[k])]));
 }
 
 function stateOf(doc: BrandStrategyDoc | null, joined: boolean): StrategyView["state"] {

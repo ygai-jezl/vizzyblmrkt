@@ -591,11 +591,11 @@ export async function approveStrategy(
     const starred = doc.draft.focusSituationIds.filter((id) => decided.has(id)).length;
     if (starred < Math.min(L.focusMin, decided.size)) throw new Refused(400, "too_few_focus", doc);
     const live = input.watched !== undefined ? liveCompetitors(doc.draft, input.watched, doc.finder.notCompetitors) : null;
-    const approved = StrategySchema.parse({ ...doc.draft, ...(live ? approvedCopy(live) : {}), at, by });
+    const approved = StrategySchema.parse({ ...doc.draft, ...(live ? { ...approvedCopy(live), competitorsLive: true } : {}), at, by });
     return {
       approved,
       // The draft keeps its own finds: the approved copy is the list as it was, for the history.
-      draft: live ? StrategySchema.parse({ ...approved, competitorGroups: doc.draft.competitorGroups, ungrouped: doc.draft.ungrouped }) : approved,
+      draft: live ? StrategySchema.parse({ ...approved, competitorGroups: doc.draft.competitorGroups, ungrouped: doc.draft.ungrouped, competitorsLive: false }) : approved,
       history: [...(doc.approved ? [doc.approved] : []), ...doc.history].slice(0, L.history),
       decisions: withDecisions(doc.decisions, approveDecisions(doc.draft, at, by, live)),
     };

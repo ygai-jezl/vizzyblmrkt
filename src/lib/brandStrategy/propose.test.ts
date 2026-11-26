@@ -272,7 +272,8 @@ describe("Propose with Vizzy", () => {
     const db = await brand();
     const ids: string[] = [];
     for (let i = 0; i < 10; i += 1) {
-      const r = await monitorCompetitor(A, { website: `rival${i}.example`, name: `Rival ${i}` }, { db });
+      // One a second apart, so they list in this order.
+      const r = await monitorCompetitor(A, { website: `rival${i}.example`, name: `Rival ${i}` }, { db, now: () => new Date(T0 + i * 1000) });
       if (r.ok) ids.push(r.value.competitor.id);
     }
     const recent = async () =>

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { readFieldList } from "@/lib/audience/fieldList";
+import { groupLabel } from "@/lib/audience/peopleList";
 import { getTenantById, isRateLimited, type RateLimitConfig, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { Tenant } from "@/lib/types/tenant";
@@ -14,6 +15,7 @@ import {
   restoreTeamView,
   SAVED_VIEW_STATUS,
   type SaveResult,
+  type ShownView,
 } from "./savedViews";
 import { readViewRows } from "./source";
 import { VIEW_LIMITS, ViewDefinitionSchema } from "./types";
@@ -40,6 +42,25 @@ export interface ViewsDeps {
   db?: FirestoreLike;
   loadTenant?: (id: string) => Promise<Tenant | null>;
   now?: () => Date;
+  /** A product group's name from its tag (groupLabel), for tests. */
+  groupName?: (tag: string) => Promise<string | null>;
+}
+
+/** Product groups named at most, per list of views. */
+export const MAX_GROUP_NAMES = 10;
+
+/**
+ * The product groups saved views filter on, named as a person's page names them (groupLabel), so a
+ * view opened from Views or its link, without the page's ?group=, still names its group. At most
+ * 10 are looked up; a group whose name can't be found is left out and named from its product.
+ */
+export async function savedGroupNames(ctx: TenantContext, views: readonly ShownView[], deps: ViewsDeps = {}): Promise<Array<{ id: string; label: string }>> {
+  const values = [
+    ...new Set(views.flatMap((v) => v.definition.filters.flatMap((f) => (f.on === "group" && Array.isArray(f.value) ? (f.value as string[]) : [])))),
+  ].slice(0, MAX_GROUP_NAMES);
+  const name = deps.groupName ?? ((tag: string) => groupLabel(ctx, tag, deps.db));
+  const named = await Promise.all(values.map(async (id) => ({ id, label: await name(`group:${id}`).catch(() => null) })));
+  return named.flatMap((n) => (n.label ? [{ id: n.id, label: n.label }] : []));
 }
 
 const memberKey = (ctx: TenantContext) => `user:${ctx.tenantId}:${ctx.userId ?? "anon"}`;
@@ -88,13 +109,14 @@ export async function viewRowsRequest(ctx: TenantContext, raw: unknown, deps: Vi
   return { status: 200, body: { rows: await readViewRows(ctx, body.data.ids, body.data.columns, list.items, deps.db) } };
 }
 
-/** The team's views and the member's own; archived team views for admins, to bring one back. */
+/** The team's views and the member's own; archived team views for admins, to bring one back; and the product groups they name. */
 export async function listViewsRequest(ctx: TenantContext, deps: ViewsDeps = {}): Promise<ApiResult> {
   const admin = ctx.role === "admin";
   const { team, mine } = await listSavedViews(ctx, { archived: admin }, deps.db);
+  const groups = await savedGroupNames(ctx, [...team, ...mine], deps);
   return {
     status: 200,
-    body: { team: team.filter((v) => !v.archived), archived: team.filter((v) => v.archived), mine, canSaveTeam: admin },
+    body: { team: team.filter((v) => !v.archived), archived: team.filter((v) => v.archived), mine, canSaveTeam: admin, groups },
   };
 }
 

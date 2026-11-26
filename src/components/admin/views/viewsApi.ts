@@ -14,6 +14,8 @@ export interface ViewLists {
   archived: ShownView[];
   mine: ShownView[];
   canSaveTeam: boolean;
+  /** Product groups the views filter on, by value, with their names. */
+  groups?: Array<{ id: string; label: string }>;
 }
 type Saved = { view: ShownView; message: string; error?: string; filters?: number[] };
 

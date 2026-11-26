@@ -112,6 +112,21 @@ describe("the filter builder", () => {
   });
 });
 
+describe("a saved view's product group", () => {
+  it("shows the group filter and its name when the page wasn't opened from the group", () => {
+    const drafts = [draftOf({ on: "group", op: "any_of", value: ["con_1:ws-42"] }, names.fields)];
+    const withGroups: ViewNames = { ...names, products: [{ id: "con_1", name: "Fernhill online shop" }], groups: [{ id: "con_1:ws-42", label: "Workspace Hillside" }] };
+    const html = renderToStaticMarkup(createElement(FilterBuilder, { match: "all", drafts, flags: {}, names: withGroups, manyLaunches: false, onMatch: () => {}, onChange: () => {} }));
+    // React marks the chosen option selected.
+    expect(html).toMatch(/<option value="group" selected="">Product group<\/option>/);
+    expect(html).toContain("Workspace Hillside");
+    // Without its name, it is named from its product, never as some other field.
+    const bare = renderToStaticMarkup(createElement(FilterBuilder, { match: "all", drafts, flags: {}, names: { ...withGroups, groups: [] }, manyLaunches: false, onMatch: () => {}, onChange: () => {} }));
+    expect(bare).toMatch(/<option value="group" selected="">Product group<\/option>/);
+    expect(bare).toContain("A group in Fernhill online shop");
+  });
+});
+
 describe("a new filter", () => {
   const OPT_IN = f("fld_optin0000001", "Newsletter opt in", "checkbox");
   const EMAIL = f("fld_email0000001", "Billing email", "email");

@@ -46,6 +46,8 @@ export interface ViewNames {
   team?: ReadonlyArray<{ id: string; name: string }>;
   /** A product group the list was showing, with its name. */
   group?: { tag: string; label: string } | null;
+  /** Product groups saved views filter on, by value (`<connectionId>:<entity id>`), named as a person's page names them. */
+  groups?: ReadonlyArray<{ id: string; label: string }>;
   /** Launches are called ideas (useWords().ideas, isIdeaWordsEnabled()). */
   ideas?: boolean;
 }
@@ -144,8 +146,11 @@ export function optionsFor(on: string, names: ViewNames): Array<{ id: string; la
       return products.flatMap((p) =>
         (["new", "onboarding", "stuck", "activated"] as const).map((s) => ({ id: `${p.id}:${s}`, label: products.length > 1 ? `${p.name}: ${STAGE_WORD[s]}` : STAGE_WORD[s]! })),
       );
-    case "group":
-      return names.group ? [{ id: names.group.tag.replace(/^group:/, ""), label: names.group.label }] : [];
+    case "group": {
+      const named = new Map((names.groups ?? []).map((g) => [g.id, g.label]));
+      if (names.group) named.set(names.group.tag.replace(/^group:/, ""), names.group.label);
+      return [...named].map(([id, label]) => ({ id, label }));
+    }
   }
   const field = fieldOf(names, on);
   if (!field) return [];
@@ -153,8 +158,8 @@ export function optionsFor(on: string, names: ViewNames): Array<{ id: string; la
   return (field.options ?? []).map((o) => ({ id: o.id, label: o.label, ...(o.archivedAt ? { archived: true } : {}) }));
 }
 
-/** One option's name, or a plain fallback when the brand no longer has it. */
-function optionName(on: string, id: string, names: ViewNames): string {
+/** One option's name, or a plain fallback when the brand no longer has it (or its name isn't known here). */
+export function optionName(on: string, id: string, names: ViewNames): string {
   const found = optionsFor(on, names).find((o) => o.id === id);
   if (found) return found.label;
   if (on === "stage") {
@@ -164,7 +169,11 @@ function optionName(on: string, id: string, names: ViewNames): string {
   }
   if (on === "launch") return ideaWord(!!names.ideas).A;
   if (on === "product" || on === "quiet") return "A product";
-  if (on === "group") return "A product group";
+  if (on === "group") {
+    // A product group's value starts with its product's connection id.
+    const product = (names.products ?? []).find((p) => id.startsWith(`${p.id}:`));
+    return product ? `a group in ${product.name}` : "A product group";
+  }
   if (fieldOf(names, on)?.type === "team_member") return FORMER_TEAM_MEMBER;
   return "An option";
 }

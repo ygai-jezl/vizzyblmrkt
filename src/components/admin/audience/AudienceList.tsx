@@ -276,7 +276,7 @@ export function AudienceList({
 
   const viewNames: ViewNames | null =
     views && viewFields && filters
-      ? { fields: viewFields, launches: filters.launches, products: filters.products, team, group: initialGroup, ideas }
+      ? { fields: viewFields, launches: filters.launches, products: filters.products, team, group: initialGroup, groups: lists?.groups ?? [], ideas }
       : null;
   const multiProductList = (filters?.products.length ?? 0) > 1;
 

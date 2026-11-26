@@ -4,7 +4,7 @@ import { AlertTriangle, Plus, X } from "lucide-react";
 import { amountToMinor, currencyDigits, minorToAmount, type RecordField } from "@/lib/types/recordField";
 import { holdsTypedWords, isComplete, opsFor, type FilterFlag, type FilterKind } from "@/lib/views/conditions";
 import { BUILT_IN_FILTERS, isBuiltInFilter, isEmptyOp, valueFits, VIEW_LIMITS, type BuiltInFilter, type ViewFilter, type ViewMatch, type ViewOp, type ViewValue } from "@/lib/views/types";
-import { builtInFilterLabel, kindOf, OP_LABEL, optionsFor, VIEW_MESSAGES, type ViewNames } from "@/lib/views/words";
+import { builtInFilterLabel, kindOf, OP_LABEL, optionName, optionsFor, VIEW_MESSAGES, type ViewNames } from "@/lib/views/words";
 import { inputClass } from "../connect/ui";
 import { Chip } from "../people/Chip";
 
@@ -76,6 +76,8 @@ export function builtInsFor(names: ViewNames, manyLaunches: boolean): BuiltInFil
   });
 }
 
+const capital = (s: string) => `${s.charAt(0).toUpperCase()}${s.slice(1)}`;
+
 function OptionsInput({ d, names, onChange }: { d: DraftFilter; names: ViewNames; onChange: (value: ViewValue | undefined) => void }) {
   const chosen = Array.isArray(d.value) ? (d.value as string[]) : [];
   const all = optionsFor(d.on, names);
@@ -85,10 +87,11 @@ function OptionsInput({ d, names, onChange }: { d: DraftFilter; names: ViewNames
     <div className={`${inputClass} flex min-h-[34px] flex-wrap items-center gap-1 !py-1`}>
       {chosen.map((id) => {
         const o = label(id);
+        const text = o?.label ?? capital(optionName(d.on, id, names));
         return (
           <span key={id} className={`inline-flex items-center gap-1 rounded bg-neutral-100 px-1.5 text-xs dark:bg-neutral-800 ${o?.archived ? "line-through opacity-70" : ""}`}>
-            {o?.label ?? "An option"}
-            <button type="button" aria-label={`Remove ${o?.label ?? "this option"}`} onClick={() => onChange(chosen.length > 1 ? chosen.filter((x) => x !== id) : undefined)}>
+            {text}
+            <button type="button" aria-label={`Remove ${text}`} onClick={() => onChange(chosen.length > 1 ? chosen.filter((x) => x !== id) : undefined)}>
               <X size={11} aria-hidden />
             </button>
           </span>
@@ -260,6 +263,8 @@ export function FilterBuilder({
                       {builtInFilterLabel(b, names.ideas)}
                     </option>
                   ))}
+                  {/* A saved view's filter this page doesn't offer now, such as a product group opened without its ?group=. */}
+                  {isBuiltInFilter(d.on) && !builtIns.includes(d.on) ? <option value={d.on}>{builtInFilterLabel(d.on, names.ideas)}</option> : null}
                 </optgroup>
               </select>
               {kind && opsFor(kind).length > 1 ? (

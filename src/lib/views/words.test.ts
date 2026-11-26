@@ -37,6 +37,13 @@ describe("a view in words", () => {
     expect(filterInWords({ on: ORDER.key, op: "empty" }, names)).toBe("Last order is empty");
   });
 
+  it("names a product group from the saved views' names, or from its product", () => {
+    const group = { on: "group", op: "any_of" as const, value: ["con_1:ws-42"] };
+    expect(filterInWords(group, { ...names, groups: [{ id: "con_1:ws-42", label: "Workspace Hillside" }] })).toBe("Product group is Workspace Hillside");
+    expect(filterInWords(group, names)).toBe("Product group is a group in Fernhill online shop");
+    expect(filterInWords({ ...group, value: ["con_gone:ws-42"] }, names)).toBe("Product group is A product group");
+  });
+
   it("joins filters as the view does, and names the sort", () => {
     const fs = [
       { on: TYPE.key, op: "any_of" as const, value: ["opt_whole001"] },

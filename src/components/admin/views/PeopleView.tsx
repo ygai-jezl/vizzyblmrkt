@@ -19,6 +19,7 @@ import { ColumnPicker, SortMenu } from "./ColumnPicker";
 import { draftOf, FilterBuilder, filterOf, type DraftFilter } from "./FilterBuilder";
 import { SaveViewDialog } from "./SaveViewDialog";
 import { Popover, ViewMenu } from "./ViewMenu";
+import { columnsKey, idsToRead, keepRead, nextAsked, readRowsInPages, rowsToShow, type ReadRows } from "@/lib/views/rowPages";
 import { bringBackView, changeView, removeView, runView, saveView, viewRows, type RunAnswer, type ShownView, type ViewLists, type ViewRow } from "./viewsApi";
 
 /**
@@ -104,15 +105,26 @@ export function PeopleView({
   const [q, setQ] = useState(open.q);
   const [saved, setSaved] = useState<ShownView | null>(open.saved);
   const [answer, setAnswer] = useState<RunAnswer | null>(null);
+  /** The rows shown: the first `asked` of the run's ids, read with `rowColumns`. */
   const [rows, setRows] = useState<ViewRow[] | null>(null);
+  const [asked, setAsked] = useState(0);
+  const [reading, setReading] = useState(false);
+  /** A read of rows failed: Try again reads them again. */
+  const [readFailed, setReadFailed] = useState(0);
+  const [retry, setRetry] = useState(0);
   const [running, setRunning] = useState(true);
   const [problem, setProblem] = useState<string | null>(null);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [dialog, setDialog] = useState<null | "save" | "copy" | "rename">(null);
   const [more, setMore] = useState(false);
   /** From the last run, by filter: why one is ignored or narrowed now. */
   const [flags, setFlags] = useState<Record<number, FilterFlag | null>>({});
   const generation = useRef(0);
+  /** The columns the rows are read with: the chosen ones, a moment after they change. */
+  const [rowColumns, setRowColumns] = useState<string[]>(open.columns);
+  const rowColumnsNow = useRef(rowColumns);
+  rowColumnsNow.current = rowColumns;
+  /** People read for the run shown, by the columns they were read with. */
+  const readFor = useRef<{ answer: RunAnswer | null; byColumns: Map<string, ReadRows<ViewRow>> }>({ answer: null, byColumns: new Map() });
 
   const applied = useMemo(() => drafts.flatMap((d) => {
     const f = filterOf(d);
@@ -125,22 +137,29 @@ export function PeopleView({
   const dirty = saved ? !sameView(definition, saved.definition) : true;
   const canChange = !!saved && !saved.archived && (saved.scope === "me" || isAdmin);
 
-  // Run the view a moment after it changes (at once when it opens).
+  // Run the view a moment after it changes (at once when it opens). Its first rows come with the
+  // columns the rows are read with now; a change of columns alone never runs it again.
   const first = useRef(true);
   useEffect(() => {
-    const asked = ++generation.current;
+    const ran = ++generation.current;
     const sent = applied.map((a) => a.id);
     setRunning(true);
     const t = setTimeout(
       () => {
-        void runView(definition, q.trim()).then((r) => {
-          if (asked !== generation.current) return;
+        const cols = rowColumnsNow.current;
+        void runView({ ...definition, columns: cols }, q.trim()).then((r) => {
+          if (ran !== generation.current) return;
           setRunning(false);
+          setReadFailed(0);
           if (!r.ok) return setProblem(viewErrorText(r.data.error));
           setProblem(null);
           setFlags(Object.fromEntries(sent.map((id, i) => [id, r.data.flags[i] ?? null])));
+          const firstPage = nextAsked(0, r.data.ids.length);
+          const read: ReadRows<ViewRow> = new Map();
+          keepRead(read, r.data.ids.slice(0, firstPage), r.data.rows);
+          readFor.current = { answer: r.data, byColumns: new Map([[columnsKey(cols), read]]) };
           setAnswer(r.data);
-          setRows(r.data.rows);
+          setAsked(firstPage);
         });
       },
       first.current ? 0 : RUN_WAIT_MS,
@@ -151,32 +170,50 @@ export function PeopleView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runKey]);
 
-  // Columns changed: read the rows shown again with them, never a new run.
-  const shownColumns = useRef(columns);
+  // Columns changed: read the rows again with them a moment later, never a new run.
   useEffect(() => {
-    if (JSON.stringify(shownColumns.current) === JSON.stringify(columns) || !answer || !rows) return;
-    const asked = generation.current;
-    const t = setTimeout(() => {
-      void viewRows(answer.ids.slice(0, Math.max(rows.length, VIEW_LIMITS.page)), columns).then((r) => {
-        if (asked !== generation.current || !r.ok) return;
-        shownColumns.current = columns;
-        setRows(r.data.rows);
-      });
-    }, ROWS_WAIT_MS);
+    if (columnsKey(columns) === columnsKey(rowColumns)) return;
+    const t = setTimeout(() => setRowColumns(columns), ROWS_WAIT_MS);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [columns]);
 
-  async function loadMore() {
-    if (!answer || !rows || loadingMore) return;
-    const asked = generation.current;
-    setLoadingMore(true);
-    const r = await viewRows(answer.ids.slice(rows.length, rows.length + VIEW_LIMITS.page), columns);
-    if (asked !== generation.current) return;
-    setLoadingMore(false);
-    if (!r.ok) return setProblem(viewErrorText(r.data.error));
-    setRows((cur) => [...(cur ?? []), ...r.data.rows]);
-  }
+  // The rows shown: the first `asked` ids, each read once with the columns shown, 50 a request.
+  // A newer run, page or set of columns drops a read still on its way.
+  useEffect(() => {
+    if (!answer || readFor.current.answer !== answer) return;
+    const key = columnsKey(rowColumns);
+    const byColumns = readFor.current.byColumns;
+    const read = byColumns.get(key) ?? new Map<string, ViewRow | null>();
+    byColumns.set(key, read);
+    const missing = idsToRead(answer.ids, asked, read);
+    if (!missing.length) {
+      setRows(rowsToShow(answer.ids, asked, read));
+      setReading(false);
+      return;
+    }
+    let live = true;
+    setReading(true);
+    const cols = [...rowColumns];
+    void readRowsInPages(missing, cols, (ids, c) => viewRows(ids, c).then((r) => (r.ok ? { ok: true as const, rows: r.data.rows } : { ok: false as const, error: r.data.error }))).then((r) => {
+      if (!live) return;
+      setReading(false);
+      if (!r.ok) {
+        setReadFailed((n) => n + 1);
+        return setProblem(viewErrorText(r.error));
+      }
+      setReadFailed(0);
+      keepRead(read, missing, r.rows);
+      setRows(rowsToShow(answer.ids, asked, read));
+    });
+    return () => {
+      live = false;
+    };
+  }, [answer, asked, rowColumns, retry]);
+
+  const loadMore = () => {
+    if (answer && !reading) setAsked((a) => nextAsked(a, answer.ids.length));
+  };
 
   /** A filter on a field adds the field's column once it is complete, when there is room. */
   function changeDrafts(next: DraftFilter[]) {
@@ -338,7 +375,16 @@ export function PeopleView({
         </p>
       ) : null}
       {answer?.sortIgnored ? <p className="text-xs text-amber-700 dark:text-amber-400">{VIEW_MESSAGES.sort_ignored}</p> : null}
-      {problem ? <p className="text-sm text-red-700 dark:text-red-400">{problem}</p> : null}
+      {problem ? (
+        <p className="flex flex-wrap items-center gap-2 text-sm text-red-700 dark:text-red-400">
+          {problem}
+          {readFailed > 0 && !reading ? (
+            <button type="button" className="underline" onClick={() => setRetry((n) => n + 1)}>
+              Try again
+            </button>
+          ) : null}
+        </p>
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-3">
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search this view by name, email or domain" aria-label="Search this view" className={`${inputClass} max-w-xs`} />
@@ -395,9 +441,9 @@ export function PeopleView({
           <span>
             {rows.length.toLocaleString("en-GB")} of {answer.count.toLocaleString("en-GB")} {answer.count === 1 ? "person" : "people"}
           </span>
-          {rows.length < answer.ids.length ? (
-            <Button disabled={loadingMore} onClick={() => void loadMore()}>
-              {loadingMore ? "Loading…" : "Load more"}
+          {asked < answer.ids.length ? (
+            <Button disabled={reading} onClick={loadMore}>
+              {reading ? "Loading…" : "Load more"}
             </Button>
           ) : null}
         </div>

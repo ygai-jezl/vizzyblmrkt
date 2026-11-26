@@ -250,7 +250,7 @@ describe("the setup requests", () => {
   it("press, then press again for Everything is already here", async () => {
     const first = await setupRequest(admin, { kit: "raising", currency: "GBP" }, { db, loadTenant, nowIso: NOW, ...ids() });
     expect(first.status).toBe(200);
-    expect(first.body).toMatchObject({ added: { fields: 10, options: 39 }, adopted: [], rev: 1, boardHref: "/admin/crm?tab=investors" });
+    expect(first.body).toMatchObject({ added: { fields: 10, options: 39 }, adopted: [], rev: 1, boardHref: "/admin/crm?tab=investors", board: "raising" });
     const second = await setupRequest(admin, { kit: "raising" }, { db, loadTenant, nowIso: NOW, ...ids() });
     expect(second.body).toMatchObject({ added: { fields: 0, options: 0 }, message: "Everything is already here. Nothing was added.", rev: 1 });
     expect((await setupRequest(admin, { kit: "raising", extra: 1 }, { db, loadTenant })).status).toBe(400);

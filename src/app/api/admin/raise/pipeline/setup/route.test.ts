@@ -64,7 +64,7 @@ describe("/api/admin/raise/pipeline/setup", () => {
     expect(await preview.json()).toMatchObject({ kit: "funding", currency: "GBP", firstKit: "raising", plan: { nothing: false } });
     const res = await POST(post({ kit: "funding", currency: "GBP" }));
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ added: { fields: 10, options: 5 + 3 + 5 + 23 }, rev: 1, boardHref: "/admin/crm?tab=investors" });
+    expect(await res.json()).toMatchObject({ added: { fields: 10, options: 5 + 3 + 5 + 23 }, rev: 1, boardHref: "/admin/crm?tab=investors", board: "funding" });
     const again = await POST(post({ kit: "funding" }));
     expect(await again.json()).toMatchObject({ added: { fields: 0, options: 0 }, message: "Everything is already here. Nothing was added.", rev: 1 });
     expect((await GET(get("?kit=funding"))).status).toBe(200);

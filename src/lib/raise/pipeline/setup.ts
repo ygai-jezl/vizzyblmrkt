@@ -16,6 +16,7 @@ import {
   type FieldType,
   type RecordField,
 } from "@/lib/types/recordField";
+import { boardKind, raiseFieldsOf } from "./fields";
 import { currencyFor, isRaiseKit, kitFields, kitOptions, labelMatches, sameLabel, type FieldPreset, type RaiseKit } from "./presets";
 import { SETUP_WORDS, setupMessage } from "./words";
 
@@ -301,6 +302,8 @@ export async function setupRequest(ctx: TenantContext, raw: unknown, deps: Setup
       message: r.message,
       rev: r.rev,
       boardHref: BOARD_HREF,
+      // The board's tab after the press: Funding only while the brand has no raising stage.
+      board: boardKind(raiseFieldsOf(r.plan.items).kinds),
     },
   };
 }

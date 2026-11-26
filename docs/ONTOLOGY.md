@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts` and `src/lib/loops/registry.ts`. D
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one. The Learning section at the end lists every place YouGrow makes a choice for a brand, and how that choice learns or why it doesn't.
 
-103 types: 82 built and 21 planned.
+105 types: 84 built and 21 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -328,7 +328,7 @@ A brand's link to an outside source of numbers, such as a Cloudflare zone, a Sea
 An organisation's own link to an outside source of numbers (Connectors 3, ADR-0015): one Google sign in, one Google address made for the organisation, or one pasted token, whose owners give each of the organisation's brands one part of it (a site, a property or a zone). Kept in the regional database of the brand it was connected from, and never moved; its parts can go to the organisation's brands in any region. It holds the sealed secrets, with the organisation, connection and slot bound in, its health, pause and collect hold, the owner who signed in, and for each part the brand's id and region, the part and the brand record's id: what the sign in reads for each brand, never what was collected. Each part is a data connection in its brand's own region, where everything collected stays. Written only through `src/lib/tenant/organisationConnections.ts`; each change goes into an activity log kept 90 days.
 
 - Status: built
-- Home: the region of the brand it was connected from, serving the organisation's brands in any region
+- Home: the region of the brand it was connected or added from (or that it names), serving the organisation's brands in any region
 - Personal: the brand's own team
 - Stores:
   - `organisation_connections`, the brand's regional Firestore, in `src/lib/tenant/organisationConnections.ts`. One record per organisation connection, read by id and by equality on organisationId (with connectorId) or status, in every provisioned region; its secrets are sealed and never leave the server; residency gap: kept in the region of the brand it was connected from, which may not be the region of every brand it serves: only the sign in (its token, read into server memory) and each part's brand id, region and name cross; collected numbers stay in each brand's region.
@@ -1341,6 +1341,49 @@ Something Vizzy heard about the business and an admin kept: a timeline, channel,
 - Numbers: none. No numbers an agent reads.
 - Made by: `onboarding`, `vizzy_chat` (see Learning)
 
+### Work task (`work_task`)
+
+One task on an organisation's Work list (ADR-0020): anything the business has to do, at any stage of the Path. It holds a title, a description and notes, a status (To do, In progress, Waiting, Done or Dropped), a stage, Must have, the brand it names or none for the whole business, free links, typed links (a pull request, a switch, an idea, a loop line or a plan), the tasks blocking it, one check, how the team will know it worked (with the kind the rule or Vizzy proposed beside the one chosen), where it came from (a person, an import, a Vizzy suggestion and its evidence) and its last 20 changes. Numbered per organisation by a counter in the control plane. Kept in the regional database of the brand it names, or for a whole business task of the brand it was added from, and never moved; the list reads every provisioned region by organisationId. Written only through `src/lib/tenant/work.ts`, each change with its log row in the same transaction.
+
+- Status: built
+- Home: the region of the brand it was connected or added from (or that it names), serving the organisation's brands in any region
+- Personal: the brand's own team
+- Stores:
+  - `work_tasks`, the brand's regional Firestore, in `src/lib/tenant/work.ts`. One record per task, read by id, by (organisationId, open, closedAt) for the list and by equality on organisationId with brandId, ref or hasCheck, in every provisioned region; titles and notes are the team's own words, which Vizzy reads as data and never as instructions; residency gap: a whole business task is kept in the region of the brand it was added from, and its owners read it from a session in any of the organisation's brands, so its words reach a server in another region.
+  - `work_refs`, control plane Firestore, in `src/lib/tenant/workRefs.ts`. One counter per organisation, the next task number and an import's hold while it writes, read by id; no person data.
+- Links: `organisation` through organisationId; `brand` through brandId (none for a whole business task), and addedFrom; `idea` through ideaId when it became an idea, and its idea typed links (many); `agent_action` through origin.agentActionId, on a task added from a Vizzy suggestion; `work_log` through work_log.taskId: its change, check and decision rows (many); `member` through origin.by, a measure's and a check's setBy, and who on each recent change, as user ids (many); `work_task` through blockedBy, and an after_task check (many); `product` through a Used measure's product event, by its connectionId
+- Events: `work.task_added`, `work.task_changed`
+- States: `todo`, `in_progress`, `waiting`, `done`, `dropped`
+- Erase:
+  - `eraseOrganisationWork` in `src/lib/tenant/work.ts`, on removing the record (an empty organisation id taken up again starts with no Work: its tasks and log rows go in every region, and its task counter)
+  - `deleteWorkTask` in `src/lib/tenant/work.ts`, on removing the record (an admin or owner deletes one task; its log rows stay with the organisation's history)
+  - Gap: no path deletes an organisation, so its tasks are kept for its life
+  - Gap: member ids in origin, setBy and recent stay as ids after the member leaves, and show as Former team member, as settings history does
+- Export: gap. Team member ids in origin, setBy and recent stay as ids, with no export by team member; the team reads its tasks on Work.
+- Search: none. Found on Work and by Vizzy's get_work.
+- Numbers: gap. The count a measure's check keeps has no meaning of its own yet, so an agent reads it only as the check's sentence.
+- Made by: `vizzy_chat`, `work_check_due`, `work_measure_kind` (see Learning)
+
+### Work log (`work_log`)
+
+The organisation's daily log on Work (ADR-0020): what people write each day (a workstream with its state, a note and up to 3 links), one row for every change to a task with the value before and after, each check marked, moved on or read (Better, Same, Worse or Too soon to tell, with the measure's kind and what Work counted), and each decision recorded on a task (the question, 2 to 4 options, who recommended which and why, the choice and who made it, with approving a plan among them), with who wrote it, from which tool (a note or decision saved from a draft of Vizzy's says draft_work_log or draft_work_decision, and a drafted decision keeps Vizzy's pick and reason as its recommendation). Append only: a row is only ever added, apart from its organisation changing when its brand moves to another. Kept in the region of the task or brand it is about, with no time to live, until the organisation's Work is erased. Today, workstreams carried over, tasks that moved and checks due are worked out when the Log is read; the loops read every row as a work event.
+
+- Status: built
+- Home: the region of the brand it was connected or added from (or that it names), serving the organisation's brands in any region
+- Personal: the brand's own team
+- Stores:
+  - `work_log`, the brand's regional Firestore, in `src/lib/tenant/work.ts`. Append only, read by (organisationId, at) for a day and by equality on organisationId with taskId and kind for one task, in every provisioned region; no ttlAt, and not in the time to live setup; residency gap: rows about a whole business task are kept beside it, in the region of the brand it was added from, and its owners read them from a session in any of the organisation's brands.
+- Links: `organisation` through organisationId; `brand` through brandId, the brand the row is about (none for the whole business); `work_task` through taskId; `member` through source.who and a decision's chosen.by, as user ids (many); `agent_action` through the draft a person saved it from (draft_work_log, draft_work_decision): the draft's target is the row's id
+- Events: `work.task_added`, `work.task_changed`, `work.logged`, `work.checked`, `work.decided`
+- Erase:
+  - `eraseOrganisationWork` in `src/lib/tenant/work.ts`, on removing the record (rows are kept until the organisation's Work is erased, with no time to live: an empty organisation id taken up again starts with no log)
+  - Gap: no path deletes an organisation, so its log is kept for its life
+  - Gap: member ids in source and in a decision's chosen.by stay as ids after the member leaves, as settings history does
+- Export: gap. Team member ids in source and chosen.by stay as ids, with no export by team member; the team reads its log on Work.
+- Search: none. Found on Work's Log and by Vizzy's get_work.
+- Numbers: none. A log holds what people wrote and what changed; the counts the loops take from it have no meanings yet.
+- Made by: `vizzy_chat` (see Learning)
+
 ### Legal entity (`legal_entity`)
 
 A company the founders formed, added whenever it exists, under its registered name. Brands point at it.
@@ -1508,14 +1551,14 @@ What the brand asked a partner to set up, which fields were sent (names only, va
 
 ### Agent action (`agent_action`)
 
-One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business. Other drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.
+One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business. Vizzy's Work task suggestions keep their details once decided (clearDetailsOnClose false), so what Vizzy proposed stays beside the task as a person added it, or beside why they dismissed it; so do the Log notes and decisions Vizzy drafts for Work, beside the row a person saved from them. Other drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.
 
 - Status: built
 - Home: the brand's region
 - Personal: yes, the brand's people
 - Stores:
   - `agent_actions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per suggestion, written only through `src/lib/tenant/agentActions.ts`; its proposal, basis, result and undo may hold personal values.
-- Links: `person` through personId, and the target when it is a person; `company` through the target, when it is a company; `idea` through the target, when it is an idea; `data_signal` through the target, when it is a suggestion from collected numbers; `brand_question` through the target, when it is a question proposed from Search Console; `brand` through the target, when it is something Vizzy heard about the business in a chat; `ontology_event` through agentActionId, its agent kinds of event (many)
+- Links: `person` through personId, and the target when it is a person; `company` through the target, when it is a company; `idea` through the target, when it is an idea; `data_signal` through the target, when it is a suggestion from collected numbers; `brand_question` through the target, when it is a question proposed from Search Console; `brand` through the target, when it is something Vizzy heard about the business in a chat; `work_task` through the target, when it is a Work task suggestion: the id the task takes once a person adds it; `work_log` through the target, when it is a note or decision Vizzy drafted for Work: the id the log row takes once a person saves it; `ontology_event` through agentActionId, its agent kinds of event (many)
 - Events: `agent.proposed`, `agent.approved`, `agent.acted`, `agent.undone`, `agent.declined`
 - States: `proposed`, `approved`, `acted`, `undone`, `declined`
 - Person fields: `personId` (written with the row)
@@ -1535,7 +1578,7 @@ One record per suggestion an agent makes for the brand: what it proposes and on 
   - Gap: team member ids stay as ids, with no export by team member
 - Search: none. Found on Review; personal data, kept out of brand search until the data processing agreement covers it.
 - Numbers: none. No numbers an agent reads.
-- Made by: `canvas.person_fields`, `canvas.new_person`, `rising_search`, `losing_page`, `within_reach` (see Learning)
+- Made by: `canvas.person_fields`, `canvas.new_person`, `rising_search`, `losing_page`, `within_reach`, `vizzy_chat` (see Learning)
 
 ## Platform
 
@@ -1601,7 +1644,7 @@ The account above brands: its plan (self_hosted, free, pro, ultra or enterprise,
 - Personal: the brand's own team
 - Stores:
   - `organisations`, control plane Firestore, in `src/lib/tenant/organisations.ts`. `ownerIds` and `createdBy` hold Firebase user ids; `createdBy` is instead backfill, selfhost, seed or `script:<label>` when no member made it.
-- Links: `brand` through brandIds, each brand pointing back with organisationId and keeping a copy of the plan in orgPlan (many); `member` through ownerIds and createdBy, as user ids; its users are the members of its brands, counted once (many); `organisation_change` through organisation_changes.organisationId (many); `organisation_connection` through organisation_connections.organisationId, in the region each was connected from (many)
+- Links: `brand` through brandIds, each brand pointing back with organisationId and keeping a copy of the plan in orgPlan (many); `member` through ownerIds and createdBy, as user ids; its users are the members of its brands, counted once (many); `organisation_change` through organisation_changes.organisationId (many); `organisation_connection` through organisation_connections.organisationId, in the region each was connected from (many); `work_task` through work_tasks.organisationId, in the region of the brand each names or was added from (many); `work_log` through work_log.organisationId, beside the tasks and brands its rows are about (many)
 - Erase:
   - `setOrganisationOwners` in `src/lib/tenant/organisations.ts`, on the team member themselves (an operator takes their user id out of `ownerIds` with `scripts/set-plan.ts --remove-owner`, on their erase request)
   - Gap: leaving a brand's team does not take a member's user id out of `ownerIds`; it stays until an operator removes it
@@ -1922,6 +1965,15 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 - Organisation change (`organisation_change`):
   - Erase: no path removes or rewrites a member's user id in `actor`, or in the `from` and `to` of an owners.changed row; ADR-0009 has an operator rewrite `actor` to "erased" by hand until piece O brings an erase path, which leaves `from` and `to`, including on the row that removing the owner writes
   - Export: team member ids in `actor`, `from` and `to` stay as ids, with no export by team member
+- Work task (`work_task`):
+  - Erase: no path deletes an organisation, so its tasks are kept for its life
+  - Erase: member ids in origin, setBy and recent stay as ids after the member leaves, and show as Former team member, as settings history does
+  - Export: team member ids in origin, setBy and recent stay as ids, with no export by team member; the team reads its tasks on Work
+  - Numbers: the count a measure's check keeps has no meaning of its own yet, so an agent reads it only as the check's sentence
+- Work log (`work_log`):
+  - Erase: no path deletes an organisation, so its log is kept for its life
+  - Erase: member ids in source and in a decision's chosen.by stay as ids after the member leaves, as settings history does
+  - Export: team member ids in source and chosen.by stay as ids, with no export by team member; the team reads its log on Work
 - Email job (`email_job`):
   - Erase: a person's erase leaves their queued jobs; a queued send for a deleted sign-up drops when it runs
   - Export: queued jobs are not in a person's export; what they sent is in email sends
@@ -1976,6 +2028,8 @@ Stores that don't keep to the brand's region.
 - Brand kit: `brand/{tenantId}/{file}` in `src/lib/tenant/brandAsset.ts`. One EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region.
 - Vizzy editing memory: `edit memories` in `src/lib/agents/memoryBank.ts`. One agent location (ROOT_AGENT_LOCATION) serves every region.
 - Vizzy chat: `sessions` in `src/lib/agents/agentRuntime.ts`. One agent location (ROOT_AGENT_LOCATION) serves every region.
+- Work task: `work_tasks` in `src/lib/tenant/work.ts`. A whole business task is kept in the region of the brand it was added from, and its owners read it from a session in any of the organisation's brands, so its words reach a server in another region.
+- Work log: `work_log` in `src/lib/tenant/work.ts`. Rows about a whole business task are kept beside it, in the region of the brand it was added from, and its owners read them from a session in any of the organisation's brands.
 - Mailchimp audience: `audience members` in `src/lib/mailchimp/sync.ts`. Mailchimp keeps it where Mailchimp runs.
 - Mandrill message log: `messages` in `src/lib/email/index.ts`. Mandrill keeps it where Mandrill runs.
 - Organisation connection: `organisation_connections` in `src/lib/tenant/organisationConnections.ts`. Kept in the region of the brand it was connected from, which may not be the region of every brand it serves: only the sign in (its token, read into server memory) and each part's brand id, region and name cross; collected numbers stay in each brand's region.
@@ -1992,11 +2046,11 @@ Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Ev
 
 A call site is a file where a kind is made, counted once for each kind: a meter call that names its purpose, a canvas's module, the file that holds a rule, or the file that calls a model with no meter.
 
-89 kinds: 0 learn, 0 fleet only, 20 own, 29 gap and 40 none.
+92 kinds: 0 learn, 0 fleet only, 20 own, 32 gap and 40 none.
 
-109 call sites: 0 learn, 0 fleet only, 30 own, 34 gap and 45 none.
+112 call sites: 0 learn, 0 fleet only, 30 own, 37 gap and 45 none.
 
-Not learning: 79 of 109 call sites, under gap and none lines.
+Not learning: 82 of 112 call sites, under gap and none lines.
 
 ### Where own lines keep what they learned
 
@@ -2109,6 +2163,8 @@ No line says this yet.
   - `src/lib/lifecycle/adminApi.ts`
 - `lifecycle_lines` (AI purpose, AI lines in emails), look again by 2027-05-01. Each AI line is approved, swapped for the fallback or skipped, but those decisions never shape the next line.
   - `src/lib/lifecycle/prepare.ts`
+- `vizzy_chat` (AI purpose, Vizzy chat), look again by 2027-05-01. Vizzy's task suggestions keep what it proposed beside what the person added or why they dismissed it, but nothing learns from those choices until stamps and the votes learner land.
+  - `src/app/api/admin/agent/chat/route.ts`
 - `canvas.journey` (canvas), look again by 2027-05-01. Vizzy's launch email copy gets changed on the canvas before it goes live, but its first draft is not kept, so those changes cannot be counted.
   - `src/lib/canvas/kinds/journey.ts`
 - `canvas.lifecycle` (canvas), look again by 2027-05-01. Whether a journey Vizzy drafted gets published, and how much a person changed first, is never counted, so the next draft cannot get better.
@@ -2137,6 +2193,10 @@ No line says this yet.
   - `src/lib/content/blog/freshnessWatch.ts`
 - `next_action_order` (rule, Your next action order), look again by 2027-05-01. Home lists the steps of the stage that fits the brand's four answers by a fixed rule, and whether the team then did those steps never changes the order.
   - `src/lib/onboarding/homeOrder.ts`
+- `work_ready` (rule, Ready to start), look again by 2027-05-01. Which ready task to start first could learn from what people pick; Work records the picks now, and learns once the votes learner can read them.
+  - `src/lib/work/service.ts`
+- `work_measure_kind` (rule, Suggested kind of win), look again by 2027-05-01. The kind people pick over the suggested one could teach the suggestion; Work keeps both now, and learns once the votes learner can read them.
+  - `src/lib/work/measureKind.ts`
 
 ### None
 
@@ -2172,8 +2232,6 @@ No line says this yet.
   - `src/lib/distribute/feedback/patterns.ts`
 - `images` (AI purpose, Images). This is the image style learner itself, and it is judged by the images its learned look shapes.
   - `src/lib/content/create/styleProfile.ts`
-- `vizzy_chat` (AI purpose, Vizzy chat). Each chat reply answers what the person just asked, and anything Vizzy saves is judged as the kind of draft it is.
-  - `src/app/api/admin/agent/chat/route.ts`
 - `product_map` (AI purpose, Learning your product). It reads what your product's code does today, a fact rather than a taste, and a person decides what goes in the catalog.
   - `workers/knowledge-scraper/src/productMap/usage.ts`
 - `onboarding` (AI purpose, Getting to know you). It turns what the founder said into the four answers and facts in their own words, and the founder keeps, changes or removes each one before anything is saved.
@@ -2220,6 +2278,8 @@ No line says this yet.
   - `src/lib/distribute/autoPlug.ts`
 - `sidebar_fit` (rule, Sidebar sections that wait). A section waits under Coming up only until the brand puts something in it or opens it early, and from then on it always shows, so the person's own choice is what is kept.
   - `src/lib/onboarding/sidebarFit.ts`
+- `work_check_due` (rule, Work check due). A person sets the date, the task to wait for or the measure; the rule only shows the check once it is due.
+  - `src/lib/work/service.ts`
 - `waitlist_voice_chat` (model call with no meter, Waitlist voice chat). The voice chat answers one person on a waitlist in the moment, and learning from what they said would carry it into chats with other people.
   - `src/lib/hooks/useLiveConversation.ts`
 - `edit_memory` (model call with no meter, Memory Bank memories). This is Memory Bank's own learner, which picks what to remember from each member's edits, and it is judged by the Edit mode changes and the LinkedIn and X drafts those memories shape.

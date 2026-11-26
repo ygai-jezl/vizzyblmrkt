@@ -151,7 +151,7 @@ export function mixOf(stages: readonly ContentStage[]): Record<ContentStage, num
 }
 
 /** The live articles named by page id, with their titles (a few reads). */
-async function livePages(ctx: TenantContext, ids: string[], deps: ViewDeps): Promise<Map<string, ViewPage>> {
+export async function livePages(ctx: TenantContext, ids: string[], deps: ViewDeps): Promise<Map<string, ViewPage>> {
   const repo = forTenant(ctx, deps.db).brandMapPages;
   const out = new Map<string, ViewPage>();
   await Promise.all(

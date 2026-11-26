@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 // Writers that pass no store reach brand search through this in-memory index (ADR-0023).
 vi.mock("@/lib/tenant/searchIndex", async (original) => (await import("@/lib/search/testing/memorySearch")).withMemorySearch(await original<object>()));
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
@@ -8,7 +8,7 @@ import { BRAND_MAP_VECTORS, brandMapVectorDocId } from "@/lib/tenant/brandMapVec
 import { MemorySearchIndex } from "@/lib/search/memoryStore";
 import { brandMapStubs } from "@/lib/search/feeders";
 import { indexSource } from "@/lib/search/indexer";
-import { embedSubjects, nearestSituations, nearestSubjects, nearestSubjectsMany, subjectText } from "./embed";
+import { embedSubjects, LOOKS_LIKE, nearestSituations, nearestSubjects, nearestSubjectsMany, subjectText } from "./embed";
 import { ensureMoved } from "./move";
 import { addQuestion, createSubject } from "./records";
 import { createSituation } from "./situations";
@@ -167,6 +167,30 @@ describe("the map's meaning in brand search (ADR-0023)", () => {
     await embedSubjects(ctx, [proposal!.id], { db, ...oldModel, vectors: old.self, search, embedSearch });
     expect(old.calls).toHaveLength(1);
     expect(await brandMapRecords(ctx, db).get("sub", proposal!.id)).toMatchObject({ looksLike: null });
+  });
+
+  it("marks 'looks like' at the cut-off of the store the readers use, switch off and on", async () => {
+    // Two different values, so a check wired to the other store's cut-off can't pass.
+    const was = { ...LOOKS_LIKE };
+    Object.assign(LOOKS_LIKE, { old: 0.95, new: 0.75 });
+    onTestFinished(() => void Object.assign(LOOKS_LIKE, was));
+    const { db, id } = await mapWithFigs();
+    const search = new MemorySearchIndex().storeFor(ctx);
+    // On brand search the proposal sits at 0.8 from the subject; on brand_map_vectors at 0.85.
+    const embedSearch = vi.fn(async (items: Array<{ content: string }>) => items.map((i) => (/^Fig repotting/.test(i.content) ? [0.8, 0.6, 0] : [1, 0, 0])));
+    const near = vectors([{ tenantId: "ten_A", kind: "subject", ref: id, status: "decided", _distance: 0.15 }]);
+    await embedSubjects(ctx, [id], { db, ...oldModel, vectors: near, search, embedSearch });
+    await fileSuggestions(ctx, { from: "research", items: [{ change: { type: "add_subject", name: "Fig repotting" } }] }, { db, nowMs: NOW });
+    const [proposal] = await brandMapRecords(ctx, db).find("sub", { where: [["status", "==", "proposed"]] });
+    const looksLike = async () => (await brandMapRecords(ctx, db).get("sub", proposal!.id))?.looksLike ?? null;
+
+    // Off: 0.85 is under the old cut-off.
+    await embedSubjects(ctx, [proposal!.id], { db, ...oldModel, vectors: near, search, embedSearch });
+    expect(await looksLike()).toBeNull();
+    // On: 0.8 clears the new one.
+    vi.stubEnv("SEARCH_SUBJECT_READS_ENABLED", "true");
+    await embedSubjects(ctx, [proposal!.id], { db, ...oldModel, vectors: near, search, embedSearch });
+    expect(await looksLike()).toBe(id);
   });
 
   it("reads nearest subjects and situations from brand search with each reader's task type", async () => {

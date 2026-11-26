@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import { BrandMapDecidedSchema } from "@/lib/types/brandMap";
@@ -112,6 +112,10 @@ describe("the context pack", () => {
   });
 
   it("checks coverage at the cut-off for the store the competitor readers use (ADR-0023)", async () => {
+    // Two different values, so a reader wired to the wrong store's cut-off can't pass.
+    const was = { ...COVERED_SIM };
+    Object.assign(COVERED_SIM, { old: 0.71, new: 0.58 });
+    onTestFinished(() => void Object.assign(COVERED_SIM, was));
     const asked: number[] = [];
     for (const on of [false, true]) {
       for (const k of ["SEARCH_INDEX_ENABLED", "SEARCH_FAMILY_INDEX_ENABLED", "SEARCH_COMPETITOR_READS_ENABLED"]) vi.stubEnv(k, on ? "true" : "false");
@@ -123,7 +127,7 @@ describe("the context pack", () => {
       const pack = await contextPack(A, { questionId: "q_aaaaaaaa" }, deps);
       expect(pack.theirs.map((l) => l.text)).toContain("No competitor article answers this question.");
     }
-    expect(asked).toEqual([COVERED_SIM.old, COVERED_SIM.new]);
+    expect(asked).toEqual([0.71, 0.58]);
   });
 
   it("falls back to the brand map's pages without brand search, and says what it couldn't see", async () => {

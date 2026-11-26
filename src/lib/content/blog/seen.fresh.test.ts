@@ -6,7 +6,7 @@ import { BlogBriefSchema, type ContentPlan } from "@/lib/types/contentPlan";
 import { answerQuestion, askQuestions, createNote, listNotes, QUESTION_TITLE } from "@/lib/brandNotes/store";
 import { MemorySearchIndex } from "@/lib/search/memoryStore";
 import type { SearchKind, SearchStore } from "@/lib/search/types";
-import { DUP_QUESTION_SIM, matchSeen, uniqueQuestions, type SeenDeps } from "./seen";
+import { CANDIDATE_MIN_SIM, DUP_NOTE_SIM, DUP_QUESTION_SIM, matchSeen, uniqueQuestions, type SeenDeps } from "./seen";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1" };
 const plan = { name: "Visibility", scope: { spark: "Weekly is enough for most teams.", topics: [], industryLens: "" } } as unknown as ContentPlan;
@@ -180,5 +180,44 @@ describe("uniqueQuestions", () => {
     const near = (sim: number) => at(sim);
     const { deps } = setup({ a: near(1), b: near(DUP_QUESTION_SIM.old + 0.001), c: near(DUP_QUESTION_SIM.old - 0.05) });
     expect((await uniqueQuestions(A, ["a", "b", "c"], 3, deps)).questions).toEqual(["a", "c"]);
+  });
+});
+
+describe.each([
+  ["brand_map_vectors", false],
+  ["brand search", true],
+])("each cut-off is the one for the store the note readers use, read from %s (ADR-0023)", (_store, onIndex) => {
+  // Two different values in each pair, so a reader wired to the other store's cut-off can't pass.
+  beforeEach(() => {
+    for (const v of ["SEARCH_INDEX_ENABLED", "SEARCH_FAMILY_INDEX_ENABLED", "SEARCH_NOTE_READS_ENABLED"]) vi.stubEnv(v, onIndex ? "true" : "false");
+    const was = [{ ...CANDIDATE_MIN_SIM }, { ...DUP_QUESTION_SIM }, { ...DUP_NOTE_SIM }] as const;
+    Object.assign(CANDIDATE_MIN_SIM, { old: 0.7, new: 0.5 });
+    Object.assign(DUP_QUESTION_SIM, { old: 0.95, new: 0.85 });
+    Object.assign(DUP_NOTE_SIM, { old: 0.95, new: 0.85 });
+    return () => {
+      Object.assign(CANDIDATE_MIN_SIM, was[0]);
+      Object.assign(DUP_QUESTION_SIM, was[1]);
+      Object.assign(DUP_NOTE_SIM, was[2]);
+    };
+  });
+
+  it("offers a note at 0.6 only at brand search's cut-off (CANDIDATE_MIN_SIM)", async () => {
+    const { deps, rows } = setup();
+    const made = await createNote(A, { text: "Weekly checks caught every change that mattered.", kind: "tested", subjectIds: [], canName: false }, { source: "typed" }, deps);
+    if (!made.ok) throw new Error("not made");
+    rows.push({ kind: "note", ref: made.value.id, status: "kept", embedding: at(0.6) });
+    const seen = await matchSeen(A, { plan, brief: brief(), brandName: "Acme", article: P1, rest: REST }, deps);
+    expect(seen.notes.map((n) => n.id)).toEqual(onIndex ? [made.value.id] : []);
+  });
+
+  it("treats two new questions at 0.9 as the same only at brand search's cut-off (DUP_QUESTION_SIM)", async () => {
+    const { deps } = setup({ a: at(1), b: at(0.9) });
+    expect((await uniqueQuestions(A, ["a", "b"], 2, deps)).questions).toEqual(onIndex ? ["a"] : ["a", "b"]);
+  });
+
+  it("drops a question a kept note at 0.9 answers only at brand search's cut-off (DUP_NOTE_SIM)", async () => {
+    const { deps, rows } = setup({ a: at(1) });
+    rows.push({ kind: "note", ref: "bn_answers0001", status: "kept", embedding: at(0.9) });
+    expect((await uniqueQuestions(A, ["a"], 1, deps)).questions).toEqual(onIndex ? [] : ["a"]);
   });
 });

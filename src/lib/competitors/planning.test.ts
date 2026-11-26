@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 // Removals from brand search are forced whatever the switches say (ADR-0023): an in-memory index stands in.
 vi.mock("@/lib/tenant/searchIndex", async (original) => (await import("@/lib/search/testing/memorySearch")).withMemorySearch(await original<object>()));
 import { forTenant } from "@/lib/tenant";
@@ -6,7 +6,7 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { KnowledgeCollectionLike, TenantContext } from "@/lib/tenant/types";
 import type { CompetitorArticle } from "@/lib/types/competitor";
 import { questionKey as questionKeyOf } from "@/lib/brandMap/keys";
-import { anglesBlock, competitorContext, questionsBlock, statsBlock } from "./planning";
+import { anglesBlock, competitorContext, MIN_SIM, questionsBlock, statsBlock } from "./planning";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import { BrandMapDecidedSchema } from "@/lib/types/brandMap";
 import { ensureMoved } from "@/lib/brandMap/move";
@@ -14,7 +14,7 @@ import { decideProposals, proposedQuestion, proposedSubject } from "@/lib/brandM
 import { addQuestion, createSubject } from "@/lib/brandMap/records";
 import { saveBrandMap } from "@/lib/brandMap/store";
 import { competitorCoverage } from "./coverage";
-import { addTopicsFromRequest, subjectCompetitorsOf, subjectCompetitorsFromRequest, subjectFlagsFromRequest, theirQuestionsOf } from "./planningApi";
+import { addTopicsFromRequest, COVERED_SIM, subjectCompetitorsOf, subjectCompetitorsFromRequest, subjectFlagsFromRequest, theirQuestionsOf } from "./planningApi";
 import { monitorCompetitor } from "./store";
 import { MemorySearchIndex } from "@/lib/search/memoryStore";
 import type { SearchStore } from "@/lib/search/types";
@@ -121,6 +121,41 @@ describe("on brand search (ADR-0023)", () => {
     const c = await competitorContext(A, { subjectId: "sub_forms", text: "forms" }, { db, canUse: async () => true, search, embedSearch, vectors: { where: () => ({}) as never, findNearest: old } as never, query: vi.fn() });
     expect(c?.angles.map((a) => a.angle)).toEqual(["Near by meaning", "Angle a1"]);
     expect(old).not.toHaveBeenCalled();
+  });
+
+  it("matches at the cut-off of the store each reader uses: MIN_SIM and COVERED_SIM, switch off and on", async () => {
+    // Two different values for each, so a reader wired to the wrong store's cut-off can't pass.
+    const was = [{ ...MIN_SIM }, { ...COVERED_SIM }];
+    Object.assign(MIN_SIM, { old: 0.9, new: 0.7 });
+    Object.assign(COVERED_SIM, { old: 0.85, new: 0.75 });
+    onTestFinished(() => {
+      Object.assign(MIN_SIM, was[0]);
+      Object.assign(COVERED_SIM, was[1]);
+    });
+    // brand_map_vectors finds a2 at 0.85 (and a1 at 0.8 for the covered check); brand search finds a2 at 0.8 and a1 at 0.6.
+    const old = (ref: string, distance: number): KnowledgeCollectionLike => {
+      const v: KnowledgeCollectionLike = {
+        where: () => v,
+        findNearest: () => ({ get: async () => ({ empty: false, size: 1, docs: [{ id: "v0", data: () => ({ tenantId: "ten_A", kind: "competitor_article", ref, status: "kept", _distance: distance }) }] }) }),
+      };
+      return v;
+    };
+    const tilted = vi.fn(async (items: unknown[]) => items.map(() => [0.8, 0.6]));
+    const questions = async () => [
+      { id: "q1", text: "Covered by them?", status: "decided" },
+      { id: "q2", text: "Nobody answers this?", status: "decided" },
+    ];
+    const angles = async (deps: Record<string, unknown>) => (await competitorContext(A, { subjectId: "sub_forms", text: "forms" }, { db, canUse: async () => true, ...deps }))?.angles.map((a) => a.angle);
+    const uncovered = async (deps: Record<string, unknown>) => (await (await subjectCompetitorsFromRequest(A, "sub_forms", { db, canUse: async () => true, questions, ...deps })).json()).competitors.uncovered;
+
+    // Off: brand_map_vectors at the old cut-offs. 0.85 is under MIN_SIM.old, 0.8 under COVERED_SIM.old.
+    expect(await angles({ vectors: old("a2", 0.15), query: async () => [1, 0] })).toEqual(["Angle a1"]);
+    expect(await uncovered({ vectors: old("a1", 0.2), query: async () => [1, 0] })).toEqual(["q1", "q2"]);
+    // On: brand search at the new ones. 0.8 clears both; a1's 0.6 doesn't.
+    on();
+    const search = await index();
+    expect(await angles({ search, embedSearch: tilted })).toEqual(["Near by meaning", "Angle a1"]);
+    expect(await uncovered({ search, embedSearch: tilted })).toEqual([]);
   });
 
   it("names the questions no article covers with reads on, never counting a competitor's summary", async () => {

@@ -47,6 +47,10 @@ import { productName } from "@/lib/connectors/messages";
 import { PartCache, partFactsOf, type PartFacts, type SourceDeps } from "@/lib/connectors/sources";
 import type { DataConnection } from "@/lib/types/dataConnection";
 import type { LoopKind } from "@/lib/loops/registry";
+import { isStrategyCheckEnabled } from "@/lib/brandStrategy/flags";
+import { readBrandStrategyDoc } from "@/lib/brandStrategy/store";
+import { reasonLine } from "@/lib/brandStrategy/checkRules";
+import type { StrategyCheck } from "@/lib/types/brandStrategy";
 
 /**
  * Review (nav v2 phase 2): every decision waiting on a person, in one place,
@@ -68,6 +72,7 @@ export type ReviewKind =
   | "connection"
   | "data_source"
   | "competitor_news"
+  | "strategy_check"
   | "next_article"
   | "data_signal"
   | "content_refresh"
@@ -88,6 +93,8 @@ export interface ReviewItem {
   signal?: { id: string };
   /** The detail as lines, each shown in full (a suggestion's numbers). */
   details?: string[];
+  /** The weekly strategy check's row: Dismiss beside the link (admins only). */
+  dismissCheck?: true;
 }
 
 /**
@@ -151,6 +158,11 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
     description: "New posts on their news pages and changes to their sites since you last looked. Open one to read it, or mark it seen.",
     from: ["competitor_analysis"],
   },
+  strategy_check: {
+    title: "Your strategy against competitors",
+    description: "Once a week your approved strategy is set against what your competitors publish. It asks for a look only when something material changed: review the strategy, or dismiss it for 30 days.",
+    from: ["strategy_check"],
+  },
   next_article: {
     title: "Your next article",
     description: "What the article autopilot found and sorted, the questions it asks your team, and runs that couldn't finish.",
@@ -179,7 +191,7 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
 };
 
 /** Order of sections on the page (AI lines are time-bound, so they come first). */
-export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "data_source", "next_article", "data_signal", "content_refresh", "agent_draft", "person_suggestion", "business_fact", "repo_results", "brand_map", "competitor_news", "content_hub"];
+export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "data_source", "next_article", "data_signal", "content_refresh", "agent_draft", "person_suggestion", "business_fact", "repo_results", "brand_map", "competitor_news", "strategy_check", "content_hub"];
 
 // ---------------------------------------------------------------------------
 // Per-source rules (pure)
@@ -368,6 +380,27 @@ export function competitorItems(competitors: Array<Pick<Competitor, "id" | "name
     });
   }
   return items;
+}
+
+/**
+ * The weekly strategy check's open row (STRATEGY_CHECK_ENABLED): one at most, each reason a line.
+ * Review the strategy opens the Strategy tab.
+ */
+export function strategyCheckItem(check: StrategyCheck | null, nowIso: string = new Date().toISOString()): ReviewItem | null {
+  const open = check?.open;
+  if (!check || !open?.reasons.length) return null;
+  const lines = open.reasons.map((r) => reasonLine(r, check.since, nowIso));
+  const moved = open.reasons.some((r) => r.kind !== "named");
+  return {
+    id: `strategy_check:${open.key}`,
+    kind: "strategy_check",
+    title: moved ? "Your competitors moved on your focus situations" : "Your competitors name an alternative you don't watch",
+    detail: lines.length > 1 ? `${lines[0]} And ${lines.length - 1} more.` : lines[0]!,
+    details: lines,
+    href: `${BRAND_KIT_MAP_ROUTE}?tab=strategy`,
+    action: "Review the strategy",
+    dismissCheck: true,
+  };
 }
 
 const CHANNEL: Record<string, string> = {
@@ -791,6 +824,12 @@ export async function loadReview(
   ]);
 
   const autopilotRuns = isAutopilotEnabled() ? await soft("autopilot runs", recentRuns(ctx, 60, { db }), [] as AutopilotRun[]) : [];
+  // The weekly strategy check's open row (STRATEGY_CHECK_ENABLED): one read of the strategy record.
+  // It needs their articles too, as the tick does, so a row left from before a change of plan doesn't stay.
+  const strategyCheck =
+    competitorsOn && isStrategyCheckEnabled() && (await soft("competitor articles access", brandCanUse(ctx, "competitor_articles"), false))
+      ? await soft("strategy check", readBrandStrategyDoc(ctx, { db }).then((d) => (d?.approved ? d.check : null)), null)
+      : null;
   // Articles due a refresh (BLOG_FRESHNESS_ENABLED): the freshness watch's list, one read.
   const dueArticles = isBlogFreshnessEnabled()
     ? await soft("articles due a refresh", readDueArticles(ctx, { db }), [] as FreshnessDueItem[])
@@ -830,6 +869,7 @@ export async function loadReview(
     ...liveConnections.map((c, i) => repoResultsItem(c, latestRuns[i]?.[0])),
     brandMapItem(brandMap, brandMapProposals),
     ...competitorItems(competitors, competitorNews),
+    strategyCheckItem(strategyCheck),
     ...nextArticleItems(autopilotRuns),
     ...numberSuggestions,
     ...refreshItems(dueArticles, readyArticles),

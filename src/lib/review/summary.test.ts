@@ -21,7 +21,10 @@ import {
   refreshItems,
   REVIEW_ORDER,
   REVIEW_SECTIONS,
+  strategyCheckItem,
 } from "./summary";
+import { freshCheck } from "@/lib/brandStrategy/checkRules";
+import type { StrategyCheck } from "@/lib/types/brandStrategy";
 import type { FreshnessDueItem } from "@/lib/types/freshness";
 import type { RepoAnalysis } from "@/lib/types/repoAnalysis";
 import { freshCollect, type DataConnection } from "@/lib/types/dataConnection";
@@ -337,6 +340,60 @@ describe("what competitors changed, in Review", () => {
     expect(await countReview(ctx, { lifecycle: false, now: 2_000 }, db)).toBe(1); // cached
     forgetReviewCount("ten_A");
     expect(await countReview(ctx, { lifecycle: false, now: 3_000 }, db)).toBe(0);
+  });
+});
+
+describe("the weekly strategy check, in Review", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const NOW = "2026-11-26T12:00:00.000Z";
+  // Made-up situations and competitors.
+  const open = (reasons: NonNullable<StrategyCheck["open"]>["reasons"]): StrategyCheck => ({
+    ...freshCheck("2026-11-02T09:00:00.000Z", null),
+    open: { key: "chk_abc123", raisedAt: NOW, reasons, actedAt: null },
+  });
+  const moved = open([
+    { kind: "new_articles", ref: "sit_aaaaaa01", text: "Which pages do answer engines cite", count: 4, by: [{ name: "Peerly", count: 4 }] },
+    { kind: "named", ref: "Bigsuite", text: "Bigsuite", count: 5, by: [] },
+  ]);
+
+  it("is one row with every reason in full, opening the Strategy tab, with Dismiss", () => {
+    expect(strategyCheckItem(null, NOW)).toBeNull();
+    expect(strategyCheckItem(freshCheck(NOW, null), NOW)).toBeNull();
+    expect(strategyCheckItem(moved, NOW)).toEqual({
+      id: "strategy_check:chk_abc123",
+      kind: "strategy_check",
+      title: "Your competitors moved on your focus situations",
+      detail: 'Peerly wrote 4 new articles on "Which pages do answer engines cite" since 3 Nov. And 1 more.',
+      details: ['Peerly wrote 4 new articles on "Which pages do answer engines cite" since 3 Nov.', "Your competitors name Bigsuite in 5 articles, and you don't watch it."],
+      href: "/admin/brand-kit/map?tab=strategy",
+      action: "Review the strategy",
+      dismissCheck: true,
+    });
+    expect(strategyCheckItem(open([{ kind: "named", ref: "Bigsuite", text: "Bigsuite", count: 5, by: [] }]), NOW)).toMatchObject({
+      title: "Your competitors name an alternative you don't watch",
+      detail: "Your competitors name Bigsuite in 5 articles, and you don't watch it.",
+    });
+  });
+
+  it("is read only with the switch on, from this brand's approved strategy", async () => {
+    const db = new FakeFirestore();
+    const record = (tenantId: string, approved: boolean) => ({
+      tenantId,
+      rev: 2,
+      draft: null,
+      approved: approved ? { at: "2026-11-02T09:00:00.000Z", focusSituationIds: ["sit_aaaaaa01"] } : null,
+      check: moved,
+    });
+    db.seed("brand_strategy", "bst_ten_A", record("ten_A", true));
+    db.seed("brand_strategy", "bst_ten_B", record("ten_B", true));
+    expect((await loadReview(ctx, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
+    for (const k of ["BRAND_MAP_ENABLED", "BRAND_STRATEGY_ENABLED", "COMPETITORS_ENABLED", "COMPETITOR_ARTICLES_ENABLED", "STRATEGY_COMPETITORS_ENABLED"]) vi.stubEnv(k, "true");
+    expect((await loadReview(ctx, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
+    vi.stubEnv("STRATEGY_CHECK_ENABLED", "true");
+    expect((await loadReview(ctx, { lifecycle: false, includeContent: false }, db)).items.map((i) => i.id)).toEqual(["strategy_check:chk_abc123"]);
+    // No approved strategy: no row, whatever the record holds.
+    db.seed("brand_strategy", "bst_ten_A", record("ten_A", false));
+    expect((await loadReview(ctx, { lifecycle: false, includeContent: false }, db)).items).toEqual([]);
   });
 });
 

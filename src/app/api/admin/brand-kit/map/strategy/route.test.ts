@@ -4,13 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const session = vi.hoisted(() => ({ getAdminContext: vi.fn() }));
 vi.mock("@/lib/auth/session", () => session);
 const limits = vi.hoisted(() => ({ isRateLimited: vi.fn(async () => false) }));
-vi.mock("@/lib/tenant", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/tenant")>()), isRateLimited: limits.isRateLimited }));
+vi.mock("@/lib/tenant", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/tenant")>()), isRateLimited: limits.isRateLimited, getTenantById: vi.fn(async () => null) }));
 
 const main = await import("./route");
 const propose = await import("./propose/route");
 const approve = await import("./approve/route");
 const competitors = await import("./competitors/route");
 const isNot = await import("./is-not/route");
+const notCompetitor = await import("./competitors/not/route");
 
 const admin = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "usr_admin", role: "admin" };
 const req = (path: string, method: string, body?: unknown) =>
@@ -53,6 +54,43 @@ describe("/api/admin/brand-kit/map/strategy", () => {
     const r = await competitors.POST(req("/competitors", "POST", { mode: "quick" }));
     expect(r.status).toBe(503);
     expect(await r.json()).toEqual({ error: "competitor_finder_disabled" });
+  });
+
+  it("Not a competitor 503s unless the strategy is joined to Competitors, then checks sign-in, admin and input", async () => {
+    const post = (body: unknown) => notCompetitor.POST(req("/competitors/not", "POST", body));
+    const off = await post({ name: "Rivalco" });
+    expect(off.status).toBe(503);
+    expect(await off.json()).toEqual({ error: "strategy_competitors_disabled" });
+    vi.stubEnv("STRATEGY_COMPETITORS_ENABLED", "true");
+    // Joined needs Competitors on too.
+    expect((await post({ name: "Rivalco" })).status).toBe(503);
+    expect(session.getAdminContext).not.toHaveBeenCalled();
+    vi.stubEnv("COMPETITORS_ENABLED", "true");
+    session.getAdminContext.mockResolvedValueOnce(null);
+    expect((await post({ name: "Rivalco" })).status).toBe(401);
+    session.getAdminContext.mockResolvedValueOnce({ ...admin, role: "member" });
+    expect((await post({ name: "Rivalco" })).status).toBe(403);
+    for (const bad of [{ name: "" }, { name: "Rivalco", tenantId: "ten_B" }, { site: "rivalco.example" }]) {
+      const r = await post(bad);
+      expect(r.status).toBe(400);
+      expect(await r.json()).toEqual({ error: "invalid_input" });
+    }
+  });
+
+  it("what they write 503s unless joined, 401s signed out, and any member reads it", async () => {
+    const get = () => competitors.GET(req("/competitors", "GET"));
+    const off = await get();
+    expect(off.status).toBe(503);
+    expect(await off.json()).toEqual({ error: "strategy_competitors_disabled" });
+    vi.stubEnv("STRATEGY_COMPETITORS_ENABLED", "true");
+    vi.stubEnv("COMPETITORS_ENABLED", "true");
+    session.getAdminContext.mockResolvedValueOnce(null);
+    expect((await get()).status).toBe(401);
+    session.getAdminContext.mockResolvedValueOnce({ ...admin, role: "member" });
+    const read = await get();
+    expect(read.status).toBe(200);
+    // Their articles aren't read in this environment: nothing to set against the strategy.
+    expect(await read.json()).toEqual({ competitors: { articles: false, days: 90, truncated: false, profiles: [], against: null } });
   });
 
   it("401s when signed out", async () => {

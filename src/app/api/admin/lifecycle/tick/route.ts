@@ -7,6 +7,7 @@ import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { isWaitlistEngineEnabled } from "@/lib/lifecycle/waitlist/flags";
 import { isPersonLinksEnabled } from "@/lib/audience/flags";
 import { isCompetitorArticlesEnabled, isCompetitorsEnabled } from "@/lib/competitors/flags";
+import { isStrategyCheckEnabled } from "@/lib/brandStrategy/flags";
 import { isSearchIndexEnabled } from "@/lib/search/flags";
 import { isSignalsDataForSeoEnabled } from "@/lib/signals/flags";
 import { isAutopilotEnabled } from "@/lib/autopilot/flags";
@@ -40,6 +41,9 @@ export const dynamic = "force-dynamic";
  * loads (and never holds memory on the instance). Only the switches are read up front. A job's
  * deadline is set before its code loads, so loading counts against its own budget.
  *
+ * The weekly strategy check (STRATEGY_CHECK_ENABLED) rides beside the competitors' checks, about every
+ * 30 minutes at a tick of its own, a few brands a run (src/lib/brandStrategy/check.ts).
+ *
  * The clean-up of unconfirmed password accounts (PASSWORD_SIGNIN_ENABLED) rides it beside them, at
  * most once an hour across instances (src/lib/auth/cleanup.ts).
  *
@@ -64,6 +68,8 @@ const CONNECTORS_BUDGET_MS = 25_000;
 const FRESHNESS_BUDGET_MS = 20_000;
 /** Article refresh reviews (BLOG_REFRESH_ENABLED): a step or two of running reviews; research can take a minute. */
 const REFRESH_BUDGET_MS = 90_000;
+/** The weekly strategy check (STRATEGY_CHECK_ENABLED): a few reads for each of up to 3 brands. */
+const STRATEGY_CHECK_BUDGET_MS = 10_000;
 /** Unconfirmed password accounts (PASSWORD_SIGNIN_ENABLED): once an hour, a short run. */
 const AUTH_CLEANUP_BUDGET_MS = 10_000;
 /** Erasing archived fields' values (SETTINGS_ERASE_ENABLED): running jobs move on a page at a time. */
@@ -103,6 +109,7 @@ export async function POST(req: Request) {
         : {};
       let competitorChecks = null;
       let articleReads = null;
+      let strategyChecks = null;
       const searchSweep = search
         ? timedTickJob("search", async () => {
             const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + SEARCH_BUDGET_MS);
@@ -194,8 +201,8 @@ export async function POST(req: Request) {
           })
         : Promise.resolve(null);
       if (competitors) {
-        // The checks and the article reads run side by side, each within its own budget.
-        const [checks, reads] = await Promise.all([
+        // The checks, the article reads and the strategy check run side by side, each within its own budget.
+        const [checks, reads, strategy] = await Promise.all([
           timedTickJob("competitors", async () => {
             const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + COMPETITORS_BUDGET_MS);
             const { runCompetitorChecks } = await import("@/lib/competitors/tick");
@@ -214,9 +221,20 @@ export async function POST(req: Request) {
                 return null;
               })
             : Promise.resolve(null),
+          isStrategyCheckEnabled()
+            ? timedTickJob("strategy-check", async () => {
+                const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + STRATEGY_CHECK_BUDGET_MS);
+                const { runStrategyChecks } = await import("@/lib/brandStrategy/check");
+                return runStrategyChecks({ deadlineMs });
+              }).catch((err: unknown) => {
+                console.warn(`[strategy-check] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+                return null;
+              })
+            : Promise.resolve(null),
         ]);
         competitorChecks = checks;
         articleReads = reads;
+        strategyChecks = strategy;
       }
       const searchResult = await searchSweep;
       const signalResult = await signalCollect;
@@ -233,6 +251,7 @@ export async function POST(req: Request) {
         ...result,
         ...(competitors ? { competitors: competitorChecks } : {}),
         ...(articleReads ? { competitorArticles: articleReads } : {}),
+        ...(strategyChecks?.brands ? { strategyCheck: strategyChecks } : {}),
         ...(searchResult?.scanned ? { search: searchResult } : {}),
         ...(signalResult?.tenants ? { signals: signalResult } : {}),
         ...(autopilotResult?.tenants ? { autopilot: autopilotResult } : {}),

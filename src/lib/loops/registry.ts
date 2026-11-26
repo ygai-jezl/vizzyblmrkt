@@ -45,6 +45,9 @@ export const RULE_DECISIONS = {
   found_live: { label: "Approve when found live", file: "src/lib/content/blog/foundLive.ts" },
   competitor_coverage: { label: "Competitor coverage flags", file: "src/lib/competitors/coverage.ts" },
   competitor_topics: { label: "Competitor topics to add", file: "src/lib/competitors/coverage.ts" },
+  competitor_profile: { label: "What competitors write", file: "src/lib/competitors/profile.ts" },
+  competitor_claim_match: { label: "Claims competitors now make", file: "src/lib/competitors/profile.ts" },
+  strategy_check: { label: "Weekly strategy check", file: "src/lib/brandStrategy/checkRules.ts" },
   image_style_pick: { label: "Image style used", file: "src/lib/content/imageStyle/resolve.ts" },
   pattern_holdout: { label: "Post patterns holdout", file: "src/lib/distribute/feedback/patterns.ts" },
   waitlist_rank: { label: "Waitlist order", file: "src/lib/waitlist/scoring.ts" },
@@ -97,6 +100,7 @@ export const LEARNED_STORES = {
   broadcast: "Each one off launch email keeps its open and click rates once its report is read.",
   refresh_record: "Each refresh record keeps its clock, what a person decided and the clicks 28 days on.",
   next_action_card: "The card's record keeps the newest 30 outcomes of its steps and each step's newest dismissal of the last 30 days, with the reason a person gave for it.",
+  brand_strategy: "The brand strategy keeps the newest 50 names a person marked Not a competitor, beside the stars, ticks, groups and edits people made.",
 } as const satisfies Record<string, string>;
 
 export type LearnedStore = keyof typeof LEARNED_STORES;
@@ -175,7 +179,7 @@ export const LOOPS = {
   situation_questions: own("brand_question", "A question your team dismissed on the brand map is never proposed or linked to a situation again."),
   brand_strategy: gap("The brand strategy keeps each focus star a person kept or removed and each claim they edited, before and after, but nothing learns from them yet.", LATER),
   content_strategy: gap("The content plan keeps each pillar a person renamed and each slot they split or joined, but naming and grouping the pillars learns nothing from them yet.", LATER),
-  competitor_find: gap("The brand strategy keeps which competitors the finder found that a person ticked to monitor or left out, but the finder learns nothing from them yet.", LATER),
+  competitor_find: own("brand_strategy", "Where the strategy is joined to Competitors, a name a person marked Not a competitor is kept on the brand strategy and the finder never suggests it again."),
   blog_research: gap("Research can read the Learned list through the brand context, but nothing records which facts and sources your team kept or cut.", LATER),
   autopilot_research: gap("The autopilot's research is never compared with what your team kept in the article, so it cannot learn which sources fit.", LATER),
   blog_refresh: own("article_review", "A change your team dismissed on an article is kept with the last 50 on its review and not proposed for that article again."),
@@ -261,6 +265,9 @@ export const LOOPS = {
   found_live: none("An article a person put up on their own site counts as approved by them, which is a fact to record, not a taste to learn."),
   competitor_coverage: none("The flags compare competitor articles from the last 90 days with the questions the brand has answered, drafted or planned on each subject, plain counts anyone can check, so there is no taste in them."),
   competitor_topics: own("brand_map", "A topic a person dismissed from the brand map is marked dismissed and left out of what Next up suggests from competitor articles."),
+  competitor_profile: none("Each profile counts a watched competitor's articles of the last 90 days by kind, stage, ask and buying situation, which anyone can check against the articles themselves."),
+  competitor_claim_match: gap("A claim of yours that a competitor's articles start to make too is never spotted, because checking it honestly needs a meaning check per claim and a cut off that would raise false alarms.", LATER),
+  strategy_check: gap("The weekly strategy check keeps each row your team acted on with Propose or dismissed, but how many new articles or names make a row never changes from them yet.", LATER),
   image_style_pick: gap("Until a brand picks a style, every image uses a fixed preset for its surface, and thumbs on past images never change which style is used.", IMAGES_BY),
   pattern_holdout: none("A fixed share of posts is written without the learned patterns so their effect can be measured, and that share must not drift with results."),
   waitlist_rank: none("The waitlist order is the rule promised to people who signed up: referrals, any bonus for finishing the voice chat and a teammate's Move up, then sign up time, so it must never shift on its own."),

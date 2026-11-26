@@ -50,6 +50,10 @@ export const BRAND_STRATEGY_LIMITS = {
   decisionText: 200,
   /** Full finder runs remembered (for the monthly count). */
   finderRuns: 24,
+  /** Names a person marked Not a competitor, newest first: the finder never suggests them again. */
+  notCompetitors: 50,
+  /** The finder's suggestions a person pressed Monitor on, newest first: once no longer watched, they don't come back as suggestions. */
+  monitoredFinds: 50,
 } as const;
 
 const L = BRAND_STRATEGY_LIMITS;
@@ -114,6 +118,16 @@ export const StrategyCompetitorGroupSchema = z.object({
   competitors: tolerantArray(StrategyCompetitorSchema, L.keptPerGroup),
 });
 export type StrategyCompetitorGroup = z.infer<typeof StrategyCompetitorGroupSchema>;
+
+/** A name the finder found that a person marked Not a competitor (STRATEGY_COMPETITORS_ENABLED). */
+export const NotCompetitorSchema = z.object({
+  name: Line(L.competitorName),
+  site: z.string().trim().max(253).nullable().catch(null).default(null),
+});
+export type NotCompetitor = z.infer<typeof NotCompetitorSchema>;
+
+/** The words for a watched competitor nobody has put in a group yet. */
+export const NOT_GROUPED_LABEL = "Not grouped yet";
 
 // ----- Where you win, and where they do -------------------------------------------------------
 
@@ -188,6 +202,7 @@ export const STRATEGY_SOURCES = [
   "situations",
   "coverage",
   "competitors",
+  "competitor_articles",
   "finder",
   "site_pages",
   "knowledge",
@@ -203,6 +218,7 @@ export const STRATEGY_SOURCE_LABEL: Record<StrategySource, string> = {
   situations: "Buying situations",
   coverage: "Questions and live articles",
   competitors: "Competitors you watch",
+  competitor_articles: "What your competitors write",
   finder: "The competitor finder",
   site_pages: "Your site's pages",
   knowledge: "Your knowledge",
@@ -225,6 +241,18 @@ export const StrategySchema = z.object({
   proposedFocusIds: z.array(SituationId).max(L.focusMax).catch([]).default([]),
   audiences: z.array(Line(L.audienceText)).max(L.audiences).catch([]).default([]),
   competitorGroups: tolerantArray(StrategyCompetitorGroupSchema, COMPETITOR_GROUP_KINDS.length),
+  /**
+   * Watched competitors nobody had put in a group, as approved (STRATEGY_COMPETITORS_ENABLED): the
+   * approved copy keeps the whole list. Always empty in a draft, and while it is off.
+   */
+  ungrouped: tolerantArray(StrategyCompetitorSchema, L.keptPerGroup),
+  /**
+   * An approved copy made while the strategy was joined to Competitors: its competitor lists are
+   * the live list as it was then, so they are never compared with the draft's, whatever the switch
+   * says now. False on every draft. Records stored before these fields read with it false, with
+   * `ungrouped: []` and `finder.notCompetitors: []`: those defaults are right, nothing needs moving.
+   */
+  competitorsLive: z.boolean().catch(false).default(false),
   claims: tolerantArray(StrategyClaimSchema, L.claims),
   isNotProposals: tolerantArray(IsNotProposalSchema, L.isNot),
   goal: StrategyGoalSchema.nullable().catch(null).default(null),
@@ -246,6 +274,8 @@ export const STRATEGY_DECISION_KINDS = [
   "competitor_ticked",
   "competitor_unticked",
   "competitor_left_out",
+  /** A person put a watched competitor in a group, or took it out of one (before and after). */
+  "competitor_grouped",
   "claim_added",
   "claim_edited",
   "claim_removed",
@@ -253,6 +283,10 @@ export const STRATEGY_DECISION_KINDS = [
   "is_not_declined",
   "goal_set",
   "approved",
+  /** A Propose with Vizzy made while the weekly check had a row open (STRATEGY_CHECK_ENABLED). */
+  "check_acted",
+  /** An admin dismissed the weekly check's row: it stays quiet 30 days. */
+  "check_dismissed",
 ] as const;
 export const StrategyDecisionKind = z.enum(STRATEGY_DECISION_KINDS);
 export type StrategyDecisionKind = z.infer<typeof StrategyDecisionKind>;
@@ -267,6 +301,92 @@ export const StrategyDecisionSchema = z.object({
   by: z.string().max(254).nullable().catch(null).default(null),
 });
 export type StrategyDecision = z.infer<typeof StrategyDecisionSchema>;
+
+// ----- The weekly check (STRATEGY_CHECK_ENABLED) -----------------------------------------------
+
+export const STRATEGY_CHECK_LIMITS = {
+  /** A look a week. */
+  everyDays: 7,
+  /** Dismiss keeps the row away this long. */
+  dismissDays: 30,
+  /** New articles of theirs on one focus situation that make a row. */
+  newArticles: 3,
+  /** Their articles naming one alternative on the brand map the brand doesn't watch that make a row. */
+  namedArticles: 3,
+  focus: 5,
+  named: 5,
+  reasons: 8,
+  /** Alternatives already raised once, newest first: not raised again. */
+  raisedNames: 20,
+  /** Competitors named beside a count. */
+  by: 3,
+  text: 120,
+} as const;
+
+const C = STRATEGY_CHECK_LIMITS;
+const Count = z.number().int().min(0).max(100_000);
+const CoverageFlagSchema = z.enum(["gap", "open", "crowded", "you_lead", "even"]);
+const ByCompetitorSchema = z.object({ name: Line(L.competitorName), count: Count });
+
+/** One focus situation as the check last saw it: their articles in 90 days, the new ones, and the brand's answers. */
+export const CheckFocusSchema = z.object({
+  id: SituationId,
+  text: Line(C.text),
+  they: Count,
+  /** Their articles on it published since the check's `since` (by publish date only). */
+  newSince: Count,
+  by: tolerantArray(ByCompetitorSchema, C.by),
+  questions: Count,
+  answered: Count,
+  flag: CoverageFlagSchema,
+});
+export type CheckFocus = z.infer<typeof CheckFocusSchema>;
+
+/**
+ * Why the check asks for a look: new articles of theirs on a focus situation, a focus situation
+ * newly a gap (they write on it and no live article of the brand's answers it), or an alternative on
+ * the brand map they keep naming that the brand doesn't watch. `ref` is the situation's id or the name.
+ */
+export const CheckReasonSchema = z.object({
+  kind: z.enum(["new_articles", "new_gap", "named"]),
+  ref: Line(L.competitorName + 40),
+  text: Line(C.text),
+  count: Count,
+  by: tolerantArray(ByCompetitorSchema, C.by),
+});
+export type CheckReason = z.infer<typeof CheckReasonSchema>;
+
+/**
+ * The weekly check on the approved strategy, kept on the record (under 4 KB) and written without
+ * moving `rev`. At most one row is open. Approving starts it again; Dismiss keeps it quiet 30 days.
+ */
+export const StrategyCheckSchema = z.object({
+  lookedAt: Stamp.nullable().catch(null).default(null),
+  /** When it looks next; null: at the next check tick. */
+  nextAt: Stamp.nullable().catch(null).default(null),
+  /** The day new articles count from: the day after the later of approval, a dismissal, or a row that closed itself. */
+  since: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** The focus situations that were a gap when a row last could be raised; null until the first look. */
+  gapIds: z.array(SituationId).max(C.focus).nullable().catch(null).default(null),
+  raisedNames: z.array(Line(L.competitorName)).max(C.raisedNames).catch([]).default([]),
+  focus: tolerantArray(CheckFocusSchema, C.focus),
+  /** Alternatives on the brand map they name that the brand doesn't watch, with how many articles name each. */
+  named: tolerantArray(ByCompetitorSchema, C.named),
+  open: z
+    .object({
+      /** Changes when the reasons do, so Review counts a changed row as new. */
+      key: z.string().max(40),
+      raisedAt: Stamp,
+      reasons: tolerantArray(CheckReasonSchema, C.reasons),
+      /** When a Propose with Vizzy was made while it was open. */
+      actedAt: Stamp.nullable().catch(null).default(null),
+    })
+    .nullable()
+    .catch(null)
+    .default(null),
+  dismissedUntil: Stamp.nullable().catch(null).default(null),
+});
+export type StrategyCheck = z.infer<typeof StrategyCheckSchema>;
 
 // ----- The record ------------------------------------------------------------------------------
 
@@ -285,8 +405,18 @@ export const BrandStrategyDocSchema = z.object({
     .object({
       quickAt: Stamp.nullable().catch(null).default(null),
       fullRuns: z.array(Stamp).max(L.finderRuns).catch([]).default([]),
+      /** Not a competitor, newest first (STRATEGY_COMPETITORS_ENABLED): kept out of every later run. */
+      notCompetitors: tolerantArray(NotCompetitorSchema, L.notCompetitors),
+      /**
+       * Suggestions a person pressed Monitor on, newest first (STRATEGY_COMPETITORS_ENABLED): one they
+       * stop watching later leaves the list rather than coming back as a suggestion. Older records
+       * read with it empty, which is right for them.
+       */
+      monitoredFinds: tolerantArray(NotCompetitorSchema, L.monitoredFinds),
     })
     .prefault({}),
+  /** The weekly check (STRATEGY_CHECK_ENABLED); null until it first looks, and on records stored before it. */
+  check: StrategyCheckSchema.nullable().catch(null).default(null),
   createdAt: Stamp.catch("").default(""),
   updatedAt: Stamp.catch("").default(""),
 });

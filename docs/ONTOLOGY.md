@@ -279,7 +279,7 @@ What is being talked about in the brand's area, found with Google Search groundi
 
 ### Competitor (`competitor`)
 
-A competitor the brand watches: their sitemap's pages, their news posts, monthly changes and the findings from articles read in full.
+A competitor the brand watches: their sitemap's pages, their news posts, monthly changes, the findings from articles read in full, and the strategy group a person put it in. What they write is worked out from those findings when asked, never stored.
 
 - Status: built
 - Home: the brand's region
@@ -290,13 +290,14 @@ A competitor the brand watches: their sitemap's pages, their news posts, monthly
   - `competitor_posts`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
   - `competitor_changes`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
   - `competitor_articles`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. Findings and short quotes, never the article's text.
+- Links: `brand_strategy` through its group, shown under Who you compete with, and its articles, which Propose and Against your competitors read
 - Erase:
   - `removeCompetitor` in `src/lib/competitors/store.ts`, on removing the record
   - `removeArticles` in `src/lib/competitors/articles.ts`, on removing the record
 - Export: none. Public pages about another business.
 - Search: `competitor`
 - Numbers: none. No numbers an agent reads.
-- Made by: `competitor_site`, `competitor_analysis`, `competitor_articles` (see Learning)
+- Made by: `competitor_site`, `competitor_analysis`, `competitor_articles`, `competitor_profile` (see Learning)
 
 ### Data connection (`data_connection`)
 
@@ -1163,20 +1164,20 @@ A research file the brand brought in, read into findings for the brand map.
 
 ### Brand strategy (`brand_strategy`)
 
-The brand's strategy, one record per brand, approved by a person: who it's for (audiences and 3 to 5 focus buying situations), who it competes with (in groups, found by the competitor finder or watched), where it wins and where they do (claims, each with its proof or shown as a gap), what it is not, and the quarter's goal. Keeps the draft a person edits, the approved one everything reads, the last 5 approved, and the stars, ticks and edits people made.
+The brand's strategy, one record per brand, approved by a person: who it's for (audiences and 3 to 5 focus buying situations), who it competes with (in groups, found by the competitor finder or watched), where it wins and where they do (claims, each with its proof or shown as a gap), what it is not, and the quarter's goal. Keeps the draft a person edits, the approved one everything reads, the last 5 approved, the names marked Not a competitor, the stars, ticks, groups and edits people made, and the weekly check that sets the approved strategy against what the watched competitors publish.
 
 - Status: built
 - Home: the brand's region
 - Personal: no
 - Stores:
   - `brand_strategy`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One document per brand; `by` and decisions hold the admin's email or user id.
-- Links: `brand_map` through its audiences and identity, and the focus situations it stars on approval; `competitor` through the competitors a person ticked to monitor (many)
+- Links: `brand_map` through its audiences and identity, and the focus situations it stars on approval; `competitor` through the competitors a person ticked to monitor, or, joined to Competitors, every one the brand watches, live (many)
 - Erase:
   - `deleteBrandStrategy` in `src/lib/brandStrategy/store.ts`, on removing the record (an admin presses Start over on the Strategy tab)
 - Export: none. The brand's own work, with no one's personal data.
 - Search: none. One short record per brand, read whole by the writer, research, Next up and Vizzy.
-- Numbers: `focusQuestions`, `focusLiveArticles`, `foundTimes`, through `get_brand_strategy`
-- Made by: `brand_strategy`, `competitor_find` (see Learning)
+- Numbers: `focusQuestions`, `focusLiveArticles`, `foundTimes`, `theirArticles`, `theirNewArticles`, `competitorArticles`, `namingArticles`, through `get_brand_strategy`
+- Made by: `brand_strategy`, `competitor_find`, `competitor_claim_match`, `strategy_check` (see Learning)
 
 ### Content strategy (`content_strategy`)
 
@@ -2066,11 +2067,11 @@ Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Ev
 
 A call site is a file where a kind is made, counted once for each kind: a meter call that names its purpose, a canvas's module, the file that holds a rule, or the file that calls a model with no meter.
 
-95 kinds: 0 learn, 0 fleet only, 22 own, 33 gap and 40 none.
+98 kinds: 0 learn, 0 fleet only, 23 own, 34 gap and 41 none.
 
-116 call sites: 0 learn, 0 fleet only, 32 own, 39 gap and 45 none.
+119 call sites: 0 learn, 0 fleet only, 33 own, 40 gap and 46 none.
 
-Not learning: 84 of 116 call sites, under gap and none lines.
+Not learning: 86 of 119 call sites, under gap and none lines.
 
 ### Where own lines keep what they learned
 
@@ -2085,6 +2086,7 @@ Not learning: 84 of 116 call sites, under gap and none lines.
 - `broadcast`: Each one off launch email keeps its open and click rates once its report is read.
 - `refresh_record`: Each refresh record keeps its clock, what a person decided and the clicks 28 days on.
 - `next_action_card`: The card's record keeps the newest 30 outcomes of its steps and each step's newest dismissal of the last 30 days, with the reason a person gave for it.
+- `brand_strategy`: The brand strategy keeps the newest 50 names a person marked Not a competitor, beside the stars, ticks, groups and edits people made.
 
 ### Learns
 
@@ -2109,6 +2111,8 @@ No line says this yet.
   - `src/lib/brandMap/situationQuestions.ts`
   - `src/lib/brandMap/situationsApi.ts`
   - `src/lib/canvas/kinds/brandMap.ts`
+- `competitor_find` (AI purpose, Finding competitors), kept in `brand_strategy`. Where the strategy is joined to Competitors, a name a person marked Not a competitor is kept on the brand strategy and the finder never suggests it again.
+  - `src/lib/brandStrategy/finder.ts`
 - `blog_refresh` (AI purpose, Article refresh reviews), kept in `article_review`. A change your team dismissed on an article is kept with the last 50 on its review and not proposed for that article again.
   - `src/lib/content/blog/refreshReview.ts`
 - `seen_notes` (AI purpose, What we've seen), kept in `content_plan`. A note your team took out of an article is kept with the last 50 on its brief and not matched back into it.
@@ -2168,8 +2172,6 @@ No line says this yet.
 - `content_strategy` (AI purpose, Making the content plan), look again by 2027-05-01. The content plan keeps each pillar a person renamed and each slot they split or joined, but naming and grouping the pillars learns nothing from them yet.
   - `src/lib/contentStrategy/make.ts`
   - `src/lib/signals/collect.ts`
-- `competitor_find` (AI purpose, Finding competitors), look again by 2027-05-01. The brand strategy keeps which competitors the finder found that a person ticked to monitor or left out, but the finder learns nothing from them yet.
-  - `src/lib/brandStrategy/finder.ts`
 - `blog_research` (AI purpose, Blog research), look again by 2027-05-01. Research can read the Learned list through the brand context, but nothing records which facts and sources your team kept or cut.
   - `src/lib/content/blog/research.ts`
 - `autopilot_research` (AI purpose, Autopilot research), look again by 2027-05-01. The autopilot's research is never compared with what your team kept in the article, so it cannot learn which sources fit.
@@ -2225,6 +2227,10 @@ No line says this yet.
   - `src/lib/nextUp/pick.ts`
 - `refresh_due` (rule, Refresh due), look again by 2027-05-01. Marking an article checked restarts its clock, but which reasons make articles due early never changes with what your team marks checked.
   - `src/lib/content/blog/freshnessWatch.ts`
+- `competitor_claim_match` (rule, Claims competitors now make), look again by 2027-05-01. A claim of yours that a competitor's articles start to make too is never spotted, because checking it honestly needs a meaning check per claim and a cut off that would raise false alarms.
+  - `src/lib/competitors/profile.ts`
+- `strategy_check` (rule, Weekly strategy check), look again by 2027-05-01. The weekly strategy check keeps each row your team acted on with Propose or dismissed, but how many new articles or names make a row never changes from them yet.
+  - `src/lib/brandStrategy/checkRules.ts`
 
 ### None
 
@@ -2300,6 +2306,8 @@ No line says this yet.
   - `src/lib/content/blog/foundLive.ts`
 - `competitor_coverage` (rule, Competitor coverage flags). The flags compare competitor articles from the last 90 days with the questions the brand has answered, drafted or planned on each subject, plain counts anyone can check, so there is no taste in them.
   - `src/lib/competitors/coverage.ts`
+- `competitor_profile` (rule, What competitors write). Each profile counts a watched competitor's articles of the last 90 days by kind, stage, ask and buying situation, which anyone can check against the articles themselves.
+  - `src/lib/competitors/profile.ts`
 - `pattern_holdout` (rule, Post patterns holdout). A fixed share of posts is written without the learned patterns so their effect can be measured, and that share must not drift with results.
   - `src/lib/distribute/feedback/patterns.ts`
 - `waitlist_rank` (rule, Waitlist order). The waitlist order is the rule promised to people who signed up: referrals, any bonus for finishing the voice chat and a teammate's Move up, then sign up time, so it must never shift on its own.

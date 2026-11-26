@@ -294,6 +294,15 @@ export default function YourBrandHelp({ ideaWords = isIdeaWordsEnabled(), search
             we check their posts every week, and there are no monthly site checks because we can&apos;t see the rest of their
             site. Otherwise the competitor&apos;s page says we couldn&apos;t read it.
           </P>
+          <P>
+            When this copy of YouGrow joins Competitors to your strategy, this page and the Strategy tab on{" "}
+            <Open href="/admin/brand-kit/map">Brand › Brand map</Open> share one list. Each card, and each competitor&apos;s page,
+            has a group, the same groups the strategy uses, such as <strong>Does most of what you do</strong>. An admin picks it
+            with <strong>Choose a group</strong> on either page, and the other shows it. <strong>Find competitors</strong> here runs
+            the same search as on the Strategy tab, and counts the same way. What it finds waits under{" "}
+            <strong>Suggested by the finder</strong>: press <strong>Monitor</strong> to watch one, or{" "}
+            <strong>Not a competitor</strong> so it isn&apos;t suggested again.
+          </P>
           <H2 id="competitor-articles">See what they write</H2>
           <P>
             When this copy of YouGrow reads their articles, a competitor&apos;s page has a <strong>What they write</strong> tab. We

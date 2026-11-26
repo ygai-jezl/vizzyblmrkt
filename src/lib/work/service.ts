@@ -1,13 +1,83 @@
+import {
+  allocateWorkRefs,
+  appendWorkLog,
+  changeWorkTask,
+  countWorkLog,
+  countWorkTasks,
+  createWorkTask,
+  deleteWorkTask,
+  findWorkTask,
+  findWorkTaskByRef,
+  listTaskDecisions,
+  listWorkChecks,
+  listWorkTasks,
+  newWorkImportId,
+  newWorkTaskId,
+  peekWorkRefs,
+  raiseWorkRefs,
+  type NewWorkTask,
+  type WorkChangePlan,
+  type WorkTaskPatch,
+  type WorkWrite,
+} from "@/lib/tenant";
+import { teamMemberNames } from "@/lib/team/names";
+import { isUsageMeterEnabled } from "@/lib/plans/flags";
+import type { Region } from "@/lib/types/tenant";
+import { countForCheck } from "./counted";
+import { importFileName, matchColumns, parseSheet, readSheet, type ImportRow } from "./import";
+import type { AddTaskBody, CheckActionBody, CheckInput, DecisionBody, EditTaskBody, ImportBody, WorkFilters } from "./inputs";
+import { ok, refuse, type WorkRefused, type WorkResult } from "./result";
+import { checkAfterRead, checkOnDone, dayIn, lookAgain, morningOf, partOf } from "./schedule";
+import { brandForTask, brandIn, mapLimit, nowOf, regionName, seesTask, zoneForTask, type WorkBrand, type WorkDeps, type WorkScope } from "./scope";
 import { stageById } from "./stages";
-import { isClosedStatus, type WorkStatus, type WorkTask } from "./types";
+import {
+  agreedOf,
+  DECISION_OPTION_IDS,
+  isClosedStatus,
+  isPlanApprovalQuestion,
+  PLAN_APPROVAL_OPTIONS,
+  PLAN_APPROVAL_QUESTION,
+  SET_BY_MEASURE,
+  WORK_LIMITS,
+  type Measure,
+  type TypedLink,
+  type WorkCheck,
+  type WorkCheckRow,
+  type WorkDecision,
+  type WorkLogRowOf,
+  type WorkOrigin,
+  type WorkStatus,
+  type WorkTask,
+} from "./types";
+import { checkMeasure, checkTypedLinks, ideaExists, placeForChange, placeForNew, stableJson, tasksByRef } from "./validate";
+import {
+  askAgainNotice,
+  countedLine,
+  doneCheckNotice,
+  IMPORT_ROW_MESSAGES,
+  nextCheckNotice,
+  refHintText,
+  thenCheckNotice,
+  unknownStatusesText,
+  WORK_STATUS_LABEL,
+  type ImportRowProblem,
+  type PlanState,
+} from "./words";
 
 /**
- * Work's service (ADR-0018). The rules here are the two choices Work makes for a team, each with
- * its line in src/lib/loops/registry.ts:
+ * Work's service (ADR-0018): what the admin routes do, each returning a result the route turns
+ * into a response. Who the person is comes from src/lib/work/scope.ts (read live, never from the
+ * request); data only through src/lib/tenant/work.ts.
+ *
+ * The rules here are the two choices Work makes for a team, each with its line in
+ * src/lib/loops/registry.ts:
  * - work_check_due: a check shows once it is due. A person sets the date, the task to wait for or
  *   the measure; the rule only decides that the time has come.
  * - work_ready: which To do tasks are ready to start, and in what order Review shows them. People
  *   pick which to start; the pick is a change row, so a later learner can read it.
+ *
+ * Origin, the proposed kind of win, `recommended` on a decision and every check's setBy are set
+ * here, by the path that made them. Text people write is data, never instructions.
  */
 
 /** What the rules know about another task: its status, "gone" when it no longer exists, or undefined when it couldn't be read. */
@@ -43,4 +113,833 @@ export function readyOrder(a: Pick<WorkTask, "mustHave" | "stage" | "ref">, b: P
   const sa = a.stage ? stageById(a.stage)!.n : 99;
   const sb = b.stage ? stageById(b.stage)!.n : 99;
   return sa - sb || a.ref - b.ref;
+}
+
+/** The list's order: checks due first, then Must have, then the most recently changed. */
+export function listOrder(a: { due: boolean; task: Pick<WorkTask, "mustHave" | "updatedAt" | "ref"> }, b: { due: boolean; task: Pick<WorkTask, "mustHave" | "updatedAt" | "ref"> }): number {
+  if (a.due !== b.due) return a.due ? -1 : 1;
+  if (a.task.mustHave !== b.task.mustHave) return a.task.mustHave ? -1 : 1;
+  return b.task.updatedAt.localeCompare(a.task.updatedAt) || b.task.ref - a.task.ref;
+}
+
+/** Decisions oldest first: by time, and a row that replaces another always after it. */
+export function decisionOrder(a: WorkLogRowOf<"decision">, b: WorkLogRowOf<"decision">): number {
+  return a.at.localeCompare(b.at) || (b.decision.replaces === a.id ? -1 : a.decision.replaces === b.id ? 1 : a.id.localeCompare(b.id));
+}
+
+/**
+ * Each plan link's approval: the newest decision row for the same url and version. A change to
+ * the link's url or version leaves the old rows in place, so it reads Not approved yet.
+ */
+export function planStates(links: readonly TypedLink[], decisions: ReadonlyArray<WorkLogRowOf<"decision">>): Array<{ url: string; version: string | null; title: string; state: PlanState; decisionId: string | null }> {
+  return links
+    .filter((l): l is Extract<TypedLink, { kind: "plan" }> => l.kind === "plan")
+    .map((l) => {
+      const rows = decisions
+        .filter((d) => d.decision.plan && d.decision.plan.url === l.url && (d.decision.plan.version ?? null) === (l.version ?? null) && d.decision.chosen)
+        .sort(decisionOrder);
+      const newest = rows[rows.length - 1];
+      const option = newest?.decision.chosen?.option;
+      const state: PlanState = option === "a" ? "approved" : option === "b" ? "change_it" : option === "c" ? "not_now" : "not_approved_yet";
+      return { url: l.url, version: l.version ?? null, title: l.title, state, decisionId: newest?.id ?? null };
+    });
+}
+
+// --- Reading tasks -----------------------------------------------------------------------------
+
+/** How many closed tasks the list reads beside the open ones, unless it shows closed tasks. */
+const RECENT_CLOSED = 500;
+/** Tasks it looks up one by one for blockers and checks the list didn't read. */
+const LOOKUPS = 30;
+
+export interface RegionDown {
+  region: Region;
+  name: string;
+}
+
+const downOf = (regions: Iterable<Region>): RegionDown[] => [...new Set(regions)].map((r) => ({ region: r, name: regionName(r) }));
+
+/** The brand the list reads for: the session brand in the brand view; any, one, or whole business ("none") in the organisation view. */
+function brandFilterOf(scope: WorkScope, brand: string | null): { ok: true; brandId: string | null | undefined } | WorkRefused {
+  if (scope.view === "brand") return { ok: true, brandId: scope.session.id };
+  if (brand === null) return { ok: true, brandId: undefined };
+  if (brand === "none") return { ok: true, brandId: null };
+  return brandIn(scope, brand) ? { ok: true, brandId: brand } : refuse("brand_unknown");
+}
+
+interface Loaded {
+  tasks: WorkTask[];
+  unanswered: Region[];
+  unreadable: number;
+}
+
+/**
+ * The person's tasks: the open ones, and the newest closed ones (or every closed one), for one
+ * brand or all, with tasks that have a check, so a Done task with a check due is in. In the
+ * organisation view across brands this reads (organisationId, open, closedAt desc); for one
+ * brand it reads by equality alone and the caller sorts.
+ */
+export async function loadTasks(scope: WorkScope, opts: { brandId: string | null | undefined; allClosed: boolean }, deps: WorkDeps): Promise<Loaded> {
+  const brandOpt = opts.brandId === undefined ? {} : { brandId: opts.brandId };
+  const [open, closed, checks] = await Promise.all([
+    listWorkTasks(scope.organisationId, { open: true, ...brandOpt }, deps),
+    listWorkTasks(scope.organisationId, { open: false, ...brandOpt, limit: opts.allClosed ? WORK_LIMITS.tasks : RECENT_CLOSED }, deps),
+    listWorkChecks(scope.organisationId, brandOpt, deps),
+  ]);
+  const byId = new Map<string, WorkTask>();
+  for (const t of [...open.rows, ...closed.rows, ...checks.rows]) if (seesTask(scope, t)) byId.set(t.id, t);
+  return { tasks: [...byId.values()], unanswered: [...new Set([...open.unanswered, ...closed.unanswered, ...checks.unanswered])], unreadable: open.unreadable + closed.unreadable + checks.unreadable };
+}
+
+/** Tasks by id, from those read and then one by one (up to LOOKUPS): null when gone, absent when unread. */
+async function lookupMap(scope: WorkScope, known: readonly WorkTask[], wanted: Iterable<string>, deps: WorkDeps): Promise<Map<string, WorkTask | null>> {
+  const map = new Map<string, WorkTask | null>(known.map((t) => [t.id, t]));
+  const missing = [...new Set(wanted)].filter((id) => !map.has(id)).slice(0, LOOKUPS);
+  await mapLimit(missing, 5, async (id) => {
+    try {
+      const r = await findWorkTask(scope.organisationId, id, deps);
+      if (r.task) map.set(id, r.task);
+      else if (!r.unanswered.length) map.set(id, null);
+    } catch {
+      // Unread: the rules wait.
+    }
+  });
+  return map;
+}
+
+const lookupOf =
+  (map: ReadonlyMap<string, WorkTask | null>): TaskLookup =>
+  (id) => {
+    if (!map.has(id)) return undefined;
+    const t = map.get(id);
+    return t ? t.status : "gone";
+  };
+
+/** Another task as a task shows it: its ref, title and status when the person sees it. */
+export type TaskMention = { id: string; ref: number; title: string; status: WorkStatus } | { id: string; hidden: true } | { id: string; gone: true } | { id: string; unread: true };
+
+function mention(scope: WorkScope, map: ReadonlyMap<string, WorkTask | null>, id: string): TaskMention {
+  if (!map.has(id)) return { id, unread: true };
+  const t = map.get(id);
+  if (!t) return { id, gone: true };
+  if (!seesTask(scope, t)) return { id, hidden: true };
+  return { id, ref: t.ref, title: t.title, status: t.status };
+}
+
+/** A task as the list and the task page show it. */
+export interface WorkTaskView {
+  task: WorkTask;
+  brandName: string | null;
+  due: boolean;
+  /** Every task it waits for; `waiting` when one of them is still open. */
+  blockers: TaskMention[];
+  waiting: boolean;
+  /** The task an after_task check waits for. */
+  checkTask: TaskMention | null;
+  fromVizzy: boolean;
+}
+
+function viewOf(scope: WorkScope, task: WorkTask, map: ReadonlyMap<string, WorkTask | null>, now: Date): WorkTaskView {
+  const lookup = lookupOf(map);
+  const blockers = task.blockedBy.map((id) => mention(scope, map, id));
+  return {
+    task,
+    brandName: brandIn(scope, task.brandId)?.name ?? null,
+    due: isCheckDue(task, now, lookup),
+    blockers,
+    waiting: task.blockedBy.some((id) => {
+      const s = lookup(id);
+      return s !== undefined && !finished(s);
+    }),
+    checkTask: task.check?.taskId ? mention(scope, map, task.check.taskId) : null,
+    fromVizzy: task.origin.kind === "suggestion",
+  };
+}
+
+const wantedOf = (tasks: readonly WorkTask[]) => tasks.flatMap((t) => [...t.blockedBy, ...(t.check?.taskId ? [t.check.taskId] : [])]);
+
+export interface WorkList {
+  view: WorkScope["view"];
+  owner: boolean;
+  brands: Array<{ id: string; name: string; region: Region }>;
+  filters: WorkFilters;
+  tasks: WorkTaskView[];
+  counts: { open: number; mustHave: number; due: number };
+  /** The regions whose tasks couldn't be read: their tasks are hidden, and the list says so. */
+  regionsDown: RegionDown[];
+  unreadable: number;
+}
+
+function statusMatches(f: WorkFilters["status"], t: WorkTask): boolean {
+  if (f === "all") return true;
+  if (f === "open") return t.open;
+  if (f === "closed") return !t.open;
+  return t.status === f;
+}
+
+/** The one list, filtered, in its order. */
+export async function listTasks(scope: WorkScope, filters: WorkFilters, deps: WorkDeps = {}): Promise<WorkResult<WorkList>> {
+  const brand = brandFilterOf(scope, filters.brand);
+  if ("error" in brand) return brand;
+  const now = nowOf(deps);
+  const loaded = await loadTasks(scope, { brandId: brand.brandId, allClosed: filters.status !== "open" }, deps);
+  const map = await lookupMap(scope, loaded.tasks, wantedOf(loaded.tasks), deps);
+  const views = loaded.tasks.map((t) => viewOf(scope, t, map, now));
+  const shown = views.filter(
+    (v) =>
+      (statusMatches(filters.status, v.task) || (filters.due && v.due)) &&
+      (!filters.stage || v.task.stage === filters.stage) &&
+      (!filters.mustHave || v.task.mustHave) &&
+      (!filters.due || v.due) &&
+      (!filters.kind || (filters.kind === "none" ? v.task.measure === null : v.task.measure?.kind === filters.kind)),
+  );
+  shown.sort(listOrder);
+  return ok({
+    view: scope.view,
+    owner: scope.owner,
+    brands: scope.brands.map((b) => ({ id: b.id, name: b.name, region: b.region })),
+    filters,
+    tasks: shown,
+    counts: { open: views.filter((v) => v.task.open).length, mustHave: views.filter((v) => v.task.open && v.task.mustHave).length, due: views.filter((v) => v.due).length },
+    regionsDown: downOf(loaded.unanswered),
+    unreadable: loaded.unreadable,
+  });
+}
+
+/** The checks due now that the person sees, in the list's order: for Review and Today. */
+export async function dueChecks(scope: WorkScope, deps: WorkDeps = {}): Promise<{ tasks: WorkTaskView[]; regionsDown: RegionDown[] }> {
+  const now = nowOf(deps);
+  const brandOpt = scope.view === "brand" ? { brandId: scope.session.id } : {};
+  const checks = await listWorkChecks(scope.organisationId, brandOpt, deps);
+  const mine = checks.rows.filter((t) => seesTask(scope, t));
+  const map = await lookupMap(
+    scope,
+    mine,
+    mine.flatMap((t) => (t.check?.taskId ? [t.check.taskId] : [])),
+    deps,
+  );
+  const views = mine.map((t) => viewOf(scope, t, map, now)).filter((v) => v.due);
+  views.sort(listOrder);
+  return { tasks: views, regionsDown: downOf(checks.unanswered) };
+}
+
+/** The To do tasks ready to start that the person sees (work_ready), in Review's order: Must have, then stage, then ref. */
+export async function readyTasks(scope: WorkScope, deps: WorkDeps = {}): Promise<{ tasks: WorkTaskView[]; regionsDown: RegionDown[] }> {
+  const now = nowOf(deps);
+  const loaded = await loadTasks(scope, { brandId: scope.view === "brand" ? scope.session.id : undefined, allClosed: false }, deps);
+  const todo = loaded.tasks.filter((t) => t.status === "todo");
+  const map = await lookupMap(scope, loaded.tasks, wantedOf(todo), deps);
+  const lookup = lookupOf(map);
+  const ready = todo.filter((t) => isReadyToStart(t, now, lookup)).sort(readyOrder);
+  return { tasks: ready.map((t) => viewOf(scope, t, map, now)), regionsDown: downOf(loaded.unanswered) };
+}
+
+// --- One task ----------------------------------------------------------------------------------
+
+/** The task with this ref, if the person sees it. */
+async function taskByRef(scope: WorkScope, ref: number, deps: WorkDeps): Promise<WorkTask | null> {
+  const { task } = await findWorkTaskByRef(scope.organisationId, ref, deps);
+  return task && seesTask(scope, task) ? task : null;
+}
+
+const writeOf = (scope: WorkScope, now: Date, tool: string = "work_page"): WorkWrite => ({
+  source: { who: { kind: "person", id: scope.userId }, tool, session: null },
+  at: now.toISOString(),
+  day: dayIn(now, scope.session.timeZone),
+});
+
+/** The line on a measure's check: what Work counted, or what it can't count. Null on any other check. */
+export function checkLineOf(scope: WorkScope, task: WorkTask): string | null {
+  const part = partOf(task.measure, task.check?.setBy === SET_BY_MEASURE ? (task.check.which ?? null) : null);
+  if (!part || !task.check) return null;
+  const brand = brandForTask(scope, task);
+  const meterOff = part.kind === "used" && "purpose" in part.counts && !isUsageMeterEnabled();
+  return countedLine({ part, counted: task.check.counted ?? null, brandName: brand?.name ?? null, timeZone: zoneForTask(scope, task), meterOff });
+}
+
+/**
+ * Count a due measure's check once, and keep the count on it (a change row by the system, tool
+ * work_count). A check counted already, not due, or with nothing Work can count is left alone.
+ */
+export async function countDueCheck(scope: WorkScope, task: WorkTask, deps: WorkDeps): Promise<WorkTask> {
+  const now = nowOf(deps);
+  const check = task.check;
+  if (!check || check.setBy !== SET_BY_MEASURE || check.counted || !isCheckDue(task, now)) return task;
+  let counted;
+  try {
+    counted = await countForCheck(task, brandForTask(scope, task), deps, now);
+  } catch (err) {
+    console.warn("[work] counting a check failed:", err instanceof Error ? err.message.slice(0, 200) : "unknown");
+    return task;
+  }
+  if (!counted) return task;
+  const r = await changeWorkTask(
+    scope.organisationId,
+    task.id,
+    task.region,
+    (cur) => (cur.check && cur.check.setAt === check.setAt && !cur.check.counted ? { patch: { check: { ...cur.check, counted } } } : null),
+    { source: { who: { kind: "system", id: null }, tool: "work_count", session: null }, at: now.toISOString(), day: dayIn(now, zoneForTask(scope, task)) },
+    deps,
+  );
+  return r.ok ? r.task : "task" in r ? r.task : task;
+}
+
+export interface WorkTaskPage extends WorkTaskView {
+  decisions: Array<WorkLogRowOf<"decision">>;
+  plans: ReturnType<typeof planStates>;
+  /** On a measure's check: what Work counted, or what it can't count. */
+  checkLine: string | null;
+  timeZone: string;
+  /** `{ userId: name }` for the people the task names who are on a team the person sees. */
+  names: Record<string, string>;
+  can: { delete: boolean; prAndSwitch: boolean; loopLine: boolean };
+  regionsDown: RegionDown[];
+}
+
+/** One task, with its decisions, its plan links' approvals and the count on a due measure's check. */
+export async function taskPage(scope: WorkScope, ref: number, deps: WorkDeps = {}): Promise<WorkResult<WorkTaskPage>> {
+  const found = await findWorkTaskByRef(scope.organisationId, ref, deps);
+  if (!found.task || !seesTask(scope, found.task)) return refuse("not_found");
+  const task = await countDueCheck(scope, found.task, deps);
+  const [stored, map] = await Promise.all([listTaskDecisions(scope.organisationId, task.region, task.id, deps), lookupMap(scope, [task], wantedOf([task]), deps)]);
+  const decisions = [...stored].sort(decisionOrder);
+  const ids = [
+    task.origin.kind === "coding_agent" ? null : task.origin.by,
+    task.check?.setBy,
+    task.measure?.setBy,
+    ...task.recent.map((r) => r.who.id),
+    ...decisions.map((d) => d.decision.chosen?.by),
+  ];
+  const names: Record<string, string> = {};
+  for (const b of scope.brands.slice(0, 5)) {
+    Object.assign(names, await teamMemberNames({ tenantId: b.id, region: b.region, source: "system" }, ids, { db: deps.controlDb, lookup: deps.lookup }));
+  }
+  const brand = brandForTask(scope, task);
+  const repos = brand ? brand.repos : scope.brands.flatMap((b) => b.repos);
+  return ok({
+    ...viewOf(scope, task, map, nowOf(deps)),
+    decisions,
+    plans: planStates(task.typedLinks, decisions),
+    checkLine: checkLineOf(scope, task),
+    timeZone: zoneForTask(scope, task),
+    names,
+    can: { delete: scope.canDelete, prAndSwitch: repos.length > 0, loopLine: scope.operator },
+    regionsDown: downOf(found.unanswered),
+  });
+}
+
+// --- Adding and changing -----------------------------------------------------------------------
+
+class Changed extends Error {}
+
+/** A check a person sets, in the task's time zone, or why not. */
+async function personCheck(scope: WorkScope, input: CheckInput, self: string | null, timeZone: string, deps: WorkDeps, now: Date): Promise<{ ok: true; check: WorkCheck } | WorkRefused> {
+  const base = { note: input.note ?? "", setBy: scope.userId, setAt: now.toISOString(), which: null, counted: null };
+  if (input.kind === "date") return { ok: true, check: { kind: "date", at: morningOf(input.day, timeZone, input.time), taskId: null, ...base } };
+  const found = await tasksByRef(scope, [input.ref], self, deps, "check_task_missing");
+  if (!found.ok) return found;
+  return { ok: true, check: { kind: "after_task", at: null, taskId: found.tasks[0]!.id, ...base } };
+}
+
+/** The fields an edit or an add sets, checked against what is kept, before the write. */
+interface Checked {
+  patch: WorkTaskPatch;
+  /** Set only when the request set a check (or cleared one). */
+  check?: WorkCheck | null;
+}
+
+/**
+ * Check an add's or an edit's fields against the task as it is (null for a new task): brand,
+ * blockers, idea, clipping, typed links, measure and check. Async lookups happen here, before the
+ * write.
+ */
+async function checkFields(
+  scope: WorkScope,
+  body: AddTaskBody | EditTaskBody,
+  current: WorkTask | null,
+  place: { brandId: string | null; region: Region; addedFrom: string },
+  deps: WorkDeps,
+  now: Date,
+): Promise<{ ok: true; value: Checked } | WorkRefused> {
+  const patch: WorkTaskPatch = {};
+  for (const k of ["title", "description", "notes", "status", "stage", "mustHave", "links", "waitingOn"] as const) {
+    if (body[k] !== undefined) (patch as Record<string, unknown>)[k] = body[k];
+  }
+  if (!current || body.brandId !== undefined) patch.brandId = place.brandId;
+  if (body.blockedBy !== undefined) {
+    const found = await tasksByRef(scope, body.blockedBy, current?.id ?? null, deps);
+    if (!found.ok) return found;
+    patch.blockedBy = found.tasks.map((t) => t.id);
+  }
+  if ("idea" in body && body.idea !== undefined) {
+    if (body.idea === null) Object.assign(patch, { ideaId: null, ideaBrandId: null });
+    else {
+      if (!(await ideaExists(scope, body.idea.brandId, body.idea.ideaId, deps))) return refuse("idea_missing");
+      Object.assign(patch, { ideaId: body.idea.ideaId, ideaBrandId: body.idea.brandId });
+    }
+  }
+  if (body.clipping !== undefined) {
+    if (body.clipping && !brandIn(scope, body.clipping.brandId)) return refuse("brand_unknown");
+    patch.clipping = body.clipping;
+  }
+  const after = { ...(current ?? {}), ...patch } as Partial<WorkTask>;
+  const brand = brandForTask(scope, { brandId: after.brandId ?? null });
+  if (body.typedLinks !== undefined) {
+    const links = await checkTypedLinks(scope, body.typedLinks, { brand, current: current?.typedLinks ?? [] }, deps);
+    if (!links.ok) return links;
+    patch.typedLinks = links.links;
+  }
+  if (body.measure !== undefined) {
+    const m = await checkMeasure(
+      scope,
+      body.measure,
+      {
+        title: after.title ?? "",
+        description: after.description ?? "",
+        stage: after.stage ?? null,
+        brandId: after.brandId ?? null,
+        ideaId: after.ideaId ?? null,
+        typedLinks: patch.typedLinks ?? current?.typedLinks ?? [],
+        brand,
+        current: current?.measure ?? null,
+      },
+      deps,
+      now,
+    );
+    if (!m.ok) return m;
+    patch.measure = m.measure;
+  }
+  const out: Checked = { patch };
+  if (body.check !== undefined) {
+    if (current?.check?.setBy === SET_BY_MEASURE) return refuse("measure_check_kept");
+    if (body.check === null) out.check = null;
+    else {
+      const zone = (brandIn(scope, place.brandId) ?? brandIn(scope, place.addedFrom) ?? scope.session).timeZone;
+      const c = await personCheck(scope, body.check, current?.id ?? null, zone, deps, now);
+      if (!c.ok) return c;
+      out.check = c.check;
+    }
+  }
+  return { ok: true, value: out };
+}
+
+/**
+ * What the change does to status, closedAt and the check, on the freshest task: closing sets
+ * closedAt, reopening clears it; Done on a measure that looks after N days sets the measure's
+ * check (replacing any open check, and saying so); reopening, Dropped, or a measure that no
+ * longer has the part a measure's check asks about clears that check.
+ */
+export function settle(current: WorkTask | null, patch: WorkTaskPatch, check: WorkCheck | null | undefined, timeZone: string, now: Date): { patch: WorkTaskPatch; replaced: boolean; setByDone: WorkCheck | null } {
+  const out: WorkTaskPatch = { ...patch };
+  if (check !== undefined) out.check = check;
+  const before = current?.status ?? null;
+  const status = out.status ?? before ?? "todo";
+  const measure: Measure | null = out.measure !== undefined ? out.measure : (current?.measure ?? null);
+  let liveCheck: WorkCheck | null = out.check !== undefined ? out.check : (current?.check ?? null);
+  let replaced = false;
+  let setByDone: WorkCheck | null = null;
+  if (status !== before) {
+    out.closedAt = isClosedStatus(status) ? now.toISOString() : null;
+    if (status === "done") {
+      const c = checkOnDone(measure, out.closedAt!, timeZone, now);
+      if (c) {
+        replaced = liveCheck !== null;
+        liveCheck = c;
+        setByDone = c;
+      }
+    } else if (liveCheck?.setBy === SET_BY_MEASURE) {
+      liveCheck = null;
+    }
+  }
+  const measureChanged = out.measure !== undefined && current !== null && stableJson(out.measure) !== stableJson(current.measure);
+  if (liveCheck?.setBy === SET_BY_MEASURE && !partOf(measure, liveCheck.which)) liveCheck = null;
+  else if (liveCheck?.setBy === SET_BY_MEASURE && measureChanged && liveCheck.counted) liveCheck = { ...liveCheck, counted: null };
+  const was = current?.check ?? null;
+  if (liveCheck !== was || out.check !== undefined) out.check = liveCheck;
+  return { patch: out, replaced, setByDone };
+}
+
+export interface ChangeDone {
+  task: WorkTaskView;
+  /** What Work did besides what was asked, such as the check Done set. */
+  notice: string | null;
+}
+
+/** Add a task from the add page or quick add: the person's own. */
+export async function addTask(scope: WorkScope, body: AddTaskBody, deps: WorkDeps = {}): Promise<WorkResult<ChangeDone>> {
+  return addTaskWith(scope, body, { kind: "person", by: scope.userId }, deps);
+}
+
+/**
+ * Add a task with the origin its path sets (the add page, an import, later a Review accept),
+ * never one read from a request. The ref comes from the organisation's counter first, so a write
+ * that then fails leaves a gap.
+ */
+export async function addTaskWith(scope: WorkScope, body: AddTaskBody, origin: WorkOrigin, deps: WorkDeps = {}, opts: { id?: string; tool?: string } = {}): Promise<WorkResult<ChangeDone>> {
+  const now = nowOf(deps);
+  const place = placeForNew(scope, body.brandId);
+  if ("error" in place) return place;
+  const { count } = await countWorkTasks(scope.organisationId, deps);
+  if (count >= WORK_LIMITS.tasks) return refuse("tasks_full");
+  const checked = await checkFields(scope, body, null, { ...place, addedFrom: scope.session.id }, deps, now);
+  if (!checked.ok) return checked;
+  const zone = (brandIn(scope, place.brandId) ?? scope.session).timeZone;
+  const settled = settle(null, { status: body.status ?? "todo", ...checked.value.patch }, checked.value.check, zone, now);
+  const ref = await allocateWorkRefs(scope.organisationId, 1, deps.controlDb, now);
+  const p = settled.patch;
+  const task: NewWorkTask = {
+    id: opts.id ?? newWorkTaskId(),
+    organisationId: scope.organisationId,
+    brandId: place.brandId,
+    addedFrom: scope.session.id,
+    region: place.region,
+    ref,
+    title: p.title ?? body.title,
+    description: p.description ?? "",
+    notes: p.notes ?? "",
+    status: p.status ?? "todo",
+    stage: p.stage ?? null,
+    mustHave: p.mustHave ?? false,
+    links: p.links ?? [],
+    blockedBy: p.blockedBy ?? [],
+    waitingOn: p.waitingOn ?? null,
+    ideaId: p.ideaId ?? null,
+    ideaBrandId: p.ideaBrandId ?? null,
+    clipping: p.clipping ?? null,
+    typedLinks: p.typedLinks ?? [],
+    measure: p.measure ?? null,
+    origin,
+    check: p.check ?? null,
+    closedAt: p.closedAt ?? null,
+  };
+  const made = await createWorkTask(task, writeOf(scope, now, opts.tool ?? body.via ?? "work_page"), deps);
+  const map = await lookupMap(scope, [made.task], wantedOf([made.task]), deps);
+  return ok({ task: viewOf(scope, made.task, map, now), notice: settled.setByDone ? doneCheckNotice(settled.setByDone.at!, zone, settled.replaced) : null }, 201);
+}
+
+/** Change a task: what the person sent, checked, then written with its change rows in one transaction. */
+export async function editTask(scope: WorkScope, ref: number, body: EditTaskBody, deps: WorkDeps = {}): Promise<WorkResult<ChangeDone>> {
+  const now = nowOf(deps);
+  const found = await taskByRef(scope, ref, deps);
+  if (!found) return refuse("not_found");
+  let place = { brandId: found.brandId, region: found.region };
+  if (body.brandId !== undefined) {
+    const p = placeForChange(scope, found, body.brandId);
+    if ("error" in p) return p;
+    place = p;
+  }
+  const checked = await checkFields(scope, body, found, { ...place, addedFrom: found.addedFrom }, deps, now);
+  if (!checked.ok) return checked;
+  const zone = zoneForTask(scope, { brandId: place.brandId, addedFrom: found.addedFrom });
+  let settled: ReturnType<typeof settle> | null = null;
+  const seen = stableJson(found);
+  const plan = (cur: WorkTask): WorkChangePlan | null => {
+    // Checked against the task as it was read: one changed since is refused, never merged.
+    if (stableJson(cur) !== seen) throw new Changed();
+    settled = settle(cur, checked.value.patch, checked.value.check, zone, now);
+    return { patch: settled.patch };
+  };
+  let r;
+  try {
+    r = await changeWorkTask(scope.organisationId, found.id, found.region, plan, writeOf(scope, now, body.via), deps);
+  } catch (err) {
+    if (err instanceof Changed) return refuse("changed");
+    throw err;
+  }
+  if (!r.ok && r.why === "not_found") return refuse("not_found");
+  const task = r.ok ? r.task : r.task;
+  const map = await lookupMap(scope, [task], wantedOf([task]), deps);
+  const s = settled as ReturnType<typeof settle> | null;
+  return ok({ task: viewOf(scope, task, map, now), notice: r.ok && s?.setByDone ? doneCheckNotice(s.setByDone.at!, zone, s.replaced) : null });
+}
+
+/** Delete a task (admins and owners): its log rows stay, with a "deleted" row. */
+export async function removeTask(scope: WorkScope, ref: number, deps: WorkDeps = {}): Promise<WorkResult<{ deleted: true; ref: number }>> {
+  if (!scope.canDelete) return refuse("forbidden_delete");
+  const found = await taskByRef(scope, ref, deps);
+  if (!found) return refuse("not_found");
+  const r = await deleteWorkTask(scope.organisationId, found.id, found.region, writeOf(scope, nowOf(deps)), deps);
+  return r.ok ? ok({ deleted: true as const, ref }) : refuse("not_found");
+}
+
+// --- Checks ------------------------------------------------------------------------------------
+
+/**
+ * Mark a check checked, look again, or read a measure's check:
+ * - Mark checked (Review's Done) ends a date or task check; a measure's check takes a read instead.
+ * - Look again (Review's Tomorrow) moves the check to a day, tomorrow at 08:00 unless one is given.
+ * - A read (Better, Same, Worse, Too soon to tell) is taken only on a measure's check, with what
+ *   Work counted kept on its row. Better, Same or Worse on the first measure sets the then's
+ *   check; Too soon to tell asks again 7 days on.
+ */
+export async function actOnCheck(scope: WorkScope, body: CheckActionBody, deps: WorkDeps = {}): Promise<WorkResult<ChangeDone>> {
+  const now = nowOf(deps);
+  let task = await taskByRef(scope, body.ref, deps);
+  if (!task) return refuse("not_found");
+  if (!task.check) return refuse("no_check");
+  const byMeasure = task.check.setBy === SET_BY_MEASURE;
+  if (body.action === "checked" && byMeasure) return refuse("measure_check_read");
+  if (body.action === "read" && !byMeasure) return refuse("read_not_measure");
+  if (body.action === "read") task = await countDueCheck(scope, task, deps);
+  const zone = zoneForTask(scope, task);
+  const seen = task;
+  let notice: string | null = null;
+  const plan = (cur: WorkTask): WorkChangePlan | null => {
+    if (!cur.check || cur.check.setAt !== seen.check!.setAt || cur.check.setBy !== seen.check!.setBy) throw new Changed();
+    const c = cur.check;
+    const part = partOf(cur.measure, c.which);
+    if (body.action === "read" && !part) throw new Changed();
+    const onMeasure = c.setBy === SET_BY_MEASURE && part !== null;
+    let next: WorkCheck | null = null;
+    if (body.action === "look_again") next = lookAgain(c, { by: scope.userId, timeZone: zone, now, day: body.day, time: body.time });
+    if (body.action === "read") next = checkAfterRead(c, body.read!, { measure: cur.measure, closedAt: cur.closedAt, timeZone: zone, now, day: body.day, time: body.time });
+    const row: WorkCheckRow = {
+      action: body.action,
+      kind: c.kind,
+      at: c.at,
+      next: next?.at ?? null,
+      measureKind: onMeasure ? part!.kind : null,
+      which: onMeasure ? c.which : null,
+      counted: onMeasure ? (c.counted ?? null) : null,
+      read: body.action === "read" ? body.read! : null,
+    };
+    if (next) notice = body.read === "too_soon" ? askAgainNotice(next.at!, zone) : next.which === "then" && c.which === "first" ? thenCheckNotice(next.at!, zone) : nextCheckNotice(next.at!, zone);
+    return { patch: { check: next }, checkRow: row };
+  };
+  let r;
+  try {
+    r = await changeWorkTask(scope.organisationId, task.id, task.region, plan, writeOf(scope, now, body.via), deps);
+  } catch (err) {
+    if (err instanceof Changed) return refuse("changed");
+    throw err;
+  }
+  if (!r.ok && r.why === "not_found") return refuse("not_found");
+  const done = r.ok ? r.task : r.task;
+  const map = await lookupMap(scope, [done], wantedOf([done]), deps);
+  return ok({ task: viewOf(scope, done, map, now), notice });
+}
+
+// --- Decisions ---------------------------------------------------------------------------------
+
+/** Who recommended a pick: only ever from a stored draft (Vizzy's, later a coding agent's), never from a request. */
+export type Recommended = NonNullable<WorkDecision["recommended"]>;
+
+/**
+ * Record a decision on a task, append only: a changed mind is a new row that may name the one it
+ * replaces. A plan approval ("Approve the plan": Approve, Change it, Not now) needs the plan link
+ * with that url and version on the task, takes no recommendation, and so is refused when drafted.
+ */
+export async function recordDecision(scope: WorkScope, body: DecisionBody, deps: WorkDeps = {}, opts: { recommended?: Recommended | null; tool?: string } = {}): Promise<WorkResult<{ row: WorkLogRowOf<"decision">; plans: ReturnType<typeof planStates> }>> {
+  const now = nowOf(deps);
+  const task = await taskByRef(scope, body.ref, deps);
+  if (!task) return refuse("not_found");
+  const decisions = await listTaskDecisions(scope.organisationId, task.region, task.id, deps);
+  if (decisions.length >= WORK_LIMITS.decisions) return refuse("decisions_full");
+  if (body.replaces && !decisions.some((d) => d.id === body.replaces)) return refuse("replaces_missing");
+  let decision: WorkDecision;
+  if (body.plan) {
+    if (opts.recommended) return refuse("plan_recommended");
+    if (body.question !== undefined && !isPlanApprovalQuestion(body.question)) return refuse("plan_question");
+    const fixed = PLAN_APPROVAL_OPTIONS.map((o) => o.label as string);
+    if (body.options && (body.options.length !== fixed.length || body.options.some((o, i) => o !== fixed[i]))) return refuse("plan_choice");
+    if (!body.chosen || !["a", "b", "c"].includes(body.chosen)) return refuse("plan_choice");
+    const plan = body.plan;
+    const link = task.typedLinks.find((l) => l.kind === "plan" && l.url === plan.url && (l.version ?? null) === (plan.version ?? null));
+    if (!link) return refuse("plan_link_missing");
+    decision = {
+      question: PLAN_APPROVAL_QUESTION,
+      options: PLAN_APPROVAL_OPTIONS.map((o) => ({ id: o.id, label: o.label })),
+      recommended: null,
+      chosen: { option: body.chosen, by: scope.userId },
+      agreed: null,
+      why: body.why || null,
+      replaces: body.replaces ?? null,
+      plan: { url: plan.url, ...(plan.version ? { version: plan.version } : {}) },
+    };
+  } else {
+    if (isPlanApprovalQuestion(body.question!)) return refuse("plan_question");
+    const options = body.options!.map((label, i) => ({ id: DECISION_OPTION_IDS[i]!, label }));
+    if (body.chosen && !options.some((o) => o.id === body.chosen)) return refuse("plan_choice", "The choice is one of the options.");
+    const recommended = opts.recommended ?? null;
+    const chosen = body.chosen ? { option: body.chosen, by: scope.userId } : null;
+    decision = { question: body.question!, options, recommended, chosen, agreed: agreedOf({ recommended, chosen }), why: body.why || null, replaces: body.replaces ?? null, plan: null };
+  }
+  const w = writeOf(scope, now, opts.tool);
+  const [row] = await appendWorkLog(
+    [{ organisationId: scope.organisationId, brandId: task.brandId, region: task.region, day: w.day, at: w.at, source: w.source, kind: "decision", taskId: task.id, decision }],
+    deps,
+  );
+  const saved = row as WorkLogRowOf<"decision">;
+  return ok({ row: saved, plans: planStates(task.typedLinks, [...decisions, saved]) }, 201);
+}
+
+// --- Import ------------------------------------------------------------------------------------
+
+export interface ImportPreview {
+  columns: Array<{ head: string; field: string }>;
+  /** The first 20 rows as they would come in. */
+  rows: Array<ImportRow & { statusLabel: string }>;
+  total: number;
+  refused: Array<{ row: number; problem: ImportRowProblem; message: string }>;
+  unknownStatuses: string[];
+  unknownText: string;
+  nextRef: number;
+  refHint: string;
+}
+
+export interface ImportDone {
+  importId: string;
+  imported: number;
+  refused: Array<{ row: number; problem: ImportRowProblem; message: string }>;
+  unknownStatuses: string[];
+  nextRef: number;
+}
+
+const PREVIEW_ROWS = 20;
+
+/** Read a Backlog tab and check every row: the rows and what would be refused, with nothing written. */
+async function readImport(scope: WorkScope, body: ImportBody, deps: WorkDeps) {
+  const sheet = parseSheet(body.text);
+  if (!sheet.rows.length) return refuse("import_empty");
+  if (sheet.rows.length > WORK_LIMITS.importRows) return refuse("import_too_many");
+  const columns = matchColumns(sheet.headers, body.mapping ?? {});
+  if (!columns.some((c) => c.field === "title")) return refuse("import_no_title");
+  const read = readSheet(sheet, columns);
+  const fallback = placeForNew(scope, body.brandId);
+  if ("error" in fallback) return fallback;
+  // Refs are per organisation: every task's, in every region, whatever the person sees.
+  const [open, closed] = await Promise.all([
+    listWorkTasks(scope.organisationId, { open: true }, deps),
+    listWorkTasks(scope.organisationId, { open: false, limit: WORK_LIMITS.tasks }, deps),
+  ]);
+  const all = [...open.rows, ...closed.rows];
+  const unanswered = [...open.unanswered, ...closed.unanswered];
+  const taken = new Map(all.map((t) => [t.ref, t]));
+  const refused: ImportDone["refused"] = read.problems.map((p) => ({ ...p, message: IMPORT_ROW_MESSAGES[p.problem] }));
+  const rows: Array<ImportRow & { place: { brandId: string | null; region: Region } }> = [];
+  for (const r of read.rows) {
+    if (r.ref !== null && taken.has(r.ref)) {
+      refused.push({ row: r.row, problem: "ref_taken", message: IMPORT_ROW_MESSAGES.ref_taken });
+      continue;
+    }
+    let place: { brandId: string | null; region: Region } = fallback;
+    if (r.brand) {
+      const want = r.brand.trim().toLowerCase();
+      const b = scope.brands.find((x) => x.id.toLowerCase() === want || x.name.trim().toLowerCase() === want);
+      if (!b || (scope.view === "brand" && b.id !== scope.session.id)) {
+        refused.push({ row: r.row, problem: "brand_unknown", message: IMPORT_ROW_MESSAGES.brand_unknown });
+        continue;
+      }
+      place = { brandId: b.id, region: b.region };
+    }
+    rows.push({ ...r, place });
+  }
+  refused.sort((a, b) => a.row - b.row);
+  const highest = Math.max(0, ...rows.map((r) => r.ref ?? 0));
+  const next = Math.max(await peekWorkRefs(scope.organisationId, deps.controlDb), highest + 1);
+  return { ok: true as const, columns, rows, refused, unknownStatuses: read.unknownStatuses, taken, highest, next, unanswered };
+}
+
+/** The import dialog's preview: what each column fills, the first 20 rows, and what would be refused. */
+export async function previewImport(scope: WorkScope, body: ImportBody, deps: WorkDeps = {}): Promise<WorkResult<ImportPreview>> {
+  if (!scope.canImport) return refuse("forbidden_import");
+  const r = await readImport(scope, body, deps);
+  if (!r.ok) return r;
+  return ok({
+    columns: r.columns,
+    rows: r.rows.slice(0, PREVIEW_ROWS).map(({ place: _place, ...row }) => ({ ...row, statusLabel: WORK_STATUS_LABEL[row.status] })),
+    total: r.rows.length,
+    refused: r.refused,
+    unknownStatuses: r.unknownStatuses,
+    unknownText: unknownStatusesText(r.unknownStatuses),
+    nextRef: r.next,
+    refHint: refHintText(r.next),
+  });
+}
+
+/**
+ * Import a Backlog tab (admins and owners), up to 1,000 rows: each row a task whose origin is the
+ * import and its row, its sheet ref kept (new refs start after the highest), a status Work doesn't
+ * know as To do, and a Check column as a check at 08:00 brand time or on another task.
+ */
+export async function importTasks(scope: WorkScope, body: ImportBody, deps: WorkDeps = {}): Promise<WorkResult<ImportDone>> {
+  if (!scope.canImport) return refuse("forbidden_import");
+  const now = nowOf(deps);
+  const r = await readImport(scope, body, deps);
+  if (!r.ok) return r;
+  if (r.unanswered.length) return refuse("regions_down");
+  const { count } = await countWorkTasks(scope.organisationId, deps);
+  if (count + r.rows.length > WORK_LIMITS.tasks) return refuse("tasks_full");
+  const importId = newWorkImportId();
+  const file = importFileName(body.file);
+  if (r.highest > 0) await raiseWorkRefs(scope.organisationId, r.highest, deps.controlDb, now);
+  const fresh = r.rows.filter((x) => x.ref === null).length;
+  let nextNew = fresh ? await allocateWorkRefs(scope.organisationId, fresh, deps.controlDb, now) : 0;
+  const ids = new Map<number, string>();
+  const planned = r.rows.map((row) => {
+    const ref = row.ref ?? nextNew++;
+    const id = newWorkTaskId();
+    ids.set(ref, id);
+    return { row, ref, id };
+  });
+  const refused = [...r.refused];
+  const write = writeOf(scope, now, "import");
+  let imported = 0;
+  await mapLimit(planned, 8, async ({ row, ref, id }) => {
+    const zone = (brandIn(scope, row.place.brandId) ?? scope.session).timeZone;
+    let check: WorkCheck | null = null;
+    if (row.check?.kind === "date") {
+      check = { kind: "date", at: morningOf(row.check.day, zone), taskId: null, note: "", setBy: scope.userId, setAt: write.at, which: null, counted: null };
+    } else if (row.check?.kind === "after_task") {
+      const target = ids.get(row.check.ref) ?? r.taken.get(row.check.ref)?.id;
+      if (target && target !== id) check = { kind: "after_task", at: null, taskId: target, note: "", setBy: scope.userId, setAt: write.at, which: null, counted: null };
+    }
+    try {
+      await createWorkTask(
+        {
+          id,
+          organisationId: scope.organisationId,
+          brandId: row.place.brandId,
+          addedFrom: scope.session.id,
+          region: row.place.region,
+          ref,
+          title: row.title,
+          description: row.description,
+          notes: row.notes,
+          status: row.status,
+          stage: row.stage,
+          mustHave: row.mustHave,
+          links: row.links,
+          blockedBy: [],
+          waitingOn: null,
+          ideaId: null,
+          ideaBrandId: null,
+          clipping: null,
+          typedLinks: [],
+          measure: null,
+          origin: { kind: "import", by: scope.userId, importId, row: row.row, ...(file ? { file } : {}) },
+          check,
+          closedAt: isClosedStatus(row.status) ? write.at : null,
+        },
+        write,
+        deps,
+      );
+      imported += 1;
+    } catch (err) {
+      console.warn("[work] an imported row failed:", err instanceof Error ? err.message.slice(0, 200) : "unknown");
+      refused.push({ row: row.row, problem: "failed", message: IMPORT_ROW_MESSAGES.failed });
+    }
+  });
+  refused.sort((a, b) => a.row - b.row);
+  return ok({ importId, imported, refused, unknownStatuses: r.unknownStatuses, nextRef: await peekWorkRefs(scope.organisationId, deps.controlDb) }, 201);
+}
+
+/** The caps a day's Log writes check: entries written in the organisation today, in every region. */
+export async function entriesToday(scope: WorkScope, day: string, deps: WorkDeps): Promise<number> {
+  return (await countWorkLog(scope.organisationId, { day, kind: "entry" }, deps)).count;
+}
+
+/** The brands a task may be tagged with, for the add page's picker: whole business only where allowed. */
+export function brandChoices(scope: WorkScope): { wholeBusiness: boolean; brands: WorkBrand[] } {
+  return { wholeBusiness: scope.view === "organisation", brands: scope.view === "brand" ? [scope.session] : scope.brands };
 }

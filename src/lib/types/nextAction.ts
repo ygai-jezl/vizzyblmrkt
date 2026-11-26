@@ -250,6 +250,8 @@ export interface NextActionRecord {
   composeCount: number;
   /** A write in progress holds the record until then, so two tabs never write two cards. */
   leaseUntil: string | null;
+  /** Which write holds it: only that one may put its card in. */
+  leaseId: string | null;
   outcomes: Outcome[];
   createdAt: string;
   updatedAt: string;
@@ -271,6 +273,7 @@ export const NextActionRecordSchema = z.object({
   composeDay: z.string().max(10),
   composeCount: z.number().int().min(0),
   leaseUntil: isoTime.nullable(),
+  leaseId: z.string().max(40).nullable(),
   // A damaged outcome is dropped on its own, never the whole record.
   outcomes: z.array(z.unknown()).transform((rows) => rows.flatMap((r) => {
     const o = OutcomeSchema.safeParse(r);

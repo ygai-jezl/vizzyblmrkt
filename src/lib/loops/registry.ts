@@ -96,6 +96,7 @@ export const LEARNED_STORES = {
   content_plan: "An article's brief keeps up to 50 notes a person took out of it.",
   broadcast: "Each one off launch email keeps its open and click rates once its report is read.",
   refresh_record: "Each refresh record keeps its clock, what a person decided and the clicks 28 days on.",
+  next_action_card: "The card's record keeps the newest 30 outcomes of its steps, with the reason a person gave for each dismissal.",
 } as const satisfies Record<string, string>;
 
 export type LearnedStore = keyof typeof LEARNED_STORES;
@@ -209,6 +210,7 @@ export const LOOPS = {
   vizzy_chat: none("Each chat reply answers what the person just asked, and anything Vizzy saves is judged as the kind of draft it is."),
   product_map: none("It reads what your product's code does today, a fact rather than a taste, and a person decides what goes in the catalog."),
   onboarding: none("It turns what the founder said into the four answers and facts in their own words, and the founder keeps, changes or removes each one before anything is saved."),
+  next_action: own("next_action_card", "A step your team dismissed stays off the card for 30 days, and the next card for the brand reads what was done, answered, dismissed with its reason or left untouched."),
   other: none("Not a choice: no code spends under this name today, and every new call should name its real purpose."),
   blog_hero: own("brand_kit", "Where learning from image votes is turned on, blog heroes made on the article follow the look learned from your thumbs and ratings, but a hero Vizzy makes during a chat skips it."),
   post_image: own("brand_kit", "Where learning from image votes is turned on, painted post images follow the look learned from your thumbs and ratings, but drawn styles, format cards and charts skip it."),

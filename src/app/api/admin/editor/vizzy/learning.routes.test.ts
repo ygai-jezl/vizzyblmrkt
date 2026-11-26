@@ -304,6 +304,16 @@ describe("the learn route's loop_learn line", () => {
     expect((await memories.GET(req("GET"))).status).toBe(200);
     expect(listLines()).toEqual([]);
   });
+
+  it("writes no memory_list_failed line when only the membership read fails", async () => {
+    bank.listEditMemories.mockResolvedValueOnce([]);
+    tenant.find.mockRejectedValueOnce(new Error("4 DEADLINE_EXCEEDED: firestore"));
+    expect((await memories.GET(req("GET"))).status).toBe(502);
+    expect(bank.listEditMemories).toHaveBeenCalledTimes(1);
+    const jsonLines = warn.mock.calls.map((c) => String(c[0])).filter((s) => s.startsWith("{"));
+    expect(jsonLines.filter((s) => s.includes("memory_list_failed"))).toEqual([]);
+    expect(linesLogged()).toEqual([]);
+  });
 });
 
 describe("with Edit mode learning following Vizzy", () => {

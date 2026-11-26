@@ -65,6 +65,8 @@ export interface SituationAgainst {
 
 export interface ProfilesView {
   days: number;
+  /** The window's first day (YYYY-MM-DD): an article on it counts. */
+  since: string;
   profiles: CompetitorProfile[];
   /** Every decided situation, as given. */
   situations: SituationAgainst[];
@@ -151,6 +153,7 @@ export function competitorProfiles(input: ProfileInput): ProfilesView {
 
   return {
     days: PROFILE_DAYS,
+    since,
     profiles,
     situations,
     namedNotWatched: tally(recent.flatMap((a) => alternativesNamed(a, input.alternatives, watched))).slice(0, NAMED),

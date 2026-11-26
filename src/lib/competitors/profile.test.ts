@@ -68,6 +68,7 @@ describe("competitor profiles", () => {
       ],
     });
     expect(v.days).toBe(90);
+    expect(v.since).toBe("2026-08-28");
     expect(v.profiles.map((p) => [p.name, p.read])).toEqual([
       ["Rivalco", 2],
       ["Peerly", 0],

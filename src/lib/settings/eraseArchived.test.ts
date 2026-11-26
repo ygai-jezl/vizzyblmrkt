@@ -29,9 +29,12 @@ const PEOPLE = ["ada", "bo", "cy", "di"].map((n) => deterministicContactId(TENAN
 class MemorySink implements AuditObjectSink {
   puts: Array<{ path: string; body: Record<string, unknown> }> = [];
   fail = false;
+  /** Fail only the entries with this status. */
+  failStatus: string | null = null;
   async put(path: string, body: string) {
-    if (this.fail) throw new Error("worm down");
-    this.puts.push({ path, body: JSON.parse(body) });
+    const entry = JSON.parse(body) as Record<string, unknown>;
+    if (this.fail || (this.failStatus && entry.status === this.failStatus)) throw new Error("worm down");
+    this.puts.push({ path, body: entry });
   }
 }
 
@@ -227,6 +230,54 @@ describe("the erase", () => {
     expect((await startFieldErase(ctx, sam, { ...tierTarget, name: "Old loyalty tier" }, deps())).body).toMatchObject({ job: { mode: "erase", state: "running" } });
     expect(sink.puts).toHaveLength(2);
     expect(await finish()).toMatchObject({ state: "done" });
+  });
+
+  it("writes Erased once when the trail can't take completed, and keeps trying until it can", async () => {
+    await counted();
+    await startFieldErase(ctx, sam, { ...tierTarget, name: "Old loyalty tier" }, deps());
+    sink.failStatus = "completed";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // More ticks than it takes to fail a job: the values are gone, so it never fails.
+    for (let i = 0; i < 8; i += 1) await stepFieldEraseJob(ctx, (await job()).id, { deadlineMs: clock + 60_000 }, deps());
+    warn.mockRestore();
+    expect(await job()).toMatchObject({ state: "running", error: "audit_unavailable", cursor: { phase: "finish", after: "marked" } });
+    const erased = (await listSettingsVersions(ctx, "fields:person", {}, db)).versions.filter((v) => v.message === "Erased the values of ‘Old loyalty tier’");
+    expect(erased).toHaveLength(1);
+    expect(sink.puts.map((p) => p.body.status)).toEqual(["initiated"]);
+    // The trail is back: completed, once, and the job is done.
+    sink.failStatus = null;
+    expect(await finish()).toMatchObject({ state: "done" });
+    expect(sink.puts.map((p) => p.body.status)).toEqual(["initiated", "completed"]);
+    expect((await listSettingsVersions(ctx, "fields:person", {}, db)).versions.filter((v) => v.source === "erase")).toHaveLength(2);
+  });
+
+  it("follows initiated with failed when the field can't be marked, and leaves the count standing", async () => {
+    await counted();
+    // The field list can't take a new version just now.
+    const broken = failingFirestore(db, { collections: ["settings_versions"] });
+    expect(await startFieldErase(ctx, sam, { ...tierTarget, name: "Old loyalty tier" }, deps({ db: broken }))).toEqual({ status: 409, body: { error: "fields_changed" } });
+    expect(sink.puts.map((p) => [p.body.status, p.body.error])).toEqual([
+      ["initiated", undefined],
+      ["failed", "mark_failed"],
+    ]);
+    expect(await job()).toMatchObject({ mode: "count", state: "done", leaseUntil: null });
+    expect((await readFieldList(ctx, "person", db)).items[0]).not.toHaveProperty("erasingSince");
+    // It can be started again once the list saves.
+    expect((await startFieldErase(ctx, sam, { ...tierTarget, name: "Old loyalty tier" }, deps())).body).toMatchObject({ job: { mode: "erase", state: "running" } });
+  });
+
+  it("holds the job while an erase starts: a second press or a count waits, and writes nothing", async () => {
+    await counted();
+    const id = fieldEraseJobId(TENANT, "person", TIER);
+    // Another press is writing the trail and the mark just now.
+    await forTenant(ctx, db).fieldEraseJobs.update(id, { leaseUntil: iso(clock + 30_000) });
+    expect((await startFieldErase(ctx, sam, { ...tierTarget, name: "Old loyalty tier" }, deps())).body).toMatchObject({ job: { mode: "count", state: "done" } });
+    expect((await startFieldCount(ctx, sam, tierTarget, deps())).body).toMatchObject({ job: { mode: "count", state: "done" } });
+    expect(sink.puts).toEqual([]);
+    expect((await readFieldList(ctx, "person", db)).items[0]).not.toHaveProperty("erasingSince");
+    // A hold that ran out (the press never finished) holds nothing.
+    clock += 60_000;
+    expect((await startFieldErase(ctx, sam, { ...tierTarget, name: "Old loyalty tier" }, deps())).body).toMatchObject({ job: { mode: "erase", state: "running" } });
   });
 
   it("says where an erase stands, to the owner and to anyone else", async () => {

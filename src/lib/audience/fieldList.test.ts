@@ -189,6 +189,24 @@ describe("the field list", () => {
     expect(await saveFieldEraseMark(ctx, "person", { key: "fld_000000000001", step: "start", by: "u_owner", nowIso: T3 }, db)).toMatchObject({ ok: false, error: "invalid_field" });
   });
 
+  it("saves each erase step once: a step made already writes no new version", async () => {
+    const db = new FakeFirestore();
+    await save(db, { op: "add", label: "Tier", type: "select", options: ["Gold"] }, { fld: () => "fld_000000000001", opt: ids("opt") }); // v1
+    await save(db, { op: "archive", key: "fld_000000000001" }, { nowIso: T1 }); // v2
+    const step = (s: "start" | "done" | "stop", nowIso: string) => saveFieldEraseMark(ctx, "person", { key: "fld_000000000001", step: s, by: "u_owner", nowIso }, db);
+    const revs = async () => (await readFieldList(ctx, "person", db)).rev;
+    await step("start", T2);
+    await step("start", "2026-11-22T10:00:00.000Z");
+    expect(await revs()).toBe(3);
+    expect((await readFieldList(ctx, "person", db)).items[0]).toMatchObject({ erasingSince: T2 });
+    await step("done", "2026-11-22T11:00:00.000Z");
+    // A retry after the trail couldn't be written: ok, and no second "Erased the values".
+    expect(await step("done", "2026-11-22T12:00:00.000Z")).toMatchObject({ ok: true, message: "Erased the values of ‘Tier’" });
+    expect(await step("stop", "2026-11-22T12:00:00.000Z")).toMatchObject({ ok: true });
+    expect(await revs()).toBe(4);
+    expect((await readFieldList(ctx, "person", db)).items[0]).toMatchObject({ erasedAt: "2026-11-22T11:00:00.000Z" });
+  });
+
   it("archives an option added after the version it restores, never dropping it", async () => {
     const db = new FakeFirestore();
     const opt = ids("opt");

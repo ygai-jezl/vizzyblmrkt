@@ -412,7 +412,8 @@ const ERASE_MESSAGE: Record<FieldEraseStep, (label: string) => string> = {
  * log as a version with the source `erase`: `start` marks it `erasingSince`; `done` stamps `erasedAt`
  * and `erasedBy` and clears the mark; `stop` clears the mark alone. The field keeps its options and
  * its archive date (assertNoRemoval refuses dropping options). Starting refuses a field that isn't
- * archived. A save in between is read again and tried once more.
+ * archived. A step already made is answered ok with no new version, so a retry never writes
+ * "Erased the values" twice. A save in between is read again and tried once more.
  */
 export async function saveFieldEraseMark(
   ctx: TenantContext,
@@ -427,12 +428,16 @@ export async function saveFieldEraseMark(
     if (i < 0) return { ok: false, error: "field_not_found" };
     const f = current.items[i]!;
     if (input.step === "start" && !f.archivedAt) return { ok: false, error: "invalid_field", list: current };
+    const message = ERASE_MESSAGE[input.step](f.label);
+    // Each step is saved once: marking a marked field, ending an erase that ended (a retry after
+    // the audit trail couldn't be written), or clearing a mark that is gone saves no new version.
+    const already = input.step === "start" ? !!f.erasingSince : input.step === "done" ? !f.erasingSince && !!f.erasedAt : !f.erasingSince;
+    if (already) return { ok: true, list: current, message };
     const { erasingSince: _mark, ...rest } = f;
     const next: RecordField =
       input.step === "start" ? { ...f, erasingSince: nowIso } : input.step === "done" ? { ...rest, erasedAt: nowIso, erasedBy: input.by } : rest;
     const items = current.items.map((x, j) => (j === i ? next : x));
     if (!FieldListSchema.safeParse({ items }).success) return { ok: false, error: "invalid_field" };
-    const message = ERASE_MESSAGE[input.step](f.label);
     const r = await commitSettingsChange<FieldList>(
       ctx,
       { subject: FIELD_LIST_SUBJECT[object], baseRev: current.rev, value: { items }, by: { type: "member", id: input.by }, source: "erase", message, nowIso },

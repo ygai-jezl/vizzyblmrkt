@@ -49,6 +49,10 @@ export { ERASE_AFTER_DAYS, erasableFrom, erasedSinceArchive, fieldErasable } fro
  *   person or company a page at a time, then blanks them in the history and in Vizzy's suggestions,
  *   then stamps `erasedAt` and `erasedBy` on the definition, which keeps its options, and writes
  *   "completed". Each page re-reads the list and stops if the field is in use again.
+ * - Every "initiated" is followed by "completed" or "failed". The job is held while an erase starts,
+ *   so a second press or a count can't run beside it. Once the definition says the values were
+ *   erased, only "completed" is left: a trail that can't be written is tried again each tick and
+ *   never fails the job.
  * - Switching it off pauses a running job at its cursor, still marked. A step that fails five times
  *   in a row fails the job (audit "failed"); pressing Erase values again carries on from its cursor.
  */
@@ -189,7 +193,8 @@ export async function startFieldCount(ctx: TenantContext, person: VerifiedPerson
     error: null,
   });
   const { doc } = await forTenant(ctx, deps.db).fieldEraseJobs.upsert(id, fresh, (cur) => {
-    if (cur.state === "running") return null;
+    // A running job, or one an owner is starting the erase on this moment, is left as it is.
+    if (cur.state === "running" || startingNow(cur, nowIso)) return null;
     // An erase that failed part way carries on from its cursor; it never starts over as a count.
     if (cur.mode === "erase" && cur.state === "failed" && check.field.erasingSince) return null;
     return fresh();
@@ -224,21 +229,40 @@ export async function startFieldErase(
   if (job?.state === "running") return { status: 200, body: { job: publicJob(job) } };
   const nowMs = nowOf(deps);
   const nowIso = isoOf(nowMs);
-  const resuming = job?.mode === "erase" && job.state === "failed" && !!field.erasingSince;
-  if (!resuming && !countStands(job, field)) return { status: 409, body: { error: "count_first" } };
-  if (!resuming) {
-    try {
-      await audit({ action: "field.erase", actorUid: person!.userId, tenantId: ctx.tenantId, region: ctx.region, fieldId: input.fieldId, object: input.object, status: "initiated", counts: zero(), createdAt: nowIso }, deps);
-    } catch (err) {
-      console.error(`[erase] audit write failed, nothing erased for ${ctx.tenantId}/${input.fieldId}`, err instanceof Error ? err.message : "error");
-      return { status: 503, body: { error: "audit_unavailable" } };
-    }
-    const marked = await saveFieldEraseMark(ctx, input.object, { key: input.fieldId, step: "start", by: person!.userId, nowIso }, deps.db);
-    if (!marked.ok) return { status: 409, body: { error: "fields_changed" } };
+  const asItIs = async (): Promise<ApiResult> => ({ status: 200, body: { job: publicJob(await repo.getById(id)) } });
+  if (job?.mode === "erase" && job.state === "failed" && !!field.erasingSince) {
+    // A failed erase carries on from its cursor: its "initiated" is on the trail already.
+    const resumed = await repo.claim(id, (cur) => (cur.state === "running" ? null : { state: "running", failures: 0, error: null, leaseUntil: null, updatedAt: nowIso }));
+    return resumed ? { status: 200, body: { job: publicJob(resumed) } } : asItIs();
   }
+  if (!countStands(job, field)) return { status: 409, body: { error: "count_first" } };
+  // Hold the job while the trail and the mark are written, so a second press, or a count started
+  // meanwhile, waits instead of writing a second "initiated" or leaving the field marked with no job.
+  const held = await repo.claim(id, (cur) => (cur.state === "running" || startingNow(cur, nowIso) ? null : { leaseUntil: isoOf(nowMs + LEASE_MS) }));
+  if (!held) return asItIs();
+  const release = () => repo.update(id, { leaseUntil: null }).catch(() => {});
+  if (!countStands(held, field)) {
+    await release();
+    return { status: 409, body: { error: "count_first" } };
+  }
+  const entry = { action: "field.erase", actorUid: person!.userId, tenantId: ctx.tenantId, region: ctx.region, fieldId: input.fieldId, object: input.object, createdAt: nowIso } as const;
+  try {
+    await audit({ ...entry, status: "initiated", counts: zero() }, deps);
+  } catch (err) {
+    console.error(`[erase] audit write failed, nothing erased for ${ctx.tenantId}/${input.fieldId}`, err instanceof Error ? err.message : "error");
+    await release();
+    return { status: 503, body: { error: "audit_unavailable" } };
+  }
+  // Every "initiated" is followed by "completed" or "failed": an erase that can't be marked says so.
+  const notStarted = async (error: string, status: number, answer: string): Promise<ApiResult> => {
+    await audit({ ...entry, status: "failed", counts: zero(), error, createdAt: isoOf(nowOf(deps)) }, deps).catch(() => {});
+    await release();
+    return { status, body: { error: answer } };
+  };
+  const marked = await saveFieldEraseMark(ctx, input.object, { key: input.fieldId, step: "start", by: person!.userId, nowIso }, deps.db).catch(() => null);
+  if (!marked?.ok) return notStarted(marked ? marked.error : "mark_failed", 409, "fields_changed");
   const started = await repo.claim(id, (cur) => {
     if (cur.state === "running") return null;
-    if (resuming) return { state: "running", failures: 0, error: null, leaseUntil: null, updatedAt: nowIso };
     return {
       mode: "erase",
       state: "running",
@@ -255,7 +279,22 @@ export async function startFieldErase(
       error: null,
     };
   });
-  return { status: 200, body: { job: publicJob(started ?? (await repo.getById(id))) } };
+  if (started) return { status: 200, body: { job: publicJob(started) } };
+  // Only once the hold ran out (a very slow trail) can something else have started it meanwhile.
+  const now = await repo.getById(id);
+  if (now?.state === "running" && now.mode === "erase") {
+    // Another press started the erase: it goes on, marked, and this one ends on the trail.
+    await audit({ ...entry, status: "failed", counts: zero(), error: "already_running", createdAt: isoOf(nowOf(deps)) }, deps).catch(() => {});
+    return { status: 200, body: { job: publicJob(now) } };
+  }
+  // Anything else: the field isn't left marked with no erase running.
+  await saveFieldEraseMark(ctx, input.object, { key: input.fieldId, step: "stop", by: person!.userId, nowIso }, deps.db).catch(() => null);
+  return notStarted("not_started", 409, "failed");
+}
+
+/** A job an owner is starting an erase on just now: a count or a second press leaves it alone. */
+function startingNow(job: Pick<FieldEraseJob, "state" | "leaseUntil">, nowIso: string): boolean {
+  return job.state !== "running" && !!job.leaseUntil && job.leaseUntil > nowIso;
 }
 
 // --- The lane --------------------------------------------------------------------------------
@@ -287,11 +326,24 @@ async function onePage(ctx: TenantContext, job: FieldEraseJob, deps: EraseDeps):
     const [events, agentActions] = await Promise.all([countFieldEvents(ctx, job.fieldId, { db: deps.db }), countFieldAgentActions(ctx, job.fieldId, { db: deps.db })]);
     return { counts: { ...counts, events: events.toBlank, agentActions }, state: "done", finishedAt: nowIso };
   }
-  // The erase is done: the definition says so (its options kept), then the trail.
-  const done = await saveFieldEraseMark(ctx, job.object, { key: job.fieldId, step: "done", by: job.startedBy, nowIso }, deps.db);
-  if (!done.ok) throw new Error(`erase_mark_${done.error}`);
+  // The erase is done: first the definition says so (its options kept), as a step of its own, so a
+  // retry after the trail couldn't be written never marks it twice.
+  if (after !== MARKED) {
+    const done = await saveFieldEraseMark(ctx, job.object, { key: job.fieldId, step: "done", by: job.startedBy, nowIso }, deps.db);
+    if (!done.ok) throw new Error(`erase_mark_${done.error}`);
+    return { cursor: { phase: "finish", after: MARKED } };
+  }
+  // Then the trail. Until "completed" is written the job stays running and each tick tries again.
   await audit({ action: "field.erase", actorUid: job.startedBy, tenantId: ctx.tenantId, region: ctx.region, fieldId: job.fieldId, object: job.object, status: "completed", counts, createdAt: nowIso }, deps);
   return { state: "done", finishedAt: nowIso };
+}
+
+/** The finish phase's place once the definition says the values were erased: only the trail is left. */
+const MARKED = "marked";
+
+/** Whether all an erase has left is writing "completed" to the trail: its values are gone and the field says so. */
+function onlyTrailLeft(job: Pick<FieldEraseJob, "mode" | "cursor">): boolean {
+  return job.mode === "erase" && job.cursor.phase === "finish" && job.cursor.after === MARKED;
 }
 
 /** The field is in use again: the erase stops, the mark goes, and the trail says so. */
@@ -327,8 +379,15 @@ export async function stepFieldEraseJob(ctx: TenantContext, jobId: string, opts:
     const failures = job.failures + 1;
     const error = err instanceof Error ? err.message.slice(0, 80) : "error";
     console.warn(`[erase] ${ctx.tenantId}/${job.fieldId} step failed (${failures}): ${error}`);
-    const failed = failures >= FIELD_ERASE_MAX_FAILURES;
-    const patch: Partial<FieldEraseJob> = { failures, error: "step_failed", updatedAt: isoOf(nowOf(deps)), ...(failed ? { state: "failed" as const, finishedAt: isoOf(nowOf(deps)) } : {}) };
+    // Once the values are gone and the field says so, the erase never fails: "completed" waits for the trail.
+    const trail = onlyTrailLeft(job);
+    const failed = !trail && failures >= FIELD_ERASE_MAX_FAILURES;
+    const patch: Partial<FieldEraseJob> = {
+      failures,
+      error: trail ? "audit_unavailable" : "step_failed",
+      updatedAt: isoOf(nowOf(deps)),
+      ...(failed ? { state: "failed" as const, finishedAt: isoOf(nowOf(deps)) } : {}),
+    };
     await repo.update(job.id, patch);
     job = { ...job, ...patch };
     if (failed && job.mode === "erase") {

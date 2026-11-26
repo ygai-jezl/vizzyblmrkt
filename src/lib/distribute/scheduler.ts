@@ -42,6 +42,9 @@ import {
   type ScheduledPostChannel,
 } from "@/lib/types/scheduledPost";
 import { expandSpintax } from "./spintax";
+import { keptMade, rootOf } from "@/lib/loops/made";
+import { learnedFor } from "@/lib/loops/read";
+import type { Made } from "@/lib/types/loopStamp";
 import type { PpsResult } from "./pps";
 
 /**
@@ -92,7 +95,8 @@ async function reflectNodeDistribution(
       post.workspaceId,
       post.contentPlanId,
       post.nodeId,
-      { distributionStatus },
+      // Where the post is in Distribute: the node's stamps stay as they were.
+      { distributionStatus, made: { unstamped: "records_where" } },
       db,
     );
   } catch (err) {
@@ -325,7 +329,7 @@ async function publishPost(
       // done (above): publish-first is deliberate so a crash here can only LOSE a
       // follow-up (silent miss), never re-publish the parent (double-tweet). The
       // enqueue can't be atomic with the X post (no idempotency key).
-      if (post.autoPlug) await enqueueAutoPlug(repo, post, outcome.remoteId, now);
+      if (post.autoPlug) await enqueueAutoPlug(ctx, repo, post, outcome.remoteId, now);
       // Closed loop: only enqueue a harvest job while the loop is enabled (else junk).
       if (isClosedLoopEnabled()) {
         await enqueuePerformanceFetch(repo, post, outcome.remoteId, renderedVariant ?? post.body, now);
@@ -494,6 +498,7 @@ async function publishPost(
  * is crossed. Only for a REAL X publish (needs the tweet's remoteId).
  */
 async function enqueueAutoPlug(
+  ctx: TenantContext,
   repo: ReturnType<typeof forTenant>["scheduledPosts"],
   parent: ScheduledPost,
   remoteId: string,
@@ -501,6 +506,8 @@ async function enqueueAutoPlug(
 ): Promise<void> {
   if (!parent.autoPlug) return;
   const id = `autoplug:${parent.dedupeKey}`;
+  // What makes the comment: the auto plug rule firing for the post it promotes (`root`), LOOPS_ENABLED.
+  const made = keptMade((await learnedFor(ctx, "auto_plug", { root: rootOf(parent.made) })).stamp);
   const scheduledAt = new Date(Date.parse(now) + AUTO_PLUG_DELAY_MS).toISOString();
   // Re-arm the rule to THIS publish: fresh (firedAt cleared) and targeting the new
   // tweet. UPSERT (not create) so a re-armed + republished parent re-points its
@@ -524,6 +531,7 @@ async function enqueueAutoPlug(
     publishedRef: null,
     lastError: null,
     processedAt: null,
+    ...(made ? { made } : {}),
   };
   const existing = await repo.getById(id);
   if (existing) {
@@ -1008,6 +1016,12 @@ export interface SchedulePostInput {
   scheduledBy?: string | null;
   /** ISO instant (already validated future by the route). */
   scheduledAt: string;
+  /**
+   * What made the post's words (learning loops step 5, decision 19): the node's stamp, so the post
+   * and its node count as one made thing, or `{ unstamped }` when the node has none. Required, so
+   * a new caller must say; kept only with LOOPS_ENABLED on.
+   */
+  made: Made;
 }
 
 /**
@@ -1028,6 +1042,8 @@ export async function schedulePost(
   );
   const now = new Date().toISOString();
   const repo = forTenant(ctx, db).scheduledPosts;
+  const made = keptMade(input.made);
+  const stamps = made ? { made } : {};
   try {
     const post = await repo.create(dedupeKey, {
       workspaceId: input.workspaceId,
@@ -1054,6 +1070,7 @@ export async function schedulePost(
       lastError: null,
       createdAt: now,
       processedAt: null,
+      ...stamps,
     });
     return { status: "scheduled", post };
   } catch (err) {
@@ -1093,6 +1110,8 @@ export async function schedulePost(
         scheduledBy: input.scheduledBy ?? null,
         channel: input.channel,
         format: input.format ?? null,
+        // The words were refreshed from the node, so its stamps come with them.
+        ...stamps,
       };
       await repo.update(dedupeKey, patch);
       // Construct the result in-memory — no second read for data we just wrote.

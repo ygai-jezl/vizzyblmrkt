@@ -11,6 +11,9 @@ import { isJourneyDraftCard } from "@/components/admin/lifecycle/journeyStyleFor
 import { getCanvasKind } from "../registry";
 import { authorJourneyStyle } from "./journeyStyle";
 
+/** The canvas route's stamp with LOOPS_ENABLED off (learning loops step 5). */
+const LOOPS_OFF = { unstamped: "loops_off" } as const;
+
 const admin: TenantContext = { tenantId: TENANT_ID, region: "eu", source: "agent", userId: "usr_1", role: "admin" };
 const member: TenantContext = { ...admin, userId: "usr_2", role: "member" };
 const BRAND_STYLE = { logo: null, companyName: "Sandbox Co", headerColor: "#0b1f3a", accentColor: "#ff6b35" };
@@ -37,7 +40,7 @@ type Doc = { draft: { settings: Record<string, unknown> } & Record<string, unkno
 const raw = (db: FakeFirestore, id: string) => structuredClone(db.raw("lifecycle_journeys", id)) as Doc;
 
 const author = (db: FakeFirestore, input: Record<string, unknown>, ctx: TenantContext = admin) =>
-  authorJourneyStyle({ ctx, input: { kind: "journey_style", action: "save_draft", brief: "navy header", ...input }, brief: "navy header" }, { db });
+  authorJourneyStyle({ ctx, input: { kind: "journey_style", action: "save_draft", brief: "navy header", ...input }, made: LOOPS_OFF, brief: "navy header" }, { db });
 
 describe("journey_style canvas kind: who and when", () => {
   it("is registered", () => {

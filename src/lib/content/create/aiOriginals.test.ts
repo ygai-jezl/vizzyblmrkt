@@ -65,15 +65,15 @@ describe("pinOriginal", () => {
   it("keeps nothing with the switch off, or for empty copy", async () => {
     vi.stubEnv("CONTENT_AI_ORIGINALS_ENABLED", "false");
     const db = new FakeFirestore();
-    expect(await pinOriginal(person, { plan: { id: PLAN, workspaceId: WS }, node: hub, body: ARTICLE, made }, deps(db))).toBeNull();
+    expect(await pinOriginal(person, { plan: { id: PLAN, workspaceId: WS }, node: hub, body: ARTICLE, madeBy: made }, deps(db))).toBeNull();
     vi.stubEnv("CONTENT_AI_ORIGINALS_ENABLED", "true");
-    expect(await pinOriginal(person, { plan: { id: PLAN, workspaceId: WS }, node: hub, body: "  ", made }, deps(db))).toBeNull();
+    expect(await pinOriginal(person, { plan: { id: PLAN, workspaceId: WS }, node: hub, body: "  ", madeBy: made }, deps(db))).toBeNull();
     expect(db.raw(ORIGINALS, aiOriginalId(PLAN, "hub"))).toBeUndefined();
   });
 
   it("keeps the copy with its stamp, who wrote it and what the writer read", async () => {
     const db = new FakeFirestore();
-    const doc = await pinOriginal(autopilot, { plan: { id: PLAN, workspaceId: WS }, node: hub, body: ARTICLE, meta: { metaTitle: "Tracking" }, made }, deps(db));
+    const doc = await pinOriginal(autopilot, { plan: { id: PLAN, workspaceId: WS }, node: hub, body: ARTICLE, meta: { metaTitle: "Tracking" }, madeBy: made }, deps(db));
     expect(doc).toMatchObject({ planId: PLAN, workspaceId: WS, nodeId: "hub", nodeType: "hub", channel: "blog", regenerations: 0, pairs: [] });
     expect(doc!.original).toMatchObject({ body: ARTICLE, metaTitle: "Tracking", by: "autopilot", userId: null, sources: ["brand_map", "knowledge"] });
     expect(doc!.original.stamp).toMatchObject({ purpose: "blog_write", promptId: "content.blog_draft", repaired: true });
@@ -83,7 +83,7 @@ describe("pinOriginal", () => {
 
   it("counts a piece written again, and does nothing for the same copy", async () => {
     const db = new FakeFirestore();
-    const args = { plan: { id: PLAN, workspaceId: WS }, node: post, made: { ...made, purpose: "content_write" as const, promptId: "content.fill" } };
+    const args = { plan: { id: PLAN, workspaceId: WS }, node: post, madeBy: { ...made, purpose: "content_write" as const, promptId: "content.fill" } };
     await pinOriginal(person, { ...args, body: "First." }, deps(db));
     await pinOriginal(person, { ...args, body: "First." }, deps(db));
     const doc = await pinOriginal(person, { ...args, body: "Second." }, deps(db));
@@ -99,7 +99,7 @@ describe("pinOriginal", () => {
 describe("followCheck", () => {
   it("moves the pin to the checked copy only while the pin is the copy checked", async () => {
     const db = new FakeFirestore();
-    await pinOriginal(person, { plan: { id: PLAN, workspaceId: WS }, node: hub, body: ARTICLE, made }, deps(db));
+    await pinOriginal(person, { plan: { id: PLAN, workspaceId: WS }, node: hub, body: ARTICLE, madeBy: made }, deps(db));
     expect(await followCheck(person, { planId: PLAN, nodeId: "hub", before: "someone else's copy", after: "checked" }, deps(db))).toBe(false);
     expect(await followCheck(person, { planId: PLAN, nodeId: "hub", before: ARTICLE, after: `${ARTICLE} Checked.` }, deps(db))).toBe(true);
     expect((await readOriginal(person, PLAN, "hub", deps(db)))!.original.body).toBe(`${ARTICLE} Checked.`);
@@ -110,14 +110,14 @@ describe("recordApproval", () => {
   it("keeps the approved copy beside the original, once, and at most 3", async () => {
     const db = new FakeFirestore();
     const plan = { id: PLAN, workspaceId: WS };
-    await pinOriginal(person, { plan, node: post, body: "Draft one.", made }, deps(db));
+    await pinOriginal(person, { plan, node: post, body: "Draft one.", madeBy: made }, deps(db));
     clock = 30;
     const pair = await recordApproval(person, { planId: PLAN, node: { ...post, body: "Draft one, edited." }, trigger: "approve" }, deps(db));
     expect(pair).toMatchObject({ trigger: "approve", final: { body: "Draft one, edited.", userId: "uid_1" }, measures: { minutesToApprove: 30, approvedAsWritten: false } });
     // Found live with the same copy: the same approval, kept once.
     expect(await recordApproval(person, { planId: PLAN, node: { ...post, body: "Draft one, edited." }, trigger: "live" }, deps(db))).toBeNull();
     for (const n of [2, 3, 4]) {
-      await pinOriginal(person, { plan, node: post, body: `Draft ${n}.`, made }, deps(db));
+      await pinOriginal(person, { plan, node: post, body: `Draft ${n}.`, madeBy: made }, deps(db));
       await recordApproval(person, { planId: PLAN, node: { ...post, body: `Draft ${n}.` }, trigger: "approve" }, deps(db));
     }
     const doc = (await readOriginal(person, PLAN, "li", deps(db)))!;
@@ -145,7 +145,7 @@ describe("recordApproval", () => {
   it("keeps each approval a save made", async () => {
     const db = new FakeFirestore();
     const before = seedPlan(db, [{ ...hub, body: ARTICLE, status: "generated" }]);
-    await pinOriginal(person, { plan: before, node: hub, body: ARTICLE, made }, deps(db));
+    await pinOriginal(person, { plan: before, node: hub, body: ARTICLE, madeBy: made }, deps(db));
     const edited = ARTICLE.replace("## How\n\nA tool asks every day.", "## How\n\nA tool asks every day.\n\n## Cost\n\nFrom $50 a month.");
     const after = { ...before, graph: { ...before.graph, nodes: [{ ...before.graph.nodes[0]!, body: edited, status: "approved" as const }] } };
     expect(await recordApprovals(person, { before, after }, deps(db))).toBe(1);
@@ -157,7 +157,7 @@ describe("recordApproval", () => {
 describe("the AI draft view", () => {
   it("shows the approval and the copy as it is now, section by section", async () => {
     const db = new FakeFirestore();
-    await pinOriginal(person, { plan: { id: PLAN, workspaceId: WS }, node: hub, body: ARTICLE, made }, deps(db));
+    await pinOriginal(person, { plan: { id: PLAN, workspaceId: WS }, node: hub, body: ARTICLE, madeBy: made }, deps(db));
     const edited = ARTICLE.replace("Buyers ask AI first.", "Most buyers ask AI first.");
     await recordApproval(person, { planId: PLAN, node: { ...hub, body: edited }, trigger: "approve" }, deps(db));
     const doc = (await readOriginal(person, PLAN, "hub", deps(db)))!;
@@ -175,17 +175,17 @@ describe("the AI draft view", () => {
 describe("tenants and deletion", () => {
   it("never lets another brand read a piece's AI original", async () => {
     const db = new FakeFirestore();
-    await pinOriginal(person, { plan: { id: PLAN, workspaceId: WS }, node: hub, body: ARTICLE, made }, deps(db));
+    await pinOriginal(person, { plan: { id: PLAN, workspaceId: WS }, node: hub, body: ARTICLE, madeBy: made }, deps(db));
     expect(await readOriginal(other, PLAN, "hub", deps(db))).toBeNull();
-    await expect(pinOriginal(other, { plan: { id: PLAN, workspaceId: WS }, node: hub, body: "Theirs.", made }, deps(db))).rejects.toThrow();
+    await expect(pinOriginal(other, { plan: { id: PLAN, workspaceId: WS }, node: hub, body: "Theirs.", madeBy: made }, deps(db))).rejects.toThrow();
     expect((db.raw(ORIGINALS, aiOriginalId(PLAN, "hub")) as unknown as AiOriginalDoc).original.body).toBe(ARTICLE);
   });
 
   it("deletes a plan's AI originals with the plan", async () => {
     const db = new FakeFirestore();
     seedPlan(db, [hub, post]);
-    await pinOriginal(person, { plan: { id: PLAN, workspaceId: WS }, node: hub, body: ARTICLE, made }, deps(db));
-    await pinOriginal(person, { plan: { id: PLAN, workspaceId: WS }, node: post, body: "Post.", made }, deps(db));
+    await pinOriginal(person, { plan: { id: PLAN, workspaceId: WS }, node: hub, body: ARTICLE, madeBy: made }, deps(db));
+    await pinOriginal(person, { plan: { id: PLAN, workspaceId: WS }, node: post, body: "Post.", madeBy: made }, deps(db));
     await deleteContentPlan(person, WS, PLAN, db);
     expect(db.raw(ORIGINALS, aiOriginalId(PLAN, "hub"))).toBeUndefined();
     expect(db.raw(ORIGINALS, aiOriginalId(PLAN, "li"))).toBeUndefined();
@@ -199,7 +199,7 @@ describe("fillPlanNode", () => {
     status: "generated" as const,
     warnings: [],
     format: "linkedin-post",
-    made: { purpose: "content_write" as const, promptId: "content.fill", sources: ["knowledge" as const] },
+    madeBy: { purpose: "content_write" as const, promptId: "content.fill", sources: ["knowledge" as const] },
   })) as unknown as typeof generateNode;
 
   it("pins what the writer made, with its stamp", async () => {
@@ -223,7 +223,7 @@ describe("Vizzy's read of a plan", () => {
   it("adds how each piece changed from its AI draft, with what each number means", async () => {
     const db = new FakeFirestore();
     seedPlan(db, [{ ...post, body: "Draft one, edited.", status: "approved" }]);
-    await pinOriginal(person, { plan: { id: PLAN, workspaceId: WS }, node: post, body: "Draft one.", made }, deps(db));
+    await pinOriginal(person, { plan: { id: PLAN, workspaceId: WS }, node: post, body: "Draft one.", madeBy: made }, deps(db));
     await recordApproval(person, { planId: PLAN, node: { ...post, body: "Draft one, edited." }, trigger: "approve" }, deps(db));
     const r = await agentContentPlan(person, WS, PLAN, db);
     const body = r.body as { pieces: Array<{ edit: Record<string, unknown> | null }>; meanings: Record<string, unknown> };

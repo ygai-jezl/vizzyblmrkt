@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { stampHeaders } from "@/lib/loops/stampHeader";
 import type { BrandVoice } from "@/lib/types/tenant";
 import { place } from "@/lib/nav/places";
 
@@ -31,6 +32,8 @@ export function BrandVoiceEditor() {
   const [dosText, setDosText] = useState("");
   const [dontsText, setDontsText] = useState("");
   const [guidelines, setGuidelines] = useState("");
+  // The drafted voice's stamp token, sent with the next save (learning loops step 5).
+  const [stampToken, setStampToken] = useState<string | null>(null);
   // Provenance (from an AI-generated draft or a previously-saved voice); round-tripped on save.
   const [sourceDomain, setSourceDomain] = useState<string | null>(null);
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
@@ -78,9 +81,10 @@ export function BrandVoiceEditor() {
     try {
       const res = await fetch("/api/admin/account/brand/voice", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...stampHeaders([stampToken]) },
         body: JSON.stringify(payload),
       });
+      if (res.ok) setStampToken(null);
       setMsg(res.ok ? "Saved." : "Save failed — please try again.");
     } finally {
       setBusy(null);
@@ -92,9 +96,10 @@ export function BrandVoiceEditor() {
     setMsg("Reading your website and drafting a brand voice…");
     try {
       const res = await fetch("/api/admin/account/brand/voice/generate", { method: "POST" });
-      const data = (await res.json().catch(() => ({}))) as { brandVoice?: BrandVoice; error?: string };
+      const data = (await res.json().catch(() => ({}))) as { brandVoice?: BrandVoice; error?: string; stampToken?: string };
       if (res.ok && data.brandVoice) {
         apply(data.brandVoice);
+        setStampToken(data.stampToken ?? null);
         setMsg("Drafted from your website — review, edit, then Save.");
       } else if (data.error === "no_primary_domain") {
         setMsg(`Set your Primary Domain in ${place("sending").label} first, then generate.`);

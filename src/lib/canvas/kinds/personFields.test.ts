@@ -11,6 +11,9 @@ import type { AgentActionId } from "@/lib/types/agentAction";
 import { authorPersonFields } from "./personFields";
 import { getCanvasKind } from "../registry";
 
+/** The canvas route's stamp with LOOPS_ENABLED off (learning loops step 5). */
+const LOOPS_OFF = { unstamped: "loops_off" } as const;
+
 const admin: TenantContext = { tenantId: "ten_A", region: "us", source: "agent", userId: "u_admin", role: "admin" };
 const member: TenantContext = { ...admin, userId: "u_member", role: "member" };
 const by = { type: "member", id: "u_admin" } as const;
@@ -34,7 +37,7 @@ async function add(id: string, change: FieldListChange, options: string[] = []) 
   const r = await saveFieldListChange(admin, "person", { baseRev: rev, change, by, newFieldId: () => id, newOptionId: () => options[n++]! }, db);
   if (!r.ok) throw new Error(r.error);
 }
-const author = (input: Record<string, unknown>, ctx: TenantContext = admin, nowMs = T0) => authorPersonFields({ ctx, input, brief: "" }, { db, nowMs });
+const author = (input: Record<string, unknown>, ctx: TenantContext = admin, nowMs = T0) => authorPersonFields({ ctx, input, made: LOOPS_OFF, brief: "" }, { db, nowMs });
 const suggest = (changes: Record<string, unknown>, extra: Record<string, unknown> = {}) => author({ kind: "person_fields", action: "save_draft", scope: { personId: PRIYA }, changes, ...extra });
 
 beforeEach(async () => {

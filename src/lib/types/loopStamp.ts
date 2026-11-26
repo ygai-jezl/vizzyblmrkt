@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { LOOPS, type LoopKind } from "@/lib/loops/registry";
-import { AGENT_NAMES } from "./agentAction";
+import { AGENT_NAMES } from "./agentNames";
 
 /**
  * The stamp (learning loops, ADR-0017's Stamp step): the one field every thing YouGrow makes keeps,
@@ -48,8 +48,8 @@ export const STAMP_SOURCE_RE = /^(?:refs:\d{1,2}|best_of:\d{1,2}|legacy|person_o
 
 /**
  * Why a writer kept no stamp, from a closed list, so each reason is counted. Step 4 uses the
- * first three; the rest are the reasons the plan names for the writers step 5 stamps, and the
- * stamp scan may add more.
+ * first three; the rest are the reasons the plan names for the writers step 5 stamps, plus
+ * `nothing_made` for a node save that wrote no new words, and the stamp scan may add more.
  */
 export const UNSTAMPED_REASONS = [
   /** LOOPS_ENABLED is off, for a kind that isn't an image kind. */
@@ -78,6 +78,8 @@ export const UNSTAMPED_REASONS = [
   "reads_only",
   /** A route that only starts a worker, which stamps what it makes. */
   "starts_worker",
+  /** A save that made nothing new on its record: a step with no words, or a write that failed. */
+  "nothing_made",
 ] as const;
 export type UnstampedReason = (typeof UNSTAMPED_REASONS)[number];
 

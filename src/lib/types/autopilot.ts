@@ -1,3 +1,4 @@
+import type { Made } from "./loopStamp";
 import { z } from "zod";
 import type { PickSlot } from "./contentStrategy";
 
@@ -85,6 +86,8 @@ export interface NextUpPick {
   slot?: PickSlot;
   /** A combine pick: the live articles that answer the same question. */
   combine?: { pages: RepeatPair["pages"] };
+  /** What made the pick (LOOPS_ENABLED, learning loops step 5): the `next_up` stamp, written only by pickNextUp. */
+  made?: Made;
 }
 
 /** A live article a question is close to in meaning: better added to it than written again. */

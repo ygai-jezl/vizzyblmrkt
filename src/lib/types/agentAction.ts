@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { AGENT_NAMES, type AgentName } from "./agentNames";
+import { MadeSchema, type Made } from "./loopStamp";
 import { MEANINGS, type MeaningKey } from "@/lib/metrics/meanings";
 import type { ReviewKind } from "@/lib/review/summary";
 import {
@@ -64,12 +66,7 @@ export const TERMINAL_FOR_DETAILS = ["acted", "declined"] as const satisfies rea
 export const DECLINE_REASONS = ["dismissed", "expired", "stale", "superseded"] as const;
 export type DeclineReason = (typeof DECLINE_REASONS)[number];
 
-/**
- * The agents that propose. "lifecycle" is for the AI lines follow-up; "learning" is the learning
- * loops' lane, which offers to go back to an earlier learned look (learning loops step 4).
- */
-export const AGENT_NAMES = ["vizzy", "autopilot", "connector_signals", "lifecycle", "learning"] as const;
-export type AgentName = (typeof AGENT_NAMES)[number];
+export { AGENT_NAMES, type AgentName } from "./agentNames";
 
 // --- Signals -----------------------------------------------------------------------------------
 
@@ -208,6 +205,8 @@ export interface AgentAction {
   detailsClearedAt: string | null;
   /** Field ids already blanked after an erase. */
   blankedFieldIds: string[];
+  /** What made the suggestion when Vizzy drafted it on a canvas (LOOPS_ENABLED, learning loops step 5). */
+  made?: Made;
   createdAt: string;
   updatedAt: string;
 }
@@ -251,6 +250,7 @@ export const AgentActionSchema = z
     clearDetailsOnClose: z.boolean(),
     detailsClearedAt: Canonical.nullable(),
     blankedFieldIds: z.array(z.string().regex(USER_FIELD_ID)).max(AGENT_ACTION_LIMITS.fieldIds),
+    made: MadeSchema.optional().catch(undefined),
     createdAt: Canonical,
     updatedAt: Canonical,
   })

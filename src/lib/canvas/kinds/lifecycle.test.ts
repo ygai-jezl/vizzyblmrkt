@@ -9,6 +9,9 @@ import { __resetRateLimitState } from "@/lib/tenant/rateLimit";
 import { DATE_PASSED_EVENT, JOURNEY_COMPLETED_EVENT, type LifecycleDraft } from "@/lib/types/lifecycle";
 import { authorLifecycleDraft, wholeDayWaitNotes } from "./lifecycle";
 
+/** The canvas route's stamp with LOOPS_ENABLED off (learning loops step 5). */
+const LOOPS_OFF = { unstamped: "loops_off" } as const;
+
 const agent: TenantContext = { tenantId: adminCtx.tenantId, region: "eu", userId: "usr_1", role: "admin", source: "agent" };
 const generate = async () =>
   JSON.stringify({ subject: "Hi {{user.first_name|there}}", previewText: "Quick note", body: "<p>Hello {{user.first_name|there}}</p>" });
@@ -31,7 +34,7 @@ describe("lifecycle canvas kind (Vizzy chat authoring)", () => {
     const db = new FakeFirestore();
     seedWorld(db);
     const r = await authorLifecycleDraft(
-      { ctx: agent, input: { scope: { connectionId: CONNECTION_ID }, mode: "template", options: { reminders: 2 } }, brief: "Warm and short" },
+      { ctx: agent, input: { scope: { connectionId: CONNECTION_ID }, mode: "template", options: { reminders: 2 } }, made: LOOPS_OFF, brief: "Warm and short" },
       { db, generate },
     );
     if (!r.ok) throw new Error(r.error);
@@ -50,7 +53,7 @@ describe("lifecycle canvas kind (Vizzy chat authoring)", () => {
     const draft = structuredClone(journey.draft);
     draft.pools[1]!.items[1]!.subject = "Shorter last reminder";
     const r = await authorLifecycleDraft(
-      { ctx: agent, input: { scope: { connectionId: CONNECTION_ID, journeyId: journey.id }, mode: "graph", ...draft }, brief: "make it shorter" },
+      { ctx: agent, input: { scope: { connectionId: CONNECTION_ID, journeyId: journey.id }, mode: "graph", ...draft }, made: LOOPS_OFF, brief: "make it shorter" },
       { db },
     );
     if (!r.ok) throw new Error(r.error);
@@ -79,6 +82,7 @@ describe("lifecycle canvas kind (Vizzy chat authoring)", () => {
         {
           ctx: agent,
           input: { scope: { connectionId: CONNECTION_ID, journeyId: journey.id }, mode: "graph", ...draft, settings: { ...draft.settings, emailStyle: echo } },
+          made: LOOPS_OFF,
           brief: "make it shorter",
         },
         { db },
@@ -94,6 +98,7 @@ describe("lifecycle canvas kind (Vizzy chat authoring)", () => {
       {
         ctx: agent,
         input: { scope: { connectionId: CONNECTION_ID }, mode: "graph", ...journey.draft, settings: { ...journey.draft.settings, emailStyle: NAVY } },
+        made: LOOPS_OFF,
         brief: "",
       },
       { db },
@@ -106,7 +111,7 @@ describe("lifecycle canvas kind (Vizzy chat authoring)", () => {
     const db = new FakeFirestore();
     seedWorld(db);
     const bad = await authorLifecycleDraft(
-      { ctx: agent, input: { scope: { connectionId: CONNECTION_ID }, mode: "graph", graph: { nodes: [{ id: "x" }], edges: [] } }, brief: "" },
+      { ctx: agent, input: { scope: { connectionId: CONNECTION_ID }, mode: "graph", graph: { nodes: [{ id: "x" }], edges: [] } }, made: LOOPS_OFF, brief: "" },
       { db },
     );
     expect(bad).toMatchObject({ ok: false, status: 422, error: "invalid_graph" });
@@ -126,6 +131,7 @@ describe("lifecycle canvas kind (Vizzy chat authoring)", () => {
             edges: [{ id: "e1", source: "t", target: "c" }],
           },
         },
+        made: LOOPS_OFF,
         brief: "",
       },
       { db },
@@ -140,13 +146,13 @@ describe("lifecycle canvas kind (Vizzy chat authoring)", () => {
     const db = new FakeFirestore();
     seedWorld(db);
     const other: TenantContext = { ...agent, tenantId: "ten_other" };
-    expect(await authorLifecycleDraft({ ctx: other, input: { scope: { connectionId: CONNECTION_ID } }, brief: "" }, { db, generate })).toMatchObject({
+    expect(await authorLifecycleDraft({ ctx: other, input: { scope: { connectionId: CONNECTION_ID } }, made: LOOPS_OFF, brief: "" }, { db, generate })).toMatchObject({
       ok: false,
       status: 404,
       error: "connection_not_found",
     });
     delete process.env.LIFECYCLE_CHAT_AUTHORING_ENABLED;
-    expect(await authorLifecycleDraft({ ctx: agent, input: { scope: { connectionId: CONNECTION_ID } }, brief: "" }, { db, generate })).toMatchObject({
+    expect(await authorLifecycleDraft({ ctx: agent, input: { scope: { connectionId: CONNECTION_ID } }, made: LOOPS_OFF, brief: "" }, { db, generate })).toMatchObject({
       ok: false,
       status: 503,
       error: "unavailable",
@@ -161,7 +167,7 @@ describe("a journey that continues from another (journey links)", () => {
     seedWorld(db);
     const { journey: first } = await publishOnboarding(db);
     const r = await authorLifecycleDraft(
-      { ctx: agent, input: { scope: { connectionId: CONNECTION_ID }, mode: "template", afterJourneyId: first.id, options: { emails: 3 } }, brief: "Useful and short" },
+      { ctx: agent, input: { scope: { connectionId: CONNECTION_ID }, mode: "template", afterJourneyId: first.id, options: { emails: 3 } }, made: LOOPS_OFF, brief: "Useful and short" },
       { db, generate },
     );
     if (!r.ok) throw new Error(r.error);
@@ -179,7 +185,7 @@ describe("a journey that continues from another (journey links)", () => {
     // A rebuild keeps it continuing from that journey without being told again.
     __resetRateLimitState();
     const again = await authorLifecycleDraft(
-      { ctx: agent, input: { scope: { connectionId: CONNECTION_ID, journeyId: r.id }, mode: "template", options: { emails: 2 } }, brief: "Shorter" },
+      { ctx: agent, input: { scope: { connectionId: CONNECTION_ID, journeyId: r.id }, mode: "template", options: { emails: 2 } }, made: LOOPS_OFF, brief: "Shorter" },
       { db, generate },
     );
     if (!again.ok) throw new Error(again.error);
@@ -208,7 +214,7 @@ describe("a journey that continues from another (journey links)", () => {
     };
     const pools = [{ id: "tips", label: "Tips", items: [{ id: "t1", label: "T1", subject: "A tip", body: "<p>Hi</p>" }] }];
     const r = await authorLifecycleDraft(
-      { ctx: agent, input: { scope: { connectionId: CONNECTION_ID }, mode: "graph", afterJourneyId: first.id, graph, pools, name: "Tips" }, brief: "tips after onboarding" },
+      { ctx: agent, input: { scope: { connectionId: CONNECTION_ID }, mode: "graph", afterJourneyId: first.id, graph, pools, name: "Tips" }, made: LOOPS_OFF, brief: "tips after onboarding" },
       { db },
     );
     if (!r.ok) throw new Error(r.error);
@@ -225,9 +231,9 @@ describe("a journey that continues from another (journey links)", () => {
     seedWorld(db);
     const { journey: first } = await publishOnboarding(db);
     const input = { scope: { connectionId: CONNECTION_ID }, mode: "template", afterJourneyId: first.id, options: { writeCopy: false } };
-    expect(await authorLifecycleDraft({ ctx: agent, input, brief: "" }, { db })).toMatchObject({ ok: false, status: 409, error: "journey_links_unavailable" });
+    expect(await authorLifecycleDraft({ ctx: agent, input, made: LOOPS_OFF, brief: "" }, { db })).toMatchObject({ ok: false, status: 409, error: "journey_links_unavailable" });
     process.env.LIFECYCLE_JOURNEY_LINKS_ENABLED = "true";
-    expect(await authorLifecycleDraft({ ctx: agent, input: { ...input, afterJourneyId: "lcj_nope" }, brief: "" }, { db })).toMatchObject({
+    expect(await authorLifecycleDraft({ ctx: agent, input: { ...input, afterJourneyId: "lcj_nope" }, made: LOOPS_OFF, brief: "" }, { db })).toMatchObject({
       ok: false,
       status: 404,
       error: "after_journey_not_found",
@@ -279,7 +285,7 @@ describe("a journey that starts when a date passes (date start)", () => {
     return { db, repo };
   }
   const draftIt = (db: FakeFirestore) =>
-    authorLifecycleDraft({ ctx: agent, input: { scope: { connectionId: CONNECTION_ID }, mode: "graph", ...nudge }, brief: "a nudge for quiet people" }, { db });
+    authorLifecycleDraft({ ctx: agent, input: { scope: { connectionId: CONNECTION_ID }, mode: "graph", ...nudge }, made: LOOPS_OFF, brief: "a nudge for quiet people" }, { db });
   beforeEach(() => {
     process.env.CONNECT_DATE_FACTS = "true";
     process.env.LIFECYCLE_DATE_START = "true";
@@ -308,7 +314,7 @@ describe("a journey that starts when a date passes (date start)", () => {
   it("is saved with what's left to fix when the catalog has no such date, or the switch is off", async () => {
     const w = await world();
     const unknown = await authorLifecycleDraft(
-      { ctx: agent, input: { scope: { connectionId: CONNECTION_ID }, mode: "graph", ...nudge, settings: { trigger: { event: DATE_PASSED_EVENT, date: { fact: "last_login_at" } } } }, brief: "" },
+      { ctx: agent, input: { scope: { connectionId: CONNECTION_ID }, mode: "graph", ...nudge, settings: { trigger: { event: DATE_PASSED_EVENT, date: { fact: "last_login_at" } } } }, made: LOOPS_OFF, brief: "" },
       { db: w.db },
     );
     if (!unknown.ok) throw new Error(unknown.error);

@@ -106,7 +106,7 @@ function card(plan: ContentPlan, ws: Pick<Workspace, "id" | "name">, failed: num
 }
 
 export async function authorContentPlanDraft(
-  { ctx, input, brief }: CanvasAuthorArgs,
+  { ctx, input, brief, made }: CanvasAuthorArgs,
   deps: ContentPlanDeps = {},
 ): Promise<CanvasAuthorOutcome> {
   if (!isContentChatAuthoringEnabled()) return { ok: false, status: 503, error: "unavailable" };
@@ -122,7 +122,8 @@ export async function authorContentPlanDraft(
   const now = deps.now ?? Date.now;
   const started = now();
   // `quick`: one writing pass per piece — a second pass would not fit in the agent's request.
-  const fillOpts = { db: deps.db, generate: deps.generate, budgetMs: deps.budgetMs ?? 75_000, concurrency: 3, quick: true };
+  // Each piece is stamped by its own writer's kind, made by Vizzy.
+  const fillOpts = { db: deps.db, generate: deps.generate, budgetMs: deps.budgetMs ?? 75_000, concurrency: 3, quick: true, by: "vizzy" as const };
 
   if (req.data.mode === "refill") {
     const planId = req.data.scope.planId;
@@ -146,7 +147,8 @@ export async function authorContentPlanDraft(
       for (const id of req.data.nodeIds) {
         const node = plan.graph.nodes.find((n) => n.id === id)!;
         const next = [node.brief?.trim(), `Change: ${req.data.instructions}`].filter(Boolean).join("\n\n").slice(-2000);
-        await updateContentPlanNode(ctx, ws.id, plan.id, id, { brief: next }, deps.db);
+        // A brief is no words of the piece's, so the node keeps its words' stamp.
+        await updateContentPlanNode(ctx, ws.id, plan.id, id, { brief: next, made }, deps.db);
       }
     }
     const result = await fillPlanNodes(ctx, { workspace: ws, planId: plan.id, nodeIds: req.data.nodeIds }, fillOpts);
@@ -187,7 +189,7 @@ export async function authorContentPlanDraft(
   const created = await createContentPlan(
     ctx,
     ws.id,
-    { ...fields, authoredBy: "agent", agentRevision: 1, agentBrief: brief.slice(0, 4000) },
+    { ...fields, authoredBy: "agent", agentRevision: 1, agentBrief: brief.slice(0, 4000), made },
     deps.db,
   );
   // A blog hub is researched while the architect lays out the plan (neither needs the

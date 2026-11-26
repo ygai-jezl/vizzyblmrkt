@@ -62,7 +62,7 @@ export async function backfillBlogDates(ctx: TenantContext, opts: { apply: boole
     if (dates.published.source === "page") counts.fromPage += 1;
     if (!opts.apply) continue;
     // In the node's own write: dates set meanwhile (a check, Found live) win over this.
-    await updateContentPlanNode(ctx, plan.workspaceId, plan.id, hub.id, {}, deps.db, {
+    await updateContentPlanNode(ctx, plan.workspaceId, plan.id, hub.id, { made: { unstamped: "dates_only" } }, deps.db, {
       setDates: (stored, mark) => stored ?? (mark ? nextDates(undefined, { page, liveAt: mark.at, now }) : undefined),
     });
   }

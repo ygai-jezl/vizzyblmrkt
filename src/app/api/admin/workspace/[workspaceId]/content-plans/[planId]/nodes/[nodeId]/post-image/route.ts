@@ -199,6 +199,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       },
     ).catch((e) => console.warn("[brandKit] record social image failed:", e));
     const updated = await updateContentPlanNode(ctx, workspaceId, planId, nodeId, {
+      made,
       imageAssetRef: stored.filename,
       imageAspect: parsed.data.aspect,
       imagePrompt: null,
@@ -398,6 +399,7 @@ export async function POST(req: Request, { params }: RouteParams) {
   // it's generated — no dependence on the operator clicking Save. A later whole-graph Save
   // re-writes the same values from local state.
   const updated = await updateContentPlanNode(ctx, workspaceId, planId, nodeId, {
+    made: result.made ?? learned.stamp,
     imageAssetRef: result.imageAssetRef,
     imageAspect: parsed.data.aspect,
     imagePrompt: result.imagePrompt ?? null,
@@ -440,6 +442,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
   if (!node) return NextResponse.json({ error: "node_not_found" }, { status: 404 });
 
   const updated = await updateContentPlanNode(ctx, workspaceId, planId, nodeId, {
+    made: { unstamped: "removes_image" },
     imageAssetRef: null,
     imageAspect: null,
     imagePrompt: null,

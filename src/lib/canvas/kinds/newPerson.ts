@@ -32,7 +32,7 @@ const NewPersonInput = z
 
 const AUTHOR_LIMIT = { prefix: "new_person_author", burstLimit: 10, hourlyLimit: 60 };
 
-export async function authorNewPerson({ ctx, input }: CanvasAuthorArgs, deps: { db?: FirestoreLike; nowMs?: number } = {}): Promise<CanvasAuthorOutcome> {
+export async function authorNewPerson({ ctx, input, made }: CanvasAuthorArgs, deps: { db?: FirestoreLike; nowMs?: number } = {}): Promise<CanvasAuthorOutcome> {
   if (!isVizzyAddPersonEnabled()) return { ok: false, status: 503, error: "unavailable" };
   // Adding people is admin-only, so filling in the form through Vizzy is too.
   if (ctx.role !== "admin") return { ok: false, status: 403, error: "forbidden" };
@@ -43,7 +43,7 @@ export async function authorNewPerson({ ctx, input }: CanvasAuthorArgs, deps: { 
   }
   if (await isRateLimited(`tenant:${ctx.tenantId}`, AUTHOR_LIMIT, { db: deps.db })) return { ok: false, status: 429, error: "rate_limited" };
 
-  const r = await draftNewPerson(ctx, req.data, deps);
+  const r = await draftNewPerson(ctx, req.data, { ...deps, made });
   // Every refusal is the request's to fix, a draft too big to save (`too_large`) included.
   if (!r.ok) return { ok: false, status: 400, error: r.error };
   if (r.outcome === "existing") {

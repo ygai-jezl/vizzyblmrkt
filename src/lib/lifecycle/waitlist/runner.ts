@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { CountBuffer } from "@/lib/loops/count";
+import { RunCache as LoopsRunCache } from "@/lib/loops/runCache";
 import { claimLifecycleSend, forTenant, getTenantById, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { Tenant } from "@/lib/types/tenant";
@@ -84,11 +86,17 @@ export class WaitlistRunCache {
   private readonly versions = new Map<string, Promise<LifecycleVersion | null>>();
   private readonly campaigns = new Map<string, Promise<Campaign | null>>();
   private readonly ranks = new Map<string, Promise<Map<string, number>>>();
+  /** Learning loops step 5 (4.1): the run's stamps, read once per kind, and its counts, written once when the run ends. */
+  readonly stamps: LoopsRunCache;
+  readonly counts: CountBuffer;
 
   constructor(
     private readonly ctx: TenantContext,
     private readonly db?: FirestoreLike,
-  ) {}
+  ) {
+    this.stamps = new LoopsRunCache({});
+    this.counts = new CountBuffer({ db });
+  }
 
   private memo<T>(map: Map<string, Promise<T>>, key: string, load: () => Promise<T>): Promise<T> {
     let p = map.get(key);
@@ -143,10 +151,26 @@ export async function processWaitlistEnrolment(
   deps: WaitlistRunnerDeps = {},
   opts: { cache?: WaitlistRunCache; seed?: WaitlistEnrolment } = {},
 ): Promise<EnrolmentRunOutcome> {
+  if (opts.cache) return processWaitlistWith(ctx, enrolmentId, deps, { ...opts, cache: opts.cache });
+  // One enrolment on its own (Run next step now): its counts are written when it is done.
+  const cache = new WaitlistRunCache(ctx, deps.db);
+  try {
+    return await processWaitlistWith(ctx, enrolmentId, deps, { ...opts, cache });
+  } finally {
+    await cache.counts.flush();
+  }
+}
+
+async function processWaitlistWith(
+  ctx: TenantContext,
+  enrolmentId: string,
+  deps: WaitlistRunnerDeps,
+  opts: { cache: WaitlistRunCache; seed?: WaitlistEnrolment },
+): Promise<EnrolmentRunOutcome> {
   // The kill switch: nothing is touched while it's off, so everyone waits where they are.
   if (!isWaitlistEngineEnabled()) return "held";
   const clock = deps.now ?? Date.now;
-  const cache = opts.cache ?? new WaitlistRunCache(ctx, deps.db);
+  const cache = opts.cache;
   const repo = forTenant(ctx, deps.db);
   const nowMs = clock();
 
@@ -308,6 +332,9 @@ async function deliver(s: Scope, d: SendDecision): Promise<DeliverResult> {
   const shadow = mode === "shadow";
   // The person (ONTOLOGY_PERSON_IDS_ENABLED): on the send record and the send row, never in the metadata. Shadow mail is nobody's.
   const personId = shadow ? null : personIdForSignup(ctx.tenantId, signup);
+  // What made the email (LOOPS_ENABLED, learning loops step 5): when it went is YouGrow's, its
+  // words a person's or Vizzy's journey draft. Read once per run.
+  const made = await s.cache.stamps.stamp(ctx, "send_time");
   const result = await (deps.send ?? sendEmail)({
     to,
     subject: email.subject,
@@ -336,7 +363,7 @@ async function deliver(s: Scope, d: SendDecision): Promise<DeliverResult> {
               recipientKind: "signup",
             },
             "waitlist_v2",
-            { db: deps.db, personId },
+            { db: deps.db, personId, made, kind: "send_time", counts: s.cache.counts },
           ),
         }),
   }).catch(
@@ -345,6 +372,8 @@ async function deliver(s: Scope, d: SendDecision): Promise<DeliverResult> {
   );
 
   if (result.sent || result.provider === "log" || result.ambiguous) {
+    // Counted once per email, in the run's buffer; shadow mail goes to the operator, not a person.
+    if (!shadow) s.cache.counts.made(ctx, "send_time", made, { type: "email_send" });
     // Recorded as the original engine records it (also for the log provider and
     // an ambiguous answer), so launch analytics count it the same way.
     if (!shadow) {
@@ -422,6 +451,8 @@ export async function drainWaitlistTenant(
     }
   };
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, due.length) }, worker));
+  // The run's counts, in one write for the brand (learning loops step 5).
+  await cache.counts.flush();
   return { due: due.length, outcomes, deferred };
 }
 

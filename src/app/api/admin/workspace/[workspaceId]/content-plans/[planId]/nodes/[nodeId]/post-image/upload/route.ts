@@ -83,6 +83,8 @@ export async function POST(req: Request, { params }: RouteParams) {
   // Persist the ref onto the node so an uploaded image is durable without a manual Save.
   // Uploaded images carry no AI aspect/prompt metadata.
   const updated = await updateContentPlanNode(ctx, workspaceId, planId, nodeId, {
+    // A person's own image: YouGrow made none of it.
+    made: { unstamped: "own_image" },
     imageAssetRef: stored.filename,
     imageAspect: null,
     imagePrompt: null,

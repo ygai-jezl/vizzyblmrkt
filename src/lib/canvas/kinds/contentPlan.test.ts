@@ -11,6 +11,9 @@ import type { TenantContext } from "@/lib/tenant/types";
 import type { ContentGraph, ContentNode } from "@/lib/types/contentPlan";
 import { authorContentPlanDraft, type ContentPlanDeps } from "./contentPlan";
 
+/** The canvas route's stamp with LOOPS_ENABLED off (learning loops step 5). */
+const LOOPS_OFF = { unstamped: "loops_off" } as const;
+
 const ctx: TenantContext = { tenantId: "ten_A", region: "us", source: "agent", userId: "u1", role: "admin" };
 const node = (id: string, type: ContentNode["type"], x: number): ContentNode =>
   ({ id, type, channel: type === "hub" ? "newsletter" : "linkedin", role: id, position: { x, y: 0 }, body: "", placeholderValues: {}, status: "empty", warnings: [] }) as unknown as ContentNode;
@@ -59,14 +62,14 @@ afterEach(() => vi.unstubAllEnvs());
 describe("content_plan canvas kind", () => {
   it("is unavailable while switched off, and can't see another tenant's programme", async () => {
     vi.stubEnv("CONTENT_CHAT_AUTHORING_ENABLED", "false");
-    expect(await authorContentPlanDraft({ ctx, input: { scope: { workspaceId: "ws1" }, intake }, brief: "" }, deps(world()))).toMatchObject({ status: 503 });
+    expect(await authorContentPlanDraft({ ctx, input: { scope: { workspaceId: "ws1" }, intake }, made: LOOPS_OFF, brief: "" }, deps(world()))).toMatchObject({ status: 503 });
     vi.stubEnv("CONTENT_CHAT_AUTHORING_ENABLED", "true");
-    expect(await authorContentPlanDraft({ ctx, input: { scope: { workspaceId: "ws_other" }, intake }, brief: "" }, deps(world()))).toMatchObject({ status: 404 });
+    expect(await authorContentPlanDraft({ ctx, input: { scope: { workspaceId: "ws_other" }, intake }, made: LOOPS_OFF, brief: "" }, deps(world()))).toMatchObject({ status: 404 });
   });
 
   it("drafts a plan like the wizard does and writes only the hub, never approving anything", async () => {
     const db = world();
-    const r = await authorContentPlanDraft({ ctx, input: { scope: { workspaceId: "ws1" }, intake }, brief: "Warm and practical" }, deps(db));
+    const r = await authorContentPlanDraft({ ctx, input: { scope: { workspaceId: "ws1" }, intake }, made: LOOPS_OFF, brief: "Warm and practical" }, deps(db));
     expect(r).toMatchObject({ ok: true, card: { kind: "content_plan", stats: [{ value: 3 }, { value: 1 }, { value: 2 }] } });
     if (!r.ok) throw new Error("expected a draft");
     expect(r.url).toBe(`/admin/workspace/ws1/create/${r.id}`);
@@ -82,16 +85,16 @@ describe("content_plan canvas kind", () => {
   it("refuses eBooks (they're written in the studio) and bad intakes", async () => {
     const db = world();
     const ebook = { ...intake, topology: { hubChannel: "ebook", spokeChannels: [] } };
-    expect(await authorContentPlanDraft({ ctx, input: { scope: { workspaceId: "ws1" }, intake: ebook }, brief: "" }, deps(db))).toMatchObject({ status: 422, error: "ebook_in_studio" });
-    expect(await authorContentPlanDraft({ ctx, input: { scope: { workspaceId: "ws1" }, intake: { name: "" } }, brief: "" }, deps(db))).toMatchObject({ status: 422, error: "invalid_intake" });
+    expect(await authorContentPlanDraft({ ctx, input: { scope: { workspaceId: "ws1" }, intake: ebook }, made: LOOPS_OFF, brief: "" }, deps(db))).toMatchObject({ status: 422, error: "ebook_in_studio" });
+    expect(await authorContentPlanDraft({ ctx, input: { scope: { workspaceId: "ws1" }, intake: { name: "" } }, made: LOOPS_OFF, brief: "" }, deps(db))).toMatchObject({ status: 422, error: "invalid_intake" });
   });
 
   it("refill leaves approved work alone and waits for the hub before spokes", async () => {
     const db = world();
-    const r = await authorContentPlanDraft({ ctx, input: { scope: { workspaceId: "ws1" }, intake }, brief: "" }, deps(db));
+    const r = await authorContentPlanDraft({ ctx, input: { scope: { workspaceId: "ws1" }, intake }, made: LOOPS_OFF, brief: "" }, deps(db));
     if (!r.ok) throw new Error("expected a draft");
     const refill = (nodeIds: string[], instructions?: string) =>
-      authorContentPlanDraft({ ctx, input: { scope: { workspaceId: "ws1", planId: r.id }, mode: "refill", nodeIds, instructions }, brief: "" }, deps(db));
+      authorContentPlanDraft({ ctx, input: { scope: { workspaceId: "ws1", planId: r.id }, mode: "refill", nodeIds, instructions }, made: LOOPS_OFF, brief: "" }, deps(db));
 
     expect(await refill(["spoke_1"])).toMatchObject({ ok: false, status: 409, issues: ["spoke_1: approve the hub first"] });
     // A person approves the hub; now spokes can be written, and the canvas remounts on the new revision.
@@ -119,7 +122,7 @@ describe("content_plan canvas kind", () => {
       throw new Error("model unavailable");
     });
     const r = await authorContentPlanDraft(
-      { ctx, input: { scope: { workspaceId: "ws1" }, intake }, brief: "" },
+      { ctx, input: { scope: { workspaceId: "ws1" }, intake }, made: LOOPS_OFF, brief: "" },
       { ...deps(db), architect: failing as never },
     );
     quiet.mockRestore();
@@ -141,7 +144,7 @@ describe("content_plan canvas kind", () => {
     const run = (clock: () => number) => {
       const db = world();
       return authorContentPlanDraft(
-        { ctx, input: { scope: { workspaceId: "ws1" }, intake: blogIntake }, brief: "" },
+        { ctx, input: { scope: { workspaceId: "ws1" }, intake: blogIntake }, made: LOOPS_OFF, brief: "" },
         { ...deps(db), research: research as never, checkFacts: checkFacts as never, now: clock },
       ).then((r) => ({ r, db }));
     };
@@ -187,7 +190,7 @@ describe("content_plan canvas kind", () => {
     const run = (clock: () => number) => {
       const db = world();
       return authorContentPlanDraft(
-        { ctx, input: { scope: { workspaceId: "ws1" }, intake: blogIntake, heroStyleId: "soft_3d" }, brief: "" },
+        { ctx, input: { scope: { workspaceId: "ws1" }, intake: blogIntake, heroStyleId: "soft_3d" }, made: LOOPS_OFF, brief: "" },
         { ...deps(db), research: research as never, checkFacts: checkFacts as never, makeHero: makeHero as never, now: clock },
       ).then((r) => ({ r, db }));
     };
@@ -228,7 +231,7 @@ describe("content_plan canvas kind", () => {
     const db = world();
     const blogIntake = { ...intake, topology: { hubChannel: "blog", spokeChannels: ["linkedin"] } };
     const r = await authorContentPlanDraft(
-      { ctx, input: { scope: { workspaceId: "ws1" }, intake: blogIntake }, brief: "" },
+      { ctx, input: { scope: { workspaceId: "ws1" }, intake: blogIntake }, made: LOOPS_OFF, brief: "" },
       { ...deps(db), research: research as never },
     );
     expect(r).toMatchObject({ ok: true });
@@ -241,7 +244,7 @@ describe("content_plan canvas kind", () => {
 
   it("is rate-limited per tenant", async () => {
     const db = world();
-    const go = () => authorContentPlanDraft({ ctx, input: { scope: { workspaceId: "ws1" }, intake }, brief: "" }, deps(db));
+    const go = () => authorContentPlanDraft({ ctx, input: { scope: { workspaceId: "ws1" }, intake }, made: LOOPS_OFF, brief: "" }, deps(db));
     for (let i = 0; i < 3; i += 1) expect(await go()).toMatchObject({ ok: true });
     expect(await go()).toMatchObject({ ok: false, status: 429 });
   });

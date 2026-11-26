@@ -45,7 +45,7 @@ export async function writeLiveMark(
 ): Promise<{ node: ContentNode; approved: boolean } | null> {
   const { workspaceId, plan, nodeId } = args;
   let approved = false;
-  const node = await updateContentPlanNode(ctx, workspaceId, plan.id, nodeId, {}, deps.db, {
+  const node = await updateContentPlanNode(ctx, workspaceId, plan.id, nodeId, { made: { unstamped: "records_where" } }, deps.db, {
     patchFor: (stored, storedNode) => {
       approved = args.approve && mayApproveOnLive(stored, storedNode);
       return approved ? { status: "approved" } : {};

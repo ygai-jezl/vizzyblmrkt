@@ -19,6 +19,9 @@ import { approvePlan, dropPlan, getPersonPlan, personPlanDocId, planGuidance, sa
 import { loadPersonRecord } from "./personRecord";
 import { personIdForProductUser } from "@/lib/ontology/personRef";
 
+/** The canvas route's stamp with LOOPS_ENABLED off (learning loops step 5). */
+const LOOPS_OFF = { unstamped: "loops_off" } as const;
+
 const MIN = 60_000;
 const HOUR = 3600_000;
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -150,7 +153,7 @@ describe("the person_plan canvas kind (Vizzy)", () => {
   it("saves a draft for staff to approve, and says so", async () => {
     const { db, user } = world();
     expect(getCanvasKind("person_plan")?.label).toBe("plan for one person");
-    const out = await authorPersonPlan({ ctx: agent, input: input(user.id), brief: "" }, { db, nowMs: T0 });
+    const out = await authorPersonPlan({ ctx: agent, input: input(user.id), made: LOOPS_OFF, brief: "" }, { db, nowMs: T0 });
     expect(out).toMatchObject({ ok: true, id: personPlanDocId(user.id), status: "draft", url: `/admin/crm/people/${user.id}` });
     expect(out.ok && out.card).toMatchObject({ kind: "person_plan", cta: "Open their page", stats: [{ label: "next steps", value: 2 }] });
     expect(out.ok && out.summary).toContain("Nothing changes until someone on your team approves it");
@@ -161,31 +164,31 @@ describe("the person_plan canvas kind (Vizzy)", () => {
   it("takes the product user as productUserId, or as personId (its old name) from a Vizzy not yet redeployed", async () => {
     const { db, user } = world();
     const withScope = (scope: Record<string, unknown>) => ({ ...input(user.id), scope });
-    expect(await authorPersonPlan({ ctx: agent, input: withScope({ productUserId: user.id }), brief: "" }, { db, nowMs: T0 })).toMatchObject({ ok: true, id: personPlanDocId(user.id) });
-    expect(await authorPersonPlan({ ctx: agent, input: withScope({ productUserId: user.id, personId: user.id }), brief: "" }, { db, nowMs: T0 })).toMatchObject({ ok: true });
-    expect(await authorPersonPlan({ ctx: agent, input: withScope({ productUserId: user.id, personId: "pu_someone_else" }), brief: "" }, { db, nowMs: T0 })).toMatchObject({
+    expect(await authorPersonPlan({ ctx: agent, input: withScope({ productUserId: user.id }), made: LOOPS_OFF, brief: "" }, { db, nowMs: T0 })).toMatchObject({ ok: true, id: personPlanDocId(user.id) });
+    expect(await authorPersonPlan({ ctx: agent, input: withScope({ productUserId: user.id, personId: user.id }), made: LOOPS_OFF, brief: "" }, { db, nowMs: T0 })).toMatchObject({ ok: true });
+    expect(await authorPersonPlan({ ctx: agent, input: withScope({ productUserId: user.id, personId: "pu_someone_else" }), made: LOOPS_OFF, brief: "" }, { db, nowMs: T0 })).toMatchObject({
       ok: false,
       status: 400,
       error: "invalid_input",
     });
-    expect(await authorPersonPlan({ ctx: agent, input: withScope({}), brief: "" }, { db, nowMs: T0 })).toMatchObject({ ok: false, status: 400 });
+    expect(await authorPersonPlan({ ctx: agent, input: withScope({}), made: LOOPS_OFF, brief: "" }, { db, nowMs: T0 })).toMatchObject({ ok: false, status: 400 });
   });
 
   it("plans nothing for someone who can't be emailed, or a plan that names them, or for a member, or while it's off", async () => {
     const { db, user } = world();
-    expect(await authorPersonPlan({ ctx: agent, input: input(user.id, { angle: "Tell Priya Raman it takes two minutes." }), brief: "" }, { db })).toMatchObject({ ok: false, status: 422, error: "names_the_person" });
+    expect(await authorPersonPlan({ ctx: agent, input: input(user.id, { angle: "Tell Priya Raman it takes two minutes." }), made: LOOPS_OFF, brief: "" }, { db })).toMatchObject({ ok: false, status: 422, error: "names_the_person" });
     // Writing a plan is for admins on the person's page, so it is through Vizzy too; a token with no role is refused.
     for (const role of ["member", undefined] as const) {
-      expect(await authorPersonPlan({ ctx: { ...agent, role }, input: input(user.id), brief: "" }, { db })).toMatchObject({ ok: false, status: 403, error: "forbidden" });
+      expect(await authorPersonPlan({ ctx: { ...agent, role }, input: input(user.id), made: LOOPS_OFF, brief: "" }, { db })).toMatchObject({ ok: false, status: 403, error: "forbidden" });
     }
     expect(await getPersonPlan(ctx, user.id, db)).toBeNull();
-    expect(await authorPersonPlan({ ctx: agent, input: input(user.id, { goal: 7 }), brief: "" }, { db })).toMatchObject({ ok: false, status: 400, error: "invalid_input" });
+    expect(await authorPersonPlan({ ctx: agent, input: input(user.id, { goal: 7 }), made: LOOPS_OFF, brief: "" }, { db })).toMatchObject({ ok: false, status: 400, error: "invalid_input" });
     await suppressEmail(system, { email: user.email!, reason: "unsubscribe", source: "footer" }, db);
-    expect(await authorPersonPlan({ ctx: agent, input: input(user.id), brief: "" }, { db })).toMatchObject({ ok: false, status: 409, error: "cannot_email" });
+    expect(await authorPersonPlan({ ctx: agent, input: input(user.id), made: LOOPS_OFF, brief: "" }, { db })).toMatchObject({ ok: false, status: 409, error: "cannot_email" });
     // Staff can still write one down for themselves.
     expect((await savePlanDraft(ctx, user.id, PLAN, { db, by: "human" })).ok).toBe(true);
     delete process.env.LIFECYCLE_PERSON_PLANS;
-    expect(await authorPersonPlan({ ctx: agent, input: input(user.id), brief: "" }, { db })).toMatchObject({ ok: false, status: 503, error: "person_plans_unavailable" });
+    expect(await authorPersonPlan({ ctx: agent, input: input(user.id), made: LOOPS_OFF, brief: "" }, { db })).toMatchObject({ ok: false, status: 503, error: "person_plans_unavailable" });
   });
 });
 

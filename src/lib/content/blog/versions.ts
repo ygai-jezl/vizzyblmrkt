@@ -119,7 +119,7 @@ export async function restoreVersion(
     unsupportedFigures: [],
     removedLinks: [],
   });
-  const updated = await updateContentPlanNode(ctx, plan.workspaceId, plan.id, nodeId, { body: version.body, status: "generated", blog }, deps.db, {
+  const updated = await updateContentPlanNode(ctx, plan.workspaceId, plan.id, nodeId, { body: version.body, status: "generated", blog, made: { unstamped: "person_restored" } }, deps.db, {
     // Updated as it was with that copy; Published and the page's own dates stay.
     setDates: (stored) => {
       if (!stored) return stored;

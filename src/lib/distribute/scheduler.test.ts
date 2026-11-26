@@ -116,7 +116,7 @@ describe("schedulePost", () => {
     const ctx = ctxFor();
     const { status, post } = await schedulePost(
       ctx,
-      { workspaceId: WS, contentPlanId: PLAN, nodeId: "n1", channel: "x", body: "hi", scheduledAt: FUTURE },
+      { workspaceId: WS, contentPlanId: PLAN, nodeId: "n1", channel: "x", body: "hi", scheduledAt: FUTURE, made: { unstamped: "person_wrote" } },
       db,
     );
     expect(status).toBe("scheduled");
@@ -138,7 +138,7 @@ describe("schedulePost", () => {
         channel: "x",
         body: "hi",
         pps: { score: 42, breakdown: { hook: 40, brevity: 50, formatting: 50, keyword: 30 } },
-        scheduledAt: FUTURE,
+        scheduledAt: FUTURE, made: { unstamped: "person_wrote" },
       },
       db,
     );
@@ -151,8 +151,8 @@ describe("schedulePost", () => {
     const ctx = ctxFor();
     const t1 = "2999-01-01T00:00:00.000Z";
     const t2 = "2999-06-01T00:00:00.000Z";
-    await schedulePost(ctx, { workspaceId: WS, contentPlanId: PLAN, nodeId: "n1", channel: "x", body: "v1", scheduledAt: t1 }, db);
-    const again = await schedulePost(ctx, { workspaceId: WS, contentPlanId: PLAN, nodeId: "n1", channel: "x", body: "v2", scheduledAt: t2 }, db);
+    await schedulePost(ctx, { workspaceId: WS, contentPlanId: PLAN, nodeId: "n1", channel: "x", body: "v1", scheduledAt: t1, made: { unstamped: "person_wrote" } }, db);
+    const again = await schedulePost(ctx, { workspaceId: WS, contentPlanId: PLAN, nodeId: "n1", channel: "x", body: "v2", scheduledAt: t2, made: { unstamped: "person_wrote" } }, db);
     expect(again.post.scheduledAt).toBe(t2);
     expect(again.post.body).toBe("v2"); // payload refreshed
     expect(db.dump(COLLECTION)).toHaveLength(1); // still one doc
@@ -162,7 +162,7 @@ describe("schedulePost", () => {
     const db = new FakeFirestore();
     const ctx = ctxFor();
     seedPost(db, `post:${WS}:${PLAN}:n1`, { nodeId: "n1", status: "failed", attempts: 3, lastError: "boom" });
-    const r = await schedulePost(ctx, { workspaceId: WS, contentPlanId: PLAN, nodeId: "n1", channel: "x", body: "retry", scheduledAt: FUTURE }, db);
+    const r = await schedulePost(ctx, { workspaceId: WS, contentPlanId: PLAN, nodeId: "n1", channel: "x", body: "retry", scheduledAt: FUTURE, made: { unstamped: "person_wrote" } }, db);
     expect(r.post.status).toBe("pending");
     expect(r.post.attempts).toBe(0);
     expect(r.post.lastError).toBeNull();
@@ -178,7 +178,7 @@ describe("schedulePost", () => {
       publishedRef: { platform: "x", remoteId: "1", publishedAt: PAST },
     });
     await expect(
-      schedulePost(ctx, { workspaceId: WS, contentPlanId: PLAN, nodeId: "n1", channel: "x", body: "x", scheduledAt: FUTURE }, db),
+      schedulePost(ctx, { workspaceId: WS, contentPlanId: PLAN, nodeId: "n1", channel: "x", body: "x", scheduledAt: FUTURE, made: { unstamped: "person_wrote" } }, db),
     ).rejects.toBeInstanceOf(SchedulePostConflictError);
   });
 
@@ -191,7 +191,7 @@ describe("schedulePost", () => {
       publishedRef: { platform: "manual", publishedAt: PAST },
     });
     await expect(
-      schedulePost(ctx, { workspaceId: WS, contentPlanId: PLAN, nodeId: "n1", channel: "x", body: "x", scheduledAt: FUTURE }, db),
+      schedulePost(ctx, { workspaceId: WS, contentPlanId: PLAN, nodeId: "n1", channel: "x", body: "x", scheduledAt: FUTURE, made: { unstamped: "person_wrote" } }, db),
     ).rejects.toBeInstanceOf(SchedulePostConflictError);
   });
 });
@@ -413,7 +413,7 @@ describe("processScheduledPosts", () => {
     const ctx = ctxFor();
     await schedulePost(
       ctx,
-      { workspaceId: WS, contentPlanId: PLAN, nodeId: "n1", channel: "x", body: "base", spintaxSource: "{Hi|Hello}", scheduledAt: PAST },
+      { workspaceId: WS, contentPlanId: PLAN, nodeId: "n1", channel: "x", body: "base", spintaxSource: "{Hi|Hello}", scheduledAt: PAST, made: { unstamped: "person_wrote" } },
       db,
     );
     await processScheduledPosts(ctx, 25, db);

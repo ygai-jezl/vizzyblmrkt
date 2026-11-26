@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { stampHeaders } from "@/lib/loops/stampHeader";
 import type { BrandKit } from "@/lib/types/tenant";
 import { BrandColours } from "./brand-kit/BrandColours";
 
@@ -21,6 +22,8 @@ function lines(s: string): string[] {
 
 export function BrandSettings() {
   const [kit, setKit] = useState<BrandKit>({});
+  // The extracted kit's stamp token, sent with the next save (learning loops step 5).
+  const [stampToken, setStampToken] = useState<string | null>(null);
   const [fontsText, setFontsText] = useState("");
   const [dosText, setDosText] = useState("");
   const [dontsText, setDontsText] = useState("");
@@ -59,9 +62,10 @@ export function BrandSettings() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ pdfPath: path, pdfName: name }),
         });
-        const data = (await res.json().catch(() => ({}))) as { brandKit?: BrandKit };
+        const data = (await res.json().catch(() => ({}))) as { brandKit?: BrandKit; stampToken?: string };
         if (res.ok && data.brandKit) {
           applyKit(data.brandKit);
+          setStampToken(data.stampToken ?? null);
           setMsg("Brand kit extracted — review and save.");
         } else {
           setMsg("Extraction failed — try another PDF or fill the fields manually.");
@@ -107,11 +111,14 @@ export function BrandSettings() {
     try {
       const res = await fetch("/api/admin/account/brand", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...stampHeaders([stampToken]) },
         body: JSON.stringify(payload),
       });
       setMsg(res.ok ? "Saved." : "Save failed.");
-      if (res.ok) setColorsDirty(false);
+      if (res.ok) {
+        setColorsDirty(false);
+        setStampToken(null);
+      }
     } finally {
       setBusy(null);
     }

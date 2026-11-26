@@ -1,4 +1,7 @@
 import { syncPlanPageSoftly } from "./pageActions";
+import { countMade } from "@/lib/loops/count";
+import { rootOf } from "@/lib/loops/made";
+import { learnedFor } from "@/lib/loops/read";
 import { pinOriginal } from "@/lib/content/create/aiOriginals";
 import { createHash } from "node:crypto";
 import { generateTextWithDeadline } from "@/lib/agents/gemini";
@@ -350,16 +353,19 @@ export async function applyReview(
       : null;
   const brief = plan.blog ? { ...plan.blog, sources: sourcesAfter(plan.blog.sources, applied, review.evidence), ...(questions ? { questions } : {}) } : null;
   if (brief) await updateContentPlan(ctx, plan.workspaceId, plan.id, { blog: brief }, deps.db);
-  const updated = await updateContentPlanNode(ctx, plan.workspaceId, plan.id, node.id, { body, status: "generated" }, deps.db, {
+  // The applied copy is the review's, grown from the article it changed (`root`).
+  const { stamp } = await learnedFor(ctx, "blog_refresh", { promptId: "content.blog_refresh_propose", root: rootOf(node.made) });
+  const updated = await updateContentPlanNode(ctx, plan.workspaceId, plan.id, node.id, { body, status: "generated", made: stamp }, deps.db, {
     ...(real ? { setDates: (stored) => (stored?.published ? { ...stored, updated: { at, source: "change" as const } } : stored) } : {}),
     setFreshness: (stored, current) => (stored ? freshnessAfter(stored, current, at, real, now) : stored),
   });
   if (!updated) return { ok: false, status: 404, error: "not_found" };
+  await countMade(ctx, "blog_refresh", stamp, { type: "content_plan", db: deps.db });
   await leaveDueList(ctx, plan.id, at, deps);
   // The applied copy is the review's: it is the article's new AI original (the fact check below moves it on).
   await pinOriginal(
     ctx,
-    { plan, node: updated, body: updated.body, made: { purpose: "blog_refresh", promptId: "content.blog_refresh_propose", sources: ["review"] } },
+    { plan, node: updated, body: updated.body, madeBy: { purpose: "blog_refresh", promptId: "content.blog_refresh_propose", sources: ["review"] } },
     { db: deps.db },
   ).catch(() => null);
 

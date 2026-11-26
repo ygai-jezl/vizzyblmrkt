@@ -1,4 +1,8 @@
 import { generateTextWithDeadline, isGeminiConfigured, parseFirstJson } from "@/lib/agents/gemini";
+import { CountBuffer } from "@/lib/loops/count";
+import { keptMade } from "@/lib/loops/made";
+import { learnedFor } from "@/lib/loops/read";
+import type { Made } from "@/lib/types/loopStamp";
 import { aiUsage } from "@/lib/plans/meter";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { fence, oneLine } from "@/lib/brandMap/lineChecks";
@@ -492,6 +496,20 @@ export async function pickNextUp(
     }
   }
 
+  // What made each pick (LOOPS_ENABLED, learning loops step 5): Next up, through the model or, for
+  // a pick filled in by code, without a prompt. Kept on the pick and counted made once saved.
+  const [byModel, byCode] = await Promise.all([
+    learnedFor(ctx, "next_up", { promptId: "next_up.pick" }),
+    learnedFor(ctx, "next_up"),
+  ]);
+  const madeOf = (p: NextUpPick): Made => (p.from === "gemini" ? byModel.stamp : byCode.stamp);
+  picks = picks.map((p) => {
+    const { made: _old, ...rest } = p;
+    void _old;
+    const made = keptMade(madeOf(p));
+    return made ? { ...rest, made } : rest;
+  });
+
   const closePicks = picks.some((p) => p.closeTo);
   const reviewsOpen = closePicks
     ? await (deps.reviewsOpen ?? (async (c) => isBlogRefreshEnabled() && (await mayStartReview(c, { db: deps.db, ...(deps.loadTenant ? { loadTenant: deps.loadTenant } : {}) })).ok))(ctx).catch(() => false)
@@ -508,5 +526,8 @@ export async function pickNextUp(
       : {}),
   };
   const { doc: saved } = await forTenant(ctx, deps.db).nextUp.upsert(nextUpDocId(ctx.tenantId), () => doc, () => doc);
+  const counts = new CountBuffer({ db: deps.db });
+  for (const p of picks) counts.made(ctx, "next_up", madeOf(p), { type: "next_up" });
+  await counts.flush();
   return { ok: true, doc: saved };
 }

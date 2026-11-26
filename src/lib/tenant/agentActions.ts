@@ -1,4 +1,6 @@
 import { forTenant, TENANT_FIELD } from "./repository";
+import { keptMade } from "@/lib/loops/made";
+import type { Made } from "@/lib/types/loopStamp";
 import { TenantIsolationError, TenantValidationError } from "./errors";
 import type { DocRefLike, FirestoreLike, TenantContext, TransactionLike } from "./types";
 import {
@@ -71,6 +73,8 @@ export interface AgentProposal {
   expiresAt: string;
   /** Clear proposal and basis in the same commit as an acted or declined decision. */
   clearDetailsOnClose?: boolean;
+  /** What made it, when Vizzy drafted it on a canvas: kept only with LOOPS_ENABLED on (keptMade). */
+  made?: Made;
   /** When it was proposed (canonical). */
   at: string;
 }
@@ -193,6 +197,7 @@ export async function proposeAgentAction(
     clearDetailsOnClose: p.clearDetailsOnClose ?? false,
     detailsClearedAt: null,
     blankedFieldIds: [],
+    ...(keptMade(p.made) ? { made: keptMade(p.made) } : {}),
     createdAt: p.at,
     updatedAt: p.at,
   };

@@ -31,7 +31,7 @@ const EXEMPT = [
   { collection: "loop_lane", field: "d", why: "the lane's document and the organisation marks, under the one map (src/lib/tenant/loopLane.ts)" },
   { collection: "image_assets", field: "made", why: "each image's stamp (src/lib/admin/brandKit.ts)" },
   { collection: "email_sends", field: "made", why: "step 5's stamp on each send" },
-  { collection: "scheduled_posts", field: "made", why: "step 5's stamp on each post" },
+  { collection: "campaign_scheduled_posts", field: "made", why: "step 5's stamp on each post (the scheduled posts' collection)" },
   { collection: "agent_actions", field: "made", why: "step 5's stamp on each Vizzy draft" },
   { collection: "image_assets", field: "brandVoteNote", why: "the team's note on a vote, 200 characters of free text (3.11)" },
 ] as const;

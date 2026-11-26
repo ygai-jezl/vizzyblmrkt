@@ -101,8 +101,8 @@ describe("POST /api/admin/email/image with image style versions on (learning loo
       { scope: "image_style.natural_photo", outputId: expect.any(String), promptId: "creative.image_brief" },
     ]);
     expect(last()).toMatchObject({ learnedImageStyle: "Warm daylight on flour." });
-    expect(loopsCount.countMade).toHaveBeenCalledWith(expect.anything(), "email_hero", stamp);
-    expect(loopsStamp.signStamp).toHaveBeenCalledWith(expect.anything(), stamp);
+    expect(loopsCount.countMade).toHaveBeenCalledWith(expect.anything(), "email_hero", stamp, {});
+    expect(loopsStamp.signStamp).toHaveBeenCalledWith(expect.anything(), stamp, {});
     expect(await res.json()).toMatchObject({ imageUrl: "https://x/i.png", stampToken: "st1.token.sig" });
   });
 
@@ -118,6 +118,6 @@ describe("POST /api/admin/email/image with image style versions on (learning loo
     vi.mocked(loopsRead.learnedFor).mockResolvedValueOnce({ block: { look: null, holdback: true }, stamp: held });
     await POST(req({ campaignId: "camp_1", brief: "Opening day" }));
     expect(last()).toMatchObject({ learnedImageStyle: null });
-    expect(loopsStamp.signStamp).toHaveBeenCalledWith(expect.anything(), held);
+    expect(loopsStamp.signStamp).toHaveBeenCalledWith(expect.anything(), held, {});
   });
 });

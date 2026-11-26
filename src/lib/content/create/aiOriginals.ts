@@ -69,7 +69,7 @@ export async function pinOriginal(
     node: Pick<ContentNode, "id" | "type" | "channel">;
     body: string;
     meta?: { metaTitle?: string; metaDescription?: string };
-    made?: MadeBy;
+    madeBy?: MadeBy;
   },
   deps: OriginalDeps = {},
 ): Promise<AiOriginalDoc | null> {
@@ -84,8 +84,8 @@ export async function pinOriginal(
     at,
     by: originalByOf(ctx),
     userId: ctx.userId ?? null,
-    stamp: stampOf(args.made),
-    sources: [...new Set(args.made?.sources ?? [])],
+    stamp: stampOf(args.madeBy),
+    sources: [...new Set(args.madeBy?.sources ?? [])],
   };
   const { doc } = await forTenant(ctx, deps.db).aiOriginals.upsert(
     aiOriginalId(plan.id, node.id),

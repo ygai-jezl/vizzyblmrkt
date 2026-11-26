@@ -8,6 +8,8 @@ import type { AgentName } from "@/lib/types/agentAction";
 import type { LearnedPatternVersion } from "@/lib/types/learnedPatternVersion";
 import type { BrandPointers, ScopePointer } from "@/lib/types/loopDay";
 import { LoopStampSchema, type LoopArm, type LoopStamp, type Made, type MadeId } from "@/lib/types/loopStamp";
+import { isLoopsEnabled } from "./flags";
+import { isImageKind } from "./imageKinds";
 import { IMAGE_STYLE_SCOPES, LOOP_RULES, LOOPS, type ImageStyleScope, type LoopKind } from "./registry";
 import { madeIdOf, promptStamp } from "./stamp";
 
@@ -17,8 +19,10 @@ import { madeIdOf, promptStamp } from "./stamp";
  * once, puts the block in its prompt, settles the stamp where the image is made
  * (settleStamp in ./stamp.ts) and passes it to the record it writes. It never counts anything.
  *
- * - A kind that isn't an image kind: an empty block and `{ unstamped: "loops_off" }`, with no read,
- *   until step 5 brings LOOPS_ENABLED (decision 22).
+ * - A kind that isn't an image kind: an empty block and no read. With LOOPS_ENABLED off,
+ *   `{ unstamped: "loops_off" }` (decision 22); on (step 5, 4.1), a stamp at version 0, arm none,
+ *   in its own scope (the kind's name unless a scope is given), since nothing but images learns
+ *   through these steps yet.
  * - An image kind with IMAGE_STYLE_VERSIONS_ENABLED off: the look from the brand record the path
  *   already read, exactly as today, and `{ unstamped: "image_versions_off" }`, with no read.
  * - With it on, a kind or style that doesn't learn: no look and arm none, with no read.
@@ -32,19 +36,7 @@ import { madeIdOf, promptStamp } from "./stamp";
  * brand not yet seeded uses the old field, arm none with `legacy`. A pause changes nothing here.
  */
 
-/** The kinds that make images, which follow IMAGE_STYLE_VERSIONS_ENABLED alone (decision 22). */
-export const IMAGE_KINDS = [
-  "post_image",
-  "blog_hero",
-  "ebook_image",
-  "email_block_image",
-  "email_hero",
-  "customize_image",
-  "carousel",
-] as const satisfies readonly LoopKind[];
-export type ImageKind = (typeof IMAGE_KINDS)[number];
-
-export const isImageKind = (kind: LoopKind): kind is ImageKind => (IMAGE_KINDS as readonly string[]).includes(kind);
+export { IMAGE_KINDS, isImageKind, type ImageKind } from "./imageKinds";
 
 /** The brand look's scope, which a painted style with no look of its own uses. */
 export const BRAND_SCOPE = "image_style.brand" satisfies ImageStyleScope;
@@ -151,35 +143,37 @@ function legacyRead(base: StampBase, scope: string, legacy: string | null | unde
 /**
  * The stamp of an image made on a path that never learns, with no read (decision 10 and 3.6): a
  * drawn style, a format's card, or a drawn eBook cover. Arm none at version 0 in the scope of the
- * style it was drawn in, with `not_learning`, so no check counts it. With versions off, or for a
- * kind that isn't an image kind, why it has none, as learnedFor says.
+ * style it was drawn in, with `not_learning`, so no check counts it. With versions off,
+ * `image_versions_off`; it is for images only, so any other kind gets `loops_off` (learnedFor
+ * stamps those).
  */
 export function notLearningStamp(kind: LoopKind, opts: Pick<LearnedForOptions, "scope" | "promptId" | "by" | "root"> = {}, deps: Pick<LearnedForDeps, "now"> = {}): Made {
   if (!isImageKind(kind)) return { unstamped: "loops_off" };
   if (!isImageStyleVersionsOn()) return { unstamped: "image_versions_off" };
-  const base: StampBase = {
+  return stampOf(baseOf(kind, opts, deps), opts.scope ?? BRAND_SCOPE, 0, "none", { sources: ["not_learning"] });
+}
+
+function baseOf(kind: LoopKind, opts: Pick<LearnedForOptions, "promptId" | "by" | "root">, deps: Pick<LearnedForDeps, "now">): StampBase {
+  return {
     kind,
     prompt: opts.promptId ? promptStamp(opts.promptId) : null,
     at: (deps.now ?? new Date()).toISOString(),
     ...(opts.by ? { by: opts.by } : {}),
     ...(opts.root ? { root: opts.root } : {}),
   };
-  return stampOf(base, opts.scope ?? BRAND_SCOPE, 0, "none", { sources: ["not_learning"] });
 }
 
 export async function learnedFor(ctx: TenantContext, kind: LoopKind, opts: LearnedForOptions = {}, deps: LearnedForDeps = {}): Promise<LearnedRead> {
-  // Step 5 turns the other kinds on behind LOOPS_ENABLED; until then each is exactly today.
-  if (!isImageKind(kind)) return { block: EMPTY_BLOCK, stamp: { unstamped: "loops_off" } };
+  if (!isImageKind(kind)) {
+    // Off is today exactly (decision 22). On, every other kind is stamped arm none with no read:
+    // none, gap, own and fleet lines learn nothing through this reader yet (4.1).
+    if (!isLoopsEnabled()) return { block: EMPTY_BLOCK, stamp: { unstamped: "loops_off" } };
+    return { block: EMPTY_BLOCK, stamp: stampOf(baseOf(kind, opts, deps), opts.scope ?? kind, 0, "none") };
+  }
   if (!isImageStyleVersionsOn()) return { block: { look: opts.legacy, holdback: false }, stamp: { unstamped: "image_versions_off" } };
 
   const scope = opts.scope ?? BRAND_SCOPE;
-  const base: StampBase = {
-    kind,
-    prompt: opts.promptId ? promptStamp(opts.promptId) : null,
-    at: (deps.now ?? new Date()).toISOString(),
-    ...(opts.by ? { by: opts.by } : {}),
-    ...(opts.root ? { root: opts.root } : {}),
-  };
+  const base = baseOf(kind, opts, deps);
   const line = LOOPS[kind];
   if (!("loop" in line) || !(line.loop.scopes as readonly string[]).includes(scope) || !isLearningScope(scope)) {
     // A none line (Customise, carousels) or a drawn style: nothing learned, so nothing to read.

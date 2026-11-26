@@ -18,6 +18,9 @@ import { createSituation, editSituation, listSituations } from "./situations";
 import { readImport } from "./imports";
 import { saveBrandMap } from "./store";
 
+/** The canvas route's stamp with LOOPS_ENABLED off (learning loops step 5). */
+const LOOPS_OFF = { unstamped: "loops_off" } as const;
+
 const ctx: TenantContext = { tenantId: "ten_A", region: "us", source: "agent", userId: "usr_admin", role: "admin" };
 const NOW = Date.parse("2026-10-15T10:00:00.000Z");
 const quiet = { embed: async () => [], query: async () => null };
@@ -93,7 +96,7 @@ describe("what Vizzy reads of a map at any size", () => {
 
 describe("what Vizzy proposes on a map at any size", () => {
   const author = (input: Record<string, unknown>, db: FakeFirestore, extra: Record<string, unknown> = {}) =>
-    authorBrandMapSuggestions({ ctx, input, brief: "From our chat" }, { db, nowMs: NOW, ...extra });
+    authorBrandMapSuggestions({ ctx, input, made: LOOPS_OFF, brief: "From our chat" }, { db, nowMs: NOW, ...extra });
 
   it("proposes buying situations and questions linked to one, and says nothing on the map changed", async () => {
     const { db, situationId } = await setup();

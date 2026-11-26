@@ -11,6 +11,9 @@ import { ctx, seedConnection, seedLaunch, seedSignup } from "@/lib/invites/testi
 import { INVITE_LOCK_TEXT_FOR_VIZZY } from "@/lib/invites/lockText";
 import { authorInviteWaveDraft } from "./inviteWave";
 
+/** The canvas route's stamp with LOOPS_ENABLED off (learning loops step 5). */
+const LOOPS_OFF = { unstamped: "loops_off" } as const;
+
 const write = vi.fn(async () => ({ subject: "You're in", body: "Hi {{first_name}}, Fernlight is ready for you." }));
 
 beforeEach(() => {
@@ -30,7 +33,7 @@ function world(withProduct = true) {
   return db;
 }
 const author = (db: FakeFirestore, input: Record<string, unknown>, brief = "Keep it short") =>
-  authorInviteWaveDraft({ ctx, input, brief }, { db, write });
+  authorInviteWaveDraft({ ctx, input, made: LOOPS_OFF, brief }, { db, write });
 
 describe("invite_wave canvas kind", () => {
   it("is unavailable while invites are off, and says why a locked launch can't be invited", async () => {

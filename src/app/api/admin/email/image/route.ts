@@ -15,8 +15,8 @@ import { IMAGE_LIMIT_MESSAGE } from "@/lib/plans/resources";
 import { canonicalStyleId } from "@/lib/content/imageStyle/catalogue";
 import { newImageAssetId } from "@/lib/admin/brandKit";
 import { imageScopeOf, learnedFor } from "@/lib/loops/read";
-import { settleStamp, signStamp } from "@/lib/loops/stamp";
-import { countMade } from "@/lib/loops/count";
+import { settleStamp } from "@/lib/loops/stamp";
+import { handBack, withStampToken } from "@/lib/loops/handBack";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -81,18 +81,11 @@ export async function POST(req: Request) {
     usage: aiUsage(ctx, "email_hero"),
   });
   if (result.reason === "image_limit") return NextResponse.json({ ...result, error: "image_limit", message: IMAGE_LIMIT_MESSAGE }, { status: 429 });
-  let stampToken: string | null = null;
-  if (result.imageUrl) {
-    // Counted once stored (decision 20); email heroes never count a remake (decision 12).
-    const made = settleStamp(learned.stamp, { lookUsed: typeof learned.block.look === "string" && learned.block.look.trim().length > 0 });
-    await countMade(ctx, "email_hero", made);
-    if (!("unstamped" in made)) {
-      stampToken = await signStamp(ctx, made).catch((err) => {
-        console.warn("[loops] signing the email hero's stamp failed", err instanceof Error ? err.message.slice(0, 200) : "error");
-        return null;
-      });
-    }
-  }
+  // Counted once handed back, with its stamp signed for the save (decision 20); email heroes never
+  // count a remake (decision 12).
+  const stampToken = result.imageUrl
+    ? await handBack(ctx, "email_hero", settleStamp(learned.stamp, { lookUsed: typeof learned.block.look === "string" && learned.block.look.trim().length > 0 }))
+    : null;
   const body = choice.enabled ? { ...result, imageStyleId: choice.ownPick, styleId: choice.model.styleId } : result;
-  return NextResponse.json(stampToken ? { ...body, stampToken } : body);
+  return NextResponse.json(withStampToken(body, stampToken));
 }

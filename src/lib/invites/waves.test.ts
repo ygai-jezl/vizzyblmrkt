@@ -34,7 +34,7 @@ function world() {
 describe("invite waves", () => {
   it("can't draft a wave until a production product with a sign-up link exists", async () => {
     const db = world();
-    const draft = () => createWaveDraft(ctx, "beta", { size: 2 }, { authoredBy: "human" }, db);
+    const draft = () => createWaveDraft(ctx, "beta", { size: 2 }, { authoredBy: "human", made: { unstamped: "person_wrote" } }, db);
     expect(await draft()).toMatchObject({ ok: false, status: 409, detail: "no_product" });
     seedConnection(db, "pcn_stg", { environment: "staging" });
     expect(await draft()).toMatchObject({ ok: false, detail: "staging_only" });
@@ -47,7 +47,7 @@ describe("invite waves", () => {
       expect(ok.value.subject).toContain("{{product_name}}");
       expect(ok.value.body).toContain("{{invite_link}}");
     }
-    expect(await createWaveDraft(ctx, "nope", { size: 1 }, { authoredBy: "human" }, db)).toMatchObject({ status: 404 });
+    expect(await createWaveDraft(ctx, "nope", { size: 1 }, { authoredBy: "human", made: { unstamped: "person_wrote" } }, db)).toMatchObject({ status: 404 });
   });
 
   it("selects from the top of the ranking, skipping no-email people and existing product users", async () => {
@@ -70,7 +70,7 @@ describe("invite waves", () => {
   it("sending creates one invite and one queued email per person, and never invites anyone twice", async () => {
     const db = world();
     seedConnection(db);
-    const draft = await createWaveDraft(ctx, "beta", { size: 2 }, { authoredBy: "human", userId: "u_admin" }, db);
+    const draft = await createWaveDraft(ctx, "beta", { size: 2 }, { authoredBy: "human", userId: "u_admin", made: { unstamped: "person_wrote" } }, db);
     if (!draft.ok) throw new Error("draft failed");
     const sent = await sendInviteWave(ctx, draft.value.id, { userId: "u_admin" }, { db, kick });
     expect(sent).toMatchObject({ ok: true, value: { status: "sent", counts: { selected: 2, created: 2 } } });
@@ -82,7 +82,7 @@ describe("invite waves", () => {
 
     // The same wave can't be sent twice, and a new wave picks the next people.
     expect(await sendInviteWave(ctx, draft.value.id, {}, { db, kick })).toMatchObject({ ok: false, status: 409 });
-    const next = await createWaveDraft(ctx, "beta", { size: 10 }, { authoredBy: "human" }, db);
+    const next = await createWaveDraft(ctx, "beta", { size: 10 }, { authoredBy: "human", made: { unstamped: "person_wrote" } }, db);
     if (!next.ok) throw new Error("draft failed");
     const again = await sendInviteWave(ctx, next.value.id, {}, { db, kick });
     expect(again).toMatchObject({ ok: true, value: { counts: { selected: 3, created: 3 } } });
@@ -92,7 +92,7 @@ describe("invite waves", () => {
   it("only drafts can be edited or deleted", async () => {
     const db = world();
     seedConnection(db);
-    const draft = await createWaveDraft(ctx, "beta", { size: 1 }, { authoredBy: "agent" }, db);
+    const draft = await createWaveDraft(ctx, "beta", { size: 1 }, { authoredBy: "agent", made: { unstamped: "loops_off" } }, db);
     if (!draft.ok) throw new Error("draft failed");
     const edited = await updateWaveDraft(ctx, draft.value.id, { subject: "Come on in", body: "No link yet" }, { db });
     expect(edited).toMatchObject({ ok: true, value: { subject: "Come on in" } });

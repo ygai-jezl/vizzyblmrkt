@@ -91,7 +91,7 @@ function outcome(wave: InviteWave, campaign: Campaign, edited: boolean): CanvasA
 }
 
 export async function authorInviteWaveDraft(
-  { ctx, input, brief }: CanvasAuthorArgs,
+  { ctx, input, brief, made }: CanvasAuthorArgs,
   deps: { db?: FirestoreLike; write?: InviteCopyWriter } = {},
 ): Promise<CanvasAuthorOutcome> {
   if (!isInvitesEnabled()) return { ok: false, status: 503, error: "unavailable" };
@@ -141,7 +141,7 @@ export async function authorInviteWaveDraft(
         ...(req.data.size ? { size: req.data.size } : {}),
         ...(req.data.expiresInDays ? { expiresInDays: req.data.expiresInDays } : {}),
       },
-      { authoredBy: "agent", db: deps.db },
+      { authoredBy: "agent", made, db: deps.db },
     );
     if (!r.ok) return { ok: false, status: r.status, error: r.error };
     return outcome(r.value, setup.campaign, true);
@@ -163,7 +163,7 @@ export async function authorInviteWaveDraft(
       body,
       ...(req.data.expiresInDays ? { expiresInDays: req.data.expiresInDays } : {}),
     },
-    { userId: ctx.userId ?? null, authoredBy: "agent" },
+    { userId: ctx.userId ?? null, authoredBy: "agent", made },
     deps.db,
   );
   if (!r.ok) return { ok: false, status: r.status, error: r.error, issues: r.detail ? [r.detail] : undefined };

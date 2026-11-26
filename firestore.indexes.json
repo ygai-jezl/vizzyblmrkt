@@ -1596,7 +1596,7 @@
       "indexes": []
     },
     {
-      "collectionGroup": "scheduled_posts",
+      "collectionGroup": "campaign_scheduled_posts",
       "fieldPath": "made",
       "indexes": []
     },

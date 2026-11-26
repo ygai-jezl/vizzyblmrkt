@@ -15,6 +15,7 @@ import { inviteConnections, inviteProductName } from "./eligibility";
 import { isInvitesEnabled } from "./flags";
 import { personIdForSignup } from "@/lib/ontology/personRef";
 import { renderInviteEmail } from "./render";
+import type { CountBuffer } from "@/lib/loops/count";
 import { inviteLinkUrl, signInviteToken } from "./token";
 
 /**
@@ -43,6 +44,8 @@ export async function processInviteJob(
   ctx: TenantContext,
   job: EmailJob,
   db?: FirestoreLike,
+  /** The email job run's counts (learning loops step 5): only a stamp lost with its record is counted here. */
+  counts?: CountBuffer,
 ): Promise<"done" | "hold"> {
   if (!isInvitesEnabled()) return "hold";
   const repos = forTenant(ctx, db);
@@ -129,7 +132,9 @@ export async function processInviteJob(
       ctx,
       { tenantId: ctx.tenantId, campaignId: campaign.id, journeyId, nodeId: wave.id, signupId: signup.id, variantId: "control" },
       "invite",
-      { db, personId },
+      // The wave's stamp: the wave was counted made once when it was sent (sendInviteWave), so
+      // each invite reads it from the wave it already loads and counts nothing more.
+      { db, personId, made: wave.made ?? { unstamped: "person_wrote" }, kind: "canvas.invite_wave", counts },
     ),
     tags: ["invite", `wave-${wave.id}`],
   });

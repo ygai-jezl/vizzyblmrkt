@@ -5,6 +5,9 @@ import { METADATA_LIMIT_BYTES, fitMetadata, metadataBytes, type MandrillEvent } 
 import { attributionOfSend, readSendRef, readTenantTag, sendIdOf, sendMetadata, transactionalTag } from "./sends";
 import { personIdForAddress } from "@/lib/ontology/personRef";
 
+/** What made the email, as every sender must say (learning loops step 5): words a person wrote. */
+const SENT_BY_PERSON = { made: { unstamped: "person_wrote" }, kind: "journeys" } as const;
+
 // Made-up brand and people. The longest ids the app makes: tenant `ten_` + 40, launch slugs of 60,
 // canvas node `email_<uuid>`, signup/enrolment/product user `xxx_` + 40.
 const LONGEST_TENANT = `ten_${"a".repeat(40)}`;
@@ -37,7 +40,7 @@ describe("sendMetadata", () => {
   it("sends the long form exactly as before while the switch is off", async () => {
     vi.stubEnv("EMAIL_SEND_RECORDS_ENABLED", "false");
     const db = new FakeFirestore() as unknown as FirestoreLike;
-    expect(await sendMetadata(ctx, longWaitlist, "waitlist_v2", { db })).toBe(longWaitlist);
+    expect(await sendMetadata(ctx, longWaitlist, "waitlist_v2", { db, ...SENT_BY_PERSON })).toBe(longWaitlist);
   });
 
   it("the long forms can go over Mandrill's limit, which is why the short one exists", () => {
@@ -53,7 +56,7 @@ describe("sendMetadata", () => {
       [{ ...longWaitlist, nodeId: `wave_${"w".repeat(40)}`, variantId: "control" }, "invite"],
       [longLifecycle, "lifecycle"],
     ] as const) {
-      const meta = await sendMetadata(ctx, long as Record<string, string>, engine, { db });
+      const meta = await sendMetadata(ctx, long as Record<string, string>, engine, { db, ...SENT_BY_PERSON });
       expect(Object.keys(meta)).toEqual(["t", "s"]);
       expect(metadataBytes(meta)).toBeLessThanOrEqual(90);
       expect(metadataBytes(meta)).toBeLessThanOrEqual(METADATA_LIMIT_BYTES);
@@ -62,8 +65,8 @@ describe("sendMetadata", () => {
 
   it("finds the same record when the same email is sent again, and keeps its attribution", async () => {
     const db = new FakeFirestore() as unknown as FirestoreLike;
-    const a = await sendMetadata(ctx, longLifecycle, "lifecycle", { db });
-    const b = await sendMetadata(ctx, longLifecycle, "lifecycle", { db });
+    const a = await sendMetadata(ctx, longLifecycle, "lifecycle", { db, ...SENT_BY_PERSON });
+    const b = await sendMetadata(ctx, longLifecycle, "lifecycle", { db, ...SENT_BY_PERSON });
     expect(a).toEqual(b);
     const meta = await attributionOfSend({ ...ctx, source: "system" }, a.s!, { db });
     expect(meta).toEqual({
@@ -80,14 +83,14 @@ describe("sendMetadata", () => {
 
   it("gives another brand's record nothing, and an erased record null", async () => {
     const db = new FakeFirestore() as unknown as FirestoreLike;
-    const a = await sendMetadata(ctx, longWaitlist, "waitlist_v2", { db });
+    const a = await sendMetadata(ctx, longWaitlist, "waitlist_v2", { db, ...SENT_BY_PERSON });
     expect(await attributionOfSend({ tenantId: "ten_other", region: "us", source: "system" }, a.s!, { db })).toBeNull();
     expect(await attributionOfSend({ ...ctx, source: "system" }, sendIdOf(LONGEST_TENANT, "evt:nothing"), { db })).toBeNull();
   });
 
   it("falls back to the long form when the record can't be written", async () => {
     const broken = { collection: () => ({ doc: () => ({}) }), runTransaction: async () => Promise.reject(new Error("down")) } as unknown as FirestoreLike;
-    expect(await sendMetadata(ctx, longWaitlist, "waitlist_v2", { db: broken })).toBe(longWaitlist);
+    expect(await sendMetadata(ctx, longWaitlist, "waitlist_v2", { db: broken, ...SENT_BY_PERSON })).toBe(longWaitlist);
   });
 });
 
@@ -107,7 +110,7 @@ describe("the person on a send record (ONTOLOGY_PERSON_IDS_ENABLED)", () => {
       [longWaitlist, "waitlist_v2"],
       [longLifecycle, "lifecycle"],
     ] as const) {
-      const meta = await sendMetadata(ctx, long as Record<string, string>, engine, { db, personId: PERSON });
+      const meta = await sendMetadata(ctx, long as Record<string, string>, engine, { db, personId: PERSON, ...SENT_BY_PERSON });
       expect(Object.keys(meta)).toEqual(["t", "s"]);
       expect(JSON.stringify(meta)).not.toContain(PERSON);
       expect(metadataBytes(meta)).toBeLessThanOrEqual(METADATA_LIMIT_BYTES);
@@ -118,7 +121,7 @@ describe("the person on a send record (ONTOLOGY_PERSON_IDS_ENABLED)", () => {
 
   it("is never written into the long form either, when the record can't be written", async () => {
     vi.stubEnv("EMAIL_SEND_RECORDS_ENABLED", "false");
-    const meta = await sendMetadata(ctx, longWaitlist, "waitlist_v2", { db: new FakeFirestore() as unknown as FirestoreLike, personId: PERSON });
+    const meta = await sendMetadata(ctx, longWaitlist, "waitlist_v2", { db: new FakeFirestore() as unknown as FirestoreLike, personId: PERSON, ...SENT_BY_PERSON });
     expect(meta).toBe(longWaitlist);
     expect(JSON.stringify(meta)).not.toContain("ct_");
   });
@@ -126,15 +129,15 @@ describe("the person on a send record (ONTOLOGY_PERSON_IDS_ENABLED)", () => {
   it("is only written on a new record: a record already there keeps what it has", async () => {
     const fake = new FakeFirestore();
     const db = fake as unknown as FirestoreLike;
-    const first = await sendMetadata(ctx, longLifecycle, "lifecycle", { db });
-    await sendMetadata(ctx, longLifecycle, "lifecycle", { db, personId: PERSON });
+    const first = await sendMetadata(ctx, longLifecycle, "lifecycle", { db, ...SENT_BY_PERSON });
+    await sendMetadata(ctx, longLifecycle, "lifecycle", { db, personId: PERSON, ...SENT_BY_PERSON });
     expect(fake.raw("email_sends", first.s!)).not.toHaveProperty("personId");
   });
 
   it("is not written while the switch is off", async () => {
     vi.stubEnv("ONTOLOGY_PERSON_IDS_ENABLED", "false");
     const fake = new FakeFirestore();
-    const meta = await sendMetadata(ctx, longLifecycle, "lifecycle", { db: fake as unknown as FirestoreLike, personId: PERSON });
+    const meta = await sendMetadata(ctx, longLifecycle, "lifecycle", { db: fake as unknown as FirestoreLike, personId: PERSON, ...SENT_BY_PERSON });
     expect(fake.raw("email_sends", meta.s!)).not.toHaveProperty("personId");
     expect((await attributionOfSend({ ...ctx, source: "system" }, meta.s!, { db: fake as unknown as FirestoreLike }))).not.toHaveProperty("personId");
   });

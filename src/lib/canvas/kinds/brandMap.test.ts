@@ -10,10 +10,13 @@ import { BrandMapDecidedSchema } from "@/lib/types/brandMap";
 import { dismissBrandMapSuggestions, readBrandMap, saveBrandMap } from "@/lib/brandMap/store";
 import { authorBrandMapSuggestions } from "./brandMap";
 
+/** The canvas route's stamp with LOOPS_ENABLED off (learning loops step 5). */
+const LOOPS_OFF = { unstamped: "loops_off" } as const;
+
 const admin: TenantContext = { tenantId: "ten_A", region: "us", source: "agent", userId: "usr_admin", role: "admin" };
 const member: TenantContext = { ...admin, userId: "usr_member", role: "member" };
 const author = (input: Record<string, unknown>, ctx = admin, db = new FakeFirestore(), brief = "Add what we talked about") =>
-  authorBrandMapSuggestions({ ctx, input, brief }, { db, nowMs: Date.parse("2026-10-15T10:00:00Z") });
+  authorBrandMapSuggestions({ ctx, input, made: LOOPS_OFF, brief }, { db, nowMs: Date.parse("2026-10-15T10:00:00Z") });
 
 beforeEach(() => {
   __resetRateLimitState();
@@ -95,7 +98,7 @@ describe("Vizzy's brand map suggestions", () => {
     vi.stubEnv("BRAND_MAP_RESEARCH_ENABLED", "true");
     const db = new FakeFirestore();
     const r = await authorBrandMapSuggestions(
-      { ctx: admin, input: { mode: "research" }, brief: "" },
+      { ctx: admin, input: { mode: "research" }, made: LOOPS_OFF, brief: "" },
       {
         db,
         research: {

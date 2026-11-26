@@ -7,6 +7,10 @@ import { isEmailSendRecordsEnabled, isTransactionalTenantTagEnabled } from "./fl
 import type { EventMetadata, MandrillEvent } from "./mandrillWebhook";
 import type { ContactPersonId } from "@/lib/ontology/person";
 import { personStamp } from "@/lib/ontology/personRef";
+import { countUnstamped, type CountBuffer } from "@/lib/loops/count";
+import { keptMade } from "@/lib/loops/made";
+import type { LoopKind } from "@/lib/loops/registry";
+import type { Made } from "@/lib/types/loopStamp";
 
 /**
  * A record per email sent (EMAIL_SEND_RECORDS_ENABLED): the email carries only its brand and the
@@ -41,29 +45,66 @@ function attributionOf(long: Record<string, string>): Omit<EventMetadata, "tenan
  *
  * `personId` (ONTOLOGY_PERSON_IDS_ENABLED) goes on a new record only: never into the metadata,
  * which Mandrill drops whole past 250 bytes, and never onto a record that was already there.
+ *
+ * `made` (learning loops step 5, decision 19) is required: what made the email, its stamp or why
+ * it has none, kept on a new record with LOOPS_ENABLED on and never in the metadata. The sender
+ * counts made itself; a stamp whose record couldn't be written counts `stamp_lost` here, in the
+ * run's CountBuffer when one is given.
  */
 export async function sendMetadata(
   ctx: Pick<TenantContext, "tenantId" | "region">,
   long: Record<string, string>,
   engine: EmailSendEngine,
-  deps: { db?: FirestoreLike; now?: () => Date; personId?: ContactPersonId | null } = {},
+  deps: {
+    db?: FirestoreLike;
+    now?: () => Date;
+    personId?: ContactPersonId | null;
+    made: Made;
+    /** The kind the email counts under, for `stamp_lost`. */
+    kind: LoopKind;
+    counts?: CountBuffer;
+  },
 ): Promise<Record<string, string>> {
   if (!isEmailSendRecordsEnabled()) return long;
   const a = attributionOf(long);
   if (!a) return long;
   const id = sendIdOf(ctx.tenantId, emailEventKeyBase(a));
   const now = (deps.now ?? (() => new Date()))().toISOString();
+  const made = keptMade(deps.made);
   try {
     await forTenant({ ...ctx, source: "system" }, deps.db).emailSends.upsert(
       id,
-      () => ({ engine, ...a, ...personStamp(deps.personId), mandrillMessageId: null, createdAt: now, updatedAt: now }) as never,
+      () => ({ engine, ...a, ...personStamp(deps.personId), mandrillMessageId: null, ...(made ? { made } : {}), createdAt: now, updatedAt: now }) as never,
       () => null,
     );
     return { t: ctx.tenantId, s: id };
   } catch (err) {
     console.warn("[email] couldn't write the send record; sending the long metadata:", err instanceof Error ? err.message.slice(0, 160) : "error");
+    // The email still goes, so its stamp is lost with the record (4.1).
+    if (made && !("unstamped" in made)) {
+      const full: TenantContext = { ...ctx, source: "system" };
+      if (deps.counts) deps.counts.unstamped(full, deps.kind, "stamp_lost");
+      else await countUnstamped(full, deps.kind, "stamp_lost", { db: deps.db });
+    }
     return long;
   }
+}
+
+/**
+ * The webhook's record of an email sent before send records were on, or whose record failed: the
+ * only other way an email send record is created, so every create stays in this file (the create
+ * scan, learning loops step 5). It has no stamp: send records were off when it went
+ * (`records_off`), and its made was counted when it was sent.
+ */
+export async function upsertEarlierSend(
+  ctx: TenantContext,
+  id: string,
+  create: () => Omit<EmailSend, "id" | "tenantId" | "made">,
+  patch: (current: EmailSend) => Partial<EmailSend> | null,
+  db?: FirestoreLike,
+): Promise<void> {
+  const made = keptMade({ unstamped: "records_off" });
+  await forTenant(ctx, db).emailSends.upsert(id, () => ({ ...create(), ...(made ? { made } : {}) }) as never, (current) => patch(current) as never);
 }
 
 /**

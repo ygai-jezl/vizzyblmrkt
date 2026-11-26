@@ -1,4 +1,7 @@
 import { forTenant, getTenantById, type TenantContext } from "@/lib/tenant";
+import { countMade } from "@/lib/loops/count";
+import { keptMade } from "@/lib/loops/made";
+import { learnedFor } from "@/lib/loops/read";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { AiDraft, FallbackReason } from "@/lib/types/lifecycle";
 import type { ProductContext } from "@/lib/connect/protocol";
@@ -289,6 +292,10 @@ export async function prepareDraft(ctx: TenantContext, draftId: string, deps: Pr
     previewHtml = rendered.html;
   }
 
-  await finish({ ...base, status: "awaiting_approval", subjectVariant, validationIssues: [], previewHtml });
+  // What made the line (LOOPS_ENABLED, learning loops step 5), kept with it and counted once saved.
+  const { stamp } = await learnedFor(ctx, "lifecycle_lines", { promptId: "lifecycle.insight_line" });
+  const made = keptMade(stamp);
+  await finish({ ...base, status: "awaiting_approval", subjectVariant, validationIssues: [], previewHtml, ...(made ? { made } : {}) });
+  await countMade(ctx, "lifecycle_lines", stamp, { type: "ai_line", db: deps.db });
   return "prepared";
 }

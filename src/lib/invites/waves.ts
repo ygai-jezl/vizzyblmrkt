@@ -17,6 +17,9 @@ import { inviteConnections, inviteLock, type InviteLockReason } from "./eligibil
 import { defaultInviteCopy, ensureInviteLink } from "./render";
 import { isInviteLinksConfigured } from "./token";
 import { forgetNoInvites } from "./attribution";
+import { countMade } from "@/lib/loops/count";
+import { keptMade } from "@/lib/loops/made";
+import type { Made } from "@/lib/types/loopStamp";
 
 /**
  * Invite waves (nav v2 phase 4): a draft names the product, how many people (from
@@ -80,7 +83,7 @@ export async function createWaveDraft(
   ctx: TenantContext,
   campaignId: string,
   input: WaveInput,
-  actor: { userId?: string | null; authoredBy: "human" | "agent" },
+  actor: { userId?: string | null; authoredBy: "human" | "agent"; made: Made },
   db?: FirestoreLike,
 ): Promise<Result<InviteWave>> {
   const setup = await loadInviteSetup(ctx, campaignId, db);
@@ -107,6 +110,7 @@ export async function createWaveDraft(
     heroImageUrl: input.heroImageUrl ?? null,
     expiresInDays: input.expiresInDays ?? INVITE_LIMITS.defaultExpiryDays,
     authoredBy: actor.authoredBy,
+    ...(keptMade(actor.made) ? { made: keptMade(actor.made) } : {}),
     counts: { selected: 0, created: 0, skipped: 0 },
     createdBy: actor.userId ?? null,
     sentBy: null,
@@ -123,7 +127,12 @@ export async function updateWaveDraft(
   ctx: TenantContext,
   waveId: string,
   patch: z.infer<typeof WavePatchSchema>,
-  opts: { authoredBy?: "human" | "agent"; db?: FirestoreLike } = {},
+  opts: {
+    authoredBy?: "human" | "agent";
+    /** Vizzy's new copy replaces the wave's stamp; a person's edit keeps it, to count as kept or edited when sent. */
+    made?: Made;
+    db?: FirestoreLike;
+  } = {},
 ): Promise<Result<InviteWave>> {
   const repos = forTenant(ctx, opts.db);
   if (patch.connectionId) {
@@ -141,6 +150,7 @@ export async function updateWaveDraft(
       ...patch,
       ...(patch.body ? { body: ensureInviteLink(patch.body) } : {}),
       ...(opts.authoredBy ? { authoredBy: opts.authoredBy } : {}),
+      ...(keptMade(opts.made) ? { made: keptMade(opts.made) } : {}),
       updatedAt: now,
     };
   });
@@ -262,6 +272,9 @@ export async function sendInviteWave(
   }
   const counts = { selected: selection.selected.length, created, skipped };
   await repos.inviteWaves.update(waveId, { status: "sent", counts, updatedAt: new Date().toISOString() });
+  // The wave is one made thing, counted once here however many emails it sends; each invite's send
+  // reads the wave's stamp and counts nothing more (learning loops step 5, 4.1).
+  if (created > 0) await countMade(ctx, "canvas.invite_wave", wave.made ?? { unstamped: "person_wrote" }, { type: "invite_wave", db: deps.db });
   if (created > 0) {
     if (wave.connectionId) forgetNoInvites(ctx.tenantId, wave.connectionId);
     const kick = deps.kick ?? ((c: TenantContext) => processEmailJobs(c));

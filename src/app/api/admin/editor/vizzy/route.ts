@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { handBack, withStampToken } from "@/lib/loops/handBack";
+import { learnedFor } from "@/lib/loops/read";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { readRequestTextCapped } from "@/lib/http/readBody";
@@ -92,6 +94,9 @@ export async function POST(req: Request) {
       let full = "";
       let shown = 0;
       let held = false;
+      // A suggestion handed to the editor to keep: counted made once and its stamp signed for the
+      // save (learning loops step 5, decision 20). Never fails the answer.
+      const handOver = async () => handBack(ctx, "edit_mode", (await learnedFor(ctx, "edit_mode", { by: "vizzy" })).stamp).catch(() => null);
       try {
         for await (const chunk of generateTextStream(prompt, {
           signal,
@@ -126,10 +131,10 @@ export async function POST(req: Request) {
           } else if (body.mode === "selection" && result.mode === "selection") {
             const reviewed = reviewSelection(body, result);
             if (reviewed && "error" in reviewed) emit({ type: "error", message: reviewed.error });
-            else if (reviewed) emit({ type: "selection", replacement: reviewed.replacement, warnings: reviewed.warnings });
+            else if (reviewed) emit(withStampToken({ type: "selection" as const, replacement: reviewed.replacement, warnings: reviewed.warnings }, await handOver()));
           } else if (body.mode === "whole" && result.mode === "whole") {
             const reviewed = reviewWhole(body, result);
-            emit({ type: "whole", ops: reviewed.ops, skipped: reviewed.skipped });
+            emit(withStampToken({ type: "whole" as const, ops: reviewed.ops, skipped: reviewed.skipped }, reviewed.ops.length ? await handOver() : null));
           }
         }
         emit({ type: "done" });

@@ -20,7 +20,7 @@ import { IMAGE_LIMIT_MESSAGE } from "@/lib/plans/resources";
 import { newImageAssetId } from "@/lib/admin/brandKit";
 import { imageScopeOf, learnedFor } from "@/lib/loops/read";
 import { settleStamp } from "@/lib/loops/stamp";
-import { countMade } from "@/lib/loops/count";
+import { handBack, withStampToken } from "@/lib/loops/handBack";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -109,14 +109,14 @@ export async function POST(req: Request, { params }: RouteParams) {
       { status: result.reason === "image_limit" ? 429 : 502 },
     );
   }
-  // Counted once stored (decision 20); email images never count a remake (decision 12).
-  await countMade(
+  // Counted once handed back, with its stamp signed for the layout's save (decision 20); email
+  // images never count a remake (decision 12).
+  const stampToken = await handBack(
     ctx,
     "email_block_image",
     settleStamp(learned.stamp, { lookUsed: typeof learned.block.look === "string" && learned.block.look.trim().length > 0 }),
   );
-  return NextResponse.json({
-    imageUrl: result.imageUrl,
-    ...(choice.enabled ? { imageStyleId: choice.ownPick, styleId: choice.model.styleId } : {}),
-  });
+  return NextResponse.json(
+    withStampToken({ imageUrl: result.imageUrl, ...(choice.enabled ? { imageStyleId: choice.ownPick, styleId: choice.model.styleId } : {}) }, stampToken),
+  );
 }

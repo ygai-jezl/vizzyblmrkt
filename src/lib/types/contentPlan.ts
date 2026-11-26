@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { EmailLayoutSchema, MAX_EMAIL_BLOCKS } from "@/lib/types/emailLayout";
 import { ChartSchema, FormatInputsSchema, ImageFormatIdSchema } from "@/lib/types/imageStyle";
+import { MadeSchema } from "@/lib/types/loopStamp";
 
 /**
  * A ContentPlan — the "Create" pillar's saved, recallable workflow. An operator
@@ -621,6 +622,13 @@ export const ContentNodeSchema = z.object({
     .object({ body: z.string().max(MAX_BODY_CHARS), at: z.string().max(40) })
     .nullable()
     .optional(),
+  /** What made the node's words (LOOPS_ENABLED, learning loops step 5): its stamp, or why it has
+   *  none. Server-owned: written only by updateContentPlanNode; a canvas Save keeps the stored
+   *  value, so it can't forge or clear one. A stamp that no longer parses is dropped, never fatal. */
+  made: MadeSchema.optional().catch(undefined),
+  /** What made the node's image (an image kind's stamp), kept apart so a new image never takes the
+   *  words' stamp away. Server-owned like `made`. */
+  imageMade: MadeSchema.optional().catch(undefined),
   warnings: z.array(z.string()).default([]),
   // ── Email-sequence fields (only on `email`/`wait`/`condition` nodes; null/[]
   //    elsewhere so hub-and-spoke plans are unaffected). ──
@@ -753,6 +761,9 @@ export const ContentPlanSchema = z.object({
   agentRevision: z.number().int().nonnegative().optional(),
   /** What the operator asked Vizzy for, kept for the record. */
   agentBrief: z.string().max(4000).optional(),
+  /** What made the plan when Vizzy drafted it from chat (`canvas.content_plan`, by vizzy;
+   *  LOOPS_ENABLED, learning loops step 5). Written only when the plan is created. */
+  made: MadeSchema.optional().catch(undefined),
   /**
    * The article autopilot is writing this plan (CREATE_ARTICLE_AUTOPILOT_ENABLED). While "working",
    * the plan's edit routes answer 409 so a canvas can't save over the run (or the run over a

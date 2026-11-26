@@ -241,7 +241,7 @@ export const writeStep: StepFn = async (ctx, run, opts, deps) => {
   if (stopped(g)) return g;
   const hub = g.plan.graph.nodes.find((n) => n.type === "hub");
   if (!hub) return { step: "failed", error: "no_hub" };
-  const got = await fillPlanNode(ctx, { workspace: g.workspace, plan: g.plan, nodeId: hub.id }, { db: deps.db, deadlineMs: opts.deadlineMs - SAVE_MS });
+  const got = await fillPlanNode(ctx, { workspace: g.workspace, plan: g.plan, nodeId: hub.id }, { db: deps.db, deadlineMs: opts.deadlineMs - SAVE_MS, by: "autopilot" });
   if (!got.ok || !got.node.body.trim()) return { error: "write_failed" };
   return { step: "check", hubHash: hashOf(got.node.body) };
 };
@@ -268,7 +268,7 @@ export const nodesStep: StepFn = async (ctx, run, opts, deps) => {
     const plan = (await getContentPlan(ctx, g.workspace.id, g.plan.id, deps.db)) ?? g.plan;
     const node = plan.graph.nodes.find((n) => n.id === id);
     if (node && !node.body.trim()) {
-      await fillPlanNode(ctx, { workspace: g.workspace, plan, nodeId: id }, { db: deps.db, quick: true, deadlineMs: Date.now() + NODE_MS }).catch(() => null);
+      await fillPlanNode(ctx, { workspace: g.workspace, plan, nodeId: id }, { db: deps.db, quick: true, deadlineMs: Date.now() + NODE_MS, by: "autopilot" }).catch(() => null);
     }
     todo.shift();
   }

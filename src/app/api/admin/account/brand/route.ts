@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { stampsFromTokens } from "@/lib/loops/handBack";
+import { tokensFromRequest } from "@/lib/loops/stampHeader";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { getTenantById } from "@/lib/tenant";
@@ -31,5 +33,8 @@ export async function PUT(req: Request) {
   const existing = await getTenantById(ctx.tenantId);
   const merged = withPreservedLearnedStyle(parsed.data, existing?.brandKit);
   await updateTenantConfig(ctx.tenantId, { brandKit: merged });
+  // The extracted kit's stamp, if the person saved one: checked here, a refused token counted
+  // (learning loops step 5, decision 20). Off, nothing is read.
+  await stampsFromTokens(ctx, ["brand_kit"], tokensFromRequest(req));
   return NextResponse.json({ brandKit: merged });
 }

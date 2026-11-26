@@ -155,12 +155,16 @@ export async function POST(req: Request, { params }: RouteParams) {
         ? { aiBody: node.aiDraft?.body ?? null, scheduledBy: ctx.userId ?? null }
         : {}),
       scheduledAt,
+      // The node's stamp (LOOPS_ENABLED): the post and its node's words are one made thing.
+      // Words with no stamp of YouGrow's are the person's.
+      made: node.made ?? { unstamped: "person_wrote" },
     });
     // Reflect the schedule back onto the source node so the canvas shows it.
     // Best-effort: the queued post is the source of truth for publishing (and is
     // listed in the Distribute tab), so a failed reflection must be observable —
     // log it rather than let the canvas silently diverge from the queue.
     await updateContentPlanNode(ctx, workspaceId, contentPlanId, nodeId, {
+      made: { unstamped: "records_where" },
       scheduledAt,
       distributionStatus: "scheduled",
     }).catch((err) => {
@@ -216,6 +220,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     return NextResponse.json({ error: "already_publishing" }, { status: 409 });
   }
   await updateContentPlanNode(ctx, workspaceId, contentPlanId, nodeId, {
+    made: { unstamped: "records_where" },
     scheduledAt: null,
     distributionStatus: null,
   }).catch((err) => {

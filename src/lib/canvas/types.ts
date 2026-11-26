@@ -1,4 +1,5 @@
 import type { TenantContext } from "@/lib/tenant";
+import type { Made } from "@/lib/types/loopStamp";
 import type { CanvasKindName } from "./names";
 
 /**
@@ -91,6 +92,13 @@ export interface CanvasAuthorArgs {
   input: Record<string, unknown>;
   /** Natural-language ask from the operator. */
   brief: string;
+  /**
+   * What made the draft (learning loops step 5, 4.1): the route's `canvas.<kind>` stamp from
+   * learnedFor, `by: "vizzy"`, or `{ unstamped: "loops_off" }` with LOOPS_ENABLED off. Each kind
+   * keeps it on the draft it writes where that record has a `made` (keptMade), and the route
+   * counts it made once the draft is saved.
+   */
+  made: Made;
 }
 
 export interface CanvasKind<K extends CanvasKindName = CanvasKindName> {

@@ -38,6 +38,9 @@ import { enrolWaitlistSignup } from "./enrol";
 import { waitlistEnrolmentId, waitlistJourneyId } from "./ids";
 import { CAMPAIGN_ID, ctx, publishWaitlist, seedLaunch, seedSignup, system, T0, TENANT_ID, welcomeDraft } from "./testing/fixtures";
 
+/** The canvas route's stamp with LOOPS_ENABLED off (learning loops step 5). */
+const LOOPS_OFF = { unstamped: "loops_off" } as const;
+
 /**
  * Engine move D4: every screen and API that shows a launch's welcome journey
  * finds it on the lifecycle engine once the launch has moved.
@@ -210,7 +213,7 @@ describe("Vizzy's welcome-journey drafts once the original editor is retired (en
     vi.stubEnv("WAITLIST_LEGACY_EDITOR", "read_only");
     seedLaunch(fake);
     const graph = { nodes: [{ id: "trigger", type: "trigger", position: { x: 0, y: 0 }, data: {} }], edges: [] };
-    const r = await journeyCanvasKind.authorDraft({ ctx, input: { scope: { campaignId: CAMPAIGN_ID }, graph }, brief: "Welcome" });
+    const r = await journeyCanvasKind.authorDraft({ ctx, input: { scope: { campaignId: CAMPAIGN_ID }, graph }, made: LOOPS_OFF, brief: "Welcome" });
     expect(r).toMatchObject({ ok: false, status: 409, error: "original_editor_retired" });
     expect(await forTenant(system, fake).journeys.getById(`journey_${CAMPAIGN_ID}`)).toBeNull();
   });
@@ -232,7 +235,7 @@ describe("Vizzy's welcome-journey drafts for a moved launch", () => {
         { id: "c", source: "w1", target: "e2", sourceHandle: null },
       ],
     };
-    const r = await journeyCanvasKind.authorDraft({ ctx, input: { scope: { campaignId: CAMPAIGN_ID }, graph }, brief: "Warm welcome" });
+    const r = await journeyCanvasKind.authorDraft({ ctx, input: { scope: { campaignId: CAMPAIGN_ID }, graph }, made: LOOPS_OFF, brief: "Warm welcome" });
     expect(r).toMatchObject({ ok: true, id: waitlistJourneyId(CAMPAIGN_ID), url: `/admin/lifecycle/${journey.id}`, card: { title: "Fernlight: welcome emails" } });
     const after = (await forTenant(system, fake).lifecycleJourneys.getById(journey.id))!;
     expect(after.authoredBy).toBe("agent");
@@ -257,7 +260,7 @@ describe("Vizzy's welcome-journey drafts for a moved launch", () => {
       ],
       edges: [{ id: "a", source: "trigger", target: "e1", sourceHandle: null }],
     };
-    const r = await journeyCanvasKind.authorDraft({ ctx, input: { scope: { campaignId: CAMPAIGN_ID }, graph }, brief: "Warm welcome" });
+    const r = await journeyCanvasKind.authorDraft({ ctx, input: { scope: { campaignId: CAMPAIGN_ID }, graph }, made: LOOPS_OFF, brief: "Warm welcome" });
     expect(r.ok).toBe(true);
     const raw = fake.raw("lifecycle_journeys", journey.id) as { draft: { settings: Record<string, unknown>; graph: { nodes: Array<{ id: string }> } } };
     expect(raw.draft.graph.nodes.map((n) => n.id)).toContain("e1");

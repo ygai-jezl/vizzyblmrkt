@@ -35,7 +35,7 @@ async function queuedWave(size = 1) {
   seedConnection(db);
   seedSignup(db, "s1", { amountReferred: 2 });
   seedSignup(db, "s2", { amountReferred: 1 });
-  const draft = await createWaveDraft(ctx, "beta", { size }, { authoredBy: "human" }, db);
+  const draft = await createWaveDraft(ctx, "beta", { size }, { authoredBy: "human", made: { unstamped: "person_wrote" } }, db);
   if (!draft.ok) throw new Error("draft failed");
   await sendInviteWave(ctx, draft.value.id, {}, { db, kick: noKick });
   return { db, waveId: draft.value.id, inviteId: inviteDocId("beta", "s1"), jobId: `invite:${inviteDocId("beta", "s1")}` };

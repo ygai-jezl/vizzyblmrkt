@@ -4,8 +4,9 @@ import { addToLoopDay, loopDayId, loopDayTtlAt } from "@/lib/tenant/loops";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { LOOP_SIGNALS, type CounterTree, type LoopSignal } from "@/lib/types/loopDay";
 import { LoopStampSchema, UNSTAMPED_REASONS, type LoopStamp, type Made, type UnstampedReason } from "@/lib/types/loopStamp";
+import { isLoopsEnabled } from "./flags";
+import { isImageKind } from "./imageKinds";
 import { LEARN_REASONS, type LearnReason } from "./learnLog";
-import { isImageKind } from "./read";
 import { isVoteReason } from "./reasons";
 import { LOOP_RULES, LOOPS, type LoopKind } from "./registry";
 import { STAMP_REFUSALS, type StampRefusal } from "./stamp";
@@ -33,17 +34,17 @@ import { STAMP_REFUSALS, type StampRefusal } from "./stamp";
  *   the brand look, so a new upload is noticed without reading image rows.
  *
  * Decision 22: image kinds (and the image learner's own loop_learn) count only with
- * IMAGE_STYLE_VERSIONS_ENABLED on; every other kind counts nothing until step 5 brings
- * LOOPS_ENABLED. Notes and words are never counted. Server only.
+ * IMAGE_STYLE_VERSIONS_ENABLED on; every other kind counts only with LOOPS_ENABLED on (step 5).
+ * Notes and words are never counted. Batch senders add up a run's counts in a CountBuffer and
+ * write each brand's once, at the end of the run (4.1). Server only.
  */
 
 const KIND_KEY = /^[a-z0-9_]+(?:\.[a-z0-9_]+)?$/;
 
 /** Whether this kind's counts are written at all (decision 22). */
 export function countsFor(kind: LoopKind): boolean {
-  // Step 5 turns every other kind on behind LOOPS_ENABLED.
   if (isImageKind(kind) || kind === "loop_learn") return isImageStyleVersionsOn();
-  return false;
+  return isLoopsEnabled();
 }
 
 /** A made thing's signal, or the why behind a vote: `liked.<reason>` or `disliked.<reason>`. */
@@ -107,12 +108,17 @@ const isLoopKind = (k: string): k is LoopKind => Object.prototype.hasOwnProperty
 /** Add to this week's counters in one shard. Never throws. */
 async function addToWeek(ctx: TenantContext, kind: LoopKind, tree: CounterTree, what: string, deps: CountDeps): Promise<void> {
   if (!isLoopKind(kind) || !countsFor(kind)) return;
+  await writeWeek(ctx, tree, `${what} for ${kind}`, deps);
+}
+
+/** One merged write of increments to one of the week's shards. Never throws. */
+async function writeWeek(ctx: TenantContext, tree: CounterTree, what: string, deps: CountDeps): Promise<void> {
   try {
     const week = loopWeekOf(deps.now ?? new Date());
     await addToLoopDay(ctx, loopDayId.week(ctx.tenantId, week, shardOf(deps.random)), tree, { ttlAt: loopDayTtlAt("week", week) }, deps.db);
   } catch (err) {
     // A count never fails the work it counts: the meter's rule.
-    console.warn(`[loops] counting ${what} for ${kind} failed`, err instanceof Error ? err.message.slice(0, 200) : "error");
+    console.warn(`[loops] counting ${what} failed`, err instanceof Error ? err.message.slice(0, 200) : "error");
   }
 }
 
@@ -146,14 +152,17 @@ export function countSignal(ctx: TenantContext, stamp: LoopStamp, signal: Counte
  * none, and made for its ontology type, in one write.
  */
 export async function countMade(ctx: TenantContext, kind: LoopKind, made: Made, opts: CountDeps & { type?: string } = {}): Promise<void> {
-  const type: CounterTree = opts.type && KIND_KEY.test(opts.type) ? { t: { [opts.type]: { made: 1 } } } : {};
-  if ("unstamped" in made) {
-    await addToWeek(ctx, kind, { u: { [kind]: { [made.unstamped]: 1 } }, ...type }, "made", opts);
-    return;
-  }
+  const m = madeTree(kind, made, opts.type);
+  if (m) await addToWeek(ctx, m.kind, m.tree, "made", opts);
+}
+
+/** The counters a made thing adds, under the kind they count for, or null for a stamp that can't name any. */
+function madeTree(kind: LoopKind, made: Made, type?: string): { kind: LoopKind; tree: CounterTree } | null {
+  const t: CounterTree = type && KIND_KEY.test(type) ? { t: { [type]: { made: 1 } } } : {};
+  if ("unstamped" in made) return { kind, tree: { u: { [kind]: { [made.unstamped]: 1 } }, ...t } };
   const s = countableStamp(made);
-  if (!s) return;
-  await addToWeek(ctx, s.kind, { c: { [s.scope]: { [s.kind]: { [`v${s.v}`]: { [s.arm]: { made: 1 } } } } }, ...type }, "made", opts);
+  if (!s) return null;
+  return { kind: s.kind, tree: { c: { [s.scope]: { [s.kind]: { [`v${s.v}`]: { [s.arm]: { made: 1 } } } } }, ...t } };
 }
 
 /** The signals a person's own image can count: it was never made, kept or edited by YouGrow. */
@@ -200,4 +209,80 @@ export async function countCard(ctx: TenantContext, kind: LoopKind, signal: Card
  */
 export async function countVersionSignal(ctx: TenantContext, scope: string, v: number, signal: "undone" | "reversed", deps: CountDeps = {}): Promise<void> {
   await addToWeek(ctx, "loop_learn", { c: { [scope]: { loop_learn: { [`v${v}`]: { learned: { [signal]: 1 } } } } } }, signal, deps);
+}
+
+// ----- A batch run's counts (4.1) -----
+
+/** Add one tree of counters into another, in place. */
+function addInto(into: CounterTree, add: CounterTree): void {
+  for (const [k, v] of Object.entries(add)) {
+    const cur = into[k];
+    if (typeof v === "number") {
+      into[k] = (typeof cur === "number" ? cur : 0) + v;
+    } else {
+      const next: CounterTree = cur && typeof cur === "object" ? cur : {};
+      addInto(next, v);
+      into[k] = next;
+    }
+  }
+}
+
+/** The most brands one buffer holds: a run past it writes the oldest brand's counts early. */
+const BUFFER_BRANDS_MAX = 200;
+
+/**
+ * A batch run's counts, added up and written once per brand when the run ends (4.1 of the plan
+ * for steps 4 and 5): the lifecycle runner, the waitlist runner, the email job worker and the
+ * invite sender add one made per email here instead of one write each. Each count is checked
+ * against its kind's switch as it is added, so an off kind adds nothing. `flush` writes each
+ * brand's tree in one merged write and never throws; a run that ends without flushing loses only
+ * its counts, never its work. Small: a brand's tree holds counters, never words.
+ */
+export class CountBuffer {
+  private readonly brands = new Map<string, { ctx: TenantContext; tree: CounterTree }>();
+
+  constructor(private readonly deps: CountDeps = {}) {}
+
+  private add(ctx: TenantContext, kind: LoopKind, tree: CounterTree): void {
+    if (!isLoopKind(kind) || !countsFor(kind)) return;
+    let brand = this.brands.get(ctx.tenantId);
+    if (!brand) {
+      if (this.brands.size >= BUFFER_BRANDS_MAX) void this.flushOldest();
+      brand = { ctx, tree: {} };
+      this.brands.set(ctx.tenantId, brand);
+    }
+    addInto(brand.tree, tree);
+  }
+
+  /** Count a thing made and saved (or sent): made against its stamp, or why it has none. */
+  made(ctx: TenantContext, kind: LoopKind, made: Made, opts: { type?: string } = {}): void {
+    const m = madeTree(kind, made, opts.type);
+    if (m) this.add(ctx, m.kind, m.tree);
+  }
+
+  /** Count a save with no stamp, or a stamp lost. */
+  unstamped(ctx: TenantContext, kind: LoopKind, reason: UnstampedCount): void {
+    if (!(UNSTAMPED_COUNTS as readonly string[]).includes(reason)) return;
+    this.add(ctx, kind, { u: { [kind]: { [reason]: 1 } } });
+  }
+
+  /** Brands with counts not yet written. */
+  get size(): number {
+    return this.brands.size;
+  }
+
+  private async flushOldest(): Promise<void> {
+    const first = this.brands.entries().next();
+    if (first.done) return;
+    const [id, brand] = first.value;
+    this.brands.delete(id);
+    await writeWeek(brand.ctx, brand.tree, "a run's counts", this.deps);
+  }
+
+  /** Write each brand's counts in one merged write, and empty the buffer. Never throws. */
+  async flush(): Promise<void> {
+    const all = [...this.brands.values()];
+    this.brands.clear();
+    await Promise.all(all.map((b) => (Object.keys(b.tree).length ? writeWeek(b.ctx, b.tree, "a run's counts", this.deps) : Promise.resolve())));
+  }
 }

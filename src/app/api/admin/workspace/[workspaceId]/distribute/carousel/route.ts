@@ -82,6 +82,9 @@ export async function POST(req: Request, { params }: RouteParams) {
   }
 
   try {
+    // A carousel never learns (its none line): its slides picture the post's words. Counted once
+    // per carousel when attached (learning loops step 4); learnedFor gives arm none with no read.
+    const { stamp } = await learnedFor(ctx, "carousel");
     const { post } = await setPostCarousel(
       ctx,
       workspaceId,
@@ -89,9 +92,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       nodeId,
       built.slides.map((s) => s.filename),
     );
-    // A carousel never learns (its none line): its slides picture the post's words. Counted once
-    // per carousel when attached (learning loops step 4); learnedFor gives arm none with no read.
-    await countMade(ctx, "carousel", (await learnedFor(ctx, "carousel")).stamp);
+    await countMade(ctx, "carousel", stamp);
     return NextResponse.json({ ok: true, post, slides: built.slides, truncated: built.truncated });
   } catch (err) {
     if (err instanceof SchedulePostConflictError) {

@@ -11,6 +11,10 @@ import { syncPlanPageSoftly } from "@/lib/content/blog/pageActions";
 import { wakeLiveWatch } from "@/lib/content/blog/liveWatchWake";
 import { saveVersion } from "@/lib/content/blog/versions";
 import { pinOriginal } from "./aiOriginals";
+import { countMade } from "@/lib/loops/count";
+import { learnedFor } from "@/lib/loops/read";
+import type { AgentName } from "@/lib/types/agentAction";
+import type { Made } from "@/lib/types/loopStamp";
 
 /**
  * Fill plan nodes with copy. Shared by the Create canvas's per-node route and
@@ -32,6 +36,8 @@ export interface FillDeps {
   loadMap?: MapDeps["loadMap"];
   /** How the person edits Vizzy's posts (tests inject a stub); read only for LinkedIn and X. */
   preferences?: typeof postEditPreferencesFor;
+  /** The agent writing it (Vizzy's canvas, the autopilot), for the stamp's `by`; none for a person. */
+  by?: AgentName;
 }
 
 type WorkspaceBits = Pick<Workspace, "id" | "brandVoice" | "audience"> & Partial<Pick<Workspace, "name">>;
@@ -78,6 +84,11 @@ export async function fillPlanNode(
     ...(editPreferences.length ? { editPreferences } : {}),
   });
 
+  // What made the words (LOOPS_ENABLED, learning loops step 5): the writer's stamp, under the
+  // purpose it wrote with. Nothing learns for writing yet, so reading after the call changes no prompt.
+  const made: Made = patch.madeBy
+    ? (await learnedFor(ctx, patch.madeBy.purpose, { promptId: patch.madeBy.promptId, ...(deps.by ? { by: deps.by } : {}) })).stamp
+    : { unstamped: "nothing_made" };
   const aiDraft = aiDraftFor(node, patch, new Date().toISOString());
   // A rewrite of an article that has copy keeps that copy as a version first (article refresh),
   // so Regenerate can be undone. Nothing is kept for a first draft.
@@ -108,6 +119,7 @@ export async function fillPlanNode(
         ...(patch.blog !== undefined ? { blog: patch.blog } : {}),
         // Vizzy's draft of a LinkedIn or X post, kept beside the text a person will edit.
         ...(aiDraft ? { aiDraft } : {}),
+        made,
       },
       deps.db,
     );
@@ -115,11 +127,12 @@ export async function fillPlanNode(
     return { ok: false, status: 422, error: "invalid_node" };
   }
   if (!updated) return { ok: false, status: 404, error: "node_not_found" };
+  if (patch.madeBy) await countMade(ctx, patch.madeBy.purpose, made, { type: "content_plan", db: deps.db });
   // The copy as the writer made it, kept beside the copy a person will edit (CONTENT_AI_ORIGINALS_ENABLED).
-  if (patch.made && updated.status === "generated") {
+  if (patch.madeBy && updated.status === "generated") {
     await pinOriginal(
       ctx,
-      { plan, node: updated, body: updated.body, meta: { metaTitle: updated.blog?.metaTitle, metaDescription: updated.blog?.metaDescription }, made: patch.made },
+      { plan, node: updated, body: updated.body, meta: { metaTitle: updated.blog?.metaTitle, metaDescription: updated.blog?.metaDescription }, madeBy: patch.madeBy },
       { db: deps.db },
     ).catch((err) => console.error("[ai originals] pinning a draft failed", err));
   }

@@ -10,6 +10,9 @@ import type { AgentActionId } from "@/lib/types/agentAction";
 import { authorNewPerson } from "./newPerson";
 import { getCanvasKind } from "../registry";
 
+/** The canvas route's stamp with LOOPS_ENABLED off (learning loops step 5). */
+const LOOPS_OFF = { unstamped: "loops_off" } as const;
+
 const admin: TenantContext = { tenantId: "ten_A", region: "us", source: "agent", userId: "u_admin", role: "admin" };
 const member: TenantContext = { ...admin, userId: "u_member", role: "member" };
 const by = { type: "member", id: "u_admin" } as const;
@@ -26,7 +29,7 @@ function textFieldsOn(on = true) {
   vi.stubEnv("AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED", on ? "true" : "false");
 }
 const author = (fields: Record<string, unknown>, ctx: TenantContext = admin, nowMs = T0) =>
-  authorNewPerson({ ctx, input: { kind: "new_person", action: "save_draft", ...fields }, brief: "" }, { db, nowMs });
+  authorNewPerson({ ctx, input: { kind: "new_person", action: "save_draft", ...fields }, made: LOOPS_OFF, brief: "" }, { db, nowMs });
 
 beforeEach(async () => {
   __resetRateLimitState();

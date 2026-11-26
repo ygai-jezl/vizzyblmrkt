@@ -102,8 +102,10 @@ export interface GeneratedNodePatch {
   layout?: EmailLayout;
   /** Blog hubs written to the CITABLE structure — what the writer proposed + what the checks found. */
   blog?: BlogArticleMeta;
-  /** How the copy was made: its prompt and what the writer read (CONTENT_AI_ORIGINALS_ENABLED keeps it). */
-  made?: MadeBy;
+  /** How the copy was made: its prompt and what the writer read (CONTENT_AI_ORIGINALS_ENABLED keeps it).
+   *  Named `madeBy`, never `made`, so spreading a patch onto a node can't set the node's stamp
+   *  (learning loops step 5, decision 19: only updateContentPlanNode writes that). */
+  madeBy?: MadeBy;
 }
 
 /** The names of what a writer read, in WRITER_SOURCES' words. */
@@ -312,7 +314,7 @@ export async function generateNode(
       warnings: drafted.warnings,
       format,
       blog: drafted.meta,
-      made: {
+      madeBy: {
         purpose: writingPurposeOf(node.type, citableBlog),
         promptId: drafted.promptId ?? "content.blog_draft",
         repaired: Boolean(drafted.repaired),
@@ -415,7 +417,7 @@ export async function generateNode(
       subject: finalSubject,
       previewText: bake(drafted.previewText),
       subjectVariants: drafted.subjectVariants.map((v) => bake(v)),
-      made: {
+      madeBy: {
         purpose: writingPurposeOf(node.type, citableBlog),
         promptId: "content.email_fill",
         sources: sourcesOf({ brand_voice: input.brandVoice ?? "", audience: input.audience ?? "", knowledge: rag?.chunks ?? [], proof: proofBlock, exemplars: exemplarsBlock }),
@@ -535,7 +537,7 @@ export async function generateNode(
     status: "generated",
     warnings,
     format,
-    made: {
+    madeBy: {
       purpose: writingPurposeOf(node.type, citableBlog),
       promptId: hubDraft ? "content.hub_draft" : "content.fill",
       sources: sourcesOf({

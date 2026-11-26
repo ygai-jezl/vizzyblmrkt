@@ -24,6 +24,8 @@ import {
   type EbookChapter,
 } from "@/lib/types/contentPlan";
 import { sanitizeEbookHtmlCapped, reconcileChapterImages } from "@/lib/content/create/ebookHtml";
+import { keptMade, nodeStampsAfter } from "@/lib/loops/made";
+import type { Made } from "@/lib/types/loopStamp";
 
 /**
  * Tenant-layer access for a workspace's Content OS subcollections:
@@ -357,8 +359,13 @@ export async function createContentPlan(
   }
   const id = opts.id ?? randomUUID();
   const now = new Date().toISOString();
+  const { made: givenMade, ...fields } = input;
+  const made = keptMade(givenMade);
   const plan = ContentPlanSchema.parse({
-    ...input,
+    ...fields,
+    ...(made ? { made } : {}),
+    // A new plan's nodes have made nothing yet: only updateContentPlanNode stamps a node.
+    ...(fields.graph ? { graph: { ...fields.graph, nodes: fields.graph.nodes.map(withoutStamps) } } : {}),
     id,
     tenantId: ctx.tenantId,
     workspaceId,
@@ -458,8 +465,9 @@ export async function getContentPlan(
  * a worker-written `posted`/`failed` (or a schedule's `scheduledAt`) to a stale value. So when a
  * `graph` is provided we re-read the current doc and overlay each existing node's distribution
  * fields (matched by id) onto the incoming graph before writing — making updateContentPlanNode the
- * single writer of those fields. Vizzy's draft (`aiDraft`) is server-owned the same way: a Save
- * keeps the stored one and can never set, change or clear it. */
+ * single writer of those fields. Vizzy's draft (`aiDraft`) and the node's stamps (`made`,
+ * `imageMade`, learning loops step 5) are server-owned the same way: a Save keeps the stored ones
+ * and can never set, change or clear them. */
 export async function updateContentPlan(
   ctx: TenantContext,
   workspaceId: string,
@@ -508,6 +516,8 @@ export async function updateContentPlan(
                   freshness: n.blog?.freshness,
                   status: n.status,
                   body: n.body,
+                  made: n.made,
+                  imageMade: n.imageMade,
                 },
               ] as const,
           ),
@@ -524,17 +534,21 @@ export async function updateContentPlan(
             freshness: BlogArticleFreshness | undefined;
             status: ContentNode["status"];
             body: string;
+            made: ContentNode["made"];
+            imageMade: ContentNode["imageMade"];
           }
         >();
     const graph = {
       ...incoming,
       nodes: incoming.nodes.map((n) => {
         const keep = owned.get(n.id);
-        // Vizzy's draft is only ever the stored one: a Save can't set, change or clear it.
-        if (!keep) return withoutAiDraft(n);
-        const { live, hero, dates, freshness, aiDraft, status, body, ...distribution } = keep;
-        const merged = withoutAiDraft({ ...n, ...distribution, ...(keepsLiveApproval(n, { live, status, body }) ? { status } : {}) });
-        return withStoredBlog(aiDraft ? { ...merged, aiDraft } : merged, { live, hero, dates, freshness });
+        // Vizzy's draft and the node's stamps are only ever the stored ones: a Save can't set,
+        // change or clear them (learning loops step 5: a Save can't forge or clear a stamp).
+        if (!keep) return withoutStamps(withoutAiDraft(n));
+        const { live, hero, dates, freshness, aiDraft, status, body, made, imageMade, ...distribution } = keep;
+        const merged = withoutStamps(withoutAiDraft({ ...n, ...distribution, ...(keepsLiveApproval(n, { live, status, body }) ? { status } : {}) }));
+        const stamped = { ...merged, ...(made ? { made } : {}), ...(imageMade ? { imageMade } : {}) };
+        return withStoredBlog(aiDraft ? { ...stamped, aiDraft } : stamped, { live, hero, dates, freshness });
       }),
     };
     tx.update(ref, { ...fields, ...strategy, graph, updatedAt: new Date().toISOString() });
@@ -551,6 +565,15 @@ function keepsLiveApproval(
   stored: { live: BlogArticleLive | null | undefined; status: ContentNode["status"]; body: string },
 ): boolean {
   return Boolean(stored.live?.approvedOnLive) && stored.status === "approved" && incoming.status !== "approved" && incoming.body === stored.body;
+}
+
+/** The node without its stamps (written only by updateContentPlanNode, never by a Save or a create). */
+function withoutStamps<N extends { made?: unknown; imageMade?: unknown }>(node: N): N {
+  if (!("made" in node) && !("imageMade" in node)) return node;
+  const { made: _made, imageMade: _image, ...rest } = node;
+  void _made;
+  void _image;
+  return rest as N;
 }
 
 /** The node without an `aiDraft` (written only by fillPlanNode, never by a canvas Save). */
@@ -608,17 +631,14 @@ function withStoredBlog<N extends Pick<ContentNode, "blog">>(
 }
 
 /**
- * Persist a SINGLE node's fields (body/placeholders/status/etc.) atomically. Run
- * inside a transaction so concurrent per-node generates (the client fills empty
- * nodes in parallel) don't clobber each other's writes to the shared graph array.
- * Returns the updated node, or null if the plan/node is gone.
+ * A node write's fields, and what made them (learning loops step 5, decision 19): `made` is
+ * required, so a new caller must say. Its stamp from learnedFor when YouGrow made the words or the
+ * image, or `{ unstamped: reason }` when it didn't: a person's own image or words, an image taken
+ * away, or a save that only records dates, where something is or that a person checked it.
  */
-export async function updateContentPlanNode(
-  ctx: TenantContext,
-  workspaceId: string,
-  planId: string,
-  nodeId: string,
-  patch: Partial<
+export type ContentNodeWrite = NodeFieldsPatch & { made: Made };
+
+type NodeFieldsPatch = Partial<
     Pick<
       ContentNode,
       | "body"
@@ -646,7 +666,24 @@ export async function updateContentPlanNode(
       | "blog"
       | "aiDraft"
     >
-  >,
+  >;
+
+/**
+ * Persist a SINGLE node's fields (body/placeholders/status/etc.) atomically. Run
+ * inside a transaction so concurrent per-node generates (the client fills empty
+ * nodes in parallel) don't clobber each other's writes to the shared graph array.
+ * Returns the updated node, or null if the plan/node is gone.
+ *
+ * The only writer of a node's stamps (nodeStampsAfter): an image's stamp goes to `imageMade` when
+ * the write sets the image, any other to `made` when it sets the words, and both are kept only
+ * with LOOPS_ENABLED on. Counting what was made is the caller's, where the output is saved.
+ */
+export async function updateContentPlanNode(
+  ctx: TenantContext,
+  workspaceId: string,
+  planId: string,
+  nodeId: string,
+  write: ContentNodeWrite,
   // Injectable so the Distribute worker (which threads its own FirestoreLike through, a
   // FakeFirestore under test) reflects node status against the SAME db instead of reaching
   // for the real getDb(). Defaults to the tenant's regional DB for all normal callers.
@@ -684,7 +721,12 @@ export async function updateContentPlanNode(
     const idx = plan.graph.nodes.findIndex((n) => n.id === nodeId);
     if (idx < 0) return null;
     const stored = plan.graph.nodes[idx]!;
-    const merged = ContentNodeSchema.parse({ ...stored, ...patch, ...(opts.patchFor ? opts.patchFor(plan, stored) : {}) });
+    const { made, ...patch } = write;
+    const stamps = nodeStampsAfter(stored, made, { body: "body" in patch, image: "imageAssetRef" in patch });
+    const merged = ContentNodeSchema.parse({
+      ...withoutStamps({ ...stored, ...withoutStamps(patch as NodeFieldsPatch & { made?: unknown; imageMade?: unknown }), ...(opts.patchFor ? opts.patchFor(plan, stored) : {}) }),
+      ...stamps,
+    });
     const live = opts.setLive ? opts.setLive(stored.blog?.live ?? null, { before: stored, after: merged }) : stored.blog?.live;
     const dates = opts.setDates ? opts.setDates(stored.blog?.dates, live ?? null) : stored.blog?.dates;
     // "Not live" takes the article's clock away with its live mark: a clock runs only while it is live.

@@ -462,10 +462,11 @@ export const ONTOLOGY: readonly OntologyType[] = [
   {
     id: "competitor",
     name: "Competitor",
-    description: "A competitor the brand watches: their sitemap's pages, their news posts, monthly changes and the findings from articles read in full.",
+    description:
+      "A competitor the brand watches: their sitemap's pages, their news posts, monthly changes, the findings from articles read in full, and the strategy group a person put it in. What they write is worked out from those findings when asked, never stored.",
     place: "signals",
     status: "built",
-    madeBy: ["competitor_site", "competitor_analysis", "competitor_articles"],
+    madeBy: ["competitor_site", "competitor_analysis", "competitor_articles", "competitor_profile"],
     home: "brand",
     personal: "none",
     stores: [
@@ -475,7 +476,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
       regional("competitor_changes"),
       regional("competitor_articles", "findings and short quotes, never the article's text"),
     ],
-    links: [],
+    links: [{ to: "brand_strategy", via: "its group, shown under Who you compete with, and its articles, which Propose and Against your competitors read", many: false }],
     events: [],
     erase: {
       paths: [brandPath("removeCompetitor", "src/lib/competitors/store.ts"), brandPath("removeArticles", "src/lib/competitors/articles.ts")],
@@ -1190,16 +1191,16 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "brand_strategy",
     name: "Brand strategy",
     description:
-      "The brand's strategy, one record per brand, approved by a person: who it's for (audiences and 3 to 5 focus buying situations), who it competes with (in groups, found by the competitor finder or watched), where it wins and where they do (claims, each with its proof or shown as a gap), what it is not, and the quarter's goal. Keeps the draft a person edits, the approved one everything reads, the last 5 approved, and the stars, ticks and edits people made.",
+      "The brand's strategy, one record per brand, approved by a person: who it's for (audiences and 3 to 5 focus buying situations), who it competes with (in groups, found by the competitor finder or watched), where it wins and where they do (claims, each with its proof or shown as a gap), what it is not, and the quarter's goal. Keeps the draft a person edits, the approved one everything reads, the last 5 approved, the names marked Not a competitor, and the stars, ticks, groups and edits people made.",
     place: "content",
     status: "built",
-    madeBy: ["brand_strategy", "competitor_find"],
+    madeBy: ["brand_strategy", "competitor_find", "competitor_claim_match"],
     home: "brand",
     personal: "none",
     stores: [regional("brand_strategy", "one document per brand; `by` and decisions hold the admin's email or user id")],
     links: [
       { to: "brand_map", via: "its audiences and identity, and the focus situations it stars on approval", many: false },
-      { to: "competitor", via: "the competitors a person ticked to monitor", many: true },
+      { to: "competitor", via: "the competitors a person ticked to monitor, or, joined to Competitors, every one the brand watches, live", many: true },
     ],
     events: [],
     erase: { paths: [brandPath("deleteBrandStrategy", "src/lib/brandStrategy/store.ts", "an admin presses Start over on the Strategy tab")] },

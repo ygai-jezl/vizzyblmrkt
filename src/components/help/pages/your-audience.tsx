@@ -174,8 +174,8 @@ export default function YourAudienceHelp({
               At the top of the filters, pick <strong>All of these</strong> or <strong>Any of these</strong>.
             </li>
             <li>
-              <strong>Columns</strong> picks up to 10 columns, Person always first. <strong>Sort</strong> sorts by any column with an order, such as an
-              amount or a date. Click a column&apos;s name to sort by it too.
+              <strong>Columns</strong> picks up to 10 columns, Person always first. Drag a column, or use its arrows, to move it.{" "}
+              <strong>Sort</strong> sorts by any column with an order, such as an amount or a date. Click a column&apos;s name to sort by it too.
             </li>
             <li>
               Search inside the view by name, email or domain with its own search box. The search box is never saved. Press{" "}
@@ -184,12 +184,14 @@ export default function YourAudienceHelp({
           </Steps>
           <P>
             Email, phone and link fields can only be filtered by whether they are empty. Days are counted in your brand&apos;s time zone, or UTC
-            when none is set. A filter starts working once it has a value.
+            when none is set. A filter starts working once it has a value: a new one changes nothing until you pick it.
           </P>
           <P>
-            A view that starts from one of your groups, such as {w.a}, a product, a stage or an option of a field, with All of these, checks
-            everyone in that group. With no such group (only a date filter, say, or Any of these) it checks your 5,000 most recently active
-            people and says so. Load more shows the next 50 people who match.
+            A view with All of these starts from the smallest of its groups, such as {w.a}, a product, a stage or an option of a field. A group
+            of 5,000 people or fewer is checked in full. A bigger group is checked for its 5,000 most recently active people, and with no such
+            group (only a date filter, say, or Any of these) the view checks your 5,000 most recently active people. Words in its search box
+            check the 5,000 most recently active people the search finds. Each time, the view says so and how many people there are in all.
+            Load more shows the next 50 people who match.
           </P>
 
           <H2 id="saved-views">Saved views</H2>
@@ -217,7 +219,8 @@ export default function YourAudienceHelp({
             A saved view keeps its filters, columns and sort, never words you typed: a filter on a text field&apos;s words or on the email domain
             works while you look and is marked <strong>Typed words</strong> until you remove it to save. A team member in a filter is kept by
             who they are; someone who has left the team shows as Former team member. If a field a view uses is archived, its filter is
-            marked <strong>Archived</strong> and ignored until the field is brought back.
+            marked <strong>Archived</strong> and ignored until the field is brought back. Its column is marked Archived in Columns: untick it
+            to make room for another.
           </P>
           <P>
             Ask Vizzy how many people are in a saved view, for example &quot;how many people are in Wholesale, ordered lately?&quot;. Vizzy
@@ -540,6 +543,8 @@ export default function YourAudienceHelp({
           ...(viewsOn
             ? ([
                 [VIEW_MESSAGES.capped, "Nothing to fix. To check everyone, start the view from a smaller group with All of these, such as an option of one of your fields."],
+                [VIEW_MESSAGES.capped_group, "Nothing to fix. To check everyone in it, add a filter on a smaller group, such as an option of one of your fields, so the view starts there."],
+                [VIEW_MESSAGES.capped_search, "Type more of the name, email or domain, so the search finds fewer people."],
                 [VIEW_MESSAGES.typed_words, "Remove the filters marked Typed words, then save. You can still use them while you look."],
                 [VIEW_MESSAGES.team_views_full, "Change a team view you no longer use, or archive one to make room. Archived views still count towards the 200."],
                 [VIEW_MESSAGES.my_views_full, "Delete one of your own views you no longer use, then save."],
@@ -549,6 +554,13 @@ export default function YourAudienceHelp({
                 [VIEW_MESSAGES.admins_only, "Save it with Only me as your own view, or ask an admin to save it for the team."],
                 [VIEW_MESSAGES.view_changed, "Open the view again from Views, then make your change on top of theirs."],
                 [VIEW_MESSAGES.view_too_large, "Remove a filter, or some of the values in one, then save."],
+                [VIEW_MESSAGES.views_changed, "Someone else saved a view at the same moment. Save again."],
+                [VIEW_MESSAGES.archived_view, "An admin presses Bring back on the view, or opens Archived team views in Views. Until then it isn't in the Views menu."],
+                [VIEW_MESSAGES.view_not_found, "The view was archived or deleted, or it is someone's own view. Open Views to pick one you can use."],
+                [VIEW_MESSAGES.rate_limited, "Wait a minute, then change the view again. Each change runs it, so finish a filter before the next."],
+                [VIEW_MESSAGES.sort_ignored, "Pick another sort under Sort, or bring the field back in Data model."],
+                [VIEW_MESSAGES.invalid_name, "Type a shorter name, then save."],
+                [VIEW_MESSAGES.invalid_view, "Remove the filters marked Archived or without a value, then save."],
               ] as Array<[string, string]>)
             : []),
           ...(timeline ? ([[TIMELINE_EMPTY, "Nothing to fix. Their timeline fills as things happen to them."]] as Array<[string, string]>) : []),

@@ -670,6 +670,20 @@ describe("the views sections", () => {
       VIEW_MESSAGES.views_busy,
       VIEW_MESSAGES.archived_field,
       VIEW_MESSAGES.admins_only,
+      // Every other message the views screens show.
+      VIEW_MESSAGES.capped_group,
+      VIEW_MESSAGES.capped_search,
+      VIEW_MESSAGES.my_views_full,
+      VIEW_MESSAGES.archived_option,
+      VIEW_MESSAGES.view_changed,
+      VIEW_MESSAGES.view_too_large,
+      VIEW_MESSAGES.views_changed,
+      VIEW_MESSAGES.archived_view,
+      VIEW_MESSAGES.view_not_found,
+      VIEW_MESSAGES.rate_limited,
+      VIEW_MESSAGES.sort_ignored,
+      VIEW_MESSAGES.invalid_name,
+      VIEW_MESSAGES.invalid_view,
     ]) {
       expect(text).toContain(m);
     }

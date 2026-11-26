@@ -12,9 +12,9 @@ import { ViewDefinitionSchema, type ViewDefinition } from "@/lib/views/types";
  * - **Only me views** belong to one team member: one document per brand and member in the regional
  *   `member_views` (src/lib/tenant/memberViews.ts), not logged, deleted for real.
  *
- * A saved view never holds typed words (decision 3), so neither kind holds anyone's personal data:
- * filters name options, numbers, amounts, days, yes or no, empty, and team members by user id.
- * Who made or changed a view is a user id only.
+ * A saved view never holds typed words (decision 3), so neither kind holds the values of the brand's
+ * people: filters name options, numbers, amounts, days, yes or no, empty, and team members by user
+ * id. Both hold team members' user ids: who made or changed a team view, and whose own views these are.
  *
  * Pure: zod and plain data only, so client components can import it.
  */

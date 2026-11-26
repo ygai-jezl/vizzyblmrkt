@@ -29,26 +29,34 @@ rules, dependency or infra change, and no backfill.
    from its smallest group, found with one `count()` per candidate, otherwise from Everyone; it reads
    that group newest first in pages of 1,000, up to 5,000, with a projection (`FindOptions.select`)
    of only the fields its filters and sort use, and answers the group's real total and `capped`.
-   Words in the search box read that search's people instead and keep to Everyone. At most 2 runs
+   So a group of more than 5,000 is checked for its 5,000 most recently active people, and the
+   screen says which: Everyone, the group it starts from (named in words), or the search box's
+   people. Words in the search box read that search's people instead and keep to Everyone. At most 2 runs
    at a time per instance (`views_busy`). Every read uses an index `firestore.indexes.json` already
    has. The index backend of groups 2 and 3 (on the tracker) plugs in behind the same interface.
 4. **Team views are a setting**: the settings subject `views:person`, kept by `SETTINGS_HOMES` in a
    new regional `saved_views`, one document per brand, so each save is one settings version holding
    the whole list. Views are archived, never removed. Caps: 50 in use, 200 in all, the list under 200
    KB, one view under 2 KB. A save whose list moved on retries up to 3 times; one made from an older
-   `version` of the view answers `view_changed` (409).
+   `version` of the view answers `view_changed` (409). Firestore returns a map's keys by name, so
+   views are compared with `sameView` and shown with their keys in one order (`viewInOrder`): a
+   view opened unchanged reads as saved, and saving it unchanged writes no version.
 5. **Only me views sit outside the log**: a new regional `member_views`, one document per brand and
    member (`mv_` and a hash of both), read and written only for the signed in member, with a rev
    check in one transaction. Not logged, deleted for real, 50 a member. So History and export never
    show anyone's own views, and they never spend the brand's lifetime log.
 6. **No typed words in a saved view** (decision 3): a text field's words and the email domain work
    while looking and refuse a save with `typed_words`, naming the filters. Saved views keep options,
-   numbers, amounts, days, yes or no, empty, and team members as user ids: neither store holds
-   anyone's personal data, so a person's erase or export has nothing there.
+   numbers, amounts, days, yes or no, empty, and team members as user ids. So neither store holds
+   the values of the brand's people, and a person's erase or export has nothing there. Both hold
+   team members' user ids: `saved_views` keeps who made, changed and archived each team view (in
+   the settings log too), and `member_views` is keyed by the member's user id.
 7. **Routes** (`viewsAdmin`, beside `fieldsAdmin`): `views/run` (count, total, capped, every match in
    order and the first 50 rows; 20 a minute and 200 an hour per member, 600 an hour per brand),
    `views/rows` (up to 50 rows by id; changing columns reads rows, never a new run), `views` and
-   `views/[viewId]` (team saves 30 an hour per brand). Paging is by ids, not a cache.
+   `views/[viewId]` (team saves 30 an hour per brand). Paging is by ids, not a server cache: the
+   screen asks for the next 50 ids of the run, never by the rows that came back, and reads ids in
+   requests of 50 when the columns change.
 8. **Vizzy** reads views with `get_view_counts` (`/api/agent/audience/views`, canvas token): every team
    view in use and the asker's own, with their filters in words, and counts only those named, at most
    3, each `viewPeople` (a new meaning) and `capped`. A view with a filter on a field `vizzyReadsField`
@@ -59,6 +67,18 @@ rules, dependency or infra change, and no backfill.
    answer 404, the Views menu and Add filter hide, People works as before, saved views stay stored,
    and Vizzy's tool says views are off. No per brand check: no AI, reads bounded by the cap and the
    rate limits, and every plan has views.
+
+### Gaps we accept
+
+- A member who leaves keeps their `member_views` document: nobody reads it, and nothing erases it.
+  Their user id shows as Former team member in a team view's filter. The same gap as the field
+  lists' user ids.
+- Team members' user ids stay in the settings log, which is never pruned, as for every setting.
+- A person with more than 50 field tags (`MAX_FIELD_TAGS`) keeps only 50 of them, so a view that
+  starts from a dropped option misses them, as the field filter on People does today. A view that
+  starts from Everyone reads their values and still finds them.
+- A group of more than 5,000 people is checked for its 5,000 most recently active until groups 2
+  and 3 (decision 34), and the view says so.
 
 ### Not decided here
 

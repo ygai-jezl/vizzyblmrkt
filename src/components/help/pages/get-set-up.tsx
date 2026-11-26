@@ -2,6 +2,8 @@ import { H1, H2, H3, Lead, P, UL } from "@/components/developers/Doc";
 import { Messages, NextPage, Open, Warning } from "@/components/help/blocks";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { isOnboardingEnabled, isOnboardingVoiceEnabled } from "@/lib/onboarding/flags";
+import { isNextActionCardEnabled } from "@/lib/nextAction/flags";
+import { NEXT_ACTION_WORDS } from "@/lib/nextAction/words";
 import { ABOUT_WORDS, BASICS_WORDS, COMING_UP_WORDS, FACT_WORDS, HOME_WORDS, SUGGESTION_WORDS, VOICE_WORDS, WELCOME_WORDS } from "@/lib/onboarding/words";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
@@ -14,12 +16,16 @@ import type { HelpBodyProps } from "@/lib/help/pages";
  * Here's what I learned works after a call. It also says where to change the answers later (Settings,
  * About your business) and how they order Home's Your next action, what Vizzy reads in every chat,
  * and how something new Vizzy hears in a later chat waits for an admin's Keep. #sidebar says how the
- * sidebar's Coming up works for a brand that answered on the welcome.
+ * sidebar's Coming up works for a brand that answered on the welcome. With Vizzy's card on Home
+ * (`nextActionCard`), #next-action says how Your next action works: the steps and their why, the
+ * buttons, a quick question's answer waiting in About your business, Dismiss, Show another, when a
+ * new card comes, and the messages it shows.
  */
 export default function GetSetUpHelp({
   ideaWords = isIdeaWordsEnabled(),
   onboarding = isOnboardingEnabled(),
   onboardingVoice = isOnboardingVoiceEnabled(),
+  nextActionCard = isNextActionCardEnabled(),
 }: HelpBodyProps = {}) {
   return (
     <article>
@@ -135,6 +141,42 @@ export default function GetSetUpHelp({
             customers. A shop or a service never starts with connecting an app. With no answers, it starts at the first stage
             not done.
           </P>
+
+          {nextActionCard ? (
+            <>
+              <H2 id="next-action">{NEXT_ACTION_WORDS.title}</H2>
+              <P>
+                Once you&apos;ve told Vizzy about your business, it writes <strong>{NEXT_ACTION_WORDS.title}</strong> on Home
+                for you: 1 to 3 steps that fit your business and where it is, each with a line on why, in your own words. Only
+                admins see it, because it&apos;s written from About your business. Members see the steps list.
+              </P>
+              <P>
+                A step&apos;s button opens the page that does it, or asks Vizzy in the chat below. Some steps ask one quick
+                question: your answer waits in <strong>{ABOUT_WORDS.title}</strong> for you to keep, and Vizzy plans with it once
+                you do. A goal you named shows how far you&apos;ve got.
+              </P>
+              <P>
+                <strong>{NEXT_ACTION_WORDS.dismiss}</strong> takes a step off the card. Add a reason if you like: Vizzy reads it,
+                and won&apos;t suggest that step again for 30 days. <strong>{NEXT_ACTION_WORDS.another}</strong> asks Vizzy for a
+                different card.
+              </P>
+              <P>
+                Vizzy writes a new card when something changes, such as your first idea, your first sign-ups or a fact you kept,
+                and once every step on the card is done or dismissed. It never writes one on every visit, and Home never waits for
+                it. Removing a fact or deleting a conversation clears the card, and Vizzy writes a new one. When Vizzy can&apos;t
+                write one, Home lists the steps of the stage that fits your answers instead.
+              </P>
+              <Messages
+                rows={[
+                  [NEXT_ACTION_WORDS.answerWaiting, `Open Settings › General, under ${ABOUT_WORDS.title}, and press Keep on it.`],
+                  [NEXT_ACTION_WORDS.limited, "Vizzy writes up to 20 cards a brand a day. The card you have stays until tomorrow."],
+                  [NEXT_ACTION_WORDS.tooFast, "Wait a minute, then press Show another again."],
+                  [NEXT_ACTION_WORDS.anotherFailed, "The card you have still works. Press Show another again in a minute."],
+                  [NEXT_ACTION_WORDS.cardChanged, "Vizzy wrote a new card, for example in another tab. Refresh Home to see it."],
+                ]}
+              />
+            </>
+          ) : null}
 
           <H2 id="sidebar">What the sidebar shows</H2>
           <P>

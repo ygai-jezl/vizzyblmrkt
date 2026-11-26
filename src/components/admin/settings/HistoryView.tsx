@@ -20,9 +20,14 @@ const pill = (on: boolean) =>
     on ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900" : "border-neutral-300 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
   }`;
 
-/** What changed, as one line: a restore says which version, then each item. */
+/**
+ * What changed, as one line: the saver's own words when there are some ("Gave ‘Google Analytics,
+ * fernhill.example’", "Erased the values of ‘Old loyalty tier’"), else each item; a restore says
+ * which version, then each item.
+ */
 export function summaryOf(e: Pick<HistoryEntry, "items" | "message" | "restoredFrom" | "kind">): string {
-  const parts = e.items.length ? (e.restoredFrom && e.kind !== "journeys" ? [e.message ?? `Restored version ${e.restoredFrom}`, ...e.items] : e.items) : [e.message ?? ""];
+  const restore = !!e.restoredFrom && e.kind !== "journeys";
+  const parts = restore ? [e.message ?? `Restored version ${e.restoredFrom}`, ...e.items] : e.message ? [e.message] : e.items;
   const text = parts.filter(Boolean).map((p) => p.replace(/\.$/, "")).join(". ");
   return text ? `${text}.` : "";
 }
@@ -93,6 +98,8 @@ export function HistoryView({ canRestore, lead }: { canRestore: boolean; lead: s
                   </span>
                   {e.live ? <Badge tone="green">{HISTORY_COPY.live}</Badge> : null}
                   {e.readOnly === "shared" ? <Badge>{HISTORY_COPY.readOnly}</Badge> : null}
+                  {e.readOnly === "archived_journey" ? <Badge>{HISTORY_COPY.archivedJourney}</Badge> : null}
+                  {e.readOnly === "revoked_connection" ? <Badge>{HISTORY_COPY.revokedProduct}</Badge> : null}
                 </div>
                 <div className="text-xs text-neutral-500" title={dayText(e.at)}>
                   {e.by} · {whenText(e.at)}

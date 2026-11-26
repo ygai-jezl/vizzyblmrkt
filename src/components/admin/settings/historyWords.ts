@@ -31,6 +31,8 @@ export const HISTORY_COPY = {
   partial: "Some changes couldn't be read just now. Reload the page to see them all.",
   loadFailed: "Couldn't load the history. Reload the page to try again.",
   readOnly: "Read only here",
+  archivedJourney: "Archived, read only",
+  revokedProduct: "Revoked, read only",
   live: "Live",
   older: "Show older changes",
   draftNote: (version: number, by: string, when: string) => `The draft holds version ${version}, put back by ${by} ${when}. Nothing goes live until someone presses Publish.`,

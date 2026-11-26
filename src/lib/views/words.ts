@@ -13,6 +13,8 @@ import { isBuiltInColumn, isBuiltInFilter, type BuiltInColumn, type BuiltInFilte
 
 export const VIEW_MESSAGES = {
   capped: "This view checks your 5,000 most recently active people. Older people aren't included.",
+  capped_group: "This view checks the 5,000 most recently active people in the group it starts from. Older people in that group aren't included.",
+  capped_search: "This view checks the 5,000 most recently active people your search finds. Older people aren't included.",
   typed_words: "A saved view can't keep typed words. Remove the filters marked below to save it.",
   team_views_full: "This brand has kept as many team views as it can. Change a view in use, or bring back an archived one.",
   my_views_full: "You have kept as many of your own views as you can. Delete one you no longer use.",
@@ -31,6 +33,11 @@ export const VIEW_MESSAGES = {
   archived_view: "This team view is archived. Bring it back to change it or to show it in Views.",
   failed: "That didn't work. Try again.",
 } as const;
+
+/** What a view that read only 5,000 people says, by where it started: Everyone, one of its groups, or the search box's people. */
+export function cappedText(start: { kind: "everyone" | "group" | "search" }): string {
+  return start.kind === "group" ? VIEW_MESSAGES.capped_group : start.kind === "search" ? VIEW_MESSAGES.capped_search : VIEW_MESSAGES.capped;
+}
 
 /** The plain word message for an error a views route answered. */
 export function viewErrorText(error: unknown): string {

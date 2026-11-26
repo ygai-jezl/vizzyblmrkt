@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import type { RecordField } from "@/lib/types/recordField";
-import { amountWords, builtInFilterLabel, filterInWords, filtersInWords, OP_LABEL, sortInWords, VIEW_MESSAGES, viewErrorText, type ViewNames } from "./words";
+import { amountWords, builtInFilterLabel, cappedText, filterInWords, filtersInWords, OP_LABEL, sortInWords, VIEW_MESSAGES, viewErrorText, type ViewNames } from "./words";
 import { BUILT_IN_FILTERS } from "./types";
 
 const at = "2026-11-01T00:00:00.000Z";
@@ -35,6 +35,13 @@ describe("a view in words", () => {
     // Without the team's names (Vizzy), a team member is never named.
     expect(filterInWords({ on: OWNER.key, op: "any_of", value: ["u_alex", "u_sam"] }, { ...names, team: undefined })).toBe("Account owner is one of 2 team members");
     expect(filterInWords({ on: ORDER.key, op: "empty" }, names)).toBe("Last order is empty");
+  });
+
+  it("says which 5,000 people a capped view checked, by where it started", () => {
+    expect(cappedText({ kind: "everyone" })).toBe(VIEW_MESSAGES.capped);
+    expect(cappedText({ kind: "group" })).toBe(VIEW_MESSAGES.capped_group);
+    expect(cappedText({ kind: "search" })).toBe(VIEW_MESSAGES.capped_search);
+    expect(VIEW_MESSAGES.capped_group).toContain("in the group it starts from");
   });
 
   it("names a product group from the saved views' names, or from its product", () => {

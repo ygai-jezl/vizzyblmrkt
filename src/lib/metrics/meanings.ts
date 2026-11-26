@@ -812,7 +812,7 @@ export const MEANINGS = {
     unit: "count",
     source: "the brand's People list, checked when asked (get_view_counts)",
     caveat:
-      "A view with no group of 5,000 people or fewer to start from checks the brand's 5,000 most recently active people: when `capped` is true there are at least this many.",
+      "A view reads at most 5,000 people, the most recently active of the group it starts from (Everyone when it has none): when `capped` is true there are at least this many.",
   },
   // What people did with what YouGrow made, for the learning loops (ADR-0017). No tool returns
   // these yet: the loops count them once they stamp what YouGrow makes.

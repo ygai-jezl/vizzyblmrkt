@@ -8,9 +8,9 @@ import { personHref } from "@/lib/audience/paths";
 import { FORMER_TEAM_MEMBER } from "@/lib/team/former";
 import type { RecordField } from "@/lib/types/recordField";
 import type { ViewScope } from "@/lib/types/savedView";
-import { columnKind, holdsTypedWords, isSortable, type FilterFlag } from "@/lib/views/conditions";
+import { columnKind, filtersFromGroup, holdsTypedWords, isSortable, type FilterFlag } from "@/lib/views/conditions";
 import { sameView, VIEW_LIMITS, type ViewDefinition, type ViewFilter, type ViewMatch, type ViewSort } from "@/lib/views/types";
-import { amountWords, columnName, dayWords, VIEW_MESSAGES, viewErrorText, type ViewNames } from "@/lib/views/words";
+import { amountWords, cappedText, columnName, dayWords, filterInWords, VIEW_MESSAGES, viewErrorText, type ViewNames } from "@/lib/views/words";
 import { Button, inputClass } from "../connect/ui";
 import { CanEmailCell, StageCell, WhereFromCell } from "../audience/PeopleCells";
 import { Chip } from "../people/Chip";
@@ -41,6 +41,14 @@ export interface OpenView {
   q: string;
   /** Start with an empty filter to fill in (Add filter). */
   addOne?: DraftFilter | null;
+}
+
+/** Under the 5,000 notice: how many people the view could match, and the group it starts from. */
+function startWords(answer: RunAnswer, names: ViewNames): string {
+  const total = answer.total.toLocaleString("en-GB");
+  if (answer.start.kind !== "group") return answer.start.kind === "everyone" ? `${total} people in all.` : `${total} people found.`;
+  const [start] = filtersFromGroup(answer.start.tag, false);
+  return start ? `It starts from ${filterInWords(start, names)}: ${total} people.` : `${total} people in that group.`;
 }
 
 const RUN_WAIT_MS = 600;
@@ -370,8 +378,8 @@ export function PeopleView({
 
       {answer?.capped ? (
         <p className="flex flex-wrap items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
-          <AlertTriangle size={14} aria-hidden /> {VIEW_MESSAGES.capped}
-          {answer.start.kind === "everyone" ? <span className="text-amber-700/80 dark:text-amber-300/80">{answer.total.toLocaleString("en-GB")} people in all.</span> : null}
+          <AlertTriangle size={14} aria-hidden /> {cappedText(answer.start)}
+          <span className="text-amber-700/80 dark:text-amber-300/80">{startWords(answer, names)}</span>
         </p>
       ) : null}
       {answer?.sortIgnored ? <p className="text-xs text-amber-700 dark:text-amber-400">{VIEW_MESSAGES.sort_ignored}</p> : null}

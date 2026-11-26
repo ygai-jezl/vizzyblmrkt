@@ -1106,7 +1106,7 @@ The brand's names and subjects, groups and buying situations that every article 
   - `brand_map_situations`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
   - `brand_map_runs`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
   - `brand_map_groups`, the brand's regional Firestore, in `src/lib/tenant/brandMapRecords.ts`. Paged reads of every record kind.
-  - `brand_map_vectors`, the brand's regional Firestore, in `src/lib/tenant/brandMapVectors.ts`
+  - `brand_map_vectors`, the brand's regional Firestore, in `src/lib/tenant/brandMapVectors.ts`. Until retired: subjects and situations move to brand search (search_index), SEARCH_OLD_VECTORS_RETIRED_ENABLED stops its writes and scripts/retire-old-vectors.ts empties it (ADR-0025).
 - Links: `brand_question` through subject and situation ids (many); `content_plan` through brand_map_pages (many)
 - Erase:
   - `removeSubject` in `src/lib/brandMap/records.ts`, on removing the record
@@ -1196,9 +1196,12 @@ A first hand note from the brand's team about what they have seen, or an open qu
 - Personal: yes, the brand's people
 - Stores:
   - `brand_notes`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `search_docs` at `brands/{tenantId}/search_docs`, the brand's regional search database, in `src/lib/tenant/searchIndex.ts`. Kept notes and the questions asked of the team, with their statuses, never a note that may name a customer (ADR-0025).
+  - `brand_map_vectors`, the brand's regional Firestore, in `src/lib/tenant/brandMapVectors.ts`. Each note's and question's embedding, until retired (ADR-0025).
 - Links: `content_plan` through the articles it informed (many)
 - Erase:
   - `removeNote` in `src/lib/brandNotes/store.ts`, on removing the record
+  - `removeFromIndex` in `src/lib/search/indexer.ts`, on removing the record (forced, whatever SEARCH_INDEX_ENABLED says, when a note is removed or ticked as naming a customer)
   - Gap: a person's erase does not find notes that name them: notes are free text
 - Export: gap. A person's export does not include notes that name them.
 - Search: `note`, `question`
@@ -1756,7 +1759,7 @@ The queue behind every email: a send, a step, a contact erase, a sync or a perso
 
 ### Brand search index (`search_index`)
 
-The brand's own index of what it wrote, by words and meaning, in its region's search database.
+The brand's own index of what it wrote, by words and meaning, in its region's search database. With SEARCH_FAMILY_INDEX_ENABLED it also keeps the brand map family for every brand, each with its status (subjects and situations decided or proposed, kept notes, questions asked or answered, competitor articles), for the readers that match by meaning; people's search shows no proposal or answered question (ADR-0025).
 
 - Status: built
 - Home: the brand's region
@@ -1767,6 +1770,7 @@ The brand's own index of what it wrote, by words and meaning, in its region's se
 - Erase:
   - `removeFromIndex` in `src/lib/search/indexer.ts`, on removing the record (when its record is removed; forced, whatever SEARCH_INDEX_ENABLED says, when a connection's collected searches are erased)
   - `sweepBrand` in `src/lib/search/sweep.ts`, on removing the record (the scheduled check drops records that are gone)
+  - `removeFamily` in `src/lib/search/familyIndex.ts`, on removing the record (at once and forced, whatever SEARCH_INDEX_ENABLED says, when a subject, situation, note or competitor's articles are removed)
 - Export: none. Copies of the brand's own writing.
 - Search: none. It is the index.
 - Numbers: none. No numbers an agent reads.

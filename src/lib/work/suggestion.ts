@@ -98,7 +98,7 @@ export function addBodyOf(s: SuggestedTask): AddTaskBody {
     stage: s.stage,
     brandId: s.brandId,
     typedLinks: s.typedLinks,
-    measure: s.measure ?? (s.proposed?.kind === "done" ? { kind: "done" } : null),
+    measure: startingMeasureOf(s),
   };
 }
 
@@ -132,9 +132,22 @@ export function measureContent(m: MeasureInput | null | undefined): string {
 }
 
 /**
+ * The measure Edit then add starts from: the one Add to Work would keep (Vizzy's measure, or Done
+ * is the win for a suggestion of that kind alone), and none for a kind-only suggestion of another
+ * kind, whose kind the picker marks Vizzy suggests instead. So an untouched Edit then add sends
+ * what Add to Work would.
+ */
+export function startingMeasureOf(s: Pick<SuggestedTask, "measure" | "proposed">): MeasureInput | null {
+  return s.measure ?? (s.proposed?.kind === "done" ? { kind: "done" } : null);
+}
+
+/**
  * The fields the person changed from what Vizzy suggested (`result.edited`): title, description,
  * stage, brandId, typedLinks and measure, with "measure.kind" too when the kind of win changed.
- * Must have is never an edit: a suggestion never sets it. Empty for Add to Work.
+ * The measure is compared with what Add to Work keeps (startingMeasureOf), so an untouched Edit
+ * then add is the same as Add to Work; on a kind-only suggestion, setting a measure of Vizzy's
+ * kind is a measure edit, not a kind change. Must have is never an edit: a suggestion never sets
+ * it. Empty for Add to Work.
  */
 export function editedFields(s: SuggestedTask, body: AddTaskBody): string[] {
   const out: string[] = [];
@@ -144,9 +157,12 @@ export function editedFields(s: SuggestedTask, body: AddTaskBody): string[] {
   if (body.brandId !== undefined && body.brandId !== s.brandId) out.push("brandId");
   if (stable(body.typedLinks ?? []) !== stable(s.typedLinks)) out.push("typedLinks");
   const measure = body.measure ?? null;
-  if (measureContent(measure) !== measureContent(s.measure)) out.push("measure");
+  const kept = startingMeasureOf(s);
+  if (measureContent(measure) !== measureContent(kept)) out.push("measure");
   const kindWas = s.measure?.kind ?? s.proposed?.kind ?? null;
-  if ((measure?.kind ?? null) !== kindWas) out.push("measure.kind");
+  // No measure where Add to Work keeps none is no change of kind, even when Vizzy named one.
+  const kindChanged = measure ? measure.kind !== kindWas : kept !== null;
+  if (kindChanged) out.push("measure.kind");
   return out;
 }
 

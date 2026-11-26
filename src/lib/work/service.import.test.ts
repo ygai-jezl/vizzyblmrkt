@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { failingFirestore } from "@/lib/tenant/testing/failingFirestore";
+import { flakyFirestore } from "@/lib/tenant/testing/flakyFirestore";
 import { WORK_LOG, WORK_TASKS } from "@/lib/tenant";
 import { addTask, editTask, importTasks, previewImport } from "./service";
 import type { ImportBody } from "./inputs";
@@ -153,6 +154,49 @@ describe("importing a Backlog tab", () => {
     w.control.seed("work_refs", "org_ten_fernhill", { organisationId: "org_ten_fernhill", next: 1_000_000, updatedAt: "2026-11-20T15:00:00.000Z" });
     expect(await addTask(priya, { title: "One more" }, w.deps)).toMatchObject({ ok: false, status: 409, error: "refs_full" });
     expect(await importTasks(priya, body("Task\nOne more"), w.deps)).toMatchObject({ ok: false, status: 409, error: "refs_full" });
+  });
+
+  it("never gives two tasks one ref when a quick add takes a number while the sheet is read", async () => {
+    const priya = await w.scope(PEOPLE.priya);
+    const control = w.deps.controlDb as World["control"];
+    // A quick add lands between the import reading the counter and claiming it.
+    const racing = flakyFirestore(control, {
+      before: async (n) => {
+        if (n === 1) await addTask(priya, { title: "Quick add" }, w.deps);
+      },
+    });
+    const sheet = body("ID,Task\n1,Register the business name\n2,Van insurance\n3,Care cards");
+    const r = await importTasks(priya, sheet, { ...w.deps, controlDb: racing });
+    expect(r).toMatchObject({ ok: false, status: 409, error: "import_busy" });
+    expect(tasksIn(w.eu).map((t) => [t.ref, t.title])).toEqual([[1, "Quick add"]]);
+    // Imported again, the row whose ref the quick add took is left out, with why.
+    const again = value(await importTasks(priya, sheet, w.deps));
+    expect(again).toMatchObject({ imported: 2, refused: [expect.objectContaining({ row: 2, problem: "ref_taken" })] });
+    const refs = tasksIn(w.eu).map((t) => t.ref);
+    expect(new Set(refs).size).toBe(refs.length);
+    // The import let go of the counter.
+    expect(w.control.raw("work_refs", "org_ten_fernhill")?.importHold).toBeUndefined();
+  });
+
+  it("never gives two tasks one ref when the same sheet is imported twice at once", async () => {
+    const [a, b] = await Promise.all([importTasks(await w.scope(PEOPLE.priya), body(FERNHILL_TAB), w.deps), importTasks(await w.scope(PEOPLE.priya), body(FERNHILL_TAB), w.deps)]);
+    const refs = tasksIn(w.eu).map((t) => t.ref);
+    expect(refs).toHaveLength(12);
+    expect(new Set(refs).size).toBe(12);
+    const done = [a, b].filter((x) => x.ok && x.value.imported > 0);
+    expect(done).toHaveLength(1);
+    const other = [a, b].find((x) => x !== done[0])!;
+    // Refused while the first held the counter, or read after it finished, with every ref taken.
+    expect(other.ok ? other.value.imported : other.error).toEqual(other.ok ? 0 : "import_busy");
+  });
+
+  it("waits for no import that stopped without letting go, once its hold has passed", async () => {
+    w.control.seed("work_refs", "org_ten_fernhill", { organisationId: "org_ten_fernhill", next: 1, rev: 3, importHold: { id: "wi_0000000000000000", until: "2026-11-20T14:00:00.000Z" }, updatedAt: "2026-11-20T13:50:00.000Z" });
+    expect(value(await importTasks(await w.scope(PEOPLE.priya), body(FERNHILL_TAB), w.deps)).imported).toBe(12);
+    w.control.seed("work_refs", "org_ten_fernhill", { organisationId: "org_ten_fernhill", next: 28, rev: 4, importHold: { id: "wi_0000000000000000", until: "2026-11-20T15:05:00.000Z" }, updatedAt: "2026-11-20T14:55:00.000Z" });
+    expect(await importTasks(await w.scope(PEOPLE.priya), body("ID,Task\n40,Window display"), w.deps)).toMatchObject({ ok: false, error: "import_busy" });
+    // A sheet with no refs of its own takes new numbers and waits for nothing.
+    expect(value(await importTasks(await w.scope(PEOPLE.priya), body("Task\nWindow display"), w.deps)).imported).toBe(1);
   });
 
   it("refuses to import while a region can't be read, since it can't be sure the refs are free", async () => {

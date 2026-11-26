@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 import { Sparkles } from "lucide-react";
 import { Button, inputClass } from "@/components/admin/connect/ui";
 import { chipToneClass } from "@/components/admin/people/Chip";
-import { blankCheck, blankMeasure, checkInputOf, draftOfMeasureInput, measureInputOf, measureProblems, type CheckDraft, type MeasureDraft } from "@/lib/work/form";
+import { blankCheck, checkInputOf, draftOfMeasureInput, measureInputOf, measureProblems, type CheckDraft, type MeasureDraft } from "@/lib/work/form";
+import { startingMeasureOf } from "@/lib/work/suggestion";
 import type { MeasureInput } from "@/lib/work/inputs";
 import type { AgentActionId } from "@/lib/types/agentAction";
 import { suggestMeasureKind } from "@/lib/work/measureKind";
@@ -47,6 +48,16 @@ export interface TaskFormProps {
 const RADIO = (on: boolean, tone: string) =>
   `rounded-md border px-2.5 py-1 text-sm ${on ? `border-neutral-900 font-medium dark:border-white ${tone}` : "border-neutral-300 dark:border-neutral-700"}`;
 
+/**
+ * What the add page does once a task is added. The plain add page reads itself again, for the
+ * next ref. Edit then add doesn't: its address names a suggestion that is decided now, and reading
+ * it again would swap the done note for a refusal. It moves the address to the plain add page
+ * instead (no read), so a reload opens a fresh form, and Add another reads that page.
+ */
+export function afterAddSteps(fromSuggestion: boolean): { refresh: boolean; address: string | null; refreshOnAnother: boolean } {
+  return fromSuggestion ? { refresh: false, address: "/admin/work/new", refreshOnAnother: true } : { refresh: true, address: null, refreshOnAnother: false };
+}
+
 /** The brand a measure counts for: the one picked, or in a one brand organisation the one brand. */
 export function measureBrandOf(brands: readonly BrandOption[], brandId: string | null, oneBrand: boolean): BrandOption | null {
   if (brandId) return brands.find((b) => b.id === brandId) ?? null;
@@ -78,13 +89,8 @@ function TaskFormRound({ screen, suggestion = null, cancelHref = "/admin/work", 
   const [links, setLinks] = useState<WorkLink[]>([]);
   const [blockedBy, setBlockedBy] = useState<number[]>([]);
   const [check, setCheck] = useState<CheckDraft>(blankCheck());
-  const [measure, setMeasure] = useState<MeasureDraft>(() =>
-    suggestion?.measure
-      ? draftOfMeasureInput(suggestion.measure)
-      : suggestion?.proposed
-        ? { ...blankMeasure(), kind: suggestion.proposed.kind, first: { ...blankMeasure().first, kind: suggestion.proposed.kind === "done" ? "used" : suggestion.proposed.kind } }
-        : blankMeasure(),
-  );
+  // What Add to Work would keep: a kind-only suggestion starts with no kind picked, its kind marked Vizzy suggests.
+  const [measure, setMeasure] = useState<MeasureDraft>(() => draftOfMeasureInput(suggestion ? startingMeasureOf(suggestion) : null));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<{ ref: number; title: string; notice: string | null } | null>(null);
@@ -129,8 +135,16 @@ function TaskFormRound({ screen, suggestion = null, cancelHref = "/admin/work", 
     setBusy(false);
     if (!r.ok) return setError(workErrorText(r.data));
     setDone({ ref: r.data.task.task.ref, title: r.data.task.task.title, notice: r.data.notice ?? null });
-    router.refresh();
+    const next = afterAddSteps(suggestion !== null);
+    // null state: Next.js keeps its own and moves its router to the new address without a read.
+    if (next.address) window.history.replaceState(null, "", next.address);
+    if (next.refresh) router.refresh();
   }
+
+  const another = () => {
+    onAnother();
+    if (afterAddSteps(suggestion !== null).refreshOnAnother) router.refresh();
+  };
 
   if (done) {
     return (
@@ -145,7 +159,7 @@ function TaskFormRound({ screen, suggestion = null, cancelHref = "/admin/work", 
           <Link href="/admin/work" className="underline underline-offset-4">
             See it in Work
           </Link>
-          <button type="button" onClick={onAnother} className="underline underline-offset-4">
+          <button type="button" onClick={another} className="underline underline-offset-4">
             Add another
           </button>
         </span>

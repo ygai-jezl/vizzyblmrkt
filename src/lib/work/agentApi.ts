@@ -13,9 +13,9 @@ import { filtersOf, LIST_STATUSES } from "./inputs";
 import { logDay } from "./log";
 import type { WorkResult } from "./result";
 import { dayIn } from "./schedule";
-import { mapLimit, nowOf, seesTask, workScopeFor, type WorkDeps, type WorkScope } from "./scope";
+import { mapLimit, nowOf, seesTask, workNameOf, workScopeFor, type WorkDeps, type WorkScope } from "./scope";
 import { checkLineOf, countShownChecks, listTasks, planStates, taskPage } from "./service";
-import { ENTRY_STATE_LABEL } from "./screenWords";
+import { ENTRY_STATE_LABEL, regionsFullText } from "./screenWords";
 import { readStage, stageLabel } from "./stages";
 import { roundAfter, proposeWorkSuggestion } from "./suggestions";
 import { FROM_MAX, suggestedMeasureText, suggestionOf, WORK_SUGGEST_ACTION, type SuggestedTask } from "./suggestion";
@@ -212,7 +212,8 @@ export async function agentGetWork(ctx: TenantContext, query: GetWorkQuery, deps
   const today = dayIn(now, scope.session.timeZone);
   const multiBrand = multiBrandOf(scope);
   const base = {
-    organisation: scope.organisationName ?? scope.session.name,
+    // The brand view never names the organisation, as Plan and usage and the Work pages don't.
+    organisation: workNameOf(scope),
     view: scope.view === "organisation" ? "every task in the organisation" : `${scope.session.name}'s tasks only`,
     brands: scope.brands.map((b) => b.name),
     link: "/admin/work",
@@ -294,6 +295,7 @@ export async function agentGetWork(ctx: TenantContext, query: GetWorkQuery, deps
       suggestionsWaiting: suggestions.waiting,
       dismissedLately: suggestions.dismissed,
       ...(list.value.regionsDown.length ? { regionsDown: list.value.regionsDown.map((d) => d.name) } : {}),
+      ...(list.value.regionsFull.length ? { regionsFull: regionsFullText(list.value.regionsFull.map((d) => d.name)) } : {}),
     },
   };
 }
@@ -363,6 +365,10 @@ export function fromLine(o: { refs: readonly SignalRef[]; logRows: readonly Work
   return "from your chat with Vizzy";
 }
 
+/**
+ * The chat's card draws each stat as its value then its label ("3 emails"), and a value alone when
+ * the label is blank. Work's stats read that way: "5 Market stage", then a sentence on its own.
+ */
 function suggestionCard(a: AgentAction, s: SuggestedTask) {
   const win = suggestedMeasureText(s);
   return {
@@ -371,7 +377,7 @@ function suggestionCard(a: AgentAction, s: SuggestedTask) {
     title: DRAFT_COPY.cardSuggestionTitle,
     subtitle: s.title,
     url: REVIEW_HREF,
-    stats: [...(s.stage ? [{ label: "Stage", value: stageLabel(s.stage) }] : []), ...(win ? [{ label: "How we'll know", value: win }] : [])],
+    stats: [...(s.stage ? [{ label: "stage", value: stageLabel(s.stage) }] : []), ...(win ? [{ label: "", value: win }] : [])],
     note: DRAFT_COPY.cardSuggestionNote,
     cta: DRAFT_COPY.cardSuggestionCta,
   };
@@ -494,8 +500,8 @@ export async function agentDraftWorkLog(ctx: TenantContext, body: unknown, deps:
         title: DRAFT_COPY.cardLogTitle,
         subtitle: draft.workstream,
         url: logDraftHref(action.id),
-        stats: [{ label: "State", value: ENTRY_STATE_LABEL[draft.state] }],
-            note: DRAFT_COPY.cardLogNote,
+        stats: [{ label: "", value: ENTRY_STATE_LABEL[draft.state] }],
+        note: DRAFT_COPY.cardLogNote,
         cta: DRAFT_COPY.logSave,
       },
       message: r.value.outcome === "open" ? "That note is drafted already: the card opens it in the Log." : "Drafted a note for today's log. Nothing is in the Log until the person saves it from the card.",
@@ -543,10 +549,10 @@ export async function agentDraftWorkDecision(ctx: TenantContext, body: unknown, 
         kind: "work_decision_draft",
         id: action.id,
         title: DRAFT_COPY.cardDecisionTitle,
-        subtitle: draft.question,
+        subtitle: `#${draft.ref} ${draft.question}`,
         url: decisionDraftHref(draft.ref, action.id),
-        stats: [{ label: "Task", value: `#${draft.ref}` }, ...(pick ? [{ label: DRAFT_COPY.vizzyPick, value: pick }] : [])],
-            note: DRAFT_COPY.cardDecisionNote,
+        stats: [{ label: "", value: pick ? `${DRAFT_COPY.vizzyPick}: ${pick}` : DRAFT_COPY.noPick }],
+        note: DRAFT_COPY.cardDecisionNote,
         cta: DRAFT_COPY.cardDecisionCta,
       },
       pick: pickLine(draft),

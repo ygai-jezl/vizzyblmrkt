@@ -77,6 +77,7 @@ export const WORK_MESSAGES = {
   import_no_title: "Work couldn't find the column that holds each task. Pick it, then preview again.",
   import_too_big: "That's more than Work reads at once. Import up to 1,000 rows at a time.",
   regions_down: "Work couldn't read every region just now, so it can't be sure your refs are free. Try again in a minute.",
+  import_busy: "Task numbers changed while Work read this sheet: another import or a new task took some. Nothing was imported, so import it again.",
   day_bad: "That isn't a day Work can show.",
   suggestion_missing: "That suggestion isn't there any more, or it's for a brand you can't see.",
   suggestion_decided: "That suggestion was added or dismissed already. Refresh Review to see what's waiting.",
@@ -206,9 +207,13 @@ export function countedLine(i: CountedLineInput): string {
     return `${spent}${brands} The month totals include days before Done.`;
   }
   const event = c.productEvent.event;
+  const label = i.eventLabel ? lower(i.eventLabel) : null;
+  if (i.counted?.gone) {
+    const all = label ?? `${event} events`;
+    return `Work can't count ${all}${brand ? ` from ${brand} product` : ""} for this check: events are kept 90 days, and those from ${dayOf(i.counted.from, i.timeZone)} to ${dayOf(i.counted.to, i.timeZone)} are gone, ${READ_IS_RECORD}`;
+  }
   if (!i.counted || i.counted.n === undefined) return "Work counts it once the check is due.";
   const n = i.counted.n;
-  const label = i.eventLabel ? lower(i.eventLabel) : null;
   const events = label ? (n === 1 ? `event for ${label}` : label) : `${event} ${n === 1 ? "event" : "events"}`;
   if (i.counted.capped && i.counted.backTo) {
     return `Work counted at least ${countWords(n)} ${events}${brand ? ` from ${brand} product` : ""} in the newest 2,000 events, back to ${dayOf(i.counted.backTo, i.timeZone)}.`;

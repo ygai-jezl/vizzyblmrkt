@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { requireAdminContext } from "@/lib/auth/session";
 import { isWorkEnabled } from "@/lib/work/flags";
 import { listScreen, screenScope } from "@/lib/work/screens";
-import { listSubLine, memberBrandNote, regionsDownText, unreadableText, WORK_COPY } from "@/lib/work/screenWords";
+import { listSubLine, memberBrandNote, regionsDownText, regionsFullText, unreadableText, WORK_COPY } from "@/lib/work/screenWords";
 import { EmptyWork } from "@/components/admin/work/EmptyWork";
 import { ImportButton } from "@/components/admin/work/ImportDialog";
 import { QuickAdd } from "@/components/admin/work/QuickAdd";
@@ -41,6 +41,7 @@ export default async function WorkPage({ searchParams }: { searchParams: Promise
       <WorkTabs active="tasks" openCount={s.empty ? null : s.counts.open} />
       {note ? <WorkNote>{note}</WorkNote> : null}
       {s.regionsDown.length ? <WorkNote tone="warn">{regionsDownText(s.regionsDown)}</WorkNote> : null}
+      {s.regionsFull.length ? <WorkNote tone="warn">{regionsFullText(s.regionsFull)}</WorkNote> : null}
       {s.unreadable ? <WorkNote tone="warn">{unreadableText(s.unreadable)}</WorkNote> : null}
       {s.empty ? (
         <EmptyWork name={name} multiBrand={s.multiBrand} canImport={s.canImport} workVizzy={s.workVizzy} brands={s.brands} wholeBusiness={s.view === "organisation" && !s.oneBrand} />

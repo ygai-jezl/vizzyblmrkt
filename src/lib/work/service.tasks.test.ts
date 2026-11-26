@@ -141,6 +141,39 @@ describe("the one list", () => {
   });
 });
 
+describe("an organisation past 5,000 tasks in a region", () => {
+  it("says so on the list, naming the region, as after a brand with many tasks moved in", async () => {
+    const one = await added(PEOPLE.nina, { title: "Credits and pricing page", brandId: LUMEN_US });
+    const raw = w.us.raw(WORK_TASKS, one.id)!;
+    const B32 = "abcdefghijklmnopqrstuvwxyz234567";
+    const idOf = (i: number) => `wt_${Array.from({ length: 20 }, (_, k) => B32[Math.floor(i / 32 ** k) % 32]).join("")}`;
+    for (let i = 1; i <= 5000; i++) w.us.seed(WORK_TASKS, idOf(i), { ...raw, ref: i + 1, title: `Moved in ${i}` });
+    const l = await list(PEOPLE.nina);
+    expect(l.regionsFull).toEqual([{ region: "us", name: "United States" }]);
+    expect(l.regionsDown).toEqual([]);
+    // Below the limit, nothing is said.
+    const fresh = makeWorld("2026-11-20T09:00:00.000Z");
+    expect(value(await listTasks(await fresh.scope(PEOPLE.nina), filtersOf(new URLSearchParams("")), fresh.deps)).regionsFull).toEqual([]);
+  });
+});
+
+describe("a brand on its own joining an organisation (move-brand --to <orgId>)", () => {
+  it("takes the tasks it kept under org_<tenantId> along, each listed there under a new ref", async () => {
+    const van = await added(PEOPLE.hal, { title: "Van insurance" });
+    expect(van).toMatchObject({ organisationId: "org_ten_hearth", ref: 1 });
+    await added(PEOPLE.nina, { title: "Credits and pricing page", brandId: LUMEN_US });
+    // What move-brand does: where its Work is kept, read before the move; the move; then its Work.
+    const { attachBrandToOrganisation, brandWorkHome, getTenantById, repointBrandWork } = await import("@/lib/tenant");
+    const home = await brandWorkHome((await getTenantById(HEARTH, w.control))!, w.control);
+    expect(home).toBe("org_ten_hearth");
+    expect(await attachBrandToOrganisation(HEARTH, ORG, { actor: "script:ops" }, w.control)).toBe("moved");
+    expect(await repointBrandWork({ tenantId: HEARTH, region: "asia" }, home!, ORG, "script:ops", w.deps)).toEqual({ tasks: 1, rows: expect.any(Number) });
+    const mine = await list(PEOPLE.hal);
+    expect(mine.tasks.map((v) => [v.task.title, v.task.ref, v.task.organisationId])).toEqual([["Van insurance", 2, ORG]]);
+    expect((await list(PEOPLE.nina, `brand=${HEARTH}`)).tasks.map((v) => v.task.title)).toEqual(["Van insurance"]);
+  });
+});
+
 describe("ready to start (work_ready)", () => {
   it("lists the To do tasks with nothing in their way, Must have first, then stage, then ref, for the tasks the person sees", async () => {
     const pricing = await added(PEOPLE.nina, { title: "Pricing page", brandId: LUMEN_US, stage: "market" });

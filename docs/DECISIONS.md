@@ -38,7 +38,10 @@ departs from it in the places named below, and from its base on the owner's inst
    transaction before the task is written; a failed write leaves a gap. An import keeps its
    sheet's numbers and raises the counter, but refuses a sheet ref more than 5,000 past the refs
    Work has given, and any in the last 5,000, so one row can't use the refs up; running out is a
-   refusal, never an error. This is a third collection where the plan said two. It
+   refusal, never an error. An import with refs of its own claims the counter before it writes
+   (`rev` and an `importHold` with a 10 minute limit on the same document), refused when anything
+   took a number or claimed it since the import read it, so two tasks never share a ref. This is
+   a third collection where the plan said two. It
    holds no person data and is read only by id. It is never a field on the organisation, whose
    move rewrites it whole.
 3. **Who sees what, read live.** The Plan and usage rule: owners, and everyone in a one brand
@@ -133,7 +136,10 @@ departs from it in the places named below, and from its base on the owner's inst
 12. **Housekeeping runs whatever the switch says.** An empty organisation id taken up again erases
     its leftover Work and its ref counter; a move that empties an organisation never does.
     move-brand, Bring in and Move out repoint the moved brand's tasks and log rows first, giving
-    moved tasks new refs from the target's counter with a change row.
+    moved tasks new refs from the target's counter with a change row, and a brand on its own
+    brings what it kept under `org_<tenantId>`. The repoint carries on from where a stopped run
+    left off, and a move tries it again before warning. An organisation a move takes past 5,000
+    tasks keeps them all; the list names the region it can't show in full.
 13. **Registry lines.** Ontology types `work_task` and `work_log` (home organisation, personal
     team, search none), the rule lines `work_check_due` (none), `work_ready` and
     `work_measure_kind` (gaps, revisit 2027-05-01), `vizzy_chat` moved from none to a gap, and the
@@ -163,7 +169,7 @@ collections (`work_tasks` and `work_log` regional, `work_refs` in the control pl
 composite indexes, `work_tasks` (organisationId, open, closedAt desc), `work_log` (organisationId,
 at desc) and `product_events` (tenantId, connectionId, event, receivedAt), and 14 field
 exemptions, all three databases, READY before `WORK_ENABLED` goes on. No new service,
-scheduler job, secret, rule or dependency. The branch started from dev `43cff9bb`, not the plan's
+scheduler job, secret, rule or dependency. The branch started from dev `470a3213`, not the plan's
 `2aed3d3e`. N (getting to know you) merged first, so, as plan decision 8 says, Work's pull request
 adds `work: "always"` to N's `REVEAL_RULE`, and Work stays under Ask Vizzy when the sidebar runs
 Coming up. The help page is `/help/work`, and the pull request template

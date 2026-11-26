@@ -15,8 +15,10 @@ import {
   listWorkTasks,
   newWorkImportId,
   newWorkTaskId,
+  claimImportRefs,
+  peekImportRefs,
   peekWorkRefs,
-  raiseWorkRefs,
+  releaseImportRefs,
   saveDraftedWorkLog,
   TenantValidationError,
   type NewWorkTask,
@@ -181,6 +183,8 @@ interface Loaded {
   tasks: WorkTask[];
   unanswered: Region[];
   unreadable: number;
+  /** Regions holding more tasks than one read takes (5,000): some of theirs aren't here. */
+  full: Region[];
 }
 
 /**
@@ -198,7 +202,14 @@ export async function loadTasks(scope: WorkScope, opts: { brandId: string | null
   ]);
   const byId = new Map<string, WorkTask>();
   for (const t of [...open.rows, ...closed.rows, ...checks.rows]) if (seesTask(scope, t)) byId.set(t.id, t);
-  return { tasks: [...byId.values()], unanswered: [...new Set([...open.unanswered, ...closed.unanswered, ...checks.unanswered])], unreadable: open.unreadable + closed.unreadable + checks.unreadable };
+  // Only the newest closed tasks are read unless all are asked for, so a full closed read says nothing then.
+  const full = [...open.full, ...checks.full, ...(opts.allClosed ? closed.full : [])];
+  return {
+    tasks: [...byId.values()],
+    unanswered: [...new Set([...open.unanswered, ...closed.unanswered, ...checks.unanswered])],
+    unreadable: open.unreadable + closed.unreadable + checks.unreadable,
+    full: [...new Set(full)],
+  };
 }
 
 /** Tasks by id, from those read and then one by one (up to LOOKUPS): null when gone, absent when unread. */
@@ -303,6 +314,8 @@ export interface WorkList {
   counts: { open: number; mustHave: number; due: number };
   /** The regions whose tasks couldn't be read: their tasks are hidden, and the list says so. */
   regionsDown: RegionDown[];
+  /** The regions holding more tasks than one read takes: some are missing, and the list says so. */
+  regionsFull: RegionDown[];
   unreadable: number;
 }
 
@@ -338,6 +351,7 @@ export async function listTasks(scope: WorkScope, filters: WorkFilters, deps: Wo
     tasks: shown,
     counts: { open: views.filter((v) => onOpenList(v.task, now)).length, mustHave: views.filter((v) => onOpenList(v.task, now) && v.task.mustHave).length, due: views.filter((v) => v.due).length },
     regionsDown: downOf(loaded.unanswered),
+    regionsFull: downOf(loaded.full),
     unreadable: loaded.unreadable,
   });
 }
@@ -997,6 +1011,9 @@ async function readImport(scope: WorkScope, body: ImportBody, deps: WorkDeps) {
   const read = readSheet(sheet, columns);
   const fallback = placeForNew(scope, body.brandId);
   if ("error" in fallback) return fallback;
+  // The counter first, then the tasks: an import that claims it (importTasks) is refused if anything
+  // took a number or claimed it since, so the tasks read here are the ones its refs are checked against.
+  const refs = await peekImportRefs(scope.organisationId, deps.controlDb, nowOf(deps));
   // Refs are per organisation: every task's, in every region, whatever the person sees.
   const [open, closed] = await Promise.all([
     listWorkTasks(scope.organisationId, { open: true }, deps),
@@ -1026,7 +1043,7 @@ async function readImport(scope: WorkScope, body: ImportBody, deps: WorkDeps) {
   }
   // A sheet's ref may run at most 5,000 past the refs Work has given, and never into the last
   // 5,000, so one row (ID 999999) can't use up the organisation's refs.
-  const peek = await peekWorkRefs(scope.organisationId, deps.controlDb);
+  const peek = refs.next;
   const ceiling = Math.min(MAX_WORK_REF - WORK_LIMITS.tasks, Math.max(peek - 1, ...all.map((t) => t.ref)) + WORK_LIMITS.tasks);
   const kept = rows.filter((r) => {
     if (r.ref === null || r.ref <= ceiling) return true;
@@ -1036,7 +1053,7 @@ async function readImport(scope: WorkScope, body: ImportBody, deps: WorkDeps) {
   refused.sort((a, b) => a.row - b.row);
   const highest = Math.max(0, ...kept.map((r) => r.ref ?? 0));
   const next = Math.max(peek, highest + 1);
-  return { ok: true as const, columns, rows: kept, refused, unknownStatuses: read.unknownStatuses, taken, highest, next, unanswered };
+  return { ok: true as const, columns, rows: kept, refused, unknownStatuses: read.unknownStatuses, taken, highest, next, unanswered, refs };
 }
 
 /** The import dialog's preview: what each column fills, the first 20 rows, and what would be refused. */
@@ -1059,7 +1076,9 @@ export async function previewImport(scope: WorkScope, body: ImportBody, deps: Wo
 /**
  * Import a Backlog tab (admins and owners), up to 1,000 rows: each row a task whose origin is the
  * import and its row, its sheet ref kept (new refs start after the highest), a status Work doesn't
- * know as To do, and a Check column as a check at 08:00 brand time or on another task.
+ * know as To do, and a Check column as a check at 08:00 brand time or on another task. A sheet with
+ * refs of its own claims the counter before writing and lets go after (claimImportRefs), so two
+ * imports, or an import and a quick add, never give two tasks one ref.
  */
 export async function importTasks(scope: WorkScope, body: ImportBody, deps: WorkDeps = {}): Promise<WorkResult<ImportDone>> {
   if (!scope.canImport) return refuse("forbidden_import");
@@ -1071,7 +1090,27 @@ export async function importTasks(scope: WorkScope, body: ImportBody, deps: Work
   if (count + r.rows.length > WORK_LIMITS.tasks) return refuse("tasks_full");
   const importId = newWorkImportId();
   const file = importFileName(body.file);
-  if (r.highest > 0) await raiseWorkRefs(scope.organisationId, r.highest, deps.controlDb, now);
+  const ownRefs = r.rows.some((x) => x.ref !== null);
+  if (ownRefs) {
+    if (r.refs.held) return refuse("import_busy");
+    const claim = await claimImportRefs(scope.organisationId, { peek: r.refs, atLeast: r.highest, importId }, deps.controlDb, now);
+    if (claim !== "claimed") return refuse("import_busy");
+  }
+  try {
+    return await writeImport(scope, r, { importId, file, now }, deps);
+  } finally {
+    if (ownRefs) await releaseImportRefs(scope.organisationId, importId, deps.controlDb, now).catch((err) => console.warn("[work] letting go of the refs after an import failed:", err instanceof Error ? err.message.slice(0, 200) : "unknown"));
+  }
+}
+
+/** The import's writes, once its refs are its own: new refs for rows with none, then a task per row. */
+async function writeImport(
+  scope: WorkScope,
+  r: Extract<Awaited<ReturnType<typeof readImport>>, { ok: true }>,
+  o: { importId: string; file: string | null; now: Date },
+  deps: WorkDeps,
+): Promise<WorkResult<ImportDone>> {
+  const { importId, file, now } = o;
   const fresh = r.rows.filter((x) => x.ref === null).length;
   const first = fresh ? await takeRefs(scope, fresh, deps, now) : 0;
   if (first === null) return refuse("refs_full");

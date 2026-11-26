@@ -64,6 +64,7 @@ const STATUS: Record<WorkRefusal, WorkStatusCode> = {
   import_no_title: 400,
   import_too_big: 400,
   regions_down: 409,
+  import_busy: 409,
   day_bad: 400,
   suggestion_missing: 404,
   suggestion_decided: 409,

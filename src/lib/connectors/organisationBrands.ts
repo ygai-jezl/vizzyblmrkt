@@ -246,17 +246,26 @@ export function moveRefused<T>(check: { why: BrandMoveRefusal; brand?: Tenant },
   return refuse(403, check.why, moveRefusalWords(check.brand?.tenantName ?? "this brand", check.why, move));
 }
 
+/** How many times a move tries to take the brand's Work along: each try picks up where the last stopped. */
+const WORK_MOVE_TRIES = 3;
+
 /**
  * After a brand left an organisation: take its Work tasks to the one it joined (first, before
  * anything that could clear the one it left), end its parts from the one it left, and disconnect
- * that one's connections when it is left with no brands.
+ * that one's connections when it is left with no brands. Taking the Work along is tried again
+ * when it stops partway, since each run carries on from what is left (repointBrandWork).
  */
 async function afterLeaving(brand: Tenant, fromOrganisationId: string, toOrganisationId: string, by: string, deps: OrganisationBrandsDeps): Promise<{ ended: number; disconnected: number }> {
   const out = { ended: 0, disconnected: 0 };
-  try {
-    await repointBrandWork({ tenantId: brand.id, region: brand.region }, fromOrganisationId, toOrganisationId, by, workStoresOf(deps));
-  } catch (err) {
-    warn(`moving ${brand.id}'s Work tasks from ${fromOrganisationId} to ${toOrganisationId} failed; they stay with ${fromOrganisationId}`, err);
+  for (let attempt = 1; attempt <= WORK_MOVE_TRIES; attempt++) {
+    try {
+      await repointBrandWork({ tenantId: brand.id, region: brand.region }, fromOrganisationId, toOrganisationId, by, workStoresOf(deps));
+      break;
+    } catch (err) {
+      if (attempt === WORK_MOVE_TRIES) {
+        warn(`moving ${brand.id}'s Work from ${fromOrganisationId} to ${toOrganisationId} stopped partway ${WORK_MOVE_TRIES} times; what didn't move is still under ${fromOrganisationId}, and repointBrandWork picks it up when run again`, err);
+      }
+    }
   }
   try {
     out.ended = await endBrandParts({ tenantId: brand.id, region: brand.region }, { fromOrganisationId, by }, deps);

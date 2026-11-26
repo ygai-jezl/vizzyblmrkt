@@ -11,6 +11,7 @@ import { PLAN_STATE_LABEL } from "@/lib/work/words";
 import { DRAFT_COPY } from "@/lib/work/draft";
 import type { DraftedDecision } from "@/lib/work/screens";
 import { workCall, workErrorText } from "./api";
+import { useFocusSwap } from "./useFocusSwap";
 
 type DecisionRow = WorkLogRowOf<"decision">;
 
@@ -92,6 +93,8 @@ export function Decisions({
 }) {
   const [adding, setAdding] = useState(false);
   const [changing, setChanging] = useState<string | null>(null);
+  // Record a decision opens its form in place of the button: focus moves to the question, and back on Cancel.
+  const focus = useFocusSwap(adding);
   const replacedIds = new Set(decisions.flatMap((d) => (d.decision.replaces ? [d.decision.replaces] : [])));
   const views = [...decisions].reverse().map((d) => decisionView(d, { me, names, timeZone, today, typedLinks, replacedIds }));
   return (
@@ -100,7 +103,11 @@ export function Decisions({
         <h2 id="wk-dec-h" className="text-sm font-semibold">
           Decisions
         </h2>
-        {!adding && decisions.length < WORK_LIMITS.decisions ? <Button onClick={() => setAdding(true)}>Record a decision</Button> : null}
+        {!adding && decisions.length < WORK_LIMITS.decisions ? (
+          <span ref={focus.opener}>
+            <Button onClick={() => setAdding(true)}>Record a decision</Button>
+          </span>
+        ) : null}
       </div>
       {drafted && "gone" in drafted ? (
         <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
@@ -109,7 +116,11 @@ export function Decisions({
       ) : drafted ? (
         <DraftedDecisionBox taskRef={taskRef} draft={drafted} />
       ) : null}
-      {adding ? <DecisionForm taskRef={taskRef} onClose={() => setAdding(false)} /> : null}
+      {adding ? (
+        <div ref={focus.form}>
+          <DecisionForm taskRef={taskRef} onClose={() => setAdding(false)} />
+        </div>
+      ) : null}
       {views.length ? (
         <ol aria-label="Decisions, newest first" className="space-y-3">
           {views.map((v) => (
@@ -150,15 +161,7 @@ export function Decisions({
                   <strong>{v.choice.text}</strong> {v.choice.why ? `Why: ${v.choice.why}` : ""}
                 </p>
               ) : null}
-              {!v.isPlan && !v.replaced ? (
-                changing === v.id ? (
-                  <ChangePick taskRef={taskRef} view={v} onClose={() => setChanging(null)} />
-                ) : (
-                  <button type="button" onClick={() => setChanging(v.id)} className="text-xs text-neutral-500 underline underline-offset-4">
-                    Change the pick
-                  </button>
-                )
-              ) : null}
+              {!v.isPlan && !v.replaced ? <ChangePickToggle taskRef={taskRef} view={v} open={changing === v.id} onOpen={() => setChanging(v.id)} onClose={() => setChanging(null)} /> : null}
             </li>
           ))}
         </ol>
@@ -238,6 +241,20 @@ export function DecisionForm({ taskRef, onClose }: { taskRef: number; onClose: (
         <Button onClick={onClose}>Cancel</Button>
       </div>
     </div>
+  );
+}
+
+/** Change the pick, and the form it opens in its place: focus moves to the options, and back on Cancel. */
+function ChangePickToggle({ taskRef, view, open, onOpen, onClose }: { taskRef: number; view: DecisionView; open: boolean; onOpen: () => void; onClose: () => void }) {
+  const focus = useFocusSwap(open);
+  return open ? (
+    <div ref={focus.form}>
+      <ChangePick taskRef={taskRef} view={view} onClose={onClose} />
+    </div>
+  ) : (
+    <button ref={focus.opener} type="button" onClick={onOpen} className="text-xs text-neutral-500 underline underline-offset-4">
+      Change the pick
+    </button>
   );
 }
 

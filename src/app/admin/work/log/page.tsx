@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { requireAdminContext } from "@/lib/auth/session";
 import { isWorkEnabled } from "@/lib/work/flags";
 import { logScreen, screenScope } from "@/lib/work/screens";
+import { workNameOf } from "@/lib/work/scope";
 import { logSubLine } from "@/lib/work/screenWords";
 import { WorkLog } from "@/components/admin/work/WorkLog";
 import { WorkHeader, WorkNote, WorkTabs, WorkUnavailable } from "@/components/admin/work/WorkTabs";
@@ -22,7 +23,7 @@ export default async function WorkLogPage({ searchParams }: { searchParams: Prom
   const sp = await searchParams;
   const day = typeof sp.day === "string" ? sp.day : null;
   const r = await logScreen(gate.scope, day, {}, { draft: typeof sp.draft === "string" ? sp.draft : null });
-  const name = gate.scope.view === "brand" ? gate.scope.session.name : (gate.scope.organisationName ?? gate.scope.session.name);
+  const name = workNameOf(gate.scope);
   return (
     <div className="mx-auto max-w-6xl space-y-5">
       <WorkHeader sub={logSubLine(name)} />

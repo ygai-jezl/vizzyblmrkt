@@ -255,10 +255,21 @@ export function regionsDownText(names: readonly string[]): string {
   return `Work couldn't read the tasks kept in ${list} just now, so they're missing here. Try again in a minute.`;
 }
 
+/** The regions holding more tasks than Work reads at once, as after a brand with many tasks moved in. */
+export function regionsFullText(names: readonly string[]): string {
+  const list = names.length < 2 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return `Work reads up to 5,000 tasks in each region, and ${list} holds more, so some are missing here. Delete done or dropped tasks you no longer need.`;
+}
+
 /** The Log's line when a region didn't answer. */
 export function logRegionsDownText(names: readonly string[]): string {
   const list = names.length < 2 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
   return `Work couldn't read ${list} just now, so some of the day is missing. Try again in a minute.`;
+}
+
+/** What Today says after a check on it is answered, once the check has left the list: "#12: It asks again on 3 Dec at 08:00." */
+export function checkSaidLine(ref: number, notice: string): string {
+  return `#${ref}: ${notice}`;
 }
 
 /** A due check that waited for another task. */

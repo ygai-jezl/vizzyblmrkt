@@ -254,17 +254,50 @@ describe("what a due measure's check counts", () => {
 
   it("counts back only as far as events are kept: a 90 day look moved on by Too soon to tell says where the count starts", async () => {
     const us = new FakeFirestore();
-    // Events from the week after Done are past the 90 days kept by the recount, so they aren't read.
+    // Events from the week after Done are past the 90 days kept when the count runs, so they aren't read.
     seedEvents(us, 6, "2026-11-22T00:00:00.000Z");
     seedEvents(us, 4, "2027-01-10T00:00:00.000Z");
     const closedAt = "2026-11-20T15:00:00.000Z";
     const long: Measure = { ...used, look: { days: 90 } };
     const moved: WorkCheck = { ...check, at: "2027-02-25T13:00:00.000Z", setAt: "2027-02-18T13:00:00.000Z" };
     const c = await countForCheck(aStoredTask({ status: "done", closedAt, measure: long, check: moved, hasCheck: true }), lumen, { regionDb: () => us }, new Date("2027-02-26T00:00:00.000Z"));
-    expect(c).toEqual({ n: 4, backTo: "2026-11-27T13:00:00.000Z", from: closedAt, to: "2027-02-25T13:00:00.000Z", at: "2027-02-26T00:00:00.000Z" });
+    // 90 days before the count ran, not before the check's time.
+    expect(c).toEqual({ n: 4, backTo: "2026-11-28T00:00:00.000Z", from: closedAt, to: "2027-02-25T13:00:00.000Z", at: "2027-02-26T00:00:00.000Z" });
     expect(countedLine({ part: long, counted: c, brandName: "Lumen Notes", timeZone: "UTC" })).toBe(
-      "Work counted 4 note_from_template events from Lumen Notes' product back to 27 Nov, as far back as events are kept.",
+      "Work counted 4 note_from_template events from Lumen Notes' product back to 28 Nov, as far back as events are kept.",
     );
+  });
+
+  it("first counted long after the check fell due, counts only what is still kept, and says where it starts", async () => {
+    const us = new FakeFirestore();
+    // A 30 day look from Done on 20 Nov, due 20 Dec, first shown on 28 Feb: the events of 22 Nov
+    // went on 20 Feb, so only those of 10 Dec are still there to read.
+    seedEvents(us, 4, "2026-12-10T00:00:00.000Z");
+    const closedAt = "2026-11-20T10:00:00.000Z";
+    const month: Measure = { ...used, look: { days: 30 } };
+    const due: WorkCheck = { ...check, at: "2026-12-20T08:00:00.000Z" };
+    const now = new Date("2027-02-28T00:00:00.000Z");
+    const c = await countForCheck(aStoredTask({ status: "done", closedAt, measure: month, check: due, hasCheck: true }), lumen, { regionDb: () => us }, now);
+    expect(c).toEqual({ n: 4, backTo: "2026-11-30T00:00:00.000Z", from: closedAt, to: "2026-12-20T08:00:00.000Z", at: now.toISOString() });
+    const line = countedLine({ part: month, counted: c, brandName: "Lumen Notes", timeZone: "UTC" });
+    expect(line).toBe("Work counted 4 note_from_template events from Lumen Notes' product back to 30 Nov, as far back as events are kept.");
+    expect(line).not.toContain("since");
+  });
+
+  it("first counted after every event of its time is gone, says so instead of a number", async () => {
+    const us = new FakeFirestore();
+    const closedAt = "2026-11-20T10:00:00.000Z";
+    const due: WorkCheck = { ...check, at: "2026-12-04T08:00:00.000Z" };
+    const now = new Date("2027-03-10T00:00:00.000Z");
+    const ops: string[] = [];
+    const c = await countForCheck(aStoredTask({ status: "done", closedAt, measure: used, check: due, hasCheck: true }), lumen, { regionDb: () => shapeRecordingFirestore(us, ops) }, now);
+    expect(c).toEqual({ gone: true, from: closedAt, to: "2026-12-04T08:00:00.000Z", at: now.toISOString() });
+    // Nothing is read: there is nothing left to read.
+    expect(ops).toEqual([]);
+    expect(countedLine({ part: used, counted: c, brandName: "Lumen Notes", timeZone: "UTC" })).toBe(
+      "Work can't count note_from_template events from Lumen Notes' product for this check: events are kept 90 days, and those from 20 Nov to 4 Dec are gone, so your read is the record.",
+    );
+    expect(countedLine({ part: used, counted: c, brandName: "Lumen Notes", timeZone: "UTC", eventLabel: "Note from a template" })).toContain("Work can't count note from a template from Lumen Notes' product");
   });
 
   it("counts a purpose over its month bounds", async () => {

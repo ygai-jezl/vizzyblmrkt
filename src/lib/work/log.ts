@@ -31,7 +31,7 @@ export interface LogDayView extends LogDay {
   /** Today only: the checks due now. */
   checks: WorkTaskView[];
   regionsDown: RegionDown[];
-  /** The days read held more rows than one read takes, so the oldest in flight may be missing. */
+  /** A region held more rows in the days read than one read takes there, so the oldest in flight may be missing. */
   capped: boolean;
 }
 
@@ -109,7 +109,8 @@ export async function logDay(scope: WorkScope, day: string | null, deps: WorkDep
     planTitles,
     checks: checks.tasks,
     regionsDown: [...new Set([...down, ...checks.regionsDown.map((d) => d.region)])].map((r) => ({ region: r, name: REGION_CONFIGS[r].displayName })),
-    capped: read.rows.length >= LOG_ROWS,
+    // Each region's read stops at LOG_ROWS on its own: rows from several regions can add up past it with none cut.
+    capped: read.full.length > 0,
   });
 }
 

@@ -195,8 +195,10 @@ export async function purposeCount(purpose: string, months: readonly string[], d
 /**
  * What a due measure's check counted, to keep on it, or null when the measure has no number Work
  * can count (or the meter is off). From closedAt (or when the check was set) to the check's time,
- * or now when earlier. A product event's count reaches back at most the 90 days events are kept:
- * `backTo` says where it starts when that is after `from`.
+ * or now when earlier. A product event's count reads only the events still kept when it runs (each
+ * goes 90 days after it arrives), and it runs when the check first shows, which may be well after
+ * it fell due: `backTo` says where it starts when that is after `from`, and `gone` says none of the
+ * time is left to count.
  */
 export async function countForCheck(task: WorkTask, brand: WorkBrand | undefined, deps: WorkDeps, now: Date): Promise<Counted | null> {
   const check = task.check;
@@ -208,9 +210,12 @@ export async function countForCheck(task: WorkTask, brand: WorkBrand | undefined
   const c = part.counts;
   if ("productEvent" in c) {
     if (!brand) return null;
-    // Events are kept for 90 days: a check moved on past that (Too soon to tell, Look again)
-    // counts back only as far as they are kept, and says so (backTo), never "since" Done.
-    const kept = new Date(Date.parse(to) - EVENT_TTL_MS).toISOString();
+    // Each event goes 90 days after it arrives, counted from now, not from the check's time: a
+    // check first shown late, or moved on by Too soon to tell or Look again, counts back only as
+    // far as events are still kept and says so (backTo), never "since" Done. With none of the time
+    // left, it says the events are gone instead of a number.
+    const kept = new Date(now.getTime() - EVENT_TTL_MS).toISOString();
+    if (kept >= to) return { gone: true, from, to, at };
     const readFrom = from < kept ? kept : from;
     const r = await productEventCount(
       { tenantId: brand.id, region: brand.region, source: "system" },

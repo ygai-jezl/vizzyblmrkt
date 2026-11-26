@@ -25,12 +25,29 @@ export function checkButtons(byMeasure: boolean, busy: string | null): Array<{ k
   ];
 }
 
+/** What a check's answer says, or "Checked." when Work set nothing next. */
+export const checkNoticeOf = (notice: string | null | undefined): string => notice ?? "Checked.";
+
 /**
  * A check's buttons: on a measure's check the read (Better, Same, Worse, Too soon to tell), else
  * Mark checked and Look again tomorrow. Too soon to tell asks again 7 days on; the person can pick
- * another day after. The answer's notice says what Work set next.
+ * another day after. The answer's notice says what Work set next. The page reads itself again
+ * after an answer, and an answered check is no longer due, so these buttons go: a page passes
+ * `onSaid` to keep the notice somewhere that stays.
  */
-export function CheckActions({ taskRef, byMeasure, via, compact = false }: { taskRef: number; byMeasure: boolean; via: "work_page" | "today"; compact?: boolean }) {
+export function CheckActions({
+  taskRef,
+  byMeasure,
+  via,
+  compact = false,
+  onSaid,
+}: {
+  taskRef: number;
+  byMeasure: boolean;
+  via: "work_page" | "today";
+  compact?: boolean;
+  onSaid?: (notice: string) => void;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [said, setSaid] = useState<string | null>(null);
@@ -42,7 +59,9 @@ export function CheckActions({ taskRef, byMeasure, via, compact = false }: { tas
     const r = await workCall<{ notice: string | null }>("/checks", "POST", { ref: taskRef, ...body, via });
     setBusy(null);
     if (!r.ok) return setError(workErrorText(r.data));
-    setSaid(r.data.notice ?? "Checked.");
+    const notice = checkNoticeOf(r.data.notice);
+    if (onSaid) onSaid(notice);
+    else setSaid(notice);
     router.refresh();
   }
 

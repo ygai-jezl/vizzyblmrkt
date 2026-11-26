@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Clock, Lightbulb, Play, Sparkles } from "lucide-react";
 import { workCall, workErrorText } from "@/components/admin/work/api";
+import { useFocusSwap } from "@/components/admin/work/useFocusSwap";
 import type { ReviewItem } from "@/lib/review/summary";
 import { checkDoneLine, READ_LABEL, READ_ORDER, startedLine, WORK_REVIEW_COPY as C, type CheckTap, type WorkReviewPayload } from "@/lib/work/reviewCards";
 import { addedToWorkLine, DECLINE_WHY_CHOICES, dismissedLine } from "@/lib/work/suggestion";
@@ -241,6 +242,8 @@ export function WorkSuggestionRowView({
   const s = item.work;
   const buttons = suggestionButtons(busy);
   const whyId = `wk-why-${s.actionId}`;
+  // Dismiss opens its reasons in place of the buttons: focus moves to the first reason, and back to Dismiss on Cancel.
+  const focus = useFocusSwap(asking);
   return (
     <li className={ROW}>
       <span className={ICON} aria-hidden>
@@ -275,7 +278,7 @@ export function WorkSuggestionRowView({
           </p>
         ) : null}
         {asking ? (
-          <div role="group" aria-labelledby={whyId} className="flex flex-wrap items-center gap-1.5 pt-1">
+          <div ref={focus.form} role="group" aria-labelledby={whyId} className="flex flex-wrap items-center gap-1.5 pt-1">
             <span id={whyId} className="text-xs font-medium">
               {C.whyDismiss}
             </span>
@@ -295,7 +298,7 @@ export function WorkSuggestionRowView({
         <ErrorLine error={error} />
       </div>
       {asking ? null : (
-        <span className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+        <span ref={focus.opener} className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
           <button type="button" disabled={buttons.dismiss.disabled} onClick={onDismiss} className={GHOST}>
             {buttons.dismiss.label}
           </button>

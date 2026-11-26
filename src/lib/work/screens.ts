@@ -13,7 +13,7 @@ import { meaningChoices, typedLinkWords } from "./form";
 import { dayIn, partOf } from "./schedule";
 import { countsProductEvent, eventLabelOf, eventLabelsFor } from "./counted";
 import { brandChoices, checkLineOf, countShownChecks, listTasks, loadTasks, taskPage, type WorkTaskPage } from "./service";
-import { brandForTask, brandIn, mapLimit, nowOf, workScopeFor, zoneForTask, type WorkBrand, type WorkDeps, type WorkScope } from "./scope";
+import { brandForTask, brandIn, mapLimit, nowOf, workNameOf, workScopeFor, zoneForTask, type WorkBrand, type WorkDeps, type WorkScope } from "./scope";
 import { partLine, SUGGESTED_FIELD_LABEL, WORK_COPY } from "./screenWords";
 import { getAgentAction } from "@/lib/ontology/agentActions";
 import { stageLabel } from "./stages";
@@ -47,7 +47,7 @@ export async function screenScope(ctx: TenantContext, deps: WorkDeps = {}): Prom
 
 /** What every Work screen's header knows. */
 export interface WorkChrome {
-  /** The organisation's name, or the brand's when it is on its own. */
+  /** The organisation's name, or the brand's when it is on its own or in the brand view. */
   name: string;
   view: WorkScope["view"];
   owner: boolean;
@@ -68,7 +68,8 @@ export interface WorkChrome {
 
 function chromeOf(scope: WorkScope): WorkChrome {
   return {
-    name: scope.organisationName ?? scope.session.name,
+    // Handed whole to client components: the brand view never carries the organisation's name.
+    name: workNameOf(scope),
     view: scope.view,
     owner: scope.owner,
     oneBrand: scope.oneBrand,
@@ -116,6 +117,8 @@ export interface ListScreen extends WorkChrome {
   rows: WorkRow[];
   counts: { open: number; mustHave: number; due: number };
   regionsDown: string[];
+  /** Regions holding more tasks than Work reads at once (5,000 in each): some are missing here. */
+  regionsFull: string[];
   unreadable: number;
   /** No task at all yet: the first visit. */
   empty: boolean;
@@ -147,6 +150,7 @@ export async function listScreen(scope: WorkScope, params: URLSearchParams, deps
     rows: list.tasks.map((v) => rowOf(v, { timeZone: zoneForTask(scope, v.task), now, ideaName: (b, i) => names[`${b}:${i}`], ideaWords: isIdeaWordsEnabled() })),
     counts: list.counts,
     regionsDown: list.regionsDown.map((d) => d.name),
+    regionsFull: list.regionsFull.map((d) => d.name),
     unreadable: list.unreadable,
     empty,
   };

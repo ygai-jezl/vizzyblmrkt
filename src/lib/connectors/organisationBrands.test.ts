@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { allocateWorkRefs, createWorkTask, forTenant, getOrganisationConnection } from "@/lib/tenant";
 import { aTask, aWrite } from "@/lib/work/testing/fixtures";
 import { timestampFirestore } from "@/lib/tenant/testing/timestampFirestore";
+import { flakyFirestore } from "@/lib/tenant/testing/flakyFirestore";
 import type { Region } from "@/lib/types/tenant";
 import { sealConnectorSecret } from "./vault";
 import { bringBrandIn, moveBrandOut, narrowerOf, organisationBrandsScreen } from "./organisationBrands";
@@ -147,6 +148,22 @@ describe("Bring in", () => {
     expect(w.eu.raw("work_tasks", cafeTask.task.id)).toMatchObject({ organisationId: ORG, ref: 5, region: "eu" });
     // Left behind with the organisation, which the move emptied: kept, never erased by the move.
     expect(w.eu.raw("work_tasks", cafeWhole.task.id)).toMatchObject({ organisationId: "org_ten_cafe", ref: 2 });
+  });
+
+  it("takes the brand's Work along when taking it stops partway once, carrying on from where it stopped", async () => {
+    const stores = { regionDb: w.regionDb, controlDb: w.us };
+    await allocateWorkRefs(ORG, 4, w.us);
+    const one = await createWorkTask(aTask({ organisationId: "org_ten_cafe", brandId: "ten_cafe", addedFrom: "ten_cafe", region: "eu", ref: 1 }), aWrite(), stores);
+    const two = await createWorkTask(aTask({ organisationId: "org_ten_cafe", brandId: "ten_cafe", addedFrom: "ten_cafe", region: "eu", ref: 2, title: "Second" }), aWrite(), stores);
+    // Europe refuses its second transaction once: the first task has moved, the second not yet.
+    const flakyEu = flakyFirestore(w.eu, { failOn: 2 });
+    const flaky = { controlDb: w.us, regionDb: (r: Region) => (r === "eu" ? flakyEu : w.regionDb(r)) };
+    expect(await bringBrandIn(owner, "ten_cafe", flaky)).toMatchObject({ ok: true });
+    expect([one, two].map((t) => w.eu.raw("work_tasks", t.task.id)?.organisationId)).toEqual([ORG, ORG]);
+    expect(new Set([one, two].map((t) => w.eu.raw("work_tasks", t.task.id)?.ref))).toEqual(new Set([5, 7]));
+    const left = (Object.values(w.eu.dump("work_log")) as Array<Record<string, unknown>>).filter((x) => x.taskId === one.task.id || x.taskId === two.task.id);
+    expect(left.length).toBeGreaterThan(0);
+    expect(left.every((x) => x.organisationId === ORG)).toBe(true);
   });
 
   it("refuses a narrower plan, with nothing moved", async () => {

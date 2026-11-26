@@ -25,14 +25,16 @@ import {
   newWorkLogId,
   newWorkTaskId,
   repointBrandWork,
+  brandWorkHome,
   WORK_LOG,
   WORK_TASKS,
   type NewWorkLogRow,
   type WorkStores,
 } from "./work";
-import { allocateWorkRefs, deleteWorkRefs, peekWorkRefs, raiseWorkRefs, WORK_REFS } from "./workRefs";
+import { allocateWorkRefs, claimImportRefs, deleteWorkRefs, IMPORT_HOLD_MS, peekImportRefs, peekWorkRefs, raiseWorkRefs, releaseImportRefs, WORK_REFS } from "./workRefs";
 import { proposeAgentAction } from "./agentActions";
 import { readsFirst } from "./testing/readsFirst";
+import { flakyFirestore } from "./testing/flakyFirestore";
 import type { TenantContext } from "./types";
 import type { Region } from "@/lib/types/tenant";
 import { aTask, aWrite, LUMEN_EU, LUMEN_US, NINA, ORG, OTHER_ORG, PERSON, SAM, T0, T1 } from "@/lib/work/testing/fixtures";
@@ -357,6 +359,31 @@ describe("refs", () => {
     await expect(allocateWorkRefs(ORG, 0, control)).rejects.toThrow(TenantValidationError);
   });
 
+  it("let one import claim the counter at a time, refusing a claim on a counter that moved since it was read", async () => {
+    const at = new Date(T1);
+    const peek = await peekImportRefs(ORG, control, at);
+    expect(peek).toEqual({ next: 1, rev: 0, held: false });
+    expect(await claimImportRefs(ORG, { peek, atLeast: 40, importId: "wi_aaaaaaaaaaaaaaaa" }, control, at)).toBe("claimed");
+    // Another import read the counter at the same time: refused while the first holds it.
+    expect(await claimImportRefs(ORG, { peek, atLeast: 40, importId: "wi_bbbbbbbbbbbbbbbb" }, control, at)).toBe("busy");
+    expect(await peekImportRefs(ORG, control, at)).toEqual({ next: 41, rev: 1, held: true });
+    // A quick add takes the next number meanwhile, and keeps the hold.
+    expect(await allocateWorkRefs(ORG, 1, control, at)).toBe(41);
+    expect(control.raw(WORK_REFS, ORG)).toMatchObject({ next: 42, rev: 1, importHold: { id: "wi_aaaaaaaaaaaaaaaa" } });
+    // Letting go: only the import holding it can.
+    await releaseImportRefs(ORG, "wi_bbbbbbbbbbbbbbbb", control, at);
+    expect((await peekImportRefs(ORG, control, at)).held).toBe(true);
+    await releaseImportRefs(ORG, "wi_aaaaaaaaaaaaaaaa", control, at);
+    expect(control.raw(WORK_REFS, ORG)).toEqual({ organisationId: ORG, next: 42, rev: 1, updatedAt: T1 });
+    // The second import's read is out of date now: refused, never claimed on old numbers.
+    expect(await claimImportRefs(ORG, { peek, atLeast: 40, importId: "wi_bbbbbbbbbbbbbbbb" }, control, at)).toBe("moved");
+    const fresh = await peekImportRefs(ORG, control, at);
+    expect(await claimImportRefs(ORG, { peek: fresh, atLeast: 10, importId: "wi_bbbbbbbbbbbbbbbb" }, control, at)).toBe("claimed");
+    expect(await peekWorkRefs(ORG, control)).toBe(42);
+    // A hold past its time holds nothing.
+    expect((await peekImportRefs(ORG, control, new Date(at.getTime() + IMPORT_HOLD_MS + 1))).held).toBe(false);
+  });
+
   it("gives two writers racing for one ref a ref each", async () => {
     let raced: number | undefined;
     control.onBeforeCommit = async () => {
@@ -472,6 +499,74 @@ describe("a brand moving to another organisation", () => {
     expect(rowsOf(us).filter((x) => x.taskId === mine.task.id).every((x) => x.organisationId === OTHER_ORG)).toBe(true);
     const theirs = await listWorkLog(OTHER_ORG, { from: "2026-11-01T00:00:00.000Z", to: "2026-12-01T00:00:00.000Z" }, stores);
     expect(theirs.rows.some((x) => x.taskId === secret.task.id)).toBe(false);
+  });
+
+  const flaky = (db: FakeFirestore, failOn: number) => flakyFirestore(db, { failOn });
+
+  async function twoTasksWithRows() {
+    const a = await createWorkTask(aTask({ ref: 7, title: "Lumen US task" }), aWrite(), stores);
+    const b = await createWorkTask(aTask({ ref: 8, title: "Another Lumen US task" }), aWrite(), stores);
+    // A row about each task filed under no brand, as before it was tagged: found only by its task.
+    for (const t of [a, b]) {
+      await appendWorkLog(
+        [
+          {
+            organisationId: ORG,
+            brandId: null,
+            region: "us",
+            day: "2026-11-20",
+            at: T0,
+            source: PERSON,
+            kind: "decision",
+            taskId: t.task.id,
+            decision: { question: "Which first?", options: [{ id: "a", label: "This" }, { id: "b", label: "That" }], recommended: null, chosen: { option: "a", by: NINA }, agreed: null, why: "", replaces: null, plan: null },
+          },
+        ],
+        stores,
+      );
+    }
+    return [a.task.id, b.task.id];
+  }
+  const everyRowWith = (ids: string[], org: string) => rowsOf(us).filter((x) => ids.includes(x.taskId as string)).every((x) => x.organisationId === org);
+
+  it("run again after it stopped between two tasks, moves the rest and every row of both", async () => {
+    const ids = await twoTasksWithRows();
+    // The second task's transaction is refused: the first task has moved, its rows not yet.
+    await expect(repointBrandWork({ tenantId: LUMEN_US, region: "us" }, ORG, OTHER_ORG, SAM, { ...stores, regionDb: by(eu, flaky(us, 2), asia) }, new Date(T1))).rejects.toThrow(/contention/);
+    expect(us.raw(WORK_TASKS, ids[0]!)).toMatchObject({ organisationId: OTHER_ORG });
+    expect(us.raw(WORK_TASKS, ids[1]!)).toMatchObject({ organisationId: ORG });
+    expect(await listTaskDecisions(OTHER_ORG, "us", ids[0]!, stores)).toEqual([]);
+
+    const again = await repointBrandWork({ tenantId: LUMEN_US, region: "us" }, ORG, OTHER_ORG, SAM, stores, new Date(T1));
+    expect(again.tasks).toBe(1);
+    expect(ids.map((id) => us.raw(WORK_TASKS, id)?.organisationId)).toEqual([OTHER_ORG, OTHER_ORG]);
+    expect(everyRowWith(ids, OTHER_ORG)).toBe(true);
+    for (const id of ids) expect(await listTaskDecisions(OTHER_ORG, "us", id, stores)).toHaveLength(1);
+    // Each task kept one ref there.
+    expect(new Set(ids.map((id) => us.raw(WORK_TASKS, id)?.ref)).size).toBe(2);
+  });
+
+  it("run again after every task moved but their rows didn't, finds the tasks where they went and moves their rows", async () => {
+    const ids = await twoTasksWithRows();
+    // Both task transactions pass; the rows' page is refused.
+    await expect(repointBrandWork({ tenantId: LUMEN_US, region: "us" }, ORG, OTHER_ORG, SAM, { ...stores, regionDb: by(eu, flaky(us, 3), asia) }, new Date(T1))).rejects.toThrow(/contention/);
+    expect(ids.map((id) => us.raw(WORK_TASKS, id)?.organisationId)).toEqual([OTHER_ORG, OTHER_ORG]);
+    expect(everyRowWith(ids, OTHER_ORG)).toBe(false);
+
+    // Nothing is left under the old organisation by brand, yet the rerun finds the rows by task.
+    const again = await repointBrandWork({ tenantId: LUMEN_US, region: "us" }, ORG, OTHER_ORG, SAM, stores, new Date(T1));
+    expect(again.tasks).toBe(0);
+    expect(again.rows).toBeGreaterThan(0);
+    expect(everyRowWith(ids, OTHER_ORG)).toBe(true);
+    // And a third run has nothing left to move.
+    expect(await repointBrandWork({ tenantId: LUMEN_US, region: "us" }, ORG, OTHER_ORG, SAM, stores, new Date(T1))).toEqual({ tasks: 0, rows: 0 });
+  });
+
+  it("knows where a brand on its own keeps its Work: org_<tenantId> while no organisation has that id", async () => {
+    expect(await brandWorkHome({ id: "ten_hearth", organisationId: null }, control)).toBe("org_ten_hearth");
+    expect(await brandWorkHome({ id: LUMEN_US, organisationId: ORG }, control)).toBe(ORG);
+    control.seed("organisations", "org_ten_hearth", { name: "Someone else", plan: "self_hosted", planSince: T0, brandIds: ["ten_other"], ownerIds: [], createdBy: NINA, createdAt: T0, updatedAt: T0 });
+    expect(await brandWorkHome({ id: "ten_hearth", organisationId: null }, control)).toBeNull();
   });
 
   it("does nothing, and takes no refs, for a brand with no tasks or a move to the same organisation", async () => {

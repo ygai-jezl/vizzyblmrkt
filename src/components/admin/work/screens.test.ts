@@ -5,7 +5,7 @@ import type { AddScreen } from "@/lib/work/screens";
 import type { WorkRow } from "@/lib/work/list";
 import type { ImportPreview } from "@/lib/work/service";
 import { blankMeasure, blankPart, typedLinkWords } from "@/lib/work/form";
-import { changeWords, noLinksText } from "@/lib/work/screenWords";
+import { changeWords, checkSaidLine, noLinksText, regionsFullText } from "@/lib/work/screenWords";
 import { suggestMeasureKind } from "@/lib/work/measureKind";
 import type { WorkLogRowOf } from "@/lib/work/types";
 
@@ -15,7 +15,8 @@ vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: unknown }) => createElement("a", { href, ...rest }, children as never),
 }));
 const { typedKinds, TypedLinksEditor } = await import("./TaskFields");
-const { checkButtons } = await import("./CheckActions");
+const { checkButtons, checkNoticeOf } = await import("./CheckActions");
+const { focusTarget } = await import("./useFocusSwap");
 const { decisionView } = await import("./Decisions");
 const { movedWords, decisionWords } = await import("./WorkLog");
 const { historyLine } = await import("./TaskPage");
@@ -107,6 +108,30 @@ describe("a check's buttons", () => {
       { key: "worse", label: "Worse", disabled: true },
       { key: "too_soon", label: "Saving…", disabled: true },
     ]);
+  });
+});
+
+describe("a check's answer", () => {
+  it("is kept where the page holds it, saying what Work set next, since the answered check leaves the page", () => {
+    expect(checkNoticeOf("It asks again on 3 Dec at 08:00.")).toBe("It asks again on 3 Dec at 08:00.");
+    expect(checkNoticeOf(null)).toBe("Checked.");
+    // On Today, with the task it was about.
+    expect(checkSaidLine(12, "It asks again on 3 Dec at 08:00.")).toBe("#12: It asks again on 3 Dec at 08:00.");
+  });
+});
+
+describe("a button that opens its own form", () => {
+  it("moves focus into the form when it opens, back to the button when it closes, and nowhere otherwise", () => {
+    expect(focusTarget(false, true)).toBe("form");
+    expect(focusTarget(true, false)).toBe("opener");
+    expect(focusTarget(false, false)).toBeNull();
+    expect(focusTarget(true, true)).toBeNull();
+  });
+});
+
+describe("a region holding more tasks than Work reads", () => {
+  it("is named on the list", () => {
+    expect(regionsFullText(["United States"])).toBe("Work reads up to 5,000 tasks in each region, and United States holds more, so some are missing here. Delete done or dropped tasks you no longer need.");
   });
 });
 

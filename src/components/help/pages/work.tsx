@@ -175,7 +175,8 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
       </UL>
       <P>
         If a region your tasks are kept in doesn&apos;t answer, the list says which one, and shows the rest. Try again in a
-        minute.
+        minute. Work reads up to 5,000 tasks in each region. A brand that joins with many tasks can take your organisation
+        past that: the list says which region holds more, and deleting done or dropped tasks brings them all back.
       </P>
 
       <H2 id="links">Connected to and other links</H2>
@@ -264,6 +265,10 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
           Work counts every event with that name in that time, however many the product sent. Only while the Firestore
           index that count needs isn&apos;t ready yet, as just after an update, does Work count in the newest 2,000 events
           of any kind instead and say &quot;at least&quot;, with the day they reach back to.
+        </li>
+        <li>
+          Work counts when the check first shows, and each event is kept 90 days after it arrives. Open a check long after its
+          day and Work counts only the events still kept, with the day they reach back to, or says they are gone.
         </li>
         <li>{CANT_COUNT}</li>
         <li>
@@ -530,6 +535,7 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
           [WORK_MESSAGES.replaces_other, "Change the pick on the decision itself, or record a new decision for the new question."],
           [WORK_MESSAGES.import_too_many, "Split the sheet and import each part. Refs carry on from the highest."],
           [WORK_MESSAGES.regions_down, "Nothing was imported. Try again in a minute."],
+          [WORK_MESSAGES.import_busy, "Import the sheet again. A row whose ref was taken meanwhile is left out, with why."],
           [WORK_MESSAGES.tasks_full, "Delete done or dropped tasks you no longer need, then add it again."],
           [WORK_MESSAGES.entries_full, "Log the rest tomorrow. Tasks and decisions still save."],
           [WORK_MESSAGES.changed, "Someone else changed the task meanwhile. Refresh the page and make your change again."],

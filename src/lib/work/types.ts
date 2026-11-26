@@ -336,7 +336,8 @@ export type WorkSource = z.infer<typeof WorkSourceSchema>;
  * What a measure's check counted, read once when the check first shows and kept on it: a count
  * (`n`), units a purpose spent, how many brands used it (or `hidden` below the cell size), and
  * `capped` with `backTo` when only the newest rows could be read. `backTo` alone: a product
- * event's count starts after `from`, where the events kept (90 days) begin.
+ * event's count starts after `from`, where the events still kept (90 days) began when it was
+ * counted. `gone`, with no `n`: none of the time from `from` to `to` was still kept by then.
  */
 export const CountedSchema = z.object({
   n: z.number().int().min(0).optional(),
@@ -345,6 +346,7 @@ export const CountedSchema = z.object({
   hidden: z.boolean().optional(),
   capped: z.boolean().optional(),
   backTo: Canonical.optional(),
+  gone: z.boolean().optional(),
   from: Canonical,
   to: Canonical,
   at: Canonical,

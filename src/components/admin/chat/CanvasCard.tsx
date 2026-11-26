@@ -8,7 +8,8 @@ import type { CanvasCardData } from "./cardData";
  * A draft an agent just saved on a canvas — shown under its chat message with
  * the headline numbers and an "Open canvas" link. Drafts only: nothing sends
  * until a human publishes from the canvas. A kind may word the note and the
- * link itself (an Email style suggestion: "Review and apply").
+ * link itself (an Email style suggestion: "Review and apply"). Each stat reads
+ * as its value then its label ("3 emails"), or its value alone with no label.
  */
 export function CanvasCard({ card }: { card: CanvasCardData }) {
   return (
@@ -20,7 +21,7 @@ export function CanvasCard({ card }: { card: CanvasCardData }) {
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold">{card.title}</div>
           <div className="text-xs text-neutral-500">
-            {[card.subtitle, ...card.stats.map((s) => `${s.value} ${s.label}`)].filter(Boolean).join(" · ")}
+            {[card.subtitle, ...card.stats.map((s) => (s.label ? `${s.value} ${s.label}` : `${s.value}`))].filter(Boolean).join(" · ")}
             {card.warnings > 0 ? (
               <span className="text-amber-600 dark:text-amber-400">
                 {" "}

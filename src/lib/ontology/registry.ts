@@ -1598,7 +1598,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
         residencyGap:
           "a whole business task is kept in the region of the brand it was added from, and its owners read it from a session in any of the organisation's brands, so its words reach a server in another region",
       }),
-      control("work_refs", WORK_REFS, "one counter per organisation, the next task number, read by id; no person data"),
+      control("work_refs", WORK_REFS, "one counter per organisation, the next task number and an import's hold while it writes, read by id; no person data"),
     ],
     links: [
       { to: "organisation", via: "organisationId", many: false },

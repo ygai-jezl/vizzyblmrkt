@@ -178,3 +178,12 @@ export function zoneForTask(scope: WorkScope, task: Pick<WorkTask, "brandId" | "
 export function regionName(region: Region): string {
   return REGION_CONFIGS[region].displayName;
 }
+
+/**
+ * The name Work's screens and get_work give the person: the organisation's in the organisation
+ * view, the session brand's in the brand view (Plan and usage's rule: a member who sees one brand
+ * of several never gets the organisation's name), and the brand's for a brand on its own.
+ */
+export function workNameOf(scope: Pick<WorkScope, "view" | "organisationName" | "session">): string {
+  return scope.view === "brand" ? scope.session.name : (scope.organisationName ?? scope.session.name);
+}

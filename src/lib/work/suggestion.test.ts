@@ -5,6 +5,7 @@ import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import type { AgentAction } from "@/lib/types/agentAction";
 import { checkDoneLine, measureCheckDetail, READ_LABEL, readyDetail, startedLine, WORK_REVIEW_COPY } from "./reviewCards";
 import { originParts, SUGGESTED_FIELD_LABEL } from "./screenWords";
+import { draftOfMeasureInput, measureInputOf } from "./form";
 import {
   addBodyOf,
   addedToWorkLine,
@@ -18,6 +19,7 @@ import {
   seesSuggestion,
   stageTag,
   suggestedMeasureText,
+  startingMeasureOf,
   SuggestedTaskSchema,
   suggestionOf,
   WORK_SUGGEST_ACTION,
@@ -106,6 +108,25 @@ describe("what the person edited", () => {
     expect(editedFields(lumen, { ...addBodyOf(lumen), measure: { kind: "runs_better", what: "errors", look: { days: 14 } } })).toEqual(["measure"]);
     expect(editedFields(fernhill, { ...addBodyOf(fernhill), brandId: "ten_fernhill", typedLinks: [] })).toEqual(["brandId", "typedLinks"]);
     expect(editedFields(lumen, { ...addBodyOf(lumen), measure: null })).toEqual(["measure", "measure.kind"]);
+  });
+
+  it("records an untouched Edit then add of a kind-only or Done-only suggestion as Add to Work does: nothing edited", () => {
+    const moves: SuggestedTask = { ...fernhill, measure: null, proposed: { kind: "moves", reason: "It sends an email to the waitlist." } };
+    const done: SuggestedTask = { ...fernhill, measure: null, proposed: { kind: "done", reason: "Sending it is the win." } };
+    for (const s of [moves, done, lumen, fernhill]) {
+      expect(editedFields(s, addBodyOf(s))).toEqual([]);
+      // What the add page sends from its first draft, untouched.
+      const sent = measureInputOf(draftOfMeasureInput(startingMeasureOf(s)));
+      expect(editedFields(s, { ...addBodyOf(s), measure: sent })).toEqual([]);
+    }
+    expect(startingMeasureOf(moves)).toBeNull();
+    expect(startingMeasureOf(done)).toEqual({ kind: "done" });
+    // Setting a measure of the kind Vizzy named is a measure edit, not a change of kind; another kind is both.
+    const set = { kind: "moves" as const, meaning: "conversions" as const, direction: "up" as const, look: { days: 14 }, then: null };
+    expect(editedFields(moves, { ...addBodyOf(moves), measure: set })).toEqual(["measure"]);
+    expect(editedFields(moves, { ...addBodyOf(moves), measure: { kind: "runs_better", what: "errors", look: { days: 7 } } })).toEqual(["measure", "measure.kind"]);
+    // Taking Done is the win off a Done-only suggestion changes both.
+    expect(editedFields(done, { ...addBodyOf(done), measure: null })).toEqual(["measure", "measure.kind"]);
   });
 
   it("compares measures by content", () => {

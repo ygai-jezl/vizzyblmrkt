@@ -3,6 +3,7 @@ import { isAlreadyExists } from "./firestore";
 import { TenantIsolationError, TenantValidationError } from "./errors";
 import { provisionedRegions, regionStore, type OrganisationStores } from "./organisationConnections";
 import { allocateWorkRefs, deleteWorkRefs } from "./workRefs";
+import { getOrganisation, organisationIdFor } from "./organisations";
 import { planAgentTransition, readAgentActionTx, stageAgentTransition, type TransitionError } from "./agentActions";
 import { retryOnceOnExists } from "./ontologyEvents";
 import type { CollectionLike, DocRefLike, FirestoreLike, QueryLike, TenantContext, TransactionLike } from "./types";
@@ -146,8 +147,15 @@ function shortOf(v: unknown): string | number | boolean | null | undefined {
   return undefined;
 }
 
+/**
+ * The tools whose rows stay out of a task's recent list (its History): Work keeping the count on
+ * a due measure's check is no change anyone made, as the Log leaves it out of Tasks that moved.
+ */
+const NOT_HISTORY = new Set(["work_count"]);
+
 function recentOf(row: WorkLogRow): WorkRecent | null {
   const who = row.source.who;
+  if (NOT_HISTORY.has(row.source.tool)) return null;
   if (row.kind === "change") {
     const before = row.field === "added" ? undefined : shortOf(row.before);
     const after = row.field === "added" ? undefined : shortOf(row.after);
@@ -493,11 +501,22 @@ export async function saveDraftedWorkLog(ctx: TenantContext, input: NewWorkLogRo
 
 // --- Reads -------------------------------------------------------------------------------------
 
-/** Rows read across regions: the regions that didn't answer, and how many stored rows didn't parse. */
+/**
+ * Rows read across regions: the regions that didn't answer, how many stored rows didn't parse, and
+ * the regions that gave as many rows as the read takes (`full`), so more may be kept there.
+ */
 export interface WorkRead<T> {
   rows: T[];
   unanswered: Region[];
   unreadable: number;
+  full: Region[];
+}
+
+/** What one region's read gave: its rows, how many didn't parse, and whether it reached the read's limit. */
+interface RegionRead<T> {
+  rows: T[];
+  unreadable: number;
+  full?: boolean;
 }
 
 /** Every page of an equality read in one region, in document id order. */
@@ -515,15 +534,16 @@ async function allPages(build: () => QueryLike, limit: number = WORK_LIMITS.task
   return out;
 }
 
-/** Read every provisioned region, naming the ones that didn't answer. */
-async function acrossRegions<T>(read: (region: Region) => Promise<{ rows: T[]; unreadable: number }>): Promise<WorkRead<T>> {
+/** Read every provisioned region, naming the ones that didn't answer and the ones that gave all a read takes. */
+async function acrossRegions<T>(read: (region: Region) => Promise<RegionRead<T>>): Promise<WorkRead<T>> {
   const regions = provisionedRegions();
   const settled = await Promise.allSettled(regions.map((r) => read(r)));
-  const out: WorkRead<T> = { rows: [], unanswered: [], unreadable: 0 };
+  const out: WorkRead<T> = { rows: [], unanswered: [], unreadable: 0, full: [] };
   settled.forEach((s, i) => {
     if (s.status === "fulfilled") {
       out.rows.push(...s.value.rows);
       out.unreadable += s.value.unreadable;
+      if (s.value.full) out.full.push(regions[i]!);
     } else {
       console.warn(`[work] reading ${regions[i]} failed:`, s.reason instanceof Error ? s.reason.message.slice(0, 200) : "unknown");
       out.unanswered.push(regions[i]!);
@@ -602,7 +622,8 @@ export async function findWorkTaskByRef(organisationId: string, ref: number, sto
 }
 
 /**
- * The organisation's tasks, open or not, in every region, with the regions that didn't answer.
+ * The organisation's tasks, open or not, in every region, with the regions that didn't answer and
+ * those that gave `limit` tasks (`full`: a brand moved in can take an organisation past 5,000).
  * - With no brand: (organisationId, open, closedAt desc), the list across brands, up to `limit`
  *   in each region, newest closed first.
  * - With a brand id, or null for whole business tasks: equality alone (organisationId, brandId,
@@ -613,32 +634,35 @@ export async function listWorkTasks(
   opts: { open: boolean; brandId?: string | null; limit?: number },
   stores: WorkStores = {},
 ): Promise<WorkRead<WorkTask>> {
-  if (!organisationId) return { rows: [], unanswered: [], unreadable: 0 };
+  if (!organisationId) return { rows: [], unanswered: [], unreadable: 0, full: [] };
   const limit = Math.min(Math.max(1, Math.floor(opts.limit ?? WORK_LIMITS.tasks)), WORK_LIMITS.tasks);
   return acrossRegions(async (region) => {
     const col = () => regionStore(region, stores).collection(WORK_TASKS).where(ORG_FIELD, "==", organisationId);
     if (opts.brandId === undefined) {
       const snap = await col().where("open", "==", opts.open).orderBy("closedAt", "desc").limit(limit).get();
-      return tasksOf(
-        organisationId,
-        snap.docs.map((d) => ({ id: d.id, data: d.data() })),
-      );
+      return {
+        ...tasksOf(
+          organisationId,
+          snap.docs.map((d) => ({ id: d.id, data: d.data() })),
+        ),
+        full: snap.docs.length >= limit,
+      };
     }
     const docs = await allPages(() => col().where("brandId", "==", opts.brandId).where("open", "==", opts.open), limit);
-    return tasksOf(organisationId, docs);
+    return { ...tasksOf(organisationId, docs), full: docs.length >= limit };
   });
 }
 
-/** The organisation's tasks with a check (equality on hasCheck, and on brandId when given); the caller decides which are due. */
+/** The organisation's tasks with a check (equality on hasCheck, and on brandId when given), up to 5,000 in each region; the caller decides which are due. */
 export async function listWorkChecks(organisationId: string, opts: { brandId?: string | null } = {}, stores: WorkStores = {}): Promise<WorkRead<WorkTask>> {
-  if (!organisationId) return { rows: [], unanswered: [], unreadable: 0 };
+  if (!organisationId) return { rows: [], unanswered: [], unreadable: 0, full: [] };
   return acrossRegions(async (region) => {
     const docs = await allPages(() => {
       let q: QueryLike = regionStore(region, stores).collection(WORK_TASKS).where(ORG_FIELD, "==", organisationId).where("hasCheck", "==", true);
       if (opts.brandId !== undefined) q = q.where("brandId", "==", opts.brandId);
       return q;
     });
-    return tasksOf(organisationId, docs);
+    return { ...tasksOf(organisationId, docs), full: docs.length >= WORK_LIMITS.tasks };
   });
 }
 
@@ -653,11 +677,11 @@ export async function countWorkTasks(organisationId: string, stores: WorkStores 
 
 /**
  * The organisation's log between two times, newest first, in every region (organisationId, at
- * desc), up to `limit` in each, with the regions that didn't answer. Brand view filters by brand
- * in memory.
+ * desc), up to `limit` in each, with the regions that didn't answer and those that gave `limit`
+ * rows (`full`: older rows there weren't read). Brand view filters by brand in memory.
  */
 export async function listWorkLog(organisationId: string, opts: { from: string; to: string; limit?: number }, stores: WorkStores = {}): Promise<WorkRead<WorkLogRow>> {
-  if (!organisationId) return { rows: [], unanswered: [], unreadable: 0 };
+  if (!organisationId) return { rows: [], unanswered: [], unreadable: 0, full: [] };
   const limit = Math.min(Math.max(1, Math.floor(opts.limit ?? 2000)), 5000);
   const r = await acrossRegions(async (region) => {
     const snap = await regionStore(region, stores)
@@ -668,10 +692,13 @@ export async function listWorkLog(organisationId: string, opts: { from: string; 
       .orderBy("at", "desc")
       .limit(limit)
       .get();
-    return logRowsOf(
-      organisationId,
-      snap.docs.map((d) => ({ id: d.id, data: d.data() })),
-    );
+    return {
+      ...logRowsOf(
+        organisationId,
+        snap.docs.map((d) => ({ id: d.id, data: d.data() })),
+      ),
+      full: snap.docs.length >= limit,
+    };
   });
   r.rows.sort((a, b) => b.at.localeCompare(a.at) || b.id.localeCompare(a.id));
   return r;
@@ -761,6 +788,9 @@ function moveWho(by: string): WorkWho {
   return by.startsWith("script:") || by === "system" ? { kind: "system", id } : { kind: "person", id };
 }
 
+/** How many moved tasks have their rows read at once. */
+const ROW_READS_AT_ONCE = 8;
+
 /**
  * After a brand moved from one organisation to another (move-brand, Bring in, Move out): its
  * tasks, and the log rows of its tasks and its entries, move with it, in the brand's own region (a
@@ -768,6 +798,11 @@ function moveWho(by: string): WorkWho {
  * so two never share one, with change rows for its organisation and ref. Whole business tasks stay
  * with the organisation, and so do their rows, even those filed under the brand before a change of
  * brand. Equality reads only. Whatever WORK_ENABLED says.
+ *
+ * Safe to run again after it stopped partway (a transaction refused, a passing error): each step
+ * reads what is still under the organisation it left. Tasks moved by an earlier run are found in
+ * the organisation it joined, by brand, and any of their rows still under the one it left move
+ * then. A second run with nothing left to move moves nothing.
  */
 export async function repointBrandWork(
   brand: { tenantId: string; region: Region },
@@ -811,6 +846,12 @@ export async function repointBrandWork(
   const staying = new Set(
     (await allPages(() => store.collection(WORK_TASKS).where(ORG_FIELD, "==", fromOrganisationId))).map((d) => d.id),
   );
+  // The brand's tasks in the organisation it joined: those moved now, and those an earlier run
+  // moved before it stopped, whose rows may still be under the organisation it left.
+  const arrived = new Set([
+    ...tasks.map((t) => t.id).filter((id) => !staying.has(id)),
+    ...(await allPages(() => store.collection(WORK_TASKS).where(ORG_FIELD, "==", toOrganisationId).where("brandId", "==", brand.tenantId))).map((d) => d.id),
+  ]);
   // Their rows: the brand's own, and every row of a task that moved (rows written before it named the brand).
   const rowIds = new Set<string>();
   for (const d of await allPages(() => store.collection(WORK_LOG).where(ORG_FIELD, "==", fromOrganisationId).where("brandId", "==", brand.tenantId), 50_000)) {
@@ -818,17 +859,33 @@ export async function repointBrandWork(
     if (typeof about === "string" && staying.has(about)) continue;
     rowIds.add(d.id);
   }
-  for (const t of tasks) {
-    for (const d of await allPages(() => store.collection(WORK_LOG).where(ORG_FIELD, "==", fromOrganisationId).where("taskId", "==", t.id), 50_000)) rowIds.add(d.id);
+  const ids = [...arrived];
+  for (let i = 0; i < ids.length; i += ROW_READS_AT_ONCE) {
+    const pages = await Promise.all(
+      ids.slice(i, i + ROW_READS_AT_ONCE).map((id) => allPages(() => store.collection(WORK_LOG).where(ORG_FIELD, "==", fromOrganisationId).where("taskId", "==", id), 50_000)),
+    );
+    for (const page of pages) for (const d of page) rowIds.add(d.id);
   }
-  const ids = [...rowIds];
-  for (let i = 0; i < ids.length; i += PAGE) {
-    const page = ids.slice(i, i + PAGE);
+  const rows = [...rowIds];
+  for (let i = 0; i < rows.length; i += PAGE) {
+    const page = rows.slice(i, i + PAGE);
     await store.runTransaction(async (txn) => {
       for (const id of page) txn.update(store.collection(WORK_LOG).doc(id), { [ORG_FIELD]: toOrganisationId });
     });
   }
-  return { tasks: moved, rows: ids.length };
+  return { tasks: moved, rows: rows.length };
+}
+
+/**
+ * The organisation id a brand's Work is kept under: its organisation's, or for a brand on its own
+ * with no organisation, org_<tenantId> while no organisation has that id (src/lib/work/scope.ts).
+ * Null when Work can't be kept for it (org_<tenantId> belongs to an organisation it isn't in).
+ * move-brand reads it, so attaching a brand on its own takes its tasks along.
+ */
+export async function brandWorkHome(brand: { id: string; organisationId?: string | null }, controlDb?: FirestoreLike): Promise<string | null> {
+  if (brand.organisationId) return brand.organisationId;
+  const own = organisationIdFor(brand.id);
+  return (await getOrganisation(own, controlDb)) ? null : own;
 }
 
 /** How many of a brand's tasks a move would take along (move-brand's dry run). */

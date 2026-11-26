@@ -9,6 +9,7 @@ import { Chip } from "@/components/admin/people/Chip";
 import { logLineOf } from "@/lib/work/form";
 import {
   changeWords,
+  checkSaidLine,
   dayNWords,
   dayTitle,
   ENTRY_STATE_LABEL,
@@ -60,6 +61,8 @@ export function decisionWords(d: WorkLogRowOf<"decision">, o: { me: string; name
  */
 export function WorkLog({ screen }: { screen: LogScreen }) {
   const { day, me, names } = screen;
+  // A check's answer on Today: kept here, since the answered check leaves the list when the page reads itself again.
+  const [checkSaid, setCheckSaid] = useState<{ ref: number; notice: string } | null>(null);
   const tz = day.timeZone;
   const brandName = (id: string) => screen.brandNames[id];
   const today = day.today;
@@ -175,6 +178,11 @@ export function WorkLog({ screen }: { screen: LogScreen }) {
                 <CalendarClock size={14} aria-hidden />
                 Checks due
               </h3>
+              {checkSaid ? (
+                <p role="status" className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300">
+                  {checkSaidLine(checkSaid.ref, checkSaid.notice)}
+                </p>
+              ) : null}
               {screen.checks.length ? (
                 <ul className="space-y-2">
                   {screen.checks.map((c) => (
@@ -184,7 +192,7 @@ export function WorkLog({ screen }: { screen: LogScreen }) {
                         {c.title}
                       </Link>
                       <p className="text-neutral-600 dark:text-neutral-300">{c.byMeasure ? `Did it work? ${c.line}` : c.line}</p>
-                      <CheckActions taskRef={c.ref} byMeasure={c.byMeasure} via="today" compact />
+                      <CheckActions taskRef={c.ref} byMeasure={c.byMeasure} via="today" compact onSaid={(notice) => setCheckSaid({ ref: c.ref, notice })} />
                     </li>
                   ))}
                 </ul>

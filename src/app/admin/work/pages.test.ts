@@ -255,6 +255,24 @@ describe("Edit then add", () => {
     expect(page).toContain("5 Market");
   });
 
+  it("after Edit then add, leaves the decided suggestion's address for a fresh add page, never its refusal", async () => {
+    const a = await suggest();
+    const deps = { ...w.deps, regionDb: (r: "us" | "eu" | "asia") => (r === "us" ? w.control : w.dbOf(r)) };
+    const r = await addSuggestion(await w.scope(PEOPLE.nina), { actionId: a.id, rev: 1 }, deps);
+    if (!r.ok) throw new Error(r.error);
+    // Read again, the suggestion's own address refuses: it is decided now.
+    expect(await newPage({ suggestion: a.id })).toContain("That suggestion was added or dismissed already.");
+    // So the form reads nothing again after adding: it keeps its done note and moves the address
+    // to the plain add page, which is what a reload or Add another opens.
+    const { afterAddSteps } = await import("@/components/admin/work/TaskForm");
+    expect(afterAddSteps(true)).toEqual({ refresh: false, address: "/admin/work/new", refreshOnAnother: true });
+    expect(afterAddSteps(false)).toEqual({ refresh: true, address: null, refreshOnAnother: false });
+    const fresh = await newPage({});
+    expect(fresh).toContain("Add a task");
+    expect(fresh).not.toContain("New task from Vizzy");
+    expect(fresh).not.toContain("added or dismissed already");
+  });
+
   it("says why when the suggestion can't be added, with the way back to Review", async () => {
     const whole = await suggest(null);
     for (const id of ["not-an-id", `aa_${"3".repeat(40)}`]) {

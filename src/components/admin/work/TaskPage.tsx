@@ -27,6 +27,7 @@ import { dayOf, PLAN_STATE_LABEL, WORK_STATUS_LABEL } from "@/lib/work/words";
 import type { TaskScreen } from "@/lib/work/screens";
 import { workCall, workErrorText } from "./api";
 import { CheckActions, MoveCheck } from "./CheckActions";
+import { useFocusSwap } from "./useFocusSwap";
 import { ApprovePlan, Decisions } from "./Decisions";
 import { MeasureSection } from "./MeasureSection";
 import { BlockedByPicker, CheckPicker, FreeLinksEditor, TypedLinksEditor } from "./TaskFields";
@@ -94,6 +95,8 @@ export function TaskPage({ screen }: { screen: TaskScreen }) {
   const task = page.task;
   const tz = page.timeZone;
   const { patch, busy, error, notice } = useTaskPatch(task.ref);
+  // A check's answer: kept here, since the answered check leaves the page when it reads itself again.
+  const [checkSaid, setCheckSaid] = useState<string | null>(null);
   const [editText, setEditText] = useState(false);
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description);
@@ -201,7 +204,7 @@ export function TaskPage({ screen }: { screen: TaskScreen }) {
                 </span>
               )}
             </p>
-            <CheckActions taskRef={task.ref} byMeasure={byMeasure} via="work_page" />
+            <CheckActions taskRef={task.ref} byMeasure={byMeasure} via="work_page" onSaid={setCheckSaid} />
           </div>
         ) : null}
         {waitingOn && open ? (
@@ -219,9 +222,9 @@ export function TaskPage({ screen }: { screen: TaskScreen }) {
             </span>
           </p>
         ) : null}
-        {notice ? (
+        {notice || checkSaid ? (
           <p role="status" className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300">
-            {notice}
+            {[checkSaid, notice].filter(Boolean).join(" ")}
           </p>
         ) : null}
         {error ? (
@@ -632,6 +635,8 @@ function TypedLinkRow({
   );
   const external = href !== null && href.startsWith("https://");
   const by = plan?.state === "approved" ? planBy(plan.decisionId) : null;
+  // Approve the plan opens its choices in its place: focus moves into them, and back on Cancel.
+  const focus = useFocusSwap(approving);
   return (
     <li className="rounded-md border border-neutral-200 px-2 py-1.5 text-sm dark:border-neutral-800">
       <div className="flex flex-wrap items-center gap-2">
@@ -644,12 +649,18 @@ function TypedLinkRow({
         )}
         {plan ? <Chip tone={plan.state === "approved" ? "green" : plan.state === "change_it" ? "amber" : "neutral"}>{by ? `Approved by ${by}` : PLAN_STATE_LABEL[plan.state]}</Chip> : null}
         {plan && plan.state !== "approved" && !approving ? (
-          <Button aria-expanded={false} aria-controls="wk-approve" onClick={onApprove}>
-            Approve the plan
-          </Button>
+          <span ref={focus.opener}>
+            <Button aria-expanded={false} aria-controls="wk-approve" onClick={onApprove}>
+              Approve the plan
+            </Button>
+          </span>
         ) : null}
       </div>
-      {plan && approving ? <ApprovePlan taskRef={taskRef} url={plan.url} version={plan.version} onClose={onCloseApprove} /> : null}
+      {plan && approving ? (
+        <div ref={focus.form}>
+          <ApprovePlan taskRef={taskRef} url={plan.url} version={plan.version} onClose={onCloseApprove} />
+        </div>
+      ) : null}
     </li>
   );
 }

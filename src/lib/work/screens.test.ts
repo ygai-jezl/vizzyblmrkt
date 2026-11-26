@@ -47,6 +47,13 @@ describe("the list screen", () => {
     await add(PEOPLE.sam, { title: "Interview 5 team admins" });
     const s = await list(PEOPLE.sam, `brand=${LUMEN_EU}`);
     expect(s).toMatchObject({ view: "brand", multiBrand: false, member: true, canImport: false, canDelete: false });
+    // The screen goes whole to the browser: in the brand view it carries the brand's name, never the organisation's.
+    expect(s.name).toBe("Lumen Notes");
+    const sam = await w.scope(PEOPLE.sam);
+    const [log, form] = await Promise.all([logScreen(sam, null, w.deps), addScreen(sam, w.deps)]);
+    expect(log.ok && log.screen.name).toBe("Lumen Notes");
+    expect(form.name).toBe("Lumen Notes");
+    expect(JSON.stringify([s, log, form])).not.toContain('"Lumen"');
     expect(s.filters.brand).toBeNull();
     expect(s.rows.map((r) => r.title)).toEqual(["Interview 5 team admins"]);
   });

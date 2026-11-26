@@ -1,5 +1,8 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WORK_LOG, WORK_TASKS } from "@/lib/tenant";
+import { asCard } from "@/components/admin/chat/cardData";
 import type { TenantContext } from "@/lib/tenant/types";
 import { numberKeys } from "@/lib/metrics/meanings";
 import type { AgentAction } from "@/lib/types/agentAction";
@@ -12,6 +15,11 @@ import { WORK_SUGGEST_ACTION } from "./suggestion";
 import { LUMEN_EU, LUMEN_US, NINA, SAM } from "./testing/fixtures";
 import { FERNHILL, makeWorld, PEOPLE, PRIYA, type World } from "./testing/world";
 import type { WorkTask } from "./types";
+
+vi.mock("next/link", () => ({
+  default: ({ href, children, ...rest }: { href: string; children: unknown }) => createElement("a", { href, ...rest }, children as never),
+}));
+const { CanvasCard } = await import("@/components/admin/chat/CanvasCard");
 
 // Vizzy's Work tools, as the agent route runs them: the brand and the person come from the canvas
 // token (source "agent", no email). Made-up Lumen (Lumen Notes in the United States, Lumen
@@ -70,6 +78,10 @@ describe("get_work", () => {
     const b = bodyOf(await agentGetWork(SAM_AGENT, {}, w.deps));
     expect(b.tasks.map((t: Body) => t.ref)).toEqual([`#${us.ref}`]);
     expect(b.view).toBe("Lumen Notes's tasks only");
+    // Never the organisation's name in the brand view, as Plan and usage and the Work pages.
+    expect(b.organisation).toBe("Lumen Notes");
+    expect(JSON.stringify(b)).not.toContain('"Lumen"');
+    expect(bodyOf(await agentGetWork(SAM_AGENT, { ref: String(us.ref) }, w.deps)).organisation).toBe("Lumen Notes");
     expect(await agentGetWork(SAM_AGENT, { ref: String(eu.ref) }, w.deps)).toMatchObject({ status: 404, body: { error: "not_found" } });
   });
 
@@ -282,7 +294,7 @@ describe("draft_work_log and draft_work_decision", () => {
   it("drafts a note whose card opens the Log to save it", async () => {
     const r = await agentDraftWorkLog(NINA_AGENT, { tool: "draft_work_log", workstream: "Pricing page", state: "Done", note: "Copy done", task: `#${us.ref}` }, w.deps);
     const b = bodyOf(r);
-    expect(b).toMatchObject({ outcome: "drafted", card: { kind: "work_log_draft", title: "Log note, drafted", subtitle: "Pricing page", url: `/admin/work/log?draft=${b.card.id}`, cta: "Save to today's log", stats: [{ label: "State", value: "Done" }] } });
+    expect(b).toMatchObject({ outcome: "drafted", card: { kind: "work_log_draft", title: "Log note, drafted", subtitle: "Pricing page", url: `/admin/work/log?draft=${b.card.id}`, cta: "Save to today's log", stats: [{ label: "", value: "Done" }] } });
     expect(w.us.dump(WORK_LOG).filter((x) => x.kind === "entry")).toEqual([]);
     expect([...numberKeys(r.body)]).toEqual([]);
   });
@@ -291,9 +303,36 @@ describe("draft_work_log and draft_work_decision", () => {
     const b = bodyOf(await agentDraftWorkDecision(NINA_AGENT, { tool: "draft_work_decision", task: us.ref, question: "Which listing first?", options: ["G2", "Capterra"], recommended: "Capterra", reason: "Reviews come faster." }, w.deps));
     expect(b).toMatchObject({
       outcome: "drafted",
-      card: { kind: "work_decision_draft", url: `/admin/work/${us.ref}?decision=${b.card.id}#decisions`, cta: "Choose", stats: [{ label: "Task", value: `#${us.ref}` }, { label: "Vizzy's pick", value: "Capterra" }] },
+      card: { kind: "work_decision_draft", subtitle: `#${us.ref} Which listing first?`, url: `/admin/work/${us.ref}?decision=${b.card.id}#decisions`, cta: "Choose", stats: [{ label: "", value: "Vizzy's pick: Capterra" }] },
       pick: "Vizzy's pick: Capterra. Reviews come faster.",
     });
+  });
+
+  it("draw in the chat as they read: each stat its value then its label, or a sentence on its own", async () => {
+    const line = (body: Body) => {
+      const card = asCard(body);
+      if (!card) throw new Error("no card");
+      // The card's line under its title: the subtitle and the stats.
+      return renderToStaticMarkup(createElement(CanvasCard, { card })).match(/<div class="text-xs text-neutral-500">(.*?)<\/div>/)![1]!.replace(/&#x27;/g, "'");
+    };
+    const suggested = bodyOf(
+      await agentSuggestWorkTask(NINA_AGENT, {
+        tool: "suggest_work_task",
+        title: "Answer the offline question on the site",
+        stage: "Market",
+        measureKind: "moves",
+        measure: { kind: "moves", meaning: "conversions", direction: "up", look: { days: 14 } },
+        measureReason: "It answers a question people search for.",
+        why: "People asked it.",
+      }, w.deps),
+    );
+    expect(line(suggested)).toBe("Answer the offline question on the site · 5 Market stage · Moves a number: conversions up, 14 days after it's done.");
+    const logged = bodyOf(await agentDraftWorkLog(NINA_AGENT, { tool: "draft_work_log", workstream: "Supplier calls", state: "Done" }, w.deps));
+    expect(line(logged)).toBe("Supplier calls · Done");
+    const decided = bodyOf(await agentDraftWorkDecision(NINA_AGENT, { tool: "draft_work_decision", task: us.ref, question: "Which supplier first?", options: ["Fernhill Pots", "Lumen Clay"], recommended: "Fernhill Pots", reason: "Nearer." }, w.deps));
+    expect(line(decided)).toBe(`#${us.ref} Which supplier first? · Vizzy's pick: Fernhill Pots`);
+    const unpicked = bodyOf(await agentDraftWorkDecision(NINA_AGENT, { tool: "draft_work_decision", task: us.ref, question: "Which van first?", options: ["The small one", "The big one"] }, w.deps));
+    expect(line(unpicked)).toBe(`#${us.ref} Which van first? · Vizzy didn't pick one.`);
   });
 
   it("never drafts Approve the plan: refused before anything is read or written", async () => {

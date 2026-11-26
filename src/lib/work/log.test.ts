@@ -57,6 +57,37 @@ describe("the Log", () => {
     expect((await day()).inFlight).toEqual([]);
   });
 
+  it("says rows may be missing only when one region's read reached its limit, never for rows that add up across regions", async () => {
+    const seed = (db: typeof w.us, n: number, brandId: string, region: "us" | "eu") => {
+      for (let i = 0; i < n; i++) {
+        const at = new Date(Date.parse("2026-06-01T12:00:00.000Z") + i * 60_000).toISOString();
+        db.seed(WORK_LOG, `wl_${region === "us" ? "a" : "b"}${String(i).padStart(23, "0")}`, {
+          organisationId: "org_ten_lumen",
+          brandId,
+          region,
+          day: at.slice(0, 10),
+          at,
+          source: { who: { kind: "person", id: PEOPLE.nina.userId }, tool: "work_log", session: null },
+          kind: "entry",
+          taskId: null,
+          workstream: `Stream ${region} ${i}`,
+          state: "done",
+          note: "",
+          links: [],
+        });
+      }
+    };
+    // 1,200 rows in the United States and 900 in Europe: 2,100 read, none cut.
+    seed(w.us, 1200, LUMEN_US, "us");
+    seed(w.eu, 900, LUMEN_EU, "eu");
+    const both = await day();
+    expect(both.inFlight).toEqual([]);
+    expect(both.capped).toBe(false);
+    // Past 2,000 in one region: its read stops there, so the oldest may be missing.
+    seed(w.us, 2000, LUMEN_US, "us");
+    expect((await day()).capped).toBe(true);
+  });
+
   it("carries two workstreams over to the next day, never retyped, until one is done", async () => {
     value(await log({ workstream: "Pricing page", state: "doing" }));
     value(await log({ workstream: "Interviews", state: "blocked", note: "Waiting on two admins" }, PEOPLE.sam));

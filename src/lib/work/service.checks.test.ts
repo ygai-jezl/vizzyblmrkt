@@ -229,6 +229,9 @@ describe("the one tap read", () => {
     const counts = logRows().filter((r) => r.source.tool === "work_count");
     expect(counts).toHaveLength(1);
     expect(counts[0]).toMatchObject({ kind: "change", field: "check", source: { who: { kind: "system", id: null } } });
+    // Counting is no change anyone made: History never says "Work set the check" for it.
+    const after = value(await taskPage(await nina(), t.ref, w.deps)).task;
+    expect(after.recent.filter((r) => r.who.kind === "system" || r.field === "check")).toEqual([]);
   });
 
   it("counts from when the task went Done, not from when the check was set", async () => {

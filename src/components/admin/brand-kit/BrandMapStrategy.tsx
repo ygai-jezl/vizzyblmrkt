@@ -20,7 +20,7 @@ import { api } from "@/components/admin/connect/api";
 import { Banner, Button, inputClass } from "@/components/admin/connect/ui";
 import { AddLine, RemoveButton, smallLabel } from "./BrandMapParts";
 import { useMapMove } from "./brandMapMove";
-import { APPROVED_NOTE, GAP_LABEL, PROPOSED_NOTE, droppedNote, finderNote, foundNote, monitoredNote, notCompetitorNote, starsNotUpdatedNote, strategyErrorText } from "./strategyMessages";
+import { APPROVED_NOTE, GAP_LABEL, PROPOSED_NOTE, TRUNCATED_NOTE, droppedNote, finderNote, foundNote, monitoredNote, notCompetitorNote, starsNotUpdatedNote, strategyErrorText } from "./strategyMessages";
 import { BrandMapContentPlan } from "./BrandMapContentPlan";
 import { CompetitorGroupPicker } from "./CompetitorGroupPicker";
 import { FLAG_TEXT } from "./CompetitorCoverage";
@@ -363,6 +363,7 @@ export function BrandMapStrategy({ canEdit, contentPlan = false }: { canEdit: bo
       {against && (against.rows.length || against.onlyThem || against.namedNotWatched.length) ? (
         <Section title="Against your competitors" aside={<span className="text-[11px] text-neutral-500">Last {theirs?.days ?? 90} days</span>}>
           <p className="text-[11px] text-neutral-500">{AGAINST_FROM[against.from]}</p>
+          {theirs?.truncated ? <p className="text-[11px] text-amber-700 dark:text-amber-400">{TRUNCATED_NOTE}</p> : null}
           {against.rows.length ? (
             <ul className="space-y-1.5 text-sm">
               {against.rows.map((r) => (

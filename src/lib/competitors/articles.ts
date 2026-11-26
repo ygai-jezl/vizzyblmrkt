@@ -165,21 +165,32 @@ export async function readsThisMonth(ctx: TenantContext, deps: ArticleStoreDeps 
 
 /** Months read back for the last 90 days: this month and the 3 before always hold them. */
 export const RECENT_MONTHS = 4;
-/** Reads looked at per month, at most. */
-const MONTH_MAX = 500;
+/** Records looked at per month, at most, whatever a brand's cap: the most one page asks for. */
+export const MONTH_CEILING = 1_000;
+/** Above the brand's cap: a month also holds failed and skipped reads, and two runs can pass the cap together. */
+const MONTH_MARGIN = 50;
 
 /**
  * The articles read this month and the 3 before, newest first: one equality query per month on the
- * month a read counts against, as readsThisMonth's, so no index is needed, and 500 a month at most.
- * An article is read after it is published, so every one published in the last 90 days is here.
+ * month a read counts against, as readsThisMonth's, so no index is needed. The query also finds
+ * failed and skipped records, so only read ones are kept here. Each month reads up to the brand's
+ * monthly cap (and a margin, never more than MONTH_CEILING); `truncated` says a month had more,
+ * so counts made from these may be low. An article is read after it is published, so every one
+ * published in the last 90 days was read in one of these months.
  */
-export async function listRecentReadArticles(ctx: TenantContext, deps: ArticleStoreDeps = {}): Promise<CompetitorArticle[]> {
+export async function listRecentReadArticles(ctx: TenantContext, deps: ArticleStoreDeps = {}): Promise<{ articles: CompetitorArticle[]; truncated: boolean }> {
   const now = nowOf(deps);
   const months = Array.from({ length: RECENT_MONTHS }, (_, i) => monthOf(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1))));
+  const cap = await brandMonthlyLimit(ctx, "competitor_articles", deps.loadTenant).catch(() => MONTH_CEILING);
+  const limit = Math.min(MONTH_CEILING, Math.max(1, cap) + MONTH_MARGIN);
   const repo = repoOf(ctx, deps);
-  const rows = (await Promise.all(months.map((m) => repo.find({ where: [["readMonth", "==", m]], limit: MONTH_MAX })))).flat();
+  const rows = await Promise.all(months.map((m) => repo.find({ where: [["readMonth", "==", m]], limit })));
   const seen = new Set<string>();
-  return rows.filter((a) => a.status === "read" && !seen.has(a.id) && Boolean(seen.add(a.id))).sort(newest);
+  const articles = rows
+    .flat()
+    .filter((a) => a.status === "read" && !seen.has(a.id) && Boolean(seen.add(a.id)))
+    .sort(newest);
+  return { articles, truncated: rows.some((r) => r.length >= limit) };
 }
 
 export async function monthlyCapReached(ctx: TenantContext, deps: ArticleStoreDeps = {}): Promise<boolean> {

@@ -283,7 +283,7 @@ export async function gatherStrategyInput(ctx: TenantContext, deps: ProposeDeps 
     soft((deps.facts ?? ((c) => listBusinessFacts(c, { db: deps.db })))(ctx), [] as BusinessFact[]),
     soft(listWorkspaces(ctx), [] as Array<{ id: string; archivedAt?: string | null; updatedAt?: string }>),
     soft(readBrandStrategyDoc(ctx, { db: deps.db }), null as BrandStrategyDoc | null),
-    readArticles ? soft((deps.recent ?? ((c) => listRecentReadArticles(c, { db: deps.db, now: deps.now })))(ctx), [] as CompetitorArticle[]) : Promise.resolve(null),
+    readArticles ? soft((deps.recent ?? ((c) => listRecentReadArticles(c, { db: deps.db, now: deps.now, loadTenant: async () => tenant }).then((r) => r.articles)))(ctx), [] as CompetitorArticle[]) : Promise.resolve(null),
   ]);
   const retrieve = deps.retrieve ?? retrieveSemanticKnowledgeContext;
   const live = workspaces

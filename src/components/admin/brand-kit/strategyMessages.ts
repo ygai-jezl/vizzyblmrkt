@@ -63,6 +63,9 @@ export function finderNote(f: { granted: boolean; quickUsed: boolean; used: numb
   return `${quick} Full: three answers merged and checked, then a search that fits your business${f.limit !== null ? ` (${Math.max(0, f.limit - f.used)} left this month)` : ""}.`;
 }
 
+/** On Against your competitors, when a month had more reads than were looked at. */
+export const TRUNCATED_NOTE = "Some months had more articles read than we count here, so these numbers may be a little low.";
+
 /** After Monitor on a competitor the strategy names. */
 export const monitoredNote = (name: string) => `${name} is on Brand › Competitors now.`;
 

@@ -95,7 +95,7 @@ describe("what the watched competitors write, against the strategy", () => {
     db.seed("competitor_articles", `${id}_old`, article(A, "old", id, { publishedAt: "2026-06-01" }) as never);
     db.seed("competitor_articles", `${theirs}_b`, article(B, "b", theirs) as never);
     const v = await strategyCompetitorsView(A, { db, now: () => NOW, loadTenant: async () => null });
-    expect(v?.articles).toBe(true);
+    expect(v).toMatchObject({ articles: true, truncated: false });
     expect(v?.profiles).toEqual([
       { id, name: "Rivalco", read: 2, fromPage: 1, line: 'Mostly guides, for people weighing options. 1 stat, in the 1 of 2 read from their own pages. Most on "An agency packages it into a retainer".' },
     ]);
@@ -107,7 +107,7 @@ describe("what the watched competitors write, against the strategy", () => {
     const db = new FakeFirestore();
     await brand(A, db);
     vi.stubEnv("COMPETITOR_ARTICLES_ENABLED", "false");
-    expect(await strategyCompetitorsView(A, { db, now: () => NOW, loadTenant: async () => null })).toEqual({ articles: false, days: 90, profiles: [], against: null });
+    expect(await strategyCompetitorsView(A, { db, now: () => NOW, loadTenant: async () => null })).toEqual({ articles: false, days: 90, truncated: false, profiles: [], against: null });
     vi.stubEnv("GRANTED_ONLY_FEATURES", "competitors");
     const r = await competitorsFromRequest(A, { db, now: () => NOW, loadTenant: async () => null });
     expect(r.status).toBe(403);

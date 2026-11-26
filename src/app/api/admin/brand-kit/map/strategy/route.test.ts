@@ -90,7 +90,7 @@ describe("/api/admin/brand-kit/map/strategy", () => {
     const read = await get();
     expect(read.status).toBe(200);
     // Their articles aren't read in this environment: nothing to set against the strategy.
-    expect(await read.json()).toEqual({ competitors: { articles: false, days: 90, profiles: [], against: null } });
+    expect(await read.json()).toEqual({ competitors: { articles: false, days: 90, truncated: false, profiles: [], against: null } });
   });
 
   it("401s when signed out", async () => {

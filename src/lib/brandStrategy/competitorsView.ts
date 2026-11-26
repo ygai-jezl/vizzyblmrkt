@@ -25,6 +25,8 @@ export interface StrategyCompetitorsView {
   /** Their articles can be read for this brand. */
   articles: boolean;
   days: number;
+  /** A month had more reads than were looked at, so the counts may be low. */
+  truncated: boolean;
   /** What they write: one line per watched competitor, and the counts it is made from. */
   profiles: Array<{ id: string; name: string; read: number; fromPage: number; line: string }>;
   against: {
@@ -52,17 +54,18 @@ export async function strategyCompetitorsView(ctx: TenantContext, deps: Competit
   const tenant = await (deps.loadTenant ?? getTenantById)(ctx.tenantId).catch(() => null);
   const load = async () => tenant;
   if (!isCompetitorsEnabled() || !(await brandCanUse(ctx, "competitors", load).catch(() => false))) return null;
-  const empty: StrategyCompetitorsView = { articles: false, days: PROFILE_DAYS, profiles: [], against: null };
+  const empty: StrategyCompetitorsView = { articles: false, days: PROFILE_DAYS, truncated: false, profiles: [], against: null };
   if (!isCompetitorArticlesEnabled() || !(await brandCanUse(ctx, "competitor_articles", load).catch(() => false))) return empty;
   const now = (deps.now ?? (() => new Date()))();
-  const [articles, competitors, situations, read, ours, doc] = await Promise.all([
-    listRecentReadArticles(ctx, { db: deps.db, now: () => now }).catch(() => [] as CompetitorArticle[]),
+  const [recent, competitors, situations, read, ours, doc] = await Promise.all([
+    listRecentReadArticles(ctx, { db: deps.db, now: () => now, loadTenant: load }).catch(() => ({ articles: [] as CompetitorArticle[], truncated: false })),
     listCompetitors(ctx, { db: deps.db }).catch(() => [] as Competitor[]),
     listSituations(ctx, { db: deps.db }).catch(() => [] as BrandMapSituation[]),
     readBrandMap(ctx, deps.db).catch(() => null),
     ourSubjects(ctx, { db: deps.db }).catch(() => ({ subjects: new Map(), moved: false, map: null })),
     readBrandStrategyDoc(ctx, { db: deps.db }).catch(() => null),
   ]);
+  const articles = recent.articles;
   const view = competitorProfiles({
     articles,
     competitors,
@@ -76,6 +79,7 @@ export async function strategyCompetitorsView(ctx: TenantContext, deps: Competit
   return {
     articles: true,
     days: view.days,
+    truncated: recent.truncated,
     profiles: view.profiles.map((p) => ({ id: p.id, name: p.name, read: p.read, fromPage: p.fromPage, line: profileLine(p) })),
     against: {
       from: focus.from,

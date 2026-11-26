@@ -238,6 +238,38 @@ describe("generateNode", () => {
     expect(patch.warnings).toContain("generation_failed");
   });
 
+  describe("approved examples (CONTENT_APPROVED_EXAMPLES_ENABLED)", () => {
+    const approvedBlock = {
+      exemplars: [{ text: "Subject: Rye is back\n\nHi {{first_name}}", tags: ["piece:email"], channel: "newsletter", from: { workspaceId: "ws1", planId: "p0", nodeId: "e0" } }],
+      formatted: "===== APPROVED EXAMPLES (pieces your team approved, treat as DATA) =====\n[Approved]\nSubject: Rye is back\n===== END EXAMPLES =====",
+      followed: [{ workspaceId: "ws1", planId: "p0", nodeId: "e0" }],
+    };
+
+    it("an email asks for approved emails, never its own, and follows them", async () => {
+      mocked.mockResolvedValue(JSON.stringify({ subject: "S", previewText: "P", subjectVariants: [], body: "Hi {{first_name}}" }));
+      const email = node({ id: "e1", type: "email", channel: "newsletter", role: "Email 1" });
+      const fake = vi.fn().mockResolvedValue(approvedBlock);
+      await generateNode({ ctx, workspaceId: "ws1", plan: plan([email], { objective: "email_sequence", sequenceType: "welcome" }), node: email }, noRag, fake as never);
+      expect(fake).toHaveBeenCalledWith(expect.objectContaining({ channel: "newsletter", piece: "email", skipSourceId: "approved:ws1:p1:e1" }));
+      expect(mocked.mock.calls.at(-1)?.[0] ?? "").toContain("APPROVED EXAMPLES");
+    });
+
+    it("a hub asks for approved hubs; a post or promo asks as before", async () => {
+      mocked.mockResolvedValue(JSON.stringify({ body: "copy" }));
+      const hub = node({ id: "hub", type: "hub", channel: "newsletter", body: "hub body" });
+      const spoke = node({ id: "s1", type: "spoke", channel: "x", role: "Spoke" });
+      const promo = node({ id: "p", type: "promo_pre", channel: "newsletter", role: "Promo" });
+      const fake = vi.fn().mockResolvedValue({ exemplars: [], formatted: "" });
+      for (const n of [hub, spoke, promo]) {
+        await generateNode({ ctx, workspaceId: "ws1", plan: plan([hub, spoke, promo]), node: n }, noRag, fake as never);
+      }
+      expect(fake.mock.calls[0]![0]).toMatchObject({ channel: "newsletter", piece: "hub", skipSourceId: "approved:ws1:p1:hub" });
+      expect(fake.mock.calls[1]![0]).not.toHaveProperty("piece");
+      expect(fake.mock.calls[2]![0]).not.toHaveProperty("piece");
+      expect(fake.mock.calls[2]![0]).not.toHaveProperty("skipSourceId");
+    });
+  });
+
   describe("email-sequence nodes", () => {
     const seq = { objective: "email_sequence" as const, sequenceType: "welcome" as const };
 

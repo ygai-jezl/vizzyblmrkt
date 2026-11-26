@@ -43,6 +43,8 @@ import { PERSON_FIELDS_ACTION } from "@/lib/audience/fieldSuggestions";
 import { NEW_PERSON_ACTION } from "@/lib/audience/personDrafts";
 import { isOnboardingEnabled } from "@/lib/onboarding/flags";
 import { BUSINESS_FACT_ACTION, businessFactReviewItem } from "@/lib/onboarding/factSuggestions";
+import { canPaste } from "@/lib/crm/paste/flags";
+import { pasteBatchItems } from "@/lib/crm/paste/review";
 import { readFieldList } from "@/lib/audience/fieldList";
 import { isConnectorsCollectEnabled, isConnectorSignalsEnabled } from "@/lib/connectors/flags";
 import { signalReviewItems } from "@/lib/connectors/signals/review";
@@ -83,6 +85,7 @@ export type ReviewKind =
   | "data_signal"
   | "content_refresh"
   | "person_suggestion"
+  | "paste_batch"
   | "business_fact";
 
 export interface ReviewItem {
@@ -191,6 +194,11 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
     description: "Changes to people's fields, and people to add, that Vizzy suggested. Nothing changes until someone on your team confirms.",
     from: ["canvas.person_fields", "canvas.new_person"],
   },
+  paste_batch: {
+    title: "Pasted lists",
+    description: "Lists your team pasted on People, waiting for an admin to add them. Nobody is added until then.",
+    from: ["paste_columns"],
+  },
   business_fact: {
     title: "About your business",
     description: "Things Vizzy heard about your business in a chat. Vizzy uses one only once an admin keeps it in Settings, About your business.",
@@ -199,7 +207,7 @@ export const REVIEW_SECTIONS: Record<ReviewKind, ReviewSection> = {
 };
 
 /** Order of sections on the page (AI lines are time-bound, so they come first). */
-export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "data_source", "next_article", "data_signal", "content_refresh", "agent_draft", "person_suggestion", "business_fact", "repo_results", "brand_map", "competitor_news", "strategy_check", "content_hub"];
+export const REVIEW_ORDER: ReviewKind[] = ["ai_line", "failed_post", "connection", "data_source", "next_article", "data_signal", "content_refresh", "agent_draft", "person_suggestion", "paste_batch", "business_fact", "repo_results", "brand_map", "competitor_news", "strategy_check", "content_hub"];
 
 // ---------------------------------------------------------------------------
 // Per-source rules (pure)
@@ -926,6 +934,8 @@ export async function loadReview(
   const businessFacts = isOnboardingEnabled() && ctx.role === "admin" ? await soft("business facts", businessFactItems(ctx, db), [] as ReviewItem[]) : [];
   // The drafts only the agent record adds: Vizzy's styles and notes, admins only (who save them).
   const recordItems = isAgentRecordEnabled() && ctx.role === "admin" ? await soft("agent record", agentRecordItems(ctx, db), [] as ReviewItem[]) : [];
+  // Lists pasted on People, waiting for an admin to add them: admins only, who alone add people.
+  const pastedLists = canPaste(ctx.role) ? await soft("pasted lists", pasteBatchItems(ctx, db), [] as ReviewItem[]) : [];
   // Data sources that need someone: admins only, while collected numbers are on.
   const dataSources = isConnectorsCollectEnabled() && ctx.role === "admin" ? await soft("data sources", dataSourceItems(ctx, { db }), [] as ReviewItem[]) : [];
   // What collected numbers suggest: admins only, while signals are on, from planning connections.
@@ -949,6 +959,7 @@ export async function loadReview(
     ...agentWaves.map((w) => agentInviteWaveItem(w, launchNames.get(w.campaignId))),
     ...personSuggestions,
     ...businessFacts,
+    ...pastedLists,
     ...liveConnections.map((c, i) => repoResultsItem(c, latestRuns[i]?.[0])),
     brandMapItem(brandMap, brandMapProposals),
     ...competitorItems(competitors, competitorNews),

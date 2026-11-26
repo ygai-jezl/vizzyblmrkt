@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parseNewPerson } from "@/lib/audience/newPerson";
 import { ContactAddedBySchema, ContactConsentSchema } from "./contact";
 
 const NOW = "2026-11-20T10:00:00.000Z";
@@ -10,6 +11,13 @@ describe("a person added by hand", () => {
     // Never an address, and only the known ways in.
     expect(ContactAddedBySchema.safeParse({ kind: "member", id: "sam@example.com", at: NOW, via: "form" }).success).toBe(false);
     expect(ContactAddedBySchema.safeParse({ kind: "member", id: "usr_1", at: NOW, via: "import" }).success).toBe(false);
+  });
+
+  it("records where a pasted list came from, at most 80 characters, and the form can never say it was pasted", () => {
+    expect(ContactAddedBySchema.safeParse({ kind: "member", id: "usr_1", at: NOW, via: "paste", source: "A friend's sheet" }).success).toBe(true);
+    expect(ContactAddedBySchema.safeParse({ kind: "member", id: "usr_1", at: NOW, via: "paste", source: "x".repeat(81) }).success).toBe(false);
+    expect(ContactAddedBySchema.safeParse({ kind: "member", id: "usr_1", at: NOW, via: "paste", source: "  " }).success).toBe(false);
+    expect(parseNewPerson({ email: "jo@example.com", via: "paste" })).toEqual({ ok: false, error: "invalid_input" });
   });
 
   it("records how they agreed to marketing email, who recorded it and when", () => {

@@ -108,16 +108,27 @@ const noAt = (v: string) => !v.includes("@");
 const ActorId = z.string().min(1).max(200).refine(noAt, { message: "an id, never an address" });
 
 /**
+ * Where someone added by hand came in: the People list's form, ⌘K, Vizzy's draft, or a list an
+ * admin pasted on People (RAISE_PASTE_ENABLED). New person's own form never sends "paste"
+ * (NEW_PERSON_VIA in src/lib/audience/newPerson.ts).
+ */
+export const ADDED_VIA = ["form", "palette", "vizzy", "paste"] as const;
+export type AddedVia = (typeof ADDED_VIA)[number];
+
+/**
  * Who added a person by hand (piece B, New person): a team member by user id, or Vizzy's
  * suggestion (its agent action id) once someone confirmed it. Its presence makes the person a
  * source of their own, whatever any switch says: no sync deletes them, renames them or marks
- * them deleted, and a later sign-up never replaces the name that was typed.
+ * them deleted, and a later sign-up never replaces the name that was typed. `source` is set only
+ * with `via: "paste"`: the admin's answer to "Where is this list from?", so the team can tell
+ * someone where their details were found. A company added from a pasted list carries one too.
  */
 export const ContactAddedBySchema = z.object({
   kind: z.enum(["member", "agent"]),
   id: ActorId,
   at: z.string(),
-  via: z.enum(["form", "palette", "vizzy"]),
+  via: z.enum(ADDED_VIA),
+  source: z.string().trim().min(1).max(80).optional(),
 });
 export type ContactAddedBy = z.infer<typeof ContactAddedBySchema>;
 

@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { suppressEmail } from "@/lib/email/suppression";
-import { deterministicCompanyId } from "@/lib/crm/identifiers";
+import { deterministicAgentActionId, deterministicCompanyId } from "@/lib/crm/identifiers";
 import { CONNECTION_ID, T0, TENANT_ID, ctx, seedUser, seedWorld, system } from "@/lib/lifecycle/testing/fixtures";
 import type { Contact } from "@/lib/types/contact";
 import type { StoredEvent } from "@/lib/types/ontologyEvent";
 import { saveFieldListChange } from "./fieldList";
-import { addPerson, newPersonKey, recordHandConsent, withdrawHandConsent } from "./addPerson";
+import { addPerson, newPersonKey, recordHandConsent, withdrawHandConsent, type PastedPerson } from "./addPerson";
 import { parseNewPerson, WITHDRAWN_HOW, type NewPerson } from "./newPerson";
 import { personIdOf, signupPersonKey, syncPerson } from "./personSync";
 
@@ -150,6 +150,28 @@ describe("addPerson", () => {
     // Fields off: the values are left out and the person is added.
     expect(await addPerson(ctx, input({ email: "kim@labs.test", fields: { [PLAN]: PRO } }), { db, nowIso: NOW })).toMatchObject({ outcome: "created", fields: "none" });
     expect(contact(db, "kim@labs.test")!.fields).toBeUndefined();
+  });
+
+  it("adds someone from a pasted list with where it is from, at Not yet, and the list's card on their row", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const card = deterministicAgentActionId(TENANT_ID, "paste.add_rows|abc123");
+    const base = input({ email: "nia@fernhill-plants.test", firstName: "Nia", lastName: "Example" });
+    const pasted: PastedPerson = { ...base, via: "paste", agreed: null, draftId: null, source: "Local lenders list", agentActionId: card };
+    const r = await addPerson(ctx, pasted, { db, nowIso: NOW });
+    expect(r).toMatchObject({ outcome: "created", fields: "none" });
+    expect(contact(db, "nia@fernhill-plants.test")).toMatchObject({
+      consentStatus: "none",
+      reach: "no",
+      memberOf: ["added:hand", "all"],
+      addedBy: { kind: "member", id: "usr_1", at: NOW, via: "paste", source: "Local lenders list" },
+    });
+    expect(contact(db, "nia@fernhill-plants.test")!.consent).toBeUndefined();
+    expect(events(db)).toHaveLength(1);
+    expect(events(db)[0]).toMatchObject({ kind: "record.created", agentActionId: card, properties: { object: "person", via: "paste", source: "Local lenders list" } });
+    // A form's person carries no source.
+    await addPerson(ctx, input({ email: "kim@labs.test" }), { db, nowIso: NOW });
+    expect(contact(db, "kim@labs.test")!.addedBy).toEqual({ kind: "member", id: "usr_1", at: NOW, via: "form" });
   });
 
   it("needs a team member to say who added them", async () => {

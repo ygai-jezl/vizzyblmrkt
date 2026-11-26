@@ -1,6 +1,6 @@
 import { forTenant } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
-import type { PersonProductLink } from "@/lib/types/contact";
+import type { AddedVia, PersonProductLink } from "@/lib/types/contact";
 import { getContactEmailHistory, type ContactEmailHistoryEntry } from "@/lib/crm/emailHistory";
 import { inviteDocId } from "@/lib/invites/ids";
 import type { InviteStage } from "@/lib/invites/inviteStage";
@@ -71,7 +71,7 @@ export interface WholePerson {
   added: {
     by: string;
     at: string;
-    via: "form" | "palette" | "vizzy";
+    via: AddedVia;
     consent: { how: string; howLabel: string; note: string | null; by: string; at: string } | null;
     /** The team withdrew the agreement it recorded: who, when and their note. Null unless withdrawn. */
     withdrawn: { note: string | null; by: string; at: string } | null;

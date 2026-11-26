@@ -832,7 +832,8 @@ describe("What Vizzy heard about the business (ONBOARDING_ENABLED)", () => {
         action: "Check",
       },
     ]);
-    expect(REVIEW_ORDER.indexOf("business_fact")).toBe(REVIEW_ORDER.indexOf("person_suggestion") + 1);
+    // After People's suggestions and pasted lists.
+    expect(REVIEW_ORDER.indexOf("business_fact")).toBe(REVIEW_ORDER.indexOf("paste_batch") + 1);
     expect(REVIEW_SECTIONS.business_fact.title).toBe("About your business");
   });
 

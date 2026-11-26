@@ -38,6 +38,7 @@ from root_agent_pkg.tools.retrieve_knowledge import retrieve_knowledge  # noqa: 
 from root_agent_pkg.tools.setup_help import get_setup_status, read_help_page  # noqa: E402
 from root_agent_pkg.tools.new_person import new_person_propose  # noqa: E402
 from root_agent_pkg.tools.business_profile import get_business_profile, read_onboarding_conversation, suggest_business_fact  # noqa: E402
+from root_agent_pkg.tools.next_action import get_next_action  # noqa: E402
 
 TOOLS = [
     retrieve_knowledge,
@@ -75,6 +76,7 @@ TOOLS = [
     get_business_profile,
     read_onboarding_conversation,
     suggest_business_fact,
+    get_next_action,
 ]
 
 

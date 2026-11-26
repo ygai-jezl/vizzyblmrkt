@@ -1,19 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
 import type { LiveServerMessage } from "@google/genai";
 import { START_MESSAGE, TIME_MESSAGE } from "./transcript";
-import { VoiceCallController, type LiveCallbacks, type VoiceCallDeps } from "./useVoiceCall";
+import { VoiceCallController, type LiveCallbacks, type LiveSessionLike, type VoiceCallDeps } from "./useVoiceCall";
 
 // The whole Talk with Vizzy flow with the browser faked: the audio, the microphone, Gemini Live
 // and our routes. Nothing leaves the test.
 
 type Reply = { status: number; body: unknown };
 
-function harness(replies: Partial<Record<"start" | "turns" | "end", Reply | Reply[]>> = {}) {
+function harness(replies: Partial<Record<"start" | "turns" | "end", Reply | Reply[]>> = {}, opts: { connect?: "open" | "pending" } = {}) {
   let now = 1_000_000;
   const calls: Array<{ url: string; body: Record<string, unknown>; keepalive?: boolean }> = [];
   const timers = new Map<number, () => void>();
   let pageHide: (() => void) | null = null;
   let live: LiveCallbacks | null = null;
+  let resolveConnect: ((s: LiveSessionLike) => void) | null = null;
   const mic = { start: vi.fn(), setMuted: vi.fn(), close: vi.fn() };
   const player = { playing: false, push: vi.fn(), clear: vi.fn(), drained: vi.fn(async () => {}) };
   const session = { sendClientContent: vi.fn(), sendRealtimeInput: vi.fn(), sendToolResponse: vi.fn(), close: vi.fn() };
@@ -27,9 +28,11 @@ function harness(replies: Partial<Record<"start" | "turns" | "end", Reply | Repl
   const deps: VoiceCallDeps = {
     openAudio: () => ({ mic: () => mic, player: () => player, close: audioClose }),
     askForMicrophone: vi.fn(async () => ({ getTracks: () => [track] }) as unknown as MediaStream),
-    connect: vi.fn(async (_token: string, _model: string, cb: LiveCallbacks) => {
+    connect: vi.fn((_token: string, _model: string, cb: LiveCallbacks) => {
       live = cb;
-      return session;
+      // Like the SDK's live.connect: it settles only once the socket opens.
+      if (opts.connect === "pending") return new Promise<LiveSessionLike>((resolve) => (resolveConnect = resolve));
+      return Promise.resolve(session);
     }),
     fetch: vi.fn(async (url: string, init: RequestInit) => {
       const body = JSON.parse(String(init.body ?? "{}")) as Record<string, unknown>;
@@ -66,6 +69,9 @@ function harness(replies: Partial<Record<"start" | "turns" | "end", Reply | Repl
     settle,
     message: (m: Partial<LiveServerMessage>) => live!.onmessage(m as LiveServerMessage),
     close: () => live!.onclose(),
+    error: () => live!.onerror(),
+    resolveConnect: () => resolveConnect?.(session),
+    ends: () => calls.filter((c) => c.url.endsWith("/end")),
     later: (seconds: number) => {
       now += seconds * 1000;
     },
@@ -280,6 +286,74 @@ describe("a Talk with Vizzy call", () => {
     expect(h.ctl.view.phase).toBe("ended");
     expect(h.ctl.view.ended).toMatchObject({ dropped: true, learning: false });
     expect(h.calls.at(-1)!.body).toMatchObject({ reason: "error", turns: [{ who: "member", text: "Just me" }] });
+  });
+
+  it("a connection that closes before it opens ends the start as a drop, and closes the call once", async () => {
+    const h = harness({}, { connect: "pending" });
+    h.ctl.start();
+    await h.settle();
+    expect(h.deps.connect).toHaveBeenCalled();
+    expect(h.ctl.view).toMatchObject({ phase: "mic", problem: null });
+    // The SDK's connect never settles now: the close itself ends the start.
+    h.close();
+    expect(h.track.stop).toHaveBeenCalled();
+    expect(h.audioClose).toHaveBeenCalled();
+    await h.settle();
+    expect(h.ctl.view).toMatchObject({ phase: "mic", problem: "unavailable", ended: null });
+    expect(h.ends()).toHaveLength(1);
+    expect(h.ends()[0]).toMatchObject({ url: "/api/admin/onboarding/conversations/oc_1/end", body: { reason: "error", turns: [] } });
+    expect(h.mic.start).not.toHaveBeenCalled();
+    expect(h.timersRunning()).toBe(0);
+    // And a new call can start.
+    h.ctl.start();
+    expect(h.ctl.view).toMatchObject({ phase: "mic", problem: null });
+  });
+
+  it("an error before the connection opens ends the start as a drop, and the close after it changes nothing", async () => {
+    const h = harness({}, { connect: "pending" });
+    h.ctl.start();
+    await h.settle();
+    h.error();
+    expect(h.track.stop).toHaveBeenCalled();
+    expect(h.audioClose).toHaveBeenCalled();
+    await h.settle();
+    expect(h.ctl.view).toMatchObject({ phase: "mic", problem: "unavailable" });
+    // A browser fires the close right after the error: the call is ended on the server once.
+    h.close();
+    await h.settle();
+    expect(h.ends()).toHaveLength(1);
+    expect(h.ends()[0]!.body).toMatchObject({ reason: "error", turns: [] });
+    expect(h.ctl.view).toMatchObject({ phase: "mic", problem: "unavailable" });
+  });
+
+  it("closes a session the SDK hands over after the start ended, and leaves the screen as it is", async () => {
+    const h = harness({}, { connect: "pending" });
+    h.ctl.start();
+    await h.settle();
+    h.close();
+    await h.settle();
+    h.resolveConnect();
+    await h.settle();
+    expect(h.session.close).toHaveBeenCalled();
+    expect(h.session.sendClientContent).not.toHaveBeenCalled();
+    expect(h.mic.start).not.toHaveBeenCalled();
+    expect(h.timersRunning()).toBe(0);
+    expect(h.ctl.view).toMatchObject({ phase: "mic", problem: "unavailable" });
+    expect(h.ends()).toHaveLength(1);
+  });
+
+  it("a connection that opens after a wait starts the call as before", async () => {
+    const h = harness({}, { connect: "pending" });
+    h.ctl.start();
+    await h.settle();
+    expect(h.ctl.view.phase).toBe("mic");
+    h.resolveConnect();
+    await h.settle();
+    expect(h.ctl.view).toMatchObject({ phase: "talking", problem: null, secondsLeft: 300 });
+    expect(h.session.sendClientContent).toHaveBeenCalledWith({ turns: [{ role: "user", parts: [{ text: START_MESSAGE }] }], turnComplete: true });
+    expect(h.mic.start).toHaveBeenCalled();
+    expect(h.session.close).not.toHaveBeenCalled();
+    expect(h.ends()).toEqual([]);
   });
 
   it("sends what's left as the page closes, with keepalive", async () => {

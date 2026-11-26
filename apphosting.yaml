@@ -284,6 +284,13 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Your next action on Home is a card Vizzy writes from the brand's answers, the facts it kept and
+  # where the brand is (needs ONBOARDING_ENABLED): one text model call each time those change or an
+  # admin asks for another, kept in the brand's region. Off, Home lists the stage's steps as before.
+  - variable: NEXT_ACTION_CARD_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Organisations and plans ==
   # Organisations and plans (src/lib/plans): an organisation above brands with a plan. Off, a

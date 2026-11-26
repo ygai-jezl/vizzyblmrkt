@@ -10,6 +10,7 @@ import { StatusCheck } from "@/components/waitlist/StatusCheck";
 import { WaitlistClosed } from "@/components/waitlist/WaitlistClosed";
 import { LanguageSwitcher } from "@/components/waitlist/LanguageSwitcher";
 import { isClosed } from "@/lib/waitlist/closed";
+import { voiceChatDone } from "@/lib/waitlist/voiceChat";
 import { localeInfo, resolveVisitorLocale, supportedLocalesFor } from "@/lib/i18n/locale";
 import { getMessage, getWidgetMessages, formatNumber, pluralText } from "@/lib/i18n/messages";
 import { waitlistNameSizeClass, signupCountSizeClass } from "@/lib/widget/textSize";
@@ -93,7 +94,7 @@ export default async function HostedWaitlistPage({
       verified = {
         ...share,
         referralToken: signup.referralToken,
-        voiceCompleted: signup.aiConversation?.completed === true,
+        voiceCompleted: voiceChatDone(signup.aiConversation),
       };
     }
   }

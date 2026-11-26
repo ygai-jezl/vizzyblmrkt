@@ -72,6 +72,8 @@ interface Shell {
   onboardingVoice: boolean;
   /** Settings › History (isSettingsHistoryEnabled(), from the server), for the How to drawer. */
   settingsHistory: boolean;
+  /** Home's Your next action is a card Vizzy writes (isNextActionCardEnabled(), from the server), for the How to drawer. */
+  nextActionCard: boolean;
   /**
    * Hear about each draft Vizzy saves in this chat (returns the unsubscribe), so a page whose
    * data isn't the server's render (the journey editor, a person's page) can reload it. Null
@@ -131,6 +133,7 @@ export function ShellProvider({
   onboarding = false,
   onboardingVoice = false,
   settingsHistory = false,
+  nextActionCard = false,
   children,
 }: {
   names: CrumbNames;
@@ -186,6 +189,8 @@ export function ShellProvider({
   onboardingVoice?: boolean;
   /** Settings › History (isSettingsHistoryEnabled(), from the server): the How to drawer says so. */
   settingsHistory?: boolean;
+  /** Home's Your next action is a card Vizzy writes (isNextActionCardEnabled(), from the server): the How to drawer says so. */
+  nextActionCard?: boolean;
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? "/admin";
@@ -279,9 +284,10 @@ export function ShellProvider({
       onboarding,
       onboardingVoice,
       settingsHistory,
+      nextActionCard,
       onCanvasSaved: journeyInContext || personInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, settingsHistory, saved],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, settingsHistory, nextActionCard, saved],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

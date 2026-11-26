@@ -66,7 +66,7 @@ afterEach(() => {
 
 // ---- The people ------------------------------------------------------------------------------
 
-const voice = { completed: true, transcript: [], capturedAt: new Date(T0).toISOString(), bonusApplied: false };
+const voice = { completed: true, transcript: [{ role: "user" as const, text: "Faster invoicing, please." }], capturedAt: new Date(T0).toISOString(), bonusApplied: false };
 const PEOPLE: Array<[string, Partial<Signup>]> = [
   ["ada", {}],
   ["grace", { amountReferred: 3, utm: { source: "linkedin-ads" } } as Partial<Signup>],

@@ -86,6 +86,8 @@ export interface HelpBodyProps {
   onboardingVoice?: boolean;
   /** Settings › History (isSettingsHistoryEnabled(), a server switch: the drawer gets it from the admin shell). */
   settingsHistory?: boolean;
+  /** Home's Your next action is a card Vizzy writes (isNextActionCardEnabled(), a server switch: the drawer gets it from the admin shell). */
+  nextActionCard?: boolean;
 }
 
 /** Navigation headings, matching Home's stages, in the words used while launches are called launches. */

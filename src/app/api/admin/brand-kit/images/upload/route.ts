@@ -91,6 +91,7 @@ export async function POST(req: Request) {
     );
   }
 
+  const now = new Date().toISOString();
   let asset;
   try {
     asset = await recordImageAsset(
@@ -107,7 +108,10 @@ export async function POST(req: Request) {
         byteSize: bytes.length,
         brandVote: "up",
         brandRating: rating,
-        brandVoteSetAt: new Date().toISOString(),
+        brandVoteSetAt: now,
+        // Kept only with image style versions on (learning loops step 4): an upload counts as a like.
+        brandVoteVia: "upload",
+        firstVotedAt: now,
       },
     );
   } catch (err) {

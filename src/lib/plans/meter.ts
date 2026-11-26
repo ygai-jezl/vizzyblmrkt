@@ -54,9 +54,24 @@ export async function usageThisMonth(
   return (doc?.meters ?? {}) as Partial<Record<ResourceId, ResourceCount>>;
 }
 
-/** How much of one resource a brand used this month. */
+/**
+ * Purposes counted on a capped resource that never count toward its cap. Learning is never capped
+ * (learning loops step 4, decision 3): the first remake of a held back image is metered under
+ * loop_learn, so the holdback never uses up a brand's images.
+ */
+export const UNCAPPED_PURPOSES: ReadonlySet<ResourcePurpose> = new Set<ResourcePurpose>(["loop_learn"]);
+
+/** The part of a month's count that counts toward its cap: all of it but what UNCAPPED_PURPOSES used. */
+export function countedTowardCap(count: ResourceCount | null | undefined): number {
+  if (!count) return 0;
+  let n = count.total ?? 0;
+  for (const p of UNCAPPED_PURPOSES) n -= count.byPurpose?.[p] ?? 0;
+  return Math.max(0, n);
+}
+
+/** How much of one resource a brand used this month, as its cap counts it. */
 export async function usedThisMonth(ctx: Pick<TenantContext, "tenantId" | "region">, resource: ResourceId, deps: MeterDeps = {}): Promise<number> {
-  return (await usageThisMonth(ctx, deps))[resource]?.total ?? 0;
+  return countedTowardCap((await usageThisMonth(ctx, deps))[resource]);
 }
 
 /**
@@ -107,7 +122,7 @@ export function usageMeter<R extends ResourceId>(
 ): UsageMeter {
   return {
     async check(units = 1) {
-      if (!isUsageMeterEnabled() || !isLimitedResource(resource)) return null;
+      if (!isUsageMeterEnabled() || !isLimitedResource(resource) || UNCAPPED_PURPOSES.has(purpose)) return null;
       try {
         const [used, tenant] = await Promise.all([
           usedThisMonth(ctx, resource, opts),

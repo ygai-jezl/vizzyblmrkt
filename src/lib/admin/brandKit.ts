@@ -6,6 +6,9 @@ import type { Region } from "@/lib/types/tenant";
 import { ImageAssetSchema, type ImageAsset } from "@/lib/types/imageAsset";
 import type { Made } from "@/lib/types/loopStamp";
 import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
+import { countImageVote } from "@/lib/loops/imageRows";
+import { isVoteReason, VOTE_NOTE_CHARS } from "@/lib/loops/reasons";
+import { textRefusalOf } from "@/lib/loops/textCheck";
 
 export const BRAND_KIT_PAGE_SIZE = 60;
 
@@ -87,19 +90,110 @@ export async function updateImageAsset(
 /**
  * Record (or clear) the operator's brand-fit verdict on an image. A vote stamps
  * `brandVoteSetAt`; a 👎 or a clear (null) drops the numeric rating. Idempotent.
+ *
+ * With image style versions on (learning loops step 4), in one transaction it also keeps how the
+ * verdict was given (`brandVoteVia: "vote"`), when the image was first voted on (`firstVotedAt`,
+ * set once and never reset), and clears the reason and note when the vote changes (3.11); then it
+ * counts the vote against the image's stamp, so a changed vote moves the counts and each image
+ * counts once. With them off the row is written exactly as before.
  */
 export async function setImageBrandVote(
   ctx: TenantContext,
   id: string,
   input: { vote: "up" | "down" | null; rating?: number | null },
+  deps: { now?: Date } = {},
 ): Promise<ImageAsset | null> {
   const vote = input.vote;
   const rating = vote === "up" ? (input.rating ?? null) : null;
-  return updateImageAsset(ctx, id, {
-    brandVote: vote,
-    brandRating: rating,
-    brandVoteSetAt: vote ? new Date().toISOString() : null,
+  const now = deps.now ?? new Date();
+  if (!isImageStyleVersionsOn()) {
+    return updateImageAsset(ctx, id, {
+      brandVote: vote,
+      brandRating: rating,
+      brandVoteSetAt: vote ? now.toISOString() : null,
+    });
+  }
+  // The row as the transaction read it (closures aren't narrowed, hence the holder).
+  const seen: { before: ImageAsset | null } = { before: null };
+  const after = await forTenant(ctx).imageAssets.claim(id, (current) => {
+    seen.before = current;
+    const changed = (current.brandVote ?? null) !== vote;
+    return {
+      brandVote: vote,
+      brandRating: rating,
+      brandVoteSetAt: vote ? now.toISOString() : null,
+      brandVoteVia: vote ? "vote" : null,
+      ...(vote && !current.firstVotedAt ? { firstVotedAt: firstVoteOf(current, now) } : {}),
+      ...(changed ? { brandVoteReason: null, brandVoteNote: null, brandVoteReasonAt: null } : {}),
+    };
   });
+  if (!after || !seen.before) return null;
+  await countImageVote(ctx, seen.before, after, { now });
+  return after;
+}
+
+/**
+ * When an image was first voted on, for a row that has no firstVotedAt yet: now, or for a row
+ * voted before versions came on, when it was made, so re-rating an old like never counts as a new
+ * one.
+ */
+function firstVoteOf(row: ImageAsset, now: Date): string {
+  return row.brandVote ? row.createdAt : now.toISOString();
+}
+
+/** Why a reason or note wasn't kept. */
+export type VoteReasonRefusal = "not_found" | "no_vote" | "invalid_reason" | "note_refused";
+
+export type VoteReasonResult = { ok: true; image: ImageAsset } | { ok: false; error: VoteReasonRefusal };
+
+/** A note as kept: plain text on one line, its spaces collapsed, at most VOTE_NOTE_CHARS; empty is none. */
+export function cleanVoteNote(note: string | null | undefined): string | null {
+  const t = (note ?? "").replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
+  return t ? t.slice(0, VOTE_NOTE_CHARS) : null;
+}
+
+/**
+ * Keep the why behind the image's vote (3.11 of the plan for steps 4 and 5): one reason key for
+ * the vote's direction (VOTE_REASONS.image), and an optional note, which passes the loops' text
+ * check (no links, email addresses, handles or phone numbers). A null reason clears both. The
+ * reason moves the image's `liked.<reason>` or `disliked.<reason>` count once. Only with image
+ * style versions on; the caller checks the switch.
+ */
+export async function setImageVoteReason(
+  ctx: TenantContext,
+  id: string,
+  input: { reason: string | null; note?: string | null },
+  deps: { now?: Date } = {},
+): Promise<VoteReasonResult> {
+  const now = deps.now ?? new Date();
+  const note = cleanVoteNote(input.note);
+  if (note && !input.reason) return { ok: false, error: "invalid_reason" };
+  if (note && textRefusalOf(note)) return { ok: false, error: "note_refused" };
+
+  const seen: { before: ImageAsset | null; refused: VoteReasonRefusal | null } = { before: null, refused: null };
+  const after = await forTenant(ctx).imageAssets.claim(id, (current) => {
+    seen.before = current;
+    seen.refused = null;
+    if (!current.brandVote) {
+      seen.refused = "no_vote";
+      return null;
+    }
+    if (input.reason && !isVoteReason("image", current.brandVote, input.reason)) {
+      seen.refused = "invalid_reason";
+      return null;
+    }
+    return {
+      brandVoteReason: (input.reason ?? null) as ImageAsset["brandVoteReason"],
+      brandVoteNote: input.reason ? note : null,
+      brandVoteReasonAt: input.reason ? now.toISOString() : null,
+      // A vote from before versions is counted with its first reason.
+      ...(current.firstVotedAt ? {} : { firstVotedAt: firstVoteOf(current, now) }),
+    };
+  });
+  if (seen.refused) return { ok: false, error: seen.refused };
+  if (!after || !seen.before) return { ok: false, error: "not_found" };
+  await countImageVote(ctx, seen.before, after, { now });
+  return { ok: true, image: after };
 }
 
 /**
@@ -159,19 +253,23 @@ const IMAGE_ASSET_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
  * Customise flow wants the record to succeed. Generation-path callers wrap this in
  * `.catch(...)` so a Firestore blip never fails an already-stored image.
  *
- * Its stamp (`made`) is kept only while image style versions are on, so with them off the row is
- * exactly as before (decision 22). The id it was given is refused if a row already has it.
+ * Its stamp (`made`), and an upload's `brandVoteVia` and `firstVotedAt`, are kept only while image
+ * style versions are on, so with them off the row is exactly as before (decision 22). The id it
+ * was given is refused if a row already has it.
  */
 export async function recordImageAsset(
   scope: { tenantId: string; region: Region },
   input: RecordImageInput,
 ): Promise<ImageAsset> {
-  const { id: given, made, ...rest } = input;
+  const { id: given, made, brandVoteVia, firstVotedAt, ...rest } = input;
   const id = given ?? newImageAssetId();
   if (!IMAGE_ASSET_ID_RE.test(id)) throw new Error("recordImageAsset needs an image id of letters, digits, underscores and hyphens");
+  const versions = isImageStyleVersionsOn();
   const doc = ImageAssetSchema.parse({
     ...rest,
-    ...(made && isImageStyleVersionsOn() ? { made } : {}),
+    ...(versions && made ? { made } : {}),
+    ...(versions && brandVoteVia ? { brandVoteVia } : {}),
+    ...(versions && firstVotedAt ? { firstVotedAt } : {}),
     id,
     tenantId: scope.tenantId,
     createdAt: new Date().toISOString(),

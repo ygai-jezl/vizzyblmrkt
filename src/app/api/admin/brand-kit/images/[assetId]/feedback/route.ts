@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
-import { setImageBrandVote } from "@/lib/admin/brandKit";
+import { setImageBrandVote, setImageVoteReason, type VoteReasonRefusal } from "@/lib/admin/brandKit";
 import {
   refreshExemplarStyle,
   refreshLearnedImageStyle,
@@ -10,8 +10,10 @@ import {
 } from "@/lib/content/create/styleProfile";
 import { canonicalStyleId } from "@/lib/content/imageStyle/catalogue";
 import { learnsFromThumbs } from "@/lib/content/imageStyle/learning";
-import { isBrandImageStyleEnabled } from "@/lib/content/imageStyle/flags";
+import { isBrandImageStyleEnabled, isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 import { isBrandKitEnabled } from "@/lib/content/brandKit";
+import { VOTE_NOTE_CHARS } from "@/lib/loops/reasons";
+import { NOTE_REFUSED_MESSAGE } from "@/lib/loops/textCheck";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +25,20 @@ const BodySchema = z.object({
   vote: z.enum(["up", "down"]).nullable(),
   rating: z.number().int().min(1).max(10).optional(),
 });
+
+/**
+ * The why behind a vote, sent after the vote has saved (learning loops step 4, 3.11): a reason
+ * key for the vote's direction, or null to clear it, and an optional note. Only with image style
+ * versions on; with them off a body like this is refused as before.
+ */
+const ReasonSchema = z
+  .object({
+    reason: z.string().min(1).max(40).nullable(),
+    note: z.string().max(VOTE_NOTE_CHARS).nullable().optional(),
+  })
+  .strict();
+
+const REASON_STATUS: Record<VoteReasonRefusal, number> = { not_found: 404, no_vote: 409, invalid_reason: 400, note_refused: 400 };
 
 /**
  * Brand Kit feedback: record the operator's on-brand verdict on an image — 👍 (with a
@@ -42,7 +58,21 @@ export async function POST(req: Request, { params }: RouteParams) {
   }
 
   const { assetId } = await params;
-  const parsed = BodySchema.safeParse(await req.json().catch(() => null));
+  const body: unknown = await req.json().catch(() => null);
+
+  // The why behind the vote, after it saved: kept on the image's row, and counted once.
+  if (isImageStyleVersionsOn() && body && typeof body === "object" && !("vote" in body)) {
+    const why = ReasonSchema.safeParse(body);
+    if (!why.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
+    const kept = await setImageVoteReason(ctx, assetId, { reason: why.data.reason, note: why.data.note ?? null });
+    if (kept.ok) return NextResponse.json({ image: kept.image });
+    return NextResponse.json(
+      kept.error === "note_refused" ? { error: kept.error, message: NOTE_REFUSED_MESSAGE } : { error: kept.error },
+      { status: REASON_STATUS[kept.error] },
+    );
+  }
+
+  const parsed = BodySchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
 
   // setImageBrandVote loads the row tenant-scoped and returns null if it doesn't exist for

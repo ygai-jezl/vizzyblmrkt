@@ -30,7 +30,7 @@ import {
 } from "./catalog";
 import { isPlansEnabled } from "./flags";
 import { isLimitedResource, monthlyLimitWith, type CapKey, type CapSource, type LimitedFeature } from "./limits";
-import { addCounts, usageThisMonth } from "./meter";
+import { addCounts, countedTowardCap, usageThisMonth } from "./meter";
 import type { ResourceCount } from "@/lib/types/usageMeter";
 import { RESOURCE_IDS, RESOURCES, type ResourceId } from "./resources";
 import { isUsageMeterEnabled } from "./flags";
@@ -281,7 +281,8 @@ async function monthlyRows(ctx: TenantContext, tenant: Tenant | null, plansOn: b
     return {
       feature: r,
       label: RESOURCES[r].label,
-      used: meters === null ? null : (count?.total ?? 0),
+      // A capped row shows what counts toward its cap, so used and left agree with the check.
+      used: meters === null ? null : cap ? countedTowardCap(count) : (count?.total ?? 0),
       limit: cap?.limit ?? null,
       from: cap?.from ?? null,
       included: true,
@@ -306,7 +307,7 @@ async function organisationResources(brands: Array<{ id: string; region: Region 
     resource: r,
     label: RESOURCES[r].label,
     unit: RESOURCES[r].unit,
-    used: totals === null ? null : (totals[r]?.total ?? 0),
+    used: totals === null ? null : isLimitedResource(r) ? countedTowardCap(totals[r]) : (totals[r]?.total ?? 0),
   }));
 }
 

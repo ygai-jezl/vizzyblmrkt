@@ -51,7 +51,7 @@ export const OUTSIDE_SRC: Partial<Record<ResourcePurpose, readonly string[]>> = 
 /** Kinds made nowhere in the code, each with its reason. */
 export const NO_CALL_SITE: Partial<Record<LoopKind, string>> = {
   other: "Kept so older months that spent under it keep a label; src/lib/agents/groundedMeter.test.ts fails on any new spend under it.",
-  loop_learn: "The loops' own learners spend under it from learning loops step 4 (the vote route and the votes learner), which come in later commit groups.",
+  loop_learn: "The loops' own learners spend under it from learning loops step 4 (the vote route and the votes learner), and so does the first remake of a held back image (readRemake in src/lib/loops/remake.ts), all wired in later commit groups.",
 };
 
 /** The file that runs every connector rule. */

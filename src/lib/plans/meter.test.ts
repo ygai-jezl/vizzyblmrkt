@@ -3,7 +3,7 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { Tenant } from "@/lib/types/tenant";
 import { monthlyLimitWith } from "./limits";
-import { aiUsage, organisationUsageThisMonth, usageMeter, usageThisMonth, usedThisMonth } from "./meter";
+import { aiUsage, countedTowardCap, organisationUsageThisMonth, UNCAPPED_PURPOSES, usageMeter, usageThisMonth, usedThisMonth } from "./meter";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "system" };
 const B: TenantContext = { tenantId: "ten_B", region: "us", source: "system" };
@@ -113,6 +113,22 @@ describe("the usage meter", () => {
     const zero = brand({ featureLimits: { next_up: 0 } } as Partial<Tenant>);
     expect(await usageMeter(A, "model_tokens", "vizzy_chat", { db, now: NOV, tenant: zero }).check(1_000_000)).toBeNull();
     expect(await usageMeter(A, "google_lookups", "get_from_google", { db, now: NOV, tenant: zero }).check()).toBeNull();
+  });
+
+  it("never caps learning: loop_learn images are counted, kept off the cap and never checked (learning loops step 4)", async () => {
+    const db = new FakeFirestore();
+    const capped = brand({ featureLimits: { images: 2 } } as Partial<Tenant>);
+    await aiUsage(A, "post_image", { db, now: NOV, tenant: capped }).recordImages(2);
+    const learning = aiUsage(A, "loop_learn", { db, now: NOV, tenant: capped });
+    expect(await learning.check("images")).toBeNull();
+    await learning.recordImages(1);
+    await learning.recordModel(900, "gemini-3.8-flash");
+    expect(await usedThisMonth(A, "images", { db, now: NOV })).toBe(2);
+    expect((await usageThisMonth(A, { db, now: NOV })).images).toMatchObject({ total: 3, byPurpose: { post_image: 2, loop_learn: 1 } });
+    expect(await usageMeter(A, "images", "post_image", { db, now: NOV, tenant: capped }).check()).toEqual({ limited: true, used: 2, limit: 2 });
+    expect(UNCAPPED_PURPOSES).toEqual(new Set(["loop_learn"]));
+    expect(countedTowardCap(undefined)).toBe(0);
+    expect(countedTowardCap({ total: 5, calls: 2, lostCalls: 0, byPurpose: { loop_learn: 9 } })).toBe(0);
   });
 
   it("refuses an id that isn't this brand's", async () => {

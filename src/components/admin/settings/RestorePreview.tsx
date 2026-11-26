@@ -48,7 +48,7 @@ export function RestorePreview({ entry, onClose, onRestored }: { entry: HistoryE
     });
     setBusy(false);
     if (!r.ok) {
-      setStale(r.status === 409 && (r.data.error === "fields_changed" || r.data.error === "draft_changed" || r.data.error === "catalog_changed"));
+      setStale(r.status === 409 && (r.data.error === "fields_changed" || r.data.error === "draft_changed" || r.data.error === "catalog_changed" || r.data.error === "views_changed"));
       return setError(restoreErrorText(r.data));
     }
     if (preview.kind === "journeys") onRestored(PREVIEW_COPY.doneDraft(preview.rev));

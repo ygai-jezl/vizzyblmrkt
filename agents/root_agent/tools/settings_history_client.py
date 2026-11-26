@@ -6,7 +6,7 @@ tests can monkeypatch it. Auth reuses the signed canvas capability token (`ctxTo
 state); the app takes the brand from that token, never from here.
 
 The answer is the brand's Settings › History: every change to its fields, journeys, product
-catalogs and shared connections, newest first, with who made it (display names only, never an
+catalogs, shared connections and team views, newest first, with who made it (display names only, never an
 address), or one version whole. Read only: restoring is a person's, in the app.
 """
 
@@ -20,7 +20,7 @@ import urllib.request
 
 PATH = "/api/agent/settings-history"
 _TIMEOUT_SECONDS = 30
-_KINDS = ("fields", "journeys", "catalogs", "connections")
+_KINDS = ("fields", "journeys", "catalogs", "connections", "views")
 
 _OFF = "Settings history isn't switched on in this environment yet."
 _NO_LINK = "I can't reach the app from this chat yet. Please send that again."

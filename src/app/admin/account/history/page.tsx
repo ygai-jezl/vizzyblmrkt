@@ -10,8 +10,8 @@ export const dynamic = "force-dynamic";
 
 /**
  * Settings › History (SETTINGS_HISTORY_ENABLED): every change to the brand's fields, journeys,
- * product catalogs and shared connections, for the brand you are in. The whole team reads it and
- * exports; admins preview and restore. The kinds listed are those whose own screens are on. While
+ * product catalogs, shared connections and team views, for the brand you are in. The whole team
+ * reads it and exports; admins preview and restore. The kinds listed are those whose own screens are on. While
  * SETTINGS_ERASE_ENABLED is on, an owner of the organisation with a real admin row for the brand
  * (read live, as Data model reads it) sees Erase values on the entry that archived a field.
  */

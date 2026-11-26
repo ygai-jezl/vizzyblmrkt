@@ -7,6 +7,7 @@ import { productNameOf } from "@/lib/connect/environments";
 import { isLifecycleUiEnabled } from "@/lib/lifecycle/flags";
 import { versionDocId } from "@/lib/lifecycle/enrol";
 import { isPlansEnabled } from "@/lib/plans/flags";
+import { isViewsEnabled } from "@/lib/views/flags";
 import { A_TEAM_MEMBER, FORMER_TEAM_MEMBER, teamMemberNames, type UserLookup } from "@/lib/team/names";
 import type { EventActor } from "@/lib/ontology/events";
 import type { CatalogRevision } from "@/lib/types/catalogRevision";
@@ -21,7 +22,9 @@ import { BEFORE_HISTORY_TEXT } from "./words";
  * HistoryEntry, newest first, for the brand in the context only.
  *
  * - The settings log (`settings_versions`): one query per subject on B's (tenantId, subject, rev
- *   DESC) index, merged in memory. Field lists and shared connections are kinds of it.
+ *   DESC) index, merged in memory. Field lists, shared connections and team views on People
+ *   (`views:person`, piece C, restored one view at a time) are kinds of it. Only me views are never
+ *   in the log, so never here.
  * - Published journey versions (`lifecycle_versions`): newest first on (tenantId, publishedAt
  *   DESC); one journey's versions are read by id, `<journeyId>_v<n>`.
  * - Catalog versions (`catalog_revisions`): newest first on (tenantId, savedAt DESC); one product's
@@ -36,7 +39,7 @@ import { BEFORE_HISTORY_TEXT } from "./words";
  * member". A source that can't be read (an index still building) is left out and the page says so.
  */
 
-export const HISTORY_KINDS = ["fields", "journeys", "catalogs", "connections"] as const;
+export const HISTORY_KINDS = ["fields", "journeys", "catalogs", "connections", "views"] as const;
 export type HistoryKind = (typeof HISTORY_KINDS)[number];
 
 export function isHistoryKind(v: unknown): v is HistoryKind {
@@ -62,6 +65,8 @@ export const KINDS: Record<HistoryKind, KindSpec> = {
   catalogs: { label: "Product catalogs", store: "catalogs", shown: () => true, restore: isCatalogHistoryEnabled },
   // Given and taken back on Settings › Organisation, so read only here.
   connections: { label: "Shared connections", store: "settings", subjects: ["connections:shared"], shown: isConnectorsSharingEnabled },
+  // The team's saved views on People (CRM_VIEWS_ENABLED), restored one view at a time (src/lib/views/versionRestore.ts).
+  views: { label: "Team views", store: "settings", subjects: ["views:person"], shown: isViewsEnabled, restore: () => true },
 };
 
 /** The kinds shown now, in filter order. */
@@ -155,6 +160,7 @@ const SETTINGS_NAME: Record<SettingsSubject, string> = {
   "fields:person": "People fields",
   "fields:company": "Company fields",
   "connections:shared": "Shared connections",
+  "views:person": "Team views",
 };
 
 /** What a settings subject is called in History. */

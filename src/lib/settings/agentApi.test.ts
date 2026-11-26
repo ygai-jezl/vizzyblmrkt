@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forTenant } from "@/lib/tenant";
 import { agentSettingsHistory } from "./agentApi";
-import { buildWorld, ctx, lookup, switchesOn, type World } from "./testing/world";
+import { addTeamViews, buildWorld, ctx, lookup, switchesOn, viewsOn, type World } from "./testing/world";
 
 let w: World;
 beforeEach(async () => {
@@ -95,5 +95,29 @@ describe("agentSettingsHistory", () => {
     expect(await agentSettingsHistory(ctx, { subject: `journey:${w.journeyId}`, rev: "2" }, { db: w.db })).toEqual({ status: 409, body: { error: "journey_archived" } });
     await forTenant(ctx, w.db).productConnections.update("pcn_life", { status: "revoked" });
     expect(await agentSettingsHistory(ctx, { subject: "catalog:pcn_life", rev: "2" }, { db: w.db })).toEqual({ status: 409, body: { error: "connection_revoked" } });
+  });
+
+  it("reads team views while views are on, one view a version, and never a team member's own", async () => {
+    await addTeamViews(w);
+    expect(((await agentSettingsHistory(ctx, {}, { db: w.db, lookup })).body as Body).kinds).not.toContain("views");
+    expect(await agentSettingsHistory(ctx, { subject: "views:person", rev: "1" }, { db: w.db })).toEqual({ status: 404, body: { error: "kind_not_shown" } });
+    viewsOn();
+    const body = (await agentSettingsHistory(ctx, { kind: "views" }, { db: w.db, lookup })).body as Body;
+    expect(body.kinds).toEqual(["fields", "journeys", "catalogs", "connections", "views"]);
+    expect(body.entries[0]).toEqual({
+      kind: "views",
+      subject: "views:person",
+      name: "Team views",
+      version: 4,
+      at: "2026-11-14T10:00:00.000Z",
+      by: "Maya Chen",
+      message: "Archived team view ‘Gold tier’",
+      changes: ["Archived ‘Gold tier’"],
+      restoredFrom: null,
+    });
+    expect(body.note).toContain("a team member's own views are never in the history");
+    const one = await agentSettingsHistory(ctx, { subject: "views:person", rev: "2" }, { db: w.db });
+    expect(one.body).toMatchObject({ subject: "views:person", version: 2, document: { format: "yougrow.settings-version", subject: "views:person", rev: 2 } });
+    expect(JSON.stringify([body, one])).not.toContain("My repots");
   });
 });

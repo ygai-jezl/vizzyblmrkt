@@ -2,11 +2,13 @@ import { vi } from "vitest";
 import { commitSettingsChange, forTenant } from "@/lib/tenant";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
-import { saveFieldListChange } from "@/lib/audience/fieldList";
+import { readFieldList, saveFieldListChange } from "@/lib/audience/fieldList";
 import { createLifecycleJourney, publishLifecycleJourney, saveLifecycleDraft } from "@/lib/lifecycle/service";
 import { CONNECTION_ID, ctx as lifecycleCtx, seedWorld, STEPS, TENANT_ID } from "@/lib/lifecycle/testing/fixtures";
 import type { UserLookup } from "@/lib/team/names";
 import type { ConnectionCatalog } from "@/lib/types/productConnection";
+import { changeSavedView, createSavedView, removeSavedView } from "@/lib/views/savedViews";
+import { emptyView, type ViewDefinition } from "@/lib/views/types";
 
 /**
  * A brand with something of every kind in its history, for the settings history tests: People and
@@ -125,4 +127,47 @@ export async function buildWorld(): Promise<World> {
   // Another brand's history, which must never show.
   await saveFieldListChange(other, "person", { baseRev: 0, change: { op: "add", label: "Secret", type: "text" }, by: maya, nowIso: at(10) }, db);
   return { db, journeyId, tier: "fld_000000000001" };
+}
+
+/** Team views on People, as History's views kind needs them on. */
+export function viewsOn(): void {
+  vi.stubEnv("CRM_VIEWS_ENABLED", "true");
+}
+
+export interface Views {
+  /** ‘Wholesale’, renamed ‘Trade buyers’. */
+  trade: string;
+  /** ‘Gold tier’, archived. */
+  gold: string;
+  /** Tom's own ‘My repots’, never logged. */
+  mine: string;
+  /** Wholesale's filters as version 1 saved them, and as version 2 changed them. */
+  gold1: ViewDefinition;
+  goldSilver2: ViewDefinition;
+}
+
+/**
+ * Team views (the `views:person` setting), all by Maya: v1 ‘Wholesale’ on the 11th, v2 renames it
+ * ‘Trade buyers’ with Silver added to its filter on the 12th, v3 ‘Gold tier’ on the 13th, v4
+ * archives Gold tier on the 14th. Tom saves ‘My repots’ for himself on the 15th, which no log keeps.
+ */
+export async function addTeamViews(w: World): Promise<Views> {
+  const fields = (await readFieldList(ctx, "person", w.db)).items;
+  let n = 0;
+  const newId = () => `viw_${String((n += 1)).padStart(12, "0")}`;
+  const tier = (...options: string[]): ViewDefinition => ({ ...emptyView(), filters: [{ on: w.tier, op: "any_of", value: options }], sort: { by: "last_active", dir: "desc" } });
+  const gold1 = tier("opt_00000001");
+  const goldSilver2 = tier("opt_00000001", "opt_00000002");
+  const ok = <R extends { ok: boolean }>(r: R): R => {
+    if (!r.ok) throw new Error(JSON.stringify(r));
+    return r;
+  };
+  const trade = ok(await createSavedView(ctx, { scope: "team", name: "Wholesale", definition: gold1, fields, newId, nowIso: at(11) }, w.db));
+  const id = trade.ok ? trade.view.id : "";
+  ok(await changeSavedView(ctx, id, { version: 1, name: "Trade buyers", definition: goldSilver2, fields, nowIso: at(12) }, w.db));
+  const gold = ok(await createSavedView(ctx, { scope: "team", name: "Gold tier", definition: gold1, fields, newId, nowIso: at(13) }, w.db));
+  const goldId = gold.ok ? gold.view.id : "";
+  ok(await removeSavedView(ctx, goldId, { version: 1, nowIso: at(14) }, w.db));
+  const mine = ok(await createSavedView(member, { scope: "me", name: "My repots", definition: emptyView(), fields, newId, nowIso: at(15) }, w.db));
+  return { trade: id, gold: goldId, mine: mine.ok ? mine.view.id : "", gold1, goldSilver2 };
 }

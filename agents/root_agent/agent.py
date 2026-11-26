@@ -89,7 +89,7 @@ root_agent = LlmAgent(
     # get_brand_strategy reads the brand's approved strategy, each claim with its proof (read only);
     # get_content_strategy reads the brand's approved content plan: pillars, the next weeks and the counts (read only);
     # get_usage reads what the brand used this month against its limits, each number explained;
-    # get_settings_history reads who changed the brand's fields, journeys and catalogs, and any older version (read only);
+    # get_settings_history reads who changed the brand's fields, journeys, catalogs and team views, and any older version (read only);
     # list_articles_due reads the brand's live articles due a refresh, with why (read only);
     # review_article starts or moves on a refresh review of one and says what it proposes (never applies);
     # get_setup_status/read_help_page answer "what should I set up first?"

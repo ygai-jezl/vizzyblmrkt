@@ -25,6 +25,7 @@ import { isPeopleNameEnabled } from "@/lib/audience/flags";
 import { VIZZY_READS_HINT } from "@/components/admin/audience/fieldsApi";
 import { drawerBodyProps } from "@/components/help/HowToDrawer";
 import { VIEW_MESSAGES } from "@/lib/views/words";
+import { RESTORE_MESSAGES } from "@/components/admin/settings/historyWords";
 import {
   ABOUT_WORDS,
   BASICS_WORDS,
@@ -701,6 +702,25 @@ describe("the views sections", () => {
   it("follow what the How to drawer is told", () => {
     expect(drawerBodyProps({ views: true } as never).views).toBe(true);
     expect(drawerBodyProps(null as never).views).toBe(false);
+  });
+
+  it("put team views in History while views are on: one view at a time, never anyone's own", () => {
+    const history = (views: boolean) => docToMarkdown(HELP_BODIES["history-and-restore"]!({ views }), "https://app.example.com");
+    const on = history(true);
+    expect(on).toContain("## Team views");
+    expect(on).toContain("**Team views**");
+    expect(on).toContain("A restore puts back one view at a time");
+    expect(on).toContain("are never in History");
+    for (const m of [RESTORE_MESSAGES.views_changed, RESTORE_MESSAGES.team_views_full]) expect(on).toContain(m);
+    const off = history(false);
+    expect(off).not.toContain("Team views");
+    expect(off).not.toContain("team view");
+    expect(off).not.toContain(RESTORE_MESSAGES.views_changed);
+    // Saved views on People say where their history is, while History is on.
+    const audience = (settingsHistory: boolean) => docToMarkdown(HELP_BODIES["your-audience"]!({ people: true, fields: true, views: true, settingsHistory }), "https://app.example.com");
+    expect(audience(true)).toContain("Each change to a team view is kept in [History](https://app.example.com/help/history-and-restore.md");
+    expect(audience(true)).toContain("Your own views are never in it.");
+    expect(audience(false)).toContain("Each change to a team view is kept in the settings history.");
   });
 });
 

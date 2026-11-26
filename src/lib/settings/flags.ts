@@ -9,10 +9,10 @@ import { isPlansEnabled } from "@/lib/plans/flags";
 
 /**
  * Settings › History (SETTINGS_HISTORY_ENABLED): every change to the brand's fields, journeys,
- * product catalogs and shared connections in one list, a preview before a restore, restoring an
- * older version as a new one (a journey into its draft only), JSON export, and Vizzy's read of the
- * same list. Off: the tab, its routes and Vizzy's route don't exist, and Data model and the Catalog
- * tab work as before.
+ * product catalogs, shared connections and team views in one list, a preview before a restore,
+ * restoring an older version as a new one (a journey into its draft only, team views one view at a
+ * time), JSON export, and Vizzy's read of the same list. Off: the tab, its routes and Vizzy's route
+ * don't exist, and Data model and the Catalog tab work as before.
  */
 export function isSettingsHistoryEnabled(): boolean {
   return process.env.SETTINGS_HISTORY_ENABLED === "true";

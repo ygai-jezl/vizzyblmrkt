@@ -14,7 +14,7 @@ import { RestorePreview } from "./RestorePreview";
 
 /**
  * Settings › History (SETTINGS_HISTORY_ENABLED): every change to the brand's fields, journeys,
- * product catalogs and shared connections, newest first, filtered by kind. Anyone on the team
+ * product catalogs, shared connections and team views (CRM_VIEWS_ENABLED), newest first, filtered by kind. Anyone on the team
  * reads it and exports a version; admins preview a restore and make it, and an owner who can
  * erase (SETTINGS_ERASE_ENABLED) sees Erase values on the entry that archived a field whose values
  * can be erased now. Who did it is a name looked up on the server (a team member's sign in address

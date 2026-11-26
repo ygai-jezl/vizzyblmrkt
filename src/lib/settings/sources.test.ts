@@ -4,7 +4,7 @@ import { readFieldList, saveFieldListChange } from "@/lib/audience/fieldList";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { failingFirestore } from "@/lib/tenant/testing/failingFirestore";
 import { BEFORE_HISTORY_TEXT, decodeCursor, listHistory, parseHistorySubject, type HistoryPage } from "./sources";
-import { buildWorld, ctx, lookup, member, switchesOn, T, type World } from "./testing/world";
+import { addTeamViews, buildWorld, ctx, lookup, member, switchesOn, T, viewsOn, type World } from "./testing/world";
 
 let w: World;
 beforeEach(async () => {
@@ -158,5 +158,32 @@ describe("listHistory", () => {
     expect(p.entries.some((e) => e.kind === "journeys")).toBe(false);
     expect(p.entries.length).toBeGreaterThan(0);
     warn.mockRestore();
+  });
+});
+
+describe("listHistory: team views", () => {
+  it("lists every team save while views are on, one view a version, and never anyone's own views", async () => {
+    await addTeamViews(w);
+    // Off: the kind isn't listed, and nothing of the views shows.
+    expect((await page()).kinds.map((k) => k.kind)).not.toContain("views");
+    expect((await page({ kind: "views" })).entries).toEqual([]);
+    expect((await page({ subject: "views:person" })).entries).toEqual([]);
+    viewsOn();
+    const p = await page();
+    expect(p.kinds.map((k) => k.label)).toEqual(["Fields", "Journeys", "Product catalogs", "Shared connections", "Team views"]);
+    expect((await page({ kind: "views" })).entries.map(line)).toEqual(["Team views v4 · Maya Chen", "Team views v3 · Maya Chen", "Team views v2 · Maya Chen", "Team views v1 · Maya Chen"]);
+    expect(p.entries[0]).toMatchObject({ kind: "views", subject: "views:person", rev: 4, message: "Archived team view ‘Gold tier’", items: ["Archived ‘Gold tier’"], canRestore: true, canExport: true, readOnly: null, archivedKeys: [] });
+    expect(p.entries.find((e) => e.kind === "views" && e.rev === 2)).toMatchObject({ message: "Renamed ‘Wholesale’ to ‘Trade buyers’, a team view", items: ["Changed ‘Trade buyers’"] });
+    expect((await page({ subject: "views:person" })).entries.map((e) => e.rev)).toEqual([4, 3, 2, 1]);
+    // Tom's own view is in no version: not on the page, nor in what Vizzy reads.
+    expect(JSON.stringify(p)).not.toContain("My repots");
+    expect(parseHistorySubject("views:person")).toEqual({ kind: "views", store: "settings", subject: "views:person" });
+  });
+
+  it("needs fields as well as views, as the People list's views do", async () => {
+    await addTeamViews(w);
+    viewsOn();
+    vi.stubEnv("AUDIENCE_FIELDS_ENABLED", "false");
+    expect((await page()).kinds.map((k) => k.kind)).not.toContain("views");
   });
 });

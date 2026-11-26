@@ -13,8 +13,10 @@ import {
   type TeamViewList,
   type ViewScope,
 } from "@/lib/types/savedView";
+import { getSettingsVersion } from "@/lib/settings/history";
 import { checkForSave } from "./conditions";
 import { sameView, viewInOrder, type ViewDefinition } from "./types";
+import { planTeamViewRestore, restoredViews, teamViewRestoreMessage } from "./versionRestore";
 
 /**
  * Saved views on People (piece C, CRM_VIEWS_ENABLED): create, change, archive, bring back and delete.
@@ -28,6 +30,7 @@ import { sameView, viewInOrder, type ViewDefinition } from "./types";
  * - A save whose list moved on reads it again and retries, up to 3 times; when the view itself
  *   changed since it was opened (its `version`), it answers `view_changed` and the route 409s.
  * - A view never keeps typed words (decision 3): `typed_words` names the filters that hold them.
+ * - Settings › History restores team views one view at a time (restoreTeamViewsVersion, ADR-0024).
  */
 
 export const TEAM_VIEWS_SUBJECT = "views:person" as const;
@@ -92,7 +95,7 @@ function myShown(v: MyView): ShownView {
 }
 
 /** The team list as stored: every item kept as it is, so a save never drops one that doesn't parse. */
-async function readTeam(ctx: TenantContext, db?: FirestoreLike): Promise<{ items: SavedView[]; rev: number }> {
+export async function readTeamViews(ctx: TenantContext, db?: FirestoreLike): Promise<{ items: SavedView[]; rev: number }> {
   const stored = await readSetting<TeamViewList>(ctx, TEAM_VIEWS_SUBJECT, db);
   return { items: Array.isArray(stored?.value.items) ? stored!.value.items : [], rev: stored?.rev ?? 0 };
 }
@@ -105,7 +108,7 @@ const parsedMine = (views: readonly MyView[]) => views.filter((v) => MyViewSchem
  * `archived` (admins, to bring one back). Another brand's documents read as none.
  */
 export async function listSavedViews(ctx: TenantContext, opts: { archived?: boolean } = {}, db?: FirestoreLike): Promise<{ team: ShownView[]; mine: ShownView[] }> {
-  const [team, mine] = await Promise.all([readTeam(ctx, db), readMemberViews(ctx, db)]);
+  const [team, mine] = await Promise.all([readTeamViews(ctx, db), readMemberViews(ctx, db)]);
   return {
     team: parsedTeam(team.items)
       .filter((v) => opts.archived || !v.archivedAt)
@@ -128,7 +131,7 @@ const clip = (s: string) => s.slice(0, 200);
 async function saveTeam(ctx: TenantContext, plan: (items: SavedView[]) => Planned<SavedView>, nowIso: string, db?: FirestoreLike): Promise<SaveResult> {
   if (ctx.role !== "admin" || !ctx.userId) return { ok: false, error: "admins_only" };
   for (let attempt = 0; attempt < TRIES; attempt++) {
-    const { items, rev } = await readTeam(ctx, db);
+    const { items, rev } = await readTeamViews(ctx, db);
     const p = plan(items);
     if (!p.ok) return p;
     if (p.unchanged) return { ok: true, view: teamShown(p.view), message: p.message };
@@ -215,7 +218,7 @@ export async function createSavedView(
 
 /** Which list holds a view: the team's or the signed in member's. */
 async function scopeOf(ctx: TenantContext, id: string, db?: FirestoreLike): Promise<ViewScope | null> {
-  const [team, mine] = await Promise.all([readTeam(ctx, db), readMemberViews(ctx, db)]);
+  const [team, mine] = await Promise.all([readTeamViews(ctx, db), readMemberViews(ctx, db)]);
   if (team.items.some((v) => v.key === id)) return "team";
   if (mine.views.some((v) => v.key === id)) return "me";
   return null;
@@ -326,4 +329,38 @@ export async function restoreTeamView(ctx: TenantContext, id: string, input: { n
     nowIso,
     db,
   );
+}
+
+export type TeamViewsRestoreError = "admins_only" | "views_changed" | "version_not_found" | "view_old_shape" | "nothing_to_restore" | "team_views_full";
+
+export type TeamViewsRestoreResult = { ok: true; rev: number; message: string | null } | { ok: false; error: TeamViewsRestoreError };
+
+/**
+ * Restore the views a team views version names, as that version had them, as a new version on top
+ * (Settings › History, ADR-0024): one view at a time, every other team view as it is now. Admins
+ * only, from the rev the preview showed: a save in between answers `views_changed` and writes
+ * nothing. Views already as the version had them write nothing either.
+ */
+export async function restoreTeamViewsVersion(
+  ctx: TenantContext,
+  input: { rev: number; baseRev: number; nowIso?: string },
+  db?: FirestoreLike,
+): Promise<TeamViewsRestoreResult> {
+  if (ctx.role !== "admin" || !ctx.userId) return { ok: false, error: "admins_only" };
+  const nowIso = input.nowIso ?? new Date().toISOString();
+  const [current, target] = await Promise.all([readTeamViews(ctx, db), getSettingsVersion(ctx, TEAM_VIEWS_SUBJECT, input.rev, db)]);
+  if (current.rev !== input.baseRev) return { ok: false, error: "views_changed" };
+  if (!target) return { ok: false, error: "version_not_found" };
+  const p = planTeamViewRestore(current.items, target, { by: ctx.userId, nowIso });
+  if (!p.ok) return { ok: false, error: p.error };
+  if (p.plan.problems.length) return { ok: false, error: "team_views_full" };
+  if (!restoredViews(p.plan).length) return { ok: true, rev: current.rev, message: null };
+  const message = teamViewRestoreMessage(p.plan, input.rev);
+  const r = await commitSettingsChange<TeamViewList>(
+    ctx,
+    { subject: TEAM_VIEWS_SUBJECT, baseRev: input.baseRev, value: { items: p.plan.items }, by: { type: "member", id: ctx.userId }, source: "restore", restoredFrom: input.rev, message: clip(message), nowIso },
+    db,
+  );
+  if (!r.ok) return { ok: false, error: "views_changed" };
+  return { ok: true, rev: r.rev, message };
 }

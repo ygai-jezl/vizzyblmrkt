@@ -214,9 +214,18 @@ export default function YourAudienceHelp({
           </Steps>
           <P>
             Only admins save, change and archive team views; anyone can save their own, and can press <strong>Save as my view</strong> on a
-            team view to keep a copy to change. Each change to a team view is kept in the settings history. An archived team view is kept too:
-            an admin brings it back from <strong>Archived team views</strong> in Views. Your own views are seen by nobody else, and deleting
-            one removes it for good. A brand keeps up to 50 team views in use and 200 in all, and each person up to 50 of their own.
+            team view to keep a copy to change.{" "}
+            {settingsHistory ? (
+              <>
+                Each change to a team view is kept in <Open href="/help/history-and-restore#team-views">History</Open>, where an admin puts one
+                view back as it was. Your own views are never in it.
+              </>
+            ) : (
+              "Each change to a team view is kept in the settings history."
+            )}{" "}
+            An archived team view is kept too: an admin brings it back from <strong>Archived team views</strong> in Views. Your own views are
+            seen by nobody else, and deleting one removes it for good. A brand keeps up to 50 team views in use and 200 in
+            all, and each person up to 50 of their own.
           </P>
           <P>
             A saved view keeps its filters, columns and sort, never words you typed: a filter on a text field&apos;s words or on the email domain

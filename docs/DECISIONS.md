@@ -67,6 +67,20 @@ rules, dependency or infra change, and no backfill.
    answer 404, the Views menu and Add filter hide, People works as before, saved views stay stored,
    and Vizzy's tool says views are off. No per brand check: no AI, reads bounded by the cap and the
    rate limits, and every plan has views.
+10. **Team views in Settings › History** (O2, ADR-0023; added here because C merged after O2):
+    `views:person` is History's kind `views`, "Team views", listed while `SETTINGS_HISTORY_ENABLED`
+    and `CRM_VIEWS_ENABLED` are both on. A restore puts back **one view at a time**
+    (`src/lib/views/versionRestore.ts`, `restoreTeamViewsVersion`): the views a version names (a
+    team save names one) go back as that version had them, name, filters, columns, sort and in use
+    or archived, as a new version on top (`source: "restore"`), from the rev the preview showed
+    (`views_changed`, 409). Every other team view stays as it is, so one admin's restore never
+    undoes another's change to a different view; restoring the whole list was the alternative. Each
+    restored view gets a new `version`, so a copy someone has open answers `view_changed`. Bringing
+    one back past 50 in use is refused, a version that is how the view is now has nothing to
+    restore, and a view that doesn't fit today's views (or holds typed words) is read only with
+    Export. Export is the settings version (`team-views-v<n>.json`), and Vizzy's
+    `get_settings_history` reads the same list (kind `views`). Only me views are never in the log,
+    so never in History, its export or what Vizzy reads there.
 
 ### Gaps we accept
 
@@ -84,13 +98,13 @@ rules, dependency or infra change, and no backfill.
 
 Groups 2 and 3 (view rows on the brand index, people on it after the data processing agreement, the
 `view_rows` indexes, `views-backfill`, the sweep reconcile), views on companies or ideas, bulk
-actions and lists (piece E), export, journeys that start when someone enters a view, Vizzy making
-views, and a History screen for views (O2, which adds the `views:person` line to its sources, one
-view at a time).
+actions and lists (piece E), export of a view's people, journeys that start when someone enters a
+view, and Vizzy making views.
 
 ### Rollback
 
-The switch. No index, backfill or data to undo; `saved_views` and `member_views` stay, unread.
+The switch. No index, backfill or data to undo; `saved_views` and `member_views` stay, unread, and
+Settings › History stops listing team views.
 
 ---
 

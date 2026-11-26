@@ -4,7 +4,7 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
-## ADR-0022 · Views on People: in memory up to 5,000 people, team views in the settings log (piece C) (2026-11-26)
+## ADR-0024 · Views on People: in memory up to 5,000 people, team views in the settings log (piece C) (2026-11-26)
 
 Context: piece C of the build plan, group 1 only (decision 34: no index spike, so no view rows on the
 brand index yet). The plan was approved on 26 Nov with these answers: views read up to 5,000 people

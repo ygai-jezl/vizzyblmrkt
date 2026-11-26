@@ -254,6 +254,22 @@ describe("generateNode", () => {
       expect(mocked.mock.calls.at(-1)?.[0] ?? "").toContain("APPROVED EXAMPLES");
     });
 
+    it("says which approved pieces a draft followed, and none when it followed none", async () => {
+      mocked.mockResolvedValue(JSON.stringify({ subject: "S", previewText: "P", subjectVariants: [], body: "Hi {{first_name}}" }));
+      const email = node({ id: "e1", type: "email", channel: "newsletter", role: "Email 1" });
+      const input = { ctx, workspaceId: "ws1", plan: plan([email], { objective: "email_sequence", sequenceType: "welcome" }), node: email };
+      const patch = await generateNode(input, noRag, vi.fn().mockResolvedValue(approvedBlock) as never);
+      expect(patch.made).toMatchObject({ sources: ["exemplars"], examples: [{ workspaceId: "ws1", planId: "p0", nodeId: "e0" }] });
+      const none = await generateNode(input, noRag, vi.fn().mockResolvedValue({ exemplars: [], formatted: "" }) as never);
+      expect(none.made).not.toHaveProperty("examples");
+
+      mocked.mockResolvedValue(JSON.stringify({ body: "copy" }));
+      const hub = node({ id: "hub", type: "hub", channel: "newsletter" });
+      const hubBlock = { ...approvedBlock, followed: [{ workspaceId: "ws1", planId: "p0", nodeId: "h0" }] };
+      const hubPatch = await generateNode({ ctx, workspaceId: "ws1", plan: plan([hub]), node: hub }, noRag, vi.fn().mockResolvedValue(hubBlock) as never);
+      expect(hubPatch.made).toMatchObject({ promptId: "content.hub_draft", examples: [{ nodeId: "h0" }] });
+    });
+
     it("a hub asks for approved hubs; a post or promo asks as before", async () => {
       mocked.mockResolvedValue(JSON.stringify({ body: "copy" }));
       const hub = node({ id: "hub", type: "hub", channel: "newsletter", body: "hub body" });

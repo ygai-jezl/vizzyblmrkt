@@ -345,6 +345,8 @@ export async function generateNode(
     ...(ownSource ? { skipSourceId: ownSource } : {}),
   }).catch(() => null);
   const exemplarsBlock = exemplarCtx?.formatted ?? "";
+  // The approved pieces this draft followed, kept on its AI original for Vizzy to read.
+  const followed = exemplarCtx?.followed?.length ? { examples: exemplarCtx.followed } : {};
   // Learned-pattern DIRECTIVE (abstract "what performs") + optional TRENDING topics — both fenced
   // DATA, both separately flag-gated (POST_PATTERNS_INJECT_ENABLED / TRENDING_TOPICS_ENABLED), the
   // directive additionally skipped for holdout nodes so lift stays measurable. Empty when off.
@@ -426,6 +428,7 @@ export async function generateNode(
         purpose: writingPurposeOf(node.type, citableBlog),
         promptId: "content.email_fill",
         sources: sourcesOf({ brand_voice: input.brandVoice ?? "", audience: input.audience ?? "", knowledge: rag?.chunks ?? [], proof: proofBlock, exemplars: exemplarsBlock }),
+        ...followed,
       } satisfies MadeBy,
     };
 
@@ -561,6 +564,7 @@ export async function generateNode(
               hub_copy: node.type !== "hub" ? hubNode?.body ?? "" : "",
             }),
       }),
+      ...followed,
     },
   };
 }

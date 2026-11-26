@@ -39,10 +39,12 @@ export type MadeId = z.infer<typeof MadeIdSchema>;
 /**
  * What else fed the prompt, from a closed list: `refs:<n>` style references picked from votes,
  * `best_of:<n>` candidates, `legacy` (the look on the brand record, before the brand is seeded),
- * `person_off` ("Use learned brand style" unticked) and `fallback_drawn` (a drawn or title card
- * fallback, or the painted twin when a drawn render failed).
+ * `person_off` ("Use learned brand style" unticked), `fallback_drawn` (a drawn or title card
+ * fallback, or the painted twin when a drawn render failed) and `not_learning` (made on a path that
+ * never learns, though it may read a look: a format's card, a drawn style's painted half, an edit
+ * of an earlier image). The verdict leaves out every image with either of the last two.
  */
-export const STAMP_SOURCE_RE = /^(?:refs:\d{1,2}|best_of:\d{1,2}|legacy|person_off|fallback_drawn)$/;
+export const STAMP_SOURCE_RE = /^(?:refs:\d{1,2}|best_of:\d{1,2}|legacy|person_off|fallback_drawn|not_learning)$/;
 
 /**
  * Why a writer kept no stamp, from a closed list, so each reason is counted. Step 4 uses the

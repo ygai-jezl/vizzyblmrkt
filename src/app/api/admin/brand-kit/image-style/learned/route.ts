@@ -20,6 +20,7 @@ import {
 } from "@/lib/loops/actions";
 import { IMAGE_STYLE_SCOPES } from "@/lib/loops/registry";
 import { imageVoteView, learnedCardView } from "@/lib/loops/learnedView";
+import { FORGOTTEN_MESSAGE, WORDS_REMOVED_MESSAGE } from "@/lib/loops/learnedWords";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -88,13 +89,20 @@ const STATUS: Record<ActionError, number> = {
   write_failed: 503,
 };
 
+/** Refusals a person can't fix by trying again, said plainly instead of the card's retry line. */
+const MESSAGES: Partial<Record<ActionError, string>> = {
+  words_removed: WORDS_REMOVED_MESSAGE,
+  forgotten: FORGOTTEN_MESSAGE,
+};
+
 function answer(r: ActionResult, tenantId: string): NextResponse {
   // A change to a look can close a Go back card, so Review's cached count is read afresh.
   if (r.ok) {
     forgetReviewCount(tenantId);
     return NextResponse.json(r);
   }
-  return NextResponse.json({ error: r.error, ...(r.message ? { message: r.message } : {}) }, { status: STATUS[r.error] });
+  const message = r.message ?? MESSAGES[r.error];
+  return NextResponse.json({ error: r.error, ...(message ? { message } : {}) }, { status: STATUS[r.error] });
 }
 
 export async function POST(req: Request) {

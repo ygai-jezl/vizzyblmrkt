@@ -10,7 +10,7 @@ import { isAgentActionId, type AgentAction } from "@/lib/types/agentAction";
 import type { EventActor } from "@/lib/ontology/events";
 import { EVIDENCE_IDS_MAX, type LearnedItem, type LearnedPatternVersion } from "@/lib/types/learnedPatternVersion";
 import { VersionTotalsSchema, type BrandPointers } from "@/lib/types/loopDay";
-import { goBackOf, supersedeGoBackCards } from "./cards";
+import { goBackOf, openGoBackCards, supersedeGoBackCards } from "./cards";
 import { clearOldCopy } from "./oldCopy";
 import { countCard, countVersionSignal } from "./count";
 import { BRAND_SCOPE } from "./read";
@@ -197,7 +197,9 @@ async function restore(
       deps.db,
     );
     writeBrandPointersTx(txn, ctx, { ...pointers, scopes: { ...pointers.scopes, [scope]: { v, setBy, adoptedAt: at } } }, deps.db);
-    return { ok: true, v, restored: input.to, restoredAt: target?.createdAt ?? null, wasPerson: curRow?.setBy === "person" };
+    // A version with no look (a Forget's, or an Undo of a first look) brings nothing back: 0, so the
+    // done line says the scope has no look of its own again.
+    return { ok: true, v, restored: look ? input.to : 0, restoredAt: look ? (target?.createdAt ?? null) : null, wasPerson: curRow?.setBy === "person" };
   });
 }
 
@@ -474,7 +476,11 @@ async function answerOf(
   if (!cur || cur.v <= 0) return { ok: false, error: "not_found" };
   const read = newestRead((await readsOf(input.scope, cur.v))?.looks);
   if (read?.call !== "worse") return { ok: false, error: "not_worse" };
-  return { ok: true, scope: input.scope, from: cur.v, to: cur.v - 1, card: null, look: read.look };
+  // A card still open for this version (a copy without Review shows it as the notice) is answered too.
+  const scope = input.scope;
+  const open = await openGoBackCards(ctx, { db: deps.db, now: deps.now }).catch(() => [] as AgentAction[]);
+  const card = open.find((a) => goBackOf(a)?.scope === scope && goBackOf(a)?.from === cur.v) ?? null;
+  return { ok: true, scope, from: cur.v, to: cur.v - 1, card, look: read.look };
 }
 
 /**

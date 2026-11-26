@@ -152,7 +152,8 @@ export function historyLine(row: VersionFacts, opts: { inUse: boolean; read?: Lo
   const restored = restoredOf(row);
   let what: string;
   if (row.createdBy === "forget") what = `forgotten by ${who}`;
-  else if (restored !== null) what = restored === 0 ? `undone by ${who}` : `back to version ${restored}'s look by ${who}${row.createdBy === "revert" ? ", from Review" : ""}`;
+  // A restore that brought no look back (to a Forget's version, or to before a first look) undid one.
+  else if (restored !== null) what = restored === 0 || !row.hasLook ? `undone by ${who}` : `back to version ${restored}'s look by ${who}${row.createdBy === "revert" ? ", from Review" : ""}`;
   else if (row.setBy === "person") what = `set by ${who}`;
   else if (row.setBy === "seeded" || row.createdBy === "seed") what = "carried over from before YouGrow kept versions";
   else what = row.evidenceCounts && row.evidenceCounts.liked + row.evidenceCounts.disliked > 0 ? `learned from ${evidenceWords(row.evidenceCounts)}` : "learned from your votes";
@@ -243,10 +244,18 @@ export const FORGET_OFFER = "Don't learn this again: Forget";
 export const KEPT_DONE = "Kept. YouGrow only asks again if a later check reads worse.";
 /** Review's Go back card after Go back and then Undo: the card is answered, so it doesn't come back. */
 export const GO_BACK_UNDONE = "Undone. The newer look is back in use.";
+/** Notes Vizzy reads per style in get_image_style (3.11), newest first; the help page says the number. */
+export const VIZZY_NOTES = 5;
+
+/** Undo or Go back to a look whose words a Forget took out: refused, with nothing to retry. */
+export const WORDS_REMOVED_MESSAGE = "The look before this one was forgotten, so there is nothing to go back to.";
+/** Undo on a look that was forgotten: refused, with nothing to retry. */
+export const FORGOTTEN_MESSAGE = "This look was forgotten, so there is nothing to undo.";
 export const OPEN_WHAT_IT_LEARNED = "Open What it learned";
 
-/** "Back to version 3 from 4 Feb." */
+/** "Back to version 3 from 4 Feb.", or, when the version gone back to had no look, "Back to no look of its own." */
 export const backToLine = (v: number, at: string | null | undefined): string => {
+  if (v <= 0) return "Back to no look of its own.";
   const day = shortDay(at);
   return `Back to version ${v}${day ? ` from ${day}` : ""}.`;
 };

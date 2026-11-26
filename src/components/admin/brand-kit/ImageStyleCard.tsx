@@ -56,6 +56,16 @@ function toDraft(s: StoredImageStyle | null): ImageStyleInput {
 }
 
 /**
+ * What a failed Reset says: the route's own message when it gives one (with image style versions
+ * on, a seed that couldn't be kept says nothing changed), else the admin line or the retry line.
+ */
+export function resetFailedLine(status: number, body: unknown): string {
+  const message = body && typeof body === "object" && "message" in body ? (body as { message?: unknown }).message : null;
+  if (typeof message === "string" && message.trim()) return message;
+  return status === 403 ? "Only an admin can change the image style." : "Couldn't reset. Try again.";
+}
+
+/**
  * Brand › Image style: the look every new image starts from. A default, an optional style per
  * channel, the accent, and whether social images carry the logo and the headline. Members see
  * it; admins save. Any single image can still pick another style when it's made.
@@ -177,7 +187,7 @@ export function ImageStyleCard({
     try {
       const res = await fetch("/api/admin/brand-kit/image-style", { method: "DELETE" });
       if (!res.ok) {
-        setError(res.status === 403 ? "Only an admin can change the image style." : "Couldn't reset. Try again.");
+        setError(resetFailedLine(res.status, await res.json().catch(() => null)));
         return;
       }
       setSaved(null);

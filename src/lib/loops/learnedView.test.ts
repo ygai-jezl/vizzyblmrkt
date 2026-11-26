@@ -36,7 +36,7 @@ const DEC2 = "2026-12-02T09:00:00.000Z";
 const JAN15 = new Date("2027-01-15T09:00:00.000Z");
 
 let db: FakeFirestore;
-const deps = (now = JAN15, modelReady = true) => ({ db, now, modelReady: () => modelReady });
+const deps = (now = JAN15, modelReady = true, reviewHub = true) => ({ db, now, modelReady: () => modelReady, reviewHub: () => reviewHub });
 
 function img(id: string, o: Record<string, unknown>) {
   db.seed("image_assets", id, { tenantId: "ten_hearth", workspaceId: "ws_h", filename: `${id}.png`, mimeType: "image/png", kind: "social", style: "natural_photo", createdAt: "2027-01-10T09:00:00.000Z", ...o });
@@ -52,6 +52,8 @@ interface V {
   evidenceIds?: string[];
   evidenceCounts?: Record<string, unknown>;
   by?: string;
+  /** A Forget took its words out: the item stays, with no text. */
+  removed?: boolean;
 }
 
 async function versions(rows: V[], pointers: Record<string, unknown>) {
@@ -74,7 +76,11 @@ async function versions(rows: V[], pointers: Record<string, unknown>) {
             createdAt: r.at,
             loop: "image_style",
             setBy: r.setBy ?? "learned",
-            items: r.text ? [{ id: `look${r.v}`, type: "rule", text: r.text, trust: r.setBy === "person" ? "person" : "own_content", from: r.setBy === "person" ? "person" : "votes" }] : [],
+            items: r.text
+              ? [{ id: `look${r.v}`, type: "rule", text: r.text, trust: r.setBy === "person" ? "person" : "own_content", from: r.setBy === "person" ? "person" : "votes" }]
+              : r.removed
+                ? [{ id: `look${r.v}`, type: "rule", text: null, trust: "own_content", from: "votes" }]
+                : [],
             change: { op: "add", itemId: `look${r.v}` },
             ...(r.evidenceIds ? { evidenceIds: r.evidenceIds } : {}),
             ...(r.evidenceCounts ? { evidenceCounts: r.evidenceCounts as never } : {}),
@@ -202,20 +208,43 @@ describe("What it learned, Hearth Bakery", () => {
   it("j. the card's notes: not set up, paused, couldn't learn lately, and Go back suggestions paused", async () => {
     await hearthLearned();
     await versions([], { scopes: { [NATURAL]: { v: 1, setBy: "learned", adoptedAt: JAN14 }, [BRAND]: { v: 1, setBy: "learned", adoptedAt: DEC2 } }, pause: { image_style: { at: "2027-01-15T08:00:00.000Z" } } });
-    await mergeLaneState(hearth, { failedDays: 3 }, db);
+    await mergeLaneState(hearth, { failedDays: 3, lastFailedDay: "2027-01-15" }, db);
     for (let i = 0; i < 3; i++) await countCard(hearth, "loop_learn", "ignored", { db, now: JAN15 });
     const card = await learnedCardView(hearth, deps(JAN15, false));
     expect(card.chip).toEqual({ text: "Not set up", tone: "neutral" });
+    // While paused nothing is tried, so it never says it is trying again daily.
     expect(card.notes.map((n) => [n.id, n.text, n.action])).toEqual([
       ["not_set_up", W.NOT_SET_UP, null],
       ["paused", "Paused on 15 Jan. What it learned is still used; nothing new is learned until you resume.", "resume"],
-      ["failing", W.COULDNT_LEARN, null],
       ["quiet", W.SUGGESTIONS_PAUSED, "resume_suggestions"],
     ]);
     expect(card.canMenu).toBe(false);
     const ready = await learnedCardView(hearth, deps());
     expect(ready.chip).toEqual({ text: "Paused on 15 Jan", tone: "amber" });
     expect(ready.paused).toBe(true);
+
+    // Resumed: the note shows while the last failed day is today or yesterday, and not after.
+    await versions([], { scopes: { [NATURAL]: { v: 1, setBy: "learned", adoptedAt: JAN14 }, [BRAND]: { v: 1, setBy: "learned", adoptedAt: DEC2 } }, pause: {} });
+    const ids = async (now: Date) => (await learnedCardView(hearth, deps(now))).notes.map((n) => n.id);
+    expect(await ids(JAN15)).toContain("failing");
+    expect(await ids(new Date("2027-01-16T20:00:00.000Z"))).toContain("failing");
+    expect(await ids(new Date("2027-01-17T09:00:00.000Z"))).not.toContain("failing");
+    expect(await ids(new Date("2027-02-15T09:00:00.000Z"))).not.toContain("failing");
+  });
+
+  it("k. offers no Undo when the look before had its words taken out by a Forget", async () => {
+    await versions(
+      [
+        { scope: NATURAL, v: 1, text: NAT_V1, at: "2027-01-02T09:00:00.000Z" },
+        { scope: NATURAL, v: 2, text: null, removed: true, at: "2027-01-09T09:00:00.000Z" },
+        { scope: NATURAL, v: 3, text: NAT_V1, at: JAN14, createdBy: "undo" },
+      ],
+      { scopes: { [NATURAL]: { v: 3, setBy: "learned", adoptedAt: JAN14 } } },
+    );
+    const card = await learnedCardView(hearth, deps());
+    const row = card.rows.find((r) => r.scope === NATURAL)!;
+    expect(row.hasLook).toBe(true);
+    expect(row.undo).toBeNull();
   });
 });
 
@@ -272,6 +301,26 @@ describe("What it learned, Lumen's checks", () => {
     expect(ill.goBack!.href).toBe(`${review!.href}#learned`);
     expect(card.footer.map((f) => f.text)).toContain(W.FOOT_SEASON);
     expect(card.footer.map((f) => f.text)).not.toContain(W.FOOT_SLOW);
+  });
+
+  it("g. on a copy without Review, an open card shows on the row with Go back and Keep this look, not in Review", async () => {
+    await lumen();
+    await proposeGoBack(hearth, { scope: ILL, from: 4, to: 3, proposedThisWeek: 0, basis: { read: worseGuard, since: "2027-03-09T09:00:00.000Z", evidence: null } }, { db, now: new Date("2027-04-20T10:00:00.000Z") });
+    const card = await learnedCardView(hearth, deps(new Date("2027-04-24T09:00:00.000Z"), true, false));
+    expect(card.rows[0]).toMatchObject({
+      tag: "Not learning while this is open",
+      goBack: null,
+      notice: true,
+      check: { text: "Your images were remade more since 9 Mar: 20 of 40 against 4 of 40 before. Go back to the earlier look?", tone: "bad" },
+    });
+    // The attention rule's note is about Review, so a copy without it never shows it.
+    expect(card.notes.map((n) => n.id)).not.toContain("quiet");
+    // With no card open at all, a worse read still shows on the row.
+    db = new FakeFirestore();
+    store.db = db;
+    await lumen();
+    const none = await learnedCardView(hearth, deps(new Date("2027-04-24T09:00:00.000Z"), true, false));
+    expect(none.rows[0]).toMatchObject({ tag: null, goBack: null, notice: true });
   });
 
   it("j. with Go back suggestions paused, a worse check shows on the row with Go back and Keep this look", async () => {

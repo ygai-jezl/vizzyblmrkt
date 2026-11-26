@@ -90,8 +90,10 @@ Decided:
    (`VOTE_REASONS` in `src/lib/loops/reasons.ts`, labels tested against `NO_DASHES` and `AI_TELLS`),
    with an optional note of up to 200 characters. The vote saves first. The note passes the same
    text check as a person's own look (no links, email addresses, handles or phone numbers) and is
-   kept only on the image's row in the brand's region, never counted, folded, logged or sent across
-   brands; a changed vote clears both. Reasons are counted per scope, and the learner groups
+   kept on the image's row in the brand's region, never counted, folded, logged or sent across
+   brands; the model that learns looks reads it in the learner's prompt, and Vizzy reads the 5
+   newest per style (item 13), so a note can leave the region in a model call or a Vizzy chat, as
+   the help page says. A changed vote clears both. Reasons are counted per scope, and the learner groups
    dislikes by reason and quotes each note as data. A brand that skips the reason on 8 of 10 or more
    thumbs down over 4 weeks sees the row start closed. Members can give reasons, and a note shows to
    the brand's team without its writer.
@@ -118,20 +120,27 @@ Decided:
     run, one at a time; 2 verdict reads a run of at most 500 rows each.
 11. **The verdict for image looks.** `src/lib/loops/imageVerdict.ts` runs ADR-0022's verdict on a
     scope's images either side of a version's start, leaving out held back, person off, customised
-    and uploaded images, images made less than 14 days ago, and images with no stamp, made before
-    versions when no first vote or remake was kept. The brand look's images are those stamped with
-    its scope, whatever style they were painted in; a style's are its images, and since its version
-    began only those stamped with its own scope. Only the seed's own version 1 is carried over: it
+    and uploaded images, images made less than 14 days ago, images the look never reached (stamped
+    `fallback_drawn` or `not_learning`), and images with no stamp, made before versions when no first
+    vote or remake was kept. The brand look's images are those stamped with its scope, whatever style
+    they were painted in; a style's are its images. Since a version began, only images stamped with
+    its own scope and version count, and while it has a look only arm learned: arm none counts only
+    for a version with no look. Only the seed's own version 1 is carried over: it
     reads nothing before it and its images from the seed on, and the version after it reads back to
     the scope's start. No card is offered for a version with no look (a Forget, or an Undo of a first
     look), nor back to a look whose words a Forget took out. The check counts images voted within
-    14 days, a hit being an up vote; the guard counts every such image, a hit being a remake within
-    14 days. The window before is read newest first on the existing `(tenantId, createdAt desc)`
+    14 days, a hit being an up vote as the vote stood at 14 days (`outcomeVote` on the row, written
+    with each vote in that time and never after); the guard counts every such image, a hit being a
+    remake within 14 days. The window before is read newest first on the existing `(tenantId, createdAt desc)`
     index; the window after is read oldest first, which needs a new composite index,
     `image_assets (tenantId, createdAt asc)`, because a composite index serves one sort order
     (Firebase's index overview: the same query sorted the other way needs "an additional index in
-    the descending direction"). Both are projected to the fields used. The read is kept on `lv:`,
-    worded by `verdictWords`, and a worse read offers a Go back card.
+    the descending direction"). The window after is paged across the lane's visits: each reads on
+    from the last image the one before read, taking only images 14 days old, whose outcomes are
+    fixed, and keeps the entries on `lv:` (`after`) until it has the last look's 120. Both are
+    projected to the fields used. The read is kept on `lv:`, worded by `verdictWords`, and a worse
+    read offers a Go back card; on a copy without Review (nav v2 phase 2 off) it shows on What it
+    learned with Go back and Keep this look instead, as under the attention rule.
 12. **What a person can do.** Behind `POST /api/admin/brand-kit/image-style/learned`, with the
     origin check, `getAdminContext()`, an admin role and the switch on: Undo, Pause and Resume (one
     level, image learning), Forget (a retire version, the words removed from older rows, the old
@@ -183,7 +192,18 @@ Where the build follows the code, not the plan (the plan's intent kept):
   made before versions have no stamp, first vote time or remake, so their outcomes aren't known. The
   version after a seeded one still reads back to the scope's start, over stamped images only.
 - The lane's idle check hashes the brand's pointers along with the week's signals, so a Resume,
-  Undo or Keep, which write only `lb:`, makes the next visit full.
+  Undo or Keep, which write only `lb:`, makes the next visit full. The learner's own mark also
+  compares a hash of the week's vote counters, since a changed vote and a new like in one week leave
+  the net likes as they were. When the open cards can't be read, the learner skips the brand that
+  visit rather than learn past an open card.
+- The plan's closed list of stamp sources gains `not_learning`, on images made on a path that never
+  learns (a format's card, a drawn style's painted half, an eBook edit), so the verdict can leave
+  them out. Image rows gain `outcomeVote`, no index and no exemption needed.
+- The verdict's window before is still one page of at most 500 rows a visit. For a style that makes
+  a small share of a busy brand's images it can see fewer outputs than were made, which reads as
+  too few or can't check, never as a hold that can't end.
+- "Couldn't learn lately" shows only while the last failed day is today or yesterday and learning
+  isn't paused; a model call that answers ends the days in a row.
 - `TenantCollection.increment` also takes ids with the tenant id between colons, and the tenant layer
   gains projected reads (`findFields`).
 - `skipPick` keeps the stored pick's question, never the request's words, and answers 404 for a pick

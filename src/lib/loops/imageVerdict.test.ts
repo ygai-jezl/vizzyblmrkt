@@ -387,3 +387,130 @@ describe("which images a version reads (review round 1)", () => {
     expect(await listOpenAgentActions(lumen, { action: GO_BACK_ACTION, now: later.toISOString(), db })).toEqual([]);
   });
 });
+
+describe("which images a version reads (review round 2)", () => {
+  const BRAND = "image_style.brand";
+
+  /** Rows made `stepMs` apart from `from`, each with the stamp and fields given. */
+  function rows(prefix: string, from: string, n: number, stepMs: number, row: (i: number) => Record<string, unknown>) {
+    for (let i = 0; i < n; i++) {
+      const at = new Date(Date.parse(from) + i * stepMs);
+      const id = `${prefix}_${String(++seq).padStart(4, "0")}`;
+      db.seed("image_assets", id, { tenantId: lumen.tenantId, workspaceId: "ws_lumen", filename: `${id}.png`, mimeType: "image/png", kind: "social", createdAt: at.toISOString(), ...row(i) });
+    }
+  }
+
+  const lvOf = async (scope: string, v: number) => {
+    const [lv] = await readLoopDays(lumen, [loopDayId.version(lumen.tenantId, scope, v)], db);
+    return VersionTotalsSchema.parse(lv?.d ?? {});
+  };
+
+  it("pages its images since it began across visits, so a style behind 500 of another's still reaches its outputs", async () => {
+    images("illustration", ILLUSTRATION, 0, "2026-12-10T00:00:00.000Z", 12, { liked: 6, remade: 1, arm: "none" });
+    images("illustration", ILLUSTRATION, 1, "2027-01-05T00:00:00.000Z", 40, { liked: 30, remade: 4 });
+    // 500 Soft 3D images in the hours after version 2 began, then version 2's own.
+    rows("soft", "2027-03-09T09:01:00.000Z", 500, 60_000, () => ({ style: "soft_3d", brandVote: "up", firstVotedAt: "2027-03-10T09:00:00.000Z", made: stamp(SOFT_3D, 1, "learned") }));
+    images("illustration", ILLUSTRATION, 2, "2027-03-10T00:00:00.000Z", 40, { liked: 30, remade: 4 });
+    await pointTo({ [ILLUSTRATION]: { v: 2, setBy: "learned", adoptedAt: V2_AT } });
+    const pointers = await pointersOf();
+    const t = totals({ post_image: { learned: { made: 40, voted: 40, liked: 30 } } });
+
+    const first = await runImageVerdicts(lumen, pointers, { [ILLUSTRATION]: t }, newVerdictRun(), { db, now: NOW });
+    expect(first.verdicts[0]!.read.after).toBe(0);
+    expect(first.verdicts[0]!.check.more).toBe(true);
+    // The next visit is full, and the version is due on it whatever its counters.
+    expect(first.dueAt).toBe(NOW.toISOString());
+    const kept = await lvOf(ILLUSTRATION, 2);
+    expect(kept.after).toMatchObject({ from: V2_AT, votes: 0, check: "" });
+    expect(verdictDue({ ...t, check: kept.check, after: kept.after }, new Date(NOW.getTime() + 60_000)).due).toBe(true);
+
+    const later = new Date(NOW.getTime() + 600_000);
+    const second = await runImageVerdicts(lumen, pointers, { [ILLUSTRATION]: { ...t, check: kept.check, after: kept.after } }, newVerdictRun(), { db, now: later });
+    const v = second.verdicts[0]!;
+    expect(v.read.after).toBe(40);
+    expect(v.check).toMatchObject({ counted: 40 });
+    expect(v.check.more).toBeUndefined();
+    expect(isHolding(holdStateOf({ ...t, check: v.check }))).toBe(false);
+    const after = (await lvOf(ILLUSTRATION, 2)).after!;
+    expect(after.check).toHaveLength(40);
+    expect([...after.check].filter((b) => b === "1")).toHaveLength(30);
+    expect((await lvOf(ILLUSTRATION, 2)).check?.more).toBe(false);
+
+    // A third visit reads on from the cursor: nothing new, so the same entries and no image counted twice.
+    const third = await runImageVerdicts(lumen, pointers, { [ILLUSTRATION]: { ...t, check: undefined, after } }, newVerdictRun(), { db, now: new Date(later.getTime() + DAY + 1) });
+    expect(third.verdicts[0]!.read.after).toBe(40);
+  });
+
+  it("reads on from images too new at the last read once they are 14 days old, never counting one twice", async () => {
+    images("illustration", ILLUSTRATION, 1, "2027-01-05T00:00:00.000Z", 40, { liked: 30, remade: 4 });
+    images("illustration", ILLUSTRATION, 2, "2027-03-10T00:00:00.000Z", 20, { liked: 15, remade: 2 });
+    await pointTo({ [ILLUSTRATION]: { v: 2, setBy: "learned", adoptedAt: V2_AT } });
+    // On 5 Apr only the 12 images made by 21 Mar are 14 days old.
+    const early = await readVersionVerdict(lumen, { scope: ILLUSTRATION, v: 2, adoptedAt: V2_AT, prevAdoptedAt: V1_AT, seen: 0 }, { db, now: new Date("2027-04-05T00:00:00.000Z") });
+    expect(early.after.votes).toBe(12);
+    expect(early.check.pending).toBe(true);
+    const late = await readVersionVerdict(lumen, { scope: ILLUSTRATION, v: 2, adoptedAt: V2_AT, prevAdoptedAt: V1_AT, seen: 0, after: early.after }, { db, now: NOW });
+    expect(late.after.votes).toBe(20);
+    expect(late.after.guard).toHaveLength(20);
+    expect(late.check.pending).toBe(false);
+    // A different start reads afresh.
+    const moved = await readVersionVerdict(lumen, { scope: ILLUSTRATION, v: 2, adoptedAt: "2027-03-20T00:00:00.000Z", prevAdoptedAt: V1_AT, seen: 0, after: late.after }, { db, now: NOW });
+    expect(moved.after.votes).toBeLessThan(20);
+    expect(moved.after.from).toBe("2027-03-20T00:00:00.000Z");
+  });
+
+  it("leaves out images its look never reached: arm none on a version with a look, a drawn fallback, a path that never learns", async () => {
+    images("illustration", ILLUSTRATION, 0, "2026-12-10T00:00:00.000Z", 12, { liked: 6, remade: 1, arm: "none" });
+    images("illustration", ILLUSTRATION, 1, "2027-01-05T00:00:00.000Z", 40, { liked: 30, remade: 4 });
+    images("illustration", ILLUSTRATION, 2, "2027-03-10T00:00:00.000Z", 40, { liked: 30, remade: 4 });
+    await pointTo({ [ILLUSTRATION]: { v: 2, setBy: "learned", adoptedAt: V2_AT } });
+    const input = { scope: ILLUSTRATION, v: 2, adoptedAt: V2_AT, prevAdoptedAt: V1_AT, seen: 0 };
+    const clean = await readVersionVerdict(lumen, input, { db, now: NOW });
+    // eBook edits and format cards (not_learning), a look that stayed out of the prompt (arm none),
+    // and another version's images: none liked, all remade.
+    images("illustration", ILLUSTRATION, 2, "2027-03-10T00:00:00.000Z", 20, { liked: 0, remade: 20, arm: "none", sources: ["not_learning"] });
+    images("illustration", ILLUSTRATION, 2, "2027-03-10T00:00:00.000Z", 20, { liked: 0, remade: 20, arm: "none" });
+    images("illustration", ILLUSTRATION, 1, "2027-03-10T00:00:00.000Z", 20, { liked: 0, remade: 20 });
+    // Before the change, title cards and format cards drawn in the style aren't the old look's outputs either.
+    images("illustration", ILLUSTRATION, 1, "2027-01-05T00:00:00.000Z", 20, { liked: 20, remade: 0, arm: "none", sources: ["fallback_drawn"] });
+    images("illustration", ILLUSTRATION, 0, "2027-01-05T00:00:00.000Z", 20, { liked: 20, remade: 0, arm: "none", sources: ["not_learning"] });
+    const mixed = await readVersionVerdict(lumen, input, { db, now: NOW });
+    expect(mixed.read).toEqual(clean.read);
+    expect(mixed.check.counted).toBe(clean.check.counted);
+    // A version with no look of its own (a Forget's) keeps its arm none images too; never a path that never learns.
+    const noLook = await readVersionVerdict(lumen, { ...input, hasLook: false }, { db, now: NOW });
+    expect(noLook.after.votes).toBe(60);
+  });
+
+  it("never reads the brand look worse from title cards made at the image allowance, so offers no Go back card", async () => {
+    const V1 = "2027-01-01T00:00:00.000Z";
+    const V2 = "2027-03-01T00:00:00.000Z";
+    images("natural_photo", BRAND, 1, "2027-01-02T00:00:00.000Z", 40, { liked: 30, remade: 2 });
+    images("title_card", BRAND, 2, "2027-03-02T00:00:00.000Z", 40, { liked: 0, remade: 0, arm: "none", sources: ["fallback_drawn"] });
+    await versionRows(BRAND, [{ v: 1, at: V1 }, { v: 2, at: V2 }], { v: 2, setBy: "learned", adoptedAt: V2 });
+    const r = await runImageVerdicts(lumen, await pointersOf(), { [BRAND]: totals() }, newVerdictRun(), { db, now: NOW });
+    expect(r.verdicts[0]!.read).toMatchObject({ call: "too_few", after: 0 });
+    expect(r.verdicts[0]!.card).toBeUndefined();
+    expect(await listOpenAgentActions(lumen, { action: GO_BACK_ACTION, now: NOW.toISOString(), db })).toEqual([]);
+  });
+
+  it("fixes each image's outcome at 14 days: a vote changed or cleared later moves nothing", async () => {
+    images("illustration", ILLUSTRATION, 1, "2027-01-05T00:00:00.000Z", 40, { liked: 30, remade: 4 });
+    const V2_FIRST = "2027-03-10T00:00:00.000Z";
+    // Liked within 14 days; 10 changed to down and 10 cleared on day 30.
+    rows("kept", V2_FIRST, 30, DAY, (i) => ({
+      style: "illustration",
+      brandVote: i < 10 ? "down" : i < 20 ? null : "up",
+      outcomeVote: "up",
+      firstVotedAt: new Date(Date.parse(V2_FIRST) + i * DAY + DAY).toISOString(),
+      made: stamp(ILLUSTRATION, 2, "learned"),
+    }));
+    // Cleared within 14 days and voted again after: no entry.
+    rows("late", "2027-04-09T00:00:00.000Z", 5, 3_600_000, () => ({ style: "illustration", brandVote: "up", outcomeVote: null, firstVotedAt: "2027-04-10T00:00:00.000Z", made: stamp(ILLUSTRATION, 2, "learned") }));
+    await pointTo({ [ILLUSTRATION]: { v: 2, setBy: "learned", adoptedAt: V2_AT } });
+    const got = await readVersionVerdict(lumen, { scope: ILLUSTRATION, v: 2, adoptedAt: V2_AT, prevAdoptedAt: V1_AT, seen: 0 }, { db, now: NOW });
+    expect(got.after.votes).toBe(30);
+    expect(got.after.check).toBe("1".repeat(30));
+    expect(got.after.guard).toHaveLength(35);
+  });
+});

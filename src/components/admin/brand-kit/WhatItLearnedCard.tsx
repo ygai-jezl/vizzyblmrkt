@@ -434,7 +434,7 @@ function LookRow({
         </div>
         {canAct ? (
           <div ref={menu.ref} className="relative flex items-center gap-1">
-            {done?.offerForget ? null : (
+            {done?.offerForget || !row.undo ? null : (
               <button type="button" disabled={busy !== null} onClick={onUndo} className={BTN}>
                 <Undo2 size={14} aria-hidden /> Undo
               </button>

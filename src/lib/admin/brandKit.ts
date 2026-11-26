@@ -7,6 +7,7 @@ import { ImageAssetSchema, type ImageAsset } from "@/lib/types/imageAsset";
 import type { Made } from "@/lib/types/loopStamp";
 import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 import { countImageVote } from "@/lib/loops/imageRows";
+import { withinOutcomeDays } from "@/lib/loops/remake";
 import { isVoteReason, VOTE_NOTE_CHARS } from "@/lib/loops/reasons";
 import { textRefusalOf } from "@/lib/loops/textCheck";
 
@@ -93,9 +94,10 @@ export async function updateImageAsset(
  *
  * With image style versions on (learning loops step 4), in one transaction it also keeps how the
  * verdict was given (`brandVoteVia: "vote"`), when the image was first voted on (`firstVotedAt`,
- * set once and never reset), and clears the reason and note when the vote changes (3.11); then it
- * counts the vote against the image's stamp, so a changed vote moves the counts and each image
- * counts once. With them off the row is written exactly as before.
+ * set once and never reset), the vote as its outcome in a check while the image is at most 14 days
+ * old (`outcomeVote`, left alone after that), and clears the reason and note when the vote changes
+ * (3.11); then it counts the vote against the image's stamp, so a changed vote moves the counts and
+ * each image counts once. With them off the row is written exactly as before.
  */
 export async function setImageBrandVote(
   ctx: TenantContext,
@@ -124,6 +126,8 @@ export async function setImageBrandVote(
       brandVoteSetAt: vote ? now.toISOString() : null,
       brandVoteVia: vote ? "vote" : null,
       ...(vote && !current.firstVotedAt ? { firstVotedAt: firstVoteOf(current, now) } : {}),
+      // A check counts a vote only within 14 days of the image being made, so its outcome is fixed then.
+      ...(withinOutcomeDays(current.createdAt, now) ? { outcomeVote: vote } : {}),
       ...(changed ? { brandVoteReason: null, brandVoteNote: null, brandVoteReasonAt: null } : {}),
     };
   });

@@ -81,8 +81,9 @@ describe("settleStamp", () => {
     ["the old field, before seeding", legacy, { lookUsed: true, refs: 4 }, { arm: "none", sources: ["legacy", "refs:4"], items: [], rules: 24 }],
     ["Use learned brand style off", off, { lookUsed: false }, { arm: "none", sources: ["person_off"], items: [], rules: 0 }],
     ["more references than a stamp counts", stamp(), { lookUsed: true, refs: 250 }, { arm: "learned", sources: ["refs:99"], items: ["look1"], rules: 24 }],
-    ["learned, on a path that never learns (a format's card)", stamp(), { lookUsed: true, notLearning: true }, { arm: "none", items: ["look1"], rules: 24 }],
-    ["held back, on a path that never learns (an edit)", held, { lookUsed: false, notLearning: true }, { arm: "none", items: [], rules: 0 }],
+    ["learned, on a path that never learns (a format's card)", stamp(), { lookUsed: true, notLearning: true }, { arm: "none", sources: ["not_learning"], items: ["look1"], rules: 24 }],
+    ["held back, on a path that never learns (an edit)", held, { lookUsed: false, notLearning: true }, { arm: "none", sources: ["not_learning"], items: [], rules: 0 }],
+    ["a drawn fallback on a path that never learns says fallback_drawn only", stamp(), { lookUsed: false, notLearning: true, fallbackDrawn: true }, { arm: "none", sources: ["fallback_drawn"], items: [], rules: 0 }],
   ];
 
   it.each(cases)("%s", (_name, given, use, want) => {

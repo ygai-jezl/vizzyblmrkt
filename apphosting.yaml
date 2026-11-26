@@ -732,7 +732,8 @@ env:
   # Image style versions (learning loops step 4; needs BRAND_STYLE_LOOP_ENABLED and
   # BRAND_IMAGE_STYLE_ENABLED): each painted style's look learned from votes is kept as
   # versions in the brand's region, with Undo, Pause and Forget, and learned once a day.
-  # Off, images use the look on the brand record as before.
+  # Go back suggestions wait in Review with NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED; without it a
+  # worse check shows on What it learned. Off, images use the look on the brand record as before.
   - variable: IMAGE_STYLE_VERSIONS_ENABLED
     value: "false"
     availability:

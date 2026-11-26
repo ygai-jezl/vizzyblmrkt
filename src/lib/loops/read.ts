@@ -151,8 +151,8 @@ function legacyRead(base: StampBase, scope: string, legacy: string | null | unde
 /**
  * The stamp of an image made on a path that never learns, with no read (decision 10 and 3.6): a
  * drawn style, a format's card, or a drawn eBook cover. Arm none at version 0 in the scope of the
- * style it was drawn in. With versions off, or for a kind that isn't an image kind, why it has none,
- * as learnedFor says.
+ * style it was drawn in, with `not_learning`, so no check counts it. With versions off, or for a
+ * kind that isn't an image kind, why it has none, as learnedFor says.
  */
 export function notLearningStamp(kind: LoopKind, opts: Pick<LearnedForOptions, "scope" | "promptId" | "by" | "root"> = {}, deps: Pick<LearnedForDeps, "now"> = {}): Made {
   if (!isImageKind(kind)) return { unstamped: "loops_off" };
@@ -164,7 +164,7 @@ export function notLearningStamp(kind: LoopKind, opts: Pick<LearnedForOptions, "
     ...(opts.by ? { by: opts.by } : {}),
     ...(opts.root ? { root: opts.root } : {}),
   };
-  return stampOf(base, opts.scope ?? BRAND_SCOPE, 0, "none");
+  return stampOf(base, opts.scope ?? BRAND_SCOPE, 0, "none", { sources: ["not_learning"] });
 }
 
 export async function learnedFor(ctx: TenantContext, kind: LoopKind, opts: LearnedForOptions = {}, deps: LearnedForDeps = {}): Promise<LearnedRead> {

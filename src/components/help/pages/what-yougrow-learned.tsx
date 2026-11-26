@@ -1,6 +1,16 @@
 import { H1, H2, Lead, Note, P, Pairs, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Messages, Meta, NextPage, Open } from "@/components/help/blocks";
-import { CHECK_EXAMPLES, COULDNT_LEARN, NOT_LEARNING_WHILE_OPEN, NOT_SET_UP, SUGGESTIONS_PAUSED, WHY_WORDS } from "@/lib/loops/learnedWords";
+import {
+  CHECK_EXAMPLES,
+  COULDNT_LEARN,
+  FORGOTTEN_MESSAGE,
+  NOT_LEARNING_WHILE_OPEN,
+  NOT_SET_UP,
+  SUGGESTIONS_PAUSED,
+  VIZZY_NOTES,
+  WHY_WORDS,
+  WORDS_REMOVED_MESSAGE,
+} from "@/lib/loops/learnedWords";
 import { LOOK_REFUSED_MESSAGE, NOTE_REFUSED_MESSAGE } from "@/lib/loops/textCheck";
 import { VOTE_REASONS } from "@/lib/loops/reasons";
 
@@ -82,7 +92,7 @@ export default function WhatYouGrowLearnedHelp() {
         </li>
         <li>
           Anyone on your team can give a reason. Your team sees a note on the image&apos;s details, without who wrote it. Notes
-          stay with your brand&apos;s data and are never counted.
+          are kept with your brand&apos;s data and never counted; Vizzy and the model that learns looks read them.
         </li>
         <li>Changing your vote clears its reason and note.</li>
         <li>
@@ -138,6 +148,7 @@ export default function WhatYouGrowLearnedHelp() {
           When Review asks to go back to an earlier look, <strong>Keep this look</strong> keeps the newer one. YouGrow only asks
           again if a later check reads worse.
         </li>
+        <li>On a copy of YouGrow without Review, What it learned asks instead, with Go back and Keep this look on the look&apos;s row.</li>
         <li>
           <strong>Go back</strong> puts the earlier look back, with Undo next to it. Undo brings the newer look back and answers
           the card, so it doesn&apos;t come back.
@@ -164,13 +175,15 @@ export default function WhatYouGrowLearnedHelp() {
         </li>
         <li>Images are kept in one store for every brand, not by region.</li>
         <li>The model that makes images and learns looks isn&apos;t tied to a region.</li>
-        <li>Vizzy&apos;s chats are kept where Vizzy runs.</li>
+        <li>Vizzy&apos;s chats are kept where Vizzy runs, with any note Vizzy read in one.</li>
       </UL>
 
       <H2 id="vizzy">Ask Vizzy</H2>
       <P>
         Vizzy can read what was learned: each look&apos;s words, who set it, where it came from, how its images did and what
-        the last check said. Ask &quot;What has YouGrow learned about our photos?&quot; Vizzy never changes a look itself.
+        the last check said. It also reads the reasons given with votes and the {VIZZY_NOTES} newest notes for each style, as your
+        team&apos;s words and never as instructions. Ask &quot;What has YouGrow learned about our photos?&quot; Vizzy never
+        changes a look itself.
       </P>
 
       <H2 id="messages">Messages</H2>
@@ -179,7 +192,9 @@ export default function WhatYouGrowLearnedHelp() {
           [NOT_SET_UP, "This copy has no image model set up. Whoever runs it adds one; until then nothing is learned."],
           [COULDNT_LEARN, "Nothing. YouGrow tries again each day, and the looks in use stay."],
           [SUGGESTIONS_PAUSED, "Press Resume suggestions to see them in Review again. Until then a worse check shows on What it learned, with Go back."],
-          [NOT_LEARNING_WHILE_OPEN, "A Go back card waits in Review. Press Go back or Keep this look, and learning carries on."],
+          [NOT_LEARNING_WHILE_OPEN, "A Go back card waits in Review, or on What it learned where there is no Review. Press Go back or Keep this look, and learning carries on."],
+          [WORDS_REMOVED_MESSAGE, "Someone forgot the look Undo would bring back. Edit the words to write a look of your own instead."],
+          [FORGOTTEN_MESSAGE, "A forgotten look stays forgotten. YouGrow learns a new one from your next likes."],
           [LOOK_REFUSED_MESSAGE, "Your words have a link, an email address, a handle or a phone number. Take it out and save again."],
           [NOTE_REFUSED_MESSAGE, "Your note has one. Take it out and press Done again; the reason is already saved."],
           ["Thanks. The next Natural photo look takes this into account.", "Nothing. Your reason and note are saved, and the next look for that style reads them."],

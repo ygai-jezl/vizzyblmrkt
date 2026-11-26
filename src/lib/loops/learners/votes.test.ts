@@ -38,7 +38,8 @@ const { settleStamp } = await import("../stamp");
 const { countMade } = await import("../count");
 const { LOOPS, LOOP_RULES } = await import("../registry");
 const { verdict, LOOK_SIZES } = await import("../verdict");
-const { runVotesLearner, newLearnRun, versionCheckOf, profileImage } = await import("./votes");
+const { runVotesLearner, newLearnRun, versionCheckOf, profileImage, voteCountersHash } = await import("./votes");
+const { mergeLaneState } = await import("@/lib/tenant/loops");
 
 type VotesDeps = NonNullable<Parameters<typeof runVotesLearner>[2]>;
 type LoopCounts = Awaited<ReturnType<NonNullable<VotesDeps["counts"]>>>;
@@ -433,8 +434,8 @@ async function row(db: FakeFirestore, over: Partial<ImageAsset> = {}): Promise<s
   return id;
 }
 
-function countsWith(versions: Partial<Record<string, Totals>>, liked = 0): VotesDeps["counts"] {
-  return async () => ({ week: "2027-W09", likedThisWeek: liked, versions });
+function countsWith(versions: Partial<Record<string, Totals>>, liked = 0, votes?: string): VotesDeps["counts"] {
+  return async () => ({ week: "2027-W09", likedThisWeek: liked, ...(votes ? { votes } : {}), versions });
 }
 
 /** The fake, with a spy on which collections were used. */
@@ -593,6 +594,52 @@ describe("the votes learner", () => {
 
     // A like counted since: the rows are read again.
     expect((await runFor(w.db, { counts: countsWith({}, 3) })).readRows).toBe(true);
+  });
+
+  it("reads the rows again when a changed vote and a new like leave the week's net likes as they were", async () => {
+    const db = new FakeFirestore();
+    await brand(db);
+    const w = watched(db);
+    expect((await runFor(w.db, { counts: countsWith({}, 2, "hash1") })).readRows).toBe(true);
+    w.reset();
+    expect((await runFor(w.db, { counts: countsWith({}, 2, "hash1") })).readRows).toBe(false);
+    // One like changed to a dislike, one new like: 2 likes still, but the vote counters moved.
+    const again = await runFor(w.db, { counts: countsWith({}, 2, "hash2") });
+    expect(again.readRows).toBe(true);
+    expect(w.used()).toContain("image_assets");
+  });
+
+  it("hashes the week's vote counters, so a new like moves it where a changed vote nets the likes out", () => {
+    const shard = (voted: number, liked: number, made = 5, mood = 1) => ({ c: { [NATURAL]: { post_image: { v1: { learned: { made, voted, liked, "disliked.mood": mood } } } } } });
+    const monday = voteCountersHash([shard(2, 2), null]);
+    // Tuesday: image A from up to down (liked 2 to 1, voted 2), image B liked (voted 3, liked 2).
+    expect(voteCountersHash([shard(3, 2), null])).not.toBe(monday);
+    // The same totals hash the same whichever shard they landed in, and images made move nothing.
+    expect(voteCountersHash([shard(1, 1), shard(1, 1, 0, 0)])).toBe(voteCountersHash([shard(2, 2, 7)]));
+    expect(voteCountersHash([shard(2, 2, 9), null])).toBe(monday);
+  });
+
+  it("learns nothing when the open Go back cards can't be read", async () => {
+    const db = new FakeFirestore();
+    await brand(db);
+    for (let i = 0; i < 3; i++) await row(db);
+    const got = await runFor(db, {
+      goBackOpen: async () => {
+        throw new Error("read failed");
+      },
+    });
+    expect(got.outcomes.find((o) => o.scope === NATURAL)).toMatchObject({ outcome: "waiting", why: "go_back_open" });
+    expect(await getPatternVersion(hearth, NATURAL, 1, db)).toBeNull();
+  });
+
+  it("ends the days in a row learning failed once a model call answers, even when its words are refused", async () => {
+    const db = new FakeFirestore();
+    await brand(db);
+    for (let i = 0; i < 3; i++) await row(db);
+    await mergeLaneState(hearth, { failedDays: 3, lastFailedDay: "2027-02-28" }, db);
+    const r = await runFor(db, { synthesize: async () => "Soft daylight on loaves, as on https://example.com/bakery." });
+    expect(r.outcomes.find((o) => o.scope === NATURAL)).toMatchObject({ outcome: "refused", reason: "trust" });
+    expect(db.raw(LOOP_DAYS, "ls:ten_hearth")).toMatchObject({ d: { failedDays: 0 } });
   });
 
   it("reads no image rows when no scope is free to learn", async () => {

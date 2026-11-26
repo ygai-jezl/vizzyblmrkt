@@ -1,4 +1,5 @@
 import { generateTextWithDeadline, isGeminiConfigured, type AiUsage } from "@/lib/agents/gemini";
+import { fnv1a } from "@/lib/journey/allocation";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { extractStyleProfile, profileLine } from "@/lib/content/create/styleProfile";
 import { canonicalStyleId, imageStyleById } from "@/lib/content/imageStyle/catalogue";
@@ -38,7 +39,7 @@ import { checkLookText, lookHash, proposeLearned } from "../write";
  *   with no image rows read. Likes are then counted on the image rows themselves, by each image's
  *   style and `firstVotedAt`: an image made with the brand look is stamped with the brand's scope,
  *   so its style's counters never see its like, and an upload is never stamped. A visit with no
- *   new likes and no scope newly free reads no image rows (the `learnRead` mark on `ls:`).
+ *   new votes and no scope newly free reads no image rows (the `learnRead` mark on `ls:`).
  * - The look is written from the top 20 liked and 8 disliked images, with each image's reason and
  *   its team note quoted as data, dislikes grouped by reason, under loop_learn on the text model,
  *   within the run's deadline. A model that is missing, fails or times out adopts nothing, and the
@@ -69,6 +70,11 @@ export interface LoopCounts {
   week: string;
   /** Likes counted this week across every scope, net of changed votes: the learnRead mark compares it. */
   likedThisWeek: number;
+  /**
+   * A hash of this week's vote counters (voteCountersHash): the learnRead mark compares it too, since
+   * a changed vote and a new like in the same week leave the net likes as they were.
+   */
+  votes?: string;
   /** By scope, the totals of the version in use (version 0 for a scope with none): `lv:` plus the open week. */
   versions: Partial<Record<string, VersionTotals>>;
 }
@@ -260,6 +266,30 @@ function likedIn(d: unknown): number {
   return n;
 }
 
+/** A counter that a vote moves: voted, liked, and the reasons given with a vote. */
+const VOTE_SIGNAL_RE = /^(?:voted|liked|liked\..+|disliked\..+)$/;
+
+/**
+ * A hash of the week's vote counters (under `c` and `o`), added up across its shards first, so the
+ * same votes hash the same whichever shard they landed in. A new like moves `voted` even where a
+ * changed vote takes the net likes back to where they were, so the learnRead mark sees it.
+ */
+export function voteCountersHash(shards: readonly unknown[]): string {
+  const sum = new Map<string, number>();
+  const walk = (node: unknown, path: string) => {
+    if (!isObj(node)) return;
+    for (const [k, v] of Object.entries(node)) {
+      const at = `${path}/${k}`;
+      if (typeof v === "number") {
+        if (VOTE_SIGNAL_RE.test(k)) sum.set(at, (sum.get(at) ?? 0) + v);
+      } else walk(v, at);
+    }
+  };
+  for (const d of shards) if (isObj(d)) walk({ c: d.c, o: d.o }, "");
+  const leaves = [...sum].filter(([, n]) => n !== 0).map(([k, n]) => `${k}=${n}`);
+  return fnv1a(leaves.sort().join(";")).toString(36);
+}
+
 /** Add a shard's counters for one scope and version into a version's totals. */
 function addShard(into: Leaves, d: unknown, scope: string, v: number): void {
   const byKind = isObj(d) && isObj(d.c) ? d.c[scope] : null;
@@ -296,7 +326,7 @@ export const readLoopCounts: CountsReader = async (ctx, pointers, opts) => {
     if (!totals.throughWeek || totals.throughWeek < week) for (const d of shards) addShard(totals.c as Leaves, d, scope, v);
     versions[scope] = totals;
   });
-  return { week, likedThisWeek: shards.reduce((n, d) => n + likedIn(d), 0), versions };
+  return { week, likedThisWeek: shards.reduce((n, d) => n + likedIn(d), 0), votes: voteCountersHash(shards), versions };
 };
 
 // ----- Image rows -----
@@ -532,7 +562,8 @@ async function visit(
   }
 
   const [goBack, counts, rowsInUse] = await Promise.all([
-    (deps.goBackOpen ?? (async () => new Set<string>()))(ctx).catch(() => new Set<string>()),
+    // The cards couldn't be read: every scope is taken as having one open, so nothing learns past one.
+    (deps.goBackOpen ?? (async () => new Set<string>()))(ctx).catch((): ReadonlySet<string> => new Set<string>(IMAGE_STYLE_SCOPES)),
     (deps.counts ?? readLoopCounts)(ctx, pointers, { now, db }),
     Promise.all(
       IMAGE_STYLE_SCOPES.map((scope) => {
@@ -554,7 +585,7 @@ async function visit(
   // Nothing new since the last read: no likes counted this week and no scope newly free to learn.
   const lane = deps.laneState ?? (await readLaneState(ctx, db));
   const mark = lane.learnRead;
-  if (mark && mark.week === counts.week && mark.liked === counts.likedThisWeek && open.every((o) => mark.open.includes(o.scope))) {
+  if (mark && mark.week === counts.week && mark.liked === counts.likedThisWeek && mark.votes === counts.votes && open.every((o) => mark.open.includes(o.scope))) {
     for (const o of open) outcomes.push({ scope: o.scope, outcome: "waiting", why: "unchanged" });
     return { outcomes, readRows: false };
   }
@@ -567,6 +598,8 @@ async function visit(
   const settledOpen: string[] = [];
   let errored = false;
   let learned = false;
+  /** A model call answered: learning works again, whatever the text check then said. */
+  let answered = false;
 
   for (const { scope, lookInUse } of open) {
     const pointer = pointers.scopes[scope];
@@ -678,6 +711,7 @@ async function visit(
       await refused("error", clock() - started >= timeoutMs - 50 ? "deadline" : "model");
       continue;
     }
+    answered = true;
     const words = checkLookText(fitLook(text));
     if (!words.ok) {
       await refused(words.reason, words.code);
@@ -701,9 +735,12 @@ async function visit(
   }
 
   // The mark for the next visit, and the days in a row learning failed (LOOP_RULES.errorDays).
-  const patch: LaneState = { learnRead: { week: counts.week, liked: counts.likedThisWeek, open: settledOpen, at: now.toISOString() } };
+  const patch: LaneState = {
+    learnRead: { week: counts.week, liked: counts.likedThisWeek, ...(counts.votes ? { votes: counts.votes } : {}), open: settledOpen, at: now.toISOString() },
+  };
   const today = todayOf(now);
-  if (learned) patch.failedDays = 0;
+  // A model call that answered ends the days in a row, as a look learned does.
+  if (learned || answered) patch.failedDays = 0;
   else if (errored && lane.lastFailedDay !== today) {
     const yesterday = todayOf(new Date(now.getTime() - DAY_MS));
     patch.failedDays = lane.lastFailedDay === yesterday ? (lane.failedDays ?? 0) + 1 : 1;

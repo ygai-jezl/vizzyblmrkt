@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
+import { isNavV2Phase2Enabled } from "@/lib/nav/flags";
 import { fnv1a } from "@/lib/journey/allocation";
 import { readLoopLane, writeLoopLane } from "@/lib/tenant/loopLane";
 import { loopDayId, mergeLaneState, readBrandPointers, readLaneState, readLoopDays } from "@/lib/tenant/loops";
@@ -13,7 +14,7 @@ import { expireGoBackCards, goBackOf, openGoBackCards, soonestExpiry } from "./c
 import { loopWeekOf } from "./count";
 import { foldClosedWeeks, lastClosedWeek } from "./fold";
 import { runImageVerdicts, newVerdictRun, type VerdictRun } from "./imageVerdict";
-import { isHolding, newLearnRun, readLoopCounts, runVotesLearner, type HoldState, type LearnRun, type VotesLearnerDeps } from "./learners/votes";
+import { isHolding, newLearnRun, readLoopCounts, runVotesLearner, type HoldState, type LearnRun, type VotesLearnerDeps, type VotesLearnerResult } from "./learners/votes";
 import { LOOP_RULES } from "./registry";
 import { seedBrand } from "./seed";
 
@@ -166,6 +167,8 @@ export interface LoopsLaneDeps {
   memoryLimit?: () => number | null;
   /** The learner's own dependencies (the model, the profile), for tests. */
   learner?: Pick<VotesLearnerDeps, "synthesize" | "profile" | "configured" | "log" | "loadTenant">;
+  /** The brand's open Go back cards (openGoBackCards by default), for tests. */
+  openCards?: typeof openGoBackCards;
 }
 
 export interface LoopsLaneResult {
@@ -196,6 +199,16 @@ function legacyTenantOf(row: TenantPageRow): Pick<Tenant, "brandKit" | "imageSty
     brandKit: row.learnedImageStyle ? ({ learnedImageStyle: row.learnedImageStyle } as Tenant["brandKit"]) : undefined,
     imageStyle: Object.keys(learned).length ? ({ defaultStyleId: null, learned } as unknown as Tenant["imageStyle"]) : undefined,
   };
+}
+
+/**
+ * Whether a worse read goes to the card's own notice on What it learned instead of a Go back card:
+ * on a copy without Review (nav v2 phase 2 off), which has nowhere to answer a card, and under the
+ * attention rule.
+ */
+export async function cardsAsNotice(ctx: TenantContext, pointers: Pick<BrandPointers, "cardsResumedAt">, deps: { now: Date; db?: FirestoreLike }): Promise<boolean> {
+  if (!isNavV2Phase2Enabled()) return true;
+  return (await readAttention(ctx, { now: deps.now, cardsResumedAt: pointers.cardsResumedAt, db: deps.db })).cards.noticeOnly;
 }
 
 /** One brand's visit. Never throws for the brand's own trouble. */
@@ -243,22 +256,29 @@ async function visitBrand(row: TenantPageRow, run: { learn: LearnRun; verdicts: 
   if (run.deadlineMs - clock() < LANE.MIN_LEFT_MS) return out;
 
   // 5. Go back cards past their 14 days.
-  const open = await openGoBackCards(ctx, { db, now }).catch(() => []);
+  let cardsRead = true;
+  const open = await (deps.openCards ?? openGoBackCards)(ctx, { db, now }).catch(() => {
+    cardsRead = false;
+    return [];
+  });
   await expireGoBackCards(ctx, { db, now }).catch(() => 0);
 
-  // 6. The votes learner.
-  let retry = false;
+  // 6. The votes learner. It never runs on a scope whose Go back card is open, so when the cards
+  // couldn't be read it waits for the next visit instead of learning past one.
+  let retry = !cardsRead;
   let weekWait: string | null = null;
   const holds = new Map<string, HoldState>();
-  const learned = await runVotesLearner(ctx, run.learn, {
-    db,
-    now,
-    clock,
-    laneState: await readLaneState(ctx, db),
-    // The cards read above, past their 14 days left out: no second read.
-    goBackOpen: async () => new Set(open.flatMap((a) => goBackOf(a)?.scope ?? [])),
-    ...(deps.learner ?? {}),
-  });
+  const learned: VotesLearnerResult = cardsRead
+    ? await runVotesLearner(ctx, run.learn, {
+        db,
+        now,
+        clock,
+        laneState: await readLaneState(ctx, db),
+        // The cards read above, past their 14 days left out: no second read.
+        goBackOpen: async () => new Set(open.flatMap((a) => goBackOf(a)?.scope ?? [])),
+        ...(deps.learner ?? {}),
+      })
+    : { outcomes: [], readRows: false };
   out.rows += learned.rows ?? 0;
   for (const o of learned.outcomes) {
     if (o.outcome === "learned") out.learned += 1;
@@ -281,7 +301,7 @@ async function visitBrand(row: TenantPageRow, run: { learn: LearnRun; verdicts: 
       db,
       now,
       proposedThisWeek: cardsProposed(shards),
-      noticeOnly: async () => (await readAttention(ctx, { now, cardsResumedAt: pointers.cardsResumedAt, db })).cards.noticeOnly,
+      noticeOnly: () => cardsAsNotice(ctx, pointers, { now, db }),
     });
     out.rows += v.rows;
     out.verdicts += v.verdicts.length;

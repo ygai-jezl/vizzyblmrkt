@@ -1,5 +1,6 @@
 import { canonicalStyleId, imageStyleById } from "@/lib/content/imageStyle/catalogue";
 import { isGeminiConfigured } from "@/lib/agents/gemini";
+import { isNavV2Phase2Enabled } from "@/lib/nav/flags";
 import { imageAssetProxyUrl } from "@/lib/content/brandKit";
 import { forTenant } from "@/lib/tenant";
 import { loopDayId, readBrandPointers, readLaneState, readLoopDays } from "@/lib/tenant/loops";
@@ -48,6 +49,7 @@ import {
   restoredOf,
   statusLine,
   usedForLine,
+  VIZZY_NOTES,
   type CheckTone,
   type EvidenceCounts,
   type VersionFacts,
@@ -79,8 +81,6 @@ const DISLIKED_ROWS = 50;
 const HISTORY_ROWS = 12;
 /** A new look's notice shows in the post image panel this long. */
 const NOTICE_DAYS = 14;
-/** Notes Vizzy reads per style. */
-const VIZZY_NOTES = 5;
 
 /** The fields read from image rows for the card: no prompt, profile or bytes. */
 const ROW_FIELDS = ["kind", "style", "workspaceId", "filename", "title", "createdAt", "brandVote", "brandVoteVia", "brandVoteReason", "brandVoteNote", "brandVoteReasonAt"] as const satisfies ReadonlyArray<keyof ImageAsset>;
@@ -91,12 +91,19 @@ export interface LearnedViewDeps {
   now?: Date;
   /** Whether this copy has an image model set up (isGeminiConfigured by default). */
   modelReady?: () => boolean;
+  /** Whether this copy shows Review, where Go back cards wait (isNavV2Phase2Enabled by default). */
+  reviewHub?: () => boolean;
 }
 
 type Leaves = Record<string, Record<string, Record<string, number>>>;
 
 const lookText = (row: LearnedPatternVersion | null | undefined): string | null =>
   row?.items?.find((i) => i.type === "rule" && typeof i.text === "string" && i.text.trim().length > 0)?.text?.trim() ?? null;
+
+/** A row that once held words a Forget took out: Undo back to it is refused, so it isn't offered. */
+const wordsRemoved = (row: LearnedPatternVersion | null | undefined): boolean => Boolean(row?.items?.length) && lookText(row) === null;
+
+const dayOf = (d: Date): string => d.toISOString().slice(0, 10);
 
 /** A learned version's own counts, on the learned arm: made, voted, liked and remade. */
 function armCounts(t: VersionTotals | undefined): { made: number; voted: number; liked: number; remade: number } {
@@ -118,6 +125,8 @@ const isPainted = (scope: string): boolean => scope !== BRAND_SCOPE && (IMAGE_ST
 interface Facts {
   now: Date;
   modelReady: boolean;
+  /** Review is on this copy: a Go back card waits there; without it, a worse read shows on the row. */
+  reviewHub: boolean;
   pointers: BrandPointers;
   lane: LaneState;
   attention: { cards: CardAttention; reasons: ReasonAttention };
@@ -172,6 +181,7 @@ async function loadFacts(ctx: TenantContext, deps: LearnedViewDeps): Promise<Fac
   return {
     now,
     modelReady: (deps.modelReady ?? isGeminiConfigured)(),
+    reviewHub: (deps.reviewHub ?? isNavV2Phase2Enabled)(),
     pointers,
     lane,
     attention,
@@ -338,14 +348,17 @@ function rowOf(facts: Facts, scope: ImageStyleScope, ctx: TenantContext, ctxBran
   const prev = history.find((r) => r.version === v - 1) ?? null;
   const first = v === 1 || !lookText(prev);
   const card = facts.open.find((g) => g.scope === scope && g.from === v) ?? null;
-  const quiet = facts.attention.cards.noticeOnly;
+  // A card waits in Review only where this copy has Review; elsewhere it shows as the row's notice.
+  const inReview = Boolean(card) && facts.reviewHub;
+  const quiet = facts.attention.cards.noticeOnly || !facts.reviewHub;
+  const onRow = (quiet || Boolean(card)) && !inReview && !pointer?.keptAt;
   const person = pointer?.setBy === "person";
   const hold = holdStateOf(totals);
   const lines: string[] = [];
   let check: LookRowView["check"] = null;
   if (person) lines.push(ALWAYS_USED);
   else {
-    check = checkLine(read, { first, counted: hold.counted, since: pointer?.adoptedAt ?? null, ask: quiet && !card && !pointer?.keptAt });
+    check = checkLine(read, { first, counted: hold.counted, since: pointer?.adoptedAt ?? null, ask: onRow });
     // A first look that can't be checked says why it holds, instead of a check line, once the
     // verdict run has counted its votes (before that, how many it needs isn't known).
     if (!check && !pointer?.keptAt && totals?.check && hold.made >= LOOP_RULES.holdAutoAdopted && isHolding(hold)) {
@@ -372,11 +385,12 @@ function rowOf(facts: Facts, scope: ImageStyleScope, ctx: TenantContext, ctxBran
     lines,
     check,
     checkRead,
-    goBack: card ? { text: goBackWaiting(card.to), href: REVIEW_HREF } : null,
-    notice: Boolean(check && check.tone === "bad" && quiet && !card && !pointer?.keptAt),
+    goBack: card && inReview ? { text: goBackWaiting(card.to), href: REVIEW_HREF } : null,
+    notice: Boolean(check && check.tone === "bad" && onRow),
     history: historyRows.length >= 2 ? historyRows : [],
     holdable: !facts.pointers.fleetOptOut && !pointer?.keptAt && !person,
-    undo: { wasPerson: person },
+    // Undo restores the version before, which a Forget of the look an Undo left may have emptied.
+    undo: wordsRemoved(prev) ? null : { wasPerson: person },
     firstLookCheck: first ? firstLookCantCheck(read) : null,
   };
 }
@@ -406,8 +420,11 @@ function cardOf(ctx: TenantContext, facts: Facts): LearnedCardView {
   const notes: LearnedCardView["notes"] = [];
   if (!facts.modelReady) notes.push({ id: "not_set_up", text: NOT_SET_UP, tone: "plain", action: null });
   if (pause) notes.push({ id: "paused", text: pausedNote(pause.at), tone: "plain", action: admin ? "resume" : null });
-  if ((facts.lane.failedDays ?? 0) >= LOOP_RULES.errorDays) notes.push({ id: "failing", text: COULDNT_LEARN, tone: "warn", action: null });
-  if (facts.attention.cards.noticeOnly) notes.push({ id: "quiet", text: SUGGESTIONS_PAUSED, tone: "plain", action: admin ? "resume_suggestions" : null });
+  // Only while the failures are recent (the last one today or yesterday) and learning isn't paused.
+  const lastFailed = facts.lane.lastFailedDay ?? "";
+  const failingLately = lastFailed === dayOf(facts.now) || lastFailed === dayOf(new Date(facts.now.getTime() - DAY_MS));
+  if (!pause && failingLately && (facts.lane.failedDays ?? 0) >= LOOP_RULES.errorDays) notes.push({ id: "failing", text: COULDNT_LEARN, tone: "warn", action: null });
+  if (facts.attention.cards.noticeOnly && facts.reviewHub) notes.push({ id: "quiet", text: SUGGESTIONS_PAUSED, tone: "plain", action: admin ? "resume_suggestions" : null });
 
   const looks = rows.filter((r) => r.hasLook);
   const anyRead = looks.some((r) => r.checkRead);
@@ -556,10 +573,15 @@ export async function imageVoteView(ctx: TenantContext, input: { assetId?: strin
   const pointer = scope ? pointers.scopes[scope] : undefined;
   if (scope && pointer && pointer.v > 0 && pointer.setBy === "learned" && now.getTime() - Date.parse(pointer.adoptedAt) < NOTICE_DAYS * DAY_MS) {
     const brandV = pointers.scopes[BRAND_SCOPE]?.v ?? 0;
-    const [cur, brand] = await Promise.all([getPatternVersion(ctx, scope, pointer.v, deps.db), brandV > 0 ? getPatternVersion(ctx, BRAND_SCOPE, brandV, deps.db) : Promise.resolve(null)]);
+    const [cur, brand, prev] = await Promise.all([
+      getPatternVersion(ctx, scope, pointer.v, deps.db),
+      brandV > 0 ? getPatternVersion(ctx, BRAND_SCOPE, brandV, deps.db) : Promise.resolve(null),
+      pointer.v > 1 ? getPatternVersion(ctx, scope, pointer.v - 1, deps.db) : Promise.resolve(null),
+    ]);
     // Only a look the learner adopted ("auto"): an Undo, Go back or Edit is the person's own doing.
+    // Undo isn't offered when the look before had its words taken out by a Forget: it would be refused.
     if (cur && lookText(cur) && cur.createdBy === "auto" && cur.setBy === "learned") {
-      notice = { scope, text: newLookNotice(scope, pointer.adoptedAt), canUndo: ctx.role === "admin", brandLook: lookText(brand) !== null };
+      notice = { scope, text: newLookNotice(scope, pointer.adoptedAt), canUndo: ctx.role === "admin" && !wordsRemoved(prev), brandLook: lookText(brand) !== null };
     }
   }
   return {

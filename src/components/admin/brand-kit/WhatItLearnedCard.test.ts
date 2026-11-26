@@ -98,6 +98,12 @@ describe("What it learned (screen 1)", () => {
     expect(out).toContain(">Help check that learning works</a>");
   });
 
+  it("offers no Undo on a row whose look before was forgotten, since it could never act", () => {
+    const out = html(createElement(WhatItLearnedCard, { initial: card({ rows: [row({ undo: null })] }) }));
+    expect(out).not.toContain("> Undo<");
+    expect(out).toContain('aria-label="More for Natural photo"');
+  });
+
   it("gives a member no actions, and says why", () => {
     const out = html(createElement(WhatItLearnedCard, { initial: card({ role: "member", canMenu: false, member: W.MEMBER_LINE, footer: [] }) }));
     expect(out).not.toContain("> Undo<");

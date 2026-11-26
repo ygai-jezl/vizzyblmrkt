@@ -1190,3 +1190,22 @@ describe("Tell Vizzy about your business (ONBOARDING_ENABLED)", () => {
     }
   });
 });
+
+describe("What YouGrow learned (IMAGE_STYLE_VERSIONS_ENABLED)", () => {
+  const section = (text: string, heading: string) => {
+    const from = text.indexOf(`## ${heading}`);
+    const next = text.indexOf("\n## ", from + 3);
+    return text.slice(from, next === -1 ? undefined : next);
+  };
+
+  it("says Vizzy reads the reasons and the newest notes it is given, and never that notes stay with the brand's data", async () => {
+    const { VIZZY_NOTES } = await import("@/lib/loops/learnedWords");
+    const text = helpPageMarkdown("what-yougrow-learned", "https://app.example.com")!;
+    const vizzy = section(text, "Ask Vizzy");
+    expect(vizzy).toContain("reasons given with votes");
+    expect(vizzy).toContain(`${VIZZY_NOTES} newest notes`);
+    expect(text).not.toContain("Notes stay with your brand");
+    expect(section(text, "How your votes teach it")).toContain("Vizzy and the model that learns looks read them");
+    expect(section(text, "Where it is kept")).toContain("with any note Vizzy read in one");
+  });
+});

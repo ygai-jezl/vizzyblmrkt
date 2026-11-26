@@ -4,7 +4,8 @@ import { LOOP_DAYS, readBrandPointers, readLaneState, runLoopsTransaction, write
 import { getPatternVersion } from "@/lib/tenant/patternVersions";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { setImageLearningPaused } from "./actions";
-import { containerMemoryLimit, isLoopsTick, memoryTooHigh, pageSizeFor, runLoopsLane, signalHash, visitHash } from "./tick";
+import { countCard } from "./count";
+import { cardsAsNotice, containerMemoryLimit, isLoopsTick, memoryTooHigh, pageSizeFor, runLoopsLane, signalHash, visitHash } from "./tick";
 
 /** The loops lane (learning loops step 4, 4.5): its page through the brands, the idle check, the guard and the seed. */
 
@@ -96,6 +97,32 @@ describe("a brand's visit", () => {
     // Resume: the likes that came in during the pause are learned from on the next visit, not a week on.
     expect(await setImageLearningPaused(ctx, false, { db, now: NOW })).toEqual({ ok: true });
     expect(await lane()).toMatchObject({ brands: 1, idle: 0 });
+  });
+
+  it("skips the learner when the open Go back cards can't be read, and visits fully again next time", async () => {
+    brand("ten_hearth");
+    const ctx = { tenantId: "ten_hearth", region: "us" as const, source: "system" as const };
+    await lane({
+      openCards: async () => {
+        throw new Error("read failed");
+      },
+    });
+    const state = await readLaneState(ctx, db);
+    // The learner never ran, so it kept no mark, and nothing waits by time: the next visit is full.
+    expect(state.learnRead).toBeUndefined();
+    expect(state.quietUntil).toBe(NOW.toISOString());
+    expect(await lane()).toMatchObject({ brands: 1, idle: 0 });
+    expect((await readLaneState(ctx, db)).learnRead).toBeDefined();
+  });
+
+  it("sends a worse read to the card's own notice on a copy without Review, and under the attention rule", async () => {
+    const ctx = { tenantId: "ten_hearth", region: "us" as const, source: "system" as const };
+    expect(await cardsAsNotice(ctx, {}, { now: NOW, db })).toBe(true);
+    vi.stubEnv("NEXT_PUBLIC_NAV_V2_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_NAV_V2_PHASE2_ENABLED", "true");
+    expect(await cardsAsNotice(ctx, {}, { now: NOW, db })).toBe(false);
+    for (let i = 0; i < 3; i++) await countCard(ctx, "loop_learn", "ignored", { db, now: NOW });
+    expect(await cardsAsNotice(ctx, {}, { now: NOW, db })).toBe(true);
   });
 
   it("clears a forgotten look's old copy on the brand record until it is gone", async () => {

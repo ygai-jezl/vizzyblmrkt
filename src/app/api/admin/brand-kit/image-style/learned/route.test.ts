@@ -96,7 +96,14 @@ describe("POST /api/admin/brand-kit/image-style/learned", () => {
     actions.goBackLook.mockResolvedValueOnce({ ok: false, error: "moved" } as never);
     expect((await post({ op: "go_back", target: { scope: NATURAL } })).status).toBe(409);
     actions.undoLook.mockResolvedValueOnce({ ok: false, error: "forgotten" } as never);
-    expect((await post({ op: "undo", scope: NATURAL })).status).toBe(409);
+    const forgotten = await post({ op: "undo", scope: NATURAL });
+    expect(forgotten.status).toBe(409);
+    expect(await forgotten.json()).toEqual({ error: "forgotten", message: "This look was forgotten, so there is nothing to undo." });
+    // An Undo back to a look a Forget emptied can never work: it says so instead of "Try again".
+    actions.undoLook.mockResolvedValueOnce({ ok: false, error: "words_removed" } as never);
+    const removed = await post({ op: "undo", scope: NATURAL });
+    expect(removed.status).toBe(409);
+    expect(await removed.json()).toEqual({ error: "words_removed", message: "The look before this one was forgotten, so there is nothing to go back to." });
   });
 });
 

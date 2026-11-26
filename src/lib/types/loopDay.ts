@@ -104,8 +104,36 @@ export const VersionCheckSchema = z.object({
   seen: z.number().optional(),
   /** Some of its images were too new to read then, so it is read again once they are 14 days old. */
   pending: z.boolean().optional(),
+  /** Its images since it began were read a page at a time and more were left, so it is read again on the lane's next visit. */
+  more: z.boolean().optional(),
 });
 export type VersionCheck = z.infer<typeof VersionCheckSchema>;
+
+/** The most entries a side's read keeps for each of the check and the guard: the last look (LOOP_RULES.lastLook). */
+export const AFTER_ENTRIES_MAX = 120;
+
+const Entries = z.string().regex(/^[01]*$/).max(AFTER_ENTRIES_MAX);
+
+/**
+ * What the verdict run has read so far of a version's images since it began (3.8: the lane pages
+ * until it has the look's outputs), so each run reads on from where the last stopped instead of
+ * from the version's start. Only images at least LOOP_RULES.outcomeDays old are read into it, whose
+ * outcomes are fixed by then, so what it holds never changes. Counts only: no image ids but the
+ * cursor's one.
+ */
+export const AfterReadSchema = z.object({
+  /** The version's start these were read from; a different start reads afresh. */
+  from: Iso,
+  /** The last image read, by when it was made and its id: the next page starts after it. */
+  through: z.object({ at: Iso, id: z.string().max(128) }).nullable(),
+  /** The check's entries, oldest first: 1 for an up vote, 0 for a down vote. */
+  check: Entries,
+  /** The guard's entries, oldest first: 1 for a remake. */
+  guard: Entries,
+  /** Every check entry read, which can pass the ones kept. */
+  votes: z.number().int().min(0),
+});
+export type AfterRead = z.infer<typeof AfterReadSchema>;
 
 const TallySchema = z.object({ hits: z.number().int().min(0), n: z.number().int().min(0) });
 
@@ -148,6 +176,8 @@ export const VersionTotalsSchema = z.object({
   check: VersionCheckSchema.optional(),
   /** Its reads, by the look each was read at ("0" below the first look): the newest is what the card says. */
   looks: z.record(z.string().max(8), LookReadSchema).optional(),
+  /** Its images since it began, as far as the verdict run has read them. */
+  after: AfterReadSchema.optional(),
   /** The Go back card the verdict run proposed for it, by the look that read worse. */
   card: z.object({ id: z.string().max(64), look: z.number().int().min(0), at: Iso }).optional(),
 });
@@ -155,12 +185,18 @@ export type VersionTotals = z.infer<typeof VersionTotalsSchema>;
 
 /**
  * What the votes learner saw the last time it read image rows (src/lib/loops/learners/votes.ts),
- * so a visit with no new likes and no scope newly free to learn reads none: the open week, the
- * likes counted in it then, and the scopes that were free to learn and found too few likes.
+ * so a visit with no new votes and no scope newly free to learn reads none: the open week, the
+ * likes counted in it then and a hash of its vote counters, and the scopes that were free to learn
+ * and found too few likes.
  */
 export const LearnReadSchema = z.object({
   week: z.string().regex(ISO_WEEK_RE),
   liked: z.number(),
+  /**
+   * A hash of the open week's vote counters (voted, liked and the reasons, by scope, kind, version
+   * and arm): a changed vote and a new like in the same week leave the liked sum alone but move it.
+   */
+  votes: z.string().max(16).optional(),
   open: z.array(z.string().max(40)).max(16),
   at: Iso,
 });

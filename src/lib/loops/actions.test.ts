@@ -175,6 +175,44 @@ describe("Undo", () => {
     expect(await forgetUndone(hearth, NATURAL, deps())).toEqual({ ok: false, error: "nothing_to_forget" });
   });
 
+  it("says no version came back when it undoes a look learned after a Forget", async () => {
+    expect(await forgetLook(hearth, NATURAL, {}, deps())).toMatchObject({ ok: true, v: 3 });
+    // A look learned after the Forget, then undone: the Forget's version has no look to bring back.
+    await runLoopsTransaction(
+      hearth,
+      async (txn) => {
+        const p = await readBrandPointers(hearth, db);
+        appendPatternVersionTx(
+          txn,
+          hearth,
+          {
+            channel: NATURAL,
+            version: 4,
+            directive: null,
+            perform: [],
+            avoid: [],
+            judgeRationale: "",
+            evidence: [],
+            createdBy: "auto",
+            createdAt: NOW.toISOString(),
+            loop: "image_style",
+            setBy: "learned",
+            items: [{ id: "look4", type: "rule", text: "Soft window light on flour.", trust: "own_content", from: "votes" }],
+            change: { op: "add", itemId: "look4" },
+          },
+          db,
+        );
+        writeBrandPointersTx(txn, hearth, { ...p, scopes: { ...p.scopes, [NATURAL]: { v: 4, setBy: "learned", adoptedAt: NOW.toISOString() } } }, db);
+      },
+      db,
+    );
+    expect(await undoLook(hearth, NATURAL, deps())).toEqual({ ok: true, v: 5, restored: 0, restoredAt: null, wasPerson: false });
+    expect((await getPatternVersion(hearth, NATURAL, 5, db))?.items).toEqual([]);
+    const { historyLine, undoDoneLine } = await import("./learnedWords");
+    expect(undoDoneLine({ scope: NATURAL, restored: 0, wasPerson: false, brandLook: true })).toBe("Undone. Natural photo has no look of its own again, so it uses your brand's look.");
+    expect(historyLine({ v: 5, createdBy: "undo", createdAt: NOW.toISOString(), hasLook: false, who: "you" }, { inUse: true })).toBe("Version 5, 1 Mar, undone by you. In use.");
+  });
+
   it("leaves no look when it undoes a first look", async () => {
     expect(await undoLook(hearth, BRAND, deps())).toEqual({ ok: true, v: 2, restored: 0, restoredAt: null, wasPerson: false });
     const v2 = await getPatternVersion(hearth, BRAND, 2, db);
@@ -259,6 +297,14 @@ describe("Keep and Go back", () => {
     const p = (await readBrandPointers(hearth, db)).scopes[NATURAL];
     expect(p?.keptAt).toBeUndefined();
     expect(p?.keptLook).toBeUndefined();
+  });
+
+  it("answers a card still open from the card's own notice, on a copy without Review", async () => {
+    const id = await card();
+    db.seed(LOOP_DAYS, `lv:ten_hearth:${NATURAL}:2`, { tenantId: "ten_hearth", d: { c: {}, looks: { "10": worse } } });
+    expect(await goBackLook(hearth, { scope: NATURAL }, deps())).toMatchObject({ ok: true, v: 3, restored: 1 });
+    expect((await getAgentAction(hearth, id as never, { db }))?.state).toBe("acted");
+    expect(await listOpenAgentActions(hearth, { action: GO_BACK_ACTION, now: NOW.toISOString(), db })).toEqual([]);
   });
 
   it("Go back writes the named version's look again, counts reversed and acts on the card", async () => {

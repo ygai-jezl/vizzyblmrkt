@@ -88,6 +88,12 @@ export const ImageAssetSchema = z.object({
   brandVoteVia: z.enum(["vote", "upload"]).nullable().optional(),
   /** ISO of the first vote, set once and never reset, so re-rating an old like can't count as a new one. */
   firstVotedAt: z.string().nullable().optional(),
+  /**
+   * The vote as it stood LOOP_RULES.outcomeDays after the image was made: written with each vote in
+   * that time and never after, so a later change can't move the image's outcome in a check (null
+   * when the vote was cleared in that time). Rows without it read `brandVote`.
+   */
+  outcomeVote: z.enum(["up", "down"]).nullable().optional(),
   /** The reason given with the vote, one key from VOTE_REASONS.image for its direction (src/lib/loops/reasons.ts). */
   brandVoteReason: z.enum(IMAGE_VOTE_REASON_KEYS).nullable().optional(),
   /** The team's optional note with the reason: plain text, never rendered as HTML, with no writer kept. */

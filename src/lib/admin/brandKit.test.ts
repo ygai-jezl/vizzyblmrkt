@@ -142,6 +142,21 @@ describe("votes and the why behind them (learning loops step 4, 3.4 and 3.11)", 
     expect(counts()).toEqual(counted({ voted: 0, liked: 0, "liked.colours": 0 }));
   });
 
+  it("keeps the vote as the image's outcome while it is at most 14 days old, and never changes it after", async () => {
+    versionsOn();
+    await loaf();
+    await setImageBrandVote(ctx, "img_loaf", { vote: "up" }, { now: NOW });
+    expect(store.db.raw("image_assets", "img_loaf")).toMatchObject({ outcomeVote: "up" });
+    await setImageBrandVote(ctx, "img_loaf", { vote: "down" }, { now: LATER });
+    expect(store.db.raw("image_assets", "img_loaf")).toMatchObject({ outcomeVote: "down" });
+    // Past 14 days a change or a clear moves the vote, never its outcome.
+    const day30 = new Date("2027-02-13T10:00:00.000Z");
+    await setImageBrandVote(ctx, "img_loaf", { vote: "up" }, { now: day30 });
+    expect(store.db.raw("image_assets", "img_loaf")).toMatchObject({ brandVote: "up", outcomeVote: "down" });
+    await setImageBrandVote(ctx, "img_loaf", { vote: null }, { now: day30 });
+    expect(store.db.raw("image_assets", "img_loaf")).toMatchObject({ brandVote: null, outcomeVote: "down" });
+  });
+
   it("dates the first vote of an image voted before versions to when it was made, and counts its vote once", async () => {
     versionsOn();
     await loaf({ brandVote: "up", brandRating: 8, brandVoteSetAt: "2027-01-14T12:00:00.000Z" });

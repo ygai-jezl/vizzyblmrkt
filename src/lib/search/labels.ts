@@ -21,6 +21,7 @@ export const KIND_LABEL: Record<SearchKind, string> = {
   repo_map: "Product map",
   image: "Image",
   learned: "Learned",
+  raise_doc: "Deck",
 };
 
 /** The groups the panel's filters and the card's counts use, in order. */
@@ -32,6 +33,7 @@ export const KIND_GROUPS: Array<{ key: string; label: string; kinds: SearchKind[
   { key: "knowledge", label: "Knowledge", kinds: ["knowledge", "repo_map"] },
   { key: "competitors", label: "Competitors", kinds: ["competitor"] },
   { key: "ideas", label: "Scrapbook and images", kinds: ["idea_board", "image"] },
+  { key: "decks", label: "Decks", kinds: ["raise_doc"] },
 ];
 
 export function groupOf(kind: SearchKind): string {

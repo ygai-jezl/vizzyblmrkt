@@ -491,3 +491,19 @@ describe("find with a projection (select)", () => {
     await expect(forTenant(ctxA, plain).contacts.find({})).resolves.toEqual([]);
   });
 });
+
+describe("raise_docs (the Raise kit's decks)", () => {
+  it("never lets one brand read, change or delete another's deck", async () => {
+    const db = new FakeFirestore();
+    await forTenant(ctxB, db).raiseDocs.create("rd_bbbbbbbbbbbb", { title: "B's deck", version: 1 } as never);
+    const a = forTenant(ctxA, db).raiseDocs;
+    expect(await a.getById("rd_bbbbbbbbbbbb")).toBeNull();
+    expect(await a.find({})).toEqual([]);
+    expect(await a.count()).toBe(0);
+    await expect(a.update("rd_bbbbbbbbbbbb", { title: "A's now" } as never)).rejects.toBeInstanceOf(TenantIsolationError);
+    expect(await a.claim("rd_bbbbbbbbbbbb", () => ({ title: "A's now" }) as never)).toBeNull();
+    await expect(a.delete("rd_bbbbbbbbbbbb")).rejects.toBeInstanceOf(TenantIsolationError);
+    await expect(a.create("rd_bbbbbbbbbbbb", { title: "A's" } as never)).rejects.toBeInstanceOf(TenantIsolationError);
+    expect(db.raw("raise_docs", "rd_bbbbbbbbbbbb")).toMatchObject({ tenantId: "ten_B", title: "B's deck", version: 1 });
+  });
+});

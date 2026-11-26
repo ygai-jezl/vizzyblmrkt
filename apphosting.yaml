@@ -932,6 +932,18 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Raise kit: decks for investors and packs for lenders on Content, drafted from what YouGrow
+  # knows, with a talk track, Present and Save as PDF (the store, the admin API, brand search's
+  # decks and the help page).
+  - variable: RAISE_KIT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Vizzy drafting, revising and reading decks from chat, and the deck in view (needs RAISE_KIT_ENABLED).
+  - variable: VIZZY_RAISE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # A brand's first hand notes, and Vizzy adding to them (needs the notes).
   - variable: BRAND_NOTES_ENABLED
     value: "false"

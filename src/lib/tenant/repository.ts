@@ -73,6 +73,7 @@ import type { MetricSnapshot } from "@/lib/types/metricSnapshot";
 import type { DataSignal } from "@/lib/types/dataSignal";
 import type { BusinessFact, OnboardingConversation } from "@/lib/types/onboarding";
 import type { NextActionRecord } from "@/lib/types/nextAction";
+import type { RaiseDoc } from "@/lib/raise/docs/types";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -584,6 +585,8 @@ export interface TenantRepositories {
   brandStrategy: TenantCollection<BrandStrategyRecord>;
   /** The content strategy: one document per brand (`cst_<tenantId>`), parsed by src/lib/contentStrategy/store.ts. */
   contentStrategy: TenantCollection<ContentStrategyRecord>;
+  /** Decks for investors and packs for lenders (RAISE_KIT_ENABLED): one document per deck with its kept versions (src/lib/raise/docs/store.ts). */
+  raiseDocs: TenantCollection<RaiseDoc>;
   /** The authors a brand's articles are written under (role, bio, profile page), one per name. */
   brandAuthors: TenantCollection<BrandAuthor>;
   /** What we've seen: the brand's own first-hand notes (src/lib/brandNotes/store.ts). */
@@ -791,6 +794,8 @@ export function forTenant(
     brandStrategy: new TenantCollection<BrandStrategyRecord>(regionalDb, "brand_strategy", t),
     // The content strategy plans the same articles, from the brand map and the strategy → regional DB.
     contentStrategy: new TenantCollection<ContentStrategyRecord>(regionalDb, "content_strategy", t),
+    // A deck is the brand's own work about the business, drafted from the brand map and strategy beside it → regional DB.
+    raiseDocs: new TenantCollection<RaiseDoc>(regionalDb, "raise_docs", t),
     // An article's author (a person's name, role and bio) sits with the articles → regional DB.
     brandAuthors: new TenantCollection<BrandAuthor>(regionalDb, "brand_authors", t),
     // The brand's first-hand notes may name its customers → regional DB, with the content they inform.

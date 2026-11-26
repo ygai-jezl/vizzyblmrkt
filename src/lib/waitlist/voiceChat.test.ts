@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
+import { getMessages } from "@/lib/i18n/messages";
 import {
+  VOICE_CHAT_PROBLEM_KEYS,
   describeClose,
   hasUserWords,
   microphoneProblem,
@@ -52,5 +55,33 @@ describe("describeClose", () => {
     expect(describeClose({ code: 1006, reason: "" })).toBe("code 1006");
     expect(describeClose(undefined)).toBe("code none");
     expect(describeClose({ code: 1011, reason: "r".repeat(500) })).toHaveLength("code 1011: ".length + 200);
+  });
+});
+
+describe("the voice chat's messages", () => {
+  const locales = ["en", "de", "es", "fr", "ja", "ar"];
+
+  it("has every problem's message in all six languages, translated", () => {
+    const en = getMessages("en");
+    for (const key of Object.values(VOICE_CHAT_PROBLEM_KEYS)) {
+      expect(en[key], key).toBeTruthy();
+      for (const locale of locales.slice(1)) {
+        const text = getMessages(locale)[key];
+        expect(text, `${locale} ${key}`).toBeTruthy();
+        expect(text, `${locale} ${key}`).not.toBe(en[key]);
+      }
+    }
+  });
+
+  it("writes them in the house style: no dashes as punctuation, no AI tells", () => {
+    const keys = [...Object.values(VOICE_CHAT_PROBLEM_KEYS), "widget.voice.endedEarly"];
+    for (const locale of locales) {
+      const catalog = getMessages(locale);
+      for (const key of keys) {
+        const text = catalog[key] ?? "";
+        expect(dashesIn(text), `${locale} ${key}`).toEqual([]);
+        expect(aiTellsIn(text), `${locale} ${key}`).toEqual([]);
+      }
+    }
   });
 });

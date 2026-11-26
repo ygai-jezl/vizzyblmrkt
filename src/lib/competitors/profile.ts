@@ -1,7 +1,10 @@
 import { fold } from "@/lib/brandMap/changes";
 import type { ArticleAskKind, ArticleFormat, ArticleStage, Competitor, CompetitorArticle } from "@/lib/types/competitor";
-import { COVERAGE_DAYS, articleDay, flagOf, windowStart, type CoverageFlag } from "./coverage";
+import { COVERAGE_DAYS, articleDay, flagOf, windowStart } from "./coverage";
+import type { SituationAgainst } from "./against";
 import { FORMAT_WORDS, articleTotals, listWords, type ArticleTotals } from "./view";
+
+export { focusAgainst, type SituationAgainst } from "./against";
 
 /**
  * What each watched competitor writes, from the articles read in full over the last 90 days
@@ -50,18 +53,6 @@ export interface CompetitorProfile {
   namesOthers: Array<{ name: string; count: number }>;
 }
 
-export interface SituationAgainst {
-  id: string;
-  text: string;
-  /** Competitor articles on it in the window, and by whom (most first). */
-  they: number;
-  byCompetitor: Array<{ id: string; name: string; count: number }>;
-  questions: number;
-  answered: number;
-  flag: CoverageFlag;
-  /** Their articles on it since `since` (approval), or null when nothing is approved. */
-  newSince: number | null;
-}
 
 export interface ProfilesView {
   days: number;
@@ -160,13 +151,6 @@ export function competitorProfiles(input: ProfileInput): ProfilesView {
   };
 }
 
-/** The focus situations to set against them: the approved ones, else the draft's, else the 5 they write on most. Pure. */
-export function focusAgainst(rows: SituationAgainst[], focus: { approved: string[]; draft: string[] }): { from: "approved" | "draft" | "busiest"; rows: SituationAgainst[] } {
-  const pick = (ids: string[]) => ids.flatMap((id) => rows.filter((r) => r.id === id));
-  if (focus.approved.length && pick(focus.approved).length) return { from: "approved", rows: pick(focus.approved) };
-  if (focus.draft.length && pick(focus.draft).length) return { from: "draft", rows: pick(focus.draft) };
-  return { from: "busiest", rows: rows.filter((r) => r.they > 0).sort((a, b) => b.they - a.they || a.text.localeCompare(b.text)).slice(0, 5) };
-}
 
 /** Who reads them, in a few words after "for". */
 const STAGE_WORDS: Record<ArticleStage, string> = {

@@ -86,10 +86,18 @@ async function detailView(ctx: TenantContext, id: string, deps: ApiDeps) {
   return detailOf(c, changes, posts, mapped.has(c.id), articles);
 }
 
-/** The list; joined to the strategy (STRATEGY_COMPETITORS_ENABLED), the finder's suggestions too. */
-export async function listFromRequest(ctx: TenantContext, deps: ApiDeps = {}): Promise<Response> {
+/**
+ * The list. Asked for (`suggestions`) and joined to the strategy (STRATEGY_COMPETITORS_ENABLED),
+ * the finder's suggestions and group hints too: the page asks after its own changes, never on the
+ * poll it runs while a competitor is set up, which needs the list alone.
+ */
+export async function listFromRequest(ctx: TenantContext, deps: ApiDeps = {}, opts: { suggestions?: boolean } = {}): Promise<Response> {
   const competitors = await listCompetitors(ctx, deps);
-  const [changes, mapped, door] = await Promise.all([unseenChanges(ctx, deps), onBrandMap(ctx, competitors, deps), competitorsDoor(ctx, competitors, deps).catch(() => null)]);
+  const [changes, mapped, door] = await Promise.all([
+    unseenChanges(ctx, deps),
+    onBrandMap(ctx, competitors, deps),
+    opts.suggestions ? competitorsDoor(ctx, competitors, deps).catch(() => null) : Promise.resolve(null),
+  ]);
   return NextResponse.json(
     { competitors: competitors.map((c) => summaryOf(c, changes, mapped.has(c.id))), ...(door ? { suggestions: door.suggestions, was: door.was } : {}) },
     { headers: noStore },

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { StrategySchema, emptyStrategy, groupsOf, type StrategyCompetitor, type CompetitorGroupKind } from "@/lib/types/brandStrategy";
-import { approvedCopy, liveCompetitors, suggestionsOf } from "./competitors";
+import { approvedCopy, liveCompetitors, suggestionsOf, theirsKey } from "./competitors";
 
 // Made-up competitors.
 const entry = (name: string, over: Partial<StrategyCompetitor & { group: CompetitorGroupKind }> = {}) => ({
@@ -76,5 +76,17 @@ describe("the live competitor list", () => {
     ]);
     // Plain strategy competitors: no id, group or monitored on the stored copy.
     expect(Object.keys(copy.ungrouped[0]!).sort()).toEqual(["evidence", "foundTimes", "from", "name", "site", "ticked"]);
+  });
+
+  it("reads what competitors write again only when the watched ones, the approval or a finder run change", () => {
+    const view = { joined: true, canMonitor: true, approved: null, competitors: [{ monitored: true, id: "cmp_b" }, { monitored: true, id: "cmp_a" }, { monitored: false, id: null }] };
+    const key = theirsKey(view, 0);
+    // A star, claim or goal saved on the draft leaves all of these as they were.
+    expect(theirsKey({ ...view, competitors: [...view.competitors].reverse() }, 0)).toBe(key);
+    expect(theirsKey({ ...view, competitors: [...view.competitors, { monitored: true, id: "cmp_c" }] }, 0)).not.toBe(key);
+    expect(theirsKey({ ...view, approved: { at: "2026-11-26T00:00:00.000Z" } }, 0)).not.toBe(key);
+    expect(theirsKey(view, 1)).not.toBe(key);
+    // Not joined, or no Competitors: never read.
+    expect(theirsKey({ ...view, canMonitor: false }, 0)).toBe("");
   });
 });

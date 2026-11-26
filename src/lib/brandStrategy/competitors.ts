@@ -106,3 +106,14 @@ export function approvedCopy(list: LiveCompetitor[]): { competitorGroups: Strate
     ungrouped: list.filter((c) => !c.group && c.monitored).map(plain).slice(0, L.keptPerGroup),
   };
 }
+
+/**
+ * When the Strategy tab reads what competitors write again: the competitors watched, an approval,
+ * or a finder run. Never a star, claim or goal saved on the draft: the tab picks its focus rows
+ * itself, from every situation read once. Pure.
+ */
+export function theirsKey(view: { joined: boolean; canMonitor: boolean; competitors: Array<{ monitored: boolean; id?: string | null }>; approved: { at: string } | null }, finds: number): string {
+  if (!view.joined || !view.canMonitor) return "";
+  const watched = view.competitors.flatMap((c) => (c.monitored && c.id ? [c.id] : [])).sort();
+  return [watched.join(","), view.approved?.at ?? "", finds].join("|");
+}

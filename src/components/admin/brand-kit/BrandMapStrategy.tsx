@@ -5,6 +5,8 @@ import { Star } from "lucide-react";
 import Link from "next/link";
 import type { StrategyView, ViewCompetitor } from "@/lib/brandStrategy/adminApi";
 import type { StrategyCompetitorsView } from "@/lib/brandStrategy/competitorsView";
+import { theirsKey } from "@/lib/brandStrategy/competitors";
+import { focusAgainst } from "@/lib/competitors/against";
 import { BRAND_KIT_COMPETITORS_ROUTE } from "@/lib/content/brandKit";
 import {
   BRAND_STRATEGY_LIMITS as L,
@@ -42,7 +44,7 @@ type Note = { tone: "ok" | "err" | "info"; text: string };
 type Reply = { strategy?: StrategyView; error?: string; dropped?: { claims: number }; found?: number; gapSkipped?: boolean; starsNotUpdated?: string[] };
 
 /** Whose focus situations the Against your competitors card sets against them. */
-const AGAINST_FROM: Record<NonNullable<StrategyCompetitorsView["against"]>["from"], string> = {
+const AGAINST_FROM: Record<ReturnType<typeof focusAgainst>["from"], string> = {
   approved: "Your approved focus situations, against their articles and the questions you've answered.",
   draft: "The focus situations in your draft, against their articles and the questions you've answered.",
   busiest: "No focus situations yet: the ones they write on most. Star your focus under Who it's for.",
@@ -101,9 +103,12 @@ export function BrandMapStrategy({ canEdit, contentPlan = false }: { canEdit: bo
   // Joined to Competitors: what they write and how it sets against the strategy, read live.
   const [theirs, setTheirs] = useState<StrategyCompetitorsView | null>(null);
   const live = Boolean(view?.joined && view.canMonitor);
-  const watchedCount = view?.competitors.filter((c) => c.monitored).length ?? 0;
+  // Read again only when the competitors watched, an approval or a finder run changes, never on a
+  // star, claim or goal: the focus rows are picked here from every situation, read once.
+  const [finds, setFinds] = useState(0);
+  const key = view ? theirsKey(view, finds) : "";
   useEffect(() => {
-    if (!live) return;
+    if (!key) return;
     let cancelled = false;
     void api<{ competitors?: StrategyCompetitorsView }>(`${STRATEGY}/competitors`).then((r) => {
       if (!cancelled) setTheirs(r.ok && r.data.competitors ? r.data.competitors : null);
@@ -111,7 +116,7 @@ export function BrandMapStrategy({ canEdit, contentPlan = false }: { canEdit: bo
     return () => {
       cancelled = true;
     };
-  }, [live, round, watchedCount, view?.rev, view?.approved?.at]);
+  }, [key, round]);
 
   /** Run a request; on success show the strategy it sends back, else say why and read it again. */
   async function run(path: string, init: RequestInit, done?: (data: Reply) => string): Promise<boolean> {
@@ -188,6 +193,7 @@ export function BrandMapStrategy({ canEdit, contentPlan = false }: { canEdit: bo
   // Joined to Competitors: the watched ones by the group a person chose, then the finder's suggestions.
   const profiles = new Map((theirs?.profiles ?? []).map((p) => [p.id, p] as const));
   const against = live ? theirs?.against : null;
+  const focusRows = against ? focusAgainst(against.rows, { approved: against.approvedFocus, draft: view.draft?.focusSituationIds ?? [] }) : null;
   const watchedList = view.competitors.filter((c) => c.monitored);
   const watchedGroups = [
     ...COMPETITOR_GROUP_KINDS.map((kind) => ({ key: kind as string, label: COMPETITOR_GROUP_LABEL[kind], list: watchedList.filter((c) => c.group === kind) })),
@@ -195,7 +201,7 @@ export function BrandMapStrategy({ canEdit, contentPlan = false }: { canEdit: bo
   ].filter((g) => g.list.length);
   const suggestions = view.competitors.filter((c) => !c.monitored && c.from === "finder");
   const find = (mode: "quick" | "full") =>
-    run(`${STRATEGY}/competitors`, { method: "POST", body: JSON.stringify({ mode }) }, (d) => foundNote(d.found ?? 0, d.gapSkipped, live));
+    run(`${STRATEGY}/competitors`, { method: "POST", body: JSON.stringify({ mode }) }, (d) => foundNote(d.found ?? 0, d.gapSkipped, live)).then((ok) => ok && setFinds((n) => n + 1));
   const proposedNot = (draft?.isNotProposals ?? []).filter((x) => x.state === "proposed");
 
   return (
@@ -362,13 +368,13 @@ export function BrandMapStrategy({ canEdit, contentPlan = false }: { canEdit: bo
         ))}
       </Section>
 
-      {against && (against.rows.length || against.onlyThem || against.namedNotWatched.length) ? (
+      {against && focusRows && (focusRows.rows.length || against.onlyThem || against.namedNotWatched.length) ? (
         <Section title="Against your competitors" aside={<span className="text-[11px] text-neutral-500">Last {theirs?.days ?? 90} days</span>}>
-          <p className="text-[11px] text-neutral-500">{AGAINST_FROM[against.from]}</p>
+          <p className="text-[11px] text-neutral-500">{AGAINST_FROM[focusRows.from]}</p>
           {theirs?.truncated ? <p className="text-[11px] text-amber-700 dark:text-amber-400">{TRUNCATED_NOTE}</p> : null}
-          {against.rows.length ? (
+          {focusRows.rows.length ? (
             <ul className="space-y-1.5 text-sm">
-              {against.rows.map((r) => (
+              {focusRows.rows.map((r) => (
                 <li key={r.id} className="grid gap-x-3 gap-y-0.5 sm:grid-cols-[minmax(0,1fr)_9rem_9rem_auto] sm:items-baseline">
                   <span className="min-w-0">{r.text}</span>
                   <span className="text-xs text-neutral-600 dark:text-neutral-300">

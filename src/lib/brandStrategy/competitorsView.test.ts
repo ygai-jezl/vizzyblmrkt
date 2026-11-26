@@ -5,6 +5,7 @@ import type { TenantContext } from "@/lib/tenant/types";
 import { situationKey } from "@/lib/brandMap/keys";
 import { saveBrandMap } from "@/lib/brandMap/store";
 import { monitorCompetitor } from "@/lib/competitors/store";
+import { focusAgainst } from "@/lib/competitors/against";
 import { competitorsFromRequest, strategyCompetitorsView } from "./competitorsView";
 import { saveProposal, type ProposedStrategy } from "./store";
 
@@ -99,8 +100,13 @@ describe("what the watched competitors write, against the strategy", () => {
     expect(v?.profiles).toEqual([
       { id, name: "Rivalco", read: 2, fromPage: 1, line: 'Mostly guides, for people weighing options. 1 stat, in the 1 of 2 read from their own pages. Most on "An agency packages it into a retainer".' },
     ]);
-    expect(v?.against).toMatchObject({ from: "draft", approvedAt: null, onlyThem: 0, namedNotWatched: [{ name: "Bigsuite", count: 1 }] });
-    expect(v?.against?.rows.map((r) => [r.text, r.they, `${r.answered} of ${r.questions}`, r.flag, r.newSince])).toEqual([["An agency packages it into a retainer", 2, "0 of 9", "gap", null]]);
+    expect(v?.against).toMatchObject({ approvedAt: null, approvedFocus: [], onlyThem: 0, namedNotWatched: [{ name: "Bigsuite", count: 1 }] });
+    // Every decided situation, once: the tab picks its focus rows from these.
+    expect(v?.against?.rows.map((r) => [r.text, r.they, `${r.answered} of ${r.questions}`, r.flag, r.newSince])).toEqual([
+      ["Buyers now ask a chat assistant", 0, "3 of 12", "you_lead", null],
+      ["An agency packages it into a retainer", 2, "0 of 9", "gap", null],
+    ]);
+    expect(focusAgainst(v!.against!.rows, { approved: v!.against!.approvedFocus, draft: PROPOSAL.focusSituationIds })).toMatchObject({ from: "draft", rows: [{ id: "sit_aaaaaa02" }] });
   });
 
   it("says when their articles can't be read, and answers 403 to a brand without Competitors", async () => {

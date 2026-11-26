@@ -192,10 +192,15 @@ describe("the Competitors APIs", () => {
       approved: null,
       finder: { quickAt: null, fullRuns: [], notCompetitors: [{ name: "Left", site: null }] },
     });
-    const off = (await (await GET(req("GET"))).json()) as Record<string, unknown>;
+    const withSuggestions = () => GET(new Request("http://localhost/api/admin/brand-kit/competitors?suggestions=1", { method: "GET" }));
+    const off = (await (await withSuggestions()).json()) as Record<string, unknown>;
     expect(Object.keys(off)).toEqual(["competitors"]);
     for (const [k, v] of Object.entries({ BRAND_MAP_ENABLED: "true", BRAND_STRATEGY_ENABLED: "true", STRATEGY_COMPETITORS_ENABLED: "true" })) vi.stubEnv(k, v);
-    const on = (await (await GET(req("GET"))).json()) as { competitors: Array<{ id: string }>; suggestions: Array<{ name: string; group: string }> };
+    // The poll while one is set up asks for the list alone: the strategy isn't read.
+    const poll = (await (await GET(req("GET"))).json()) as Record<string, unknown>;
+    expect(Object.keys(poll)).toEqual(["competitors"]);
+    expect(strategy.readBrandStrategyDoc).not.toHaveBeenCalled();
+    const on = (await (await withSuggestions()).json()) as { competitors: Array<{ id: string }>; suggestions: Array<{ name: string; group: string }> };
     expect(on.competitors.map((c) => c.id)).toEqual(["cmp_abcdef123456"]);
     expect(on.suggestions).toEqual([{ name: "Alpha", site: "alpha.example", group: "big", foundTimes: 2, evidence: [] }]);
     // Its record has no group: the draft's "big" comes as a hint only, never as its group.

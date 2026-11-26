@@ -152,7 +152,7 @@ export function CompetitorsPage({
 
   /** The list and the finder's suggestions as they are now. */
   async function refresh() {
-    const r = await api<{ competitors?: CompetitorSummary[]; suggestions?: Suggestion[]; was?: Record<string, CompetitorGroupKind> }>(LIST);
+    const r = await api<{ competitors?: CompetitorSummary[]; suggestions?: Suggestion[]; was?: Record<string, CompetitorGroupKind> }>(door ? `${LIST}?suggestions=1` : LIST);
     if (!r.ok) return;
     if (r.data.competitors) setList(r.data.competitors);
     if (r.data.suggestions) setSuggestions(r.data.suggestions);

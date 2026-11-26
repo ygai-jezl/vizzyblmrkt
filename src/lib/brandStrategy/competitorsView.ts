@@ -4,7 +4,7 @@ import { readBrandMap } from "@/lib/brandMap/store";
 import { listRecentReadArticles } from "@/lib/competitors/articles";
 import { coverageFrom, ourSubjects } from "@/lib/competitors/coverage";
 import { isCompetitorArticlesEnabled, isCompetitorsEnabled } from "@/lib/competitors/flags";
-import { PROFILE_DAYS, competitorProfiles, focusAgainst, profileLine, type SituationAgainst } from "@/lib/competitors/profile";
+import { PROFILE_DAYS, competitorProfiles, profileLine, type SituationAgainst } from "@/lib/competitors/profile";
 import { listCompetitors } from "@/lib/competitors/store";
 import { brandCanUse } from "@/lib/plans/brandAccess";
 import { getTenantById } from "@/lib/tenant";
@@ -30,9 +30,10 @@ export interface StrategyCompetitorsView {
   /** What they write: one line per watched competitor, and the counts it is made from. */
   profiles: Array<{ id: string; name: string; read: number; fromPage: number; line: string }>;
   against: {
-    /** Whose focus situations: the approved strategy's, the draft's, or the ones they write on most. */
-    from: "approved" | "draft" | "busiest";
     approvedAt: string | null;
+    /** The approved strategy's focus situations; the tab picks the rows to show with focusAgainst. */
+    approvedFocus: string[];
+    /** Every decided situation, once: the tab picks its focus rows from these, so a star needs no new read. */
     rows: SituationAgainst[];
     /** Subjects on the brand map only competitors write on lately (the coverage page's Gap rows). */
     onlyThem: number;
@@ -75,16 +76,15 @@ export async function strategyCompetitorsView(ctx: TenantContext, deps: Competit
     since: doc?.approved?.at ? doc.approved.at.slice(0, 10) : null,
   });
   const coverage = coverageFrom(articles, competitors, ours.subjects, { nowMs: now.getTime(), allSubjects: false, maxRows: Number.MAX_SAFE_INTEGER });
-  const focus = focusAgainst(view.situations, { approved: doc?.approved?.focusSituationIds ?? [], draft: doc?.draft?.focusSituationIds ?? [] });
   return {
     articles: true,
     days: view.days,
     truncated: recent.truncated,
     profiles: view.profiles.map((p) => ({ id: p.id, name: p.name, read: p.read, fromPage: p.fromPage, line: profileLine(p) })),
     against: {
-      from: focus.from,
       approvedAt: doc?.approved?.at ?? null,
-      rows: focus.rows,
+      approvedFocus: doc?.approved?.focusSituationIds ?? [],
+      rows: view.situations,
       onlyThem: coverage.rows.filter((r) => r.flag === "gap").length,
       namedNotWatched: view.namedNotWatched,
     },

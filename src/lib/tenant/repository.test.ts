@@ -455,3 +455,20 @@ describe("find by a field inside a map", () => {
     expect(lists.map((c) => c.id)).toEqual(["product-updates"]);
   });
 });
+
+describe("TenantCollection.increment (counters with no read)", () => {
+  it("takes an id that holds the tenant's id whole, between underscores or between colons", async () => {
+    const db = new FakeFirestore();
+    await forTenant(ctxA, db).usageMeters.increment("um_ten_A_2026-11", { meters: { images: { total: 1 } } });
+    await forTenant(ctxA, db).loopDays.increment("lw:ten_A:2026-W48:0", { d: { t: { image_asset: { made: 1 } } } });
+    expect(db.raw("loop_days", "lw:ten_A:2026-W48:0")).toEqual({ tenantId: "ten_A", d: { t: { image_asset: { made: 1 } } } });
+  });
+
+  it("refuses an id that names another tenant, or a longer id that starts with this one", async () => {
+    const db = new FakeFirestore();
+    for (const id of ["lw:ten_B:2026-W48:0", "lw:ten_AB:2026-W48:0", "lw:ten_A", "ten_A"]) {
+      await expect(forTenant(ctxA, db).loopDays.increment(id, { d: { x: 1 } }), id).rejects.toBeInstanceOf(TenantValidationError);
+    }
+    expect(db.dump("loop_days")).toEqual([]);
+  });
+});

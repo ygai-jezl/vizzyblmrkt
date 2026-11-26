@@ -59,6 +59,7 @@ import type { Competitor, CompetitorArticle, CompetitorChange, CompetitorPagesCh
 import type { BrandSignal } from "@/lib/types/brandSignal";
 import type { AutopilotRun, LearnedEntry, NextUpDoc } from "@/lib/types/autopilot";
 import type { UsageMeterDoc } from "@/lib/types/usageMeter";
+import type { LoopDayDoc } from "@/lib/types/loopDay";
 import type { LiveWatchDoc, LiveWatchSeen } from "@/lib/types/liveWatch";
 import type { FreshnessWatchDoc } from "@/lib/types/freshness";
 import type { ArticleReviewDoc, ArticleVersionsDoc, RefreshRecord } from "@/lib/types/articleRefresh";
@@ -269,8 +270,10 @@ export class TenantCollection<T extends TenantScoped> {
    * nested map keys, never dotted paths, so a key may contain dots (a model id).
    */
   async increment(id: string, deltas: Record<string, unknown>, fields: Record<string, unknown> = {}): Promise<void> {
-    // "um_<tenantId>_<month>": the tenant's id whole, between separators, never a longer one's prefix.
-    if (!id || !(id.includes(`_${this.tenantId}_`) || id.startsWith(`${this.tenantId}_`))) {
+    // "um_<tenantId>_<month>", or "lw:<tenantId>:<week>:<shard>" (src/lib/tenant/loops.ts): the
+    // tenant's id whole, between separators, never a longer one's prefix. No tenant id holds a colon.
+    const t = this.tenantId;
+    if (!id || !(id.includes(`_${t}_`) || id.startsWith(`${t}_`) || id.includes(`:${t}:`))) {
       throw new TenantValidationError("increment() requires an id that carries the tenant's id");
     }
     const toIncrements = (obj: Record<string, unknown>): Record<string, unknown> =>
@@ -595,6 +598,8 @@ export interface TenantRepositories {
   autopilotRuns: TenantCollection<AutopilotRun>;
   /** Paid resources used per brand per month, such as web searches for research (src/lib/plans/meter.ts). */
   usageMeters: TenantCollection<UsageMeterDoc>;
+  /** The learning loops' counts and pointers, no words and no person (src/lib/tenant/loops.ts). */
+  loopDays: TenantCollection<LoopDayDoc>;
   /** Found live: when to look next and which addresses it checks (src/lib/content/blog/liveWatch.ts). */
   liveWatch: TenantCollection<LiveWatchDoc>;
   /** Found live: the brand's pages it already opened, hashed (src/lib/content/blog/liveWatch.ts). */
@@ -792,6 +797,8 @@ export function forTenant(
     autopilotRuns: new TenantCollection<AutopilotRun>(regionalDb, "autopilot_runs", t),
     // What the brand used of paid resources this month: counts only, beside the work that used them.
     usageMeters: new TenantCollection<UsageMeterDoc>(regionalDb, "usage_meters", t),
+    // The learning loops' counts and pointers: no words and no person, beside the work they count.
+    loopDays: new TenantCollection<LoopDayDoc>(regionalDb, "loop_days", t),
     // Found live's working state about the brand's own site and articles: regional, beside them.
     liveWatch: new TenantCollection<LiveWatchDoc>(regionalDb, "live_watch", t),
     liveWatchSeen: new TenantCollection<LiveWatchSeen>(regionalDb, "live_watch_seen", t),

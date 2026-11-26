@@ -30,10 +30,17 @@ const SCRAPER = "workers/knowledge-scraper/src/pipeline.ts";
 const regional = (collection: string, note?: string): StoreRef => ({ collection, db: "regional", definedIn: REPO, ...(note ? { note } : {}) });
 /** A collection in the brand's regional database, reached from its own file in src/lib/tenant. */
 const side = (collection: string, definedIn: string, extra: Partial<StoreRef> = {}): StoreRef => ({ collection, db: "regional", definedIn, ...extra });
-const control = (collection: string, definedIn: string, note?: string): StoreRef => ({ collection, db: "control", definedIn, ...(note ? { note } : {}) });
+const control = (collection: string, definedIn: string, note?: string, residencyGap?: string): StoreRef => ({
+  collection,
+  db: "control",
+  definedIn,
+  ...(note ? { note } : {}),
+  ...(residencyGap ? { residencyGap } : {}),
+});
 
 const BUCKET_GAP = "one EMAIL_ASSET_BUCKET holds every brand's files, whatever the brand's region";
 const AGENT_GAP = "one agent location (ROOT_AGENT_LOCATION) serves every region";
+const BRAND_RECORD_GAP = "the brand record is in the control plane, in the United States, whatever the brand's region";
 const gcs = (collection: string, definedIn: string, note: string): StoreRef => ({ collection, db: "gcs", definedIn, note, residencyGap: BUCKET_GAP });
 
 /** The firestore-bigquery-export mirrors, one per region (extensions/*.env). */
@@ -1019,22 +1026,30 @@ export const ONTOLOGY: readonly OntologyType[] = [
   },
   {
     id: "post_learning",
-    name: "What posts taught",
-    description: "What the brand's best posts have in common, for the writer: the top posts, each post's vector for finding near repeats, and the versions of the patterns learned.",
+    name: "What posts and image votes taught",
+    description:
+      "What the brand's best posts have in common, for the writer: the top posts, each post's vector for finding near repeats, and the versions of the patterns learned. With image style versions on, every version of each image style's look learned from votes too, with the member who changed a look by hand.",
     place: "content",
     status: "built",
-    madeBy: ["post_feedback"],
+    madeBy: ["post_feedback", "loop_learn"],
     home: "brand",
-    personal: "none",
+    personal: "team",
     stores: [
       side("performance_exemplars", "src/lib/tenant/exemplars.ts"),
       side("post_perf_vectors", "src/lib/tenant/postVectors.ts"),
-      side("learned_pattern_versions", "src/lib/tenant/patternVersions.ts", { note: "append only, the source of a revert" }),
+      side("learned_pattern_versions", "src/lib/tenant/patternVersions.ts", {
+        note: "append only, the source of a revert; image style looks use one channel per style (`image_style.<id>`), and `by` holds the user id of the member who wrote a row by hand",
+      }),
+      control("tenants", CONTROL, "`learnedPostPatterns`, the post patterns in use for each channel", BRAND_RECORD_GAP),
     ],
-    links: [{ to: "post_result", via: "the posts it learned from", many: true }],
+    links: [
+      { to: "post_result", via: "the posts it learned from", many: true },
+      { to: "image_asset", via: "evidenceIds, the images a look was learned from", many: true },
+      { to: "member", via: "by, on version rows a member wrote", many: false },
+    ],
     events: [],
-    erase: { none: "the brand's own content statistics" },
-    export: { none: NOT_PERSONAL },
+    erase: { gap: "no path removes a team member's user id in `by` on a version row when they leave the team; it stays an id" },
+    export: { gap: "team member ids in `by` stay as ids, with no export by team member" },
     search: { none: "vectors and versions for the writer, not text to find" },
     numbers: { none: "its numbers are post results" },
   },
@@ -1047,7 +1062,13 @@ export const ONTOLOGY: readonly OntologyType[] = [
     madeBy: ["blog_hero", "post_image", "email_block_image", "email_hero", "ebook_image", "customize_image", "image_style_pick"],
     home: "brand",
     personal: "none",
-    stores: [regional("image_assets"), gcs("{tenantId}/{campaignId}/{file}", "src/lib/agents/imageStore.ts", "the image files, served through the email asset proxy")],
+    stores: [
+      regional(
+        "image_assets",
+        "a vote may keep its reason and an optional note of up to 200 characters the team wrote, with no writer kept; both go when the image is deleted",
+      ),
+      gcs("{tenantId}/{campaignId}/{file}", "src/lib/agents/imageStore.ts", "the image files, served through the email asset proxy"),
+    ],
     links: [{ to: "content_plan", via: "where it is used", many: true }],
     events: [],
     erase: { paths: [brandPath("deleteImageAsset", "src/lib/admin/brandKit.ts")] },
@@ -1058,7 +1079,8 @@ export const ONTOLOGY: readonly OntologyType[] = [
   {
     id: "brand_kit",
     name: "Brand kit",
-    description: "How the brand looks and sounds: voice, colours, email style and image style on the brand record, plus its logos, fonts, icons, graphics and guideline files. The image style keeps the look learned from thumbs and ratings for each style, and Vizzy's suggested style waits beside it.",
+    description:
+      "How the brand looks and sounds: voice, colours, email style and image style on the brand record, plus its logos, fonts, icons, graphics and guideline files. The image style keeps the look learned from thumbs and ratings for each style, used only while image style versions are off, and Vizzy's suggested style waits beside it.",
     place: "content",
     status: "built",
     madeBy: ["brand_voice", "brand_kit", "images", "canvas.email_style", "canvas.image_style"],
@@ -1072,6 +1094,12 @@ export const ONTOLOGY: readonly OntologyType[] = [
       gcs("brand/{tenantId}/fonts/{file}", "src/lib/tenant/brandFontStore.ts", "font files"),
       gcs("brand/{tenantId}/{category}/{file}", "src/lib/tenant/brandAssetStore.ts", "icons and graphics"),
       gcs("brand/{tenantId}/{file}", "src/lib/tenant/brandAsset.ts", "brand guideline files, read only on the server"),
+      control(
+        "tenants",
+        CONTROL,
+        "the looks learned from image votes, `brandKit.learnedImageStyle` and `imageStyle.learned`, used only while IMAGE_STYLE_VERSIONS_ENABLED is off",
+        BRAND_RECORD_GAP,
+      ),
     ],
     links: [{ to: "brand", via: "brandKit, brandVoice, imageStyle (with its learned looks) and imageStyleSuggestion on the brand record", many: false }],
     events: [],
@@ -1333,6 +1361,29 @@ export const ONTOLOGY: readonly OntologyType[] = [
     export: { none: NOT_PERSONAL },
     search: { none: "counts, read on Plan and usage" },
     numbers: { meanings: ["usedThisMonth", "monthlyLimit", "leftThisMonth"], tool: "get_usage" },
+  },
+  {
+    id: "loop_day",
+    name: "Learning counts",
+    description:
+      "What the learning loops keep for a brand, as counts and pointers with no words and no person: each week's counts of what YouGrow made and what people did with it, folded weeks, totals for each learned version, which version each style uses, whether image learning is paused or the brand opted out of counts across brands, the lane's own state, and the key that signs the brand's stamps.",
+    place: "platform",
+    status: "built",
+    madeBy: [],
+    home: "brand",
+    personal: "none",
+    stores: [
+      regional("loop_days", "one document per kind and key under the one map `d`, read and counted through forTenant"),
+      side("loop_days", "src/lib/tenant/loops.ts", {
+        note: "each week's counter shards go 70 days after the week ends and folded weeks 2 years after, by a time to live on ttlAt; pointers, the lane's state and the stamp key never expire; the stamp key is never shown or logged",
+      }),
+    ],
+    links: [{ to: "post_learning", via: "the version each scope uses, by number", many: true }],
+    events: [],
+    erase: { none: "counts and pointers with no one's data, kept with the brand; weekly counts go by a time to live" },
+    export: { none: NOT_PERSONAL },
+    search: { none: "counts and pointers, read by the learning loops" },
+    numbers: { gap: "no tool returns the counts yet; get_image_style returns what each style learned once its screens come in" },
   },
   {
     id: "live_watch",

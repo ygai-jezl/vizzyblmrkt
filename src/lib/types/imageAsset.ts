@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { IMAGE_VOTE_REASON_KEYS, VOTE_NOTE_CHARS } from "@/lib/loops/reasons";
+import { MadeSchema } from "./loopStamp";
 import { StyleProfileSchema } from "./styleProfile";
 
 /**
@@ -68,5 +70,23 @@ export const ImageAssetSchema = z.object({
   brandVoteSetAt: z.string().nullable().optional(),
   /** L1: the aesthetic fingerprint extracted from this image's bytes (👍 images only). */
   styleProfile: StyleProfileSchema.nullable().optional(),
+
+  // ---- Learning loops, step 4 (IMAGE_STYLE_VERSIONS_ENABLED); all optional, as above ----
+  /** Its stamp: the kind, scope, learned version and arm that made it, or why it has none. */
+  made: MadeSchema.nullable().optional(),
+  /** When a person made a new image in the same place within 14 days (LOOP_RULES.outcomeDays). */
+  remadeAt: z.string().nullable().optional(),
+  /** The id of the image made in its place. Never a member id. */
+  remadeBy: z.string().max(128).nullable().optional(),
+  /** How the brand's verdict was given: a thumbs vote, or an upload, which counts as liked. */
+  brandVoteVia: z.enum(["vote", "upload"]).nullable().optional(),
+  /** ISO of the first vote, set once and never reset, so re-rating an old like can't count as a new one. */
+  firstVotedAt: z.string().nullable().optional(),
+  /** The reason given with the vote, one key from VOTE_REASONS.image for its direction (src/lib/loops/reasons.ts). */
+  brandVoteReason: z.enum(IMAGE_VOTE_REASON_KEYS).nullable().optional(),
+  /** The team's optional note with the reason: plain text, never rendered as HTML, with no writer kept. */
+  brandVoteNote: z.string().max(VOTE_NOTE_CHARS).nullable().optional(),
+  /** ISO of when the reason or note was given; a changed vote clears all three. */
+  brandVoteReasonAt: z.string().nullable().optional(),
 });
 export type ImageAsset = z.infer<typeof ImageAssetSchema>;

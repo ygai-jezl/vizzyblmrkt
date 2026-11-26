@@ -729,6 +729,14 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Image style versions (learning loops step 4; needs BRAND_STYLE_LOOP_ENABLED and
+  # BRAND_IMAGE_STYLE_ENABLED): each painted style's look learned from votes is kept as
+  # versions in the brand's region, with Undo, Pause and Forget, and learned once a day.
+  # Off, images use the look on the brand record as before.
+  - variable: IMAGE_STYLE_VERSIONS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Brand map and What we've seen ==
   # The brand map, then its research, Wikidata lookups, pages, Vizzy's suggestions, any

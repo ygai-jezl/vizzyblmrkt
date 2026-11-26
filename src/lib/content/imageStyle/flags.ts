@@ -4,6 +4,8 @@
  * Off = every image is made exactly as before (resolve.test.ts pins this).
  */
 import { isBlogCitableEnabled, isBlogCitableUiEnabled } from "@/lib/content/blog/flags";
+import { isBrandStyleLoopEnabled } from "@/lib/content/create/brandStyleLoop";
+import { LOOP_SWITCHES } from "@/lib/loops/switches";
 
 /** Server: the brand's image style, per-image overrides, templates, screenshots, learning per style. */
 export function isBrandImageStyleEnabled(): boolean {
@@ -59,4 +61,14 @@ export function isImageFormatsEnabled(): boolean {
 /** Client mirror: the Format menus on social posts, the hero card and the eBook cover. */
 export function isImageFormatsUiEnabled(): boolean {
   return process.env.NEXT_PUBLIC_IMAGE_FORMATS_ENABLED === "true" && isBrandImageStyleUiEnabled();
+}
+
+/**
+ * Server: image style versions (learning loops step 4). Each painted style's look learned from
+ * votes is kept as versions in the brand's region and learned once a day. It needs learning from
+ * image votes and the image style, so learning never runs without the page that shows it. Off =
+ * images use the look on the brand record, exactly as before.
+ */
+export function isImageStyleVersionsOn(): boolean {
+  return isBrandStyleLoopEnabled() && isBrandImageStyleEnabled() && LOOP_SWITCHES.IMAGE_STYLE_VERSIONS_ENABLED();
 }

@@ -44,6 +44,7 @@ import { isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 import { isIdeaWordsEnabled, isIdeasEnabled } from "@/lib/ideas/flags";
 import { WordsProvider } from "@/components/admin/nav/WordsProvider";
 import { isOnboardingEnabled, isOnboardingVoiceEnabled } from "@/lib/onboarding/flags";
+import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
 import { isNextActionCardEnabled } from "@/lib/nextAction/flags";
 import { sidebarRevealFor } from "@/lib/onboarding/sidebarFit";
 
@@ -232,6 +233,7 @@ export default async function AdminLayout({
             join={isOrganisationJoinEnabled()}
             onboarding={isOnboardingEnabled()}
             onboardingVoice={isOnboardingVoiceEnabled()}
+            settingsHistory={isSettingsHistoryEnabled()}
             nextActionCard={isNextActionCardEnabled()}
           >
             {shell}

@@ -29,8 +29,11 @@ export function isSettingsSubject(v: unknown): v is SettingsSubject {
   return typeof v === "string" && (SETTINGS_SUBJECTS as readonly string[]).includes(v);
 }
 
-/** How a version came about: saved in the app, a restore, an agent's suggestion confirmed, an import, or what was there before history. */
-export const SETTINGS_SOURCES = ["editor", "restore", "agent", "import", "before_history"] as const;
+/**
+ * How a version came about: saved in the app, a restore, an agent's suggestion confirmed, an import,
+ * what was there before history, or an owner's erase of an archived field's values (marked, ended).
+ */
+export const SETTINGS_SOURCES = ["editor", "restore", "agent", "import", "before_history", "erase"] as const;
 export type SettingsSource = (typeof SETTINGS_SOURCES)[number];
 
 /** What happened to one item. There is no "removed": items are archived, never deleted. */

@@ -127,11 +127,12 @@ export {
 } from "./trendingTopics";
 export {
   recordLaunchDeletion,
+  recordFieldErase,
   writeAuditObject,
   auditObjectPath,
   auditEntryId,
 } from "./audit";
-export type { LaunchDeletionAudit, LaunchDeletionCounts } from "./audit";
+export type { AuditEntry, FieldEraseAudit, LaunchDeletionAudit, LaunchDeletionCounts } from "./audit";
 export { gcsAuditSink } from "./auditSink";
 export type { AuditObjectSink } from "./auditSink";
 export { deleteLaunch } from "./launchDeletion";
@@ -213,8 +214,8 @@ export type { SettingsChange, SettingsCommit, StoredSetting } from "./settingsLo
 export { readMemberViews, commitMemberViews, memberViewsDocId } from "./memberViews";
 export type { StoredMemberViews, MemberViewsCommit } from "./memberViews";
 // Field values: the one writer, with their events, tags and an agent action's decision in one transaction.
-export { setRecordFieldValues, repairFieldTags, moveRecordFieldValues, RECORD_BYTE_BUDGET } from "./recordFieldWrites";
-export type { SetFieldValuesInput, SetFieldValuesResult, SetFieldValuesError } from "./recordFieldWrites";
+export { setRecordFieldValues, repairFieldTags, moveRecordFieldValues, eraseFieldValuesPage, RECORD_BYTE_BUDGET } from "./recordFieldWrites";
+export type { SetFieldValuesInput, SetFieldValuesResult, SetFieldValuesError, EraseFieldValuesPage } from "./recordFieldWrites";
 export type { VersionCollection, ConnectionRecords, ActivityLog } from "./repository";
 // Connected data: a connection and its activity in one transaction (read the records through forTenant).
 export {

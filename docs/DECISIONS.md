@@ -94,6 +94,120 @@ The switch. No index, backfill or data to undo; `saved_views` and `member_views`
 
 ---
 
+## ADR-0023 · Settings history: one list per brand, restore as a new version, and erasing archived values (2026-11-26)
+
+Context: piece O part 2 of the build plan (O2, approved 26 Nov 2026). Piece O part 1 (piece B) keeps
+every settings change as a version (`settings_versions`, ADR-0010), every published journey version
+is kept (`lifecycle_versions`) and every catalog version is kept (`catalog_revisions`), but nothing
+put them in one place, a field list's restore had no button, and an archived field's values could
+never go. Branch `feat/org-history`. Two new composite indexes, no rules change, no dependency.
+
+### Decided
+
+1. **One list, for the brand you are in** (decision 1). Settings › History (`SETTINGS_HISTORY_ENABLED`)
+   reads the brand in the session only, in its own region, with the session's role: the whole team
+   reads and exports, admins restore. Someone who runs several brands switches brand in the header,
+   as today. No context is built for another brand inside a request, so no request reads another
+   region. An owner's view across an organisation's brands waits for piece M's roles. History needs
+   only its own switch, not `PLANS_ENABLED`, so self-hosted copies get it.
+2. **Three stores, one entry** (`src/lib/settings/sources.ts`). Each store becomes a `HistoryEntry`
+   (kind, subject, rev, when, who, message, items, restoredFrom). `KINDS` says when a kind shows
+   (while its own screen is on: fields with `AUDIENCE_FIELDS_ENABLED`, journeys with the journeys
+   screen, shared connections with sharing; catalogs always) and whether it restores here; a kind is
+   read only unless it says so, so a later kind joins with one entry. The settings log is read one
+   query per subject on its `(tenantId, subject, rev DESC)` index and merged in memory; journey
+   versions on `(tenantId, publishedAt DESC)` and catalog versions on `(tenantId, savedAt DESC)`, the
+   two new indexes. One cursor token holds each source's place. A source that can't be read (an
+   index still building) is left out and the page says so, rather than failing.
+3. **Who did it, by name.** Names are looked up when shown (`teamMemberNames`), now also for
+   someone whose verified claims put them on the brand (the brand they first signed in with gives
+   them no `tenant_users` row). Someone on the team with no name set reads as their sign in address,
+   as Data model's Changes box already shows them. With plans on, an owner of the organisation off
+   the team reads "An owner of your organisation"; an address kept on an old record (a journey's
+   `publishedBy` from before user ids) is never shown and reads "A team member"; anyone else "Former
+   team member". With `{ addresses: false }` (what Vizzy reads) a name is never an address.
+4. **Preview, then restore as a new version** (`src/lib/settings/restorePlan.ts`, `restore.ts`). The
+   preview shows what comes back, what is archived, what changes back and what a restore never
+   undoes (emails sent, payments, people already in a journey, erased values), worked out by the
+   same code the restore saves with. Each restore goes through the kind's own writer from the base
+   the preview showed, so a save in between answers 409 and writes nothing:
+   - a field list through `restoreFieldListVersion`: a new version on top, so it can be undone too.
+     A restore never moves an archive date back: a field it archives is archived now, and one
+     archived already keeps its date, so the erase's 30 days can't be cut short by an old version;
+   - a journey into its **draft only** (`saveLifecycleDraft` with `expectUpdatedAt`, `emailStyle:
+     "keep"` and `authoredBy: "human"`). The live version, the people in it (who stay on the version
+     they started on) and the journey's email style stay. The journey carries `draftRestoredFrom`
+     until Publish copies it onto the new version as `restoredFrom`, so History says "Published,
+     from version 3". A version today's draft check can't read, or whose product or launch is gone,
+     says why and has no Restore; its issues against today's catalog are listed to fix before
+     publishing;
+   - a catalog through `restoreCatalogVersion`, only with `CATALOG_HISTORY_ENABLED`; stages are read
+     with it from then on.
+   Shared connections are read only here: their parts are given and taken back on Settings ›
+   Organisation. Archived journeys and revoked products are read only, with no export.
+5. **Export is JSON with no one's values**: a settings version (`yougrow.settings-version`), a
+   journey document (`exportJourneyDocument` with `which: { version: n }`, importable as a new draft)
+   or a catalog version (`yougrow.catalog-version`). A journey version today's draft check refuses
+   (made before journeys changed shape) comes as `yougrow.journey-version`: its design as stored, to
+   read, never imported. Anyone on the team exports.
+6. **Vizzy reads, never acts.** `get_settings_history` (`/api/agent/settings-history`, the same
+   switch, the brand in the signed canvas token) reads every entry with display names only, never an
+   address, and with a subject and version that version's export JSON. One switch covers the page
+   and Vizzy's read: no customer data, no AI, and the tool says history is off until it is on.
+   Proposing a restore waits for Agent record.
+7. **An owner erases an archived field's values** (`SETTINGS_ERASE_ENABLED`, its own switch, needing
+   History, fields and `PLANS_ENABLED`; decisions 2 to 4), in `src/lib/settings/eraseArchived.ts`:
+   - **Who:** an owner of the brand's organisation with a real `tenant_users` admin row for the brand,
+     both read live, never the session's claims (the check moving a brand makes): "home_only" for the
+     brand someone first signed in with and has no row for, "not_admin" for no row. So no erase on a
+     brand until its owner has a row there, and none on self-hosted copies (`npm run selfhost` keeps it
+     off).
+   - **When:** 30 days or more after the field was last archived, `erasedAt` missing or older than
+     that archive (a field brought back after an erase can be erased again), and no legal hold:
+     `src/lib/settings/holds.ts` asks `enterpriseFeature("legal_hold")`, which says no while there is
+     no code for it; a deployment that runs legal hold with no reader refuses every erase.
+   - **Count first, name typed.** A count is a job too, in the regional `field_erase_jobs` (one per
+     field, a fixed id hashed from brand, object and field, so a double click can't start two; no
+     index). The erase starts only once a count finished since the field was last archived, and the
+     field's name is typed. No export of a field's values comes first (decision 4): until the erase,
+     each person's own export includes their value.
+   - **Marked while it runs:** "initiated" goes to the WORM audit store first (no erase without a
+     trail), then the field is marked `erasingSince` through the settings log (source `erase`). While
+     marked, Bring back is refused, a restore keeps it archived, and a person's move drops its values
+     instead of moving them. The lifecycle tick's lane (`runFieldErase`, 20 seconds, only while the
+     switch is on, brands from a rotating start, running jobs found by equality) removes `fields.<id>`
+     and its `field:<id>:` tags a page of people or companies at a time, by document id, in a
+     transaction that re-reads the field list and stops if the field is in use again. It writes no
+     `record.field_changed` event, since one would copy the value into `before`. Then
+     `blankFieldEvents` and `blankFieldInAgentActions`. Switching it off pauses a job at its cursor,
+     still marked.
+   - **The definition keeps its options and archive date** (`assertNoRemoval` refuses dropping
+     options), gains `erasedAt` and `erasedBy`, and loses the mark. A restore keeps `erasedAt`, so an
+     erased field comes back empty and the preview says so: an erase survives a restore.
+   - **Audit:** a `field.erase` entry (tenant, region, field id, object, who by user id, counts),
+     "initiated" before the first page, then "completed" or "failed", as a launch's delete does. No
+     value, label or address. The job is held while an erase starts, so a second press or a count
+     can't run beside it, and a mark that can't be saved is followed by "failed". Each erase mark is
+     saved once, and the finish marks the definition before it writes "completed": a trail that
+     can't be written then is tried again each tick and never fails the job, so the trail never ends
+     on "failed" for values that are gone.
+   - **Where it shows:** Erase values in Data model's archived list and on History's newest entry
+     that archived the field, for an owner with a row. Everyone who sees the archived list sees when
+     a field's values are being erased or were erased.
+   - **Where an erased value can still sit** (registry gaps): piece C's view rows (C extends the
+     erase), Vizzy's chat sessions and the per person Memory Bank, where Vizzy may have read a value
+     before it was erased.
+
+### Not decided here
+
+- More kinds (learned looks, brand and content strategy, email style, brand kit, brand map, image
+  styles) join once they save through the settings log. The two strategy records keep their own
+  history today.
+- Side by side diffs beyond plain words, value counts in a preview, copying a setting to another
+  brand.
+
+---
+
 ## ADR-0022 · Your next action: a plain card Vizzy writes (PR B of getting to know you) (2026-11-26)
 
 Context: PR A (ADR-0018) keeps what a new brand tells Vizzy (the four answers and the facts an admin

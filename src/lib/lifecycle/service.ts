@@ -80,9 +80,10 @@ async function loadConnection(ctx: TenantContext, id: string, db?: FirestoreLike
 /**
  * Validate a draft for its journey's audience: a product journey against its
  * connection's catalog, a waitlist journey against its launch (signup fields).
- * `error` when the product or the launch is gone.
+ * `error` when the product or the launch is gone. Settings › History's restore
+ * preview checks an older version with it, as a draft save would.
  */
-async function validateForAudience(
+export async function validateForAudience(
   ctx: TenantContext,
   journey: LifecycleJourney,
   draft: LifecycleDraft,
@@ -321,6 +322,13 @@ export async function saveLifecycleDraft(
     nowMs?: number;
     authoredBy?: "human" | "agent";
     emailStyle?: "keep" | "from_input";
+    /**
+     * The journey's `updatedAt` the caller saw (Settings › History's restore): checked inside the
+     * write, so a draft saved since answers 409 `draft_changed` and nothing is replaced.
+     */
+    expectUpdatedAt?: string;
+    /** A restore of a published version: stamped on the journey as `draftRestoredFrom` (by is a user id). */
+    restoredFrom?: { version: number; by: string | null };
   } = {},
 ): Promise<ServiceResult<{ journey: LifecycleJourney; issues: GraphIssue[] }>> {
   const parsed = LifecycleDraftSchema.safeParse(input);
@@ -338,15 +346,24 @@ export async function saveLifecycleDraft(
   if (checked.error) return fail(404, checked.error);
 
   const updatedAt = new Date(deps.nowMs ?? Date.now()).toISOString();
+  let changed = false;
   const saved = await repo.lifecycleJourneys.claim(journeyId, (current) => {
+    // A retried transaction runs this again on the fresher doc.
+    changed = false;
     if (current.status === "archived") return null;
+    if (deps.expectUpdatedAt !== undefined && current.updatedAt !== deps.expectUpdatedAt) {
+      changed = true;
+      return null;
+    }
     const settings = withJourneyEmailStyle(parsed.data.settings, style !== undefined ? style : storedJourneyEmailStyle(current));
     return {
       draft: { ...parsed.data, settings },
       updatedAt,
       ...(deps.authoredBy === "agent" ? { authoredBy: "agent" as const } : {}),
+      ...(deps.restoredFrom ? { draftRestoredFrom: { version: deps.restoredFrom.version, by: deps.restoredFrom.by, at: updatedAt } } : {}),
     };
   });
+  if (changed) return fail(409, "draft_changed");
   if (!saved) return fail(404, "not_found");
   return ok({ journey: saved, issues: checked.issues });
 }
@@ -478,6 +495,8 @@ export async function publishLifecycleJourney(
       settings: withJourneyEmailStyle(draft.data.settings, style),
       publishedAt: now,
       publishedBy: ctx.userId ?? ctx.email ?? null,
+      // A draft a restore filled says which version it came from (Settings › History).
+      ...(journey.draftRestoredFrom ? { restoredFrom: journey.draftRestoredFrom.version } : {}),
     });
   } catch (err) {
     // Two publishes raced for the same version number.
@@ -495,6 +514,8 @@ export async function publishLifecycleJourney(
     startsOnDate: !waitlist && startsOnDate(draft.data.settings),
     ...(journeyStyle ? { emailStyle: style } : {}),
     ...(liveTracking ? { tracking: { opens: draft.data.settings.tracking.opens, clicks: draft.data.settings.tracking.clicks } } : {}),
+    // The version now says where its draft came from, so the stamp is done with.
+    ...(journey.draftRestoredFrom ? { draftRestoredFrom: null } : {}),
   };
   await repo.lifecycleJourneys.update(journey.id, patch);
   const published = { ...journey, ...patch };

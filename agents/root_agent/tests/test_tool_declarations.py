@@ -26,6 +26,7 @@ from root_agent_pkg.tools.next_up import get_next_up  # noqa: E402
 from root_agent_pkg.tools.brand_strategy import get_brand_strategy  # noqa: E402
 from root_agent_pkg.tools.content_strategy import get_content_strategy  # noqa: E402
 from root_agent_pkg.tools.usage import get_usage  # noqa: E402
+from root_agent_pkg.tools.settings_history import get_settings_history  # noqa: E402
 from root_agent_pkg.tools.articles_due import list_articles_due  # noqa: E402
 from root_agent_pkg.tools.article_review import review_article  # noqa: E402
 from root_agent_pkg.tools.email_style import get_email_style, suggest_email_style  # noqa: E402
@@ -68,6 +69,7 @@ TOOLS = [
     get_brand_strategy,
     get_content_strategy,
     get_usage,
+    get_settings_history,
     list_articles_due,
     review_article,
     get_setup_status,

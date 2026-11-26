@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { keepApprovedSeen } from "@/lib/content/blog/hubActions";
 import { recordApprovals } from "@/lib/content/create/aiOriginals";
+import { keepApprovedExamples } from "@/lib/content/create/approvedExamples";
 import { AUTOPILOT_RUNNING, autopilotHolds } from "@/lib/autopilot/planLock";
 import { closeDraftRows, draftDoneWith } from "@/lib/autopilot/answers";
 import { z } from "zod";
@@ -101,6 +102,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
   await keepApprovedSeen(ctx, { workspaceId, before: plan, after: updated });
   // Each piece approved in this save keeps its AI original beside the approved copy (CONTENT_AI_ORIGINALS_ENABLED).
   await recordApprovals(ctx, { before: plan, after: updated });
+  // Each workflow email and hub piece approved in this save becomes an example its writer follows (CONTENT_APPROVED_EXAMPLES_ENABLED).
+  await keepApprovedExamples(ctx, { workspaceId, before: plan, after: updated });
   // Approved or archived: an autopilot draft's question rows in Review close.
   if (updated?.autopilot && !draftDoneWith(plan) && draftDoneWith(updated)) await closeDraftRows(ctx, updated);
   indexPlanAfterSave(ctx, updated);

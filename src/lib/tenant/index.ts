@@ -44,8 +44,11 @@ export type { KnowledgeChunkView, KnowledgePage } from "./knowledge";
 export {
   performanceExemplarsRef,
   writePerformanceExemplar,
+  listApprovedExemplars,
+  deletePerformanceExemplars,
   PERFORMANCE_EXEMPLARS,
 } from "./exemplars";
+export type { ApprovedExemplarRow } from "./exemplars";
 export {
   postPerformanceRef,
   upsertPostMetricSnapshot,

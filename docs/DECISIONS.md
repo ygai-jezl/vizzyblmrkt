@@ -4,6 +4,129 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0020 · Your next action: a plain card Vizzy writes (PR B of getting to know you) (2026-11-26)
+
+Context: PR A (ADR-0018) keeps what a new brand tells Vizzy (the four answers and the facts an admin
+kept) and titles Home's steps card "Your next action", listing the stage that fits the answers. PR B
+makes that card one Vizzy writes for the brand: 1 to 3 steps with why, in the founder's own terms.
+The plan (`plan-onboarding.md`) asked for A2UI; after the spike the owner chose a plain card now and
+A2UI later (25 Nov): the same five components, the same action id allowlist, the same fallback,
+Gemini structured output with the action ids as an enum, a zod check and the writing rules check,
+drawn by our own components, no new packages. The spike's pins for a later move stay in the plan.
+Branch `feat/next-action`. No dependency, index, rules or infra change.
+
+### Decided
+
+1. **A switch, `NEXT_ACTION_CARD_ENABLED`** (server, runtime, off in `apphosting.yaml`; it needs
+   `ONBOARDING_ENABLED`). The plan named it `NEXT_ACTION_A2UI_ENABLED`; the card is not A2UI, so the
+   name says what it is. Off, Home is exactly PR A's.
+2. **Who sees it.** An admin of a brand whose profile is `done` (the welcome finished, answers from
+   Settings, or a kept fact). A member, a skipped welcome or no profile keeps PR A's steps list, as
+   the mockups' Skipped state does. Members never: the card is written from About your business,
+   which says "Only your admins and Vizzy see it". Every route answers a member 403.
+3. **The card is data** (`src/lib/types/nextAction.ts`): ActionCard (1 to 3 Steps and an optional
+   Note), Step (a title and one line on why; it does exactly one of a button, ChoiceChips or
+   Progress), ChoiceChips (2 to 4 answers, each with the fact line it becomes, or none), Progress (a
+   goal on the brand's own sign-ups, posts or newsletters, read from its data when drawn) and Note
+   (what the team just finished, kept only when a step was done or answered since the card before).
+4. **Buttons carry ids from a server allowlist** (`src/lib/nextAction/actions.ts`): 20 "open this
+   admin page" ids, each resolved to a path from a fixed list (tests check every path has a page),
+   and 11 "ask Vizzy this" ids, each one of our own prompts, put to the chat on Home. Which ids a
+   brand gets follows its switches (lifecycle, invites, Email style, the brand map, nav v2 for About
+   your business) and what exists (a launch, a programme, a product); a member gets none. The model
+   sees only the brand's ids, less those the founder dismissed, as the schema's enum; code refuses
+   anything else, a free URL or a free path included, and checks a kept card again before drawing it.
+5. **Writing it.** One call to the default text model through `generateJsonWithSchema` in
+   `gemini.ts` (responseJsonSchema with the enum and no item counts, since Vertex has refused capped
+   schemas; on a 400 it asks once more in plain JSON mode), thinking 0, 20 seconds, temperature 0.3
+   (0.8 for Show another), metered under its own purpose `next_action`. The prompt
+   (`next_action.compose` in the registry) reads the four answers, the kept facts' short lines (never
+   a quote or a transcript), the growth path's stages, steps and counts, the newest 12 outcomes and
+   the ids. Facts, reasons and replaced titles are fenced as data, with fence tags taken out of
+   them. Then zod, the allowlist, what the founder dismissed and the writing rules (a dash used as
+   punctuation becomes a comma, as PR A does for facts; an AI tell, a link or a path fails). Any
+   failure keeps the fallback for those inputs, with its reason, so the same inputs never ask twice.
+6. **When.** A hash of the prompt version, the model, the answers, the facts (id, kind, line), each
+   stage's status and done steps, sign-ups in bands (0, 1+, 10+, 100+, 1000+), the brand's ids, and
+   whether every step on the card is decided. Home works it out while it renders (two regional
+   reads: the facts and the record) and never calls the model; when it differs, the card asks
+   `POST /api/admin/next-action` once with `state`, which writes only if it still differs, and shows
+   PR A's list until the card comes. Show another asks with `another`. One write at a time per brand
+   (a 45 second lease), 20 cards a brand a UTC day, and per admin 3 a minute and 12 an hour for Show
+   another (10 and 120 for `state`).
+7. **Where it lives.** `next_action_cards`, one record per brand (`na_` and the brand id) in the
+   brand's regional database, written only by `src/lib/tenant/nextActionCards.ts`: the card, the
+   hash, each step's agent action and state, why it fell back, the day's count, and the newest 30
+   outcomes (none older than 90 days). The card's lines and a dismissal's reason can hold the
+   founder's words, so it is not on the tenant doc in the control plane.
+8. **The agent action record.** Every step is proposed as `next_action.suggest` (agent vizzy, target
+   the brand, a proposal of ids only, no Review entry, 30 days to expire). Done is acted (`result`
+   outcome done), an answer is acted (outcome answered and the answer's place), a dismissal is
+   declined `dismissed`, and a step a new card replaces untouched is declined `superseded` and kept
+   as ignored; each in the same regional transaction as the record. The reason stays on the record
+   beside the card: the shared `declined` field holds a reason code only.
+9. **Not offered again.** A dismissed step (its action id, `question.<kind>` or `goal.<metric>`)
+   stays off the card for 30 days: out of the enum, out of the prompt's list, and dropped by the
+   check. On Show another the steps just shown are left out while others remain.
+10. **An answer waits for Keep.** A ChoiceChips answer is the step's outcome. When its question
+    names a kind of fact, the answer goes through PR A's suggestion flow (`suggestBusinessFact`: the
+    question and the pick as the words, the question as what drew it) and waits in About your
+    business; it is never written to the profile. The card never asks the four questions: they are
+    changed in About your business.
+11. **Erase and export.** Removing a fact or deleting a conversation forgets the card and its
+    outcomes (`forgetNextActionCard`, which declines its open steps), so nothing written from them
+    stays; `trimOutcomes` keeps the newest 30 and 90 days; `readNextActionCard` is how an admin
+    reads it on Home and Vizzy reads it. Registered in the ontology as `next_action_card`.
+12. **It learns, in its own store.** `next_action` is `own("next_action_card")`: the next card for
+    the same brand reads what was done, answered, dismissed with its reason or ignored. The fixed
+    order Home falls back to (`next_action_order`) still learns nothing from those outcomes, and
+    says so, with a nearer date to look again.
+13. **Vizzy reads it.** `GET /api/agent/next-action` (the signed canvas token, the switch, admins)
+    and the `get_next_action` tool, read only: the card on Home, what each button does, each step's
+    state, and the newest outcomes with their reasons.
+14. **No plan gate.** It is not a metered feature in `brandAccess.ts`: one Flash call when a brand's
+    state changes or an admin asks, at most 20 a brand a day, counted as `next_action` in AI model
+    use so AI credits include it once they are enforced, as PR A's learning call is. If a tier must
+    hold it back, adding it to `METERED_FEATURES` and every plan is a small follow-up.
+
+Rejected:
+- A2UI packages now: the owner chose a plain card; the five components and the allowlist carry over.
+- Writing the card on Home's request path, on every Home load, or after the response (`after()`):
+  Home would wait, cost would follow visits, or the founder would never see the new card.
+- The card on the tenant doc: it can hold the founder's words, and the tenant doc is in the
+  control plane for every region.
+- A new field on agent actions for the reason: the shared schema stays a code; the words stay in
+  the brand's record beside the card.
+- Hashing every outcome: a card would be written again after each press; only "every step decided"
+  counts.
+- Failing the whole card for a dismissed step the model offered: it is dropped instead.
+
+Privacy: the card, its outcomes and the reasons stay in the brand's region. The model call is the
+same processing as PR A's learning call (Gemini through `gemini.ts`). When Vizzy reads the card in a
+chat, its lines and the reasons are kept with that chat's session in Agent Runtime (one region, which
+no path deletes), as the fact lines in every chat already are; the card uses fact lines only, never a
+quote from a call, so `ONBOARDING_CALL_WORDS_IN_CHAT_ENABLED` is not needed, and the dismiss form
+says Vizzy reads the reason. The owner checks whether the privacy policy line PR A added for founder
+words covers the card and the reasons before the prod flip.
+
+What it costs: no new service, no new dependency, no composite index (the record and the agent
+actions are read by id); 1 collection, 1 switch, 1 AI purpose, 1 prompt, 3 routes, 1 Vizzy tool.
+About 3,000 to 5,000 tokens per card, at most 20 cards a brand a day, usually one per state change.
+
+Gaps and follow-ups:
+- A page step counts as done when the founder presses its button, not when the thing is done; the
+  next card follows the brand's real state.
+- Show another can bring back a step when nothing else fits the brand now.
+- `get_setup_status` still names the steps list's next step; `get_next_action` names the card's.
+- No path deletes a whole brand; a person's erase does not find a reason that names them (free text).
+- The card is written in the language of the facts, while its buttons and footer are English.
+- Not walked on the emulators, and the enum schema is not yet probed on Vertex in this PR: the plain
+  JSON retry covers a refused schema, and Home shows the steps list on any failure.
+- Turning it on needs a Vizzy redeploy for `get_next_action`, in either order: an older Vizzy has no
+  tool, and the card works without it.
+
+---
+
 ## ADR-0019 · Connectors are data: the MCP method and features read by kind of data (2026-11-26)
 
 Context: piece B of the brand strategy plan (v4.2, all 13 picks accepted 25 Nov). The owner, 25 Nov:

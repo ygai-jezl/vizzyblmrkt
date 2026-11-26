@@ -1204,6 +1204,28 @@ export const ONTOLOGY: readonly OntologyType[] = [
     numbers: { meanings: ["focusQuestions", "focusLiveArticles", "foundTimes"], tool: "get_brand_strategy" },
   },
   {
+    id: "content_strategy",
+    name: "Content strategy",
+    description:
+      "The brand's plan for the quarter, one record per brand, approved by a person: its decided questions merged by meaning into slots (one article each, with a stage, a kind of page and the live articles that answer it), 3 to 6 pillars with a hub each, a score for each slot and a 12 week roadmap of what to write, refresh or combine. Keeps the draft, the approved plan Next up reads, the last 5 approved in short, and the splits, joins, skips and moves people made.",
+    place: "content",
+    status: "built",
+    madeBy: [],
+    home: "brand",
+    personal: "none",
+    stores: [regional("content_strategy", "one document per brand, question and page ids only; `by` and decisions hold the admin's email or user id")],
+    links: [
+      { to: "brand_strategy", via: "the approved strategy's focus situations, which its fit scores read", many: false },
+      { to: "brand_question", via: "the question ids each slot merges", many: true },
+      { to: "content_plan", via: "the live articles each slot is covered by, and what it refreshes or combines", many: true },
+    ],
+    events: [],
+    erase: { paths: [brandPath("deleteContentStrategy", "src/lib/contentStrategy/store.ts", "an admin presses Start over on the Content plan")] },
+    export: { none: NOT_PERSONAL },
+    search: { none: "one record per brand, read whole by Next up, the autopilot and Vizzy" },
+    numbers: { none: NO_NUMBERS },
+  },
+  {
     id: "brand_note",
     name: "What we've seen note",
     description: "A first hand note from the brand's team about what they have seen, or an open question asked of the team. A note may name a customer.",

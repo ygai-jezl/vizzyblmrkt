@@ -4,6 +4,7 @@ import { composePrompt, brandVoiceSection, audienceSection } from "@/lib/agents/
 import { generateText, parseFirstJson, type AiUsage } from "@/lib/agents/gemini";
 import { WRITING_RULES } from "@/lib/content/writingRules";
 import { CONTENT_PLAN_LIMITS, type EbookChapter, type EbookDoc } from "@/lib/types/contentPlan";
+import { inBrandLanguage } from "@/lib/i18n/writingLanguage";
 
 /**
  * Generate an eBook's table of contents — a title, subtitle, and chapter list — from the
@@ -78,7 +79,7 @@ export async function generateEbookToc(input: EbookTocInput): Promise<EbookDoc> 
     task,
   });
 
-  const raw = await generateText(prompt, { usage: input.usage }).catch(() => null);
+  const raw = await generateText(await inBrandLanguage(prompt, input.usage), { usage: input.usage }).catch(() => null);
   const j = raw ? (parseFirstJson(raw) as Record<string, unknown> | null) : null;
   if (!j || typeof j !== "object") return fallbackToc(input);
 

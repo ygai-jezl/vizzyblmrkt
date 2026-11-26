@@ -20,6 +20,7 @@ import { nearestSubjects, type EmbedDeps } from "./embed";
 import { profileLinksFromHtml } from "./profileLinks";
 import { subjectIndex } from "./records";
 import type { SuggestionInput } from "./store";
+import { inBrandLanguage } from "@/lib/i18n/writingLanguage";
 
 /**
  * Research that drafts the brand map (BRAND_MAP_RESEARCH_ENABLED). It reads what the brand
@@ -439,7 +440,7 @@ export async function proposeBrandMap(
   const left = deadline - clock().getTime() - 3_000;
   if (left < 15_000) return { ok: false, status: 504, error: "research_failed" };
   const usage = deps.usage ?? aiUsage(ctx, "brand_map_research", { tenant, db: deps.db });
-  const answer = await (deps.grounded ?? generateGroundedText)(prompt, { timeoutMs: left, thinkingBudget: blogResearchThinkingBudget(), usage }).catch(() => null);
+  const answer = await (deps.grounded ?? generateGroundedText)(await inBrandLanguage(prompt, usage), { timeoutMs: left, thinkingBudget: blogResearchThinkingBudget(), usage }).catch(() => null);
   if (isSearchLimited(answer)) return { ok: false, status: 429, error: "search_limit" };
   const proposal = parseMapProposal(answer?.text ?? "");
   const found = proposal.is || proposal.category || proposal.subjects.length || proposal.names.length;

@@ -3,6 +3,7 @@ import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { generateText, parseFirstJson, type AiUsage } from "@/lib/agents/gemini";
 import { BrandVoiceSchema, type BrandVoice } from "@/lib/types/tenant";
 import { htmlToText, stripFenceDelimiters } from "./siteText";
+import { inBrandLanguage } from "@/lib/i18n/writingLanguage";
 
 /**
  * AI-generate a structured brand voice grounded in the brand's PRIMARY DOMAIN. Best-effort
@@ -66,7 +67,7 @@ export async function generateBrandVoiceFromDomain(domain: string, opts: { usage
     domain,
     site_text: safeSiteText || "(no website text available — infer from the domain name only)",
   });
-  const raw = await generateText(prompt, { usage: opts.usage });
+  const raw = await generateText(await inBrandLanguage(prompt, opts.usage), { usage: opts.usage });
   if (!raw) return null;
   const json = parseFirstJson(raw);
   if (!json || typeof json !== "object") return null;

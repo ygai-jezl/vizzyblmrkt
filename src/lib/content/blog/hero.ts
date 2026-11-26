@@ -27,6 +27,7 @@ import { isImageFormatsEnabled } from "@/lib/content/imageStyle/flags";
 import type { BlogBrief } from "@/lib/types/contentPlan";
 import type { Chart, Figure, FormatInputs, ImageFormatId } from "@/lib/types/imageStyle";
 import { heroTitle } from "./heroTitle";
+import { inBrandLanguage, withWritingLanguage, writingLanguageOf } from "@/lib/i18n/writingLanguage";
 
 export { heroTitle };
 
@@ -315,7 +316,7 @@ export async function makeBlogHero(input: MakeHeroInput, deps: HeroDeps = defaul
     // With too little time left, the title stands in (a person can edit it on the card).
     const altMs = Math.min(ALT_MS, left() - 3_000);
     if (altMs >= 3_000) {
-      made.alt = cleanAlt(await deps.alt(renderPrompt("content.image_alt_text", { title }), made.art, altMs, usage).catch(() => null), title);
+      made.alt = cleanAlt(await deps.alt(await inBrandLanguage(renderPrompt("content.image_alt_text", { title }), usage), made.art, altMs, usage).catch(() => null), title);
     }
   }
 
@@ -425,7 +426,7 @@ export async function heroFromUpload(
     : null;
   if (!storedHero.ok || !storedShare?.ok) return { ok: false, status: 502, error: "store_failed" };
   const alt = cleanAlt(
-    await deps.alt(renderPrompt("content.image_alt_text", { title }), upload, ALT_MS, aiUsage(ctx, "blog_hero", { tenant })).catch(() => null),
+    await deps.alt(withWritingLanguage(renderPrompt("content.image_alt_text", { title }), writingLanguageOf(tenant)), upload, ALT_MS, aiUsage(ctx, "blog_hero", { tenant })).catch(() => null),
     title,
   );
   const now = new Date(deps.now()).toISOString();

@@ -3,6 +3,7 @@ import { renderPrompt } from "@/lib/agents/prompts/registry";
 import { articleFigures, figureSet, normalizeFigure } from "@/lib/content/blog/figures";
 import { stripFenceDelimiters } from "@/lib/content/create/siteText";
 import { ChartSchema, type Chart, type ChartPoint, type Figure } from "@/lib/types/imageStyle";
+import { inBrandLanguage } from "@/lib/i18n/writingLanguage";
 
 /**
  * Data story's numbers and Type poster's one big number, taken from the copy (BRAND_IMAGE_STYLE_
@@ -125,7 +126,7 @@ export async function chartFromCopy(copy: CopyText, usage: AiUsage, deps: ChartD
   const text = (copy.text ?? "").slice(0, MAX_TEXT);
   if (figureSet(text).size < 2) return null;
   const raw = await deps
-    .generate(renderPrompt("content.chart_from_copy", { copy: stripFenceDelimiters(text) }), usage)
+    .generate(await inBrandLanguage(renderPrompt("content.chart_from_copy", { copy: stripFenceDelimiters(text) }), usage), usage)
     .catch(() => null);
   if (!raw) return null;
   const json = parseFirstJson(raw);

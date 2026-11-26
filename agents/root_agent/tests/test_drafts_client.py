@@ -61,4 +61,4 @@ def test_the_kinds_match_the_app_and_the_prompt_says_when_to_call_it():
 
 def test_messages_keep_to_house_style():
     for text in [dc._OFF, dc._NO_LINK, *dc._ERRORS.values()]:
-        assert "—" not in text and "–" not in text and " - " not in text
+        assert chr(0x2014) not in text and chr(0x2013) not in text and " - " not in text

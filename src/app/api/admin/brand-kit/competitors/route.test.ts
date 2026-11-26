@@ -155,9 +155,18 @@ describe("the Competitors APIs", () => {
   });
 
   it("leave a group out while the strategy isn't joined to Competitors, as any field it didn't know", async () => {
-    expect((await item.PATCH(req("PATCH", { group: "most" }), params)).status).toBe(400);
-    expect((await item.PATCH(req("PATCH", { group: "everything", paused: true }), params)).status).toBe(400);
+    // A group alone is nothing to change: the input check refuses it before the store is asked.
+    const alone = await item.PATCH(req("PATCH", { group: "most" }), params);
+    expect(alone.status).toBe(400);
+    expect(await alone.json()).toMatchObject({ error: "invalid_input" });
+    expect(store.updateCompetitor).not.toHaveBeenCalled();
+    // Beside a real change, even a group that isn't one is left out, and the change goes through.
+    store.updateCompetitor.mockResolvedValueOnce({ ok: true, value: COMPETITOR });
+    const paused = await item.PATCH(req("PATCH", { group: "everything", paused: true }), params);
+    expect(paused.status).toBe(200);
+    expect(store.updateCompetitor).toHaveBeenCalledTimes(1);
     expect(store.updateCompetitor).toHaveBeenLastCalledWith(admin, "cmp_abcdef123456", { paused: true }, {});
+    expect(store.getCompetitor).toHaveBeenCalledTimes(1);
     await POST(req("POST", { ...MONITOR, group: "most" }));
     expect(store.monitorCompetitor).toHaveBeenLastCalledWith(admin, MONITOR, {});
     expect(strategy.logStrategyDecisions).not.toHaveBeenCalled();

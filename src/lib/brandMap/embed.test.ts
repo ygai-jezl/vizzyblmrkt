@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
-// Writers that pass no store reach brand search through this in-memory index (ADR-0023).
+// Writers that pass no store reach brand search through this in-memory index (ADR-0025).
 vi.mock("@/lib/tenant/searchIndex", async (original) => (await import("@/lib/search/testing/memorySearch")).withMemorySearch(await original<object>()));
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { KnowledgeCollectionLike, TenantContext } from "@/lib/tenant/types";
@@ -89,7 +89,7 @@ describe("the map's meaning", () => {
   });
 });
 
-describe("the map's meaning in brand search (ADR-0023)", () => {
+describe("the map's meaning in brand search (ADR-0025)", () => {
   beforeEach(() => {
     vi.stubEnv("SEARCH_INDEX_ENABLED", "true");
     vi.stubEnv("SEARCH_FAMILY_INDEX_ENABLED", "true");

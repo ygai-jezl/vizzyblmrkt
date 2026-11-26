@@ -72,7 +72,7 @@ const RESTING_NOTES = 5;
  * related notes per question never reached the check; the check called 13 notes strong and
  * none of them wrongly. So the cutoff stays low and the check stays strict.
  *
- * Each cut-off here is a pair (ADR-0023): `old` for brand_map_vectors (text-embedding-005), `new` for
+ * Each cut-off here is a pair (ADR-0025): `old` for brand_map_vectors (text-embedding-005), `new` for
  * brand search (gemini-embedding-001) once SEARCH_NOTE_READS_ENABLED is on. The `new` values are
  * provisional until scripts/measure-question-dupes.ts --model new is run.
  */
@@ -318,7 +318,7 @@ const ASKED_ALREADY = 6;
  *   - question to note: a note that answers it scored 0.726 to 0.873, one on the same subject
  *     that doesn't 0.643 to 0.773. No cutoff separates them, so 0.85 drops only the closest and
  *     never a question a note leaves open.
- * Both are pairs (ADR-0023), as CANDIDATE_MIN_SIM is: the numbers above are `old`.
+ * Both are pairs (ADR-0025), as CANDIDATE_MIN_SIM is: the numbers above are `old`.
  */
 export const DUP_QUESTION_SIM: CutOff = { old: 0.93, new: 0.93 };
 export const DUP_NOTE_SIM: CutOff = { old: 0.85, new: 0.85 };

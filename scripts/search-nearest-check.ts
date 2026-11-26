@@ -1,6 +1,6 @@
 /**
  * search-nearest-check.ts: the filter-first check for the brand map family in brand search
- * (ADR-0023). Read only by default.
+ * (ADR-0025). Read only by default.
  *
  * On one brand it finds the subjects nearest one of its articles' vectors, the way the brand map's
  * readers will once SEARCH_SUBJECT_READS_ENABLED is on, and prints Query Explain's analysis (the

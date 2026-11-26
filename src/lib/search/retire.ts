@@ -8,7 +8,7 @@ import { articleIdOfRef, noteIdOfQuestionRef, noteSearchSources } from "./family
 import type { SearchKind, SearchManifest, SearchStatus, SearchStore } from "./types";
 
 /**
- * scripts/retire-old-vectors.ts (ADR-0023): after the retire switch and the soak, count what
+ * scripts/retire-old-vectors.ts (ADR-0025): after the retire switch and the soak, count what
  * brand_map_vectors still holds per region, brand and kind beside what brand search holds of the
  * same kind, refuse when a brand would lose meaning it has nowhere else, and delete. The delete goes
  * through src/lib/tenant/brandMapVectors.ts, the only code that touches that store.

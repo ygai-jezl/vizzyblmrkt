@@ -4,7 +4,7 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
-## ADR-0023 · Brand search catches up: the brand map family moves off brand_map_vectors (piece Q) (2026-11-26)
+## ADR-0025 · Brand search catches up: the brand map family moves off brand_map_vectors (piece Q) (2026-11-26)
 
 Context: the brand map's duplicate checks and nearest subjects, What we've seen's matching and repeat
 checks, and the competitor article checks all find things by meaning in `brand_map_vectors`,
@@ -2795,7 +2795,7 @@ Owner decisions (2026-11-19 and 2026-11-20):
      brands and can stop part way. Once the switch is off in the deployment's settings and that
      is rolled out, run `npx tsx scripts/search-backfill.ts --settings <apphosting.<env>.yaml>
      --apply` once (it follows that file's `SEARCH_KIND_IDEA_BOARD_ENABLED` and
-     `SEARCH_FAMILY_INDEX_ENABLED`, whatever the shell says, ADR-0023), and go on only when it
+     `SEARCH_FAMILY_INDEX_ENABLED`, whatever the shell says, ADR-0025), and go on only when it
      ends with no failures.
   2. Turn `ONTOLOGY_PERSON_IDS_ENABLED` off, then wait one delivery drain, so queued
      `person_repoint` jobs drop themselves. A revert with jobs still queued makes the job switch
@@ -2831,7 +2831,7 @@ Owner steps:
 - Prod: promote with both switches off, deploy the indexes, then a private settings change
   turns on `ONTOLOGY_PERSON_IDS_ENABLED` and after it `SEARCH_KIND_IDEA_BOARD_ENABLED`. Run the
   prod backfill the same way. Once the search switch is on, `scripts/search-backfill.ts --settings
-  <apphosting.prod.yaml> --apply` (the file turns `SEARCH_KIND_IDEA_BOARD_ENABLED` on; ADR-0023)
+  <apphosting.prod.yaml> --apply` (the file turns `SEARCH_KIND_IDEA_BOARD_ENABLED` on; ADR-0025)
   moves every brand's clippings in one run, instead of some dropping out of search for a check
   or two. Vizzy's search change rides
   the redeploy after piece B.

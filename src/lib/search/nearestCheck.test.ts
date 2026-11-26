@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MemorySearchIndex } from "./memoryStore";
 import { checkSeeded, indexByKind, near, randomUnitVector, SEED_REFS, seedCheck, seededRandom, throwawayTenantId } from "./nearestCheck";
 
-// scripts/search-nearest-check.ts's seed and checks, on the in-memory index (ADR-0023).
+// scripts/search-nearest-check.ts's seed and checks, on the in-memory index (ADR-0025).
 
 describe("the nearest check", () => {
   it("seeds a throwaway brand with one decided subject among 5,000 article and 5,000 proposed chunks, and passes", async () => {

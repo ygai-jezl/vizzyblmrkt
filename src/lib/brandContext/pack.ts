@@ -107,7 +107,7 @@ export interface PackDeps {
 /** Lines per part, at most: the pack stays a few hundred words. */
 export const PART_MAX = 5;
 const SEARCH_LIMIT = 12;
-/** As planningApi: an article this close in meaning answers the question. A pair, one for each store (ADR-0023). */
+/** As planningApi: an article this close in meaning answers the question. A pair, one for each store (ADR-0025). */
 export const COVERED_SIM: CutOff = { old: 0.65, new: 0.65 };
 
 /** What the brand made that counts as "already said". */

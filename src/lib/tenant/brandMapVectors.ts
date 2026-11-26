@@ -13,7 +13,7 @@ import type { FirestoreLike, KnowledgeCollectionLike, TenantContext } from "./ty
  * src/lib/tenant/**). Searches pre-filter by brand and kind: the composite vector index
  * `[tenantId, kind, embedding]` (firestore.indexes.json).
  *
- * Retiring (ADR-0023): the brand map family moves to brand search. With
+ * Retiring (ADR-0025): the brand map family moves to brand search. With
  * SEARCH_OLD_VECTORS_RETIRED_ENABLED (and the three read switches) nothing is written here any more;
  * removals keep running, and scripts/retire-old-vectors.ts counts and deletes what is left through
  * countBrandMapVectors and deleteBrandMapVectors, so this file stays the only code that touches it.

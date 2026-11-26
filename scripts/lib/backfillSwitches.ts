@@ -1,6 +1,6 @@
 /**
  * What scripts/search-backfill.ts must know before any library code loads: which switches decide
- * what the index keeps on the deployment it fills (ADR-0023). Pure, and it imports nothing from
+ * what the index keeps on the deployment it fills (ADR-0025). Pure, and it imports nothing from
  * src/lib on purpose, as scripts/lib/operatorCli.ts.
  */
 

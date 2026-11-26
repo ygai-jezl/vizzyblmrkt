@@ -936,7 +936,7 @@ describe("Search", () => {
     expect(off).not.toContain(SEARCH_TEXT_HELP.why);
   });
 
-  it("says on Your brand that a note naming a customer reaches articles only by its subject, only with note reads on (ADR-0023)", () => {
+  it("says on Your brand that a note naming a customer reaches articles only by its subject, only with note reads on (ADR-0025)", () => {
     const md = (searchNoteReads: boolean) => docToMarkdown(HELP_BODIES["your-brand"]!({ searchNoteReads }), "https://app.example.com");
     vi.stubEnv("NEXT_PUBLIC_BRAND_NOTES_ENABLED", "true");
     expect(md(true)).toContain("A note ticked as naming a customer goes into an article only when it is linked to the article's subject");
@@ -944,7 +944,7 @@ describe("Search", () => {
     vi.unstubAllEnvs();
   });
 
-  it("says a subject is found by its first questions, and how soon the brand map is found, only with the family switch on (ADR-0023)", () => {
+  it("says a subject is found by its first questions, and how soon the brand map is found, only with the family switch on (ADR-0025)", () => {
     const md = (searchFamily: boolean) => docToMarkdown(HELP_BODIES.search!({ searchFamily }), "https://app.example.com");
     const on = md(true);
     expect(on).toContain("A subject on your brand map is also found by its first questions.");

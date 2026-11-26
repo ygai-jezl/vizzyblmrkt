@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 
-// The family-only read with the real readers (ADR-0023): a brand without brand_search, on its
+// The family-only read with the real readers (ADR-0025): a brand without brand_search, on its
 // family turn, reads the brand map, notes and competitors from its own data, and only the family
 // reaches the index. Every brand, name and site is made up.
 const shared = vi.hoisted(() => ({ db: null as unknown }));

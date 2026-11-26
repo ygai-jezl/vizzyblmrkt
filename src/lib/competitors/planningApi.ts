@@ -79,7 +79,7 @@ const THEIR_QUESTIONS = 5;
 
 /** Questions checked against their articles' meaning, at most, per subject. */
 const CHECK_QUESTIONS = 6;
-/** As close in meaning as planning's other matches (planning.ts MIN_SIM): a pair, one for each store (ADR-0023). */
+/** As close in meaning as planning's other matches (planning.ts MIN_SIM): a pair, one for each store (ADR-0025). */
 export const COVERED_SIM: CutOff = { old: 0.65, new: 0.65 };
 
 /** Who a competitor is: its name, and its site to take off the end of titles. */

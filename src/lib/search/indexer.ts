@@ -12,7 +12,7 @@ import { sourceKeyOf, storedKindsFor } from "./types";
 /**
  * Keeps one record's chunks in the brand's search index: plain text, chunks, a hash, and an
  * embedding per chunk only when something changed, with the record's status on every chunk when it
- * has one (ADR-0023). Never throws to its caller: indexing must never break a save, so a failure
+ * has one (ADR-0025). Never throws to its caller: indexing must never break a save, so a failure
  * is logged and the scheduled check tries again.
  */
 

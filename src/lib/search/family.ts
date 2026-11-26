@@ -4,7 +4,7 @@ import { CHUNK_CHARS } from "./text";
 import type { SearchKind, SearchSource, SearchStatus } from "./types";
 
 /**
- * The brand map family (ADR-0023): what brand_map_vectors holds, kept in brand search for every
+ * The brand map family (ADR-0025): what brand_map_vectors holds, kept in brand search for every
  * brand while SEARCH_FAMILY_INDEX_ENABLED is on, so the readers that match by meaning can move to
  * gemini-embedding-001 before text-embedding-005 retires. Subjects and situations (decided or
  * proposed), kept notes, the questions asked of the team (asked or answered) and competitor

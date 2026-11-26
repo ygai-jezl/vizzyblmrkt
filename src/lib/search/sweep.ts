@@ -16,7 +16,7 @@ import type { SearchKind, SearchManifest, SearchStore } from "./types";
  * the main feeder, so a save that wasn't written through still reaches the index within minutes.
  * Removal only touches kinds that were read in full, so a failed read never empties the index.
  *
- * With SEARCH_FAMILY_INDEX_ENABLED (ADR-0023) every brand is checked, not only those granted
+ * With SEARCH_FAMILY_INDEX_ENABLED (ADR-0025) every brand is checked, not only those granted
  * brand_search, and the brand map family (the map, notes and competitors) is read on the brand's
  * family turn, about every 6 hours: write-through keeps it current between turns. A brand without
  * brand_search is checked only on its turn, and only for the family.

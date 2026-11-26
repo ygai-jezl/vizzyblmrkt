@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { backfillTargets, costWords, parseKinds } from "./backfill";
 
-// What scripts/search-backfill.ts decides before it reads anything (ADR-0023).
+// What scripts/search-backfill.ts decides before it reads anything (ADR-0025).
 afterEach(() => vi.unstubAllEnvs());
 const tenant = (id: string, grantedFeatures: string[] = []) => ({ id, region: "us", grantedFeatures }) as never;
 

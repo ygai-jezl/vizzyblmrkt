@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-// Removals from brand search are forced whatever the switches say (ADR-0023): an in-memory index stands in.
+// Removals from brand search are forced whatever the switches say (ADR-0025): an in-memory index stands in.
 vi.mock("@/lib/tenant/searchIndex", async (original) => (await import("@/lib/search/testing/memorySearch")).withMemorySearch(await original<object>()));
 import { forTenant } from "@/lib/tenant";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
@@ -275,7 +275,7 @@ describe("reading again what an older reader read", () => {
     expect(await tick()).toMatchObject({ refreshed: 0, skipped: 0 });
   });
 
-  it("keeps read articles in brand search, and takes one out at once when reading again finds a listing (ADR-0023)", async () => {
+  it("keeps read articles in brand search, and takes one out at once when reading again finds a listing (ADR-0025)", async () => {
     vi.stubEnv("SEARCH_INDEX_ENABLED", "true");
     vi.stubEnv("SEARCH_FAMILY_INDEX_ENABLED", "true");
     const { testSearchIndex } = await import("@/lib/search/testing/memorySearch");

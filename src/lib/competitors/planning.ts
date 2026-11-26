@@ -50,7 +50,7 @@ const MAX_STATS = 6;
 /**
  * How close in meaning an article must be to count as on the same question: on brand_map_vectors
  * (`old`), or on brand search with SEARCH_COMPETITOR_READS_ENABLED (`new`, provisional until
- * scripts/measure-question-dupes.ts --model new is run, ADR-0023).
+ * scripts/measure-question-dupes.ts --model new is run, ADR-0025).
  */
 export const MIN_SIM: CutOff = { old: 0.65, new: 0.65 };
 

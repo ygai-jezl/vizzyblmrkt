@@ -7,7 +7,7 @@
  *   - a new question for the team against the same ask reworded and a different ask
  *     (DUP_QUESTION_SIM), and against a note that answers it and one that doesn't (DUP_NOTE_SIM);
  *   - a question against a competitor article that answers it, or one that doesn't (COVERED_SIM, MIN_SIM).
- * Prints each group's range and where a cut-off would separate them. The cut-offs are pairs (ADR-0023):
+ * Prints each group's range and where a cut-off would separate them. The cut-offs are pairs (ADR-0025):
  * `old` for brand_map_vectors, `new` for brand search; re-run this before changing either.
  *
  *   --model old: text-embedding-005, each side embedded as brand_map_vectors embeds it (Vertex AI only).

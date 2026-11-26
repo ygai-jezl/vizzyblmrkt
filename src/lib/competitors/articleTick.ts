@@ -203,7 +203,7 @@ export async function readOneArticle(
     await finishArticle(ctx, a.id, leaseId, { status: "skipped", problem: "listing", readMonth: monthOf(now), version: READER_VERSION[readBy] }, deps);
     if (refresh) {
       await removeBrandMapVector(ctx, "competitor_article", a.id, deps.db).catch(() => undefined);
-      // And from brand search, at once and forced (ADR-0023).
+      // And from brand search, at once and forced (ADR-0025).
       await unindexArticle(ctx, a, deps);
     }
     return "skipped" as const;

@@ -2,7 +2,7 @@ import type { NearestRun } from "@/lib/tenant/searchIndex";
 import type { NearestHit, SearchChunkDoc, SearchKind, SearchManifest, SearchStatus, SearchStore, StoredSearchManifest } from "./types";
 
 /**
- * scripts/search-nearest-check.ts: the filter-first check for the brand map family (ADR-0023). Does
+ * scripts/search-nearest-check.ts: the filter-first check for the brand map family (ADR-0025). Does
  * nearest find the subjects closest to an article's vector when thousands of other chunks are
  * there, does people's search find a decided subject among thousands of proposals, and what does
  * each read cost (Query Explain). Pure parts here, tested on the in-memory index.

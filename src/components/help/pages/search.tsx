@@ -8,7 +8,7 @@ import { isSearchFamilyIndexEnabled } from "@/lib/search/flags";
 /**
  * /help/search. `connectorsSearchText` is whether Search Console's searches are in brand search
  * (CONNECTORS_SEARCH_TEXT_ENABLED, ADR-0013), and `searchFamily` whether the brand map family is
- * kept there with its first questions (SEARCH_FAMILY_INDEX_ENABLED, ADR-0023); the How to drawer
+ * kept there with its first questions (SEARCH_FAMILY_INDEX_ENABLED, ADR-0025); the How to drawer
  * passes what the server said.
  */
 export default function SearchHelp({ connectorsSearchText = isConnectorsSearchTextEnabled(), searchFamily = isSearchFamilyIndexEnabled() }: HelpBodyProps = {}) {

@@ -232,7 +232,7 @@ describe("looking at a connection", () => {
     expect((await load()).collect!.detectedOn).toBe("2026-11-23");
   });
 
-  it("maps a search to a subject at the cut-off of the store subject readers use, switch off and on (ADR-0023)", async () => {
+  it("maps a search to a subject at the cut-off of the store subject readers use, switch off and on (ADR-0025)", async () => {
     // Two different values, so detection wired to the other store's cut-off can't pass.
     const was = { ...NEAR_SUBJECT };
     Object.assign(NEAR_SUBJECT, { old: 0.75, new: 0.65 });

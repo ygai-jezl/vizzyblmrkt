@@ -17,7 +17,7 @@ import { parseSubject, subjectIndex, subjectQuestions } from "./records";
  * thousands. Best effort: a subject without an embedding is still on the map, and when
  * embeddings are down the nearest are found by shared words instead.
  *
- * Two stores (ADR-0023). Every write goes to brand_map_vectors (text-embedding-005) and, with
+ * Two stores (ADR-0025). Every write goes to brand_map_vectors (text-embedding-005) and, with
  * SEARCH_FAMILY_INDEX_ENABLED, to brand search (gemini-embedding-001), awaited, so a duplicate
  * check right after sees a new proposal. With SEARCH_SUBJECT_READS_ENABLED the readers use brand
  * search only; off, brand_map_vectors, which is still written, so turning it off is a rollback.
@@ -36,7 +36,7 @@ export interface EmbedDeps extends FamilyDeps {
 
 /**
  * A proposal at least this close to a subject on the map is shown as "looks like" it. `new` is
- * provisional until scripts/measure-question-dupes.ts --model new is run (ADR-0023): it is used
+ * provisional until scripts/measure-question-dupes.ts --model new is run (ADR-0025): it is used
  * only once SEARCH_SUBJECT_READS_ENABLED is on.
  */
 export const LOOKS_LIKE: CutOff = { old: 0.9, new: 0.9 };
@@ -64,7 +64,7 @@ async function indexOrRemove(ctx: TenantContext, kind: "subject" | "situation", 
 
 /**
  * Embed these subjects (by name and first questions), and mark a proposal that looks like one on
- * the map. Both stores get them (ADR-0023); the check reads the one the readers use. Returns how
+ * the map. Both stores get them (ADR-0025); the check reads the one the readers use. Returns how
  * many got a vector.
  */
 export async function embedSubjects(ctx: TenantContext, ids: string[], deps: EmbedDeps = {}): Promise<number> {
@@ -114,7 +114,7 @@ export async function embedSubjects(ctx: TenantContext, ids: string[], deps: Emb
   return done;
 }
 
-/** Embed these buying situations, in both stores (ADR-0023). A dismissed one leaves brand search. */
+/** Embed these buying situations, in both stores (ADR-0025). A dismissed one leaves brand search. */
 export async function embedSituations(ctx: TenantContext, situations: BrandMapSituation[], deps: EmbedDeps = {}): Promise<number> {
   if (!situations.length) return 0;
   const fresh = await indexOrRemove(ctx, "situation", situations.map((s) => s.id), situations.map((s) => situationSearchSource({ ...s, ref: s.id })), deps);

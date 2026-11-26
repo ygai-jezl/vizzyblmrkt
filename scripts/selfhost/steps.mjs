@@ -1472,7 +1472,7 @@ export const ADDONS = [
       const missing = wanted.filter((s) => !searchDbReady(ctx, s.database));
       if (missing.length) return todo(`missing: ${missing.map((s) => s.database).join(", ")}`);
       if (envValue(ctx, "SEARCH_INDEX_ENABLED") !== "true") return todo("databases ready; switches off");
-      // An index from before the brand map family (ADR-0023): run this again to turn it on, then the backfill.
+      // An index from before the brand map family (ADR-0025): run this again to turn it on, then the backfill.
       if (envValue(ctx, "SEARCH_FAMILY_INDEX_ENABLED") !== "true") return todo("index on; SEARCH_FAMILY_INDEX_ENABLED off: run this again, roll it out, then the backfill with --settings and --all-brands");
       return done(wanted.map((s) => s.database).join(", "));
     },

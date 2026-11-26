@@ -2,7 +2,7 @@ import { MemorySearchIndex } from "../memoryStore";
 
 /**
  * Brand search for tests that reach it without passing a store: removals of the brand map family
- * are forced whatever the switches say (ADR-0023), so without this they would try a real database.
+ * are forced whatever the switches say (ADR-0025), so without this they would try a real database.
  *
  *   vi.mock("@/lib/tenant/searchIndex", async (original) =>
  *     (await import("@/lib/search/testing/memorySearch")).withMemorySearch(await original()));

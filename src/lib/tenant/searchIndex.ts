@@ -27,7 +27,7 @@ import type { TenantContext } from "./types";
  * runs in code over the brand's own docs (localWordsScore), and search by meaning uses the
  * classic findNearest query. Both go through the same brand path.
  *
- * Statuses (ADR-0023): the brand map family's chunks carry a status. People's search (words and
+ * Statuses (ADR-0025): the brand map family's chunks carry a status. People's search (words and
  * meaning) keeps chunks with no status or a status people may see (PEOPLE_STATUSES), and the
  * readers' nearest keeps the statuses they ask for. Both filter BEFORE the search: a where stage
  * ahead of findNearest, which Firestore runs on the documents the stage before it gives. Pipelines

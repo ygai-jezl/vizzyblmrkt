@@ -112,7 +112,7 @@ describe("sweepBrand", () => {
     expect((await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: reader([], ["idea_board"]) })).unread).toEqual([]);
   });
 
-  describe("a save written through while it reads the brand (ADR-0023)", () => {
+  describe("a save written through while it reads the brand (ADR-0025)", () => {
     // A subject the sweep reads as it was, proposed and with its old name.
     const before: SearchSource = { kind: "subject", ref: "sub_1", title: "Repotting figs", body: "Repotting figs", status: "proposed" };
     // A save a second after the check began, as write-through stamps it.
@@ -254,7 +254,7 @@ describe("runSearchSweeps", () => {
   });
 });
 
-describe("the brand map family's turn (ADR-0023)", () => {
+describe("the brand map family's turn (ADR-0025)", () => {
   afterEach(() => vi.unstubAllEnvs());
   const tenant = (id: string, grantedFeatures: string[] = []) => ({ id, region: "us", grantedFeatures }) as never;
   const CHECK_MS = 600_000;

@@ -19,7 +19,7 @@ import { entryMap } from "./selfhost/envfile.mjs";
  * says), or --all-brands alone says the family is on. Roll a settings change out before filling,
  * or the running check undoes the fill.
  *
- * --all-brands is for a deployment with SEARCH_FAMILY_INDEX_ENABLED on (ADR-0023): every brand,
+ * --all-brands is for a deployment with SEARCH_FAMILY_INDEX_ENABLED on (ADR-0025): every brand,
  * and the brand map family (subjects, situations, kept notes, questions asked of the team and
  * competitor articles) with their statuses for those without brand_search. With the family off,
  * it is indexed as before that switch, for granted brands only. --kinds reads and removes only

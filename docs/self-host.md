@@ -575,7 +575,7 @@ sign-in codes, their counts and the links sent in place of a code; it is safe to
 **Brand search takes over from the old vectors.** The brand map's duplicate checks, What we've seen's
 matching and the competitor article checks find things by meaning in `brand_map_vectors`, embedded
 with `text-embedding-005`, which Google retires on Vertex AI on 1 April 2027. They move onto brand
-search (ADR-0023). On a copy with `addon:search`, run `npm run selfhost -- --project <id> --apply
+search (ADR-0025). On a copy with `addon:search`, run `npm run selfhost -- --project <id> --apply
 addon:search` again: it turns on `SEARCH_FAMILY_INDEX_ENABLED`, which keeps the brand map, the notes
 and competitor articles in brand search for every brand, with what each is (proposed, decided,
 kept, asked or answered). People's search still shows only what it showed before. Then:

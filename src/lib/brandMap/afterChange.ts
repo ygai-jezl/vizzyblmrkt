@@ -15,7 +15,7 @@ import { recountGroup, recountSubject } from "./recount";
  * them again works, and the ones still on the map are embedded again. Best effort, after the
  * change is saved: it never fails it.
  *
- * Brand search (ADR-0023): a gone subject leaves it at once, forced, whatever any switch says;
+ * Brand search (ADR-0025): a gone subject leaves it at once, forced, whatever any switch says;
  * embedSubjects writes the status and text of the live ones there (a status alone embeds nothing).
  */
 export async function afterRecordsChange(

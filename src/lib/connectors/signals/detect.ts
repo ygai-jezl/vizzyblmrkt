@@ -75,7 +75,7 @@ export const TOP_SEARCHES = 100;
 /**
  * A search this close to a subject counts as near it: on brand_map_vectors (`old`), or on brand
  * search once SEARCH_SUBJECT_READS_ENABLED is on (`new`, provisional until scripts/measure-question-dupes.ts
- * --model new is run, ADR-0023).
+ * --model new is run, ADR-0025).
  */
 export const NEAR_SUBJECT: CutOff = { old: 0.6, new: 0.6 };
 /** NEAR_SUBJECT for the store nearestSubjectsMany reads now. */

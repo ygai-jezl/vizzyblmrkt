@@ -1,6 +1,6 @@
 /**
  * retire-old-vectors.ts: empty brand_map_vectors once brand search has taken over its readers
- * (ADR-0023). DRY RUN by default: it counts, per region, brand and kind, the vectors the old store
+ * (ADR-0025). DRY RUN by default: it counts, per region, brand and kind, the vectors the old store
  * still holds beside the records brand search holds of the same kind, and deletes nothing.
  *
  * --apply deletes them, and refuses unless:

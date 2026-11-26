@@ -46,7 +46,7 @@ export function isSearchKindIdeaBoardEnabled(): boolean {
 }
 
 /**
- * The brand map family in the index for every brand, with statuses (ADR-0023, needs
+ * The brand map family in the index for every brand, with statuses (ADR-0025, needs
  * SEARCH_INDEX_ENABLED): subjects and situations (decided or proposed), kept notes, the questions
  * asked of the team (asked or answered) and competitor articles, so the readers that match by
  * meaning can move off brand_map_vectors. People's search still needs brand_search, and still
@@ -84,7 +84,7 @@ export function isSearchCompetitorReadsEnabled(): boolean {
 }
 
 /**
- * brand_map_vectors is retired (ADR-0023): no more writes, embeddings or status updates to it, so
+ * brand_map_vectors is retired (ADR-0025): no more writes, embeddings or status updates to it, so
  * scripts/retire-old-vectors.ts can empty it. Only while all three read switches are on too (and
  * so the family and the index): with any of them off, a reader still uses the old store, and it
  * keeps being written. Removals from it keep running until the delete has run.

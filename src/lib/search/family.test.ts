@@ -8,7 +8,7 @@ import { COVERED_SIM } from "@/lib/competitors/planningApi";
 import { articleIdOfRef, competitorArticleRef, competitorArticleSource, cutOff, noteIdOfQuestionRef, noteQuestionRef, noteSearchSources } from "./family";
 import { isSearchCompetitorReadsEnabled, isSearchFamilyIndexEnabled, isSearchNoteReadsEnabled, isSearchSubjectReadsEnabled } from "./flags";
 
-// The brand map family's refs, cut-offs and switches (ADR-0023).
+// The brand map family's refs, cut-offs and switches (ADR-0025).
 afterEach(() => vi.unstubAllEnvs());
 
 describe("refs", () => {

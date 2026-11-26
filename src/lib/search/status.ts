@@ -8,7 +8,7 @@ import { shownToPeople, type SearchKind, type SearchStore } from "./types";
 /**
  * What the Search card in Settings shows: what is in the index, where it lives, and how fresh it
  * is. It counts only what people can find: proposals and answered questions kept for the readers
- * that match by meaning (ADR-0023) are left out.
+ * that match by meaning (ADR-0025) are left out.
  */
 export interface IndexSummary {
   records: number;

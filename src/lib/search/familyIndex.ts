@@ -6,7 +6,7 @@ import { indexSources, removeFromIndex, type IndexResult } from "./indexer";
 import type { NearestHit, SearchKind, SearchSource, SearchStatus, SearchStore } from "./types";
 
 /**
- * The brand map family's write-through and reads (ADR-0023). Writers call these beside their
+ * The brand map family's write-through and reads (ADR-0025). Writers call these beside their
  * writes to brand_map_vectors; readers call nearestFamily once their read switch is on. Never throws.
  */
 

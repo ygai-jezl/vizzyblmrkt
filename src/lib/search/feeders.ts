@@ -351,7 +351,7 @@ export interface BrandStubs {
   failed?: Set<SearchKind>;
 }
 
-/** Which records readBrandStubs reads (SEARCH_FAMILY_INDEX_ENABLED, ADR-0023). */
+/** Which records readBrandStubs reads (SEARCH_FAMILY_INDEX_ENABLED, ADR-0025). */
 export interface StubsOptions {
   /** Only the brand map family: a brand without brand_search, on its family turn. */
   familyOnly?: boolean;

@@ -91,7 +91,7 @@ describe("kinds stored under an alias", () => {
   });
 });
 
-describe("statuses (ADR-0023)", () => {
+describe("statuses (ADR-0025)", () => {
   const chunk = { tenantId: "ten_A", sourceKey: "subject:sub_1", kind: "subject", ref: "sub_1", chunk: 0, title: "Repot", text: "Repot", url: "/admin/x" };
 
   it("reads a chunk's and a manifest's status, and leaves out one that isn't a status", () => {

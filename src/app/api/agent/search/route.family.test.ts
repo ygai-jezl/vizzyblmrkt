@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Vizzy's search_brand reads people's search: the brand map family's proposals and answered
-// questions (ADR-0023) never reach it, whatever it asks for. The real query runs on an in-memory index.
+// questions (ADR-0025) never reach it, whatever it asks for. The real query runs on an in-memory index.
 const auth = vi.hoisted(() => ({
   isCanvasAuthConfigured: vi.fn(() => true),
   verifyCanvasContext: vi.fn(() => ({ ok: true, claims: {} })),

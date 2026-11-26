@@ -8,7 +8,7 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 import { entryMap } from "../selfhost/envfile.mjs";
 
-// scripts/retire-old-vectors.ts (ADR-0023): its switch guard, its counts and its refusal.
+// scripts/retire-old-vectors.ts (ADR-0025): its switch guard, its counts and its refusal.
 
 const settings = (on: readonly string[]) =>
   entryMap(

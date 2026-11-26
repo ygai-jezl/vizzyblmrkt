@@ -113,7 +113,7 @@ describe("searchBrand", () => {
   });
 });
 
-describe("the brand map family in people's search (ADR-0023)", () => {
+describe("the brand map family in people's search (ADR-0025)", () => {
   beforeEach(() => {
     vi.stubEnv("SEARCH_INDEX_ENABLED", "true");
     vi.stubEnv("SEARCH_ENABLED", "true");

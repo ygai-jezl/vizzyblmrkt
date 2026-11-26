@@ -220,7 +220,7 @@ describe("learnedSource", () => {
   });
 });
 
-describe("the brand map family (ADR-0023)", () => {
+describe("the brand map family (ADR-0025)", () => {
   afterEach(() => vi.unstubAllEnvs());
   const q = (ref: string, subjectId: string, text: string, over: Record<string, unknown> = {}) => ({ id: ref, tenantId: "t", ref, subjectId, text, status: "decided", order: 0, createdAt: "2026-11-01T00:00:00Z", ...over });
 

@@ -33,7 +33,7 @@ import { noteRest, usesOf } from "./rest";
  * Its question is embedded apart (kind `question`) so another article can find and reuse it.
  * Answered, it becomes a kept note like any other, embedded with its question.
  *
- * Brand search (ADR-0023): with SEARCH_FAMILY_INDEX_ENABLED every note and question is written there
+ * Brand search (ADR-0025): with SEARCH_FAMILY_INDEX_ENABLED every note and question is written there
  * too (noteSearchSources), beside brand_map_vectors. With SEARCH_NOTE_READS_ENABLED the readers use
  * brand search only. A note that may name a customer is never there (decision 40), so it is then
  * found only through its subject link. Removing a note, or ticking that it names a customer, takes
@@ -72,7 +72,7 @@ export async function embedNote(
   note: Pick<BrandNote, "id" | "text" | "status"> & { question?: string | null },
   deps: NotesDeps = {},
 ): Promise<boolean> {
-  // Retired (ADR-0023): brand search holds the note's meaning; nothing is embedded here.
+  // Retired (ADR-0025): brand search holds the note's meaning; nothing is embedded here.
   if (isOldVectorsRetired()) return false;
   try {
     const content = [note.question, note.text].filter((s) => s?.trim()).join("\n");

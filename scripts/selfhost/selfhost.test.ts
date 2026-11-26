@@ -275,7 +275,7 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-describe("brand search's switches (ADR-0023)", () => {
+describe("brand search's switches (ADR-0025)", () => {
   it("turns the brand map family on with addon:search, and leaves the read and retire switches for a person", () => {
     expect(switchesForAddon("search")).toContain("SEARCH_FAMILY_INDEX_ENABLED");
     for (const name of Object.keys(KEPT_OFF).filter((n) => /^SEARCH_(SUBJECT|NOTE|COMPETITOR)_READS_ENABLED$|^SEARCH_OLD_VECTORS_RETIRED_ENABLED$/.test(n))) {

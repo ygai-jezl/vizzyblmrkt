@@ -133,7 +133,7 @@ export async function searchBrand(
   ]);
   const meaningList = vector ? await store.meaning(vector, { limit: CANDIDATES, kinds }).catch(() => [] as RankedChunk[]) : [];
 
-  // The store keeps proposals and answered questions out (ADR-0023); this makes sure.
+  // The store keeps proposals and answered questions out (ADR-0025); this makes sure.
   const chunks = new Map<string, RankedChunk>();
   for (const c of [...wordsLists.flat(), ...meaningList]) if (!chunks.has(c.id) && shownToPeople(c.status)) chunks.set(c.id, c);
   // The whole query counts twice as much as a single term.

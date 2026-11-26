@@ -243,7 +243,7 @@ describe("removeFromIndex with indexing off", () => {
   });
 });
 
-describe("the brand map family and statuses (ADR-0023)", () => {
+describe("the brand map family and statuses (ADR-0025)", () => {
   beforeEach(() => {
     vi.stubEnv("SEARCH_INDEX_ENABLED", "true");
     vi.stubEnv("SEARCH_FAMILY_INDEX_ENABLED", "true");

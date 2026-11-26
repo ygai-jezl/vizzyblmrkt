@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { QUESTION_TITLE } from "@/lib/brandNotes/store";
 import { ARTICLES, GROUPS, measure, OLD_QUESTION_TITLE, reportLines, SUBJECTS, type Embedder } from "./questionDupes";
 
-// scripts/measure-question-dupes.ts: each side embedded as its reader embeds it, on each model (ADR-0023).
+// scripts/measure-question-dupes.ts: each side embedded as its reader embeds it, on each model (ADR-0025).
 
 describe("the calibration groups", () => {
   it("titles each side as the old store and brand search's indexer do", () => {

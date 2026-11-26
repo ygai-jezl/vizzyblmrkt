@@ -111,7 +111,7 @@ describe("the context pack", () => {
     ]);
   });
 
-  it("checks coverage at the cut-off for the store the competitor readers use (ADR-0023)", async () => {
+  it("checks coverage at the cut-off for the store the competitor readers use (ADR-0025)", async () => {
     // Two different values, so a reader wired to the wrong store's cut-off can't pass.
     const was = { ...COVERED_SIM };
     Object.assign(COVERED_SIM, { old: 0.71, new: 0.58 });

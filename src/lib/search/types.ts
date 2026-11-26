@@ -77,7 +77,7 @@ export function dedupeKinds<T extends string>(kinds: readonly T[]): T[] {
 export const SearchKindInput = z.string().transform(readSearchKind).pipe(z.enum(SEARCH_KINDS));
 
 /**
- * Where a record stands, kept on its chunks (SEARCH_FAMILY_INDEX_ENABLED, ADR-0023): the brand map's
+ * Where a record stands, kept on its chunks (SEARCH_FAMILY_INDEX_ENABLED, ADR-0025): the brand map's
  * subjects and situations are `decided` or `proposed`, notes `kept`, open questions `asked` or
  * `answered`, competitor articles `kept`. Every other record has none.
  */
@@ -222,7 +222,7 @@ export interface SearchStore {
   /** People's search by meaning: only chunks people may find, filtered before the nearest are taken. */
   meaning(vector: number[], opts: { limit: number; kinds?: SearchKind[] }): Promise<RankedChunk[]>;
   /**
-   * For the readers that match by meaning (ADR-0023): the records of these kinds and statuses
+   * For the readers that match by meaning (ADR-0025): the records of these kinds and statuses
    * nearest a vector, filtered before the nearest are taken, each record once (its best chunk),
    * nearest first. A chunk with no status never matches.
    */

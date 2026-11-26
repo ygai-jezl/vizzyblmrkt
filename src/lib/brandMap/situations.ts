@@ -224,7 +224,7 @@ export async function removeSituation(ctx: TenantContext, id: string, deps: Deps
   }
   await store.remove("sit", id);
   await removeBrandMapVector(ctx, "situation", id, deps.db).catch(() => undefined);
-  // Brand search's twin, at once and forced (ADR-0023).
+  // Brand search's twin, at once and forced (ADR-0025).
   await removeFamily(ctx, "situation", [id], deps.embed ?? {});
   return { ok: true, value: { id, questions: linked.length }, touched: [] };
 }

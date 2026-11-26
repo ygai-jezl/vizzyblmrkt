@@ -1,7 +1,7 @@
 /**
  * The made-up texts and the report of scripts/measure-question-dupes.ts: for each cut-off a reader
  * uses, pairs that should count as close and pairs that shouldn't, each side embedded the way that
- * reader embeds it on each model (ADR-0023):
+ * reader embeds it on each model (ADR-0025):
  *   - old: text-embedding-005, as brand_map_vectors stores them (fixed titles per kind);
  *   - new: gemini-embedding-001, as brand search's indexer stores them (each record's own title).
  * A query side is embedded as a query on both. Pure apart from the embedder it is given.

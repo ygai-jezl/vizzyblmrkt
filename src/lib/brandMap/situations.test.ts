@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-// Removals from brand search are forced whatever the switches say (ADR-0023): an in-memory index stands in.
+// Removals from brand search are forced whatever the switches say (ADR-0025): an in-memory index stands in.
 vi.mock("@/lib/tenant/searchIndex", async (original) => (await import("@/lib/search/testing/memorySearch")).withMemorySearch(await original<object>()));
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
@@ -57,7 +57,7 @@ describe("buying situations", () => {
     expect((await listSituations(ctx, deps)).map((s) => s.id)).toEqual([bid, a.ok ? a.value.id : ""]);
   });
 
-  it("writes a change to how they feel, or when, through to brand search at once (ADR-0023)", async () => {
+  it("writes a change to how they feel, or when, through to brand search at once (ADR-0025)", async () => {
     vi.stubEnv("SEARCH_INDEX_ENABLED", "true");
     vi.stubEnv("SEARCH_FAMILY_INDEX_ENABLED", "true");
     const db = await setup();

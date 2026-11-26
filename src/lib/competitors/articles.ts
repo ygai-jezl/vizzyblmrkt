@@ -19,7 +19,7 @@ import { readByOlderReader } from "./articleRead";
  * index. Totals are worked out from the records when a page asks, never stored, so two runs can't
  * lose a count.
  *
- * Meaning (ADR-0023): a read article is embedded in brand_map_vectors and, with
+ * Meaning (ADR-0025): a read article is embedded in brand_map_vectors and, with
  * SEARCH_FAMILY_INDEX_ENABLED, in brand search (kind competitor, ref {competitorId}/{articleId},
  * status kept). With SEARCH_COMPETITOR_READS_ENABLED the readers use brand search only, and keep
  * only refs with a slash: a competitor's own summary never answers "which article covers this".
@@ -239,7 +239,7 @@ const articleText = (a: Pick<CompetitorArticle, "title" | "question" | "angle" |
 
 /**
  * Embed what an article covers (best effort: a read is kept even when this fails), in both stores
- * (ADR-0023). Brand search titles it with its competitor's name, read when not given.
+ * (ADR-0025). Brand search titles it with its competitor's name, read when not given.
  */
 export async function embedArticle(
   ctx: TenantContext,
@@ -253,7 +253,7 @@ export async function embedArticle(
     const src = c ? competitorArticleSource(c, a, { family: true }) : null;
     if (src) indexed = Boolean((await indexFamily(ctx, [src], deps))[0]?.vector);
   }
-  // Retired (ADR-0023): nothing is embedded for brand_map_vectors.
+  // Retired (ADR-0025): nothing is embedded for brand_map_vectors.
   if (isOldVectorsRetired()) return indexed;
   try {
     const [vector] = await (deps.embed ?? embedDocuments)([{ content: articleText(a), title: "Competitor article" }], ctx.region);

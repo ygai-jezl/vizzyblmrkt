@@ -69,7 +69,7 @@ describe("the brand map's embeddings", () => {
   });
 });
 
-describe("retiring the store (ADR-0023)", () => {
+describe("retiring the store (ADR-0025)", () => {
   afterEach(() => vi.unstubAllEnvs());
   const retire = (reads: string[]) => {
     for (const k of ["SEARCH_INDEX_ENABLED", "SEARCH_FAMILY_INDEX_ENABLED", "SEARCH_OLD_VECTORS_RETIRED_ENABLED", ...reads]) vi.stubEnv(k, "true");

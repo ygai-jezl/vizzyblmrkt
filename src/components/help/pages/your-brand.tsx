@@ -10,7 +10,7 @@ import { isBlogHeroUiEnabled, isBrandImageStyleUiEnabled, isImageFormatsUiEnable
 /**
  * With ideas in the words (`ideaWords`, isIdeaWordsEnabled()) a launch's emails are waitlist emails,
  * as Brand voice says. "Such as a launch or an award" is the general sense and stays. With
- * `searchNoteReads` (SEARCH_NOTE_READS_ENABLED, ADR-0023) a note that names a customer reaches an
+ * `searchNoteReads` (SEARCH_NOTE_READS_ENABLED, ADR-0025) a note that names a customer reaches an
  * article only through its subject.
  */
 export default function YourBrandHelp({ ideaWords = isIdeaWordsEnabled(), searchNoteReads = isSearchNoteReadsEnabled() }: HelpBodyProps = {}) {

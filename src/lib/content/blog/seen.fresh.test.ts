@@ -45,7 +45,7 @@ function vectorsByMeaning(rows: Array<{ kind: string; ref: string; status: strin
 }
 
 /**
- * The same rows as brand search holds them (ADR-0023): its writes go to an in-memory index, and its
+ * The same rows as brand search holds them (ADR-0025): its writes go to an in-memory index, and its
  * nearest scores the rows by cosine, an open question under note_{id}.
  */
 function searchByMeaning(rows: Array<{ kind: string; ref: string; status: string; embedding: number[] }>): SearchStore {
@@ -104,7 +104,7 @@ describe.each([
   ["brand search", true],
 ])("every article asks its team for something new, when notes rest after use, read from %s", (_store, onIndex) => {
   beforeEach(() => {
-    // ADR-0023: the same fixtures with the note readers on brand search.
+    // ADR-0025: the same fixtures with the note readers on brand search.
     for (const v of ["SEARCH_INDEX_ENABLED", "SEARCH_FAMILY_INDEX_ENABLED", "SEARCH_NOTE_READS_ENABLED"]) vi.stubEnv(v, onIndex ? "true" : "false");
   });
 
@@ -186,7 +186,7 @@ describe("uniqueQuestions", () => {
 describe.each([
   ["brand_map_vectors", false],
   ["brand search", true],
-])("each cut-off is the one for the store the note readers use, read from %s (ADR-0023)", (_store, onIndex) => {
+])("each cut-off is the one for the store the note readers use, read from %s (ADR-0025)", (_store, onIndex) => {
   // Two different values in each pair, so a reader wired to the other store's cut-off can't pass.
   beforeEach(() => {
     for (const v of ["SEARCH_INDEX_ENABLED", "SEARCH_FAMILY_INDEX_ENABLED", "SEARCH_NOTE_READS_ENABLED"]) vi.stubEnv(v, onIndex ? "true" : "false");

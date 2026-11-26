@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { entryMap } from "../selfhost/envfile.mjs";
 import { backfillSwitches } from "./backfillSwitches";
 
-// scripts/search-backfill.ts writes what the deployment's scheduled check writes (ADR-0023).
+// scripts/search-backfill.ts writes what the deployment's scheduled check writes (ADR-0025).
 
 const file = (values: Record<string, string>) => ({
   path: "apphosting.test.yaml",

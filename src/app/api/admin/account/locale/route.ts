@@ -5,6 +5,7 @@ import { getTenantById } from "@/lib/tenant";
 import { updateTenantConfig } from "@/lib/tenant/control";
 import { DEFAULT_LOCALE, normalizeLocale } from "@/lib/i18n/locale";
 import { LocaleSettingsSchema } from "@/lib/admin/localeSettings";
+import { isContentLanguageEnabled } from "@/lib/i18n/flags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,7 +37,8 @@ export async function GET(req: Request) {
   if (!ctx) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const tenant = await getTenantById(ctx.tenantId);
-  return NextResponse.json(present(tenant));
+  // `writesEverything`: the default is the language YouGrow writes everything in (CONTENT_LANGUAGE_ENABLED).
+  return NextResponse.json({ ...present(tenant), writesEverything: isContentLanguageEnabled() });
 }
 
 /** Save the tenant's default + supported content languages. */

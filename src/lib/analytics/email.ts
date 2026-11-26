@@ -282,8 +282,8 @@ interface SequenceStep {
 
 /**
  * The email steps of a launch's sequence (`journey_{launch}`): from its original
- * journey, or — for a launch that started on the lifecycle engine (engine move)
- * — from its journey there (each email's pool; A/B pools list their arms). With
+ * journey, or from its journey on the lifecycle engine (engine move) when it
+ * started there (each email's pool; A/B pools list their arms). With
  * WAITLIST_AB_WINNER_ENABLED a launch moved there lists its journey there too, so
  * the tests and picks shown are the ones new signups get.
  */

@@ -97,7 +97,7 @@ export async function promoteWaitlistVariant(
   }
 
   const at = new Date(opts.nowMs ?? Date.now()).toISOString();
-  // Recorded like a published version: when, and by whom (a user id).
+  // Recorded like a published version: when, and by whom (publishedBy's user id, else email).
   const pick: History[number] = { poolId: pool!.id, nodeId, itemId: winnerItemId, arms: pool!.items.map((i) => i.id), at, by: ctx.userId ?? ctx.email ?? null };
   await forTenant(ctx, db).lifecycleJourneys.update(journey!.id, {
     abWinners: { ...(journey!.abWinners ?? {}), [pool!.id]: winnerItemId },

@@ -411,7 +411,8 @@ export const LifecycleJourneySchema = z.object({
   /**
    * Waitlist journeys: every A/B pick, oldest first (WAITLIST_AB_WINNER_ENABLED). Each keeps the
    * pool's arms when it was picked: a pick holds while the pool has those arms, so stopping or
-   * restarting a test in the editor runs the new test (liveWinners). `by` is a user id.
+   * restarting a test in the editor runs the new test (liveWinners). `by` is who picked it, as a
+   * version's `publishedBy`: the user id, or the email where there is none.
    */
   abWinnerHistory: z
     .array(

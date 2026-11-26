@@ -116,6 +116,37 @@ describe("what competitors write, in Propose", () => {
     ],
   };
 
+  it("files a claim about them only under the competitor named: another's proof leaves it a gap", () => {
+    const TWO: StrategyInput = {
+      ...WITH_ARTICLE,
+      evidence: [
+        ...WITH_ARTICLE.evidence,
+        { id: "C2", kind: "competitor", name: "Peerly", text: "Peerly (peerly.example)", url: "https://peerly.example", title: "Peerly" },
+        { id: "A2", kind: "competitor", name: "Peerly", text: 'Peerly\'s article "Audits": audits first', url: "https://peerly.example/blog/audits", title: "Audits" },
+      ],
+    };
+    const { proposal, dropped } = checkStrategy(
+      {
+        claims: [
+          { side: "them", competitor: "C1", text: "Rivalco wins on retainers", proof: ["A2"] },
+          { side: "them", competitor: "Rivalco", text: "Rivalco wins on agencies", proof: ["A2", "A1"] },
+          { side: "them", text: "Someone wins on audits", proof: ["A2"] },
+        ],
+      },
+      TWO,
+      "",
+    );
+    expect(dropped.claims).toBe(1);
+    expect(proposal.claims.map((c) => [c.text, c.competitor, c.proof?.url ?? null])).toEqual([
+      // Peerly's article never stands for Rivalco: a gap under Rivalco.
+      ["Rivalco wins on retainers", "Rivalco", null],
+      ["Rivalco wins on agencies", "Rivalco", "https://rivalco.example/blog/retainers"],
+    ]);
+    // Only two claims about competitors are kept, so the third is left out. Alone, with no one named, it is Peerly's.
+    const unnamed = checkStrategy({ claims: [{ side: "them", text: "Someone wins on audits", proof: ["A2"] }] }, TWO, "").proposal.claims;
+    expect(unnamed.map((c) => [c.competitor, c.proof?.url])).toEqual([["Peerly", "https://peerly.example/blog/audits"]]);
+  });
+
   it("lets a claim about them stand on their article, before their homepage, and never a claim of yours", () => {
     const { proposal } = checkStrategy(
       {

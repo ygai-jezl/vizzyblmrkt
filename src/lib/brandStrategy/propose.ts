@@ -485,12 +485,16 @@ export function checkStrategy(raw: unknown, input: StrategyInput, at: string): C
     let proof: StrategyProof | null = null;
     let competitor: string | null = null;
     if (side === "them") {
+      const said = typeof c?.competitor === "string" ? (byId.get(c.competitor.trim().toUpperCase()) ?? input.evidence.find((e) => e.kind === "competitor" && fold(e.name) === fold(String(c.competitor)))) : undefined;
+      const named = said?.kind === "competitor" ? said : undefined;
+      // Named: only that competitor's own pages and articles count as proof, never another's.
+      const theirsToo = (e: EvidenceItem) => e.kind === "competitor" && (!named || fold(e.name ?? e.title) === fold(named.name ?? named.title));
       // One of their articles (A) before their homepage (C): it shows the claim in their own words.
-      const page = valid.find((e) => e.kind === "competitor" && e.id.startsWith("A")) ?? valid.find((e) => e.kind === "competitor");
-      const named = typeof c?.competitor === "string" ? (byId.get(c.competitor.trim().toUpperCase()) ?? input.evidence.find((e) => e.kind === "competitor" && fold(e.name) === fold(String(c.competitor)))) : undefined;
-      const who = page ?? (named?.kind === "competitor" ? named : undefined);
-      // A claim about a competitor names one the brand knows, and stands on their page or is a gap.
-      if (!who || (refs.length && !page) || theirs >= MAX_THEIRS) {
+      const page = valid.find((e) => theirsToo(e) && e.id.startsWith("A")) ?? valid.find(theirsToo);
+      const who = named ?? page;
+      // A claim about a competitor names one the brand knows, and stands on their page or is a gap:
+      // proof that isn't theirs leaves it a gap under the one named, never filed under another.
+      if (!who || (refs.length && !page && !named) || theirs >= MAX_THEIRS) {
         dropped.claims += 1;
         continue;
       }

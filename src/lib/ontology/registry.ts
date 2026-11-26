@@ -1123,7 +1123,9 @@ export const ONTOLOGY: readonly OntologyType[] = [
       regional("brand_map_situations"),
       regional("brand_map_runs"),
       side("brand_map_groups", "src/lib/tenant/brandMapRecords.ts", { note: "paged reads of every record kind" }),
-      side("brand_map_vectors", "src/lib/tenant/brandMapVectors.ts"),
+      side("brand_map_vectors", "src/lib/tenant/brandMapVectors.ts", {
+        note: "until retired: subjects and situations move to brand search (search_index), SEARCH_OLD_VECTORS_RETIRED_ENABLED stops its writes and scripts/retire-old-vectors.ts empties it (ADR-0025)",
+      }),
     ],
     links: [
       { to: "brand_question", via: "subject and situation ids", many: true },
@@ -1257,11 +1259,28 @@ export const ONTOLOGY: readonly OntologyType[] = [
     madeBy: ["brand_notes", "seen_notes", "notes_rest"],
     home: "brand",
     personal: "people",
-    stores: [regional("brand_notes")],
+    stores: [
+      regional("brand_notes"),
+      {
+        collection: "search_docs",
+        db: "search",
+        definedIn: "src/lib/tenant/searchIndex.ts",
+        path: "brands/{tenantId}/search_docs",
+        note: "kept notes and the questions asked of the team, with their statuses, never a note that may name a customer (ADR-0025)",
+      },
+      side("brand_map_vectors", "src/lib/tenant/brandMapVectors.ts", { note: "each note's and question's embedding, until retired (ADR-0025)" }),
+    ],
     links: [{ to: "content_plan", via: "the articles it informed", many: true }],
     events: [],
     erase: {
-      paths: [brandPath("removeNote", "src/lib/brandNotes/store.ts")],
+      paths: [
+        brandPath("removeNote", "src/lib/brandNotes/store.ts"),
+        brandPath(
+          "removeFromIndex",
+          "src/lib/search/indexer.ts",
+          "forced, whatever SEARCH_INDEX_ENABLED says, when a note is removed or ticked as naming a customer",
+        ),
+      ],
       gaps: ["a person's erase does not find notes that name them: notes are free text"],
     },
     export: { gap: "a person's export does not include notes that name them" },
@@ -1812,7 +1831,8 @@ export const ONTOLOGY: readonly OntologyType[] = [
   {
     id: "search_index",
     name: "Brand search index",
-    description: "The brand's own index of what it wrote, by words and meaning, in its region's search database.",
+    description:
+      "The brand's own index of what it wrote, by words and meaning, in its region's search database. With SEARCH_FAMILY_INDEX_ENABLED it also keeps the brand map family for every brand, each with its status (subjects and situations decided or proposed, kept notes, questions asked or answered, competitor articles), for the readers that match by meaning; people's search shows no proposal or answered question (ADR-0025).",
     place: "platform",
     status: "built",
     madeBy: [],
@@ -1828,6 +1848,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
       paths: [
         brandPath("removeFromIndex", "src/lib/search/indexer.ts", "when its record is removed; forced, whatever SEARCH_INDEX_ENABLED says, when a connection's collected searches are erased"),
         brandPath("sweepBrand", "src/lib/search/sweep.ts", "the scheduled check drops records that are gone"),
+        brandPath("removeFamily", "src/lib/search/familyIndex.ts", "at once and forced, whatever SEARCH_INDEX_ENABLED says, when a subject, situation, note or competitor's articles are removed"),
       ],
     },
     export: { none: "copies of the brand's own writing" },

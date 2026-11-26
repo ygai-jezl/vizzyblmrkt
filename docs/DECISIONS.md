@@ -4,6 +4,172 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0025 · Brand search catches up: the brand map family moves off brand_map_vectors (piece Q) (2026-11-26)
+
+Context: the brand map's duplicate checks and nearest subjects, What we've seen's matching and repeat
+checks, and the competitor article checks all find things by meaning in `brand_map_vectors`,
+embedded with `text-embedding-005`. That model retires on Vertex AI on 1 April 2027; after that
+the old store can't embed, so prod reads must be on brand search by early March 2027. Brand search
+(`brands/{tenantId}/search_docs`, `gemini-embedding-001`) couldn't take over: it had no statuses,
+searched the whole brand and filtered kinds afterwards, indexed only brands granted `brand_search`,
+and wrote the brand map only through the scheduled check. Piece Q of the build plan, approved
+26 Nov with decisions 1 to 8 as picked, 9 (no model for images and PDFs now: they move to wave 4)
+and 10 (on dev one read switch at a time, a few days apart; in prod all three for two weeks before
+the retire switch). Branch `feat/search-catch-up`. No new store, service, dependency, index, rules
+change or secret.
+
+### Decided
+
+1. **The family is everything the old store holds, for every brand** (decision 1), behind
+   `SEARCH_FAMILY_INDEX_ENABLED` (decision 2): subjects and situations (decided or proposed), kept
+   notes, the questions asked of the team (`note_{id}`, asked or answered) and competitor articles
+   (`{competitorId}/{articleId}`, kept). This widens decision 39's wording, which named subjects and
+   situations only. The brand map's own questions and competitors' summaries stay for brands
+   granted `brand_search`. The indexer lets the family through without the grant
+   (`isFamilyRecord`, `src/lib/search/family.ts`); people's search still needs it.
+2. **Statuses on chunks and manifests** (`SEARCH_STATUSES`). The status is not in the text's hash: a
+   status change rewrites the field on every chunk and the manifest and embeds nothing
+   (`setStatus`). `stubOf` adds a status to the version only when it is set, so no other kind's
+   version moves. Other kinds get no status.
+3. **People's search filters first**: words and meaning keep chunks with no status, or `decided`,
+   `kept` or `asked` (`PEOPLE_STATUSES`, `isAbsent()` in the pipeline); the Search card counts only
+   those. Proposals and answered questions never show in Ctrl K, the admin route or Vizzy's
+   `search_brand`.
+4. **The readers' `nearest(kinds, vector, { statuses, limit })` filters first too** (decision 3):
+   `where(kind in, status in)` before `findNearest` in the pipeline, `dot_product` with the score
+   in a distance field, clamped to 0 to 1, each record once by its best chunk. Google's pattern:
+   the pipeline's `findNearest` stage "performs a vector proximity search on the documents from the
+   previous stage" (`@google-cloud/firestore` 9.4.1 typings), and a `where` stage drops every
+   document whose expression isn't true ([Get data with Firestore Pipeline operations](https://firebase.google.com/docs/firestore/pipelines/get-started-with-pipelines),
+   Stages); classic queries pre-filter the same way ([Search with vector embeddings](https://firebase.google.com/docs/firestore/vector-search)).
+   The same page's known limitations say pipelines don't yet use vector indexes and fall back to
+   other indexes, so `find_nearest` there is a scan either way: filtering first reads the brand's
+   matching chunks only, never more than `meaning()` read before. The emulator runs the classic
+   query with the kinds filter and filters statuses in code over Firestore's most (1,000). The dev
+   check (`scripts/search-nearest-check.ts`, below) measures the read units; only if they cost too
+   much does the family move to `brands/{tenantId}/search_docs_map` with its own vector index (made
+   with gcloud through `searchDatabaseArgs`). That path is not built.
+5. **A subject's text is its name, description and first 10 questions** (not dismissed or merged
+   away, by `order`, `createdAt`, id), cut to one chunk (1,200 characters), so it has one vector.
+   A decided subject is shown to people, so its text carries decided questions only: no proposal
+   reaches people's search through it. A proposed subject carries its proposed questions too, so
+   "looks like" compares it as `brand_map_vectors` did. Neither ever carries a question a
+   connection proposed that nobody has decided (`from: search_console`, `fromConnectionId`):
+   erasing the connection withdraws that question without touching its subject (ADR-0013), so its
+   words must never be in the subject's chunk or vector.
+   The sweep and write-through both make it with `subjectSearchSource`; the sweep reads questions
+   once with `status in [decided, proposed]` (the existing `(tenantId, status, ref)` index; the
+   emulator doesn't check it) and groups them by subject. People now also find a subject by its
+   first questions (help: Search).
+6. **The family's turn is every 6 hours** (decision 8): with the family switch on, the sweep checks
+   every brand, reading the family's kinds on a check picked from the brand's id (one in 36). A
+   brand without `brand_search` is checked only then, for the family only; brands on their turn go
+   first. Write-through covers the time between: subjects and situations (`embedSubjects`,
+   `embedSituations`, awaited, so a duplicate check right after sees a new proposal), notes (create,
+   update, ask, and an answer when the person is done), and competitor articles (`embedArticle`).
+   The brand map's own questions and competitors' summaries reach people's search within 6 hours
+   for granted brands, not about 10 minutes.
+   - **A save written through while a check reads the brand stands.** The check notes when it began
+     reading; a record whose manifest was written after that (text, or a status alone, which now
+     stamps the manifest too) is left as it is, never indexed from the older read and never
+     removed as gone, and one removed after the check began reading stays removed (on a family
+     turn the check lists the index before reading too, so a note deleted or ticked as naming a
+     customer mid-read can't come back from the older read: one more listing a turn). Each record
+     the check is about to index has its manifest read again first: one more read per changed
+     record, beside its embedding. Before the family the next check, 10 minutes on, put such a
+     race right; on a family turn it would have stayed 6 hours.
+   - **Cost the plan didn't count: every check lists every manifest.** A granted brand's check,
+     every 10 minutes, still reads all its manifests (`listManifests`), and with the family on
+     these include proposed subjects and situations and answered questions, not only on the
+     family turn. A granted brand holding 5,000 research proposals reads about 5,000 more
+     manifests a check, about 720,000 a day (about $0.43 a day at $0.06 per 100,000 reads); a small
+     shop, a few dozen. The search databases have no index on `search_sources.kind`, so filtering
+     the listing by kind would scan the same documents. Skipping the family's manifests between
+     turns needs that index (gcloud on `search`, `search-eu` and `search-asia`, ask first) or the
+     family's manifests in their own collection. Left for the owner to decide after the dev
+     backfill shows real counts.
+7. **With a read switch on, its readers use brand search only** (decision 4), with no per-brand
+   check, because the release backfills first. On an error, subjects fall back to shared words as
+   before, situations and notes find none, and the covered check answers "couldn't check" (null).
+8. **Each reader keeps its task type**: `nearestSubjects`, `nearestSituations`, the notes and the
+   competitor articles ask as queries; `nearestSubjectsMany` and "looks like" compare documents with
+   documents. `noteVectors` makes the vectors `seen.ts` passes in, tagged with the store whose model
+   made them, so one model's vector never meets the other's store: the article's question as a
+   query, questions about to be asked as documents titled with the question itself, as the indexer
+   titles them. With note reads on, `askQuestions` embeds apart for the old store.
+9. **A note that may name a customer is never in brand search** (decision 40, decision 5): with note
+   reads on it reaches an article only through its subject link, and Vizzy's notes search leaves it
+   out (help: Your brand). An answered question keeps a question entry (`answered`) whose text is
+   the question only, so asking and answering move a status and embed nothing.
+10. **Every meaning cut-off is an `{ old, new }` pair** picked by its read switch: `LOOKS_LIKE`,
+    `NEAR_SUBJECT`, `CANDIDATE_MIN_SIM` (and `OPEN_MIN_SIM`), `DUP_QUESTION_SIM`, `DUP_NOTE_SIM`,
+    `MIN_SIM` and both `COVERED_SIM`. The `new` values equal the old ones until
+    `scripts/measure-question-dupes.ts --model new` is run on dev with the made-up texts; the read
+    switches stay off until then. Real brands' comparisons go to the private plans branch only.
+11. **Writes go to both stores until the retire switch.** Removing a subject, situation, note or a
+    competitor's articles, ticking that a note names a customer, and reading a listing page again
+    take their entries out of brand search at once, forced as erasing a connection's searches is,
+    whatever `SEARCH_INDEX_ENABLED` says (`removeFamily`).
+12. **The retire switch and the delete.** `SEARCH_OLD_VECTORS_RETIRED_ENABLED`, only while the three
+    read switches are on too, stops every write, embedding and status update to
+    `brand_map_vectors`; removals keep running. `scripts/retire-old-vectors.ts` dry runs by default,
+    counting per region, brand and kind with `count()` beside brand search's records of the same
+    kind; `--apply` refuses unless the index, family, three read and retire switches are all
+    `"true"` in the settings file named by `--settings`, and while any brand holds old vectors of a
+    kind with none of it in brand search. Only entries a reader finds count: those with the
+    family's status (an entry people's search kept before the family has none, and no reader
+    matches it). Old note and question vectors of records brand search never holds (a note that
+    may name a customer, one not kept or no longer asked, one that is gone) don't refuse; they go
+    with the rest, so a brand whose notes all name customers can't hold the delete up or keep those
+    vectors past the old model. It lists those refs and deletes through `listBrandMapVectorRefs` and
+    `deleteBrandMapVectors`, so `src/lib/tenant/brandMapVectors.ts` stays the only code that
+    touches that store.
+13. **Self-hosted copies** (decision 7): the family switch joins `addon:search`, whose check reports a
+    step to do when the index is on and the family isn't. The read and retire switches are kept off
+    for a person to turn on after the backfill and the soak (`docs/self-host.md`). Copies without
+    the add-on keep the old store; decision 43's fallback ships in the removal PR, before
+    1 April 2027.
+14. **Embedding tokens are not metered here** (decision 6): the AI credits card meters them, and the
+    backfill's dry run prints each brand's chunks, tokens and cost.
+15. **Scripts**, each read only or dry run by default: `measure-question-dupes.ts --model old|new`
+    (every group above, each side embedded as its reader embeds it); `search-backfill.ts --kinds`
+    and `--all-brands` (the dry run prints chunks, tokens and cost per brand, and `--apply` writes
+    statuses on records already indexed). The backfill writes what the deployment's scheduled
+    check writes, so it takes `SEARCH_FAMILY_INDEX_ENABLED` and `SEARCH_KIND_IDEA_BOARD_ENABLED`
+    from `--settings <apphosting.<env>.yaml>`, whatever the shell says, and refuses to run with
+    neither that nor `--all-brands`: run as a deployment without the family, it would strip every
+    granted brand's statuses and proposals for up to 6 hours. A kind whose read fails counts as a
+    failure, so a run that couldn't read questions never reports done. `search-nearest-check.ts` (one brand, read only, with
+    Query Explain's analysis; `--seed --dev` adds a decided subject, 5,000 article chunks and 5,000
+    proposals with random vectors under a throwaway brand path, checks both, then deletes it).
+
+### Switches
+
+All server side, `"false"` in the Brand search group of `apphosting.yaml`, empty in `.env.example`.
+
+| Switch | Needs | Off |
+| --- | --- | --- |
+| `SEARCH_FAMILY_INDEX_ENABLED` | `SEARCH_INDEX_ENABLED` | the index holds what it held before; every reader uses `brand_map_vectors` |
+| `SEARCH_SUBJECT_READS_ENABLED` | the family switch | subject and situation readers use `brand_map_vectors` |
+| `SEARCH_NOTE_READS_ENABLED` | the family switch | note and question readers use `brand_map_vectors` |
+| `SEARCH_COMPETITOR_READS_ENABLED` | the family switch | competitor article readers use `brand_map_vectors` |
+| `SEARCH_OLD_VECTORS_RETIRED_ENABLED` | all four above | `brand_map_vectors` is still written |
+
+Rolling back: before the retire switch, turning a read switch off sends its readers back at once,
+and turning the family switch off sends every reader back; entries already written stay, and
+people's search hides proposals either way. After the retire switch and the delete, the old store
+is stale, then empty, so rollback means fixing forward.
+
+### Not in this piece
+
+Removing the old code, the read switches, `brandMapVectors.ts` and its index entry, and decision
+43's fallback (the next PR, ask first); images and PDFs (wave 4); the reward loop's vectors
+(decision 38); metering embeddings (the AI credits card); moving knowledge retrieval,
+`performance_exemplars`, `post_perf_vectors`, Next up's repeats, detect's `nearQuestions`, trending
+topics and the content strategy's grouping off `text-embedding-005` (their own card).
+
+---
+
 ## ADR-0024 · Views on People: in memory up to 5,000 people, team views in the settings log (piece C) (2026-11-26)
 
 Context: piece C of the build plan, group 1 only (decision 34: no index spike, so no view rows on the
@@ -2821,8 +2987,8 @@ Owner decisions (2026-11-19 and 2026-11-20):
     (`storedKindOf` in `src/lib/search/indexer.ts`). Off: Idea Board items are still written as
     `idea`, so nothing moves at deploy. The scheduled search check, about every 10 minutes,
     moves stored items to the name in use, either way. It shares its time between brands and can
-    stop part way, so a move can take several checks; `scripts/search-backfill.ts --apply` moves
-    every brand in one run.
+    stop part way, so a move can take several checks; `scripts/search-backfill.ts --settings
+    <apphosting.<env>.yaml> --apply` moves every brand in one run.
   - Labels follow decision 11: the result badge reads "Clipping", the filter group "Scrapbook
     and images" (its key unchanged), and the Search help page and Vizzy's `search_brand`
     docstring say "Scrapbook clippings and templates". The brand context pack and Next up keep
@@ -3002,9 +3168,11 @@ Owner decisions (2026-11-19 and 2026-11-20):
   1. Turn `SEARCH_KIND_IDEA_BOARD_ENABLED` off, then move every brand's items back under
      `idea` before going on: anything left under `idea_board` would never be read or removed by
      the reverted code. Don't count on one search check, which shares 30 seconds a tick between
-     brands and can stop part way. Run `npx tsx scripts/search-backfill.ts --apply` once with the
-     switch unset in that shell (its header says what it needs), and go on only when it ends
-     with no failures.
+     brands and can stop part way. Once the switch is off in the deployment's settings and that
+     is rolled out, run `npx tsx scripts/search-backfill.ts --settings <apphosting.<env>.yaml>
+     --apply` once (it follows that file's `SEARCH_KIND_IDEA_BOARD_ENABLED` and
+     `SEARCH_FAMILY_INDEX_ENABLED`, whatever the shell says, ADR-0025), and go on only when it
+     ends with no failures.
   2. Turn `ONTOLOGY_PERSON_IDS_ENABLED` off, then wait one delivery drain, so queued
      `person_repoint` jobs drop themselves. A revert with jobs still queued makes the job switch
      in `src/lib/email/delivery.ts` throw for them until they park as failed after three
@@ -3038,9 +3206,10 @@ Owner steps:
   databases, then run the backfill: dry run, apply, dry run (stamped 0 and corrected 0).
 - Prod: promote with both switches off, deploy the indexes, then a private settings change
   turns on `ONTOLOGY_PERSON_IDS_ENABLED` and after it `SEARCH_KIND_IDEA_BOARD_ENABLED`. Run the
-  prod backfill the same way. Once the search switch is on, `scripts/search-backfill.ts --apply`
-  with `SEARCH_KIND_IDEA_BOARD_ENABLED=true` in that shell moves every brand's clippings in one
-  run, instead of some dropping out of search for a check or two. Vizzy's search change rides
+  prod backfill the same way. Once the search switch is on, `scripts/search-backfill.ts --settings
+  <apphosting.prod.yaml> --apply` (the file turns `SEARCH_KIND_IDEA_BOARD_ENABLED` on; ADR-0025)
+  moves every brand's clippings in one run, instead of some dropping out of search for a check
+  or two. Vizzy's search change rides
   the redeploy after piece B.
 
 Deferred:

@@ -1,6 +1,7 @@
 import { H1, H2, Lead, P } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps, Warning } from "@/components/help/blocks";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { isSearchNoteReadsEnabled } from "@/lib/search/flags";
 import type { HelpBodyProps } from "@/lib/help/pages";
 import { isBrandNotesQuestionsUiEnabled, isBrandNotesRestUiEnabled, isBrandNotesUiEnabled } from "@/lib/brandNotes/flags";
 import { isCompetitorsUiEnabled } from "@/lib/competitors/flags";
@@ -8,9 +9,11 @@ import { isBlogHeroUiEnabled, isBrandImageStyleUiEnabled, isImageFormatsUiEnable
 
 /**
  * With ideas in the words (`ideaWords`, isIdeaWordsEnabled()) a launch's emails are waitlist emails,
- * as Brand voice says. "Such as a launch or an award" is the general sense and stays.
+ * as Brand voice says. "Such as a launch or an award" is the general sense and stays. With
+ * `searchNoteReads` (SEARCH_NOTE_READS_ENABLED, ADR-0025) a note that names a customer reaches an
+ * article only through its subject.
  */
-export default function YourBrandHelp({ ideaWords = isIdeaWordsEnabled() }: HelpBodyProps = {}) {
+export default function YourBrandHelp({ ideaWords = isIdeaWordsEnabled(), searchNoteReads = isSearchNoteReadsEnabled() }: HelpBodyProps = {}) {
   const imageStyle = isBrandImageStyleUiEnabled();
   const competitors = isCompetitorsUiEnabled();
   return (
@@ -219,6 +222,13 @@ export default function YourBrandHelp({ ideaWords = isIdeaWordsEnabled() }: Help
             otherwise articles keep them anonymous. The panels beside your notes show which kinds you have least of, and which
             subjects on your brand map have no note yet.
           </P>
+          {searchNoteReads ? (
+            <P>
+              A note ticked as naming a customer goes into an article only when it is linked to the article&apos;s subject, never
+              because it is close in meaning, and Vizzy&apos;s search of your notes leaves it out. Link it to its subjects so the
+              right articles still find it.
+            </P>
+          ) : null}
           {isBrandNotesQuestionsUiEnabled() ? (
             <P>
               {isBrandNotesRestUiEnabled()

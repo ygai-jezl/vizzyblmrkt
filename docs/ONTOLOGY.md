@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts` and `src/lib/loops/registry.ts`. D
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one. The Learning section at the end lists every place YouGrow makes a choice for a brand, and how that choice learns or why it doesn't.
 
-106 types: 86 built and 20 planned.
+106 types: 85 built and 21 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -794,19 +794,15 @@ One person's consent for one purpose. The current state stays on the person reco
 
 ### View (`view`)
 
-A saved filter, sort and set of columns over People (CRM_VIEWS_ENABLED): up to 10 filters joined by all or any, 10 columns and one sort, read in memory up to 5,000 people a view. Team views (Everyone on the team) are the settings subject views:person, saved by admins and kept in the settings log, archived and never removed, and listed in Settings › History, where an admin restores one view at a time; Only me views belong to one team member, are not logged, never in History, and are deleted for real. A saved view never keeps typed words (text and email domain filters work while looking, decision 3), so neither store holds the values of the brand's people; both hold team members' user ids.
+A saved filter, sort and set of columns over people or another record, shared or personal.
 
-- Status: built
+- Status: planned, in C
 - Home: the brand's region
-- Personal: the brand's own team
-- Stores:
-  - `saved_views`, the brand's regional Firestore, in `src/lib/tenant/settingsLog.ts`. The team's views, as the `views:person` setting: one document per brand, id from settingsDocId, one item per view (its id `viw_...`, name, filters, columns and sort, version, and who made, changed or archived it by user id), archived and never removed, written only with its settings version; caps 50 in use, 200 in all, under 200 KB, one view under 2 KB.
-  - `member_views`, the brand's regional Firestore, in `src/lib/tenant/memberViews.ts`. One team member's Only me views: one document per brand and member, id `mv_` and a hash of both, with the member's user id and a rev checked in one transaction; not logged, a view is deleted for real; 50 a member.
-- Links: `settings_version` through subject views:person, one version per team save (many); `custom_field` through the field ids its filters, columns and sort name (many); `member` through createdBy, changedBy and archivedBy on a team view, and member_views.userId (many)
-- Erase: gap. Neither store holds a person's values, so a person's erase has nothing here; a team member's user id stays an id after they leave and shows as Former team member, and their member_views document stays, seen by nobody, as the field lists' user ids do.
-- Export: gap. Neither store holds a person's values, so a person's export has nothing here; team member ids stay as ids, with no export by team member.
-- Search: none. A saved query, found by name in the Views menu and through get_view_counts.
-- Numbers: `viewPeople`, through `get_view_counts`
+- Personal: no
+- Erase: none. Planned: piece C decides it with the store.
+- Export: none. Planned: piece C decides it with the store.
+- Search: none. A saved query, found by name.
+- Numbers: none. Planned: piece C decides it with the store.
 
 ### List (`list`)
 
@@ -1114,7 +1110,7 @@ The brand's names and subjects, groups and buying situations that every article 
   - `brand_map_situations`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
   - `brand_map_runs`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
   - `brand_map_groups`, the brand's regional Firestore, in `src/lib/tenant/brandMapRecords.ts`. Paged reads of every record kind.
-  - `brand_map_vectors`, the brand's regional Firestore, in `src/lib/tenant/brandMapVectors.ts`
+  - `brand_map_vectors`, the brand's regional Firestore, in `src/lib/tenant/brandMapVectors.ts`. Until retired: subjects and situations move to brand search (search_index), SEARCH_OLD_VECTORS_RETIRED_ENABLED stops its writes and scripts/retire-old-vectors.ts empties it (ADR-0025).
 - Links: `brand_question` through subject and situation ids (many); `content_plan` through brand_map_pages (many)
 - Erase:
   - `removeSubject` in `src/lib/brandMap/records.ts`, on removing the record
@@ -1204,9 +1200,12 @@ A first hand note from the brand's team about what they have seen, or an open qu
 - Personal: yes, the brand's people
 - Stores:
   - `brand_notes`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
+  - `search_docs` at `brands/{tenantId}/search_docs`, the brand's regional search database, in `src/lib/tenant/searchIndex.ts`. Kept notes and the questions asked of the team, with their statuses, never a note that may name a customer (ADR-0025).
+  - `brand_map_vectors`, the brand's regional Firestore, in `src/lib/tenant/brandMapVectors.ts`. Each note's and question's embedding, until retired (ADR-0025).
 - Links: `content_plan` through the articles it informed (many)
 - Erase:
   - `removeNote` in `src/lib/brandNotes/store.ts`, on removing the record
+  - `removeFromIndex` in `src/lib/search/indexer.ts`, on removing the record (forced, whatever SEARCH_INDEX_ENABLED says, when a note is removed or ticked as naming a customer)
   - Gap: a person's erase does not find notes that name them: notes are free text
 - Export: gap. A person's export does not include notes that name them.
 - Search: `note`, `question`
@@ -1785,7 +1784,7 @@ The queue behind every email: a send, a step, a contact erase, a sync or a perso
 
 ### Brand search index (`search_index`)
 
-The brand's own index of what it wrote, by words and meaning, in its region's search database.
+The brand's own index of what it wrote, by words and meaning, in its region's search database. With SEARCH_FAMILY_INDEX_ENABLED it also keeps the brand map family for every brand, each with its status (subjects and situations decided or proposed, kept notes, questions asked or answered, competitor articles), for the readers that match by meaning; people's search shows no proposal or answered question (ADR-0025).
 
 - Status: built
 - Home: the brand's region
@@ -1796,6 +1795,7 @@ The brand's own index of what it wrote, by words and meaning, in its region's se
 - Erase:
   - `removeFromIndex` in `src/lib/search/indexer.ts`, on removing the record (when its record is removed; forced, whatever SEARCH_INDEX_ENABLED says, when a connection's collected searches are erased)
   - `sweepBrand` in `src/lib/search/sweep.ts`, on removing the record (the scheduled check drops records that are gone)
+  - `removeFamily` in `src/lib/search/familyIndex.ts`, on removing the record (at once and forced, whatever SEARCH_INDEX_ENABLED says, when a subject, situation, note or competitor's articles are removed)
 - Export: none. Copies of the brand's own writing.
 - Search: none. It is the index.
 - Numbers: none. No numbers an agent reads.
@@ -2006,9 +2006,6 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 - Consent record (`consent_record`):
   - Erase: planned: piece F erases and exports it with the person
   - Export: planned: piece F erases and exports it with the person
-- View (`view`):
-  - Erase: neither store holds a person's values, so a person's erase has nothing here; a team member's user id stays an id after they leave and shows as Former team member, and their member_views document stays, seen by nobody, as the field lists' user ids do
-  - Export: neither store holds a person's values, so a person's export has nothing here; team member ids stay as ids, with no export by team member
 - List (`list`):
   - Erase: planned: piece E erases and exports list entries with the person
   - Export: planned: piece E erases and exports list entries with the person

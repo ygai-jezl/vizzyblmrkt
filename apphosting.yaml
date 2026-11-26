@@ -1008,9 +1008,43 @@ env:
     availability:
       - RUNTIME
   # Write Idea Board items to the index as idea_board, not idea (needs SEARCH_INDEX_ENABLED).
-  # Reads take both names. Before any revert: turn it off, then move every brand back with
-  # scripts/search-backfill.ts --apply and wait for it to end with no failures (ADR-0008).
+  # Reads take both names. Before any revert: turn it off and roll that out, then move every brand
+  # back with scripts/search-backfill.ts --settings <apphosting.<env>.yaml> --apply (it follows
+  # the file's switches) and wait for it to end with no failures (ADR-0008, ADR-0025).
   - variable: SEARCH_KIND_IDEA_BOARD_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # The brand map family in brand search for every brand, with statuses: subjects, situations,
+  # kept notes, questions asked of the team, competitor articles (ADR-0025; needs
+  # SEARCH_INDEX_ENABLED). People's search still hides proposals. Once it is rolled out, run
+  # scripts/search-backfill.ts --settings <apphosting.<env>.yaml> --all-brands --kinds
+  # subject,situation,note,question,competitor.
+  - variable: SEARCH_FAMILY_INDEX_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Subject and situation readers (duplicate checks, nearest subjects) read brand search, not
+  # brand_map_vectors (needs SEARCH_FAMILY_INDEX_ENABLED and the backfill).
+  - variable: SEARCH_SUBJECT_READS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # What we've seen's note and question readers read brand search; a note that names a customer
+  # is then found only through its subject (needs SEARCH_FAMILY_INDEX_ENABLED and the backfill).
+  - variable: SEARCH_NOTE_READS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Competitor article readers (covered questions, nearest articles) read brand search (needs
+  # SEARCH_FAMILY_INDEX_ENABLED and the backfill).
+  - variable: SEARCH_COMPETITOR_READS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # No more writes to brand_map_vectors, so scripts/retire-old-vectors.ts can empty it (needs the
+  # three read switches above). Turn it on after the soak; removals keep running.
+  - variable: SEARCH_OLD_VECTORS_RETIRED_ENABLED
     value: "false"
     availability:
       - RUNTIME

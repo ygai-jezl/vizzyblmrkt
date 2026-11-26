@@ -7,6 +7,7 @@ import {
   hasUserWords,
   microphoneProblem,
   tokenProblem,
+  voiceChatDone,
 } from "./voiceChat";
 
 describe("hasUserWords", () => {
@@ -20,6 +21,24 @@ describe("hasUserWords", () => {
   it("is true once a turn of theirs has words, wherever it is", () => {
     expect(hasUserWords([{ role: "user", text: "Hi" }])).toBe(true);
     expect(hasUserWords([{ role: "model", text: "Hello!" }, { role: "user", text: " I want faster invoicing. " }])).toBe(true);
+  });
+});
+
+describe("voiceChatDone", () => {
+  const saved = { capturedAt: "2026-10-23T09:00:00Z", bonusApplied: true };
+
+  it("is true for a saved chat in which the person said something", () => {
+    expect(voiceChatDone({ ...saved, completed: true, transcript: [{ role: "model", text: "Hi!" }, { role: "user", text: "Faster invoicing." }] })).toBe(true);
+  });
+
+  it("is false for no chat, an unfinished one, or a saved one in which nobody spoke", () => {
+    expect(voiceChatDone(undefined)).toBe(false);
+    expect(voiceChatDone(null)).toBe(false);
+    expect(voiceChatDone({ ...saved, completed: false, transcript: [{ role: "user", text: "Hi" }] })).toBe(false);
+    // Saved by the old browser code when the call dropped: no words from the person.
+    expect(voiceChatDone({ ...saved, completed: true, transcript: [] })).toBe(false);
+    expect(voiceChatDone({ ...saved, completed: true, transcript: [{ role: "model", text: "Hello?" }] })).toBe(false);
+    expect(voiceChatDone({ completed: true })).toBe(false);
   });
 });
 

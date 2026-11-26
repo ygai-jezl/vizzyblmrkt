@@ -87,11 +87,32 @@ describe("finishing a waitlist voice chat (POST conversation/complete)", () => {
     expect(fake.writeCountFor("signups", "su1")).toBe(1);
   });
 
-  it("answers a completed chat as already done, even with an empty transcript", async () => {
+  it("refuses an empty retry over an older saved chat in which nobody spoke, and writes nothing", async () => {
+    // Saved by the old browser code when the call dropped: completed, no words, bonus applied.
     seed({ aiConversation: { completed: true, transcript: [], capturedAt: "2026-10-23T09:00:00Z", bonusApplied: true }, engagementBonus: 5 });
     const res = await complete([]);
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, already: true });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "empty_conversation" });
     expect(fake.writeCountFor("signups", "su1")).toBe(0);
+  });
+
+  it("saves a real chat over an older saved chat in which nobody spoke, and sets the bonus once", async () => {
+    seed({ aiConversation: { completed: true, transcript: [{ role: "model", text: "Hello?" }], capturedAt: "2026-10-23T09:00:00Z", bonusApplied: true }, engagementBonus: 5 });
+    const transcript = [
+      { role: "model" as const, text: "Hi! What brought you here?" },
+      { role: "user" as const, text: "I want faster invoicing." },
+    ];
+    const res = await complete(transcript);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, bonus: 5, rank: 3 });
+    const saved = fake.raw("signups", "su1")!;
+    // Set, not added to the 5 the empty chat got.
+    expect(saved.engagementBonus).toBe(5);
+    expect(saved.aiConversation).toMatchObject({ completed: true, transcript, bonusApplied: true });
+    expect((saved.aiConversation as { capturedAt: string }).capturedAt).not.toBe("2026-10-23T09:00:00Z");
+
+    const again = await complete(transcript);
+    expect(await again.json()).toEqual({ ok: true, already: true });
+    expect(fake.writeCountFor("signups", "su1")).toBe(1);
   });
 });

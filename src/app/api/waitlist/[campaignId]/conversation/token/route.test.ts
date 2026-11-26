@@ -73,11 +73,27 @@ describe("starting a waitlist voice chat (POST conversation/token)", () => {
   });
 
   it("says the chat is already done for a sign-up that finished one", async () => {
-    seed({ aiConversation: { completed: true, transcript: [], capturedAt: "2026-10-23T09:00:00Z", bonusApplied: true } });
+    seed({
+      aiConversation: {
+        completed: true,
+        transcript: [{ role: "model", text: "Hi! What brought you here?" }, { role: "user", text: "Faster invoicing." }],
+        capturedAt: "2026-10-23T09:00:00Z",
+        bonusApplied: true,
+      },
+    });
     const res = await token();
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: "already_completed" });
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it("starts a new chat for a sign-up whose saved chat had no words from them", async () => {
+    // Saved by the old browser code when the call dropped.
+    seed({ aiConversation: { completed: true, transcript: [], capturedAt: "2026-10-23T09:00:00Z", bonusApplied: true }, engagementBonus: 5 });
+    const res = await token();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ token: "auth_tokens/abc", model: LIVE_MODEL });
+    expect(create).toHaveBeenCalledTimes(1);
   });
 
   it("says voice is unavailable when no Live key is set, or Google gives no token", async () => {

@@ -13,7 +13,21 @@ export const EMPTY_CONVERSATION = "empty_conversation";
  * bonus and the sign-up can try again.
  */
 export function hasUserWords(turns: ReadonlyArray<{ role: string; text: string }>): boolean {
-  return turns.some((turn) => turn.role === "user" && turn.text.trim().length > 0);
+  return turns.some((turn) => turn.role === "user" && typeof turn.text === "string" && turn.text.trim().length > 0);
+}
+
+/**
+ * True when a sign-up has had its voice chat: one saved as completed in which the person said
+ * something. Every place that asks "did they have the chat?" reads this, not plain `completed`:
+ * the token route (one chat per sign-up), the complete route, the email link's auto open, the
+ * journey condition "Used the voice chat" and the person's page. An older saved chat in which
+ * nobody spoke (a call that dropped before empty chats were refused) does not count, so that
+ * sign-up can try again.
+ */
+export function voiceChatDone(
+  chat: { completed?: boolean; transcript?: ReadonlyArray<{ role: string; text: string }> } | null | undefined,
+): boolean {
+  return chat?.completed === true && Array.isArray(chat.transcript) && hasUserWords(chat.transcript);
 }
 
 /** Why a voice chat could not start, stopped, or was not saved. */

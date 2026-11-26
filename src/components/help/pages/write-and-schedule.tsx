@@ -116,8 +116,9 @@ export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSig
       </Steps>
       <P>
         For a <strong>Blog (SEO/GEO)</strong> hub, <strong>Generate hub</strong> first researches what buyers ask on the web
-        and in your cite sources, then writes the article and checks its facts. It follows your brand map once the map is
-        saved. Under <strong>Export</strong>, press <strong>Copy Markdown</strong> or <strong>Copy HTML</strong> to put it on
+        and in your cite sources, then writes the article and checks its facts. It leaves out any figure from two or more
+        years ago, so a new article doesn&apos;t start out due a refresh. It follows your brand map once the map is saved.
+        Under <strong>Export</strong>, press <strong>Copy Markdown</strong> or <strong>Copy HTML</strong> to put it on
         your site.
       </P>
       {connectorSignals ? (

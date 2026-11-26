@@ -12,6 +12,7 @@ import {
   researchBlogBrief,
   sourcesBacking,
   sourcesToList,
+  withoutOldFacts,
   type BlogResearchDeps,
   type FetchedPage,
 } from "./research";
@@ -589,6 +590,23 @@ describe("blog research — the brand's cite sources", () => {
       row("https://a.example/1", "E 77%"),
     ];
     expect(fuseSources(shelf, web).map((r) => r.fact)).toEqual(["A 11%", "W 44%", "B 22%", "C 33%", "D 66%", "U 55%"]);
+  });
+
+  it("never hands the writer a fact two or more years old, by its page's year or the figure it states", () => {
+    // Live, Nov 2026: articles written that month cited 2024 studies, and the watch marked them due.
+    const row = (fact: string, year: number | null): BlogSource => ({ url: "https://w.example/1", title: "", publisher: "", year, fact, status: "verified" });
+    const now = new Date("2026-11-26T09:00:00.000Z");
+    const kept = withoutOldFacts(
+      [
+        row("41% of teams track AI answers.", 2025),
+        row("38% of buyers asked an AI first.", 2024),
+        row("In 2023, 52% of searches ended without a click.", 2026),
+        row("Google launched AI Overviews in May 2024.", null),
+        row("Clicks fell 18% after the March update.", null),
+      ],
+      now,
+    );
+    expect(kept.map((r) => r.fact)).toEqual(["41% of teams track AI answers.", "Google launched AI Overviews in May 2024.", "Clicks fell 18% after the March update."]);
   });
 
   it("still searches the web, and offers the writer checked facts from the shelf and the web together", async () => {

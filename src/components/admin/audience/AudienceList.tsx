@@ -22,7 +22,7 @@ import { cellText, filterLabel, PeopleFilterBar, type ActiveGroup } from "./Peop
 import { NewPersonDialog } from "./NewPersonDialog";
 import { useWords } from "../nav/WordsProvider";
 import { loadFieldLists, type Team } from "./fieldsApi";
-import { newDraft } from "../views/FilterBuilder";
+import { blankDraft } from "../views/FilterBuilder";
 import { PeopleView, type OpenView } from "../views/PeopleView";
 import { ViewMenu } from "../views/ViewMenu";
 import { bringBackView, listViews, type ShownView, type ViewLists } from "../views/viewsApi";
@@ -311,7 +311,6 @@ export function AudienceList({
     const tag = search ? "all" : show;
     const start = filtersFromGroup(tag, canEmail && !search);
     const fieldColumns = start.map((f) => f.on).filter((on) => !isBuiltInFilter(on));
-    const firstField = viewNames.fields.find((f) => !f.archivedAt && f.object === "person");
     setViewNotice(null);
     setOpenView({
       match: "all",
@@ -321,7 +320,8 @@ export function AudienceList({
       saved: null,
       from: (filters && !search ? filterLabel(show, filters, initialGroup, ideas) : null) ?? "Everyone",
       q: search,
-      addOne: newDraft(firstField?.key ?? "last_active", viewNames.fields),
+      // A filter with nothing picked yet: the view counts the same as the list until one is.
+      addOne: blankDraft(),
       nonce: ++opened.current,
     });
   };

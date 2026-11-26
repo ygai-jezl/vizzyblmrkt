@@ -15,11 +15,14 @@ import { Chip } from "../people/Chip";
  * is marked, since a saved view can't keep them.
  */
 
-/** A filter as it is being built: `text` and `text2` hold what was typed for a number or an amount. */
+/**
+ * A filter as it is being built: `on` is "" until a field or built in filter is picked, and `op`
+ * null until a comparison is; `text` and `text2` hold what was typed for a number or an amount.
+ */
 export interface DraftFilter {
   id: number;
   on: string;
-  op: ViewOp;
+  op: ViewOp | null;
   value?: ViewValue;
   text?: string;
   text2?: string;
@@ -39,15 +42,25 @@ export function draftOf(f: Partial<ViewFilter> & { on: string; op: ViewOp }, fie
 
 /** The filter a draft stands for, once it is complete. */
 export function filterOf(d: DraftFilter): ViewFilter | null {
+  if (!d.on || !d.op) return null;
   const f: Partial<ViewFilter> = { on: d.on, op: d.op, ...(isEmptyOp(d.op) ? {} : { value: d.value }) };
   return isComplete(f) && valueFits(f.op, f.value) ? f : null;
 }
 
-/** A new filter on a field or a built in one, with the first comparison it offers. */
+/** Add filter: a new filter with nothing picked, so it changes nothing until someone picks. */
+export function blankDraft(): DraftFilter {
+  return { id: nextId++, on: "", op: null };
+}
+
+/**
+ * A filter just put on a field or a built in one: its first comparison and no value, so it applies
+ * only once a value is picked. Email, phone and link fields offer only empty or not, so they start
+ * with no comparison picked rather than applying "is empty" at once.
+ */
 export function newDraft(on: string, fields: readonly RecordField[]): DraftFilter {
-  const kind = kindOf(on, fields);
-  const op = kind ? (opsFor(kind)[0] ?? "empty") : "empty";
-  return { id: nextId++, on, op, value: op === "is" ? true : undefined };
+  const kind = on ? kindOf(on, fields) : null;
+  const op = kind ? (opsFor(kind)[0] ?? null) : null;
+  return { id: nextId++, on, op: op && !isEmptyOp(op) ? op : null };
 }
 
 const selectClass = "rounded-md border border-neutral-300 bg-white px-2 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-950";
@@ -101,11 +114,17 @@ function OptionsInput({ d, names, onChange }: { d: DraftFilter; names: ViewNames
 }
 
 function ValueInput({ d, kind, field, names, onChange }: { d: DraftFilter; kind: FilterKind; field: RecordField | null; names: ViewNames; onChange: (patch: Partial<DraftFilter>) => void }) {
-  if (isEmptyOp(d.op)) return null;
+  if (!d.op || isEmptyOp(d.op)) return null;
   if (d.op === "any_of" || d.op === "all_of" || d.op === "none_of") return <OptionsInput d={d} names={names} onChange={(value) => onChange({ value })} />;
   if (d.op === "is") {
     return (
-      <select aria-label="Yes or no" className={selectClass} value={d.value === false ? "no" : "yes"} onChange={(e) => onChange({ value: e.target.value === "yes" })}>
+      <select
+        aria-label="Yes or no"
+        className={selectClass}
+        value={d.value === true ? "yes" : d.value === false ? "no" : ""}
+        onChange={(e) => onChange({ value: e.target.value ? e.target.value === "yes" : undefined })}
+      >
+        {typeof d.value === "boolean" ? null : <option value="">Pick…</option>}
         <option value="yes">Yes</option>
         <option value="no">No</option>
       </select>
@@ -204,10 +223,7 @@ export function FilterBuilder({
   const builtIns = builtInsFor(names, manyLaunches);
   const set = (id: number, patch: Partial<DraftFilter>) => onChange(drafts.map((d) => (d.id === id ? { ...d, ...patch } : d)));
   const pickOn = (id: number, on: string) => onChange(drafts.map((d) => (d.id === id ? { ...newDraft(on, names.fields), id } : d)));
-  const add = () => {
-    const first = live[0]?.key ?? builtIns[0];
-    if (first) onChange([...drafts, newDraft(first, names.fields)]);
-  };
+  const add = () => onChange([...drafts, blankDraft()]);
   return (
     <div className="space-y-2 rounded-md border border-neutral-200 p-3 text-sm dark:border-neutral-800">
       <div className="flex items-center gap-2">
@@ -221,11 +237,13 @@ export function FilterBuilder({
         const field = isBuiltInFilter(d.on) ? null : (names.fields.find((f) => f.key === d.on) ?? null);
         const kind = kindOf(d.on, names.fields);
         const flag = flags[d.id] ?? (field?.archivedAt ? "archived_field" : null);
-        const typed = holdsTypedWords(d) && filterOf(d) !== null;
+        const complete = filterOf(d);
+        const typed = complete !== null && holdsTypedWords(complete);
         return (
           <div key={d.id} className="space-y-1">
             <div className="flex flex-wrap items-center gap-2">
               <select aria-label="Filter on" className={selectClass} value={d.on} onChange={(e) => pickOn(d.id, e.target.value)}>
+                {d.on ? null : <option value="">Pick a filter…</option>}
                 {live.length ? (
                   <optgroup label="Your fields">
                     {live.map((f) => (
@@ -248,23 +266,24 @@ export function FilterBuilder({
                 <select
                   aria-label="Comparison"
                   className={selectClass}
-                  value={d.op}
+                  value={d.op ?? ""}
                   onChange={(e) => {
-                    const op = e.target.value as ViewOp;
+                    const op = (e.target.value || null) as ViewOp | null;
                     // Options carry over between any of, all of and none of; anything else starts again.
                     const keep = Array.isArray(d.value) && (op === "any_of" || op === "all_of" || op === "none_of");
                     set(d.id, { op, value: keep ? d.value : undefined, text: undefined, text2: undefined });
                   }}
                 >
+                  {d.op ? null : <option value="">Pick…</option>}
                   {opsFor(kind).map((op) => (
                     <option key={op} value={op}>
                       {OP_LABEL[op]}
                     </option>
                   ))}
                 </select>
-              ) : (
+              ) : kind && d.op ? (
                 <span className="px-1 text-neutral-600 dark:text-neutral-400">{OP_LABEL[d.op]}</span>
-              )}
+              ) : null}
               {kind ? <ValueInput d={d} kind={kind} field={field} names={names} onChange={(patch) => set(d.id, patch)} /> : null}
               {flag === "archived_field" || flag === "unknown_field" ? <Chip tone="amber">Archived</Chip> : null}
               {typed ? <Chip tone="amber">Typed words</Chip> : null}

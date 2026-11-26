@@ -2,13 +2,13 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { RecordField } from "@/lib/types/recordField";
-import { emptyView, type ViewDefinition } from "@/lib/views/types";
+import { BUILT_IN_FILTERS, emptyView, type ViewDefinition } from "@/lib/views/types";
 import { VIEW_MESSAGES, type ViewNames } from "@/lib/views/words";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn(), replace: vi.fn() }) }));
 const { PeopleView } = await import("./PeopleView");
 const { SaveViewDialog } = await import("./SaveViewDialog");
-const { FilterBuilder, draftOf } = await import("./FilterBuilder");
+const { FilterBuilder, blankDraft, draftOf, filterOf, newDraft } = await import("./FilterBuilder");
 
 // Made-up brand: a plant shop's People fields.
 const at = "2026-11-01T00:00:00.000Z";
@@ -109,6 +109,32 @@ describe("the filter builder", () => {
     expect(html).toContain("Spring bulb club");
     expect(html).toContain(">Idea<");
     expect(html).toContain("Clear all");
+  });
+});
+
+describe("a new filter", () => {
+  const OPT_IN = f("fld_optin0000001", "Newsletter opt in", "checkbox");
+  const EMAIL = f("fld_email0000001", "Billing email", "email");
+  const SITE = f("fld_site00000001", "Website", "link");
+  const PHONE = f("fld_phone0000001", "Shop phone", "phone");
+  const withAll: ViewNames = { ...names, fields: [OPT_IN, EMAIL, SITE, PHONE, ...names.fields] };
+
+  it("applies nothing until someone picks, whatever it is on", () => {
+    expect(filterOf(blankDraft())).toBeNull();
+    for (const on of [...withAll.fields.map((x) => x.key), ...BUILT_IN_FILTERS]) expect(filterOf(newDraft(on, withAll.fields))).toBeNull();
+    // A ticked box needs Yes or No picked; email, phone and link start with no comparison.
+    const box = newDraft(OPT_IN.key, withAll.fields);
+    expect([box.op, box.value]).toEqual(["is", undefined]);
+    for (const x of [EMAIL, SITE, PHONE]) expect(newDraft(x.key, withAll.fields).op).toBeNull();
+    expect(filterOf({ ...newDraft(OPT_IN.key, withAll.fields), value: true })).toEqual({ on: OPT_IN.key, op: "is", value: true });
+  });
+
+  it("shows what is left to pick", () => {
+    const drafts = [blankDraft(), newDraft(OPT_IN.key, withAll.fields), newDraft(EMAIL.key, withAll.fields)];
+    const html = renderToStaticMarkup(createElement(FilterBuilder, { match: "all", drafts, flags: {}, names: withAll, manyLaunches: false, onMatch: () => {}, onChange: () => {} }));
+    expect(html).toContain("Pick a filter…");
+    expect(html.match(/<select aria-label="Yes or no"[\s\S]*?<\/select>/)?.[0]).toContain("Pick…");
+    expect(html.match(/<select aria-label="Comparison"[\s\S]*?<\/select>/)?.[0]).toContain("Pick…");
   });
 });
 

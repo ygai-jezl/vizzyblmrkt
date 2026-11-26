@@ -17,6 +17,7 @@ import { Banner, Button, inputClass } from "@/components/admin/connect/ui";
 import { AddLine, RemoveButton, smallLabel } from "./BrandMapParts";
 import { useMapMove } from "./brandMapMove";
 import { APPROVED_NOTE, GAP_LABEL, PROPOSED_NOTE, droppedNote, foundNote, starsNotUpdatedNote, strategyErrorText } from "./strategyMessages";
+import { BrandMapContentPlan } from "./BrandMapContentPlan";
 
 /**
  * The Strategy tab (BRAND_STRATEGY_ENABLED): the brand strategy, one per brand, approved by a
@@ -67,7 +68,7 @@ function Section({ title, aside, children }: { title: string; aside?: ReactNode;
   );
 }
 
-export function BrandMapStrategy({ canEdit }: { canEdit: boolean }) {
+export function BrandMapStrategy({ canEdit, contentPlan = false }: { canEdit: boolean; contentPlan?: boolean }) {
   const { round } = useMapMove();
   const [view, setView] = useState<StrategyView | null>(null);
   const [busy, setBusy] = useState(false);
@@ -413,6 +414,8 @@ export function BrandMapStrategy({ canEdit }: { canEdit: boolean }) {
           ) : null}
         </div>
       ) : null}
+
+      {contentPlan ? <BrandMapContentPlan canEdit={canEdit} /> : null}
     </div>
   );
 }

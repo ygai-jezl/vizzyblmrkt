@@ -201,8 +201,8 @@ export async function editSituation(
   if (seen.conflict) return fail(409, "record_changed", seen.conflict);
   const value = parseSituation(saved);
   if (!value) return fail(404, "no_situation");
-  // Its words changed: so did its meaning.
-  if (text !== undefined || input.want !== undefined || input.who !== undefined) await embedOne(ctx, value, deps);
+  // Its words changed: so did its meaning (brand search keeps how they feel and when, too).
+  if ([text, input.want, input.who, input.feel, input.wText].some((v) => v !== undefined)) await embedOne(ctx, value, deps);
   return { ok: true, value, touched: [] };
 }
 

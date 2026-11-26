@@ -15,6 +15,9 @@ import { listSituations, recountSituations } from "./situations";
 import { isRateLimited } from "@/lib/tenant/rateLimit";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import { removeBrandMapVector, setBrandMapVectorStatus } from "@/lib/tenant/brandMapVectors";
+import { situationSearchSource } from "@/lib/search/family";
+import { indexFamily, removeFamily, type FamilyDeps } from "@/lib/search/familyIndex";
+import { isOldVectorsRetired } from "@/lib/search/flags";
 import {
   addQuestion,
   createGroup,
@@ -45,7 +48,8 @@ import { brandMapDocId } from "@/lib/types/brandMap";
  * origin, switch, sign-in and admin, in that order.
  */
 
-type Deps = { db?: FirestoreLike; nowMs?: number };
+/** `search` and `embedSearch`: brand search's test seams (src/lib/search/familyIndex.ts). */
+type Deps = { db?: FirestoreLike; nowMs?: number } & FamilyDeps;
 
 const Id = z.string().min(1).max(64);
 const Ids = z.array(Id).max(500).default([]);
@@ -105,11 +109,16 @@ export async function proposalsFromRequest(ctx: TenantContext, body: unknown, de
   const situations = [...new Set([...(parsed.data.accept?.situations ?? []), ...(parsed.data.dismiss?.situations ?? [])])];
   if (situations.length) {
     const store = brandMapRecords(ctx, deps.db);
-    for (const s of await store.getMany("sit", situations).catch(() => [])) {
+    const rows = await store.getMany("sit", situations).catch(() => []);
+    for (const s of rows) {
       // A dismissed one's meaning goes: nearest lookups never find it, and it never crowds out the rest.
       if (s.status === "dismissed") await removeBrandMapVector(ctx, "situation", s.id, deps.db).catch(() => undefined);
-      else if (typeof s.status === "string") await setBrandMapVectorStatus(ctx, { kind: "situation", ref: s.id, status: s.status }, deps.db).catch(() => undefined);
+      else if (typeof s.status === "string" && !isOldVectorsRetired()) await setBrandMapVectorStatus(ctx, { kind: "situation", ref: s.id, status: s.status }, deps.db).catch(() => undefined);
     }
+    // Brand search's twin: a dismissed one leaves it at once; the rest get their status (no embedding when the text is the same).
+    const dismissed = rows.filter((s) => s.status === "dismissed").map((s) => s.id);
+    if (dismissed.length) await removeFamily(ctx, "situation", dismissed, deps);
+    await indexFamily(ctx, rows.flatMap((s) => situationSearchSource(s) ?? []), deps);
   }
   return NextResponse.json({ ok: true, accepted: r.accepted, dismissed: r.dismissed, touched: r.touched });
 }

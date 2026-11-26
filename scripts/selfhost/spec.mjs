@@ -112,6 +112,10 @@ export const KEPT_OFF = {
     addon: null,
     why: "Bring in and Move out on Settings › Organisation need plans on (PLANS_ENABLED, every organisation on Self-hosted) and owners added with scripts/set-plan.ts (docs/self-host.md, Brands in an organisation)",
   },
+  SETTINGS_ERASE_ENABLED: {
+    addon: null,
+    why: "erasing archived fields' values needs plans on and an owner of the organisation with an admin row for the brand (docs/self-host.md, Erasing archived values)",
+  },
   RECAPTCHA_ENABLED: { addon: "recaptcha", why: "needs a reCAPTCHA Enterprise key; on without one, every waitlist sign-up is refused" },
   KNOWLEDGE_RAG_ENABLED: { addon: "knowledge", why: "needs the knowledge worker" },
   GIT_REPO_SELECTION_ENABLED: { addon: "github-app", why: "needs a connected repo (the read-only GitHub App)" },
@@ -142,6 +146,23 @@ export const KEPT_OFF = {
   SEARCH_RERANK_ENABLED: { addon: null, why: "reorders US brands' results with Google's Ranking API; needs the Discovery Engine API and discoveryengine.rankingConfigs.rank for the runtime service account" },
   NEXT_PUBLIC_SEARCH_ENABLED: { addon: "search", why: "needs the search databases (Firestore Enterprise)" },
   VIZZY_SEARCH_ENABLED: { addon: "search", why: "Vizzy searching the brand needs the search databases and the agent" },
+  SEARCH_FAMILY_INDEX_ENABLED: { addon: "search", why: "keeps the brand map, notes and competitor articles in the search databases for every brand" },
+  SEARCH_SUBJECT_READS_ENABLED: {
+    addon: null,
+    why: "turn it on after the backfill fills every brand's index (docs/self-host.md, Brand search takes over from the old vectors)",
+  },
+  SEARCH_NOTE_READS_ENABLED: {
+    addon: null,
+    why: "turn it on after the backfill fills every brand's index (docs/self-host.md, Brand search takes over from the old vectors)",
+  },
+  SEARCH_COMPETITOR_READS_ENABLED: {
+    addon: null,
+    why: "turn it on after the backfill fills every brand's index (docs/self-host.md, Brand search takes over from the old vectors)",
+  },
+  SEARCH_OLD_VECTORS_RETIRED_ENABLED: {
+    addon: null,
+    why: "stops writing the old vectors once the three read switches have run a while; then scripts/retire-old-vectors.ts deletes them (docs/self-host.md, Brand search takes over from the old vectors)",
+  },
   CONNECTORS_ENABLED: { addon: null, why: "connected data is new: turn it on by hand" },
   NEXT_PUBLIC_CONNECTORS_ENABLED: { addon: null, why: "connected data is new: turn it on by hand" },
   CONNECTOR_CLOUDFLARE_ENABLED: { addon: null, why: "connected data is new: turn it on by hand" },

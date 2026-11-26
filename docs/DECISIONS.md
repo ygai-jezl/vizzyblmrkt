@@ -4,7 +4,7 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
-## ADR-0023 · Image style learns properly: looks kept as versions in the brand's region, every image stamped, learned once a day and checked (learning loops step 4) (2026-11-26)
+## ADR-0028 · Image style learns properly: looks kept as versions in the brand's region, every image stamped, learned once a day and checked (learning loops step 4) (2026-11-26)
 
 Context: before this step a brand's image looks lived on its brand record in the control plane, in
 the United States for every region (`brandKit.learnedImageStyle` and
@@ -14,9 +14,9 @@ which look made an image, so no change could be checked or undone, and once any 
 painted style with no look of its own lost the brand look. Email heroes and the hero Vizzy makes in
 chat read no look at all, while the email layout picked up the brand look by accident. The approved
 learning loops design makes image style the reference loop in its step 4: every change a version a
-person can undo, every image stamped with what made it, and the verdict (ADR-0022) reading each
+person can undo, every image stamped with what made it, and the verdict (ADR-0027) reading each
 change. The owner approved the plan for steps 4 and 5 (v4) on 26 Nov with every pick, plus the why
-behind a vote. ADR-0021 is step 2, ADR-0022 is step 3, and step 5 takes ADR-0024.
+behind a vote. ADR-0021 is step 2, ADR-0027 is step 3, and step 5 takes ADR-0029.
 
 Decided:
 
@@ -118,7 +118,7 @@ Decided:
     a forgotten look's old copy, the fold of closed weeks, card expiry, the learner and the verdict.
     Ceilings: 6 learner calls a run and 2,000 a day per copy, profiles included; 2 images profiled a
     run, one at a time; 2 verdict reads a run of at most 500 rows each.
-11. **The verdict for image looks.** `src/lib/loops/imageVerdict.ts` runs ADR-0022's verdict on a
+11. **The verdict for image looks.** `src/lib/loops/imageVerdict.ts` runs ADR-0027's verdict on a
     scope's images either side of a version's start, leaving out held back, person off, customised
     and uploaded images, images made less than 14 days ago, images the look never reached (stamped
     `fallback_drawn` or `not_learning`), and images with no stamp, made before versions when no first
@@ -208,8 +208,9 @@ Where the build follows the code, not the plan (the plan's intent kept):
   gains projected reads (`findFields`).
 - `skipPick` keeps the stored pick's question, never the request's words, and answers 404 for a pick
   no longer on the list. This one has no switch.
-- The plan counted 8 exemptions before the note's; with it there are 9. Step 4 is ADR-0023, not the
-  plan's 0022, because connectors took 0019 and the verdict moved to 0022.
+- The plan counted 8 exemptions before the note's; with it there are 9. Step 4 is ADR-0028, not the
+  plan's 0022: connectors took 0019, the pieces merged into dev before it took 0022 to 0025,
+  work in progress holds 0026, and the verdict moved to 0027. It was ADR-0023 until that merge.
 
 Enforced where:
 
@@ -246,7 +247,7 @@ email hero's token, `fleet_cells` and `loop_lane`'s organisation marks, the Loop
 `get_learning` and `get_image_style`'s docstring line. Pause for the whole brand and decline reasons
 for other kinds come with the edits loop (step 7). Making a look due on 3 dislikes with one reason
 waits until the checks show how looks move. Fleet defaults and industry wait for step 9, and nothing
-is adjusted for season. ADR-0022's "nothing calls the verdict" and "the lane that runs verdicts in
+is adjusted for season. ADR-0027's "nothing calls the verdict" and "the lane that runs verdicts in
 step 5" describe step 3 and stay as written.
 
 What follows: two new collections, `loop_days` (regional, erased with the brand) and `loop_lane`
@@ -260,7 +261,7 @@ read 4.36:1 and 4.45:1 before, under AA's 4.5:1. `docs/ONTOLOGY.md` gains `loop_
 
 ---
 
-## ADR-0022 · The verdict: one check for every loop, better, same, worse or too few to tell (learning loops step 3) (2026-11-25)
+## ADR-0027 · The verdict: one check for every loop, better, same, worse or too few to tell (learning loops step 3) (2026-11-25)
 
 Context: the approved learning loops design asks for the check before anything learns. A loop
 changes how YouGrow makes something for a brand; the verdict compares the outputs made after the
@@ -274,6 +275,7 @@ a change that did nothing; better, same and worse read against the loop's band; 
 reverts on its own. It left the interval open. This step adds one pure module, its tests and five
 numbers. ADR-0017 is step 1 (Declare); ADR-0018 is the onboarding piece (PR A); ADR-0019 is
 connectors; Work takes ADR-0020 in its own pull request; ADR-0021 is step 2 (the Memory Bank stall).
+This record was ADR-0022 until the pieces merged into dev took 0022 to 0025.
 
 Decided (this step departs from the approved design in four places, each recorded below, and
 the owner sees them in this pull request: the windows stop at 120 outputs a side (item 3); the
@@ -527,6 +529,548 @@ O'Brien and Fleming 1979 (https://doi.org/10.2307/2530245); Lan and DeMets 1983
 
 ---
 
+## ADR-0025 · Brand search catches up: the brand map family moves off brand_map_vectors (piece Q) (2026-11-26)
+
+Context: the brand map's duplicate checks and nearest subjects, What we've seen's matching and repeat
+checks, and the competitor article checks all find things by meaning in `brand_map_vectors`,
+embedded with `text-embedding-005`. That model retires on Vertex AI on 1 April 2027; after that
+the old store can't embed, so prod reads must be on brand search by early March 2027. Brand search
+(`brands/{tenantId}/search_docs`, `gemini-embedding-001`) couldn't take over: it had no statuses,
+searched the whole brand and filtered kinds afterwards, indexed only brands granted `brand_search`,
+and wrote the brand map only through the scheduled check. Piece Q of the build plan, approved
+26 Nov with decisions 1 to 8 as picked, 9 (no model for images and PDFs now: they move to wave 4)
+and 10 (on dev one read switch at a time, a few days apart; in prod all three for two weeks before
+the retire switch). Branch `feat/search-catch-up`. No new store, service, dependency, index, rules
+change or secret.
+
+### Decided
+
+1. **The family is everything the old store holds, for every brand** (decision 1), behind
+   `SEARCH_FAMILY_INDEX_ENABLED` (decision 2): subjects and situations (decided or proposed), kept
+   notes, the questions asked of the team (`note_{id}`, asked or answered) and competitor articles
+   (`{competitorId}/{articleId}`, kept). This widens decision 39's wording, which named subjects and
+   situations only. The brand map's own questions and competitors' summaries stay for brands
+   granted `brand_search`. The indexer lets the family through without the grant
+   (`isFamilyRecord`, `src/lib/search/family.ts`); people's search still needs it.
+2. **Statuses on chunks and manifests** (`SEARCH_STATUSES`). The status is not in the text's hash: a
+   status change rewrites the field on every chunk and the manifest and embeds nothing
+   (`setStatus`). `stubOf` adds a status to the version only when it is set, so no other kind's
+   version moves. Other kinds get no status.
+3. **People's search filters first**: words and meaning keep chunks with no status, or `decided`,
+   `kept` or `asked` (`PEOPLE_STATUSES`, `isAbsent()` in the pipeline); the Search card counts only
+   those. Proposals and answered questions never show in Ctrl K, the admin route or Vizzy's
+   `search_brand`.
+4. **The readers' `nearest(kinds, vector, { statuses, limit })` filters first too** (decision 3):
+   `where(kind in, status in)` before `findNearest` in the pipeline, `dot_product` with the score
+   in a distance field, clamped to 0 to 1, each record once by its best chunk. Google's pattern:
+   the pipeline's `findNearest` stage "performs a vector proximity search on the documents from the
+   previous stage" (`@google-cloud/firestore` 9.4.1 typings), and a `where` stage drops every
+   document whose expression isn't true ([Get data with Firestore Pipeline operations](https://firebase.google.com/docs/firestore/pipelines/get-started-with-pipelines),
+   Stages); classic queries pre-filter the same way ([Search with vector embeddings](https://firebase.google.com/docs/firestore/vector-search)).
+   The same page's known limitations say pipelines don't yet use vector indexes and fall back to
+   other indexes, so `find_nearest` there is a scan either way: filtering first reads the brand's
+   matching chunks only, never more than `meaning()` read before. The emulator runs the classic
+   query with the kinds filter and filters statuses in code over Firestore's most (1,000). The dev
+   check (`scripts/search-nearest-check.ts`, below) measures the read units; only if they cost too
+   much does the family move to `brands/{tenantId}/search_docs_map` with its own vector index (made
+   with gcloud through `searchDatabaseArgs`). That path is not built.
+5. **A subject's text is its name, description and first 10 questions** (not dismissed or merged
+   away, by `order`, `createdAt`, id), cut to one chunk (1,200 characters), so it has one vector.
+   A decided subject is shown to people, so its text carries decided questions only: no proposal
+   reaches people's search through it. A proposed subject carries its proposed questions too, so
+   "looks like" compares it as `brand_map_vectors` did. Neither ever carries a question a
+   connection proposed that nobody has decided (`from: search_console`, `fromConnectionId`):
+   erasing the connection withdraws that question without touching its subject (ADR-0013), so its
+   words must never be in the subject's chunk or vector.
+   The sweep and write-through both make it with `subjectSearchSource`; the sweep reads questions
+   once with `status in [decided, proposed]` (the existing `(tenantId, status, ref)` index; the
+   emulator doesn't check it) and groups them by subject. People now also find a subject by its
+   first questions (help: Search).
+6. **The family's turn is every 6 hours** (decision 8): with the family switch on, the sweep checks
+   every brand, reading the family's kinds on a check picked from the brand's id (one in 36). A
+   brand without `brand_search` is checked only then, for the family only; brands on their turn go
+   first. Write-through covers the time between: subjects and situations (`embedSubjects`,
+   `embedSituations`, awaited, so a duplicate check right after sees a new proposal), notes (create,
+   update, ask, and an answer when the person is done), and competitor articles (`embedArticle`).
+   The brand map's own questions and competitors' summaries reach people's search within 6 hours
+   for granted brands, not about 10 minutes.
+   - **A save written through while a check reads the brand stands.** The check notes when it began
+     reading; a record whose manifest was written after that (text, or a status alone, which now
+     stamps the manifest too) is left as it is, never indexed from the older read and never
+     removed as gone, and one removed after the check began reading stays removed (on a family
+     turn the check lists the index before reading too, so a note deleted or ticked as naming a
+     customer mid-read can't come back from the older read: one more listing a turn). Each record
+     the check is about to index has its manifest read again first: one more read per changed
+     record, beside its embedding. Before the family the next check, 10 minutes on, put such a
+     race right; on a family turn it would have stayed 6 hours.
+   - **Cost the plan didn't count: every check lists every manifest.** A granted brand's check,
+     every 10 minutes, still reads all its manifests (`listManifests`), and with the family on
+     these include proposed subjects and situations and answered questions, not only on the
+     family turn. A granted brand holding 5,000 research proposals reads about 5,000 more
+     manifests a check, about 720,000 a day (about $0.43 a day at $0.06 per 100,000 reads); a small
+     shop, a few dozen. The search databases have no index on `search_sources.kind`, so filtering
+     the listing by kind would scan the same documents. Skipping the family's manifests between
+     turns needs that index (gcloud on `search`, `search-eu` and `search-asia`, ask first) or the
+     family's manifests in their own collection. Left for the owner to decide after the dev
+     backfill shows real counts.
+7. **With a read switch on, its readers use brand search only** (decision 4), with no per-brand
+   check, because the release backfills first. On an error, subjects fall back to shared words as
+   before, situations and notes find none, and the covered check answers "couldn't check" (null).
+8. **Each reader keeps its task type**: `nearestSubjects`, `nearestSituations`, the notes and the
+   competitor articles ask as queries; `nearestSubjectsMany` and "looks like" compare documents with
+   documents. `noteVectors` makes the vectors `seen.ts` passes in, tagged with the store whose model
+   made them, so one model's vector never meets the other's store: the article's question as a
+   query, questions about to be asked as documents titled with the question itself, as the indexer
+   titles them. With note reads on, `askQuestions` embeds apart for the old store.
+9. **A note that may name a customer is never in brand search** (decision 40, decision 5): with note
+   reads on it reaches an article only through its subject link, and Vizzy's notes search leaves it
+   out (help: Your brand). An answered question keeps a question entry (`answered`) whose text is
+   the question only, so asking and answering move a status and embed nothing.
+10. **Every meaning cut-off is an `{ old, new }` pair** picked by its read switch: `LOOKS_LIKE`,
+    `NEAR_SUBJECT`, `CANDIDATE_MIN_SIM` (and `OPEN_MIN_SIM`), `DUP_QUESTION_SIM`, `DUP_NOTE_SIM`,
+    `MIN_SIM` and both `COVERED_SIM`. The `new` values equal the old ones until
+    `scripts/measure-question-dupes.ts --model new` is run on dev with the made-up texts; the read
+    switches stay off until then. Real brands' comparisons go to the private plans branch only.
+11. **Writes go to both stores until the retire switch.** Removing a subject, situation, note or a
+    competitor's articles, ticking that a note names a customer, and reading a listing page again
+    take their entries out of brand search at once, forced as erasing a connection's searches is,
+    whatever `SEARCH_INDEX_ENABLED` says (`removeFamily`).
+12. **The retire switch and the delete.** `SEARCH_OLD_VECTORS_RETIRED_ENABLED`, only while the three
+    read switches are on too, stops every write, embedding and status update to
+    `brand_map_vectors`; removals keep running. `scripts/retire-old-vectors.ts` dry runs by default,
+    counting per region, brand and kind with `count()` beside brand search's records of the same
+    kind; `--apply` refuses unless the index, family, three read and retire switches are all
+    `"true"` in the settings file named by `--settings`, and while any brand holds old vectors of a
+    kind with none of it in brand search. Only entries a reader finds count: those with the
+    family's status (an entry people's search kept before the family has none, and no reader
+    matches it). Old note and question vectors of records brand search never holds (a note that
+    may name a customer, one not kept or no longer asked, one that is gone) don't refuse; they go
+    with the rest, so a brand whose notes all name customers can't hold the delete up or keep those
+    vectors past the old model. It lists those refs and deletes through `listBrandMapVectorRefs` and
+    `deleteBrandMapVectors`, so `src/lib/tenant/brandMapVectors.ts` stays the only code that
+    touches that store.
+13. **Self-hosted copies** (decision 7): the family switch joins `addon:search`, whose check reports a
+    step to do when the index is on and the family isn't. The read and retire switches are kept off
+    for a person to turn on after the backfill and the soak (`docs/self-host.md`). Copies without
+    the add-on keep the old store; decision 43's fallback ships in the removal PR, before
+    1 April 2027.
+14. **Embedding tokens are not metered here** (decision 6): the AI credits card meters them, and the
+    backfill's dry run prints each brand's chunks, tokens and cost.
+15. **Scripts**, each read only or dry run by default: `measure-question-dupes.ts --model old|new`
+    (every group above, each side embedded as its reader embeds it); `search-backfill.ts --kinds`
+    and `--all-brands` (the dry run prints chunks, tokens and cost per brand, and `--apply` writes
+    statuses on records already indexed). The backfill writes what the deployment's scheduled
+    check writes, so it takes `SEARCH_FAMILY_INDEX_ENABLED` and `SEARCH_KIND_IDEA_BOARD_ENABLED`
+    from `--settings <apphosting.<env>.yaml>`, whatever the shell says, and refuses to run with
+    neither that nor `--all-brands`: run as a deployment without the family, it would strip every
+    granted brand's statuses and proposals for up to 6 hours. A kind whose read fails counts as a
+    failure, so a run that couldn't read questions never reports done. `search-nearest-check.ts` (one brand, read only, with
+    Query Explain's analysis; `--seed --dev` adds a decided subject, 5,000 article chunks and 5,000
+    proposals with random vectors under a throwaway brand path, checks both, then deletes it).
+
+### Switches
+
+All server side, `"false"` in the Brand search group of `apphosting.yaml`, empty in `.env.example`.
+
+| Switch | Needs | Off |
+| --- | --- | --- |
+| `SEARCH_FAMILY_INDEX_ENABLED` | `SEARCH_INDEX_ENABLED` | the index holds what it held before; every reader uses `brand_map_vectors` |
+| `SEARCH_SUBJECT_READS_ENABLED` | the family switch | subject and situation readers use `brand_map_vectors` |
+| `SEARCH_NOTE_READS_ENABLED` | the family switch | note and question readers use `brand_map_vectors` |
+| `SEARCH_COMPETITOR_READS_ENABLED` | the family switch | competitor article readers use `brand_map_vectors` |
+| `SEARCH_OLD_VECTORS_RETIRED_ENABLED` | all four above | `brand_map_vectors` is still written |
+
+Rolling back: before the retire switch, turning a read switch off sends its readers back at once,
+and turning the family switch off sends every reader back; entries already written stay, and
+people's search hides proposals either way. After the retire switch and the delete, the old store
+is stale, then empty, so rollback means fixing forward.
+
+### Not in this piece
+
+Removing the old code, the read switches, `brandMapVectors.ts` and its index entry, and decision
+43's fallback (the next PR, ask first); images and PDFs (wave 4); the reward loop's vectors
+(decision 38); metering embeddings (the AI credits card); moving knowledge retrieval,
+`performance_exemplars`, `post_perf_vectors`, Next up's repeats, detect's `nearQuestions`, trending
+topics and the content strategy's grouping off `text-embedding-005` (their own card).
+
+---
+
+## ADR-0024 · Views on People: in memory up to 5,000 people, team views in the settings log (piece C) (2026-11-26)
+
+Context: piece C of the build plan, group 1 only (decision 34: no index spike, so no view rows on the
+brand index yet). The plan was approved on 26 Nov with these answers: views read up to 5,000 people
+a view until the index (decision 1); typed words and email domains filter but never save (decision
+3); anyone saves Only me views, and admins save, change and archive team views (decision 4); Vizzy
+reads view counts now, under the same switch (decision 6). Branch `feat/crm-views`. No index,
+rules, dependency or infra change, and no backfill.
+
+### Decided
+
+1. **A view** (`src/lib/views/types.ts`) is up to 10 filters joined by all or any, each of up to 20
+   values, up to 10 columns with Person first, and one sort. The search box is not part of a view. A
+   filter is on one of the brand's People fields (B's 12 types; email, phone and link fields only
+   empty or not) or a built in one read from what `listPeople` reads: its `memberOf` tags (an idea,
+   how they joined, more than one idea, a product, a stage, quiet, a product group), reach (Can
+   email), last active, first seen and email domain. So a view rebuilt from a group counts the same
+   as the group (`filtersFromGroup`).
+2. **Evaluated in memory** (`src/lib/views/evaluate.ts`, pure): only people in Everyone, a stable sort
+   with no value last, days in the brand's `timeZone` (UTC when unset). A filter on an archived
+   field is flagged and ignored, and an archived option is left out of its filter.
+3. **Read through one backend** (`src/lib/views/backend.ts`, `source.ts`): a match all view starts
+   from its smallest group, found with one `count()` per candidate, otherwise from Everyone; it reads
+   that group newest first in pages of 1,000, up to 5,000, with a projection (`FindOptions.select`)
+   of only the fields its filters and sort use, and answers the group's real total and `capped`.
+   So a group of more than 5,000 is checked for its 5,000 most recently active people, and the
+   screen says which: Everyone, the group it starts from (named in words), or the search box's
+   people. Words in the search box read that search's people instead and keep to Everyone. At most 2 runs
+   at a time per instance (`views_busy`). Every read uses an index `firestore.indexes.json` already
+   has. The index backend of groups 2 and 3 (on the tracker) plugs in behind the same interface.
+4. **Team views are a setting**: the settings subject `views:person`, kept by `SETTINGS_HOMES` in a
+   new regional `saved_views`, one document per brand, so each save is one settings version holding
+   the whole list. Views are archived, never removed. Caps: 50 in use, 200 in all, the list under 200
+   KB, one view under 2 KB. A save whose list moved on retries up to 3 times; one made from an older
+   `version` of the view answers `view_changed` (409). Firestore returns a map's keys by name, so
+   views are compared with `sameView` and shown with their keys in one order (`viewInOrder`): a
+   view opened unchanged reads as saved, and saving it unchanged writes no version.
+5. **Only me views sit outside the log**: a new regional `member_views`, one document per brand and
+   member (`mv_` and a hash of both), read and written only for the signed in member, with a rev
+   check in one transaction. Not logged, deleted for real, 50 a member. So History and export never
+   show anyone's own views, and they never spend the brand's lifetime log.
+6. **No typed words in a saved view** (decision 3): a text field's words and the email domain work
+   while looking and refuse a save with `typed_words`, naming the filters. Saved views keep options,
+   numbers, amounts, days, yes or no, empty, and team members as user ids. So neither store holds
+   the values of the brand's people, and a person's erase or export has nothing there. Both hold
+   team members' user ids: `saved_views` keeps who made, changed and archived each team view (in
+   the settings log too), and `member_views` is keyed by the member's user id.
+7. **Routes** (`viewsAdmin`, beside `fieldsAdmin`): `views/run` (count, total, capped, every match in
+   order and the first 50 rows; 20 a minute and 200 an hour per member, 600 an hour per brand),
+   `views/rows` (up to 50 rows by id; changing columns reads rows, never a new run), `views` and
+   `views/[viewId]` (team saves 30 an hour per brand). Paging is by ids, not a server cache: the
+   screen asks for the next 50 ids of the run, never by the rows that came back, and reads ids in
+   requests of 50 when the columns change.
+8. **Vizzy** reads views with `get_view_counts` (`/api/agent/audience/views`, canvas token): every team
+   view in use and the asker's own, with their filters in words, and counts only those named, at most
+   3, each `viewPeople` (a new meaning) and `capped`. A view with a filter on a field `vizzyReadsField`
+   refuses gives its name and no count. Team members are never named. 6 a minute and 60 an hour per
+   brand. Read only: Vizzy never makes or changes a view.
+9. **One server switch**, `CRM_VIEWS_ENABLED` (needs `AUDIENCE_FIELDS_ENABLED`; the screen needs nav
+   phase 3). The page passes it down, so the spec's `NEXT_PUBLIC_` twin isn't needed. Off: the routes
+   answer 404, the Views menu and Add filter hide, People works as before, saved views stay stored,
+   and Vizzy's tool says views are off. No per brand check: no AI, reads bounded by the cap and the
+   rate limits, and every plan has views.
+10. **Team views in Settings › History** (O2, ADR-0023; added here because C merged after O2):
+    `views:person` is History's kind `views`, "Team views", listed while `SETTINGS_HISTORY_ENABLED`
+    and `CRM_VIEWS_ENABLED` are both on. A restore puts back **one view at a time**
+    (`src/lib/views/versionRestore.ts`, `restoreTeamViewsVersion`): the views a version names (a
+    team save names one) go back as that version had them, name, filters, columns, sort and in use
+    or archived, as a new version on top (`source: "restore"`), from the rev the preview showed
+    (`views_changed`, 409). Every other team view stays as it is, so one admin's restore never
+    undoes another's change to a different view; restoring the whole list was the alternative. Each
+    restored view gets a new `version`, so a copy someone has open answers `view_changed`. Bringing
+    one back past 50 in use is refused, a version that is how the view is now has nothing to
+    restore, and a view that doesn't fit today's views (or holds typed words) is read only with
+    Export. Export is the settings version (`team-views-v<n>.json`), and Vizzy's
+    `get_settings_history` reads the same list (kind `views`). Only me views are never in the log,
+    so never in History, its export or what Vizzy reads there.
+
+### Gaps we accept
+
+- A member who leaves keeps their `member_views` document: nobody reads it, and nothing erases it.
+  Their user id shows as Former team member in a team view's filter. The same gap as the field
+  lists' user ids.
+- Team members' user ids stay in the settings log, which is never pruned, as for every setting.
+- A person with more than 50 field tags (`MAX_FIELD_TAGS`) keeps only 50 of them, so a view that
+  starts from a dropped option misses them, as the field filter on People does today. A view that
+  starts from Everyone reads their values and still finds them.
+- A group of more than 5,000 people is checked for its 5,000 most recently active until groups 2
+  and 3 (decision 34), and the view says so.
+
+### Not decided here
+
+Groups 2 and 3 (view rows on the brand index, people on it after the data processing agreement, the
+`view_rows` indexes, `views-backfill`, the sweep reconcile), views on companies or ideas, bulk
+actions and lists (piece E), export of a view's people, journeys that start when someone enters a
+view, and Vizzy making views.
+
+### Rollback
+
+The switch. No index, backfill or data to undo; `saved_views` and `member_views` stay, unread, and
+Settings › History stops listing team views.
+
+---
+
+## ADR-0023 · Settings history: one list per brand, restore as a new version, and erasing archived values (2026-11-26)
+
+Context: piece O part 2 of the build plan (O2, approved 26 Nov 2026). Piece O part 1 (piece B) keeps
+every settings change as a version (`settings_versions`, ADR-0010), every published journey version
+is kept (`lifecycle_versions`) and every catalog version is kept (`catalog_revisions`), but nothing
+put them in one place, a field list's restore had no button, and an archived field's values could
+never go. Branch `feat/org-history`. Two new composite indexes, no rules change, no dependency.
+
+### Decided
+
+1. **One list, for the brand you are in** (decision 1). Settings › History (`SETTINGS_HISTORY_ENABLED`)
+   reads the brand in the session only, in its own region, with the session's role: the whole team
+   reads and exports, admins restore. Someone who runs several brands switches brand in the header,
+   as today. No context is built for another brand inside a request, so no request reads another
+   region. An owner's view across an organisation's brands waits for piece M's roles. History needs
+   only its own switch, not `PLANS_ENABLED`, so self-hosted copies get it.
+2. **Three stores, one entry** (`src/lib/settings/sources.ts`). Each store becomes a `HistoryEntry`
+   (kind, subject, rev, when, who, message, items, restoredFrom). `KINDS` says when a kind shows
+   (while its own screen is on: fields with `AUDIENCE_FIELDS_ENABLED`, journeys with the journeys
+   screen, shared connections with sharing; catalogs always) and whether it restores here; a kind is
+   read only unless it says so, so a later kind joins with one entry. The settings log is read one
+   query per subject on its `(tenantId, subject, rev DESC)` index and merged in memory; journey
+   versions on `(tenantId, publishedAt DESC)` and catalog versions on `(tenantId, savedAt DESC)`, the
+   two new indexes. One cursor token holds each source's place. A source that can't be read (an
+   index still building) is left out and the page says so, rather than failing.
+3. **Who did it, by name.** Names are looked up when shown (`teamMemberNames`), now also for
+   someone whose verified claims put them on the brand (the brand they first signed in with gives
+   them no `tenant_users` row). Someone on the team with no name set reads as their sign in address,
+   as Data model's Changes box already shows them. With plans on, an owner of the organisation off
+   the team reads "An owner of your organisation"; an address kept on an old record (a journey's
+   `publishedBy` from before user ids) is never shown and reads "A team member"; anyone else "Former
+   team member". With `{ addresses: false }` (what Vizzy reads) a name is never an address.
+4. **Preview, then restore as a new version** (`src/lib/settings/restorePlan.ts`, `restore.ts`). The
+   preview shows what comes back, what is archived, what changes back and what a restore never
+   undoes (emails sent, payments, people already in a journey, erased values), worked out by the
+   same code the restore saves with. Each restore goes through the kind's own writer from the base
+   the preview showed, so a save in between answers 409 and writes nothing:
+   - a field list through `restoreFieldListVersion`: a new version on top, so it can be undone too.
+     A restore never moves an archive date back: a field it archives is archived now, and one
+     archived already keeps its date, so the erase's 30 days can't be cut short by an old version;
+   - a journey into its **draft only** (`saveLifecycleDraft` with `expectUpdatedAt`, `emailStyle:
+     "keep"` and `authoredBy: "human"`). The live version, the people in it (who stay on the version
+     they started on) and the journey's email style stay. The journey carries `draftRestoredFrom`
+     until Publish copies it onto the new version as `restoredFrom`, so History says "Published,
+     from version 3". A version today's draft check can't read, or whose product or launch is gone,
+     says why and has no Restore; its issues against today's catalog are listed to fix before
+     publishing;
+   - a catalog through `restoreCatalogVersion`, only with `CATALOG_HISTORY_ENABLED`; stages are read
+     with it from then on.
+   Shared connections are read only here: their parts are given and taken back on Settings ›
+   Organisation. Archived journeys and revoked products are read only, with no export.
+5. **Export is JSON with no one's values**: a settings version (`yougrow.settings-version`), a
+   journey document (`exportJourneyDocument` with `which: { version: n }`, importable as a new draft)
+   or a catalog version (`yougrow.catalog-version`). A journey version today's draft check refuses
+   (made before journeys changed shape) comes as `yougrow.journey-version`: its design as stored, to
+   read, never imported. Anyone on the team exports.
+6. **Vizzy reads, never acts.** `get_settings_history` (`/api/agent/settings-history`, the same
+   switch, the brand in the signed canvas token) reads every entry with display names only, never an
+   address, and with a subject and version that version's export JSON. One switch covers the page
+   and Vizzy's read: no customer data, no AI, and the tool says history is off until it is on.
+   Proposing a restore waits for Agent record.
+7. **An owner erases an archived field's values** (`SETTINGS_ERASE_ENABLED`, its own switch, needing
+   History, fields and `PLANS_ENABLED`; decisions 2 to 4), in `src/lib/settings/eraseArchived.ts`:
+   - **Who:** an owner of the brand's organisation with a real `tenant_users` admin row for the brand,
+     both read live, never the session's claims (the check moving a brand makes): "home_only" for the
+     brand someone first signed in with and has no row for, "not_admin" for no row. So no erase on a
+     brand until its owner has a row there, and none on self-hosted copies (`npm run selfhost` keeps it
+     off).
+   - **When:** 30 days or more after the field was last archived, `erasedAt` missing or older than
+     that archive (a field brought back after an erase can be erased again), and no legal hold:
+     `src/lib/settings/holds.ts` asks `enterpriseFeature("legal_hold")`, which says no while there is
+     no code for it; a deployment that runs legal hold with no reader refuses every erase.
+   - **Count first, name typed.** A count is a job too, in the regional `field_erase_jobs` (one per
+     field, a fixed id hashed from brand, object and field, so a double click can't start two; no
+     index). The erase starts only once a count finished since the field was last archived, and the
+     field's name is typed. No export of a field's values comes first (decision 4): until the erase,
+     each person's own export includes their value.
+   - **Marked while it runs:** "initiated" goes to the WORM audit store first (no erase without a
+     trail), then the field is marked `erasingSince` through the settings log (source `erase`). While
+     marked, Bring back is refused, a restore keeps it archived, and a person's move drops its values
+     instead of moving them. The lifecycle tick's lane (`runFieldErase`, 20 seconds, only while the
+     switch is on, brands from a rotating start, running jobs found by equality) removes `fields.<id>`
+     and its `field:<id>:` tags a page of people or companies at a time, by document id, in a
+     transaction that re-reads the field list and stops if the field is in use again. It writes no
+     `record.field_changed` event, since one would copy the value into `before`. Then
+     `blankFieldEvents` and `blankFieldInAgentActions`. Switching it off pauses a job at its cursor,
+     still marked.
+   - **The definition keeps its options and archive date** (`assertNoRemoval` refuses dropping
+     options), gains `erasedAt` and `erasedBy`, and loses the mark. A restore keeps `erasedAt`, so an
+     erased field comes back empty and the preview says so: an erase survives a restore.
+   - **Audit:** a `field.erase` entry (tenant, region, field id, object, who by user id, counts),
+     "initiated" before the first page, then "completed" or "failed", as a launch's delete does. No
+     value, label or address. The job is held while an erase starts, so a second press or a count
+     can't run beside it, and a mark that can't be saved is followed by "failed". Each erase mark is
+     saved once, and the finish marks the definition before it writes "completed": a trail that
+     can't be written then is tried again each tick and never fails the job, so the trail never ends
+     on "failed" for values that are gone.
+   - **Where it shows:** Erase values in Data model's archived list and on History's newest entry
+     that archived the field, for an owner with a row. Everyone who sees the archived list sees when
+     a field's values are being erased or were erased.
+   - **Where an erased value can still sit** (registry gaps): piece C's view rows (C extends the
+     erase), Vizzy's chat sessions and the per person Memory Bank, where Vizzy may have read a value
+     before it was erased.
+
+### Not decided here
+
+- More kinds (learned looks, brand and content strategy, email style, brand kit, brand map, image
+  styles) join once they save through the settings log. The two strategy records keep their own
+  history today.
+- Side by side diffs beyond plain words, value counts in a preview, copying a setting to another
+  brand.
+
+---
+
+## ADR-0022 · Your next action: a plain card Vizzy writes (PR B of getting to know you) (2026-11-26)
+
+Context: PR A (ADR-0018) keeps what a new brand tells Vizzy (the four answers and the facts an admin
+kept) and titles Home's steps card "Your next action", listing the stage that fits the answers. PR B
+makes that card one Vizzy writes for the brand: 1 to 3 steps with why, in the founder's own terms.
+The plan (`plan-onboarding.md`) asked for A2UI; after the spike the owner chose a plain card now and
+A2UI later (25 Nov): the same five components, the same action id allowlist, the same fallback,
+Gemini structured output with the action ids as an enum, a zod check and the writing rules check,
+drawn by our own components, no new packages. The spike's pins for a later move stay in the plan.
+Branch `feat/next-action`. No dependency, index, rules or infra change. Numbered 0022 because the
+open drafts #254 and #246 already claim 0020 and 0021.
+
+### Decided
+
+1. **A switch, `NEXT_ACTION_CARD_ENABLED`** (server, runtime, off in `apphosting.yaml`; it needs
+   `ONBOARDING_ENABLED`). The plan named it `NEXT_ACTION_A2UI_ENABLED`; the card is not A2UI, so the
+   name says what it is. Off, Home is exactly PR A's.
+2. **Who sees it.** An admin of a brand whose profile is `done` (the welcome finished, answers from
+   Settings, or a kept fact). A member, a skipped welcome or no profile keeps PR A's steps list, as
+   the mockups' Skipped state does. Members never: the card is written from About your business,
+   which says "Only your admins and Vizzy see it". Every route answers a member 403.
+3. **The card is data** (`src/lib/types/nextAction.ts`): ActionCard (1 to 3 Steps and an optional
+   Note), Step (a title and one line on why; it does exactly one of a button, ChoiceChips or
+   Progress), ChoiceChips (2 to 4 answers, each with the fact line it becomes, or none), Progress (a
+   goal on the brand's own sign-ups, posts or newsletters, read from its data when drawn) and Note
+   (what the team just finished, kept only when a step was done or answered since the card before).
+4. **Buttons carry ids from a server allowlist** (`src/lib/nextAction/actions.ts`): 20 "open this
+   admin page" ids, each resolved to a path from a fixed list (tests check every path has a page),
+   and 11 "ask Vizzy this" ids, each one of our own prompts, put to the chat on Home. Which ids a
+   brand gets follows its switches (lifecycle, invites, Email style, the brand map, nav v2 for About
+   your business) and what exists (a launch, a programme, a product); a member gets none. The model
+   sees only the brand's ids, less those the founder dismissed, as the schema's enum; code refuses
+   anything else, a free URL or a free path included, and checks a kept card again before drawing it.
+   Each page id follows the switch its own page checks (logos, brand voice, Email style and the brand
+   map by their server switches, Review by nav v2 phase 2 or lifecycle), and a test reads every
+   page's `notFound()` switches, so a button never opens a 404.
+5. **Writing it.** One call to the default text model through `generateJsonWithSchema` in
+   `gemini.ts` (responseJsonSchema with the enum and no item counts, since Vertex has refused capped
+   schemas; on a 400 it asks once more in plain JSON mode), thinking 0, 20 seconds, temperature 0.3
+   (0.8 for Show another), metered under its own purpose `next_action`. The prompt
+   (`next_action.compose` in the registry) reads the four answers, the kept facts' short lines (never
+   a quote or a transcript), the growth path's stages, steps and counts, the newest 12 outcomes and
+   the ids. Facts, reasons and replaced titles are fenced as data, with fence tags taken out of
+   them. Then zod, the allowlist, what the founder dismissed and the writing rules (a dash used as
+   punctuation becomes a comma, as PR A does for facts; an AI tell, a link or a path fails). On a
+   `state` write a failure is kept as the fallback for those inputs, with its reason, for a while: a
+   model that did not answer (a timeout, 429 or 5xx) is asked again after 30 minutes, an answer that
+   failed the checks after 6 hours. On Show another a failure writes nothing: the card on Home stays,
+   the founder sees "Vizzy couldn't write another card just now", and the call still counts toward the
+   day. Every call to the model counts toward the 20 a day, card or not.
+6. **When.** A hash of the prompt version, the model, the answers, the facts (id, kind, line), each
+   stage's status and done steps, sign-ups in bands (0, 1+, 10+, 100+, 1000+), the brand's ids, and
+   whether every step on the card is decided (a goal the brand reached counts as decided); a card 28
+   days old is written again too, before its steps' agent actions expire. Home works it out while it renders (two regional
+   reads: the facts and the record) and never calls the model; when it differs, the card asks
+   `POST /api/admin/next-action` once with `state`, which writes only if it still differs, and shows
+   PR A's list until the card comes. Show another asks with `another`. One write at a time per brand
+   (a 45 second lease), 20 cards a brand a UTC day, and per admin 3 a minute and 12 an hour for Show
+   another (10 and 120 for `state`).
+7. **Where it lives.** `next_action_cards`, one record per brand (`na_` and the brand id) in the
+   brand's regional database, written only by `src/lib/tenant/nextActionCards.ts`: the card, the
+   hash, each step's agent action and state, why it fell back, the day's count, and the newest 30
+   outcomes with each step's newest dismissal of the last 30 days. The outcomes are trimmed whenever
+   the record is read as well as written, so one older than 90 days (and the reason in it) never
+   reaches the prompt, Home or Vizzy, and leaves on the next write. The card's lines and a
+   dismissal's reason can hold the founder's words, so it is not on the tenant doc in the control
+   plane.
+8. **The agent action record.** Every step is proposed as `next_action.suggest` (agent vizzy, target
+   the brand, a proposal of ids only, no Review entry, 30 days to expire). Done is acted (`result`
+   outcome done), an answer is acted (outcome answered and the answer's place), a dismissal is
+   declined `dismissed`, and a step a new card replaces untouched is declined `superseded` and kept
+   as ignored; each in the same regional transaction as the record. A goal the brand reached is acted
+   as done (by the system, `result` goal reached) when the card is replaced. Steps proposed for a card
+   that never went in (a store error, or another write took over) are declined `superseded` at once.
+   The reason stays on the record beside the card: the shared `declined` field holds a reason code
+   only.
+9. **Not offered again.** A dismissed step (its action id, `question.<kind>` or `goal.<metric>`)
+   stays off the card for 30 days: out of the enum, out of the prompt's list, and dropped by the
+   check, however many outcomes come after it and through an erase. On Show another the steps just
+   shown are left out while others remain.
+10. **An answer waits for Keep.** A ChoiceChips answer is the step's outcome. When its question
+    names a kind of fact, the answer goes through PR A's suggestion flow (`suggestBusinessFact`: the
+    question and the pick as the words, the question as what drew it) and waits in About your
+    business; it is never written to the profile. The card never asks the four questions: they are
+    changed in About your business.
+11. **Erase and export.** Removing a fact or deleting a conversation forgets the card
+    (`forgetNextActionCard`, which declines its open steps): the card, its steps and every title,
+    reason and answer in the outcomes go, so nothing written from them stays. Two things stay with
+    no words: the day's count, so removing a fact never buys more cards, and which steps were
+    dismissed in the last 30 days (ids and times), so "won't suggest it again for 30 days" holds. A
+    write in progress loses its hold, so a card written from the removed words never goes in.
+    `trimOutcomes` keeps the newest 30, each step's newest dismissal of 30 days, and 90 days at most;
+    `readNextActionCard` is how an admin reads it on Home and Vizzy reads it. Registered in the
+    ontology as `next_action_card`.
+12. **It learns, in its own store.** `next_action` is `own("next_action_card")`: the next card for
+    the same brand reads what was done, answered, dismissed with its reason or ignored. The fixed
+    order Home falls back to (`next_action_order`) still learns nothing from those outcomes, and
+    says so, with a nearer date to look again.
+13. **Vizzy reads it.** `GET /api/agent/next-action` (the signed canvas token, the switch, admins)
+    and the `get_next_action` tool, read only: the card on Home, what each button does, each step's
+    state, and the newest outcomes with their reasons.
+14. **No plan gate.** It is not a metered feature in `brandAccess.ts`: one Flash call when a brand's
+    state changes or an admin asks, at most 20 a brand a day, counted as `next_action` in AI model
+    use so AI credits include it once they are enforced, as PR A's learning call is. If a tier must
+    hold it back, adding it to `METERED_FEATURES` and every plan is a small follow-up.
+15. **On the page, as the mockups draw it.** As the approved "After an action is done" mockup shows,
+    the note from the card before and the steps done or answered on this card are green notes at the
+    top, counted in "1 of 4 done", with "Done today" on the day, and the open steps are numbered on
+    from them. What a press does is in `nextActionFlow.ts`, apart from React: an outcome changes the
+    card only once the server has it, and only the card it was for, so a late answer never puts a
+    replaced card back; a new card is asked for after the outcome that closed the last step is
+    saved; each row is keyed by card and step. An answer About your business could not keep waiting
+    (too many waiting, full, or not saved) says so instead of "Got it.". The footer keeps "Show
+    another" and "From Vizzy, based on what you told me" from the mockup source, where the
+    screenshots say "Refresh" and "based on our chat".
+
+Rejected:
+- A2UI packages now: the owner chose a plain card; the five components and the allowlist carry over.
+- Writing the card on Home's request path, on every Home load, or after the response (`after()`):
+  Home would wait, cost would follow visits, or the founder would never see the new card.
+- The card on the tenant doc: it can hold the founder's words, and the tenant doc is in the
+  control plane for every region.
+- A new field on agent actions for the reason: the shared schema stays a code; the words stay in
+  the brand's record beside the card.
+- Hashing every outcome: a card would be written again after each press; only "every step decided"
+  counts.
+- Failing the whole card for a dismissed step the model offered: it is dropped instead.
+
+Privacy: the card, its outcomes and the reasons stay in the brand's region. The model call is the
+same processing as PR A's learning call (Gemini through `gemini.ts`). When Vizzy reads the card in a
+chat, its lines and the reasons are kept with that chat's session in Agent Runtime (one region, which
+no path deletes), as the fact lines in every chat already are; the card uses fact lines only, never a
+quote from a call, so `ONBOARDING_CALL_WORDS_IN_CHAT_ENABLED` is not needed, and the dismiss form
+says Vizzy reads the reason. The owner checks whether the privacy policy line PR A added for founder
+words covers the card and the reasons before the prod flip.
+
+What it costs: no new service, no new dependency, no composite index (the record and the agent
+actions are read by id); 1 collection, 1 switch, 1 AI purpose, 1 prompt, 3 routes, 1 Vizzy tool.
+About 3,000 to 5,000 tokens per card, at most 20 cards a brand a day, usually one per state change.
+
+Gaps and follow-ups:
+- A page step counts as done when the founder presses its button, not when the thing is done; the
+  next card follows the brand's real state.
+- Show another can bring back a step when nothing else fits the brand now.
+- `get_setup_status` still names the steps list's next step; `get_next_action` names the card's.
+- No path deletes a whole brand; a person's erase does not find a reason that names them (free text).
+- The card is written in the language of the facts, while its buttons and footer are English.
+- Walked on the emulators with cards written through the app's own code and a stub model (there is
+  no key locally). The enum schema is not yet probed on Vertex: the plain JSON retry covers a
+  refused schema, and Home shows the steps list on any failure, so a dev check with a real card is
+  owed before the prod flip.
+- After a fallback the next card has no done note: the note is about the card before, and a
+  fallback has none.
+- Turning it on needs a Vizzy redeploy for `get_next_action`, in either order: an older Vizzy has no
+  tool, and the card works without it.
+
+---
+
 ## ADR-0021 · The Memory Bank stall: every learn logged by reason, then Edit mode learning follows Edit mode in the agent's region (learning loops step 2) (2026-11-25)
 
 Context: since about 16 Nov, Free and Pro brands have Edit mode outputs but no Memory Bank learning
@@ -540,7 +1084,7 @@ outcome, and an error read the same as the switch. The approved design's step 2 
 outcome logged by reason, a week of prod logs, and then Edit mode learning that follows the paid
 Edit mode feature, `edit_vizzy`, for brands in the agent's region (decision 1, agreed by the owner).
 ADR-0019 is connectors, Work takes ADR-0020 in its own pull request, and step 3, the verdict,
-takes ADR-0022.
+takes ADR-0027 (first numbered 0022).
 
 Decided:
 
@@ -3165,8 +3709,8 @@ Owner decisions (2026-11-19 and 2026-11-20):
     (`storedKindOf` in `src/lib/search/indexer.ts`). Off: Idea Board items are still written as
     `idea`, so nothing moves at deploy. The scheduled search check, about every 10 minutes,
     moves stored items to the name in use, either way. It shares its time between brands and can
-    stop part way, so a move can take several checks; `scripts/search-backfill.ts --apply` moves
-    every brand in one run.
+    stop part way, so a move can take several checks; `scripts/search-backfill.ts --settings
+    <apphosting.<env>.yaml> --apply` moves every brand in one run.
   - Labels follow decision 11: the result badge reads "Clipping", the filter group "Scrapbook
     and images" (its key unchanged), and the Search help page and Vizzy's `search_brand`
     docstring say "Scrapbook clippings and templates". The brand context pack and Next up keep
@@ -3346,9 +3890,11 @@ Owner decisions (2026-11-19 and 2026-11-20):
   1. Turn `SEARCH_KIND_IDEA_BOARD_ENABLED` off, then move every brand's items back under
      `idea` before going on: anything left under `idea_board` would never be read or removed by
      the reverted code. Don't count on one search check, which shares 30 seconds a tick between
-     brands and can stop part way. Run `npx tsx scripts/search-backfill.ts --apply` once with the
-     switch unset in that shell (its header says what it needs), and go on only when it ends
-     with no failures.
+     brands and can stop part way. Once the switch is off in the deployment's settings and that
+     is rolled out, run `npx tsx scripts/search-backfill.ts --settings <apphosting.<env>.yaml>
+     --apply` once (it follows that file's `SEARCH_KIND_IDEA_BOARD_ENABLED` and
+     `SEARCH_FAMILY_INDEX_ENABLED`, whatever the shell says, ADR-0025), and go on only when it
+     ends with no failures.
   2. Turn `ONTOLOGY_PERSON_IDS_ENABLED` off, then wait one delivery drain, so queued
      `person_repoint` jobs drop themselves. A revert with jobs still queued makes the job switch
      in `src/lib/email/delivery.ts` throw for them until they park as failed after three
@@ -3382,9 +3928,10 @@ Owner steps:
   databases, then run the backfill: dry run, apply, dry run (stamped 0 and corrected 0).
 - Prod: promote with both switches off, deploy the indexes, then a private settings change
   turns on `ONTOLOGY_PERSON_IDS_ENABLED` and after it `SEARCH_KIND_IDEA_BOARD_ENABLED`. Run the
-  prod backfill the same way. Once the search switch is on, `scripts/search-backfill.ts --apply`
-  with `SEARCH_KIND_IDEA_BOARD_ENABLED=true` in that shell moves every brand's clippings in one
-  run, instead of some dropping out of search for a check or two. Vizzy's search change rides
+  prod backfill the same way. Once the search switch is on, `scripts/search-backfill.ts --settings
+  <apphosting.prod.yaml> --apply` (the file turns `SEARCH_KIND_IDEA_BOARD_ENABLED` on; ADR-0025)
+  moves every brand's clippings in one run, instead of some dropping out of search for a check
+  or two. Vizzy's search change rides
   the redeploy after piece B.
 
 Deferred:

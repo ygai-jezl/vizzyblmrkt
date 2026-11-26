@@ -23,6 +23,9 @@ import { helpMetadata } from "./metadata";
 import { HELP_PLACES, helpFor, parseHelpPath } from "./places";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
 import { VIZZY_READS_HINT } from "@/components/admin/audience/fieldsApi";
+import { drawerBodyProps } from "@/components/help/HowToDrawer";
+import { VIEW_MESSAGES } from "@/lib/views/words";
+import { RESTORE_MESSAGES } from "@/components/admin/settings/historyWords";
 import {
   ABOUT_WORDS,
   BASICS_WORDS,
@@ -35,6 +38,7 @@ import {
   VOICE_WORDS,
   WELCOME_WORDS,
 } from "@/lib/onboarding/words";
+import { NEXT_ACTION_WORDS } from "@/lib/nextAction/words";
 
 
 /**
@@ -65,6 +69,7 @@ vi.hoisted(() => {
   process.env.AUDIENCE_VIZZY_FIELDS_ENABLED = "true";
   process.env.AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED = "true";
   process.env.AUDIENCE_VIZZY_ADD_PERSON_ENABLED = "true";
+  process.env.CRM_VIEWS_ENABLED = "true";
   process.env.NEXT_PUBLIC_EDIT_MODE_ENABLED = "true";
   process.env.NEXT_PUBLIC_EDIT_MODE_EMAILS_ENABLED = "true";
   process.env.NEXT_PUBLIC_NEWSLETTER_MARKDOWN_EMAIL_ENABLED = "true";
@@ -106,6 +111,10 @@ vi.hoisted(() => {
   process.env.BRAND_STYLE_LOOP_ENABLED = "true";
   process.env.BRAND_IMAGE_STYLE_ENABLED = "true";
   process.env.IMAGE_STYLE_VERSIONS_ENABLED = "true";
+  // Settings › History (piece O part 2), with its help page.
+  process.env.SETTINGS_HISTORY_ENABLED = "true";
+  // Your next action as Vizzy's card, so its section and the messages it quotes are checked too.
+  process.env.NEXT_ACTION_CARD_ENABLED = "true";
   // Password help shows only when a code can be delivered too (isPasswordSigninAvailable).
   process.env.MANDRILL_API_KEY = "test-key-not-real";
 });
@@ -449,6 +458,8 @@ describe("Ideas in place of Launches", () => {
     connectorsSearchText: true,
     connectorSignals: true,
     brandMapScale: true,
+    searchFamily: true,
+    searchNoteReads: true,
     ideas: true,
   };
   // Told, not read: the How to drawer renders in the browser, where server switches read off.
@@ -649,6 +660,78 @@ describe("the New person section", () => {
     expect(md("your-audience", false)).not.toContain("Add someone by hand");
     expect(md("your-audience", false)).not.toContain("New person");
     expect(md("plan-and-usage", false)).not.toContain("New person");
+  });
+});
+
+describe("the views sections", () => {
+  const md = (slug: string, views: boolean) => docToMarkdown(HELP_BODIES[slug]!({ people: true, fields: true, fieldFilters: true, addPerson: true, views }), "https://app.example.com");
+
+  it("show while views are on, with saved views and every message the screens show", () => {
+    const text = md("your-audience", true);
+    expect(text).toContain("## Views: filters, columns and sort");
+    expect(text).toContain("## Saved views");
+    for (const words of ["**Add filter**", "**All of these**", "**Columns**", "**Sort**", "**Save view**", "**Everyone on the team**", "**Only me**", "**Typed words**", "**Archived team views**"]) {
+      expect(text).toContain(words);
+    }
+    for (const m of [
+      VIEW_MESSAGES.capped,
+      VIEW_MESSAGES.typed_words,
+      VIEW_MESSAGES.team_views_full,
+      VIEW_MESSAGES.views_busy,
+      VIEW_MESSAGES.archived_field,
+      VIEW_MESSAGES.admins_only,
+      // Every other message the views screens show.
+      VIEW_MESSAGES.capped_group,
+      VIEW_MESSAGES.capped_search,
+      VIEW_MESSAGES.my_views_full,
+      VIEW_MESSAGES.archived_option,
+      VIEW_MESSAGES.view_changed,
+      VIEW_MESSAGES.view_too_large,
+      VIEW_MESSAGES.views_changed,
+      VIEW_MESSAGES.archived_view,
+      VIEW_MESSAGES.view_not_found,
+      VIEW_MESSAGES.rate_limited,
+      VIEW_MESSAGES.sort_ignored,
+      VIEW_MESSAGES.invalid_name,
+      VIEW_MESSAGES.invalid_view,
+    ]) {
+      expect(text).toContain(m);
+    }
+    expect(md("people", true)).toContain("make it a [view](https://app.example.com/help/your-audience.md) with Add filter");
+  });
+
+  it("stay hidden while views are off", () => {
+    expect(md("your-audience", false)).not.toContain("Saved views");
+    expect(md("your-audience", false)).not.toContain(VIEW_MESSAGES.capped);
+    expect(md("people", false)).not.toContain("#views");
+  });
+
+  it("follow what the How to drawer is told", () => {
+    expect(drawerBodyProps({ views: true } as never).views).toBe(true);
+    expect(drawerBodyProps(null as never).views).toBe(false);
+  });
+
+  it("put team views in History while views are on: one view at a time, never anyone's own", () => {
+    const history = (views: boolean) => docToMarkdown(HELP_BODIES["history-and-restore"]!({ views }), "https://app.example.com");
+    const on = history(true);
+    expect(on).toContain("## Team views");
+    expect(on).toContain("**Team views**");
+    expect(on).toContain("A restore puts back one view at a time");
+    expect(on).toContain("are never in History");
+    for (const m of [RESTORE_MESSAGES.views_changed, RESTORE_MESSAGES.team_views_full]) expect(on).toContain(m);
+    expect(on).toContain("**Product catalogs**, **Shared connections** or **Team views**");
+    expect(on).toContain("Fields, shared connections and team views come as a settings version");
+    const off = history(false);
+    expect(off).toContain("**Product catalogs** or **Shared connections**");
+    expect(off).toContain("Fields and shared connections come as a settings version");
+    expect(off).not.toContain("Team views");
+    expect(off).not.toContain("team view");
+    expect(off).not.toContain(RESTORE_MESSAGES.views_changed);
+    // Saved views on People say where their history is, while History is on.
+    const audience = (settingsHistory: boolean) => docToMarkdown(HELP_BODIES["your-audience"]!({ people: true, fields: true, views: true, settingsHistory }), "https://app.example.com");
+    expect(audience(true)).toContain("Each change to a team view is kept in [History](https://app.example.com/help/history-and-restore.md");
+    expect(audience(true)).toContain("Your own views are never in it.");
+    expect(audience(false)).toContain("Each change to a team view is kept in the settings history.");
   });
 });
 
@@ -938,6 +1021,25 @@ describe("Search", () => {
     expect(off).not.toContain("Google searches");
     expect(off).not.toContain(SEARCH_TEXT_HELP.why);
   });
+
+  it("says on Your brand that a note naming a customer reaches articles only by its subject, only with note reads on (ADR-0025)", () => {
+    const md = (searchNoteReads: boolean) => docToMarkdown(HELP_BODIES["your-brand"]!({ searchNoteReads }), "https://app.example.com");
+    vi.stubEnv("NEXT_PUBLIC_BRAND_NOTES_ENABLED", "true");
+    expect(md(true)).toContain("A note ticked as naming a customer goes into an article only when it is linked to the article's subject");
+    expect(md(false)).not.toContain("A note ticked as naming a customer");
+    vi.unstubAllEnvs();
+  });
+
+  it("says a subject is found by its first questions, and how soon the brand map is found, only with the family switch on (ADR-0025)", () => {
+    const md = (searchFamily: boolean) => docToMarkdown(HELP_BODIES.search!({ searchFamily }), "https://app.example.com");
+    const on = md(true);
+    expect(on).toContain("A subject on your brand map is also found by its first questions.");
+    expect(on).toContain("Proposed subjects and buying situations don't show here until you add them to your map.");
+    expect(on).toContain("Subjects, buying situations and What we've seen notes are found as soon as you save them, and a competitor's article as soon as it is read.");
+    const off = md(false);
+    expect(off).not.toContain("first questions");
+    expect(off).toContain("New and changed things are found within about 10 minutes. An article you save is usually found straight away.");
+  });
 });
 
 describe("What your numbers suggest (CONNECTOR_SIGNALS_ENABLED)", () => {
@@ -1178,6 +1280,40 @@ describe("Tell Vizzy about your business (ONBOARDING_ENABLED)", () => {
     expect(plan(true)).toContain("the voice chat on your waitlist pages");
     expect(plan(false)).not.toContain("Voice conversations");
     expect(plan(false)).toContain("the voice chat in your browser");
+  });
+
+  it("says how Your next action works only while Vizzy's card is on, in the card's own words", () => {
+    const text = md({ onboarding: true, nextActionCard: true });
+    expect(ids({ onboarding: true, nextActionCard: true })).toContain("next-action");
+    expect(anchorsOf("").has("next-action")).toBe(true);
+    expect(text).toContain(`## ${NEXT_ACTION_WORDS.title}`);
+    for (const w of [NEXT_ACTION_WORDS.dismiss, NEXT_ACTION_WORDS.another, ABOUT_WORDS.title]) expect(text).toContain(`**${w}**`);
+    expect(text).toContain("won't suggest that step again for 30 days");
+    expect(text).toContain("Members see the steps list.");
+    expect(text).toContain("Removing a fact or deleting a conversation clears the card");
+    expect(text).toContain("a step you dismissed still stays off it");
+    expect(text).toContain(`marked ${NEXT_ACTION_WORDS.doneToday} on the day you did it`);
+    for (const m of [
+      NEXT_ACTION_WORDS.answerWaiting,
+      NEXT_ACTION_WORDS.answerTooMany,
+      NEXT_ACTION_WORDS.answerFull,
+      NEXT_ACTION_WORDS.answerNotSaved,
+      NEXT_ACTION_WORDS.limited,
+      NEXT_ACTION_WORDS.tooFast,
+      NEXT_ACTION_WORDS.anotherFailed,
+      NEXT_ACTION_WORDS.cardChanged,
+    ]) {
+      expect(text).toContain(`"${m}"`);
+    }
+    const section = text.slice(text.indexOf(`## ${NEXT_ACTION_WORDS.title}`), text.indexOf("## What the sidebar shows"));
+    for (const line of section.split("\n")) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
+    for (const props of [{ onboarding: true, nextActionCard: false }, { onboarding: false, nextActionCard: true }]) {
+      expect(ids(props), JSON.stringify(props)).not.toContain("next-action");
+      expect(md(props)).not.toContain(NEXT_ACTION_WORDS.another);
+    }
   });
 
   it("uses no dashes as punctuation and none of the AI tells", () => {

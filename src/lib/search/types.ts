@@ -76,6 +76,30 @@ export function dedupeKinds<T extends string>(kinds: readonly T[]): T[] {
 /** A kind as a request names it: a current kind or an alias, read as the current kind. */
 export const SearchKindInput = z.string().transform(readSearchKind).pipe(z.enum(SEARCH_KINDS));
 
+/**
+ * Where a record stands, kept on its chunks (SEARCH_FAMILY_INDEX_ENABLED, ADR-0025): the brand map's
+ * subjects and situations are `decided` or `proposed`, notes `kept`, open questions `asked` or
+ * `answered`, competitor articles `kept`. Every other record has none.
+ */
+export const SEARCH_STATUSES = ["decided", "proposed", "kept", "asked", "answered"] as const;
+export type SearchStatus = (typeof SEARCH_STATUSES)[number];
+
+export function isSearchStatus(value: unknown): value is SearchStatus {
+  return typeof value === "string" && (SEARCH_STATUSES as readonly string[]).includes(value);
+}
+
+/**
+ * What people's search (Ctrl K, the Search card and Vizzy's search_brand) shows: a chunk with no
+ * status, or one of these. Proposals and answered questions are only for the readers that match
+ * by meaning (SearchStore.nearest).
+ */
+export const PEOPLE_STATUSES = ["decided", "kept", "asked"] as const satisfies readonly SearchStatus[];
+
+/** Whether people's search may show a chunk or count a record with this status. */
+export function shownToPeople(status: unknown): boolean {
+  return status === undefined || status === null || (PEOPLE_STATUSES as readonly unknown[]).includes(status);
+}
+
 /** One record to index, as a feeder reads it through the tenant layer. */
 export interface SearchSource {
   kind: SearchKind;
@@ -83,6 +107,8 @@ export interface SearchSource {
   ref: string;
   title: string;
   body: string;
+  /** Where the record stands (SEARCH_STATUSES); none for most kinds. Not part of the text's hash. */
+  status?: SearchStatus;
   /** How `body` is written. Default "plain". */
   format?: "plain" | "markdown" | "html";
   /** The admin page that opens the record, e.g. "/admin/content/abc". */
@@ -104,6 +130,8 @@ export interface SearchStub {
   kind: SearchKind;
   ref: string;
   version: string;
+  /** The record's status, when it has one (it is part of `version`). */
+  status?: SearchStatus;
   load(): Promise<SearchSource | null>;
 }
 
@@ -120,6 +148,8 @@ export interface SearchChunkDoc {
   url: string;
   lang: string;
   updatedAt: string;
+  /** Where the record stands, when it has a status (people's search shows only PEOPLE_STATUSES or none). */
+  status?: SearchStatus;
   /** Unit length, SEARCH_EMBEDDING_DIM numbers. Missing when embedding failed (words still find it). */
   embedding?: number[];
   embeddingModel?: string;
@@ -138,6 +168,8 @@ export interface SearchManifest {
   indexedAt: string;
   /** The SearchStub version it was indexed at, when the scheduled check indexed it. */
   version?: string;
+  /** The record's status, as its chunks hold it. */
+  status?: SearchStatus;
 }
 
 /** A manifest as written: its kind is the name it is stored under (storedKindOf), which may be an older one. */
@@ -153,6 +185,17 @@ export interface RankedChunk {
   title: string;
   text: string;
   url: string;
+  status?: SearchStatus;
+}
+
+/** A record a reader found by meaning (SearchStore.nearest): once, by its best chunk. */
+export interface NearestHit {
+  sourceKey: string;
+  kind: SearchKind;
+  ref: string;
+  status: SearchStatus;
+  /** The dot product of unit vectors (cosine), clamped to 0 to 1. */
+  score: number;
 }
 
 /** One brand's index. Every method is already bound to one brand (see searchStoreFor). */
@@ -164,9 +207,26 @@ export interface SearchStore {
   /** Rewrite only a manifest (its version moved but the text didn't). */
   putManifest(manifest: StoredSearchManifest): Promise<void>;
   removeSource(sourceKey: string): Promise<void>;
-  /** Text search. `query` is already in the words query syntax (see wordsQueries). */
+  /**
+   * Rewrite a record's status on its chunks and manifest, with no embedding (null: take it off).
+   * Its text didn't change, so its vectors stay.
+   */
+  setStatus(sourceKey: string, status: SearchStatus | null): Promise<void>;
+  /** The vector of a record's first chunk, or null (not indexed, or not embedded). */
+  vectorOf(sourceKey: string): Promise<number[] | null>;
+  /**
+   * People's text search: only chunks people may find (shownToPeople), filtered before the
+   * search. `query` is already in the words query syntax (see wordsQueries).
+   */
   words(query: string, opts: { limit: number; kinds?: SearchKind[]; lang?: string }): Promise<RankedChunk[]>;
+  /** People's search by meaning: only chunks people may find, filtered before the nearest are taken. */
   meaning(vector: number[], opts: { limit: number; kinds?: SearchKind[] }): Promise<RankedChunk[]>;
+  /**
+   * For the readers that match by meaning (ADR-0025): the records of these kinds and statuses
+   * nearest a vector, filtered before the nearest are taken, each record once (its best chunk),
+   * nearest first. A chunk with no status never matches.
+   */
+  nearest(kinds: SearchKind[], vector: number[], opts: { statuses: SearchStatus[]; limit: number }): Promise<NearestHit[]>;
   /** Delete everything this brand has in the index; returns how many chunks went. */
   clear(): Promise<number>;
 }

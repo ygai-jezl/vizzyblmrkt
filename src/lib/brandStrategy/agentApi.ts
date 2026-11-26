@@ -6,9 +6,9 @@ import { isRateLimited, type TenantContext } from "@/lib/tenant";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { Competitor } from "@/lib/types/competitor";
-import { COMPETITOR_GROUP_LABEL, claimShown, competitorsOf } from "@/lib/types/brandStrategy";
+import { COMPETITOR_GROUP_LABEL, NOT_GROUPED_LABEL, claimShown, competitorsOf } from "@/lib/types/brandStrategy";
 import { isMonitored, sameStrategy } from "./adminApi";
-import { isBrandStrategyChatEnabled } from "./flags";
+import { isBrandStrategyChatEnabled, isStrategyCompetitorsEnabled } from "./flags";
 import { readBrandStrategyDoc } from "./store";
 
 /**
@@ -68,11 +68,12 @@ export async function agentBrandStrategy(ctx: TenantContext, deps: { db?: Firest
   const accepted = s.isNotProposals.filter((x) => x.state === "accepted").map((x) => x.text);
   const body = {
     approved: { at: s.at },
-    changedSinceApproved: Boolean(doc?.draft && !sameStrategy(doc.draft, s)),
+    changedSinceApproved: Boolean(doc?.draft && !sameStrategy(doc.draft, s, isStrategyCompetitorsEnabled())),
     audiences: s.audiences,
     focus,
-    competitors: competitorsOf(s).map((c) => ({
-      group: COMPETITOR_GROUP_LABEL[c.group],
+    // Watched ones nobody grouped are in the approved copy too (empty while the strategy isn't joined to Competitors).
+    competitors: [...competitorsOf(s), ...s.ungrouped.map((c) => ({ ...c, group: null }))].map((c) => ({
+      group: c.group ? COMPETITOR_GROUP_LABEL[c.group] : NOT_GROUPED_LABEL,
       name: c.name,
       site: c.site,
       foundTimes: c.foundTimes,

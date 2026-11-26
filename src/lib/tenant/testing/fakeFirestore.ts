@@ -154,6 +154,28 @@ class FakeQuery implements QueryLike {
     return v;
   }
 
+  /**
+   * A projection, as Firestore's select() reads it: each named field path, a dotted one into nested
+   * maps (`fields.fld_x` keeps only that key of `fields`). A path the row doesn't have is left out.
+   */
+  private static project(data: Doc, fields: readonly string[]): Doc {
+    const out: Doc = {};
+    for (const path of fields) {
+      const parts = path.split(".");
+      let from: unknown = data;
+      for (const part of parts) from = from && typeof from === "object" && !Array.isArray(from) ? (from as Doc)[part] : undefined;
+      if (from === undefined) continue;
+      let to = out;
+      for (const part of parts.slice(0, -1)) {
+        const child = to[part];
+        to[part] = child && typeof child === "object" && !Array.isArray(child) ? child : {};
+        to = to[part] as Doc;
+      }
+      to[parts[parts.length - 1]!] = from;
+    }
+    return out;
+  }
+
   where(field: string, op: WhereOp, value: unknown): QueryLike {
     return new FakeQuery(
       this.store,

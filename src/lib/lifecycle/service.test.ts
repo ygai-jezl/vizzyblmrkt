@@ -334,3 +334,53 @@ describe("setLifecycleDraftEmailStyle (Vizzy's journey_style kind)", () => {
     expect(raw(db, "lcj_foreign").draft.settings).not.toHaveProperty("emailStyle");
   });
 });
+
+describe("a restore into the draft (Settings › History)", () => {
+  it("refuses a draft saved since the caller looked, and stamps the version a restore put back", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const { journey } = await created(db);
+    const seen = journey.updatedAt;
+    // Someone saves the draft after the preview opened: the restore answers 409 and replaces nothing.
+    const edited = structuredClone(journey.draft);
+    edited.pools[0]!.items[0]!.subject = "Saved meanwhile";
+    expect((await saveLifecycleDraft(ctx, journey.id, edited, { db, nowMs: Date.parse("2026-11-20T10:00:00.000Z") })).ok).toBe(true);
+    const stale = await saveLifecycleDraft(ctx, journey.id, journey.draft, { db, expectUpdatedAt: seen, restoredFrom: { version: 1, by: "usr_1" } });
+    expect(stale).toMatchObject({ ok: false, status: 409, error: "draft_changed" });
+    let stored = await forTenant(system, db).lifecycleJourneys.getById(journey.id);
+    expect(stored!.draft.pools[0]!.items[0]!.subject).toBe("Saved meanwhile");
+    expect(stored!.draftRestoredFrom ?? null).toBeNull();
+
+    const at = Date.parse("2026-11-21T10:00:00.000Z");
+    const r = await saveLifecycleDraft(ctx, journey.id, journey.draft, {
+      db,
+      nowMs: at,
+      authoredBy: "human",
+      emailStyle: "keep",
+      expectUpdatedAt: stored!.updatedAt,
+      restoredFrom: { version: 1, by: "usr_1" },
+    });
+    expect(r.ok).toBe(true);
+    stored = await forTenant(system, db).lifecycleJourneys.getById(journey.id);
+    expect(stored!.draftRestoredFrom).toEqual({ version: 1, by: "usr_1", at: new Date(at).toISOString() });
+    // A later edit keeps the stamp: the draft is still built on that version.
+    expect((await saveLifecycleDraft(ctx, journey.id, stored!.draft, { db })).ok).toBe(true);
+    expect((await forTenant(system, db).lifecycleJourneys.getById(journey.id))!.draftRestoredFrom).toMatchObject({ version: 1 });
+  });
+
+  it("publish writes restoredFrom on the new version and clears the stamp; a plain publish writes none", async () => {
+    const db = new FakeFirestore();
+    seedWorld(db);
+    const { journey } = await created(db);
+    const v1 = await publishLifecycleJourney(ctx, journey.id, { db });
+    expect(v1.ok && v1.value.version).not.toHaveProperty("restoredFrom");
+    const current = (await forTenant(system, db).lifecycleJourneys.getById(journey.id))!;
+    await saveLifecycleDraft(ctx, journey.id, current.draft, { db, expectUpdatedAt: current.updatedAt, restoredFrom: { version: 1, by: "usr_1" } });
+    const v2 = await publishLifecycleJourney(ctx, journey.id, { db });
+    expect(v2.ok && v2.value.version).toMatchObject({ version: 2, restoredFrom: 1 });
+    expect((await forTenant(system, db).lifecycleVersions.getById(`${journey.id}_v2`))!.restoredFrom).toBe(1);
+    expect((await forTenant(system, db).lifecycleJourneys.getById(journey.id))!.draftRestoredFrom).toBeNull();
+    const v3 = await publishLifecycleJourney(ctx, journey.id, { db });
+    expect(v3.ok && v3.value.version).not.toHaveProperty("restoredFrom");
+  });
+});

@@ -36,7 +36,7 @@ const HELD_NOWHERE: Record<string, string> = {
  * holds the brand's people stays out of search until the data processing agreement covers it.
  */
 const PEOPLE_IN_SEARCH: Record<string, string> = {
-  brand_note: "the team's own notes; a note marked as naming a customer is left out of search (noteSource in src/lib/search/feeders.ts)",
+  brand_note: "the team's own notes; a note marked as naming a customer is left out of search (noteSource in src/lib/search/feeders.ts, noteSearchSources in src/lib/search/family.ts)",
 };
 
 function pathsOf(d: PathDecision): readonly PathRef[] {

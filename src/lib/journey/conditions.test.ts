@@ -52,7 +52,7 @@ describe("evaluateCondition", () => {
       amountReferred: 2,
       aiConversation: {
         completed: true,
-        transcript: [],
+        transcript: [{ role: "user", text: "Faster invoicing, please." }],
         capturedAt: "2026-01-02T00:00:00.000Z",
         bonusApplied: true,
       },
@@ -73,6 +73,19 @@ describe("evaluateCondition", () => {
     });
     expect(evalC({ field: "usedVoiceChat", operator: "is_false" }, started)).toBe(true);
     expect(evalC({ field: "usedVoiceChat", operator: "is_true" }, started)).toBe(false);
+  });
+
+  it("treats a saved voice chat in which the person said nothing (a dropped call) as not used", () => {
+    const dropped = mkSignup({
+      aiConversation: {
+        completed: true,
+        transcript: [{ role: "model", text: "Hello?" }],
+        capturedAt: "2026-01-02T00:00:00.000Z",
+        bonusApplied: true,
+      },
+    });
+    expect(evalC({ field: "usedVoiceChat", operator: "is_false" }, dropped)).toBe(true);
+    expect(evalC({ field: "usedVoiceChat", operator: "is_true" }, dropped)).toBe(false);
   });
 
   it("numeric operators on referralCount / engagementBonus", () => {
@@ -123,7 +136,7 @@ describe("evaluateCondition", () => {
 describe("evaluateBranch (multi-factor)", () => {
   const vcAiConversation = {
     completed: true,
-    transcript: [],
+    transcript: [{ role: "user" as const, text: "Faster invoicing, please." }],
     capturedAt: "2026-01-02T00:00:00.000Z",
     bonusApplied: true,
   };

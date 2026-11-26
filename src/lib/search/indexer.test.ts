@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { indexSource, removeFromIndex, storedKindOf, storedSourceKey } from "./indexer";
+import { estimateIndex, indexSource, indexSources, removeFromIndex, storedKindOf, storedSourceKey } from "./indexer";
 import { MemorySearchIndex } from "./memoryStore";
 import type { SearchSource } from "./types";
 
@@ -242,3 +242,77 @@ describe("removeFromIndex with indexing off", () => {
     warn.mockRestore();
   });
 });
+
+describe("the brand map family and statuses (ADR-0025)", () => {
+  beforeEach(() => {
+    vi.stubEnv("SEARCH_INDEX_ENABLED", "true");
+    vi.stubEnv("SEARCH_FAMILY_INDEX_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  const subject: SearchSource = { kind: "subject", ref: "sub_1", title: "Repotting figs", body: "Repotting figs\n\nWhen do I repot a fig?", url: "/admin/brand-kit/map", status: "proposed" };
+
+  it("indexes the family for a brand without brand search, and nothing else of it", async () => {
+    const index = new MemorySearchIndex();
+    const store = index.storeFor(ctxA);
+    const { embed } = fakeEmbed();
+    expect(await indexSource(ctxA, subject, { store, embed, granted: false })).toBe("indexed");
+    expect(await indexSource(ctxA, { kind: "competitor", ref: "cmp_1/art_1", title: "T", body: "B", status: "kept" }, { store, embed, granted: false })).toBe("indexed");
+    expect(await indexSource(ctxA, { kind: "question", ref: "note_bn_1", title: "Q?", body: "Q?", status: "asked" }, { store, embed, granted: false })).toBe("indexed");
+    // The brand map's own questions, competitors' summaries and every other kind still need brand search.
+    expect(await indexSource(ctxA, { kind: "question", ref: "q_1", title: "Q?", body: "Q?" }, { store, embed, granted: false })).toBe("not_granted");
+    expect(await indexSource(ctxA, { kind: "competitor", ref: "cmp_1", title: "Them", body: "A shop." }, { store, embed, granted: false })).toBe("not_granted");
+    expect(await indexSource(ctxA, article, { store, embed, granted: false })).toBe("not_granted");
+    // Off, the family needs brand search like the rest.
+    vi.stubEnv("SEARCH_FAMILY_INDEX_ENABLED", "false");
+    expect(await indexSource(ctxA, { ...subject, ref: "sub_2" }, { store, embed, granted: false })).toBe("not_granted");
+  });
+
+  it("keeps the status on every chunk and the manifest, and a status change embeds nothing", async () => {
+    const index = new MemorySearchIndex();
+    const store = index.storeFor(ctxA);
+    const { embed } = fakeEmbed();
+    await indexSource(ctxA, subject, { store, embed, granted: true });
+    expect((await store.getManifest("subject:sub_1"))?.status).toBe("proposed");
+    expect(await indexSource(ctxA, { ...subject, status: "decided" }, { store, embed, granted: true, version: "v2" })).toBe("unchanged");
+    expect(embed).toHaveBeenCalledTimes(1);
+    expect(await store.getManifest("subject:sub_1")).toMatchObject({ status: "decided", version: "v2" });
+    expect([...index.chunks.get(ctxA.tenantId)!.values()].map((c) => c.status)).toEqual(["decided"]);
+    expect((await store.nearest(["subject"], [1, 1, 0].map((x) => x / Math.SQRT2), { statuses: ["decided"], limit: 5 })).map((h) => h.ref)).toEqual(["sub_1"]);
+    // A record indexed before statuses gets one with no embedding.
+    await indexSource(ctxA, { ...subject, ref: "sub_3", status: undefined }, { store, embed, granted: true });
+    expect(await indexSource(ctxA, { ...subject, ref: "sub_3", status: "decided" }, { store, embed, granted: true })).toBe("unchanged");
+    expect(embed).toHaveBeenCalledTimes(2);
+    expect((await store.getManifest("subject:sub_3"))?.status).toBe("decided");
+  });
+
+  it("embeds many records in one call and gives back each one's vector, read back when unchanged", async () => {
+    const index = new MemorySearchIndex();
+    const store = index.storeFor(ctxA);
+    const { embed, calls } = fakeEmbed();
+    const two = [subject, { ...subject, ref: "sub_2", title: "Fig leaves", body: "Why do fig leaves drop?" }];
+    const first = await indexSources(ctxA, two, { store, embed });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toHaveLength(2);
+    expect(first.map((r) => r.outcome)).toEqual(["indexed", "indexed"]);
+    expect(first[0]!.vector).not.toEqual(first[1]!.vector);
+    const again = await indexSources(ctxA, two, { store, embed });
+    expect(calls).toHaveLength(1);
+    expect(again.map((r) => r.outcome)).toEqual(["unchanged", "unchanged"]);
+    expect(again.map((r) => r.vector)).toEqual(first.map((r) => r.vector));
+  });
+
+  it("says what --apply would do on a dry run: embed, rewrite the status only, or nothing", async () => {
+    const index = new MemorySearchIndex();
+    const store = index.storeFor(ctxA);
+    const { embed } = fakeEmbed();
+    expect(estimateIndex(subject, null)).toMatchObject({ action: "embed", chunks: 1 });
+    expect(estimateIndex(subject, null).chars).toBe(subject.body.length + subject.title.length);
+    await indexSource(ctxA, subject, { store, embed, granted: true });
+    const m = await store.getManifest("subject:sub_1");
+    expect(estimateIndex(subject, m).action).toBe("none");
+    expect(estimateIndex({ ...subject, status: "decided" }, m).action).toBe("status");
+    expect(estimateIndex({ ...subject, body: "", title: "" }, m).action).toBe("remove");
+  });
+});
+

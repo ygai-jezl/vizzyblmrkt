@@ -4,9 +4,10 @@ import { isOneViewEnabled, isPeopleNameEnabled } from "@/lib/audience/flags";
 import type { HelpBodyProps } from "@/lib/help/pages";
 import { ideaWord, peopleArea } from "@/lib/nav/terms";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { isViewsEnabled } from "@/lib/views/flags";
 
 /** With ideas in the words (`ideaWords`, isIdeaWordsEnabled()) a launch is called an idea. */
-export default function PeopleHelp({ people = isPeopleNameEnabled(), ideaWords = isIdeaWordsEnabled() }: HelpBodyProps = {}) {
+export default function PeopleHelp({ people = isPeopleNameEnabled(), ideaWords = isIdeaWordsEnabled(), views = isViewsEnabled() }: HelpBodyProps = {}) {
   // One People list (AUDIENCE_ONE_VIEW_ENABLED) in place of the Product users tab. People (the
   // area's new name) needs it, so the How to drawer, which can't read server switches, passes it.
   const oneView = people || isOneViewEnabled();
@@ -59,6 +60,12 @@ export default function PeopleHelp({ people = isPeopleNameEnabled(), ideaWords =
           <li>Click their row.</li>
         </Steps>
       )}
+      {oneView && views ? (
+        <P>
+          To keep a group, such as everyone stuck in your product who can be emailed, make it a{" "}
+          <Open href="/help/your-audience#views">view</Open> with Add filter, then Save view.
+        </P>
+      ) : null}
 
       <H2 id="page">What their page shows</H2>
       <UL>

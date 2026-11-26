@@ -126,7 +126,7 @@ npm run selfhost -- --project <your-project-id> --apply addon:<name>
 | `addon:linkedin`, `addon:x` | Posting to LinkedIn or X | You create the app on their developer site; then automated, asking for its keys in your terminal |
 | `addon:regions` | EU and Asia databases, for workspaces whose data must stay there | Automated. Each database bills on its own |
 | `addon:bigquery` | Analytics breakdowns from BigQuery | Automated. The extensions deploy may ask you to accept their permissions |
-| `addon:search` | Search that finds what a brand wrote by its words and its meaning, for people and Vizzy | Automated. Makes a Firestore Enterprise database per region you use, which bills by data read and written. Needs the `gcloud beta` component. Fill it afterwards with `npx tsx scripts/search-backfill.ts` |
+| `addon:search` | Search that finds what a brand wrote by its words and its meaning, for people and Vizzy | Automated. Makes a Firestore Enterprise database per region you use, which bills by data read and written. Needs the `gcloud beta` component. Once its settings are rolled out, fill it with `npx tsx scripts/search-backfill.ts --settings apphosting.<env>.yaml --all-brands` |
 | `addon:recaptcha` | reCAPTCHA on waitlist sign-ups | Automated |
 | `addon:password` | Email and password sign-in for the people on your admin list, with up to three alerts (two on plain Firebase Authentication) | Automated. Needs an email provider (`addon:email`) for the confirmation codes. See [Email and password sign-in](#email-and-password-sign-in-optional) |
 
@@ -560,6 +560,16 @@ Every move ends the brand's shared parts from the organisation it leaves, and di
 organisation's connections when it is left with no brands, whatever `CONNECTORS_SHARING_ENABLED` says.
 `npm run selfhost` keeps it off; with it off, `scripts/move-brand.ts` still combines and splits brands.
 
+**Settings history.** `SETTINGS_HISTORY_ENABLED` turns on Settings › History: every change to fields,
+journeys, product catalogs and shared connections, a restore as a new version (a journey into its
+draft only) and JSON export. It needs the `lifecycle_versions` and `catalog_revisions` indexes in
+`firestore.indexes.json` READY first, and nothing else.
+
+**Erasing archived values.** `SETTINGS_ERASE_ENABLED` lets an owner erase an archived field's values
+30 days after its archive (ADR-0023). It needs `SETTINGS_HISTORY_ENABLED`, plans on (`PLANS_ENABLED`)
+and an owner of the organisation with a real `tenant_users` admin row for the brand (owners are added
+with `scripts/set-plan.ts --organisation <orgId> --add-owner <uid>`). `npm run selfhost` keeps it off.
+
 `CONNECTOR_SIGNALS_ENABLED` turns collected Search Console numbers into suggestions in the brand map,
 Review, Next up and the context pack; `npm run selfhost` keeps it off. Turn it on only after
 `CONNECTORS_COLLECT_ENABLED`, and only once the agent action indexes in `firestore.indexes.json`
@@ -601,6 +611,33 @@ on or uploads an image not yet described, and at most 2,000 times a day across y
 tick. None of it counts against a brand's allowance. Turned off, images go back to the look on the
 brand record as it was when the brand's looks were first copied into versions, less any that Forget
 or Reset cleared.
+
+**Brand search takes over from the old vectors.** The brand map's duplicate checks, What we've seen's
+matching and the competitor article checks find things by meaning in `brand_map_vectors`, embedded
+with `text-embedding-005`, which Google retires on Vertex AI on 1 April 2027. They move onto brand
+search (ADR-0025). On a copy with `addon:search`, run `npm run selfhost -- --project <id> --apply
+addon:search` again: it turns on `SEARCH_FAMILY_INDEX_ENABLED`, which keeps the brand map, the notes
+and competitor articles in brand search for every brand, with what each is (proposed, decided,
+kept, asked or answered). People's search still shows only what it showed before. Then:
+
+1. Roll the new settings out first: until your app runs with the family switch on, its scheduled
+   check takes out what the fill writes. Then fill it: `npx tsx scripts/search-backfill.ts
+   --settings apphosting.live.yaml --all-brands --kinds subject,situation,note,question,competitor`
+   prints each brand's chunks, tokens and cost; run it again with `--apply`. It follows the
+   switches in the settings file you name, and refuses to run without one or `--all-brands`.
+2. Turn on `SEARCH_SUBJECT_READS_ENABLED`, `SEARCH_NOTE_READS_ENABLED` and
+   `SEARCH_COMPETITOR_READS_ENABLED` in your settings file and roll out. The old store is still
+   written, so turning one off sends its readers straight back.
+3. After about two weeks, turn on `SEARCH_OLD_VECTORS_RETIRED_ENABLED`: the old store stops being
+   written. Then run `npx tsx scripts/retire-old-vectors.ts --settings apphosting.live.yaml` (it
+   counts, per region, brand and kind), and the same with `--apply`, which refuses unless all of
+   these switches are on in that file and every brand's notes and articles are in brand search
+   with what each is. Notes brand search never holds, such as those that name a customer, go
+   with the rest.
+   **The delete can't be undone.**
+
+With note reads on, a note ticked as naming a customer reaches an article only through its subject.
+A copy without `addon:search` keeps the old store; a later release gives it a fallback before April 2027.
 
 ### Enterprise features
 

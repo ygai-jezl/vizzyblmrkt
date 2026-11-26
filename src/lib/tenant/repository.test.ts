@@ -492,3 +492,39 @@ describe("TenantCollection.findFields (a projected find)", () => {
     expect(await forTenant(ctxA, db).signups.findFields(["score"], { where: [["tenantId", "==", "ten_B"]] })).toEqual([]);
   });
 });
+
+describe("find with a projection (select)", () => {
+  it("returns only the named fields, a dotted one as a path into its map, with the id, and stays in the tenant", async () => {
+    const db = new FakeFirestore();
+    db.seed("contacts", "ct_1", {
+      tenantId: "ten_A",
+      sortKey: "2026-11-25T10:00:00.000Z|ct_1",
+      memberOf: ["all"],
+      email: "kept-out@example.com",
+      fields: { fld_aaaaaaaaaaaa: "opt_aaaaaaaa", fld_bbbbbbbbbbbb: "not asked for" },
+    });
+    db.seed("contacts", "ct_2", { tenantId: "ten_A", sortKey: "2026-11-24T10:00:00.000Z|ct_2", memberOf: ["all"] });
+    db.seed("contacts", "ct_3", { tenantId: "ten_B", sortKey: "2026-11-26T10:00:00.000Z|ct_3", memberOf: ["all"], fields: { fld_aaaaaaaaaaaa: "theirs" } });
+    const rows = await forTenant(ctxA, db).contacts.find({
+      where: [["memberOf", "array-contains", "all"]],
+      orderBy: [["sortKey", "desc"]],
+      select: ["sortKey", "memberOf", "fields.fld_aaaaaaaaaaaa"],
+    });
+    expect(rows).toEqual([
+      { id: "ct_1", sortKey: "2026-11-25T10:00:00.000Z|ct_1", memberOf: ["all"], fields: { fld_aaaaaaaaaaaa: "opt_aaaaaaaa" } },
+      { id: "ct_2", sortKey: "2026-11-24T10:00:00.000Z|ct_2", memberOf: ["all"] },
+    ]);
+  });
+
+  it("refuses a projection a database can't read, rather than reading every field", async () => {
+    // A database whose queries have no select(), as some test doubles don't.
+    const query: Record<string, unknown> = {
+      get: async () => ({ empty: true, size: 0, docs: [] }),
+      count: () => ({ get: async () => ({ data: () => ({ count: 0 }) }) }),
+    };
+    for (const k of ["where", "orderBy", "limit", "startAfter"]) query[k] = () => query;
+    const plain = { collection: () => ({ ...query, doc: () => null }), runTransaction: async () => null } as unknown as FakeFirestore;
+    await expect(forTenant(ctxA, plain).contacts.find({ select: ["memberOf"] })).rejects.toThrow(TenantValidationError);
+    await expect(forTenant(ctxA, plain).contacts.find({})).resolves.toEqual([]);
+  });
+});

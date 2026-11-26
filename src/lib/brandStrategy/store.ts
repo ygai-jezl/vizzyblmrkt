@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { forTenant } from "@/lib/tenant";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
+import type { Competitor } from "@/lib/types/competitor";
 import { fold } from "@/lib/brandMap/changes";
 import { MEANINGS, type MeaningKey } from "@/lib/metrics/meanings";
 import {
@@ -15,6 +16,7 @@ import {
   type BrandStrategyDoc,
   type CompetitorGroupKind,
   type IsNotProposal,
+  type NotCompetitor,
   type Strategy,
   type StrategyClaim,
   type StrategyCompetitor,
@@ -25,7 +27,8 @@ import {
   type StrategyMade,
   type StrategySource,
 } from "@/lib/types/brandStrategy";
-import { isBrandStrategyEnabled } from "./flags";
+import { isBrandStrategyEnabled, isStrategyCompetitorsEnabled } from "./flags";
+import { approvedCopy, isNotCompetitor, liveCompetitors, sameCompetitor, type LiveCompetitor } from "./competitors";
 
 export type {
   BrandStrategyDoc,
@@ -111,7 +114,7 @@ function emptyDoc(tenantId: string, now: string) {
     approved: null as Strategy | null,
     history: [] as Strategy[],
     decisions: [] as StrategyDecision[],
-    finder: { quickAt: null as string | null, fullRuns: [] as string[] },
+    finder: { quickAt: null as string | null, fullRuns: [] as string[], notCompetitors: [] as NotCompetitor[], monitoredFinds: [] as NotCompetitor[] },
     createdAt: now,
     updatedAt: now,
     id: brandStrategyDocId(tenantId),
@@ -172,6 +175,32 @@ const decision = (kind: StrategyDecisionKind, ref: string, at: string, by: strin
   at,
   by,
 });
+
+/** A decision to log, without when and by whom (logStrategyDecisions adds them). */
+export type DecisionRow = { kind: StrategyDecisionKind; ref: string; before?: string | null; after?: string | null };
+
+/**
+ * Add decisions to the record without moving `rev`: they change no part of the draft (a group a
+ * person chose on a watched competitor, from either page), so a person with the Strategy tab open
+ * isn't told the strategy changed. `rows` may be worked out from the record as it is now. Nothing
+ * is kept for a brand with no strategy record yet. Answers whether any were kept.
+ */
+export async function logStrategyDecisions(
+  ctx: TenantContext,
+  rows: DecisionRow[] | ((doc: BrandStrategyDoc) => DecisionRow[]),
+  deps: StrategyDeps = {},
+): Promise<boolean> {
+  const at = nowIso(deps);
+  const by = byOf(ctx);
+  const kept = await repoOf(ctx, deps).claim(brandStrategyDocId(ctx.tenantId), (current) => {
+    const doc = parseBrandStrategy(current);
+    if (!doc) return null;
+    const list = typeof rows === "function" ? rows(doc) : rows;
+    if (!list.length) return null;
+    return { decisions: withDecisions(doc.decisions, list.map((r) => decision(r.kind, r.ref, at, by, r.before ?? null, r.after ?? null))) };
+  });
+  return Boolean(kept);
+}
 
 /** The meaning of a goal's measure when YouGrow knows it: its key or its name, any case. */
 export function measureKeyOf(words: string): MeaningKey | null {
@@ -266,7 +295,10 @@ export interface ProposedStrategy {
   claims: StrategyClaim[];
   isNotProposals: IsNotProposal[];
   goal: StrategyGoal | null;
-  /** Competitors the brand already watches, added to the draft as ticked. */
+  /**
+   * Competitors the brand already watches, added to the draft as ticked. None while the strategy is
+   * joined to Competitors (STRATEGY_COMPETITORS_ENABLED): the tab lists the watched ones live.
+   */
   watched: Array<{ name: string; site: string | null }>;
   sources: StrategySource[];
   made: StrategyMade;
@@ -350,13 +382,13 @@ export type FoundCompetitor = StrategyCompetitor & { group: CompetitorGroupKind 
 /**
  * Put what the competitor finder found in the draft. The latest run replaces the last one's
  * finds, but a competitor a person ticked, one the brand watches or one a person added stays,
- * with its tick. Pure.
+ * with its tick. A name a person marked Not a competitor (by name or site) is never put back. Pure.
  */
-export function mergeFound(draft: Strategy | null, found: FoundCompetitor[], at: string, by: string | null): Strategy {
+export function mergeFound(draft: Strategy | null, found: FoundCompetitor[], at: string, by: string | null, notCompetitors: NotCompetitor[] = []): Strategy {
   const base = draft ?? emptyStrategy(at, by);
   const prior = competitorsOf(base);
   const ticks = new Map(prior.map((c) => [fold(c.name), c] as const));
-  const next: FoundCompetitor[] = found.map((f) => {
+  const next: FoundCompetitor[] = found.filter((f) => !isNotCompetitor(f, notCompetitors)).map((f) => {
     const was = ticks.get(fold(f.name));
     return was ? { ...f, ticked: was.ticked, from: was.from === "finder" ? "finder" : was.from, site: f.site ?? was.site } : f;
   });
@@ -427,7 +459,7 @@ export async function saveFound(
   const at = nowIso(deps);
   const by = byOf(ctx);
   return change(ctx, deps, (doc) => ({
-    draft: mergeFound(doc.draft, input.found, at, by),
+    draft: mergeFound(doc.draft, input.found, at, by, isStrategyCompetitorsEnabled() ? doc.finder.notCompetitors : []),
     ...(input.counted
       ? {}
       : {
@@ -479,13 +511,60 @@ export async function undoIsNot(ctx: TenantContext, input: { text: string }, dep
   });
 }
 
-/** What approving decided: each proposed star kept or removed, each competitor found but left out. Pure. */
-export function approveDecisions(draft: Strategy, at: string, by: string | null): StrategyDecision[] {
+/**
+ * What approving decided: each proposed star kept or removed, each competitor found but left out.
+ * With the live list (STRATEGY_COMPETITORS_ENABLED), left out means neither watched nor ticked. Pure.
+ */
+export function approveDecisions(draft: Strategy, at: string, by: string | null, live: LiveCompetitor[] | null = null): StrategyDecision[] {
   const out: StrategyDecision[] = [decision("approved", "strategy", at, by)];
   const focus = new Set(draft.focusSituationIds);
   for (const id of draft.proposedFocusIds) out.push(decision(focus.has(id) ? "star_kept" : "star_removed", id, at, by));
-  for (const c of competitorsOf(draft)) if (c.from === "finder" && !c.ticked) out.push(decision("competitor_left_out", c.name, at, by));
+  for (const c of live ?? competitorsOf(draft)) if (c.from === "finder" && !c.ticked && !("monitored" in c && c.monitored)) out.push(decision("competitor_left_out", c.name, at, by));
   return out;
+}
+
+/**
+ * Not a competitor (STRATEGY_COMPETITORS_ENABLED), from either door: a suggestion the finder made
+ * leaves the draft, its name (and site) is kept, newest first and 50 at most, so no later run
+ * suggests it again, and the decision is logged as `competitor_left_out`. Refused when there is no
+ * such suggestion (404 `no_suggestion`).
+ */
+export async function dismissFound(ctx: TenantContext, input: { name: string; site: string | null }, deps: StrategyDeps = {}): Promise<StrategyResult<BrandStrategyDoc>> {
+  const at = nowIso(deps);
+  const by = byOf(ctx);
+  return change(ctx, deps, (doc, created) => {
+    const list = doc.draft ? competitorsOf(doc.draft) : [];
+    const hit = list.find((c) => c.from === "finder" && sameCompetitor(c, input));
+    if (created || !doc.draft || !hit) throw new Refused(404, "no_suggestion");
+    const gone = { name: hit.name, site: hit.site ?? input.site };
+    return {
+      draft: StrategySchema.parse({ ...doc.draft, competitorGroups: groupsOf(list.filter((c) => !(c.from === "finder" && sameCompetitor(c, gone)))), at, by }),
+      finder: { ...doc.finder, notCompetitors: [gone, ...doc.finder.notCompetitors.filter((n) => !sameCompetitor(n, gone))].slice(0, L.notCompetitors) },
+      decisions: withDecisions(doc.decisions, [decision("competitor_left_out", hit.name, at, by)]),
+    };
+  });
+}
+
+/**
+ * Monitor on one the finder suggested (STRATEGY_COMPETITORS_ENABLED), from either door: logged as
+ * `competitor_ticked`, as a tick was, and kept in `finder.monitoredFinds` (50 at most), so if it
+ * is no longer watched later it leaves the list rather than coming back as a suggestion. Neither
+ * moves the strategy's revision. Nothing when the finder never suggested it.
+ */
+export async function noteMonitored(ctx: TenantContext, input: { name: string; site: string | null }, deps: StrategyDeps = {}): Promise<boolean> {
+  const at = nowIso(deps);
+  const by = byOf(ctx);
+  const kept = await repoOf(ctx, deps).claim(brandStrategyDocId(ctx.tenantId), (current) => {
+    const doc = parseBrandStrategy(current);
+    const hit = doc?.draft ? competitorsOf(doc.draft).find((c) => c.from === "finder" && sameCompetitor(c, input)) : undefined;
+    if (!doc || !hit) return null;
+    const named = { name: hit.name, site: hit.site ?? input.site };
+    return {
+      decisions: withDecisions(doc.decisions, [decision("competitor_ticked", hit.name, at, by)]),
+      finder: { ...doc.finder, monitoredFinds: [named, ...doc.finder.monitoredFinds.filter((n) => !sameCompetitor(n, named))].slice(0, L.monitoredFinds) },
+    };
+  });
+  return Boolean(kept);
 }
 
 /**
@@ -498,7 +577,15 @@ export function approveDecisions(draft: Strategy, at: string, by: string | null)
  */
 export async function approveStrategy(
   ctx: TenantContext,
-  input: { baseRev: number },
+  input: {
+    baseRev: number;
+    /**
+     * Joined to Competitors (STRATEGY_COMPETITORS_ENABLED): the competitors the brand watches, or
+     * null when it can't read them. The approved copy then keeps the live list, and the draft keeps
+     * its own finds. Left out: approved as before.
+     */
+    watched?: Array<Pick<Competitor, "id" | "name" | "site" | "group">> | null;
+  },
   deps: StrategyDeps = {},
 ): Promise<StrategyResult<BrandStrategyDoc> & { starsNotUpdated?: string[] }> {
   const at = nowIso(deps);
@@ -509,12 +596,14 @@ export async function approveStrategy(
     if (doc.rev !== input.baseRev) throw new Refused(409, "strategy_changed", doc);
     const starred = doc.draft.focusSituationIds.filter((id) => decided.has(id)).length;
     if (starred < Math.min(L.focusMin, decided.size)) throw new Refused(400, "too_few_focus", doc);
-    const approved = StrategySchema.parse({ ...doc.draft, at, by });
+    const live = input.watched !== undefined ? liveCompetitors(doc.draft, input.watched, doc.finder.notCompetitors, doc.finder.monitoredFinds) : null;
+    const approved = StrategySchema.parse({ ...doc.draft, ...(live ? { ...approvedCopy(live), competitorsLive: true } : {}), at, by });
     return {
       approved,
-      draft: approved,
+      // The draft keeps its own finds: the approved copy is the list as it was, for the history.
+      draft: live ? StrategySchema.parse({ ...approved, competitorGroups: doc.draft.competitorGroups, ungrouped: doc.draft.ungrouped, competitorsLive: false }) : approved,
       history: [...(doc.approved ? [doc.approved] : []), ...doc.history].slice(0, L.history),
-      decisions: withDecisions(doc.decisions, approveDecisions(doc.draft, at, by)),
+      decisions: withDecisions(doc.decisions, approveDecisions(doc.draft, at, by, live)),
     };
   });
   if (!done.ok || !done.value.approved) return done;

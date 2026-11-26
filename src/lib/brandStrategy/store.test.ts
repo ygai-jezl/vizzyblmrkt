@@ -13,7 +13,10 @@ import {
   syncFocusFlags,
   decideIsNot,
   deleteBrandStrategy,
+  dismissFound,
+  noteMonitored,
   fullRunsInMonth,
+  logStrategyDecisions,
   measureKeyOf,
   readBrandStrategy,
   readBrandStrategyDoc,
@@ -205,6 +208,25 @@ describe("the brand strategy's record", () => {
     expect(measureKeyOf("sign-ups")).toBeNull();
   });
 
+  it("logs a group a person chose without moving the revision, and only on the brand's own record", async () => {
+    const db = new FakeFirestore();
+    // No record yet: nothing is made just to hold a decision.
+    expect(await logStrategyDecisions(A, [{ kind: "competitor_grouped", ref: "Rivalco", before: null, after: "big" }], { db })).toBe(false);
+    expect(await readBrandStrategyDoc(A, { db })).toBeNull();
+    const made = await saveProposal(A, proposal(), { db, ...at(T0) });
+    await saveProposal(B, proposal(), { db, ...at(T0) });
+    const rev = made.ok ? made.value.rev : 0;
+    expect(await logStrategyDecisions(A, [{ kind: "competitor_grouped", ref: "Rivalco", before: null, after: "big" }], { db, ...at(T0 + 1000) })).toBe(true);
+    const doc = await readBrandStrategyDoc(A, { db });
+    expect(doc?.rev).toBe(rev);
+    expect(doc?.decisions[0]).toEqual({ kind: "competitor_grouped", ref: "Rivalco", before: null, after: "big", at: "2026-11-25T10:00:01.000Z", by: "admin@a.example.com" });
+    // A person's edit from before the log still saves: the revision didn't move.
+    expect((await saveStrategyDraft(A, { baseRev: rev, audiences: ["Founders"] }, { db })).ok).toBe(true);
+    // Worked out from the record, nothing to add: nothing changes.
+    expect(await logStrategyDecisions(A, () => [], { db })).toBe(false);
+    expect((await readBrandStrategyDoc(B, { db }))?.decisions.some((d) => d.kind === "competitor_grouped")).toBe(false);
+  });
+
   it("deletes the whole record", async () => {
     const db = new FakeFirestore();
     await saveProposal(A, proposal(), { db, ...at(T0) });
@@ -281,6 +303,95 @@ describe("what a person decided stays, and runs and approvals hold", () => {
     expect(r.starsNotUpdated?.sort()).toEqual(["sit_aaaaaa01", "sit_aaaaaa02", "sit_aaaaaa03", "sit_aaaaaa09"]);
     db.runTransaction = real;
     expect(await syncFocusFlags(A, ["sit_aaaaaa01", "sit_aaaaaa02", "sit_aaaaaa03"], { db })).toEqual({ changed: 4, failed: [] });
+  });
+
+  it("never puts back a name a person marked Not a competitor, by name or site", () => {
+    const next = mergeFound(null, [find("Alpha"), find("Beta"), find("Gamma", { site: "kept-out.example" })], "", null, [{ name: "beta", site: null }, { name: "Other words", site: "kept-out.example" }]);
+    expect(competitorsOf(next).map((c) => c.name)).toEqual(["Alpha"]);
+  });
+
+  it("Not a competitor: the suggestion leaves the draft, its name is kept for every later run, and the decision is logged", async () => {
+    vi.stubEnv("COMPETITORS_ENABLED", "true");
+    vi.stubEnv("STRATEGY_COMPETITORS_ENABLED", "true");
+    const db = new FakeFirestore();
+    await saveFound(A, { mode: "quick", found: [find("Alpha"), find("Beta")] }, { db, ...at(T0) });
+    await saveFound(B, { mode: "quick", found: [find("Beta")] }, { db, ...at(T0) });
+    expect(await dismissFound(A, { name: "Nobody", site: null }, { db })).toMatchObject({ ok: false, status: 404, error: "no_suggestion" });
+    expect(await dismissFound({ ...A, tenantId: "ten_C" }, { name: "Beta", site: null }, { db })).toMatchObject({ ok: false, status: 404 });
+    const r = await dismissFound(A, { name: "beta", site: null }, { db, ...at(T0 + 1000) });
+    expect(r.ok).toBe(true);
+    const doc = r.ok ? r.value : null;
+    expect(competitorsOf(doc!.draft!).map((c) => c.name)).toEqual(["Alpha"]);
+    expect(doc?.finder.notCompetitors).toEqual([{ name: "Beta", site: "beta.example" }]);
+    expect(doc?.decisions[0]).toMatchObject({ kind: "competitor_left_out", ref: "Beta", by: "admin@a.example.com" });
+    // The next run doesn't suggest it again.
+    const again = await saveFound(A, { mode: "full", found: [find("Beta"), find("Delta")] }, { db, ...at(T0 + 2000) });
+    expect(again.ok && competitorsOf(again.value.draft!).map((c) => c.name)).toEqual(["Delta"]);
+    // The other brand's suggestion is left alone.
+    expect(competitorsOf((await readBrandStrategyDoc(B, { db }))!.draft!).map((c) => c.name)).toEqual(["Beta"]);
+  });
+
+  it("keeps at most 50 names marked Not a competitor, the newest", async () => {
+    const db = new FakeFirestore();
+    const many = Array.from({ length: BRAND_STRATEGY_LIMITS.notCompetitors + 2 }, (_, i) => find(`Rival ${i}`));
+    // A run keeps 8 finds a group, so they come 8 at a time.
+    const per = BRAND_STRATEGY_LIMITS.competitorsPerGroup;
+    for (let round = 0; round * per < many.length; round += 1) {
+      await saveFound(A, { mode: "full", found: many.slice(round * per, round * per + per) }, { db, ...at(T0 + round) });
+      for (const f of many.slice(round * per, round * per + per)) {
+        const r = await dismissFound(A, { name: f.name, site: f.site }, { db });
+        if (!r.ok) throw new Error(`${f.name}: ${r.error}`);
+      }
+    }
+    const doc = await readBrandStrategyDoc(A, { db });
+    expect(doc?.finder.notCompetitors).toHaveLength(BRAND_STRATEGY_LIMITS.notCompetitors);
+    expect(doc?.finder.notCompetitors[0]?.name).toBe(`Rival ${many.length - 1}`);
+  });
+
+  it("Monitor on a suggestion is kept as a tick, without moving the revision; on anything else, nothing", async () => {
+    const db = new FakeFirestore();
+    const made = await saveFound(A, { mode: "quick", found: [find("Alpha")] }, { db, ...at(T0) });
+    expect(await noteMonitored(A, { name: "Typed by hand", site: "typed.example" }, { db })).toBe(false);
+    expect(await noteMonitored(A, { name: "Alpha Ltd", site: "alpha.example" }, { db })).toBe(true);
+    const doc = await readBrandStrategyDoc(A, { db });
+    expect(doc?.decisions[0]).toMatchObject({ kind: "competitor_ticked", ref: "Alpha" });
+    expect(doc?.finder.monitoredFinds).toEqual([{ name: "Alpha", site: "alpha.example" }]);
+    expect(doc?.rev).toBe(made.ok ? made.value.rev : -1);
+    // Another brand's record is never touched.
+    expect(await noteMonitored(B, { name: "Alpha", site: "alpha.example" }, { db })).toBe(false);
+  });
+
+  it("joined, approval keeps the live list as the history copy, and the draft keeps its own finds", async () => {
+    const db = new FakeFirestore();
+    let doc = await saveProposal(A, proposal({ watched: [] }), { db, ...at(T0) });
+    doc = await saveFound(A, { mode: "quick", found: [find("Alpha"), find("Rivalco", { group: "big" })] }, { db, ...at(T0 + 500) });
+    const watched = [
+      { id: "cmp_aaaaaaaa01", name: "Rivalco", site: "rivalco.example", group: "big" as const },
+      { id: "cmp_aaaaaaaa02", name: "Newco", site: "newco.example" },
+    ];
+    const r = await approveStrategy(A, { baseRev: doc.ok ? doc.value.rev : 0, watched }, { db, ...at(T0 + 1000) });
+    expect(r.ok).toBe(true);
+    const after = r.ok ? r.value : null;
+    expect(after?.approved?.competitorGroups.map((g) => [g.kind, g.competitors.map((c) => c.name)])).toEqual([
+      ["most", ["Alpha"]],
+      ["big", ["Rivalco"]],
+    ]);
+    expect(after?.approved?.ungrouped.map((c) => c.name)).toEqual(["Newco"]);
+    expect(competitorsOf(after!.draft!).map((c) => c.name)).toEqual(["Alpha", "Rivalco"]);
+    expect(after?.draft?.ungrouped).toEqual([]);
+    // Left out means not watched: Alpha, never Rivalco.
+    expect(after?.decisions.filter((d) => d.kind === "competitor_left_out").map((d) => d.ref)).toEqual(["Alpha"]);
+  });
+
+  it("joined, a brand without Competitors keeps its ticks when it approves: only the unticked finds are left out", async () => {
+    const db = new FakeFirestore();
+    await saveProposal(A, proposal({ watched: [] }), { db, ...at(T0) });
+    let doc = await saveFound(A, { mode: "quick", found: [find("Alpha"), find("Beta")] }, { db, ...at(T0 + 500) });
+    doc = await saveStrategyDraft(A, { baseRev: doc.ok ? doc.value.rev : 0, ticked: [{ name: "Alpha", ticked: true }] }, { db, ...at(T0 + 600) });
+    const r = await approveStrategy(A, { baseRev: doc.ok ? doc.value.rev : 0, watched: null }, { db, ...at(T0 + 1000) });
+    expect(r.ok && r.value.decisions.filter((d) => d.kind === "competitor_left_out").map((d) => d.ref)).toEqual(["Beta"]);
+    expect(r.ok && competitorsOf(r.value.approved!).map((c) => `${c.name}:${c.ticked}`)).toEqual(["Alpha:true", "Beta:false"]);
+    expect(r.ok && r.value.approved?.ungrouped).toEqual([]);
   });
 
   it("takes a finder run's place in one transaction, so two at once can't both pass", async () => {

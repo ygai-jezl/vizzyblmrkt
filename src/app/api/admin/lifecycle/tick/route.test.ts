@@ -30,6 +30,8 @@ const lane = vi.hoisted(() => ({ runConnectorsLane: vi.fn(async () => ({ brands:
 vi.mock("@/lib/connectors/collect/tick", () => (loaded.add("connectors"), lane));
 const loopsLane = vi.hoisted(() => ({ runLoopsLane: vi.fn(async () => ({ brands: 3, idle: 1, rows: 120, learned: 1, verdicts: 1, visited: [], heapDeltaMiB: 2.5 })) }));
 vi.mock("@/lib/loops/tick", () => (loaded.add("loops"), loopsLane));
+const fieldErase = vi.hoisted(() => ({ runFieldErase: vi.fn(async () => ({ brands: 2, jobs: 1, pages: 3 })) }));
+vi.mock("@/lib/settings/eraseArchived", () => (loaded.add("field-erase"), fieldErase));
 // The clean-up runs for real over a fake account list; only its hourly gate and Auth are stubbed.
 const rateLimit = vi.hoisted(() => ({ isRateLimited: vi.fn(async () => false) }));
 vi.mock("@/lib/tenant/rateLimit", () => rateLimit);
@@ -266,6 +268,7 @@ describe("each job's code loads only when its switch is on", () => {
     ["refresh", "@/lib/content/blog/refreshReview", refresh],
     ["connectors", "@/lib/connectors/collect/tick", lane],
     ["auth-cleanup", "@/lib/auth/cleanup", cleanup],
+    ["field-erase", "@/lib/settings/eraseArchived", fieldErase],
   ];
 
   /**
@@ -305,6 +308,21 @@ describe("each job's code loads only when its switch is on", () => {
     const res = await post(machine());
     expect(await res.json()).toMatchObject({ ok: true, authCleanup: { mode: "log_only" } });
     expect([...loaded]).toEqual(["auth-cleanup"]);
+  });
+
+  it("loads the erase lane only with SETTINGS_ERASE_ENABLED and what it needs on, and moves jobs on within its budget", async () => {
+    for (const n of ["SETTINGS_HISTORY_ENABLED", "AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_FIELDS_ENABLED", "PLANS_ENABLED"]) vi.stubEnv(n, "true");
+    let post = await freshRoute();
+    await post(machine());
+    expect([...loaded]).not.toContain("field-erase");
+    vi.stubEnv("SETTINGS_ERASE_ENABLED", "true");
+    post = await freshRoute();
+    const before = Date.now();
+    const res = await post(machine());
+    expect(await res.json()).toMatchObject({ ok: true, fieldErase: { jobs: 1, pages: 3 } });
+    expect([...loaded]).toContain("field-erase");
+    const [{ deadlineMs }] = fieldErase.runFieldErase.mock.calls.at(-1) as unknown as [{ deadlineMs: number }];
+    expect(deadlineMs - before).toBeLessThanOrEqual(20_000 + 1000);
   });
 
   it("loads only the connected data lane with only CONNECTORS_ENABLED on", async () => {

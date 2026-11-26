@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GrowthSignals } from "@/lib/nav/growth";
 
-const { requireAdminContext, getTenantById, startBusinessProfile, loadGrowthSignals, loadWeekCounts, loadReview, redirect } = vi.hoisted(() => ({
+const { requireAdminContext, getTenantById, startBusinessProfile, loadGrowthSignals, loadWeekCounts, loadReview, redirect, homeNextAction } = vi.hoisted(() => ({
   requireAdminContext: vi.fn(),
   getTenantById: vi.fn(),
   startBusinessProfile: vi.fn(),
@@ -11,6 +11,7 @@ const { requireAdminContext, getTenantById, startBusinessProfile, loadGrowthSign
   loadWeekCounts: vi.fn(),
   loadReview: vi.fn(),
   redirect: vi.fn(),
+  homeNextAction: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/session", () => ({ requireAdminContext }));
@@ -24,6 +25,14 @@ vi.mock("next/link", () => ({
 }));
 vi.mock("../chat/DashboardChat", () => ({ DashboardChat: () => null }));
 vi.mock("./AskChips", () => ({ AskChips: () => null }));
+vi.mock("@/lib/nextAction/service", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/nextAction/service")>()),
+  homeNextAction,
+}));
+vi.mock("./NextActionCard", () => ({
+  NextActionCard: ({ initial, stale, children }: { initial: { cardId: string } | null; stale: boolean; children: ReactNode }) =>
+    createElement("div", { "data-next-action": initial?.cardId ?? "none", "data-stale": String(stale) }, children),
+}));
 
 const { HomeV2 } = await import("./HomeV2");
 
@@ -54,7 +63,7 @@ const SIGNALS: GrowthSignals & { lastEventAt: null; catalogSteps: number; record
   recordsEver: 1,
 };
 
-const SWITCHES = ["ONBOARDING_ENABLED", "NEXT_PUBLIC_HELP_PAGES_ENABLED", "NEXT_PUBLIC_SETUP_GUIDE_ENABLED", "NEXT_PUBLIC_LIFECYCLE_ENABLED", "LIFECYCLE_ENABLED"];
+const SWITCHES = ["ONBOARDING_ENABLED", "NEXT_ACTION_CARD_ENABLED", "NEXT_PUBLIC_HELP_PAGES_ENABLED", "NEXT_PUBLIC_SETUP_GUIDE_ENABLED", "NEXT_PUBLIC_LIFECYCLE_ENABLED", "LIFECYCLE_ENABLED"];
 
 const profile = (answers: Record<string, string>) => ({ status: "done", via: "questions", answers, rev: 1, startedAt: "2026-11-25T09:00:00.000Z" });
 
@@ -118,5 +127,47 @@ describe("Home's card of steps", () => {
     process.env.ONBOARDING_ENABLED = "true";
     getTenantById.mockResolvedValue({ tenantName: "Fernhill Plants", businessProfile: { ...profile({}), status: "skipped" } });
     expect(card(await renderHome())).toEqual({ title: "Your next action", firstStep: "Verify your sending domain" });
+  });
+  describe("with Vizzy's card (NEXT_ACTION_CARD_ENABLED)", () => {
+    beforeEach(() => {
+      process.env.ONBOARDING_ENABLED = "true";
+      process.env.NEXT_ACTION_CARD_ENABLED = "true";
+      homeNextAction.mockResolvedValue({ view: { cardId: "nc_0000000000000001", steps: [], note: null, done: 0, total: 0 }, stale: true });
+    });
+
+    it("draws the kept card for an admin of a brand that told Vizzy about itself, the steps list inside it as the fallback", async () => {
+      const html = await renderHome();
+      expect(html).toContain('data-next-action="nc_0000000000000001" data-stale="true"');
+      // The fallback is the steps list PR A shows, and Needs you sits beside the card.
+      expect(card(html).title).toBe("Your next action");
+      expect(html).toContain("Needs you");
+      expect(homeNextAction).toHaveBeenCalledWith(CTX, expect.objectContaining({ signals: SIGNALS }));
+    });
+
+    it("is exactly PR A's Home with the switch off", async () => {
+      process.env.NEXT_ACTION_CARD_ENABLED = "false";
+      const html = await renderHome();
+      expect(html).not.toContain("data-next-action");
+      expect(homeNextAction).not.toHaveBeenCalled();
+      expect(card(html).title).toBe("Your next action");
+    });
+
+    it("keeps the steps list for a member, a skipped welcome, and a brand that never answered", async () => {
+      requireAdminContext.mockResolvedValue({ ...CTX, role: "member" });
+      expect(await renderHome()).not.toContain("data-next-action");
+      requireAdminContext.mockResolvedValue(CTX);
+      getTenantById.mockResolvedValue({ tenantName: "Fernhill Plants", businessProfile: { ...profile({}), status: "skipped" } });
+      expect(await renderHome()).not.toContain("data-next-action");
+      getTenantById.mockResolvedValue({ tenantName: "Fernhill Plants", businessProfile: { ...profile({}), status: "started" } });
+      expect(await renderHome()).not.toContain("data-next-action");
+      expect(homeNextAction).not.toHaveBeenCalled();
+    });
+
+    it("keeps the steps list when the card can't be read, and never breaks Home", async () => {
+      homeNextAction.mockRejectedValue(new Error("regional database down"));
+      const html = await renderHome();
+      expect(html).not.toContain("data-next-action");
+      expect(card(html).title).toBe("Your next action");
+    });
   });
 });

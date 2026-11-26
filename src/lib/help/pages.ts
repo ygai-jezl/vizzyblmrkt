@@ -7,6 +7,7 @@ import { isConnectorsScreenEnabled, isConnectorsSharingEnabled } from "@/lib/con
 import { isPasswordSigninAvailable } from "@/lib/auth/flags";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
+import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
 
 /**
  * The /help pages, in reading order: one list for the help navigation, the
@@ -29,7 +30,7 @@ export interface HelpPage {
    * A page about a switched-off feature: listed and served only while its switch is on.
    * The switches are read on the server, so client lists (⌘K) leave these pages out.
    */
-  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "image_versions";
+  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "image_versions" | "settings_history";
 }
 
 /**
@@ -54,6 +55,8 @@ export interface HelpBodyProps {
   vizzyTextFields?: boolean;
   /** Vizzy fills in the New person form (isVizzyAddPersonEnabled()). */
   vizzyAddPerson?: boolean;
+  /** Views on People: filters, columns, sort and saved views (isViewsEnabled()). */
+  views?: boolean;
   /** Every catalog save is kept as history (isCatalogHistoryEnabled()). */
   catalogHistory?: boolean;
   /** Vizzy reads connected data (isConnectorsChatEnabled()). */
@@ -68,6 +71,10 @@ export interface HelpBodyProps {
   aiAnswers?: boolean;
   /** The brand map is kept at any size (isBrandMapScaleEnabled()): proposed questions wait on its Subjects tab. */
   brandMapScale?: boolean;
+  /** The brand map family is in brand search for every brand (isSearchFamilyIndexEnabled(), ADR-0025). */
+  searchFamily?: boolean;
+  /** What we've seen's readers use brand search, so a note naming a customer is found only by its subject (isSearchNoteReadsEnabled(), ADR-0025). */
+  searchNoteReads?: boolean;
   /** A launch is an idea with a status, a hypothesis, an outcome and a hand-off (isIdeasEnabled()). */
   ideas?: boolean;
   /**
@@ -84,6 +91,10 @@ export interface HelpBodyProps {
   onboarding?: boolean;
   /** Talk with Vizzy by voice on the welcome (isOnboardingVoiceEnabled(), a server switch: the drawer gets it from the admin shell). */
   onboardingVoice?: boolean;
+  /** Settings › History (isSettingsHistoryEnabled(), a server switch: the drawer gets it from the admin shell). */
+  settingsHistory?: boolean;
+  /** Home's Your next action is a card Vizzy writes (isNextActionCardEnabled(), a server switch: the drawer gets it from the admin shell). */
+  nextActionCard?: boolean;
 }
 
 /** Navigation headings, matching Home's stages, in the words used while launches are called launches. */
@@ -187,6 +198,13 @@ export const HELP_PAGES: HelpPage[] = [
   page("onboarding-journeys", "Onboarding journeys", "retain", "Build an onboarding journey, test it on real people, then switch it to live."),
   page("review-and-approvals", "Review and approvals", "retain", "Check what Vizzy drafted and approve AI lines before they send."),
   page("people", "One person's view", "retain", "See one product user's steps, emails and journeys in one place."),
+  page(
+    "history-and-restore",
+    "History and restore",
+    "fix",
+    "See every change to your fields, journeys and product catalogs, put an older version back as a new one, or download one.",
+    "settings_history",
+  ),
   page("troubleshooting", "Why isn't this working?", "fix", "Common symptoms, what causes them and how to fix them."),
 ];
 
@@ -203,6 +221,7 @@ export function isHelpPageShown(p: Pick<HelpPage, "onlyWhen">): boolean {
   // password screens the sign-in page doesn't show.
   if (p.onlyWhen === "password_signin") return isPasswordSigninAvailable();
   if (p.onlyWhen === "image_versions") return isImageStyleVersionsOn();
+  if (p.onlyWhen === "settings_history") return isSettingsHistoryEnabled();
   return true;
 }
 

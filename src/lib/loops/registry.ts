@@ -47,6 +47,8 @@ export const RULE_DECISIONS = {
   found_live: { label: "Approve when found live", file: "src/lib/content/blog/foundLive.ts" },
   competitor_coverage: { label: "Competitor coverage flags", file: "src/lib/competitors/coverage.ts" },
   competitor_topics: { label: "Competitor topics to add", file: "src/lib/competitors/coverage.ts" },
+  competitor_profile: { label: "What competitors write", file: "src/lib/competitors/profile.ts" },
+  competitor_claim_match: { label: "Claims competitors now make", file: "src/lib/competitors/profile.ts" },
   image_style_pick: { label: "Image style used", file: "src/lib/content/imageStyle/resolve.ts" },
   pattern_holdout: { label: "Post patterns holdout", file: "src/lib/distribute/feedback/patterns.ts" },
   waitlist_rank: { label: "Waitlist order", file: "src/lib/waitlist/scoring.ts" },
@@ -97,6 +99,8 @@ export const LEARNED_STORES = {
   content_plan: "An article's brief keeps up to 50 notes a person took out of it.",
   broadcast: "Each one off launch email keeps its open and click rates once its report is read.",
   refresh_record: "Each refresh record keeps its clock, what a person decided and the clicks 28 days on.",
+  next_action_card: "The card's record keeps the newest 30 outcomes of its steps and each step's newest dismissal of the last 30 days, with the reason a person gave for it.",
+  brand_strategy: "The brand strategy keeps the newest 50 names a person marked Not a competitor, beside the stars, ticks, groups and edits people made.",
 } as const satisfies Record<string, string>;
 
 export type LearnedStore = keyof typeof LEARNED_STORES;
@@ -192,7 +196,7 @@ export const LOOPS = {
   situation_questions: own("brand_question", "A question your team dismissed on the brand map is never proposed or linked to a situation again."),
   brand_strategy: gap("The brand strategy keeps each focus star a person kept or removed and each claim they edited, before and after, but nothing learns from them yet.", LATER),
   content_strategy: gap("The content plan keeps each pillar a person renamed and each slot they split or joined, but naming and grouping the pillars learns nothing from them yet.", LATER),
-  competitor_find: gap("The brand strategy keeps which competitors the finder found that a person ticked to monitor or left out, but the finder learns nothing from them yet.", LATER),
+  competitor_find: own("brand_strategy", "Where the strategy is joined to Competitors, a name a person marked Not a competitor is kept on the brand strategy and the finder never suggests it again."),
   blog_research: gap("Research can read the Learned list through the brand context, but nothing records which facts and sources your team kept or cut.", LATER),
   autopilot_research: gap("The autopilot's research is never compared with what your team kept in the article, so it cannot learn which sources fit.", LATER),
   blog_refresh: own("article_review", "A change your team dismissed on an article is kept with the last 50 on its review and not proposed for that article again."),
@@ -228,6 +232,7 @@ export const LOOPS = {
   vizzy_chat: none("Each chat reply answers what the person just asked, and anything Vizzy saves is judged as the kind of draft it is."),
   product_map: none("It reads what your product's code does today, a fact rather than a taste, and a person decides what goes in the catalog."),
   onboarding: none("It turns what the founder said into the four answers and facts in their own words, and the founder keeps, changes or removes each one before anything is saved."),
+  next_action: own("next_action_card", "A step your team dismissed stays off the card for 30 days, and the next card for the brand reads what was done, answered, dismissed with its reason or left untouched."),
   other: none("Not a choice: no code spends under this name today, and every new call should name its real purpose."),
   blog_hero: learns("IMAGE_STYLE_VERSIONS_ENABLED", "votes", IMAGE_STYLE_SCOPES, { pool: "image_style" }),
   post_image: learns("IMAGE_STYLE_VERSIONS_ENABLED", "votes", IMAGE_STYLE_SCOPES, { pool: "image_style" }),
@@ -278,12 +283,14 @@ export const LOOPS = {
   found_live: none("An article a person put up on their own site counts as approved by them, which is a fact to record, not a taste to learn."),
   competitor_coverage: none("The flags compare competitor articles from the last 90 days with the questions the brand has answered, drafted or planned on each subject, plain counts anyone can check, so there is no taste in them."),
   competitor_topics: own("brand_map", "A topic a person dismissed from the brand map is marked dismissed and left out of what Next up suggests from competitor articles."),
+  competitor_profile: none("Each profile counts a watched competitor's articles of the last 90 days by kind, stage, ask and buying situation, which anyone can check against the articles themselves."),
+  competitor_claim_match: gap("A claim of yours that a competitor's articles start to make too is never spotted, because checking it honestly needs a meaning check per claim and a cut off that would raise false alarms.", LATER),
   image_style_pick: gap("Where image versions are on, each painted style learns its own look from votes, but which style an image uses is still the brand's pick or a fixed preset for its surface, and votes never change it.", IMAGES_BY),
   pattern_holdout: none("A fixed share of posts is written without the learned patterns so their effect can be measured, and that share must not drift with results."),
   waitlist_rank: none("The waitlist order is the rule promised to people who signed up: referrals, any bonus for finishing the voice chat and a teammate's Move up, then sign up time, so it must never shift on its own."),
   spintax_variant: gap("A recurring post picks one of its written variants at random each time, and how each variant did is never used to favour the better one.", POSTS_BY),
   auto_plug: none("The promo comment fires only at the threshold a person set and it posts in public, so it should do exactly what they set."),
-  next_action_order: gap("Home lists the steps of the stage that fits the brand's four answers by a fixed rule, and whether the team then did those steps never changes the order.", LATER),
+  next_action_order: gap("When Your next action has no card from Vizzy, Home lists the steps of the stage that fits the four answers by a fixed rule, and the outcomes the card now records never change that order.", "2027-02-26"),
   sidebar_fit: none("A section waits under Coming up only until the brand puts something in it or opens it early, and from then on it always shows, so the person's own choice is what is kept."),
 
   // ----- Model calls with no meter (UNMETERED_CALLS above) -----

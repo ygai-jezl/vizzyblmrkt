@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { baseSwitches, entryMap } from "./envfile.mjs";
-import { CORE_SECRETS, KEPT_OFF, REQUIRED_APIS } from "./spec.mjs";
+import { CORE_SECRETS, KEPT_OFF, REQUIRED_APIS, switchesForAddon } from "./spec.mjs";
 
 const REPO = fileURLToPath(new URL("../..", import.meta.url));
 const PROJECT = "acme-growth-test";
@@ -273,6 +273,17 @@ beforeEach(async () => {
 afterEach(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   rmSync(dir, { recursive: true, force: true });
+});
+
+describe("brand search's switches (ADR-0025)", () => {
+  it("turns the brand map family on with addon:search, and leaves the read and retire switches for a person", () => {
+    expect(switchesForAddon("search")).toContain("SEARCH_FAMILY_INDEX_ENABLED");
+    for (const name of Object.keys(KEPT_OFF).filter((n) => /^SEARCH_(SUBJECT|NOTE|COMPETITOR)_READS_ENABLED$|^SEARCH_OLD_VECTORS_RETIRED_ENABLED$/.test(n))) {
+      expect(KEPT_OFF[name as keyof typeof KEPT_OFF].addon, name).toBeNull();
+      expect(switchesForAddon("search")).not.toContain(name);
+    }
+    expect(KEPT_OFF.SEARCH_SUBJECT_READS_ENABLED.addon).toBeNull();
+  });
 });
 
 describe("npm run selfhost: the plan", { timeout: SLOW }, () => {

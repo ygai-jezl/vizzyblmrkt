@@ -7,12 +7,24 @@ import { Badge, Banner, Button, inputClass } from "@/components/admin/connect/ui
 import { BRAND_KIT_COMPETITORS_ROUTE } from "@/lib/content/brandKit";
 import { COMPETITOR_LIMITS } from "@/lib/types/competitor";
 import { STATUS_LABEL, type CompetitorDetail, type CompetitorSummary } from "@/lib/competitors/view";
+import type { FinderState, Suggestion } from "@/lib/brandStrategy/adminApi";
+import { COMPETITOR_GROUP_LABEL, type CompetitorGroupKind } from "@/lib/types/brandStrategy";
+import { CompetitorGroupPicker } from "./CompetitorGroupPicker";
+import { finderNote, foundNote, notCompetitorNote, strategyErrorText, watchingNote } from "./strategyMessages";
 
 /**
  * Brand › Competitors: Monitor a competitor's website, and the competitors already watched, each
  * with what changed since anyone last looked. While a new one is set up, the page carries the work
  * on (admins) a step at a time, so its progress shows as it happens.
+ *
+ * Joined to the strategy (`door`, STRATEGY_COMPETITORS_ENABLED), it is the second door to the
+ * Strategy tab's list: Find competitors, the finder's suggestions with Monitor and Not a
+ * competitor, and a group on each card.
  */
+
+const FINDER = "/api/admin/brand-kit/map/strategy/competitors";
+const LIST = "/api/admin/brand-kit/competitors";
+const SMALL = "rounded border border-neutral-300 px-2 py-0.5 text-[11px] hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-800";
 
 const SETTING_UP = new Set(["finding", "reading", "analysing"]);
 
@@ -66,8 +78,22 @@ export const BRAND_MAP_NOTE: Record<"added" | "already" | "suggested" | "not_add
   not_added: (n) => `We couldn't add ${n} to your brand map. You can add it from its page.`,
 };
 
-export function CompetitorsPage({ initial, canEdit, prefillName }: { initial: CompetitorSummary[]; canEdit: boolean; prefillName: string }) {
+export function CompetitorsPage({
+  initial,
+  canEdit,
+  prefillName,
+  door = null,
+}: {
+  initial: CompetitorSummary[];
+  canEdit: boolean;
+  prefillName: string;
+  door?: { suggestions: Suggestion[]; finder: FinderState; was: Record<string, CompetitorGroupKind> } | null;
+}) {
   const [list, setList] = useState(initial);
+  const [suggestions, setSuggestions] = useState(door?.suggestions ?? []);
+  const [finder, setFinder] = useState(door?.finder ?? null);
+  const [was, setWas] = useState(door?.was ?? {});
+  const [doorNote, setDoorNote] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
   const [website, setWebsite] = useState("");
   const [name, setName] = useState(prefillName);
   const [nameTouched, setNameTouched] = useState(Boolean(prefillName));
@@ -124,6 +150,30 @@ export function CompetitorsPage({ initial, canEdit, prefillName }: { initial: Co
 
   const full = list.length >= COMPETITOR_LIMITS.MAX_PER_BRAND;
 
+  /** The list and the finder's suggestions as they are now. */
+  async function refresh() {
+    const r = await api<{ competitors?: CompetitorSummary[]; suggestions?: Suggestion[]; was?: Record<string, CompetitorGroupKind> }>(door ? `${LIST}?suggestions=1` : LIST);
+    if (!r.ok) return;
+    if (r.data.competitors) setList(r.data.competitors);
+    if (r.data.suggestions) setSuggestions(r.data.suggestions);
+    if (r.data.was) setWas(r.data.was);
+  }
+
+  async function doorRun(path: string, body: unknown, done: (data: Record<string, unknown>) => string) {
+    setBusy(true);
+    setDoorNote(null);
+    const r = await api<Record<string, unknown> & { strategy?: { finder?: FinderState } }>(path, { method: "POST", body: JSON.stringify(body) });
+    setBusy(false);
+    if (!r.ok && r.data.error !== "already_watching") return setDoorNote({ tone: "err", text: strategyErrorText(r.data) });
+    if (r.data.strategy?.finder) setFinder(r.data.strategy.finder);
+    await refresh();
+    setDoorNote({ tone: "ok", text: done(r.data) });
+  }
+
+  const find = (mode: "quick" | "full") => doorRun(FINDER, { mode }, (d) => foundNote(Number(d.found ?? 0), Boolean(d.gapSkipped), true));
+  const watch = (c: Suggestion) => doorRun(LIST, { name: c.name, website: c.site, ...(c.group ? { group: c.group } : {}) }, () => watchingNote(c.name));
+  const notOne = (c: Suggestion) => doorRun(`${FINDER}/not`, { name: c.name, site: c.site }, () => notCompetitorNote(c.name));
+
   return (
     <div className="space-y-5">
       {canEdit ? (
@@ -177,6 +227,53 @@ export function CompetitorsPage({ initial, canEdit, prefillName }: { initial: Co
         </form>
       ) : null}
 
+      {door && (finder?.on || suggestions.length) ? (
+        <section aria-label="Find competitors" className="space-y-3 rounded-lg border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold">Suggested by the finder</h2>
+            {canEdit && finder?.on ? (
+              <span className="flex flex-wrap gap-2">
+                <Button disabled={busy || (!finder.granted && finder.quickUsed)} onClick={() => void find("quick")}>
+                  Find competitors
+                </Button>
+                {finder.granted ? (
+                  <Button disabled={busy} onClick={() => void find("full")}>
+                    Full search
+                  </Button>
+                ) : null}
+              </span>
+            ) : null}
+          </div>
+          {finder?.on ? <p className="text-xs text-neutral-500 dark:text-neutral-400">It asks Google who buyers weigh instead of you. {finderNote(finder)}</p> : null}
+          {suggestions.length ? (
+            <ul className="space-y-1.5 text-sm">
+              {suggestions.map((c) => (
+                <li key={c.name} className="flex flex-wrap items-center gap-1.5" title={c.evidence.map((e) => e.title || e.domain).join(" · ") || undefined}>
+                  <span className="font-medium">{c.name}</span>
+                  {c.site ? <span className="text-neutral-500">{c.site}</span> : null}
+                  {c.group ? <span className="text-xs text-neutral-500">· {COMPETITOR_GROUP_LABEL[c.group]}</span> : null}
+                  {canEdit && c.site ? (
+                    <button type="button" className={SMALL} disabled={busy || full} onClick={() => void watch(c)}>
+                      Monitor
+                    </button>
+                  ) : null}
+                  {canEdit ? (
+                    <button type="button" className={SMALL} disabled={busy} onClick={() => void notOne(c)}>
+                      Not a competitor
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">No suggestions waiting. What the finder finds shows here and on the Strategy tab.</p>
+          )}
+          {doorNote ? <Banner tone={doorNote.tone}>{doorNote.text}</Banner> : null}
+        </section>
+      ) : door && doorNote ? (
+        <Banner tone={doorNote.tone}>{doorNote.text}</Banner>
+      ) : null}
+
       {list.length === 0 ? (
         <p className="rounded-lg border border-dashed border-neutral-300 p-8 text-center text-sm text-neutral-500 dark:border-neutral-700">
           No competitors yet.{" "}
@@ -203,9 +300,22 @@ export function CompetitorsPage({ initial, canEdit, prefillName }: { initial: Co
                 </p>
               ) : null}
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-neutral-500 dark:text-neutral-400">
-                <span>
-                  {c.nextCheckAt ? `Next check ${shortDate(c.nextCheckAt)}` : c.status === "needs_you" ? "Waiting for you" : ""}
-                  {!c.onBrandMap ? " · Not on your brand map" : ""}
+                <span className="flex flex-wrap items-center gap-2">
+                  {door ? (
+                    <CompetitorGroupPicker
+                      id={c.id}
+                      name={c.name}
+                      group={c.group}
+                      was={was[c.id] ?? null}
+                      canEdit={canEdit}
+                      onSaved={(group) => setList((all) => all.map((x) => (x.id === c.id ? { ...x, group } : x)))}
+                      onError={(text) => setDoorNote({ tone: "err", text })}
+                    />
+                  ) : null}
+                  <span>
+                    {c.nextCheckAt ? `Next check ${shortDate(c.nextCheckAt)}` : c.status === "needs_you" ? "Waiting for you" : ""}
+                    {!c.onBrandMap ? " · Not on your brand map" : ""}
+                  </span>
                 </span>
                 <Link href={`${BRAND_KIT_COMPETITORS_ROUTE}/${c.id}`} className="rounded-md border border-neutral-300 px-2.5 py-1 text-xs font-medium text-neutral-800 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-900">
                   Open

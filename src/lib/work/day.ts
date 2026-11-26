@@ -127,6 +127,15 @@ export function carryOverOn(rows: readonly WorkLogRow[], day: string, timeZone: 
   return inFlightOn(rows, addDaysToKey(day, -1), timeZone, readFrom).filter((f) => !logged.has(keyOf(f)));
 }
 
+/**
+ * Today before anyone has logged (the canvas's Nothing logged yet): how many workstreams still open
+ * from yesterday Carry over offers to log, from the day's `carry` count, or 0 when it offers
+ * nothing. Never on a past day. The Log screen and get_work both read it.
+ */
+export function carryOffer(day: Pick<LogDay, "entries"> & { today: boolean; carry: number }): number {
+  return day.today && day.entries.length === 0 ? day.carry : 0;
+}
+
 /** The Log for one day, from the rows read (newest first or any order), and the rail's days. */
 export function deriveDay(rows: readonly WorkLogRow[], day: string, timeZone: string, readFrom: string): LogDay {
   const on = (r: WorkLogRow) => dayIn(r.at, timeZone) === day;

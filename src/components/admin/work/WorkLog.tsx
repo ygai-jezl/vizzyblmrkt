@@ -29,7 +29,7 @@ import { ENTRY_STATES, WORK_LIMITS, type EntryState, type WorkLogRowOf } from "@
 import { timeOf } from "@/lib/work/words";
 import type { DraftedNote, LogScreen } from "@/lib/work/screens";
 import { DRAFT_COPY } from "@/lib/work/draft";
-import type { MovedTask } from "@/lib/work/day";
+import { carryOffer, type MovedTask } from "@/lib/work/day";
 import { workCall, workErrorText } from "./api";
 import { CheckActions } from "./CheckActions";
 
@@ -56,14 +56,6 @@ export function decisionWords(d: WorkLogRowOf<"decision">, o: { me: string; name
   const who = whoInline({ kind: "person", id: dec.chosen.by }, o.me, o.names);
   const rec = dec.recommended ? (dec.agreed ? " Vizzy's pick." : ` ${dec.recommended.by.kind === "vizzy" ? "Vizzy" : "The coding agent"}'s pick was ${label(dec.recommended.option)}.`) : "";
   return `${label(dec.chosen.option)}, by ${who}.${rec}`;
-}
-
-/**
- * Today before anyone has logged (the canvas's Nothing logged yet): how many workstreams still open
- * from yesterday Carry over offers to log, or 0 when it offers nothing. Never on a past day.
- */
-export function carryOffer(day: Pick<LogScreen["day"], "today" | "entries" | "carry">): number {
-  return day.today && day.entries.length === 0 ? day.carry : 0;
 }
 
 /**

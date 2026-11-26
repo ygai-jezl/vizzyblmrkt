@@ -8,6 +8,7 @@ import { blankMeasure, blankPart, typedLinkWords } from "@/lib/work/form";
 import { changeWords, checkSaidLine, noLinksText, regionsFullText } from "@/lib/work/screenWords";
 import { suggestMeasureKind } from "@/lib/work/measureKind";
 import type { WorkLogRowOf } from "@/lib/work/types";
+import { carryOffer } from "@/lib/work/day";
 
 // Work's screens as they draw. Made-up Lumen Notes and Fernhill Plants.
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }), usePathname: () => "/admin/work" }));
@@ -18,7 +19,7 @@ const { onEnter, typedKinds, TypedLinksEditor } = await import("./TaskFields");
 const { checkButtons, checkNoticeOf } = await import("./CheckActions");
 const { focusTarget } = await import("./useFocusSwap");
 const { decisionView } = await import("./Decisions");
-const { movedWords, decisionWords, WorkLog, carryOffer } = await import("./WorkLog");
+const { movedWords, decisionWords, WorkLog } = await import("./WorkLog");
 const { historyLine, textEdits } = await import("./TaskPage");
 const { TaskForm } = await import("./TaskForm");
 const { MeasurePicker } = await import("./MeasurePicker");

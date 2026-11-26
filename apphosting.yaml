@@ -331,8 +331,9 @@ env:
     value: "false"
     availability:
       - RUNTIME
-  # Vizzy's Work tools (get_work, suggest_work_task, draft_work_log, draft_work_decision) and the
-  # Work starters in Ask Vizzy. Needs WORK_ENABLED and a Vizzy deploy with the tools.
+  # Vizzy's Work tools (get_work, suggest_work_task, draft_work_log, draft_work_decision, through
+  # /api/agent/work) and the Work starters in Ask Vizzy. Needs WORK_ENABLED and a Vizzy deploy with
+  # the tools; before that deploy the tools aren't there, and off they answer that Work isn't on.
   - variable: WORK_VIZZY_ENABLED
     value: "false"
     availability:

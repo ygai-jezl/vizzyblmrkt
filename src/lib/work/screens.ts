@@ -22,6 +22,9 @@ import { WORK_MESSAGES } from "./words";
 import { suggestionForForm } from "./suggestions";
 import type { SuggestedTask } from "./suggestion";
 import type { AgentActionId } from "@/lib/types/agentAction";
+import { DRAFT_COPY, logDraftLine, type DecisionDraft } from "./draft";
+import { readDecisionDraft, readLogDraft } from "./drafts";
+import type { EntryState, WorkLink } from "./types";
 
 /**
  * What Work's four screens show (ADR-0018), read on the server and handed to the pages as plain
@@ -334,6 +337,17 @@ export interface TaskScreen extends WorkChrome {
   afterRef: number | null;
   /** On a task added from a Vizzy suggestion: where Vizzy wrote it from, and what it suggested for each field the person changed. */
   suggested: { from: string; edited: Array<{ label: string; was: string }> } | null;
+  /** Opened from a decision Vizzy drafted in chat (`?decision=aa_…`): the draft to choose on, or why it can't be. */
+  draftedDecision: DraftedDecision | { gone: string } | null;
+}
+
+/** A decision Vizzy drafted, as the task page offers it: the person chooses, and it saves. */
+export interface DraftedDecision {
+  id: AgentActionId;
+  rev: number;
+  question: string;
+  options: DecisionDraft["options"];
+  recommended: DecisionDraft["recommended"];
 }
 
 /**
@@ -363,17 +377,28 @@ async function suggestedOf(scope: WorkScope, task: WorkTask, deps: WorkDeps): Pr
   }
 }
 
+/** A drafted decision for this task, or the words for why it can't be chosen on. */
+async function draftedDecisionOf(scope: WorkScope, task: WorkTask, id: string | null | undefined, deps: WorkDeps): Promise<TaskScreen["draftedDecision"]> {
+  if (!id) return null;
+  const r = await readDecisionDraft(scope, id, deps);
+  if (!r.ok) return { gone: r.error === "draft_decided" ? DRAFT_COPY.decisionDraftGone : r.message };
+  const d = r.value.draft;
+  if (d.taskId !== task.id) return { gone: WORK_MESSAGES.draft_missing };
+  return { id: r.value.actionId, rev: r.value.rev, question: d.question, options: d.options, recommended: d.recommended };
+}
+
 /** One task the person sees, with what its forms offer, or null (not found, never forbidden). */
-export async function taskScreen(scope: WorkScope, ref: number, deps: WorkDeps = {}): Promise<TaskScreen | null> {
+export async function taskScreen(scope: WorkScope, ref: number, deps: WorkDeps = {}, opts: { decisionDraft?: string | null } = {}): Promise<TaskScreen | null> {
   const r = await taskPage(scope, ref, deps);
   if (!r.ok) return null;
   const page = r.value;
   const task = page.task;
   const current = [task.measure, task.measure && task.measure.kind !== "done" ? task.measure.then : null].find((p) => p && p.kind === "moves");
-  const [names, options, suggested] = await Promise.all([
+  const [names, options, suggested, draftedDecision] = await Promise.all([
     ideaNames(scope, ideasOf(task), deps),
     formOptions(scope, deps, { self: task, current: current && current.kind === "moves" ? current.meaning : null }),
     suggestedOf(scope, task, deps),
+    draftedDecisionOf(scope, task, opts.decisionDraft, deps),
   ]);
   const brand = brandForTask(scope, task);
   const choices = brandChoices(scope);
@@ -393,6 +418,7 @@ export async function taskScreen(scope: WorkScope, ref: number, deps: WorkDeps =
     checkPartLine: part ? partLine(part, { connection: (id) => product.find((p) => p.id === id)?.name }) : null,
     afterRef: page.checkTask && "ref" in page.checkTask ? page.checkTask.ref : null,
     suggested,
+    draftedDecision,
   };
 }
 
@@ -419,15 +445,38 @@ export interface LogScreen extends WorkChrome {
   openTasks: OpenTaskOption[];
   logBrands: Array<{ id: string; name: string }>;
   wholeBusiness: boolean;
+  /** Opened from a note Vizzy drafted in chat (`?draft=aa_…`), today only: the Log box filled with it, or why it can't be. */
+  draft: DraftedNote | { gone: string } | null;
+}
+
+/** A note Vizzy drafted, as the Log box takes it: the person can change it, then saves it. */
+export interface DraftedNote {
+  id: AgentActionId;
+  rev: number;
+  /** "Workstream: note", as the box reads a line. */
+  line: string;
+  state: EntryState;
+  ref: number | null;
+  brandId: string | null;
+  links: WorkLink[];
+}
+
+async function draftedNoteOf(scope: WorkScope, id: string | null | undefined, today: boolean, deps: WorkDeps): Promise<LogScreen["draft"]> {
+  if (!id || !today) return null;
+  const r = await readLogDraft(scope, id, deps);
+  if (!r.ok) return { gone: r.error === "draft_decided" ? DRAFT_COPY.logDraftGone : r.message };
+  const d = r.value.draft;
+  return { id: r.value.actionId, rev: r.value.rev, line: logDraftLine(d), state: d.state, ref: d.ref, brandId: d.brandId, links: d.links };
 }
 
 /** The most due measure checks the Log counts on one read. */
 const COUNT_ON_READ = 10;
 
 /** One day of the Log, today unless a day is given, or the words for why it can't be shown. */
-export async function logScreen(scope: WorkScope, day: string | null, deps: WorkDeps = {}): Promise<{ ok: true; screen: LogScreen } | { ok: false; message: string }> {
+export async function logScreen(scope: WorkScope, day: string | null, deps: WorkDeps = {}, opts: { draft?: string | null } = {}): Promise<{ ok: true; screen: LogScreen } | { ok: false; message: string }> {
   const r = await logDay(scope, day, deps);
   if (!r.ok) return { ok: false, message: r.message };
+  const draft = await draftedNoteOf(scope, opts.draft, r.value.today, deps);
   const { checks: due, ...rest } = r.value;
   // A due measure's check is counted once, when it first shows, as on the task page.
   let n = 0;
@@ -473,6 +522,7 @@ export async function logScreen(scope: WorkScope, day: string | null, deps: Work
         .map((t) => ({ ref: t.ref, title: t.title, status: t.status })),
       logBrands: choices.brands.map((b) => ({ id: b.id, name: b.name })),
       wholeBusiness: choices.wholeBusiness,
+      draft,
     },
   };
 }

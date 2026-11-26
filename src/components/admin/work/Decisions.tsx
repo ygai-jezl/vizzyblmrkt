@@ -1,13 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Check, Sparkles } from "lucide-react";
 import { Button, inputClass } from "@/components/admin/connect/ui";
 import { Chip } from "@/components/admin/people/Chip";
 import { initialsOf, whenWords, whoWords, WORK_COPY } from "@/lib/work/screenWords";
 import { isPlanApprovalQuestion, PLAN_APPROVAL_OPTIONS, WORK_LIMITS, type DecisionOptionId, type TypedLink, type WorkLogRowOf } from "@/lib/work/types";
 import { PLAN_STATE_LABEL } from "@/lib/work/words";
+import { DRAFT_COPY } from "@/lib/work/draft";
+import type { DraftedDecision } from "@/lib/work/screens";
 import { workCall, workErrorText } from "./api";
 
 type DecisionRow = WorkLogRowOf<"decision">;
@@ -68,19 +70,45 @@ export function decisionView(d: DecisionRow, o: { me: string; names: Readonly<Re
 }
 
 /** Decisions on a task, newest first, and the form to record one. Append only: a changed mind is a new row. */
-export function Decisions({ taskRef, decisions, typedLinks, me, names, timeZone, today }: { taskRef: number; decisions: DecisionRow[]; typedLinks: TypedLink[]; me: string; names: Record<string, string>; timeZone: string; today: string }) {
+export function Decisions({
+  taskRef,
+  decisions,
+  typedLinks,
+  me,
+  names,
+  timeZone,
+  today,
+  drafted = null,
+}: {
+  taskRef: number;
+  decisions: DecisionRow[];
+  typedLinks: TypedLink[];
+  me: string;
+  names: Record<string, string>;
+  timeZone: string;
+  today: string;
+  /** A decision Vizzy drafted in chat, opened from its card. */
+  drafted?: DraftedDecision | { gone: string } | null;
+}) {
   const [adding, setAdding] = useState(false);
   const [changing, setChanging] = useState<string | null>(null);
   const replacedIds = new Set(decisions.flatMap((d) => (d.decision.replaces ? [d.decision.replaces] : [])));
   const views = [...decisions].reverse().map((d) => decisionView(d, { me, names, timeZone, today, typedLinks, replacedIds }));
   return (
-    <section aria-labelledby="wk-dec-h" className="space-y-3">
+    <section id="decisions" aria-labelledby="wk-dec-h" className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <h2 id="wk-dec-h" className="text-sm font-semibold">
           Decisions
         </h2>
         {!adding && decisions.length < WORK_LIMITS.decisions ? <Button onClick={() => setAdding(true)}>Record a decision</Button> : null}
       </div>
+      {drafted && "gone" in drafted ? (
+        <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          {drafted.gone}
+        </p>
+      ) : drafted ? (
+        <DraftedDecisionBox taskRef={taskRef} draft={drafted} />
+      ) : null}
       {adding ? <DecisionForm taskRef={taskRef} onClose={() => setAdding(false)} /> : null}
       {views.length ? (
         <ol aria-label="Decisions, newest first" className="space-y-3">
@@ -267,6 +295,76 @@ export function ApprovePlan({ taskRef, url, version, onClose }: { taskRef: numbe
           {error}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * A decision Vizzy drafted in chat: its question, options and pick with why, as Vizzy wrote them.
+ * The person chooses (and may say why); saving records the decision with Vizzy's pick as its
+ * recommendation. Leave it drops the draft from the page; it is set aside after 7 days.
+ */
+export function DraftedDecisionBox({ taskRef, draft }: { taskRef: number; draft: DraftedDecision }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [chosen, setChosen] = useState<DecisionOptionId | null>(null);
+  const [why, setWhy] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const pick = draft.recommended ? draft.options.find((o) => o.id === draft.recommended!.option) : undefined;
+  const leave = () => router.replace(pathname ?? `/admin/work/${taskRef}`);
+  const save = async () => {
+    if (!chosen) return;
+    setBusy(true);
+    setError(null);
+    const r = await workCall("/decisions", "POST", { ref: taskRef, draft: { id: draft.id, rev: draft.rev }, chosen, ...(why.trim() ? { why: why.trim() } : {}) });
+    setBusy(false);
+    if (!r.ok) return setError(workErrorText(r.data));
+    leave();
+    router.refresh();
+  };
+  return (
+    <div role="group" aria-labelledby="wk-drafted-h" className="space-y-2 rounded-lg border border-sky-200 bg-sky-50/50 p-3 text-sm dark:border-sky-900 dark:bg-sky-950/20">
+      <p className="flex items-center gap-1.5 text-xs text-sky-800 dark:text-sky-200">
+        <Sparkles size={12} aria-hidden />
+        {DRAFT_COPY.decisionDrafted}
+      </p>
+      <p id="wk-drafted-h" className="font-medium">
+        {draft.question}
+      </p>
+      <div role="radiogroup" aria-label="Options" className="flex flex-wrap gap-1.5">
+        {draft.options.map((o) => (
+          <button
+            key={o.id}
+            type="button"
+            role="radio"
+            aria-checked={chosen === o.id}
+            onClick={() => setChosen(o.id)}
+            className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs ${chosen === o.id ? "border-neutral-900 font-medium dark:border-white" : "border-neutral-300 dark:border-neutral-700"}`}
+          >
+            {o.label}
+            {pick?.id === o.id ? (
+              <span className="inline-flex items-center gap-0.5 text-sky-700 dark:text-sky-300">
+                <Sparkles size={10} aria-hidden />
+                {DRAFT_COPY.vizzyPick}
+              </span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-neutral-600 dark:text-neutral-400">{pick && draft.recommended ? <><strong>{`Vizzy recommended “${pick.label}”.`}</strong> {draft.recommended.reason}</> : DRAFT_COPY.noPick}</p>
+      <input type="text" aria-label="Why (optional)" placeholder="Why (optional)" maxLength={WORK_LIMITS.why} value={why} onChange={(e) => setWhy(e.target.value)} className={inputClass} />
+      {error ? (
+        <p role="alert" className="text-xs text-red-700 dark:text-red-400">
+          {error}
+        </p>
+      ) : null}
+      <div className="flex gap-2">
+        <Button tone="primary" disabled={!chosen || busy} onClick={() => void save()}>
+          {busy ? "Saving…" : DRAFT_COPY.decisionSave}
+        </Button>
+        <Button onClick={leave}>{DRAFT_COPY.decisionLeave}</Button>
+      </div>
     </div>
   );
 }

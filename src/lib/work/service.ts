@@ -16,6 +16,7 @@ import {
   newWorkTaskId,
   peekWorkRefs,
   raiseWorkRefs,
+  saveDraftedWorkLog,
   type NewWorkTask,
   type SuggestionAccept,
   type WorkChangePlan,
@@ -28,7 +29,7 @@ import type { Region } from "@/lib/types/tenant";
 import { countForCheck } from "./counted";
 import { importFileName, matchColumns, parseSheet, readSheet, type ImportRow } from "./import";
 import type { AddTaskBody, CheckActionBody, CheckInput, DecisionBody, EditTaskBody, ImportBody, WorkFilters } from "./inputs";
-import { ok, refuse, type WorkRefused, type WorkResult } from "./result";
+import { draftRefusal, ok, refuse, type DraftedSave, type WorkRefused, type WorkResult } from "./result";
 import { checkAfterRead, checkOnDone, dayIn, lookAgain, morningOf, partOf } from "./schedule";
 import { brandForTask, brandIn, mapLimit, nowOf, regionName, seesTask, zoneForTask, type WorkBrand, type WorkDeps, type WorkScope } from "./scope";
 import { stageById } from "./stages";
@@ -763,10 +764,18 @@ export type Recommended = NonNullable<WorkDecision["recommended"]>;
  * replaces. A plan approval ("Approve the plan": Approve, Change it, Not now) needs the plan link
  * with that url and version on the task, takes no recommendation, and so is refused when drafted.
  */
-export async function recordDecision(scope: WorkScope, body: DecisionBody, deps: WorkDeps = {}, opts: { recommended?: Recommended | null; tool?: string } = {}): Promise<WorkResult<{ row: WorkLogRowOf<"decision">; plans: ReturnType<typeof planStates> }>> {
+export async function recordDecision(
+  scope: WorkScope,
+  body: DecisionBody,
+  deps: WorkDeps = {},
+  opts: { recommended?: Recommended | null; tool?: string; draft?: DraftedSave & { taskId: string } } = {},
+): Promise<WorkResult<{ row: WorkLogRowOf<"decision">; plans: ReturnType<typeof planStates> }>> {
   const now = nowOf(deps);
   const task = await taskByRef(scope, body.ref, deps);
   if (!task) return refuse("not_found");
+  // A draft answers the task it was drafted on, and is never a plan approval.
+  if (opts.draft && opts.draft.taskId !== task.id) return refuse("draft_missing");
+  if (opts.draft && body.plan) return refuse("plan_recommended");
   const decisions = await listTaskDecisions(scope.organisationId, task.region, task.id, deps);
   if (decisions.length >= WORK_LIMITS.decisions) return refuse("decisions_full");
   if (body.replaces && !decisions.some((d) => d.id === body.replaces)) return refuse("replaces_missing");
@@ -798,13 +807,18 @@ export async function recordDecision(scope: WorkScope, body: DecisionBody, deps:
     const chosen = body.chosen ? { option: body.chosen, by: scope.userId } : null;
     decision = { question: body.question!, options, recommended, chosen, agreed: agreedOf({ recommended, chosen }), why: body.why || null, replaces: body.replaces ?? null, plan: null };
   }
-  const w = writeOf(scope, now, opts.tool);
-  const [row] = await appendWorkLog(
-    [{ organisationId: scope.organisationId, brandId: task.brandId, region: task.region, day: w.day, at: w.at, source: w.source, kind: "decision", taskId: task.id, decision }],
-    deps,
-  );
-  const saved = row as WorkLogRowOf<"decision">;
-  return ok({ row: saved, plans: planStates(task.typedLinks, [...decisions, saved]) }, 201);
+  const w = writeOf(scope, now, opts.draft?.tool ?? opts.tool);
+  const input = { organisationId: scope.organisationId, brandId: task.brandId, region: task.region, day: w.day, at: w.at, source: w.source, kind: "decision" as const, taskId: task.id, decision };
+  let saved: WorkLogRowOf<"decision">;
+  if (opts.draft) {
+    const r = await saveDraftedWorkLog(scope.ctx, { ...input, id: opts.draft.rowId }, opts.draft.accept, deps);
+    if (!r.ok) return draftRefusal(r.error);
+    saved = r.row as WorkLogRowOf<"decision">;
+  } else {
+    const [row] = await appendWorkLog([input], deps);
+    saved = row as WorkLogRowOf<"decision">;
+  }
+  return ok({ row: saved, plans: planStates(task.typedLinks, [...decisions.filter((d) => d.id !== saved.id), saved]) }, 201);
 }
 
 // --- Import ------------------------------------------------------------------------------------

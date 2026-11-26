@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CalendarClock, GitCommitHorizontal, ListChecks, Scale } from "lucide-react";
+import { CalendarClock, GitCommitHorizontal, ListChecks, Scale, Sparkles } from "lucide-react";
 import { Button, inputClass } from "@/components/admin/connect/ui";
 import { Chip } from "@/components/admin/people/Chip";
 import { logLineOf } from "@/lib/work/form";
@@ -23,7 +23,8 @@ import {
 } from "@/lib/work/screenWords";
 import { ENTRY_STATES, WORK_LIMITS, type EntryState, type WorkLogRowOf } from "@/lib/work/types";
 import { timeOf } from "@/lib/work/words";
-import type { LogScreen } from "@/lib/work/screens";
+import type { DraftedNote, LogScreen } from "@/lib/work/screens";
+import { DRAFT_COPY } from "@/lib/work/draft";
 import type { MovedTask } from "@/lib/work/day";
 import { workCall, workErrorText } from "./api";
 import { CheckActions } from "./CheckActions";
@@ -119,7 +120,12 @@ export function WorkLog({ screen }: { screen: LogScreen }) {
             </h3>
             <span className="text-xs text-neutral-500">{today ? WORK_COPY.inFlightHint : WORK_COPY.pastDayHint}</span>
           </div>
-          {today ? <LogBox screen={screen} /> : null}
+          {today && screen.draft && "gone" in screen.draft ? (
+            <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+              {screen.draft.gone}
+            </p>
+          ) : null}
+          {today ? <LogBox key={screen.draft && "id" in screen.draft ? screen.draft.id : "box"} screen={screen} draft={screen.draft && "id" in screen.draft ? screen.draft : null} /> : null}
           {day.inFlight.length ? (
             <ul className="space-y-2">
               {day.inFlight.map((f) => {
@@ -263,16 +269,21 @@ export function WorkLog({ screen }: { screen: LogScreen }) {
   );
 }
 
-/** The Log box: one line per workstream ("Pricing page: copy done"), its state, and the task it is about. */
-export function LogBox({ screen }: { screen: Pick<LogScreen, "openTasks" | "logBrands" | "wholeBusiness" | "multiBrand" | "sessionBrand"> }) {
+/**
+ * The Log box: one line per workstream ("Pricing page: copy done"), its state, and the task it is
+ * about. Opened from a note Vizzy drafted in chat, it starts filled with the draft, which the
+ * person can change before saving it to today's log; Leave it empties the box.
+ */
+export function LogBox({ screen, draft = null }: { screen: Pick<LogScreen, "openTasks" | "logBrands" | "wholeBusiness" | "multiBrand" | "sessionBrand">; draft?: DraftedNote | null }) {
   const router = useRouter();
-  const [text, setText] = useState("");
-  const [state, setState] = useState<EntryState>("doing");
-  const [ref, setRef] = useState<number | null>(null);
-  const [brandId, setBrandId] = useState<string>(screen.sessionBrand.id);
+  const [text, setText] = useState(draft?.line ?? "");
+  const [state, setState] = useState<EntryState>(draft?.state ?? "doing");
+  const [ref, setRef] = useState<number | null>(draft?.ref ?? null);
+  const [brandId, setBrandId] = useState<string>(draft ? (draft.brandId ?? "none") : screen.sessionBrand.id);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const line = logLineOf(text);
+  const leave = () => router.replace("/admin/work/log");
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -285,17 +296,25 @@ export function LogBox({ screen }: { screen: Pick<LogScreen, "openTasks" | "logB
       ...(line.note ? { note: line.note } : {}),
       ...(ref ? { ref } : {}),
       ...(screen.multiBrand && !ref ? { brandId: brandId === "none" ? null : brandId } : {}),
+      ...(draft ? { brandId: ref ? undefined : brandId === "none" ? null : brandId, links: draft.links, draft: { id: draft.id, rev: draft.rev } } : {}),
     });
     setBusy(false);
     if (!r.ok) return setError(workErrorText(r.data));
     setText("");
     setState("doing");
     setRef(null);
+    if (draft) leave();
     router.refresh();
   }
 
   return (
     <form onSubmit={submit} className="space-y-2">
+      {draft ? (
+        <p className="flex items-center gap-1.5 text-xs text-sky-800 dark:text-sky-200">
+          <Sparkles size={12} aria-hidden />
+          {DRAFT_COPY.logDrafted}
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center gap-2">
         <input
           type="text"
@@ -314,8 +333,13 @@ export function LogBox({ screen }: { screen: Pick<LogScreen, "openTasks" | "logB
           ))}
         </select>
         <Button type="submit" tone="primary" disabled={!line || busy}>
-          {busy ? "Logging…" : "Log it"}
+          {busy ? "Logging…" : draft ? DRAFT_COPY.logSave : "Log it"}
         </Button>
+        {draft ? (
+          <Button type="button" onClick={leave}>
+            {DRAFT_COPY.logLeave}
+          </Button>
+        ) : null}
       </div>
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <select aria-label="Task it is about" value={ref ?? ""} onChange={(e) => setRef(e.target.value ? Number(e.target.value) : null)} className={`${inputClass} w-auto max-w-xs`}>

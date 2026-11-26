@@ -1,3 +1,4 @@
+import type { DraftAccept, DraftedRowResult } from "@/lib/tenant";
 import { WORK_MESSAGES, type WorkRefusal } from "./words";
 
 /**
@@ -65,6 +66,13 @@ const STATUS: Record<WorkRefusal, WorkStatusCode> = {
   suggestion_changed: 409,
   suggestion_other_region: 409,
   suggestion_must_have: 400,
+  suggestion_reason: 400,
+  draft_missing: 404,
+  draft_decided: 409,
+  draft_changed: 409,
+  plan_drafted: 400,
+  pick_unknown: 400,
+  draft_choice: 400,
 };
 
 export function ok<T>(value: T, status: 200 | 201 = 200): WorkResult<T> {
@@ -84,4 +92,17 @@ export function invalidInput(issues: ReadonlyArray<{ path: ReadonlyArray<Propert
     message: WORK_MESSAGES.invalid_input,
     issues: issues.slice(0, 10).map((i) => ({ path: i.path.map(String).join("."), message: i.message })),
   };
+}
+
+/** A row saved from a draft of Vizzy's: it takes the draft's target id, and the draft moves with it (src/lib/work/drafts.ts). */
+export interface DraftedSave {
+  rowId: string;
+  accept: DraftAccept;
+  /** The tool the row says wrote it: draft_work_log or draft_work_decision. */
+  tool: string;
+}
+
+/** A draft that couldn't move, as the refusal a person reads. */
+export function draftRefusal(error: Extract<DraftedRowResult, { ok: false }>["error"]): WorkRefused {
+  return refuse(error === "changed" ? "draft_changed" : error === "not_found" ? "draft_missing" : "draft_decided");
 }

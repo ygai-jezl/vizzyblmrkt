@@ -1630,7 +1630,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "work_log",
     name: "Work log",
     description:
-      "The organisation's daily log on Work (ADR-0018): what people write each day (a workstream with its state, a note and up to 3 links), one row for every change to a task with the value before and after, each check marked, moved on or read (Better, Same, Worse or Too soon to tell, with the measure's kind and what Work counted), and each decision recorded on a task (the question, 2 to 4 options, who recommended which and why, the choice and who made it, with approving a plan among them), with who wrote it, from which tool. Append only: a row is only ever added, apart from its organisation changing when its brand moves to another. Kept in the region of the task or brand it is about, with no time to live, until the organisation's Work is erased. Today, workstreams carried over, tasks that moved and checks due are worked out when the Log is read; the loops read every row as a work event.",
+      "The organisation's daily log on Work (ADR-0018): what people write each day (a workstream with its state, a note and up to 3 links), one row for every change to a task with the value before and after, each check marked, moved on or read (Better, Same, Worse or Too soon to tell, with the measure's kind and what Work counted), and each decision recorded on a task (the question, 2 to 4 options, who recommended which and why, the choice and who made it, with approving a plan among them), with who wrote it, from which tool (a note or decision saved from a draft of Vizzy's says draft_work_log or draft_work_decision, and a drafted decision keeps Vizzy's pick and reason as its recommendation). Append only: a row is only ever added, apart from its organisation changing when its brand moves to another. Kept in the region of the task or brand it is about, with no time to live, until the organisation's Work is erased. Today, workstreams carried over, tasks that moved and checks due are worked out when the Log is read; the loops read every row as a work event.",
     place: "company",
     status: "built",
     madeBy: ["vizzy_chat"],
@@ -1647,6 +1647,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { to: "brand", via: "brandId, the brand the row is about (none for the whole business)", many: false },
       { to: "work_task", via: "taskId", many: false },
       { to: "member", via: "source.who and a decision's chosen.by, as user ids", many: true },
+      { to: "agent_action", via: "the draft a person saved it from (draft_work_log, draft_work_decision): the draft's target is the row's id", many: false },
     ],
     events: ["work.task_added", "work.task_changed", "work.logged", "work.checked", "work.decided"],
     erase: {

@@ -11,16 +11,17 @@ export const dynamic = "force-dynamic";
 
 /**
  * Work's Log tab (WORK_ENABLED). It opens on Today; `?day=YYYY-MM-DD` opens a past day, read only.
- * Days are the session brand's own days.
+ * `?draft=aa_…` opens Today with a note Vizzy drafted in chat in the Log box, to save. Days are the
+ * session brand's own days.
  */
-export default async function WorkLogPage({ searchParams }: { searchParams: Promise<{ day?: string | string[] }> }) {
+export default async function WorkLogPage({ searchParams }: { searchParams: Promise<{ day?: string | string[]; draft?: string | string[] }> }) {
   if (!isWorkEnabled()) notFound();
   const ctx = await requireAdminContext();
   const gate = await screenScope(ctx);
   if (!gate.ok) return <WorkUnavailable message={gate.message} />;
   const sp = await searchParams;
   const day = typeof sp.day === "string" ? sp.day : null;
-  const r = await logScreen(gate.scope, day);
+  const r = await logScreen(gate.scope, day, {}, { draft: typeof sp.draft === "string" ? sp.draft : null });
   const name = gate.scope.view === "brand" ? gate.scope.session.name : (gate.scope.organisationName ?? gate.scope.session.name);
   return (
     <div className="mx-auto max-w-6xl space-y-5">

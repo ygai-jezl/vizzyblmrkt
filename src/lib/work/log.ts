@@ -1,8 +1,8 @@
-import { appendWorkLog, findWorkTaskByRef, listWorkLog } from "@/lib/tenant";
+import { appendWorkLog, findWorkTaskByRef, listWorkLog, saveDraftedWorkLog } from "@/lib/tenant";
 import { addDaysToKey, wallTimeToUtc } from "@/lib/lifecycle/sendWindow";
 import { deriveDay, LOG_LOOKBACK_DAYS, type LogDay } from "./day";
 import type { LogEntryBody } from "./inputs";
-import { ok, refuse, type WorkResult } from "./result";
+import { draftRefusal, ok, refuse, type DraftedSave, type WorkResult } from "./result";
 import { dayIn } from "./schedule";
 import { nowOf, seesTask, type WorkDeps, type WorkScope } from "./scope";
 import { dueChecks, entriesToday, loadTasks, type RegionDown, type WorkTaskView } from "./service";
@@ -72,9 +72,10 @@ export async function logDay(scope: WorkScope, day: string | null, deps: WorkDep
 /**
  * Log an entry for today: a workstream with its state, an optional note and links, and the task
  * it is about. Members log for their own brand; others for the brand they name, the session
- * brand, or the whole business. At most 500 entries a day for the organisation.
+ * brand, or the whole business. At most 500 entries a day for the organisation. Saved from a draft
+ * of Vizzy's, the row and the draft's move are written together (src/lib/work/drafts.ts).
  */
-export async function addLogEntry(scope: WorkScope, body: LogEntryBody, deps: WorkDeps = {}): Promise<WorkResult<{ row: WorkLogRowOf<"entry"> }>> {
+export async function addLogEntry(scope: WorkScope, body: LogEntryBody, deps: WorkDeps = {}, opts: { draft?: DraftedSave } = {}): Promise<WorkResult<{ row: WorkLogRowOf<"entry"> }>> {
   const now = nowOf(deps);
   let place = placeForNew(scope, body.brandId === undefined ? scope.session.id : body.brandId);
   let taskId: string | null = null;
@@ -87,24 +88,25 @@ export async function addLogEntry(scope: WorkScope, body: LogEntryBody, deps: Wo
   if ("error" in place) return place;
   const day = dayIn(now, scope.session.timeZone);
   if ((await entriesToday(scope, day, deps)) >= WORK_LIMITS.entriesPerDay) return refuse("entries_full");
-  const [row] = await appendWorkLog(
-    [
-      {
-        organisationId: scope.organisationId,
-        brandId: place.brandId,
-        region: place.region,
-        day,
-        at: now.toISOString(),
-        source: { who: { kind: "person", id: scope.userId }, tool: "work_log", session: null },
-        kind: "entry",
-        taskId,
-        workstream: body.workstream,
-        state: body.state,
-        note: body.note ?? "",
-        links: body.links ?? [],
-      },
-    ],
-    deps,
-  );
+  const entry = {
+    organisationId: scope.organisationId,
+    brandId: place.brandId,
+    region: place.region,
+    day,
+    at: now.toISOString(),
+    source: { who: { kind: "person" as const, id: scope.userId }, tool: opts.draft?.tool ?? "work_log", session: null },
+    kind: "entry" as const,
+    taskId,
+    workstream: body.workstream,
+    state: body.state,
+    note: body.note ?? "",
+    links: body.links ?? [],
+  };
+  if (opts.draft) {
+    const saved = await saveDraftedWorkLog(scope.ctx, { ...entry, id: opts.draft.rowId }, opts.draft.accept, deps);
+    if (!saved.ok) return draftRefusal(saved.error);
+    return ok({ row: saved.row as WorkLogRowOf<"entry"> }, 201);
+  }
+  const [row] = await appendWorkLog([entry], deps);
   return ok({ row: row as WorkLogRowOf<"entry"> }, 201);
 }

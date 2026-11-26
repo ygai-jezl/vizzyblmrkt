@@ -78,7 +78,10 @@ export type AgentName = (typeof AGENT_NAMES)[number];
 
 // --- Signals -----------------------------------------------------------------------------------
 
-/** What a suggestion was based on, by kind of source. */
+/**
+ * What a suggestion was based on, by kind of source. "work_log" and "work_task" are the Work rows
+ * Vizzy read (ADR-0018): a log row's or a task's id, checked against the organisation.
+ */
 export const SIGNAL_KINDS = [
   "field_value",
   "product_event",
@@ -90,6 +93,8 @@ export const SIGNAL_KINDS = [
   "brand_map",
   "brand_note",
   "search_doc",
+  "work_log",
+  "work_task",
 ] as const;
 export type SignalKind = (typeof SIGNAL_KINDS)[number];
 

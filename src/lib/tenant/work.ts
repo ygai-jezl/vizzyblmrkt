@@ -405,6 +405,92 @@ export async function appendWorkLog(rows: ReadonlyArray<NewWorkLogRow & { id?: s
   return parsed;
 }
 
+/** How a person's save of a note or decision Vizzy drafted moves the draft, written with the row. */
+export interface DraftAccept {
+  id: AgentActionId;
+  by: EventActor;
+  /** Refuse with "changed" unless the draft is still at this rev. */
+  expectRev: number;
+  /** The draft's result, from the row as it is stored: `{ logId, ... }`, never under `fields`. */
+  result: (row: WorkLogRow) => Record<string, unknown>;
+}
+
+export type DraftedRowResult = { ok: true; row: WorkLogRow; action: AgentAction } | { ok: false; error: TransitionError };
+
+/**
+ * Save a log entry or a decision a person made from a draft of Vizzy's (draft_work_log,
+ * draft_work_decision): the row, under the id the draft named as its target, and the draft's move
+ * to acted with its result.
+ *
+ * - Where the row is kept in the region of the brand whose chat made the draft, both go in ONE
+ *   transaction, reads first: the draft, the row's id, and a decision's task.
+ * - Elsewhere (a decision on a task kept in another region) Firestore runs no transaction across
+ *   databases (ADR-0002), so the draft is checked, the row is written, then the draft moves. Only
+ *   this draft names the row's id, so a retry finds the row it wrote and only moves the draft.
+ *
+ * A draft decided already answers wrong_state, one that moved since it was read answers changed,
+ * and nothing is written twice.
+ */
+export async function saveDraftedWorkLog(ctx: TenantContext, input: NewWorkLogRow & { id: string }, accept: DraftAccept, stores: WorkStores = {}): Promise<DraftedRowResult> {
+  if ((input as { kind: string }).kind !== "entry" && (input as { kind: string }).kind !== "decision") invalid("log:a draft saves an entry or a decision");
+  if (!WORK_LOG_ID.test(input.id)) invalid("log:id");
+  checkSource(input.source);
+  const row = parsedRow({ ...input });
+  const actionStore = regionStore(ctx.region, stores);
+  const rowStore = regionStore(row.region, stores);
+  const ref = rowStore.collection(WORK_LOG).doc(row.id);
+
+  const planFor = async (txn: TransactionLike, kept: WorkLogRow) => {
+    const action = await readAgentActionTx(txn, actionStore, ctx, accept.id);
+    if (!action || action.target.type !== "work_log" || action.target.id !== kept.id) return { ok: false as const, error: "not_found" as const };
+    return planAgentTransition(action, { to: "acted", by: accept.by, at: kept.at, expectRev: accept.expectRev, result: accept.result(kept), clearDetails: false });
+  };
+  const checkTask = async (txn: TransactionLike): Promise<void> => {
+    if (row.kind !== "decision") return;
+    const snap = await txn.get(taskRef(rowStore, row.taskId));
+    if (!snap.exists || snap.data()?.[ORG_FIELD] !== row.organisationId) invalid("log:a decision's task is in its region and organisation");
+  };
+  const storedRow = (snap: { exists: boolean; data(): Record<string, unknown> | undefined }): WorkLogRow => {
+    const data = snap.data() ?? {};
+    if (data[ORG_FIELD] !== row.organisationId) throw new TenantIsolationError(`${WORK_LOG}/${row.id} belongs to another organisation`);
+    return parsedRow({ ...data, id: row.id });
+  };
+
+  if (row.region === ctx.region) {
+    return retryOnceOnExists(() =>
+      rowStore.runTransaction(async (txn): Promise<DraftedRowResult> => {
+        const plan = await planFor(txn, row);
+        const existing = await txn.get(ref);
+        await checkTask(txn);
+        if (!plan.ok) return { ok: false, error: plan.error };
+        if (existing.exists) return { ok: false, error: "wrong_state" };
+        stageRow(txn, rowStore, row);
+        stageAgentTransition(txn, actionStore, ctx, plan);
+        return { ok: true, row, action: plan.next };
+      }),
+    );
+  }
+
+  // Another region: the draft must still be open, at its rev, before the row is written.
+  const first = await actionStore.runTransaction(async (txn) => planFor(txn, row));
+  if (!first.ok) return { ok: false, error: first.error };
+  const kept = await rowStore.runTransaction(async (txn): Promise<WorkLogRow> => {
+    const existing = await txn.get(ref);
+    await checkTask(txn);
+    if (existing.exists) return storedRow(existing);
+    stageRow(txn, rowStore, row);
+    return row;
+  });
+  return retryOnceOnExists(() =>
+    actionStore.runTransaction(async (txn): Promise<DraftedRowResult> => {
+      const plan = await planFor(txn, kept);
+      if (!plan.ok) return { ok: false, error: plan.error };
+      stageAgentTransition(txn, actionStore, ctx, plan);
+      return { ok: true, row: kept, action: plan.next };
+    }),
+  );
+}
+
 // --- Reads -------------------------------------------------------------------------------------
 
 /** Rows read across regions: the regions that didn't answer, and how many stored rows didn't parse. */
@@ -488,6 +574,16 @@ export async function findWorkTask(organisationId: string, id: string, stores: W
     return { rows: t ? [t] : [], unreadable: 0 };
   });
   return { task: found.rows[0] ?? null, unanswered: found.unanswered };
+}
+
+/** A log row by id wherever it is kept (the evidence Vizzy names on a suggestion); null when missing, another organisation's or unreadable. */
+export async function findWorkLogRow(organisationId: string, id: string, stores: WorkStores = {}): Promise<{ row: WorkLogRow | null; unanswered: Region[] }> {
+  if (!WORK_LOG_ID.test(id) || !organisationId) return { row: null, unanswered: [] };
+  const found = await acrossRegions(async (region) => {
+    const snap = await regionStore(region, stores).collection(WORK_LOG).doc(id).get();
+    return snap.exists ? logRowsOf(organisationId, [{ id, data: snap.data() ?? {} }]) : { rows: [], unreadable: 0 };
+  });
+  return { row: found.rows[0] ?? null, unanswered: found.unanswered };
 }
 
 /** A task by its ref (equality on organisationId and ref, in every region), with the regions that couldn't be read. */

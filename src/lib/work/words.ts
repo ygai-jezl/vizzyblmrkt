@@ -80,6 +80,13 @@ export const WORK_MESSAGES = {
   suggestion_other_region:
     "That brand keeps its data in another region, so a suggestion made here can't be added for it. Pick a brand in this region, or the whole business.",
   suggestion_must_have: "Vizzy never sets Must have on a suggestion. A person ticks it when they add the task.",
+  suggestion_reason: "A kind of win Vizzy suggests needs its reason, in a sentence.",
+  draft_missing: "That draft from Vizzy isn't there any more, or it's for a task or brand you can't see. Ask Vizzy to draft it again.",
+  draft_decided: "That draft from Vizzy was saved already, or it was set aside after 7 days. Ask Vizzy to draft it again if you still need it.",
+  draft_changed: "That draft changed while you were looking at it. Refresh the page, then try again.",
+  plan_drafted: "Vizzy never drafts Approve the plan: approving a plan stays with people. Answer it yourself on the task's plan link.",
+  pick_unknown: "Vizzy's pick has to be one of the options.",
+  draft_choice: "Choose one of the options, then save the decision.",
 } as const;
 
 export type WorkRefusal = Exclude<keyof typeof WORK_MESSAGES, "invalid_input">;

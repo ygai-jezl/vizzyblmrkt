@@ -363,7 +363,7 @@ export function TaskPage({ screen }: { screen: TaskScreen }) {
           )}
         </section>
 
-        <Decisions taskRef={task.ref} decisions={page.decisions} typedLinks={task.typedLinks} me={me} names={page.names} timeZone={tz} today={screen.today} />
+        <Decisions taskRef={task.ref} decisions={page.decisions} typedLinks={task.typedLinks} me={me} names={page.names} timeZone={tz} today={screen.today} drafted={screen.draftedDecision} />
 
         <section aria-labelledby="wk-hist-h" className="space-y-2">
           <div className="flex items-baseline justify-between gap-2">

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { MEANINGS, type MeaningKey } from "@/lib/metrics/meanings";
+import { AgentActionIdSchema } from "@/lib/types/agentAction";
 import { COMPANY_STAGE_IDS } from "./stages";
 import {
   ClippingSchema,
@@ -182,6 +183,10 @@ export const CheckActionBodySchema = z
   .refine((b) => b.time === undefined || b.day !== undefined, { message: "a time goes with a day", path: ["time"] });
 export type CheckActionBody = z.infer<typeof CheckActionBodySchema>;
 
+/** A draft of Vizzy's that a person saves: its id and the rev they saw. What it holds is read on the server, never from here. */
+export const DraftRefSchema = z.object({ id: AgentActionIdSchema, rev: z.number().int().min(1) }).strict();
+export type DraftRef = z.infer<typeof DraftRefSchema>;
+
 export const LogEntryBodySchema = z
   .object({
     workstream: oneLine(WORK_LIMITS.workstream).min(1),
@@ -192,6 +197,8 @@ export const LogEntryBodySchema = z
     ref: RefSchema.optional(),
     /** The brand it is for; null for the whole business. Members always log for their own brand. */
     brandId: TenantId.nullable().optional(),
+    /** Saving a note Vizzy drafted (the person may have changed it first). */
+    draft: DraftRefSchema.optional(),
   })
   .strict();
 export type LogEntryBody = z.infer<typeof LogEntryBodySchema>;
@@ -207,9 +214,18 @@ export const DecisionBodySchema = z
     replaces: WorkLogIdSchema.optional(),
     /** A plan approval: the plan link on the task, and the version it approves. */
     plan: z.object({ url: PlanUrlSchema, version: oneLine(WORK_LIMITS.planVersion).min(1).optional() }).strict().optional(),
+    /**
+     * Choosing on a decision Vizzy drafted: its question, options and pick come from the draft on
+     * the server, never from here, and a draft is never a plan approval.
+     */
+    draft: DraftRefSchema.optional(),
   })
   .strict()
-  .refine((b) => b.plan !== undefined || (b.question !== undefined && b.options !== undefined), { message: "a decision has a question and 2 to 4 options", path: ["question"] });
+  .refine((b) => b.plan !== undefined || b.draft !== undefined || (b.question !== undefined && b.options !== undefined), { message: "a decision has a question and 2 to 4 options", path: ["question"] })
+  .refine((b) => b.draft === undefined || (b.plan === undefined && b.question === undefined && b.options === undefined), {
+    message: "a drafted decision takes its question and options from the draft, and is never a plan approval",
+    path: ["draft"],
+  });
 export type DecisionBody = z.infer<typeof DecisionBodySchema>;
 
 /** The fields an imported column can fill. */

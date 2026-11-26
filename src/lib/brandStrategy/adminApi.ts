@@ -19,9 +19,9 @@ import type { Tenant } from "@/lib/types/tenant";
 import { BRAND_STRATEGY_LIMITS as L, StrategyEditSchema, competitorsOf, type BrandStrategyDoc, type CompetitorGroupKind, type Strategy, type StrategyCompetitor } from "@/lib/types/brandStrategy";
 import { liveCompetitors, suggestionsOf, type LiveCompetitor } from "./competitors";
 import { findCompetitors, type FinderDeps } from "./finder";
-import { isBrandStrategyEnabled, isCompetitorFinderEnabled, isStrategyCompetitorsEnabled } from "./flags";
+import { isBrandStrategyEnabled, isCompetitorFinderEnabled, isStrategyCheckEnabled, isStrategyCompetitorsEnabled } from "./flags";
 import { proposeStrategy, type ProposeDeps } from "./propose";
-import { approveStrategy, decideIsNot, deleteBrandStrategy, dismissFound, fullRunsInMonth, readBrandStrategyDoc, saveStrategyDraft, undoIsNot, type StrategyResult } from "./store";
+import { approveStrategy, decideIsNot, deleteBrandStrategy, dismissFound, dismissStrategyCheck, fullRunsInMonth, readBrandStrategyDoc, saveStrategyDraft, undoIsNot, type StrategyResult } from "./store";
 
 /**
  * The Strategy tab's APIs (Brand › Brand map › Strategy): origin, switch, sign-in and admin, in that
@@ -34,6 +34,7 @@ export const strategyAdmin = (req: Request) => brandMapAdmin(req, { on: isBrandS
 export const finderAdmin = (req: Request) => brandMapAdmin(req, { on: isCompetitorFinderEnabled, offError: "competitor_finder_disabled" });
 export const joinedReader = (req: Request) => brandMapReader(req, { on: isStrategyCompetitorsEnabled, offError: "strategy_competitors_disabled" });
 export const joinedAdmin = (req: Request) => brandMapAdmin(req, { on: isStrategyCompetitorsEnabled, offError: "strategy_competitors_disabled" });
+export const checkAdmin = (req: Request) => brandMapAdmin(req, { on: isStrategyCheckEnabled, offError: "strategy_check_disabled" });
 
 /** Propose with Vizzy: one model call, a few an hour per brand. */
 export const PROPOSE_LIMIT = { prefix: "strategy_propose", burstLimit: 2, hourlyLimit: 6 };
@@ -311,6 +312,16 @@ export async function notCompetitorFromRequest(ctx: TenantContext, body: unknown
   const parsed = NotBody.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
   return answer(ctx, await dismissFound(ctx, parsed.data, deps), deps);
+}
+
+/**
+ * POST check: Dismiss the weekly check's row in Review (STRATEGY_CHECK_ENABLED). It stays away 30
+ * days, then counts their articles from today. `dismissed: false` when no row was open: someone
+ * dismissed it, or approved a strategy, a moment ago.
+ */
+export async function dismissCheckFromRequest(ctx: TenantContext, deps: ViewDeps = {}): Promise<Response> {
+  const dismissed = await dismissStrategyCheck(ctx, deps);
+  return NextResponse.json({ ok: true, dismissed }, { headers: noStore });
 }
 
 /** DELETE: start over. The strategy, its history and its decisions go; the brand map's stars stay. */

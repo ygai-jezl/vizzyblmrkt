@@ -283,6 +283,10 @@ export const STRATEGY_DECISION_KINDS = [
   "is_not_declined",
   "goal_set",
   "approved",
+  /** A Propose with Vizzy made while the weekly check had a row open (STRATEGY_CHECK_ENABLED). */
+  "check_acted",
+  /** An admin dismissed the weekly check's row: it stays quiet 30 days. */
+  "check_dismissed",
 ] as const;
 export const StrategyDecisionKind = z.enum(STRATEGY_DECISION_KINDS);
 export type StrategyDecisionKind = z.infer<typeof StrategyDecisionKind>;
@@ -297,6 +301,92 @@ export const StrategyDecisionSchema = z.object({
   by: z.string().max(254).nullable().catch(null).default(null),
 });
 export type StrategyDecision = z.infer<typeof StrategyDecisionSchema>;
+
+// ----- The weekly check (STRATEGY_CHECK_ENABLED) -----------------------------------------------
+
+export const STRATEGY_CHECK_LIMITS = {
+  /** A look a week. */
+  everyDays: 7,
+  /** Dismiss keeps the row away this long. */
+  dismissDays: 30,
+  /** New articles of theirs on one focus situation that make a row. */
+  newArticles: 3,
+  /** Their articles naming one alternative on the brand map the brand doesn't watch that make a row. */
+  namedArticles: 3,
+  focus: 5,
+  named: 5,
+  reasons: 8,
+  /** Alternatives already raised once, newest first: not raised again. */
+  raisedNames: 20,
+  /** Competitors named beside a count. */
+  by: 3,
+  text: 120,
+} as const;
+
+const C = STRATEGY_CHECK_LIMITS;
+const Count = z.number().int().min(0).max(100_000);
+const CoverageFlagSchema = z.enum(["gap", "open", "crowded", "you_lead", "even"]);
+const ByCompetitorSchema = z.object({ name: Line(L.competitorName), count: Count });
+
+/** One focus situation as the check last saw it: their articles in 90 days, the new ones, and the brand's answers. */
+export const CheckFocusSchema = z.object({
+  id: SituationId,
+  text: Line(C.text),
+  they: Count,
+  /** Their articles on it published since the check's `since` (by publish date only). */
+  newSince: Count,
+  by: tolerantArray(ByCompetitorSchema, C.by),
+  questions: Count,
+  answered: Count,
+  flag: CoverageFlagSchema,
+});
+export type CheckFocus = z.infer<typeof CheckFocusSchema>;
+
+/**
+ * Why the check asks for a look: new articles of theirs on a focus situation, a focus situation
+ * newly a gap (they write on it and no live article of the brand's answers it), or an alternative on
+ * the brand map they keep naming that the brand doesn't watch. `ref` is the situation's id or the name.
+ */
+export const CheckReasonSchema = z.object({
+  kind: z.enum(["new_articles", "new_gap", "named"]),
+  ref: Line(L.competitorName + 40),
+  text: Line(C.text),
+  count: Count,
+  by: tolerantArray(ByCompetitorSchema, C.by),
+});
+export type CheckReason = z.infer<typeof CheckReasonSchema>;
+
+/**
+ * The weekly check on the approved strategy, kept on the record (under 4 KB) and written without
+ * moving `rev`. At most one row is open. Approving starts it again; Dismiss keeps it quiet 30 days.
+ */
+export const StrategyCheckSchema = z.object({
+  lookedAt: Stamp.nullable().catch(null).default(null),
+  /** When it looks next; null: at the next check tick. */
+  nextAt: Stamp.nullable().catch(null).default(null),
+  /** The day new articles count from: the day after the later of approval, a dismissal, or a row that closed itself. */
+  since: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** The focus situations that were a gap when a row last could be raised; null until the first look. */
+  gapIds: z.array(SituationId).max(C.focus).nullable().catch(null).default(null),
+  raisedNames: z.array(Line(L.competitorName)).max(C.raisedNames).catch([]).default([]),
+  focus: tolerantArray(CheckFocusSchema, C.focus),
+  /** Alternatives on the brand map they name that the brand doesn't watch, with how many articles name each. */
+  named: tolerantArray(ByCompetitorSchema, C.named),
+  open: z
+    .object({
+      /** Changes when the reasons do, so Review counts a changed row as new. */
+      key: z.string().max(40),
+      raisedAt: Stamp,
+      reasons: tolerantArray(CheckReasonSchema, C.reasons),
+      /** When a Propose with Vizzy was made while it was open. */
+      actedAt: Stamp.nullable().catch(null).default(null),
+    })
+    .nullable()
+    .catch(null)
+    .default(null),
+  dismissedUntil: Stamp.nullable().catch(null).default(null),
+});
+export type StrategyCheck = z.infer<typeof StrategyCheckSchema>;
 
 // ----- The record ------------------------------------------------------------------------------
 
@@ -325,6 +415,8 @@ export const BrandStrategyDocSchema = z.object({
       monitoredFinds: tolerantArray(NotCompetitorSchema, L.monitoredFinds),
     })
     .prefault({}),
+  /** The weekly check (STRATEGY_CHECK_ENABLED); null until it first looks, and on records stored before it. */
+  check: StrategyCheckSchema.nullable().catch(null).default(null),
   createdAt: Stamp.catch("").default(""),
   updatedAt: Stamp.catch("").default(""),
 });

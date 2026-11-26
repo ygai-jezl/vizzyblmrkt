@@ -14,6 +14,8 @@ const competitors = vi.hoisted(() => ({ runCompetitorChecks: vi.fn(async () => (
 vi.mock("@/lib/competitors/tick", () => (loaded.add("competitors"), competitors));
 const articles = vi.hoisted(() => ({ runArticleReads: vi.fn(async () => ({ tenants: 1, queued: 2, read: 1, failed: 0, skipped: 0 })) }));
 vi.mock("@/lib/competitors/articleTick", () => (loaded.add("competitor-articles"), articles));
+const strategyCheck = vi.hoisted(() => ({ runStrategyChecks: vi.fn(async () => ({ brands: 2, open: 1, failed: 0 })) }));
+vi.mock("@/lib/brandStrategy/check", () => (loaded.add("strategy-check"), strategyCheck));
 const search = vi.hoisted(() => ({ runSearchSweeps: vi.fn(async () => ({ scanned: 1, indexed: 2 })) }));
 vi.mock("@/lib/search/sweep", () => (loaded.add("search"), search));
 const signals = vi.hoisted(() => ({ runSignals: vi.fn(async () => ({ tenants: 1, ready: 2, failed: 0, waiting: 1 })) }));
@@ -123,6 +125,32 @@ describe("the lifecycle tick with Competitors", () => {
     expect(await res.json()).toMatchObject({ competitors: { advanced: 1 }, competitorArticles: { read: 1 } });
     const [{ deadlineMs }] = articles.runArticleReads.mock.calls[0] as unknown as [{ deadlineMs: number }];
     expect(deadlineMs - before).toBeLessThanOrEqual(40_000 + 50);
+  });
+
+  it("runs the weekly strategy check beside them only with its switch on, within its own time", async () => {
+    for (const k of ["COMPETITORS_ENABLED", "COMPETITOR_ARTICLES_ENABLED", "BRAND_MAP_ENABLED", "BRAND_STRATEGY_ENABLED", "STRATEGY_COMPETITORS_ENABLED"]) vi.stubEnv(k, "true");
+    expect(await (await POST(machine())).json()).not.toHaveProperty("strategyCheck");
+    expect(strategyCheck.runStrategyChecks).not.toHaveBeenCalled();
+
+    vi.stubEnv("STRATEGY_CHECK_ENABLED", "true");
+    const before = Date.now();
+    const res = await POST(machine());
+    expect(await res.json()).toMatchObject({ competitors: { advanced: 1 }, strategyCheck: { brands: 2, open: 1 } });
+    const [{ deadlineMs }] = strategyCheck.runStrategyChecks.mock.calls[0] as unknown as [{ deadlineMs: number }];
+    expect(deadlineMs - before).toBeLessThanOrEqual(10_000 + 50);
+
+    // A run that looked at no brand adds nothing to the answer, and one that fails never fails the call.
+    strategyCheck.runStrategyChecks.mockResolvedValueOnce({ brands: 0, open: 0, failed: 0 });
+    expect(await (await POST(machine())).json()).not.toHaveProperty("strategyCheck");
+    strategyCheck.runStrategyChecks.mockRejectedValueOnce(new Error("boom"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const failed = await POST(machine());
+      expect(failed.status).toBe(200);
+      expect(await failed.json()).toMatchObject({ ok: true, competitors: { advanced: 1 } });
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("never fails the scheduler's call when the article reads fail", async () => {
@@ -258,6 +286,7 @@ describe("each job's code loads only when its switch is on", () => {
     ["waitlist", "@/lib/lifecycle/waitlist/tick", waitlist],
     ["competitors", "@/lib/competitors/tick", competitors],
     ["competitor-articles", "@/lib/competitors/articleTick", articles],
+    ["strategy-check", "@/lib/brandStrategy/check", strategyCheck],
     ["search", "@/lib/search/sweep", search],
     ["signals", "@/lib/signals/tick", signals],
     ["autopilot", "@/lib/autopilot/tick", autopilot],

@@ -1191,10 +1191,10 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "brand_strategy",
     name: "Brand strategy",
     description:
-      "The brand's strategy, one record per brand, approved by a person: who it's for (audiences and 3 to 5 focus buying situations), who it competes with (in groups, found by the competitor finder or watched), where it wins and where they do (claims, each with its proof or shown as a gap), what it is not, and the quarter's goal. Keeps the draft a person edits, the approved one everything reads, the last 5 approved, the names marked Not a competitor, and the stars, ticks, groups and edits people made.",
+      "The brand's strategy, one record per brand, approved by a person: who it's for (audiences and 3 to 5 focus buying situations), who it competes with (in groups, found by the competitor finder or watched), where it wins and where they do (claims, each with its proof or shown as a gap), what it is not, and the quarter's goal. Keeps the draft a person edits, the approved one everything reads, the last 5 approved, the names marked Not a competitor, the stars, ticks, groups and edits people made, and the weekly check that sets the approved strategy against what the watched competitors publish.",
     place: "content",
     status: "built",
-    madeBy: ["brand_strategy", "competitor_find", "competitor_claim_match"],
+    madeBy: ["brand_strategy", "competitor_find", "competitor_claim_match", "strategy_check"],
     home: "brand",
     personal: "none",
     stores: [regional("brand_strategy", "one document per brand; `by` and decisions hold the admin's email or user id")],
@@ -1206,7 +1206,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     erase: { paths: [brandPath("deleteBrandStrategy", "src/lib/brandStrategy/store.ts", "an admin presses Start over on the Strategy tab")] },
     export: { none: NOT_PERSONAL },
     search: { none: "one short record per brand, read whole by the writer, research, Next up and Vizzy" },
-    numbers: { meanings: ["focusQuestions", "focusLiveArticles", "foundTimes"], tool: "get_brand_strategy" },
+    numbers: { meanings: ["focusQuestions", "focusLiveArticles", "foundTimes", "theirArticles", "theirNewArticles", "competitorArticles", "namingArticles"], tool: "get_brand_strategy" },
   },
   {
     id: "content_strategy",

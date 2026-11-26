@@ -4,6 +4,109 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0026 · Agent record: today's agent drafts become agent actions (wave 3) (2026-11-26)
+
+Context: what Vizzy drafts in chat (nine canvas kinds), the notes it suggests, learning a product's
+map from its repo, the article autopilot and brand map research all saved drafts with no agent
+action record, so "every agent action is recorded" (ADR-0008, known gaps) did not hold for them,
+Vizzy could not say what became of its drafts, and the loops had no list to count. Review missed
+three kinds: Vizzy's email style, its image style and its notes. Piece Agent record of the build
+plan, approved 26 Nov with decisions 1, 2 and 8 as picked and 3 to 7 as recommended. Branch
+`feat/agent-record`, behind `AGENT_RECORD_ENABLED` (server, RUNTIME). No new store, index, rules
+change, dependency, backfill, secret or service.
+
+### Decided
+
+1. **Review keeps reading each draft where it lives and gains the three kinds it misses; the
+   record is the one list Vizzy and the loops read** (decision 1). Drafts from Vizzy keeps its four
+   scans, so names and "approve the hub to continue" stay live, and adds, for admins only, the
+   email and image style suggestions (read from the brand record) and one row for the notes Vizzy
+   suggested (`brand_notes` by status, equality only, up to 50). Its `from` gains
+   `canvas.email_style`, `canvas.image_style` and `vizzy_chat`.
+2. **Drafts about one person stay out: AI lines and person plans** (decision 2). No record names a
+   person, so a person's timeline, erase and export have nothing here.
+3. **Hooks where a person decides, and a daily catch-up for the rest** (decision 3). The rules are
+   `src/lib/agentRecord/sources.ts`: 12 actions (`launch_journey.draft`, `lifecycle_journey.draft`,
+   `invite_wave.draft`, `content_plan.draft`, `email_style.suggest`, `image_style.suggest`,
+   `journey_style.suggest`, `brand_map.suggest`, `brand_note.suggest` by `vizzy`;
+   `brand_map.research` and `product_map.learn` by `research`, a new agent name, whoever pressed
+   it; `autopilot.draft` by `autopilot`), each with its draft kind, target, loop kind, Review
+   section, `countsAt` and fingerprint. Every canvas kind has a line or a reason (`person_fields`
+   and `new_person` record already, `person_plan` by decision 2). Outcomes are recorded with the
+   member at the journey activate route, publish and archive in the lifecycle admin API, invite
+   send and delete, the content plan save (acted when it approves a piece, declined when it
+   archives) and delete, the style save from a suggestion and the suggestion dismiss routes, and
+   keep and remove on What we've seen. The engine switch's own publishes record nothing. The
+   catch-up (`src/lib/agentRecord/catchUp.ts`, a lazily loaded `timedTickJob("agent-record")` in
+   the lifecycle tick, its own 15 second budget) runs each brand once a day in the 2 minute slot
+   its id falls in and closes what moved on another way: gone or in an archived programme as stale;
+   published by the engine switch or approved by Found live as acted by the system; brand map runs
+   by the map's lists; a learning run that failed or found nothing as stale; anything past its
+   expiry as expired, checked in memory, so it also works where person links are off.
+4. **One open record per draft** (decision 4), found by `draft.kind`, `draft.ref` and state, by
+   equality only. Vizzy saving the same draft again declines the open record as superseded and
+   opens a new one with the same action, so edited always means a person's change and a journey
+   Vizzy drafted and then styled stays one draft; saving it unchanged writes nothing. A launch's
+   drafts target its idea, so `deleteLaunch` erases them; the rest target the brand. A brand's
+   email or image style is one draft (ref: the brand), keyed by a hash of its `suggestedAt`, so its
+   routes find the record with no lookup.
+5. **Brand map: one record per run or chat call** (decision 5), holding a hash of each key it filed
+   and the ids of the proposals it made on the map's records (100 at most). A research run closes
+   the research run before it first, since it replaces research's own waiting suggestions: acted if
+   any were accepted (with kept and dismissed counts), dismissed if all went to the dismissed list,
+   superseded if nobody decided any. Proposals on the records are never counted as replaced.
+6. **Ids, a label and a fingerprint only** (decision 6): never a draft's words, a note's text, or
+   anyone's name or address. A fingerprint is 16 hex over what a person would call a change
+   (subjects, bodies, waits, the start, a style's colours, header and theme; never positions or
+   ids), so "kept after a person's edits" is a comparison. A decline clears the proposal; acted
+   keeps the label.
+7. **No backfill** (decision 7): the record starts when the switch goes on, and Vizzy says so.
+8. **Soft writes; closing runs whatever the switch says.** A failed record write is logged as
+   `[agent-record] write_failed` and counted, and never fails the save it rides on. Closing a record
+   needs no switch, so records written before a rollback still end right; with nothing open it is
+   one read and no write. Superseded, stale and expired are the system's, never a person's no.
+9. **Vizzy reads the record** with `get_drafts` (`/api/agent/drafts`, canvas token, 6 a minute and
+   60 an hour per brand, 503 with the switch off): per kind over the last 30 days (90 at most),
+   waiting, kept (and how many after a person's edits) and dismissed by a person, leaving out what
+   nobody decided; for one kind the newest 10 with label, state, when, edited and who decided by
+   display name. It reads through (action, state, createdAt desc), 20 per kind and state, saying
+   "at least" when a page is full (`listRecentAgentActions`, the same function as Work's branch).
+   A member's token gets no styles or notes; AI lines only as a count waiting.
+10. **Work's Log shows Vizzy's records in a small PR after Work and this piece merge** (decision 8),
+    not here.
+
+### Indexes and cost
+
+No new index. Finding a draft's record and the catch-up read by equality only; Vizzy's reads use
+(tenantId, action, state, createdAt desc), which 0e made. Proposing is 2 writes, proposed to acted
+3, a decline 2, Vizzy's re-save of an open draft 4. Review adds one brand record read and one notes
+query for admins.
+
+### Gaps we accept
+
+- A style suggestion applied or dismissed while its route's record write failed closes as stale
+  at the catch-up, not as a person's decision.
+- At the map at any size, a run whose proposals still wait stays open even when research replaced
+  its suggestions; its replaced keys then count as kept when it closes.
+- A learning run started before a newer one finishes is superseded at the newer start.
+- Records stay until erased (decision 22), so labels (the brand's own names for drafts) stay too.
+- Rolling back to a build without this piece: that build can't read a record whose agent is
+  `research`; its expiry logs such a row and skips it, as for any row a newer build wrote, and
+  Review never lists these actions.
+
+### Not decided here
+
+AI lines and person plans (decision 2), acting within limits (wave 4), Work's Log, Vizzy
+proposing a restore on Settings › History, marking a draft undone on a later restore, and what other
+paths make (refresh reviews, Next up picks, Suggest mode runs, the judge, email assist, Edit mode),
+which loops step 5 covers with its tokens.
+
+### Rollback
+
+The switch. Records stay (ids and labels, kept until erased); there is no store or index to undo.
+
+---
+
 ## ADR-0025 · Brand search catches up: the brand map family moves off brand_map_vectors (piece Q) (2026-11-26)
 
 Context: the brand map's duplicate checks and nearest subjects, What we've seen's matching and repeat
@@ -3189,7 +3292,9 @@ Known gaps (also in the registry):
 - Today's agent paths write drafts with no agent action record: canvas drafts for nine kinds,
   brand notes, learning from a repo, autopilot runs, brand map research and lifecycle AI lines.
   The Agent record piece (decision 42, wave 3) records them behind its own switch. Until then
-  "every agent action is recorded" does not hold for them.
+  "every agent action is recorded" does not hold for them. Since ADR-0026 they are recorded while
+  `AGENT_RECORD_ENABLED` is on, from then on, except lifecycle AI lines and person plans
+  (decision 2) and the other paths listed under its Not decided here.
 - An open new person suggestion for someone not yet in People has no export path. Its details
   clear within 7 days, and erase finds it by person id once they are added.
 - Rows about a product-only person whose address changed while `ONTOLOGY_PERSON_IDS_ENABLED` was

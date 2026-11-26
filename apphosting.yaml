@@ -1118,6 +1118,13 @@ env:
       - RUNTIME
 
   # == Create ==
+  # Everything YouGrow writes follows the brand's default language (Settings › General ›
+  # Languages), and the checks on articles, emails and lines read that language. Off: written
+  # as before.
+  - variable: CONTENT_LANGUAGE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Researched blog hubs, cite sources, articles written from the brand map, the
   # editorial writer (each needs the first), and Suggest an angle.
   - variable: CREATE_BLOG_CITABLE_ENABLED

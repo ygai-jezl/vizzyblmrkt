@@ -387,6 +387,12 @@ export interface AiUsage {
   recordModel(tokens: number, model: string, opts?: { lost?: boolean }): Promise<void>;
   recordSearches(searches: number, opts?: { lost?: boolean }): Promise<void>;
   recordImages(images: number): Promise<void>;
+  /**
+   * The brand's default content language (a base code like "fr"), for a writer to write in
+   * (CONTENT_LANGUAGE_ENABLED, src/lib/i18n/writingLanguage.ts). Optional: a usage made for a test
+   * leaves it out, and its calls are written in English.
+   */
+  brandLanguage?(): Promise<string>;
 }
 
 /** Usage that never limits and counts nothing: for tests only (a guard test checks). */

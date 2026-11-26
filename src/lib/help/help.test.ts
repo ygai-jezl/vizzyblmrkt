@@ -35,6 +35,7 @@ import {
   VOICE_WORDS,
   WELCOME_WORDS,
 } from "@/lib/onboarding/words";
+import { NEXT_ACTION_WORDS } from "@/lib/nextAction/words";
 
 
 /**
@@ -101,6 +102,8 @@ vi.hoisted(() => {
   // Vizzy by voice, so its lines and the messages it quotes are checked too.
   process.env.ONBOARDING_ENABLED = "true";
   process.env.ONBOARDING_VOICE_ENABLED = "true";
+  // Your next action as Vizzy's card, so its section and the messages it quotes are checked too.
+  process.env.NEXT_ACTION_CARD_ENABLED = "true";
   // Password help shows only when a code can be delivered too (isPasswordSigninAvailable).
   process.env.MANDRILL_API_KEY = "test-key-not-real";
 });
@@ -1194,6 +1197,40 @@ describe("Tell Vizzy about your business (ONBOARDING_ENABLED)", () => {
     expect(plan(true)).toContain("the voice chat on your waitlist pages");
     expect(plan(false)).not.toContain("Voice conversations");
     expect(plan(false)).toContain("the voice chat in your browser");
+  });
+
+  it("says how Your next action works only while Vizzy's card is on, in the card's own words", () => {
+    const text = md({ onboarding: true, nextActionCard: true });
+    expect(ids({ onboarding: true, nextActionCard: true })).toContain("next-action");
+    expect(anchorsOf("").has("next-action")).toBe(true);
+    expect(text).toContain(`## ${NEXT_ACTION_WORDS.title}`);
+    for (const w of [NEXT_ACTION_WORDS.dismiss, NEXT_ACTION_WORDS.another, ABOUT_WORDS.title]) expect(text).toContain(`**${w}**`);
+    expect(text).toContain("won't suggest that step again for 30 days");
+    expect(text).toContain("Members see the steps list.");
+    expect(text).toContain("Removing a fact or deleting a conversation clears the card");
+    expect(text).toContain("a step you dismissed still stays off it");
+    expect(text).toContain(`marked ${NEXT_ACTION_WORDS.doneToday} on the day you did it`);
+    for (const m of [
+      NEXT_ACTION_WORDS.answerWaiting,
+      NEXT_ACTION_WORDS.answerTooMany,
+      NEXT_ACTION_WORDS.answerFull,
+      NEXT_ACTION_WORDS.answerNotSaved,
+      NEXT_ACTION_WORDS.limited,
+      NEXT_ACTION_WORDS.tooFast,
+      NEXT_ACTION_WORDS.anotherFailed,
+      NEXT_ACTION_WORDS.cardChanged,
+    ]) {
+      expect(text).toContain(`"${m}"`);
+    }
+    const section = text.slice(text.indexOf(`## ${NEXT_ACTION_WORDS.title}`), text.indexOf("## What the sidebar shows"));
+    for (const line of section.split("\n")) {
+      expect(dashesIn(line), line).toEqual([]);
+      expect(aiTellsIn(line), line).toEqual([]);
+    }
+    for (const props of [{ onboarding: true, nextActionCard: false }, { onboarding: false, nextActionCard: true }]) {
+      expect(ids(props), JSON.stringify(props)).not.toContain("next-action");
+      expect(md(props)).not.toContain(NEXT_ACTION_WORDS.another);
+    }
   });
 
   it("uses no dashes as punctuation and none of the AI tells", () => {

@@ -4,7 +4,7 @@ Generated from `src/lib/ontology/registry.ts` and `src/lib/loops/registry.ts`. D
 
 Every kind of thing YouGrow knows about, built or planned: where it is kept, whether it holds the brand's people, how it is erased and exported, how it is found, and how its numbers reach an agent. The spine runs from an idea to its signals, an optional product, customers and support, with rails beside it. A new collection or file store needs an entry in the registry: `src/lib/ontology/coverage.test.ts` fails until it has one. The Learning section at the end lists every place YouGrow makes a choice for a brand, and how that choice learns or why it doesn't.
 
-105 types: 84 built and 21 planned.
+106 types: 85 built and 21 planned.
 
 On rows, `personId` means the `ct_` id of a person record (`src/lib/ontology/person.ts`). Events share one envelope (`src/lib/ontology/events.ts`).
 
@@ -1106,7 +1106,7 @@ The brand's names and subjects, groups and buying situations that every article 
   - `brand_map_situations`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
   - `brand_map_runs`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
   - `brand_map_groups`, the brand's regional Firestore, in `src/lib/tenant/brandMapRecords.ts`. Paged reads of every record kind.
-  - `brand_map_vectors`, the brand's regional Firestore, in `src/lib/tenant/brandMapVectors.ts`. Until retired: subjects and situations move to brand search (search_index), SEARCH_OLD_VECTORS_RETIRED_ENABLED stops its writes and scripts/retire-old-vectors.ts empties it (ADR-0025).
+  - `brand_map_vectors`, the brand's regional Firestore, in `src/lib/tenant/brandMapVectors.ts`
 - Links: `brand_question` through subject and situation ids (many); `content_plan` through brand_map_pages (many)
 - Erase:
   - `removeSubject` in `src/lib/brandMap/records.ts`, on removing the record
@@ -1196,12 +1196,9 @@ A first hand note from the brand's team about what they have seen, or an open qu
 - Personal: yes, the brand's people
 - Stores:
   - `brand_notes`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
-  - `search_docs` at `brands/{tenantId}/search_docs`, the brand's regional search database, in `src/lib/tenant/searchIndex.ts`. Kept notes and the questions asked of the team, with their statuses, never a note that may name a customer (ADR-0025).
-  - `brand_map_vectors`, the brand's regional Firestore, in `src/lib/tenant/brandMapVectors.ts`. Each note's and question's embedding, until retired (ADR-0025).
 - Links: `content_plan` through the articles it informed (many)
 - Erase:
   - `removeNote` in `src/lib/brandNotes/store.ts`, on removing the record
-  - `removeFromIndex` in `src/lib/search/indexer.ts`, on removing the record (forced, whatever SEARCH_INDEX_ENABLED says, when a note is removed or ticked as naming a customer)
   - Gap: a person's erase does not find notes that name them: notes are free text
 - Export: gap. A person's export does not include notes that name them.
 - Search: `note`, `question`
@@ -1491,6 +1488,27 @@ A team member's conversation with Vizzy about the business, kept as words only (
 - Numbers: none. No numbers an agent reads.
 - Made by: `onboarding_voice`, `onboarding` (see Learning)
 
+### Your next action (`next_action_card`)
+
+The card Vizzy writes for Home's Your next action: 1 to 3 steps from the brand's four answers, the facts an admin kept and where the brand is, each with a line on why in the founder's own terms, and the newest 30 outcomes of earlier steps (done, answered, dismissed with the reason a person gave, or replaced untouched) with each step's newest dismissal of the last 30 days, which the next card reads. One record per brand. Each step is also an agent action, which holds only ids.
+
+- Status: built
+- Home: the brand's region
+- Personal: the brand's own team
+- Stores:
+  - `next_action_cards`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per brand: the card, the hash of what it was written from, the day's count, and the newest 30 outcomes with each step's newest dismissal of the last 30 days; a dismissal's reason is the member's own words.
+- Links: `brand` through one record per brand; `agent_action` through each step's agentActionId (many); `business_fact` through the lines it was written from (many)
+- Erase:
+  - `forgetNextActionCard` in `src/lib/tenant/nextActionCards.ts`, on removing the record (an admin removes a fact or deletes a conversation in About your business: the card and every title, reason and answer go; only the day's count and which steps were dismissed (ids and times) stay)
+  - `trimOutcomes` in `src/lib/tenant/nextActionCards.ts`, on retention (outcomes past the newest 30 (besides each step's newest dismissal of the last 30 days), or older than 90 days, are never read again and leave when the record is next written)
+  - Gap: no path deletes a whole brand and everything it holds
+  - Gap: a person's erase does not find a reason that names them: it is free text
+- Export:
+  - `readNextActionCard` in `src/lib/tenant/nextActionCards.ts`, on the team member themselves (an admin reads the card on Home, and Vizzy reads it with its outcomes through get_next_action)
+- Search: none. A short card read whole on Home and by Vizzy, not searched.
+- Numbers: none. No numbers an agent reads.
+- Made by: `next_action` (see Learning)
+
 ### MCP client (`mcp_client`)
 
 An outside agent connected to the brand's MCP server, and what it may read and ask to write.
@@ -1545,14 +1563,14 @@ What the brand asked a partner to set up, which fields were sent (names only, va
 
 ### Agent action (`agent_action`)
 
-One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business. Other drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.
+One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business, and each step on Home's Your next action, from proposed to acted (done or answered) or declined (dismissed, or superseded when a new card replaced it untouched). Other drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.
 
 - Status: built
 - Home: the brand's region
 - Personal: yes, the brand's people
 - Stores:
   - `agent_actions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per suggestion, written only through `src/lib/tenant/agentActions.ts`; its proposal, basis, result and undo may hold personal values.
-- Links: `person` through personId, and the target when it is a person; `company` through the target, when it is a company; `idea` through the target, when it is an idea; `data_signal` through the target, when it is a suggestion from collected numbers; `brand_question` through the target, when it is a question proposed from Search Console; `brand` through the target, when it is something Vizzy heard about the business in a chat; `ontology_event` through agentActionId, its agent kinds of event (many)
+- Links: `person` through personId, and the target when it is a person; `company` through the target, when it is a company; `idea` through the target, when it is an idea; `data_signal` through the target, when it is a suggestion from collected numbers; `brand_question` through the target, when it is a question proposed from Search Console; `brand` through the target, when it is something Vizzy heard about the business in a chat, or a step on Your next action; `next_action_card` through the card's step records name it; `ontology_event` through agentActionId, its agent kinds of event (many)
 - Events: `agent.proposed`, `agent.approved`, `agent.acted`, `agent.undone`, `agent.declined`
 - States: `proposed`, `approved`, `acted`, `undone`, `declined`
 - Person fields: `personId` (written with the row)
@@ -1759,7 +1777,7 @@ The queue behind every email: a send, a step, a contact erase, a sync or a perso
 
 ### Brand search index (`search_index`)
 
-The brand's own index of what it wrote, by words and meaning, in its region's search database. With SEARCH_FAMILY_INDEX_ENABLED it also keeps the brand map family for every brand, each with its status (subjects and situations decided or proposed, kept notes, questions asked or answered, competitor articles), for the readers that match by meaning; people's search shows no proposal or answered question (ADR-0025).
+The brand's own index of what it wrote, by words and meaning, in its region's search database.
 
 - Status: built
 - Home: the brand's region
@@ -1770,7 +1788,6 @@ The brand's own index of what it wrote, by words and meaning, in its region's se
 - Erase:
   - `removeFromIndex` in `src/lib/search/indexer.ts`, on removing the record (when its record is removed; forced, whatever SEARCH_INDEX_ENABLED says, when a connection's collected searches are erased)
   - `sweepBrand` in `src/lib/search/sweep.ts`, on removing the record (the scheduled check drops records that are gone)
-  - `removeFamily` in `src/lib/search/familyIndex.ts`, on removing the record (at once and forced, whatever SEARCH_INDEX_ENABLED says, when a subject, situation, note or competitor's articles are removed)
 - Export: none. Copies of the brand's own writing.
 - Search: none. It is the index.
 - Numbers: none. No numbers an agent reads.
@@ -1948,6 +1965,9 @@ What the registry records as missing, by type. Each is a known gap, not a promis
 - Business fact (`business_fact`):
   - Erase: no path deletes a whole brand and everything it holds
   - Erase: a person's erase does not find a fact that names them: it is free text
+- Your next action (`next_action_card`):
+  - Erase: no path deletes a whole brand and everything it holds
+  - Erase: a person's erase does not find a reason that names them: it is free text
 - Brand (`brand`):
   - Erase: no path deletes a whole brand and everything it holds
 - Member (`member`):
@@ -2030,11 +2050,11 @@ Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Ev
 
 A call site is a file where a kind is made, counted once for each kind: a meter call that names its purpose, a canvas's module, the file that holds a rule, or the file that calls a model with no meter.
 
-94 kinds: 0 learn, 0 fleet only, 21 own, 33 gap and 40 none.
+95 kinds: 0 learn, 0 fleet only, 22 own, 33 gap and 40 none.
 
-115 call sites: 0 learn, 0 fleet only, 31 own, 39 gap and 45 none.
+116 call sites: 0 learn, 0 fleet only, 32 own, 39 gap and 45 none.
 
-Not learning: 84 of 115 call sites, under gap and none lines.
+Not learning: 84 of 116 call sites, under gap and none lines.
 
 ### Where own lines keep what they learned
 
@@ -2048,6 +2068,7 @@ Not learning: 84 of 115 call sites, under gap and none lines.
 - `content_plan`: An article's brief keeps up to 50 notes a person took out of it.
 - `broadcast`: Each one off launch email keeps its open and click rates once its report is read.
 - `refresh_record`: Each refresh record keeps its clock, what a person decided and the clicks 28 days on.
+- `next_action_card`: The card's record keeps the newest 30 outcomes of its steps and each step's newest dismissal of the last 30 days, with the reason a person gave for it.
 
 ### Learns
 
@@ -2087,6 +2108,8 @@ No line says this yet.
   - `src/lib/nextUp/pick.ts`
 - `judge` (AI purpose, Sorting what buyers ask), kept in `learned`. Where learning from the Learned list is turned on, the sorting learns from the questions your team moves between trays.
   - `src/lib/signals/judge.ts`
+- `next_action` (AI purpose, Your next action), kept in `next_action_card`. A step your team dismissed stays off the card for 30 days, and the next card for the brand reads what was done, answered, dismissed with its reason or left untouched.
+  - `src/lib/nextAction/service.ts`
 - `blog_hero` (AI purpose, Blog hero images), kept in `brand_kit`. Where learning from image votes is turned on, blog heroes made on the article follow the look learned from your thumbs and ratings, but a hero Vizzy makes during a chat skips it.
   - `src/lib/content/blog/hero.ts`
 - `post_image` (AI purpose, Post images), kept in `brand_kit`. Where learning from image votes is turned on, painted post images follow the look learned from your thumbs and ratings, but drawn styles, format cards and charts skip it.
@@ -2120,6 +2143,8 @@ No line says this yet.
   - `src/lib/canvas/kinds/imageStyle.ts`
 - `image_style_pick` (rule, Image style used), look again by 2027-01-31. Until a brand picks a style, every image uses a fixed preset for its surface, and thumbs on past images never change which style is used.
   - `src/lib/content/imageStyle/resolve.ts`
+- `next_action_order` (rule, Your next action order), look again by 2027-02-26. When Your next action has no card from Vizzy, Home lists the steps of the stage that fits the four answers by a fixed rule, and the outcomes the card now records never change that order.
+  - `src/lib/onboarding/homeOrder.ts`
 - `spintax_variant` (rule, Recurring post variant), look again by 2027-03-31. A recurring post picks one of its written variants at random each time, and how each variant did is never used to favour the better one.
   - `src/lib/distribute/spintax.ts`
 - `brand_strategy` (AI purpose, Proposing the brand strategy), look again by 2027-05-01. The brand strategy keeps each focus star a person kept or removed and each claim they edited, before and after, but nothing learns from them yet.
@@ -2184,8 +2209,6 @@ No line says this yet.
   - `src/lib/nextUp/pick.ts`
 - `refresh_due` (rule, Refresh due), look again by 2027-05-01. Marking an article checked restarts its clock, but which reasons make articles due early never changes with what your team marks checked.
   - `src/lib/content/blog/freshnessWatch.ts`
-- `next_action_order` (rule, Your next action order), look again by 2027-05-01. Home lists the steps of the stage that fits the brand's four answers by a fixed rule, and whether the team then did those steps never changes the order.
-  - `src/lib/onboarding/homeOrder.ts`
 
 ### None
 

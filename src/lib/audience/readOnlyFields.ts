@@ -4,6 +4,7 @@ import type { PersonProductLink } from "@/lib/types/contact";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import type { ProductUser } from "@/lib/types/productUser";
 import type { Signup } from "@/lib/types/signup";
+import { voiceChatDone } from "@/lib/waitlist/voiceChat";
 
 /**
  * Fields from elsewhere (piece B, AUDIENCE_FIELDS_ENABLED): shown beside the brand's own fields,
@@ -140,7 +141,7 @@ export function personReadOnly(input: {
       values.push({ key: `answer:${signup.id}:${i}`, label: a.question_value.trim(), value: answer, source: `Sign-up answer · ${launchName}` });
     });
     const chat = signup.aiConversation;
-    if (chat?.completed) {
+    if (chat && voiceChatDone(chat)) {
       voiceChats.push({ signupId: signup.id, launchName, summary: chat.summary?.trim() || null, at: chat.capturedAt, turns: chat.transcript?.length ?? 0 });
     }
   }

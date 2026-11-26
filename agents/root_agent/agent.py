@@ -51,6 +51,7 @@ from .tools.article_review import review_article
 from .tools.setup_help import get_setup_status, read_help_page
 from .tools.new_person import new_person_propose
 from .tools.business_profile import get_business_profile, read_onboarding_conversation, suggest_business_fact
+from .tools.next_action import get_next_action
 
 root_agent = LlmAgent(
     name="vizzybl_marketing_root",
@@ -92,7 +93,8 @@ root_agent = LlmAgent(
     # new_person_propose fills in the New person form for an admin to confirm (never
     # consent); get_business_profile/read_onboarding_conversation read what the brand told Vizzy
     # about the business (facts, quotes and conversations for admins), and suggest_business_fact
-    # files something new it heard for an admin to keep in About your business.
+    # files something new it heard for an admin to keep in About your business; get_next_action reads
+    # Home's Your next action and what became of its steps (read only, admins).
     # More marketing FunctionTools land alongside them.
     tools=[
         retrieve_knowledge,
@@ -129,6 +131,7 @@ root_agent = LlmAgent(
         get_business_profile,
         read_onboarding_conversation,
         suggest_business_fact,
+        get_next_action,
     ],
     # campaign_ops authors launch (waitlist) journeys; lifecycle_ops authors
     # connected-product lifecycle journeys. Both save drafts only.

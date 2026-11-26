@@ -4,6 +4,7 @@ import type { ConversationTurn } from "@/lib/types/signup";
 import { isPersonId } from "./paths";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { ideaWord } from "@/lib/nav/terms";
+import { voiceChatDone } from "@/lib/waitlist/voiceChat";
 
 /**
  * A voice chat on a sign-up page, in full (piece B): what the person and the brand's voice agent
@@ -24,7 +25,7 @@ export interface VoiceChat {
 
 /**
  * One of this person's voice chats, or null when the sign-up isn't theirs, isn't this brand's,
- * or has no finished chat. A sign-up is theirs when their record links it, or it was made with
+ * or has no finished chat (one in which the person said something). A sign-up is theirs when their record links it, or it was made with
  * their address (or, for someone with no address, their phone).
  */
 export async function loadVoiceChat(ctx: TenantContext, personId: string, signupId: string, db?: FirestoreLike): Promise<VoiceChat | null> {
@@ -37,7 +38,7 @@ export async function loadVoiceChat(ctx: TenantContext, personId: string, signup
     (contact.campaigns ?? []).some((c) => c.signupId === signup.id) ||
     (email ? signup.email?.trim().toLowerCase() === email : !!contact.phone && !signup.email && signup.phone?.trim() === contact.phone.trim());
   const chat = signup.aiConversation;
-  if (!theirs || !chat?.completed) return null;
+  if (!theirs || !chat || !voiceChatDone(chat)) return null;
   const [campaign, tenant] = await Promise.all([
     repo.campaigns.getById(signup.campaignId).catch(() => null),
     (db ? getTenantById(ctx.tenantId, db) : getTenantById(ctx.tenantId)).catch(() => null),

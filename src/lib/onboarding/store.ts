@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { forTenant, getTenantById, TenantIsolationError } from "@/lib/tenant";
+import { forgetNextActionCard, forTenant, getTenantById, TenantIsolationError } from "@/lib/tenant";
 import { bumpBusinessProfileRev, setBusinessProfile } from "@/lib/tenant/control";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { BusinessProfile, ProfileAnswersInput } from "@/lib/types/businessProfile";
@@ -321,14 +321,26 @@ export async function getConversation(ctx: TenantContext, id: string, deps: Onbo
 }
 
 /**
+ * Home's Your next action is written from what the brand kept, so it goes too, with its outcomes
+ * (src/lib/tenant/nextActionCards.ts), and the next visit to Home writes a new one. It never fails
+ * the delete it follows.
+ */
+async function forgetCardAfter(ctx: TenantContext, deps: OnboardingDeps): Promise<void> {
+  await forgetNextActionCard(ctx, { at: iso(nowMs(deps)), by: { type: "member", id: ctx.userId ?? null }, db: deps.db }).catch(() => {
+    console.warn("[onboarding] Your next action was not cleared after a delete");
+  });
+}
+
+/**
  * Delete a conversation: its words and what was learned from it go for good. Facts already kept
- * from it stay until they are removed (erase path).
+ * from it stay until they are removed (erase path). Home's Your next action goes too.
  */
 export async function deleteConversation(ctx: TenantContext, id: string, deps: OnboardingDeps = {}): Promise<OnboardingResult<true>> {
   if (!isConversationId(id)) return NOT_FOUND;
   const store = conversationsOf(ctx, deps);
   if (!(await store.getById(id))) return NOT_FOUND;
   await store.delete(id);
+  await forgetCardAfter(ctx, deps);
   return { ok: true, value: true };
 }
 
@@ -345,13 +357,17 @@ export async function listBusinessFacts(ctx: TenantContext, deps: OnboardingDeps
   return rows.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
 }
 
-/** Remove a kept fact: its words go for good, and Vizzy reads the profile again (erase path). */
+/**
+ * Remove a kept fact: its words go for good, Vizzy reads the profile again, and Home's Your next
+ * action, which may quote it, goes too (erase path).
+ */
 export async function removeBusinessFact(ctx: TenantContext, id: string, deps: OnboardingDeps = {}): Promise<OnboardingResult<true>> {
   if (!isFactId(id)) return NOT_FOUND;
   const store = factsOf(ctx, deps);
   if (!(await store.getById(id))) return NOT_FOUND;
   await store.delete(id);
   await bumpBusinessProfileRev(ctx.tenantId, deps.db).catch(() => null);
+  await forgetCardAfter(ctx, deps);
   return { ok: true, value: true };
 }
 

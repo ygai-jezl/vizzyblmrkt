@@ -101,6 +101,15 @@
   "widget.voice.bumpedWithRank": " We bumped you up the queue to #{rank}.",
   "widget.voice.done": "Done",
   "widget.voice.tryAgain": "Try again",
+  "widget.voice.endedEarly": "The voice chat ended early, but we kept what you said.",
+  "widget.voice.problem.micBlocked": "The voice chat needs your microphone. Allow it for this page in your browser, then try again.",
+  "widget.voice.problem.noMic": "We couldn't find a microphone. Connect one, then try again.",
+  "widget.voice.problem.unavailable": "The voice chat isn't available right now. Try again later.",
+  "widget.voice.problem.alreadyDone": "You've already had your voice chat. Thanks for talking to us.",
+  "widget.voice.problem.startFailed": "We couldn't start the voice chat. Try again.",
+  "widget.voice.problem.dropped": "The voice chat stopped. Try again.",
+  "widget.voice.problem.nothingHeard": "We didn't hear anything. Try again when you're ready.",
+  "widget.voice.problem.saveFailed": "We couldn't save your voice chat. Try again.",
 
   "widget.closed.message": "This waitlist is closed and is no longer accepting signups.",
 

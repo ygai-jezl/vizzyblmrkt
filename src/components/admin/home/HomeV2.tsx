@@ -1,16 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { isInvitesEnabled, isInvitesUiEnabled } from "@/lib/invites/flags";
 import { ArrowRight, BookOpen, Check, Lock, TriangleAlert } from "lucide-react";
 import { isSetupGuideEnabled } from "@/lib/help/flags";
 import { HowToLink } from "@/components/help/HowToLink";
-import { isEmailStyleUiEnabled } from "@/lib/email/flags";
-import { isBrandMapUiEnabled } from "@/lib/brandMap/flags";
 import { requireAdminContext } from "@/lib/auth/session";
 import { getTenantById } from "@/lib/tenant";
 import { isOnboardingEnabled } from "@/lib/onboarding/flags";
 import { shouldWelcome } from "@/lib/onboarding/firstVisit";
 import { nextActionStage, nextActionTitle } from "@/lib/onboarding/homeOrder";
+import { isNextActionCardEnabled } from "@/lib/nextAction/flags";
+import { cardFits, homeNextAction, homeSignalOptions } from "@/lib/nextAction/service";
 import { isLifecycleEnabled } from "@/lib/lifecycle/flags";
 import { computeGrowth, nextStepOf, type StageView } from "@/lib/nav/growth";
 import { ideaWord } from "@/lib/nav/terms";
@@ -21,6 +20,7 @@ import { homePrompts } from "@/lib/nav/vizzy";
 import { loadReview, type ReviewItem } from "@/lib/review/summary";
 import { DashboardChat } from "../chat/DashboardChat";
 import { AskChips } from "./AskChips";
+import { NextActionCard } from "./NextActionCard";
 
 const LABEL = "text-[11px] font-semibold uppercase tracking-wider text-shell-muted";
 const CARD = "rounded-xl border border-shell-line bg-shell-card p-4";
@@ -225,15 +225,17 @@ function NeedsYou({ items, total }: { items: ReviewItem[]; total: number }) {
  * what needs a decision, this week's numbers (all real, "—" when unknown), and
  * Vizzy — the same conversation as the side panel on other pages. With ONBOARDING_ENABLED the
  * steps card is "Your next action", and lists the stage that fits what the brand told Vizzy
- * (src/lib/onboarding/homeOrder.ts).
+ * (src/lib/onboarding/homeOrder.ts). With NEXT_ACTION_CARD_ENABLED too, an admin of a brand that
+ * told Vizzy about itself sees the card Vizzy wrote instead (src/lib/nextAction), drawn from the
+ * kept card without waiting on the model, with the steps list until a card is there.
  */
 export async function HomeV2() {
   const ctx = await requireAdminContext();
   const lifecycle = isLifecycleEnabled();
   const guide = isSetupGuideEnabled();
-  const setup = guide ? { emailStyle: isEmailStyleUiEnabled(), brandMap: isBrandMapUiEnabled() } : undefined;
   const [signals, week, tenant, review] = await Promise.all([
-    loadGrowthSignals(ctx, { lifecycle, invites: isInvitesUiEnabled() && isInvitesEnabled(), setup }),
+    // The same reads Your next action hashes (homeSignalOptions), so Home and its route agree.
+    loadGrowthSignals(ctx, homeSignalOptions()),
     loadWeekCounts(ctx, { lifecycle }),
     getTenantById(ctx.tenantId).catch(() => null),
     loadReview(ctx, { lifecycle, includeContent: false }).catch(() => ({ aiLines: 0, items: [] as ReviewItem[] })),
@@ -269,6 +271,17 @@ export async function HomeV2() {
     : [];
   const needs = [...aiLines, ...review.items];
 
+  // Your next action as Vizzy's card: admins of a brand that told Vizzy about itself (the welcome
+  // finished, or a fact kept). Members, a skipped welcome and a failed read keep the steps list.
+  const next =
+    onboarding && isNextActionCardEnabled() && ctx.role === "admin" && cardFits(tenant)
+      ? await homeNextAction(ctx, { tenant, signals }).catch((err: unknown) => {
+          console.warn("[home] Your next action didn't load:", err instanceof Error ? err.message.slice(0, 200) : "error");
+          return null;
+        })
+      : null;
+  const steps = (stage: StageView) => <NextSteps stage={stage} title={nextActionTitle(onboarding, stage)} />;
+
   return (
     <div className="flex min-h-[calc(100vh-6rem)] flex-col gap-6 text-shell-ink">
       <div>
@@ -286,10 +299,18 @@ export async function HomeV2() {
       {growth.allRunning ? null : <GrowthTrack stages={growth.stages} />}
 
       <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr]">
-        {guide && cardStage ? (
+        {next ? (
+          // Vizzy's card, with the steps list as its fallback, and what needs a decision beside it.
+          <>
+            <NextActionCard initial={next.view} stale={next.stale}>
+              {cardStage ? steps(cardStage) : null}
+            </NextActionCard>
+            <NeedsYou items={needs.slice(0, 3)} total={needs.length} />
+          </>
+        ) : guide && cardStage ? (
           // The setup guide: the next steps even on the first visit, with Vizzy's offer beside them.
           <>
-            <NextSteps stage={cardStage} title={nextActionTitle(onboarding, cardStage)} />
+            {steps(cardStage)}
             {growth.firstRun ? <FirstRun ideas={ideas} /> : <NeedsYou items={needs.slice(0, 3)} total={needs.length} />}
           </>
         ) : (
@@ -297,7 +318,7 @@ export async function HomeV2() {
             {growth.firstRun ? (
               <FirstRun ideas={ideas} />
             ) : cardStage ? (
-              <NextSteps stage={cardStage} title={nextActionTitle(onboarding, cardStage)} />
+              steps(cardStage)
             ) : null}
             <NeedsYou items={needs.slice(0, 3)} total={needs.length} />
           </>

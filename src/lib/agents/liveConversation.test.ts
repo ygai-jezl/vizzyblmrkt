@@ -4,6 +4,7 @@ import {
   buildLiveConnectConfig,
   LIVE_MODEL,
 } from "./liveConversation";
+import { DEFAULT_LIVE_MODEL } from "./modelConfig";
 import type { Campaign } from "@/lib/types/campaign";
 
 function campaign(overrides: Partial<Campaign> = {}): Campaign {
@@ -119,13 +120,18 @@ describe("buildLiveSystemInstruction", () => {
 });
 
 describe("buildLiveConnectConfig", () => {
-  it("locks audio in/out with transcription + resumption", () => {
+  it("locks audio in/out with transcription, and no session resumption", () => {
     const config = buildLiveConnectConfig(campaign());
     expect(config.responseModalities).toEqual(["AUDIO"]);
     expect(typeof config.systemInstruction).toBe("string");
     expect(config.inputAudioTranscription).toBeDefined();
     expect(config.outputAudioTranscription).toBeDefined();
-    expect(config.sessionResumption).toBeDefined();
+    // The browser never reconnects with a resumption handle, and Talk with Vizzy's working
+    // config on the same model leaves it out too.
+    expect(config).not.toHaveProperty("sessionResumption");
+    expect(Object.keys(config).sort()).toEqual(
+      ["inputAudioTranscription", "outputAudioTranscription", "responseModalities", "systemInstruction"],
+    );
   });
 
   it("uses an empty transcription config — `languageCodes` errors the Developer-API token mint", () => {
@@ -145,7 +151,9 @@ describe("buildLiveConnectConfig", () => {
     expect(buildLiveConnectConfig(campaign(), "fr").speechConfig).toBeUndefined();
   });
 
-  it("defaults the model to the Gemini 3.1 Flash Live preview id", () => {
-    expect(LIVE_MODEL).toBe("gemini-3.1-flash-live-preview");
+  it("defaults the model to the stable gemini-3.8-live, not the preview", () => {
+    expect(DEFAULT_LIVE_MODEL).toBe("gemini-3.8-live");
+    // GEMINI_LIVE_MODEL still overrides it; unset, the default is used.
+    if (!process.env.GEMINI_LIVE_MODEL) expect(LIVE_MODEL).toBe("gemini-3.8-live");
   });
 });

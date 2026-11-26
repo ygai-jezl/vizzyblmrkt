@@ -44,8 +44,9 @@ export function base64ToInt16(b64: string): Int16Array {
 
 /**
  * Mono samples taken at `fromRate`, at the lower `toRate`: each output sample is the mean of the
- * input samples it covers. A rate that is already low enough comes back as it is. Talk with Vizzy
- * captures at the microphone's own rate (some browsers refuse a 16 kHz microphone) and sends 16 kHz.
+ * input samples it covers. A rate that is already low enough comes back as it is. Both voice calls
+ * capture at the microphone's own rate (some browsers refuse a 16 kHz microphone) and send 16 kHz
+ * (MicCapture in ./audio.ts).
  */
 export function downsample(input: Float32Array, fromRate: number, toRate: number): Float32Array {
   if (!(fromRate > toRate) || !(toRate > 0)) return input;

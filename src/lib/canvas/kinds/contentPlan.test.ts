@@ -195,7 +195,21 @@ describe("content_plan canvas kind", () => {
     const fast = await run(() => 0);
     if (!fast.r.ok) throw new Error("expected a draft");
     expect(makeHero.mock.calls[0]![0]).toMatchObject({ styleOverride: "soft_3d", budgetMs: 40_000, retry: false });
+    // With image style versions off, Vizzy's hero gets no brand context, as before (decision 22).
+    expect(makeHero.mock.calls[0]![0]).not.toHaveProperty("brandContextFor");
     expect(fast.r.summary).toContain("fact-checked, with its hero image");
+
+    // With them on (learning loops step 4), it gets the brand context the article card's hero
+    // gets, with what was learned for the hero's style.
+    vi.stubEnv("BRAND_STYLE_LOOP_ENABLED", "true");
+    vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "true");
+    __resetRateLimitState();
+    makeHero.mockClear();
+    await run(() => 0);
+    const brandContextFor = makeHero.mock.calls[0]![0].brandContextFor as (learned: string | null | undefined) => string;
+    expect(brandContextFor("Warm daylight on flour.")).toContain("Learned brand image style (from operator-approved exemplars): Warm daylight on flour.");
+    expect(brandContextFor(null)).not.toContain("Learned brand image style");
+    vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "");
 
     // No time left: the hero is asked for, and the canvas makes it when the article is opened.
     __resetRateLimitState();

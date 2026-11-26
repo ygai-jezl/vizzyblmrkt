@@ -235,8 +235,11 @@ export type RecordImageInput = Omit<ImageAsset, "id" | "tenantId" | "createdAt" 
    * name the same image (learning loops step 4, decision 3). Minted here when left out.
    */
   id?: string;
-  /** Its stamp from learnedFor, settled where it was made, or why it has none (decision 19). */
-  made?: Made;
+  /**
+   * Its stamp from learnedFor, settled where it was made, or why it has none (decision 19): every
+   * writer says, so a new image path can't forget. Kept only with image style versions on.
+   */
+  made: Made;
 };
 
 /** A new image's id, minted before learnedFor runs (learning loops step 4) and passed to recordImageAsset. */

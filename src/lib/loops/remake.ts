@@ -1,8 +1,11 @@
+import type { AiUsage } from "@/lib/agents/gemini";
 import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
+import { aiUsage } from "@/lib/plans/meter";
 import type { ResourcePurpose } from "@/lib/plans/resources";
 import { forTenant } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { ImageAsset } from "@/lib/types/imageAsset";
+import type { Tenant } from "@/lib/types/tenant";
 import { countSignal } from "./count";
 import { stampOfImage } from "./imageRows";
 import { LOOP_RULES } from "./registry";
@@ -70,6 +73,15 @@ export async function readRemake(ctx: TenantContext, kind: RemakeKind, earlierFi
   if (!earlier) return noRemake(kind);
   const counts = !earlier.remadeAt && withinOutcomeDays(earlier.createdAt, deps.now ?? new Date());
   return { kind, earlier, counts, purpose: counts && isHeldBack(earlier) ? "loop_learn" : kind };
+}
+
+/**
+ * The meter a new image in the place of an earlier one spends under: its kind, or loop_learn for
+ * the first remake of a held back image within 14 days, which never counts toward the image
+ * allowance (decision 3). The route reads the remake first, then makes the image with this.
+ */
+export function remakeUsage(ctx: TenantContext, remake: Remake, opts: { tenant?: Tenant | null } = {}): AiUsage {
+  return aiUsage(ctx, remake.purpose, opts);
 }
 
 /**

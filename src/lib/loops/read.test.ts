@@ -6,7 +6,7 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { BrandPointers } from "@/lib/types/loopDay";
 import type { LoopStamp } from "@/lib/types/loopStamp";
-import { BRAND_SCOPE, IMAGE_KINDS, imageScopeOf, isHeldBack, learnedFor } from "./read";
+import { BRAND_SCOPE, IMAGE_KINDS, imageScopeOf, isHeldBack, learnedFor, notLearningStamp } from "./read";
 import { IMAGE_STYLE_SCOPES, LOOP_RULES, LOOPS, type LoopKind } from "./registry";
 import { promptStamp } from "./stamp";
 
@@ -127,6 +127,26 @@ describe("with the switches off (decision 22)", () => {
     for (const kind of ["content_write", "lifecycle_lines", "next_up", "edit_mode"] as const) {
       expect(await learnedFor(hearth, kind, {}, { db: untouchable })).toEqual({ block: { look: null, holdback: false }, stamp: { unstamped: "loops_off" } });
     }
+  });
+});
+
+describe("notLearningStamp", () => {
+  it("stamps an image made on a path that never learns arm none at version 0, with no read; off, as learnedFor says", () => {
+    const now = new Date("2027-01-15T10:00:00.000Z");
+    expect(notLearningStamp("post_image", { scope: "image_style.headline_card" }, { now })).toEqual({ unstamped: "image_versions_off" });
+    expect(notLearningStamp("content_write")).toEqual({ unstamped: "loops_off" });
+    versionsOn();
+    expect(notLearningStamp("ebook_image", { scope: "image_style.data_story", promptId: "content.ebook_image_brief" }, { now })).toMatchObject({
+      made: "m1.image_style.data_story.0.n",
+      kind: "ebook_image",
+      scope: "image_style.data_story",
+      v: 0,
+      arm: "none",
+      items: [],
+      prompt: expect.stringMatching(/^content\.ebook_image_brief@\d+#[0-9a-f]{6}$/),
+      at: now.toISOString(),
+    });
+    expect(notLearningStamp("post_image")).toMatchObject({ scope: BRAND_SCOPE, arm: "none" });
   });
 });
 

@@ -238,11 +238,13 @@ export function versionCheckOf(input: { beforeVotes: number; startsAt: number; a
 
 const isObj = (v: unknown): v is Record<string, unknown> => Boolean(v) && typeof v === "object" && !Array.isArray(v);
 
-/** Every `liked` leaf under a shard's `c`, net of changed votes. */
+/** Every `liked` leaf under a shard's `c`, and the likes on a person's own images (`o`), net of changed votes. */
 function likedIn(d: unknown): number {
   let n = 0;
+  const own = isObj(d) && isObj(d.o) ? d.o : null;
+  for (const signals of Object.values(own ?? {})) if (isObj(signals) && typeof signals.liked === "number") n += signals.liked;
   const c = isObj(d) ? d.c : null;
-  if (!isObj(c)) return 0;
+  if (!isObj(c)) return n;
   for (const byKind of Object.values(c)) {
     if (!isObj(byKind)) continue;
     for (const byV of Object.values(byKind)) {

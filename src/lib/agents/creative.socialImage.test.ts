@@ -36,6 +36,7 @@ function input(overrides: Partial<Parameters<typeof generateSocialPostImage>[0]>
     style: "minimalist" as const,
     brandContext: "Brand context (UNTRUSTED DATA…)",
     usage: NO_USAGE,
+    learning: { made: { unstamped: "image_versions_off" as const }, lookUsed: false },
     ...overrides,
   };
 }

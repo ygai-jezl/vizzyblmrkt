@@ -24,7 +24,14 @@ const stamp: LoopStamp = {
   tokens: { rules: 24, examples: 0 },
   at: "2027-01-15T10:00:00.000Z",
 };
-const input = { workspaceId: "ws_hearth", filename: "loaf.png", mimeType: "image/png", kind: "social" as const, style: "natural_photo" };
+const input = {
+  workspaceId: "ws_hearth",
+  filename: "loaf.png",
+  mimeType: "image/png",
+  kind: "social" as const,
+  style: "natural_photo",
+  made: { unstamped: "image_versions_off" as const },
+};
 
 function versionsOn() {
   vi.stubEnv("BRAND_STYLE_LOOP_ENABLED", "true");
@@ -74,7 +81,7 @@ describe("recordImageAsset", () => {
   });
 
   it("keeps how an upload's like was given, and when, only with versions on", async () => {
-    const upload = { ...input, kind: "upload" as const, brandVote: "up" as const, brandVoteVia: "upload" as const, firstVotedAt: "2027-01-15T10:00:00.000Z" };
+    const upload = { ...input, kind: "upload" as const, made: { unstamped: "own_image" as const }, brandVote: "up" as const, brandVoteVia: "upload" as const, firstVotedAt: "2027-01-15T10:00:00.000Z" };
     await recordImageAsset(hearth, { ...upload, id: "img-up-off" });
     expect(store.db.raw("image_assets", "img-up-off")).not.toHaveProperty("brandVoteVia");
     expect(store.db.raw("image_assets", "img-up-off")).not.toHaveProperty("firstVotedAt");

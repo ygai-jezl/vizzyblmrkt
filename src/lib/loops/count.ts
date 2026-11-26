@@ -28,6 +28,9 @@ import { STAMP_REFUSALS, type StampRefusal } from "./stamp";
  *   was refused).
  * - `r.<kind>.<outcome>`: what a learner did, `learned` or a LEARN_REASONS refusal.
  * - `k.<kind>.<signal>`: what happened to a learning card.
+ * - `o.image.<signal>`: votes on a person's own images (uploads), which no kind made, so they have
+ *   no stamp: voted and liked only. The votes learner reads their likes, as every image teaches
+ *   the brand look, so a new upload is noticed without reading image rows.
  *
  * Decision 22: image kinds (and the image learner's own loop_learn) count only with
  * IMAGE_STYLE_VERSIONS_ENABLED on; every other kind counts nothing until step 5 brings
@@ -146,6 +149,20 @@ export async function countMade(ctx: TenantContext, kind: LoopKind, made: Made, 
   const s = countableStamp(made);
   if (!s) return;
   await addToWeek(ctx, s.kind, { c: { [s.scope]: { [s.kind]: { [`v${s.v}`]: { [s.arm]: { made: 1 } } } } }, ...type }, "made", opts);
+}
+
+/** The signals a person's own image can count: it was never made, kept or edited by YouGrow. */
+const OWN_IMAGE_SIGNALS: ReadonlySet<string> = new Set(["voted", "liked"]);
+
+/**
+ * Count a vote on a person's own image (an upload), which has no stamp: `{ voted: 1, liked: 1 }`,
+ * or a changed vote's negative amounts. With image style versions on only. Never throws.
+ */
+export async function countOwnImage(ctx: TenantContext, deltas: Partial<Record<CountedSignal, number>>, deps: CountDeps = {}): Promise<void> {
+  const add = amounts(deltas, (k) => OWN_IMAGE_SIGNALS.has(k));
+  if (Object.keys(add).length === 0) return;
+  // An own image teaches only the image learner: it counts while image style versions are on.
+  await addToWeek(ctx, "loop_learn", { o: { image: add } }, "an own image's vote", deps);
 }
 
 /** Count a save with no stamp: an UNSTAMPED_REASONS reason, a stamp lost, or a refused token. */

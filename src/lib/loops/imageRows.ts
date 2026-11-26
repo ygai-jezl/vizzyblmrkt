@@ -3,7 +3,7 @@ import { getPatternVersion } from "@/lib/tenant/patternVersions";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { ImageAsset, ImageAssetKind } from "@/lib/types/imageAsset";
 import { LoopStampSchema, type LoopStamp } from "@/lib/types/loopStamp";
-import { countSignals, type CountDeps, type CountedSignal } from "./count";
+import { countOwnImage, countSignals, type CountDeps, type CountedSignal } from "./count";
 import { imageScopeOf } from "./read";
 import { IMAGE_STYLE_SCOPES, type LoopKind } from "./registry";
 import { madeIdOf } from "./stamp";
@@ -96,11 +96,18 @@ export function voteDeltas(before: VoteState, after: VoteState): Partial<Record<
   return out;
 }
 
-/** Count a vote, or its reason, against the image's stamp. Never throws. */
-export async function countImageVote(ctx: TenantContext, before: ImageAsset, after: ImageAsset, deps: CountDeps = {}): Promise<void> {
+/**
+ * Count a vote, or its reason, against the image's stamp; a person's own image (an upload) has
+ * none, so its vote counts as an own image's (`o.image`). Never throws.
+ */
+export async function countImageVote(ctx: TenantContext, before: VoteState, after: ImageAsset, deps: CountDeps = {}): Promise<void> {
   try {
     const deltas = voteDeltas(before, after);
     if (Object.keys(deltas).length === 0) return;
+    if (after.kind === "upload" && (!after.made || "unstamped" in after.made)) {
+      await countOwnImage(ctx, deltas, deps);
+      return;
+    }
     const stamp = await stampOfImage(ctx, after, deps);
     if (stamp) await countSignals(ctx, stamp, deltas, deps);
   } catch (err) {

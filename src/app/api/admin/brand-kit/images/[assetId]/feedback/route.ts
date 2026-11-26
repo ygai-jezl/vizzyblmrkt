@@ -14,6 +14,7 @@ import { isBrandImageStyleEnabled, isImageStyleVersionsOn } from "@/lib/content/
 import { isBrandKitEnabled } from "@/lib/content/brandKit";
 import { VOTE_NOTE_CHARS } from "@/lib/loops/reasons";
 import { NOTE_REFUSED_MESSAGE } from "@/lib/loops/textCheck";
+import { profileImage } from "@/lib/loops/learners/votes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -82,6 +83,19 @@ export async function POST(req: Request, { params }: RouteParams) {
     rating: parsed.data.rating ?? null,
   });
   if (!updated) return NextResponse.json({ error: "not_found" }, { status: 404 });
+
+  // With image style versions on (learning loops step 4, decision 7), setImageBrandVote kept and
+  // counted the vote, and no look is rewritten here: the votes learner runs in the loops lane. Any
+  // vote, up or down, profiles its image if it has no profile yet (one call under loop_learn), so
+  // the lane rarely has to; profileImage does nothing while image learning is paused.
+  if (isImageStyleVersionsOn()) {
+    if (parsed.data.vote) {
+      await profileImage(ctx, assetId).catch((err) => {
+        console.warn("[loops] profiling a voted image failed", err instanceof Error ? err.message.slice(0, 200) : "error");
+      });
+    }
+    return NextResponse.json({ image: updated });
+  }
 
   // Run style distillation INLINE (awaited), not as an after-response background task:
   // App Hosting / Cloud Run throttles CPU once the response is sent, so a fire-and-forget

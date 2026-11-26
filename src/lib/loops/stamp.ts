@@ -77,6 +77,12 @@ export interface StampUse {
   bestOf?: number;
   /** A drawn or title card fallback made it, or the painted twin after a drawn render failed. */
   fallbackDrawn?: boolean;
+  /**
+   * Made on a path that never learns, though it may read a look: a format's card drawn around a
+   * painted scene, a drawn style's painted half, or an edit of an earlier image. Arm none, with no
+   * source added, so it stays out of every check.
+   */
+  notLearning?: boolean;
 }
 
 /** The sources learnedFor sets, which a settled stamp keeps; settleStamp works out the rest. */
@@ -88,6 +94,7 @@ const sourceCount = (n: number | undefined): number => (Number.isFinite(n) ? Mat
  * Settle a stamp where the image is made (decision 3 and 3.3 of the plan), so the arm says what
  * reached the prompt and not only what learnedFor offered:
  * - a drawn fallback is arm none, with `fallback_drawn`;
+ * - an image made on a path that never learns (`notLearning`) is arm none;
  * - learned with no look in the prompt is arm none, so arm learned always means the look reached it;
  * - held back with a look in the prompt is arm none, since it was no clean holdback;
  * - arm none stays none.
@@ -97,7 +104,7 @@ const sourceCount = (n: number | undefined): number => (Number.isFinite(n) ? Mat
 export function settleStamp(made: Made, use: StampUse): Made {
   if ("unstamped" in made) return made;
   let arm: LoopArm = made.arm;
-  if (use.fallbackDrawn) arm = "none";
+  if (use.fallbackDrawn || use.notLearning) arm = "none";
   else if (arm === "learned" && !use.lookUsed) arm = "none";
   else if (arm === "holdback" && use.lookUsed) arm = "none";
 

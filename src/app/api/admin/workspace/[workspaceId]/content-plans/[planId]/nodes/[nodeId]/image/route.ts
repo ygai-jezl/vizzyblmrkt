@@ -17,6 +17,10 @@ import { styleForImage } from "@/lib/content/imageStyle/forImage";
 import { canonicalStyleId } from "@/lib/content/imageStyle/catalogue";
 import { learnedDirectiveFor } from "@/lib/content/imageStyle/learning";
 import { IMAGE_LIMIT_MESSAGE } from "@/lib/plans/resources";
+import { newImageAssetId } from "@/lib/admin/brandKit";
+import { imageScopeOf, learnedFor } from "@/lib/loops/read";
+import { settleStamp } from "@/lib/loops/stamp";
+import { countMade } from "@/lib/loops/count";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,6 +70,15 @@ export async function POST(req: Request, { params }: RouteParams) {
   // The block's own pick, else the brand's newsletter style, else its default. Off, or before the
   // brand picks: today's prompt, exactly as before.
   const choice = styleForImage({ surface: "email", tenant, override: parsed.data.styleId ?? null });
+  // What was learned for this image's style (learning loops step 4, learnedFor): with image style
+  // versions off, today's look from the brand record, exactly as before. An email image keeps no
+  // library row, so its id serves only the holdback's hash.
+  const learned = await learnedFor(ctx, "email_block_image", {
+    scope: imageScopeOf(choice.enabled ? canonicalStyleId(choice.model.styleId) : null),
+    outputId: newImageAssetId(),
+    legacy: choice.enabled ? learnedDirectiveFor(tenant?.imageStyle, canonicalStyleId(choice.model.styleId)) : undefined,
+    promptId: "content.email_image_brief",
+  });
   const result = await generateEmailBlockImage({
     tenantId: ctx.tenantId,
     ownerId: workspaceId,
@@ -84,9 +97,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       typography: tenant?.brandTypography ?? null,
       layout: node.layout ?? null,
       // Learning per style (image style on): what was learned for this image's style.
-      learnedImageStyle: choice.enabled
-        ? learnedDirectiveFor(tenant?.imageStyle, canonicalStyleId(choice.model.styleId))
-        : undefined,
+      learnedImageStyle: learned.block.look,
     }),
     baseUrl: platformOrigin() || originFromHeaders(req.headers),
     usage: aiUsage(ctx, "email_block_image", { tenant }),
@@ -98,6 +109,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       { status: result.reason === "image_limit" ? 429 : 502 },
     );
   }
+  // Counted once stored (decision 20); email images never count a remake (decision 12).
+  await countMade(
+    ctx,
+    "email_block_image",
+    settleStamp(learned.stamp, { lookUsed: typeof learned.block.look === "string" && learned.block.look.trim().length > 0 }),
+  );
   return NextResponse.json({
     imageUrl: result.imageUrl,
     ...(choice.enabled ? { imageStyleId: choice.ownPick, styleId: choice.model.styleId } : {}),

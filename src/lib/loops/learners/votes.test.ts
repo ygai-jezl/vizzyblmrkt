@@ -189,6 +189,7 @@ async function upload(n: number) {
       filename: `upload-${i}.jpg`,
       mimeType: "image/jpeg",
       kind: "upload",
+      made: { unstamped: "own_image" },
       brandVote: "up",
       brandVoteSetAt: clock.toISOString(),
       brandVoteVia: "upload",
@@ -498,6 +499,9 @@ describe("readLoopCounts", () => {
     const got = await readLoopCounts(hearth, await readBrandPointers(hearth, db), { now: T0, db });
     expect(got.week).toBe(week);
     expect(got.likedThisWeek).toBe(3);
+    // An upload's like is counted as an own image's, so a new upload is noticed without reading rows.
+    db.seed(LOOP_DAYS, loopDayId.week(hearth.tenantId, week, 4), { tenantId: hearth.tenantId, d: { o: { image: { voted: 2, liked: 2 } } } });
+    expect((await readLoopCounts(hearth, await readBrandPointers(hearth, db), { now: T0, db })).likedThisWeek).toBe(5);
     expect(got.versions[NATURAL]).toMatchObject({ c: { post_image: { learned: { made: 20, liked: 1, voted: 1 } } }, check: { counted: 4, settled: true } });
     expect(got.versions[STILL_LIFE]).toMatchObject({ c: { post_image: { none: { liked: 2 } } } });
 

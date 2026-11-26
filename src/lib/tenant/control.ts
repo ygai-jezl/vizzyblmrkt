@@ -547,9 +547,31 @@ export async function setTenantImageStyle(
   });
 }
 
-/** "Reset": remove the image style, so images go back to today's presets. A pending suggestion stays. */
-export async function clearTenantImageStyle(id: string, db: FirestoreLike = getDb() as unknown as FirestoreLike): Promise<void> {
-  await db.collection("tenants").doc(id).update({ imageStyle: FieldValue.delete(), updatedAt: new Date().toISOString() });
+/**
+ * "Reset": remove the image style, so images go back to today's presets. A pending suggestion
+ * stays. With `learnedBrandLook`, the brand look learned before versions is removed as well.
+ */
+export async function clearTenantImageStyle(
+  id: string,
+  db: FirestoreLike = getDb() as unknown as FirestoreLike,
+  opts: { learnedBrandLook?: boolean } = {},
+): Promise<void> {
+  await db
+    .collection("tenants")
+    .doc(id)
+    .update({
+      imageStyle: FieldValue.delete(),
+      // Reset with image style versions on (learning loops step 4, decision 17): the brand look
+      // learned before versions goes too, in the same write, once the seed has copied it.
+      ...(opts.learnedBrandLook
+        ? {
+            "brandKit.learnedImageStyle": FieldValue.delete(),
+            "brandKit.learnedImageStyleUpdatedAt": FieldValue.delete(),
+            "brandKit.learnedImageStyleSampleCount": FieldValue.delete(),
+          }
+        : {}),
+      updatedAt: new Date().toISOString(),
+    });
 }
 
 /** Save Vizzy's image style suggestion, replacing any older one. Never touches `imageStyle`. */

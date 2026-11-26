@@ -1,9 +1,9 @@
-import type { TenantContext } from "@/lib/tenant/types";
+import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import type { Tenant } from "@/lib/types/tenant";
 import { BlogHeroSchema, type BlogHero, type ContentNode } from "@/lib/types/contentPlan";
 import { updateBlogHero } from "@/lib/tenant/workspaceContent";
 import { storeWorkspaceImage } from "@/lib/workspace/assetStore";
-import { recordImageAsset } from "@/lib/admin/brandKit";
+import { newImageAssetId, recordImageAsset } from "@/lib/admin/brandKit";
 import { renderPrompt } from "@/lib/agents/prompts/registry";
 import {
   generateImageWithDeadline,
@@ -26,6 +26,10 @@ import { seedFor } from "@/lib/content/imageStyle/render/templates/lineArt";
 import { isImageFormatsEnabled } from "@/lib/content/imageStyle/flags";
 import type { BlogBrief } from "@/lib/types/contentPlan";
 import type { Chart, Figure, FormatInputs, ImageFormatId } from "@/lib/types/imageStyle";
+import { countMade } from "@/lib/loops/count";
+import { imageScopeOf, learnedFor } from "@/lib/loops/read";
+import { readRemake, recordRemake, remakeUsage } from "@/lib/loops/remake";
+import { settleStamp, type StampUse } from "@/lib/loops/stamp";
 import { heroTitle } from "./heroTitle";
 
 export { heroTitle };
@@ -70,6 +74,8 @@ export interface HeroDeps {
   chart: (copy: CopyText, usage: AiUsage) => Promise<Chart | null>;
   /** A format's painted scene. */
   scene: (req: SceneRequest) => Promise<GeneratedImage | null>;
+  /** The brand's regional database for the learning loops' reads and counts (tests); the default otherwise. */
+  db?: FirestoreLike;
 }
 
 const defaultDeps: HeroDeps = {
@@ -103,7 +109,8 @@ export interface MakeHeroInput {
   /** One more painting try when the first fails and time allows (Vizzy: no). */
   retry: boolean;
   /** The brand context for the picture brief, given what was learned for the hero's style
-   *  (undefined until any style has learned: then the brand's older learned look). */
+   *  (learnedFor; with image style versions off, undefined until any style has learned: then the
+   *  brand's older learned look). Vizzy's canvas hero passes one too. */
   brandContextFor?: (learned: string | null | undefined) => string;
   /** A format for the hero (IMAGE_FORMATS_ENABLED); absent = keep the article's. */
   format?: ImageFormatId;
@@ -148,7 +155,6 @@ export async function makeBlogHero(input: MakeHeroInput, deps: HeroDeps = defaul
   const started = deps.now();
   const runId = new Date(started).toISOString();
   const left = () => input.budgetMs - (deps.now() - started);
-  const usage = aiUsage(ctx, "blog_hero", { tenant });
 
   // 1. The lease.
   let article = true;
@@ -176,6 +182,12 @@ export async function makeBlogHero(input: MakeHeroInput, deps: HeroDeps = defaul
 
   const node = claim.node;
   const title = heroTitle(node);
+  // Learning loops step 4: Make again puts a new hero in place of the one before, a remake read
+  // before it is made (decision 12), which picks the meter: the first remake of a held back image
+  // is loop_learn's. With image style versions off: blog_hero, as before.
+  const loopsDeps = { db: deps.db, now: new Date(started) };
+  const remake = await readRemake(ctx, "blog_hero", claim.hero?.heroRef ?? null, loopsDeps);
+  const usage = remakeUsage(ctx, remake, { tenant });
   const footer = tenant?.rootDomain?.replace(/^https?:\/\//, "").replace(/\/.*$/, "") || null;
 
   // 2. The style.
@@ -186,7 +198,27 @@ export async function makeBlogHero(input: MakeHeroInput, deps: HeroDeps = defaul
   let attempts = 0;
   let prompt: string | undefined;
   let note: BlogHero["note"] = undefined;
-  const brandContext = () => input.brandContextFor?.(learnedDirectiveFor(tenant?.imageStyle, canonicalStyleId(resolved.engine === "legacy" ? null : resolved.id))) ?? "";
+  // What was learned for the hero's style (learnedFor): with image style versions off, today's
+  // look from the brand record, exactly as before. The id is minted first, for the holdback's hash.
+  // A format draws a card around its scene and never learns, so it is never held back.
+  const format = isImageFormatsEnabled() && resolved.engine !== "legacy" ? formatTemplate(claim.hero?.format) : null;
+  const assetId = newImageAssetId();
+  const heroStyle = canonicalStyleId(resolved.engine === "legacy" ? null : resolved.id);
+  const learned = await learnedFor(
+    ctx,
+    "blog_hero",
+    {
+      scope: imageScopeOf(heroStyle),
+      ...(format ? {} : { outputId: assetId }),
+      legacy: learnedDirectiveFor(tenant?.imageStyle, heroStyle),
+      promptId: "content.blog_hero_brief",
+    },
+    loopsDeps,
+  );
+  const lookUsed = typeof learned.block.look === "string" && learned.block.look.trim().length > 0;
+  /** What reached the image, for its stamp: set with the branch that made it. */
+  let stampUse: StampUse = { lookUsed: false };
+  const brandContext = () => input.brandContextFor?.(learned.block.look) ?? "";
 
   // What a chart or a big number may be drawn from: the article and the brief's checked facts,
   // never a figure the fact check flagged.
@@ -230,7 +262,6 @@ export async function makeBlogHero(input: MakeHeroInput, deps: HeroDeps = defaul
 
   // 3f. A format (IMAGE_FORMATS_ENABLED): pre-filled from the brief, drawn in the style's skin
   // around a painted scene (portrait and partner always; a report cover in a painted style).
-  const format = isImageFormatsEnabled() && resolved.engine !== "legacy" ? formatTemplate(claim.hero?.format) : null;
   if (format && resolved.engine !== "legacy") {
     const fi = claim.hero?.formatInputs ?? {};
     const partner = fi.partner || input.brief?.entities?.find((e) => e.relation === "integration")?.name || "";
@@ -256,7 +287,10 @@ export async function makeBlogHero(input: MakeHeroInput, deps: HeroDeps = defaul
           : format === "partner"
             ? `${tenant?.tenantName ?? "Our brand"} and ${inputs.partner}: ${(inputs.line ?? "").replace(/\*/g, "")}`
             : [inputs.title, inputs.subtitle].filter(Boolean).join(". ");
-      if (drawn) made = { hero: drawn.hero, share: drawn.share, styleId: resolved.id, status: "ready", alt: cleanAlt(altText, title) };
+      if (drawn) {
+        made = { hero: drawn.hero, share: drawn.share, styleId: resolved.id, status: "ready", alt: cleanAlt(altText, title) };
+        stampUse = { lookUsed: Boolean(scene) && lookUsed, notLearning: true };
+      }
     }
   }
 
@@ -287,6 +321,8 @@ export async function makeBlogHero(input: MakeHeroInput, deps: HeroDeps = defaul
     });
     if (drawn) {
       made = { hero: drawn.hero, share: drawn.share, styleId: tpl, status: "ready", alt: title, ...(prompt ? { prompt } : {}), ...(chart ? { chart } : {}) };
+      // A drawn style never learns (its scope reads no look): arm none.
+      stampUse = { lookUsed: Boolean(art) && lookUsed, notLearning: true };
       const n = note ?? drawn.note;
       if (n) made.note = n;
     }
@@ -298,7 +334,10 @@ export async function makeBlogHero(input: MakeHeroInput, deps: HeroDeps = defaul
     if (art) {
       const hero = await deps.render({ ctx, tenant, template: "art_overlay", size: "hero", headline: "", art: art.bytes, showHeadline: false, showLogo: false });
       const share = await deps.render({ ctx, tenant, template: "art_overlay", size: "share", headline: title, art: art.bytes, showLogo: true });
-      if (hero && share) made = { hero: hero.png, share: share.png, styleId: resolved.id, status: "ready", alt: title, prompt, art };
+      if (hero && share) {
+        made = { hero: hero.png, share: share.png, styleId: resolved.id, status: "ready", alt: title, prompt, art };
+        stampUse = { lookUsed };
+      }
     }
   }
 
@@ -307,7 +346,10 @@ export async function makeBlogHero(input: MakeHeroInput, deps: HeroDeps = defaul
     const base = { ctx, tenant, template: "title_card", headline: title, showLogo: true } as const;
     const hero = await deps.render({ ...base, size: "hero" });
     const share = hero ? await deps.render({ ...base, size: "share" }) : null;
-    if (hero && share) made = { hero: hero.png, share: share.png, styleId: "title_card", status: "fallback", alt: title, ...(prompt ? { prompt } : {}) };
+    if (hero && share) {
+      made = { hero: hero.png, share: share.png, styleId: "title_card", status: "fallback", alt: title, ...(prompt ? { prompt } : {}) };
+      stampUse = { lookUsed: false, fallbackDrawn: true };
+    }
   }
 
   // 5. Alt text for painted art.
@@ -326,12 +368,15 @@ export async function makeBlogHero(input: MakeHeroInput, deps: HeroDeps = defaul
     const share = hero.ok ? await deps.store(ctx.tenantId, workspaceId, made.share, "image/png") : null;
     if (hero.ok && share?.ok) refs = { heroRef: hero.filename, shareRef: share.filename };
   }
-  let assetId: string | null = null;
+  let recordedId: string | null = null;
+  const stamp = settleStamp(learned.stamp, stampUse);
   if (made && refs) {
-    assetId = await deps
+    recordedId = await deps
       .record(
         { tenantId: ctx.tenantId, region: ctx.region },
         {
+          id: assetId,
+          made: stamp,
           workspaceId,
           filename: refs.heroRef,
           mimeType: "image/png",
@@ -371,11 +416,16 @@ export async function makeBlogHero(input: MakeHeroInput, deps: HeroDeps = defaul
       forTitle: title,
       note: made.note ?? null,
       ...(made.chart ? { chart: made.chart } : {}),
-      assetId,
+      assetId: recordedId,
       updatedAt: now,
     });
   });
   if (!saved) return { ok: false, status: 404, error: "not_found" };
+  // Counted where it is saved (decision 20), and Make again marks the hero before it remade.
+  if (made && refs && saved.wrote) {
+    await countMade(ctx, "blog_hero", stamp, { type: "image_asset", ...loopsDeps });
+    if (recordedId) await recordRemake(ctx, remake, recordedId, loopsDeps);
+  }
   return { ok: true, node: saved.node, hero: saved.hero ?? claim.hero! };
 }
 

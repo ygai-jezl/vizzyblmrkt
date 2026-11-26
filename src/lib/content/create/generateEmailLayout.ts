@@ -14,6 +14,7 @@ import {
 import { sanitizeEmailHtml, looksHtml, paragraphize, escapeHtml } from "@/lib/email/emailRender";
 import type { BrandKit, BrandTypography } from "@/lib/types/tenant";
 import { assembleBrandContext } from "./brandContext";
+import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 
 /**
  * Natural-language → email LAYOUT (one Gemini call, Zod-validated) — the same pattern
@@ -87,6 +88,9 @@ export async function generateEmailLayout(input: GenerateLayoutInput): Promise<E
       audience: input.audience,
       brandKit: input.brandKit,
       typography: input.brandTypography,
+      // A layout is no image: with image style versions on (learning loops step 4) the brand's
+      // learned image look stays out of it. Off, the kit's old look comes in as before.
+      ...(isImageStyleVersionsOn() ? { learnedImageStyle: null } : {}),
     }),
     knowledge_context: input.knowledgeContext ?? "",
     max_blocks: MAX_EMAIL_BLOCKS,

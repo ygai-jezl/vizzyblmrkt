@@ -14,9 +14,11 @@ import { learnedDirectiveFor } from "@/lib/content/imageStyle/learning";
 import { isBrandImageStyleEnabled } from "@/lib/content/imageStyle/flags";
 import { IMAGE_MODEL_SLUGS } from "@/lib/content/create/imageModels";
 import { resolveImageModel } from "@/lib/agents/modelConfig";
-import { aiUsage } from "@/lib/plans/meter";
+import { imageScopeOf, learnedFor, notLearningStamp } from "@/lib/loops/read";
+import { countMade } from "@/lib/loops/count";
+import { readRemake, recordRemake, remakeUsage } from "@/lib/loops/remake";
 
-import { deleteImageAsset } from "@/lib/admin/brandKit";
+import { deleteImageAsset, newImageAssetId } from "@/lib/admin/brandKit";
 import { EbookAspect } from "@/lib/types/contentPlan";
 import { htmlToText } from "@/lib/email/emailRender";
 import { isImageFormatsEnabled } from "@/lib/content/imageStyle/flags";
@@ -118,6 +120,13 @@ export async function POST(req: Request, { params }: RouteParams) {
 
   const tenant = await getTenantById(ctx.tenantId);
   const useBrandStyle = parsed.data.useBrandStyle !== false;
+  // Learning loops step 4: a new image in a slot or the cover that already holds one is a remake
+  // (decision 12), read before it is made; it picks the meter, as the first remake of a held back
+  // image is loop_learn's. With image style versions off: ebook_image, as before.
+  const remake = await readRemake(ctx, "ebook_image", priorImageRef);
+  const usage = remakeUsage(ctx, remake, { tenant });
+  // The new image's id, minted before learnedFor runs so the holdback's hash and its row agree.
+  const assetId = newImageAssetId();
   // This image's own pick, else the brand's eBook style, else its default (a template style
   // becomes its model twin here). Off: only the old preset counts, exactly as before.
   const choice = styleForImage({
@@ -137,9 +146,13 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!drawn) return NextResponse.json({ error: "render_failed", message: "Couldn't draw the cover. Try again." }, { status: 502 });
     const stored = await storeWorkspaceImage(ctx.tenantId, workspaceId, drawn.png, "image/png");
     if (!stored.ok) return NextResponse.json({ error: stored.reason, message: IMAGE_ERRORS[stored.reason] ?? "Couldn't save the cover." }, { status: 502 });
+    // A drawn cover never learns: arm none, in the style it was drawn in (decision 10).
+    const made = notLearningStamp("ebook_image", { scope: imageScopeOf(skin) });
     const asset = await recordImageAsset(
       { tenantId: ctx.tenantId, region: ctx.region },
       {
+        id: assetId,
+        made,
         workspaceId,
         filename: stored.filename,
         mimeType: "image/png",
@@ -169,10 +182,23 @@ export async function POST(req: Request, { params }: RouteParams) {
       if (asset?.id) await deleteImageAsset(ctx, asset.id).catch(() => {});
       return NextResponse.json({ error: "not_applied", message: "Couldn't attach the cover. Try again." }, { status: 409 });
     }
+    await countMade(ctx, "ebook_image", made, { type: "image_asset" });
+    await recordRemake(ctx, remake, assetId);
     return NextResponse.json({ ebook: savedCover, imageAssetRef: coverRef });
   }
 
   const learnBucket = choice.enabled ? canonicalStyleId(choice.model.styleId) : null;
+  // What was learned for this image's style (learning loops step 4, learnedFor): with image style
+  // versions off, today's look from the brand record, exactly as before. An edit feeds the earlier
+  // image back with a short instruction, so no look reaches it and it is never held back.
+  const edit = mode === "edit";
+  const learned = await learnedFor(ctx, "ebook_image", {
+    scope: imageScopeOf(learnBucket),
+    ...(edit ? {} : { outputId: assetId }),
+    useBrandStyle,
+    legacy: useBrandStyle ? (choice.enabled ? learnedDirectiveFor(tenant?.imageStyle, learnBucket) : undefined) : null,
+    promptId: "content.ebook_image_brief",
+  });
   const result = await generateEbookSlotImage({
     tenantId: ctx.tenantId,
     workspaceId,
@@ -191,7 +217,14 @@ export async function POST(req: Request, { params }: RouteParams) {
     imageModel: parsed.data.model ? resolveImageModel(parsed.data.model) : undefined,
     // Best-of-N is reserved for the hero surface (cover) to bound cost on long eBooks.
     heroSurface: target.kind === "cover",
-    usage: aiUsage(ctx, "ebook_image", { tenant }),
+    usage,
+    assetId,
+    learning: {
+      made: learned.stamp,
+      lookUsed: typeof learned.block.look === "string" && learned.block.look.trim().length > 0,
+      holdback: learned.block.holdback,
+      notLearning: edit,
+    },
     brandContext: assembleBrandContext({
       brandVoice: resolveBrandVoiceText({
         tenantBrandVoice: tenant?.brandVoice,
@@ -201,7 +234,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       brandKit: tenant?.brandKit ?? null,
       typography: tenant?.brandTypography ?? null,
       // Learning per style (image style on): what was learned for this image's style.
-      learnedImageStyle: useBrandStyle ? (choice.enabled ? learnedDirectiveFor(tenant?.imageStyle, learnBucket) : undefined) : null,
+      learnedImageStyle: learned.block.look,
     }),
   });
 
@@ -242,5 +275,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       { status: 409 },
     );
   }
+  await countMade(ctx, "ebook_image", result.made ?? learned.stamp, { type: "image_asset" });
+  await recordRemake(ctx, remake, assetId);
   return NextResponse.json({ ebook: saved, imageAssetRef: ref });
 }

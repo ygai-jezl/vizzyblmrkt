@@ -11,6 +11,10 @@ const profile = vi.hoisted(() => ({
   refreshLearnedStyleBucket: vi.fn(async () => undefined),
 }));
 vi.mock("@/lib/content/create/styleProfile", () => profile);
+const learner = vi.hoisted(() => ({ profileImage: vi.fn(async () => "profiled") }));
+vi.mock("@/lib/loops/learners/votes", () => learner);
+const control = vi.hoisted(() => ({ setTenantLearnedImageStyle: vi.fn(), setTenantStyleLearned: vi.fn() }));
+vi.mock("@/lib/tenant/control", () => control);
 
 const { POST } = await import("./route");
 const params = { params: Promise.resolve({ assetId: "img_1" }) };
@@ -98,5 +102,40 @@ describe("POST image feedback: the why behind a vote (learning loops step 4, 3.1
     expect(res.status).toBe(200);
     expect(kit.setImageBrandVote).toHaveBeenCalledWith(expect.anything(), "img_1", { vote: "down", rating: null });
     expect(kit.setImageVoteReason).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST image feedback with versions on (learning loops step 4, decision 7)", () => {
+  beforeEach(() => {
+    vi.stubEnv("BRAND_STYLE_LOOP_ENABLED", "true");
+    vi.stubEnv("BRAND_IMAGE_STYLE_ENABLED", "true");
+    vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "true");
+    kit.setImageBrandVote.mockResolvedValue({ id: "img_1", style: "natural_photo", brandVote: "up" });
+  });
+
+  it("profiles the image on an up or a down vote, and rewrites no look", async () => {
+    for (const body of [{ vote: "up", rating: 8 }, { vote: "down" }]) {
+      const res = await POST(req(body), params);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ image: { id: "img_1", style: "natural_photo", brandVote: "up" } });
+    }
+    expect(learner.profileImage).toHaveBeenCalledTimes(2);
+    expect(learner.profileImage).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "ten_A" }), "img_1");
+    for (const fn of Object.values(profile)) expect(fn).not.toHaveBeenCalled();
+    expect(control.setTenantLearnedImageStyle).not.toHaveBeenCalled();
+    expect(control.setTenantStyleLearned).not.toHaveBeenCalled();
+  });
+
+  it("profiles nothing when a vote is cleared, and a profile that fails never fails the vote", async () => {
+    await POST(req({ vote: null }), params);
+    expect(learner.profileImage).not.toHaveBeenCalled();
+    learner.profileImage.mockRejectedValueOnce(new Error("model down"));
+    expect((await POST(req({ vote: "up" }), params)).status).toBe(200);
+  });
+
+  it("leaves pausing to profileImage, which profiles nothing while image learning is paused", async () => {
+    learner.profileImage.mockResolvedValueOnce("paused");
+    expect((await POST(req({ vote: "down" }), params)).status).toBe(200);
+    expect(profile.refreshLearnedImageStyle).not.toHaveBeenCalled();
   });
 });

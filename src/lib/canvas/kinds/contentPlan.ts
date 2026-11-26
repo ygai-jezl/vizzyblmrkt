@@ -4,7 +4,8 @@ import { forTenant, getTenantById, isRateLimited } from "@/lib/tenant";
 import { updateBlogHero } from "@/lib/tenant/workspaceContent";
 import { BlogHeroSchema } from "@/lib/types/contentPlan";
 import { makeBlogHero } from "@/lib/content/blog/hero";
-import { isBlogHeroEnabled } from "@/lib/content/imageStyle/flags";
+import { assembleBrandContext, resolveBrandVoiceText } from "@/lib/content/create/brandContext";
+import { isBlogHeroEnabled, isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import type { ContentPlan } from "@/lib/types/contentPlan";
 import type { Workspace } from "@/lib/types/workspace";
@@ -261,6 +262,21 @@ export async function authorContentPlanDraft(
         ...(req.data.heroStyleId ? { styleOverride: req.data.heroStyleId } : {}),
         budgetMs: Math.min(40_000, HERO_DONE_BY_MS - elapsed),
         retry: false,
+        // With image style versions on (learning loops step 4), the brand context the article
+        // card's hero gets, with what was learned for the hero's style, read in the brand's own
+        // region. Off, Vizzy's hero is painted with no brand context, as before (decision 22).
+        ...(isImageStyleVersionsOn()
+          ? {
+              brandContextFor: (learned: string | null | undefined) =>
+                assembleBrandContext({
+                  brandVoice: resolveBrandVoiceText({ tenantBrandVoice: tenant?.brandVoice, workspaceBrandVoice: ws.brandVoice }),
+                  audience: ws.audience ?? null,
+                  brandKit: tenant?.brandKit ?? null,
+                  typography: tenant?.brandTypography ?? null,
+                  learnedImageStyle: learned,
+                }),
+            }
+          : {}),
       }).catch(() => null);
       if (made?.ok && made.hero.heroRef) hero = "made";
     }

@@ -165,4 +165,14 @@ describe("counting a vote", () => {
     await countImageVote(hearth, before, after, { db, now: NOW });
     expect(sumWeek(db, hearth.tenantId, "2027-W02")).toEqual({ c: { [NATURAL]: { post_image: { v1: { holdback: { voted: 1, "disliked.mood": 1 } } } } } });
   });
+
+  it("counts a person's own image (an upload) as an own image's vote, with no stamp, and moves it when it changes", async () => {
+    versionsOn();
+    const db = new FakeFirestore();
+    const upload = row({ kind: "upload", style: null, made: { unstamped: "own_image" }, brandVote: "up", brandVoteVia: "upload", firstVotedAt: NOW.toISOString() });
+    await countImageVote(hearth, { brandVote: null }, upload, { db, now: NOW });
+    expect(sumWeek(db, hearth.tenantId, "2027-W02")).toEqual({ o: { image: { voted: 1, liked: 1 } } });
+    await countImageVote(hearth, upload, { ...upload, brandVote: "down" }, { db, now: NOW });
+    expect(sumWeek(db, hearth.tenantId, "2027-W02")).toEqual({ o: { image: { voted: 1, liked: 0 } } });
+  });
 });

@@ -11,6 +11,8 @@ const control = vi.hoisted(() => ({
 vi.mock("@/lib/tenant/control", () => control);
 const tenants = vi.hoisted(() => ({ getTenantById: vi.fn() }));
 vi.mock("@/lib/tenant", () => tenants);
+const seed = vi.hoisted(() => ({ seedBrand: vi.fn() }));
+vi.mock("@/lib/loops/seed", () => seed);
 
 const { GET, PUT, DELETE } = await import("./route");
 const suggestion = await import("./suggestion/route");
@@ -73,6 +75,27 @@ describe("/api/admin/brand-kit/image-style", () => {
   it("Reset removes the style", async () => {
     expect((await DELETE(req("DELETE"))).status).toBe(200);
     expect(control.clearTenantImageStyle).toHaveBeenCalledWith("ten_A");
+    expect(seed.seedBrand).not.toHaveBeenCalled();
+  });
+
+  it("Reset with image style versions on seeds first, then clears the old copy of the looks too (decision 17)", async () => {
+    vi.stubEnv("BRAND_STYLE_LOOP_ENABLED", "true");
+    vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "true");
+    const hearth = { brandKit: { learnedImageStyle: "Warm natural light." } };
+    tenants.getTenantById.mockResolvedValue(hearth);
+    seed.seedBrand.mockResolvedValue({ ok: true, seeded: true, scopes: ["image_style.brand"], refused: [] });
+    expect((await DELETE(req("DELETE"))).status).toBe(200);
+    expect(seed.seedBrand).toHaveBeenCalledWith(admin, hearth);
+    expect(control.clearTenantImageStyle).toHaveBeenCalledWith("ten_A", undefined, { learnedBrandLook: true });
+    expect(seed.seedBrand.mock.invocationCallOrder[0]).toBeLessThan(control.clearTenantImageStyle.mock.invocationCallOrder[0]!);
+
+    // A seed that can't be written resets nothing, so no look is lost.
+    vi.clearAllMocks();
+    seed.seedBrand.mockResolvedValue({ ok: false, error: "write_failed" });
+    const res = await DELETE(req("DELETE"));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "seed_failed", message: "Couldn't keep what YouGrow learned before resetting, so nothing changed. Try again." });
+    expect(control.clearTenantImageStyle).not.toHaveBeenCalled();
   });
 
   it("Dismiss clears the suggestion the admin saw", async () => {

@@ -126,9 +126,10 @@ export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSig
           Each newsletter, blog article and workflow email you approve becomes an example of your own writing. When Vizzy
           writes your next newsletter or workflow email, or a blog hub{isBlogCitableEnabled() ? " from a template" : ""}, it
           follows the nearest examples of the same kind for voice, shape and length, without copying their words, facts or
-          links. A blog article found live on your site counts as approved too. YouGrow keeps the newest 20 of each kind,
-          takes out email addresses, handles and phone numbers, and keeps merge values such as{" "}
-          <code>{"{{first_name}}"}</code> as they are, never a reader&apos;s name. Deleting a workflow removes its examples.
+          links.{isBlogLiveWatchEnabled() ? " A blog article found live on your site counts as approved too." : null} YouGrow
+          keeps the newest 20 of each kind, takes out email addresses, handles and phone numbers, and keeps merge values such
+          as <code>{"{{first_name}}"}</code> as they are, never a reader&apos;s name. Deleting a piece, its workflow or its
+          programme removes its examples.
           {isAiOriginalsEnabled() ? <> Vizzy can tell you which examples a draft followed: ask &quot;what did you base this on?&quot;</> : null}
         </P>
       ) : null}

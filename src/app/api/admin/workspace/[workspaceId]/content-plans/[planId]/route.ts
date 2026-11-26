@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { keepApprovedSeen } from "@/lib/content/blog/hubActions";
 import { recordApprovals } from "@/lib/content/create/aiOriginals";
-import { forgetPlanExamples, keepApprovedExamples } from "@/lib/content/create/approvedExamples";
+import { forgetPlanExamples, forgetRemovedExamples, keepApprovedExamples } from "@/lib/content/create/approvedExamples";
 import { AUTOPILOT_RUNNING, autopilotHolds } from "@/lib/autopilot/planLock";
 import { closeDraftRows, draftDoneWith } from "@/lib/autopilot/answers";
 import { z } from "zod";
@@ -104,6 +104,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
   await recordApprovals(ctx, { before: plan, after: updated });
   // Each workflow email and hub piece approved in this save becomes an example its writer follows (CONTENT_APPROVED_EXAMPLES_ENABLED).
   await keepApprovedExamples(ctx, { workspaceId, before: plan, after: updated });
+  // A piece this save took off the canvas takes its example with it, even one kept before the switch went off.
+  await forgetRemovedExamples(ctx, { workspaceId, before: plan, after: updated });
   // Approved or archived: an autopilot draft's question rows in Review close.
   if (updated?.autopilot && !draftDoneWith(plan) && draftDoneWith(updated)) await closeDraftRows(ctx, updated);
   indexPlanAfterSave(ctx, updated);

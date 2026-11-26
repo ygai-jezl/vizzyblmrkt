@@ -1037,7 +1037,11 @@ export const ONTOLOGY: readonly OntologyType[] = [
     ],
     events: [],
     erase: {
-      paths: [brandPath("forgetPlanExamples", "src/lib/content/create/approvedExamples.ts", "an approved example goes with its content plan; the post statistics are the brand's own and stay")],
+      paths: [
+        brandPath("forgetPlanExamples", "src/lib/content/create/approvedExamples.ts", "an approved example goes with its content plan; the post statistics are the brand's own and stay"),
+        brandPath("forgetRemovedExamples", "src/lib/content/create/approvedExamples.ts", "a piece taken off the canvas takes its approved example with it"),
+        brandPath("forgetWorkspaceExamples", "src/lib/content/create/approvedExamples.ts", "a deleted programme takes the approved examples of its plans with it"),
+      ],
     },
     export: { none: NOT_PERSONAL },
     search: { none: "vectors and versions for the writer, not text to find" },

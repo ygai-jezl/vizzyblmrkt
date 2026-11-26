@@ -9,6 +9,8 @@ import {
   examplePieceOf,
   exampleTextOf,
   forgetPlanExamples,
+  forgetRemovedExamples,
+  forgetWorkspaceExamples,
   keepApprovedExample,
   keepApprovedExamples,
 } from "./approvedExamples";
@@ -210,5 +212,55 @@ describe("deleting a plan", () => {
     const plan1 = { id: "plan1", graph: { nodes: [emailNode(), hubNode({ id: "hub_9" }), { ...hubNode(), id: "s1", type: "spoke", channel: "x" } as ContentNode], edges: [] } };
     expect(await forgetPlanExamples(A, { workspaceId: "ws1", plan: plan1 }, { db })).toBe(2);
     expect(rows(db).map((r) => `${r.tenantId} ${r.sourcePostId}`).sort()).toEqual(["ten_A approved:ws1:plan2:hub_1", "ten_B approved:ws1:plan1:email_1"]);
+  });
+});
+
+describe("a piece that leaves its workflow", () => {
+  const graphOf = (nodes: ContentNode[]) => ({ id: "plan1", graph: { nodes, edges: [] } });
+
+  it("still goes when the plan is deleted after the piece was taken off the canvas", async () => {
+    const db = new FakeFirestore();
+    expect(await keepApprovedExample(A, { workspaceId: "ws1", planId: "plan1", node: emailNode() }, { db, embed: embed() })).toBe("kept");
+    // Nothing forgot the row when the piece left the canvas, so the plan's graph no longer names it.
+    expect(await forgetPlanExamples(A, { workspaceId: "ws1", plan: graphOf([]) }, { db })).toBe(1);
+    expect(rows(db)).toEqual([]);
+  });
+
+  it("takes its example with it on the save that removes it, switch on or off", async () => {
+    const db = new FakeFirestore();
+    await keepApprovedExample(A, { workspaceId: "ws1", planId: "plan1", node: emailNode() }, { db, embed: embed() });
+    await keepApprovedExample(A, { workspaceId: "ws1", planId: "plan1", node: hubNode() }, { db, embed: embed() });
+    await keepApprovedExample(A, { workspaceId: "ws1", planId: "plan2", node: emailNode() }, { db, embed: embed() });
+    vi.stubEnv("CONTENT_APPROVED_EXAMPLES_ENABLED", "");
+    const before = graphOf([emailNode(), hubNode()]);
+    expect(await forgetRemovedExamples(A, { workspaceId: "ws1", before, after: graphOf([hubNode()]) }, { db })).toBe(1);
+    expect(rows(db).map((r) => r.sourcePostId).sort()).toEqual(["approved:ws1:plan1:hub_1", "approved:ws1:plan2:email_1"]);
+  });
+
+  it("forgets nothing when the save keeps every piece, or the plan is gone", async () => {
+    const db = new FakeFirestore();
+    await keepApprovedExample(A, { workspaceId: "ws1", planId: "plan1", node: emailNode() }, { db, embed: embed() });
+    const before = graphOf([emailNode(), hubNode()]);
+    expect(await forgetRemovedExamples(A, { workspaceId: "ws1", before, after: graphOf([emailNode({ status: "generated" }), hubNode()]) }, { db })).toBe(0);
+    expect(await forgetRemovedExamples(A, { workspaceId: "ws1", before, after: null }, { db })).toBe(0);
+    expect(rows(db)).toHaveLength(1);
+  });
+});
+
+describe("deleting a programme", () => {
+  it("removes the examples of all its plans, not another programme's or another brand's", async () => {
+    const db = new FakeFirestore();
+    await keepApprovedExample(A, { workspaceId: "ws1", planId: "plan1", node: emailNode() }, { db, embed: embed() });
+    await keepApprovedExample(A, { workspaceId: "ws1", planId: "plan2", node: hubNode({ channel: "blog" }) }, { db, embed: embed() });
+    await keepApprovedExample(A, { workspaceId: "ws2", planId: "plan3", node: hubNode() }, { db, embed: embed() });
+    await keepApprovedExample(B, { workspaceId: "ws1", planId: "plan1", node: emailNode() }, { db, embed: embed() });
+    vi.stubEnv("CONTENT_APPROVED_EXAMPLES_ENABLED", "");
+    expect(await forgetWorkspaceExamples(A, "ws1", { db })).toBe(2);
+    expect(rows(db).map((r) => `${r.tenantId} ${r.sourcePostId}`).sort()).toEqual(["ten_A approved:ws2:plan3:hub_1", "ten_B approved:ws1:plan1:email_1"]);
+  });
+
+  it("never fails the delete when the store can't be read", async () => {
+    const db = { collection: () => { throw new Error("unavailable"); } } as unknown as FakeFirestore;
+    expect(await forgetWorkspaceExamples(A, "ws1", { db })).toBe(0);
   });
 });

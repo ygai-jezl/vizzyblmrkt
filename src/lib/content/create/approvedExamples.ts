@@ -1,4 +1,4 @@
-import { deletePerformanceExemplars, listApprovedExemplars, writePerformanceExemplar } from "@/lib/tenant";
+import { deletePerformanceExemplars, listApprovedExemplars, writePerformanceExemplar, type ApprovedExemplarRow } from "@/lib/tenant";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import {
   MAX_EXEMPLAR_CHARS,
@@ -12,9 +12,11 @@ import type { ContentNode, ContentPlan } from "@/lib/types/contentPlan";
 import {
   APPROVED_METRIC,
   approvedExemplarId,
+  approvedRefOf,
   approvedSourceId,
   pieceTag,
   type ExamplePiece,
+  type ExampleRef,
 } from "@/lib/types/performanceExemplar";
 import { newlyApproved } from "./aiOriginals";
 import { isApprovedExamplesEnabled } from "./flags";
@@ -29,7 +31,8 @@ import { isApprovedExamplesEnabled } from "./flags";
  * Each example is the piece as a person approved it: an email's subject and copy with its merge
  * values still as tags such as {{first_name}} (a recipient's copy is only ever made at send time and
  * never kept), scrubbed and embedded exactly as a proven post is (recordExemplar). One per piece,
- * the newest APPROVED_EXAMPLES_KEPT per channel and kind of piece, and they go when the plan is deleted.
+ * the newest APPROVED_EXAMPLES_KEPT per channel and kind of piece. An example goes when its piece is
+ * taken out of the workflow, or the workflow or its programme is deleted.
  */
 
 /** Approved examples kept per brand, channel and kind of piece; the oldest go first. */
@@ -37,6 +40,9 @@ export const APPROVED_EXAMPLES_KEPT = 20;
 
 /** Hub channels whose writer follows examples. An eBook hub holds a whole book, written in the eBook studio. */
 const EXAMPLE_HUB_CHANNELS: ReadonlySet<string> = new Set(["newsletter", "blog"]);
+
+/** Every channel an example is kept on: a workflow email is written for "newsletter", a hub for its own channel. */
+const EXAMPLE_CHANNELS: readonly string[] = [...new Set(["newsletter", ...EXAMPLE_HUB_CHANNELS])];
 
 type ExampleNode = Pick<ContentNode, "id" | "type" | "channel" | "body"> &
   Partial<Pick<ContentNode, "subject" | "layout" | "placeholderValues">>;
@@ -136,9 +142,50 @@ export async function keepApprovedExamples(
   return n;
 }
 
+/** The id each example piece in this graph would be kept under, whether one was kept or not. */
+function graphExampleIds(
+  ctx: TenantContext,
+  args: { workspaceId: string; planId: string; nodes: readonly Pick<ContentNode, "id" | "type" | "channel">[] },
+): string[] {
+  const ids: string[] = [];
+  for (const node of args.nodes) {
+    if (!examplePieceOf(node)) continue;
+    const source = approvedSourceId({ workspaceId: args.workspaceId, planId: args.planId, nodeId: node.id });
+    if (source) ids.push(approvedExemplarId(ctx.tenantId, source));
+  }
+  return ids;
+}
+
+/**
+ * The brand's kept examples whose piece matches, read from the store itself rather than from a
+ * graph, so a piece a person removed before is found too. Equality filters only (no new index).
+ */
+async function storedExampleIds(
+  ctx: TenantContext,
+  matches: (ref: ExampleRef) => boolean,
+  db?: FirestoreLike,
+): Promise<string[]> {
+  const ids: string[] = [];
+  for (const channel of EXAMPLE_CHANNELS) {
+    let rows: ApprovedExemplarRow[] = [];
+    try {
+      rows = await listApprovedExemplars(ctx, channel, db);
+    } catch {
+      rows = [];
+    }
+    for (const row of rows) {
+      const ref = approvedRefOf(row.sourcePostId);
+      if (ref && matches(ref)) ids.push(row.id);
+    }
+  }
+  return ids;
+}
+
 /**
  * A deleted plan's examples go with it, whether the switch is on now or not, so a piece kept while
- * it was on never outlives its plan. Never fails the delete. Returns how many ids were removed.
+ * it was on never outlives its plan. It deletes what the store holds for the plan, including pieces
+ * already taken off the canvas, and what the graph names. Never fails the delete. Returns how many
+ * ids were removed.
  */
 export async function forgetPlanExamples(
   ctx: TenantContext,
@@ -146,12 +193,46 @@ export async function forgetPlanExamples(
   deps: { db?: FirestoreLike } = {},
 ): Promise<number> {
   try {
-    const ids: string[] = [];
-    for (const node of args.plan.graph?.nodes ?? []) {
-      if (!examplePieceOf(node)) continue;
-      const source = approvedSourceId({ workspaceId: args.workspaceId, planId: args.plan.id, nodeId: node.id });
-      if (source) ids.push(approvedExemplarId(ctx.tenantId, source));
-    }
+    const named = graphExampleIds(ctx, { workspaceId: args.workspaceId, planId: args.plan.id, nodes: args.plan.graph?.nodes ?? [] });
+    const stored = await storedExampleIds(ctx, (r) => r.workspaceId === args.workspaceId && r.planId === args.plan.id, deps.db);
+    const ids = [...new Set([...named, ...stored])];
+    return ids.length ? await deletePerformanceExemplars(ctx, ids, deps.db) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * A piece a save takes out of the workflow (deleted on the canvas) takes its example with it, switch
+ * on or not, so a piece nobody can open any more never guides a writer. Never fails the save.
+ */
+export async function forgetRemovedExamples(
+  ctx: TenantContext,
+  args: { workspaceId: string; before: Pick<ContentPlan, "id" | "graph">; after: Pick<ContentPlan, "graph"> | null },
+  deps: { db?: FirestoreLike } = {},
+): Promise<number> {
+  if (!args.after) return 0;
+  try {
+    const left = new Set((args.after.graph?.nodes ?? []).map((n) => n.id));
+    const removed = (args.before.graph?.nodes ?? []).filter((n) => !left.has(n.id));
+    const ids = graphExampleIds(ctx, { workspaceId: args.workspaceId, planId: args.before.id, nodes: removed });
+    return ids.length ? await deletePerformanceExemplars(ctx, ids, deps.db) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * A deleted programme's examples go with it, switch on or not. Its plans stay in their subcollections
+ * (a known gap), but nothing from them guides the brand's other programmes. Never fails the delete.
+ */
+export async function forgetWorkspaceExamples(
+  ctx: TenantContext,
+  workspaceId: string,
+  deps: { db?: FirestoreLike } = {},
+): Promise<number> {
+  try {
+    const ids = await storedExampleIds(ctx, (r) => r.workspaceId === workspaceId, deps.db);
     return ids.length ? await deletePerformanceExemplars(ctx, ids, deps.db) : 0;
   } catch {
     return 0;

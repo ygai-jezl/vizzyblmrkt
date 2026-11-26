@@ -98,6 +98,22 @@ describe("approving a workflow email or a hub keeps it as an example", () => {
   });
 });
 
+describe("taking a piece off the canvas", () => {
+  it("forgets the example kept for an email or hub the save removed, switch on or off", async () => {
+    content.getContentPlan.mockResolvedValueOnce(plan([email("approved"), hub("approved")])).mockResolvedValue(plan([hub("approved")]));
+    expect((await PUT(save({ graph: { nodes: [], edges: [] } }), params)).status).toBe(200);
+    expect(tenant.deletePerformanceExemplars).toHaveBeenCalledWith(admin, ["pex:ten_A:approved:ws1:plan_1:email_1"], undefined);
+    expect(tenant.writePerformanceExemplar).not.toHaveBeenCalled();
+  });
+
+  it("forgets nothing when every piece stays", async () => {
+    vi.stubEnv("CONTENT_APPROVED_EXAMPLES_ENABLED", "true");
+    content.getContentPlan.mockResolvedValue(plan([email("approved"), hub("approved")]));
+    expect((await PUT(save({ name: "Week" }), params)).status).toBe(200);
+    expect(tenant.deletePerformanceExemplars).not.toHaveBeenCalled();
+  });
+});
+
 describe("deleting a plan", () => {
   it("removes the examples kept from its emails and hubs, switch on or off", async () => {
     content.getContentPlan.mockResolvedValue(plan([email("approved"), hub("generated"), { id: "li_1", type: "spoke", channel: "linkedin", status: "approved", body: "Post" }]));
@@ -105,5 +121,18 @@ describe("deleting a plan", () => {
     expect((await DELETE(del, params)).status).toBe(200);
     expect(content.deleteContentPlan).toHaveBeenCalledOnce();
     expect(tenant.deletePerformanceExemplars).toHaveBeenCalledWith(admin, ["pex:ten_A:approved:ws1:plan_1:email_1", "pex:ten_A:approved:ws1:plan_1:hub_1"], undefined);
+  });
+
+  it("also removes an example whose piece was taken off the canvas before", async () => {
+    // The newsletter channel is read first; the blog channel holds nothing here.
+    const stored = (id: string, sourcePostId: string) => ({ id, channel: "newsletter", text: "Old", tags: ["piece:email"], sourcePostId, createdAt: "2026-01-01T00:00:00.000Z" });
+    tenant.listApprovedExemplars.mockResolvedValueOnce([
+      stored("pex:ten_A:approved:ws1:plan_1:email_old", "approved:ws1:plan_1:email_old"),
+      stored("pex:ten_A:approved:ws1:plan_2:email_1", "approved:ws1:plan_2:email_1"),
+    ] as never);
+    content.getContentPlan.mockResolvedValue(plan([hub("approved")]));
+    const del = new Request("http://localhost/api/admin/workspace/ws1/content-plans/plan_1", { method: "DELETE" });
+    expect((await DELETE(del, params)).status).toBe(200);
+    expect(tenant.deletePerformanceExemplars).toHaveBeenCalledWith(admin, ["pex:ten_A:approved:ws1:plan_1:hub_1", "pex:ten_A:approved:ws1:plan_1:email_old"], undefined);
   });
 });

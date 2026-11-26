@@ -1,5 +1,6 @@
 import { forTenant, listAllTenants, organisationIdFor, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
+import { isIndexNotReady } from "@/lib/tenant/errors";
 import { usageThisMonth } from "@/lib/plans/meter";
 import { isUsageMeterEnabled } from "@/lib/plans/flags";
 import { LOOP_RULES } from "@/lib/loops/registry";
@@ -16,13 +17,13 @@ import { SET_BY_MEASURE, type Counted, type WorkTask } from "./types";
  * it (`check.counted`). Work counts two things in v1:
  *
  * - A product event (Used): the brand's own events with that name, from Done (`from`) to the check
- *   (`to`). The exact count needs a product_events (tenantId, connectionId, event, receivedAt)
- *   index that isn't approved yet, so Work reads the newest 2,000 of the connection's events in
- *   that time through the index the Connected product's events list already has (tenantId,
- *   connectionId, receivedAt desc), and counts those with the name. With fewer than 2,000 the
- *   count is exact; at 2,000 it is "at least N" (`capped`), back to the oldest row read
- *   (`backTo`). countProductEventsExact below is the exact count, kept apart and wired nowhere:
- *   once the index is approved and deployed, productEventCount calls it instead.
+ *   (`to`), counted exactly by a Firestore count() through the product_events (tenantId,
+ *   connectionId, event, receivedAt) index, with no row cap. Only while Firestore refuses that
+ *   count because the index is missing or still building (just after a deploy) does Work read the
+ *   newest 2,000 of the connection's events in that time through the index the Connected
+ *   product's events list already has (tenantId, connectionId, receivedAt desc), and count those
+ *   with the name: exact under 2,000, "at least N" at 2,000 (`capped`), back to the oldest row
+ *   read (`backTo`).
  * - A purpose (Used, operators only): the units the usage meter kept for it, per brand and per
  *   calendar month, over the months the check covers, and how many brands spent any. The brand
  *   count is kept only when those brands come from at least LOOP_RULES.cellOrgs organisations
@@ -32,7 +33,7 @@ import { SET_BY_MEASURE, type Counted, type WorkTask } from "./types";
  * check says what Work can't count, and the person's read is the record (src/lib/work/words.ts).
  */
 
-/** The most product events one count reads. */
+/** The most product events the fallback count reads, while the exact count's index isn't ready. */
 export const COUNT_ROWS = 2000;
 
 /** A product event's label in its connection's catalog, as the picker shows it; undefined for none. */
@@ -84,10 +85,10 @@ export interface EventCountAsk {
 
 /**
  * The exact count of a connection's events with one name between two times: a Firestore count()
- * through product_events (tenantId, connectionId, event, receivedAt). NOT WIRED: that index isn't
- * approved, and Firestore refuses this query without it (the emulator and the fake serve it, so
- * only src/lib/work/indexes.test.ts guards it). Turning it on is adding the index and calling this
- * from productEventCount.
+ * through product_events (tenantId, connectionId, event, receivedAt), which productEventCount
+ * tries first. `event` is set on track rows only, so identify rows never match. Firestore refuses
+ * this query while that index is missing or building; the emulator and the fake serve it anyway,
+ * so src/lib/work/indexes.test.ts guards that the index is there and serves this shape.
  */
 export async function countProductEventsExact(ctx: TenantContext, ask: EventCountAsk, db?: FirestoreLike): Promise<number> {
   return forTenant(ctx, db).productEvents.count([
@@ -98,11 +99,38 @@ export async function countProductEventsExact(ctx: TenantContext, ask: EventCoun
   ]);
 }
 
+/** The exact count's index, as the warning names it. */
+const EXACT_INDEX = "product_events (tenantId, connectionId, event, receivedAt)";
+
 /**
- * The count Work uses now: the newest 2,000 of the connection's events between the two times,
- * through the existing (tenantId, connectionId, receivedAt desc) index, counted by name in memory.
+ * The count Work uses: the exact count, never capped. Only when Firestore refuses it because its
+ * index is missing or still building does it log one warning and read the newest 2,000 events
+ * instead (newestEventCount). Any other error is thrown as it is.
  */
 export async function productEventCount(ctx: TenantContext, ask: EventCountAsk, db?: FirestoreLike): Promise<{ n: number; capped: boolean; backTo: string | null }> {
+  try {
+    return { n: await countProductEventsExact(ctx, ask, db), capped: false, backTo: null };
+  } catch (err) {
+    if (!isIndexNotReady(err)) throw err;
+  }
+  // Names the collection and the index only: no brand, connection or event name.
+  console.warn(
+    JSON.stringify({
+      severity: "WARNING",
+      message: `[work] the exact Used count's index isn't ready, so Work counts in the newest ${COUNT_ROWS} product events instead`,
+      event: "work_count_index_not_ready",
+      collection: "product_events",
+      index: EXACT_INDEX,
+    }),
+  );
+  return newestEventCount(ctx, ask, db);
+}
+
+/**
+ * The fallback: the newest 2,000 of the connection's events between the two times, through the
+ * existing (tenantId, connectionId, receivedAt desc) index, counted by name in memory.
+ */
+async function newestEventCount(ctx: TenantContext, ask: EventCountAsk, db?: FirestoreLike): Promise<{ n: number; capped: boolean; backTo: string | null }> {
   const rows = await forTenant(ctx, db).productEvents.find({
     where: [
       ["connectionId", "==", ask.connectionId],

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
+import { failingFirestore } from "@/lib/tenant/testing/failingFirestore";
 import { shapeRecordingFirestore } from "@/lib/tenant/testing/queryShape";
 import { COUNT_ROWS, countForCheck, countProductEventsExact, monthsBetween, productEventCount, purposeCount } from "./counted";
 import { aStoredTask, LUMEN_US } from "./testing/fixtures";
@@ -7,7 +8,10 @@ import type { WorkBrand } from "./scope";
 import type { Measure, WorkCheck } from "./types";
 import { countedLine } from "./words";
 
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
 
 const CONN = "pc_lumen";
 const ctx = { tenantId: LUMEN_US, region: "us" as const, source: "system" as const };
@@ -30,7 +34,70 @@ function seedEvents(db: FakeFirestore, n: number, start: string, opts: { every?:
 
 const ask = { connectionId: CONN, event: "note_from_template", from: "2026-11-20T00:00:00.000Z", to: "2026-12-04T08:00:00.000Z" };
 
-describe("the product event count (the fallback, wired)", () => {
+/** How many of these seedEvents rows are track rows: every seventh is an identify row. */
+const tracksIn = (rows: number[]) => rows.filter((i) => i % 7 !== 6).length;
+const range = (from: number, to: number) => Array.from({ length: to - from }, (_, i) => i + from);
+
+/** The database refusing the exact count, as Firestore does while its index is missing or building. */
+const building = (db: FakeFirestore) => failingFirestore(db, { countsNeedIndex: ["product_events"] });
+const quiet = () => vi.spyOn(console, "warn").mockImplementation(() => {});
+
+describe("the product event count: exact through the event index", () => {
+  it("counts every matching event past 2,000 exactly, never capped", async () => {
+    const db = new FakeFirestore();
+    seedEvents(db, COUNT_ROWS + 600, "2026-11-21T00:00:00.000Z");
+    const warn = quiet();
+    const r = await productEventCount(ctx, ask, db);
+    expect(r).toEqual({ n: tracksIn(range(0, COUNT_ROWS + 600)), capped: false, backTo: null });
+    expect(r.n).toBeGreaterThan(COUNT_ROWS);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("counts only the connection's events with that name between the two times, both ends in", async () => {
+    const db = new FakeFirestore();
+    seedEvents(db, 30, "2026-11-21T00:00:00.000Z");
+    // Another name, another connection, another brand, before and after the times: none counted.
+    seedEvents(db, 15, "2026-11-23T00:00:00.000Z", { event: "note_shared" });
+    seedEvents(db, 15, "2026-11-24T00:00:00.000Z", { connectionId: "pc_other" });
+    seedEvents(db, 15, "2026-11-25T00:00:00.000Z", { tenantId: "ten_fernhill" });
+    seedEvents(db, 15, "2026-11-10T00:00:00.000Z");
+    seedEvents(db, 15, "2026-12-05T00:00:00.000Z");
+    // Identify rows carry no event name, even in the time and on the connection.
+    db.seed("product_events", "pe_identify", { tenantId: LUMEN_US, connectionId: CONN, type: "identify", event: null, receivedAt: "2026-11-26T00:00:00.000Z" });
+    db.seed("product_events", "pe_at_from", { tenantId: LUMEN_US, connectionId: CONN, type: "track", event: ask.event, receivedAt: ask.from });
+    db.seed("product_events", "pe_at_to", { tenantId: LUMEN_US, connectionId: CONN, type: "track", event: ask.event, receivedAt: ask.to });
+    const expected = tracksIn(range(0, 30)) + 2;
+    expect(await productEventCount(ctx, ask, db)).toEqual({ n: expected, capped: false, backTo: null });
+    // The fallback reads the same rows the same way, under 2,000.
+    quiet();
+    expect(await productEventCount(ctx, ask, building(db))).toEqual({ n: expected, capped: false, backTo: null });
+  });
+
+  it("asks count() with the event name: the shape the (tenantId, connectionId, event, receivedAt) index serves", async () => {
+    const db = new FakeFirestore();
+    seedEvents(db, COUNT_ROWS + 300, "2026-11-21T00:00:00.000Z", { every: 3 });
+    const ops: string[] = [];
+    const exact = await countProductEventsExact(ctx, ask, shapeRecordingFirestore(db, ops));
+    expect(ops).toEqual(["where tenantId ==", "where connectionId ==", "where event ==", "where receivedAt >=", "where receivedAt <="]);
+    expect(exact).toBe(range(0, COUNT_ROWS + 300).filter((i) => i % 7 !== 6 && i % 3 === 0).length);
+    const used: string[] = [];
+    await productEventCount(ctx, ask, shapeRecordingFirestore(db, used));
+    expect(used).toEqual(ops);
+  });
+});
+
+describe("the product event count: the fallback while the index is missing or building", () => {
+  it("past 2,000 rows says at least N, back to the oldest row read", async () => {
+    const db = new FakeFirestore();
+    seedEvents(db, COUNT_ROWS + 300, "2026-11-21T00:00:00.000Z");
+    quiet();
+    const r = await productEventCount(ctx, ask, building(db));
+    expect(r.capped).toBe(true);
+    // The newest 2,000 are read: the oldest of them is row 300.
+    expect(r.backTo).toBe(new Date(Date.parse("2026-11-21T00:00:00.000Z") + 300 * 60_000).toISOString());
+    expect(r.n).toBe(tracksIn(range(300, COUNT_ROWS + 300)));
+  });
+
   it("counts the connection's track events with that name between the two times, exactly under 2,000", async () => {
     const db = new FakeFirestore();
     seedEvents(db, 70, "2026-11-21T00:00:00.000Z", { every: 2 });
@@ -38,36 +105,57 @@ describe("the product event count (the fallback, wired)", () => {
     seedEvents(db, 20, "2026-12-05T00:00:00.000Z");
     seedEvents(db, 20, "2026-11-22T00:00:00.000Z", { connectionId: "pc_other" });
     seedEvents(db, 20, "2026-11-22T00:00:00.000Z", { tenantId: "ten_fernhill" });
+    quiet();
     // 70 rows: 10 identify; of the 60 tracks the even ones are named.
-    const r = await productEventCount(ctx, ask, db);
-    const expected = Array.from({ length: 70 }, (_, i) => i).filter((i) => i % 7 !== 6 && i % 2 === 0).length;
+    const r = await productEventCount(ctx, ask, building(db));
+    const expected = range(0, 70).filter((i) => i % 7 !== 6 && i % 2 === 0).length;
     expect(r).toEqual({ n: expected, capped: false, backTo: null });
   });
 
-  it("past 2,000 rows says at least N, back to the oldest row read", async () => {
-    const db = new FakeFirestore();
-    seedEvents(db, COUNT_ROWS + 300, "2026-11-21T00:00:00.000Z");
-    const r = await productEventCount(ctx, ask, db);
-    expect(r.capped).toBe(true);
-    // The newest 2,000 are read: the oldest of them is row 300.
-    expect(r.backTo).toBe(new Date(Date.parse("2026-11-21T00:00:00.000Z") + 300 * 60_000).toISOString());
-    const tracks = Array.from({ length: COUNT_ROWS }, (_, i) => i + 300).filter((i) => i % 7 !== 6).length;
-    expect(r.n).toBe(tracks);
+  it("tries the exact count first, then reads through the existing (tenantId, connectionId, receivedAt desc) index", async () => {
+    quiet();
+    const ops: string[] = [];
+    await productEventCount(ctx, ask, shapeRecordingFirestore(building(new FakeFirestore()), ops));
+    expect(ops).toEqual([
+      "where tenantId ==",
+      "where connectionId ==",
+      "where event ==",
+      "where receivedAt >=",
+      "where receivedAt <=",
+      "where tenantId ==",
+      "where connectionId ==",
+      "where receivedAt >=",
+      "where receivedAt <=",
+      "orderBy receivedAt",
+    ]);
   });
 
-  it("reads through the existing (tenantId, connectionId, receivedAt desc) index: equality on the connection, a range and order on receivedAt", async () => {
-    const ops: string[] = [];
-    await productEventCount(ctx, ask, shapeRecordingFirestore(new FakeFirestore(), ops));
-    expect(ops).toEqual(["where tenantId ==", "where connectionId ==", "where receivedAt >=", "where receivedAt <=", "orderBy receivedAt"]);
+  it("logs one structured warning naming only the collection and the index", async () => {
+    const db = new FakeFirestore();
+    seedEvents(db, 10, "2026-11-21T00:00:00.000Z");
+    const warn = quiet();
+    await productEventCount(ctx, ask, building(db));
+    expect(warn).toHaveBeenCalledTimes(1);
+    const line = String(warn.mock.calls[0]![0]);
+    expect(JSON.parse(line)).toMatchObject({
+      severity: "WARNING",
+      event: "work_count_index_not_ready",
+      collection: "product_events",
+      index: "product_events (tenantId, connectionId, event, receivedAt)",
+    });
+    for (const secret of [LUMEN_US, CONN, ask.event, ask.from, ask.to]) expect(line).not.toContain(secret);
   });
 
-  it("keeps the exact count apart: count() with the event name, which needs the index that isn't approved", async () => {
+  it("throws any other error as it is, with no fallback and no warning", async () => {
     const db = new FakeFirestore();
-    seedEvents(db, COUNT_ROWS + 300, "2026-11-21T00:00:00.000Z", { every: 3 });
+    seedEvents(db, 10, "2026-11-21T00:00:00.000Z");
+    const warn = quiet();
     const ops: string[] = [];
-    const exact = await countProductEventsExact(ctx, ask, shapeRecordingFirestore(db, ops));
-    expect(ops).toEqual(["where tenantId ==", "where connectionId ==", "where event ==", "where receivedAt >=", "where receivedAt <="]);
-    expect(exact).toBe(Array.from({ length: COUNT_ROWS + 300 }, (_, i) => i).filter((i) => i % 7 !== 6 && i % 3 === 0).length);
+    await expect(productEventCount(ctx, ask, shapeRecordingFirestore(failingFirestore(db, { counts: true }), ops))).rejects.toThrow("count failed");
+    expect(ops).not.toContain("orderBy receivedAt");
+    expect(warn).not.toHaveBeenCalled();
+    await expect(productEventCount(ctx, ask, failingFirestore(db, { collections: ["product_events"] }))).rejects.toThrow("reading product_events failed");
+    expect(warn).not.toHaveBeenCalled();
   });
 });
 
@@ -120,6 +208,32 @@ describe("what a due measure's check counts", () => {
     const task = aStoredTask({ status: "done", open: true, closedAt: "2026-11-20T10:00:00.000Z", measure: used, check, hasCheck: true });
     const c = await countForCheck(task, lumen, { regionDb: () => us }, new Date("2026-12-05T00:00:00.000Z"));
     expect(c).toEqual({ n: 9, from: "2026-11-20T10:00:00.000Z", to: due, at: "2026-12-05T00:00:00.000Z" });
+  });
+
+  it("counts past 2,000 events exactly, so the check says how many, not at least", async () => {
+    const us = new FakeFirestore();
+    seedEvents(us, COUNT_ROWS + 600, "2026-11-25T00:00:00.000Z");
+    const task = aStoredTask({ status: "done", open: true, closedAt: "2026-11-20T10:00:00.000Z", measure: used, check, hasCheck: true });
+    const c = await countForCheck(task, lumen, { regionDb: () => us }, new Date("2026-12-05T00:00:00.000Z"));
+    const n = tracksIn(range(0, COUNT_ROWS + 600));
+    expect(c).toEqual({ n, from: "2026-11-20T10:00:00.000Z", to: due, at: "2026-12-05T00:00:00.000Z" });
+    expect(countedLine({ part: used, counted: c, brandName: "Lumen Notes", timeZone: "UTC" })).toBe(
+      `Work counted ${n.toLocaleString("en-GB")} note_from_template events from Lumen Notes' product since 20 Nov.`,
+    );
+  });
+
+  it("while the index is building, counts in the newest 2,000 events and says at least", async () => {
+    const us = new FakeFirestore();
+    seedEvents(us, COUNT_ROWS + 300, "2026-11-25T00:00:00.000Z");
+    quiet();
+    const task = aStoredTask({ status: "done", open: true, closedAt: "2026-11-20T10:00:00.000Z", measure: used, check, hasCheck: true });
+    const c = await countForCheck(task, lumen, { regionDb: () => building(us) }, new Date("2026-12-05T00:00:00.000Z"));
+    const backTo = new Date(Date.parse("2026-11-25T00:00:00.000Z") + 300 * 60_000).toISOString();
+    const n = tracksIn(range(300, COUNT_ROWS + 300));
+    expect(c).toEqual({ n, capped: true, backTo, from: "2026-11-20T10:00:00.000Z", to: due, at: "2026-12-05T00:00:00.000Z" });
+    expect(countedLine({ part: used, counted: c, brandName: "Lumen Notes", timeZone: "UTC" })).toBe(
+      `Work counted at least ${n.toLocaleString("en-GB")} note_from_template events from Lumen Notes' product in the newest 2,000 events, back to 25 Nov.`,
+    );
   });
 
   it("counts from closedAt, not from when the check was set: a then's check, or one Too soon to tell moved on", async () => {

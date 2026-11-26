@@ -261,8 +261,9 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
       <UL>
         <li>{COUNTED}</li>
         <li>
-          When the product sent more than 2,000 events of any kind in that time, Work counts in the newest 2,000 and says
-          &quot;at least&quot;, with the day they reach back to.
+          Work counts every event with that name in that time, however many the product sent. Only while the Firestore
+          index that count needs isn&apos;t ready yet, as just after an update, does Work count in the newest 2,000 events
+          of any kind instead and say &quot;at least&quot;, with the day they reach back to.
         </li>
         <li>{CANT_COUNT}</li>
         <li>

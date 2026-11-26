@@ -16,8 +16,8 @@ them, and gives every business, a plant shop as much as a software company, one 
 stage of the Path. Loops step 1 is ADR-0017 and getting to know you is ADR-0018; ADR-0019 is kept
 for loops step 3, the verdict, in a pull request of its own, so Work is ADR-0020.
 
-Decided (the owner approved plan-work v2 on 25 Nov 2026; the build departs from it in the places
-named below, and from its base and its third index on the owner's instruction):
+Decided (the owner approved plan-work v2 on 25 Nov 2026, and its third index on 26 Nov; the build
+departs from it in the places named below, and from its base on the owner's instruction):
 
 1. **Two regional collections, read as one list.** `work_tasks` and an append only `work_log`
    follow the Connectors 3 pattern (ADR-0015): a task tagged with a brand lives in that brand's
@@ -81,19 +81,23 @@ named below, and from its base and its third index on the owner's instruction):
    is taken only on that check. Too soon to tell asks again 7 days on, and the then's check is set
    only after Better, Same or Worse. `conversions` joins the meanings, in the brand's own word, on
    `NOT_SERVED_YET`, and Moves a number shares the loops registry's `VENDOR` rule, now exported.
-8. **The Used count without a new index (a departure).** The plan's `product_events (tenantId,
-   connectionId, event, receivedAt)` index is not approved yet, so it is not in
-   `firestore.indexes.json`. `src/lib/work/counted.ts` reads the newest 2,000 events of the
-   connection between Done and the check through the existing (tenantId, connectionId, receivedAt
-   desc) index and counts the event's name in memory. Fewer rows means the count is exact; 2,000
-   means "at least N in the newest 2,000 events, back to <date>" (`counted.capped` and
-   `counted.backTo`, a small addition). A check moved on past the 90 days events are kept counts
-   back only to where they begin and says so (`backTo` alone). A task with such a measure keeps
-   its brand until the measure changes. The exact `count()` is `countProductEventsExact`, tested
-   and wired nowhere, so turning it on once the index is approved and READY is one call. A purpose
-   counts meter units over the months the look touches, and hides the brand count below
-   `LOOP_RULES.cellOrgs` organisations. Rejected for now: `product_event_days`, exact per UTC day
-   by name with no index, which can come later.
+8. **The Used count is exact, through the plan's third index.** The owner approved
+   `product_events (tenantId, connectionId, event, receivedAt)` on 26 Nov 2026; one entry in
+   `firestore.indexes.json` covers all three databases. `src/lib/work/counted.ts` counts the
+   connection's events with the name between Done and the check with a Firestore `count()`
+   through it (`countProductEventsExact`), with no row cap; `event` is set on track rows only.
+   Only while Firestore refuses that count because the index is missing or still building, as
+   just after a deploy (`isIndexNotReady` in `src/lib/tenant/errors.ts`), does Work log one
+   structured warning naming the collection and the index, and read the newest 2,000 events of
+   the connection through the existing (tenantId, connectionId, receivedAt desc) index, counting
+   the name in memory. Fewer rows means that count is exact too; 2,000 means "at least N in the
+   newest 2,000 events, back to <date>" (`counted.capped` and `counted.backTo`, a small addition).
+   Any other error fails the count, which is tried again on the next read. A check moved on past
+   the 90 days events are kept counts back only to where they begin and says so (`backTo` alone).
+   A task with such a measure keeps its brand until the measure changes. A purpose counts meter
+   units over the months the look touches, and hides the brand count below `LOOP_RULES.cellOrgs`
+   organisations. Rejected: `product_event_days`, exact per UTC day by name with no index, which
+   the index makes unneeded.
 9. **Review gets three sections, for members too.** Checks due today (`work_check_due`), Ready to
    start (`work_ready`; Start is a change row with the tool `review_ready`, so picks are kept) and
    Tasks Vizzy suggests (`vizzy_chat`). Review's date check offers Done, Tomorrow and Open, where
@@ -146,25 +150,26 @@ named below, and from its base and its third index on the owner's instruction):
 
 Enforced where: `src/lib/tenant/work.test.ts` (regions, a region down, append only, no `ttlAt`,
 erase and repoint), `src/lib/work/indexes.test.ts` (every query shape uses an index in
-`firestore.indexes.json`, the product event fallback uses only the existing one, and the exact
-shape is listed nowhere), `src/lib/work/*.test.ts` for the rules above, the route tests and
-`src/lib/work/routesGate.test.ts` (origin, switch, sign in, then scope on every route),
+`firestore.indexes.json`: the exact count's shape is served by the third index, listed once, and
+the fallback's by the existing one), `src/lib/work/*.test.ts` for the rules above, the route
+tests and `src/lib/work/routesGate.test.ts` (origin, switch, sign in, then scope on every route),
 `src/app/api/agent/work/route.test.ts` and pytest for Vizzy, the loops, ontology, events and
 Review tests for the registry lines, and `src/lib/help/help.test.ts` with
 `src/lib/help/workSwitch.test.ts` for `/help/work`.
 
 What follows: 2 switches, `WORK_ENABLED` and `WORK_VIZZY_ENABLED`, `"false"` in `apphosting.yaml`;
 2 settings, `LOOPS_OPERATOR_EMAILS` and `LOOPS_SOURCE_REPO`, empty in `.env.example`. Three new
-collections (`work_tasks` and `work_log` regional, `work_refs` in the control plane), two
-composite indexes, (organisationId, open, closedAt desc) and (organisationId, at desc), and 14
-field exemptions, all three databases, READY before `WORK_ENABLED` goes on. No new service,
+collections (`work_tasks` and `work_log` regional, `work_refs` in the control plane), three
+composite indexes, `work_tasks` (organisationId, open, closedAt desc), `work_log` (organisationId,
+at desc) and `product_events` (tenantId, connectionId, event, receivedAt), and 14 field
+exemptions, all three databases, READY before `WORK_ENABLED` goes on. No new service,
 scheduler job, secret, rule or dependency. The branch started from dev `43cff9bb`, not the plan's
 `2aed3d3e`. N (getting to know you) merged first, so, as plan decision 8 says, Work's pull request
 adds `work: "always"` to N's `REVEAL_RULE`, and Work stays under Ask Vizzy when the sidebar runs
 Coming up. The help page is `/help/work`, and the pull request template
 gains an optional `Work task:` line, a ref with no `#`. Release: `WORK_ENABLED` first, then a Vizzy
-redeploy, then `WORK_VIZZY_ENABLED`. Later: the third index for an exact Used count, piece K's Work
-slice, loops steps 2 to 6 reading and writing Work, and the delivery line.
+redeploy, then `WORK_VIZZY_ENABLED`. Later: piece K's Work slice, loops steps 2 to 6 reading and
+writing Work, and the delivery line.
 
 ---
 

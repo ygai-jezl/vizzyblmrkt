@@ -1210,7 +1210,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
       "The brand's plan for the quarter, one record per brand, approved by a person: its decided questions merged by meaning into slots (one article each, with a stage, a kind of page and the live articles that answer it), 3 to 6 pillars with a hub each, a score for each slot and a 12 week roadmap of what to write, refresh or combine. Keeps the draft, the approved plan Next up reads, the last 5 approved in short, and the splits, joins, skips and moves people made.",
     place: "content",
     status: "built",
-    madeBy: ["content_strategy"],
+    madeBy: ["content_strategy", "slot_merge", "roadmap_order"],
     home: "brand",
     personal: "none",
     stores: [regional("content_strategy", "one document per brand, question and page ids only; `by` and decisions hold the admin's email or user id")],

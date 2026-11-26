@@ -16,7 +16,7 @@ const URL_ = "https://acme.example/blog/visibility";
 const BODY =
   "# What is AI search visibility monitoring?\n\n*Last updated: 2026-10-10*\n\nIn 2023, 38% of buyers asked an AI assistant first. See [the survey](https://research.example.org/2023) and [our pricing](https://acme.example/pricing) and [an old report](https://gone.example.net/report).";
 
-function world(over: { refreshClock?: Tenant["refreshClock"] } = {}) {
+function world(over: { refreshClock?: Tenant["refreshClock"] } = {}, published = "2026-10-20") {
   const db = new FakeFirestore();
   db.seed("workspaces", "ws1", { tenantId: "ten_A", name: "Blog", createdAt: "2026-01-01T00:00:00.000Z" });
   const brief = BlogBriefSchema.parse({ subjectId: "sub_1", sources: [BlogSourceSchema.parse({ url: "https://research.example.org/2023", year: 2023 })] });
@@ -24,7 +24,7 @@ function world(over: { refreshClock?: Tenant["refreshClock"] } = {}) {
   const hub = sampleHub({
     body: BODY,
     status: "approved",
-    blog: { ...blog, live: { url: URL_, at: "2026-10-21T08:00:00.000Z", by: "check", titleMatched: true }, dates: { published: { at: "2026-10-20", source: "page" } } },
+    blog: { ...blog, live: { url: URL_, at: "2026-10-21T08:00:00.000Z", by: "check", titleMatched: true }, dates: { published: { at: published, source: "page" } } },
   });
   db.seed(PLANS, "plan_1", samplePlan({ blog: brief, strategy: { objective: "brand_visibility", hubUrl: URL_ } }, hub));
   const tenant = { id: "ten_A", region: "us", status: "active", ...over } as unknown as Tenant;
@@ -74,6 +74,19 @@ describe("the freshness watch", () => {
     expect(doc).toMatchObject({ counts: { fresh: 0, soon: 0, due: 1 }, byClock: { "20": 1, "30": 0, "45": 0 }, pages: [{ key: "acme.example/blog/visibility", planId: "plan_1", workspaceId: "ws1" }] });
     expect(doc.due[0]).toMatchObject({ planId: "plan_1", title: "What is AI search visibility monitoring?", state: "due", clockDays: 20, subjectId: "sub_1" });
     expect(checked).toEqual(["https://research.example.org/2023", "https://gone.example.net/report"]);
+  });
+
+  it("leaves old figures and old sources out for an article's first 14 days live", async () => {
+    // Live, 26 Nov 2026: an autopilot article went due for a 2024 figure three days after it went live.
+    const { db, tenant } = world({}, "2026-11-20");
+    await sweepBrand(A, tenant, deps(db));
+    const reasons = (await hubOf(db)).freshness!.reasons.map((r) => r.kind);
+    expect(reasons).not.toContain("old_figure");
+    expect(reasons).not.toContain("old_source");
+    expect(reasons).toContain("dead_link");
+    // Past the 14 days they count again.
+    await sweepBrand(A, tenant, deps(db, new Date("2026-12-05T12:00:00.000Z")));
+    expect((await hubOf(db)).freshness!.reasons.map((r) => r.kind)).toEqual(expect.arrayContaining(["old_figure", "old_source"]));
   });
 
   it("checks links once a week, records becoming due once, and a canvas save keeps it all", async () => {

@@ -14,7 +14,7 @@ import {
   type ViewScope,
 } from "@/lib/types/savedView";
 import { checkForSave } from "./conditions";
-import type { ViewDefinition } from "./types";
+import { sameView, viewInOrder, type ViewDefinition } from "./types";
 
 /**
  * Saved views on People (piece C, CRM_VIEWS_ENABLED): create, change, archive, bring back and delete.
@@ -84,11 +84,11 @@ export function newViewId(): string {
 }
 
 function teamShown(v: SavedView): ShownView {
-  return { id: v.key, scope: "team", name: v.label, definition: v.definition, version: v.version, archived: !!v.archivedAt, changedAt: v.changedAt, changedBy: v.changedBy };
+  return { id: v.key, scope: "team", name: v.label, definition: viewInOrder(v.definition), version: v.version, archived: !!v.archivedAt, changedAt: v.changedAt, changedBy: v.changedBy };
 }
 
 function myShown(v: MyView): ShownView {
-  return { id: v.key, scope: "me", name: v.label, definition: v.definition, version: v.version, archived: false, changedAt: v.changedAt, changedBy: null };
+  return { id: v.key, scope: "me", name: v.label, definition: viewInOrder(v.definition), version: v.version, archived: false, changedAt: v.changedAt, changedBy: null };
 }
 
 /** The team list as stored: every item kept as it is, so a save never drops one that doesn't parse. */
@@ -221,8 +221,6 @@ async function scopeOf(ctx: TenantContext, id: string, db?: FirestoreLike): Prom
   return null;
 }
 
-const sameDefinition = (a: ViewDefinition, b: ViewDefinition) => JSON.stringify(a) === JSON.stringify(b);
-
 /**
  * Change a view's name or filters, columns and sort, from the version it was opened at. A team
  * view is changed by admins only, and one that is archived must be brought back first.
@@ -242,7 +240,7 @@ export async function changeSavedView(
   const next = <V extends SavedView | MyView>(v: V): { view: V; unchanged: boolean; message: string } => {
     const label = c.name ?? v.label;
     const definition = c.definition ?? v.definition;
-    const unchanged = label === v.label && sameDefinition(definition, v.definition);
+    const unchanged = label === v.label && sameView(definition, v.definition);
     const message = label !== v.label ? `Renamed ‘${v.label}’ to ‘${label}’` : `Changed ‘${label}’`;
     return { view: unchanged ? v : { ...v, label, definition, version: v.version + 1, changedAt: nowIso, ...(scope === "team" ? { changedBy: ctx.userId ?? null } : {}) }, unchanged, message };
   };

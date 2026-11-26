@@ -217,6 +217,43 @@ describe("Only me views", () => {
   });
 });
 
+describe("a view read back with its keys by name", () => {
+  // Firestore returns a map's keys sorted by name, not in the order they were written.
+  const byName: ViewDefinition = JSON.parse(
+    JSON.stringify({
+      columns: WHOLESALE.columns,
+      filters: [
+        { op: "any_of", on: TYPE.key, value: ["opt_whole001"] },
+        { op: "in_last", on: "last_active", value: 60 },
+      ],
+      match: "all",
+      sort: { dir: "desc", by: "last_active" },
+    }),
+  );
+  const item = (key: string): SavedView => ({ key, label: "Wholesale", definition: byName, version: 1, createdAt: at, createdBy: "u_admin", changedAt: at, changedBy: "u_admin", archivedAt: null, archivedBy: null });
+
+  it("opens as the view the screen builds, and saving it unchanged writes nothing", async () => {
+    await commitSettingsChange(admin, { subject: TEAM_VIEWS_SUBJECT, baseRev: 0, value: { items: [item("viw_000000000009")] }, by: { type: "member", id: "u_admin" }, source: "editor" }, db);
+    const [team] = (await listSavedViews(admin, {}, db)).team;
+    // The screen compares the definition it builds (match, filters, columns, sort) with this one.
+    expect(JSON.stringify(team!.definition)).toBe(JSON.stringify(WHOLESALE));
+    expect(await changeSavedView(admin, "viw_000000000009", { version: 1, definition: WHOLESALE, fields: FIELDS }, db)).toMatchObject({ ok: true, view: { version: 1 } });
+    expect((await versions()).length).toBe(1);
+    // A real change still saves.
+    expect(await changeSavedView(admin, "viw_000000000009", { version: 1, definition: emptyView(), fields: FIELDS }, db)).toMatchObject({ ok: true, view: { version: 2 } });
+    expect((await versions()).length).toBe(2);
+  });
+
+  it("does the same for an Only me view", async () => {
+    const { key, label, definition, version, createdAt, changedAt } = item("viw_000000000008");
+    await commitMemberViews(member, { baseRev: 0, views: [{ key, label, definition, version, createdAt, changedAt }] }, db);
+    const [mine] = (await listSavedViews(member, {}, db)).mine;
+    expect(JSON.stringify(mine!.definition)).toBe(JSON.stringify(WHOLESALE));
+    expect(await changeSavedView(member, key, { version: 1, definition: WHOLESALE, fields: FIELDS }, db)).toMatchObject({ ok: true, view: { version: 1 } });
+    expect((await readMemberViews(member, db)).rev).toBe(1);
+  });
+});
+
 describe("another brand", () => {
   it("reads as none, and is never written over", async () => {
     // Documents under this brand's ids that belong to another brand.

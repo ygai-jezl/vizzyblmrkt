@@ -9,7 +9,7 @@ import { FORMER_TEAM_MEMBER } from "@/lib/team/former";
 import type { RecordField } from "@/lib/types/recordField";
 import type { ViewScope } from "@/lib/types/savedView";
 import { columnKind, holdsTypedWords, isSortable, type FilterFlag } from "@/lib/views/conditions";
-import { VIEW_LIMITS, type ViewDefinition, type ViewFilter, type ViewMatch, type ViewSort } from "@/lib/views/types";
+import { sameView, VIEW_LIMITS, type ViewDefinition, type ViewFilter, type ViewMatch, type ViewSort } from "@/lib/views/types";
 import { amountWords, columnName, dayWords, VIEW_MESSAGES, viewErrorText, type ViewNames } from "@/lib/views/words";
 import { Button, inputClass } from "../connect/ui";
 import { CanEmailCell, StageCell, WhereFromCell } from "../audience/PeopleCells";
@@ -121,7 +121,8 @@ export function PeopleView({
   const definition: ViewDefinition = useMemo(() => ({ match, filters: applied.map((a) => a.f), columns, sort }), [match, applied, columns, sort]);
   const typed = applied.some((a) => holdsTypedWords(a.f));
   const runKey = JSON.stringify({ match, filters: definition.filters, sort, q: q.trim() });
-  const dirty = saved ? JSON.stringify(definition) !== JSON.stringify(saved.definition) : true;
+  // Compared without key order: a view read back from Firestore has its keys by name.
+  const dirty = saved ? !sameView(definition, saved.definition) : true;
   const canChange = !!saved && !saved.archived && (saved.scope === "me" || isAdmin);
 
   // Run the view a moment after it changes (at once when it opens).

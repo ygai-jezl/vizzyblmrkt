@@ -204,3 +204,21 @@ export const ViewDefinitionSchema = z
 export function emptyView(): ViewDefinition {
   return { match: "all", filters: [], columns: [...DEFAULT_COLUMNS], sort: null };
 }
+
+/**
+ * A copy of a view with its keys in one order. Firestore keeps a map's keys by name, not in the
+ * order they were written, so a view read back must not be compared as it was stored. Pure.
+ */
+export function viewInOrder(d: ViewDefinition): ViewDefinition {
+  return {
+    match: d.match,
+    filters: d.filters.map((f) => (f.value === undefined ? { on: f.on, op: f.op } : { on: f.on, op: f.op, value: f.value })),
+    columns: [...d.columns],
+    sort: d.sort ? { by: d.sort.by, dir: d.sort.dir } : null,
+  };
+}
+
+/** Whether two views are the same, whatever order their keys were stored in. Pure. */
+export function sameView(a: ViewDefinition, b: ViewDefinition): boolean {
+  return JSON.stringify(viewInOrder(a)) === JSON.stringify(viewInOrder(b));
+}

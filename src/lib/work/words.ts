@@ -30,6 +30,12 @@ export const PLAN_STATE_LABEL: Record<PlanState, string> = {
   not_approved_yet: "Not approved yet",
 };
 
+/** The note on an entry Carry over logs on Today, as the approved canvas draws it. */
+export const CARRIED_NOTE = "Carried over from yesterday.";
+
+/** The tool an entry Carry over logs names in its source, so the Log and get_work can say so. */
+export const CARRY_TOOL = "work_carry";
+
 /** What each refusal says: what happened, and what to do next. */
 export const WORK_MESSAGES = {
   invalid_input: "Something in that isn't one Work can keep. Check the fields and try again.",

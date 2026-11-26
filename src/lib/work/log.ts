@@ -8,6 +8,7 @@ import { draftRefusal, ok, refuse, type DraftedSave, type WorkResult } from "./r
 import { dayIn } from "./schedule";
 import { planKeyOf } from "./screenWords";
 import { brandIn, nowOf, seesTask, type WorkDeps, type WorkScope } from "./scope";
+import { CARRIED_NOTE, CARRY_TOOL } from "./words";
 import { dueChecks, entriesToday, loadTasks, type RegionDown, type WorkTaskView } from "./service";
 import { isDay, withoutLoopLines, WORK_LIMITS, type WorkLogRow, type WorkLogRowOf, type WorkStatus } from "./types";
 import { placeForNew } from "./validate";
@@ -41,12 +42,6 @@ export interface LogDayView extends LogDay {
    */
   carry: number;
 }
-
-/** The note on an entry Carry over logs, as the approved canvas draws it. */
-export const CARRIED_NOTE = "Carried over from yesterday.";
-
-/** The tool an entry Carry over logs names in its source, so the Log and get_work can say so. */
-export const CARRY_TOOL = "work_carry";
 
 /** The rows the Log reads for one day: a year back for what is in flight, to the end of the day. */
 function logWindow(shown: string, tz: string): { readFrom: string; from: string; to: string } {

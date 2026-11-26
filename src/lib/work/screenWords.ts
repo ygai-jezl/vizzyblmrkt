@@ -165,6 +165,8 @@ export const WORK_COPY = {
   pastDayHint: "Read only. Newest first.",
   nothingInFlight: "Nothing in flight. Type what you're on, one line per workstream.",
   nothingInFlightPast: "Nothing was in flight that day.",
+  nothingLoggedToday: "Nothing logged today yet. Type what you're on, or carry over what was still open yesterday.",
+  carrying: "Carrying over…",
   noChecks: "No checks are due.",
   nothingMoved: "Nothing has moved yet today.",
   nothingMovedPast: "Nothing moved that day.",
@@ -550,6 +552,11 @@ export function railLabel(day: string): string {
 /** "Day 3", or "Day 31 or more" when it started before the days the Log read. */
 export function dayNWords(n: number, longer: boolean): string {
   return longer ? `Day ${n} or more` : `Day ${n}`;
+}
+
+/** Today's Carry over button: "Carry over 4 open from yesterday", the count it will log. */
+export function carryOverLabel(n: number): string {
+  return `Carry over ${n} open from yesterday`;
 }
 
 /** The Log's line under its title. */

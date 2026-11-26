@@ -8,6 +8,7 @@ import { Button, inputClass } from "@/components/admin/connect/ui";
 import { Chip } from "@/components/admin/people/Chip";
 import { logLineOf } from "@/lib/work/form";
 import {
+  carryOverLabel,
   changeWords,
   checkSaidLine,
   dayNWords,
@@ -58,9 +59,18 @@ export function decisionWords(d: WorkLogRowOf<"decision">, o: { me: string; name
 }
 
 /**
+ * Today before anyone has logged (the canvas's Nothing logged yet): how many workstreams still open
+ * from yesterday Carry over offers to log, or 0 when it offers nothing. Never on a past day.
+ */
+export function carryOffer(day: Pick<LogScreen["day"], "today" | "entries" | "carry">): number {
+  return day.today && day.entries.length === 0 ? day.carry : 0;
+}
+
+/**
  * The Log (/admin/work/log): it opens on Today. A day rail, the workstreams still in flight (each
  * carries over until someone logs it Done, never retyped), the box to log one, today's checks due
- * with their buttons, the tasks that moved and the decisions made. A past day is read only.
+ * with their buttons, the tasks that moved and the decisions made. Before anyone has logged today,
+ * Nothing logged yet offers Carry over. A past day is read only.
  */
 export function WorkLog({ screen }: { screen: LogScreen }) {
   const { day, me, names } = screen;
@@ -135,6 +145,7 @@ export function WorkLog({ screen }: { screen: LogScreen }) {
             </p>
           ) : null}
           {today ? <LogBox key={screen.draft && "id" in screen.draft ? screen.draft.id : "box"} screen={screen} draft={screen.draft && "id" in screen.draft ? screen.draft : null} /> : null}
+          {carryOffer(day) ? <NothingLoggedYet day={day.day} count={carryOffer(day)} /> : null}
           {day.inFlight.length ? (
             <ul className="space-y-2">
               {day.inFlight.map((f) => {
@@ -287,6 +298,41 @@ export function WorkLog({ screen }: { screen: LogScreen }) {
           {screen.workVizzy ? ` ${WORK_COPY.logVizzyFoot}` : ""}
         </p>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Nothing logged yet, on Today: what the canvas draws before anyone has logged, with Carry over,
+ * which logs today's entry for each workstream still open from yesterday, by the person who taps.
+ * The count is the server's, worked out as the carry works it out; the page reads itself again after.
+ */
+export function NothingLoggedYet({ day, count }: { day: string; count: number }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function carry() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    const r = await workCall("/log/carry", "POST", { day });
+    setBusy(false);
+    if (!r.ok) return setError(workErrorText(r.data));
+    router.refresh();
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-2.5 px-4 py-6 text-center">
+      <p className="max-w-md text-sm text-neutral-500 dark:text-neutral-400">{WORK_COPY.nothingLoggedToday}</p>
+      <Button type="button" tone="primary" onClick={carry} disabled={busy}>
+        {busy ? WORK_COPY.carrying : carryOverLabel(count)}
+      </Button>
+      {error ? (
+        <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }

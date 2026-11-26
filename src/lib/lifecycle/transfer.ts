@@ -49,7 +49,9 @@ function readableStyle(draft: LifecycleDraft): LifecycleDraft {
 /**
  * The journey's design as a portable document. `published` falls back to the draft if never
  * published. `{ version: n }` is that published version exactly as it was published (its own copy
- * of the style, never the journey's live one), or 404 `version_not_found`.
+ * of the style, never the journey's live one), or 404 `version_not_found`, or 422
+ * `version_old_shape` for a version made before journeys changed shape, which today's draft can't
+ * hold (Settings › History exports it as it was stored, to read).
  */
 export async function exportJourneyDocument(
   ctx: TenantContext,
@@ -68,6 +70,7 @@ export async function exportJourneyDocument(
     const version = Number.isInteger(n) && n >= 1 ? await repo.lifecycleVersions.getById(versionDocId(journey.id, n)) : null;
     if (!version || version.journeyId !== journey.id) return { ok: false, status: 404, error: "version_not_found" };
     draft = { graph: version.graph, pools: version.pools, settings: version.settings };
+    if (!LifecycleDraftSchema.safeParse(draft).success) return { ok: false, status: 422, error: "version_old_shape" };
     sourceVersion = version.version;
   } else if (which === "published" && journey.publishedVersion) {
     const version = await repo.lifecycleVersions.getById(versionDocId(journey.id, journey.publishedVersion));

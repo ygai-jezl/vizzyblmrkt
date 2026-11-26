@@ -83,6 +83,17 @@ describe("agentSettingsHistory", () => {
     expect((await agentSettingsHistory(ctx, { subject: "fields:person", rev: "x" }, { db: w.db })).status).toBe(400);
     expect((await agentSettingsHistory(ctx, { subject: "fields:person", rev: "99" }, { db: w.db })).status).toBe(404);
     vi.stubEnv("AUDIENCE_FIELDS_ENABLED", "false");
-    expect((await agentSettingsHistory(ctx, { subject: "fields:person", rev: "1" }, { db: w.db })).status).toBe(404);
+    // A kind whose screen is off isn't "history is off": that answer is the gate's alone.
+    expect(await agentSettingsHistory(ctx, { subject: "fields:person", rev: "1" }, { db: w.db })).toEqual({ status: 404, body: { error: "kind_not_shown" } });
+  });
+
+  it("reads an old shape journey version whole, and says why an archived journey's or a revoked product's can't be", async () => {
+    await forTenant(ctx, w.db).lifecycleVersions.update(`${w.journeyId}_v1`, { graph: { nodes: "broken" } as never });
+    const old = await agentSettingsHistory(ctx, { subject: `journey:${w.journeyId}`, rev: "1" }, { db: w.db });
+    expect(old).toMatchObject({ status: 200, body: { version: 1, document: { format: "yougrow.journey-version", importable: false } } });
+    await forTenant(ctx, w.db).lifecycleJourneys.update(w.journeyId, { status: "archived" });
+    expect(await agentSettingsHistory(ctx, { subject: `journey:${w.journeyId}`, rev: "2" }, { db: w.db })).toEqual({ status: 409, body: { error: "journey_archived" } });
+    await forTenant(ctx, w.db).productConnections.update("pcn_life", { status: "revoked" });
+    expect(await agentSettingsHistory(ctx, { subject: "catalog:pcn_life", rev: "2" }, { db: w.db })).toEqual({ status: 409, body: { error: "connection_revoked" } });
   });
 });

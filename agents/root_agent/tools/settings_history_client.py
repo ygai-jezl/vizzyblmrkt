@@ -25,9 +25,16 @@ _KINDS = ("fields", "journeys", "catalogs", "connections")
 _OFF = "Settings history isn't switched on in this environment yet."
 _NO_LINK = "I can't reach the app from this chat yet. Please send that again."
 
+# `not_found` is the app's answer when settings history itself is off. Reading one version whole
+# has its own answers: a kind that isn't switched on, an archived journey or a revoked product (read
+# only, listed but never opened whole), and a version that isn't there.
 _ERRORS = {
     "not_found": _OFF,
     "http_404": _OFF,
+    "kind_not_shown": "That kind of setting isn't switched on here, so I can't open its versions.",
+    "journey_archived": "That journey is archived, so its versions are read only: I can list its changes but not open a version whole.",
+    "connection_revoked": "That product's connection is revoked, so its catalog versions are read only: I can list their changes but not open one whole.",
+    "version_not_found": "That version isn't there. Ask for the history again to see which versions there are.",
     "invalid_input": "I asked for that history the wrong way. Please ask again in other words.",
     "invalid_cursor": "That page of the history has expired. Ask again from the start.",
     "invalid_subject": "I asked for that history the wrong way. Please ask again in other words.",

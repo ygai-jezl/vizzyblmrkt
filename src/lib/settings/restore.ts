@@ -27,6 +27,8 @@ export type ApiResult = { status: number; body: unknown };
 
 export const SETTINGS_VERSION_FORMAT = "yougrow.settings-version";
 export const CATALOG_VERSION_FORMAT = "yougrow.catalog-version";
+/** A journey version today's draft can't hold, exported to read only. */
+export const JOURNEY_VERSION_FORMAT = "yougrow.journey-version";
 
 const fieldObject = (subject: SettingsSubject) => (subject === "fields:person" ? "person" : subject === "fields:company" ? "company" : null);
 
@@ -82,8 +84,10 @@ export async function restoreHistoryVersion(
 /**
  * A version as a JSON file: a setting's `yougrow.settings-version`, a journey's portable document
  * (`yougrow.lifecycle-journey`, importable as a new draft), or a catalog's `yougrow.catalog-version`.
- * `draft` exports a journey's draft, so it can be kept before a restore replaces it. Archived
- * journeys and revoked products are read only, with no export.
+ * A journey version made before journeys changed shape can't be a draft today, so it comes as
+ * `yougrow.journey-version`: its design as it was stored, to read, never imported. `draft` exports a
+ * journey's draft, so it can be kept before a restore replaces it. Archived journeys (409
+ * `journey_archived`) and revoked products (409 `connection_revoked`) are read only, with no export.
  */
 export async function exportHistoryVersion(
   ctx: TenantContext,
@@ -93,8 +97,29 @@ export async function exportHistoryVersion(
   const { subject, rev } = input;
   if (rev !== "draft" && (!Number.isInteger(rev) || rev < 0)) return { status: 400, body: { error: "invalid_input" } };
   if (subject.store === "journeys") {
+    const repo = forTenant(ctx, deps.db);
+    const journey = await repo.lifecycleJourneys.getById(subject.journeyId);
+    if (!journey) return { status: 404, body: { error: "version_not_found" } };
+    if (journey.status === "archived") return { status: 409, body: { error: "journey_archived" } };
     const r = await exportJourneyDocument(ctx, subject.journeyId, { which: rev === "draft" ? "draft" : { version: rev }, db: deps.db, nowMs: deps.nowMs });
-    return r.ok ? { status: 200, body: r.value } : { status: r.status, body: { error: r.error } };
+    if (r.ok) return { status: 200, body: r.value };
+    if (r.error !== "version_old_shape" || rev === "draft") return { status: r.status, body: { error: r.error } };
+    const version = await repo.lifecycleVersions.getById(versionDocId(subject.journeyId, rev));
+    if (!version || version.journeyId !== subject.journeyId) return { status: 404, body: { error: "version_not_found" } };
+    // Only the design, as a journey document carries it: never the journey's people or its sends.
+    return {
+      status: 200,
+      body: {
+        format: JOURNEY_VERSION_FORMAT,
+        formatVersion: 1,
+        importable: false,
+        note: "Made before journeys changed shape, so it can't be imported or put in a draft. Its design as it was stored.",
+        name: journey.name,
+        version: version.version,
+        publishedAt: version.publishedAt,
+        design: { graph: version.graph, pools: version.pools, settings: version.settings },
+      },
+    };
   }
   if (rev === "draft") return { status: 400, body: { error: "invalid_input" } };
   if (subject.store === "catalogs") {

@@ -107,6 +107,19 @@ describe("exportHistoryVersion", () => {
     await forTenant(ctx, w.db).productConnections.update("pcn_life", { status: "revoked" });
     expect((await exportHistoryVersion(ctx, { subject: subject("catalog:pcn_life"), rev: 2 }, { db: w.db })).status).toBe(409);
     await forTenant(ctx, w.db).lifecycleJourneys.update(w.journeyId, { status: "archived" });
-    expect((await exportHistoryVersion(ctx, { subject: subject(`journey:${w.journeyId}`), rev: 1 }, { db: w.db })).status).toBe(404);
+    expect(await exportHistoryVersion(ctx, { subject: subject(`journey:${w.journeyId}`), rev: 1 }, { db: w.db })).toEqual({ status: 409, body: { error: "journey_archived" } });
+    expect(await exportHistoryVersion(ctx, { subject: subject("journey:lcj_gone"), rev: 1 }, { db: w.db })).toEqual({ status: 404, body: { error: "version_not_found" } });
+  });
+
+  it("exports a journey version made before journeys changed shape as it was stored, to read only", async () => {
+    // The version the preview refuses to put in the draft, and tells you to export to read.
+    await forTenant(ctx, w.db).lifecycleVersions.update(`${w.journeyId}_v1`, { graph: { nodes: "broken" } as never });
+    const v1 = (await forTenant(ctx, w.db).lifecycleVersions.getById(`${w.journeyId}_v1`))!;
+    const r = await exportHistoryVersion(ctx, { subject: subject(`journey:${w.journeyId}`), rev: 1 }, { db: w.db });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ format: "yougrow.journey-version", formatVersion: 1, importable: false, name: "Welcome to the greenhouse", version: 1, publishedAt: T(3) });
+    expect((r.body as { design: unknown }).design).toEqual({ graph: { nodes: "broken" }, pools: v1.pools, settings: v1.settings });
+    // It is never a journey document, so it can't be imported as one.
+    expect((await importJourneyDocument(ctx, { connectionId: "pcn_life", document: r.body }, { db: w.db })).ok).toBe(false);
   });
 });

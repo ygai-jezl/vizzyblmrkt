@@ -45,6 +45,11 @@ def test_passes_errors_on_in_plain_words(monkeypatch):
     assert sh.get_settings_history(STATE) == {"status": "error", "code": "not_found", "message": sh._OFF}
     _capture(monkeypatch, 500, {})
     assert sh.get_settings_history(STATE)["code"] == "http_500"
+    # Reading one version whole: read only and missing versions never say history is off.
+    for status, code in ((409, "journey_archived"), (409, "connection_revoked"), (404, "kind_not_shown"), (404, "version_not_found")):
+        _capture(monkeypatch, status, {"error": code})
+        out = sh.get_settings_history(STATE, subject="journey:lcj_1", version=2)
+        assert out["code"] == code and out["message"] == sh._ERRORS[code] and out["message"] != sh._OFF
     monkeypatch.delenv("CANVAS_CALLBACK_URL")
     assert sh.get_settings_history(STATE)["code"] == "not_connected"
     assert sh.get_settings_history({})["code"] == "not_connected"

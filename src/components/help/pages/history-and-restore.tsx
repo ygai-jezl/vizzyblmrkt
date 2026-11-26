@@ -133,6 +133,10 @@ export default function HistoryAndRestoreHelp() {
         new draft on a product. Fields and shared connections come as a settings version, and catalogs as a catalog version. An export
         holds your settings only, never anyone&apos;s values.
       </P>
+      <P>
+        A journey version made before journeys changed shape can&apos;t go in a draft, so its file is the design as it was stored, to
+        read. It can&apos;t be imported.
+      </P>
 
       <H2 id="never-undone">What a restore never undoes</H2>
       <P>{NEVER_UNDONE}. People already in a journey stay on the version they started on. A restore brings back settings, never people

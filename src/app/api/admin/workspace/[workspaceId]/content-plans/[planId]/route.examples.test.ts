@@ -21,7 +21,7 @@ vi.mock("@/lib/autopilot/answers", () => ({ closeDraftRows: vi.fn(), draftDoneWi
 const embeddings = vi.hoisted(() => ({ embedDocument: vi.fn(async () => [0.1, 0.2, 0.3]) }));
 vi.mock("@/lib/agents/embeddings", () => embeddings);
 
-const { PUT } = await import("./route");
+const { PUT, DELETE } = await import("./route");
 
 const admin = { tenantId: "ten_A", region: "eu", source: "idtoken", userId: "usr_admin", role: "member" };
 const params = { params: Promise.resolve({ workspaceId: "ws1", planId: "plan_1" }) };
@@ -95,5 +95,15 @@ describe("approving a workflow email or a hub keeps it as an example", () => {
     content.getContentPlan.mockResolvedValue(plan([email("approved"), hub("generated")]));
     expect((await PUT(save({ name: "Week" }), params)).status).toBe(200);
     expect(tenant.writePerformanceExemplar).not.toHaveBeenCalled();
+  });
+});
+
+describe("deleting a plan", () => {
+  it("removes the examples kept from its emails and hubs, switch on or off", async () => {
+    content.getContentPlan.mockResolvedValue(plan([email("approved"), hub("generated"), { id: "li_1", type: "spoke", channel: "linkedin", status: "approved", body: "Post" }]));
+    const del = new Request("http://localhost/api/admin/workspace/ws1/content-plans/plan_1", { method: "DELETE" });
+    expect((await DELETE(del, params)).status).toBe(200);
+    expect(content.deleteContentPlan).toHaveBeenCalledOnce();
+    expect(tenant.deletePerformanceExemplars).toHaveBeenCalledWith(admin, ["pex:ten_A:approved:ws1:plan_1:email_1", "pex:ten_A:approved:ws1:plan_1:hub_1"], undefined);
   });
 });

@@ -145,15 +145,14 @@ export async function forgetPlanExamples(
   args: { workspaceId: string; plan: Pick<ContentPlan, "id" | "graph"> },
   deps: { db?: FirestoreLike } = {},
 ): Promise<number> {
-  const ids: string[] = [];
-  for (const node of args.plan.graph.nodes) {
-    if (!examplePieceOf(node)) continue;
-    const source = approvedSourceId({ workspaceId: args.workspaceId, planId: args.plan.id, nodeId: node.id });
-    if (source) ids.push(approvedExemplarId(ctx.tenantId, source));
-  }
-  if (!ids.length) return 0;
   try {
-    return await deletePerformanceExemplars(ctx, ids, deps.db);
+    const ids: string[] = [];
+    for (const node of args.plan.graph?.nodes ?? []) {
+      if (!examplePieceOf(node)) continue;
+      const source = approvedSourceId({ workspaceId: args.workspaceId, planId: args.plan.id, nodeId: node.id });
+      if (source) ids.push(approvedExemplarId(ctx.tenantId, source));
+    }
+    return ids.length ? await deletePerformanceExemplars(ctx, ids, deps.db) : 0;
   } catch {
     return 0;
   }

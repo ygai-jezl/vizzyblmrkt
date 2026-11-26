@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { keepApprovedSeen } from "@/lib/content/blog/hubActions";
 import { recordApprovals } from "@/lib/content/create/aiOriginals";
-import { keepApprovedExamples } from "@/lib/content/create/approvedExamples";
+import { forgetPlanExamples, keepApprovedExamples } from "@/lib/content/create/approvedExamples";
 import { AUTOPILOT_RUNNING, autopilotHolds } from "@/lib/autopilot/planLock";
 import { closeDraftRows, draftDoneWith } from "@/lib/autopilot/answers";
 import { z } from "zod";
@@ -123,6 +123,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
   const plan = await getContentPlan(ctx, workspaceId, planId);
   if (!plan) return NextResponse.json({ error: "not_found" }, { status: 404 });
   await deleteContentPlan(ctx, workspaceId, planId);
+  // Its pieces kept as examples go with it, even ones kept before the switch went off.
+  await forgetPlanExamples(ctx, { workspaceId, plan });
   await closeDraftRows(ctx, plan);
   await removePlanPageSoftly(ctx, planId);
   await syncSeenHolds(ctx, { article: { ref: `${workspaceId}/${planId}`, title: plan.name }, before: plan.blog, after: null });

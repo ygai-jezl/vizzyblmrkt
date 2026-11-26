@@ -16,6 +16,7 @@ import { readBrandMap } from "@/lib/brandMap/store";
 import { fileSuggestions } from "@/lib/brandMap/filing";
 import { proposalsWaiting, suggestionsWaiting } from "@/lib/brandMap/waiting";
 import { RESEARCH_LIMIT, runBrandMapResearch, type ResearchDeps } from "@/lib/brandMap/adminApi";
+import { recordMapRun } from "@/lib/agentRecord/mapRuns";
 import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types";
 
 /**
@@ -167,13 +168,21 @@ export async function authorBrandMapSuggestions(
         { from: "vizzy", items: parsed.changes.map((change) => ({ change, reason, evidence: "asked" as const })), ...(situationIds ? { situationIds } : {}) },
         { db: deps.db, nowMs: deps.nowMs },
       )
-    : ({ ok: true, value: { filed: [], skipped: { inMap: 0, waiting: 0, dismissed: 0 }, proposed: [] } } as const);
+    : ({ ok: true, value: { filed: [], skipped: { inMap: 0, waiting: 0, dismissed: 0 }, proposed: [], refs: [] } } as const);
   if (!filed.ok) return { ok: false, status: filed.status, error: filed.error };
   const proposedSituations: string[] = [];
+  const situationRefs: string[] = [];
   for (const sit of req.data.situations) {
     const made = await proposeSituation(ctx, sit, { from: "vizzy", reason, revive: true }, { db: deps.db, nowMs: deps.nowMs });
     if (made) proposedSituations.push(`Add a buying situation: “${made.text}”`);
+    if (made) situationRefs.push(`sit:${made.id}`);
   }
+  // The agent record: this chat call's suggestions as one run, closed from the map's own lists.
+  await recordMapRun(
+    ctx,
+    { action: "brand_map.suggest", keys: filed.value.filed.map((x) => x.key), refs: [...filed.value.refs, ...situationRefs] },
+    { db: deps.db, nowMs: deps.nowMs },
+  );
   const after = await readBrandMap(ctx, deps.db).catch(() => null);
   const said = [...filed.value.filed.map((s) => describeChange(s.change)), ...filed.value.proposed, ...proposedSituations];
   const { inMap, waiting, dismissed } = filed.value.skipped;

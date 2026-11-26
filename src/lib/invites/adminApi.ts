@@ -12,6 +12,8 @@ import { inviteProductName } from "./eligibility";
 import { inviteLockText } from "./lockText";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { loadFunnel } from "./funnel";
+import { closeDraft, memberOf } from "@/lib/agentRecord/record";
+import { wavePrint } from "@/lib/agentRecord/fingerprints";
 import { INVITE_TAGS, defaultInviteCopy, renderInviteEmail } from "./render";
 import {
   WaveInputSchema,
@@ -142,7 +144,10 @@ export async function patchWave(
 export async function removeWave(ctx: TenantContext, campaignId: string, waveId: string, db?: FirestoreLike): Promise<ApiResult> {
   if (!(await waveInLaunch(ctx, campaignId, waveId, db))) return fail(404, "wave_not_found");
   const r = await deleteWaveDraft(ctx, waveId, db);
-  return r.ok ? ok({ ok: true }) : fail(r.status, r.error);
+  if (!r.ok) return fail(r.status, r.error);
+  // A wave Vizzy drafted, deleted unsent: dismissed by that person (agent record).
+  await closeDraft(ctx, { kind: "invite_wave", ref: waveId }, { to: "declined", reason: "dismissed", by: memberOf(ctx) }, { db });
+  return ok({ ok: true });
 }
 
 /** Who a draft would reach (counts only) and a rendered sample, before anything is sent. */
@@ -188,7 +193,10 @@ export async function sendWave(
   deps: SendWaveDeps = {},
 ): Promise<ApiResult> {
   if (!(await waveInLaunch(ctx, campaignId, waveId, deps.db))) return fail(404, "wave_not_found");
-  return fromResult(await sendInviteWave(ctx, waveId, { userId: ctx.userId ?? null }, deps), "wave");
+  const r = await sendInviteWave(ctx, waveId, { userId: ctx.userId ?? null }, deps);
+  // A wave Vizzy drafted is kept by the person who sent it, edited if its size or email changed (agent record).
+  if (r.ok) await closeDraft(ctx, { kind: "invite_wave", ref: waveId }, { to: "acted", by: memberOf(ctx), fingerprint: wavePrint(r.value) }, { db: deps.db });
+  return fromResult(r, "wave");
 }
 
 export async function cancelWave(ctx: TenantContext, campaignId: string, waveId: string, db?: FirestoreLike): Promise<ApiResult> {

@@ -20,6 +20,7 @@ import {
   readJourneyStyle,
   withJourneyHeaderText,
 } from "@/components/admin/lifecycle/journeyStyleForm";
+import { recordJourneyDraft } from "@/lib/agentRecord/drafts";
 import type { CanvasAuthorArgs, CanvasAuthorOutcome, CanvasKind } from "../types";
 
 /**
@@ -191,6 +192,9 @@ export async function authorJourneyStyle(
       ...(saved.detail ? { issues: [String(saved.detail)] } : {}),
     };
   }
+  // The agent record: one draft with the journey, so a journey Vizzy drafted and then styled stays
+  // one record (soft, never fails the save).
+  await recordJourneyDraft(ctx, "journey_style.suggest", saved.value, { db: deps.db });
   const engineNote = launchEngineNote(found.launch);
   return outcome(saved.value, readJourneyStyle(saved.value.draft.settings.emailStyle), {
     brand,

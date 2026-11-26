@@ -10,6 +10,7 @@ import { tenantParamFromUrl } from "@/lib/http/tenantParam";
 import { verifyRecaptcha } from "@/lib/security/recaptcha";
 import { isClosed, WAITLIST_CLOSED } from "@/lib/waitlist/closed";
 import { computeRanks } from "@/lib/waitlist/rank";
+import { EMPTY_CONVERSATION, hasUserWords } from "@/lib/waitlist/voiceChat";
 import type { AiConversationData } from "@/lib/types/signup";
 
 export const runtime = "nodejs";
@@ -36,7 +37,8 @@ const CompleteRequestSchema = z
  * conversation onto the signup, and apply the one-time leaderboard boost. Same
  * tenant resolution + reCAPTCHA + proof-of-signup gate as the token route.
  * Idempotent: a re-submitted completion returns `already: true` without
- * re-crediting.
+ * re-crediting. A transcript with no words from the person is refused (400
+ * `empty_conversation`, see src/lib/waitlist/voiceChat.ts) and changes nothing.
  */
 export async function POST(
   req: Request,
@@ -108,6 +110,12 @@ export async function POST(
   // Idempotent: a completed conversation is terminal — don't overwrite or re-credit.
   if (owner.aiConversation?.completed) {
     return NextResponse.json({ ok: true, already: true });
+  }
+
+  // A chat in which the person said nothing (the call dropped, or nobody spoke) is
+  // not a conversation: nothing is written and no bonus applies, so they can try again.
+  if (!hasUserWords(parsed.data.transcript)) {
+    return NextResponse.json({ error: EMPTY_CONVERSATION }, { status: 400 });
   }
 
   const bonus = campaign.aiConversation.leaderboardBonus ?? 0;

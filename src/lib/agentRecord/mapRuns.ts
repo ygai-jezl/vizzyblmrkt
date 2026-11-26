@@ -28,7 +28,10 @@ export type MapRunAction = "brand_map.suggest" | "brand_map.research";
 
 /** How a run's suggestions stand on the map now. */
 export interface RunState {
-  waiting: number;
+  /** Its suggestions still waiting on the brand's record (research replaces its own). */
+  waitingKeys: number;
+  /** Its proposals still waiting on the map's records (nothing replaces them). */
+  waitingRefs: number;
   kept: number;
   dismissed: number;
   /** Proposals withdrawn from the records (gone without a decision). */
@@ -81,9 +84,9 @@ export async function readMapLists(ctx: TenantContext, db?: FirestoreLike): Prom
 
 /** Where a run's suggestions stand: its keys against the map's lists, its proposals by record. */
 export async function runState(ctx: TenantContext, a: AgentAction, lists: MapLists, db?: FirestoreLike): Promise<RunState> {
-  const s: RunState = { waiting: 0, kept: 0, dismissed: 0, gone: 0 };
+  const s: RunState = { waitingKeys: 0, waitingRefs: 0, kept: 0, dismissed: 0, gone: 0 };
   for (const k of listOf(a.proposal?.keys)) {
-    if (lists.waiting.has(k)) s.waiting += 1;
+    if (lists.waiting.has(k)) s.waitingKeys += 1;
     else if (lists.dismissed.has(k)) s.dismissed += 1;
     else s.kept += 1;
   }
@@ -94,7 +97,7 @@ export async function runState(ctx: TenantContext, a: AgentAction, lists: MapLis
     const rec = await store.get(m[1] as "sub" | "q" | "sit", m[2]!).catch(() => null);
     const status = rec?.status;
     if (!rec) s.gone += 1;
-    else if (status === "proposed") s.waiting += 1;
+    else if (status === "proposed") s.waitingRefs += 1;
     else if (status === "dismissed") s.dismissed += 1;
     else s.kept += 1;
   }
@@ -104,14 +107,15 @@ export async function runState(ctx: TenantContext, a: AgentAction, lists: MapLis
 export type RunVerdict = { to: "acted"; result: { kept: number; dismissed: number } } | { to: "declined"; reason: "dismissed" | "superseded" | "stale" } | null;
 
 /**
- * The closing rule. `replacing`: a newer research run is about to replace the waiting ones. Null
- * while any still wait (and nothing replaces them).
+ * The closing rule. `replacing`: a newer research run is about to replace the suggestions still
+ * waiting on the brand's record (never the proposals on the map's records). Null while any still
+ * wait and nothing replaces them.
  */
 export function runVerdict(s: RunState, replacing = false): RunVerdict {
-  if (s.waiting > 0 && !replacing) return null;
+  if (s.waitingRefs > 0 || (s.waitingKeys > 0 && !replacing)) return null;
   if (s.kept > 0) return { to: "acted", result: { kept: s.kept, dismissed: s.dismissed } };
-  if (s.dismissed > 0 && s.waiting === 0) return { to: "declined", reason: "dismissed" };
-  if (replacing && s.waiting > 0) return { to: "declined", reason: "superseded" };
+  if (s.waitingKeys > 0) return { to: "declined", reason: "superseded" };
+  if (s.dismissed > 0) return { to: "declined", reason: "dismissed" };
   return { to: "declined", reason: "stale" };
 }
 

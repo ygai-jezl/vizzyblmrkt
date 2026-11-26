@@ -224,6 +224,8 @@ async function researchSituations(
     if (!step.ok) return step;
     const r = await findSituations(ctx, { customers: input.customers, timeoutMs: RESEARCH_MS }, { db: deps.db, nowMs: deps.nowMs, ...deps.find });
     if (!r.ok) return r;
+    // The agent record: research's run, by the situations it proposed.
+    await recordMapRun(ctx, { action: "brand_map.research", keys: [], refs: r.found.map((s) => `sit:${s.id}`) }, { db: deps.db, nowMs: deps.nowMs });
     const unbacked = r.found.filter((s) => !s.backed).length;
     const proposals = await proposalsWaiting(ctx, { db: deps.db });
     return outcome({
@@ -244,6 +246,8 @@ async function researchSituations(
   const r = await askSituationQuestions(ctx, input.situationId, { db: deps.db, nowMs: deps.nowMs, timeoutMs: RESEARCH_MS, ...deps.ask });
   if (!r.ok) return r;
   const fresh = r.questions.filter((q) => !q.linked);
+  // The agent record: research's run, by the questions it proposed.
+  await recordMapRun(ctx, { action: "brand_map.research", keys: [], refs: fresh.filter((q) => q.status === "proposed").map((q) => `q:${q.id}`) }, { db: deps.db, nowMs: deps.nowMs });
   const onNew = fresh.filter((q) => q.newSubject).length;
   const linked = r.questions.length - fresh.length;
   const proposals = await proposalsWaiting(ctx, { db: deps.db });

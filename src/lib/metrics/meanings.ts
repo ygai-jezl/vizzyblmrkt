@@ -661,7 +661,7 @@ export const MEANINGS = {
     unit: "count",
     source: "the brand's plan or grant, and its refresh records this month",
   },
-  // A brand's win, in its own word, for a Work measure (ADR-0018). Nothing counts it yet.
+  // A brand's win, in its own word, for a Work measure (ADR-0020). Nothing counts it yet.
   conversions: {
     name: "Conversions",
     definition: "Times a person did what the brand counts as its win, such as a sign up, an order or a booking.",

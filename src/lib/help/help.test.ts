@@ -95,7 +95,7 @@ vi.hoisted(() => {
   process.env.ORGANISATION_JOIN_ENABLED = "true";
   process.env.PASSWORD_SIGNIN_ENABLED = "true";
   process.env.LAUNCH_IDEAS_ENABLED = "true";
-  // Work and Vizzy's Work tools (ADR-0018): /help/work, and Work's lines on Review and approvals.
+  // Work and Vizzy's Work tools (ADR-0020): /help/work, and Work's lines on Review and approvals.
   process.env.WORK_ENABLED = "true";
   process.env.WORK_VIZZY_ENABLED = "true";
   // Tell Vizzy about your business, on the hub (the switch folds in no nav switch), with Talk with
@@ -477,6 +477,8 @@ describe("Ideas in place of Launches", () => {
     // The general sense: an example of what to ask Vizzy, and a competitor's news about itself.
     "about our launch",
     "such as a launch or an award",
+    // Work's Must have: before a business launches or opens, whatever it calls its ideas.
+    "before you launch or open",
     // The public API's own message (409 launch_closed). Piece K renames the API.
     "This launch is archived, so it takes no new sign-ups.",
   ];

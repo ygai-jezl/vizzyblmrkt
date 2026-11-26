@@ -2,7 +2,7 @@ import type { AgentActionId } from "@/lib/types/agentAction";
 import type { WorkRead } from "./types";
 
 /**
- * Work's three Review sections (ADR-0018, plan group 4), as the cards draw them:
+ * Work's three Review sections (ADR-0020, plan group 4), as the cards draw them:
  * - Checks due today (work_check): a measure's check asks did it work, with what Work counted and
  *   Better, Same, Worse and Too soon to tell; a date or task check has Done and Tomorrow. Both
  *   have Open.
@@ -36,8 +36,11 @@ export type WorkReviewPayload =
       /** "From today's log: Pricing research". */
       from: string;
       why: string;
-      /** How we'll know it worked as Vizzy would set it, and Vizzy's reason for the kind. */
-      measure: { text: string; why: string | null } | null;
+      /**
+       * How we'll know it worked as Vizzy would set it, and Vizzy's reason for the kind. `kindOnly`
+       * when Vizzy names only a kind the person sets up on the task: the card says Vizzy suggests it.
+       */
+      measure: { text: string; why: string | null; kindOnly?: boolean } | null;
       editHref: string;
     };
 
@@ -56,6 +59,8 @@ export const WORK_REVIEW_COPY = {
   cancel: "Cancel",
   openIt: "Open it",
   howWellKnow: "How we'll know:",
+  vizzySuggestsKind: "Vizzy suggests:",
+  kindOnlyHint: "Add it, then set how you'll know on the task.",
   saving: "Saving…",
   adding: "Adding…",
   dismissing: "Dismissing…",

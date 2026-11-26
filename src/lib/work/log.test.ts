@@ -3,6 +3,7 @@ import { WORK_LOG } from "@/lib/tenant";
 import { addLogEntry, logDay } from "./log";
 import { addTask, editTask, recordDecision } from "./service";
 import type { LogEntryBody } from "./inputs";
+import { planApprovalWords, planKeyOf } from "./screenWords";
 import type { WorkResult } from "./result";
 import { makeWorld, PEOPLE, type World } from "./testing/world";
 import { LUMEN_EU, LUMEN_US, SAM } from "./testing/fixtures";
@@ -74,6 +75,36 @@ describe("the Log", () => {
     expect(today.rail[0]).toEqual({ day: "2026-11-20", entries: 0, moved: 1, decisions: 1 });
     w.at("2026-11-21T15:00:00.000Z");
     expect((await day("2026-11-20")).checks).toEqual([]);
+  });
+
+  it("names the plan a decision approves by its title on the task, or its page's host", async () => {
+    const url = "https://plans.lumen.example/shared-notebooks";
+    const scope = await w.scope(PEOPLE.nina);
+    const t = value(await addTask(scope, { title: "Shared notebooks", brandId: LUMEN_US, typedLinks: [{ kind: "plan", url, title: "Shared notebooks plan", version: "v2" }] }, w.deps)).task.task;
+    value(await recordDecision(scope, { ref: t.ref, plan: { url, version: "v2" }, chosen: "a" }, w.deps));
+    const today = await day();
+    const plan = today.decisions[0]!.decision.plan!;
+    expect(today.planTitles).toEqual({ [planKeyOf(url, "v2")]: "Shared notebooks plan" });
+    expect(planApprovalWords(plan, today.planTitles[planKeyOf(plan.url, plan.version)])).toBe("Shared notebooks plan, version v2");
+    expect(planApprovalWords({ url }, undefined)).toBe("plans.lumen.example");
+  });
+
+  it("keeps the day rail ending on today while a past day is shown", async () => {
+    value(await log({ workstream: "Pricing page", state: "doing" }));
+    w.at("2026-11-24T15:00:00.000Z");
+    value(await log({ workstream: "Pricing page", state: "done" }));
+    const past = await day("2026-11-20");
+    expect(past.day).toBe("2026-11-20");
+    expect(past.rail).toHaveLength(14);
+    expect(past.rail.slice(0, 5).map((r) => [r.day, r.entries])).toEqual([
+      ["2026-11-24", 1],
+      ["2026-11-23", 0],
+      ["2026-11-22", 0],
+      ["2026-11-21", 0],
+      ["2026-11-20", 1],
+    ]);
+    // The day itself still reads as it was, with what was in flight then.
+    expect(past.inFlight.map((x) => x.workstream)).toEqual(["Pricing page"]);
   });
 
   it("shows a member only their brand's rows", async () => {

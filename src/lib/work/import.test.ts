@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { delimiterOf, importFileName, matchColumns, parseRecords, parseSheet, readCheck, readSheet, readStatus } from "./import";
+import { delimiterOf, eachRecord, importFileName, matchColumns, parseRecords, parseSheet, readCheck, readSheet, readStatus } from "./import";
 
 // Made-up Backlog tabs, as a CSV file or as Google Sheets copies them (tabs).
 const LUMEN_CSV = [
@@ -40,6 +40,27 @@ describe("reading a sheet", () => {
   it("numbers each row as its record in the sheet, the header being 1, and leaves blank rows out", () => {
     const sheet = parseSheet(LUMEN_CSV);
     expect(sheet.rows.map((r) => r.row)).toEqual([2, 3, 4, 5, 7]);
+    expect(sheet.more).toBe(false);
+    expect(parseSheet("\n\nTask\n\nFirst\n").rows).toEqual([{ row: 5, cells: ["First"] }]);
+  });
+
+  it("stops one row past the cap, so a body of line breaks or rows past it is refused without being read in full", () => {
+    // About 1.5 million line breaks: blank lines, so nothing is kept for them.
+    let handed = 0;
+    eachRecord(`Title\n${"\n".repeat(1_500_000)}`, ",", () => ((handed += 1), true));
+    expect(handed).toBe(1);
+    expect(parseSheet(`Title\n${"\n".repeat(1_500_000)}`, 1000)).toMatchObject({ headers: ["Title"], rows: [], more: false });
+    // 1.5 million rows: the read stops at the 1,001st.
+    const sheet = parseSheet(`Title\n${"a\n".repeat(1_500_000)}`, 1000);
+    expect(sheet.more).toBe(true);
+    expect(sheet.rows).toHaveLength(1000);
+    expect(sheet.rows[999]!.row).toBe(1001);
+    expect(parseSheet("Title\na\nb\nc\nd", 3)).toMatchObject({ rows: [{ cells: ["a"] }, { cells: ["b"] }, { cells: ["c"] }], more: true });
+    expect(parseSheet("Title\na\nb\nc", 3).more).toBe(false);
+  });
+
+  it("keeps at most 100 cells of a record", () => {
+    expect(parseRecords(`${"x,".repeat(500)}y`, ",")[0]).toHaveLength(100);
   });
 });
 

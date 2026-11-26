@@ -4,7 +4,7 @@ import type { ImportField } from "./inputs";
 import type { ImportRowProblem } from "./words";
 
 /**
- * Reading a Backlog tab (ADR-0018): a CSV file, or rows pasted from Google Sheets (tab
+ * Reading a Backlog tab (ADR-0020): a CSV file, or rows pasted from Google Sheets (tab
  * separated), up to 1,000 rows. No dependency: quoted fields, doubled quotes, commas and line
  * breaks inside quotes, CRLF and a byte order mark are handled here.
  *
@@ -23,16 +23,30 @@ export interface Sheet {
   headers: string[];
   /** Each data row's cells and its record number in the sheet (the header is 1). */
   rows: Array<{ row: number; cells: string[] }>;
+  /** The sheet has more rows than the read takes: it stopped there, and the import is refused. */
+  more: boolean;
 }
 
-/** Split CSV or tab separated text into records of cells. */
-export function parseRecords(text: string, delimiter: "," | "\t"): string[][] {
-  const s = text.replace(/^﻿/, "");
-  const out: string[][] = [];
+/** The most cells a record keeps: a Backlog tab is a few columns wide, so cells past this are dropped. */
+export const IMPORT_MAX_CELLS = 100;
+
+/**
+ * Split CSV or tab separated text into records of cells, handing each to `take` with its record
+ * number (the first is 1). Fully blank lines are counted and skipped without a record, and
+ * nothing is kept here, so a body of line breaks never builds an array per line. `take` returns
+ * false to stop the read.
+ */
+export function eachRecord(text: string, delimiter: "," | "\t", take: (cells: string[], n: number) => boolean): void {
+  const s = text.replace(/^\uFEFF/, "");
   let row: string[] = [];
   let cell = "";
   let quoted = false;
+  let n = 0;
   let i = 0;
+  const push = () => {
+    if (row.length < IMPORT_MAX_CELLS) row.push(cell);
+    cell = "";
+  };
   while (i < s.length) {
     const ch = s[i]!;
     if (quoted) {
@@ -56,47 +70,66 @@ export function parseRecords(text: string, delimiter: "," | "\t"): string[][] {
       continue;
     }
     if (ch === delimiter) {
-      row.push(cell);
-      cell = "";
+      push();
       i += 1;
       continue;
     }
     if (ch === "\r" || ch === "\n") {
-      row.push(cell);
-      out.push(row);
-      row = [];
-      cell = "";
       i += ch === "\r" && s[i + 1] === "\n" ? 2 : 1;
+      n += 1;
+      if (!row.length && cell === "") continue;
+      push();
+      const done = row;
+      row = [];
+      if (!take(done, n)) return;
       continue;
     }
     cell += ch;
     i += 1;
   }
   if (cell !== "" || row.length) {
-    row.push(cell);
-    out.push(row);
+    push();
+    take(row, n + 1);
   }
+}
+
+/** Every record of CSV or tab separated text, blank lines left out. */
+export function parseRecords(text: string, delimiter: "," | "\t"): string[][] {
+  const out: string[][] = [];
+  eachRecord(text, delimiter, (cells) => (out.push(cells), true));
   return out;
 }
 
 /** Tabs in the first line mean a paste from a spreadsheet; otherwise commas. */
 export function delimiterOf(text: string): "," | "\t" {
-  const first = text.replace(/^﻿/, "").split(/\r?\n/, 1)[0] ?? "";
+  const first = text.replace(/^\uFEFF/, "").split(/\r?\n/, 1)[0] ?? "";
   return first.includes("\t") ? "\t" : ",";
 }
 
-/** The sheet's header row and its data rows, with fully blank rows left out. */
-export function parseSheet(text: string): Sheet {
+/**
+ * The sheet's header row and its data rows, with fully blank rows left out. It reads at most
+ * `maxRows` data rows and one more, then stops and says there are `more`, so a sheet past the cap
+ * is refused before it is read in full.
+ */
+export function parseSheet(text: string, maxRows: number = WORK_LIMITS.importRows): Sheet {
   const delimiter = delimiterOf(text);
-  const records = parseRecords(text, delimiter);
-  const headerAt = records.findIndex((r) => r.some((c) => c.trim() !== ""));
-  if (headerAt < 0) return { delimiter, headers: [], rows: [] };
-  const headers = records[headerAt]!.map((h) => h.trim());
+  let headers: string[] | null = null;
   const rows: Sheet["rows"] = [];
-  records.slice(headerAt + 1).forEach((cells, i) => {
-    if (cells.some((c) => c.trim() !== "")) rows.push({ row: headerAt + i + 2, cells });
+  let more = false;
+  eachRecord(text, delimiter, (cells, n) => {
+    if (!cells.some((c) => c.trim() !== "")) return true;
+    if (headers === null) {
+      headers = cells.map((h) => h.trim());
+      return true;
+    }
+    if (rows.length >= maxRows) {
+      more = true;
+      return false;
+    }
+    rows.push({ row: n, cells });
+    return true;
   });
-  return { delimiter, headers, rows };
+  return { delimiter, headers: headers ?? [], rows, more };
 }
 
 const HEADER_WORDS: Record<Exclude<ImportField, "skip">, string[]> = {

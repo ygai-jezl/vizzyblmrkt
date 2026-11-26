@@ -6,7 +6,7 @@ import type { MeaningKey } from "@/lib/metrics/meanings";
 import { LOOPS } from "@/lib/loops/registry";
 import { PURPOSE_LABELS, RESOURCES, type ResourcePurpose } from "@/lib/plans/resources";
 import { measureProblems, PRODUCT_EVENT_DAYS, thenFor, withMeaning, type MeasureDraft, type PartDraft } from "@/lib/work/form";
-import { keptLine, MEASURE_KIND_HINT, MEASURE_KIND_LABEL, meaningLabel, productEventHint, RUNS_BETTER_LABEL, runsBetterHint, suggestionLine, WORK_COPY } from "@/lib/work/screenWords";
+import { keptLine, kindHint, MEASURE_KIND_LABEL, meaningLabel, productEventHint, RUNS_BETTER_LABEL, runsBetterHint, suggestionLine, WORK_COPY } from "@/lib/work/screenWords";
 import { MEASURE_KINDS, RUNS_BETTER_WHAT, type MeasureKind } from "@/lib/work/types";
 import type { ProductOption } from "@/lib/work/screens";
 
@@ -37,7 +37,7 @@ const RADIO = (on: boolean) =>
   }`;
 
 /**
- * How we'll know it worked (ADR-0018): one of four kinds of win, the suggested one marked with its
+ * How we'll know it worked (ADR-0020): one of four kinds of win, the suggested one marked with its
  * reason, that kind's fields, when to look, and an optional then. The server proposes the kind
  * again on save and keeps both the proposal and the pick, so overrides can teach the suggestion.
  */
@@ -71,7 +71,7 @@ export function MeasurePicker({ value, onChange, suggestion, suggestedBy = "rule
           {MEASURE_KINDS.map((k) => (
             <button key={k} type="button" role="radio" aria-checked={d.kind === k} onClick={() => pickKind(k)} className={RADIO(d.kind === k)}>
               <span className="font-medium">{MEASURE_KIND_LABEL[k]}</span>
-              <span className="text-xs text-neutral-500 dark:text-neutral-400">{suggestion?.kind === k ? (suggestedBy === "vizzy" ? "Vizzy suggests" : "Suggested") : MEASURE_KIND_HINT[k]}</span>
+              <span className="text-xs text-neutral-500 dark:text-neutral-400">{suggestion?.kind === k ? (suggestedBy === "vizzy" ? "Vizzy suggests" : "Suggested") : kindHint(k, runsInApp)}</span>
             </button>
           ))}
         </div>

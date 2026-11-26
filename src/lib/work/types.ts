@@ -9,7 +9,7 @@ import type { Region } from "@/lib/types/tenant";
 import { COMPANY_STAGE_IDS } from "./stages";
 
 /**
- * Work's data (ADR-0018): `work_tasks` and `work_log`, both in regional databases, written only
+ * Work's data (ADR-0020): `work_tasks` and `work_log`, both in regional databases, written only
  * through src/lib/tenant/work.ts.
  *
  * - A task lives in the regional database of the brand it names, or for a whole business task
@@ -420,12 +420,21 @@ export type WorkRecent = z.infer<typeof RecentSchema>;
 // --- Tasks -------------------------------------------------------------------------------------
 
 /**
- * Open: not Done or Dropped, or Done while a measure's check still waits for its read, so the Open
- * filter and Review keep it.
+ * The stored `open`: not Done or Dropped, or Done while a measure's check still waits for its read,
+ * so the (organisationId, open, closedAt) read finds the task when its check comes due.
  */
 export function workTaskOpen(t: { status: WorkStatus; check: Pick<WorkCheck, "setBy"> | null }): boolean {
   if (!isClosedStatus(t.status)) return true;
   return t.status === "done" && t.check?.setBy === SET_BY_MEASURE;
+}
+
+/**
+ * On the Open list and in its count (the plan's small call): not Done or Dropped, or Done while
+ * its measure's check is due. A Done task whose check is still to come is closed until then.
+ */
+export function onOpenList(t: { status: WorkStatus; check: Pick<WorkCheck, "setBy" | "at"> | null }, now: Date): boolean {
+  if (!isClosedStatus(t.status)) return true;
+  return t.status === "done" && t.check?.setBy === SET_BY_MEASURE && t.check.at !== null && Date.parse(t.check.at) <= now.getTime();
 }
 
 export const WorkTaskSchema = z

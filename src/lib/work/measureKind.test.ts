@@ -33,6 +33,9 @@ describe("the suggested kind of win", () => {
     expect(kind({ title: "Market stall on Saturdays" })).toBeNull();
     // In a one brand organisation every task counts as the brand's.
     expect(kind({ title: "Market stall on Saturdays", oneBrand: true })).toBe("moves");
+    // A whole business task in a multi brand organisation that serves an idea under Connected to.
+    const served = suggestMeasureKind({ title: "Plan the spring stall", brandId: null, ideaId: null, oneBrand: false, typedLinks: [{ kind: "idea", brandId: "b1", ideaId: "i1" }], ideaWords: true });
+    expect(served).toEqual({ kind: "moves", reason: "It serves an idea, so the win is a number that moves for it." });
   });
 
   it("takes the first match: Done is the win, then Runs better, then Used, then Moves a number", () => {
@@ -50,6 +53,7 @@ describe("the suggested kind of win", () => {
       { title: "Fix a bug" },
       { title: "x", typedLinks: [{ kind: "switch", name: "X_ENABLED" }] },
       { title: "x", ideaId: "cmp_1" },
+      { title: "x", typedLinks: [{ kind: "idea", brandId: "b1", ideaId: "i1" }], ideaWords: true },
       { title: "x", brandId: "b" },
     ];
     for (const i of inputs) {

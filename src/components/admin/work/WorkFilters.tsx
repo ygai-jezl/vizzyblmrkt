@@ -46,6 +46,7 @@ export function WorkFilters({ filters, brands, multiBrand, counts }: { filters: 
               {s.n} {s.label}
             </option>
           ))}
+          <option value="none">No stage</option>
         </select>
       </label>
       <label className="flex items-center gap-1.5 text-sm">

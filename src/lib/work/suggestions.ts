@@ -27,7 +27,7 @@ import { WORK_LIMITS, WORK_TASK_ID, type WorkOrigin, type WorkTask } from "./typ
 import { checkMeasure, checkTypedLinks, placeForNew } from "./validate";
 
 /**
- * Vizzy's task suggestions for Work (ADR-0018, plan decisions 6 and 10.1 and 10.2): making one,
+ * Vizzy's task suggestions for Work (ADR-0020, plan decisions 6 and 10.1 and 10.2): making one,
  * and a person's Add to Work, Edit then add or Dismiss in Review. Each suggestion is an agent
  * action in the agent_actions of the brand whose chat made it (src/lib/tenant/agentActions.ts is
  * its only writer); src/lib/work/suggestion.ts holds its shape.

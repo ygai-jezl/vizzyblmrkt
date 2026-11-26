@@ -2,7 +2,7 @@ import { addDaysToKey, localDateKey, resolveTimezone, wallTimeToUtc } from "@/li
 import { SET_BY_MEASURE, type Measure, type MeasureWhich, type ThenMeasure, type WorkCheck, type WorkRead } from "./types";
 
 /**
- * When Work's checks fall due (ADR-0018). Pure: no clock (`now` is passed in) and no network, so
+ * When Work's checks fall due (ADR-0020). Pure: no clock (`now` is passed in) and no network, so
  * the rules are tested across time zones.
  *
  * - Every check a day sets is at 08:00 in the brand's time zone ("tomorrow morning, after tonight's
@@ -60,6 +60,17 @@ export function partOf(measure: Measure | null, which: MeasureWhich | null): Exc
 export function checkOnDone(measure: Measure | null, closedAt: string, timeZone: string, now: Date): WorkCheck | null {
   if (!measure || measure.kind === "done" || !("days" in measure.look)) return null;
   return measureCheck("first", morningOf(addDaysToKey(dayIn(closedAt, timeZone), measure.look.days), timeZone), now);
+}
+
+/**
+ * The measure's check one part sets on a task that is Done already (its measure set or changed
+ * after Done): closedAt's day plus the part's days, 08:00 brand time, or now when that has passed.
+ * Null for no part, or a part that looks by outputs.
+ */
+export function checkForDonePart(which: MeasureWhich, part: Exclude<Measure, { kind: "done" }> | ThenMeasure | null, closedAt: string, timeZone: string, now: Date): WorkCheck | null {
+  if (!part || !("days" in part.look)) return null;
+  const at = morningOf(addDaysToKey(dayIn(closedAt, timeZone), part.look.days), timeZone);
+  return measureCheck(which, Date.parse(at) > now.getTime() ? at : now.toISOString(), now);
 }
 
 /**

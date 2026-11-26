@@ -121,6 +121,22 @@ describe("what a due measure's check counts", () => {
     expect(c).toEqual({ n: 9, from: "2026-11-20T10:00:00.000Z", to: due, at: "2026-12-05T00:00:00.000Z" });
   });
 
+  it("counts from closedAt, not from when the check was set: a then's check, or one Too soon to tell moved on", async () => {
+    const us = new FakeFirestore();
+    // 5 events after Done and before either check was set, 4 after.
+    seedEvents(us, 5, "2026-11-22T00:00:00.000Z");
+    seedEvents(us, 4, "2026-12-10T00:00:00.000Z");
+    const closedAt = "2026-11-20T10:00:00.000Z";
+    const then = { ...used, look: { days: 7 }, then: { kind: "used", counts: { productEvent: { connectionId: CONN, event: "note_from_template" } }, look: { days: 30 } } } as Measure;
+    const thenCheck: WorkCheck = { ...check, at: "2026-12-20T08:00:00.000Z", setAt: "2026-11-27T13:00:00.000Z", which: "then" };
+    const now = new Date("2026-12-21T00:00:00.000Z");
+    const a = await countForCheck(aStoredTask({ status: "done", closedAt, measure: then, check: thenCheck, hasCheck: true }), lumen, { regionDb: () => us }, now);
+    expect(a).toMatchObject({ n: 9, from: closedAt, to: "2026-12-20T08:00:00.000Z" });
+    const soon: WorkCheck = { ...check, at: "2026-12-20T08:00:00.000Z", setAt: "2026-12-13T13:00:00.000Z" };
+    const b = await countForCheck(aStoredTask({ status: "done", closedAt, measure: used, check: soon, hasCheck: true }), lumen, { regionDb: () => us }, now);
+    expect(b).toMatchObject({ n: 9, from: closedAt });
+  });
+
   it("counts a purpose over its month bounds", async () => {
     vi.stubEnv("USAGE_METER_ENABLED", "true");
     const control = new FakeFirestore();

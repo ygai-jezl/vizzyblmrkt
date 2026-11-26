@@ -7,7 +7,7 @@ import type { WorkTask } from "./types";
 import { zoneOf } from "./schedule";
 
 /**
- * Who sees what in Work (ADR-0018, plan decision 7), read live on every request from the control
+ * Who sees what in Work (ADR-0020, plan decision 7), read live on every request from the control
  * database, never from the request or the session's claims:
  *
  * - The organisation is the one the session brand's registry record names, and it must list the

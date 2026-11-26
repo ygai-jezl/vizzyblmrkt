@@ -41,7 +41,7 @@ import { storesOf } from "./sources";
  *   disconnects the connections of an organisation it leaves with no brands, whatever sharing says
  *   (picks 10 and 21). A failure there is left to the lane's housekeeping and sweep, and every
  *   part already reads nothing (partLive) from the moment the brand moved.
- * - Every move takes the brand's Work tasks along to the organisation it joins (ADR-0018), first,
+ * - Every move takes the brand's Work tasks along to the organisation it joins (ADR-0020), first,
  *   whatever WORK_ENABLED says; whole business tasks stay with the organisation it left.
  * - Names of brands and organisations reach only someone who owns both sides. Nobody's name or
  *   email crosses brands.

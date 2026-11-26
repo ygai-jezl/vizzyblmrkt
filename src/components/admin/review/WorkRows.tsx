@@ -269,8 +269,9 @@ export function WorkSuggestionRowView({
         {s.why ? <p className="text-xs text-shell-ink text-pretty">{s.why}</p> : null}
         {s.measure ? (
           <p className="text-xs text-shell-muted text-pretty">
-            <span className="font-medium text-shell-ink">{C.howWellKnow}</span> {s.measure.text}
+            <span className="font-medium text-shell-ink">{s.measure.kindOnly ? C.vizzySuggestsKind : C.howWellKnow}</span> {s.measure.text}
             {s.measure.why ? ` ${s.measure.why}` : ""}
+            {s.measure.kindOnly ? ` ${C.kindOnlyHint}` : ""}
           </p>
         ) : null}
         {asking ? (

@@ -1,17 +1,18 @@
 import { appendWorkLog, findWorkTaskByRef, listWorkLog, saveDraftedWorkLog } from "@/lib/tenant";
 import { addDaysToKey, wallTimeToUtc } from "@/lib/lifecycle/sendWindow";
-import { deriveDay, LOG_LOOKBACK_DAYS, type LogDay } from "./day";
+import { deriveDay, LOG_LOOKBACK_DAYS, LOG_RAIL_DAYS, railDays, type LogDay } from "./day";
 import type { LogEntryBody } from "./inputs";
 import { draftRefusal, ok, refuse, type DraftedSave, type WorkResult } from "./result";
 import { dayIn } from "./schedule";
+import { planKeyOf } from "./screenWords";
 import { nowOf, seesTask, type WorkDeps, type WorkScope } from "./scope";
 import { dueChecks, entriesToday, loadTasks, type RegionDown, type WorkTaskView } from "./service";
-import { isDay, WORK_LIMITS, type WorkLogRowOf, type WorkStatus } from "./types";
+import { isDay, WORK_LIMITS, type WorkLogRow, type WorkLogRowOf, type WorkStatus } from "./types";
 import { placeForNew } from "./validate";
 import { REGION_CONFIGS } from "@/lib/tenant";
 
 /**
- * The Log (ADR-0018): the day's entries people type, what is still in flight, the tasks that
+ * The Log (ADR-0020): the day's entries people type, what is still in flight, the tasks that
  * moved, the decisions made and, today, the checks due. Entries are stored; the rest of the day is
  * worked out from the rows when it is read (src/lib/work/day.ts). Days are the session brand's.
  * In the brand view only the brand's own rows show.
@@ -25,11 +26,31 @@ export interface LogDayView extends LogDay {
   timeZone: string;
   /** The tasks the day's rows name, by id: ref, title and status, for the ones the person sees. */
   tasks: Record<string, { ref: number; title: string; status: WorkStatus; brandId: string | null }>;
+  /** The title of each plan the day's decisions approve, by planKeyOf(url, version), from its task's plan link. */
+  planTitles: Record<string, string>;
   /** Today only: the checks due now. */
   checks: WorkTaskView[];
   regionsDown: RegionDown[];
   /** The days read held more rows than one read takes, so the oldest in flight may be missing. */
   capped: boolean;
+}
+
+/** A value that may hold a check with a purpose's count (units) on it. */
+function withoutUnits(v: unknown): unknown {
+  if (!v || typeof v !== "object") return v;
+  const counted = (v as { counted?: { units?: unknown } | null }).counted;
+  return counted && counted.units !== undefined ? { ...(v as Record<string, unknown>), counted: null } : v;
+}
+
+/**
+ * A row as someone who isn't an operator gets it: a count of this copy's own purposes (units),
+ * kept on a read's row or in a check's value before and after, is for operators only (decision 14).
+ */
+export function rowForViewer(scope: Pick<WorkScope, "operator">, row: WorkLogRow): WorkLogRow {
+  if (scope.operator) return row;
+  if (row.kind === "check" && row.check.counted?.units !== undefined) return { ...row, check: { ...row.check, counted: null } };
+  if (row.kind === "change" && row.field === "check") return { ...row, before: withoutUnits(row.before), after: withoutUnits(row.after) };
+  return row;
 }
 
 /** One day of the Log, today unless a day is given (never one after today). */
@@ -42,13 +63,19 @@ export async function logDay(scope: WorkScope, day: string | null, deps: WorkDep
   const readFrom = addDaysToKey(shown, -LOG_LOOKBACK_DAYS);
   const from = new Date(wallTimeToUtc(readFrom, 0, 0, tz)).toISOString();
   const to = new Date(wallTimeToUtc(addDaysToKey(shown, 1), 0, 0, tz)).toISOString();
-  const [read, loaded, checks] = await Promise.all([
+  // The day rail always ends today: a past day reads the rail's own 14 days beside its own rows.
+  const railFrom = new Date(wallTimeToUtc(addDaysToKey(today, -(LOG_RAIL_DAYS - 1)), 0, 0, tz)).toISOString();
+  const railTo = new Date(wallTimeToUtc(addDaysToKey(today, 1), 0, 0, tz)).toISOString();
+  const [read, loaded, checks, railRead] = await Promise.all([
     listWorkLog(scope.organisationId, { from, to, limit: LOG_ROWS }, deps),
     loadTasks(scope, { brandId: scope.view === "brand" ? scope.session.id : undefined, allClosed: false }, deps),
     shown === today ? dueChecks(scope, deps) : Promise.resolve({ tasks: [], regionsDown: [] }),
+    shown === today ? Promise.resolve(null) : listWorkLog(scope.organisationId, { from: railFrom, to: railTo, limit: LOG_ROWS }, deps),
   ]);
-  const rows = read.rows.filter((r) => scope.view === "organisation" || r.brandId === scope.session.id);
+  const mine = (r: WorkLogRow) => scope.view === "organisation" || r.brandId === scope.session.id;
+  const rows = read.rows.filter(mine).map((r) => rowForViewer(scope, r));
   const derived = deriveDay(rows, shown, tz, readFrom);
+  if (railRead) derived.rail = railDays(railRead.rows.filter(mine), today, tz);
   const tasks: LogDayView["tasks"] = {};
   for (const t of loaded.tasks) if (seesTask(scope, t)) tasks[t.id] = { ref: t.ref, title: t.title, status: t.status, brandId: t.brandId };
   // A task deleted since keeps its ref and title in its added row.
@@ -57,12 +84,22 @@ export async function logDay(scope: WorkScope, day: string | null, deps: WorkDep
     const snap = (r.field === "added" ? r.after : r.before) as { ref?: unknown; title?: unknown; status?: unknown } | null;
     if (snap && typeof snap.ref === "number" && typeof snap.title === "string") tasks[r.taskId] = { ref: snap.ref, title: snap.title, status: (snap.status as WorkStatus) ?? "todo", brandId: r.brandId };
   }
-  const down = new Set([...read.unanswered, ...loaded.unanswered]);
+  // Each approved plan by its title on the task, when the task was read; the Log falls back to its host.
+  const planTitles: LogDayView["planTitles"] = {};
+  const approved = new Set(derived.decisions.flatMap((d) => (d.decision.plan ? [planKeyOf(d.decision.plan.url, d.decision.plan.version)] : [])));
+  if (approved.size) {
+    for (const t of loaded.tasks) {
+      if (!seesTask(scope, t)) continue;
+      for (const l of t.typedLinks) if (l.kind === "plan" && approved.has(planKeyOf(l.url, l.version))) planTitles[planKeyOf(l.url, l.version)] = l.title;
+    }
+  }
+  const down = new Set([...read.unanswered, ...loaded.unanswered, ...(railRead?.unanswered ?? [])]);
   return ok({
     ...derived,
     today: shown === today,
     timeZone: tz,
     tasks,
+    planTitles,
     checks: checks.tasks,
     regionsDown: [...new Set([...down, ...checks.regionsDown.map((d) => d.region)])].map((r) => ({ region: r, name: REGION_CONFIGS[r].displayName })),
     capped: read.rows.length >= LOG_ROWS,

@@ -3,9 +3,20 @@ import { WORK_LOG, WORK_TASKS } from "@/lib/tenant";
 import { actOnCheck, addTask, editTask, listTasks, taskPage } from "./service";
 import { filtersOf, type MeasureInput } from "./inputs";
 import type { WorkResult } from "./result";
-import { makeWorld, PEOPLE, type World } from "./testing/world";
-import { LUMEN_US } from "./testing/fixtures";
+import { agentGetWork } from "./agentApi";
+import { logDay } from "./log";
+import { FERNHILL, makeWorld, PEOPLE, type World } from "./testing/world";
+import { LUMEN_US, NINA } from "./testing/fixtures";
+import type { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
+
+// Counting a purpose reads every brand's meter (listAllTenants): only ever for an operator.
+const allTenantsRead = vi.hoisted(() => ({ n: 0 }));
+vi.mock("@/lib/tenant", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/tenant")>();
+  return { ...real, listAllTenants: (...a: Parameters<typeof real.listAllTenants>) => ((allTenantsRead.n += 1), real.listAllTenants(...a)) };
+});
 import type { TenantContext } from "@/lib/tenant/types";
+import { OPERATOR_COUNT_LINE } from "./words";
 import type { WorkLogRow, WorkLogRowOf, WorkTask } from "./types";
 
 // Checks and the one tap read. Lumen Notes is in New York time (08:00 is 13:00 UTC in winter).
@@ -49,6 +60,21 @@ describe("Done on a measure", () => {
     expect(r.notice).toBe("It asks if it worked on 27 Nov at 08:00.");
   });
 
+  it("keeps a Done task on the Open list only while its measure's check is due, and counts it there", async () => {
+    const t = await add({ title: "Fix the sync crash", brandId: LUMEN_US, measure: { kind: "runs_better", what: "crashes", look: { days: 7 } } });
+    await edit(t.task.task.ref, { status: "done" });
+    const list = async (q = "") => value(await listTasks(await nina(), filtersOf(new URLSearchParams(q)), w.deps));
+    // Done, with the check 7 days away: closed until then.
+    expect(stored(t.task.task)).toMatchObject({ open: true });
+    expect((await list()).tasks).toEqual([]);
+    expect((await list()).counts.open).toBe(0);
+    expect((await list("status=closed")).tasks.map((v) => v.task.id)).toEqual([t.task.task.id]);
+    w.at("2026-11-27T13:00:00.000Z");
+    const due = await list();
+    expect(due.tasks.map((v) => [v.task.id, v.due])).toEqual([[t.task.task.id, true]]);
+    expect(due.counts.open).toBe(1);
+  });
+
   it("replaces an open check, and says so", async () => {
     const t = await add({ title: "Fix the sync crash", brandId: LUMEN_US, measure: { kind: "runs_better", what: "crashes", look: { days: 14 } }, check: { kind: "date", day: "2026-12-24" } });
     const r = value(await edit(t.task.task.ref, { status: "done" }));
@@ -78,6 +104,61 @@ describe("Done on a measure", () => {
     const t = await add({ title: "Fix the sync crash", brandId: LUMEN_US, measure: { kind: "runs_better", what: "crashes", look: { days: 7 } }, status: "done" });
     expect(await edit(t.task.task.ref, { check: { kind: "date", day: "2026-12-01" } })).toMatchObject({ ok: false, error: "measure_check_kept" });
     expect(await edit(t.task.task.ref, { check: null })).toMatchObject({ ok: false, error: "measure_check_kept" });
+  });
+});
+
+describe("a measure set or changed on a task that is Done already", () => {
+  const crashes: MeasureInput = { kind: "runs_better", what: "crashes", look: { days: 7 } };
+
+  it("sets the check Done would have set, from when it went Done", async () => {
+    const t = await add({ title: "Fix the sync crash", brandId: LUMEN_US, status: "done" });
+    expect(t.task.task).toMatchObject({ check: null, open: false });
+    const r = value(await edit(t.task.task.ref, { measure: crashes }));
+    expect(r.task.task).toMatchObject({ open: true, hasCheck: true, check: { setBy: "measure", which: "first", at: "2026-11-27T13:00:00.000Z" } });
+    expect(r.notice).toBe("It asks if it worked on 27 Nov at 08:00.");
+    w.at("2026-11-28T14:00:00.000Z");
+    expect(value(await taskPage(await nina(), t.task.task.ref, w.deps)).due).toBe(true);
+  });
+
+  it("asks now when that day has passed", async () => {
+    const t = await add({ title: "Fix the sync crash", brandId: LUMEN_US, status: "done" });
+    w.at("2026-12-05T10:00:00.000Z");
+    const r = value(await edit(t.task.task.ref, { measure: crashes }));
+    expect(r.task.task.check).toMatchObject({ which: "first", at: "2026-12-05T10:00:00.000Z" });
+    expect(value(await taskPage(await nina(), t.task.task.ref, w.deps)).due).toBe(true);
+  });
+
+  it("moves a check still to come when its part's days change", async () => {
+    const t = await add({ title: "Fix the sync crash", brandId: LUMEN_US, measure: crashes, status: "done" });
+    expect(t.task.task.check?.at).toBe("2026-11-27T13:00:00.000Z");
+    const r = value(await edit(t.task.task.ref, { measure: { ...crashes, look: { days: 30 } } }));
+    expect(r.task.task.check).toMatchObject({ which: "first", at: "2026-12-20T13:00:00.000Z" });
+    expect(r.notice).toBe("It asks if it worked on 20 Dec at 08:00.");
+    // Another change that leaves the days alone leaves the check where it is.
+    const again = value(await edit(t.task.task.ref, { measure: { ...crashes, what: "errors", look: { days: 30 } } }));
+    expect(again.task.task.check?.at).toBe("2026-12-20T13:00:00.000Z");
+    expect(again.notice).toBeNull();
+  });
+
+  it("never asks again about a part already read", async () => {
+    const t = await add({ title: "Fix the sync crash", brandId: LUMEN_US, measure: { ...crashes, then: { kind: "runs_better", what: "errors", look: { days: 30 } } }, status: "done" });
+    w.at("2026-11-27T14:00:00.000Z");
+    value(await act({ ref: t.task.task.ref, action: "read", read: "better" }));
+    w.at("2026-12-21T14:00:00.000Z");
+    value(await act({ ref: t.task.task.ref, action: "read", read: "same" }));
+    expect(stored(t.task.task)).toMatchObject({ check: null, open: false });
+    const r = value(await edit(t.task.task.ref, { measure: { ...crashes, look: { days: 14 }, then: { kind: "runs_better", what: "errors", look: { days: 45 } } } }));
+    expect(r.task.task).toMatchObject({ check: null, open: false });
+    expect(r.notice).toBeNull();
+  });
+
+  it("asks the then once the first is read, when a then is added later", async () => {
+    const t = await add({ title: "Fix the sync crash", brandId: LUMEN_US, measure: crashes, status: "done" });
+    w.at("2026-11-27T14:00:00.000Z");
+    value(await act({ ref: t.task.task.ref, action: "read", read: "better" }));
+    expect(stored(t.task.task)).toMatchObject({ check: null });
+    const r = value(await edit(t.task.task.ref, { measure: { ...crashes, then: { kind: "runs_better", what: "errors", look: { days: 30 } } } }));
+    expect(r.task.task.check).toMatchObject({ which: "then", at: "2026-12-20T13:00:00.000Z" });
   });
 });
 
@@ -150,6 +231,29 @@ describe("the one tap read", () => {
     expect(counts[0]).toMatchObject({ kind: "change", field: "check", source: { who: { kind: "system", id: null } } });
   });
 
+  it("counts from when the task went Done, not from when the check was set", async () => {
+    const t = await dueTask();
+    // Too soon to tell moves the check on; the count it takes next still starts at Done.
+    value(await act({ ref: t.ref, action: "read", read: "too_soon" }));
+    w.us.seed("product_events", "pe_before_reset", { tenantId: LUMEN_US, connectionId: "pc_lumen", type: "track", event: "note_from_template", receivedAt: "2026-11-25T12:00:00.000Z" });
+    w.us.seed("product_events", "pe_after_reset", { tenantId: LUMEN_US, connectionId: "pc_lumen", type: "track", event: "note_from_template", receivedAt: "2026-12-01T12:00:00.000Z" });
+    w.at("2026-12-04T14:00:00.000Z");
+    const page = value(await taskPage(await nina(), t.ref, w.deps));
+    expect(page.task.check?.setAt).toBe("2026-11-27T14:00:00.000Z");
+    expect(page.task.check?.counted).toMatchObject({ n: 2, from: t.closedAt });
+  });
+
+  it("drops what it counted when the measure changes, and counts the new one when it next shows", async () => {
+    const t = await dueTask();
+    w.us.seed("product_events", "pe_tpl", { tenantId: LUMEN_US, connectionId: "pc_lumen", type: "track", event: "note_from_template", receivedAt: "2026-11-22T12:00:00.000Z" });
+    w.us.seed("product_events", "pe_share", { tenantId: LUMEN_US, connectionId: "pc_lumen", type: "track", event: "note_shared", receivedAt: "2026-11-23T12:00:00.000Z" });
+    w.us.seed("product_events", "pe_share2", { tenantId: LUMEN_US, connectionId: "pc_lumen", type: "track", event: "note_shared", receivedAt: "2026-11-24T12:00:00.000Z" });
+    expect(value(await taskPage(await nina(), t.ref, w.deps)).task.check?.counted?.n).toBe(1);
+    const changed = value(await edit(t.ref, { measure: { ...usedThenMoves, counts: { productEvent: { connectionId: "pc_lumen", event: "note_shared" } } } as MeasureInput }));
+    expect(changed.task.task.check).toMatchObject({ setBy: "measure", which: "first", counted: null });
+    expect(value(await taskPage(await nina(), t.ref, w.deps)).task.check?.counted?.n).toBe(2);
+  });
+
   it("says what Work can't count, in the brand's word", async () => {
     const t = await add({ title: "Market stall", brandId: LUMEN_US, measure: { kind: "moves", meaning: "conversions", word: "Orders", look: { days: 7 } }, status: "done" });
     w.at("2026-11-28T14:00:00.000Z");
@@ -210,5 +314,56 @@ describe("date and task checks", () => {
     const l = value(await listTasks(await nina(), filtersOf(new URLSearchParams("due=1")), w.deps));
     expect(l.tasks.map((v) => v.task.id)).toEqual([t.task.task.id]);
     expect(value(await listTasks(await nina(), filtersOf(new URLSearchParams()), w.deps)).tasks).toEqual([]);
+  });
+});
+
+describe("a count of this copy's own purposes (operators only)", () => {
+  const purpose: MeasureInput = { kind: "used", counts: { purpose: "content_angle" }, look: { days: 7 } };
+  const meter = (db: FakeFirestore, tenantId: string) =>
+    db.seed("usage_meters", `um_${tenantId}_2026-11`, { tenantId, month: "2026-11", meters: { model_tokens: { total: 1234, calls: 1, lostCalls: 0, byPurpose: { content_angle: 1234 } } } });
+
+  async function duePurposeTask() {
+    vi.stubEnv("LOOPS_OPERATOR_EMAILS", "nina@lumen.example");
+    vi.stubEnv("USAGE_METER_ENABLED", "true");
+    meter(w.us, LUMEN_US);
+    meter(w.eu, FERNHILL);
+    const t = await add({ title: "Suggest an angle", brandId: LUMEN_US, measure: purpose, status: "done" });
+    w.at("2026-11-27T14:00:00.000Z");
+    return t.task.task;
+  }
+
+  it("is never counted for someone who isn't an operator, nor for Vizzy, and every brand's meter goes unread", async () => {
+    const t = await duePurposeTask();
+    const deps = w.deps;
+    allTenantsRead.n = 0;
+    const sam = value(await taskPage(await w.scope(PEOPLE.sam), t.ref, deps));
+    expect(sam.task.check?.counted ?? null).toBeNull();
+    expect(sam.checkLine).toBe(OPERATOR_COUNT_LINE);
+    const vizzy = await agentGetWork({ tenantId: LUMEN_US, region: "us", source: "agent", userId: NINA, role: "admin" }, { ref: String(t.ref) }, deps);
+    expect((vizzy.body as { task: { check: { counted: string } } }).task.check.counted).toBe(OPERATOR_COUNT_LINE);
+    expect(JSON.stringify(vizzy.body)).not.toMatch(/2,468|1,234/);
+    expect(allTenantsRead.n).toBe(0);
+    expect(stored(t).check).toMatchObject({ counted: null });
+    expect(logRows().filter((r) => r.source.tool === "work_count")).toEqual([]);
+  });
+
+  it("an operator gets the count, and someone who isn't still never sees it on the task, the list or the Log", async () => {
+    const t = await duePurposeTask();
+    allTenantsRead.n = 0;
+    const page = value(await taskPage(await nina(), t.ref, w.deps));
+    expect(allTenantsRead.n).toBe(1);
+    expect(page.task.check?.counted).toMatchObject({ units: 2468 });
+    expect(page.checkLine).toMatch(/^Work counted 2,468 tokens spent on /);
+    const samScope = await w.scope(PEOPLE.sam);
+    const sam = value(await taskPage(samScope, t.ref, w.deps));
+    expect(sam.task.check?.counted).toBeNull();
+    expect(sam.checkLine).toBe(OPERATOR_COUNT_LINE);
+    const listed = value(await listTasks(samScope, filtersOf(new URLSearchParams()), w.deps)).tasks.find((v) => v.task.id === t.id);
+    expect(listed?.task.check?.counted).toBeNull();
+    // A read keeps the count on its row; the Log gives it only to operators.
+    value(await act({ ref: t.ref, action: "read", read: "better" }));
+    const day = value(await logDay(samScope, null, w.deps));
+    expect(JSON.stringify(day)).not.toMatch(/"units"/);
+    expect(JSON.stringify(value(await logDay(await nina(), null, w.deps)))).toMatch(/"units":2468/);
   });
 });

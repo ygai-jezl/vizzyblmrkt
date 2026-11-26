@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 
 /**
- * /help/work (ADR-0018) exists only while WORK_ENABLED is on. It is a server switch, so the pages
+ * /help/work (ADR-0020) exists only while WORK_ENABLED is on. It is a server switch, so the pages
  * read it when they render, and the How to drawer passes the shell's answer. What Vizzy does in
  * Work shows only while WORK_VIZZY_ENABLED is on too. Each case loads the modules afresh.
  */
@@ -80,7 +80,7 @@ describe("the Work help switch", () => {
       expect(text, words).toContain(words);
     }
     // What a measure's check says, in the check's own words.
-    expect(text).toContain("Work counted 212 note_from_template events from Lumen Notes' product since 11 Nov.");
+    expect(text).toContain("Work counted 212 notes made from a template from Lumen Notes' product since 11 Nov.");
     expect(text).toContain("Work can't count orders for Fernhill Plants yet, so your read is the record.");
     // Review's three actions and the one tap reasons on Dismiss sit under Work in Review.
     const vizzy = text.slice(text.indexOf("## Work in Review"), text.indexOf("## Check it worked"));

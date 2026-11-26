@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * The composite indexes Work's queries need (ADR-0018), by shape, in firestore.indexes.json (one
+ * The composite indexes Work's queries need (ADR-0020), by shape, in firestore.indexes.json (one
  * file for all three databases, firebase.json). Only Firestore refuses a query with no index (the
  * emulator and the fake serve anything), so a shape added without its index passes every other
  * test and fails once deployed. src/lib/tenant/work.test.ts records each query's shape.

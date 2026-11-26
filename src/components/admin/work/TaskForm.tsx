@@ -38,7 +38,7 @@ export interface SuggestionFill {
 }
 
 export interface TaskFormProps {
-  screen: Pick<AddScreen, "nextRef" | "defaultBrandId" | "options" | "multiBrand" | "oneBrand" | "sessionBrand">;
+  screen: Pick<AddScreen, "nextRef" | "defaultBrandId" | "options" | "multiBrand" | "oneBrand" | "sessionBrand" | "ideaWords">;
   suggestion?: SuggestionFill | null;
   /** Where Cancel goes: the list, or Review for Edit then add. */
   cancelHref?: string;
@@ -93,8 +93,8 @@ function TaskFormRound({ screen, suggestion = null, cancelHref = "/admin/work", 
   const zoneBrand = brand ?? options.brands.find((b) => b.id === screen.sessionBrand.id) ?? options.brands[0];
   const repos = brand ? brand.repos : options.brands.flatMap((b) => b.repos);
   const rule = useMemo(
-    () => suggestMeasureKind({ title, description, stage, brandId, typedLinks: typed, oneBrand: screen.oneBrand }),
-    [title, description, stage, brandId, typed, screen.oneBrand],
+    () => suggestMeasureKind({ title, description, stage, brandId, typedLinks: typed, oneBrand: screen.oneBrand, ideaWords: screen.ideaWords }),
+    [title, description, stage, brandId, typed, screen.oneBrand, screen.ideaWords],
   );
   const proposed = suggestion?.proposed ?? rule;
   const checkInput = checkInputOf(check, zoneBrand?.today ?? "");
@@ -219,6 +219,7 @@ function TaskFormRound({ screen, suggestion = null, cancelHref = "/admin/work", 
               operator={options.operator}
               loopsRepo={options.loopsRepo}
               ideaName={(b, i) => options.ideas.find((x) => x.value === `${b}:${i}`)?.label}
+              ideaWords={screen.ideaWords}
             />
           </div>
           <div className="space-y-1">

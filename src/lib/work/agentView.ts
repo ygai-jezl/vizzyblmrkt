@@ -10,7 +10,7 @@ import type { TypedLink, WorkLogRow, WorkLogRowOf, WorkTask } from "./types";
 import { dayOf, PLAN_STATE_LABEL, timeOf, WORK_STATUS_LABEL, type PlanState } from "./words";
 
 /**
- * Work as Vizzy's get_work reads it (ADR-0018, plan group 5): tasks, one task in full, the Log
+ * Work as Vizzy's get_work reads it (ADR-0020, plan group 5): tasks, one task in full, the Log
  * day, and the suggestions people dismissed lately with why. Words only, never a bare number, so
  * the agent number contract holds with no meanings of its own: a ref reads "#73", Day N reads
  * "Day 3", and what a measure's check counted is the check's own sentence.
@@ -56,8 +56,8 @@ const clip = (s: string, max: number) => {
 export const taskRefWords = (t: Pick<WorkTask, "ref" | "title">): string => `#${t.ref} ${t.title}`;
 
 /** A typed link in words, and a plan with its approval when the decisions were read. */
-export function linkWords(l: TypedLink, plans: ReadonlyArray<{ url: string; version: string | null; state: PlanState }> | null = null): string {
-  const w = typedLinkWords(l);
+export function linkWords(l: TypedLink, plans: ReadonlyArray<{ url: string; version: string | null; state: PlanState }> | null = null, ideaWords = false): string {
+  const w = typedLinkWords(l, { ideaWords });
   if (l.kind !== "plan" || plans === null) return `${w.where}: ${w.label}`;
   const state = plans.find((p) => p.url === l.url && p.version === (l.version ?? null))?.state ?? "not_approved_yet";
   return `${w.where}: ${w.label} (${PLAN_STATE_LABEL[state]})`;
@@ -66,7 +66,16 @@ export function linkWords(l: TypedLink, plans: ReadonlyArray<{ url: string; vers
 /** One task of the list. */
 export function taskLine(
   v: WorkTaskView,
-  o: { multiBrand: boolean; timeZone: string; today: string; description?: number; names?: Readonly<Record<string, string>>; plans?: ReadonlyArray<{ url: string; version: string | null; state: PlanState }> | null },
+  o: {
+    multiBrand: boolean;
+    timeZone: string;
+    today: string;
+    description?: number;
+    names?: Readonly<Record<string, string>>;
+    plans?: ReadonlyArray<{ url: string; version: string | null; state: PlanState }> | null;
+    /** This copy calls a launch an idea. */
+    ideaWords?: boolean;
+  },
 ): AgentTaskLine {
   const t = v.task;
   const origin = originParts(t.origin, t.createdAt, o.timeZone, NOBODY, o.names ?? {}, null);
@@ -81,7 +90,7 @@ export function taskLine(
     checkDue: v.due,
     win: winLine(t.measure),
     waitingFor,
-    links: t.typedLinks.map((l) => linkWords(l, o.plans ?? null)),
+    links: t.typedLinks.map((l) => linkWords(l, o.plans ?? null, o.ideaWords === true)),
     origin: `${origin.from} ${origin.rest}`,
     measure: measureWords(t),
     fromVizzy: v.fromVizzy,
@@ -118,14 +127,14 @@ export function decisionWords(d: WorkLogRowOf<"decision">, o: { names: Readonly<
 }
 
 /** One task in full: the list's line, and its words, origin, links, measure, check, decisions, reads and history. */
-export function taskDetail(page: WorkTaskPage, o: { multiBrand: boolean; today: string; reads: ReadonlyArray<WorkLogRowOf<"check">> }) {
+export function taskDetail(page: WorkTaskPage, o: { multiBrand: boolean; today: string; reads: ReadonlyArray<WorkLogRowOf<"check">>; ideaWords?: boolean }) {
   const t = page.task;
   const tz = page.timeZone;
   const origin = originParts(t.origin, t.createdAt, tz, NOBODY, page.names, null);
   const replaced = new Set(page.decisions.flatMap((d) => (d.decision.replaces ? [d.decision.replaces] : [])));
   const check = t.check;
   return {
-    ...taskLine(page, { multiBrand: o.multiBrand, timeZone: tz, today: o.today, names: page.names, plans: page.plans }),
+    ...taskLine(page, { multiBrand: o.multiBrand, timeZone: tz, today: o.today, names: page.names, plans: page.plans, ideaWords: o.ideaWords }),
     description: t.description,
     notes: t.notes,
     origin: `${origin.from} ${origin.rest}`,
@@ -149,7 +158,7 @@ export function taskDetail(page: WorkTaskPage, o: { multiBrand: boolean; today: 
         by: whoWords(r.source.who, NOBODY, page.names),
         when: whenWords(r.at, tz, o.today),
       })),
-    history: t.recent.slice(0, 10).map((r) => `${whoWords(r.who, NOBODY, page.names)} ${changeWords(r.field, r.before ?? null, r.after ?? null)} (${whenWords(r.at, tz, o.today)})`),
+    history: t.recent.slice(0, 10).map((r) => `${whoWords(r.who, NOBODY, page.names)} ${changeWords(r.field, r.before ?? null, r.after ?? null, { ideaWords: o.ideaWords })} (${whenWords(r.at, tz, o.today)})`),
   };
 }
 
@@ -159,15 +168,15 @@ const rowTask = (day: LogDayView, id: string | null) => {
 };
 
 /** What a moved task's rows did, in words. */
-function movedLine(rows: ReadonlyArray<WorkLogRowOf<"change"> | WorkLogRowOf<"check">>, names: Readonly<Record<string, string>>): string {
+function movedLine(rows: ReadonlyArray<WorkLogRowOf<"change"> | WorkLogRowOf<"check">>, names: Readonly<Record<string, string>>, ideaWords = false): string {
   return rows
     .slice(-3)
-    .map((r) => `${whoWords(r.source.who, NOBODY, names)} ${r.kind === "check" ? changeWords("check", null, r.check.read ?? r.check.action) : changeWords(r.field, r.before, r.after, { tool: r.source.tool })}`)
+    .map((r) => `${whoWords(r.source.who, NOBODY, names)} ${r.kind === "check" ? changeWords("check", null, r.check.read ?? r.check.action) : changeWords(r.field, r.before, r.after, { tool: r.source.tool, ideaWords })}`)
     .join("; ");
 }
 
 /** The Log day in words: in flight, entries, tasks that moved, decisions and, today, the checks due. */
-export function logWords(day: LogDayView, o: { names: Readonly<Record<string, string>>; brandName: (id: string) => string | undefined; multiBrand: boolean; checks: ReadonlyArray<{ task: string; line: string }> }) {
+export function logWords(day: LogDayView, o: { names: Readonly<Record<string, string>>; brandName: (id: string) => string | undefined; multiBrand: boolean; checks: ReadonlyArray<{ task: string; line: string }>; ideaWords?: boolean }) {
   const who = (row: Pick<WorkLogRow, "source">) => whoWords(row.source.who, NOBODY, o.names);
   const brand = (id: string | null) => (o.multiBrand ? { brand: id ? (o.brandName(id) ?? "a brand you can't see") : "Whole business" } : {});
   return {
@@ -183,7 +192,7 @@ export function logWords(day: LogDayView, o: { names: Readonly<Record<string, st
       ...brand(f.brandId),
     })),
     entries: day.entries.map((e) => ({ workstream: e.workstream, state: ENTRY_STATE_LABEL[e.state], note: e.note, by: who(e), at: timeOf(e.at, day.timeZone), task: rowTask(day, e.taskId), drafted: e.source.tool === "draft_work_log" })),
-    moved: day.moved.map((m) => ({ task: rowTask(day, m.taskId) ?? "a task you can't see", what: movedLine(m.rows, o.names) })),
+    moved: day.moved.map((m) => ({ task: rowTask(day, m.taskId) ?? "a task you can't see", what: movedLine(m.rows, o.names, o.ideaWords === true) })),
     decisions: day.decisions.map((d) => ({
       task: rowTask(day, d.taskId),
       question: d.decision.question,

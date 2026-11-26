@@ -8,10 +8,10 @@ import type { Region } from "@/lib/types/tenant";
 import { partOf } from "./schedule";
 import { purposeResource } from "./words";
 import type { WorkBrand, WorkDeps } from "./scope";
-import type { Counted, WorkTask } from "./types";
+import { SET_BY_MEASURE, type Counted, type WorkTask } from "./types";
 
 /**
- * The number on a due measure's check (ADR-0018), read once when the check first shows and kept on
+ * The number on a due measure's check (ADR-0020), read once when the check first shows and kept on
  * it (`check.counted`). Work counts two things in v1:
  *
  * - A product event (Used): the brand's own events with that name, from Done (`from`) to the check
@@ -33,6 +33,43 @@ import type { Counted, WorkTask } from "./types";
 
 /** The most product events one count reads. */
 export const COUNT_ROWS = 2000;
+
+/** A product event's label in its connection's catalog, as the picker shows it; undefined for none. */
+export type EventLabel = (connectionId: string, event: string) => string | undefined;
+
+/** Labels from catalogs already read: each connection's events, by name. */
+export function eventLabelOf(products: ReadonlyArray<{ id: string; events: ReadonlyArray<{ name: string; label: string }> }>): EventLabel {
+  return (connectionId, event) => {
+    const e = products.find((p) => p.id === connectionId)?.events.find((x) => x.name === event);
+    return e && e.label && e.label !== e.name ? e.label : undefined;
+  };
+}
+
+/** The task's measure check counts a product event: its line can name the event by its label. */
+export function countsProductEvent(task: Pick<WorkTask, "measure" | "check">): boolean {
+  const part = partOf(task.measure, task.check?.setBy === SET_BY_MEASURE ? (task.check.which ?? null) : null);
+  return part !== null && part.kind === "used" && "productEvent" in part.counts;
+}
+
+/**
+ * The catalog labels of the product events these brands' measures count, read once per brand (at
+ * most 5), so a check reads as the picker does. A brand that can't be read keeps the raw names.
+ */
+export async function eventLabelsFor(brands: ReadonlyArray<WorkBrand>, deps: WorkDeps): Promise<EventLabel> {
+  const unique = [...new Map(brands.map((b) => [b.id, b])).values()].slice(0, 5);
+  const products: Array<{ id: string; events: Array<{ name: string; label: string }> }> = [];
+  await Promise.all(
+    unique.map(async (b) => {
+      try {
+        const rows = await forTenant({ tenantId: b.id, region: b.region, source: "system" }, regionDbOf(deps, b.region)).productConnections.find({ limit: 50 });
+        for (const c of rows) products.push({ id: c.id, events: (c.catalog?.events ?? []).slice(0, 100).map((e) => ({ name: e.name, label: e.label ?? "" })) });
+      } catch {
+        // Unread: the raw event names.
+      }
+    }),
+  );
+  return eventLabelOf(products);
+}
 
 const regionDbOf = (deps: WorkDeps, region: Region): FirestoreLike | undefined => deps.regionDb?.(region);
 

@@ -67,7 +67,7 @@ export const EVENT_KINDS = [
   "agent.acted",
   "agent.undone",
   "agent.declined",
-  // Work (ADR-0018), mapped from work_log rows by fromWorkLog, never stored as events: a task added
+  // Work (ADR-0020), mapped from work_log rows by fromWorkLog, never stored as events: a task added
   // (with its origin's kind) or changed (with its value before and after), a log entry, a check
   // marked or read (with the measure's kind and the read), and a decision (saying when it approves a
   // plan).
@@ -257,7 +257,7 @@ function workChangeSource(row: Pick<WorkLogRow, "source">): FieldChangeSource {
 }
 
 /**
- * A work_log row as an event, so the loops read Work as they read everything else (ADR-0018). It
+ * A work_log row as an event, so the loops read Work as they read everything else (ADR-0020). It
  * names no person (Work is the team's, never a brand's people); the task, brand and organisation
  * are in refs. A change row is shaped like record.field_changed ({field, before, after, source});
  * the task's first change row ("added") is work.task_added with its origin's kind. A check row
@@ -439,7 +439,7 @@ export const AGENT_TARGET_REGISTRY_ID: Record<AgentTargetType, string> = {
   // Something Vizzy heard about the business in a chat, waiting for an admin to keep it in About
   // your business (ONBOARDING_ENABLED, src/lib/onboarding/factSuggestions.ts). The id is the brand's.
   brand: "brand",
-  // A task Vizzy suggests for Work (ADR-0018): the id is the one the task takes when a person adds
+  // A task Vizzy suggests for Work (ADR-0020): the id is the one the task takes when a person adds
   // it, so the suggestion and the task join both ways.
   work_task: "work_task",
   // A note or decision Vizzy drafts for Work: the id is the one the log row takes when a person

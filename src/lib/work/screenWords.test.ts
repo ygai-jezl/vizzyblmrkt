@@ -164,6 +164,9 @@ describe("Work's screen words", () => {
     expect(lookWords({ days: 1 })).toBe("1 day after it's done");
     expect(lookWords({ outputs: 20 })).toBe("after 20 outputs");
     expect(partLine(used as Extract<Measure, { kind: "used" }>, { connection: () => "Lumen app" })).toBe("Used: note_from_template events from Lumen app, 14 days after it's done.");
+    expect(partLine(used as Extract<Measure, { kind: "used" }>, { connection: () => "Lumen app", event: () => "Notes made from a template" })).toBe(
+      "Used: notes made from a template from Lumen app, 14 days after it's done.",
+    );
     expect(partLine({ kind: "moves", meaning: "conversions", direction: "up", word: "Orders", look: { days: 14 } })).toBe("Moves a number: orders up, 14 days after it's done.");
     expect(proposedLine(used)).toBe("Suggested: Used. It names a switch, so the win is people using what the switch turns on. You kept it.");
     expect(proposedLine(runs)).toBe("Vizzy suggested Moves a number. It is for the brand, so the win is a number that moves for the brand. Runs better was picked over it.");

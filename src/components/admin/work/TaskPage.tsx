@@ -13,6 +13,7 @@ import {
   changeWords,
   checkSideLine,
   initialsOf,
+  noLinksText,
   originParts,
   whenWords,
   whoInline,
@@ -70,9 +71,12 @@ function CopyButton({ value }: { value: string }) {
 }
 
 /** One line of History: who, what, when. The newest "added" says where the task came from. */
-export function historyLine(r: WorkRecent, o: { me: string; names: Readonly<Record<string, string>>; origin: WorkTask["origin"]; brandName: (id: string) => string | undefined; timeZone: string; today: string }): { who: string; what: string; when: string; vizzy: boolean } {
+export function historyLine(
+  r: WorkRecent,
+  o: { me: string; names: Readonly<Record<string, string>>; origin: WorkTask["origin"]; brandName: (id: string) => string | undefined; timeZone: string; today: string; ideaWords?: boolean },
+): { who: string; what: string; when: string; vizzy: boolean } {
   const who = whoWords(r.who, o.me, o.names);
-  let what = changeWords(r.field, r.before, r.after, { brandName: o.brandName });
+  let what = changeWords(r.field, r.before, r.after, { brandName: o.brandName, ideaWords: o.ideaWords });
   if (r.field === "added" && o.origin.kind === "import") what = `imported it from ${o.origin.file ?? "a sheet"}`;
   if (r.field === "added" && o.origin.kind === "suggestion") what = "added it from Vizzy's suggestion";
   return { who, what, when: whenWords(r.at, o.timeZone, o.today), vizzy: r.who.kind === "vizzy" };
@@ -303,7 +307,16 @@ export function TaskPage({ screen }: { screen: TaskScreen }) {
             <div className="space-y-4 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
               <div className="space-y-1">
                 <p className={SIDE_LABEL}>Connected to</p>
-                <TypedLinksEditor links={task.typedLinks} onChange={(typedLinks) => void patch({ typedLinks })} repos={repos} ideas={options.ideas} operator={options.operator} loopsRepo={options.loopsRepo} ideaName={ideaName} />
+                <TypedLinksEditor
+                  links={task.typedLinks}
+                  onChange={(typedLinks) => void patch({ typedLinks })}
+                  repos={repos}
+                  ideas={options.ideas}
+                  operator={options.operator}
+                  loopsRepo={options.loopsRepo}
+                  ideaName={ideaName}
+                  ideaWords={screen.ideaWords}
+                />
               </div>
               <div className="space-y-1">
                 <p className={SIDE_LABEL}>Other links</p>
@@ -320,7 +333,7 @@ export function TaskPage({ screen }: { screen: TaskScreen }) {
                       <TypedLinkRow
                         key={`${l.kind}${i}`}
                         link={l}
-                        words={typedLinkWords(l, { ideaName })}
+                        words={typedLinkWords(l, { ideaName, ideaWords: screen.ideaWords })}
                         href={typedLinkHref(l, screen.sessionBrand.id)}
                         plan={l.kind === "plan" ? plans.get(`${l.url}@${l.version ?? ""}`) : undefined}
                         planBy={(id) => {
@@ -359,7 +372,7 @@ export function TaskPage({ screen }: { screen: TaskScreen }) {
               ) : null}
             </>
           ) : (
-            <p className="text-sm text-neutral-500 dark:text-neutral-400">{repos.length ? WORK_COPY.noLinksRepo : WORK_COPY.noLinksNoRepo}</p>
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">{noLinksText(repos.length > 0, screen.ideaWords)}</p>
           )}
         </section>
 
@@ -377,7 +390,7 @@ export function TaskPage({ screen }: { screen: TaskScreen }) {
               {task.recent
                 .filter((r) => r.field !== "ideaBrandId")
                 .map((r, i) => {
-                  const h = historyLine(r, { me, names: page.names, origin: task.origin, brandName, timeZone: tz, today: screen.today });
+                  const h = historyLine(r, { me, names: page.names, origin: task.origin, brandName, timeZone: tz, today: screen.today, ideaWords: screen.ideaWords });
                   return (
                     <li key={`${r.at}${i}`} className="flex items-start gap-2 text-sm">
                       <span aria-hidden className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-neutral-100 text-[10px] font-semibold dark:bg-neutral-800">
@@ -452,7 +465,7 @@ export function TaskPage({ screen }: { screen: TaskScreen }) {
             )}
           </div>
           <div className="space-y-1">
-            <p className={SIDE_LABEL}>Check</p>
+            <p id="wk-t-check-l" className={SIDE_LABEL}>Check</p>
             <p className={page.due ? "font-medium text-amber-700 dark:text-amber-300" : ""}>
               {task.check
                 ? checkSideLine({ kind: task.check.kind, at: task.check.at, byMeasure, due: page.due, timeZone: tz, afterRef: screen.afterRef })
@@ -562,6 +575,7 @@ export function TaskPage({ screen }: { screen: TaskScreen }) {
             runsInApp={repos.length > 0 || (screen.measureBrand?.products.length ?? 0) > 0}
             word={options.brands.find((b) => b.id === screen.measureBrand?.id)?.word ?? null}
             oneBrand={screen.oneBrand}
+            ideaWords={screen.ideaWords}
           />
         </section>
         <p className="text-xs text-neutral-500 dark:text-neutral-400">

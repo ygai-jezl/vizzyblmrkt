@@ -16,12 +16,13 @@ export const dynamic = "force-dynamic";
  * New launch. Any member can create one; with LAUNCH_IDEAS_ENABLED an admin can also give it a
  * hypothesis here (setting an idea is for admins only, so a member's create never half fails).
  * With the words on (isIdeaWordsEnabled()) it is New idea; the form reads the words itself.
- * Work's Make it an idea opens it as ?name=<the task's title>&task=<its ref>: the name is filled in
- * and, while WORK_ENABLED, the task is linked to the idea once it is made (in this brand).
+ * Work's Make it an idea opens it as ?name=<the task's title>&task=<its ref>: while WORK_ENABLED the
+ * name is filled in and the task is linked to the idea once it is made (in this brand). With Work
+ * off the page opens as it always did, empty.
  */
 export default async function NewLaunchPage({ searchParams }: { searchParams?: Promise<{ name?: string | string[]; task?: string | string[] }> }) {
   const ctx = await requireAdminContext();
-  const work = fromWork((await searchParams) ?? {});
+  const work = isWorkEnabled() ? fromWork((await searchParams) ?? {}) : { name: "", ref: null };
   const words = isIdeaWordsEnabled();
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -37,7 +38,7 @@ export default async function NewLaunchPage({ searchParams }: { searchParams?: P
       <NewLaunchForm
         hypothesis={isIdeasEnabled() && ctx.role === "admin"}
         initialName={work.name}
-        workTask={isWorkEnabled() && work.ref !== null ? { ref: work.ref, brandId: ctx.tenantId } : null}
+        workTask={work.ref !== null ? { ref: work.ref, brandId: ctx.tenantId } : null}
       />
     </div>
   );

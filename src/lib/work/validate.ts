@@ -2,6 +2,7 @@ import { findWorkTaskByRef, forTenant } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { typeById } from "@/lib/ontology/registry";
 import { isLoopsSourceRepo } from "@/lib/loops/operators";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { EVENT_TTL_MS } from "@/lib/connect/ingest";
 import type { Region } from "@/lib/types/tenant";
 import { proposedByRule } from "./measureKind";
@@ -13,7 +14,7 @@ import type { CompanyStage } from "./stages";
 
 /**
  * What Work checks before it keeps a task's brand, typed links, measure, blockers and check
- * (ADR-0018). Everything that names something else is read live: a repo the brand selected, an
+ * (ADR-0020). Everything that names something else is read live: a repo the brand selected, an
  * idea that exists, a connected product that isn't disconnected, a type YouGrow keeps, a task the
  * person can see. Operators (LOOPS_OPERATOR_EMAILS) alone may name this copy's own loop.
  */
@@ -233,7 +234,7 @@ export async function checkMeasure(scope: WorkScope, input: MeasureInput | null,
   const proposed =
     ctx.proposed !== undefined
       ? ctx.proposed
-      : proposedByRule({ title: ctx.title, description: ctx.description, stage: ctx.stage, brandId: ctx.brandId, ideaId: ctx.ideaId, typedLinks: ctx.typedLinks, oneBrand: scope.oneBrand });
+      : proposedByRule({ title: ctx.title, description: ctx.description, stage: ctx.stage, brandId: ctx.brandId, ideaId: ctx.ideaId, typedLinks: ctx.typedLinks, oneBrand: scope.oneBrand, ideaWords: isIdeaWordsEnabled() });
   const fields = input.kind === "done" ? { kind: "done" as const } : { ...partOfInput(input), then: input.then ? partOfInput(input.then) : null };
   const parsed = MeasureSchema.safeParse({ ...fields, setBy: scope.userId, setAt: now.toISOString(), proposed });
   if (!parsed.success) return invalidInput(parsed.error.issues.map((i) => ({ path: ["measure", ...i.path], message: i.message })));

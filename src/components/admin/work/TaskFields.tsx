@@ -19,7 +19,8 @@ import {
   type TypedLinkDraft,
   type TypedLinkKind,
 } from "@/lib/work/form";
-import { railLabel, WORK_COPY, WORK_STATUS_TONE, zoneHint } from "@/lib/work/screenWords";
+import { ideaWord } from "@/lib/nav/terms";
+import { railLabel, typedHintText, WORK_COPY, WORK_STATUS_TONE, zoneHint } from "@/lib/work/screenWords";
 import { WORK_LIMITS, type TypedLink, type WorkLink } from "@/lib/work/types";
 import { WORK_STATUS_LABEL } from "@/lib/work/words";
 import type { OpenTaskOption } from "@/lib/work/screens";
@@ -29,13 +30,17 @@ import type { OpenTaskOption } from "@/lib/work/screens";
  * tasks it waits for, and its check. Each holds plain data; the routes check it all again.
  */
 
-const KIND_WORDS: Record<TypedLinkKind, { label: string; add: string; hint: string }> = {
-  pull_request: { label: "Pull request", add: "Add pull request", hint: "A repo your brand selected, and the pull request's number." },
-  switch: { label: "Switch", add: "Add switch", hint: "The switch's name as the code reads it: capitals, digits and underscores. Or none, and why." },
-  idea: { label: "Idea", add: "Add idea", hint: "Another idea this task touches." },
-  plan: { label: "Plan", add: "Add plan", hint: "A plan page for this task: its title and an https link. Approve it on the task." },
-  loop_line: { label: "Loop line", add: "Add loop line", hint: "The line in this copy's own loops registry the change touches, or none, and why." },
-};
+/** Each kind's label, button and hint; an idea in this copy's word for one. */
+export function kindWords(ideaWords: boolean): Record<TypedLinkKind, { label: string; add: string; hint: string }> {
+  const w = ideaWord(ideaWords);
+  return {
+    pull_request: { label: "Pull request", add: "Add pull request", hint: "A repo your brand selected, and the pull request's number." },
+    switch: { label: "Switch", add: "Add switch", hint: "The switch's name as the code reads it: capitals, digits and underscores. Or none, and why." },
+    idea: { label: w.One, add: `Add ${w.one}`, hint: `Another ${w.one} this task touches.` },
+    plan: { label: "Plan", add: "Add plan", hint: "A plan page for this task: its title and an https link. Approve it on the task." },
+    loop_line: { label: "Loop line", add: "Add loop line", hint: "The line in this copy's own loops registry the change touches, or none, and why." },
+  };
+}
 
 function LinkIcon({ kind }: { kind: TypedLinkKind | "free" }) {
   const Icon = kind === "pull_request" ? GitPullRequest : kind === "switch" ? ToggleRight : kind === "idea" ? Lightbulb : kind === "plan" ? FileText : kind === "loop_line" ? Repeat : Link2;
@@ -50,6 +55,8 @@ export interface TypedLinksProps {
   operator: boolean;
   loopsRepo: string | null;
   ideaName: (brandId: string, ideaId: string) => string | undefined;
+  /** This copy calls a launch an idea (isIdeaWordsEnabled(), from the screen). */
+  ideaWords: boolean;
 }
 
 /** The kinds a task can connect: a pull request and a switch only with a connected repo; a loop line for operators beside this copy's own repo. */
@@ -60,8 +67,10 @@ export function typedKinds(o: { repos: TypedLinksProps["repos"]; operator: boole
 }
 
 /** Connected to: the exact links agents can follow, with one to add. */
-export function TypedLinksEditor({ links, onChange, repos, ideas, operator, loopsRepo, ideaName }: TypedLinksProps) {
+export function TypedLinksEditor({ links, onChange, repos, ideas, operator, loopsRepo, ideaName, ideaWords }: TypedLinksProps) {
   const kinds = typedKinds({ repos, operator, loopsRepo, links });
+  const KIND_WORDS = kindWords(ideaWords);
+  const word = ideaWord(ideaWords);
   const firstRepo = repos[0] ? `${repos[0].provider}:${repos[0].fullPath}` : "";
   const [draft, setDraft] = useState<TypedLinkDraft>(blankTypedLink(kinds[0]!, firstRepo));
   const [problem, setProblem] = useState<string | null>(null);
@@ -72,7 +81,7 @@ export function TypedLinksEditor({ links, onChange, repos, ideas, operator, loop
     setDraft({ ...d, ...patch });
   };
   const add = () => {
-    const r = typedLinkOf(d);
+    const r = typedLinkOf(d, ideaWords);
     if (!r.ok) return setProblem(r.problem);
     if (links.some((l) => sameTypedLink(l, r.link))) return setProblem("That link is on the task already.");
     if (links.length >= WORK_LIMITS.typedLinks) return setProblem("A task keeps up to 10 links under Connected to.");
@@ -82,11 +91,11 @@ export function TypedLinksEditor({ links, onChange, repos, ideas, operator, loop
   const freeIdeas = ideas.filter((i) => !links.some((l) => l.kind === "idea" && `${l.brandId}:${l.ideaId}` === i.value));
   return (
     <div className="space-y-2">
-      <p className="text-xs text-neutral-500 dark:text-neutral-400">{repos.length ? WORK_COPY.typedHintRepo : WORK_COPY.typedHintNoRepo}</p>
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">{typedHintText(repos.length > 0, ideaWords)}</p>
       {links.length ? (
         <ul className="space-y-1">
           {links.map((l, i) => {
-            const w = typedLinkWords(l, { ideaName });
+            const w = typedLinkWords(l, { ideaName, ideaWords });
             return (
               <li key={`${l.kind}${i}`} className="flex items-center gap-2 rounded-md border border-neutral-200 px-2 py-1.5 dark:border-neutral-800">
                 <LinkIcon kind={l.kind} />
@@ -153,8 +162,8 @@ export function TypedLinksEditor({ links, onChange, repos, ideas, operator, loop
             </select>
           ) : null}
           {kind === "idea" ? (
-            <select aria-label="Idea" value={d.idea} onChange={(e) => set({ idea: e.target.value })} className={`${inputClass} w-auto`}>
-              <option value="">{freeIdeas.length ? "Pick an idea" : "No other ideas"}</option>
+            <select aria-label={word.One} value={d.idea} onChange={(e) => set({ idea: e.target.value })} className={`${inputClass} w-auto`}>
+              <option value="">{freeIdeas.length ? `Pick ${word.a}` : `No other ${word.many}`}</option>
               {freeIdeas.map((i) => (
                 <option key={i.value} value={i.value}>
                   {i.label}

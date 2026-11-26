@@ -258,7 +258,7 @@ export type {
   EndPartResult,
   RepairOutcome,
 } from "./organisationConnections";
-// Work (ADR-0018): an organisation's tasks and daily log, in regional databases, and its task counter.
+// Work (ADR-0020): an organisation's tasks and daily log, in regional databases, and its task counter.
 export {
   WORK_TASKS,
   WORK_LOG,

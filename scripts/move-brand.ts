@@ -28,7 +28,7 @@
  * region. An empty org_<tenantId> taken up again (--to new) has its connections disconnected first,
  * so it never carries a sign in. The dry run says how many would be.
  *
- * Work (ADR-0018), whatever WORK_ENABLED says: the brand's tasks, and their log, move with it to
+ * Work (ADR-0020), whatever WORK_ENABLED says: the brand's tasks, and their log, move with it to
  * the organisation it joins, each taking a new number there; whole business tasks stay with the
  * organisation it leaves. An empty org_<tenantId> taken up again (--to new) has its leftover Work
  * erased first. The dry run says how many tasks would move.

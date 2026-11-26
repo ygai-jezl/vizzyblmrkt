@@ -70,6 +70,13 @@ describe("Work's words", () => {
     expect(countedLine(LINES[3]!)).toBe("Work counts it once the check is due.");
   });
 
+  it("name a product event by its catalog label when it has one, as the picker does", () => {
+    const label = "Notes made from a template";
+    expect(countedLine({ ...LINES[0]!, eventLabel: label })).toBe("Work counted 212 notes made from a template from Lumen Notes' product since 11 Nov.");
+    expect(countedLine({ ...LINES[1]!, eventLabel: label })).toBe("Work counted 1 event for notes made from a template from Fernhill Plants' product since 11 Nov.");
+    expect(countedLine({ ...LINES[2]!, eventLabel: label })).toBe("Work counted at least 40 notes made from a template from Lumen Notes' product in the newest 2,000 events, back to 19 Nov.");
+  });
+
   it("say what a purpose spent over its months, hiding the brands below 10 organisations, and that it can't count with the meter off", () => {
     expect(countedLine(LINES[4]!)).toBe("Work counted 52,000 tokens spent on suggesting angles in Nov and Dec 2026, by 14 brands. The month totals include days before Done.");
     expect(countedLine(LINES[5]!)).toBe(

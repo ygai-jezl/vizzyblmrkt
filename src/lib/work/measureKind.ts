@@ -1,3 +1,4 @@
+import { ideaWord } from "@/lib/nav/terms";
 import type { CompanyStage } from "./stages";
 import type { MeasureKind, ProposedKind, TypedLink } from "./types";
 
@@ -11,8 +12,8 @@ import type { MeasureKind, ProposedKind, TypedLink } from "./types";
  * 1. Done is the win: a Set up or a Billing and tax task, or legal and compliance work.
  * 2. Runs better: a bug, crash, error, memory, security, cost or speed task.
  * 3. Used: the task links a switch.
- * 4. Moves a number: the task is for a brand or an idea. In a one brand organisation every task
- *    counts as the brand's.
+ * 4. Moves a number: the task is for a brand or an idea (the idea it became, or one under
+ *    Connected to). In a one brand organisation every task counts as the brand's.
  * Otherwise nothing is proposed.
  *
  * Pure: the add page and the task page run it as the person types, and the server runs it again
@@ -28,6 +29,8 @@ export interface MeasureKindInput {
   typedLinks?: readonly TypedLink[];
   /** The organisation has one brand, so a whole business task is the brand's too. */
   oneBrand?: boolean;
+  /** This copy calls a launch an idea (isIdeaWordsEnabled()): the reason uses its word. */
+  ideaWords?: boolean;
 }
 
 /** Words that make a task legal or compliance work. */
@@ -45,7 +48,9 @@ export function suggestMeasureKind(input: MeasureKindInput): { kind: MeasureKind
   if (has(LEGAL, input)) return { kind: "done", reason: "It reads like legal or compliance work, which is finished once it is done." };
   if (has(RUNS, input)) return { kind: "runs_better", reason: "It reads like a fix, so the win is that things run better." };
   if ((input.typedLinks ?? []).some((l) => l.kind === "switch" && l.name)) return { kind: "used", reason: "It names a switch, so the win is people using what the switch turns on." };
-  if (input.ideaId) return { kind: "moves", reason: "It serves an idea, so the win is a number that moves for it." };
+  if (input.ideaId || (input.typedLinks ?? []).some((l) => l.kind === "idea")) {
+    return { kind: "moves", reason: `It serves ${ideaWord(input.ideaWords === true).a}, so the win is a number that moves for it.` };
+  }
   if (input.brandId || input.oneBrand) return { kind: "moves", reason: "It is for the brand, so the win is a number that moves for the brand." };
   return null;
 }

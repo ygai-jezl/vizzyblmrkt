@@ -6,7 +6,8 @@ import type { AgentAction, AgentActionId, SignalRef } from "@/lib/types/agentAct
 import type { AddTaskBody } from "./inputs";
 import type { WorkResult } from "./result";
 import { addSuggestion, dismissSuggestion, proposeWorkSuggestion, roundAfter, suggestionForForm, suggestionKey } from "./suggestions";
-import { WORK_SUGGEST_ACTION, type SuggestedTask } from "./suggestion";
+import { suggestionOf, WORK_SUGGEST_ACTION, type SuggestedTask } from "./suggestion";
+import { workSuggestionItem } from "./review";
 import { LUMEN_EU, LUMEN_US, NINA, SAM } from "./testing/fixtures";
 import { FERNHILL, makeWorld, PEOPLE, type World } from "./testing/world";
 import type { WorkLogRow, WorkTask } from "./types";
@@ -115,6 +116,23 @@ describe("Add to Work", () => {
     expect(trail(a.id).map((e) => e.kind)).toEqual(["agent.proposed", "agent.approved", "agent.acted"]);
     const rows = w.us.dump(WORK_LOG) as unknown as WorkLogRow[];
     expect(rows).toEqual([expect.objectContaining({ kind: "change", field: "added", taskId: t.id, source: { who: { kind: "person", id: NINA }, tool: "review_add", session: null } })]);
+  });
+
+  it("keeps a kind Vizzy names alone: Done is the win is added as the measure, with Vizzy's proposal beside it", async () => {
+    const a = await proposed(lumenTask({ title: "Register Lumen Europe for VAT", stage: "billing_tax", measure: null, proposed: { kind: "done", reason: "It's done once it's registered." } }));
+    const r = value(await addSuggestion(await w.scope(PEOPLE.nina), { actionId: a.id, rev: a.rev }, w.deps));
+    expect(r.edited).toEqual([]);
+    expect(r.task.task.measure).toMatchObject({ kind: "done", proposed: { kind: "done", reason: "It's done once it's registered.", by: "vizzy" } });
+    expect(workSuggestionItem(a, suggestionOf(a)!, { multiBrand: false, brandName: null, ideaNames: new Map() })?.work).toMatchObject({ measure: { text: "Done is the win.", why: "It's done once it's registered." } });
+  });
+
+  it("says Vizzy suggests a kind it names without what to count, and adds the task with no measure for the person to set", async () => {
+    const a = await proposed(lumenTask({ measure: null }));
+    const card = workSuggestionItem(a, suggestionOf(a)!, { multiBrand: false, brandName: null, ideaNames: new Map() })?.work;
+    expect(card).toMatchObject({ measure: { text: "Runs better.", why: "It checks a nightly run.", kindOnly: true } });
+    const r = value(await addSuggestion(await w.scope(PEOPLE.nina), { actionId: a.id, rev: a.rev }, w.deps));
+    expect(r.edited).toEqual([]);
+    expect(r.task.task.measure).toBeNull();
   });
 
   it("is decided once: a second add or a dismiss after it is refused, and nothing is written twice", async () => {

@@ -271,7 +271,7 @@ export function workStoresOf(deps: OrganisationActionDeps): WorkStores {
  * Before an empty organisation id is taken up again (move-brand --to new, Move out, the backfill,
  * a new brand), disconnect every connected connection kept under it in any region, so the new
  * owners never inherit a sign in or an address, and erase the Work left under it (its tasks, its
- * log and its task counter, in every region; ADR-0018), so they never inherit a task either.
+ * log and its task counter, in every region; ADR-0020), so they never inherit a task either.
  * Whatever any switch says. A region that can't be read or erased throws, so the id is not taken
  * up. Returns how many connections were disconnected.
  */

@@ -5,7 +5,7 @@ import { PURPOSE_LABELS, RESOURCES, type ResourceId, type ResourcePurpose } from
 import type { Counted, Measure, ThenMeasure, WorkStatus } from "./types";
 
 /**
- * The words Work says to people (ADR-0018): what a status, a plan link's approval and a check
+ * The words Work says to people (ADR-0020): what a status, a plan link's approval and a check
  * read as, the refusals the routes answer with, and the line on a measure's check about what Work
  * counted or can't count. Fixed sentences are literals here, so the help page can quote them and
  * src/lib/help/help.test.ts finds them in src/. House style: src/lib/content/writingRules.ts.
@@ -68,6 +68,7 @@ export const WORK_MESSAGES = {
   plan_choice: "Approve the plan takes Approve, Change it or Not now.",
   plan_question: "Approve the plan is asked only with a plan link from this task.",
   replaces_missing: "The decision this one replaces isn't on this task.",
+  replaces_other: "A changed mind answers the same question with the same options. To ask something else, record a new decision.",
   import_empty: "There are no rows to import. Paste a header row and at least one task.",
   import_too_many: "Import takes up to 1,000 rows at a time. Split the sheet and import each part.",
   import_no_title: "Work couldn't find the column that holds each task. Pick it, then preview again.",
@@ -164,9 +165,14 @@ export interface CountedLineInput {
   timeZone: string;
   /** The usage meter is off, so a purpose isn't counted. */
   meterOff?: boolean;
+  /** A product event's label in its catalog, as the picker shows it; the raw name when there is none. */
+  eventLabel?: string | null;
 }
 
 const READ_IS_RECORD = "so your read is the record.";
+
+/** The line on a check that counts this copy's own purposes, types or loop kinds, for anyone who isn't an operator. */
+export const OPERATOR_COUNT_LINE = "Only the people who run this copy's own learning loop see this count, so your read is the record.";
 
 /**
  * The line on a measure's check: the number Work counted, or what it can't count. For example
@@ -198,7 +204,8 @@ export function countedLine(i: CountedLineInput): string {
   const event = c.productEvent.event;
   if (!i.counted || i.counted.n === undefined) return "Work counts it once the check is due.";
   const n = i.counted.n;
-  const events = `${event} ${n === 1 ? "event" : "events"}`;
+  const label = i.eventLabel ? lower(i.eventLabel) : null;
+  const events = label ? (n === 1 ? `event for ${label}` : label) : `${event} ${n === 1 ? "event" : "events"}`;
   if (i.counted.capped && i.counted.backTo) {
     return `Work counted at least ${countWords(n)} ${events}${brand ? ` from ${brand} product` : ""} in the newest 2,000 events, back to ${dayOf(i.counted.backTo, i.timeZone)}.`;
   }

@@ -5,16 +5,17 @@ import type { ReviewItem } from "@/lib/review/summary";
 import type { AgentAction } from "@/lib/types/agentAction";
 import { measureCheckDetail, readyDetail, WORK_REVIEW_COPY } from "./reviewCards";
 import { partOf } from "./schedule";
-import { brandIn, mapLimit, nowOf, workScopeFor, zoneForTask, type WorkDeps, type WorkScope } from "./scope";
+import { brandForTask, brandIn, mapLimit, nowOf, workScopeFor, zoneForTask, type WorkBrand, type WorkDeps, type WorkScope } from "./scope";
+import { countsProductEvent, eventLabelsFor, type EventLabel } from "./counted";
 import { partLine, WORK_COPY } from "./screenWords";
 import { checkLineOf, countDueCheck, dueChecks, readyTasks, type WorkTaskView } from "./service";
 import { stageLabel } from "./stages";
-import { editThenAddHref, fromWords, ideaKeysOf, seesSuggestion, stageTag, suggestedMeasureText, suggestionOf, WORK_SUGGEST_ACTION, type SuggestedTask } from "./suggestion";
+import { editThenAddHref, fromWords, ideaKeysOf, seesSuggestion, stageTag, suggestedMeasureText, suggestionOf, suggestsKindOnly, WORK_SUGGEST_ACTION, type SuggestedTask } from "./suggestion";
 import { SET_BY_MEASURE, type WorkTask } from "./types";
 import { dayOf } from "./words";
 
 /**
- * Work in Review (ADR-0018, plan group 4): Checks due today (work_check_due), Ready to start
+ * Work in Review (ADR-0020, plan group 4): Checks due today (work_check_due), Ready to start
  * (work_ready) and Tasks Vizzy suggests (vizzy_chat), each section's `from` in
  * src/lib/review/summary.ts. Who sees which follows Work's view (decision 7): owners and a one
  * brand organisation's team see the whole organisation's, everyone else their own brand's. Members
@@ -42,12 +43,12 @@ async function soft<T>(label: string, p: Promise<T>, fallback: T): Promise<T> {
 const brandWords = (multiBrand: boolean, brandName: string | null): string | null => (multiBrand ? (brandName ?? WORK_REVIEW_COPY.wholeBusiness) : null);
 
 /** A due check: a measure's asks did it work, with what Work counted; a date or task check says why it is due. */
-export function workCheckItem(o: { task: WorkTask; brandName: string | null; multiBrand: boolean; line: string | null }): ReviewItem | null {
+export function workCheckItem(o: { task: WorkTask; brandName: string | null; multiBrand: boolean; line: string | null; event?: EventLabel }): ReviewItem | null {
   const t = o.task;
   const c = t.check;
   if (!c) return null;
   const part = c.setBy === SET_BY_MEASURE ? partOf(t.measure, c.which ?? null) : null;
-  const why = part ? measureCheckDetail(`${partLine(part)} ${o.line ?? ""}`) : c.note || (c.kind === "after_task" ? WORK_COPY.afterTaskDone : WORK_COPY.checkDueText);
+  const why = part ? measureCheckDetail(`${partLine(part, { event: o.event })} ${o.line ?? ""}`) : c.note || (c.kind === "after_task" ? WORK_COPY.afterTaskDone : WORK_COPY.checkDueText);
   const detail = [brandWords(o.multiBrand, o.brandName), why].filter(Boolean).join(" · ");
   return {
     id: `work_check:${t.id}`,
@@ -103,7 +104,7 @@ export function workSuggestionItem(a: AgentAction, s: SuggestedTask, o: { multiB
         .filter((n): n is string => !!n),
       from,
       why: s.why,
-      measure: text ? { text, why: s.proposed?.reason ?? null } : null,
+      measure: text ? { text, why: s.proposed?.reason ?? null, ...(suggestsKindOnly(s) ? { kindOnly: true } : {}) } : null,
       editHref: editThenAddHref(a.id),
     },
   };
@@ -150,7 +151,9 @@ export async function workReviewItems(ctx: TenantContext, deps: WorkDeps & { cou
     counted += 1;
     return soft("count", countDueCheck(scope, v.task, deps), v.task);
   });
-  const checkItems = dueTasks.map((t, i) => workCheckItem({ task: t, brandName: dueViews[i]!.brandName, multiBrand, line: checkLineOf(scope, t) }));
+  const eventBrands = dueTasks.flatMap((t) => (countsProductEvent(t) ? [brandForTask(scope, t)].filter((b): b is WorkBrand => !!b) : []));
+  const event = eventBrands.length ? await soft("labels", eventLabelsFor(eventBrands, deps), (() => undefined) as EventLabel) : undefined;
+  const checkItems = dueTasks.map((t, i) => workCheckItem({ task: t, brandName: dueViews[i]!.brandName, multiBrand, line: checkLineOf(scope, t, event), event }));
   const readyItems = ready.tasks.slice(0, MAX_WORK_ITEMS).map((v) => workReadyItem({ task: v.task, brandName: v.brandName, multiBrand, timeZone: zoneForTask(scope, v.task) }));
 
   const mine = open.map((a) => ({ a, s: suggestionOf(a) })).filter((x): x is { a: AgentAction; s: SuggestedTask } => x.s !== null && seesSuggestion(scope, x.s));

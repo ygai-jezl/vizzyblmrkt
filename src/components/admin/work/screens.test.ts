@@ -4,7 +4,9 @@ import { describe, expect, it, vi } from "vitest";
 import type { AddScreen } from "@/lib/work/screens";
 import type { WorkRow } from "@/lib/work/list";
 import type { ImportPreview } from "@/lib/work/service";
-import { blankMeasure, blankPart } from "@/lib/work/form";
+import { blankMeasure, blankPart, typedLinkWords } from "@/lib/work/form";
+import { changeWords, noLinksText } from "@/lib/work/screenWords";
+import { suggestMeasureKind } from "@/lib/work/measureKind";
 import type { WorkLogRowOf } from "@/lib/work/types";
 
 // Work's screens as they draw. Made-up Lumen Notes and Fernhill Plants.
@@ -12,7 +14,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: unknown }) => createElement("a", { href, ...rest }, children as never),
 }));
-const { typedKinds } = await import("./TaskFields");
+const { typedKinds, TypedLinksEditor } = await import("./TaskFields");
 const { checkButtons } = await import("./CheckActions");
 const { decisionView } = await import("./Decisions");
 const { movedWords, decisionWords } = await import("./WorkLog");
@@ -63,6 +65,35 @@ describe("Connected to's kinds", () => {
     expect(typedKinds({ repos: [REPO], operator: false, loopsRepo: "lumen-example/notes-app", links: pr })).not.toContain("loop_line");
     expect(typedKinds({ repos: [REPO], operator: true, loopsRepo: null, links: pr })).not.toContain("loop_line");
     expect(typedKinds({ repos: [REPO], operator: true, loopsRepo: "lumen-example/notes-app", links: [] })).not.toContain("loop_line");
+  });
+});
+
+describe("the words for an idea while launches are called launches", () => {
+  const ideaLink = { kind: "idea" as const, brandId: "ten_lumen", ideaId: "cmp_spaces" };
+  const props = { links: [ideaLink], onChange: () => {}, repos: [], ideas: [{ value: "ten_lumen:cmp_other", label: "Team spaces" }], operator: false, loopsRepo: null, ideaName: () => undefined };
+
+  it("say launch everywhere Work names one, never idea", () => {
+    const off = renderToStaticMarkup(createElement(TypedLinksEditor, { ...props, ideaWords: false }));
+    expect(off).toContain("Pick a launch");
+    expect(off).toContain(">Launch<");
+    expect(off).toContain("A launch");
+    expect(off).toContain("Another launch this task touches.");
+    expect(off).toContain("Exact links that agents can follow: a launch, or a plan page.");
+    expect(off.replace(/<[^>]*>/g, " ")).not.toMatch(/\bideas?\b/i);
+    expect(off).not.toMatch(/aria-label="Idea"/);
+    const on = renderToStaticMarkup(createElement(TypedLinksEditor, { ...props, ideaWords: true }));
+    expect(on).toContain("Pick an idea");
+    expect(on).toContain("Another idea this task touches.");
+  });
+
+  it("say launch in history, links with nothing in them and the rule's reason", () => {
+    expect(changeWords("ideaId", null, "cmp_spaces")).toBe("made it into a launch");
+    expect(changeWords("ideaId", "cmp_spaces", null, { ideaWords: true })).toBe("unlinked its idea");
+    expect(changeWords("ideaBrandId", null, "ten_lumen")).toBe("changed the launch's brand");
+    expect(noLinksText(false, false)).toBe("No links yet. Add a launch, a plan, an AI chat or a page.");
+    expect(noLinksText(true, true)).toBe("No links yet. Add a pull request, a switch, an idea, a plan, an AI chat or a page.");
+    expect(typedLinkWords(ideaLink)).toEqual({ label: "A launch", where: "Launch" });
+    expect(suggestMeasureKind({ title: "Plan the spring stall", typedLinks: [ideaLink] })?.reason).toBe("It serves a launch, so the win is a number that moves for it.");
   });
 });
 
@@ -135,8 +166,9 @@ describe("history and the Log's moves", () => {
   });
 });
 
-const screen: Pick<AddScreen, "nextRef" | "defaultBrandId" | "options" | "multiBrand" | "oneBrand" | "sessionBrand"> = {
+const screen: Pick<AddScreen, "nextRef" | "defaultBrandId" | "options" | "multiBrand" | "oneBrand" | "sessionBrand" | "ideaWords"> = {
   nextRef: 81,
+  ideaWords: true,
   defaultBrandId: "ten_lumen",
   multiBrand: true,
   oneBrand: false,

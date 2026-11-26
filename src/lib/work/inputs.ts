@@ -21,7 +21,7 @@ import {
 } from "./types";
 
 /**
- * What a person may send Work's admin routes (ADR-0018), checked strictly: a key the shape
+ * What a person may send Work's admin routes (ADR-0020), checked strictly: a key the shape
  * doesn't name is refused, so origin, `proposed`, `setBy`, `recommended`, an organisation or a
  * region can never come from a request. The server sets those (src/lib/work/service.ts).
  *
@@ -145,7 +145,8 @@ export const LIST_KINDS = ["used", "moves", "runs_better", "done", "none"] as co
 export interface WorkFilters {
   /** A brand's id, "none" for whole business tasks, or null for every brand. */
   brand: string | null;
-  stage: (typeof COMPANY_STAGE_IDS)[number] | null;
+  /** A stage, "none" for tasks with no stage yet, or null for any stage. */
+  stage: (typeof COMPANY_STAGE_IDS)[number] | "none" | null;
   status: ListStatus;
   mustHave: boolean;
   due: boolean;
@@ -158,7 +159,7 @@ export function filtersOf(params: URLSearchParams): WorkFilters {
   const brand = params.get("brand");
   return {
     brand: brand && (brand === "none" || TenantId.safeParse(brand).success) ? brand : null,
-    stage: pick(params.get("stage"), COMPANY_STAGE_IDS),
+    stage: pick(params.get("stage"), [...COMPANY_STAGE_IDS, "none"] as const),
     status: pick(params.get("status"), LIST_STATUSES) ?? "open",
     mustHave: params.get("must") === "1",
     due: params.get("due") === "1",

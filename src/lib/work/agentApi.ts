@@ -3,6 +3,7 @@ import { isCanvasAuthConfigured, tenantContextFromCanvasToken, verifyCanvasConte
 import { findWorkLogRow, findWorkTask, isRateLimited, listTaskDecisions, listTaskLog, type TenantContext } from "@/lib/tenant";
 import { listOpenAgentActions, listRecentAgentActions } from "@/lib/ontology/agentActions";
 import { teamMemberNames } from "@/lib/team/names";
+import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { SignalRefSchema, type AgentAction, type SignalRef } from "@/lib/types/agentAction";
 import { dismissalWords, logWords, taskDetail, taskLine, waitingWords } from "./agentView";
 import { decisionDraftHref, DRAFT_COPY, logDraftHref, pickLine } from "./draft";
@@ -216,7 +217,7 @@ export async function agentGetWork(ctx: TenantContext, query: GetWorkQuery, deps
       status: 200,
       body: {
         ...base,
-        task: taskDetail(page, { multiBrand, today: dayIn(now, page.timeZone), reads: reads.rows.filter((x): x is WorkLogRowOf<"check"> => x.kind === "check") }),
+        task: taskDetail(page, { multiBrand, today: dayIn(now, page.timeZone), reads: reads.rows.filter((x): x is WorkLogRowOf<"check"> => x.kind === "check"), ideaWords: isIdeaWordsEnabled() }),
         link: `/admin/work/${ref}`,
         ...(page.regionsDown.length ? { regionsDown: page.regionsDown.map((d) => d.name) } : {}),
       },
@@ -257,6 +258,7 @@ export async function agentGetWork(ctx: TenantContext, query: GetWorkQuery, deps
         brandName: brandNameOf(scope),
         multiBrand,
         checks: day.value.checks.map((v) => ({ task: `#${v.task.ref} ${v.task.title}`, line: checkLineOf(scope, v.task) ?? (v.task.check?.note || "A check is due.") })),
+        ideaWords: isIdeaWordsEnabled(),
       })
     : { error: day.message };
   return {
@@ -271,7 +273,7 @@ export async function agentGetWork(ctx: TenantContext, query: GetWorkQuery, deps
         ...(filters.mustHave ? { mustHave: true } : {}),
         ...(filters.due ? { checksDue: true } : {}),
       },
-      tasks: shown.map((v) => taskLine(v, { multiBrand, timeZone: tz, today, description: 200, names: taskNames, plans: plans.get(v.task.id) ?? null })),
+      tasks: shown.map((v) => taskLine(v, { multiBrand, timeZone: tz, today, description: 200, names: taskNames, plans: plans.get(v.task.id) ?? null, ideaWords: isIdeaWordsEnabled() })),
       ...(list.value.tasks.length > shown.length ? { more: true } : {}),
       log,
       suggestionsWaiting: suggestions.waiting,

@@ -1,14 +1,15 @@
+import { ideaWord } from "@/lib/nav/terms";
 import { stageById } from "./stages";
 import { dayIn } from "./schedule";
 import { dayOf } from "./words";
 import { lookWords, WORK_STATUS_TONE, winLine, type WorkTone } from "./screenWords";
 import { LIST_KINDS, LIST_STATUSES, type WorkFilters } from "./inputs";
-import { SET_BY_MEASURE, type WorkStatus, type WorkTask } from "./types";
+import { onOpenList, SET_BY_MEASURE, type WorkStatus, type WorkTask } from "./types";
 import { WORK_STATUS_LABEL } from "./words";
 import type { TaskMention } from "./service";
 
 /**
- * Work's one list as the screen draws it (ADR-0018): the filters kept in the address, and each
+ * Work's one list as the screen draws it (ADR-0020): the filters kept in the address, and each
  * task as a row. The service reads, filters and orders the tasks (src/lib/work/service.ts
  * listTasks); this only turns them into what a row shows. Pure: plain data and type imports, so
  * the filters work in the browser. Titles and notes are the team's own words, shown as they are.
@@ -145,11 +146,11 @@ export function rowCheck(v: RowView, timeZone: string, now: Date): RowCheck | nu
 }
 
 /** A task as a row: names of ideas come from `ideaName` (brand and idea id), when the screen read them. */
-export function rowOf(v: RowView, o: { timeZone: string; now: Date; ideaName?: (brandId: string, ideaId: string) => string | undefined }): WorkRow {
+export function rowOf(v: RowView, o: { timeZone: string; now: Date; ideaName?: (brandId: string, ideaId: string) => string | undefined; ideaWords?: boolean }): WorkRow {
   const t = v.task;
   const stage = t.stage ? stageById(t.stage) : undefined;
   const blocker = v.blockers.find((b): b is Extract<TaskMention, { ref: number }> => "ref" in b && isOpenStatus(b.status));
-  const ideas = t.typedLinks.flatMap((l) => (l.kind === "idea" && !(l.ideaId === t.ideaId && l.brandId === t.ideaBrandId) ? [o.ideaName?.(l.brandId, l.ideaId) ?? "An idea"] : []));
+  const ideas = t.typedLinks.flatMap((l) => (l.kind === "idea" && !(l.ideaId === t.ideaId && l.brandId === t.ideaBrandId) ? [o.ideaName?.(l.brandId, l.ideaId) ?? ideaWord(o.ideaWords === true).A] : []));
   return {
     id: t.id,
     ref: t.ref,
@@ -158,7 +159,7 @@ export function rowOf(v: RowView, o: { timeZone: string; now: Date; ideaName?: (
     status: t.status,
     statusLabel: WORK_STATUS_LABEL[t.status],
     tone: WORK_STATUS_TONE[t.status],
-    closed: !t.open,
+    closed: !onOpenList(t, o.now),
     mustHave: t.mustHave,
     fromVizzy: v.fromVizzy,
     prs: t.typedLinks.flatMap((l) => (l.kind === "pull_request" ? [`#${l.number}`] : [])),

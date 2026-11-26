@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// New idea, opened from Work's Make it an idea: ?name= fills the name and ?task= names the task
-// to link once the idea is made, in the session brand, while WORK_ENABLED. Made-up Lumen Notes.
+// New idea, opened from Work's Make it an idea: while WORK_ENABLED, ?name= fills the name and
+// ?task= names the task to link once the idea is made, in the session brand. Made-up Lumen Notes.
 const state = vi.hoisted(() => ({ ctx: { tenantId: "ten_lumen", region: "us", source: "idtoken", userId: "uid_nina", role: "admin" } }));
 vi.mock("@/lib/auth/session", () => ({ requireAdminContext: async () => state.ctx }));
 const { default: NewLaunchPage } = await import("./page");
@@ -34,10 +34,10 @@ describe("New idea from a Work task", () => {
     expect(await formProps({ name: "  Team   spaces ", task: "12" })).toMatchObject({ initialName: "Team spaces", workTask: { ref: 12, brandId: "ten_lumen" } });
   });
 
-  it("links nothing for a ref that isn't one, or with Work off, and opens as before with nothing given", async () => {
+  it("links nothing for a ref that isn't one, and with Work off opens exactly as before: empty, whatever the address says", async () => {
     expect((await formProps({ name: "Team spaces", task: "12; drop" })).workTask).toBeNull();
     vi.stubEnv("WORK_ENABLED", "");
-    expect(await formProps({ name: "Team spaces", task: "12" })).toMatchObject({ initialName: "Team spaces", workTask: null });
+    expect(await formProps({ name: "Team spaces", task: "12" })).toMatchObject({ initialName: "", workTask: null });
     expect(await formProps()).toMatchObject({ initialName: "", workTask: null });
   });
 });

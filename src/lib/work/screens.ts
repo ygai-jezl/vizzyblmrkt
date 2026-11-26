@@ -11,13 +11,14 @@ import { anyFilter, rowOf, type WorkRow } from "./list";
 import { logDay, type LogDayView } from "./log";
 import { meaningChoices, typedLinkWords } from "./form";
 import { dayIn, partOf } from "./schedule";
+import { countsProductEvent, eventLabelOf, eventLabelsFor } from "./counted";
 import { brandChoices, checkLineOf, countDueCheck, listTasks, loadTasks, taskPage, type WorkTaskPage } from "./service";
 import { brandForTask, brandIn, mapLimit, nowOf, workScopeFor, zoneForTask, type WorkBrand, type WorkDeps, type WorkScope } from "./scope";
 import { partLine, SUGGESTED_FIELD_LABEL, WORK_COPY } from "./screenWords";
 import { getAgentAction } from "@/lib/ontology/agentActions";
 import { stageLabel } from "./stages";
 import { suggestedMeasureText, suggestionOf } from "./suggestion";
-import { SET_BY_MEASURE, type WorkStatus, type WorkTask } from "./types";
+import { onOpenList, SET_BY_MEASURE, type WorkStatus, type WorkTask } from "./types";
 import { WORK_MESSAGES } from "./words";
 import { suggestionForForm } from "./suggestions";
 import type { SuggestedTask } from "./suggestion";
@@ -27,7 +28,7 @@ import { readDecisionDraft, readLogDraft } from "./drafts";
 import type { EntryState, WorkLink } from "./types";
 
 /**
- * What Work's four screens show (ADR-0018), read on the server and handed to the pages as plain
+ * What Work's four screens show (ADR-0020), read on the server and handed to the pages as plain
  * data: the list, one task, the add page and the Log. Who sees what, the filters, the order and
  * every rule come from the service (src/lib/work/service.ts); this adds what only a screen needs,
  * such as idea names, the connected products a measure can count, the open tasks a blocker can
@@ -96,7 +97,7 @@ async function ideaNames(scope: WorkScope, pairs: Iterable<[string, string]>, de
       const c = await brandRepo(b, deps).campaigns.getById(ideaId);
       if (c) out[`${brandId}:${ideaId}`] = c.waitlistName;
     } catch {
-      // Unread: the row says "An idea".
+      // Unread: the row says "An idea" (or "A launch").
     }
   });
   return out;
@@ -143,7 +144,7 @@ export async function listScreen(scope: WorkScope, params: URLSearchParams, deps
     ...chromeOf(scope),
     filters,
     brands: list.brands.map((b) => ({ id: b.id, name: b.name })),
-    rows: list.tasks.map((v) => rowOf(v, { timeZone: zoneForTask(scope, v.task), now, ideaName: (b, i) => names[`${b}:${i}`] })),
+    rows: list.tasks.map((v) => rowOf(v, { timeZone: zoneForTask(scope, v.task), now, ideaName: (b, i) => names[`${b}:${i}`], ideaWords: isIdeaWordsEnabled() })),
     counts: list.counts,
     regionsDown: list.regionsDown.map((d) => d.name),
     unreadable: list.unreadable,
@@ -368,7 +369,7 @@ async function suggestedOf(scope: WorkScope, task: WorkTask, deps: WorkDeps): Pr
       if (field === "description") return s.description || WORK_COPY.noMeasure;
       if (field === "stage") return s.stage ? stageLabel(s.stage) : WORK_COPY.noStage;
       if (field === "brandId") return brandIn(scope, s.brandId)?.name ?? WORK_COPY.wholeBusinessLabel;
-      if (field === "typedLinks") return s.typedLinks.length ? s.typedLinks.map((l) => typedLinkWords(l).label).join(", ") : WORK_COPY.noMeasure;
+      if (field === "typedLinks") return s.typedLinks.length ? s.typedLinks.map((l) => typedLinkWords(l, { ideaWords: isIdeaWordsEnabled() }).label).join(", ") : WORK_COPY.noMeasure;
       return suggestedMeasureText(s) ?? WORK_COPY.noMeasure;
     };
     return { from: s.from, edited: edited.map((f) => ({ label: SUGGESTED_FIELD_LABEL[f]!, was: was(f) })) };
@@ -405,17 +406,19 @@ export async function taskScreen(scope: WorkScope, ref: number, deps: WorkDeps =
   const sameRegion = choices.brands.filter((b) => b.region === task.region);
   const part = partOf(task.measure, task.check?.setBy === SET_BY_MEASURE ? (task.check.which ?? null) : null);
   const product = brand ? (options.brands.find((b) => b.id === brand.id)?.products ?? (await productsOf(brand, deps))) : [];
+  const event = eventLabelOf(product);
   const canIdea = task.brandId === null || task.brandId === scope.session.id;
   return {
     ...chromeOf(scope),
-    page,
+    // The check's line names an event as the picker does.
+    page: { ...page, checkLine: checkLineOf(scope, task, event) },
     today: dayIn(nowOf(deps), page.timeZone),
     ideaNames: names,
     options,
     brandChoices: sameRegion.map((b) => ({ id: b.id, name: b.name })),
     measureBrand: brand ? { id: brand.id, name: brand.name, products: product } : null,
     makeIdeaHref: canIdea && task.ideaId === null ? `/admin/launches/new?name=${encodeURIComponent(task.title)}&task=${task.ref}` : null,
-    checkPartLine: part ? partLine(part, { connection: (id) => product.find((p) => p.id === id)?.name }) : null,
+    checkPartLine: part ? partLine(part, { connection: (id) => product.find((p) => p.id === id)?.name, event }) : null,
     afterRef: page.checkTask && "ref" in page.checkTask ? page.checkTask.ref : null,
     suggested,
     draftedDecision,
@@ -489,10 +492,11 @@ export async function logScreen(scope: WorkScope, day: string | null, deps: Work
       return v.task;
     }
   });
+  const event = await eventLabelsFor(counted.flatMap((t) => (countsProductEvent(t) ? [brandForTask(scope, t)].filter((b): b is WorkBrand => !!b) : [])), deps);
   const checks: LogCheck[] = counted.map((t, i) => {
     const byMeasure = t.check?.setBy === SET_BY_MEASURE;
     const part = partOf(t.measure, byMeasure ? (t.check?.which ?? null) : null);
-    const line = byMeasure && part ? `${partLine(part)} ${checkLineOf(scope, t) ?? ""}`.trim() : t.check?.note || (t.check?.kind === "after_task" ? WORK_COPY.afterTaskDone : WORK_COPY.checkDueText);
+    const line = byMeasure && part ? `${partLine(part, { event })} ${checkLineOf(scope, t, event) ?? ""}`.trim() : t.check?.note || (t.check?.kind === "after_task" ? WORK_COPY.afterTaskDone : WORK_COPY.checkDueText);
     return { ref: t.ref, title: t.title, brandName: due[i]!.brandName, byMeasure, line };
   });
   const who = [
@@ -512,7 +516,7 @@ export async function logScreen(scope: WorkScope, day: string | null, deps: Work
     screen: {
       ...chromeOf(scope),
       day: rest,
-      openCount: loaded.tasks.filter((t) => t.open).length,
+      openCount: loaded.tasks.filter((t) => onOpenList(t, nowOf(deps))).length,
       checks,
       names,
       brandNames: Object.fromEntries(scope.brands.map((b) => [b.id, b.name])),

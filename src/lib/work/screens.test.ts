@@ -136,6 +136,19 @@ describe("the task page", () => {
     expect(s.page.checkLine).toBe("Work can't count crashes, so your read is the record.");
     expect(s.today).toBe("2026-11-27");
   });
+
+  it("names a product event by its catalog label, as the picker does, on the task page and the Log", async () => {
+    const t = await add(PEOPLE.nina, { title: "Templates", brandId: LUMEN_US, measure: { kind: "used", counts: { productEvent: { connectionId: "pc_lumen", event: "note_from_template" } }, look: { days: 7 } }, status: "done" });
+    w.us.seed("product_events", "pe_1", { tenantId: LUMEN_US, connectionId: "pc_lumen", type: "track", event: "note_from_template", receivedAt: "2026-11-22T12:00:00.000Z" });
+    w.us.seed("product_events", "pe_2", { tenantId: LUMEN_US, connectionId: "pc_lumen", type: "track", event: "note_from_template", receivedAt: "2026-11-23T12:00:00.000Z" });
+    w.at("2026-11-27T14:00:00.000Z");
+    const s = (await taskScreen(await w.scope(PEOPLE.nina), t.ref, w.deps))!;
+    expect(s.checkPartLine).toBe("Used: notes made from a template from Lumen app, 7 days after it's done.");
+    expect(s.page.checkLine).toBe("Work counted 2 notes made from a template from Lumen Notes' product since 20 Nov.");
+    const r = await logScreen(await w.scope(PEOPLE.nina), null, w.deps);
+    if (!r.ok) throw new Error(r.message);
+    expect(r.screen.checks[0]!.line).toBe("Used: notes made from a template, 7 days after it's done. Work counted 2 notes made from a template from Lumen Notes' product since 20 Nov.");
+  });
 });
 
 describe("the Log screen", () => {

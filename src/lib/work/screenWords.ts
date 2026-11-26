@@ -1,4 +1,5 @@
 import { MEANINGS } from "@/lib/metrics/meanings";
+import { ideaWord } from "@/lib/nav/terms";
 import { FORMER_TEAM_MEMBER } from "@/lib/team/former";
 import { dayIn } from "./schedule";
 import { stageById, stageLabel, type CompanyStage } from "./stages";
@@ -6,7 +7,7 @@ import { dayOf, movesWhat, WORK_STATUS_LABEL } from "./words";
 import type { EntryState, Look, Measure, MeasureKind, RunsBetterWhat, ThenMeasure, WorkChangeField, WorkOrigin, WorkStatus, WorkWho } from "./types";
 
 /**
- * The words Work's screens say (ADR-0018): the list, the task page, the add page and the Log. Fixed
+ * The words Work's screens say (ADR-0020): the list, the task page, the add page and the Log. Fixed
  * sentences are literals here, so the help page can quote them and src/lib/help/help.test.ts finds
  * them in src/. The refusals the routes answer with are in words.ts. House style:
  * src/lib/content/writingRules.ts, and words that fit any business, not only software.
@@ -42,6 +43,14 @@ export const MEASURE_KIND_HINT: Record<MeasureKind, string> = {
   runs_better: "Fewer errors or crashes, less memory or cost, more speed.",
   done: "Finishing it is the point. No check after.",
 };
+
+/** Runs better's hint for a business with no connected repo or product, where crashes and memory aren't offered. */
+export const RUNS_BETTER_HINT_NO_APP = "Fewer errors, less cost, more speed.";
+
+/** A kind's hint in the picker: Runs better names crashes and memory only where they can be picked. */
+export function kindHint(kind: MeasureKind, runsInApp: boolean): string {
+  return kind === "runs_better" && !runsInApp ? RUNS_BETTER_HINT_NO_APP : MEASURE_KIND_HINT[kind];
+}
 
 export const RUNS_BETTER_LABEL: Record<RunsBetterWhat, string> = {
   errors: "Errors",
@@ -108,14 +117,14 @@ export const WORK_COPY = {
   vizzyStartText: "Vizzy suggests a few tasks for the stage you're in. They wait in Review until you add them.",
   memberOneBrand: "Everyone here sees every task. You can add, edit and log, and admins import and delete.",
   quickAddPlaceholder: "What needs doing? For example: Register for VAT",
-  mustHaveHint: "Has to happen before you go live. Must haves sit near the top of the list.",
+  mustHaveHint: "Has to happen before you launch or open. Must haves sit near the top of the list.",
   measureNone: "No measure yet. Pick one of four kinds of win: Used, Moves a number, Runs better or Done is the win.",
   measureDone: "No check after it's done.",
   measureFormNone: "No measure. Pick a kind of win, or leave it for later.",
   noSuggestion: "No suggestion yet. Pick the kind that fits.",
   lookHint: "On that day it sets a check for 08:00 that asks: did it work?",
   thenLookHint: "Counted from the same Done, so it looks after the first.",
-  outputsHint: "Work counts outputs once the loops count them. Until then this sets no check.",
+  outputsHint: "Work can't count outputs yet, so this sets no check for now.",
   usedNoneHint: "Nothing counts it yet, so when the check falls due your read is the record.",
   movesHint: "A number from YouGrow's meanings, in your words. Work can't count it on the check yet, so your read is the record.",
   usedNone: "Nothing to count yet: your read is the record",
@@ -135,13 +144,10 @@ export const WORK_COPY = {
   pageFoot: "Every change shows in History with who made it, and the before and after.",
   vizzyFoot: "Vizzy suggests changes in Review, and a person accepts them.",
   typedHintRepo: "Exact links that agents can follow. Pull requests and switches show because a repo is connected.",
-  typedHintNoRepo: "Exact links that agents can follow: an idea, or a plan page. Pull requests and switches show once a repo is connected.",
   planUrlBad: "Use an https link to the page, with no user name or password in it.",
   linkUrlBad: "Use a full link that starts with https:// or http://.",
   linkHintRepo: "A pull request or a plan goes under Connected to, so agents can follow it.",
   linkHintNoRepo: "A plan goes under Connected to, so agents can follow it.",
-  noLinksRepo: "No links yet. Add a pull request, a switch, an idea, a plan, an AI chat or a page.",
-  noLinksNoRepo: "No links yet. Add an idea, a plan, an AI chat or a page.",
   blockedByHint: "Up to 5. While one is open, the task shows Waiting on it.",
   noOpenTask: "No open task matches.",
   afterTaskHint: "The check falls due the day that task moves to Done.",
@@ -266,14 +272,23 @@ export function winLine(m: Measure | null): string | null {
 
 // --- A measure ---------------------------------------------------------------------------------
 
+const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+
 /** "14 days after it's done", or "after 20 outputs". */
 export function lookWords(look: Look): string {
   if ("days" in look) return look.days === 1 ? "1 day after it's done" : `${look.days} days after it's done`;
   return `after ${look.outputs} outputs`;
 }
 
-/** What a measure part counts or moves, in words: "note_from_template events", "orders up", "crashes". */
-export function measureWhat(p: Exclude<Measure, { kind: "done" }> | ThenMeasure, names: { connection?: (id: string) => string | undefined } = {}): string {
+/** Names a measure's words look up: a connected product's name, and an event's label in its catalog. */
+export interface MeasureNames {
+  connection?: (id: string) => string | undefined;
+  /** The catalog's label for an event, as the picker shows it; the raw name when there is none. */
+  event?: (connectionId: string, event: string) => string | undefined;
+}
+
+/** What a measure part counts or moves, in words: "notes made from a template" (or "note_from_template events"), "orders up", "crashes". */
+export function measureWhat(p: Exclude<Measure, { kind: "done" }> | ThenMeasure, names: MeasureNames = {}): string {
   if (p.kind === "runs_better") return p.what;
   if (p.kind === "moves") return `${movesWhat(p)} ${p.direction}`;
   const c = p.counts;
@@ -282,11 +297,12 @@ export function measureWhat(p: Exclude<Measure, { kind: "done" }> | ThenMeasure,
   if ("type" in c) return `${c.type.replace(/_/g, " ")} records`;
   if ("loopKind" in c) return `the ${c.loopKind} loop`;
   const from = names.connection?.(c.productEvent.connectionId);
-  return `${c.productEvent.event} events${from ? ` from ${from}` : ""}`;
+  const label = names.event?.(c.productEvent.connectionId, c.productEvent.event);
+  return `${label ? lowerFirst(label) : `${c.productEvent.event} events`}${from ? ` from ${from}` : ""}`;
 }
 
-/** "Used: note_from_template events, 14 days after it's done." */
-export function partLine(p: Exclude<Measure, { kind: "done" }> | ThenMeasure, names: { connection?: (id: string) => string | undefined } = {}): string {
+/** "Used: notes made from a template, 14 days after it's done." */
+export function partLine(p: Exclude<Measure, { kind: "done" }> | ThenMeasure, names: MeasureNames = {}): string {
   return `${MEASURE_KIND_LABEL[p.kind]}: ${measureWhat(p, names)}, ${lookWords(p.look)}.`;
 }
 
@@ -363,8 +379,44 @@ const short = (v: unknown, max = 80): string | null => {
   return one.length > max ? `${one.slice(0, max - 1)}…` : one;
 };
 
-/** One change in words, after who did it: "moved it from To do to In progress". */
-export function changeWords(field: WorkChangeField, before: unknown, after: unknown, ctx: { brandName?: (id: string) => string | undefined; tool?: string } = {}): string {
+/** A plan link's key: its url and version, as a plan approval names them. */
+export function planKeyOf(url: string, version: string | null | undefined): string {
+  return `${url} ${version ?? ""}`;
+}
+
+/**
+ * The plan a decision approves, as Today names it: its title from the task's plan link (the page's
+ * host when the task wasn't read), with its version: "Shared notebooks plan, version v2".
+ */
+export function planApprovalWords(plan: { url: string; version?: string }, title: string | undefined): string {
+  let name = title;
+  if (!name) {
+    try {
+      name = new URL(plan.url).hostname;
+    } catch {
+      name = plan.url;
+    }
+  }
+  return `${name}${plan.version ? `, version ${plan.version}` : ""}`;
+}
+
+/** The hint under Connected to, in this copy's word for an idea (`ideaWords`, isIdeaWordsEnabled() on the server). */
+export function typedHintText(repo: boolean, ideaWords: boolean): string {
+  return repo ? WORK_COPY.typedHintRepo : `Exact links that agents can follow: ${ideaWord(ideaWords).a}, or a plan page. Pull requests and switches show once a repo is connected.`;
+}
+
+/** Connected to with nothing in it, in this copy's word for an idea. */
+export function noLinksText(repo: boolean, ideaWords: boolean): string {
+  const a = ideaWord(ideaWords).a;
+  return repo ? `No links yet. Add a pull request, a switch, ${a}, a plan, an AI chat or a page.` : `No links yet. Add ${a}, a plan, an AI chat or a page.`;
+}
+
+/**
+ * One change in words, after who did it: "moved it from To do to In progress". `ideaWords` says
+ * whether this copy calls a launch an idea.
+ */
+export function changeWords(field: WorkChangeField, before: unknown, after: unknown, ctx: { brandName?: (id: string) => string | undefined; tool?: string; ideaWords?: boolean } = {}): string {
+  const idea = ideaWord(ctx.ideaWords === true);
   const statusLabel = (v: unknown) => (typeof v === "string" && v in WORK_STATUS_LABEL ? WORK_STATUS_LABEL[v as WorkStatus] : "a status");
   const stage = (v: unknown) => (typeof v === "string" && stageById(v) ? stageLabel(v as CompanyStage) : null);
   switch (field) {
@@ -410,9 +462,9 @@ export function changeWords(field: WorkChangeField, before: unknown, after: unkn
       return t ? `set it waiting on ${t}` : "took off what it was waiting on";
     }
     case "ideaId":
-      return after ? "made it into an idea" : "unlinked its idea";
+      return after ? `made it into ${idea.a}` : `unlinked its ${idea.one}`;
     case "ideaBrandId":
-      return "changed the idea's brand";
+      return `changed the ${idea.own} brand`;
     case "clipping":
       return after ? "linked a clipping" : "took off the clipping";
     case "typedLinks":

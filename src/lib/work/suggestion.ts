@@ -7,7 +7,7 @@ import { MEASURE_KINDS, startingDirection, TypedLinkSchema, WORK_LIMITS, type Me
 import { WORK_STATUS_LABEL } from "./words";
 
 /**
- * A task Vizzy suggests for Work (ADR-0018, plan decision 10.1): one agent action
+ * A task Vizzy suggests for Work (ADR-0020, plan decision 10.1): one agent action
  * (`work_task.suggest`) in the agent_actions of the brand whose chat made it. Its `proposal.task`
  * is what Vizzy suggested; once a person adds it, `result.task` is the task as added and
  * `result.edited` names the fields they changed (empty for Add to Work). Work suggestions keep
@@ -77,7 +77,19 @@ export function seesSuggestion(scope: { view: "organisation" | "brand"; session:
   return scope.view === "organisation" || s.brandId === scope.session.id;
 }
 
-/** Add to Work: the task exactly as Vizzy suggested it, To do, with no Must have. */
+/**
+ * A suggestion that names only a kind of win the task can't keep without more: Used, Moves a
+ * number or Runs better need what is counted and when to look, so the card says Vizzy suggests
+ * the kind and the person sets the rest on the task. Done is the win needs nothing more.
+ */
+export function suggestsKindOnly(s: Pick<SuggestedTask, "measure" | "proposed">): boolean {
+  return !s.measure && s.proposed !== null && s.proposed.kind !== "done";
+}
+
+/**
+ * Add to Work: the task exactly as Vizzy suggested it, To do, with no Must have. A suggestion of
+ * Done is the win alone is added with that measure, so Vizzy's kind is kept on the task as proposed.
+ */
 export function addBodyOf(s: SuggestedTask): AddTaskBody {
   return {
     title: s.title,
@@ -86,7 +98,7 @@ export function addBodyOf(s: SuggestedTask): AddTaskBody {
     stage: s.stage,
     brandId: s.brandId,
     typedLinks: s.typedLinks,
-    measure: s.measure,
+    measure: s.measure ?? (s.proposed?.kind === "done" ? { kind: "done" } : null),
   };
 }
 

@@ -15,6 +15,8 @@ import {
   ENTRY_STATE_TONE,
   initialsOf,
   logRegionsDownText,
+  planApprovalWords,
+  planKeyOf,
   plural,
   railLabel,
   whoInline,
@@ -30,10 +32,10 @@ import { workCall, workErrorText } from "./api";
 import { CheckActions } from "./CheckActions";
 
 /** What moved on a task that day, in words: "Nina moved it from To do to In progress; you set the check". */
-export function movedWords(m: MovedTask, o: { me: string; names: Readonly<Record<string, string>>; brandName: (id: string) => string | undefined }): string {
+export function movedWords(m: MovedTask, o: { me: string; names: Readonly<Record<string, string>>; brandName: (id: string) => string | undefined; ideaWords?: boolean }): string {
   const lines = m.rows.map((r) => {
     const who = whoWords(r.source.who, o.me, o.names);
-    const what = r.kind === "check" ? changeWords("check", null, r.check.read ?? r.check.action) : changeWords(r.field, r.before, r.after, { brandName: o.brandName, tool: r.source.tool });
+    const what = r.kind === "check" ? changeWords("check", null, r.check.read ?? r.check.action) : changeWords(r.field, r.before, r.after, { brandName: o.brandName, tool: r.source.tool, ideaWords: o.ideaWords });
     return `${who} ${what}`;
   });
   const shown = lines.slice(-3);
@@ -68,7 +70,8 @@ export function WorkLog({ screen }: { screen: LogScreen }) {
         <p className="px-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">Days</p>
         {day.rail.map((r, i) => {
           const n = r.entries + r.moved + r.decisions;
-          const href = i === 0 && today ? "/admin/work/log" : `/admin/work/log?day=${r.day}`;
+          // The rail always starts at today.
+          const href = i === 0 ? "/admin/work/log" : `/admin/work/log?day=${r.day}`;
           const here = r.day === day.day;
           return (
             <Link
@@ -210,7 +213,7 @@ export function WorkLog({ screen }: { screen: LogScreen }) {
                         ) : (
                           <span className="font-medium text-neutral-500">{WORK_COPY.hiddenTask}</span>
                         )}
-                        <span className="block text-xs text-neutral-500">{movedWords(m, { me, names, brandName })}</span>
+                        <span className="block text-xs text-neutral-500">{movedWords(m, { me, names, brandName, ideaWords: screen.ideaWords })}</span>
                       </span>
                       <span className="shrink-0 text-xs tabular-nums text-neutral-500">{timeOf(m.at, tz)}</span>
                     </li>
@@ -248,6 +251,14 @@ export function WorkLog({ screen }: { screen: LogScreen }) {
                       <span className="block">
                         <b>{/\?$/.test(d.decision.question) ? d.decision.question : `${d.decision.question}:`}</b> {decisionWords(d, { me, names })}
                       </span>
+                      {d.decision.plan ? (
+                        <span className="block text-xs text-neutral-500">
+                          Plan:{" "}
+                          <a href={d.decision.plan.url} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+                            {planApprovalWords(d.decision.plan, day.planTitles[planKeyOf(d.decision.plan.url, d.decision.plan.version)])}
+                          </a>
+                        </span>
+                      ) : null}
                       {d.decision.why ? <span className="block text-xs text-neutral-500">Why: {d.decision.why}</span> : null}
                     </span>
                     <span className="shrink-0 text-xs tabular-nums text-neutral-500">{timeOf(d.at, tz)}</span>

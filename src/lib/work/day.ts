@@ -3,7 +3,7 @@ import { dayIn } from "./schedule";
 import type { EntryState, WorkLink, WorkLogRow, WorkLogRowOf, WorkWho } from "./types";
 
 /**
- * A day of the Log (ADR-0018, plan decision 4): stored entries, derived day. Nothing here is a
+ * A day of the Log (ADR-0020, plan decision 4): stored entries, derived day. Nothing here is a
  * lane or a snapshot; it is all worked out from the log rows when the Log is read.
  *
  * - In flight: each workstream (by brand and name, ignoring case) whose newest entry up to the end
@@ -12,14 +12,14 @@ import type { EntryState, WorkLink, WorkLogRow, WorkLogRowOf, WorkWho } from "./
  * - Moved: the tasks that changed that day (change and check rows), each with its rows. Work's own
  *   counting is not a move.
  * - Decisions: the decisions recorded that day, plan approvals among them.
- * - The day rail: for each day shown, how many entries, tasks moved and decisions.
+ * - The day rail: for each of the last 14 days, how many entries, tasks moved and decisions.
  *
  * Days are the viewer's brand's days. Pure.
  */
 
 /** How many days back the Log reads to find what is still in flight. */
 export const LOG_LOOKBACK_DAYS = 30;
-/** How many days the day rail shows, ending on the day shown. */
+/** How many days the day rail shows: today and the 13 before it, whichever day is shown. */
 export const LOG_RAIL_DAYS = 14;
 
 export interface InFlight {
@@ -123,9 +123,14 @@ export function deriveDay(rows: readonly WorkLogRow[], day: string, timeZone: st
   const moved = [...movedBy.values()]
     .map((m) => ({ ...m, rows: m.rows.sort((a, b) => a.at.localeCompare(b.at) || firstOf(a) - firstOf(b)) }))
     .sort((a, b) => b.at.localeCompare(a.at) || a.taskId.localeCompare(b.taskId));
+  return { day, entries, inFlight: inFlightOn(rows, day, timeZone, readFrom), moved, decisions, rail: railDays(rows, day, timeZone) };
+}
+
+/** The day rail: `end` and the 13 days before it, newest first, each with what happened on it. */
+export function railDays(rows: readonly WorkLogRow[], end: string, timeZone: string): RailDay[] {
   const rail: RailDay[] = [];
   for (let i = 0; i < LOG_RAIL_DAYS; i++) {
-    const d = addDaysToKey(day, -i);
+    const d = addDaysToKey(end, -i);
     const of = rows.filter((r) => dayIn(r.at, timeZone) === d);
     rail.push({
       day: d,
@@ -134,5 +139,5 @@ export function deriveDay(rows: readonly WorkLogRow[], day: string, timeZone: st
       decisions: of.filter((r) => r.kind === "decision").length,
     });
   }
-  return { day, entries, inFlight: inFlightOn(rows, day, timeZone, readFrom), moved, decisions, rail };
+  return rail;
 }

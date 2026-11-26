@@ -440,6 +440,40 @@ describe("a brand moving to another organisation", () => {
     expect((await findWorkTaskByRef(OTHER_ORG, 3, stores)).task?.id).toBe(mine.task.id);
   });
 
+  it("leaves behind every row of a task that stays, even those filed under the brand before it was retagged", async () => {
+    const secret = await createWorkTask(aTask({ ref: 4, title: "Plan the price change" }), aWrite(), stores);
+    await appendWorkLog(
+      [
+        {
+          organisationId: ORG,
+          brandId: LUMEN_US,
+          region: "us",
+          day: "2026-11-20",
+          at: T0,
+          source: PERSON,
+          kind: "decision",
+          taskId: secret.task.id,
+          decision: { question: "Raise prices?", options: [{ id: "a", label: "Yes" }, { id: "b", label: "No" }], recommended: null, chosen: { option: "a", by: NINA }, agreed: null, why: "Margin is thin", replaces: null, plan: null },
+        },
+      ],
+      stores,
+    );
+    // Retagged to the whole business: it stays with the organisation, with its earlier rows.
+    await changeWorkTask(ORG, secret.task.id, "us", () => ({ patch: { brandId: null } }), aWrite({ at: T1, day: "2026-11-21" }), stores);
+    const mine = await createWorkTask(aTask({ ref: 5, title: "Lumen US task" }), aWrite(), stores);
+
+    const r = await repointBrandWork({ tenantId: LUMEN_US, region: "us" }, ORG, OTHER_ORG, SAM, stores, new Date(T1));
+    expect(r.tasks).toBe(1);
+    expect(us.raw(WORK_TASKS, secret.task.id)).toMatchObject({ organisationId: ORG, brandId: null });
+    const rows = rowsOf(us).filter((x) => x.taskId === secret.task.id);
+    expect(rows.length).toBe(3);
+    expect(rows.every((x) => x.organisationId === ORG)).toBe(true);
+    expect(await listTaskDecisions(ORG, "us", secret.task.id, stores)).toEqual([expect.objectContaining({ decision: expect.objectContaining({ question: "Raise prices?" }) })]);
+    expect(rowsOf(us).filter((x) => x.taskId === mine.task.id).every((x) => x.organisationId === OTHER_ORG)).toBe(true);
+    const theirs = await listWorkLog(OTHER_ORG, { from: "2026-11-01T00:00:00.000Z", to: "2026-12-01T00:00:00.000Z" }, stores);
+    expect(theirs.rows.some((x) => x.taskId === secret.task.id)).toBe(false);
+  });
+
   it("does nothing, and takes no refs, for a brand with no tasks or a move to the same organisation", async () => {
     expect(await repointBrandWork({ tenantId: LUMEN_US, region: "us" }, ORG, OTHER_ORG, "script:ops", stores)).toEqual({ tasks: 0, rows: 0 });
     expect(control.dump(WORK_REFS)).toEqual([]);

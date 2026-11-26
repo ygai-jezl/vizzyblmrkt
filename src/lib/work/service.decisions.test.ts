@@ -69,6 +69,22 @@ describe("decisions on a task", () => {
     expect(await decide({ question: "Which?", options: ["A", "B"], replaces: "wl_000000000000000000000000" })).toMatchObject({ ok: false, error: "replaces_missing" });
   });
 
+  it("carries the replaced row's question, options and Vizzy's pick, so a changed pick reads as overruling Vizzy", async () => {
+    const recommended = { option: "b" as const, by: { kind: "vizzy" as const }, reason: "Solo users sign up faster" };
+    const first = value(await decide({ question: "Which plan gets it first?", options: ["Team", "Solo"], chosen: "b" }, PEOPLE.nina, { recommended }));
+    expect(first.row.decision).toMatchObject({ recommended, agreed: true });
+    // Change the pick as the task page does: the same question and options, no draft.
+    const changed = value(await decide({ question: "Which plan gets it first?", options: ["Team", "Solo"], chosen: "a", replaces: first.row.id }));
+    expect(changed.row.decision).toMatchObject({ recommended, chosen: { option: "a", by: NINA }, agreed: false, replaces: first.row.id });
+    // A row that replaces another can't swap in another question or other options.
+    expect(await decide({ question: "Something else entirely", options: ["X", "Y", "Z"], chosen: "a", replaces: changed.row.id })).toMatchObject({ ok: false, error: "replaces_other" });
+    expect(await decide({ question: "Which plan gets it first?", options: ["Team", "Solo", "Both"], chosen: "a", replaces: changed.row.id })).toMatchObject({ ok: false, error: "replaces_other" });
+    // Nor can a plan approval and another decision replace each other.
+    expect(await decide({ plan: { url: PLAN_URL, version: "v1" }, chosen: "a", replaces: changed.row.id })).toMatchObject({ ok: false, error: "replaces_other" });
+    const approval = value(await decide({ plan: { url: PLAN_URL, version: "v1" }, chosen: "b" }));
+    expect(await decide({ question: "Which plan gets it first?", options: ["Team", "Solo"], chosen: "a", replaces: approval.row.id })).toMatchObject({ ok: false, error: "replaces_other" });
+  });
+
   it("refuses past 50 decisions on one task, and on a task the person can't see", async () => {
     for (let i = 0; i < 50; i++) value(await decide({ question: `Question ${i}`, options: ["A", "B"], chosen: "a" }));
     expect(await decide({ question: "One more", options: ["A", "B"] })).toMatchObject({ ok: false, status: 409, error: "decisions_full" });

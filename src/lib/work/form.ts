@@ -1,13 +1,14 @@
 import { addDaysToKey } from "@/lib/lifecycle/sendWindow";
 import { MEANINGS, type MeaningKey } from "@/lib/metrics/meanings";
 import { LOOPS, VENDOR, type LoopKind } from "@/lib/loops/registry";
+import { ideaWord } from "@/lib/nav/terms";
 import { EVENT_NAME_RE } from "@/lib/types/productConnection";
 import type { CheckInput, MeasureInput, ThenInput } from "./inputs";
 import { PlanUrlSchema, SWITCH_NAME, startingDirection, WorkLinkSchema, type Look, type Measure, type MeasureKind, type RunsBetterWhat, type ThenMeasure, type TypedLink, type WorkLink } from "./types";
 import { WORK_COPY } from "./screenWords";
 
 /**
- * The add page's and the task page's forms as plain data (ADR-0018), and what each sends Work's
+ * The add page's and the task page's forms as plain data (ADR-0020), and what each sends Work's
  * routes. The routes check everything again and set what only the server may (origin, setBy, the
  * proposed kind): this only turns a form into a request, and says in words what would be refused,
  * so the person fixes it before sending. Pure, so client components use it in the browser.
@@ -214,7 +215,7 @@ export function switchNameOf(typed: string): string {
 }
 
 /** The typed link a draft makes, or why it can't be added yet. */
-export function typedLinkOf(d: TypedLinkDraft): { ok: true; link: TypedLink } | { ok: false; problem: string } {
+export function typedLinkOf(d: TypedLinkDraft, ideaWords = false): { ok: true; link: TypedLink } | { ok: false; problem: string } {
   switch (d.kind) {
     case "pull_request": {
       const at = d.repo.indexOf(":");
@@ -230,7 +231,7 @@ export function typedLinkOf(d: TypedLinkDraft): { ok: true; link: TypedLink } | 
       return SWITCH_NAME.test(d.switchName) ? { ok: true, link: { kind: "switch", name: d.switchName } } : { ok: false, problem: "Type the switch's name: capitals, digits and underscores." };
     case "idea": {
       const at = d.idea.indexOf(":");
-      if (at < 1) return { ok: false, problem: "Pick an idea." };
+      if (at < 1) return { ok: false, problem: `Pick ${ideaWord(ideaWords).a}.` };
       return { ok: true, link: { kind: "idea", brandId: d.idea.slice(0, at), ideaId: d.idea.slice(at + 1) } };
     }
     case "plan": {
@@ -264,15 +265,15 @@ export function sameTypedLink(a: TypedLink, b: TypedLink): boolean {
   }
 }
 
-/** A typed link in words, and what kind of link it is. */
-export function typedLinkWords(l: TypedLink, o: { ideaName?: (brandId: string, ideaId: string) => string | undefined } = {}): { label: string; where: string } {
+/** A typed link in words, and what kind of link it is; an idea in this copy's word for one (`ideaWords`). */
+export function typedLinkWords(l: TypedLink, o: { ideaName?: (brandId: string, ideaId: string) => string | undefined; ideaWords?: boolean } = {}): { label: string; where: string } {
   switch (l.kind) {
     case "pull_request":
       return { label: `#${l.number} in ${l.repo}`, where: "Pull request" };
     case "switch":
       return l.name ? { label: l.name, where: "Switch" } : { label: `No switch: ${l.none}`, where: "Switch" };
     case "idea":
-      return { label: o.ideaName?.(l.brandId, l.ideaId) ?? "An idea", where: "Idea" };
+      return { label: o.ideaName?.(l.brandId, l.ideaId) ?? ideaWord(o.ideaWords === true).A, where: ideaWord(o.ideaWords === true).One };
     case "plan": {
       let host = "";
       try {

@@ -3,7 +3,7 @@ import type { AgentAction, AgentActionId } from "@/lib/types/agentAction";
 import { DECISION_OPTION_IDS, ENTRY_STATES, isPlanApprovalQuestion, WORK_LIMITS, WorkLinkSchema, WorkRefSchema, WorkTaskIdSchema, type DecisionOptionId, type EntryState, type WorkLink } from "./types";
 
 /**
- * A Log note or a decision Vizzy drafts for Work in chat (ADR-0018, plan group 5): one agent action
+ * A Log note or a decision Vizzy drafts for Work in chat (ADR-0020, plan group 5): one agent action
  * in the agent_actions of the brand whose chat made it, which a person opens from the chat's card,
  * checks and saves. Nothing is in the Log until they do.
  *

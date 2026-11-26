@@ -13,12 +13,12 @@ import { MeasurePicker } from "./MeasurePicker";
 
 type Part = Exclude<Measure, { kind: "done" }> | ThenMeasure;
 
-function PartView({ p, label, connection }: { p: Part; label: string; connection: (id: string) => string | undefined }) {
+function PartView({ p, label, connection, event }: { p: Part; label: string; connection: (id: string) => string | undefined; event: (connectionId: string, name: string) => string | undefined }) {
   return (
     <div className="space-y-0.5">
       <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{label}</p>
       <p className="font-medium">{MEASURE_KIND_LABEL[p.kind]}</p>
-      <p className="text-neutral-600 dark:text-neutral-300">{measureWhat(p, { connection })}</p>
+      <p className="text-neutral-600 dark:text-neutral-300">{measureWhat(p, { connection, event })}</p>
       <p className="flex flex-wrap items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
         {p.kind === "moves" ? (
           <span className="inline-flex items-center gap-0.5">
@@ -47,6 +47,7 @@ export function MeasureSection({
   runsInApp,
   word,
   oneBrand,
+  ideaWords,
 }: {
   task: WorkTask;
   onSave: (m: ReturnType<typeof measureInputOf>) => Promise<boolean>;
@@ -57,12 +58,19 @@ export function MeasureSection({
   runsInApp: boolean;
   word: string | null;
   oneBrand: boolean;
+  /** This copy calls a launch an idea: the rule's reason says so. */
+  ideaWords: boolean;
 }) {
   const m = task.measure;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<MeasureDraft>(() => draftOfMeasure(m));
   const connection = (id: string) => products?.find((p) => p.id === id)?.name;
-  const suggestion = suggestMeasureKind({ title: task.title, description: task.description, stage: task.stage, brandId: task.brandId, ideaId: task.ideaId, typedLinks: task.typedLinks, oneBrand });
+  // An event as the picker names it: its catalog label, else its name.
+  const event = (connectionId: string, name: string) => {
+    const e = products?.find((p) => p.id === connectionId)?.events.find((x) => x.name === name);
+    return e && e.label !== e.name ? e.label : undefined;
+  };
+  const suggestion = suggestMeasureKind({ title: task.title, description: task.description, stage: task.stage, brandId: task.brandId, ideaId: task.ideaId, typedLinks: task.typedLinks, oneBrand, ideaWords });
   if (editing) {
     return (
       <div className="space-y-3">
@@ -110,8 +118,8 @@ export function MeasureSection({
         </p>
       ) : (
         <>
-          <PartView p={m} label="Kind of win" connection={connection} />
-          {m.then ? <PartView p={m.then} label={`Then: ${MEASURE_KIND_LABEL[m.then.kind]}`} connection={connection} /> : null}
+          <PartView p={m} label="Kind of win" connection={connection} event={event} />
+          {m.then ? <PartView p={m.then} label={`Then: ${MEASURE_KIND_LABEL[m.then.kind]}`} connection={connection} event={event} /> : null}
           {hint ? <p className="text-xs text-neutral-500 dark:text-neutral-400">{hint}</p> : null}
         </>
       )}

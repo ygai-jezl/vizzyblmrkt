@@ -109,6 +109,7 @@ describe("the one list", () => {
     expect(await ids(`brand=${LUMEN_US}`)).toEqual([t1.id, t5.id].sort());
     expect(await ids("brand=none")).toEqual([t3.id]);
     expect(await ids("stage=set_up")).toEqual([t2.id, t3.id].sort());
+    expect(await ids("stage=none")).toEqual([t5.id]);
     expect(await ids("status=done")).toEqual([t4.id]);
     expect(await ids("status=all")).toEqual([t1.id, t2.id, t3.id, t4.id, t5.id].sort());
     expect(await ids("status=closed")).toEqual([t4.id]);

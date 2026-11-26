@@ -28,7 +28,7 @@ import {
 } from "@/lib/work/types";
 
 /**
- * Work's only writer and reader (ADR-0018): `work_tasks` and `work_log`, in regional databases.
+ * Work's only writer and reader (ADR-0020): `work_tasks` and `work_log`, in regional databases.
  *
  * Where things are kept (the Connectors 3 pattern, src/lib/tenant/organisationConnections.ts):
  * - A task lives in the regional database of the brand it names, or for a whole business task of
@@ -766,7 +766,8 @@ function moveWho(by: string): WorkWho {
  * tasks, and the log rows of its tasks and its entries, move with it, in the brand's own region (a
  * move never changes a brand's region). Each task takes a new ref from the organisation it joins,
  * so two never share one, with change rows for its organisation and ref. Whole business tasks stay
- * with the organisation. Equality reads only. Whatever WORK_ENABLED says.
+ * with the organisation, and so do their rows, even those filed under the brand before a change of
+ * brand. Equality reads only. Whatever WORK_ENABLED says.
  */
 export async function repointBrandWork(
   brand: { tenantId: string; region: Region },
@@ -804,9 +805,19 @@ export async function repointBrandWork(
       if (done) moved += 1;
     }
   }
+  // The tasks that stay: every task still in the organisation in this region (whole business, or
+  // tagged with another brand). Rows about them stay too, even those filed under this brand from
+  // before a change of brand, so their history and decisions never leave the organisation.
+  const staying = new Set(
+    (await allPages(() => store.collection(WORK_TASKS).where(ORG_FIELD, "==", fromOrganisationId))).map((d) => d.id),
+  );
   // Their rows: the brand's own, and every row of a task that moved (rows written before it named the brand).
   const rowIds = new Set<string>();
-  for (const d of await allPages(() => store.collection(WORK_LOG).where(ORG_FIELD, "==", fromOrganisationId).where("brandId", "==", brand.tenantId), 50_000)) rowIds.add(d.id);
+  for (const d of await allPages(() => store.collection(WORK_LOG).where(ORG_FIELD, "==", fromOrganisationId).where("brandId", "==", brand.tenantId), 50_000)) {
+    const about = d.data.taskId;
+    if (typeof about === "string" && staying.has(about)) continue;
+    rowIds.add(d.id);
+  }
   for (const t of tasks) {
     for (const d of await allPages(() => store.collection(WORK_LOG).where(ORG_FIELD, "==", fromOrganisationId).where("taskId", "==", t.id), 50_000)) rowIds.add(d.id);
   }

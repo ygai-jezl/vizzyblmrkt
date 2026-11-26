@@ -7,11 +7,12 @@ import { DRAFT_COPY } from "@/lib/work/draft";
 import { IMPORT_COLUMNS, MEASURE_KIND_HINT, WORK_COPY } from "@/lib/work/screenWords";
 import { COMPANY_STAGES } from "@/lib/work/stages";
 import { DECLINE_WHY_CHOICES } from "@/lib/work/suggestion";
-import { countedLine, WORK_MESSAGES } from "@/lib/work/words";
+import { WORK_REVIEW_COPY } from "@/lib/work/reviewCards";
+import { countedLine, OPERATOR_COUNT_LINE, WORK_MESSAGES } from "@/lib/work/words";
 import type { HelpBodyProps } from "@/lib/help/pages";
 
 /**
- * /help/work (WORK_ENABLED, ADR-0018): Work's Tasks and Log, a task's links, decisions and How we'll
+ * /help/work (WORK_ENABLED, ADR-0020): Work's Tasks and Log, a task's links, decisions and How we'll
  * know it worked, checks, import, and Work in Review. The lines about Vizzy suggesting tasks and
  * drafting Log notes and decisions show while Vizzy's Work tools are on (WORK_VIZZY_ENABLED, a server
  * switch: the How to drawer passes the shell's answer). "Make it an idea" is in the words people
@@ -32,6 +33,7 @@ const COUNTED = countedLine({
   counted: { n: 212, from: "2026-11-11T08:00:00.000Z", to: "2026-11-25T08:00:00.000Z", at: "2026-11-25T08:00:00.000Z" },
   brandName: "Lumen Notes",
   timeZone: "Europe/London",
+  eventLabel: "Notes made from a template",
 });
 
 /** What it says when Work can't count the number, for a made-up plant shop. */
@@ -102,8 +104,8 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
           {word.a}&quot; are chips Work works out from what the task waits for and its {word.one}, not statuses.
         </li>
         <li>
-          <strong>Must have</strong>: it has to happen before you go live. Must haves sit near the top of the list, and have a
-          filter of their own.
+          <strong>Must have</strong>: it has to happen before you launch or open. Must haves sit near the top of the list, and
+          have a filter of their own.
         </li>
         <li>
           <strong>Stage</strong>, optional: {STAGES}, the stages of the Path.
@@ -113,8 +115,8 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
           all done, a To do task shows in Review under Ready to start.
         </li>
         <li>
-          On a task&apos;s page you change the title, description and notes where they are. A command in the description written
-          between backticks gets a <strong>Copy</strong> button.
+          On a task&apos;s page, press <strong>Edit</strong> beside Description to change the title, description and notes. A
+          command in the description written between backticks gets a <strong>Copy</strong> button.
         </li>
         <li>
           The line under the title says where the task came from, such as &quot;Added by you on 18 Nov.&quot; or &quot;Imported
@@ -157,7 +159,8 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
           <strong>Brand</strong>, with more than one brand: every brand, one of them, or Whole business.
         </li>
         <li>
-          <strong>Stage</strong>: any stage, or one of the ten.
+          <strong>Stage</strong>: any stage, one of the ten, or No stage for the tasks that have none yet, such as rows an
+          import brought in with no Stage column.
         </li>
         <li>
           <strong>Status</strong>: Open, which is where the list starts, one status, Done or dropped, or Any status.
@@ -187,7 +190,7 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
           <Open href="/help/work#decisions">Approve the plan</Open>).
         </li>
         <li>
-          <strong>Idea</strong>: another {word.one} this task touches, besides the one it was made into.
+          <strong>{word.One}</strong>: another {word.one} this task touches, besides the one it was made into.
         </li>
         <li>
           <strong>Pull request</strong>: a repo your brand selected and the pull request&apos;s number. On a whole business
@@ -199,7 +202,7 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
         </li>
       </UL>
       <P>
-        Pull request and switch show only once a repo is connected, so a plant shop with no repo sees Idea and Plan. A fifth
+        Pull request and switch show only once a repo is connected, so a plant shop with no repo sees {word.One} and Plan. A fifth
         kind, <strong>Loop line</strong>, shows only to the people your copy of YouGrow names as running its own learning loop,
         on a task with a pull request from its own repo. Most teams never see it.
       </P>
@@ -214,7 +217,7 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
       <UL>
         <li>
           <strong>Used</strong>: {lowerFirst(MEASURE_KIND_HINT.used)} Work counts an event from the brand&apos;s connected product, such as
-          note_from_template, looking within 90 days because events are kept 90 days. Or pick nothing to count, and your read is
+          Notes made from a template, looking within 90 days because events are kept 90 days. Or pick nothing to count, and your read is
           the record. A whole business task counts no event, unless your organisation has one brand.
         </li>
         <li>
@@ -223,7 +226,8 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
           a number where lower is better, and you can change it. Never one provider&apos;s own number, and never a date.
         </li>
         <li>
-          <strong>Runs better</strong>: {lowerFirst(MEASURE_KIND_HINT.runs_better)} Your read is the record.
+          <strong>Runs better</strong>: {lowerFirst(MEASURE_KIND_HINT.runs_better)} Crashes and memory are offered once the brand has
+          a connected repo or product. Your read is the record.
         </li>
         <li>
           <strong>Done is the win</strong>: {lowerFirst(MEASURE_KIND_HINT.done)} For example registering the business, van insurance or
@@ -244,7 +248,7 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
         <li>
           <strong>Suggested</strong> marks the kind Work suggests, with its reason, and you keep it or pick another. Set up,
           Billing and tax or legal work suggests Done is the win; a bug, crash, error, memory, security, cost or speed task, Runs
-          better; a switch, Used; and a task for a brand or {word.a}, Moves a number. On a task from Vizzy it says <strong>Vizzy suggests</strong>.
+          better; a switch, Used; and a task for a brand or {word.a} (the one it became, or one under Connected to), Moves a number. On a task from Vizzy it says <strong>Vizzy suggests</strong>.
           The suggested kind is kept beside the one you pick.
         </li>
       </UL>
@@ -261,6 +265,14 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
           &quot;at least&quot;, with the day they reach back to.
         </li>
         <li>{CANT_COUNT}</li>
+        <li>
+          A measure that counts one of your copy&apos;s own AI purposes, types or loop kinds is counted only for the people who
+          run its learning loop. Everyone else, Vizzy too, reads &quot;{OPERATOR_COUNT_LINE}&quot;
+        </li>
+        <li>
+          Set a measure on a task that is done already, and its check is set as Done would have set it, or for today if that
+          day has passed. Change the days on a check still to come, and the check moves with them.
+        </li>
       </UL>
       <Steps>
         <li>
@@ -326,10 +338,11 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
       <UL>
         <li>
           Decisions are kept newest first, with who chose and when. <strong>Change the pick</strong> adds a new decision, and the
-          first one stays, marked Changed later.
+          first one stays, marked Changed later. The new one keeps the question, its options and any pick Vizzy recommended,
+          so it still says whether you agreed with Vizzy or overruled it.
         </li>
         <li>A decision someone recommended shows the pick and why, and says whether you agreed or overruled it.</li>
-        <li>A task keeps up to 50 decisions. Today lists the ones made that day.</li>
+        <li>A task keeps up to 50 decisions. Today lists the ones made that day, with the plan and version each approval is for.</li>
       </UL>
       <H3>Approve the plan</H3>
       <Steps>
@@ -439,7 +452,9 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
           <Steps>
             <li>
               Under <strong>Tasks Vizzy suggests</strong>, read the task, where Vizzy wrote it from, why, and the kind of win
-              Vizzy suggests with its reason.
+              Vizzy suggests with its reason. When Vizzy names only a kind, the card says{" "}
+              <strong>{WORK_REVIEW_COPY.vizzySuggestsKind}</strong> and &quot;{WORK_REVIEW_COPY.kindOnlyHint}&quot; Done is the win
+              needs nothing more, so it comes in with the task.
             </li>
             <li>
               Press <strong>Add to Work</strong> to add it as Vizzy wrote it.
@@ -502,6 +517,7 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
           [WORK_MESSAGES.read_not_measure, "Press Mark checked, or Look again tomorrow."],
           [WORK_MESSAGES.plan_link_missing, "Add the plan under Connected to, then press Approve the plan on it."],
           [WORK_MESSAGES.plan_drafted, "Answer Approve the plan yourself, from the plan under Connected to."],
+          [WORK_MESSAGES.replaces_other, "Change the pick on the decision itself, or record a new decision for the new question."],
           [WORK_MESSAGES.import_too_many, "Split the sheet and import each part. Refs carry on from the highest."],
           [WORK_MESSAGES.regions_down, "Nothing was imported. Try again in a minute."],
           [WORK_MESSAGES.tasks_full, "Delete done or dropped tasks you no longer need, then add it again."],

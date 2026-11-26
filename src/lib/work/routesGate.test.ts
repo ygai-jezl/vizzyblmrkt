@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
-// Every Work route (ADR-0018) goes through workAdmin (src/lib/work/http.ts) before anything else:
+// Every Work route (ADR-0020) goes through workAdmin (src/lib/work/http.ts) before anything else:
 // the origin check, WORK_ENABLED (404 while off), sign in, then who the person is in Work, read
 // live. No Work route reads the session itself, or takes an organisation, a brand's region, a
 // tenant or a role from the request.

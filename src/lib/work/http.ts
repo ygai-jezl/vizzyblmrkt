@@ -10,7 +10,7 @@ import { workScopeFor, type WorkScope } from "./scope";
 import { WORK_MESSAGES } from "./words";
 
 /**
- * The one gate for every route under /api/admin/work (ADR-0018), in the order the build-a-feature
+ * The one gate for every route under /api/admin/work (ADR-0020), in the order the build-a-feature
  * skill sets: the origin check, then WORK_ENABLED (404 while off, as if the route weren't there),
  * then sign in, then who the person is in Work (src/lib/work/scope.ts), read live. The
  * organisation, a brand's region and a role never come from the request.

@@ -28,7 +28,7 @@ import { DECISION_OPTION_IDS, ENTRY_STATES, isPlanApprovalQuestion, WORK_LIMITS,
 import { placeForNew } from "./validate";
 
 /**
- * The Log notes and decisions Vizzy drafts for Work in chat (ADR-0018, plan group 5), and a
+ * The Log notes and decisions Vizzy drafts for Work in chat (ADR-0020, plan group 5), and a
  * person's save of one. src/lib/work/draft.ts holds their shape.
  *
  * - Drafting checks what a save would: the task (one the person sees), the brand (the rules of a

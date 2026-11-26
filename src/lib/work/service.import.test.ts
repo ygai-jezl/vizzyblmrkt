@@ -92,11 +92,27 @@ describe("importing a Backlog tab", () => {
     expect(r.refused.map((x) => x.problem)).toEqual(["brand_unknown"]);
   });
 
+  it("waits only on a task the person sees: a whole business task hidden from a brand view admin is left out, as on the add page", async () => {
+    const whole = value(await addTask(await w.scope(PEOPLE.nina), { title: "SOC 2 for the whole business", brandId: null }, w.deps)).task.task;
+    const leo = await w.scope(PEOPLE.leo);
+    const r = value(await importTasks(leo, body(`Backlog item,Check\nWait on it,when #${whole.ref} is done`), w.deps));
+    expect(r.imported).toBe(1);
+    const mine = tasksIn(w.eu).find((t) => t.title === "Wait on it")!;
+    expect(mine.check).toBeNull();
+    expect(await addTask(leo, { title: "Wait on it too", check: { kind: "after_task", ref: whole.ref } }, w.deps)).toMatchObject({ ok: false, error: "check_task_missing" });
+    // Nina sees it, so her import waits on it.
+    value(await importTasks(await w.scope(PEOPLE.nina), body(`Backlog item,Check\nNina waits,when #${whole.ref} is done`), w.deps));
+    expect(tasksIn(w.us).find((t) => t.title === "Nina waits")!.check).toMatchObject({ kind: "after_task", taskId: whole.id });
+  });
+
   it("refuses an empty sheet, one with no task column, more than 1,000 rows, and a whole business tag from a member", async () => {
     const priya = await w.scope(PEOPLE.priya);
     expect(await importTasks(priya, body("Backlog item"), w.deps)).toMatchObject({ ok: false, error: "import_empty" });
     expect(await importTasks(priya, body("Owner,Notes\nPriya,Hello"), w.deps)).toMatchObject({ ok: false, error: "import_no_title" });
     expect(await importTasks(priya, body(["Backlog item", ...Array.from({ length: 1001 }, (_, i) => `Task ${i}`)].join("\n")), w.deps)).toMatchObject({ ok: false, error: "import_too_many" });
+    // The largest body the route takes, nearly all line breaks: refused, with no row kept for each line.
+    expect(await previewImport(priya, { mode: "preview", text: `Backlog item\n${"\n".repeat(1_500_000)}` }, w.deps)).toMatchObject({ ok: false, error: "import_empty" });
+    expect(await previewImport(priya, { mode: "preview", text: `Backlog item\n${"a\n".repeat(1_500_000)}` }, w.deps)).toMatchObject({ ok: false, error: "import_too_many" });
     expect(await importTasks(await w.scope(PEOPLE.leo), body("Backlog item\nA", { brandId: null }), w.deps)).toMatchObject({ ok: false, error: "whole_business_owners" });
   });
 

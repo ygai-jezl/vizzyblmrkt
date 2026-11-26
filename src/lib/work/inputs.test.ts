@@ -48,6 +48,7 @@ describe("Work's request shapes", () => {
   it("read the list's filters from the address, leaving anything unknown out", () => {
     expect(filtersOf(new URLSearchParams("brand=ten_lumen&stage=market&status=done&must=1&due=1&kind=used"))).toEqual({ brand: "ten_lumen", stage: "market", status: "done", mustHave: true, due: true, kind: "used" });
     expect(filtersOf(new URLSearchParams("brand=../x&stage=nope&status=gone&kind=what"))).toEqual({ brand: null, stage: null, status: "open", mustHave: false, due: false, kind: null });
+    expect(filtersOf(new URLSearchParams("stage=none")).stage).toBe("none");
     expect(filtersOf(new URLSearchParams("brand=none")).brand).toBe("none");
   });
 });

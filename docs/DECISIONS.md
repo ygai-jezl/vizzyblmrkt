@@ -4,7 +4,7 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
-## ADR-0018 · Work: one list of tasks and a daily log for the organisation (2026-11-26)
+## ADR-0020 · Work: one list of tasks and a daily log for the organisation (2026-11-26)
 
 Context: a team keeps its backlog and its daily notes in a sheet or a doc, outside YouGrow, so
 nothing in the app knows what the business is working on, what got done, or whether a change
@@ -13,8 +13,8 @@ that, and most of it can't be backfilled: who added a task, what it was before a
 Vizzy suggested beside what a person kept, why a suggestion was dismissed, and a person's read of
 whether a task worked. Work records those signals from day one, before anything learns from
 them, and gives every business, a plant shop as much as a software company, one list at every
-stage of the Path. Loops step 1 is ADR-0017; ADR-0019 is kept for loops step 3, the verdict, in a
-pull request of its own.
+stage of the Path. Loops step 1 is ADR-0017 and getting to know you is ADR-0018; ADR-0019 is kept
+for loops step 3, the verdict, in a pull request of its own, so Work is ADR-0020.
 
 Decided (the owner approved plan-work v2 on 25 Nov 2026; the build departs from it in the places
 named below, and from its base and its third index on the owner's instruction):
@@ -62,7 +62,9 @@ named below, and from its base and its third index on the owner's instruction):
    people `LOOPS_OPERATOR_EMAILS` names, and a loop line also needs a pull request from
    `LOOPS_SOURCE_REPO`. Both settings are read on the server only, empty in public code, and set
    only in a deployment's own settings. Vizzy's token carries no email, so Vizzy is never an
-   operator.
+   operator. What Work counts for those measures is theirs too: for anyone else, Vizzy included,
+   nothing is counted, the count is kept off the task, the Log and Review, and the check says only
+   operators see it.
 6. **Decisions and plan approvals are log rows.** A decision is a `work_log` row of kind decision:
    2 to 4 options, the choice, `agreed` worked out, why, and `replaces` when a mind changes, which
    is a new row. Approving a plan is a decision tied to the plan link's url and version, with
@@ -100,7 +102,11 @@ named below, and from its base and its third index on the owner's instruction):
     optional `declined.why` (Not now, Not for us, Already on it, Wrong) beside `dismissed`, carried
     on `agent.declined`; it is refused beside expired, stale and superseded, and every other row
     reads as before. Not now lets the same suggestion back after 30 days through the next dedupe
-    round; any other reason or none keeps it away. Suggestions expire after 30 days.
+    round; any other reason or none keeps it away. Suggestions expire after 30 days. A suggestion
+    that names only a kind of win: Done is the win is added as that measure, with Vizzy's proposal
+    kept beside it; Used, Moves a number and Runs better need what to count and when to look, so
+    the card says "Vizzy suggests" rather than "How we'll know", the task is added with no measure,
+    and Vizzy's kind stays on the suggestion's proposal (a departure: the plan keeps it on the task).
 11. **Vizzy reads Work and only suggests and drafts.** Behind `WORK_VIZZY_ENABLED`, which needs
     `WORK_ENABLED`: `/api/agent/work` (one route; a canvas kind would force a `canvas.*` loops
     line) serves `get_work`, `suggest_work_task`, `draft_work_log` and `draft_work_decision`, with
@@ -119,6 +125,10 @@ named below, and from its base and its third index on the owner's instruction):
     `work_measure_kind` (gaps, revisit 2027-05-01), `vizzy_chat` moved from none to a gap, and the
     events `work.task_added`, `work.task_changed`, `work.logged`, `work.checked` and
     `work.decided` through the pure `fromWorkLog`, not stored.
+14. **The Log carries workstreams over by itself (a departure).** A workstream stays in flight
+    until someone logs it Done (decision 4), never retyped, so plan section 8.3's "Carry over 4
+    open from yesterday" button on Today, and the canvas's Nothing logged yet state that holds it,
+    are not built. The day rail always ends on today, whichever day is shown.
 
 Enforced where: `src/lib/tenant/work.test.ts` (regions, a region down, append only, no `ttlAt`,
 erase and repoint), `src/lib/work/indexes.test.ts` (every query shape uses an index in
@@ -134,9 +144,10 @@ What follows: 2 switches, `WORK_ENABLED` and `WORK_VIZZY_ENABLED`, `"false"` in 
 collections (`work_tasks` and `work_log` regional, `work_refs` in the control plane), two
 composite indexes, (organisationId, open, closedAt desc) and (organisationId, at desc), and 14
 field exemptions, all three databases, READY before `WORK_ENABLED` goes on. No new service,
-scheduler job, secret, rule or dependency. The base is dev `43cff9bb`, not the plan's `2aed3d3e`,
-and N's `REVEAL` is not in it, so Work adds its sidebar entry under Ask Vizzy directly and N adds
-`work: "always"` if it merges after. The help page is `/help/work`, and the pull request template
+scheduler job, secret, rule or dependency. The branch started from dev `43cff9bb`, not the plan's
+`2aed3d3e`. N (getting to know you) merged first, so, as plan decision 8 says, Work's pull request
+adds `work: "always"` to N's `REVEAL_RULE`, and Work stays under Ask Vizzy when the sidebar runs
+Coming up. The help page is `/help/work`, and the pull request template
 gains an optional `Work task:` line, a ref with no `#`. Release: `WORK_ENABLED` first, then a Vizzy
 redeploy, then `WORK_VIZZY_ENABLED`. Later: the third index for an exact Used count, piece K's Work
 slice, loops steps 2 to 6 reading and writing Work, and the delivery line.

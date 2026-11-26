@@ -2,7 +2,7 @@ import type { DraftAccept, DraftedRowResult } from "@/lib/tenant";
 import { WORK_MESSAGES, type WorkRefusal } from "./words";
 
 /**
- * What Work's service answers (ADR-0018): a value, or a refusal with the words a person reads.
+ * What Work's service answers (ADR-0020): a value, or a refusal with the words a person reads.
  * The routes turn it into a response (src/lib/work/http.ts). Pure.
  */
 
@@ -55,6 +55,7 @@ const STATUS: Record<WorkRefusal, WorkStatusCode> = {
   plan_choice: 400,
   plan_question: 400,
   replaces_missing: 400,
+  replaces_other: 400,
   import_empty: 400,
   import_too_many: 400,
   import_no_title: 400,

@@ -261,24 +261,6 @@ class FakeQuery implements QueryLike {
     };
   }
 
-  /** Like Firestore's select(): only these fields, a dotted path kept as the nested map it names. */
-  private static project(data: Doc, fields: readonly string[]): Doc {
-    const out: Doc = {};
-    for (const f of fields) {
-      if (!f.includes(".")) {
-        if (f in data) out[f] = data[f];
-        continue;
-      }
-      const value = FakeQuery.atPath(data, f);
-      if (value === undefined) continue;
-      const parts = f.split(".");
-      let at = out;
-      for (const part of parts.slice(0, -1)) at = (at[part] ??= {}) as Doc;
-      at[parts[parts.length - 1]!] = value;
-    }
-    return out;
-  }
-
   count(): AggregateQueryLike {
     return {
       get: async () => ({ data: () => ({ count: this.rows().length }) }),

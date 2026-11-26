@@ -2,7 +2,7 @@ import { MEANINGS, type Meaning, type MeaningKey } from "@/lib/metrics/meanings"
 import { LOOP_RULES, type Loop } from "./registry";
 
 /**
- * The verdict (ADR-0022, learning loops step 3): the one check every loop will run on a change it
+ * The verdict (ADR-0027, learning loops step 3): the one check every loop will run on a change it
  * made. It compares the outputs just after a change with the outputs just before it and answers
  * better, same, worse or too few to tell, with the smallest change it could have seen.
  *
@@ -73,7 +73,7 @@ export interface VerdictInput {
    * images while remade share holds every image. Left out, it is 0: each list starts at its first
    * entry. The warm up drops each list's own first LOOP_RULES.warmUp entries, which for a list of
    * every output is the scope's first 10 and for liked share its first 10 voted images: stricter
-   * than the design's scope's first 10 outputs, a departure ADR-0022 records (item 6).
+   * than the design's scope's first 10 outputs, a departure ADR-0027 records (item 6).
    */
   startsAt?: number | { check: number; guard: number };
 }

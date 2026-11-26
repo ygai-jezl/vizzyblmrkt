@@ -41,7 +41,7 @@
 #   data_connection_states.ttlAt    connected data sign ins, 10 minutes (ADR-0011)
 #   metric_snapshots.ttlAt    collected numbers, about 97 days after their day (ADR-0012)
 #   data_signals.ttlAt        suggestions from collected numbers, 30 days (ADR-0012)
-#   loop_days.ttlAt           learning counts, 70 days after their week, or 2 years once folded (ADR-0023)
+#   loop_days.ttlAt           learning counts, 70 days after their week, or 2 years once folded (ADR-0028)
 #   rate_limits.ttl           ingest rate-limit counters, 2 hours (control plane only)
 #   email_codes.ttl           password sign-in codes, 10 minutes (control plane only)
 #   email_code_guards.ttl     per address sign-in code counts, a day (control plane only)

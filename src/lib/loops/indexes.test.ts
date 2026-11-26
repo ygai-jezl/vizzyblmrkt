@@ -7,7 +7,7 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
 
 /**
- * What the learning loops need from firestore.indexes.json and infra/lifecycle/setup.sh (ADR-0023,
+ * What the learning loops need from firestore.indexes.json and infra/lifecycle/setup.sh (ADR-0028,
  * section 8 of the plan for steps 4 and 5). Only Firestore itself refuses a query with no index or
  * builds an index entry per map key (the emulator and the fake do neither), so these files are read
  * here: a missing line passes every other test and shows only once deployed.

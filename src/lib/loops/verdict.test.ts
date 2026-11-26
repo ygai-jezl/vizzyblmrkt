@@ -24,7 +24,7 @@ import {
 } from "./verdict";
 
 /**
- * The verdict (src/lib/loops/verdict.ts, ADR-0022). The simulations draw outputs from a seeded
+ * The verdict (src/lib/loops/verdict.ts, ADR-0027). The simulations draw outputs from a seeded
  * generator, so every run here sees the same outputs and the rates below are exact, not luck.
  */
 

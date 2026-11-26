@@ -587,7 +587,7 @@ sign-in codes, their counts and the links sent in place of a code; it is safe to
 
 **Upgrading to image style versions.** `IMAGE_STYLE_VERSIONS_ENABLED` keeps the look each painted
 image style learns from your team's thumbs up and down as versions in the brand's own database, with
-Undo, Pause and Forget on Brand › Image style (ADR-0023; the how-to is `/help/what-yougrow-learned`).
+Undo, Pause and Forget on Brand › Image style (ADR-0028; the how-to is `/help/what-yougrow-learned`).
 It needs `BRAND_STYLE_LOOP_ENABLED` and `BRAND_IMAGE_STYLE_ENABLED`, and learns about once a day per
 brand on the lifecycle tick, so it needs the tick's Cloud Scheduler job too. A new copy has it on,
 and its core steps deploy the index file and set the time to live. On a copy set up before it, do

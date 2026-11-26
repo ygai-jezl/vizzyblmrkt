@@ -1575,14 +1575,14 @@ What the brand asked a partner to set up, which fields were sent (names only, va
 
 ### Agent action (`agent_action`)
 
-One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business, and each step on Home's Your next action, from proposed to acted (done or answered) or declined (dismissed, or superseded when a new card replaced it untouched). Other drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.
+One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business, and each step on Home's Your next action, from proposed to acted (done or answered) or declined (dismissed, or superseded when a new card replaced it untouched). With the agent record on (AGENT_RECORD_ENABLED, ADR-0026), what Vizzy, research and the autopilot draft is recorded too, one open record per draft from saved to kept (and whether a person edited it first) or dismissed, holding ids, a label and a fingerprint only: journeys in either engine, invite waves, content plans, email and image style suggestions, a journey's own style, brand map suggestions and research runs, notes from chat, learning a product's map from its repo, and the autopilot's drafts; a daily catch-up closes what moved on another way, and Vizzy reads them with get_drafts. Lifecycle AI lines and plans for one person are not recorded (decision 2), nor refresh reviews, Next up picks, the judge's sorting, email assist or Edit mode.
 
 - Status: built
 - Home: the brand's region
 - Personal: yes, the brand's people
 - Stores:
   - `agent_actions`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One record per suggestion, written only through `src/lib/tenant/agentActions.ts`; its proposal, basis, result and undo may hold personal values.
-- Links: `person` through personId, and the target when it is a person; `company` through the target, when it is a company; `idea` through the target, when it is an idea; `data_signal` through the target, when it is a suggestion from collected numbers; `brand_question` through the target, when it is a question proposed from Search Console; `brand` through the target, when it is something Vizzy heard about the business in a chat, or a step on Your next action; `next_action_card` through the card's step records name it; `ontology_event` through agentActionId, its agent kinds of event (many)
+- Links: `person` through personId, and the target when it is a person; `company` through the target, when it is a company; `idea` through the target, when it is an idea; `data_signal` through the target, when it is a suggestion from collected numbers; `brand_question` through the target, when it is a question proposed from Search Console; `brand` through the target, when it is something Vizzy heard about the business in a chat, or a step on Your next action; `next_action_card` through the card's step records name it; `launch_journey` through draft, a launch's welcome emails on the original engine (agent record); `lifecycle_journey` through draft, a journey Vizzy drafted or styled (agent record); `invite_wave` through draft, an invite wave Vizzy drafted (agent record); `content_plan` through draft, a plan Vizzy or the autopilot drafted (agent record); `brand_map` through draft, one research run or chat call with hashes of the keys it filed (agent record); `brand_note` through draft, a note Vizzy suggested in a chat (agent record); `repo_map` through draft, learning a product's map from its repo, by product (agent record); `ontology_event` through agentActionId, its agent kinds of event (many)
 - Events: `agent.proposed`, `agent.approved`, `agent.acted`, `agent.undone`, `agent.declined`
 - States: `proposed`, `approved`, `acted`, `undone`, `declined`
 - Person fields: `personId` (written with the row)
@@ -1602,7 +1602,7 @@ One record per suggestion an agent makes for the brand: what it proposes and on 
   - Gap: team member ids stay as ids, with no export by team member
 - Search: none. Found on Review; personal data, kept out of brand search until the data processing agreement covers it.
 - Numbers: none. No numbers an agent reads.
-- Made by: `canvas.person_fields`, `canvas.new_person`, `rising_search`, `losing_page`, `within_reach` (see Learning)
+- Made by: `canvas.person_fields`, `canvas.new_person`, `rising_search`, `losing_page`, `within_reach`, `canvas.journey`, `canvas.lifecycle`, `canvas.invite_wave`, `canvas.content_plan`, `canvas.email_style`, `canvas.image_style`, `canvas.journey_style`, `canvas.brand_map`, `vizzy_chat`, `brand_map_research`, `product_map`, `autopilot` (see Learning)
 
 ## Platform
 
@@ -2159,7 +2159,7 @@ No line says this yet.
 
 - `email_hero` (AI purpose, Email hero images), look again by 2027-01-31. Email hero images skip the look learned from your image votes, so a thumbs down never reaches them.
   - `src/app/api/admin/email/image/route.ts`
-- `canvas.image_style` (canvas), look again by 2027-01-31. Vizzy suggests an image style without reading the thumbs on the brand's images, and a dismissed suggestion is deleted with no record.
+- `canvas.image_style` (canvas), look again by 2027-01-31. Vizzy suggests an image style without reading the thumbs on the brand's images, and with the agent record on a dismissed suggestion is kept as a record that nothing learns from yet.
   - `src/lib/canvas/kinds/imageStyle.ts`
 - `image_style_pick` (rule, Image style used), look again by 2027-01-31. Until a brand picks a style, every image uses a fixed preset for its surface, and thumbs on past images never change which style is used.
   - `src/lib/content/imageStyle/resolve.ts`
@@ -2199,9 +2199,9 @@ No line says this yet.
   - `src/lib/lifecycle/adminApi.ts`
 - `lifecycle_lines` (AI purpose, AI lines in emails), look again by 2027-05-01. Each AI line is approved, swapped for the fallback or skipped, but those decisions never shape the next line.
   - `src/lib/lifecycle/prepare.ts`
-- `canvas.journey` (canvas), look again by 2027-05-01. Vizzy's launch email copy gets changed on the canvas before it goes live, but its first draft is not kept, so those changes cannot be counted.
+- `canvas.journey` (canvas), look again by 2027-05-01. Vizzy's launch email copy gets changed on the canvas before it goes live, and with the agent record on whether a person changed it is kept, but not what they changed, so nothing learns from it yet.
   - `src/lib/canvas/kinds/journey.ts`
-- `canvas.lifecycle` (canvas), look again by 2027-05-01. Whether a journey Vizzy drafted gets published, and how much a person changed first, is never counted, so the next draft cannot get better.
+- `canvas.lifecycle` (canvas), look again by 2027-05-01. With the agent record on, whether a journey Vizzy drafted gets published, and whether a person changed it first, is kept, but nothing counts it yet, so the next draft cannot get better.
   - `src/lib/canvas/kinds/lifecycle.ts`
 - `rising_search` (connector rule), look again by 2027-05-01. A rising search your team plans or dismisses in Review stays away for 30 days, and one proposed as a question on a large brand map never comes back, but neither changes which searches count as rising.
   - `src/lib/connectors/signals/detect.ts`

@@ -9,6 +9,7 @@ export const STRATEGY_ERRORS: Record<string, string> = {
   brand_strategy_disabled: "The brand strategy isn't switched on in this environment.",
   competitor_finder_disabled: "The competitor finder isn't switched on in this environment.",
   strategy_competitors_disabled: "The strategy isn't joined to Competitors in this environment.",
+  strategy_check_disabled: "The weekly strategy check isn't switched on in this environment.",
   no_suggestion: "That suggestion isn't waiting any more. It may have been watched or left out already.",
   competitors_unreadable: "Couldn't read your competitors just now, so nothing was approved. Try again.",
   strategy_changed: "The strategy was changed elsewhere since you opened it. It now shows what was saved: check it, then try again.",

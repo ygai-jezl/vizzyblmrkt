@@ -284,8 +284,10 @@ export function sortDirWords(by: string, dir: "asc" | "desc", fields: readonly R
       return asc ? "low to high" : "high to low";
     case "last_active":
     case "first_seen":
-    case "date":
       return asc ? "earliest first" : "latest first";
+    // A date field may be ahead, such as the next visit: the soonest comes first.
+    case "date":
+      return asc ? "soonest first" : "latest first";
     case "checkbox":
     case "can_email":
       return asc ? "No first" : "Yes first";

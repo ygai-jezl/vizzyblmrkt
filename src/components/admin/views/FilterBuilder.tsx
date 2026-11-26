@@ -78,7 +78,8 @@ export function builtInsFor(names: ViewNames, manyLaunches: boolean): BuiltInFil
 
 const capital = (s: string) => `${s.charAt(0).toUpperCase()}${s.slice(1)}`;
 
-function OptionsInput({ d, names, onChange }: { d: DraftFilter; names: ViewNames; onChange: (value: ViewValue | undefined) => void }) {
+/** The options a filter picks; struck through when they are archived, or all of them when the filter's field is. */
+function OptionsInput({ d, names, struck, onChange }: { d: DraftFilter; names: ViewNames; struck: boolean; onChange: (value: ViewValue | undefined) => void }) {
   const chosen = Array.isArray(d.value) ? (d.value as string[]) : [];
   const all = optionsFor(d.on, names);
   const label = (id: string) => all.find((o) => o.id === id);
@@ -89,7 +90,7 @@ function OptionsInput({ d, names, onChange }: { d: DraftFilter; names: ViewNames
         const o = label(id);
         const text = o?.label ?? capital(optionName(d.on, id, names));
         return (
-          <span key={id} className={`inline-flex items-center gap-1 rounded bg-neutral-100 px-1.5 text-xs dark:bg-neutral-800 ${o?.archived ? "line-through opacity-70" : ""}`}>
+          <span key={id} className={`inline-flex items-center gap-1 rounded bg-neutral-100 px-1.5 text-xs dark:bg-neutral-800 ${struck || o?.archived ? "line-through opacity-70" : ""}`}>
             {text}
             <button type="button" aria-label={`Remove ${text}`} onClick={() => onChange(chosen.length > 1 ? chosen.filter((x) => x !== id) : undefined)}>
               <X size={11} aria-hidden />
@@ -97,7 +98,7 @@ function OptionsInput({ d, names, onChange }: { d: DraftFilter; names: ViewNames
           </span>
         );
       })}
-      {left.length && chosen.length < VIEW_LIMITS.values ? (
+      {left.length && chosen.length < VIEW_LIMITS.values && !struck ? (
         <select
           aria-label="Add a value"
           value=""
@@ -118,7 +119,7 @@ function OptionsInput({ d, names, onChange }: { d: DraftFilter; names: ViewNames
 
 function ValueInput({ d, kind, field, names, onChange }: { d: DraftFilter; kind: FilterKind; field: RecordField | null; names: ViewNames; onChange: (patch: Partial<DraftFilter>) => void }) {
   if (!d.op || isEmptyOp(d.op)) return null;
-  if (d.op === "any_of" || d.op === "all_of" || d.op === "none_of") return <OptionsInput d={d} names={names} onChange={(value) => onChange({ value })} />;
+  if (d.op === "any_of" || d.op === "all_of" || d.op === "none_of") return <OptionsInput d={d} names={names} struck={!!field?.archivedAt} onChange={(value) => onChange({ value })} />;
   if (d.op === "is") {
     return (
       <select

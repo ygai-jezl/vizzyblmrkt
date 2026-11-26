@@ -8,6 +8,7 @@ import { VIEW_MESSAGES, type ViewNames } from "@/lib/views/words";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn(), replace: vi.fn() }) }));
 const { PeopleView } = await import("./PeopleView");
 const { SaveViewDialog } = await import("./SaveViewDialog");
+const { ColumnList, moveColumn } = await import("./ColumnPicker");
 const { FilterBuilder, blankDraft, draftOf, filterOf, newDraft } = await import("./FilterBuilder");
 
 // Made-up brand: a plant shop's People fields.
@@ -76,6 +77,7 @@ describe("People as a view", () => {
     expect(html).toContain("Pot size (archived)");
     expect(html).toContain(">Archived<");
     expect(html).toContain(VIEW_MESSAGES.archived_field);
+    expect(html).toMatch(/<span class="[^"]*line-through[^"]*">Large/);
   });
 
   it("marks typed words and won't save them", () => {
@@ -124,6 +126,38 @@ describe("a saved view's product group", () => {
     const bare = renderToStaticMarkup(createElement(FilterBuilder, { match: "all", drafts, flags: {}, names: { ...withGroups, groups: [] }, manyLaunches: false, onMatch: () => {}, onChange: () => {} }));
     expect(bare).toMatch(/<option value="group" selected="">Product group<\/option>/);
     expect(bare).toContain("A group in Fernhill online shop");
+  });
+});
+
+describe("Columns", () => {
+  it("moves a column, keeping Person first", () => {
+    const cols = ["person", TYPE.key, ORDER.key, SPEND.key];
+    expect(moveColumn(cols, 3, 1)).toEqual(["person", SPEND.key, TYPE.key, ORDER.key]);
+    expect(moveColumn(cols, 1, 2)).toEqual(["person", ORDER.key, TYPE.key, SPEND.key]);
+    expect(moveColumn(cols, 1, 0)).toEqual(cols);
+    expect(moveColumn(cols, 0, 2)).toEqual(cols);
+    expect(moveColumn(cols, 2, 9)).toEqual(cols);
+  });
+
+  it("lists the chosen columns first, in order, each with a way to move it", () => {
+    const html = renderToStaticMarkup(createElement(ColumnList, { columns: ["person", SPEND.key, TYPE.key], names, onChange: () => {} }));
+    const at = (s: string) => html.indexOf(s);
+    expect(at("Spend this year")).toBeLessThan(at("Customer type"));
+    expect(at("Customer type")).toBeLessThan(at("Where from"));
+    expect(html).toContain('aria-label="Move Spend this year down"');
+    expect(html).toMatch(/<button[^>]*aria-label="Move Spend this year up"[^>]*disabled=""/);
+    expect(html).not.toContain("Move Person");
+  });
+
+  it("lets a column on an archived field be taken out, so it doesn't hold one of the 10", () => {
+    const ten = ["person", "where_from", "stage", "can_email", "last_active", "first_seen", TYPE.key, ORDER.key, SPEND.key, SIZE.key];
+    const html = renderToStaticMarkup(createElement(ColumnList, { columns: ten, names, onChange: () => {} }));
+    expect(html).toMatch(/line-through">Pot size<\/span><span[^>]*>Archived<\/span>/);
+    // Its box can be unticked; the full picker offers no more columns.
+    const box = html.match(/<input type="checkbox"[^>]*>(?=<span class="[^"]*line-through">Pot size)/)?.[0] ?? "";
+    expect(box).not.toBe("");
+    expect(box).not.toContain("disabled");
+    expect(html).toMatch(/<input type="checkbox" disabled=""[^>]*\/><span class="flex-1">Notes/);
   });
 });
 

@@ -54,6 +54,9 @@ describe("a view in words", () => {
     expect(filtersInWords([], "all", names)).toBe("Everyone");
     expect(sortInWords({ by: SPEND.key, dir: "desc" }, names)).toBe("Spend this year, high to low");
     expect(sortInWords(null, names)).toBe("Most recently active first");
+    // A date may be ahead (the next repot): soonest first. Last active is always behind: earliest first.
+    expect(sortInWords({ by: ORDER.key, dir: "asc" }, names)).toBe("Last order, soonest first");
+    expect(sortInWords({ by: "last_active", dir: "asc" }, names)).toBe("Last active, earliest first");
     expect(amountWords(482000, "GBP")).toBe("£4,820.00");
     expect(amountWords(1000, "JPY")).toMatch(/¥1,000$/);
   });

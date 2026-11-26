@@ -21,6 +21,8 @@ export type WorkReviewPayload =
       ref: number;
       /** A measure's check: it takes a read. */
       measure: boolean;
+      /** When the check was set: a tap on it once it moved since (answered elsewhere, moved) is refused. */
+      setAt: string;
     }
   | { kind: "ready"; ref: number; title: string }
   | {

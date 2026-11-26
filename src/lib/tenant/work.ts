@@ -3,7 +3,7 @@ import { isAlreadyExists } from "./firestore";
 import { TenantIsolationError, TenantValidationError } from "./errors";
 import { provisionedRegions, regionStore, type OrganisationStores } from "./organisationConnections";
 import { allocateWorkRefs, deleteWorkRefs } from "./workRefs";
-import { getOrganisation, organisationIdFor } from "./organisations";
+import { organisationIdFor, organisationMembership } from "./organisations";
 import { planAgentTransition, readAgentActionTx, stageAgentTransition, type TransitionError } from "./agentActions";
 import { retryOnceOnExists } from "./ontologyEvents";
 import type { CollectionLike, DocRefLike, FirestoreLike, QueryLike, TenantContext, TransactionLike } from "./types";
@@ -878,14 +878,15 @@ export async function repointBrandWork(
 
 /**
  * The organisation id a brand's Work is kept under: its organisation's, or for a brand on its own
- * with no organisation, org_<tenantId> while no organisation has that id (src/lib/work/scope.ts).
- * Null when Work can't be kept for it (org_<tenantId> belongs to an organisation it isn't in).
- * move-brand reads it, so attaching a brand on its own takes its tasks along.
+ * with no organisation, org_<tenantId> while no record has that id (src/lib/work/scope.ts). Null
+ * when Work can't be kept for it: a record holds org_<tenantId>, whether or not it reads as an
+ * organisation, since taking that id up erases what is kept under it. move-brand reads it, so
+ * attaching a brand on its own takes its tasks along.
  */
 export async function brandWorkHome(brand: { id: string; organisationId?: string | null }, controlDb?: FirestoreLike): Promise<string | null> {
   if (brand.organisationId) return brand.organisationId;
   const own = organisationIdFor(brand.id);
-  return (await getOrganisation(own, controlDb)) ? null : own;
+  return (await organisationMembership(own, controlDb)).exists ? null : own;
 }
 
 /** How many of a brand's tasks a move would take along (move-brand's dry run). */

@@ -10,6 +10,7 @@ import { COMPANY_STAGES, type CompanyStage } from "@/lib/work/stages";
 import { addedLine, WORK_COPY } from "@/lib/work/screenWords";
 import { WORK_LIMITS } from "@/lib/work/types";
 import { workCall, workErrorText } from "./api";
+import { useFocusSwap } from "./useFocusSwap";
 
 /**
  * Quick add on the list: a title and an optional stage. The task is tagged with the brand the list
@@ -24,6 +25,8 @@ export function QuickAdd({ brandId, open: startOpen = false }: { brandId?: strin
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [added, setAdded] = useState<{ ref: number; title: string } | null>(null);
+  // Cancel gives focus back to Add task, so a keyboard user never lands on the page's top.
+  const focus = useFocusSwap(open);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -47,14 +50,16 @@ export function QuickAdd({ brandId, open: startOpen = false }: { brandId?: strin
 
   if (!open) {
     return (
-      <Button tone="primary" onClick={() => setOpen(true)}>
-        <Plus size={16} aria-hidden />
-        Add task
-      </Button>
+      <span ref={focus.opener}>
+        <Button tone="primary" onClick={() => setOpen(true)}>
+          <Plus size={16} aria-hidden />
+          Add task
+        </Button>
+      </span>
     );
   }
   return (
-    <div className="w-full space-y-2">
+    <div ref={focus.form} className="w-full space-y-2">
       <form role="group" aria-label="Add a task" onSubmit={submit} className="flex flex-wrap items-center gap-2 rounded-md border border-neutral-200 p-2 dark:border-neutral-800">
         <input
           type="text"

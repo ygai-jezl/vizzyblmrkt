@@ -141,7 +141,7 @@ export const WORK_COPY = {
   planQuestionHere: "Approve the plan is asked from its plan link, under Connected to.",
   historyHint: "People and Vizzy, newest first",
   noHistory: "Nothing has changed yet.",
-  pageFoot: "Every change shows in History with who made it, and the before and after.",
+  pageFoot: "History shows the last 20 changes, with who made each. The Log keeps every one.",
   vizzyFoot: "Vizzy suggests changes in Review, and a person accepts them.",
   typedHintRepo: "Exact links that agents can follow. Pull requests and switches show because a repo is connected.",
   planUrlBad: "Use an https link to the page, with no user name or password in it.",

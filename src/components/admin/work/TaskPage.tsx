@@ -83,6 +83,20 @@ export function historyLine(
   return { who, what, when: whenWords(r.at, o.timeZone, o.today), vizzy: r.who.kind === "vizzy" };
 }
 
+type TextFields = { title: string; description: string; notes: string };
+
+/**
+ * What Edit's Save sends: only the fields the person changed since the box opened, so a teammate's
+ * change to another field, read in since, is never sent back over.
+ */
+export function textEdits(seed: TextFields, draft: TextFields): Partial<TextFields> {
+  const out: Partial<TextFields> = {};
+  if (draft.title.trim() !== seed.title.trim()) out.title = draft.title.trim();
+  if (draft.description !== seed.description) out.description = draft.description;
+  if (draft.notes !== seed.notes) out.notes = draft.notes;
+  return out;
+}
+
 /**
  * One task (/admin/work/[ref]): its title and status, where it came from, a due check's buttons, its
  * description and notes, Connected to and Other links, its decisions and history; beside them its
@@ -94,13 +108,23 @@ export function TaskPage({ screen }: { screen: TaskScreen }) {
   const { page, options, me } = screen;
   const task = page.task;
   const tz = page.timeZone;
-  const { patch, busy, error, notice } = useTaskPatch(task.ref);
+  const { patch: sendPatch, busy, error, notice, clearNotice } = useTaskPatch(task);
   // A check's answer: kept here, since the answered check leaves the page when it reads itself again.
+  // Any next action clears it and the change's notice, so the line never says what the page no longer does.
   const [checkSaid, setCheckSaid] = useState<string | null>(null);
-  const [editText, setEditText] = useState(false);
-  const [title, setTitle] = useState(task.title);
-  const [description, setDescription] = useState(task.description);
-  const [notes, setNotes] = useState(task.notes);
+  const startAction = () => {
+    setCheckSaid(null);
+    clearNotice();
+  };
+  const patch = (body: Parameters<typeof sendPatch>[0]) => {
+    setCheckSaid(null);
+    return sendPatch(body);
+  };
+  // Edit's box: what it opened on (null while closed) and the person's text, both from the task as it is when Edit is pressed.
+  const [textSeed, setTextSeed] = useState<TextFields | null>(null);
+  const [text, setText] = useState<TextFields>({ title: task.title, description: task.description, notes: task.notes });
+  const editText = textSeed !== null;
+  const { title, description, notes } = text;
   const [linking, setLinking] = useState(false);
   const [approving, setApproving] = useState<string | null>(null);
   const [checkEdit, setCheckEdit] = useState<"none" | "person" | "move">("none");
@@ -121,13 +145,19 @@ export function TaskPage({ screen }: { screen: TaskScreen }) {
   const waitingOn = page.waiting ? page.blockers.find((b): b is Extract<typeof b, { ref: number }> => "ref" in b && b.status !== "done" && b.status !== "dropped") : undefined;
   const meta = [task.stage ? stageLabel(task.stage) : null, screen.multiBrand ? (page.brandName ?? "Whole business") : null].filter(Boolean).join(" · ");
   const zoneBrand = options.brands.find((b) => b.id === (task.brandId ?? task.addedFrom)) ?? options.brands[0];
+  // Each editor that opens in place of its button takes focus in, and gives it back when it closes.
+  const textFocus = useFocusSwap(editText);
+  const checkFocus = useFocusSwap(checkEdit !== "none");
+  const blockFocus = useFocusSwap(blockEdit);
 
+  const openText = () => {
+    const seed = { title: task.title, description: task.description, notes: task.notes };
+    setText(seed);
+    setTextSeed(seed);
+  };
   const saveText = async () => {
-    const body: Record<string, string> = {};
-    if (title.trim() !== task.title) body.title = title.trim();
-    if (description !== task.description) body.description = description;
-    if (notes !== task.notes) body.notes = notes;
-    if (!Object.keys(body).length || (await patch(body))) setEditText(false);
+    const body = textEdits(textSeed ?? text, text);
+    if (!Object.keys(body).length || (await patch(body))) setTextSeed(null);
   };
   const remove = async () => {
     if (!window.confirm(WORK_COPY.deleteConfirm)) return;
@@ -151,7 +181,15 @@ export function TaskPage({ screen }: { screen: TaskScreen }) {
         <div className="space-y-2">
           <p className="text-xs uppercase tracking-wide text-neutral-400">Task #{task.ref}</p>
           {editText ? (
-            <input type="text" aria-label="Title" maxLength={WORK_LIMITS.title} value={title} onChange={(e) => setTitle(e.target.value)} className={`${inputClass} text-lg font-semibold`} />
+            <input
+              ref={textFocus.form}
+              type="text"
+              aria-label="Title"
+              maxLength={WORK_LIMITS.title}
+              value={title}
+              onChange={(e) => setText({ ...text, title: e.target.value })}
+              className={`${inputClass} text-lg font-semibold`}
+            />
           ) : (
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-xl font-semibold">{task.title}</h1>
@@ -204,7 +242,7 @@ export function TaskPage({ screen }: { screen: TaskScreen }) {
                 </span>
               )}
             </p>
-            <CheckActions taskRef={task.ref} byMeasure={byMeasure} via="work_page" onSaid={setCheckSaid} />
+            <CheckActions taskRef={task.ref} byMeasure={byMeasure} via="work_page" setAt={task.check.setAt} onStart={startAction} onSaid={setCheckSaid} />
           </div>
         ) : null}
         {waitingOn && open ? (
@@ -264,30 +302,23 @@ export function TaskPage({ screen }: { screen: TaskScreen }) {
           <div className="flex items-center justify-between">
             <p className={SIDE_LABEL}>Description</p>
             {!editText ? (
-              <button type="button" onClick={() => setEditText(true)} className="text-xs text-neutral-500 underline underline-offset-4">
-                Edit
-              </button>
+              <span ref={textFocus.opener}>
+                <button type="button" onClick={openText} className="text-xs text-neutral-500 underline underline-offset-4">
+                  Edit
+                </button>
+              </span>
             ) : null}
           </div>
           {editText ? (
             <>
-              <textarea aria-label="Description" rows={4} maxLength={WORK_LIMITS.description} value={description} onChange={(e) => setDescription(e.target.value)} className={inputClass} />
+              <textarea aria-label="Description" rows={4} maxLength={WORK_LIMITS.description} value={description} onChange={(e) => setText({ ...text, description: e.target.value })} className={inputClass} />
               <p className={SIDE_LABEL}>Notes</p>
-              <textarea aria-label="Notes" rows={3} maxLength={WORK_LIMITS.notes} value={notes} onChange={(e) => setNotes(e.target.value)} className={inputClass} />
+              <textarea aria-label="Notes" rows={3} maxLength={WORK_LIMITS.notes} value={notes} onChange={(e) => setText({ ...text, notes: e.target.value })} className={inputClass} />
               <div className="flex gap-2">
                 <Button tone="primary" disabled={busy || !title.trim()} onClick={() => void saveText()}>
                   {busy ? "Saving…" : "Save"}
                 </Button>
-                <Button
-                  onClick={() => {
-                    setTitle(task.title);
-                    setDescription(task.description);
-                    setNotes(task.notes);
-                    setEditText(false);
-                  }}
-                >
-                  Cancel
-                </Button>
+                <Button onClick={() => setTextSeed(null)}>Cancel</Button>
               </div>
             </>
           ) : (
@@ -475,9 +506,20 @@ export function TaskPage({ screen }: { screen: TaskScreen }) {
                 : "None"}
             </p>
             {checkEdit === "move" ? (
-              <MoveCheck taskRef={task.ref} today={screen.today} onClose={() => setCheckEdit("none")} />
+              <div ref={checkFocus.form}>
+                <MoveCheck
+                  taskRef={task.ref}
+                  today={screen.today}
+                  setAt={task.check?.setAt}
+                  onClose={() => setCheckEdit("none")}
+                  onMoved={(said) => {
+                    startAction();
+                    setCheckSaid(said);
+                  }}
+                />
+              </div>
             ) : checkEdit === "person" ? (
-              <div className="space-y-2">
+              <div ref={checkFocus.form} className="space-y-2">
                 <CheckPicker id="wk-t-check" value={checkDraft} onChange={setCheckDraft} today={screen.today} timeZone={tz} brandName={zoneBrand?.name ?? page.brandName ?? screen.sessionBrand.name} openTasks={options.openTasks} />
                 <div className="flex gap-2">
                   <Button
@@ -494,15 +536,17 @@ export function TaskPage({ screen }: { screen: TaskScreen }) {
                 </div>
               </div>
             ) : (
-              <button type="button" onClick={() => setCheckEdit(byMeasure ? "move" : "person")} className="text-xs text-neutral-500 underline underline-offset-4">
-                {byMeasure ? "Move its date" : task.check ? "Change" : "Add a check"}
-              </button>
+              <span ref={checkFocus.opener}>
+                <button type="button" onClick={() => setCheckEdit(byMeasure ? "move" : "person")} className="text-xs text-neutral-500 underline underline-offset-4">
+                  {byMeasure ? "Move its date" : task.check ? "Change" : "Add a check"}
+                </button>
+              </span>
             )}
           </div>
           <div className="space-y-1">
             <p className={SIDE_LABEL}>Blocked by</p>
             {blockEdit ? (
-              <div className="space-y-2">
+              <div ref={blockFocus.form} className="space-y-2">
                 <BlockedByPicker id="wk-t-block" refs={blockRefs} onChange={setBlockRefs} openTasks={options.openTasks} />
                 <div className="flex gap-2">
                   <Button
@@ -539,16 +583,18 @@ export function TaskPage({ screen }: { screen: TaskScreen }) {
                 ) : (
                   <span className="text-neutral-500">Nothing</span>
                 )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setBlockRefs(page.blockers.flatMap((b) => ("ref" in b ? [b.ref] : [])));
-                    setBlockEdit(true);
-                  }}
-                  className="block text-xs text-neutral-500 underline underline-offset-4"
-                >
-                  {page.blockers.length ? "Change" : "Add"}
-                </button>
+                <span ref={blockFocus.opener} className="block">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBlockRefs(page.blockers.flatMap((b) => ("ref" in b ? [b.ref] : [])));
+                      setBlockEdit(true);
+                    }}
+                    className="block text-xs text-neutral-500 underline underline-offset-4"
+                  >
+                    {page.blockers.length ? "Change" : "Add"}
+                  </button>
+                </span>
               </>
             )}
           </div>

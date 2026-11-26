@@ -506,9 +506,18 @@ export const PLAN_APPROVAL_OPTIONS = [
   { id: "c", label: "Not now" },
 ] as const satisfies ReadonlyArray<{ id: DecisionOptionId; label: string }>;
 
-/** A plan approval's question, in any case or spacing: nobody drafts or recommends one. */
+/**
+ * A plan approval's question, in any case or spacing: nobody drafts or recommends one. Read in
+ * time that grows with its length only: anything longer than a question may be is not one, and
+ * the trailing marks are stripped by a loop (an anchored regex backtracks over a long run of them).
+ */
 export function isPlanApprovalQuestion(q: string): boolean {
-  return q.trim().toLowerCase().replace(/\s+/g, " ").replace(/[.?!]+$/, "") === PLAN_APPROVAL_QUESTION.toLowerCase();
+  const t = q.trim();
+  if (t.length > WORK_LIMITS.question) return false;
+  const s = t.toLowerCase().replace(/\s+/g, " ");
+  let end = s.length;
+  while (end > 0 && ".?!".includes(s[end - 1]!)) end -= 1;
+  return s.slice(0, end) === PLAN_APPROVAL_QUESTION.toLowerCase();
 }
 
 /** Worked out, never sent: whether the choice took the recommended option; null with no choice or no recommendation. */

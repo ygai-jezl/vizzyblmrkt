@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { failingFirestore } from "@/lib/tenant/testing/failingFirestore";
-import { WORK_LOG, WORK_TASKS } from "@/lib/tenant";
-import { addTask, editTask, listTasks, removeTask, taskPage, type ChangeDone } from "./service";
-import { filtersOf } from "./inputs";
+import { createWorkTask, WORK_LOG, WORK_TASKS } from "@/lib/tenant";
+import { addTask, dueChecks, editTask, listTasks, readyTasks, removeTask, taskPage, type ChangeDone } from "./service";
+import { EditTaskBodySchema, filtersOf } from "./inputs";
 import type { WorkResult } from "./result";
 import { FERNHILL, HEARTH, makeWorld, PEOPLE, type World } from "./testing/world";
-import { LUMEN_EU, LUMEN_US, NINA, ORG, OTHER_ORG, SAM } from "./testing/fixtures";
+import { aTask, aWrite, LUMEN_EU, LUMEN_US, NINA, ORG, OTHER_ORG, SAM, taskId } from "./testing/fixtures";
 import type { TenantContext } from "@/lib/tenant/types";
 
 let w: World;
@@ -188,6 +188,32 @@ describe("ready to start (work_ready)", () => {
     await editTask(await w.scope(PEOPLE.nina), pricing.ref, { status: "done" }, w.deps);
     expect((await readyTasks(await w.scope(PEOPLE.sam), w.deps)).tasks.map((v) => v.task.title)).toEqual(["Register the company", "List on G2"]);
   });
+
+  it("reads every blocker the brand view didn't, however many: whole business tasks done long ago never leave a task waiting", async () => {
+    // 35 whole business tasks, Done; 35 of Lumen Notes' To do tasks, each blocked by one of them.
+    for (let i = 0; i < 35; i++) {
+      const blocker = taskId();
+      await createWorkTask(aTask({ id: blocker, ref: 100 + i, brandId: null, title: `Set up ${i}`, status: "done", closedAt: "2026-11-01T09:00:00.000Z" }), aWrite(), w.deps);
+      await createWorkTask(aTask({ id: taskId(), ref: 200 + i, title: `Then ${i}`, blockedBy: [blocker] }), aWrite(), w.deps);
+    }
+    expect((await readyTasks(await w.scope(PEOPLE.sam), w.deps)).tasks).toHaveLength(35);
+  });
+});
+
+describe("checks due (work_check_due), past the tasks read one by one", () => {
+  it("shows every after_task check whose task is done, not just the first 30, as the list counts them", async () => {
+    for (let i = 0; i < 35; i++) {
+      const done = taskId();
+      await createWorkTask(aTask({ id: done, ref: 100 + i, title: `Ship ${i}`, status: "done", closedAt: "2026-11-01T09:00:00.000Z" }), aWrite(), w.deps);
+      const check = { kind: "after_task" as const, at: null, taskId: done, note: "", setBy: NINA, setAt: "2026-11-01T09:00:00.000Z", which: null, counted: null };
+      await createWorkTask(aTask({ id: taskId(), ref: 200 + i, title: `Check ${i}`, check }), aWrite(), w.deps);
+    }
+    const nina = await w.scope(PEOPLE.nina);
+    const due = await dueChecks(nina, w.deps);
+    expect(due.tasks).toHaveLength(35);
+    expect(due.regionsDown).toEqual([]);
+    expect(value(await listTasks(nina, filtersOf(new URLSearchParams("due=1")), w.deps)).counts.due).toBe(35);
+  });
 });
 
 describe("one task", () => {
@@ -235,6 +261,23 @@ describe("changing a task", () => {
     };
     expect(await editTask(nina, t.ref, { title: "Pricing page" }, w.deps)).toMatchObject({ ok: false, status: 409, error: "changed" });
     expect(w.us.raw(WORK_TASKS, t.id)).toMatchObject({ title: "Pricing", notes: "Someone else's note" });
+  });
+
+  it("refuses an edit from a page that read the task before someone else changed it, so a stale tab never undoes their change", async () => {
+    const t = await added(PEOPLE.priya, { title: "Van insurance" });
+    const priya = await w.scope(PEOPLE.priya);
+    // Two tabs read the task as it was.
+    const seen = t.updatedAt;
+    w.at("2026-11-20T09:05:00.000Z");
+    expect(value(await editTask(priya, t.ref, { links: [{ url: "https://fernhill.example/a" }], baseUpdatedAt: seen }, w.deps)).task.task.links).toEqual([{ url: "https://fernhill.example/a" }]);
+    w.at("2026-11-20T09:06:00.000Z");
+    expect(await editTask(priya, t.ref, { links: [{ url: "https://fernhill.example/b" }], baseUpdatedAt: seen }, w.deps)).toMatchObject({ ok: false, status: 409, error: "changed" });
+    expect(w.eu.raw(WORK_TASKS, t.id)).toMatchObject({ links: [{ url: "https://fernhill.example/a" }] });
+    // Read again, the edit goes through.
+    const now = w.eu.raw(WORK_TASKS, t.id)!.updatedAt as string;
+    expect(value(await editTask(priya, t.ref, { links: [{ url: "https://fernhill.example/a" }, { url: "https://fernhill.example/b" }], baseUpdatedAt: now }, w.deps)).task.task.links).toHaveLength(2);
+    // The version alone is not a change.
+    expect(EditTaskBodySchema.safeParse({ baseUpdatedAt: now, via: "work_page" }).success).toBe(false);
   });
 
   it("links the idea a task became (Make it an idea) only when it exists in a brand the person sees", async () => {

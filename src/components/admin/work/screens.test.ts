@@ -14,12 +14,12 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: unknown }) => createElement("a", { href, ...rest }, children as never),
 }));
-const { typedKinds, TypedLinksEditor } = await import("./TaskFields");
+const { onEnter, typedKinds, TypedLinksEditor } = await import("./TaskFields");
 const { checkButtons, checkNoticeOf } = await import("./CheckActions");
 const { focusTarget } = await import("./useFocusSwap");
 const { decisionView } = await import("./Decisions");
 const { movedWords, decisionWords } = await import("./WorkLog");
-const { historyLine } = await import("./TaskPage");
+const { historyLine, textEdits } = await import("./TaskPage");
 const { TaskForm } = await import("./TaskForm");
 const { MeasurePicker } = await import("./MeasurePicker");
 const { WorkTable } = await import("./WorkTable");
@@ -197,6 +197,48 @@ describe("history and the Log's moves", () => {
       ],
     };
     expect(movedWords(moved, { me: "uid_nina", names: { uid_sam: "Sam" }, brandName: () => undefined })).toBe("You moved it from To do to Done; Sam read the check: Better.");
+  });
+
+  it("leave out the idea's brand, which changes with the idea, as History does, and say you in lower case after the first line", () => {
+    const taskId = `wt_${"a".repeat(20)}`;
+    const row = (n: string, field: "added" | "ideaBrandId" | "ideaId", after: unknown) => ({
+      id: `wl_${n.repeat(24)}`,
+      organisationId: "org_ten_lumen",
+      brandId: "ten_lumen",
+      region: "us" as const,
+      day: "2026-11-24",
+      at: T,
+      source: SOURCE,
+      kind: "change" as const,
+      taskId,
+      field,
+      before: null,
+      after,
+    });
+    const moved = { taskId, at: T, rows: [row("d", "added", { ref: 12, title: "Partner programme", status: "todo" }), row("e", "ideaBrandId", "ten_lumen"), row("f", "ideaId", "camp_partners")] };
+    expect(movedWords(moved, { me: "uid_nina", names: {}, brandName: () => "Lumen Notes", ideaWords: true })).toBe("You added it; you made it into an idea.");
+  });
+});
+
+describe("Edit's Save on the task page", () => {
+  it("sends only what the person changed since Edit opened, so a teammate's change read in since is never sent back over", () => {
+    const seed = { title: "Register for VAT", description: "", notes: "" };
+    expect(textEdits(seed, { ...seed, notes: "Call the accountant first" })).toEqual({ notes: "Call the accountant first" });
+    expect(textEdits(seed, { ...seed, title: " Register for VAT in Ireland " })).toEqual({ title: "Register for VAT in Ireland" });
+    expect(textEdits(seed, { ...seed, title: "Register for VAT " })).toEqual({});
+  });
+});
+
+describe("Enter in a box of Connected to, Other links or Blocked by", () => {
+  it("runs that box's own add, never the add page's Add task, and leaves other keys and a word being composed alone", () => {
+    let adds = 0;
+    let stopped = 0;
+    const key = (k: string, isComposing = false) => ({ key: k, preventDefault: () => void (stopped += 1), nativeEvent: { isComposing } });
+    const press = onEnter(() => void (adds += 1));
+    press(key("Enter"));
+    press(key("a"));
+    press(key("Enter", true));
+    expect([adds, stopped]).toEqual([1, 1]);
   });
 });
 

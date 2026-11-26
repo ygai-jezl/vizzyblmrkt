@@ -53,6 +53,9 @@ describe("who sees what in Work", () => {
     const w = makeWorld();
     w.control.seed("organisations", `org_${HEARTH}`, { name: "Old", plan: "free", planSince: "x", brandIds: [], ownerIds: [], createdBy: "x", createdAt: "x", updatedAt: "x" });
     expect(await workScopeFor(PEOPLE.hal, w.deps)).toEqual({ ok: false, why: "no_organisation" });
+    // A record there that doesn't read as an organisation counts too: taking the id up would erase Work kept under it.
+    w.control.seed("organisations", `org_${HEARTH}`, { brandIds: [] });
+    expect(await workScopeFor(PEOPLE.hal, w.deps)).toEqual({ ok: false, why: "no_organisation" });
     w.control.seed("organisations", ORG, { name: "Lumen", plan: "self_hosted", planSince: "x", brandIds: [LUMEN_EU], ownerIds: [], createdBy: "x", createdAt: "x", updatedAt: "x" });
     expect(await workScopeFor(PEOPLE.sam, w.deps)).toEqual({ ok: false, why: "no_organisation" });
   });

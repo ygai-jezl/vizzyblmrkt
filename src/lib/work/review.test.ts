@@ -48,14 +48,14 @@ describe("Checks due today", () => {
     w.at("2026-11-27T14:00:00.000Z");
     const due = (await items(PEOPLE.nina)).filter((i) => i.kind === "work_check");
     expect(due).toEqual([
-      expect.objectContaining({ title: `#${crash.ref} Fix the crash on very long notes`, href: `/admin/work/${crash.ref}`, action: "Open", work: { kind: "check", ref: crash.ref, measure: true } }),
-      expect.objectContaining({ title: `#${date.ref} Nightly check of search answers`, work: { kind: "check", ref: date.ref, measure: false } }),
+      expect.objectContaining({ title: `#${crash.ref} Fix the crash on very long notes`, href: `/admin/work/${crash.ref}`, action: "Open", work: { kind: "check", ref: crash.ref, measure: true, setAt: expect.any(String) } }),
+      expect.objectContaining({ title: `#${date.ref} Nightly check of search answers`, work: { kind: "check", ref: date.ref, measure: false, setAt: "2026-11-20T15:00:00.000Z" } }),
     ]);
     expect(due[0]!.detail).toBe("Lumen Notes · Did it work? Runs better: crashes, 7 days after it's done. Work can't count crashes, so your read is the record.");
     expect(due[1]!.detail).toBe("Lumen Notes · After last night's runs.");
     // Read once, it is off Review.
     value(await actOnCheck(await w.scope(PEOPLE.nina), { ref: crash.ref, action: "read", read: "same", via: "review_check" }, w.deps));
-    expect((await items(PEOPLE.nina)).filter((i) => i.kind === "work_check").map((i) => i.work)).toEqual([{ kind: "check", ref: date.ref, measure: false }]);
+    expect((await items(PEOPLE.nina)).filter((i) => i.kind === "work_check").map((i) => i.work)).toEqual([{ kind: "check", ref: date.ref, measure: false, setAt: "2026-11-20T15:00:00.000Z" }]);
   });
 
   it("shows a member only their own brand's checks in a multi brand organisation", async () => {
@@ -69,7 +69,7 @@ describe("Checks due today", () => {
 
   it("names nothing but the brand and why it is due, never a person's data", () => {
     const t = aStoredTask({ ref: 75, title: "Credits and pricing page", check: { kind: "after_task", at: null, taskId: "wt_aaaaaaaaaaaaaaaaaaab", note: "", setBy: "uid_nina", setAt: "2026-11-20T09:00:00.000Z", which: null, counted: null }, hasCheck: true });
-    expect(workCheckItem({ task: t, brandName: null, multiBrand: true, line: null })).toMatchObject({ detail: "Whole business · The task it waited for is done.", work: { kind: "check", ref: 75, measure: false } });
+    expect(workCheckItem({ task: t, brandName: null, multiBrand: true, line: null })).toMatchObject({ detail: "Whole business · The task it waited for is done.", work: { kind: "check", ref: 75, measure: false, setAt: "2026-11-20T09:00:00.000Z" } });
   });
 });
 

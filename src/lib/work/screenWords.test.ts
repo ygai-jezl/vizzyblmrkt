@@ -49,7 +49,7 @@ import {
   WORK_COPY,
   zoneHint,
 } from "./screenWords";
-import { WORK_CHANGE_FIELDS, type Measure } from "./types";
+import { WORK_CHANGE_FIELDS, WORK_LIMITS, type Measure } from "./types";
 
 // The words Work's screens say. Made-up Lumen, Fernhill Plants and their people.
 
@@ -108,6 +108,21 @@ describe("Work's screen words", () => {
       expect(dashesIn(s), s).toEqual([]);
       expect(aiTellsIn(s), s).toEqual([]);
     }
+  });
+
+  it("say History keeps the last changes the task keeps, and that the Log keeps the rest", () => {
+    expect(WORK_COPY.pageFoot).toContain(`last ${WORK_LIMITS.recent} changes`);
+    expect(WORK_COPY.pageFoot).toContain("The Log keeps every one.");
+  });
+
+  it("name each place's own words for a check due on the help page", async () => {
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { default: WorkHelp } = await import("@/components/help/pages/work");
+    const page = renderToStaticMarkup(WorkHelp({ workVizzy: false, ideaWords: false }) as never).replace(/&#x27;/g, "'");
+    expect(page).toContain("shows a <strong>Check due</strong> banner with its note.");
+    expect(page).not.toContain(`${WORK_COPY.checkDue}</strong> with`);
+    expect(page).toContain(`the task's page says <strong>${WORK_COPY.measureDueTitle}</strong>, and Today and Review ask <strong>Did it work?</strong>`);
+    expect(page).toContain("shows the last 20 changes, newest first");
   });
 
   it("keep the house style in Work's screens themselves", () => {

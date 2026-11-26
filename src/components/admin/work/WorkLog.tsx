@@ -32,15 +32,18 @@ import type { MovedTask } from "@/lib/work/day";
 import { workCall, workErrorText } from "./api";
 import { CheckActions } from "./CheckActions";
 
-/** What moved on a task that day, in words: "Nina moved it from To do to In progress; you set the check". */
+/**
+ * What moved on a task that day, in words: "Nina moved it from To do to In progress; you set the
+ * check". The idea's brand, which changes with the idea, goes unsaid, as in History.
+ */
 export function movedWords(m: MovedTask, o: { me: string; names: Readonly<Record<string, string>>; brandName: (id: string) => string | undefined; ideaWords?: boolean }): string {
-  const lines = m.rows.map((r) => {
-    const who = whoWords(r.source.who, o.me, o.names);
+  const rows = m.rows.filter((r) => r.kind === "check" || r.field !== "ideaBrandId");
+  const shown = rows.slice(-3).map((r, i) => {
+    const who = i === 0 ? whoWords(r.source.who, o.me, o.names) : whoInline(r.source.who, o.me, o.names);
     const what = r.kind === "check" ? changeWords("check", null, r.check.read ?? r.check.action) : changeWords(r.field, r.before, r.after, { brandName: o.brandName, tool: r.source.tool, ideaWords: o.ideaWords });
     return `${who} ${what}`;
   });
-  const shown = lines.slice(-3);
-  const more = lines.length - shown.length;
+  const more = rows.length - shown.length;
   return `${shown.join("; ")}${more > 0 ? `; and ${plural(more, "more change", "more changes")}` : ""}.`;
 }
 
@@ -192,7 +195,7 @@ export function WorkLog({ screen }: { screen: LogScreen }) {
                         {c.title}
                       </Link>
                       <p className="text-neutral-600 dark:text-neutral-300">{c.byMeasure ? `Did it work? ${c.line}` : c.line}</p>
-                      <CheckActions taskRef={c.ref} byMeasure={c.byMeasure} via="today" compact onSaid={(notice) => setCheckSaid({ ref: c.ref, notice })} />
+                      <CheckActions taskRef={c.ref} byMeasure={c.byMeasure} via="today" setAt={c.setAt || undefined} compact onSaid={(notice) => setCheckSaid({ ref: c.ref, notice })} />
                     </li>
                   ))}
                 </ul>

@@ -10,6 +10,7 @@ import type { Measure, ThenMeasure, WorkTask } from "@/lib/work/types";
 import type { MeaningKey } from "@/lib/metrics/meanings";
 import type { ProductOption } from "@/lib/work/screens";
 import { MeasurePicker } from "./MeasurePicker";
+import { useFocusSwap } from "./useFocusSwap";
 
 type Part = Exclude<Measure, { kind: "done" }> | ThenMeasure;
 
@@ -35,7 +36,8 @@ function PartView({ p, label, connection, event }: { p: Part; label: string; con
 /**
  * How we'll know it worked, on the task page: the kind of win, what it counts or the number and its
  * direction, when to look, the optional then, and the suggested kind beside the one kept. Change
- * opens the same picker as the add page; the server proposes the kind again and keeps both.
+ * opens the same picker as the add page, on the measure as it is now (never one read before the
+ * page last read itself again); the server proposes the kind again and keeps both.
  */
 export function MeasureSection({
   task,
@@ -64,6 +66,11 @@ export function MeasureSection({
   const m = task.measure;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<MeasureDraft>(() => draftOfMeasure(m));
+  const focus = useFocusSwap(editing);
+  const open = () => {
+    setDraft(draftOfMeasure(m));
+    setEditing(true);
+  };
   const connection = (id: string) => products?.find((p) => p.id === id)?.name;
   // An event as the picker names it: its catalog label, else its name.
   const event = (connectionId: string, name: string) => {
@@ -73,7 +80,7 @@ export function MeasureSection({
   const suggestion = suggestMeasureKind({ title: task.title, description: task.description, stage: task.stage, brandId: task.brandId, ideaId: task.ideaId, typedLinks: task.typedLinks, oneBrand, ideaWords });
   if (editing) {
     return (
-      <div className="space-y-3">
+      <div ref={focus.form} className="space-y-3">
         <MeasurePicker idPrefix="wk-t-ms" value={draft} onChange={setDraft} suggestion={suggestion} products={products} meanings={meanings} operator={operator} runsInApp={runsInApp} word={word} />
         <div className="flex gap-2">
           <Button
@@ -85,14 +92,7 @@ export function MeasureSection({
           >
             {busy ? "Saving…" : "Save"}
           </Button>
-          <Button
-            onClick={() => {
-              setDraft(draftOfMeasure(m));
-              setEditing(false);
-            }}
-          >
-            Cancel
-          </Button>
+          <Button onClick={() => setEditing(false)}>Cancel</Button>
         </div>
       </div>
     );
@@ -101,7 +101,9 @@ export function MeasureSection({
     return (
       <div className="space-y-2 text-sm">
         <p className="text-neutral-500 dark:text-neutral-400">{WORK_COPY.measureNone}</p>
-        <Button onClick={() => setEditing(true)}>Add a measure</Button>
+        <span ref={focus.opener}>
+          <Button onClick={open}>Add a measure</Button>
+        </span>
       </div>
     );
   }
@@ -129,7 +131,9 @@ export function MeasureSection({
           <span>{proposed}</span>
         </p>
       ) : null}
-      <Button onClick={() => setEditing(true)}>Change</Button>
+      <span ref={focus.opener}>
+        <Button onClick={open}>Change</Button>
+      </span>
     </div>
   );
 }

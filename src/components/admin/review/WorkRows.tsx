@@ -64,7 +64,7 @@ export function WorkCheckRow({ item }: { item: Of<"check"> }) {
     const tap = tapOf(key);
     setBusy(key);
     setError(null);
-    const r = await workCall<{ notice: string | null }>("/checks", "POST", { ref: item.work.ref, ...tap, via: "review_check" });
+    const r = await workCall<{ notice: string | null }>("/checks", "POST", { ref: item.work.ref, ...tap, via: "review_check", ...(item.work.setAt ? { setAt: item.work.setAt } : {}) });
     setBusy(null);
     if (!r.ok) return setError(workErrorText(r.data));
     setDone(checkDoneLine(item.work.ref, tap, r.data.notice ?? null));

@@ -255,6 +255,15 @@ describe("decisions", () => {
     expect(ok(DecisionSchema, approval({ plan: { url: "http://docs.example.com/p" } }))).toBe(false);
     expect(isPlanApprovalQuestion("  approve   THE plan? ")).toBe(true);
     expect(isPlanApprovalQuestion("Approve the plan for launch")).toBe(false);
+    expect(isPlanApprovalQuestion("Approve the plan?!.")).toBe(true);
+  });
+
+  it("reads a question of any length in time that grows with it, never more: a long run of marks can't stall the server", () => {
+    const started = performance.now();
+    expect(isPlanApprovalQuestion(`${"!".repeat(63_000)}x`)).toBe(false);
+    expect(isPlanApprovalQuestion(`x${"!".repeat(63_000)}`)).toBe(false);
+    expect(isPlanApprovalQuestion(`Approve the plan${"?".repeat(63_000)}`)).toBe(false);
+    expect(performance.now() - started).toBeLessThan(200);
   });
 });
 

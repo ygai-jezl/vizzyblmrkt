@@ -181,6 +181,16 @@ describe("the one tap read", () => {
     ]);
   });
 
+  it("refuses a tap from a page that showed the check before someone else answered it, so it never lands on the next check", async () => {
+    const t = await dueTask();
+    const seen = t.check!.setAt;
+    // Nina reads it on the task page; Sam's Today still shows the first check.
+    value(await act({ ref: t.ref, action: "read", read: "better", setAt: seen }));
+    expect(await act({ ref: t.ref, action: "read", read: "worse", setAt: seen, via: "today" })).toMatchObject({ ok: false, status: 409, error: "changed" });
+    expect(checkRows().map((x) => [x.check.which, x.check.read])).toEqual([["first", "better"]]);
+    expect(stored(t).check).toMatchObject({ which: "then" });
+  });
+
   it("a read on the then ends the check, and the Done task closes", async () => {
     const t = await dueTask();
     await act({ ref: t.ref, action: "read", read: "same" });

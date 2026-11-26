@@ -189,7 +189,7 @@ async function suggestionsFor(scope: WorkScope, deps: WorkDeps) {
       const s = suggestionOf(a);
       if (!s || !seen(s)) return [];
       const r = roundAfter(a, now);
-      return [dismissalWords(a, s, r.is === "later" ? r.again : a.declined?.why === "not_now" ? now.toISOString() : null, tz)];
+      return [dismissalWords(a, s, r.is === "later" ? r.again : a.declined?.why === "not_now" ? now.toISOString() : null, tz, { multiBrand: multiBrandOf(scope), brandName: brandNameOf(scope) })];
     })
     .slice(0, 20);
   const waiting = open.flatMap((a) => {
@@ -324,7 +324,13 @@ const SuggestBody = z
 
 const NUMBER_KINDS = new Set(["metric", "data_signal", "product_event", "email_event", "product_user", "brand_signal"]);
 
-/** The evidence Vizzy names, kept only where it is a signal ref and, for Work's own rows, one of this organisation's that the person sees. */
+/**
+ * The signal kinds a Work suggestion can name as evidence. Not field_value: that names one of an
+ * action's fields, and a suggestion has none, so the action would be refused.
+ */
+const WORK_EVIDENCE_KINDS: ReadonlySet<SignalRef["kind"]> = new Set(["product_event", "email_event", "product_user", "data_signal", "brand_signal", "metric", "brand_map", "brand_note", "search_doc", "work_log", "work_task"]);
+
+/** The evidence Vizzy names, kept only where it is a signal ref Work can use and, for Work's own rows, one of this organisation's that the person sees. */
 async function checkedEvidence(scope: WorkScope, raw: ReadonlyArray<{ kind: string; ref: string }>, deps: WorkDeps): Promise<{ refs: SignalRef[]; logRows: WorkLogRow[] }> {
   const refs: SignalRef[] = [];
   const logRows: WorkLogRow[] = [];
@@ -332,6 +338,7 @@ async function checkedEvidence(scope: WorkScope, raw: ReadonlyArray<{ kind: stri
     const parsed = SignalRefSchema.safeParse(e);
     if (!parsed.success) continue;
     const ref = parsed.data as SignalRef;
+    if (!WORK_EVIDENCE_KINDS.has(ref.kind)) continue;
     if (ref.kind === "work_task") {
       const { task } = await findWorkTask(scope.organisationId, ref.ref, deps);
       if (!task || !seesTask(scope, task)) continue;
@@ -352,7 +359,8 @@ export function fromLine(o: { refs: readonly SignalRef[]; logRows: readonly Work
   const newest = [...o.logRows].sort((a, b) => b.at.localeCompare(a.at))[0];
   if (newest) {
     const what = newest.kind === "entry" ? `: ${newest.workstream}` : "";
-    return clip(newest.day === o.today ? `from today's log${what}` : `from your log on ${dayOf(newest.at, o.timeZone)}${what}`);
+    // Today as the suggesting person's day: a row's stored day is its writer's, who may be in another time zone.
+    return clip(dayIn(newest.at, o.timeZone) === o.today ? `from today's log${what}` : `from your log on ${dayOf(newest.at, o.timeZone)}${what}`);
   }
   const kinds = new Set(o.refs.map((r) => r.kind));
   if ([...kinds].some((k) => NUMBER_KINDS.has(k))) return "from your numbers";
@@ -452,14 +460,15 @@ export async function agentSuggestWorkTask(ctx: TenantContext, body: unknown, de
 
 const LinkInput = z.object({ url: z.string().max(WORK_LIMITS.linkUrl), label: z.string().trim().max(WORK_LIMITS.linkLabel).optional() }).strict();
 
+// Every string is capped before anything reads it, at what the draft keeps (src/lib/work/drafts.ts).
 const DraftLogBody = z
   .object({
     tool: z.literal("draft_work_log"),
-    workstream: z.string(),
-    state: z.string().optional(),
-    note: z.string().optional(),
+    workstream: z.string().trim().max(WORK_LIMITS.workstream),
+    state: z.string().trim().max(40).optional(),
+    note: z.string().trim().max(WORK_LIMITS.entryNote).optional(),
     links: z.array(LinkInput).max(WORK_LIMITS.entryLinks).optional(),
-    task: z.union([z.number(), z.string()]).optional(),
+    task: z.union([z.number(), z.string().max(20)]).optional(),
     brand: z.string().trim().max(200).optional(),
   })
   .strict();
@@ -512,11 +521,11 @@ export async function agentDraftWorkLog(ctx: TenantContext, body: unknown, deps:
 const DraftDecisionBody = z
   .object({
     tool: z.literal("draft_work_decision"),
-    task: z.union([z.number(), z.string()]),
-    question: z.string(),
-    options: z.array(z.string()),
-    recommended: z.string().optional(),
-    reason: z.string().optional(),
+    task: z.union([z.number(), z.string().max(20)]),
+    question: z.string().trim().max(WORK_LIMITS.question),
+    options: z.array(z.string().trim().max(WORK_LIMITS.optionLabel)).max(4),
+    recommended: z.string().trim().max(WORK_LIMITS.optionLabel).optional(),
+    reason: z.string().trim().max(WORK_LIMITS.reason).optional(),
   })
   .strict();
 

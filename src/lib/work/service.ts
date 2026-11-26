@@ -161,7 +161,7 @@ export function planStates(links: readonly TypedLink[], decisions: ReadonlyArray
 
 /** How many closed tasks the list reads beside the open ones, unless it shows closed tasks. */
 const RECENT_CLOSED = 500;
-/** Tasks it looks up one by one for blockers and checks the list didn't read. */
+/** Tasks it looks up one by one for blockers and checks the tasks read didn't hold; past this many it reads them all at once. */
 const LOOKUPS = 30;
 
 export interface RegionDown {
@@ -212,13 +212,30 @@ export async function loadTasks(scope: WorkScope, opts: { brandId: string | null
   };
 }
 
-/** Tasks by id, from those read and then one by one (up to LOOKUPS): null when gone, absent when unread. */
-async function lookupMap(scope: WorkScope, known: readonly WorkTask[], wanted: Iterable<string>, deps: WorkDeps): Promise<Map<string, WorkTask | null>> {
+/**
+ * Tasks by id: null when gone, absent when unread. First those read; with more than LOOKUPS still
+ * wanted, every task in the organisation read at once (open, and up to 5,000 closed in each
+ * region, of every brand); then one by one, up to LOOKUPS. A region that didn't answer goes in
+ * `down`, so the caller says so; any id still unread is warned about, and its rules wait.
+ */
+async function lookupMap(scope: WorkScope, known: readonly WorkTask[], wanted: Iterable<string>, deps: WorkDeps, down?: Set<Region>): Promise<Map<string, WorkTask | null>> {
   const map = new Map<string, WorkTask | null>(known.map((t) => [t.id, t]));
-  const missing = [...new Set(wanted)].filter((id) => !map.has(id)).slice(0, LOOKUPS);
-  await mapLimit(missing, 5, async (id) => {
+  let missing = [...new Set(wanted)].filter((id) => !map.has(id));
+  if (missing.length > LOOKUPS) {
+    const [open, closed] = await Promise.all([
+      listWorkTasks(scope.organisationId, { open: true }, deps),
+      listWorkTasks(scope.organisationId, { open: false, limit: WORK_LIMITS.tasks }, deps),
+    ]);
+    for (const t of [...open.rows, ...closed.rows]) if (!map.has(t.id)) map.set(t.id, t);
+    for (const r of [...open.unanswered, ...closed.unanswered]) down?.add(r);
+    missing = missing.filter((id) => !map.has(id));
+  }
+  const unread = missing.length - LOOKUPS;
+  if (unread > 0) console.warn(`[work] ${unread} tasks that checks or blockers name weren't read: those wait`);
+  await mapLimit(missing.slice(0, LOOKUPS), 5, async (id) => {
     try {
       const r = await findWorkTask(scope.organisationId, id, deps);
+      for (const region of r.unanswered) down?.add(region);
       if (r.task) map.set(id, r.task);
       else if (!r.unanswered.length) map.set(id, null);
     } catch {
@@ -332,7 +349,8 @@ export async function listTasks(scope: WorkScope, filters: WorkFilters, deps: Wo
   if ("error" in brand) return brand;
   const now = nowOf(deps);
   const loaded = await loadTasks(scope, { brandId: brand.brandId, allClosed: filters.status !== "open" }, deps);
-  const map = await lookupMap(scope, loaded.tasks, wantedOf(loaded.tasks), deps);
+  const down = new Set(loaded.unanswered);
+  const map = await lookupMap(scope, loaded.tasks, wantedOf(loaded.tasks), deps, down);
   const views = loaded.tasks.map((t) => viewOf(scope, t, map, now));
   const shown = views.filter(
     (v) =>
@@ -350,7 +368,7 @@ export async function listTasks(scope: WorkScope, filters: WorkFilters, deps: Wo
     filters,
     tasks: shown,
     counts: { open: views.filter((v) => onOpenList(v.task, now)).length, mustHave: views.filter((v) => onOpenList(v.task, now) && v.task.mustHave).length, due: views.filter((v) => v.due).length },
-    regionsDown: downOf(loaded.unanswered),
+    regionsDown: downOf(down),
     regionsFull: downOf(loaded.full),
     unreadable: loaded.unreadable,
   });
@@ -363,15 +381,18 @@ export async function dueChecks(scope: WorkScope, deps: WorkDeps = {}): Promise<
   const checks = await listWorkChecks(scope.organisationId, brandOpt, deps);
   // Each task once, by id, as loadTasks keeps them.
   const mine = [...new Map(checks.rows.filter((t) => seesTask(scope, t)).map((t) => [t.id, t])).values()];
+  // Every task an after_task check waits for, however many: one not read never shows as due.
+  const down = new Set(checks.unanswered);
   const map = await lookupMap(
     scope,
     mine,
     mine.flatMap((t) => (t.check?.taskId ? [t.check.taskId] : [])),
     deps,
+    down,
   );
   const views = mine.map((t) => viewOf(scope, t, map, now)).filter((v) => v.due);
   views.sort(listOrder);
-  return { tasks: views, regionsDown: downOf(checks.unanswered) };
+  return { tasks: views, regionsDown: downOf(down) };
 }
 
 /** The To do tasks ready to start that the person sees (work_ready), in Review's order: Must have, then stage, then ref. */
@@ -379,10 +400,12 @@ export async function readyTasks(scope: WorkScope, deps: WorkDeps = {}): Promise
   const now = nowOf(deps);
   const loaded = await loadTasks(scope, { brandId: scope.view === "brand" ? scope.session.id : undefined, allClosed: false }, deps);
   const todo = loaded.tasks.filter((t) => t.status === "todo");
-  const map = await lookupMap(scope, loaded.tasks, wantedOf(todo), deps);
+  // Blockers the brand view didn't read (whole business tasks, another brand's) are looked up, however many.
+  const down = new Set(loaded.unanswered);
+  const map = await lookupMap(scope, loaded.tasks, wantedOf(todo), deps, down);
   const lookup = lookupOf(map);
   const ready = todo.filter((t) => isReadyToStart(t, now, lookup)).sort(readyOrder);
-  return { tasks: ready.map((t) => viewOf(scope, t, map, now)), regionsDown: downOf(loaded.unanswered) };
+  return { tasks: ready.map((t) => viewOf(scope, t, map, now)), regionsDown: downOf(down) };
 }
 
 // --- One task ----------------------------------------------------------------------------------
@@ -796,6 +819,8 @@ export async function editTask(scope: WorkScope, ref: number, body: EditTaskBody
   const now = nowOf(deps);
   const found = await taskByRef(scope, ref, deps);
   if (!found) return refuse("not_found");
+  // Checked against the task as the person's page showed it, so a stale tab or a second person never undoes a change.
+  if (body.baseUpdatedAt !== undefined && body.baseUpdatedAt !== found.updatedAt) return refuse("changed");
   let place = { brandId: found.brandId, region: found.region };
   if (body.brandId !== undefined) {
     const p = placeForChange(scope, found, body.brandId);
@@ -852,6 +877,8 @@ export async function actOnCheck(scope: WorkScope, body: CheckActionBody, deps: 
   let task = await taskByRef(scope, body.ref, deps);
   if (!task) return refuse("not_found");
   if (!task.check) return refuse("no_check");
+  // The check the page showed: once it has moved (answered elsewhere, moved, replaced), a stale tap is refused.
+  if (body.setAt !== undefined && body.setAt !== task.check.setAt) return refuse("changed");
   const byMeasure = task.check.setBy === SET_BY_MEASURE;
   if (body.action === "checked" && byMeasure) return refuse("measure_check_read");
   if (body.action === "read" && !byMeasure) return refuse("read_not_measure");
@@ -1025,7 +1052,10 @@ async function readImport(scope: WorkScope, body: ImportBody, deps: WorkDeps) {
   const refused: ImportDone["refused"] = read.problems.map((p) => ({ ...p, message: IMPORT_ROW_MESSAGES[p.problem] }));
   const rows: Array<ImportRow & { place: { brandId: string | null; region: Region } }> = [];
   for (const r of read.rows) {
-    if (r.ref !== null && taken.has(r.ref)) {
+    // A ref the counter gave out before the peek is taken even with no task to read yet: the write
+    // that took it (a quick add, another import, a brand move) may still be on its way. One it gave
+    // out after the peek makes the claim refuse.
+    if (r.ref !== null && (taken.has(r.ref) || r.ref < refs.next)) {
       refused.push({ row: r.row, problem: "ref_taken", message: IMPORT_ROW_MESSAGES.ref_taken });
       continue;
     }

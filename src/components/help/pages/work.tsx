@@ -120,8 +120,8 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
         </li>
         <li>
           The line under the title says where the task came from, such as &quot;Added by you on 18 Nov.&quot; or &quot;Imported
-          from Backlog.csv by you on 2 Nov, row 4.&quot; <strong>History</strong> lists every change, newest first, with who made
-          it and the value before and after.
+          from Backlog.csv by you on 2 Nov, row 4.&quot; <strong>History</strong> shows the last 20 changes, newest first, with
+          who made each. The Log keeps every change, day by day.
         </li>
         <li>
           <strong>Make it {word.a}</strong>, in the side panel under {word.One}, opens New {word.one} with the task&apos;s title
@@ -256,8 +256,8 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
       <H3>Did it work?</H3>
       <P>
         When a task with a measure moves to Done, Work sets its check that many days on, at 08:00 in the brand&apos;s time
-        zone, in place of any check it had. On that day the task, Today and Review ask <strong>{WORK_COPY.measureDueTitle}</strong>,
-        with what Work counted, or what it can&apos;t count:
+        zone, in place of any check it had. On that day the task&apos;s page says <strong>{WORK_COPY.measureDueTitle}</strong>,
+        and Today and Review ask <strong>Did it work?</strong>, each with what Work counted, or what it can&apos;t count:
       </P>
       <UL>
         <li>{COUNTED}</li>
@@ -317,7 +317,7 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
       </UL>
       <P>
         A check that is due shows amber on the list, under Checks due on Today, and in Review under Checks due today. The
-        task&apos;s page says <strong>{WORK_COPY.checkDue}</strong> with its note. A done task stays on the Open list while its
+        task&apos;s page shows a <strong>Check due</strong> banner with its note. A done task stays on the Open list while its
         check is due.
       </P>
       <Steps>

@@ -440,6 +440,8 @@ export interface LogCheck {
   byMeasure: boolean;
   /** The measure it asks about and what Work counted, or the note on a person's check. */
   line: string;
+  /** When the check was set: a tap on it once it moved since is refused. */
+  setAt: string;
 }
 
 export interface LogScreen extends WorkChrome {
@@ -490,7 +492,7 @@ export async function logScreen(scope: WorkScope, day: string | null, deps: Work
     const byMeasure = t.check?.setBy === SET_BY_MEASURE;
     const part = partOf(t.measure, byMeasure ? (t.check?.which ?? null) : null);
     const line = byMeasure && part ? `${partLine(part, { event })} ${checkLineOf(scope, t, event) ?? ""}`.trim() : t.check?.note || (t.check?.kind === "after_task" ? WORK_COPY.afterTaskDone : WORK_COPY.checkDueText);
-    return { ref: t.ref, title: t.title, brandName: due[i]!.brandName, byMeasure, line };
+    return { ref: t.ref, title: t.title, brandName: due[i]!.brandName, byMeasure, line, setAt: t.check?.setAt ?? "" };
   });
   const who = [
     ...rest.inFlight.map((f) => f.by.id),

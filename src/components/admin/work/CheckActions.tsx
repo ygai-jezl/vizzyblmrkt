@@ -33,19 +33,24 @@ export const checkNoticeOf = (notice: string | null | undefined): string => noti
  * Mark checked and Look again tomorrow. Too soon to tell asks again 7 days on; the person can pick
  * another day after. The answer's notice says what Work set next. The page reads itself again
  * after an answer, and an answered check is no longer due, so these buttons go: a page passes
- * `onSaid` to keep the notice somewhere that stays.
+ * `onSaid` to keep the notice somewhere that stays, and `onStart` to clear what it said before.
+ * `setAt` is the check as the page shows it: once it moved since, the tap is refused.
  */
 export function CheckActions({
   taskRef,
   byMeasure,
   via,
+  setAt,
   compact = false,
+  onStart,
   onSaid,
 }: {
   taskRef: number;
   byMeasure: boolean;
   via: "work_page" | "today";
+  setAt?: string;
   compact?: boolean;
+  onStart?: () => void;
   onSaid?: (notice: string) => void;
 }) {
   const router = useRouter();
@@ -56,7 +61,8 @@ export function CheckActions({
   async function send(body: CheckSend, key: string) {
     setBusy(key);
     setError(null);
-    const r = await workCall<{ notice: string | null }>("/checks", "POST", { ref: taskRef, ...body, via });
+    onStart?.();
+    const r = await workCall<{ notice: string | null }>("/checks", "POST", { ref: taskRef, ...body, via, ...(setAt ? { setAt } : {}) });
     setBusy(null);
     if (!r.ok) return setError(workErrorText(r.data));
     const notice = checkNoticeOf(r.data.notice);
@@ -95,8 +101,11 @@ export function CheckActions({
   );
 }
 
-/** Move a check to another day and time: a measure's check keeps asking about its measure. */
-export function MoveCheck({ taskRef, today, onClose }: { taskRef: number; today: string; onClose: () => void }) {
+/**
+ * Move a check to another day and time: a measure's check keeps asking about its measure. `onMoved`
+ * gets what Work set, so the page's line says the new date, never the old one.
+ */
+export function MoveCheck({ taskRef, today, setAt, onClose, onMoved }: { taskRef: number; today: string; setAt?: string; onClose: () => void; onMoved?: (notice: string) => void }) {
   const router = useRouter();
   const [day, setDay] = useState(today);
   const [time, setTime] = useState("08:00");
@@ -105,9 +114,10 @@ export function MoveCheck({ taskRef, today, onClose }: { taskRef: number; today:
   async function save() {
     setBusy(true);
     setError(null);
-    const r = await workCall("/checks", "POST", { ref: taskRef, action: "look_again", day, ...(time !== "08:00" ? { time } : {}), via: "work_page" });
+    const r = await workCall<{ notice: string | null }>("/checks", "POST", { ref: taskRef, action: "look_again", day, ...(time !== "08:00" ? { time } : {}), via: "work_page", ...(setAt ? { setAt } : {}) });
     setBusy(false);
     if (!r.ok) return setError(workErrorText(r.data));
+    onMoved?.(checkNoticeOf(r.data.notice));
     onClose();
     router.refresh();
   }

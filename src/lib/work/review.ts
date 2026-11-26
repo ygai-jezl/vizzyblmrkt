@@ -58,7 +58,7 @@ export function workCheckItem(o: { task: WorkTask; brandName: string | null; mul
     details: [detail],
     href: `/admin/work/${t.ref}`,
     action: WORK_REVIEW_COPY.open,
-    work: { kind: "check", ref: t.ref, measure: part !== null },
+    work: { kind: "check", ref: t.ref, measure: part !== null, setAt: c.setAt },
   };
 }
 

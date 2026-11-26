@@ -134,13 +134,18 @@ describe("get_work", () => {
     const b = bodyOf(await agentGetWork(NINA_AGENT, {}, w.deps));
     expect(b.suggestionsWaiting).toEqual([expect.objectContaining({ title: "Write a comparison page", stage: "5 Market" })]);
     const byTitle = Object.fromEntries(b.dismissedLately.map((d: Body) => [d.title, d]));
-    expect(byTitle["Run a webinar"]).toEqual({ title: "Run a webinar", why: "Not now", on: "20 Nov", again: "Vizzy may suggest it again from 20 Dec." });
-    expect(byTitle["Buy a billboard"]).toMatchObject({ why: "Not for us", again: "Vizzy won't suggest it again." });
-    expect(byTitle["Start a podcast"]).toMatchObject({ why: "No reason given", again: "Vizzy won't suggest it again." });
+    // Dismissals count per brand: in a multi brand organisation each names its brand, and again is for that brand.
+    expect(byTitle["Run a webinar"]).toEqual({ title: "Run a webinar", brand: "Lumen Notes", why: "Not now", on: "20 Nov", again: "Vizzy may suggest it again for Lumen Notes from 20 Dec." });
+    expect(byTitle["Buy a billboard"]).toMatchObject({ why: "Not for us", again: "Vizzy won't suggest it again for Lumen Notes." });
+    expect(byTitle["Start a podcast"]).toMatchObject({ why: "No reason given", again: "Vizzy won't suggest it again for Lumen Notes." });
+    // The same title for the whole business is another suggestion.
+    expect(bodyOf(await agentSuggestWorkTask(NINA_AGENT, { tool: "suggest_work_task", title: "Buy a billboard", brand: "whole business" }, w.deps))).toMatchObject({ outcome: "suggested" });
     // After 30 days, Not now lets it back now.
     w.at("2026-12-21T09:00:00.000Z");
     const after = bodyOf(await agentGetWork(NINA_AGENT, {}, w.deps));
-    expect(after.dismissedLately.find((d: Body) => d.title === "Run a webinar").again).toBe("Vizzy may suggest it again from 21 Dec.");
+    expect(after.dismissedLately.find((d: Body) => d.title === "Run a webinar").again).toBe("Vizzy may suggest it again for Lumen Notes from 21 Dec.");
+    // Fernhill is one brand: no brand to name.
+    expect(bodyOf(await agentGetWork(PRIYA_AGENT, {}, w.deps)).dismissedLately).toEqual([]);
   });
 
   it("lists the suggestions dismissed or waiting in the chats of every brand the person sees", async () => {
@@ -149,7 +154,7 @@ describe("get_work", () => {
     value(await dismissSuggestion(await w.scope(PEOPLE.nina), { actionId: a.id, rev: 1, why: "not_for_us" }, w.deps));
     value(await proposeWorkSuggestion(await w.scope(PEOPLE.nina), { task: { ...whole, title: "Open a business bank account" } }, w.deps));
     const b = bodyOf(await agentGetWork(agent(LUMEN_EU, "eu", NINA, "admin"), {}, w.deps));
-    expect(b.dismissedLately).toEqual([expect.objectContaining({ title: "Register the business", why: "Not for us", again: "Vizzy won't suggest it again." })]);
+    expect(b.dismissedLately).toEqual([expect.objectContaining({ title: "Register the business", brand: "Whole business", why: "Not for us", again: "Vizzy won't suggest it again for the whole business." })]);
     expect(b.suggestionsWaiting).toEqual([expect.objectContaining({ title: "Open a business bank account", brand: "Whole business" })]);
     // From Lumen Europe's chat, the dismissed one isn't made again.
     expect(bodyOf(await agentSuggestWorkTask(agent(LUMEN_EU, "eu", NINA, "admin"), { tool: "suggest_work_task", title: "Register the business", brand: "whole business", stage: "Set up" }, w.deps))).toMatchObject({ outcome: "dismissed" });
@@ -281,6 +286,27 @@ describe("suggest_work_task", () => {
     expect(bodyOf(await suggest({ title: "Buy a billboard" }))).toMatchObject({ outcome: "dismissed" });
   });
 
+  it("drops a field_value signal, which a suggestion has no field for, and still makes the suggestion", async () => {
+    const r = await suggest({ title: "Call the people who asked", evidence: [{ kind: "field_value", ref: "plan" }, { kind: "metric", ref: "searchClicks" }] });
+    expect(r.status).toBe(200);
+    const a = w.us.raw("agent_actions", bodyOf(r).card.id) as unknown as AgentAction;
+    expect(a.signals).toEqual([{ kind: "metric", ref: "searchClicks" }]);
+  });
+
+  it("says a log entry is from today's log when it falls on today where the person is, whatever day its writer's zone stored", async () => {
+    // Leo in Berlin logged at 23:30 UTC on 20 Nov: 21 Nov for him, still 20 Nov in New York.
+    w.at("2026-11-20T23:30:00.000Z");
+    const row = value(await addLogEntry(await w.scope(PEOPLE.leo), { workstream: "Supplier calls", state: "doing" }, w.deps)).row;
+    expect(row.day).toBe("2026-11-21");
+    w.at("2026-11-20T23:45:00.000Z");
+    // Nina suggests from Lumen Notes, in New York time.
+    const r = bodyOf(await suggest({ title: "Order the winter stock", evidence: [{ kind: "work_log", ref: row.id }] }));
+    expect(r.outcome).toBe("suggested");
+    expect((w.us.raw("agent_actions", r.card.id) as unknown as AgentAction).proposal).toMatchObject({ task: { from: "from today's log: Supplier calls" } });
+    expect(fromLine({ refs: [], logRows: [row], stage: null, today: "2026-11-20", timeZone: "America/New_York" })).toBe("from today's log: Supplier calls");
+    expect(fromLine({ refs: [], logRows: [row], stage: null, today: "2026-11-21", timeZone: "America/New_York" })).toBe("from your log on 20 Nov: Supplier calls");
+  });
+
   it("works out where it came from", () => {
     const base = { logRows: [], stage: null, today: "2026-11-20", timeZone: "UTC" };
     expect(fromLine({ ...base, refs: [{ kind: "data_signal", ref: "ds_1" }] })).toBe("from your numbers");
@@ -343,6 +369,15 @@ describe("draft_work_log and draft_work_decision", () => {
     ]) {
       expect(await agentWorkPost(NINA_AGENT, body, w.deps)).toMatchObject({ status: 400, body: { error: "plan_drafted" } });
     }
+    expect(w.us.dump("agent_actions")).toEqual([]);
+  });
+
+  it("refuses a question far longer than a decision keeps, at once, never reading it mark by mark", async () => {
+    const started = performance.now();
+    const r = await agentWorkPost(NINA_AGENT, { tool: "draft_work_decision", task: us.ref, question: `${"!".repeat(63_000)}x`, options: [] }, w.deps);
+    expect(r).toMatchObject({ status: 400, body: { error: "invalid_input" } });
+    expect(await agentWorkPost(NINA_AGENT, { tool: "draft_work_log", workstream: "x".repeat(81) }, w.deps)).toMatchObject({ status: 400, body: { error: "invalid_input" } });
+    expect(performance.now() - started).toBeLessThan(500);
     expect(w.us.dump("agent_actions")).toEqual([]);
   });
 

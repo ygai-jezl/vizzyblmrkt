@@ -125,15 +125,23 @@ const OptionalTaskFields = {
 export const AddTaskBodySchema = z.object({ title: TaskFields.title, ...OptionalTaskFields }).strict();
 export type AddTaskBody = z.infer<typeof AddTaskBodySchema>;
 
-/** An edit: any of the fields, and the idea the task became (Make it an idea), or null to unlink it. */
+/** When a task or a check was last changed, as the page read it: an edit from an older page is refused. */
+const SeenAtSchema = z.string().max(40);
+
+/**
+ * An edit: any of the fields, and the idea the task became (Make it an idea), or null to unlink it.
+ * `baseUpdatedAt` is the task's updatedAt as the page showed it: once the task changed since, the
+ * edit is refused, never merged over the other change.
+ */
 export const EditTaskBodySchema = z
   .object({
     title: TaskFields.title.optional(),
     ...OptionalTaskFields,
     idea: z.object({ brandId: TenantId, ideaId: PlainId }).strict().nullable().optional(),
+    baseUpdatedAt: SeenAtSchema.optional(),
   })
   .strict()
-  .refine((b) => Object.keys(b).some((k) => k !== "via"), { message: "nothing to change" });
+  .refine((b) => Object.keys(b).some((k) => k !== "via" && k !== "baseUpdatedAt"), { message: "nothing to change" });
 export type EditTaskBody = z.infer<typeof EditTaskBodySchema>;
 
 // --- The list's filters ------------------------------------------------------------------------
@@ -178,6 +186,8 @@ export const CheckActionBodySchema = z
     day: DaySchema.optional(),
     time: TimeSchema.optional(),
     via: z.enum(WORK_VIA).optional(),
+    /** The check's setAt as the page showed it: once the check moved since, the tap is refused. */
+    setAt: SeenAtSchema.optional(),
   })
   .strict()
   .refine((b) => (b.action === "read") === (b.read !== undefined), { message: "a read goes with action read, and only with it", path: ["read"] })

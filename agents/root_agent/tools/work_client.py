@@ -44,8 +44,11 @@ _ERRORS = {
 
 _KINDS = {"used", "moves", "runs_better", "done"}
 _STATES = {"doing", "done", "blocked", "waiting"}
+# The longest question a decision keeps (WORK_LIMITS.question in src/lib/work/types.ts).
+_QUESTION_MAX = 200
+# The evidence a Work suggestion can name. Not field_value: that names a field of an action, and a
+# suggestion has none, so the app would refuse it.
 _SIGNAL_KINDS = {
-    "field_value",
     "product_event",
     "email_event",
     "product_user",
@@ -126,9 +129,13 @@ def ref_of(task: "str | int | None") -> "int | None":
 
 
 def is_plan_approval(question: str) -> bool:
-    """Whether a question is Approve the plan, in any case or spacing: that one is never drafted."""
-    text = re.sub(r"\s+", " ", (question or "").strip().lower())
-    return re.sub(r"[.?!]+$", "", text) == "approve the plan"
+    """Whether a question is Approve the plan, in any case or spacing: that one is never drafted.
+    Anything longer than a question may be isn't one, and the trailing marks go with rstrip, so a
+    long run of them is read in one pass."""
+    text = (question or "").strip()
+    if len(text) > _QUESTION_MAX:
+        return False
+    return re.sub(r"\s+", " ", text.lower()).rstrip(".?!") == "approve the plan"
 
 
 def get_work(state: "dict | None", brand: str = "", stage: str = "", status: str = "", ref: str = "", day: str = "", must_have: bool = False, checks_due: bool = False) -> dict:

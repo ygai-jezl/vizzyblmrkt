@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { failingFirestore } from "@/lib/tenant/testing/failingFirestore";
 import { flakyFirestore } from "@/lib/tenant/testing/flakyFirestore";
-import { WORK_LOG, WORK_TASKS } from "@/lib/tenant";
+import { allocateWorkRefs, createWorkTask, WORK_LOG, WORK_TASKS } from "@/lib/tenant";
 import { addTask, editTask, importTasks, previewImport } from "./service";
 import type { ImportBody } from "./inputs";
 import type { WorkResult } from "./result";
 import { FERNHILL, makeWorld, PEOPLE, type World } from "./testing/world";
-import { LUMEN_EU, LUMEN_US, NINA, ORG } from "./testing/fixtures";
+import { aTask, aWrite, LUMEN_EU, LUMEN_US, NINA, ORG } from "./testing/fixtures";
 import type { WorkTask } from "./types";
 
 // A made-up Backlog tab, the 12 rows of the plan's walk for Fernhill Plants, pasted from Google Sheets.
@@ -176,6 +176,19 @@ describe("importing a Backlog tab", () => {
     expect(new Set(refs).size).toBe(refs.length);
     // The import let go of the counter.
     expect(w.control.raw("work_refs", "org_ten_fernhill")?.importHold).toBeUndefined();
+  });
+
+  it("never gives two tasks one ref when a number taken before the sheet was read has no task yet", async () => {
+    // A quick add took #1 from the counter, and its task is still on its way when the import reads.
+    const ref = await allocateWorkRefs("org_ten_fernhill", 1, w.control);
+    const r = value(await importTasks(await w.scope(PEOPLE.priya), body("ID,Task\n1,Register the business name\n2,Van insurance"), w.deps));
+    expect(r).toMatchObject({ imported: 1, refused: [{ row: 2, problem: "ref_taken", message: "Its ref is taken already." }] });
+    // Then the quick add's task lands.
+    await createWorkTask(aTask({ organisationId: "org_ten_fernhill", brandId: FERNHILL, addedFrom: FERNHILL, region: "eu", ref, title: "Quick add" }), aWrite(), w.deps);
+    expect(tasksIn(w.eu).map((t) => [t.ref, t.title]).sort()).toEqual([
+      [1, "Quick add"],
+      [2, "Van insurance"],
+    ]);
   });
 
   it("never gives two tasks one ref when the same sheet is imported twice at once", async () => {

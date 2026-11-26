@@ -163,7 +163,10 @@ export function taskDetail(page: WorkTaskPage, o: { multiBrand: boolean; today: 
         when: whenWords(r.at, tz, o.today),
       })),
     // A value too long for the recent list is left out (undefined), which is not a clear (null).
-    history: t.recent.slice(0, 10).map((r) => `${whoWords(r.who, NOBODY, page.names)} ${changeWords(r.field, r.before, r.after, { ideaWords: o.ideaWords })} (${whenWords(r.at, tz, o.today)})`),
+    history: t.recent
+      .filter((r) => r.field !== "ideaBrandId")
+      .slice(0, 10)
+      .map((r) => `${whoWords(r.who, NOBODY, page.names)} ${changeWords(r.field, r.before, r.after, { ideaWords: o.ideaWords })} (${whenWords(r.at, tz, o.today)})`),
   };
 }
 
@@ -172,9 +175,10 @@ const rowTask = (day: LogDayView, id: string | null) => {
   return t ? `#${t.ref} ${t.title}` : null;
 };
 
-/** What a moved task's rows did, in words. */
+/** What a moved task's rows did, in words. The idea's brand, which changes with the idea, goes unsaid, as in History. */
 function movedLine(rows: ReadonlyArray<WorkLogRowOf<"change"> | WorkLogRowOf<"check">>, names: Readonly<Record<string, string>>, ideaWords = false): string {
   return rows
+    .filter((r) => r.kind === "check" || r.field !== "ideaBrandId")
     .slice(-3)
     .map((r) => `${whoWords(r.source.who, NOBODY, names)} ${r.kind === "check" ? changeWords("check", null, r.check.read ?? r.check.action) : changeWords(r.field, r.before, r.after, { tool: r.source.tool, ideaWords })}`)
     .join("; ");
@@ -215,14 +219,27 @@ export function logWords(day: LogDayView, o: { names: Readonly<Record<string, st
   };
 }
 
-/** A suggestion people dismissed, with why and whether Vizzy may suggest it again. */
-export function dismissalWords(a: Pick<AgentAction, "declined" | "decidedAt">, s: SuggestedTask, againOn: string | null, timeZone: string) {
+/**
+ * A suggestion people dismissed, with why and whether Vizzy may suggest it again. Dismissals count
+ * per brand (and for the whole business), so in a multi brand organisation it names the brand, and
+ * `again` is for that brand only.
+ */
+export function dismissalWords(
+  a: Pick<AgentAction, "declined" | "decidedAt">,
+  s: SuggestedTask,
+  againOn: string | null,
+  timeZone: string,
+  o: { multiBrand: boolean; brandName: (id: string) => string | undefined } = { multiBrand: false, brandName: () => undefined },
+) {
   const why = a.declined?.why;
+  const brand = s.brandId ? (o.brandName(s.brandId) ?? "a brand you can't see") : "Whole business";
+  const forBrand = o.multiBrand ? ` for ${s.brandId ? brand : "the whole business"}` : "";
   return {
     title: s.title,
+    ...(o.multiBrand ? { brand } : {}),
     why: why ? DECLINE_WHY_LABEL[why] : "No reason given",
     on: a.decidedAt ? dayOf(a.decidedAt, timeZone) : null,
-    again: againOn ? `Vizzy may suggest it again from ${dayOf(againOn, timeZone)}.` : "Vizzy won't suggest it again.",
+    again: againOn ? `Vizzy may suggest it again${forBrand} from ${dayOf(againOn, timeZone)}.` : `Vizzy won't suggest it again${forBrand}.`,
   };
 }
 

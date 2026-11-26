@@ -183,7 +183,7 @@ describe("the Log screen", () => {
     // Nina added the task today, so she is named too.
     expect(s.names).toEqual({ uid_nina: "nina", uid_sam: "sam" });
     expect(s.day.moved.map((m) => m.taskId)).toEqual([t.id]);
-    expect(s.checks).toEqual([{ ref: t.ref, title: "Nightly check of search answers", brandName: "Lumen Notes", byMeasure: false, line: "After last night's runs" }]);
+    expect(s.checks).toEqual([{ ref: t.ref, title: "Nightly check of search answers", brandName: "Lumen Notes", byMeasure: false, line: "After last night's runs", setAt: t.createdAt }]);
     expect(s.openTasks).toEqual([{ ref: t.ref, title: "Nightly check of search answers", status: "todo" }]);
     expect(s.openCount).toBe(1);
     expect(s.logBrands.map((b) => b.id)).toEqual([LUMEN_US, LUMEN_EU]);

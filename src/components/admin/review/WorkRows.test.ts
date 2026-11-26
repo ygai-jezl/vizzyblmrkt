@@ -17,9 +17,9 @@ const measureCheck: Item<"check"> = {
   detail: "Lumen Notes · Did it work? Used: note_from_template events, 14 days after it's done. Work counted 212 note_from_template events from Lumen Notes' product since 11 Nov.",
   href: "/admin/work/57",
   action: "Open",
-  work: { kind: "check", ref: 57, measure: true },
+  work: { kind: "check", ref: 57, measure: true, setAt: "2026-11-24T13:00:00.000Z" },
 };
-const dateCheck: Item<"check"> = { ...measureCheck, id: "work_check:wt_b", title: "#69 Nightly check of search answers", detail: "After last night's runs.", href: "/admin/work/69", work: { kind: "check", ref: 69, measure: false } };
+const dateCheck: Item<"check"> = { ...measureCheck, id: "work_check:wt_b", title: "#69 Nightly check of search answers", detail: "After last night's runs.", href: "/admin/work/69", work: { kind: "check", ref: 69, measure: false, setAt: "2026-11-23T08:00:00.000Z" } };
 const ready: Item<"ready"> = { id: "work_ready:wt_c", kind: "work_ready", title: "#80 Import from other note apps", detail: "1 Idea · Lumen Notes · To do since 18 Nov. Nothing blocks it.", href: "/admin/work/80", action: "Open", work: { kind: "ready", ref: 80, title: "Import from other note apps" } };
 const suggestion: Item<"suggestion"> = {
   id: `aa:${ID}`,

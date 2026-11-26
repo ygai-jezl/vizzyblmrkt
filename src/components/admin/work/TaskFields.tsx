@@ -30,6 +30,18 @@ import type { OpenTaskOption } from "@/lib/work/screens";
  * tasks it waits for, and its check. Each holds plain data; the routes check it all again.
  */
 
+/**
+ * Enter in one of these editors' own boxes runs that editor's add (or picks the first task found),
+ * never the add page's Add task: the form would otherwise submit the task and drop what was typed.
+ */
+export function onEnter(go: () => void) {
+  return (e: { key: string; preventDefault: () => void; nativeEvent?: { isComposing?: boolean } }) => {
+    if (e.key !== "Enter" || e.nativeEvent?.isComposing) return;
+    e.preventDefault();
+    go();
+  };
+}
+
 /** Each kind's label, button and hint; an idea in this copy's word for one. */
 export function kindWords(ideaWords: boolean): Record<TypedLinkKind, { label: string; add: string; hint: string }> {
   const w = ideaWord(ideaWords);
@@ -136,7 +148,16 @@ export function TypedLinksEditor({ links, onChange, repos, ideas, operator, loop
                   </option>
                 ))}
               </select>
-              <input type="text" inputMode="numeric" aria-label="Pull request number" placeholder="Number, like 84" value={d.number} onChange={(e) => set({ number: e.target.value.replace(/[^0-9]/g, "").slice(0, 9) })} className={`${inputClass} w-36`} />
+              <input
+                type="text"
+                inputMode="numeric"
+                aria-label="Pull request number"
+                placeholder="Number, like 84"
+                value={d.number}
+                onChange={(e) => set({ number: e.target.value.replace(/[^0-9]/g, "").slice(0, 9) })}
+                onKeyDown={onEnter(add)}
+                className={`${inputClass} w-36`}
+              />
             </>
           ) : null}
           {kind === "switch" || kind === "loop_line" ? (
@@ -146,10 +167,18 @@ export function TypedLinksEditor({ links, onChange, repos, ideas, operator, loop
             </label>
           ) : null}
           {(kind === "switch" || kind === "loop_line") && d.none ? (
-            <input type="text" aria-label="Why there is none" placeholder="Why there is none" maxLength={140} value={d.noneReason} onChange={(e) => set({ noneReason: e.target.value })} className={`${inputClass} min-w-[12rem] flex-1`} />
+            <input type="text" aria-label="Why there is none" placeholder="Why there is none" maxLength={140} value={d.noneReason} onChange={(e) => set({ noneReason: e.target.value })} onKeyDown={onEnter(add)} className={`${inputClass} min-w-[12rem] flex-1`} />
           ) : null}
           {kind === "switch" && !d.none ? (
-            <input type="text" aria-label="Switch name" placeholder="SHARED_NOTEBOOKS_ENABLED" value={d.switchName} onChange={(e) => set({ switchName: switchNameOf(e.target.value) })} className={`${inputClass} min-w-[14rem] flex-1 font-mono`} />
+            <input
+              type="text"
+              aria-label="Switch name"
+              placeholder="SHARED_NOTEBOOKS_ENABLED"
+              value={d.switchName}
+              onChange={(e) => set({ switchName: switchNameOf(e.target.value) })}
+              onKeyDown={onEnter(add)}
+              className={`${inputClass} min-w-[14rem] flex-1 font-mono`}
+            />
           ) : null}
           {kind === "loop_line" && !d.none ? (
             <select aria-label="Loop line" value={d.loopKind} onChange={(e) => set({ loopKind: e.target.value })} className={`${inputClass} w-auto`}>
@@ -173,9 +202,9 @@ export function TypedLinksEditor({ links, onChange, repos, ideas, operator, loop
           ) : null}
           {kind === "plan" ? (
             <>
-              <input type="text" aria-label="Plan title" placeholder="Plan title" maxLength={120} value={d.planTitle} onChange={(e) => set({ planTitle: e.target.value })} className={`${inputClass} min-w-[10rem] flex-1`} />
-              <input type="url" aria-label="Plan link" placeholder="https://" maxLength={2000} value={d.planUrl} onChange={(e) => set({ planUrl: e.target.value.trim() })} className={`${inputClass} min-w-[12rem] flex-1`} />
-              <input type="text" aria-label="Version (optional)" placeholder="Version (optional)" maxLength={40} value={d.planVersion} onChange={(e) => set({ planVersion: e.target.value })} className={`${inputClass} w-36`} />
+              <input type="text" aria-label="Plan title" placeholder="Plan title" maxLength={120} value={d.planTitle} onChange={(e) => set({ planTitle: e.target.value })} onKeyDown={onEnter(add)} className={`${inputClass} min-w-[10rem] flex-1`} />
+              <input type="url" aria-label="Plan link" placeholder="https://" maxLength={2000} value={d.planUrl} onChange={(e) => set({ planUrl: e.target.value.trim() })} onKeyDown={onEnter(add)} className={`${inputClass} min-w-[12rem] flex-1`} />
+              <input type="text" aria-label="Version (optional)" placeholder="Version (optional)" maxLength={40} value={d.planVersion} onChange={(e) => set({ planVersion: e.target.value })} onKeyDown={onEnter(add)} className={`${inputClass} w-36`} />
             </>
           ) : null}
           <Button onClick={add}>{KIND_WORDS[kind].add}</Button>
@@ -198,6 +227,7 @@ export function FreeLinksEditor({ links, onChange, hasRepo }: { links: WorkLink[
   const [label, setLabel] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
   const add = () => {
+    if (!url.trim()) return;
     const r = freeLinkOf(url, label);
     if (!r.ok) return setProblem(r.problem);
     if (links.length >= WORK_LIMITS.links) return setProblem("A task keeps up to 20 other links.");
@@ -228,8 +258,8 @@ export function FreeLinksEditor({ links, onChange, hasRepo }: { links: WorkLink[
         </ul>
       ) : null}
       <div className="flex flex-wrap items-center gap-2">
-        <input type="url" aria-label="Paste a link" placeholder="Paste a link: an AI chat, a page or a doc" value={url} onChange={(e) => setUrl(e.target.value)} className={`${inputClass} min-w-[14rem] flex-1`} />
-        <input type="text" aria-label="What it is (optional)" placeholder="What it is (optional)" maxLength={120} value={label} onChange={(e) => setLabel(e.target.value)} className={`${inputClass} w-48`} />
+        <input type="url" aria-label="Paste a link" placeholder="Paste a link: an AI chat, a page or a doc" value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={onEnter(add)} className={`${inputClass} min-w-[14rem] flex-1`} />
+        <input type="text" aria-label="What it is (optional)" placeholder="What it is (optional)" maxLength={120} value={label} onChange={(e) => setLabel(e.target.value)} onKeyDown={onEnter(add)} className={`${inputClass} w-48`} />
         <Button disabled={!url.trim()} onClick={add}>
           Add link
         </Button>
@@ -251,6 +281,10 @@ export function BlockedByPicker({ refs, onChange, openTasks, id }: { refs: numbe
   const q = query.trim().toLowerCase().replace(/^#/, "");
   const results = q ? openTasks.filter((t) => !refs.includes(t.ref) && (String(t.ref).startsWith(q) || t.title.toLowerCase().includes(q))).slice(0, 5) : [];
   const byRef = (ref: number) => openTasks.find((t) => t.ref === ref);
+  const pick = (ref: number) => {
+    onChange([...refs, ref]);
+    setQuery("");
+  };
   return (
     <div className="space-y-1.5">
       {refs.length ? (
@@ -276,6 +310,9 @@ export function BlockedByPicker({ refs, onChange, openTasks, id }: { refs: numbe
             placeholder="Find a task by ref or title"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={onEnter(() => {
+              if (results[0]) pick(results[0].ref);
+            })}
             className={inputClass}
           />
           {results.length ? (
@@ -284,10 +321,7 @@ export function BlockedByPicker({ refs, onChange, openTasks, id }: { refs: numbe
                 <li key={t.ref} role="option" aria-selected={false}>
                   <button
                     type="button"
-                    onClick={() => {
-                      onChange([...refs, t.ref]);
-                      setQuery("");
-                    }}
+                    onClick={() => pick(t.ref)}
                     className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm hover:bg-neutral-50 dark:hover:bg-neutral-900"
                   >
                     <span className="tabular-nums text-neutral-500">#{t.ref}</span>

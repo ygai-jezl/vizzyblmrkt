@@ -6,6 +6,7 @@ Made-up Lumen Notes and Fernhill Plants only.
 from __future__ import annotations
 
 import json
+import time
 
 from root_agent_pkg.prompts.system_instruction import ROOT_SYSTEM_INSTRUCTION
 from root_agent_pkg.tools import work_client as wc
@@ -90,6 +91,20 @@ def test_draft_work_decision_refuses_approve_the_plan_with_no_call(monkeypatch):
         out = wc.draft_decision(STATE, "73", question, ["Approve", "Change it", "Not now"], "a", "It reads well.")
         assert out["status"] == "error" and out["code"] == "plan_approval_is_yours"
         assert "stays with people" in out["message"]
+
+
+def test_a_long_question_is_read_in_one_pass_and_is_never_a_plan_approval():
+    started = time.perf_counter()
+    assert wc.is_plan_approval("!" * 16000 + "x") is False
+    assert wc.is_plan_approval("Approve the plan" + "?" * 16000) is False
+    assert time.perf_counter() - started < 0.1
+    assert wc.is_plan_approval("Approve the plan?!.") is True
+
+
+def test_a_field_value_is_never_sent_as_evidence_for_a_suggestion():
+    refs, unread = wc.evidence_of(["field_value:plan", "metric:searchClicks"])
+    assert refs == [{"kind": "metric", "ref": "searchClicks"}]
+    assert unread == ["field_value:plan"]
 
 
 def test_draft_work_decision_needs_two_to_four_options_and_a_reason_with_a_pick(monkeypatch):

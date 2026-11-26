@@ -1,4 +1,4 @@
-import { getOrganisation, getTenantById, organisationIdFor, REGION_CONFIGS, type TenantContext, type WorkStores } from "@/lib/tenant";
+import { getOrganisation, getTenantById, organisationIdFor, organisationMembership, REGION_CONFIGS, type TenantContext, type WorkStores } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
 import { isLoopsOperator } from "@/lib/loops/operators";
 import type { UserLookup } from "@/lib/team/names";
@@ -13,7 +13,8 @@ import { zoneOf } from "./schedule";
  * - The organisation is the one the session brand's registry record names, and it must list the
  *   brand back. A brand with no organisation yet (plans off, before the backfill) is its own one
  *   brand organisation under the id the backfill gives it (org_<tenantId>), so its tasks line up
- *   with no move later. If a record already holds that id, Work refuses instead of guessing.
+ *   with no move later. If a record already holds that id, Work refuses instead of guessing, even
+ *   one that doesn't read as an organisation: taking that id up erases what is kept under it.
  * - The view is Plan and usage's rule: owners, and everyone in a one brand organisation, see the
  *   whole organisation; in a multi brand organisation everyone else sees the session brand's
  *   tasks only, and no whole business tasks.
@@ -101,8 +102,10 @@ export async function workScopeFor(ctx: TenantContext, deps: WorkDeps = {}): Pro
 
   if (!tenant.organisationId) {
     const id = organisationIdFor(tenant.id);
-    const taken = db ? await getOrganisation(id, db) : await getOrganisation(id);
-    if (taken) return { ok: false, why: "no_organisation" };
+    // Read as stored, parsed or not, as taking the id up does (reusableOrganisationId): any record
+    // there means Work isn't kept under it, since taking it up erases the Work kept under it.
+    const taken = db ? await organisationMembership(id, db) : await organisationMembership(id);
+    if (taken.exists) return { ok: false, why: "no_organisation" };
     return {
       ok: true,
       scope: {

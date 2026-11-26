@@ -567,6 +567,9 @@ describe("a brand moving to another organisation", () => {
     expect(await brandWorkHome({ id: LUMEN_US, organisationId: ORG }, control)).toBe(ORG);
     control.seed("organisations", "org_ten_hearth", { name: "Someone else", plan: "self_hosted", planSince: T0, brandIds: ["ten_other"], ownerIds: [], createdBy: NINA, createdAt: T0, updatedAt: T0 });
     expect(await brandWorkHome({ id: "ten_hearth", organisationId: null }, control)).toBeNull();
+    // A record that doesn't parse holds the id all the same: taking it up would erase the Work kept there.
+    control.seed("organisations", "org_ten_hearth", { brandIds: ["ten_other"] });
+    expect(await brandWorkHome({ id: "ten_hearth", organisationId: null }, control)).toBeNull();
   });
 
   it("does nothing, and takes no refs, for a brand with no tasks or a move to the same organisation", async () => {

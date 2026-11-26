@@ -1,4 +1,5 @@
-import { addDaysToKey } from "@/lib/lifecycle/sendWindow";
+import { addDaysToKey, localDateKey } from "@/lib/lifecycle/sendWindow";
+import { zoneOf } from "@/lib/views/evaluate";
 import type { StageRole } from "./presets";
 
 /**
@@ -17,6 +18,11 @@ import type { StageRole } from "./presets";
 export const QUIET_AFTER_DAYS = 14;
 
 export type DueReason = "quiet" | "next_step";
+
+/** The brand's day today, in its own time zone (UTC when it has none, or one that isn't real). */
+export function todayFor(timeZone: string | null | undefined, now: Date): string {
+  return localDateKey(now.getTime(), zoneOf(timeZone));
+}
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const isDay = (v: unknown): v is string => typeof v === "string" && DAY.test(v);

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { todayFor } from "./board";
-import { daysBetween, dueReasons, dueTallies, isNextStepPast, isQuiet, QUIET_AFTER_DAYS, quietDays } from "./due";
+import { daysBetween, dueReasons, dueTallies, isNextStepPast, isQuiet, QUIET_AFTER_DAYS, quietDays, todayFor } from "./due";
 
 const TODAY = "2026-11-26";
 

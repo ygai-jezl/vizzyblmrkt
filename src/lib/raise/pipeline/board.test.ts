@@ -235,6 +235,24 @@ describe("moveRequest", () => {
     expect(await moveRequest(w.ctx, { personId: sam, from: null, to: w.stage("replied") }, { db: bare, loadTenant })).toEqual({ status: 400, body: { error: "not_set_up" } });
   });
 
+  it("sets the person's open follow-ups aside as it moves them, with follow-ups on", async () => {
+    vi.stubEnv("RAISE_FOLLOWUPS_ENABLED", "true");
+    const { followUpProposal } = await import("./followups");
+    const { proposeAgentAction } = await import("@/lib/tenant");
+    const sam = await w.add({ email: "sam@example.com", stage: "contacted", lastTouch: "2026-11-01" });
+    const fu = await proposeAgentAction(
+      w.ctx,
+      followUpProposal({ personId: sam, due: "quiet", day: "2026-11-01", stageOptionId: w.stage("contacted"), stageField: w.ids.stage, dateField: w.ids.lastTouch, at: NOW.toISOString() }),
+      { db },
+    );
+    const board = await boardRequest(w.ctx, deps());
+    const contacted = (board.body as { columns: BoardColumn[] }).columns.find((c) => c.label === "Contacted")!;
+    expect(contacted.cards[0]!.followUp).toBe(true);
+    const r = await move({ personId: sam, from: w.stage("contacted"), to: w.stage("replied") });
+    expect((r.body as { card: BoardCard }).card.followUp).toBe(false);
+    expect(db.raw("agent_actions", fu.action.id)).toMatchObject({ state: "declined", declined: { reason: "stale" } });
+  });
+
   it("tells whoever clears follow-ups which fields changed", async () => {
     const sam = await w.add({ email: "sam@example.com", stage: "contacted" });
     const afterMove = vi.fn(async () => null);

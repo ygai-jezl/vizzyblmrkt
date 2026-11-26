@@ -4,14 +4,13 @@ import { setFieldValues } from "@/lib/audience/fields";
 import { fieldTag } from "@/lib/audience/fieldTags";
 import { forTenant, getTenantById, isRateLimited, type RateLimitConfig, type SetFieldValuesError, type TenantContext } from "@/lib/tenant";
 import type { FirestoreLike } from "@/lib/tenant/types";
-import { localDateKey } from "@/lib/lifecycle/sendWindow";
-import { zoneOf } from "@/lib/views/evaluate";
 import { CONTACT_PERSON_ID } from "@/lib/ontology/person";
 import type { Tenant } from "@/lib/types/tenant";
 import { OPTION_ID, optionLabel, type RecordField } from "@/lib/types/recordField";
-import { dueReasons, dueTallies, quietDays, QUIET_AFTER_DAYS, type DueReason } from "./due";
+import { dueReasons, dueTallies, quietDays, QUIET_AFTER_DAYS, todayFor, type DueReason } from "./due";
 import { boardKind, raiseFieldsOf, type RaiseFields, type StageOption } from "./fields";
 import { isRaiseFollowupsEnabled } from "./flags";
+import { clearFollowUpsAfterWrite, openFollowUpPeople } from "./followups";
 import type { FieldPresetKey, RaiseKit, StageRole } from "./presets";
 import { BOARD_CAP, BOARD_WORDS, NOUNS } from "./words";
 
@@ -154,11 +153,6 @@ export function sortCards(cards: readonly BoardCard[]): BoardCard[] {
     .map(({ c }) => c);
 }
 
-/** The brand's day today, in its own time zone. */
-export function todayFor(timeZone: string | null | undefined, now: Date): string {
-  return localDateKey(now.getTime(), zoneOf(timeZone));
-}
-
 /**
  * Read the board: every Stage option's count, and cards for the options whose role is in `roles`
  * (all of them when not given), up to `cap` people each. Not set up: `{ setUp: false }`.
@@ -225,6 +219,11 @@ export async function readPipeline(
 
 // --- Requests ----------------------------------------------------------------------------------
 
+/** The deps with the Follow up chips read from open follow-ups while they are on. */
+function withFollowUps<D extends BoardDeps>(deps: D, on: boolean): D {
+  return on && !deps.openFollowUps ? { ...deps, openFollowUps: (c: TenantContext) => openFollowUpPeople(c, deps.db) } : deps;
+}
+
 const memberKey = (ctx: TenantContext) => `user:${ctx.tenantId}:${ctx.userId ?? "anon"}`;
 const LIMITED: ApiResult = { status: 429, body: { error: "rate_limited" } };
 const labelled = (f: RecordField | undefined) => (f ? { id: f.key, label: f.label } : undefined);
@@ -233,7 +232,7 @@ const labelled = (f: RecordField | undefined) => (f ? { id: f.key, label: f.labe
 export async function boardRequest(ctx: TenantContext, deps: BoardDeps = {}): Promise<ApiResult> {
   if (await isRateLimited(memberKey(ctx), BOARD_LIMITS.board, { db: deps.db })) return LIMITED;
   const followUps = isRaiseFollowupsEnabled();
-  const board = await readPipeline(ctx, { cap: BOARD_CAP }, deps);
+  const board = await readPipeline(ctx, { cap: BOARD_CAP }, withFollowUps(deps, followUps));
   if (!board.setUp) return { status: 200, body: { setUp: false } };
   const rf = board.fields;
   const by = rf.byPreset;
@@ -318,9 +317,13 @@ export async function moveRequest(ctx: TenantContext, raw: unknown, deps: BoardD
     const [status, error] = MOVE_STATUS[r.error] ?? [400, "invalid_value"];
     return { status, body: { error } };
   }
-  if (r.changed.length && deps.afterMove) await deps.afterMove(ctx, personId, r.changed).catch(() => null);
+  // The person's open follow-ups clear at once: a new Stage sets them aside (follow-ups on; never throws).
+  const by = { type: "member" as const, id: ctx.userId ?? null };
+  const afterMove: AfterMove = deps.afterMove ?? ((c, id, changed) => clearFollowUpsAfterWrite(c, id, changed, by, { db: deps.db }));
+  if (r.changed.length) await afterMove(ctx, personId, r.changed).catch(() => null);
   const timeZone = (await (deps.loadTenant ?? getTenantById)(ctx.tenantId).catch(() => null))?.timeZone ?? null;
-  const followUps = deps.openFollowUps ? await deps.openFollowUps(ctx).catch(() => new Set<string>()) : new Set<string>();
+  const chips = withFollowUps(deps, isRaiseFollowupsEnabled()).openFollowUps;
+  const followUps = chips ? await chips(ctx).catch(() => new Set<string>()) : new Set<string>();
   const now = (await forTenant(ctx, deps.db).contacts.getById(personId)) as unknown as PersonRow | null;
   const card = cardOf(now ?? { id: personId, fields: r.values }, rf, todayFor(timeZone, deps.now?.() ?? new Date()), followUps);
   return { status: 200, body: { card } };

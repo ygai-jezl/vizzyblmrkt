@@ -85,7 +85,7 @@ function OptionsInput({ d, names, struck, onChange }: { d: DraftFilter; names: V
   const label = (id: string) => all.find((o) => o.id === id);
   const left = all.filter((o) => !o.archived && !chosen.includes(o.id));
   return (
-    <div className={`${inputClass} flex min-h-[34px] flex-wrap items-center gap-1 !py-1`}>
+    <div className={`${inputClass} flex min-h-[34px] !w-auto min-w-[14rem] max-w-md flex-wrap items-center gap-1 !py-1`}>
       {chosen.map((id) => {
         const o = label(id);
         const text = o?.label ?? capital(optionName(d.on, id, names));

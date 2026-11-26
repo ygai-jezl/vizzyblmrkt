@@ -409,6 +409,24 @@ export const LifecycleJourneySchema = z.object({
    */
   abWinners: z.record(z.string(), z.string()).optional(),
   /**
+   * Waitlist journeys: every A/B pick, oldest first (WAITLIST_AB_WINNER_ENABLED). Each keeps the
+   * pool's arms when it was picked: a pick holds while the pool has those arms, so stopping or
+   * restarting a test in the editor runs the new test (liveWinners). `by` is a user id.
+   */
+  abWinnerHistory: z
+    .array(
+      z.object({
+        poolId: z.string(),
+        nodeId: z.string(),
+        itemId: z.string(),
+        arms: z.array(z.string()).max(10),
+        at: z.string(),
+        by: z.string().nullable(),
+      }),
+    )
+    .max(50)
+    .optional(),
+  /**
    * The journey's live own look (EMAIL_JOURNEY_STYLE_ENABLED): the draft's `settings.emailStyle`
    * as last published, which every send from then on wears, whatever version an enrolment is on
    * (the brand's Email style works the same way). Null or absent = the brand's. Written only by

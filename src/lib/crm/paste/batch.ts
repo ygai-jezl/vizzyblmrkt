@@ -189,7 +189,11 @@ export async function readPaste(ctx: TenantContext, input: { text: string; sourc
   const source = cleanSource(input.source);
   if (!source) return { ok: false, error: "source_needed" };
   const parsed = parseSheet(input.text);
-  if (!parsed.ok) return parsed;
+  if (!parsed.ok) {
+    // One line of values and nothing else: it is the header that's missing.
+    if (parsed.header && !mapColumns(parsed.header, { person: [], company: [] }).isHeader) return { ok: false, error: "no_header" };
+    return { ok: false, error: parsed.error };
+  }
   const map = mapColumns(parsed.sheet.header, await pasteFieldLists(ctx, deps));
   if (!map.isHeader) return { ok: false, error: "no_header" };
   const read = readRows(parsed.sheet, map);

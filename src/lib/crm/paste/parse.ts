@@ -126,9 +126,10 @@ function markdownCells(cells: string[]): string[] {
 
 /**
  * Read pasted text as a header and rows, or say why it can't be read. `empty`: nothing but a
- * header (or nothing at all).
+ * header (or nothing at all), with that one line as `header` so the caller can tell a header from
+ * a single row of values.
  */
-export function parseSheet(text: string): { ok: true; sheet: Sheet } | { ok: false; error: ParseError } {
+export function parseSheet(text: string): { ok: true; sheet: Sheet } | { ok: false; error: ParseError; header?: string[] } {
   if (typeof text !== "string") return { ok: false, error: "empty" };
   if (text.length > PASTE_LIMITS.textChars) return { ok: false, error: "too_long" };
   const clean = text.replace(/^﻿/, "").replace(/\r\n?/g, "\n");
@@ -160,6 +161,6 @@ export function parseSheet(text: string): { ok: true; sheet: Sheet } | { ok: fal
     if (rows.length >= PASTE_LIMITS.rows) return { ok: false, error: "too_many_rows" };
     rows.push({ row: i + 1, cells: header.map((_, c) => (c < cells.length ? (cells[c]!.length > PASTE_LIMITS.cellChars ? null : cells[c]!) : "")) });
   }
-  if (rows.length === 0) return { ok: false, error: "empty" };
+  if (rows.length === 0) return { ok: false, error: "empty", header };
   return { ok: true, sheet: { delimiter, header, rows } };
 }

@@ -77,7 +77,7 @@ describe("parseSheet", () => {
   it("refuses nothing, or a header with no rows, as empty", () => {
     expect(parseSheet("")).toEqual({ ok: false, error: "empty" });
     expect(parseSheet("  \n\t\n")).toEqual({ ok: false, error: "empty" });
-    expect(parseSheet("Email\tName\n\n")).toEqual({ ok: false, error: "empty" });
+    expect(parseSheet("Email\tName\n\n")).toEqual({ ok: false, error: "empty", header: ["Email", "Name"] });
   });
 
   it("refuses 51 data rows, 41 columns and 200,001 characters", () => {

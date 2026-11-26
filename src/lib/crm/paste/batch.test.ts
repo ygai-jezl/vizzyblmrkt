@@ -168,6 +168,7 @@ describe("readPaste", () => {
     expect(await readPaste(ctx, { text: DONE_WHEN_TSV, source: "x".repeat(81), from: "box" }, { db })).toEqual({ ok: false, error: "source_needed" });
     expect(await readPaste(ctx, { text: "jo@example.com,Jo\nkim@example.com,Kim", source: "A sheet", from: "box" }, { db })).toEqual({ ok: false, error: "no_header" });
     expect(await readPaste(ctx, { text: "Email", source: "A sheet", from: "box" }, { db })).toEqual({ ok: false, error: "empty" });
+    expect(await readPaste(ctx, { text: "jo@example.com\tJo", source: "A sheet", from: "box" }, { db })).toEqual({ ok: false, error: "no_header" });
     expect(cleanSource("  An\n event  ")).toBe("An event");
     expect(actions(db)).toHaveLength(0);
   });

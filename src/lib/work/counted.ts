@@ -5,6 +5,7 @@ import { isUsageMeterEnabled } from "@/lib/plans/flags";
 import { LOOP_RULES } from "@/lib/loops/registry";
 import type { ResourceId } from "@/lib/plans/resources";
 import type { Region } from "@/lib/types/tenant";
+import { EVENT_TTL_MS } from "@/lib/connect/ingest";
 import { partOf } from "./schedule";
 import { purposeResource } from "./words";
 import type { WorkBrand, WorkDeps } from "./scope";
@@ -166,7 +167,8 @@ export async function purposeCount(purpose: string, months: readonly string[], d
 /**
  * What a due measure's check counted, to keep on it, or null when the measure has no number Work
  * can count (or the meter is off). From closedAt (or when the check was set) to the check's time,
- * or now when earlier.
+ * or now when earlier. A product event's count reaches back at most the 90 days events are kept:
+ * `backTo` says where it starts when that is after `from`.
  */
 export async function countForCheck(task: WorkTask, brand: WorkBrand | undefined, deps: WorkDeps, now: Date): Promise<Counted | null> {
   const check = task.check;
@@ -178,12 +180,17 @@ export async function countForCheck(task: WorkTask, brand: WorkBrand | undefined
   const c = part.counts;
   if ("productEvent" in c) {
     if (!brand) return null;
+    // Events are kept for 90 days: a check moved on past that (Too soon to tell, Look again)
+    // counts back only as far as they are kept, and says so (backTo), never "since" Done.
+    const kept = new Date(Date.parse(to) - EVENT_TTL_MS).toISOString();
+    const readFrom = from < kept ? kept : from;
     const r = await productEventCount(
       { tenantId: brand.id, region: brand.region, source: "system" },
-      { connectionId: c.productEvent.connectionId, event: c.productEvent.event, from, to },
+      { connectionId: c.productEvent.connectionId, event: c.productEvent.event, from: readFrom, to },
       regionDbOf(deps, brand.region),
     );
-    return { n: r.n, ...(r.capped ? { capped: true, ...(r.backTo ? { backTo: r.backTo } : {}) } : {}), from, to, at };
+    if (r.capped) return { n: r.n, capped: true, ...(r.backTo ? { backTo: r.backTo } : {}), from, to, at };
+    return { n: r.n, ...(readFrom !== from ? { backTo: readFrom } : {}), from, to, at };
   }
   if ("purpose" in c) {
     const months = monthsBetween(from, to);

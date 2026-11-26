@@ -154,6 +154,15 @@ describe("history and the Log's moves", () => {
     const o = { me: "uid_nina", names: {}, origin, brandName: () => undefined, timeZone: "Europe/London", today: "2026-11-25" };
     expect(historyLine({ at: "2026-11-02T17:31:00.000Z", field: "added", who: { kind: "person", id: "uid_nina" } }, o)).toEqual({ who: "You", what: "imported it from Backlog.csv", when: "2 Nov, 17:31", vizzy: false });
     expect(historyLine({ at: "2026-11-25T09:50:00.000Z", field: "status", who: { kind: "person", id: "uid_sam" }, before: "todo", after: "in_progress" }, { ...o, names: { uid_sam: "Sam" } })).toMatchObject({ who: "Sam", what: "moved it from To do to In progress", when: "Today, 09:50" });
+    // A measure, clipping or check set keeps no value on the recent list (too big), which isn't a clear (null).
+    const at = "2026-11-25T10:00:00.000Z";
+    const who = { kind: "person" as const, id: "uid_nina" };
+    expect(historyLine({ at, field: "measure", who, before: null }, o).what).toBe("set how we'll know it worked");
+    expect(historyLine({ at, field: "measure", who, after: null }, o).what).toBe("took off how we'll know it worked");
+    expect(historyLine({ at, field: "clipping", who, before: null }, o).what).toBe("linked a clipping");
+    expect(historyLine({ at, field: "clipping", who, after: null }, o).what).toBe("took off the clipping");
+    expect(historyLine({ at, field: "check", who, before: null }, o).what).toBe("set the check");
+    expect(historyLine({ at, field: "check", who, after: null }, o).what).toBe("cleared the check");
     const moved = {
       taskId: `wt_${"a".repeat(20)}`,
       at: T,
@@ -198,6 +207,13 @@ describe("the add page's form", () => {
     expect(html).toContain("No measure. Pick a kind of win, or leave it for later.");
     expect(html).toContain("When another task is done");
     expect(html).not.toContain("From Vizzy");
+    expect(html).toContain("Up to 4,000 characters. Put a command in `backticks` to show it as code.");
+  });
+
+  it("says nothing about code in the description for a brand with no repo", () => {
+    const html = renderToStaticMarkup(createElement(TaskForm, { screen: { ...screen, defaultBrandId: "ten_lumen-eu" } }));
+    expect(html).toContain("Up to 4,000 characters.");
+    expect(html).not.toContain("backticks");
   });
 
   it("opened from a Vizzy suggestion, says so and marks Vizzy's kind", () => {

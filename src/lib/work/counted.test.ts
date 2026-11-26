@@ -5,6 +5,7 @@ import { COUNT_ROWS, countForCheck, countProductEventsExact, monthsBetween, prod
 import { aStoredTask, LUMEN_US } from "./testing/fixtures";
 import type { WorkBrand } from "./scope";
 import type { Measure, WorkCheck } from "./types";
+import { countedLine } from "./words";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -135,6 +136,21 @@ describe("what a due measure's check counts", () => {
     const soon: WorkCheck = { ...check, at: "2026-12-20T08:00:00.000Z", setAt: "2026-12-13T13:00:00.000Z" };
     const b = await countForCheck(aStoredTask({ status: "done", closedAt, measure: used, check: soon, hasCheck: true }), lumen, { regionDb: () => us }, now);
     expect(b).toMatchObject({ n: 9, from: closedAt });
+  });
+
+  it("counts back only as far as events are kept: a 90 day look moved on by Too soon to tell says where the count starts", async () => {
+    const us = new FakeFirestore();
+    // Events from the week after Done are past the 90 days kept by the recount, so they aren't read.
+    seedEvents(us, 6, "2026-11-22T00:00:00.000Z");
+    seedEvents(us, 4, "2027-01-10T00:00:00.000Z");
+    const closedAt = "2026-11-20T15:00:00.000Z";
+    const long: Measure = { ...used, look: { days: 90 } };
+    const moved: WorkCheck = { ...check, at: "2027-02-25T13:00:00.000Z", setAt: "2027-02-18T13:00:00.000Z" };
+    const c = await countForCheck(aStoredTask({ status: "done", closedAt, measure: long, check: moved, hasCheck: true }), lumen, { regionDb: () => us }, new Date("2027-02-26T00:00:00.000Z"));
+    expect(c).toEqual({ n: 4, backTo: "2026-11-27T13:00:00.000Z", from: closedAt, to: "2027-02-25T13:00:00.000Z", at: "2027-02-26T00:00:00.000Z" });
+    expect(countedLine({ part: long, counted: c, brandName: "Lumen Notes", timeZone: "UTC" })).toBe(
+      "Work counted 4 note_from_template events from Lumen Notes' product back to 27 Nov, as far back as events are kept.",
+    );
   });
 
   it("counts a purpose over its month bounds", async () => {

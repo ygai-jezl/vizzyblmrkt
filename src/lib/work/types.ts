@@ -191,6 +191,11 @@ export const TypedLinkSchema = z
   });
 export type TypedLink = z.infer<typeof TypedLinkSchema>;
 
+/** Typed links without loop lines, which only operators see (decision 14). */
+export function withoutLoopLines<T extends { kind: string }>(links: readonly T[]): T[] {
+  return links.filter((l) => l.kind !== "loop_line");
+}
+
 // --- How we'll know it worked ------------------------------------------------------------------
 
 export const MEASURE_KINDS = ["used", "moves", "runs_better", "done"] as const;
@@ -330,7 +335,8 @@ export type WorkSource = z.infer<typeof WorkSourceSchema>;
 /**
  * What a measure's check counted, read once when the check first shows and kept on it: a count
  * (`n`), units a purpose spent, how many brands used it (or `hidden` below the cell size), and
- * `capped` with `backTo` when only the newest rows could be read.
+ * `capped` with `backTo` when only the newest rows could be read. `backTo` alone: a product
+ * event's count starts after `from`, where the events kept (90 days) begin.
  */
 export const CountedSchema = z.object({
   n: z.number().int().min(0).optional(),

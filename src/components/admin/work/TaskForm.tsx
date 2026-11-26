@@ -188,7 +188,7 @@ function TaskFormRound({ screen, suggestion = null, cancelHref = "/admin/work", 
             Description <span className="font-normal text-neutral-500">(optional)</span>
           </label>
           <textarea id="wk-f-desc" rows={4} maxLength={WORK_LIMITS.description} value={description} onChange={(e) => setDescription(e.target.value)} className={inputClass} />
-          <span className="block text-xs text-neutral-400">Up to 4,000 characters. Put a command in `backticks` to show it as code.</span>
+          <span className="block text-xs text-neutral-400">{repos.length > 0 ? WORK_COPY.descriptionCodeHint : WORK_COPY.descriptionHint}</span>
         </div>
         <div className="space-y-1">
           <p id="wk-f-status-l" className="text-sm font-medium">

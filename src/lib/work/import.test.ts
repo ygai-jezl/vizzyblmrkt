@@ -151,6 +151,19 @@ describe("reading rows", () => {
     expect(readCheck("when 75 is done")).toEqual({ kind: "after_task", ref: 75 });
     expect(readCheck("2026-02-30")).toBe("bad");
     expect(readCheck("")).toBeNull();
+    expect(readCheck("  When   #75   is  done. ")).toEqual({ kind: "after_task", ref: 75 });
+    expect(readCheck("after#9")).toEqual({ kind: "after_task", ref: 9 });
+  });
+
+  it("reads a long run of spaces in a Check cell at once, and refuses a cell longer than a note before parsing it", () => {
+    const started = Date.now();
+    expect(readCheck(`when${" ".repeat(200_000)}x`)).toBe("bad");
+    expect(readCheck(`#${" ".repeat(200_000)}75`)).toEqual({ kind: "after_task", ref: 75 });
+    expect(Date.now() - started).toBeLessThan(500);
+    const sheet = parseSheet(`Backlog item,Check,Skipped\nShip it,"when${" ".repeat(5000)}x",\nFine,,${"a".repeat(5000)}`);
+    const r = readSheet(sheet, matchColumns(sheet.headers, { Skipped: "skip" }));
+    expect(r.problems).toEqual([{ row: 2, problem: "too_long" }]);
+    expect(r.rows.map((x) => x.title)).toEqual(["Fine"]);
   });
 
   it("keeps a file's base name only", () => {

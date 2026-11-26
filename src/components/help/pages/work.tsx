@@ -377,7 +377,8 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
       <UL>
         <li>
           <strong>In flight</strong> lists each workstream still going, with its state and Day N. It carries over each day until
-          you log it as done, so nobody types it again.
+          you log it as done, so nobody types it again, even one left Waiting for weeks. One nobody has logged for a year
+          drops off.
         </li>
         <li>
           <strong>Checks due</strong>, <strong>Tasks that moved</strong> and <strong>Decisions made</strong> fill in from the
@@ -514,6 +515,14 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
           ],
           [WORK_MESSAGES.repo_not_selected, "Pick one of the brand's selected repos, or ask an admin to select this one."],
           [WORK_MESSAGES.product_look, "Set the days to 90 or fewer, or count nothing and let your read be the record."],
+          [
+            WORK_MESSAGES.product_brand_moved,
+            "Change How we'll know it worked to something the new brand can count, or to Done is the win, then change the brand.",
+          ],
+          [
+            ideaWords ? WORK_COPY.ideaLinkFailed : WORK_COPY.launchLinkFailed,
+            `Press Link the task. The ${word.one} is made either way, so don't make it again.`,
+          ],
           [WORK_MESSAGES.read_not_measure, "Press Mark checked, or Look again tomorrow."],
           [WORK_MESSAGES.plan_link_missing, "Add the plan under Connected to, then press Approve the plan on it."],
           [WORK_MESSAGES.plan_drafted, "Answer Approve the plan yourself, from the plan under Connected to."],

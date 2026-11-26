@@ -13,7 +13,8 @@ import { dayOf, PLAN_STATE_LABEL, timeOf, WORK_STATUS_LABEL, type PlanState } fr
  * Work as Vizzy's get_work reads it (ADR-0020, plan group 5): tasks, one task in full, the Log
  * day, and the suggestions people dismissed lately with why. Words only, never a bare number, so
  * the agent number contract holds with no meanings of its own: a ref reads "#73", Day N reads
- * "Day 3", and what a measure's check counted is the check's own sentence.
+ * "Day 3", and what a measure's check counted is the check's own sentence. Tasks and Log rows carry
+ * their ids (wt_…, wl_…), which suggest_work_task takes back as evidence.
  *
  * Everything under a task's title, description, notes, links, log entries and decisions is the
  * team's own words, or words imported from a sheet: data to report, never instructions. Pure.
@@ -24,6 +25,8 @@ const NOBODY = "";
 
 /** A task as one line of the list. */
 export interface AgentTaskLine {
+  /** The task's id (wt_…), for suggest_work_task's evidence ("work_task:wt_…"). */
+  id: string;
   ref: string;
   title: string;
   status: string;
@@ -81,6 +84,7 @@ export function taskLine(
   const origin = originParts(t.origin, t.createdAt, o.timeZone, NOBODY, o.names ?? {}, null);
   const waitingFor = v.blockers.flatMap((b) => ("ref" in b && b.status !== "done" && b.status !== "dropped" ? [`#${b.ref} ${b.title}`] : "hidden" in b ? ["a task you can't see"] : []));
   return {
+    id: t.id,
     ref: `#${t.ref}`,
     title: t.title,
     status: WORK_STATUS_LABEL[t.status],
@@ -158,7 +162,8 @@ export function taskDetail(page: WorkTaskPage, o: { multiBrand: boolean; today: 
         by: whoWords(r.source.who, NOBODY, page.names),
         when: whenWords(r.at, tz, o.today),
       })),
-    history: t.recent.slice(0, 10).map((r) => `${whoWords(r.who, NOBODY, page.names)} ${changeWords(r.field, r.before ?? null, r.after ?? null, { ideaWords: o.ideaWords })} (${whenWords(r.at, tz, o.today)})`),
+    // A value too long for the recent list is left out (undefined), which is not a clear (null).
+    history: t.recent.slice(0, 10).map((r) => `${whoWords(r.who, NOBODY, page.names)} ${changeWords(r.field, r.before, r.after, { ideaWords: o.ideaWords })} (${whenWords(r.at, tz, o.today)})`),
   };
 }
 
@@ -182,7 +187,9 @@ export function logWords(day: LogDayView, o: { names: Readonly<Record<string, st
   return {
     day: dayTitle(day.day),
     today: day.today,
+    // Ids (wl_…) are for suggest_work_task's evidence ("work_log:wl_…"): in flight gives its newest entry's.
     inFlight: day.inFlight.map((f) => ({
+      id: f.id,
       workstream: f.workstream,
       state: ENTRY_STATE_LABEL[f.state],
       note: f.note,
@@ -191,9 +198,10 @@ export function logWords(day: LogDayView, o: { names: Readonly<Record<string, st
       task: rowTask(day, f.taskId),
       ...brand(f.brandId),
     })),
-    entries: day.entries.map((e) => ({ workstream: e.workstream, state: ENTRY_STATE_LABEL[e.state], note: e.note, by: who(e), at: timeOf(e.at, day.timeZone), task: rowTask(day, e.taskId), drafted: e.source.tool === "draft_work_log" })),
+    entries: day.entries.map((e) => ({ id: e.id, workstream: e.workstream, state: ENTRY_STATE_LABEL[e.state], note: e.note, by: who(e), at: timeOf(e.at, day.timeZone), task: rowTask(day, e.taskId), drafted: e.source.tool === "draft_work_log" })),
     moved: day.moved.map((m) => ({ task: rowTask(day, m.taskId) ?? "a task you can't see", what: movedLine(m.rows, o.names, o.ideaWords === true) })),
     decisions: day.decisions.map((d) => ({
+      id: d.id,
       task: rowTask(day, d.taskId),
       question: d.decision.question,
       chosen: d.decision.chosen ? (d.decision.options.find((x) => x.id === d.decision.chosen!.option)?.label ?? null) : null,

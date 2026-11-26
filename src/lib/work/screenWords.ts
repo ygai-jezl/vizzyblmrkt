@@ -152,6 +152,13 @@ export const WORK_COPY = {
   noOpenTask: "No open task matches.",
   afterTaskHint: "The check falls due the day that task moves to Done.",
   formFoot: "It shows in Review on the day its check falls due.",
+  descriptionHint: "Up to 4,000 characters.",
+  /** With a repo: a command in backticks gets a Copy button on the task. */
+  descriptionCodeHint: "Up to 4,000 characters. Put a command in `backticks` to show it as code.",
+  /** Make it an idea (or a launch) made the idea, but linking the task to it failed. */
+  ideaLinkFailed: "The idea was made, but the task couldn't be linked to it. Press Link the task to try again.",
+  launchLinkFailed: "The launch was made, but the task couldn't be linked to it. Press Link the task to try again.",
+  linkTaskAgain: "Link the task",
   wholeBusinessHint: "Only owners see whole business tasks.",
   wholeBusinessLabel: "Whole business",
   inFlightHint: "Newest first. The same workstream comes back each day until it's done.",
@@ -465,12 +472,13 @@ export function changeWords(field: WorkChangeField, before: unknown, after: unkn
       return after ? `made it into ${idea.a}` : `unlinked its ${idea.one}`;
     case "ideaBrandId":
       return `changed the ${idea.own} brand`;
+    // The recent list leaves out a value too big to keep (undefined); only null is taken off.
     case "clipping":
-      return after ? "linked a clipping" : "took off the clipping";
+      return after === null ? "took off the clipping" : "linked a clipping";
     case "typedLinks":
       return "changed what it's connected to";
     case "measure":
-      return after ? "set how we'll know it worked" : "took off how we'll know it worked";
+      return after === null ? "took off how we'll know it worked" : "set how we'll know it worked";
     case "check":
       return checkChangeWords(after, ctx.tool);
   }

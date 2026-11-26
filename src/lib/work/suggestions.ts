@@ -7,7 +7,7 @@ import { forgetReviewCount } from "@/lib/review/summary";
 import { agentDedupeKey, SignalRefSchema, type AgentAction, type AgentActionId, type DeclineWhy, type SignalRef } from "@/lib/types/agentAction";
 import type { AddTaskBody } from "./inputs";
 import { ok, refuse, type WorkRefused, type WorkResult } from "./result";
-import { brandForTask, nowOf, type WorkDeps, type WorkScope } from "./scope";
+import { brandForTask, mapLimit, nowOf, type WorkDeps, type WorkScope } from "./scope";
 import { addTaskWith, type ChangeDone } from "./service";
 import {
   addBodyOf,
@@ -36,6 +36,9 @@ import { checkMeasure, checkTypedLinks, placeForNew } from "./validate";
  *   session brand's region, and names it by its brand, a hash of its title and a round. A person's
  *   Not now lets the same suggestion back after 30 days, under the next round; any other reason, or
  *   none, keeps it away; one set aside by nobody (expired, stale or superseded) may come back at once.
+ *   The same round made in the chat of any brand the person sees counts too, read in that brand's
+ *   own region, so a whole business suggestion dismissed in one brand's chat stays away from the
+ *   others'.
  * - Add to Work and Edit then add write the task (its origin names the suggestion, with the
  *   evidence) and the suggestion's result in ONE transaction, so the region must be the session
  *   brand's; the task takes the suggestion's target id. Ticking Must have isn't an edit.
@@ -135,12 +138,19 @@ export async function proposeWorkSuggestion(scope: WorkScope, input: ProposeInpu
   for (let round = 0; round < MAX_ROUNDS; round++) {
     const key = suggestionKey(stored, round);
     const id = deterministicAgentActionId(scope.ctx.tenantId, key);
-    const earlier = await getAgentAction(scope.ctx, id, { db });
-    if (earlier) {
-      const r = roundAfter(earlier, now);
-      if (r.is === "next") continue;
-      if (r.is === "later") return ok({ outcome: "later", action: earlier, again: r.again });
-      return ok({ outcome: r.is, action: earlier });
+    const earlier = await sameRound(scope, key, deps);
+    if (earlier.length) {
+      // Waiting anywhere is waiting; then a dismissal that keeps it away; then Not now's day.
+      const reads = earlier.map((a) => ({ a, r: roundAfter(a, now) }));
+      const open = reads.find((x) => x.r.is === "open");
+      if (open) return ok({ outcome: "open", action: open.a });
+      const decided = reads.find((x) => x.r.is === "decided");
+      if (decided) return ok({ outcome: "decided", action: decided.a });
+      const later = reads
+        .flatMap((x) => (x.r.is === "later" ? [{ a: x.a, again: x.r.again }] : []))
+        .sort((x, y) => y.again.localeCompare(x.again))[0];
+      if (later) return ok({ outcome: "later", action: later.a, again: later.again });
+      continue;
     }
     const made = await proposeAgentAction(
       scope.ctx,
@@ -169,6 +179,24 @@ export async function proposeWorkSuggestion(scope: WorkScope, input: ProposeInpu
     return ok({ outcome: made.outcome, action: made.action });
   }
   return ok({ outcome: "decided", action: null });
+}
+
+/**
+ * The same round of a suggestion in the agent_actions of every brand the person sees, the session
+ * brand first: each brand's id is deterministic, so one read by id each, in the brand's region.
+ * Another brand that can't be read is left out; the session brand's own read failing throws, as
+ * it always did.
+ */
+async function sameRound(scope: WorkScope, key: string, deps: WorkDeps): Promise<AgentAction[]> {
+  const found = await mapLimit(scope.brands, 5, async (b) => {
+    if (b.id === scope.ctx.tenantId) return getAgentAction(scope.ctx, deterministicAgentActionId(b.id, key), { db: regionDbOf(scope, deps) });
+    try {
+      return await getAgentAction({ tenantId: b.id, region: b.region, source: "system" }, deterministicAgentActionId(b.id, key), { db: deps.regionDb?.(b.region) });
+    } catch {
+      return null;
+    }
+  });
+  return found.filter((a): a is AgentAction => a !== null);
 }
 
 // --- A person's decision -----------------------------------------------------------------------

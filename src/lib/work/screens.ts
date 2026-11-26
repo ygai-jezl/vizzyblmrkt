@@ -12,7 +12,7 @@ import { logDay, type LogDayView } from "./log";
 import { meaningChoices, typedLinkWords } from "./form";
 import { dayIn, partOf } from "./schedule";
 import { countsProductEvent, eventLabelOf, eventLabelsFor } from "./counted";
-import { brandChoices, checkLineOf, countDueCheck, listTasks, loadTasks, taskPage, type WorkTaskPage } from "./service";
+import { brandChoices, checkLineOf, countShownChecks, listTasks, loadTasks, taskPage, type WorkTaskPage } from "./service";
 import { brandForTask, brandIn, mapLimit, nowOf, workScopeFor, zoneForTask, type WorkBrand, type WorkDeps, type WorkScope } from "./scope";
 import { partLine, SUGGESTED_FIELD_LABEL, WORK_COPY } from "./screenWords";
 import { getAgentAction } from "@/lib/ontology/agentActions";
@@ -354,10 +354,11 @@ export interface DraftedDecision {
 /**
  * What Vizzy suggested for a task added from its suggestion, read from the suggestion (kept in
  * the agent_actions of the brand it was added from, in the task's region), or null when it can't
- * be read.
+ * be read. Only for someone who sees that brand: a suggestion made in another brand's chat stays
+ * that brand's (decision 7), as does one from before the brand moved organisation.
  */
 async function suggestedOf(scope: WorkScope, task: WorkTask, deps: WorkDeps): Promise<TaskScreen["suggested"]> {
-  if (task.origin.kind !== "suggestion") return null;
+  if (task.origin.kind !== "suggestion" || !brandIn(scope, task.addedFrom)) return null;
   try {
     const a = await getAgentAction({ tenantId: task.addedFrom, region: task.region, source: "system" }, task.origin.agentActionId, { db: deps.regionDb?.(task.region) });
     const s = a ? suggestionOf(a) : null;
@@ -472,9 +473,6 @@ async function draftedNoteOf(scope: WorkScope, id: string | null | undefined, to
   return { id: r.value.actionId, rev: r.value.rev, line: logDraftLine(d), state: d.state, ref: d.ref, brandId: d.brandId, links: d.links };
 }
 
-/** The most due measure checks the Log counts on one read. */
-const COUNT_ON_READ = 10;
-
 /** One day of the Log, today unless a day is given, or the words for why it can't be shown. */
 export async function logScreen(scope: WorkScope, day: string | null, deps: WorkDeps = {}, opts: { draft?: string | null } = {}): Promise<{ ok: true; screen: LogScreen } | { ok: false; message: string }> {
   const r = await logDay(scope, day, deps);
@@ -482,16 +480,7 @@ export async function logScreen(scope: WorkScope, day: string | null, deps: Work
   const draft = await draftedNoteOf(scope, opts.draft, r.value.today, deps);
   const { checks: due, ...rest } = r.value;
   // A due measure's check is counted once, when it first shows, as on the task page.
-  let n = 0;
-  const counted = await mapLimit(due, 4, async (v) => {
-    if (v.task.check?.setBy !== SET_BY_MEASURE || v.task.check.counted || n >= COUNT_ON_READ) return v.task;
-    n += 1;
-    try {
-      return await countDueCheck(scope, v.task, deps);
-    } catch {
-      return v.task;
-    }
-  });
+  const counted = await countShownChecks(scope, due.map((v) => v.task), deps);
   const event = await eventLabelsFor(counted.flatMap((t) => (countsProductEvent(t) ? [brandForTask(scope, t)].filter((b): b is WorkBrand => !!b) : [])), deps);
   const checks: LogCheck[] = counted.map((t, i) => {
     const byMeasure = t.check?.setBy === SET_BY_MEASURE;

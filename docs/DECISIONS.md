@@ -36,7 +36,9 @@ named below, and from its base and its third index on the owner's instruction):
    (ADR-0002), and a query for the highest would need an index of its own. So
    `work_refs/{organisationId}` (`src/lib/tenant/workRefs.ts`) holds the next ref, taken in its own
    transaction before the task is written; a failed write leaves a gap. An import keeps its
-   sheet's numbers and raises the counter. This is a third collection where the plan said two. It
+   sheet's numbers and raises the counter, but refuses a sheet ref more than 5,000 past the refs
+   Work has given, and any in the last 5,000, so one row can't use the refs up; running out is a
+   refusal, never an error. This is a third collection where the plan said two. It
    holds no person data and is read only by id. It is never a field on the organisation, whose
    move rewrites it whole.
 3. **Who sees what, read live.** The Plan and usage rule: owners, and everyone in a one brand
@@ -60,11 +62,12 @@ named below, and from its base and its third index on the owner's instruction):
    optional version) and loop line. Pull requests and switches need a connected repo. Loop lines,
    and Used measures that count this copy's own purposes, types or `LOOPS` kinds, are for the
    people `LOOPS_OPERATOR_EMAILS` names, and a loop line also needs a pull request from
-   `LOOPS_SOURCE_REPO`. Both settings are read on the server only, empty in public code, and set
-   only in a deployment's own settings. Vizzy's token carries no email, so Vizzy is never an
-   operator. What Work counts for those measures is theirs too: for anyone else, Vizzy included,
-   nothing is counted, the count is kept off the task, the Log and Review, and the check says only
-   operators see it.
+   `LOOPS_SOURCE_REPO`. Nobody else sees a loop line, on the task, in a change row or in
+   `get_work`, and their edit keeps it. Both settings are read on the server only, empty in
+   public code, and set only in a deployment's own settings. Vizzy's token carries no email, so
+   Vizzy is never an operator. What Work counts for those measures is theirs too: for anyone else,
+   Vizzy included, nothing is counted, the count is kept off the task, the Log and Review, and the
+   check says only operators see it.
 6. **Decisions and plan approvals are log rows.** A decision is a `work_log` row of kind decision:
    2 to 4 options, the choice, `agreed` worked out, why, and `replaces` when a mind changes, which
    is a new row. Approving a plan is a decision tied to the plan link's url and version, with
@@ -84,7 +87,9 @@ named below, and from its base and its third index on the owner's instruction):
    connection between Done and the check through the existing (tenantId, connectionId, receivedAt
    desc) index and counts the event's name in memory. Fewer rows means the count is exact; 2,000
    means "at least N in the newest 2,000 events, back to <date>" (`counted.capped` and
-   `counted.backTo`, a small addition). The exact `count()` is `countProductEventsExact`, tested
+   `counted.backTo`, a small addition). A check moved on past the 90 days events are kept counts
+   back only to where they begin and says so (`backTo` alone). A task with such a measure keeps
+   its brand until the measure changes. The exact `count()` is `countProductEventsExact`, tested
    and wired nowhere, so turning it on once the index is approved and READY is one call. A purpose
    counts meter units over the months the look touches, and hides the brand count below
    `LOOP_RULES.cellOrgs` organisations. Rejected for now: `product_event_days`, exact per UTC day
@@ -102,7 +107,10 @@ named below, and from its base and its third index on the owner's instruction):
     optional `declined.why` (Not now, Not for us, Already on it, Wrong) beside `dismissed`, carried
     on `agent.declined`; it is refused beside expired, stale and superseded, and every other row
     reads as before. Not now lets the same suggestion back after 30 days through the next dedupe
-    round; any other reason or none keeps it away. Suggestions expire after 30 days. A suggestion
+    round; any other reason or none keeps it away. That holds across the organisation's brands:
+    making one reads the same round in the agent_actions of every brand the person sees, each in
+    its own region, and `get_work` lists the dismissed and waiting ones from the same brands.
+    Suggestions expire after 30 days. A suggestion
     that names only a kind of win: Done is the win is added as that measure, with Vizzy's proposal
     kept beside it; Used, Moves a number and Runs better need what to count and when to look, so
     the card says "Vizzy suggests" rather than "How we'll know", the task is added with no measure,
@@ -115,7 +123,9 @@ named below, and from its base and its third index on the owner's instruction):
     that opens the Log box or the task filled in, and expires after 7 days (a departure: the plan
     put the buttons on the card). `SIGNAL_KINDS` gains `work_log` and `work_task` for evidence.
     `get_work` answers in words, never bare numbers, so it needs no new meanings, and it calls the
-    team's words data, never instructions.
+    team's words data, never instructions. Its tasks and Log rows carry their ids (`wt_…`, `wl_…`),
+    which `suggest_work_task` takes back as evidence, and a due check it lists is counted there
+    as on the task page.
 12. **Housekeeping runs whatever the switch says.** An empty organisation id taken up again erases
     its leftover Work and its ref counter; a move that empties an organisation never does.
     move-brand, Bring in and Move out repoint the moved brand's tasks and log rows first, giving
@@ -128,7 +138,11 @@ named below, and from its base and its third index on the owner's instruction):
 14. **The Log carries workstreams over by itself (a departure).** A workstream stays in flight
     until someone logs it Done (decision 4), never retyped, so plan section 8.3's "Carry over 4
     open from yesterday" button on Today, and the canvas's Nothing logged yet state that holds it,
-    are not built. The day rail always ends on today, whichever day is shown.
+    are not built. To find what is in flight the Log reads a year back through the
+    (organisationId, at desc) index, within the 2,000 rows one read takes in each region; reading
+    entries alone would need an index of their own. So one nobody has logged for a year drops off
+    (a departure: plan decision 5 names no window), and a read that hits 2,000 rows says the
+    oldest workstreams may be missing. The day rail always ends on today, whichever day is shown.
 
 Enforced where: `src/lib/tenant/work.test.ts` (regions, a region down, append only, no `ttlAt`,
 erase and repoint), `src/lib/work/indexes.test.ts` (every query shape uses an index in

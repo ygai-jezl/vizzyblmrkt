@@ -14,7 +14,7 @@ import { logDay } from "./log";
 import type { WorkResult } from "./result";
 import { dayIn } from "./schedule";
 import { mapLimit, nowOf, seesTask, workScopeFor, type WorkDeps, type WorkScope } from "./scope";
-import { checkLineOf, listTasks, planStates, taskPage } from "./service";
+import { checkLineOf, countShownChecks, listTasks, planStates, taskPage } from "./service";
 import { ENTRY_STATE_LABEL } from "./screenWords";
 import { readStage, stageLabel } from "./stages";
 import { roundAfter, proposeWorkSuggestion } from "./suggestions";
@@ -160,14 +160,27 @@ export function queryOf(params: URLSearchParams): GetWorkQuery {
   };
 }
 
-/** The suggestions dismissed lately in this brand's chat, with why, and those still waiting in Review. */
+/**
+ * The suggestions dismissed lately, with why, and those still waiting in Review, from the chats of
+ * every brand the person sees (each read in its own region), as making one checks them. Another
+ * brand whose suggestions can't be read is left out; the session brand's own read failing throws.
+ */
 async function suggestionsFor(scope: WorkScope, deps: WorkDeps) {
-  const db = deps.regionDb?.(scope.ctx.region);
   const now = nowOf(deps);
-  const [declined, open] = await Promise.all([
-    listRecentAgentActions(scope.ctx, { action: WORK_SUGGEST_ACTION, state: "declined", limit: 30, db }),
-    listOpenAgentActions(scope.ctx, { action: WORK_SUGGEST_ACTION, limit: 20, now: now.toISOString(), db }),
-  ]);
+  const per = await mapLimit(scope.brands, 5, async (b) => {
+    const own = b.id === scope.ctx.tenantId;
+    const ctx = own ? scope.ctx : { tenantId: b.id, region: b.region, source: "system" as const };
+    const db = deps.regionDb?.(b.region);
+    const read = () =>
+      Promise.all([
+        listRecentAgentActions(ctx, { action: WORK_SUGGEST_ACTION, state: "declined", limit: 30, db }),
+        listOpenAgentActions(ctx, { action: WORK_SUGGEST_ACTION, limit: 20, now: now.toISOString(), db }),
+      ]);
+    if (own) return read();
+    return read().catch(() => [[], []] as AgentAction[][]);
+  });
+  const declined = per.flatMap(([d]) => d!).sort((a, b) => (b.decidedAt ?? "").localeCompare(a.decidedAt ?? ""));
+  const open = per.flatMap(([, o]) => o!).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20);
   const seen = (s: SuggestedTask) => scope.view === "organisation" || s.brandId === scope.session.id;
   const tz = scope.session.timeZone;
   const dismissed = declined
@@ -252,12 +265,14 @@ export async function agentGetWork(ctx: TenantContext, query: GetWorkQuery, deps
   const shown = list.value.tasks.slice(0, LIST_MAX);
   const counts = list.value.counts;
   const [taskNames, plans] = await Promise.all([namesFor(scope, shown.map((v) => (v.task.origin.kind === "coding_agent" ? null : v.task.origin.by)), deps), planApprovals(scope, shown, deps)]);
+  // A due measure's check is counted once, when it first shows, as on the task page and the Log.
+  const dueTasks = day.ok ? await countShownChecks(scope, day.value.checks.map((v) => v.task), deps) : [];
   const log = day.ok
     ? logWords(day.value, {
         names,
         brandName: brandNameOf(scope),
         multiBrand,
-        checks: day.value.checks.map((v) => ({ task: `#${v.task.ref} ${v.task.title}`, line: checkLineOf(scope, v.task) ?? (v.task.check?.note || "A check is due.") })),
+        checks: dueTasks.map((t) => ({ task: `#${t.ref} ${t.title}`, line: checkLineOf(scope, t) ?? (t.check?.note || "A check is due.") })),
         ideaWords: isIdeaWordsEnabled(),
       })
     : { error: day.message };

@@ -261,6 +261,27 @@ describe("the same suggestion again", () => {
     expect(value(await propose(lumenTask({ title: "check the team plan test accounts, after tonight's runs!" }))).outcome).toBe("decided");
   });
 
+  it("stays away in every brand's chat the person sees: a whole business suggestion dismissed in one brand isn't made again in another", async () => {
+    // Lumen Notes (United States) and Lumen Europe each keep their own agent_actions, in their own region.
+    const whole = { title: "Register the business", description: "", stage: "set_up", brandId: null, typedLinks: [], measure: { kind: "done" }, proposed: null, from: "from your chat with Vizzy", why: "" };
+    const a = await proposed(whole);
+    expect(value(await dismissSuggestion(await w.scope(PEOPLE.nina), { actionId: a.id, rev: 1, why: "not_for_us" }, w.deps)).line).toContain("Vizzy won't suggest it again.");
+    expect(value(await propose(whole, PEOPLE.ninaEu))).toMatchObject({ outcome: "decided", action: { id: a.id } });
+    expect(w.eu.dump("agent_actions")).toEqual([]);
+    // Waiting in one brand's Review is waiting in the others' too.
+    const b = await proposed({ ...whole, title: "Open a business bank account" });
+    expect(value(await propose({ ...whole, title: "Open a business bank account" }, PEOPLE.ninaEu))).toMatchObject({ outcome: "open", action: { id: b.id } });
+    // Not now holds in the other brand's chat until its 30 days are up, then a new round is made there.
+    const c = await proposed({ ...whole, title: "Pick an accountant" });
+    value(await dismissSuggestion(await w.scope(PEOPLE.nina), { actionId: c.id, rev: 1, why: "not_now" }, w.deps));
+    expect(value(await propose({ ...whole, title: "Pick an accountant" }, PEOPLE.ninaEu))).toMatchObject({ outcome: "later", again: "2026-12-20T15:00:00.000Z" });
+    w.at("2026-12-21T15:00:00.000Z");
+    const again = value(await propose({ ...whole, title: "Pick an accountant" }, PEOPLE.ninaEu));
+    expect(again.outcome).toBe("created");
+    expect(again.action!.tenantId).toBe(LUMEN_EU);
+    expect(again.action!.dedupeKey).toBe(suggestionKey({ brandId: null, title: "Pick an accountant" }, 1));
+  });
+
   it("comes back at once after nobody decided it: expired, or past its expiry before the sweep", () => {
     const now = new Date("2026-12-25T00:00:00.000Z");
     const base = { expiresAt: "2026-12-20T00:00:00.000Z", decidedAt: null, declined: null };

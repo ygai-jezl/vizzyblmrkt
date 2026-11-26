@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { addTask, editTask } from "./service";
+import { WORK_TASKS } from "@/lib/tenant";
+import { filtersOf } from "./inputs";
+import { logDay } from "./log";
+import { addTask, editTask, listTasks, taskPage } from "./service";
 import type { AddTaskBody, MeasureInput } from "./inputs";
 import type { WorkResult } from "./result";
 import { FERNHILL, makeWorld, PEOPLE, REPO, type World } from "./testing/world";
@@ -25,6 +28,7 @@ function value<T>(r: WorkResult<T>): T {
 const add = async (body: AddTaskBody, who: TenantContext = PEOPLE.nina) => addTask(await w.scope(who), body, w.deps);
 const task = async (body: AddTaskBody, who: TenantContext = PEOPLE.nina) => value(await add(body, who)).task.task;
 const pr = (repo = REPO, number = 412): TypedLink => ({ kind: "pull_request", provider: "github", repo, number });
+const stored = (id: string) => (w.us.raw(WORK_TASKS, id) as { typedLinks: TypedLink[] }).typedLinks;
 
 describe("typed links", () => {
   it("keeps a pull request from a repo the brand selected, matched ignoring case, in the repo's own spelling", async () => {
@@ -91,7 +95,43 @@ describe("typed links", () => {
       const t = await task({ title: "New sign in", brandId: LUMEN_US, typedLinks: [pr(), line] });
       vi.stubEnv("LOOPS_OPERATOR_EMAILS", "");
       const r = value(await editTask(await w.scope(PEOPLE.sam), t.ref, { typedLinks: [...t.typedLinks, { kind: "switch", name: "NEW_SIGN_IN_ENABLED" }] }, w.deps));
-      expect(r.task.task.typedLinks).toHaveLength(3);
+      expect(stored(t.id)).toHaveLength(3);
+      expect(r.task.task.typedLinks).toHaveLength(2);
+    });
+
+    it("shows only to operators: the task page, the list, the Log's change rows and an edit leave it out for everyone else, and keep it", async () => {
+      vi.stubEnv("LOOPS_OPERATOR_EMAILS", "nina@lumen.example");
+      vi.stubEnv("LOOPS_SOURCE_REPO", REPO);
+      const vizzy: TypedLink = { kind: "loop_line", loopKind: "vizzy_chat" };
+      const t = await task({ title: "New sign in", brandId: LUMEN_US, typedLinks: [pr(), vizzy] });
+      const sam = await w.scope(PEOPLE.sam);
+      const page = value(await taskPage(sam, t.ref, w.deps));
+      expect(page.task.typedLinks).toEqual([pr()]);
+      expect(page.can.loopLine).toBe(false);
+      expect(value(await listTasks(sam, filtersOf(new URLSearchParams()), w.deps)).tasks[0]!.task.typedLinks).toEqual([pr()]);
+      // Sam sends what Sam sees: the loop line stays where it was, and taking every link off keeps it too.
+      const flag: TypedLink = { kind: "switch", name: "NEW_SIGN_IN_ENABLED" };
+      expect(value(await editTask(sam, t.ref, { typedLinks: [pr(), flag] }, w.deps)).task.task.typedLinks).toEqual([pr(), flag]);
+      expect(stored(t.id)).toEqual([pr(), vizzy, flag]);
+      value(await editTask(sam, t.ref, { typedLinks: [] }, w.deps));
+      expect(stored(t.id)).toEqual([vizzy]);
+      // A loop line of Sam's own is still refused.
+      expect(await editTask(sam, t.ref, { typedLinks: [line] }, w.deps)).toMatchObject({ ok: false, error: "loop_line_operators" });
+      // The change rows Sam reads in the Log leave it out; Nina's keep it.
+      const rows = (d: { moved: Array<{ rows: Array<{ kind: string; field?: string; before?: unknown; after?: unknown }> }> }) =>
+        JSON.stringify(d.moved.flatMap((m) => m.rows).filter((r) => r.kind === "change" && r.field === "typedLinks").map((r) => [r.before, r.after]));
+      expect(rows(value(await logDay(sam, null, w.deps)))).not.toContain("loop_line");
+      expect(rows(value(await logDay(await w.scope(PEOPLE.nina), null, w.deps)))).toContain("vizzy_chat");
+      expect(value(await taskPage(await w.scope(PEOPLE.nina), t.ref, w.deps)).task.typedLinks).toEqual([vizzy]);
+    });
+
+    it("counts toward a task's 10 links when someone else edits it", async () => {
+      vi.stubEnv("LOOPS_OPERATOR_EMAILS", "nina@lumen.example");
+      vi.stubEnv("LOOPS_SOURCE_REPO", REPO);
+      const t = await task({ title: "New sign in", brandId: LUMEN_US, typedLinks: [pr(), line] });
+      const ten = Array.from({ length: 10 }, (_, i) => pr(REPO, 500 + i));
+      expect(await editTask(await w.scope(PEOPLE.sam), t.ref, { typedLinks: ten }, w.deps)).toMatchObject({ ok: false, status: 400, error: "links_full" });
+      expect(stored(t.id)).toEqual([pr(), line]);
     });
   });
 });
@@ -142,6 +182,25 @@ describe("how we'll know it worked", () => {
   it("refuses a product event on a whole business task, except in a one brand organisation", async () => {
     expect(await add({ title: "Templates", brandId: null, measure: event() })).toMatchObject({ ok: false, error: "product_whole_business" });
     expect((await add({ title: "Orders online", measure: event("pc_fern") }, PEOPLE.priya)).ok).toBe(true);
+  });
+
+  it("checks again what named the old brand when a task changes brand: its product event, pull requests and switches", async () => {
+    // Lumen Labs, a third Lumen brand in the United States with no repo and no product.
+    const LABS = "ten_lumen-labs";
+    w.control.seed("tenants", LABS, { tenantName: "Lumen Labs", rootDomain: "labs.example", ownerId: PEOPLE.nina.userId, status: "active", region: "us", allowedOrigins: [], createdAt: "2026-11-20T09:00:00.000Z", updatedAt: "2026-11-20T09:00:00.000Z", timeZone: "America/New_York", organisationId: "org_ten_lumen", orgPlan: "self_hosted" });
+    w.control.seed("organisations", "org_ten_lumen", { name: "Lumen", plan: "self_hosted", planSince: "2026-11-20T09:00:00.000Z", brandIds: [LUMEN_US, LUMEN_EU, LABS], ownerIds: [PEOPLE.nina.userId], createdBy: PEOPLE.nina.userId, createdAt: "2026-11-20T09:00:00.000Z", updatedAt: "2026-11-20T09:00:00.000Z" });
+    const nina = await w.scope(PEOPLE.nina);
+    const counted = await task({ title: "Templates", brandId: LUMEN_US, measure: event() });
+    expect(await editTask(nina, counted.ref, { brandId: null }, w.deps)).toMatchObject({ ok: false, status: 400, error: "product_brand_moved" });
+    expect(await editTask(nina, counted.ref, { brandId: LABS }, w.deps)).toMatchObject({ ok: false, error: "product_brand_moved" });
+    // With the measure changed in the same edit, it moves.
+    expect(value(await editTask(nina, counted.ref, { brandId: null, measure: { kind: "done" } }, w.deps)).task.task.brandId).toBeNull();
+    const linked = await task({ title: "New sign in", brandId: LUMEN_US, typedLinks: [pr()] });
+    expect(await editTask(nina, linked.ref, { brandId: LABS }, w.deps)).toMatchObject({ ok: false, error: "no_repo" });
+    // A whole business task may link any brand's repo, so that move keeps the pull request.
+    expect(value(await editTask(nina, linked.ref, { brandId: null }, w.deps)).task.task.typedLinks).toEqual([pr()]);
+    const plain = await task({ title: "Write the launch post", brandId: LUMEN_US, measure: { kind: "runs_better", what: "speed", look: { days: 7 } } });
+    expect(value(await editTask(nina, plain.ref, { brandId: LABS }, w.deps)).task.task.brandId).toBe(LABS);
   });
 
   it("moves a meaning, never a provider's or a date, with the brand's word only for conversions, starting from its better", async () => {

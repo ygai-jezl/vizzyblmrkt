@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { failingFirestore } from "@/lib/tenant/testing/failingFirestore";
-import { WORK_TASKS } from "@/lib/tenant";
+import { WORK_LOG, WORK_TASKS } from "@/lib/tenant";
 import { addTask, editTask, importTasks, previewImport } from "./service";
 import type { ImportBody } from "./inputs";
 import type { WorkResult } from "./result";
@@ -127,6 +127,32 @@ describe("importing a Backlog tab", () => {
     const r = value(await importTasks(await w.scope(PEOPLE.priya), body("Thing,Words\nVan insurance,Two quotes", { mapping: { Thing: "title", Words: "notes" } }), w.deps));
     expect(r.imported).toBe(1);
     expect(tasksIn(w.eu)[0]).toMatchObject({ title: "Van insurance", notes: "Two quotes", ref: 1 });
+  });
+
+  it("refuses past 5,000 tasks in the organisation, writing no task and no log row", async () => {
+    for (let i = 0; i < 4995; i++) w.us.seed(WORK_TASKS, `wt_us${String(i).padStart(17, "a")}`, { organisationId: ORG });
+    const rows = ["Backlog item", ...Array.from({ length: 10 }, (_, i) => `Task ${i}`)].join("\n");
+    expect(await importTasks(await w.scope(PEOPLE.nina), body(rows, { brandId: LUMEN_US }), w.deps)).toMatchObject({ ok: false, status: 409, error: "tasks_full" });
+    expect(tasksIn(w.us).filter((t) => typeof t.title === "string")).toEqual([]);
+    expect(w.us.dump(WORK_LOG)).toEqual([]);
+    expect(w.eu.dump(WORK_LOG)).toEqual([]);
+  });
+
+  it("refuses a sheet ref far past Work's refs, so one row can't use them up, and refuses rather than fails once refs run out", async () => {
+    const priya = await w.scope(PEOPLE.priya);
+    const p = value(await previewImport(priya, body("ID,Task\n999999,Ship the pricing page\n5000,Care cards\n5001,Stamp cards\n,Window display", { mode: "preview" }), w.deps));
+    expect(p.refused).toEqual([
+      { row: 2, problem: "ref_far", message: "Its ref is more than 5,000 past the highest ref in Work. Renumber it, or leave the Ref column out so Work numbers it." },
+      { row: 4, problem: "ref_far", message: expect.any(String) },
+    ]);
+    expect(p.nextRef).toBe(5001);
+    const r = value(await importTasks(priya, body("ID,Task\n999999,Ship the pricing page\n5000,Care cards\n,Window display"), w.deps));
+    expect(r).toMatchObject({ imported: 2, nextRef: 5002 });
+    expect(tasksIn(w.eu).map((t) => t.ref).sort((a, b) => a - b)).toEqual([5000, 5001]);
+    // The counter at its last ref: adding and importing are refused in words, never a 500.
+    w.control.seed("work_refs", "org_ten_fernhill", { organisationId: "org_ten_fernhill", next: 1_000_000, updatedAt: "2026-11-20T15:00:00.000Z" });
+    expect(await addTask(priya, { title: "One more" }, w.deps)).toMatchObject({ ok: false, status: 409, error: "refs_full" });
+    expect(await importTasks(priya, body("Task\nOne more"), w.deps)).toMatchObject({ ok: false, status: 409, error: "refs_full" });
   });
 
   it("refuses to import while a region can't be read, since it can't be sure the refs are free", async () => {

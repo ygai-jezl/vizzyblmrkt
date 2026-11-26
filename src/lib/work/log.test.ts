@@ -44,6 +44,19 @@ describe("the Log", () => {
     expect(await log({ workstream: "Cookie notice", state: "doing", ref: t.ref }, PEOPLE.sam)).toMatchObject({ ok: false, status: 404 });
   });
 
+  it("keeps a workstream left Waiting for weeks in flight until someone logs it done", async () => {
+    w.at("2026-10-01T15:00:00.000Z");
+    value(await log({ workstream: "Van insurance", state: "waiting", note: "Two quotes so far" }));
+    w.at("2026-11-02T15:00:00.000Z");
+    const later = await day();
+    expect(later.inFlight.map((x) => [x.workstream, x.state, x.dayN, x.longer])).toEqual([["Van insurance", "waiting", 33, false]]);
+    expect(later.capped).toBe(false);
+    w.at("2026-12-20T15:00:00.000Z");
+    expect((await day()).inFlight.map((x) => [x.workstream, x.dayN])).toEqual([["Van insurance", 81]]);
+    value(await log({ workstream: "Van insurance", state: "done" }));
+    expect((await day()).inFlight).toEqual([]);
+  });
+
   it("carries two workstreams over to the next day, never retyped, until one is done", async () => {
     value(await log({ workstream: "Pricing page", state: "doing" }));
     value(await log({ workstream: "Interviews", state: "blocked", note: "Waiting on two admins" }, PEOPLE.sam));

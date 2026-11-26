@@ -8,7 +8,7 @@ import type { Region } from "@/lib/types/tenant";
 import { proposedByRule } from "./measureKind";
 import { invalidInput, refuse, type WorkRefused } from "./result";
 import { brandIn, seesTask, type WorkBrand, type WorkDeps, type WorkScope } from "./scope";
-import { MeasureSchema, startingDirection, type Measure, type ProposedKind, type TypedLink, type WorkTask } from "./types";
+import { MeasureSchema, startingDirection, WORK_LIMITS, type Measure, type ProposedKind, type TypedLink, type WorkTask } from "./types";
 import type { MeasureInput, ThenInput } from "./inputs";
 import type { CompanyStage } from "./stages";
 
@@ -101,7 +101,9 @@ export async function ideaExists(scope: WorkScope, brandId: string, ideaId: stri
  *   kept with the repo's own spelling;
  * - a pull request or a switch: only with a connected repo;
  * - an idea: one that exists, in a brand the person sees;
- * - a loop line: operators only, and only beside a pull request from LOOPS_SOURCE_REPO.
+ * - a loop line: operators only, and only beside a pull request from LOOPS_SOURCE_REPO. Nobody
+ *   else sees one (decision 14), so their edit keeps the task's loop lines where they were, and
+ *   they count toward the 10.
  */
 export async function checkTypedLinks(
   scope: WorkScope,
@@ -113,11 +115,14 @@ export async function checkTypedLinks(
   const repos = reposFor(scope, ctx.brand);
   const out: TypedLink[] = [];
   const seen = new Set<string>();
+  const hidden = scope.operator ? [] : ctx.current.filter((l) => l.kind === "loop_line");
   let newLoopLine = false;
   for (const raw of next) {
     const key = typedLinkKey(raw);
     if (seen.has(key)) continue;
     seen.add(key);
+    // Put back below, where it was.
+    if (hidden.length && raw.kind === "loop_line" && kept.has(key)) continue;
     if (kept.has(key)) {
       out.push(ctx.current.find((l) => typedLinkKey(l) === key)!);
       continue;
@@ -139,6 +144,13 @@ export async function checkTypedLinks(
     out.push(link);
   }
   if (newLoopLine && !out.some((l) => l.kind === "pull_request" && isLoopsSourceRepo(l.repo))) return refuse("loop_line_repo");
+  // Each loop line the person can't see goes back after the link it followed on the task, or first.
+  for (const h of hidden) {
+    const before = ctx.current.slice(0, ctx.current.indexOf(h)).reverse();
+    const prev = before.find((l) => out.some((o) => typedLinkKey(o) === typedLinkKey(l)));
+    out.splice(prev ? out.findIndex((o) => typedLinkKey(o) === typedLinkKey(prev)) + 1 : 0, 0, h);
+  }
+  if (out.length > WORK_LIMITS.typedLinks) return refuse("links_full");
   return { ok: true, links: out };
 }
 
@@ -198,6 +210,26 @@ async function checkPart(scope: WorkScope, part: ThenInput | Exclude<MeasureInpu
       if (!conn || conn.status === "revoked") return refuse("product_missing");
     } catch {
       return refuse("product_missing");
+    }
+  }
+  return null;
+}
+
+/**
+ * A kept measure, on a task whose brand changes: a product event is counted from one brand's own
+ * connected product, so it can't go to the whole business or to a brand without that product. The
+ * person sets How we'll know it worked again first. Nothing else a measure names is a brand's own.
+ */
+export async function checkMeasureBrand(scope: WorkScope, measure: Measure | null, brand: WorkBrand | undefined, deps: WorkDeps): Promise<WorkRefused | null> {
+  if (!measure || measure.kind === "done") return null;
+  for (const part of [measure, ...(measure.then ? [measure.then] : [])]) {
+    if (part.kind !== "used" || !("productEvent" in part.counts)) continue;
+    if (!brand) return refuse("product_brand_moved");
+    try {
+      const conn = await brandRepo(brand, deps).productConnections.getById(part.counts.productEvent.connectionId);
+      if (!conn || conn.status === "revoked") return refuse("product_brand_moved");
+    } catch {
+      return refuse("product_brand_moved");
     }
   }
   return null;

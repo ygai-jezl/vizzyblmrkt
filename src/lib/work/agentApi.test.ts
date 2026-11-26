@@ -1,12 +1,12 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { WORK_LOG } from "@/lib/tenant";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { WORK_LOG, WORK_TASKS } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import { numberKeys } from "@/lib/metrics/meanings";
 import type { AgentAction } from "@/lib/types/agentAction";
 import { agentDraftWorkDecision, agentDraftWorkLog, agentGetWork, agentSuggestWorkTask, agentWorkPost, fromLine, NOTE } from "./agentApi";
 import { addLogEntry } from "./log";
 import type { WorkResult } from "./result";
-import { addTask, recordDecision } from "./service";
+import { addTask, editTask, recordDecision } from "./service";
 import { dismissSuggestion, proposeWorkSuggestion } from "./suggestions";
 import { WORK_SUGGEST_ACTION } from "./suggestion";
 import { LUMEN_EU, LUMEN_US, NINA, SAM } from "./testing/fixtures";
@@ -28,6 +28,8 @@ function value<T>(r: WorkResult<T>): T {
 }
 type Body = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 const bodyOf = (r: { body: unknown }) => r.body as Body;
+
+afterEach(() => vi.unstubAllEnvs());
 
 let us: WorkTask;
 let eu: WorkTask;
@@ -127,6 +129,70 @@ describe("get_work", () => {
     w.at("2026-12-21T09:00:00.000Z");
     const after = bodyOf(await agentGetWork(NINA_AGENT, {}, w.deps));
     expect(after.dismissedLately.find((d: Body) => d.title === "Run a webinar").again).toBe("Vizzy may suggest it again from 21 Dec.");
+  });
+
+  it("lists the suggestions dismissed or waiting in the chats of every brand the person sees", async () => {
+    const whole = { title: "Register the business", description: "", stage: "set_up", brandId: null, typedLinks: [], measure: { kind: "done" }, proposed: null, from: "from your chat with Vizzy", why: "" };
+    const a = value(await proposeWorkSuggestion(await w.scope(PEOPLE.nina), { task: whole }, w.deps)).action!;
+    value(await dismissSuggestion(await w.scope(PEOPLE.nina), { actionId: a.id, rev: 1, why: "not_for_us" }, w.deps));
+    value(await proposeWorkSuggestion(await w.scope(PEOPLE.nina), { task: { ...whole, title: "Open a business bank account" } }, w.deps));
+    const b = bodyOf(await agentGetWork(agent(LUMEN_EU, "eu", NINA, "admin"), {}, w.deps));
+    expect(b.dismissedLately).toEqual([expect.objectContaining({ title: "Register the business", why: "Not for us", again: "Vizzy won't suggest it again." })]);
+    expect(b.suggestionsWaiting).toEqual([expect.objectContaining({ title: "Open a business bank account", brand: "Whole business" })]);
+    // From Lumen Europe's chat, the dismissed one isn't made again.
+    expect(bodyOf(await agentSuggestWorkTask(agent(LUMEN_EU, "eu", NINA, "admin"), { tool: "suggest_work_task", title: "Register the business", brand: "whole business", stage: "Set up" }, w.deps))).toMatchObject({ outcome: "dismissed" });
+  });
+
+  it("gives each task and Log row its id, which suggest_work_task takes back as evidence", async () => {
+    value(await addLogEntry(await w.scope(PEOPLE.sam), { workstream: "Pricing research", state: "waiting", note: "On tonight's runs" }, w.deps));
+    const b = bodyOf(await agentGetWork(NINA_AGENT, {}, w.deps));
+    const task = b.tasks.find((t: Body) => t.ref === `#${us.ref}`);
+    expect(task.id).toBe(us.id);
+    expect(b.log.entries[0].id).toMatch(/^wl_/);
+    expect(b.log.inFlight[0]).toMatchObject({ id: b.log.entries[0].id, workstream: "Pricing research" });
+    const r = bodyOf(
+      await agentSuggestWorkTask(NINA_AGENT, { tool: "suggest_work_task", title: "Compare three pricing pages", evidence: [{ kind: "work_log", ref: b.log.inFlight[0].id }, { kind: "work_task", ref: task.id }] }, w.deps),
+    );
+    const kept = w.us.raw("agent_actions", r.card.id) as unknown as AgentAction;
+    expect(kept.signals).toEqual([{ kind: "work_log", ref: b.log.inFlight[0].id }, { kind: "work_task", ref: us.id }]);
+    expect((kept.proposal as Body).task.from).toBe("from today's log: Pricing research");
+    expect(bodyOf(await agentGetWork(NINA_AGENT, { ref: String(us.ref) }, w.deps)).task.id).toBe(us.id);
+  });
+
+  it("counts a due check it lists, as the task page does, so its line never says it will count one that is due", async () => {
+    w.us.seed("product_connections", "pc_lumen", { tenantId: LUMEN_US, name: "Lumen app", status: "active", catalog: { events: [] } });
+    const nina = await w.scope(PEOPLE.nina);
+    const t = value(await addTask(nina, { title: "Templates", brandId: LUMEN_US, status: "done", measure: { kind: "used", counts: { productEvent: { connectionId: "pc_lumen", event: "note_from_template" } }, look: { days: 7 } } }, w.deps)).task.task;
+    for (let i = 0; i < 3; i++) {
+      w.us.seed("product_events", `pe_${i}`, { tenantId: LUMEN_US, connectionId: "pc_lumen", type: "track", event: "note_from_template", receivedAt: `2026-11-2${2 + i}T12:00:00.000Z` });
+    }
+    w.at("2026-11-27T15:00:00.000Z");
+    const b = bodyOf(await agentGetWork(NINA_AGENT, {}, w.deps));
+    expect(b.log.checksDue).toEqual([{ task: `#${t.ref} Templates`, line: "Work counted 3 note_from_template events from Lumen Notes' product since 20 Nov." }]);
+    expect((w.us.raw(WORK_TASKS, t.id) as unknown as WorkTask).check?.counted).toMatchObject({ n: 3 });
+  });
+
+  it("never shows Vizzy a loop line, which only operators see", async () => {
+    vi.stubEnv("LOOPS_OPERATOR_EMAILS", "nina@lumen.example");
+    vi.stubEnv("LOOPS_SOURCE_REPO", "Lumen-Example/notes-app");
+    const t = value(await addTask(await w.scope(PEOPLE.nina), { title: "New sign in", brandId: LUMEN_US, typedLinks: [{ kind: "pull_request", provider: "github", repo: "Lumen-Example/notes-app", number: 412 }, { kind: "loop_line", loopKind: "vizzy_chat" }] }, w.deps)).task.task;
+    const listed = bodyOf(await agentGetWork(NINA_AGENT, {}, w.deps)).tasks.find((x: Body) => x.ref === `#${t.ref}`);
+    expect(listed.links).toEqual(["Pull request: #412 in Lumen-Example/notes-app"]);
+    expect(JSON.stringify(bodyOf(await agentGetWork(NINA_AGENT, { ref: String(t.ref) }, w.deps)))).not.toMatch(/loop/i);
+  });
+
+  it("says a measure or a check was set in a task's history, and took off only when it was", async () => {
+    const nina = await w.scope(PEOPLE.nina);
+    value(await editTask(nina, us.ref, { measure: { kind: "moves", meaning: "conversions", word: "Orders", look: { days: 14 } } }, w.deps));
+    value(await editTask(nina, us.ref, { check: { kind: "date", day: "2026-12-01" } }, w.deps));
+    const history = bodyOf(await agentGetWork(NINA_AGENT, { ref: String(us.ref) }, w.deps)).task.history as string[];
+    expect(history[0]).toMatch(/^nina set the check \(/);
+    expect(history[1]).toMatch(/^nina set how we'll know it worked \(/);
+    value(await editTask(nina, us.ref, { check: null }, w.deps));
+    value(await editTask(nina, us.ref, { measure: null }, w.deps));
+    const after = bodyOf(await agentGetWork(NINA_AGENT, { ref: String(us.ref) }, w.deps)).task.history as string[];
+    expect(after[0]).toMatch(/^nina took off how we'll know it worked \(/);
+    expect(after[1]).toMatch(/^nina cleared the check \(/);
   });
 
   it("says why when the brand's organisation doesn't list it back", async () => {

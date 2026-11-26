@@ -29,10 +29,11 @@ def get_work(
 ) -> dict:
     """Read Work: the organisation's tasks and daily log, as the person in chat sees them.
 
-    Without `ref` it returns `tasks` (each with its `ref` such as "#73", status, stage, brand,
-    Must have, whether a check is due, the kind of win, what it waits for and its typed links), a
-    `summary`, the Log day (`log`: workstreams in flight with "Day N", entries, tasks that moved,
-    decisions made and today's checks due), `suggestionsWaiting` in Review, and
+    Without `ref` it returns `tasks` (each with its `id`, its `ref` such as "#73", status, stage,
+    brand, Must have, whether a check is due, the kind of win, what it waits for and its typed
+    links), a `summary`, the Log day (`log`: workstreams in flight with "Day N", entries, tasks
+    that moved, decisions made and today's checks due; in flight, entries and decisions each have
+    an `id`), `suggestionsWaiting` in Review, and
     `dismissedLately` (suggestions people dismissed, with why and whether you may suggest each
     again). With `ref` it returns one task in full: its origin, typed links with plan approvals,
     how we'll know it worked (the kind, the suggested kind beside the one kept, and the then), its
@@ -96,8 +97,9 @@ def suggest_work_task(
         measure: Optional, the full measure when you know it, such as
             {"kind": "moves", "meaning": "searchClicks", "look": {"days": 28}}.
         why: Why the team should do it, in your words (a sentence or two).
-        evidence: What it is based on, as "kind:ref" (e.g. "work_log:wl_…" from get_work's Log,
-            "work_task:wt_…", "metric:searchClicks", "brand_note:<id>").
+        evidence: What it is based on, as "kind:ref": "work_log:<id>" with the `id` of an entry,
+            a workstream in flight or a decision in get_work's Log (wl_…), "work_task:<id>" with
+            a task's `id` from get_work (wt_…), or "metric:searchClicks", "brand_note:<id>".
 
     Returns:
         A status dict to relay, with a card the chat shows (its link opens Review).

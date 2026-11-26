@@ -18,6 +18,7 @@ import {
   peekWorkRefs,
   raiseWorkRefs,
   saveDraftedWorkLog,
+  TenantValidationError,
   type NewWorkTask,
   type SuggestionAccept,
   type WorkChangePlan,
@@ -39,6 +40,7 @@ import {
   DECISION_OPTION_IDS,
   isClosedStatus,
   isPlanApprovalQuestion,
+  MAX_WORK_REF,
   onOpenList,
   PLAN_APPROVAL_OPTIONS,
   PLAN_APPROVAL_QUESTION,
@@ -54,8 +56,9 @@ import {
   type WorkOrigin,
   type WorkStatus,
   type WorkTask,
+  withoutLoopLines,
 } from "./types";
-import { checkMeasure, checkTypedLinks, ideaExists, placeForChange, placeForNew, stableJson, tasksByRef } from "./validate";
+import { checkMeasure, checkMeasureBrand, checkTypedLinks, ideaExists, placeForChange, placeForNew, stableJson, tasksByRef } from "./validate";
 import {
   askAgainNotice,
   countedLine,
@@ -260,10 +263,16 @@ export function isOperatorCount(part: ReturnType<typeof partOf>): boolean {
   return part !== null && part.kind === "used" && ("purpose" in part.counts || "type" in part.counts || "loopKind" in part.counts);
 }
 
-/** The task as this person gets it: a count of this copy's own purposes only for operators. */
+/**
+ * The task as this person gets it: a loop line link and a count of this copy's own purposes only
+ * for operators (decision 14). An edit by anyone else keeps the loop lines (checkTypedLinks).
+ */
 export function taskForViewer(scope: WorkScope, task: WorkTask): WorkTask {
-  if (scope.operator || !task.check?.counted || !isOperatorCount(checkPartOf(task))) return task;
-  return { ...task, check: { ...task.check, counted: null } };
+  if (scope.operator) return task;
+  let out = task;
+  if (task.typedLinks.some((l) => l.kind === "loop_line")) out = { ...out, typedLinks: withoutLoopLines(task.typedLinks) };
+  if (task.check?.counted && isOperatorCount(checkPartOf(task))) out = { ...out, check: { ...task.check, counted: null } };
+  return out;
 }
 
 function viewOf(scope: WorkScope, task: WorkTask, map: ReadonlyMap<string, WorkTask | null>, now: Date): WorkTaskView {
@@ -416,6 +425,26 @@ export async function countDueCheck(scope: WorkScope, task: WorkTask, deps: Work
   return r.ok ? r.task : "task" in r ? r.task : task;
 }
 
+/** The most due measure checks one read of the Log or of get_work counts. */
+export const COUNT_ON_READ = 10;
+
+/**
+ * Count the due measure checks among these tasks once, when they first show (up to 10 a read),
+ * as the task page does: each task as counted, or as it was when its count fails.
+ */
+export async function countShownChecks(scope: WorkScope, tasks: readonly WorkTask[], deps: WorkDeps): Promise<WorkTask[]> {
+  let n = 0;
+  return mapLimit(tasks, 4, async (t) => {
+    if (t.check?.setBy !== SET_BY_MEASURE || t.check.counted || n >= COUNT_ON_READ) return t;
+    n += 1;
+    try {
+      return await countDueCheck(scope, t, deps);
+    } catch {
+      return t;
+    }
+  });
+}
+
 export interface WorkTaskPage extends WorkTaskView {
   decisions: Array<WorkLogRowOf<"decision">>;
   plans: ReturnType<typeof planStates>;
@@ -461,6 +490,16 @@ export async function taskPage(scope: WorkScope, ref: number, deps: WorkDeps = {
 }
 
 // --- Adding and changing -----------------------------------------------------------------------
+
+/** Take `n` refs from the organisation's counter: the first, or null when there aren't that many left. */
+async function takeRefs(scope: WorkScope, n: number, deps: WorkDeps, now: Date): Promise<number | null> {
+  try {
+    return await allocateWorkRefs(scope.organisationId, n, deps.controlDb, now);
+  } catch (err) {
+    if (err instanceof TenantValidationError && err.message.includes("no_refs_left")) return null;
+    throw err;
+  }
+}
 
 class Changed extends Error {}
 
@@ -517,10 +556,21 @@ async function checkFields(
   }
   const after = { ...(current ?? {}), ...patch } as Partial<WorkTask>;
   const brand = brandForTask(scope, { brandId: after.brandId ?? null });
+  // A new brand checks again what named the old one's: pull requests and switches from its repos,
+  // and a product event counted from its product.
+  const moved = current !== null && body.brandId !== undefined && brandForTask(scope, current)?.id !== brand?.id;
+  const keptLinks = moved ? current.typedLinks.filter((l) => l.kind !== "pull_request" && l.kind !== "switch") : (current?.typedLinks ?? []);
   if (body.typedLinks !== undefined) {
-    const links = await checkTypedLinks(scope, body.typedLinks, { brand, current: current?.typedLinks ?? [] }, deps);
+    const links = await checkTypedLinks(scope, body.typedLinks, { brand, current: keptLinks }, deps);
     if (!links.ok) return links;
     patch.typedLinks = links.links;
+  } else if (moved && keptLinks.length !== current.typedLinks.length) {
+    const links = await checkTypedLinks(scope, current.typedLinks, { brand, current: keptLinks }, deps);
+    if (!links.ok) return links;
+  }
+  if (moved && body.measure === undefined) {
+    const problem = await checkMeasureBrand(scope, current.measure, brand, deps);
+    if (problem) return problem;
   }
   if (body.measure !== undefined) {
     const m = await checkMeasure(
@@ -669,7 +719,8 @@ export async function addTaskWith(
   if (!checked.ok) return checked;
   const zone = (brandIn(scope, place.brandId) ?? scope.session).timeZone;
   const settled = settle(null, { status: body.status ?? "todo", ...checked.value.patch }, checked.value.check, zone, now);
-  const ref = await allocateWorkRefs(scope.organisationId, 1, deps.controlDb, now);
+  const ref = await takeRefs(scope, 1, deps, now);
+  if (ref === null) return refuse("refs_full");
   const p = settled.patch;
   const task: NewWorkTask = {
     id: opts.id ?? newWorkTaskId(),
@@ -973,10 +1024,19 @@ async function readImport(scope: WorkScope, body: ImportBody, deps: WorkDeps) {
     }
     rows.push({ ...r, place });
   }
+  // A sheet's ref may run at most 5,000 past the refs Work has given, and never into the last
+  // 5,000, so one row (ID 999999) can't use up the organisation's refs.
+  const peek = await peekWorkRefs(scope.organisationId, deps.controlDb);
+  const ceiling = Math.min(MAX_WORK_REF - WORK_LIMITS.tasks, Math.max(peek - 1, ...all.map((t) => t.ref)) + WORK_LIMITS.tasks);
+  const kept = rows.filter((r) => {
+    if (r.ref === null || r.ref <= ceiling) return true;
+    refused.push({ row: r.row, problem: "ref_far", message: IMPORT_ROW_MESSAGES.ref_far });
+    return false;
+  });
   refused.sort((a, b) => a.row - b.row);
-  const highest = Math.max(0, ...rows.map((r) => r.ref ?? 0));
-  const next = Math.max(await peekWorkRefs(scope.organisationId, deps.controlDb), highest + 1);
-  return { ok: true as const, columns, rows, refused, unknownStatuses: read.unknownStatuses, taken, highest, next, unanswered };
+  const highest = Math.max(0, ...kept.map((r) => r.ref ?? 0));
+  const next = Math.max(peek, highest + 1);
+  return { ok: true as const, columns, rows: kept, refused, unknownStatuses: read.unknownStatuses, taken, highest, next, unanswered };
 }
 
 /** The import dialog's preview: what each column fills, the first 20 rows, and what would be refused. */
@@ -1013,7 +1073,9 @@ export async function importTasks(scope: WorkScope, body: ImportBody, deps: Work
   const file = importFileName(body.file);
   if (r.highest > 0) await raiseWorkRefs(scope.organisationId, r.highest, deps.controlDb, now);
   const fresh = r.rows.filter((x) => x.ref === null).length;
-  let nextNew = fresh ? await allocateWorkRefs(scope.organisationId, fresh, deps.controlDb, now) : 0;
+  const first = fresh ? await takeRefs(scope, fresh, deps, now) : 0;
+  if (first === null) return refuse("refs_full");
+  let nextNew = first;
   const ids = new Map<number, string>();
   const planned = r.rows.map((row) => {
     const ref = row.ref ?? nextNew++;

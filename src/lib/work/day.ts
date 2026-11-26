@@ -8,7 +8,9 @@ import type { EntryState, WorkLink, WorkLogRow, WorkLogRowOf, WorkWho } from "./
  *
  * - In flight: each workstream (by brand and name, ignoring case) whose newest entry up to the end
  *   of the day isn't Done. It carries over day to day by itself, never retyped, with "Day N"
- *   counted from the first entry since it was last Done.
+ *   counted from the first entry since it was last Done. The Log reads a year back for it, so a
+ *   workstream left Waiting for weeks stays; one nobody has logged for a year drops off, and when
+ *   the year holds more rows than one read takes, the Log says the oldest may be missing.
  * - Moved: the tasks that changed that day (change and check rows), each with its rows. Work's own
  *   counting is not a move.
  * - Decisions: the decisions recorded that day, plan approvals among them.
@@ -17,12 +19,14 @@ import type { EntryState, WorkLink, WorkLogRow, WorkLogRowOf, WorkWho } from "./
  * Days are the viewer's brand's days. Pure.
  */
 
-/** How many days back the Log reads to find what is still in flight. */
-export const LOG_LOOKBACK_DAYS = 30;
+/** How many days back the Log reads to find what is still in flight: a year, within the rows one read takes. */
+export const LOG_LOOKBACK_DAYS = 365;
 /** How many days the day rail shows: today and the 13 before it, whichever day is shown. */
 export const LOG_RAIL_DAYS = 14;
 
 export interface InFlight {
+  /** The newest entry's id. */
+  id: string;
   workstream: string;
   brandId: string | null;
   state: Exclude<EntryState, "done">;
@@ -77,7 +81,9 @@ export function inFlightOn(rows: readonly WorkLogRow[], day: string, timeZone: s
   for (const r of rows) {
     if (r.kind !== "entry" || dayIn(r.at, timeZone) > day) continue;
     const k = keyOf(r);
-    byKey.set(k, [...(byKey.get(k) ?? []), r]);
+    const list = byKey.get(k);
+    if (list) list.push(r);
+    else byKey.set(k, [r]);
   }
   const out: InFlight[] = [];
   for (const list of byKey.values()) {
@@ -89,6 +95,7 @@ export function inFlightOn(rows: readonly WorkLogRow[], day: string, timeZone: s
     const since = dayIn(list[first]!.at, timeZone);
     const longer = first === 0 && since <= readFrom;
     out.push({
+      id: newest.id,
       workstream: newest.workstream,
       brandId: newest.brandId,
       state: newest.state,

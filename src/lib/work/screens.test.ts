@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { WORK_TASKS } from "@/lib/tenant";
 import { addTask, editTask } from "./service";
+import { addSuggestion, proposeWorkSuggestion } from "./suggestions";
 import { addLogEntry } from "./log";
 import type { WorkResult } from "./result";
 import { addScreen, listScreen, logScreen, screenScope, taskScreen } from "./screens";
@@ -118,6 +120,17 @@ describe("the task page", () => {
     const b = (await taskScreen(scope, eu.ref, w.deps))!;
     expect(b.brandChoices).toEqual([{ id: LUMEN_EU, name: "Lumen Europe" }]);
     expect(b.makeIdeaHref).toBeNull();
+  });
+
+  it("says what Vizzy suggested only to someone who sees the brand whose chat made the suggestion", async () => {
+    const nina = await w.scope(PEOPLE.nina);
+    const made = value(await proposeWorkSuggestion(nina, { task: { title: "Publish a getting started guide", description: "", stage: "market", brandId: LUMEN_US, typedLinks: [], measure: null, proposed: null, from: "from your numbers", why: "" } }, w.deps)).action!;
+    const t = value(await addSuggestion(nina, { actionId: made.id, rev: 1, task: { title: "Publish a getting started guide for teams", brandId: LUMEN_US, stage: "market" } }, w.deps)).task.task;
+    expect((await taskScreen(nina, t.ref, w.deps))!.suggested).toEqual({ from: "from your numbers", edited: [{ label: "Title", was: "Publish a getting started guide" }] });
+    expect((await taskScreen(await w.scope(PEOPLE.sam), t.ref, w.deps))!.suggested).not.toBeNull();
+    // Once the task's brand moved organisation, the brand it was added from is another organisation's.
+    w.us.seed(WORK_TASKS, t.id, { ...(w.us.raw(WORK_TASKS, t.id) as object), addedFrom: FERNHILL });
+    expect((await taskScreen(nina, t.ref, w.deps))!.suggested).toBeNull();
   });
 
   it("is not found for a task the person can't see", async () => {

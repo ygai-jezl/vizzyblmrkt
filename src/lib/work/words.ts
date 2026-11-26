@@ -44,18 +44,21 @@ export const WORK_MESSAGES = {
   other_region: "That brand keeps its data in another region, so this task can't move to it. Add a new task for that brand instead.",
   changed: "This task changed while you were editing it. Refresh to see the latest, then try again.",
   tasks_full: "This organisation has 5,000 tasks, the most Work keeps. Delete some done or dropped tasks first.",
+  refs_full: "Work has no task numbers left for this organisation. Ask whoever runs your copy of YouGrow to look at its Work refs.",
   entries_full: "The team has logged 500 entries today, the most Work takes in a day. Log the rest tomorrow.",
   decisions_full: "This task has 50 decisions, the most Work keeps on one task.",
   no_repo: "Pull request and switch links need a connected repo. Connect one in Settings › Connections first.",
   repo_not_selected: "That repo isn't one this brand has selected. Select it in Settings › Connections, or link another.",
   loop_line_operators: "Loop lines are only for the people who run this copy's own learning loop.",
   loop_line_repo: "A loop line needs a pull request from this copy's own repo on the task.",
-  idea_missing: "That idea isn't there any more, or it's in a brand you can't see.",
+  links_full: "This task can't take another link under Connected to: it keeps up to 10. Take one off first.",
+  idea_missing: "What that links to isn't there any more, or it's in a brand you can't see.",
   measure_operators: "Counting a purpose, a type or a loop kind is only for the people who run this copy's own learning loop.",
   type_not_built: "That isn't a type YouGrow keeps yet.",
   product_missing: "That connected product isn't there, or it was disconnected. Pick another, or let your read be the record.",
   product_look: "A product event is counted over days, at most 90, because events are kept for 90 days.",
   product_whole_business: "A product event is counted for one brand. Tag the task with its brand first.",
+  product_brand_moved: "This task counts an event from its brand's own product, so it keeps that brand. Change How we'll know it worked first, then the brand.",
   blocker_missing: "One of the tasks it waits for isn't one you can see.",
   blocker_self: "A task can't wait for itself.",
   no_check: "This task has no check.",
@@ -98,6 +101,7 @@ export const IMPORT_ROW_MESSAGES = {
   ref_taken: "Its ref is taken already.",
   ref_twice: "Its ref is on an earlier row too.",
   ref_bad: "Its ref isn't a number from 1 to 999999.",
+  ref_far: "Its ref is more than 5,000 past the highest ref in Work. Renumber it, or leave the Ref column out so Work numbers it.",
   too_long: "A field is longer than Work keeps.",
   check_bad: "Its check isn't a day or a task to wait for.",
   brand_unknown: "Its brand isn't one you can tag.",
@@ -208,6 +212,9 @@ export function countedLine(i: CountedLineInput): string {
   const events = label ? (n === 1 ? `event for ${label}` : label) : `${event} ${n === 1 ? "event" : "events"}`;
   if (i.counted.capped && i.counted.backTo) {
     return `Work counted at least ${countWords(n)} ${events}${brand ? ` from ${brand} product` : ""} in the newest 2,000 events, back to ${dayOf(i.counted.backTo, i.timeZone)}.`;
+  }
+  if (i.counted.backTo) {
+    return `Work counted ${countWords(n)} ${events}${brand ? ` from ${brand} product` : ""} back to ${dayOf(i.counted.backTo, i.timeZone)}, as far back as events are kept.`;
   }
   return `Work counted ${countWords(n)} ${events}${brand ? ` from ${brand} product` : ""} since ${dayOf(i.counted.from, i.timeZone)}.`;
 }

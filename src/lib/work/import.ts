@@ -210,11 +210,17 @@ const YES = new Set(["yes", "y", "true", "x", "1", "✓", "✔", "mvp", "must", 
 /** A row's check: a day (YYYY-MM-DD), or the ref of a task to wait for ("#75", "when #75 is done", "after 75"). */
 export type ImportCheck = { kind: "date"; day: string } | { kind: "after_task"; ref: number };
 
+/** The longest Check cell read: "when #999999 is done." with room to spare. Longer is refused unread. */
+const CHECK_MAX = 40;
+
 export function readCheck(text: string): ImportCheck | null | "bad" {
-  const t = text.trim();
+  // Spaces collapsed and the length capped before any pattern runs, and a pattern with one way to
+  // match each space, so no cell can make the read slow.
+  const t = text.trim().replace(/\s+/g, " ");
   if (!t) return null;
+  if (t.length > CHECK_MAX) return "bad";
   if (isDay(t)) return { kind: "date", day: t };
-  const m = /^(?:when|after|once)?\s*#?\s*(\d{1,6})(?:\s+is\s+done)?\.?$/i.exec(t);
+  const m = /^(?:(?:when|after|once) ?)?#? ?(\d{1,6})(?: is done)?\.?$/i.exec(t);
   if (m) return { kind: "after_task", ref: Number(m[1]) };
   return "bad";
 }
@@ -247,6 +253,8 @@ export function readRow(columns: readonly ImportColumn[], r: Sheet["rows"][numbe
     const at = columns.findIndex((c) => c.field === f);
     return at < 0 ? "" : (r.cells[at] ?? "").trim();
   };
+  // No field Work keeps is longer than a note: a longer cell in a column it reads is refused before any parsing.
+  if (columns.some((c, i) => c.field !== "skip" && (r.cells[i]?.length ?? 0) > WORK_LIMITS.notes)) return { ok: false, row: r.row, problem: "too_long" };
   const title = cell("title").replace(/\s+/g, " ");
   if (!title) return { ok: false, row: r.row, problem: "no_title" };
   const refText = cell("ref").replace(/^#/, "").trim();

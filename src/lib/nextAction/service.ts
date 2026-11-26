@@ -121,6 +121,15 @@ export async function loadNextActionState(
   return { tenant, signals, env, allowed, inputs, hash: inputHash(inputs), record };
 }
 
+/**
+ * Whether the brand gets Vizzy's card: it told Vizzy about itself (the welcome finished, answers
+ * from Settings, or a fact kept). A skipped welcome or no profile keeps Home's steps list, as the
+ * mockups show.
+ */
+export function cardFits(tenant: Pick<Tenant, "businessProfile"> | null): boolean {
+  return tenant?.businessProfile?.status === "done";
+}
+
 /** Whether the kept card was written from these inputs. */
 export function isFresh(state: Pick<NextActionState, "record" | "hash">): boolean {
   return !!state.record && state.record.inputHash === state.hash;
@@ -180,6 +189,7 @@ export type ComposeResult = {
 export async function composeNextAction(ctx: TenantContext, opts: { reason: "state" | "another" }, deps: NextActionDeps = {}): Promise<ComposeResult> {
   const now = deps.now ?? Date.now;
   const state = await loadNextActionState(ctx, {}, deps);
+  if (!cardFits(state.tenant)) return { composed: false, record: state.record, state };
   if (opts.reason === "state" && isFresh(state)) return { composed: false, record: state.record, state };
   const claim = await claimNextActionWrite(ctx, { nowMs: now(), leaseMs: LEASE_MS, db: deps.db });
   if (!claim.ok) return { composed: false, record: claim.record, held: claim.reason, state };

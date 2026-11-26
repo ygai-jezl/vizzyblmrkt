@@ -35,7 +35,17 @@ beforeEach(() => {
   db = new FakeFirestore();
   fake.db = db;
   for (const id of ["ten_A", "ten_B"]) {
-    db.seed("tenants", id, { tenantName: `Brand ${id}`, status: "active", region: "us", createdAt: "2026-09-01T00:00:00.000Z", updatedAt: "2026-09-01T00:00:00.000Z" });
+    db.seed("tenants", id, {
+      tenantName: `Brand ${id}`,
+      rootDomain: `${id}.example.com`,
+      status: "active",
+      region: "us",
+      allowedOrigins: [`https://${id}.example.com`],
+      ownerId: "usr_owner",
+      createdAt: "2026-09-01T00:00:00.000Z",
+      updatedAt: "2026-09-01T00:00:00.000Z",
+      businessProfile: { status: "done", answers: { run: "shop" }, rev: 0, startedAt: "2026-11-25T00:00:00.000Z" },
+    });
   }
   vi.stubEnv("ONBOARDING_ENABLED", "true");
   vi.stubEnv("NEXT_ACTION_CARD_ENABLED", "true");

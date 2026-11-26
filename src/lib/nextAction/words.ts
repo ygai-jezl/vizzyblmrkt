@@ -1,0 +1,31 @@
+/**
+ * The words on Home's Your next action card (the owner-approved mockups, Home.html, with "Show
+ * another" for the footer button, which asks Vizzy for a different card). Client safe: the card,
+ * its help page and its tests share them. House style: no dashes as punctuation, no AI tells.
+ */
+export const NEXT_ACTION_WORDS = {
+  title: "Your next action",
+  progress: (done: number, total: number) => `${done} of ${total} done`,
+  progressLabel: "Steps done",
+  doneToday: "Done today",
+  from: "From Vizzy, based on what you told me",
+  another: "Show another",
+  writing: "Vizzy is writing your next action.",
+  ready: "Your next action is ready.",
+  done: "Done",
+  dismiss: "Dismiss",
+  dismissLabel: (title: string) => `Dismiss: ${title}`,
+  reasonLabel: "Tell Vizzy why (optional)",
+  reasonPlaceholder: "Not now, or we do this already",
+  cancel: "Cancel",
+  dismissed: "Dismissed. Vizzy won't suggest it again for 30 days.",
+  goal: (now: number | null, target: number) => `${now === null ? "?" : now.toLocaleString("en-GB")} of ${target.toLocaleString("en-GB")}`,
+  answerWaiting: "Saved. Keep it in About your business so Vizzy plans with it.",
+  answerKnown: "About your business already has that.",
+  answerGot: "Got it.",
+  limited: "You've asked for a lot of new cards today. Try again tomorrow.",
+  tooFast: "That's a lot of new cards at once. Try again in a minute.",
+  anotherFailed: "Vizzy couldn't write another card just now. Try again in a minute.",
+  cardChanged: "This card changed. Refresh the page to see the new one.",
+  saveFailed: "That didn't save. Try again.",
+} as const;

@@ -22,6 +22,18 @@ const T0 = Date.parse("2026-11-26T09:00:00.000Z");
 let db: FakeFirestore;
 let clock: number;
 
+/** A made-up brand record, as the tenant registry reads it. */
+const TENANT = {
+  tenantName: "Fernhill Plants",
+  rootDomain: "ten_A.example.com",
+  status: "active",
+  region: "us",
+  allowedOrigins: ["https://ten_A.example.com"],
+  ownerId: "usr_owner",
+  createdAt: "2026-09-01T00:00:00.000Z",
+  updatedAt: "2026-09-01T00:00:00.000Z",
+};
+
 const GOOD = {
   steps: [
     { title: "Start your first email list", why: "You said Christmas markets: open the gift box waitlist this week.", action: "ask.waitlist_page", button: "Draft it with Vizzy" },
@@ -109,6 +121,16 @@ describe("writing a card", () => {
     expect(home.view!.steps[2]!.question).toEqual({ label: "How often?", options: ["Every week", "Every 2 weeks"], picked: null, keeps: true });
   });
 
+  it("writes none for a brand that skipped the welcome or never answered", async () => {
+    for (const businessProfile of [undefined, { status: "skipped", answers: {}, rev: 0, startedAt: "2026-11-25T00:00:00.000Z" }]) {
+      db.seed("tenants", "ten_A", { ...TENANT, ...(businessProfile ? { businessProfile } : {}) });
+      const d = deps();
+      expect((await composeNextAction(A, { reason: "another" }, d)).composed).toBe(false);
+      expect(d.generate).not.toHaveBeenCalled();
+      expect(await readNextActionCard(A, { db })).toBeNull();
+    }
+  });
+
   it("never asks the model again while the inputs are the same", async () => {
     const d = deps();
     await composeNextAction(A, { reason: "state" }, d);
@@ -148,7 +170,7 @@ describe("writing a card", () => {
       [null, "model"],
     ] as const) {
       db = new FakeFirestore();
-      db.seed("tenants", "ten_A", { tenantName: "Fernhill Plants", status: "active", region: "us", createdAt: "2026-09-01T00:00:00.000Z", updatedAt: "2026-09-01T00:00:00.000Z" });
+      db.seed("tenants", "ten_A", { ...TENANT, businessProfile: { status: "done", answers: {}, rev: 0, startedAt: "2026-11-25T00:00:00.000Z" } });
       const d = deps(answer);
       const r = await composeNextAction(A, { reason: "state" }, d);
       expect(r.composed, reason).toBe(true);
@@ -177,7 +199,7 @@ describe("writing a card", () => {
     clock = Date.parse("2026-11-27T00:00:01.000Z");
     expect((await composeNextAction(A, { reason: "another" }, d)).composed).toBe(true);
     // A write in progress holds the record.
-    await db.collection("next_action_cards").doc(nextActionDocId("ten_A")).update({ leaseUntil: new Date(clock + 10_000).toISOString(), leaseId: "someoneelse00000" });
+    await forTenant(A, db).nextActionCards.update(nextActionDocId("ten_A"), { leaseUntil: new Date(clock + 10_000).toISOString(), leaseId: "someoneelse00000" });
     expect(await composeNextAction(A, { reason: "another" }, d)).toMatchObject({ composed: false, held: "busy" });
   });
 
@@ -286,9 +308,9 @@ describe("another brand, and erase", () => {
     await composeNextAction(B, { reason: "another" }, deps());
     expect(JSON.stringify(await readNextActionCard(A, { db }))).toBe(before);
     expect((await readNextActionCard(B, { db }))!.tenantId).toBe("ten_B");
-    // A's record id read as B is not B's.
-    const raw = await db.collection("next_action_cards").doc(nextActionDocId("ten_A")).get();
-    expect(raw.data()!.tenantId).toBe("ten_A");
+    // A's record, by its id, is invisible to B.
+    expect(await forTenant(B, db).nextActionCards.getById(nextActionDocId("ten_A"))).toBeNull();
+    expect((await forTenant(A, db).nextActionCards.getById(nextActionDocId("ten_A")))!.tenantId).toBe("ten_A");
   });
 
   it("removing a fact or deleting a conversation forgets the card and its outcomes, and declines its open steps", async () => {

@@ -61,7 +61,8 @@ const html = (view: CardView | null, children: ReactNode = null) =>
 describe("Home's Your next action card", () => {
   it("draws the steps with their why, the buttons the server resolved, and the footer", () => {
     const out = html(VIEW);
-    expect(out).toContain(`<h2 id="next-action-h" class="text-sm font-semibold">${NEXT_ACTION_WORDS.title}</h2>`);
+    // The heading takes focus when a saved answer or dismissal takes its row away.
+    expect(out).toContain(`<h2 id="next-action-h" tabindex="-1" class="text-sm font-semibold focus:outline-none">${NEXT_ACTION_WORDS.title}</h2>`);
     // The note from the card before counts as one done, and the steps are numbered on from it.
     expect(out).toContain("1 of 4 done");
     expect(out).toMatch(/>2<\/span>.*Turn on the welcome email/);

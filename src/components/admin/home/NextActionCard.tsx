@@ -55,6 +55,8 @@ export function NextActionCard({ initial, stale, children }: { initial: CardView
   const [flow] = useState(() => new NextActionFlow(initial, { post: postJson }));
   const { view, writing, message, notice, live } = useSyncExternalStore(flow.subscribe, flow.snapshot, flow.snapshot);
   const asked = useRef(false);
+  // A saved answer or dismissal takes its row away: focus goes to the card's heading, not the page.
+  const heading = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
     if (!stale || asked.current) return;
@@ -82,7 +84,7 @@ export function NextActionCard({ initial, stale, children }: { initial: CardView
   return (
     <section aria-labelledby="next-action-h" className="overflow-hidden rounded-xl border border-shell-line bg-shell-card">
       <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-3.5">
-        <h2 id="next-action-h" className="text-sm font-semibold">
+        <h2 id="next-action-h" ref={heading} tabIndex={-1} className="text-sm font-semibold focus:outline-none">
           {W.title}
         </h2>
         <span className="inline-flex items-center gap-2 text-xs tabular-nums text-shell-muted">
@@ -126,8 +128,16 @@ export function NextActionCard({ initial, stale, children }: { initial: CardView
             canAsk={!!shell}
             onPage={() => flow.page(cardId, step)}
             onAsk={() => void flow.ask(cardId, step, (prompt) => shell?.ask(prompt))}
-            onAnswer={(choice) => flow.answer(cardId, step, choice)}
-            onDismiss={(reason) => flow.dismiss(cardId, step, reason)}
+            onAnswer={async (choice) => {
+              const r = await flow.answer(cardId, step, choice);
+              if (r.ok) heading.current?.focus();
+              return r;
+            }}
+            onDismiss={async (reason) => {
+              const ok = await flow.dismiss(cardId, step, reason);
+              if (ok) heading.current?.focus();
+              return ok;
+            }}
           />
         ))}
       </ol>

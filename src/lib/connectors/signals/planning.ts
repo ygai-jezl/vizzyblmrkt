@@ -18,6 +18,10 @@ import { readSnapshot } from "../snapshots";
  * Next up is stored once per brand and the pack goes to Vizzy, so neither can follow one viewer's
  * access. Every number sits in the line's words, so Next up's check that a reason names only
  * numbers its lines hold keeps the pick.
+ *
+ * It still names Search Console's manifest. Features now read kinds of data through readByUse
+ * (src/lib/connectors/byUse.ts, ADR-0019), as Next up's AI answers line does; Search Console's
+ * planning lines move onto it next.
  */
 
 const STREAM = searchConsoleManifest.produces[0]!.stream;

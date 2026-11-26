@@ -209,6 +209,19 @@ describe("mcp.collect", () => {
     ]);
   });
 
+  it("keeps only the days a paged answer covers, and reads the rest on the next run", async () => {
+    const paged = fakeMcpServer({ tools: { ...TOOLS, history: () => ({ data: [{ date: "2026-11-20", count: 12 }, { date: "2026-11-18", count: 7 }], pagination: { hasMore: true } }) } });
+    const r = await mcpCollect({ ...input(), ask: ask() }, depsOf(paged.transport));
+    expect(r.days.map((d) => [d.day, d.docs[0]!.totals])).toEqual([
+      ["2026-11-18", { cfRequests: 7 }],
+      ["2026-11-19", { cfRequests: null }],
+      ["2026-11-20", { cfRequests: 12 }],
+    ]);
+    expect(r.moreDue).toBe(true);
+    const none = fakeMcpServer({ tools: { ...TOOLS, history: () => ({ data: [], pagination: { hasMore: true } }) } });
+    expect(await mcpCollect({ ...input(), ask: ask() }, depsOf(none.transport))).toMatchObject({ days: [], failure: { code: "bad_response" } });
+  });
+
   it("keeps nothing when the rows aren't where the manifest says, or the call fails", async () => {
     const moved = fakeMcpServer({ tools: { ...TOOLS, history: () => ({ items: [] }) } });
     expect(await mcpCollect({ ...input(), ask: ask() }, depsOf(moved.transport))).toMatchObject({ days: [], failure: { code: "bad_response" } });

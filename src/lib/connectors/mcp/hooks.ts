@@ -23,7 +23,8 @@ import { callArgs, keyText, needsPage, pageUrlOf, resultData, streamRows, valueA
  *   it fills, read in one call, each day's numbers as the day's totals. A day the tool doesn't list
  *   is kept with no numbers (not measured), never as zeros: final when it is older than
  *   MCP_SETTLE_DAYS, so the cursor moves on, and read again on later runs while it is newer, as
- *   the provider may still be working it out.
+ *   the provider may still be working it out. A tool that says it has more rows than it sent
+ *   covers only the days it listed; the others wait for the next run.
  */
 
 /** Collecting: a day D is read from 03:00 in the stream's zone once its lag has passed. */
@@ -138,9 +139,18 @@ export const mcpCollect: CollectHook = async (input, deps) => {
   // Rows that aren't where the manifest says are never kept as days with no numbers.
   if (!mapped) return { ...base, failure: failed("bad_response") };
   const byDay = new Map(mapped.rows.filter((row) => typeof row[dayKey] === "string").map((row) => [String(row[dayKey]), row] as const));
+  // A tool that has more rows than it sent covers only the days it listed: the rest are read on the
+  // next run, never kept as days with no numbers.
+  const listed = [...byDay.keys()].sort();
+  if (mapped.more && !listed.length) return { ...base, failure: failed("bad_response") };
+  const covers = (day: string) => !mapped.more || (day >= listed[0]! && day <= listed.at(-1)!);
   const out: CollectResult = { ...base };
   const settled = addDays(newest, -MCP_SETTLE_DAYS);
   for (const day of sorted) {
+    if (!covers(day)) {
+      out.moreDue = true;
+      continue;
+    }
     const row = byDay.get(day);
     const totals: Record<string, number | null> = {};
     for (const m of stream.measures) totals[m] = row && typeof row[m] === "number" ? (row[m] as number) : null;

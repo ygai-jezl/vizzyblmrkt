@@ -2,12 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { addLearned } from "@/lib/autopilot/learned";
 import { brandMapAdmin, brandMapReader } from "@/lib/brandMap/adminApi";
-import { isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
-import { parseQuestion } from "@/lib/brandMap/records";
-import { readBrandMap } from "@/lib/brandMap/store";
 import { isoWeekOf } from "@/lib/connectors/period";
 import { forTenant, isRateLimited } from "@/lib/tenant";
-import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import {
   CONTENT_STAGES,
@@ -23,6 +19,7 @@ import {
 } from "@/lib/types/contentStrategy";
 import { isContentStrategyEnabled, isContentStrategyNextUpEnabled } from "./flags";
 import { makeContentPlan, type MakeDeps } from "./make";
+import { questionTexts } from "./questions";
 import { combineId, isOpenSlot } from "./roadmap";
 import { slotWhy } from "./scores";
 import { approvePlan, deleteContentStrategy, readContentStrategyDoc, savePlanEdit, type PlanResult } from "./store";
@@ -230,22 +227,6 @@ export async function planView(ctx: TenantContext, deps: ViewDeps = {}): Promise
     },
     sources: plan.sources.map((s) => PLAN_SOURCE_LABEL[s]),
   };
-}
-
-/** The words of the brand map's questions, by id, at either size. */
-export async function questionTexts(ctx: TenantContext, ids: string[], deps: ViewDeps = {}): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
-  if (!ids.length) return out;
-  const read = await readBrandMap(ctx, deps.db).catch(() => null);
-  if (read?.state === "ok") for (const s of read.map.subjects) for (const q of s.questions) if (ids.includes(q.id)) out.set(q.id, q.text);
-  if (read?.state === "ok" && isBrandMapScaleEnabled() && read.map.moved) {
-    const missing = ids.filter((id) => !out.has(id));
-    for (const raw of await brandMapRecords(ctx, deps.db).getMany("q", missing).catch(() => [])) {
-      const q = parseQuestion(raw);
-      if (q) out.set(q.id, q.text);
-    }
-  }
-  return out;
 }
 
 /** One pillar's slots with their questions' words, for splitting and joining. */

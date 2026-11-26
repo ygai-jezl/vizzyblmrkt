@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { PickSlot } from "./contentStrategy";
 
 /**
  * Next article autopilot: the Learned list, Next up's picks, the brand's settings and the runs.
@@ -72,12 +73,18 @@ export interface NextUpPick {
   /** gemini: chosen and explained by the model. code: filled in by code when the model gave too few. */
   from: "gemini" | "code";
   /** refresh (BLOG_FRESHNESS_ENABLED): improve a live article (`planId` in `workspaceId`) rather than write a
-   *  new one; its questionId is "refresh:<planId>". Absent: write, as before. */
-  kind?: "write" | "refresh";
+   *  new one; its questionId is "refresh:<planId>". combine (CONTENT_STRATEGY_NEXT_UP_ENABLED): two live
+   *  articles answer one question, so a person keeps one and folds the other in; its questionId is
+   *  "combine:<the slot's first question id>", and it is never drafted. Absent: write, as before. */
+  kind?: "write" | "refresh" | "combine";
   planId?: string;
   workspaceId?: string;
   /** Stop repeats (NEXT_UP_REPEATS_ENABLED): a live article this question is close to in meaning. */
   closeTo?: CloseTo;
+  /** The content plan's slot it fills (CONTENT_STRATEGY_NEXT_UP_ENABLED): absent for a free pick. */
+  slot?: PickSlot;
+  /** A combine pick: the live articles that answer the same question. */
+  combine?: { pages: RepeatPair["pages"] };
 }
 
 /** A live article a question is close to in meaning: better added to it than written again. */

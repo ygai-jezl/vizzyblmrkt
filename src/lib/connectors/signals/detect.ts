@@ -5,6 +5,8 @@ import { proposedQuestion } from "@/lib/brandMap/proposals";
 import { subjectQuestions } from "@/lib/brandMap/records";
 import { readBrandMap } from "@/lib/brandMap/store";
 import { meaningWords } from "@/lib/content/blog/coverage";
+import { cutOff, type CutOff } from "@/lib/search/family";
+import { isSearchSubjectReadsEnabled } from "@/lib/search/flags";
 import { listOpenAgentActions } from "@/lib/ontology/agentActions";
 import { changeDataConnection, proposeAgentAction, transitionAgentAction, type TenantContext } from "@/lib/tenant";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
@@ -70,8 +72,14 @@ export const RULES = {
 export const CAPS = { newPerDay: 5, open: 15 } as const;
 /** The searches mapped to subjects for the subject planning doc. */
 export const TOP_SEARCHES = 100;
-/** A search this close to a subject counts as near it. */
-export const NEAR_SUBJECT = 0.6;
+/**
+ * A search this close to a subject counts as near it: on brand_map_vectors (`old`), or on brand
+ * search once SEARCH_SUBJECT_READS_ENABLED is on (`new`, provisional until scripts/measure-question-dupes.ts
+ * --model new is run, ADR-0023).
+ */
+export const NEAR_SUBJECT: CutOff = { old: 0.6, new: 0.6 };
+/** NEAR_SUBJECT for the store nearestSubjectsMany reads now. */
+const nearSubject = () => cutOff(NEAR_SUBJECT, isSearchSubjectReadsEnabled());
 /** A rising search this close in meaning to a question on the map is already answered by it. */
 export const NEAR_QUESTION = 0.85;
 /** Rows one rule writes in a run, strongest first. */
@@ -594,7 +602,7 @@ async function detectNow(ctx: TenantContext, conn: DataConnection, others: reado
   if (rising) {
     result.checked.push("rising_search");
     const onMap = await map.hasWords(risingTop.map((h) => h.key)).catch(() => new Set<string>());
-    const left = risingTop.map((h, i) => ({ h, subject: risingNear[i] && risingNear[i]!.sim >= NEAR_SUBJECT ? risingNear[i]!.ref : null })).filter((x) => !onMap.has(x.h.key));
+    const left = risingTop.map((h, i) => ({ h, subject: risingNear[i] && risingNear[i]!.sim >= nearSubject() ? risingNear[i]!.ref : null })).filter((x) => !onMap.has(x.h.key));
     const answered = await nearQuestions(ctx, left.map((x) => ({ text: x.h.label, subjectId: x.subject })), map, deps);
     for (const h of rising.slice(ROWS_PER_RULE)) holding.add(idOf("rising_search", { topic: h.key }));
     for (const [i, { h, subject }] of left.entries()) {
@@ -756,7 +764,7 @@ async function writeSubjectLines(
   const cut = new Map<string, number>();
   top.forEach((row, i) => {
     const n = near[i];
-    if (!n || n.sim < NEAR_SUBJECT) return;
+    if (!n || n.sim < nearSubject()) return;
     const m = by.get(n.ref) ?? { nearbySearches: 0, searchImpressions: 0, searchClicks: 0 };
     m.nearbySearches! += 1;
     m.searchImpressions! += row.m.searchImpressions ?? 0;

@@ -982,6 +982,20 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # The brand map family in brand search for every brand, with statuses: subjects, situations,
+  # kept notes, questions asked of the team, competitor articles (ADR-0023; needs
+  # SEARCH_INDEX_ENABLED). People's search still hides proposals. Run scripts/search-backfill.ts
+  # --all-brands --kinds subject,situation,note,question,competitor after turning it on.
+  - variable: SEARCH_FAMILY_INDEX_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Subject and situation readers (duplicate checks, nearest subjects) read brand search, not
+  # brand_map_vectors (needs SEARCH_FAMILY_INDEX_ENABLED and the backfill).
+  - variable: SEARCH_SUBJECT_READS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Vizzy reads how emails and posts did (get_email_results, get_post_results), each number
   # with its meaning (src/lib/metrics/meanings.ts). Aggregates only; needs a redeployed agent.
   - variable: RESULTS_CHAT_ENABLED

@@ -3,12 +3,15 @@ import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from 
 import { isConnectorsSearchTextEnabled } from "@/lib/connectors/flags";
 import { SEARCH_TEXT_HELP } from "@/lib/connectors/helpText";
 import type { HelpBodyProps } from "@/lib/help/pages";
+import { isSearchFamilyIndexEnabled } from "@/lib/search/flags";
 
 /**
  * /help/search. `connectorsSearchText` is whether Search Console's searches are in brand search
- * (CONNECTORS_SEARCH_TEXT_ENABLED, ADR-0013); the How to drawer passes what the server said.
+ * (CONNECTORS_SEARCH_TEXT_ENABLED, ADR-0013), and `searchFamily` whether the brand map family is
+ * kept there with its first questions (SEARCH_FAMILY_INDEX_ENABLED, ADR-0023); the How to drawer
+ * passes what the server said.
  */
-export default function SearchHelp({ connectorsSearchText = isConnectorsSearchTextEnabled() }: HelpBodyProps = {}) {
+export default function SearchHelp({ connectorsSearchText = isConnectorsSearchTextEnabled(), searchFamily = isSearchFamilyIndexEnabled() }: HelpBodyProps = {}) {
   return (
     <article>
       <H1>Search</H1>
@@ -88,9 +91,18 @@ export default function SearchHelp({ connectorsSearchText = isConnectorsSearchTe
           {SEARCH_TEXT_HELP.why} {SEARCH_TEXT_HELP.who} {SEARCH_TEXT_HELP.vizzy} {SEARCH_TEXT_HELP.when}
         </P>
       ) : null}
+      {searchFamily ? (
+        <P>
+          A subject on your brand map is also found by its first questions. Proposed subjects and buying situations
+          don&apos;t show here until you add them to your map.
+        </P>
+      ) : null}
       <P>
-        New and changed things are found within about 10 minutes. An article you save is usually found straight away. Each
-        brand&apos;s search is kept apart from every other brand&apos;s, in the same region as the rest of your data.
+        {searchFamily
+          ? "New and changed things are found within about 10 minutes, and subjects and buying situations as soon as you save them. The questions on your brand map, What we've seen and what your competitors write can take up to 6 hours."
+          : "New and changed things are found within about 10 minutes."}{" "}
+        An article you save is usually found straight away. Each brand&apos;s search is kept apart from every other
+        brand&apos;s, in the same region as the rest of your data.
       </P>
 
       <H2 id="settings">The Search card in Settings</H2>

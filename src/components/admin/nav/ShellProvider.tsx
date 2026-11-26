@@ -55,6 +55,8 @@ interface Shell {
   aiAnswers: boolean;
   /** The brand map is kept at any size (isBrandMapScaleEnabled(), from the server), for the How to drawer. */
   brandMapScale: boolean;
+  /** The brand map family is in brand search (isSearchFamilyIndexEnabled(), from the server), for the How to drawer. */
+  searchFamily: boolean;
   /** Launches are ideas (isIdeasEnabled(), from the server), for the How to drawer. */
   ideas: boolean;
   /**
@@ -122,6 +124,7 @@ export function ShellProvider({
   connectorSignals = false,
   aiAnswers = false,
   brandMapScale = false,
+  searchFamily = false,
   ideas = false,
   ideaWords = false,
   sharing = false,
@@ -169,6 +172,8 @@ export function ShellProvider({
   aiAnswers?: boolean;
   /** The brand map is kept at any size (isBrandMapScaleEnabled(), from the server): the How to drawer says where proposals wait. */
   brandMapScale?: boolean;
+  /** The brand map family is in brand search (isSearchFamilyIndexEnabled(), from the server): the How to drawer says what search covers. */
+  searchFamily?: boolean;
   /** Launches are ideas (isIdeasEnabled(), from the server): the How to drawer shows their help sections. */
   ideas?: boolean;
   /** Launches are called Ideas (isIdeaWordsEnabled(), from the server): the page label Vizzy gets follows the crumbs. */
@@ -267,6 +272,7 @@ export function ShellProvider({
       connectorSignals,
       aiAnswers,
       brandMapScale,
+      searchFamily,
       ideas,
       ideaWords,
       sharing,
@@ -275,7 +281,7 @@ export function ShellProvider({
       onboardingVoice,
       onCanvasSaved: journeyInContext || personInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, saved],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, searchFamily, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, saved],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

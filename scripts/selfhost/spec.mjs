@@ -142,6 +142,11 @@ export const KEPT_OFF = {
   SEARCH_RERANK_ENABLED: { addon: null, why: "reorders US brands' results with Google's Ranking API; needs the Discovery Engine API and discoveryengine.rankingConfigs.rank for the runtime service account" },
   NEXT_PUBLIC_SEARCH_ENABLED: { addon: "search", why: "needs the search databases (Firestore Enterprise)" },
   VIZZY_SEARCH_ENABLED: { addon: "search", why: "Vizzy searching the brand needs the search databases and the agent" },
+  SEARCH_FAMILY_INDEX_ENABLED: { addon: "search", why: "keeps the brand map, notes and competitor articles in the search databases for every brand" },
+  SEARCH_SUBJECT_READS_ENABLED: {
+    addon: null,
+    why: "turn it on after the backfill fills every brand's index (docs/self-host.md, Brand search takes over from the old vectors)",
+  },
   CONNECTORS_ENABLED: { addon: null, why: "connected data is new: turn it on by hand" },
   NEXT_PUBLIC_CONNECTORS_ENABLED: { addon: null, why: "connected data is new: turn it on by hand" },
   CONNECTOR_CLOUDFLARE_ENABLED: { addon: null, why: "connected data is new: turn it on by hand" },

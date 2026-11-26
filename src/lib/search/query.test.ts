@@ -4,7 +4,9 @@ import { createDataConnection, type NewDataConnection } from "@/lib/tenant";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { freshCollect, type ConnectionGrant } from "@/lib/types/dataConnection";
 import { MemorySearchIndex } from "./memoryStore";
+import { randomUnitVector, seededRandom } from "./nearestCheck";
 import { searchBrand, snippetFor, type SearchViewer } from "./query";
+import { indexSummary } from "./status";
 import { rerank } from "./rerank";
 import type { SearchChunkDoc } from "./types";
 
@@ -108,6 +110,41 @@ describe("searchBrand", () => {
     const store = await seeded();
     const out = await searchBrand(ctx, "   ", {}, { store, embed: embedAs([1, 0, 0]), rerank: noRerank, granted: true });
     expect(out).toEqual({ ok: true, result: { hits: [], reranked: false, meaning: false } });
+  });
+});
+
+describe("the brand map family in people's search (ADR-0023)", () => {
+  beforeEach(() => {
+    vi.stubEnv("SEARCH_INDEX_ENABLED", "true");
+    vi.stubEnv("SEARCH_ENABLED", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  /** A brand whose map has one decided subject on repotting, an answered question and 5,000 proposals. */
+  async function withFamily() {
+    const rand = seededRandom(11);
+    const store = new MemorySearchIndex().storeFor(ctx);
+    const target = unit([1, 0, 0, 0]);
+    const put = async (kind: SearchChunkDoc["kind"], ref: string, status: SearchChunkDoc["status"], text: string, v: number[], chunks = 1) => {
+      const docs = Array.from({ length: chunks }, (_, n) => ({ ...chunk(ref, kind, text, text, v, n), ...(status ? { status } : {}), embedding: n ? randomUnitVector(4, rand) : v }));
+      await store.putSource({ sourceKey: `${kind}:${ref}`, kind, ref, hash: "h", chunks, embedded: true, indexedAt: "2026-11-26T10:00:00.000Z", ...(status ? { status } : {}) }, docs, 0);
+    };
+    await put("subject", "sub_onmap", "decided", "Repotting figs", unit([1, 0.02, 0, 0]));
+    await put("question", "note_bn_1", "answered", "How do you repot a fig?", target);
+    await put("subject", "sub_proposals", "proposed", "Repotting fig trees", target, 5_000);
+    return store;
+  }
+
+  it("never shows proposals or answered questions, and finds a decided subject among 5,000 proposals", async () => {
+    const store = await withFamily();
+    const out = await searchBrand(ctx, "repotting figs", {}, { store, embed: embedAs([1, 0, 0, 0]), rerank: noRerank, granted: true });
+    if (!out.ok) throw new Error("expected ok");
+    expect(out.result.hits.map((h) => h.sourceKey)).toEqual(["subject:sub_onmap"]);
+  });
+
+  it("counts only what people can find on the Search card", async () => {
+    const summary = await indexSummary(ctx, { store: await withFamily() });
+    expect(summary).toMatchObject({ records: 1, chunks: 1, byKind: { subject: 1 } });
   });
 });
 

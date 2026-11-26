@@ -1471,7 +1471,10 @@ export const ADDONS = [
       const wanted = searchDatabasesFor(ctx);
       const missing = wanted.filter((s) => !searchDbReady(ctx, s.database));
       if (missing.length) return todo(`missing: ${missing.map((s) => s.database).join(", ")}`);
-      return envValue(ctx, "SEARCH_INDEX_ENABLED") === "true" ? done(wanted.map((s) => s.database).join(", ")) : todo("databases ready; switches off");
+      if (envValue(ctx, "SEARCH_INDEX_ENABLED") !== "true") return todo("databases ready; switches off");
+      // An index from before the brand map family (ADR-0023): run this again to turn it on, then the backfill.
+      if (envValue(ctx, "SEARCH_FAMILY_INDEX_ENABLED") !== "true") return todo("index on; SEARCH_FAMILY_INDEX_ENABLED off: run this again, then the backfill with --all-brands");
+      return done(wanted.map((s) => s.database).join(", "));
     },
     changes: (ctx) => {
       const wanted = searchDatabasesFor(ctx);
@@ -1479,7 +1482,7 @@ export const ADDONS = [
         `Create Firestore Enterprise databases ${wanted.map((s) => `${s.database} (${s.location})`).join(", ")}: each bills on its own, by data read and written, and its location is permanent`,
         `Create a words index (title, text) and a meaning index (embedding, ${SEARCH_VECTOR_DIM} numbers) on ${SEARCH_COLLECTION_GROUP} in each`,
         `Turn on ${switchesForAddon("search").length} search switches in apphosting.${ctx.envName}.yaml (reranking stays off; docs/self-host.md says how to turn it on)`,
-        "Fill the index for every brand afterwards: npx tsx scripts/search-backfill.ts (a dry run first)",
+        "Fill the index for every brand afterwards: npx tsx scripts/search-backfill.ts --all-brands (a dry run first)",
       ];
     },
     async apply(ctx) {

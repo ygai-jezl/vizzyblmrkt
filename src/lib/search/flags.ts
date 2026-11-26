@@ -44,3 +44,23 @@ export function isVizzySearchEnabled(): boolean {
 export function isSearchKindIdeaBoardEnabled(): boolean {
   return process.env.SEARCH_KIND_IDEA_BOARD_ENABLED === "true";
 }
+
+/**
+ * The brand map family in the index for every brand, with statuses (ADR-0023, needs
+ * SEARCH_INDEX_ENABLED): subjects and situations (decided or proposed), kept notes, the questions
+ * asked of the team (asked or answered) and competitor articles, so the readers that match by
+ * meaning can move off brand_map_vectors. People's search still needs brand_search, and still
+ * hides proposals and answered questions. Off: the index holds what it held before, and every
+ * reader uses brand_map_vectors.
+ */
+export function isSearchFamilyIndexEnabled(): boolean {
+  return isSearchIndexEnabled() && process.env.SEARCH_FAMILY_INDEX_ENABLED === "true";
+}
+
+/**
+ * Subject and situation readers (duplicate checks, nearest subjects and situations) use the index
+ * only (needs SEARCH_FAMILY_INDEX_ENABLED). Off: they use brand_map_vectors, which is still written.
+ */
+export function isSearchSubjectReadsEnabled(): boolean {
+  return isSearchFamilyIndexEnabled() && process.env.SEARCH_SUBJECT_READS_ENABLED === "true";
+}

@@ -67,6 +67,8 @@ export interface HelpBodyProps {
   aiAnswers?: boolean;
   /** The brand map is kept at any size (isBrandMapScaleEnabled()): proposed questions wait on its Subjects tab. */
   brandMapScale?: boolean;
+  /** The brand map family is in brand search for every brand (isSearchFamilyIndexEnabled(), ADR-0023). */
+  searchFamily?: boolean;
   /** A launch is an idea with a status, a hypothesis, an outcome and a hand-off (isIdeasEnabled()). */
   ideas?: boolean;
   /**

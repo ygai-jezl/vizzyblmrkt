@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stubOf } from "./feeders";
 import { MemorySearchIndex } from "./memoryStore";
-import { isSweepTick, runSearchSweeps, sweepBrand } from "./sweep";
+import { FAMILY_TURNS, isFamilyTurn, isSweepTick, runSearchSweeps, sweepBrand } from "./sweep";
 import type { SearchKind, SearchSource, SearchStore } from "./types";
 
 vi.mock("@/lib/tenant/searchIndex", () => ({
@@ -171,3 +171,85 @@ describe("runSearchSweeps", () => {
     expect(read.mock.calls[0]?.[0]).toMatchObject({ tenantId: "ten_a" });
   });
 });
+
+describe("the brand map family's turn (ADR-0023)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const tenant = (id: string, grantedFeatures: string[] = []) => ({ id, region: "us", grantedFeatures }) as never;
+  const CHECK_MS = 600_000;
+
+  it("comes once in 36 checks (about 6 hours) for each brand, at a check picked from its id", () => {
+    for (const id of ["ten_a", "ten_b", "ten_fernleaf"]) {
+      const turns = Array.from({ length: FAMILY_TURNS * 2 }, (_, i) => isFamilyTurn(id, i * CHECK_MS)).filter(Boolean);
+      expect(turns).toHaveLength(2);
+    }
+    const slots = new Set(["ten_a", "ten_b", "ten_c", "ten_d", "ten_e", "ten_f"].map((id) => Array.from({ length: FAMILY_TURNS }, (_, i) => i).find((i) => isFamilyTurn(id, i * CHECK_MS))));
+    expect(slots.size).toBeGreaterThan(1);
+  });
+
+  it("checks every brand with the family switch on: brands without search only on their turn, for the family only", async () => {
+    vi.stubEnv("SEARCH_INDEX_ENABLED", "true");
+    vi.stubEnv("SEARCH_FAMILY_INDEX_ENABLED", "true");
+    vi.stubEnv("GRANTED_ONLY_FEATURES", "brand_search");
+    const index = new MemorySearchIndex();
+    const read = vi.fn(async (_ctx: { tenantId: string }, _opts: unknown) => ({ stubs: [], complete: new Set<SearchKind>() }));
+    const tenants = [tenant("ten_granted", ["brand_search"]), tenant("ten_plain")];
+    const turnOf = (id: string) => Array.from({ length: FAMILY_TURNS }, (_, i) => i * CHECK_MS).find((t) => isFamilyTurn(id, t))!;
+    const sweep = (at: number) => runSearchSweeps({ deadlineMs: 1e15 }, { listTenants: async () => tenants, clock: () => at, read, store: index.storeFor({ tenantId: "x" }) });
+
+    // On ten_plain's turn: both are checked, ten_plain for the family only, and first.
+    const plainTurn = turnOf("ten_plain");
+    expect(await sweep(plainTurn)).toMatchObject({ scanned: true, swept: 2 });
+    expect(read.mock.calls.map(([c, o]) => [c.tenantId, o])).toEqual([
+      ["ten_plain", { familyOnly: true, familyNow: true, kinds: undefined }],
+      ["ten_granted", { familyOnly: false, familyNow: isFamilyTurn("ten_granted", plainTurn), kinds: undefined }],
+    ]);
+
+    // Off its turn: only the granted brand, which leaves the family for its own turn.
+    read.mockClear();
+    const off = Array.from({ length: FAMILY_TURNS }, (_, i) => i * CHECK_MS).find((t) => !isFamilyTurn("ten_plain", t) && !isFamilyTurn("ten_granted", t))!;
+    expect(await sweep(off)).toMatchObject({ swept: 1 });
+    expect(read.mock.calls.map(([c, o]) => [c.tenantId, o])).toEqual([["ten_granted", { familyOnly: false, familyNow: false, kinds: undefined }]]);
+
+    // With the family switch off, as before: granted brands only, everything read.
+    vi.stubEnv("SEARCH_FAMILY_INDEX_ENABLED", "false");
+    read.mockClear();
+    expect(await sweep(plainTurn)).toMatchObject({ swept: 1 });
+    expect(read.mock.calls[0]?.[0]).toMatchObject({ tenantId: "ten_granted" });
+  });
+
+  it("indexes a brand without search for the family only, and leaves kinds not read alone", async () => {
+    vi.stubEnv("SEARCH_INDEX_ENABLED", "true");
+    vi.stubEnv("SEARCH_FAMILY_INDEX_ENABLED", "true");
+    const index = new MemorySearchIndex();
+    const store = index.storeFor(ctx);
+    await store.putSource({ sourceKey: "article:old", kind: "article", ref: "old", hash: "h", chunks: 0, embedded: true, indexedAt: "" }, [], 0);
+    const family: SearchSource[] = [
+      { kind: "subject", ref: "sub_1", title: "Repotting figs", body: "Repotting figs", status: "decided" },
+      { kind: "situation", ref: "sit_1", title: "Outgrown pot", body: "Outgrown pot", status: "proposed" },
+    ];
+    const c = await sweepBrand(ctx, { familyOnly: true, familyNow: true }, { store, embed: unitEmbed, read: reader(family, ["subject", "situation"]) });
+    expect(c).toMatchObject({ indexed: 2, failed: 0, removed: 0 });
+    expect(await store.getManifest("article:old")).not.toBeNull();
+    expect((await store.getManifest("situation:sit_1"))?.status).toBe("proposed");
+  });
+
+  it("estimates what --apply would embed on a dry run, and what would only get its status", async () => {
+    vi.stubEnv("SEARCH_INDEX_ENABLED", "true");
+    vi.stubEnv("SEARCH_FAMILY_INDEX_ENABLED", "true");
+    const index = new MemorySearchIndex();
+    const store = index.storeFor(ctx);
+    const note = { kind: "note" as const, ref: "bn_1", title: "We repot in spring", body: "We repot in spring" };
+    await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: reader([note], ["note"]) });
+    unitEmbed.mockClear();
+    const sources = [{ ...note, status: "kept" as const }, { kind: "subject" as const, ref: "sub_1", title: "Figs", body: "Figs", status: "decided" as const }];
+    const dry = await sweepBrand(ctx, { dryRun: true, estimate: true }, { store, embed: unitEmbed, read: reader(sources, ["note", "subject"]) });
+    expect(dry.estimate).toEqual({ chunks: 1, chars: 8, statusOnly: 1 });
+    expect(unitEmbed).not.toHaveBeenCalled();
+    // An indexed note with no status gets "kept" on the next check, with no embedding.
+    const real = await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: reader(sources, ["note", "subject"]) });
+    expect(real).toMatchObject({ indexed: 1, unchanged: 1 });
+    expect(unitEmbed).toHaveBeenCalledTimes(1);
+    expect((await store.getManifest("note:bn_1"))?.status).toBe("kept");
+  });
+});
+

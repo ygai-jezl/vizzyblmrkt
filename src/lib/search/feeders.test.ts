@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BrandNote } from "@/lib/types/brandNote";
 import type { Competitor, CompetitorArticle } from "@/lib/types/competitor";
 import type { ContentPlan } from "@/lib/types/contentPlan";
@@ -7,6 +7,8 @@ import type { BrandSignal } from "@/lib/types/brandSignal";
 import { brandKitSource, brandMapSource, brandMapStubs, broadcastSource, competitorSources, contentPlanSources, ideaSource, learnedSource, lifecycleSources, noteSource, readBrandStubs, signalSource, stubOf } from "./feeders";
 import type { LearnedEntry } from "@/lib/types/autopilot";
 import type { IdeaItem } from "@/lib/types/ideaItem";
+import { firstQuestions, isFamilyRecord, subjectSearchSource } from "./family";
+import { chunkText, contentHash } from "./text";
 
 // For readBrandStubs: the workspace content readers answer, every other read fails (no database).
 const tenant = vi.hoisted(() => ({ forTenant: vi.fn() }));
@@ -217,3 +219,112 @@ describe("learnedSource", () => {
     expect(learnedSource(e).body).toContain("2026-11-18");
   });
 });
+
+describe("the brand map family (ADR-0023)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const q = (ref: string, subjectId: string, text: string, over: Record<string, unknown> = {}) => ({ id: ref, tenantId: "t", ref, subjectId, text, status: "decided", order: 0, createdAt: "2026-11-01T00:00:00Z", ...over });
+
+  it("reads subjects, questions and situations decided or proposed, each once, with their statuses", async () => {
+    const calls: Array<[string, unknown]> = [];
+    const rows: Record<string, unknown[]> = {
+      sub: [
+        { id: "s1", tenantId: "t", ref: "s1", name: "Repotting figs", status: "decided" },
+        { id: "s2", tenantId: "t", ref: "s2", name: "Fig leaves dropping", status: "proposed" },
+        { id: "s3", tenantId: "t", ref: "s3", name: "Old name", status: "decided", mergedInto: "s1" },
+      ],
+      q: [q("q1", "s1", "When do I repot a fig?"), q("q2", "s1", "Which pot for a fig?", { status: "proposed", order: 1 })],
+      sit: [
+        { id: "t1", tenantId: "t", ref: "t1", text: "My fig has outgrown its pot", status: "decided" },
+        { id: "t2", tenantId: "t", ref: "t2", text: "Buying a fig as a gift", status: "proposed" },
+      ],
+    };
+    const records = {
+      pageAll: async (kind: string, opts?: unknown) => {
+        calls.push([kind, opts]);
+        return rows[kind] ?? [];
+      },
+    };
+    const stubs = await brandMapStubs(records as never, [], { family: true });
+    expect(calls).toEqual([
+      ["sub", { where: [["status", "in", ["decided", "proposed"]]] }],
+      ["q", { where: [["status", "in", ["decided", "proposed"]]] }],
+      ["sit", { where: [["status", "in", ["decided", "proposed"]]] }],
+    ]);
+    // The merged away subject is left out; the proposed question is in its subject's text but isn't a record of its own.
+    expect(stubs.map((st) => `${st.kind}:${st.ref}:${st.status ?? "none"}`)).toEqual([
+      "subject:s1:decided",
+      "subject:s2:proposed",
+      "question:q1:none",
+      "situation:t1:decided",
+      "situation:t2:proposed",
+    ]);
+    const s1 = await stubs[0]!.load();
+    expect(s1?.body).toBe("Repotting figs\n\nWhen do I repot a fig?\n\nWhich pot for a fig?");
+  });
+
+  it("makes a subject's text from its name, description and first 10 questions in their order, one chunk long", () => {
+    const questions = [
+      q("q3", "s1", "Third by order", { order: 2 }),
+      q("q1", "s1", "First by order", { order: 0, createdAt: "2026-11-02T00:00:00Z" }),
+      q("q0", "s1", "Same order, made earlier", { order: 0, createdAt: "2026-11-01T00:00:00Z" }),
+      q("q9", "s1", "Dismissed", { status: "dismissed" }),
+      ...Array.from({ length: 12 }, (_, i) => q(`qx${i}`, "s1", `Later question ${i} ${"about repotting a fig in spring ".repeat(4)}`, { order: 10 + i })),
+    ];
+    expect(firstQuestions(questions).slice(0, 3)).toEqual(["Same order, made earlier", "First by order", "Third by order"]);
+    expect(firstQuestions(questions)).toHaveLength(10);
+    const src = subjectSearchSource({ ref: "s1", name: "Repotting figs", description: "When and how to repot.", status: "decided" }, questions)!;
+    expect(src).toMatchObject({ kind: "subject", ref: "s1", title: "Repotting figs", status: "decided" });
+    expect(src.body.startsWith("Repotting figs\n\nWhen and how to repot.\n\nSame order, made earlier")).toBe(true);
+    expect(chunkText(src.body)).toHaveLength(1);
+    expect(subjectSearchSource({ ref: "s1", name: "Gone", status: "dismissed" }, [])).toBeNull();
+  });
+
+  it("tells the family from the brand map's own questions and competitors' summaries", () => {
+    expect(isFamilyRecord("subject", "s1")).toBe(true);
+    expect(isFamilyRecord("situation", "t1")).toBe(true);
+    expect(isFamilyRecord("note", "bn_1")).toBe(true);
+    expect(isFamilyRecord("question", "note_bn_1")).toBe(true);
+    expect(isFamilyRecord("question", "q_1")).toBe(false);
+    expect(isFamilyRecord("competitor", "cmp_1/art_1")).toBe(true);
+    expect(isFamilyRecord("competitor", "cmp_1")).toBe(false);
+    expect(isFamilyRecord("article", "plan_1")).toBe(false);
+  });
+
+  it("keeps a version with no status as it was, and moves it when a status changes", () => {
+    const src = { kind: "note" as const, ref: "n1", title: "T", body: "B" };
+    expect(stubOf(src).version).toBe(contentHash("note", "n1", "T", "B", undefined, undefined, undefined));
+    expect(stubOf(src)).not.toHaveProperty("status");
+    const kept = stubOf({ ...src, status: "kept" });
+    expect(kept.status).toBe("kept");
+    expect(kept.version).not.toBe(stubOf(src).version);
+    expect(stubOf({ ...src, status: "asked" }).version).not.toBe(kept.version);
+  });
+
+  it("reads only the family for a brand without brand search, and leaves the family for its turn otherwise", async () => {
+    vi.stubEnv("SEARCH_INDEX_ENABLED", "true");
+    vi.stubEnv("SEARCH_FAMILY_INDEX_ENABLED", "true");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const find = vi.fn(async () => [{ id: "ws_1" }]);
+    tenant.forTenant.mockReturnValue({ workspaces: { find } });
+    content.listIdeaItems.mockClear().mockResolvedValue([idea]);
+    content.listTemplates.mockResolvedValue([]);
+    const ctx = { tenantId: "ten_fernleaf", region: "us" as const, source: "system" as const };
+
+    const familyOnly = await readBrandStubs(ctx, { familyOnly: true });
+    expect(find).not.toHaveBeenCalled();
+    expect(content.listIdeaItems).not.toHaveBeenCalled();
+    // The family's reads fail here (no database), so nothing of theirs is complete either.
+    expect(familyOnly).toEqual({ stubs: [], complete: new Set() });
+
+    const between = await readBrandStubs(ctx, { familyNow: false });
+    expect(between.stubs.map((st) => st.kind)).toEqual(["idea_board"]);
+    for (const k of ["subject", "question", "situation", "note", "competitor"] as const) expect(between.complete.has(k)).toBe(false);
+    expect(between.complete.has("idea_board")).toBe(true);
+
+    const some = await readBrandStubs(ctx, { kinds: new Set(["template"]) });
+    expect(some.stubs).toEqual([]);
+    expect([...some.complete]).toEqual(["template"]);
+    warn.mockRestore();
+  });
+});
+

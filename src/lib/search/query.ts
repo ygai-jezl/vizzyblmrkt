@@ -12,7 +12,7 @@ import type { TenantRole } from "@/lib/types/tenantUser";
 import { isSearchEnabled } from "./flags";
 import { rerank } from "./rerank";
 import { queryTerms, reciprocalRankFusion, wordsQueries } from "./text";
-import type { RankedChunk, SearchKind, SearchStore } from "./types";
+import { shownToPeople, type RankedChunk, type SearchKind, type SearchStore } from "./types";
 
 /**
  * One brand's search: by words (the whole query, then each key term, because Firestore's text
@@ -133,8 +133,9 @@ export async function searchBrand(
   ]);
   const meaningList = vector ? await store.meaning(vector, { limit: CANDIDATES, kinds }).catch(() => [] as RankedChunk[]) : [];
 
+  // The store keeps proposals and answered questions out (ADR-0023); this makes sure.
   const chunks = new Map<string, RankedChunk>();
-  for (const c of [...wordsLists.flat(), ...meaningList]) if (!chunks.has(c.id)) chunks.set(c.id, c);
+  for (const c of [...wordsLists.flat(), ...meaningList]) if (!chunks.has(c.id) && shownToPeople(c.status)) chunks.set(c.id, c);
   // The whole query counts twice as much as a single term.
   const words = reciprocalRankFusion(wordsLists.map((l) => l.map((c) => c.id)), wordsLists.map((_, i) => (i === 0 ? 2 : 1))).map((x) => x.id);
   const fused = reciprocalRankFusion([words, meaningList.map((c) => c.id)]);

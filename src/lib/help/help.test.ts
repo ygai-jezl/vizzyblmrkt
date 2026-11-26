@@ -444,6 +444,7 @@ describe("Ideas in place of Launches", () => {
     connectorsSearchText: true,
     connectorSignals: true,
     brandMapScale: true,
+    searchFamily: true,
     ideas: true,
   };
   // Told, not read: the How to drawer renders in the browser, where server switches read off.
@@ -932,6 +933,17 @@ describe("Search", () => {
     const off = md(false);
     expect(off).not.toContain("Google searches");
     expect(off).not.toContain(SEARCH_TEXT_HELP.why);
+  });
+
+  it("says a subject is found by its first questions, and how soon the brand map is found, only with the family switch on (ADR-0023)", () => {
+    const md = (searchFamily: boolean) => docToMarkdown(HELP_BODIES.search!({ searchFamily }), "https://app.example.com");
+    const on = md(true);
+    expect(on).toContain("A subject on your brand map is also found by its first questions.");
+    expect(on).toContain("Proposed subjects and buying situations don't show here until you add them to your map.");
+    expect(on).toContain("subjects and buying situations as soon as you save them");
+    const off = md(false);
+    expect(off).not.toContain("first questions");
+    expect(off).toContain("New and changed things are found within about 10 minutes. An article you save is usually found straight away.");
   });
 });
 

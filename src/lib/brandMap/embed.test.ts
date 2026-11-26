@@ -1,11 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Writers that pass no store reach brand search through this in-memory index (ADR-0023).
+vi.mock("@/lib/tenant/searchIndex", async (original) => (await import("@/lib/search/testing/memorySearch")).withMemorySearch(await original<object>()));
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { KnowledgeCollectionLike, TenantContext } from "@/lib/tenant/types";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import { BRAND_MAP_VECTORS, brandMapVectorDocId } from "@/lib/tenant/brandMapVectors";
-import { embedSubjects, nearestSubjects, nearestSubjectsMany, subjectText } from "./embed";
+import { MemorySearchIndex } from "@/lib/search/memoryStore";
+import { brandMapStubs } from "@/lib/search/feeders";
+import { indexSource } from "@/lib/search/indexer";
+import { embedSubjects, nearestSituations, nearestSubjects, nearestSubjectsMany, subjectText } from "./embed";
 import { ensureMoved } from "./move";
 import { addQuestion, createSubject } from "./records";
+import { createSituation } from "./situations";
 import { fileSuggestions } from "./filing";
 
 const ctx: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
@@ -78,5 +84,133 @@ describe("the map's meaning", () => {
     expect(await nearestSubjects(ctx, "Our board asked how often AI Overviews name us", { limit: 25 }, { db, query: async () => null })).toHaveLength(1);
     const many = await nearestSubjectsMany(ctx, ["What should our board see?"], { limit: 25, fill: true }, { db, embed: async (items) => items.map(() => null) });
     expect(many[0]).toHaveLength(3);
+  });
+});
+
+describe("the map's meaning in brand search (ADR-0023)", () => {
+  beforeEach(() => {
+    vi.stubEnv("SEARCH_INDEX_ENABLED", "true");
+    vi.stubEnv("SEARCH_FAMILY_INDEX_ENABLED", "true");
+  });
+
+  const unit = (v: number[]) => {
+    const n = Math.hypot(...v);
+    return v.map((x) => x / n);
+  };
+  /** gemini-embedding-001 as a test sees it: figs point one way, citations another. */
+  const fresh = () =>
+    vi.fn(async (items: Array<{ content: string; title?: string }>, _region: string, _task: string) =>
+      items.map((i) => (/fig/i.test(i.content) ? unit([1, 0.05, 0]) : /citation/i.test(i.content) ? unit([0, 1, 0]) : unit([0, 0, 1]))),
+    );
+  /** text-embedding-005: a vector no brand search record ever has. */
+  const OLD = [0, 0, 0, 1];
+  const oldModel = { embed: async (items: Array<{ content: string }>) => items.map(() => OLD), query: async () => OLD };
+  /** The old store's search: records each call, so a test can say it was never asked. */
+  const oldSearch = () => {
+    const calls: unknown[] = [];
+    const self: KnowledgeCollectionLike = {
+      where: () => self,
+      findNearest: (opts) => {
+        calls.push(opts);
+        return { get: async () => ({ empty: true, size: 0, docs: [] }) };
+      },
+    };
+    return { self, calls };
+  };
+
+  async function mapWithFigs() {
+    const db = new FakeFirestore();
+    await ensureMoved(ctx, { db, nowMs: NOW });
+    const made = await createSubject(ctx, { name: "Repotting figs" }, { db, nowMs: NOW });
+    const id = made.ok ? made.value.id : "";
+    await addQuestion(ctx, id, { text: "When do I repot a fig?" }, { db, nowMs: NOW });
+    return { db, id };
+  }
+
+  it("writes both stores, and the index gets the text the sweep makes, with the status", async () => {
+    const { db, id } = await mapWithFigs();
+    const search = new MemorySearchIndex().storeFor(ctx);
+    const embedSearch = fresh();
+    expect(await embedSubjects(ctx, [id], { db, ...oldModel, vectors: oldSearch().self, search, embedSearch })).toBe(1);
+    expect(db.raw(BRAND_MAP_VECTORS, brandMapVectorDocId("ten_A", "subject", id))).toMatchObject({ status: "decided" });
+    expect(await search.getManifest(`subject:${id}`)).toMatchObject({ status: "decided", chunks: 1 });
+    // The same text from the sweep's read of the map and from write-through, so nothing is embedded twice.
+    const [swept] = await brandMapStubs(brandMapRecords(ctx, db), [], { family: true });
+    expect(swept?.ref).toBe(id);
+    const fromSweep = await swept!.load();
+    await indexSource(ctx, fromSweep!, { store: search, embed: embedSearch, granted: true });
+    expect(embedSearch).toHaveBeenCalledTimes(1);
+    expect(embedSearch.mock.calls[0]![0]).toEqual([{ content: "Repotting figs\n\nWhen do I repot a fig?", title: "Repotting figs" }]);
+    expect(embedSearch.mock.calls[0]![2]).toBe("RETRIEVAL_DOCUMENT");
+  });
+
+  it("checks 'looks like' on brand search with reads on, and never asks the old store or gives it a new vector", async () => {
+    vi.stubEnv("SEARCH_SUBJECT_READS_ENABLED", "true");
+    const { db, id } = await mapWithFigs();
+    const search = new MemorySearchIndex().storeFor(ctx);
+    const old = oldSearch();
+    const embedSearch = fresh();
+    await embedSubjects(ctx, [id], { db, ...oldModel, vectors: old.self, search, embedSearch });
+    await fileSuggestions(ctx, { from: "research", items: [{ change: { type: "add_subject", name: "Fig repotting" } }] }, { db, nowMs: NOW });
+    const [proposal] = await brandMapRecords(ctx, db).find("sub", { where: [["status", "==", "proposed"]] });
+    await embedSubjects(ctx, [proposal!.id], { db, ...oldModel, vectors: old.self, search, embedSearch });
+    expect(await brandMapRecords(ctx, db).get("sub", proposal!.id)).toMatchObject({ status: "proposed", looksLike: id });
+    expect(old.calls).toEqual([]);
+    // brand_map_vectors only ever holds the old model's vectors.
+    const stored = db.raw(BRAND_MAP_VECTORS, brandMapVectorDocId("ten_A", "subject", proposal!.id));
+    expect(JSON.stringify(stored?.embedding)).toContain(JSON.stringify(OLD).slice(1, -1));
+
+    // The same fixtures with reads off: the old store decides (here it finds nothing near).
+    vi.stubEnv("SEARCH_SUBJECT_READS_ENABLED", "false");
+    await embedSubjects(ctx, [proposal!.id], { db, ...oldModel, vectors: old.self, search, embedSearch });
+    expect(old.calls).toHaveLength(1);
+    expect(await brandMapRecords(ctx, db).get("sub", proposal!.id)).toMatchObject({ looksLike: null });
+  });
+
+  it("reads nearest subjects and situations from brand search with each reader's task type", async () => {
+    vi.stubEnv("SEARCH_SUBJECT_READS_ENABLED", "true");
+    const { db, id } = await mapWithFigs();
+    const search = new MemorySearchIndex().storeFor(ctx);
+    const embedSearch = fresh();
+    await embedSubjects(ctx, [id], { db, ...oldModel, search, embedSearch });
+    const sit = await createSituation(ctx, { text: "My fig has outgrown its pot" }, { db, nowMs: NOW, embed: { ...oldModel, search, embedSearch } });
+    const old = oldSearch();
+    const query = vi.fn(async () => OLD);
+    const deps = { db, embed: oldModel.embed, query, vectors: old.self, search, embedSearch };
+    embedSearch.mockClear();
+
+    expect((await nearestSubjects(ctx, "Why won't my fig grow?", { limit: 3 }, deps)).map((n) => n.ref)).toEqual([id]);
+    expect(embedSearch.mock.calls[0]?.[0]).toEqual([{ content: "Why won't my fig grow?" }]);
+    expect(embedSearch.mock.calls[0]?.[2]).toBe("RETRIEVAL_QUERY");
+
+    const many = await nearestSubjectsMany(ctx, ["repot fig"], { limit: 3 }, deps);
+    expect(many[0]?.map((n) => n.ref)).toEqual([id]);
+    expect(embedSearch.mock.calls[1]?.[0]).toEqual([{ content: "repot fig", title: "Question" }]);
+    expect(embedSearch.mock.calls[1]?.[2]).toBe("RETRIEVAL_DOCUMENT");
+
+    expect((await nearestSituations(ctx, "Which pot for a fig?", { limit: 3 }, deps)).map((n) => n.ref)).toEqual([sit.ok ? sit.value.id : ""]);
+    expect(embedSearch.mock.calls[2]?.[2]).toBe("RETRIEVAL_QUERY");
+    expect(query).not.toHaveBeenCalled();
+    expect(old.calls).toEqual([]);
+  });
+
+  it("falls back to shared words for subjects, and finds no situation, when brand search can't answer", async () => {
+    vi.stubEnv("SEARCH_SUBJECT_READS_ENABLED", "true");
+    const { db } = await mapWithFigs();
+    const broken = { ...new MemorySearchIndex().storeFor(ctx), nearest: async () => Promise.reject(new Error("unavailable")) };
+    const deps = { db, search: broken, embedSearch: fresh() };
+    const words = await nearestSubjects(ctx, "How do I start repotting figs?", { limit: 3 }, deps);
+    expect(await brandMapRecords(ctx, db).getMany("sub", words.map((n) => n.ref))).toMatchObject([{ name: "Repotting figs" }]);
+    expect(await nearestSituations(ctx, "Which pot for a fig?", { limit: 3 }, deps)).toEqual([]);
+  });
+
+  it("leaves brand search alone while the family switch is off", async () => {
+    vi.stubEnv("SEARCH_FAMILY_INDEX_ENABLED", "false");
+    const { db, id } = await mapWithFigs();
+    const search = new MemorySearchIndex().storeFor(ctx);
+    const embedSearch = fresh();
+    expect(await embedSubjects(ctx, [id], { db, ...oldModel, vectors: oldSearch().self, search, embedSearch })).toBe(1);
+    expect(embedSearch).not.toHaveBeenCalled();
+    expect(await search.listManifests()).toEqual([]);
   });
 });

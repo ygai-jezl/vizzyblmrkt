@@ -1536,6 +1536,51 @@
       "collectionGroup": "organisation_connection_activity",
       "fieldPath": "ttlAt",
       "indexes": []
+    },
+    {
+      "collectionGroup": "loop_days",
+      "fieldPath": "d",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "loop_days",
+      "fieldPath": "ttlAt",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "fleet_cells",
+      "fieldPath": "n",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "loop_lane",
+      "fieldPath": "d",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "image_assets",
+      "fieldPath": "made",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "email_sends",
+      "fieldPath": "made",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "scheduled_posts",
+      "fieldPath": "made",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "agent_actions",
+      "fieldPath": "made",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "image_assets",
+      "fieldPath": "brandVoteNote",
+      "indexes": []
     }
   ]
 }

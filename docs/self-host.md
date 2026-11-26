@@ -575,6 +575,33 @@ come only from connections both members and Vizzy may read, so they also need
 live on `email_codes.ttl`, `email_code_guards.ttl` and `email_confirm_links.ttl` that removes old
 sign-in codes, their counts and the links sent in place of a code; it is safe to run again.
 
+**Upgrading to image style versions.** `IMAGE_STYLE_VERSIONS_ENABLED` keeps the look each painted
+image style learns from your team's thumbs up and down as versions in the brand's own database, with
+Undo, Pause and Forget on Brand › Image style (ADR-0023; the how-to is `/help/what-yougrow-learned`).
+It needs `BRAND_STYLE_LOOP_ENABLED` and `BRAND_IMAGE_STYLE_ENABLED`, and learns about once a day per
+brand on the lifecycle tick, so it needs the tick's Cloud Scheduler job too. A new copy has it on,
+and its core steps deploy the index file and set the time to live. On a copy set up before it, do
+these two first, because a later `--apply envfile` adds the switch as `"true"`:
+
+1. Deploy the index file, as for collected numbers above, never with `--force`:
+   `firebase deploy --only firestore:indexes --non-interactive --project <id>`. It adds the image
+   index read oldest first, `image_assets (tenantId, createdAt)` ascending, which the check on each
+   look needs, and exempts the learning counts (`loop_days.d`, `loop_days.ttlAt`, `loop_lane.d`),
+   each image's stamp (`image_assets.made`) and its team note (`image_assets.brandVoteNote`) from
+   indexing. Wait until the image index shows READY: `firebase firestore:indexes --project <id>`
+   (with `--database signups-eu` and `--database signups-asia` for the regions add-on).
+2. Run `FIRESTORE_DATABASES='(default)' bash infra/lifecycle/setup.sh ttl <id>` once more (with
+   `signups-eu signups-asia` added for the regions add-on). It adds the time to live on
+   `loop_days.ttlAt`, which removes a week's learning counts 70 days after the week, or 2 years after
+   it once they are folded; `setup.sh verify <id>` shows it ACTIVE. Nothing reads the counts by their
+   age, so learning works before it is ACTIVE; old weeks just stay longer.
+
+Learning calls Gemini under its own purpose, Learning and checking it helps: once when someone votes
+on or uploads an image not yet described, and at most 2,000 times a day across your copy on the
+tick. None of it counts against a brand's allowance. Turned off, images go back to the look on the
+brand record as it was when the brand's looks were first copied into versions, less any that Forget
+or Reset cleared.
+
 ### Enterprise features
 
 Merging upstream brings `src/ee`, the Enterprise code. Its features stay off without a

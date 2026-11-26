@@ -4,6 +4,227 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0023 · Image style learns properly: looks kept as versions in the brand's region, every image stamped, learned once a day and checked (learning loops step 4) (2026-11-26)
+
+Context: before this step a brand's image looks lived on its brand record in the control plane, in
+the United States for every region (`brandKit.learnedImageStyle` and
+`imageStyle.learned[styleId].directive`). One thumbs up rewrote a style's look at once, with up to 3
+model calls inside the vote, and a failed call wrote a fixed directive in its place. Nothing recorded
+which look made an image, so no change could be checked or undone, and once any style had learned, a
+painted style with no look of its own lost the brand look. Email heroes and the hero Vizzy makes in
+chat read no look at all, while the email layout picked up the brand look by accident. The approved
+learning loops design makes image style the reference loop in its step 4: every change a version a
+person can undo, every image stamped with what made it, and the verdict (ADR-0022) reading each
+change. The owner approved the plan for steps 4 and 5 (v4) on 26 Nov with every pick, plus the why
+behind a vote. ADR-0021 is step 2, ADR-0022 is step 3, and step 5 takes ADR-0024.
+
+Decided:
+
+1. **One switch, off: `IMAGE_STYLE_VERSIONS_ENABLED`.** Server only, RUNTIME, `"false"` in
+   `apphosting.yaml`, empty in `.env.example`, and the first entry in `LOOP_SWITCHES`, its only
+   read. `isImageStyleVersionsOn()` (`src/lib/content/imageStyle/flags.ts`) also needs
+   `BRAND_STYLE_LOOP_ENABLED` and `BRAND_IMAGE_STYLE_ENABLED`, so learning never runs without the
+   page that shows it. Off is today exactly (decision 22): `learnedFor` hands back the look the path
+   already read, with `{ unstamped: "image_versions_off" }` and no read; nothing is counted or
+   stamped, the lane doesn't run, and no screen, answer or search result changes. Client screens
+   learn that the switch is on from the image style GET (`versions: true`), so they never call a
+   route that is off. `npm run selfhost` turns it on for a new copy, whose core steps deploy the
+   index file and set the time to live; a copy set up before it follows the upgrade note in
+   `docs/self-host.md`.
+2. **The registry.** `post_image`, `blog_hero`, `ebook_image`, `email_block_image` and `email_hero`
+   learn from votes in `IMAGE_STYLE_SCOPES`: one scope per painted style and `image_style.brand` for
+   the brand look, checked against the catalogue in a test. Each reads `likedShare`, guarded by
+   `remadeShare`, at a band of 0.15, in suggest mode. `customize_image` and `carousel` stay `none`
+   and stamp arm none; the 6 drawn styles never learn. A painted style with no look of its own uses
+   the brand look and stamps `image_style.brand` (decision 10). `loop_learn` is a new `model_tokens`
+   purpose, counted and never capped, with a `none` line. `LOOP_RULES` gains the learner, outcome,
+   lane, storage, stamp and card numbers, each with its reason in the file.
+3. **Where a look lives.** Every change is an append only row in the brand's regional
+   `learned_pattern_versions`, channel `image_style.<styleId>`, with the look in a new `items` field
+   (one item, at most 2,000 characters) and `directive` left null. The pointers sit on `lb:<tenant>`
+   in the new regional `loop_days`, written in the same transaction as the row they point to through
+   `appendPatternVersionTx`, which uses `create()` so a second writer fails. `loop_days` holds six
+   kinds of document, each `{tenantId, d, ttlAt?}` with all data under the one map `d`: `lw:` weekly
+   counter shards (70 days), `lt:` folded weeks (2 years), `lv:` each learning version's totals and
+   reads, `lb:` pointers, pause and the opt out, `ls:` the lane's own state, and `lk:` the stamp key,
+   which only `src/lib/loops/stamp.ts` reads. No words and no member ids are kept there.
+4. **The data move is a copy.** On a brand's first visit the lane seeds version 1 of each scope from
+   the old fields (`createdBy: "seed"`, `setBy: "seeded"`, with `seededAt`), in one regional
+   transaction; a look the text check refuses is not carried over. Until then images use the old
+   field, stamped `legacy`. The old copy stays for switching back; Forget and Reset clear it for that
+   brand, and clearing the rest is dated work, asked first, 30 days after the prod flip. Image bytes,
+   model calls and Vizzy's chats are not regional, and the help page says so.
+5. **The one reader and the stamp.** `learnedFor(ctx, kind, { scope, outputId })`
+   (`src/lib/loops/read.ts`) reads `lb:`, then the style's and the brand look's version rows at
+   once: 2 regional round trips against an image that takes 10 seconds or more. Each path that
+   paints an image calls it once, with the image's id minted first (`newImageAssetId`), and
+   `settleStamp`, called where the image is made, sets arm learned only when the look reached the
+   prompt; a drawn fallback, a format, a drawn style's painted half and an eBook edit are arm none,
+   and a person's own upload is unstamped (`own_image`). The stamp, `made` on the row, holds a
+   `MadeId` (`m1.<scope>.<v>.<l|h|n>`, no person and no brand in it) with its kind, scope, version,
+   arm, prompt and sources, kept only with the switch on. A stamp handed to the browser travels as a
+   token signed with the brand's own key and is good for 7 days.
+6. **The holdback (owner decision 2).** About 1 image in 20 per scope is made without the learned
+   look, by FNV-1a over its id salted per scope, so the fleet can later check that learning helps.
+   It applies to looks learned from votes, carried over or set from the fleet, never to a look a
+   person set or kept, and never for a brand that opted out. It removes only the learned look and the
+   style references picked from votes, and keeps the brand's own icons and graphics, the model path
+   and best of N. The arm is never shown before a person votes. The first remake of a held back
+   image within 14 days is metered under `loop_learn`, now an images purpose that the cap leaves
+   out and the meter never checks, so at worst a brand gets about 5% more images than its
+   allowance. Plan and usage shows a capped row's count toward its cap, so used and left agree.
+7. **Counting.** `countSignal` (`src/lib/loops/count.ts`) is one merged write of increments to one
+   of 5 random shards of the ISO week: never a read, never a transaction, never failing the work.
+   It counts made, kept, edited, declined, voted, liked, remade, undone and reversed per scope,
+   kind, version and arm, plus unstamped reasons, learner outcomes and card signals. Liked counts a
+   first up vote; `firstVotedAt` is set once, and a vote from before versions dates to when the image
+   was made, so re-rating an old like is never a new one. A changed vote moves the counts. An upload
+   is never stamped, so its like counts as an own image's (`o.image`), which the learner reads. A
+   remake is a new image in the same place (a post's image, a hero's Make again, an eBook slot or
+   cover), found by reading the earlier row by brand and filename before the new one is made, and
+   counted only within 14 days. Email images, email heroes and carousels never count remakes.
+8. **The why behind a vote (owner ask, 26 Nov).** After a thumbs down a row asks what's off, and
+   after a thumbs up a quieter link offers what works, each from a closed list per direction
+   (`VOTE_REASONS` in `src/lib/loops/reasons.ts`, labels tested against `NO_DASHES` and `AI_TELLS`),
+   with an optional note of up to 200 characters. The vote saves first. The note passes the same
+   text check as a person's own look (no links, email addresses, handles or phone numbers) and is
+   kept only on the image's row in the brand's region, never counted, folded, logged or sent across
+   brands; a changed vote clears both. Reasons are counted per scope, and the learner groups
+   dislikes by reason and quotes each note as data. A brand that skips the reason on 8 of 10 or more
+   thumbs down over 4 weeks sees the row start closed. Members can give reasons, and a note shows to
+   the brand's team without its writer.
+9. **The one writer and the votes learner.** `proposeLearned` (`src/lib/loops/write.ts`) is called
+   only from `src/lib/loops/learners/`. It reads every evidence id itself and refuses unless each is
+   this brand's image row with `brandVoteVia` of vote or upload, and its text check refuses with
+   reason `trust`. The learner (`learners/votes.ts`) gives a style its first look after 3 likes with
+   no share rule, since a brand that dislikes most images is the one whose default look is wrong.
+   A learned look then holds until 20 images are made with it, 10 of its votes count toward a check
+   and its own check has settled (or 40 of its votes count); a look liked at most once in its first
+   6 votes may change once 20 are made. Then it is due at 3 new likes, at most once a week. It writes
+   from the top 20 liked and 8 disliked images with a new prompt, `content.style_look_learn`, so the
+   old learner's prompt is unchanged with the switch off. A model that is missing, fails or times out
+   adopts nothing (fail closed, no fixed directive), and the card says so only after 3 failed days.
+   The vote route records and counts the vote and profiles that image if it has none, and the upload
+   route profiles and counts: neither rewrites a look.
+10. **The lane, images only.** `src/lib/loops/tick.ts` rides the lifecycle tick every 5th tick at
+    offset 1 (about every 10 minutes) within a 20 second budget, and skips its run above 600 MiB held
+    or 60% of the container's limit. It visits a page of brands from a cursor on the control plane's
+    new `loop_lane` (its one `lane` document, brought forward from step 5), sized so each brand is
+    visited about once a day, 4 at a time. Per brand: an idle check in one batched read, the seed,
+    a forgotten look's old copy, the fold of closed weeks, card expiry, the learner and the verdict.
+    Ceilings: 6 learner calls a run and 2,000 a day per copy, profiles included; 2 images profiled a
+    run, one at a time; 2 verdict reads a run of at most 500 rows each.
+11. **The verdict for image looks.** `src/lib/loops/imageVerdict.ts` runs ADR-0022's verdict on a
+    style's images either side of a version's start, leaving out held back, person off, customised
+    and uploaded images, and images made less than 14 days ago. The check counts images voted within
+    14 days, a hit being an up vote; the guard counts every such image, a hit being a remake within
+    14 days. The window before is read newest first on the existing `(tenantId, createdAt desc)`
+    index; the window after is read oldest first, which needs a new composite index,
+    `image_assets (tenantId, createdAt asc)`, because a composite index serves one sort order
+    (Firebase's index overview: the same query sorted the other way needs "an additional index in
+    the descending direction"). Both are projected to the fields used. The read is kept on `lv:`,
+    worded by `verdictWords`, and a worse read offers a Go back card.
+12. **What a person can do.** Behind `POST /api/admin/brand-kit/image-style/learned`, with the
+    origin check, `getAdminContext()`, an admin role and the switch on: Undo, Pause and Resume (one
+    level, image learning), Forget (a retire version, the words removed from older rows, the old
+    field cleared, the search entry removed and open cards declined), Forget of the look an Undo
+    left, Edit the words (`setBy: person`, through the same text check), Keep (`keptAt`, no new
+    version), Go back, Resume suggestions, and the learning setting, Help check that learning works,
+    whose off puts `fleetOptOut` on the pointers so none of the brand's images is held back. A Go
+    back card is an `agent_actions` row with agent `learning`, target `learned_item` and action
+    `learned.go_back`, its payload `{scope, from, to}` and never the look's words: deduped per
+    version, gone after 14 days, away 30 days once declined, at most 1 per kind per brand a week and
+    3 open. It never comes on too few, nothing reverts on its own, and a kind whose cards were ignored
+    more than half the time over 4 weeks drops to a notice on the card.
+13. **Screens and Vizzy.** Brand › Image style gains the What it learned card; Create's post image
+    panel, the blog hero card and the image details gain thumbs, the reasons and a notice when a look
+    changed; Review gains the `learned` kind; Settings › General gains the learning setting; the help
+    page is `/help/what-yougrow-learned`. `get_image_style` returns `learned[]` with each style's
+    reason counts and its 5 newest notes quoted as data, so Vizzy needs no redeploy, and each look in
+    use is a `learned` search source, `image_style.<id>@<v>`. No member names are stored, so History
+    says "by you" or "by a teammate".
+14. **Infra, written and not deployed.** `firestore.indexes.json` gains the composite index above and
+    9 field exemptions for fields nothing queries: `loop_days.d`, `loop_days.ttlAt`, `loop_lane.d`,
+    `image_assets.made`, `image_assets.brandVoteNote`, and for step 5 `fleet_cells.n`,
+    `email_sends.made`, `scheduled_posts.made` and `agent_actions.made`, so one deploy covers both
+    steps. `infra/lifecycle/setup.sh ttl` sets the time to live on `loop_days.ttlAt` in every
+    database it covers. Readers never rely on it: they pick weeks by computed id, and the fold skips
+    weeks it has folded. The index file is deployed first, non interactive and never with `--force`,
+    since deleting overrides would clear every time to live, then `setup.sh ttl`, each asked first
+    with the project named.
+
+Where the build follows the code, not the plan (the plan's intent kept):
+
+- `LEARNED_STORES.brand_kit` is removed rather than reworded, since no own line names it once the
+  image kinds learn; the `brand_kit` ontology type says its looks are used only while versions are
+  off. There is no brand export, so a vote's note is erased with its image and its brand instead of
+  "included in the brand's export".
+- Counters can't tell when a look is due (a brand look image is stamped with the brand's scope, and
+  uploads are never stamped), so whether a scope is free comes from counters and pointers, and likes
+  are counted on projected image rows, read only after a new like or when a scope becomes free.
+  The rejected look rule reads totals, so it is stricter than the plan's.
+- The holdback also covers looks set from the fleet; a look used on a held back image anyway stamps
+  arm none; a failed read falls back to the old look, stamped legacy, so the image is still made.
+- Reset seeds first, and a seed that fails resets nothing. The meter skips its cap check for
+  `loop_learn` itself, and remakes are metered through `remakeUsage`.
+- Actions gain Forget of the look an Undo left and the setting's Help check; Undo and Go back answer
+  with the restored version's date; version rows count uploads among the liked (`evidenceCounts`).
+- `TenantCollection.increment` also takes ids with the tenant id between colons, and the tenant layer
+  gains projected reads (`findFields`).
+- `skipPick` keeps the stored pick's question, never the request's words, and answers 404 for a pick
+  no longer on the list. This one has no switch.
+- The plan counted 8 exemptions before the note's; with it there are 9. Step 4 is ADR-0023, not the
+  plan's 0022, because connectors took 0019 and the verdict moved to 0022.
+
+Enforced where:
+
+- `src/lib/loops/registry.test.ts`, `src/lib/content/imageStyle/flags.test.ts` and
+  `src/lib/ontology/registry.test.ts`: the five lines, the scopes against the catalogue, the switch
+  and its parents, every new number's reason, learning kept off the meter but for
+  `edit_vizzy_learning`, and `image_asset` claiming `likedShare` and `remadeShare`.
+- `src/lib/tenant/loops.test.ts`, `src/lib/loops/stamp.test.ts`, `src/lib/types/loopStamp.test.ts`
+  and `src/lib/loops/read.test.ts`: ids built from the server's tenant id, expiries, the stamp and
+  its token, only `stamp.ts` reading `lk:`, every arm, and a held back image keeping its references,
+  model path and best of N (with `src/lib/agents/creative.holdback.test.ts`).
+- `src/lib/loops/count.test.ts`, `imageRows.test.ts`, `remake.test.ts`, `textCheck.test.ts`,
+  `reasons.test.ts` and the vote and upload route tests: one write per signal, a changed vote moving
+  the counts, remakes within 14 days only, the note refused with a link and kept on the row, and a
+  held back remake leaving the image allowance alone (`src/lib/plans/meter.test.ts`).
+- `src/lib/loops/write.test.ts`, `oneWriter.test.ts` and `learners/votes.test.ts`: the one writer,
+  its bans on gates, network calls and outside sources, and the Hearth Bakery fixture, seen to fail
+  before the learner existed.
+- `src/lib/loops/imagePaths.test.ts`: a new image route that reads no `learnedFor` and isn't a
+  person's own image fails it.
+- `src/lib/loops/tick.test.ts`, `fold.test.ts`, `seed.test.ts`, `imageVerdict.test.ts`,
+  `verdictWords.test.ts`, `actions.test.ts`, `attention.test.ts` and the learned route's test; the
+  tick route test, which stays dark with this switch on and a parent off; and `lane.heap.test.ts`
+  (with `--expose-gc`) at the caps.
+- `src/lib/loops/indexes.test.ts`: the 9 exemptions, no composite index naming an exempt field,
+  every loop document keeping its data under `d`, both image indexes, and `loop_days ttlAt` in
+  `setup.sh ttl`'s loop over the databases and in its header.
+- `src/lib/loops/learnedView.test.ts`, `learnedWords.test.ts`,
+  `src/components/admin/brand-kit/WhatItLearnedCard.test.ts` and `src/lib/help/help.test.ts`: the
+  card's states and done lines, every message in house style, and the help page quoting them.
+
+Not yet: step 5 brings `LOOPS_ENABLED`, stamps on every other writer, the save route that checks the
+email hero's token, `fleet_cells` and `loop_lane`'s organisation marks, the Loops section,
+`get_learning` and `get_image_style`'s docstring line. Pause for the whole brand and decline reasons
+for other kinds come with the edits loop (step 7). Making a look due on 3 dislikes with one reason
+waits until the checks show how looks move. Fleet defaults and industry wait for step 9, and nothing
+is adjusted for season. ADR-0022's "nothing calls the verdict" and "the lane that runs verdicts in
+step 5" describe step 3 and stay as written.
+
+What follows: two new collections, `loop_days` (regional, erased with the brand) and `loop_lane`
+(control plane, one document); one composite index, 9 field exemptions and 1 time to live, all in
+the pull request and deployed only when the owner says; one switch, off. No new service, Function,
+scheduler job, secret, dependency or rule change, and no Vizzy redeploy. With the switch off, three
+things change for everyone: `skipPick`'s fix, and the contrast of the selected image style tile's
+small text and of the help accent box's title, from `text-neutral-500` to `text-neutral-600`, which
+read 4.36:1 and 4.45:1 before, under AA's 4.5:1. `docs/ONTOLOGY.md` gains `loop_day` and `loop_lane`,
+`post_learning` as team, and the residency notes for the looks on the brand record.
+
+---
+
 ## ADR-0022 · The verdict: one check for every loop, better, same, worse or too few to tell (learning loops step 3) (2026-11-25)
 
 Context: the approved learning loops design asks for the check before anything learns. A loop

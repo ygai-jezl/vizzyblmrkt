@@ -21,7 +21,6 @@ import type { FreshnessDueItem, FreshnessWatchDoc } from "@/lib/types/freshness"
 import type { Tenant } from "@/lib/types/tenant";
 import type { BrandMapPage } from "@/lib/types/brandMapPage";
 import { computeCoverage } from "./coverage";
-import { articleFigures } from "./figures";
 import { articleFreshness, assignClock, nextEvents, OLD_SOURCE_YEARS, oldFigureYears } from "./freshness";
 import { nextDates } from "./dates";
 import { fetchSourcePage } from "./research";
@@ -292,7 +291,7 @@ export async function sweepBrand(ctx: TenantContext, tenant: Pick<Tenant, "refre
     const signals: FreshnessReason[] = [];
     if (searchConsole && losing.has(a.key!)) signals.push({ kind: "losing_clicks", detail: losing.get(a.key!)!.slice(0, 200), hard: true });
     if (deadLinks.length) signals.push({ kind: "dead_link", detail: `${deadLinks.length} link${deadLinks.length === 1 ? "" : "s"} no longer open${deadLinks.length === 1 ? "s" : ""}`, hard: true });
-    const oldYears = oldFigureYears(articleFigures(a.hub.body).map((f) => f.display), now);
+    const oldYears = oldFigureYears(a.hub.body, now);
     if (oldYears.length) signals.push({ kind: "old_figure", detail: `A figure from ${oldYears.join(", ")}`, hard: true });
     if (searchConsole && reach.has(a.key!)) signals.push({ kind: "within_reach", detail: reach.get(a.key!)!.slice(0, 200), hard: false });
     const oldSources = (a.plan.blog?.sources ?? []).filter((s) => s.year !== null && s.year <= year - OLD_SOURCE_YEARS);

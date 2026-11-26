@@ -7,6 +7,7 @@ import {
   LEARN_KINDS,
   LEARN_REASONS,
   learnLogEntry,
+  memoryListLogEntry,
   onceTenant,
   writeLearnLog,
   type BrandLearnFacts,
@@ -152,6 +153,25 @@ describe("onceTenant", () => {
       throw new Error("boom");
     });
     await expect(boom("ten_A")).rejects.toThrow("boom");
+  });
+});
+
+describe("memoryListLogEntry", () => {
+  it("names the bank's code, the brand and its regions, and nothing a person wrote", () => {
+    vi.stubEnv("ROOT_AGENT_LOCATION", "us-central1");
+    expect(memoryListLogEntry({ tenantId: "ten_A", region: "eu" }, new Error("memory_bank_503"))).toEqual({
+      severity: "WARNING",
+      message: "[loops] memory list failed: memory_bank_503",
+      event: "memory_list_failed",
+      tenantId: "ten_A",
+      region: "eu",
+      agentRegion: "us",
+      code: "memory_bank_503",
+    });
+    const sneaky = { tenantId: "ten_A", region: "us", userId: "u1", email: "someone@example.com" } as never;
+    const entry = memoryListLogEntry(sneaky, new Error("refused for someone@example.com"));
+    expect(entry.code).toBe("other");
+    expect(JSON.stringify(entry)).not.toMatch(/u1|someone@example\.com|refused/);
   });
 });
 

@@ -191,6 +191,10 @@ export const KEPT_OFF = {
     addon: null,
     why: "measure the X-Forwarded-For shape your copy receives first (docs/self-host.md, Email and password sign-in)",
   },
+  EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED: {
+    addon: null,
+    why: "Edit mode learning would come with Vizzy in Edit mode for brands in the agent's region, so a hold on edit_vizzy_learning in GRANTED_ONLY_FEATURES would keep back post edits only; with plans off and no hold it adds nothing (docs/self-host.md, Vizzy in Edit mode)",
+  },
 };
 
 /**

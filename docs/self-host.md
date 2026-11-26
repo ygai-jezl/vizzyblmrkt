@@ -152,7 +152,10 @@ to see what it does, then run it without `DRY_RUN`. It makes a Memory Bank and l
 write only memories scoped to a brand. Put the id it prints in your settings as `VIZZY_MEMORY_BANK_ID`
 and set `EDIT_MODE_VIZZY_LEARNING_ENABLED` to `"true"`. Every brand gets it, and each person can switch
 it off. To keep it for some brands only, set `GRANTED_ONLY_FEATURES` to `edit_vizzy_learning` and grant
-brands with `scripts/grant-feature.ts`.
+brands with `scripts/grant-feature.ts`. `npm run selfhost` leaves `EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED`
+off. With it on, that hold covers post edits only: Edit mode learning then comes with Vizzy in Edit mode
+for brands that keep their data in the agent's region (`ROOT_AGENT_LOCATION`), so to keep Edit mode
+learning to some brands, add `edit_vizzy` to `GRANTED_ONLY_FEATURES` as well, or leave the switch off.
 
 **Competitors.** `COMPETITORS_ENABLED` and `NEXT_PUBLIC_COMPETITORS_ENABLED` add Brand › Competitors:
 a person types a competitor's website and presses Monitor, and the app reads that site's sitemap, then

@@ -82,7 +82,15 @@ export async function POST(req: Request) {
     return learningRefused(access.reason);
   }
   if (!body) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
-  if (await isLearningOff(ctx)) {
+  let off: boolean;
+  try {
+    off = await isLearningOff(ctx);
+  } catch (err) {
+    // The person's choice couldn't be read, so nothing is learned; logged as the post path logs it.
+    await logOutcome(ctx, body, { outcome: "skipped", reason: "error", code: errorCode(err) }, access);
+    return NextResponse.json({ error: "memory_unavailable" }, { status: 502 });
+  }
+  if (off) {
     await logOutcome(ctx, body, { outcome: "skipped", reason: "off_by_person" }, access);
     return NextResponse.json({ learned: false, reason: "learning_off" });
   }

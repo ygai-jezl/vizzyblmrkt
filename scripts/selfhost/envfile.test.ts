@@ -115,6 +115,17 @@ describe("the switches npm run selfhost leaves off", () => {
     }
   });
 
+  it("keep Edit mode learning following Vizzy off on a new copy, and no add-on turns it on", () => {
+    // On, a hold on edit_vizzy_learning in GRANTED_ONLY_FEATURES no longer covers Edit mode for
+    // brands in the agent's region (ADR-0021), so a copy turns it on by hand.
+    expect(KEPT_OFF.EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED.addon).toBeNull();
+    expect(dashesIn(KEPT_OFF.EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED.why)).toEqual([]);
+    expect(aiTellsIn(KEPT_OFF.EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED.why)).toEqual([]);
+    for (const addon of ["x", "linkedin", "vizzy", "knowledge", "github-app", "bigquery", "recaptcha", "search", "password"]) {
+      expect(switchesForAddon(addon), addon).not.toContain("EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED");
+    }
+  });
+
   it("keep plans off on a new copy, and no add-on turns them on", () => {
     // Plans are the hosted service's (ADR-0009). Off, every brand may use every feature its
     // switch turns on, and GRANTED_ONLY_FEATURES still works.

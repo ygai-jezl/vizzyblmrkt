@@ -2040,7 +2040,7 @@ No line says this yet.
   - `src/lib/content/blog/seen.ts`
 - `content_write` (AI purpose, Writing posts), kept in `post_learning`. Where those parts are turned on, LinkedIn and X posts learn from how your past posts did and from how each team member edits them, while posts for other channels learn nothing yet.
   - `src/lib/content/create/generateNode.ts`
-- `edit_mode` (AI purpose, Edit mode), kept in `vizzy_memory`. Where learning from edits is turned on, Vizzy remembers how each team member edits in Edit mode, in brands whose plan or grant includes it and, where it comes with Vizzy in Edit mode, in brands that keep their data where Vizzy runs, and each member can turn it off or make it forget.
+- `edit_mode` (AI purpose, Edit mode), kept in `vizzy_memory`. Where learning from edits is turned on, Vizzy remembers how each team member edits in Edit mode, in brands this copy lets learn from edits and, where it comes with Vizzy in Edit mode, in brands with Vizzy in Edit mode that keep their data where Vizzy runs, and each member can turn it off or make it forget.
   - `src/app/api/admin/editor/vizzy/route.ts`
 - `email_copy` (AI purpose, Email copy), kept in `broadcast`. Email assist reads the open and click rates of the launch's last five one off emails with a report before it writes, though invite wave copy reads none.
   - `src/app/api/admin/email/assist/route.ts`

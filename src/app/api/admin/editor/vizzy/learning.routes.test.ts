@@ -239,6 +239,15 @@ describe("the learn route's loop_learn line", () => {
     expect(bank.learnFromEdits).not.toHaveBeenCalled();
   });
 
+  it("logs the person's choice failing to load as one error, and learns nothing", async () => {
+    tenant.find.mockRejectedValueOnce(new Error("firestore unavailable for someone@example.com"));
+    const res = await close({ entries: [entry] });
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "memory_unavailable" });
+    expect(onlyLine()).toMatchObject({ severity: "WARNING", outcome: "skipped", reason: "error", code: "other", entries: 1 });
+    expect(bank.learnFromEdits).not.toHaveBeenCalled();
+  });
+
   it("logs a count when learning was on but the page couldn't offer it, and learns nothing", async () => {
     expect(await (await close({ skipped: 4 })).json()).toEqual({ learned: false, reason: "not_loaded" });
     expect(onlyLine()).toMatchObject({ severity: "WARNING", reason: "error", code: "not_loaded", entries: 4 });
@@ -266,6 +275,34 @@ describe("the learn route's loop_learn line", () => {
     await memories.GET(req("GET"));
     await settings.PUT(req("PUT", { learn: false }));
     expect(linesLogged()).toEqual([]);
+  });
+
+  it("leaves a list Memory Bank fails its own line with the bank's code, so not_loaded can be told apart", async () => {
+    const listLines = () =>
+      warn.mock.calls
+        .map((c) => String(c[0]))
+        .filter((s) => s.startsWith("{"))
+        .map((s) => JSON.parse(s) as Record<string, unknown>)
+        .filter((l) => l.event === "memory_list_failed");
+    bank.listEditMemories.mockRejectedValueOnce(new Error("memory_bank_403"));
+    expect((await memories.GET(req("GET"))).status).toBe(502);
+    expect(listLines()).toEqual([
+      {
+        severity: "WARNING",
+        message: "[loops] memory list failed: memory_bank_403",
+        event: "memory_list_failed",
+        tenantId: "ten_A",
+        region: "us",
+        agentRegion: "us",
+        code: "memory_bank_403",
+      },
+    ]);
+    expect(linesLogged()).toEqual([]);
+    for (const secret of ["u1", "someone@example.com"]) expect(JSON.stringify(listLines())).not.toContain(secret);
+    warn.mockClear();
+    bank.listEditMemories.mockResolvedValueOnce([]);
+    expect((await memories.GET(req("GET"))).status).toBe(200);
+    expect(listLines()).toEqual([]);
   });
 });
 

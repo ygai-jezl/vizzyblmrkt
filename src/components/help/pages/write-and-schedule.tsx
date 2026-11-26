@@ -168,9 +168,9 @@ export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSig
       {isEditModeEnabled() && isEditModeLearningFollowsVizzyEnabled() ? (
         <P>
           On this copy, learning from your edits in Edit mode comes with Vizzy in Edit mode when your brand keeps its data in
-          the region where Vizzy runs. A brand that keeps its data in another region learns from edits only when its plan
-          includes Vizzy learning from edits. Learning from LinkedIn and X posts always needs Vizzy learning from edits in
-          your plan or granted to your brand.
+          the region where Vizzy runs. A brand that keeps its data in another region learns from edits only when Vizzy
+          learning from edits is in its plan or granted to it. Learning from LinkedIn and X posts always needs Vizzy learning
+          from edits in your plan or granted to your brand.
         </P>
       ) : null}
       {isBlogAiSummaryUiEnabled() ? (

@@ -17,6 +17,8 @@ const gemini = vi.hoisted(() => ({
   signals: [] as (AbortSignal | undefined)[],
 }));
 vi.mock("@/lib/agents/gemini", () => ({ isGeminiConfigured: gemini.isGeminiConfigured, generateTextStream: gemini.generateTextStream }));
+const learning = vi.hoisted(() => ({ editPreferencesFor: vi.fn(async (): Promise<string[]> => []) }));
+vi.mock("@/lib/content/editor/vizzyLearningAccess", () => learning);
 
 const { POST } = await import("./route");
 
@@ -81,6 +83,15 @@ describe("POST /api/admin/editor/vizzy", () => {
     expect(voice.activeBrandVoiceText).toHaveBeenCalledWith("ten_A", "Workspace voice.");
     expect(gemini.prompts[0]).toContain("Plain words.");
     expect(gemini.signals[0]).toBeInstanceOf(AbortSignal);
+  });
+
+  it("asks for the person's Edit mode preferences, never the post drafts' ones", async () => {
+    // The kind decides the brand's access: edit_mode may follow Vizzy in Edit mode (ADR-0021).
+    learning.editPreferencesFor.mockResolvedValueOnce(["Keeps intros short."]);
+    await events(await POST(req(selection)));
+    expect(learning.editPreferencesFor).toHaveBeenCalledTimes(1);
+    expect(learning.editPreferencesFor).toHaveBeenCalledWith(member, "edit_mode");
+    expect(gemini.prompts[0]).toContain("Keeps intros short.");
   });
 
   it("sends why a change wasn't used", async () => {

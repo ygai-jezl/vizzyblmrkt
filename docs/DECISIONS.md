@@ -50,7 +50,8 @@ Decided:
    something to learn. No line for what is not a learn: a post with no draft, no change or no
    person, another channel, a request from another site, a stranger, or a body that is not a close.
    Return values and answers are as before. The memories, forget, brand voice and settings routes
-   write no line.
+   write no `loop_learn` line; a memory list Memory Bank fails writes one `memory_list_failed`
+   line (decision 3).
 3. **Edit mode sends a count when it can't learn.** The page sent its changes only when the memory
    list loaded and the person let Vizzy learn, so a line at the learn route alone would never show
    plan, the suspected cause. Now `learnCloseBody` (`src/lib/content/editor/vizzyLearning.ts`)
@@ -58,11 +59,21 @@ Decided:
    but learning wasn't offered. The server works out the reason from its own checks, never from the
    page, and nothing goes to Memory Bank. When every check passes and the person hasn't switched
    it off, the line is error with code `not_loaded`: the list didn't load, or Edit mode closed
-   first. For a person who switched learning off, only the count is sent, and the line names no
-   person. Rejected: a line at the memories list (it counts opens, and Distribute's panel reads the
-   same route, so the kind would be wrong) and one in the Vizzy route (it counts asks, not visits).
-4. **No switch for the lines.** They write no data, send nothing anywhere, carry no text or person
-   ids, and must run in prod to find the cause. `EDIT_MODE_VIZZY_LEARNING_ENABLED` and
+   first. A list Memory Bank refuses or fails (a 403 or a 5xx from `memories:retrieve`; a 404 is an
+   empty list) ends that way too, so the memory list's GET then writes its own line,
+   `memory_list_failed` (WARNING, with `code` such as `memory_bank_403`, `tenantId`, `region` and
+   `agentRegion`, nothing else; `memoryListLogEntry` in `learnLog.ts`). For Edit mode, then, a
+   bank that refuses the list shows as `memory_list_failed` lines beside not_loaded ones, an early
+   close as not_loaded alone, and a missing bank as `memory_bank_404` on the learn line itself
+   (the list loads empty and `memories:generate` fails). A person's choice that can't be read at
+   close (the membership read failing) is one error line too, and the close answers 502
+   `memory_unavailable`, as the post path logs the same failure. For a person who switched
+   learning off, only the count is sent, and the line names no person. Rejected: a `loop_learn`
+   line at the memories list (it counts opens, and Distribute's panel reads the same route, so the
+   kind would be wrong; its failure line has no kind for that reason) and one in the Vizzy route
+   (it counts asks, not visits).
+4. **No switch for the lines.** They, and the memory list's failure line, write no data, send
+   nothing anywhere, carry no text or person ids, and must run in prod to find the cause. `EDIT_MODE_VIZZY_LEARNING_ENABLED` and
    `DISTRIBUTE_LEARN_FROM_EDITS_ENABLED` can't hold them, because the switch is itself a reason
    they log. With learning off, the learn route now reads the session of a close to log it, then
    answers 503 `learning_disabled` as before; a body that is not a close reads nothing.
@@ -72,7 +83,8 @@ Decided:
    the line says error. No person sees a change: Edit mode's close request is fire and forget and
    the scheduler ignores the post outcome; the learn route answers 502 instead of 202.
 6. **The switch: `EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED`.** Server only, RUNTIME, `"false"` in
-   `apphosting.yaml`, empty in `.env.example`, kept off locally with its parent, read in
+   `apphosting.yaml`, empty in `.env.example`, kept off locally with its parent and on a new
+   self-hosted copy (`KEPT_OFF` in `scripts/selfhost/spec.mjs`, addon null), read in
    `src/lib/content/editor/flags.ts` and needing `EDIT_MODE_VIZZY_LEARNING_ENABLED`. It is not a
    loop switch (`LOOP_SWITCHES` stays empty). With it on, exactly this changes:
    `learningAccess(ctx, "edit_mode")` (`src/lib/content/editor/learningChoice.ts`) also lets a
@@ -83,8 +95,10 @@ Decided:
    such brand when `ROOT_AGENT_LOCATION` maps to no region, is refused with 403 `not_in_region` and
    logged as region. A brand with the key learns as before in any region: no paid feature is taken
    away, and its edits already went to the agent's region before this. A hold on
-   `edit_vizzy_learning` in `GRANTED_ONLY_FEATURES` then holds back post edits only: turning the
-   switch on is the copy's own choice that Edit mode learning comes with `edit_vizzy`. Unchanged
+   `edit_vizzy_learning` in `GRANTED_ONLY_FEATURES` then holds back post edits only, so a copy that
+   keeps Edit mode learning to some brands holds `edit_vizzy` as well or leaves the switch off.
+   `docs/self-host.md` and the switch's comments in `apphosting.yaml` and `.env.example` say so,
+   and `npm run selfhost` leaves the switch off, so no copy gets it without turning it on. Unchanged
    either way: learning from post edits, the preferences post drafts read (`editPreferencesFor` now
    takes the kind, so drafting can't take the Edit mode route by mistake), the Distribute card, the
    plan keys, `METERED_FEATURES`, the catalog and `FEATURE_LABELS`, the person's own choice and the
@@ -106,28 +120,46 @@ The owner's read after a week, read only. App Hosting runs on Cloud Run; name th
 and run it with the account that reads that project's logs:
 
 ```
-gcloud logging read 'resource.type="cloud_run_revision" AND jsonPayload.event="loop_learn"' --project=YOUR_PROJECT_ID --freshness=7d --limit=20000 --format='value(jsonPayload.kind,jsonPayload.outcome,jsonPayload.reason,jsonPayload.plan,jsonPayload.region,jsonPayload.editVizzy,jsonPayload.grantedOnly)' | sort | uniq -c | sort -rn
+gcloud logging read 'resource.type="cloud_run_revision" AND jsonPayload.event="loop_learn"' --project=YOUR_PROJECT_ID --freshness=7d --limit=20000 --format='value(jsonPayload.kind,jsonPayload.outcome,jsonPayload.reason,jsonPayload.code,jsonPayload.via,jsonPayload.plan,jsonPayload.granted,jsonPayload.grantedOnly,jsonPayload.region,jsonPayload.agentRegion,jsonPayload.editVizzy)' | sort | uniq -c | sort -rn
 ```
 
+Then the memory lists Memory Bank failed in the same 7 days:
+
+```
+gcloud logging read 'resource.type="cloud_run_revision" AND jsonPayload.event="memory_list_failed"' --project=YOUR_PROJECT_ID --freshness=7d --limit=20000 --format='value(jsonPayload.code,jsonPayload.region,jsonPayload.agentRegion)' | sort | uniq -c | sort -rn
+```
+
+Each prints one count per kind of line. The counts add up to at most the `--limit`: if they add
+up to 20000, raise it, or add `AND jsonPayload.kind="edit_mode"` to the first filter, and run it
+again.
+
 What decides the flip: over those 7 days, with `EDIT_MODE_VIZZY_LEARNING_ENABLED` on, the
-leading Edit mode skip is plan for brands with `editVizzy` true in the agent's region, and error,
-not_configured and switch are a handful at most. Then flip the switch in the deployment's own
-settings. If error leads (memory_bank_404 or memory_bank_403), the bank id or the runtime's access
-is wrong: fix that, not the tiers. If the plan lines mostly carry `grantedOnly` true, the copy's
-own hold is the cause; the switch still fixes Edit mode, and the flip should say so. If
-off_by_person leads, people chose it and there is nothing to flip. No edit_mode lines at all means
-nobody used Vizzy in Edit mode that week.
+leading Edit mode skip is plan for brands with `editVizzy` true and `region` equal to
+`agentRegion`, and error, not_configured and switch are a handful at most. Then flip the switch in
+the deployment's own settings. Read error by its code, never as one cause. A `memory_bank_` code
+on a learn line (`memory_bank_404`, or a 5xx) means the bank id or the runtime's access is wrong:
+fix that, not the tiers. `not_loaded` on an edit_mode line means the memory list didn't load
+before Edit mode closed: with `memory_list_failed` lines in the second query (`memory_bank_403` or
+a 5xx), the bank refuses the list, so fix its access; with none, Edit mode closed first, so look
+at the page. `other` is a failure with no code of the app's own, such as the person's choice not
+loading. If the plan lines mostly carry `grantedOnly` true, the copy's own hold is the cause; the
+switch still fixes Edit mode, and the flip should say so. If off_by_person leads, people chose it
+and there is nothing to flip. No edit_mode lines at all means nobody used Vizzy in Edit mode that
+week.
 
 Enforced where:
 
 - `src/lib/loops/learnLog.test.ts`: the reasons are the fixed list, kinds are registry kinds, a
   line copies named fields only (a facts object carrying a person id, an email, an instruction and
   a memory gives a line with none of them), error codes outside `[a-z0-9_]` become `other`, the
-  brand is read only when brand access reads it and at most once.
+  brand is read only when brand access reads it and at most once, and the memory list's failure
+  line carries the code, the brand and its regions only.
 - `src/app/api/admin/editor/vizzy/learning.routes.test.ts`: exactly one line for each of learned,
   switch, not_configured, plan (from one read of the brand), off_by_person (changes or a count),
-  not_loaded, budget and error, none for a stranger or a body that is not a close, none from the
-  other learning routes, and no line carrying the words, the person or their address. With the
+  not_loaded, budget, error, and error when the person's choice can't be read, none for a stranger
+  or a body that is not a close, none from the other learning routes, no line carrying the words,
+  the person or their address, and one `memory_list_failed` line with the bank's code for a list
+  Memory Bank fails. With the
   switch on, a Pro brand in the agent's region lists, forgets and learns; one in another region gets
   `not_in_region` and a region line; the person's choice and the parent switch still hold. Off,
   nothing changes.
@@ -135,8 +167,12 @@ Enforced where:
   on, for both kinds, every region case, both holds, and Edit mode preferences against post draft
   preferences for the same brand.
 - `src/lib/distribute/learnFromPostEdit.test.ts`: one line per post skip with its reason, none for
-  a post with nothing to learn, the old outcomes, and post edits needing the key with the switch
-  on or off.
+  a post with nothing to learn, the old outcomes, post edits needing the key with the switch on or
+  off, and post drafts reading `content_write` preferences by default. Its partner,
+  `src/app/api/admin/editor/vizzy/route.test.ts`: Edit mode's Vizzy asks for `edit_mode`
+  preferences. Swapping either kind fails a test.
+- `scripts/selfhost/envfile.test.ts`: a new self-hosted copy keeps the switch off, and no add-on
+  turns it on.
 - `src/lib/content/editor/vizzyLearning.test.ts`, `src/lib/agents/memoryBank.test.ts` and
   `src/lib/agents/agentRuntime.region.test.ts`: the close body, the 404, the region map.
 
@@ -144,14 +180,22 @@ Not yet: the design's status line for brands in other regions needs its words an
 owner approves first, so Edit mode hides learning on `not_in_region` as it does on `not_included`.
 
 Step 7: post edits move to a regional edits learner, so each brand's edits are learned in its own
-region. Only then does `edit_vizzy_learning` leave `METERED_FEATURES`, the catalog,
-`FEATURE_LABELS` and the plan change preview; `EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED` and its
-region branch go, and the `edit_mode` and `content_write` registry lines are written again.
+region, and Memory Bank's post path turns off. Only then does `edit_vizzy_learning` leave
+`METERED_FEATURES`, the catalog, `FEATURE_LABELS` and the plan change preview. Edit mode stays on
+Memory Bank in the agent's region, so the region check stays: the switch retires by making its on
+path the only path (`edit_vizzy`, and the brand's region equal to `agentRegion()`), and the
+`edit_mode` and `content_write` registry lines are written again. A brand outside the agent's
+region that holds the key today then loses Edit mode learning: the design says Edit mode learning
+there waits until an agent location serves that region. Step 7's plan names those brands, either
+accepts that or gives Edit mode a regional learner too, and keeps Forget everything open to them
+for the memories already in the bank.
 
 What follows: no new collection, index, rule, store, service or dependency, and one new switch, off.
-With every switch off, three things change: a 404 from `memories:generate` is an error, Edit mode
-sends a count where it sent nothing, and with learning off the learn route reads the session of a
-close to log it. The `edit_mode` line in `src/lib/loops/registry.ts` and `docs/ONTOLOGY.md` now name
+With the new switch off, five things change: a 404 from `memories:generate` is an error, Edit mode
+sends a count where it sent nothing, with learning off the learn route reads the session of a
+close to log it, a memory list Memory Bank fails writes a `memory_list_failed` line, and a
+person's choice that can't be read at close answers 502 `memory_unavailable` where it was an
+unhandled 500. The `edit_mode` line in `src/lib/loops/registry.ts` and `docs/ONTOLOGY.md` now name
 both ways a brand gets learning.
 
 ---

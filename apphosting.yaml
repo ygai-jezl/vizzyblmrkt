@@ -1059,7 +1059,9 @@ env:
       - RUNTIME
   # Edit mode learning comes with Vizzy in Edit mode (edit_vizzy) for brands that keep their data
   # in the agent's region (ROOT_AGENT_LOCATION), without the edit_vizzy_learning plan key. Post
-  # edits keep the key. Needs EDIT_MODE_VIZZY_LEARNING_ENABLED (ADR-0021).
+  # edits keep the key. On, a hold on edit_vizzy_learning in GRANTED_ONLY_FEATURES keeps back post
+  # edit learning only: to keep Edit mode learning to some brands, hold edit_vizzy as well or leave
+  # this off. Needs EDIT_MODE_VIZZY_LEARNING_ENABLED (ADR-0021).
   - variable: EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED
     value: "false"
     availability:

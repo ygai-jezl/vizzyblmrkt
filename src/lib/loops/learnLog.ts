@@ -156,8 +156,39 @@ export function learnLogEntry(
   };
 }
 
+/**
+ * The line the Edit mode memory list writes when Memory Bank fails it (a 403 or a 5xx; a 404 is an
+ * empty list). Edit mode then closes with only a count, which the learn route logs as error
+ * not_loaded, the same as closing before the list loaded; this line says what the bank answered.
+ * Not a loop_learn line and no kind: it counts list reads, and Distribute's card reads the same
+ * list. Named fields only, as learnLogEntry. Pure.
+ */
+export interface MemoryListLogEntry {
+  severity: "WARNING";
+  message: string;
+  event: "memory_list_failed";
+  tenantId: string;
+  region: Region;
+  agentRegion: Region | null;
+  /** The app's own code, such as memory_bank_403, or "other". */
+  code: string;
+}
+
+export function memoryListLogEntry(ctx: Pick<TenantContext, "tenantId" | "region">, err: unknown): MemoryListLogEntry {
+  const code = errorCode(err);
+  return {
+    severity: "WARNING",
+    message: `[loops] memory list failed: ${code}`,
+    event: "memory_list_failed",
+    tenantId: ctx.tenantId,
+    region: ctx.region,
+    agentRegion: agentRegion(),
+    code,
+  };
+}
+
 /** Write a line for Cloud Logging: WARNING on stderr for an error, INFO on stdout otherwise. */
-export function writeLearnLog(entry: LearnLogEntry): void {
+export function writeLearnLog(entry: LearnLogEntry | MemoryListLogEntry): void {
   try {
     const line = JSON.stringify(entry);
     if (entry.severity === "WARNING") console.warn(line);

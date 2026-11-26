@@ -183,7 +183,7 @@ export const LOOPS = {
   content_hub: gap("Where turned on, a hub piece keeps its AI original and how your team changed it, but the writer learns nothing from those edits yet.", LATER),
   content_brief: none("A brief is a short instruction a person can rewrite before writing starts, and the piece written from it is what gets judged."),
   content_angle: gap("An angle you turn down with Suggest another is passed only to the next try and never kept as a no.", LATER),
-  edit_mode: own("vizzy_memory", "Where learning from edits is turned on, Vizzy remembers how each team member edits in Edit mode, in brands whose plan or grant includes it and, where it comes with Vizzy in Edit mode, in brands that keep their data where Vizzy runs, and each member can turn it off or make it forget."),
+  edit_mode: own("vizzy_memory", "Where learning from edits is turned on, Vizzy remembers how each team member edits in Edit mode, in brands this copy lets learn from edits and, where it comes with Vizzy in Edit mode, in brands with Vizzy in Edit mode that keep their data where Vizzy runs, and each member can turn it off or make it forget."),
   ebook: gap("eBook chapters keep no AI original, so the changes your team makes to them are never compared or learned.", LATER),
   templates: none("It copies the shape of a piece your team picked into a reusable template, so the choice is already theirs."),
   brand_voice: none("The voice is drafted once from your website and then edited by a person, so no repeated choice exists to learn from."),

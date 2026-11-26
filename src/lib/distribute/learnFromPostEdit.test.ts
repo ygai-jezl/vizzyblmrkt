@@ -9,6 +9,13 @@ import {
 } from "./learnFromPostEdit";
 import type { TenantContext } from "@/lib/tenant/types";
 import type { LearnLogEntry } from "@/lib/loops/learnLog";
+import { editPreferencesFor } from "@/lib/content/editor/learningChoice";
+
+// The real preferences reader, watched, so a test can check which kind post drafts ask for.
+vi.mock("@/lib/content/editor/learningChoice", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/content/editor/learningChoice")>();
+  return { ...actual, editPreferencesFor: vi.fn(actual.editPreferencesFor) };
+});
 
 const ctx: TenantContext = { tenantId: "ten_a", region: "us", source: "system" };
 const AI = "Most onboarding emails are written once and then forgotten. Activation jumped 18% in one week. 🚀";
@@ -246,6 +253,20 @@ describe("postEditPreferencesFor and postPreferencesSection", () => {
     expect(await postEditPreferencesFor(ctx, "blog", read)).toEqual([]);
     expect(await postEditPreferencesFor(ctx, "x", read)).toEqual(["Cuts emoji."]);
     expect(read).toHaveBeenCalledTimes(1);
+  });
+
+  it("read post draft preferences by default, never Edit mode's", async () => {
+    // With Edit mode learning following Vizzy, the edit_mode kind would let a brand without the
+    // learning key read memories into its post drafts (ADR-0021).
+    switchesOn();
+    vi.stubEnv("EDIT_MODE_LEARNING_FOLLOWS_VIZZY_ENABLED", "true");
+    const reader = vi.mocked(editPreferencesFor);
+    reader.mockClear();
+    reader.mockResolvedValueOnce(["Cuts emoji."]);
+    const person: TenantContext = { ...ctx, userId: "uid_1" };
+    expect(await postEditPreferencesFor(person, "linkedin")).toEqual(["Cuts emoji."]);
+    expect(reader).toHaveBeenCalledTimes(1);
+    expect(reader).toHaveBeenCalledWith(person, "content_write");
   });
 
   it("fences the preferences as guidance after the brand voice, and is empty without any", () => {

@@ -23,6 +23,8 @@ import { helpMetadata } from "./metadata";
 import { HELP_PLACES, helpFor, parseHelpPath } from "./places";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
 import { VIZZY_READS_HINT } from "@/components/admin/audience/fieldsApi";
+import { drawerBodyProps } from "@/components/help/HowToDrawer";
+import { VIEW_MESSAGES } from "@/lib/views/words";
 import {
   ABOUT_WORDS,
   BASICS_WORDS,
@@ -66,6 +68,7 @@ vi.hoisted(() => {
   process.env.AUDIENCE_VIZZY_FIELDS_ENABLED = "true";
   process.env.AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED = "true";
   process.env.AUDIENCE_VIZZY_ADD_PERSON_ENABLED = "true";
+  process.env.CRM_VIEWS_ENABLED = "true";
   process.env.NEXT_PUBLIC_EDIT_MODE_ENABLED = "true";
   process.env.NEXT_PUBLIC_EDIT_MODE_EMAILS_ENABLED = "true";
   process.env.NEXT_PUBLIC_NEWSLETTER_MARKDOWN_EMAIL_ENABLED = "true";
@@ -647,6 +650,41 @@ describe("the New person section", () => {
     expect(md("your-audience", false)).not.toContain("Add someone by hand");
     expect(md("your-audience", false)).not.toContain("New person");
     expect(md("plan-and-usage", false)).not.toContain("New person");
+  });
+});
+
+describe("the views sections", () => {
+  const md = (slug: string, views: boolean) => docToMarkdown(HELP_BODIES[slug]!({ people: true, fields: true, fieldFilters: true, addPerson: true, views }), "https://app.example.com");
+
+  it("show while views are on, with saved views and every message the screens show", () => {
+    const text = md("your-audience", true);
+    expect(text).toContain("## Views: filters, columns and sort");
+    expect(text).toContain("## Saved views");
+    for (const words of ["**Add filter**", "**All of these**", "**Columns**", "**Sort**", "**Save view**", "**Everyone on the team**", "**Only me**", "**Typed words**", "**Archived team views**"]) {
+      expect(text).toContain(words);
+    }
+    for (const m of [
+      VIEW_MESSAGES.capped,
+      VIEW_MESSAGES.typed_words,
+      VIEW_MESSAGES.team_views_full,
+      VIEW_MESSAGES.views_busy,
+      VIEW_MESSAGES.archived_field,
+      VIEW_MESSAGES.admins_only,
+    ]) {
+      expect(text).toContain(m);
+    }
+    expect(md("people", true)).toContain("make it a [view](https://app.example.com/help/your-audience.md) with Add filter");
+  });
+
+  it("stay hidden while views are off", () => {
+    expect(md("your-audience", false)).not.toContain("Saved views");
+    expect(md("your-audience", false)).not.toContain(VIEW_MESSAGES.capped);
+    expect(md("people", false)).not.toContain("#views");
+  });
+
+  it("follow what the How to drawer is told", () => {
+    expect(drawerBodyProps({ views: true } as never).views).toBe(true);
+    expect(drawerBodyProps(null as never).views).toBe(false);
   });
 });
 

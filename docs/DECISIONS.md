@@ -4,6 +4,76 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0022 · Views on People: in memory up to 5,000 people, team views in the settings log (piece C) (2026-11-26)
+
+Context: piece C of the build plan, group 1 only (decision 34: no index spike, so no view rows on the
+brand index yet). The plan was approved on 26 Nov with these answers: views read up to 5,000 people
+a view until the index (decision 1); typed words and email domains filter but never save (decision
+3); anyone saves Only me views, and admins save, change and archive team views (decision 4); Vizzy
+reads view counts now, under the same switch (decision 6). Branch `feat/crm-views`. No index,
+rules, dependency or infra change, and no backfill.
+
+### Decided
+
+1. **A view** (`src/lib/views/types.ts`) is up to 10 filters joined by all or any, each of up to 20
+   values, up to 10 columns with Person first, and one sort. The search box is not part of a view. A
+   filter is on one of the brand's People fields (B's 12 types; email, phone and link fields only
+   empty or not) or a built in one read from what `listPeople` reads: its `memberOf` tags (an idea,
+   how they joined, more than one idea, a product, a stage, quiet, a product group), reach (Can
+   email), last active, first seen and email domain. So a view rebuilt from a group counts the same
+   as the group (`filtersFromGroup`).
+2. **Evaluated in memory** (`src/lib/views/evaluate.ts`, pure): only people in Everyone, a stable sort
+   with no value last, days in the brand's `timeZone` (UTC when unset). A filter on an archived
+   field is flagged and ignored, and an archived option is left out of its filter.
+3. **Read through one backend** (`src/lib/views/backend.ts`, `source.ts`): a match all view starts
+   from its smallest group, found with one `count()` per candidate, otherwise from Everyone; it reads
+   that group newest first in pages of 1,000, up to 5,000, with a projection (`FindOptions.select`)
+   of only the fields its filters and sort use, and answers the group's real total and `capped`.
+   Words in the search box read that search's people instead and keep to Everyone. At most 2 runs
+   at a time per instance (`views_busy`). Every read uses an index `firestore.indexes.json` already
+   has. The index backend of groups 2 and 3 (on the tracker) plugs in behind the same interface.
+4. **Team views are a setting**: the settings subject `views:person`, kept by `SETTINGS_HOMES` in a
+   new regional `saved_views`, one document per brand, so each save is one settings version holding
+   the whole list. Views are archived, never removed. Caps: 50 in use, 200 in all, the list under 200
+   KB, one view under 2 KB. A save whose list moved on retries up to 3 times; one made from an older
+   `version` of the view answers `view_changed` (409).
+5. **Only me views sit outside the log**: a new regional `member_views`, one document per brand and
+   member (`mv_` and a hash of both), read and written only for the signed in member, with a rev
+   check in one transaction. Not logged, deleted for real, 50 a member. So History and export never
+   show anyone's own views, and they never spend the brand's lifetime log.
+6. **No typed words in a saved view** (decision 3): a text field's words and the email domain work
+   while looking and refuse a save with `typed_words`, naming the filters. Saved views keep options,
+   numbers, amounts, days, yes or no, empty, and team members as user ids: neither store holds
+   anyone's personal data, so a person's erase or export has nothing there.
+7. **Routes** (`viewsAdmin`, beside `fieldsAdmin`): `views/run` (count, total, capped, every match in
+   order and the first 50 rows; 20 a minute and 200 an hour per member, 600 an hour per brand),
+   `views/rows` (up to 50 rows by id; changing columns reads rows, never a new run), `views` and
+   `views/[viewId]` (team saves 30 an hour per brand). Paging is by ids, not a cache.
+8. **Vizzy** reads views with `get_view_counts` (`/api/agent/audience/views`, canvas token): every team
+   view in use and the asker's own, with their filters in words, and counts only those named, at most
+   3, each `viewPeople` (a new meaning) and `capped`. A view with a filter on a field `vizzyReadsField`
+   refuses gives its name and no count. Team members are never named. 6 a minute and 60 an hour per
+   brand. Read only: Vizzy never makes or changes a view.
+9. **One server switch**, `CRM_VIEWS_ENABLED` (needs `AUDIENCE_FIELDS_ENABLED`; the screen needs nav
+   phase 3). The page passes it down, so the spec's `NEXT_PUBLIC_` twin isn't needed. Off: the routes
+   answer 404, the Views menu and Add filter hide, People works as before, saved views stay stored,
+   and Vizzy's tool says views are off. No per brand check: no AI, reads bounded by the cap and the
+   rate limits, and every plan has views.
+
+### Not decided here
+
+Groups 2 and 3 (view rows on the brand index, people on it after the data processing agreement, the
+`view_rows` indexes, `views-backfill`, the sweep reconcile), views on companies or ideas, bulk
+actions and lists (piece E), export, journeys that start when someone enters a view, Vizzy making
+views, and a History screen for views (O2, which adds the `views:person` line to its sources, one
+view at a time).
+
+### Rollback
+
+The switch. No index, backfill or data to undo; `saved_views` and `member_views` stay, unread.
+
+---
+
 ## ADR-0022 · Your next action: a plain card Vizzy writes (PR B of getting to know you) (2026-11-26)
 
 Context: PR A (ADR-0018) keeps what a new brand tells Vizzy (the four answers and the facts an admin

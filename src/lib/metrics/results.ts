@@ -1,4 +1,6 @@
-import { computeHybridEmailAnalytics } from "@/lib/analytics/email";
+import { computeHybridEmailAnalytics, computeHybridSequenceBreakdown } from "@/lib/analytics/email";
+import { journeyIdFor } from "@/lib/journey/service";
+import { isWaitlistAbWinnerEnabled } from "@/lib/lifecycle/waitlist/flags";
 import { summariseEmailSends, type SendTotals } from "@/lib/email/sends";
 import { loadEmailInsights } from "@/lib/insights/email";
 import { journeyAnalytics } from "@/lib/lifecycle/adminApi";
@@ -24,6 +26,35 @@ const detailOf = ({ totals, complete }: { totals: SendTotals; complete: boolean 
   ...totals,
 });
 
+/**
+ * Each email of a launch's welcome sequence that runs an A/B test (WAITLIST_AB_WINNER_ENABLED):
+ * its versions and the winner a person picked, read from the breakdown the Analytics tab shows,
+ * on whichever engine the launch sends from.
+ */
+async function emailTests(ctx: TenantContext, launchId: string) {
+  const { nodes } = await computeHybridSequenceBreakdown(ctx, journeyIdFor(launchId));
+  return nodes
+    .filter((n) => n.abTest)
+    .map((n) => {
+      const winner = n.status === "promoted" ? n.arms.find((a) => a.variantId === n.winnerVariantId) : undefined;
+      return {
+        email: n.label,
+        winnerPicked: n.status === "promoted",
+        winner: winner?.label ?? null,
+        versions: n.arms.map((a) => ({
+          version: a.label,
+          sends: a.sent,
+          delivered: a.delivered,
+          uniqueOpens: a.opened,
+          uniqueClicks: a.clicked,
+          unsubscribes: a.unsubscribed,
+          openRate: a.openRate,
+          clickRate: a.clickRate,
+        })),
+      };
+    });
+}
+
 export async function emailResults(ctx: TenantContext, args: { scope: EmailScope; id?: string }): Promise<ApiResult> {
   if (args.scope === "overview") {
     const [insights, detail] = await Promise.all([loadEmailInsights(ctx, { lifecycle: true, invites: true }), summariseEmailSends(ctx, {})]);
@@ -37,7 +68,11 @@ export async function emailResults(ctx: TenantContext, args: { scope: EmailScope
   }
   if (!args.id) return { status: 400, body: { error: "id_required" } };
   if (args.scope === "launch") {
-    const [a, detail] = await Promise.all([computeHybridEmailAnalytics(ctx, args.id), summariseEmailSends(ctx, { campaignId: args.id })]);
+    const [a, detail, tests] = await Promise.all([
+      computeHybridEmailAnalytics(ctx, args.id),
+      summariseEmailSends(ctx, { campaignId: args.id }),
+      isWaitlistAbWinnerEnabled() ? emailTests(ctx, args.id) : null,
+    ]);
     return withMeanings({
       scope: "launch",
       launch: args.id,
@@ -54,6 +89,7 @@ export async function emailResults(ctx: TenantContext, args: { scope: EmailScope
         clickRate: r.clickRate,
       })),
       broadcasts: a.broadcasts.map((b) => ({ name: b.name, people: b.enrolled, delivered: b.delivered, openRate: b.openRate, clickRate: b.clickRate, unsubscribes: b.unsubscribed, pending: b.pending })),
+      ...(tests ? { emailTests: tests } : {}),
       partial: a.truncated,
       detail: detailOf(detail),
     });

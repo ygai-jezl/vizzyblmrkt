@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { aiTellsIn, dashesIn } from "@/lib/content/writingRules";
 import { MEANINGS, meaningsOf, numberKeys, type Meaning } from "./meanings";
 
@@ -6,12 +6,13 @@ import { MEANINGS, meaningsOf, numberKeys, type Meaning } from "./meanings";
 const src = vi.hoisted(() => ({
   loadEmailInsights: vi.fn(),
   computeHybridEmailAnalytics: vi.fn(),
+  computeHybridSequenceBreakdown: vi.fn(),
   journeyAnalytics: vi.fn(),
   summariseEmailSends: vi.fn(),
   listPostPerformance: vi.fn(),
 }));
 vi.mock("@/lib/insights/email", () => ({ loadEmailInsights: src.loadEmailInsights }));
-vi.mock("@/lib/analytics/email", () => ({ computeHybridEmailAnalytics: src.computeHybridEmailAnalytics }));
+vi.mock("@/lib/analytics/email", () => ({ computeHybridEmailAnalytics: src.computeHybridEmailAnalytics, computeHybridSequenceBreakdown: src.computeHybridSequenceBreakdown }));
 vi.mock("@/lib/lifecycle/adminApi", () => ({ journeyAnalytics: src.journeyAnalytics }));
 vi.mock("@/lib/email/sends", () => ({ summariseEmailSends: src.summariseEmailSends }));
 vi.mock("@/lib/tenant/postPerformance", () => ({ listPostPerformance: src.listPostPerformance }));
@@ -81,6 +82,54 @@ describe("email results", () => {
     expect((await emailResults(ctx, { scope: "launch" })).status).toBe(400);
     src.journeyAnalytics.mockResolvedValue({ status: 404, body: { error: "not_found" } });
     expect((await emailResults(ctx, { scope: "journey", id: "nope" })).status).toBe(404);
+  });
+});
+
+describe("email tests on a launch (WAITLIST_AB_WINNER_ENABLED)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const arm = (variantId: string, label: string, sent: number) => ({
+    variantId,
+    label,
+    sent,
+    delivered: sent,
+    opened: sent / 2,
+    clicked: 1,
+    unsubscribed: 0,
+    openRate: 0.5,
+    clickRate: 1 / sent,
+  });
+  beforeEach(() =>
+    src.computeHybridSequenceBreakdown.mockResolvedValue({
+      truncated: false,
+      nodes: [
+        { ...arm("x", "", 112), nodeId: "email1", label: "Welcome", abTest: true, status: "promoted", winnerVariantId: "var_b", arms: [arm("control", "Control", 60), arm("var_b", "Variant A", 52)] },
+        { ...arm("x", "", 40), nodeId: "email2", label: "Nudge", abTest: false, arms: [] },
+      ],
+    }),
+  );
+
+  it("says which version of each test won, every number explained", async () => {
+    vi.stubEnv("WAITLIST_AB_WINNER_ENABLED", "true");
+    const r = await emailResults(ctx, { scope: "launch", id: "c1" });
+    expect(src.computeHybridSequenceBreakdown).toHaveBeenCalledWith(ctx, "journey_c1");
+    expect((r.body as { emailTests: unknown }).emailTests).toEqual([
+      {
+        email: "Welcome",
+        winnerPicked: true,
+        winner: "Variant A",
+        versions: [
+          { version: "Control", sends: 60, delivered: 60, uniqueOpens: 30, uniqueClicks: 1, unsubscribes: 0, openRate: 0.5, clickRate: 1 / 60 },
+          { version: "Variant A", sends: 52, delivered: 52, uniqueOpens: 26, uniqueClicks: 1, unsubscribes: 0, openRate: 0.5, clickRate: 1 / 52 },
+        ],
+      },
+    ]);
+    everyNumberHasAMeaning(r.body);
+  });
+
+  it("leaves them out while the switch is off", async () => {
+    const r = await emailResults(ctx, { scope: "launch", id: "c1" });
+    expect(r.body).not.toHaveProperty("emailTests");
+    expect(src.computeHybridSequenceBreakdown).not.toHaveBeenCalled();
   });
 });
 

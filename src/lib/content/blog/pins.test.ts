@@ -79,7 +79,8 @@ describe("what the blog hub sends and shows today (no brand map)", () => {
     const questions = prompts.find((p) => p.includes("ENTITY: <name>")) ?? "";
     const facts = prompts.find((p) => p.includes("FACT: <the sentence>")) ?? "";
     expect(digest(questions)).toBe("5ebce0883b7140d4");
-    expect(digest(facts)).toBe("ffc1504371b22a9f");
+    // content.blog_facts v3 (only figures from the last two years, 26 Nov 2026).
+    expect(digest(facts)).toBe("8e4d697d5fc05e4c");
   });
 
   it("gives the writer, and its second pass, the same instructions", async () => {
@@ -95,8 +96,9 @@ describe("what the blog hub sends and shows today (no brand map)", () => {
       { generate: generate as never, now: NOW },
     );
     expect(prompts).toHaveLength(2);
-    expect(digest(prompts[0])).toBe("123d805c01dc4f3d");
-    expect(digest(prompts[1])).toBe("dfde111de7da23da");
+    // content.blog_draft v4 (never a figure from two or more years before today, 26 Nov 2026).
+    expect(digest(prompts[0])).toBe("beda793b81be38f0");
+    expect(digest(prompts[1])).toBe("c32eb1d59a08c8cb");
   });
 
   it("gives the fact check the same material", async () => {

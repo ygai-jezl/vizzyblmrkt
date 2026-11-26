@@ -10,7 +10,10 @@ import { saveBrandMap } from "@/lib/brandMap/store";
 import type { SearchHit, SearchOutcome } from "@/lib/search/query";
 import { claimSignal, finishSignal, FIRST_LOOK_MS, recordPosted } from "@/lib/signals/store";
 import type { FreshnessDueItem } from "@/lib/types/freshness";
-import { contextPack, dueArticleLines, FRESHNESS_SOURCE, packOwnUrls, packPromptBlock, packText, PART_MAX, type PackDeps } from "./pack";
+import { contextPack, dueArticleLines, FRESHNESS_SOURCE, packOwnUrls, packPromptBlock, packText, PART_MAX, STRATEGY_SOURCE, type PackDeps } from "./pack";
+import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
+import { situationKey } from "@/lib/brandMap/keys";
+import { StrategySchema } from "@/lib/types/brandStrategy";
 
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u1", role: "admin" };
 const NOW = Date.parse("2026-11-18T10:00:00.000Z");
@@ -237,6 +240,48 @@ describe("the context pack", () => {
     expect(text.match(/<\/context_pack>/g)).toHaveLength(1);
     expect(text).toContain("Where it sits on the brand map:");
     expect(text).toContain("Not known: This question hasn't been looked up on Google yet.");
+  });
+});
+
+describe("the approved strategy in the pack", () => {
+  it("adds its focus situations, whether the question is asked in one, the goal, what the brand is not and its proven claims", async () => {
+    vi.stubEnv("BRAND_MAP_SCALE_ENABLED", "true");
+    const deps = await setup(true);
+    const store = brandMapRecords(A, deps.db);
+    const text = "A client asks why a rival is named";
+    await store.create("sit", "sit_focus0001", { status: "decided", from: "person", text, textKey: situationKey(text), rev: 0, order: 0, createdAt: "", updatedAt: "" });
+    await store.claim("q", "q_aaaaaaaa", () => ({ situationIds: ["sit_focus0001"] }));
+    deps.strategy = async () =>
+      StrategySchema.parse({
+        focusSituationIds: ["sit_focus0001"],
+        claims: [
+          { id: "cl_aaaaaa01", text: "Tracks 8 AI engines", proof: { kind: "product", url: "https://acme.example/docs/engines", title: "Engines" } },
+          { id: "cl_aaaaaa02", text: "Cheapest for a solo founder", proof: null },
+          { id: "cl_aaaaaa03", side: "them", competitor: "Rival A", text: "Already in the suite teams pay for", proof: { kind: "competitor", url: "https://rival.example", title: "Rival A" } },
+        ],
+        isNotProposals: [{ text: "Not an SEO suite", state: "accepted" }, { text: "Not a forum", state: "declined" }],
+        goal: { text: "200 sign-ups by March", measure: "sign-ups" },
+        at: "2026-11-25T10:00:00.000Z",
+      });
+    const pack = await contextPack(A, { questionId: "q_aaaaaaaa" }, deps);
+    expect(pack.strategy).toEqual([
+      { text: 'Focus buying situations: "A client asks why a rival is named".', source: STRATEGY_SOURCE },
+      { text: 'This question is asked in a focus situation: "A client asks why a rival is named".', source: STRATEGY_SOURCE },
+      { text: "This quarter's goal: 200 sign-ups by March (measured by sign-ups).", source: STRATEGY_SOURCE },
+      { text: "What the brand is not: Not an SEO suite.", source: STRATEGY_SOURCE },
+      { text: "Where the brand wins: Tracks 8 AI engines.", source: STRATEGY_SOURCE, url: "https://acme.example/docs/engines" },
+    ]);
+    expect(packPromptBlock(pack, "writer")).toContain("The brand's approved strategy:");
+    expect(packPromptBlock(pack, "writer")).not.toContain("Cheapest for a solo founder");
+  });
+
+  it("has no strategy part without an approved strategy, or with its switch off", async () => {
+    const deps = await setup(false);
+    expect((await contextPack(A, { questionId: "q_aaaaaaaa" }, { ...deps, strategy: async () => null })).strategy).toEqual([]);
+    deps.db.seed("brand_strategy", "bst_ten_A", { tenantId: "ten_A", rev: 1, approved: { goal: { text: "A goal" }, at: "2026-11-25T10:00:00.000Z" } } as never);
+    expect((await contextPack(A, { questionId: "q_aaaaaaaa" }, deps)).strategy).toEqual([]);
+    vi.stubEnv("BRAND_STRATEGY_ENABLED", "true");
+    expect((await contextPack(A, { questionId: "q_aaaaaaaa" }, deps)).strategy).toEqual([{ text: "This quarter's goal: A goal.", source: STRATEGY_SOURCE }]);
   });
 });
 

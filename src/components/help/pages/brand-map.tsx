@@ -8,6 +8,10 @@ import { isCompetitorsUiEnabled } from "@/lib/competitors/flags";
 import { isAutopilotEnabled, isNextUpEnabled, isNextUpRepeatsEnabled } from "@/lib/autopilot/flags";
 import { isUsageMeterUiEnabled } from "@/lib/plans/flags";
 import { WEB_SEARCH_LIMIT_MESSAGE } from "@/lib/plans/resources";
+import { isBrandStrategyUiEnabled } from "@/lib/brandStrategy/flags";
+import { STRATEGY_ERRORS } from "@/components/admin/brand-kit/strategyMessages";
+import { isContentStrategyUiEnabled } from "@/lib/contentStrategy/flags";
+import { NOT_ARTICLES_LABEL, PLAN_ERRORS } from "@/components/admin/brand-kit/contentPlanMessages";
 
 export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnabled(), brandMapScale = isBrandMapScaleEnabled(), aiAnswers = isAiAnswersPlanningEnabled() }: HelpBodyProps = {}) {
   // Linked from Review and Connected data whenever signals are on; at any size the questions wait here.
@@ -180,6 +184,115 @@ export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnab
         </li>
       </Steps>
       <P>The PDF isn&apos;t kept. Only what it found is.</P>
+
+      {isBrandStrategyUiEnabled() ? (
+        <>
+          <H2 id="strategy">Approve your strategy</H2>
+          <P>
+            The <strong>Strategy</strong> tab holds one strategy for your brand: who it&apos;s for, who you compete with, where
+            you win, what you&apos;re not, and this quarter&apos;s goal. Once you approve it, articles, research, Next up and
+            Vizzy use it. Members can read it; admins change and approve it.
+          </P>
+          <Steps>
+            <li>
+              Open <strong>Strategy</strong> and press <strong>Propose with Vizzy</strong>. It reads your brand map, your buying
+              situations, your site, your knowledge, your competitors and what you told Vizzy about your business. This takes
+              up to a minute.
+            </li>
+            <li>
+              Under <strong>Who it&apos;s for</strong>, star 3 to 5 focus situations. Vizzy suggests the ones where people ask
+              the most and the fewest live articles answer.
+            </li>
+            <li>
+              Under <strong>Who you compete with</strong>, press <strong>Find competitors</strong>. It asks Google who buyers
+              weigh instead of you, and keeps only the names Google&apos;s results back. Press <strong>Monitor</strong> on the
+              ones to watch on <Open href="/admin/brand-kit/competitors">Brand › Competitors</Open>.
+            </li>
+            <li>
+              Under <strong>Where you win, and where they do</strong>, check each claim. One marked <strong>gap</strong> has no
+              proof yet: it is never used as fact until a page on your site or your docs shows it.
+            </li>
+            <li>
+              Press <strong>Add</strong> on a proposed line under <strong>What you&apos;re not</strong> to add it to Who you are,
+              or <strong>No</strong> so it isn&apos;t proposed again.
+            </li>
+            <li>
+              Under <strong>The quarter&apos;s goal</strong>, press <strong>Edit</strong> to say the goal and how you&apos;ll
+              know. It starts from what you told Vizzy you want first.
+            </li>
+            <li>
+              Press <strong>Approve strategy</strong>. Your focus situations get their star on Buying situations, and Next up
+              offers their questions first.
+            </li>
+          </Steps>
+          <P>
+            Every brand can run the quick competitor search once. <strong>Full search</strong> asks three times, keeps the
+            names that come up most, then runs a search that fits your business: 4 a month by default, on plans that include
+            the full competitor finder. Its Google searches count toward your brand&apos;s{" "}
+            <Open href="/help/plan-and-usage#use">web searches for research</Open>.
+          </P>
+          <P>
+            What you star, tick, edit or turn down is kept with the strategy, with the 5 strategies approved before it, so
+            YouGrow can learn from it later. Nothing learns from it yet. <strong>Start over</strong> removes all of it; your
+            brand map stays as it is.
+          </P>
+        </>
+      ) : null}
+
+      {isBrandStrategyUiEnabled() && isContentStrategyUiEnabled() ? (
+        <>
+          <H2 id="content-plan">Plan the quarter&apos;s content</H2>
+          <P>
+            Under the strategy, the <strong>Content plan</strong> turns your brand map into a plan for the next 12 weeks. It
+            merges questions that ask the same thing into one article each, called a slot, so you never write two articles for
+            one question. Members can read it; admins make, change and approve it.
+          </P>
+          <Steps>
+            <li>
+              Approve your strategy first, so the plan knows your focus situations. Then press <strong>Make the plan</strong>.
+              It reads your brand map&apos;s questions, your articles, your competitors and, where you have them, Search
+              Console and your Google lookups. This takes up to a minute.
+            </li>
+            <li>
+              Check the <strong>Pillars</strong>: the 3 to 6 big themes your slots fall into. They come from your brand
+              map&apos;s groups when you have set them; otherwise Vizzy names them. Each shows how many of its slots a live
+              article answers and its hub, the page that links the pillar together. Press <strong>Rename</strong> to change a
+              name, or press a pillar to see its slots: <strong>Split</strong> takes a question out into a slot of its own,
+              and <strong>Join</strong> merges two slots into one article.
+            </li>
+            <li>
+              Check the <strong>Next 3 weeks</strong>. Each entry says what to write, refresh or combine, and why: your
+              focus, demand, competitors and the stage it fills. Press <strong>A week later</strong> to move one, or{" "}
+              <strong>Skip</strong> to take it off.
+            </li>
+            <li>
+              Press <strong>Approve plan</strong>. The plan approved before it is kept, in short, with the 4 before that.
+            </li>
+          </Steps>
+          <P>
+            The roadmap writes each pillar&apos;s hub first, gives each month one or two focus pillars, and keeps a funnel
+            mix: half the new articles help buyers learn, almost a third help them consider, and a fifth help them choose.{" "}
+            <strong>Funnel</strong> sets that against your questions today. It runs at your autopilot&apos;s articles a week,
+            and keeps part of each month for live articles: a <strong>Refresh</strong> for one due a refresh or missing some
+            of its slot&apos;s questions, and a <strong>Combine</strong> where two live articles answer one question, so you
+            keep one and fold the other in.
+          </P>
+          <P>
+            <strong>{NOT_ARTICLES_LABEL}</strong> lists slots that need a tool page, such as a free checker, or a video.
+            They aren&apos;t written for you yet.
+          </P>
+          <P>
+            Once your copy of YouGrow switches it on, Next up takes 3 of every 4 picks from the approved plan and keeps 1
+            free for new questions and news. Each pick says which pillar it fills, and an article the autopilot writes for a
+            slot covers all its questions. The autopilot never drafts a combine: it waits for you.
+          </P>
+          <P>
+            What you split, join, rename, move or skip is kept with the plan. A pick you skip is left out of the next plan
+            for 30 days. <strong>Start over</strong> removes the plan and what was kept with it; your brand map and strategy
+            stay as they are.
+          </P>
+        </>
+      ) : null}
 
       <H2 id="write-next">Write this next</H2>
       <P>
@@ -367,6 +480,24 @@ export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnab
             "Press Load the latest to see their version, or Save mine anyway to keep yours.",
           ],
           ["That PDF is too large (14 MB at most).", "Split it into smaller PDFs and read each one."],
+          ...(isBrandStrategyUiEnabled()
+            ? ([
+                [STRATEGY_ERRORS.strategy_changed!, "Look at what was saved, then make your change again."],
+                [STRATEGY_ERRORS.finder_quick_used!, "Ask whoever runs your copy of YouGrow about the full competitor finder, or add competitors on Brand › Competitors."],
+                [STRATEGY_ERRORS.finder_monthly_limit!, "Wait for the 1st, or add competitors on Brand › Competitors by hand."],
+                [STRATEGY_ERRORS.nothing_found!, "Check What you are on Who you are says what you do in plain words, then try again."],
+                [STRATEGY_ERRORS.map_not_saved!, "Press Save brand map on Who you are, then press Add again."],
+                [STRATEGY_ERRORS.too_few_focus!, "Star more situations under Who it's for, then press Approve strategy again."],
+              ] as Array<[string, string]>)
+            : []),
+          ...(isBrandStrategyUiEnabled() && isContentStrategyUiEnabled()
+            ? ([
+                [PLAN_ERRORS.plan_changed!, "Look at what was saved, then make your change again."],
+                [PLAN_ERRORS.nothing_to_plan!, "Add questions on Subjects or Buying situations, then press Make the plan again."],
+                [PLAN_ERRORS.slot_full!, "Split a question out of one of the two slots, then join them."],
+                [PLAN_ERRORS.plan_too_large!, "Remove questions you don't plan to write about, then press Make the plan again."],
+              ] as Array<[string, string]>)
+            : []),
           [
             "The AI model isn't set up in this environment, so research can't run.",
             "Whoever runs your YouGrow needs to set up the AI model. Until then, fill the map in yourself.",

@@ -10,6 +10,8 @@ import { readsThisMonth } from "@/lib/competitors/articles";
 import { lookupsThisMonth } from "@/lib/signals/store";
 import { isBlogRefreshEnabled } from "@/lib/brandMap/flags";
 import { reviewsThisMonth } from "@/lib/content/blog/refreshRecords";
+import { isCompetitorFinderEnabled } from "@/lib/brandStrategy/flags";
+import { finderRunsThisMonth } from "@/lib/brandStrategy/store";
 import { FEATURE_NEEDS, METERED_FEATURES, mayReachWith, mayUseWith, type MeteredFeature } from "./brandAccess";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import {
@@ -242,6 +244,7 @@ async function monthlyRows(ctx: TenantContext, tenant: Tenant | null, plansOn: b
   const rows: Array<{ feature: LimitedFeature; on: boolean; count: () => Promise<number> }> = [
     { feature: "next_up", on: isNextUpEnabled(), count: () => lookupsThisMonth(ctx, counters) },
     { feature: "competitor_articles", on: isCompetitorArticlesEnabled(), count: () => readsThisMonth(ctx, counters) },
+    { feature: "competitor_finder", on: isCompetitorFinderEnabled(), count: () => finderRunsThisMonth(ctx, counters) },
     { feature: "article_autopilot", on: isAutopilotEnabled(), count: () => draftsThisMonth(ctx, counters) },
     { feature: "article_refresh", on: isBlogRefreshEnabled(), count: () => reviewsThisMonth(ctx, counters) },
   ];

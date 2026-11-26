@@ -848,6 +848,55 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # The brand strategy: one approved record per brand (who it's for, who you compete with, where you
+  # win, what you're not, the quarter's goal) on a Strategy tab, proposed with one Gemini call and
+  # read by the writer, research and Next up (needs BRAND_MAP_ENABLED). The NEXT_PUBLIC twin shows
+  # its section on the Brand map help page.
+  - variable: BRAND_STRATEGY_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_BRAND_STRATEGY_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # The competitor finder on the Strategy tab: grounded Google searches that name who buyers weigh
+  # instead (needs BRAND_STRATEGY_ENABLED). Full mode needs the competitor_finder grant where
+  # features are granted, 4 a month by default; quick mode runs once per brand without it.
+  - variable: COMPETITOR_FINDER_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Vizzy's get_brand_strategy: reads the approved strategy, never changes it (needs BRAND_STRATEGY_ENABLED).
+  - variable: BRAND_STRATEGY_CHAT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # The content strategy: one approved plan per brand on the Strategy tab (questions merged into
+  # slots by meaning, 3 to 6 pillars with a hub each, scores and a 12 week roadmap), made in code
+  # with at most one Gemini call (needs BRAND_STRATEGY_ENABLED). The NEXT_PUBLIC twin shows its
+  # section on the Brand map help page.
+  - variable: CONTENT_STRATEGY_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_CONTENT_STRATEGY_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Next up takes 3 of 4 candidates from the approved plan's roadmap, the autopilot fills its slots
+  # and never drafts a combine (needs CONTENT_STRATEGY_ENABLED).
+  - variable: CONTENT_STRATEGY_NEXT_UP_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Vizzy's get_content_strategy: reads the approved plan, never changes it (needs CONTENT_STRATEGY_ENABLED).
+  - variable: CONTENT_STRATEGY_CHAT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # A brand's first hand notes, and Vizzy adding to them (needs the notes).
   - variable: BRAND_NOTES_ENABLED
     value: "false"

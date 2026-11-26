@@ -38,6 +38,7 @@ import {
 import { briefOf, hostOf, isCodeHostUrl, mergeResearch, normalizeUrl, textKey } from "./brief";
 import { researchMapBlock, researchSituationLine, researchSubjectLine, type ArticleMap, mapQuestion, reconcileMapRefs } from "./articleMap";
 import { canonicaliseEntities, indexNames } from "./names";
+import { OLD_SOURCE_YEARS, oldFigureYears } from "./freshness";
 import { fold } from "@/lib/brandMap/changes";
 import { blockedCrawlers } from "./crawlers";
 import { factFiguresOnPage, factWordedAs, figureSet, wordingShared, wordsOf } from "./figures";
@@ -780,6 +781,17 @@ export function fuseSources(cited: BlogSource[], web: BlogSource[]): BlogSource[
   return out;
 }
 
+/**
+ * Facts two or more years old never reach the writer: a source whose page was published that
+ * long ago, or a fact that states a figure from such a year. The freshness watch would mark the
+ * article for them (an old source, an old figure), and the facts prompt asking for recent ones
+ * didn't hold: live articles written in Nov 2026 cited 2024 studies.
+ */
+export function withoutOldFacts(sources: BlogSource[], now: Date): BlogSource[] {
+  const limit = now.getUTCFullYear() - OLD_SOURCE_YEARS;
+  return sources.filter((s) => !(s.year !== null && s.year <= limit) && !oldFigureYears(s.fact, now).length);
+}
+
 /** Search for facts; if the call fails or comes back with none, once more while there is time. */
 async function searchFacts(
   prompt: string,
@@ -979,7 +991,7 @@ export async function researchBlogBrief(
   const fromShelf = cited.rows.map((s) =>
     cited.named.has(s.url) ? s : { ...s, title: (pageTitles.get(s.url) || s.title).slice(0, 200) },
   );
-  const sources = fromShelf.length ? fuseSources(fromShelf, fromWeb) : fromWeb;
+  const sources = withoutOldFacts(fromShelf.length ? fuseSources(fromShelf, fromWeb) : fromWeb, now);
 
   // An integration is a factual claim about the product: keep one only if the brand's
   // own material names it.

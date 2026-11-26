@@ -51,6 +51,8 @@ vi.hoisted(() => {
   process.env.NEXT_PUBLIC_BRAND_NOTES_QUESTIONS_ENABLED = "true";
   process.env.NEXT_PUBLIC_BRAND_NOTES_REST_ENABLED = "true";
   process.env.NEXT_PUBLIC_BRAND_MAP_SITUATION_ASK_ENABLED = "true";
+  process.env.NEXT_PUBLIC_BRAND_STRATEGY_ENABLED = "true";
+  process.env.NEXT_PUBLIC_CONTENT_STRATEGY_ENABLED = "true";
   process.env.NEXT_PUBLIC_BLOG_AI_SUMMARY_LINKS_ENABLED = "true";
   process.env.LAUNCH_SITE_SIGNUPS_ENABLED = "true";
   process.env.AUDIENCE_PERSON_LINKS_ENABLED = "true";
@@ -1011,6 +1013,33 @@ describe("What your numbers suggest (CONNECTOR_SIGNALS_ENABLED)", () => {
     expect(map(true)).toContain('an **AI answers** chip gives the numbers of a prompt it monitors that is close in wording to the question, such as "best geo tools" answered by 6 engines, you named 0 times');
     expect(map(true)).toContain("[Connected data](https://app.example.com/help/connected-data.md)");
     expect(map(false)).not.toContain("AI answers");
+  });
+
+  it("explains the Strategy tab while its switch is on, and leaves it out while it is off", () => {
+    const text = helpPageMarkdown("brand-map", "https://app.example.com")!;
+    expect(text).toContain("## Approve your strategy");
+    expect(text).toContain("One marked **gap** has no proof yet");
+    const was = process.env.NEXT_PUBLIC_BRAND_STRATEGY_ENABLED;
+    process.env.NEXT_PUBLIC_BRAND_STRATEGY_ENABLED = "false";
+    try {
+      expect(helpPageMarkdown("brand-map", "https://app.example.com")).not.toContain("Approve your strategy");
+    } finally {
+      process.env.NEXT_PUBLIC_BRAND_STRATEGY_ENABLED = was;
+    }
+  });
+
+  it("explains the Content plan while its switch is on, and leaves it out while it is off", () => {
+    const text = helpPageMarkdown("brand-map", "https://app.example.com")!;
+    expect(text).toContain("## Plan the quarter's content");
+    expect(text).toContain("**Not articles (done by hand for now)**");
+    expect(text).toContain("Next up takes 3 of every 4 picks from the approved plan");
+    const was = process.env.NEXT_PUBLIC_CONTENT_STRATEGY_ENABLED;
+    process.env.NEXT_PUBLIC_CONTENT_STRATEGY_ENABLED = "false";
+    try {
+      expect(helpPageMarkdown("brand-map", "https://app.example.com")).not.toContain("Plan the quarter's content");
+    } finally {
+      process.env.NEXT_PUBLIC_CONTENT_STRATEGY_ENABLED = was;
+    }
   });
 
   it("keeps the section other pages link to with the brand map's scale switch off, sending rising searches to Review", () => {

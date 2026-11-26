@@ -79,7 +79,7 @@ export async function clearLearned(ctx: TenantContext, deps: LearnedDeps = {}): 
 
 const LINE: Record<LearnedKind, (e: LearnedEntry) => string> = {
   skipped_pick: (e) =>
-    `${e.questionId?.startsWith("refresh:") ? "Skipped refreshing the live article" : "Skipped as a next article"}: "${e.text}"${e.reason ? `, because ${e.reason}` : ""}`,
+    `${e.questionId?.startsWith("refresh:") ? "Skipped refreshing the live article" : e.questionId?.startsWith("combine:") ? "Skipped combining the live articles that answer" : "Skipped as a next article"}: "${e.text}"${e.reason ? `, because ${e.reason}` : ""}`,
   moved: (e) => `Moved: "${e.text}"${e.reason ? ` (${e.reason})` : ""}`,
   left_out: (e) => `Left out as not for this brand: "${e.text}"${e.reason ? `, ${e.reason}` : ""}`,
   added_back: (e) => `Added back after being left out: "${e.text}"${e.reason ? ` (${e.reason})` : ""}`,

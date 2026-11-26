@@ -19,7 +19,7 @@ import { RESOURCE_IDS, RESOURCES, type ResourceId } from "./resources";
  * (src/lib/plans/resources.ts, such as web searches for research) are capped the same way.
  * A cap of 0 stops the feature for that brand without taking the grant away.
  */
-export const LIMITED_FEATURES = ["next_up", "competitor_articles", "article_autopilot", "article_refresh"] as const;
+export const LIMITED_FEATURES = ["next_up", "competitor_articles", "competitor_finder", "article_autopilot", "article_refresh"] as const;
 export type LimitedFeature = (typeof LIMITED_FEATURES)[number];
 
 /** Paid resources with a monthly cap (src/lib/plans/resources.ts), capped the same way as a feature. */
@@ -34,6 +34,8 @@ export const DEFAULT_MONTHLY_LIMITS: Record<CapKey, number> = {
   next_up: 100,
   /** Competitor articles read by Gemini. */
   competitor_articles: 200,
+  /** Full competitor finder runs (three grounded questions and a gap search each), counted when one runs. */
+  competitor_finder: 4,
   /** Workflows the article autopilot drafts (counted when the plan is made). */
   article_autopilot: 8,
   /** Refresh reviews of live articles (counted when one starts). */

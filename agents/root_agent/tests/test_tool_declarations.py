@@ -23,6 +23,8 @@ from root_agent_pkg.tools.results import get_email_results, get_post_results  # 
 from root_agent_pkg.tools.connectors import get_connected_numbers, get_number_suggestions, list_connections, read_connected_live  # noqa: E402
 from root_agent_pkg.tools.context_pack import get_brand_context  # noqa: E402
 from root_agent_pkg.tools.next_up import get_next_up  # noqa: E402
+from root_agent_pkg.tools.brand_strategy import get_brand_strategy  # noqa: E402
+from root_agent_pkg.tools.content_strategy import get_content_strategy  # noqa: E402
 from root_agent_pkg.tools.usage import get_usage  # noqa: E402
 from root_agent_pkg.tools.articles_due import list_articles_due  # noqa: E402
 from root_agent_pkg.tools.article_review import review_article  # noqa: E402
@@ -61,6 +63,8 @@ TOOLS = [
     get_number_suggestions,
     get_brand_context,
     get_next_up,
+    get_brand_strategy,
+    get_content_strategy,
     get_usage,
     list_articles_due,
     review_article,

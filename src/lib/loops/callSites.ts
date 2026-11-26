@@ -34,8 +34,8 @@ export const ROUTED_CALLS: Readonly<Record<string, { why: string; reaches: Parti
     reaches: { blog_research: [], autopilot_research: ["src/lib/autopilot/draftSteps.ts"] },
   },
   "src/lib/signals/collect.ts": {
-    why: "A Google lookup spends under the purpose its asker names: get_from_google for a person, autopilot for the autopilot.",
-    reaches: { get_from_google: [], autopilot: ["src/lib/autopilot/find.ts"] },
+    why: "A Google lookup spends under the purpose its asker names: get_from_google for a person, autopilot for the autopilot, content_strategy for Make the plan.",
+    reaches: { get_from_google: [], autopilot: ["src/lib/autopilot/find.ts"], content_strategy: ["src/lib/contentStrategy/make.ts"] },
   },
   "src/lib/competitors/steps.ts": {
     why: "usageFor wraps the meter for the competitor steps, and each step names competitor_site or competitor_analysis.",

@@ -6,7 +6,7 @@ import { getAgentAction } from "@/lib/ontology/agentActions";
 import type { AgentTarget, EventActor } from "@/lib/ontology/events";
 import { AgentActionSchema, agentDedupeKey, type AgentAction, type DeclineReason } from "@/lib/types/agentAction";
 import { isAgentRecordEnabled } from "./flags";
-import { hash16 } from "./fingerprints";
+import { hash16, stableJson } from "./fingerprints";
 import { lineFor, RECORD_SYSTEM, type DraftKind, type RecordAction } from "./sources";
 
 /**
@@ -21,8 +21,9 @@ import { lineFor, RECORD_SYSTEM, type DraftKind, type RecordAction } from "./sou
  * - Soft: a failed write is logged and counted, and never fails the save it rides on.
  * - Closing runs whatever the switch says, so records written before a rollback still end right.
  *   With no open record it is one read and no write.
- * - Superseded, stale and expired are the system's, never a person's no. A decline clears the
- *   proposal (decision 25); acted keeps the label.
+ * - Superseded, stale and expired are the system's, never a person's no. Every record asks 0e to
+ *   clear its proposal when it closes (clearDetailsOnClose), so a decline, 0e's own expiry sweep
+ *   included, keeps nothing of the draft (decision 25). Acted keeps the label, moved to `result`.
  */
 
 /** A draft as the record names it: its kind (a store) and its id there. */
@@ -53,6 +54,11 @@ export interface RecordDraftInput {
   refs?: readonly string[];
   /** Learning from a repo: the run's id. */
   run?: string;
+  /** A content plan: the ids of its pieces already approved, and whether it was already scheduled, so only a later approval counts. */
+  approved?: readonly string[];
+  scheduled?: boolean;
+  /** A brand map run: how many of its suggestions a newer research run replaced while it waited. */
+  replaced?: number;
   /** The key's own part in place of the draft's ref and a random part (a style's hash of its suggestedAt). */
   keyPart?: string;
   /** Who asked: the member in the chat or on the page by default; the system for the autopilot. */
@@ -131,13 +137,20 @@ function proposalOf(input: RecordDraftInput): Record<string, unknown> {
     ...(input.keys?.length ? { keys: [...new Set(input.keys)].slice(0, MAX_RUN_KEYS) } : {}),
     ...(input.refs?.length ? { refs: [...new Set(input.refs)].slice(0, MAX_RUN_KEYS) } : {}),
     ...(input.run ? { run: input.run } : {}),
+    ...(input.approved?.length ? { approved: [...new Set(input.approved)].slice(0, MAX_RUN_KEYS) } : {}),
+    ...(input.scheduled ? { scheduled: true } : {}),
+    ...(input.replaced ? { replaced: input.replaced } : {}),
   };
 }
 
 /** The same draft as the open record holds: nothing to write. */
 function sameAs(open: AgentAction, proposal: Record<string, unknown>): boolean {
-  const was = open.proposal ?? {};
-  return ["label", "fingerprint", "keys", "refs", "run"].every((k) => JSON.stringify(was[k] ?? null) === JSON.stringify(proposal[k] ?? null));
+  return stableJson(open.proposal ?? {}) === stableJson(proposal);
+}
+
+/** What an acted record keeps once 0e clears its proposal: the label. */
+function keptOf(a: AgentAction): Record<string, unknown> {
+  return typeof a.proposal?.label === "string" ? { label: a.proposal.label } : {};
 }
 
 /** Decline one record as the system, its proposal cleared; false when it moved meanwhile. */
@@ -166,15 +179,17 @@ export async function recordDraft(ctx: TenantContext, input: RecordDraftInput, d
     const expired = first && first.expiresAt <= at;
     if (expired) await declineAsSystem(ctx, first, "expired", at, deps.db);
     const newest = expired ? undefined : first;
-    if (newest && sameAs(newest, proposal)) return "same";
     // The draft keeps its first action and target: a journey drafted and then styled is one draft.
     const line = (newest && lineFor(newest.action)) || lineFor(input.action);
     if (!line) throw new Error(`unknown_action:${input.action}`);
-    if (newest) await declineAsSystem(ctx, newest, "superseded", at, deps.db);
-    const target: AgentTarget = newest ? newest.target : input.launchId ? { type: "idea", id: input.launchId } : { type: "brand", id: ctx.tenantId };
     const dedupeKey = input.keyPart
       ? agentDedupeKey(line.action, input.keyPart)
       : agentDedupeKey(line.action, refPart(input.draft.ref), randomUUID().replace(/-/g, ""));
+    // Nothing changed, and the open record is still the one its page will name: a style suggested
+    // again unchanged gets a new suggestedAt, so its record moves to the new key.
+    if (newest && sameAs(newest, proposal) && (!input.keyPart || newest.dedupeKey === dedupeKey)) return "same";
+    if (newest) await declineAsSystem(ctx, newest, "superseded", at, deps.db);
+    const target: AgentTarget = newest ? newest.target : input.launchId ? { type: "idea", id: input.launchId } : { type: "brand", id: ctx.tenantId };
     const saved = await proposeAgentAction(
       ctx,
       {
@@ -190,6 +205,8 @@ export async function recordDraft(ctx: TenantContext, input: RecordDraftInput, d
         review: { kind: line.review, href: input.href },
         requestedBy: input.requestedBy ?? memberOf(ctx),
         expiresAt: new Date(nowMs + line.expiryDays * DAY_MS).toISOString(),
+        // Whoever closes it, 0e's expiry sweep too, the proposal goes with the decision (decision 25).
+        clearDetailsOnClose: true,
         at,
       },
       { db: deps.db },
@@ -213,7 +230,7 @@ async function closeOne(ctx: TenantContext, a: AgentAction, outcome: DraftOutcom
     return r.ok;
   }
   const edited = editedOf(a, await fingerprint());
-  const result = { ...(edited === undefined ? {} : { edited }), ...(outcome.result ?? {}) };
+  const result = { ...keptOf(a), ...(edited === undefined ? {} : { edited }), ...(outcome.result ?? {}) };
   const r = await transitionAgentAction(ctx, a.id, { to: "acted", by: outcome.by, at, expectRev: a.rev, result: Object.keys(result).length ? result : null }, { db });
   return r.ok;
 }
@@ -225,19 +242,20 @@ function once(fp: string | null | undefined | (() => Promise<string | null>)): (
 }
 
 /**
- * Close the records open for a draft where a person (or the system) decided: acted, with "edited"
- * from the fingerprint, or declined. Runs whatever the switch says. Returns how many it closed;
- * never throws.
+ * Close the record open for a draft where a person (or the system) decided: acted, with "edited"
+ * from the fingerprint, or declined. One decision closes one record: the newest. Any older one
+ * left open (two saves at once) is superseded by the system, so a decision never counts twice.
+ * Runs whatever the switch says. Returns how many records the decision closed (0 or 1); never
+ * throws.
  */
 export async function closeDraft(ctx: TenantContext, draft: DraftRef, outcome: DraftOutcome, deps: RecordDeps = {}): Promise<number> {
   try {
-    const open = await openRecordsFor(ctx, draft, deps.db);
-    if (!open.length) return 0;
+    const [newest, ...older] = await openRecordsFor(ctx, draft, deps.db);
+    if (!newest) return 0;
     const at = new Date(deps.nowMs ?? Date.now()).toISOString();
+    for (const a of older) await declineAsSystem(ctx, a, "superseded", at, deps.db);
     const fingerprint = once(outcome.to === "acted" ? outcome.fingerprint : null);
-    let closed = 0;
-    for (const a of open) if (await closeOne(ctx, a, outcome, at, fingerprint, deps.db)) closed += 1;
-    return closed;
+    return (await closeOne(ctx, newest, outcome, at, fingerprint, deps.db)) ? 1 : 0;
   } catch (err) {
     failed(`close ${draft.kind}`, err);
     return 0;
@@ -286,11 +304,12 @@ export async function closeAsSystem(ctx: TenantContext, a: AgentAction, reason: 
   }
 }
 
-/** Close a record as acted by the system (the engine switch, Found live, the map's own lists). Never throws. */
+/** Close a record as acted by the system (the engine switch, Found live, the map's own lists), keeping its label. Never throws. */
 export async function actAsSystem(ctx: TenantContext, a: AgentAction, result: Record<string, unknown> | null, deps: RecordDeps = {}): Promise<boolean> {
   try {
     const at = new Date(deps.nowMs ?? Date.now()).toISOString();
-    const r = await transitionAgentAction(ctx, a.id, { to: "acted", by: RECORD_SYSTEM, at, expectRev: a.rev, result }, { db: deps.db });
+    const kept = { ...keptOf(a), ...(result ?? {}) };
+    const r = await transitionAgentAction(ctx, a.id, { to: "acted", by: RECORD_SYSTEM, at, expectRev: a.rev, result: Object.keys(kept).length ? kept : null }, { db: deps.db });
     return r.ok;
   } catch (err) {
     failed(`close ${a.action}`, err);

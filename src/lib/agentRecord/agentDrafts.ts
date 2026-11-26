@@ -140,7 +140,8 @@ export async function agentDrafts(
     newest = rows.map((a) => {
       const who = deciderOf(a);
       return {
-        label: typeof a.proposal?.label === "string" ? a.proposal.label : null,
+        // Acted keeps the label in its result (the proposal is cleared when a record closes).
+        label: typeof a.result?.label === "string" ? a.result.label : typeof a.proposal?.label === "string" ? a.proposal.label : null,
         state: stateWord(a, one),
         savedAt: a.createdAt,
         decidedAt: a.state === "proposed" ? null : (a.actedAt ?? a.decidedAt),

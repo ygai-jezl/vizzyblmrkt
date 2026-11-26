@@ -6,6 +6,7 @@ import { shapeRecordingFirestore } from "@/lib/tenant/testing/queryShape";
 import type { TenantContext } from "@/lib/tenant/types";
 import { deleteLaunch } from "@/lib/tenant/launchDeletion";
 import type { AuditObjectSink } from "@/lib/tenant/auditSink";
+import { expireAgentActions } from "@/lib/tenant/agentActions";
 import type { AgentAction } from "@/lib/types/agentAction";
 import { closeDraft, closeStyle, openRecordsFor, recordDraft, recordFailures, resetRecordFailures, styleKeyPart, styleRecordId, type RecordDraftInput } from "./record";
 
@@ -126,13 +127,41 @@ describe("recordDraft", () => {
 });
 
 describe("closeDraft", () => {
-  it("closes as acted by the member, edited when the fingerprint moved, and keeps the label", async () => {
+  it("closes as acted by the member, edited when the fingerprint moved, and keeps the label in its result", async () => {
     const db = new FakeFirestore();
     await recordDraft(A, journey(), { db, nowMs: T0 });
     const n = await closeDraft(A2, journey().draft, { to: "acted", by: { type: "member", id: "usr_a2" }, fingerprint: async () => "dddddddddddddddd" }, { db, nowMs: T0 + MIN });
     expect(n).toBe(1);
     const [a] = await all(db);
-    expect(a).toMatchObject({ state: "acted", actedBy: { type: "member", id: "usr_a2" }, decidedBy: { type: "member", id: "usr_a2" }, result: { edited: true }, proposal: { label: "Spring repotting" } });
+    expect(a).toMatchObject({ state: "acted", actedBy: { type: "member", id: "usr_a2" }, decidedBy: { type: "member", id: "usr_a2" }, result: { label: "Spring repotting", edited: true }, proposal: null });
+  });
+
+  it("counts one decision once: two records left open by saves at the same time close as one kept and one superseded", async () => {
+    const db = new FakeFirestore();
+    // Two saves that ran at once both found nothing open, so both proposed.
+    await Promise.all([recordDraft(A, journey(), { db, nowMs: T0 }), recordDraft(A, journey({ fingerprint: "bbbbbbbbbbbbbbbb" }), { db, nowMs: T0 + 1000 })]);
+    expect(await openRecordsFor(A, journey().draft, db)).toHaveLength(2);
+    expect(await closeDraft(A2, journey().draft, { to: "acted", by: { type: "member", id: "usr_a2" }, fingerprint: "bbbbbbbbbbbbbbbb" }, { db, nowMs: T0 + MIN })).toBe(1);
+    const rows = await all(db);
+    // The newest is the one kept; the older one was nobody's decision.
+    expect(rows.map((r) => [r.state, r.declined?.reason ?? null, r.decidedBy?.type ?? null])).toEqual([
+      ["declined", "superseded", "system"],
+      ["acted", null, "member"],
+    ]);
+    expect(rows[1]).toMatchObject({ result: { label: "Spring repotting", edited: false } });
+  });
+
+  it("asks 0e to clear the proposal on close, so its own expiry sweep keeps nothing of the draft", async () => {
+    const db = new FakeFirestore();
+    await recordDraft(A, { ...journey(), action: "brand_map.research", draft: { kind: "brand_map", ref: "run_1" }, label: null, fingerprint: null, keys: ["1111111111111111"], refs: ["sub:sub_1"] }, { db, nowMs: T0 });
+    await recordDraft(A, journey(), { db, nowMs: T0 });
+    expect((await all(db)).every((a) => a.clearDetailsOnClose)).toBe(true);
+    const r = await expireAgentActions(A, { now: new Date(T0 + 91 * 86_400_000).toISOString(), db });
+    expect(r.declined).toBe(2);
+    for (const a of await all(db)) {
+      expect(a).toMatchObject({ state: "declined", declined: { reason: "expired" }, proposal: null });
+      expect(a.detailsClearedAt).toBeTruthy();
+    }
   });
 
   it("is not edited when a person opens and saves it with no change", async () => {
@@ -175,6 +204,23 @@ describe("a style's record", () => {
     expect(await closeStyle(A2, "email_style.suggest", "2026-12-03T09:00:01.000Z", { to: "acted", by: { type: "member", id: "usr_a2" } }, { db })).toBe(false);
     expect(await closeStyle(A2, "email_style.suggest", at, { to: "acted", by: { type: "member", id: "usr_a2" }, fingerprint: "eeeeeeeeeeeeeeee" }, { db, nowMs: T0 + MIN })).toBe(true);
     expect((await all(db))[0]).toMatchObject({ state: "acted", result: { edited: false } });
+  });
+
+  it("moves to the newer suggestedAt when the same style is suggested again, so Save from the newer one closes it", async () => {
+    const db = new FakeFirestore();
+    const style = (at: string): RecordDraftInput => ({ action: "email_style.suggest", draft: { kind: "email_style", ref: "ten_A" }, keyPart: styleKeyPart(at), href: "/admin/brand-kit/email-style", fingerprint: "eeeeeeeeeeeeeeee" });
+    const t1 = "2026-12-03T09:00:00.000Z";
+    const t2 = "2026-12-03T09:05:00.000Z";
+    expect(await recordDraft(A, style(t1), { db, nowMs: T0 })).toBe("recorded");
+    // The same colours again: the brand record now names t2, so the record follows it.
+    expect(await recordDraft(A, style(t2), { db, nowMs: T0 + MIN })).toBe("recorded");
+    // The same suggestion saved again with the same suggestedAt: nothing to write.
+    expect(await recordDraft(A, style(t2), { db, nowMs: T0 + 2 * MIN })).toBe("same");
+    expect(await closeStyle(A2, "email_style.suggest", t2, { to: "acted", by: { type: "member", id: "usr_a2" }, fingerprint: "eeeeeeeeeeeeeeee" }, { db, nowMs: T0 + 3 * MIN })).toBe(true);
+    expect((await all(db)).map((r) => [r.id, r.state, r.declined?.reason ?? null, r.actedBy?.id ?? null])).toEqual([
+      [styleRecordId("ten_A", "email_style.suggest", t1), "declined", "superseded", null],
+      [styleRecordId("ten_A", "email_style.suggest", t2), "acted", null, "usr_a2"],
+    ]);
   });
 
   it("is superseded by a newer suggestion: the brand's style is one draft", async () => {

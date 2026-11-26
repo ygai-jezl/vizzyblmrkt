@@ -25,6 +25,24 @@ export function isCloudflareConnectorEnabled(): boolean {
 }
 
 /**
+ * The MCP way to connect (ADR-0019): a connector whose manifest connects to its vendor's own MCP
+ * server, with a pasted key, run by the one MCP engine. Needs CONNECTORS_ENABLED. Off, no MCP
+ * connector is offered, whatever its own switch says, and nothing calls an MCP server.
+ */
+export function isMcpConnectorsEnabled(): boolean {
+  return isConnectorsEnabled() && process.env.CONNECTOR_MCP_ENABLED === "true";
+}
+
+/**
+ * Vizzybl, an AI answers tool, read from its own MCP server with an API key (ADR-0019). Needs
+ * CONNECTORS_ENABLED here, and CONNECTOR_MCP_ENABLED before its way to connect is ready, so it is
+ * listed only with both.
+ */
+export function isVizzyblConnectorEnabled(): boolean {
+  return isConnectorsEnabled() && process.env.CONNECTOR_VIZZYBL_ENABLED === "true";
+}
+
+/**
  * Google Search Console in the catalogue (Connectors 1b). Needs CONNECTORS_ENABLED, and a Google
  * sign in client (CONNECTOR_GOOGLE_CLIENT_ID and its secret) before Sign in with Google is offered.
  */
@@ -116,6 +134,17 @@ export function isConnectorsNumbersEnabled(): boolean {
  */
 export function isConnectorSignalsEnabled(): boolean {
   return isConnectorsCollectEnabled() && process.env.CONNECTOR_SIGNALS_ENABLED === "true";
+}
+
+/**
+ * Next up reads AI answers (signals.ai_answers, ADR-0019): a candidate question close in wording
+ * to a prompt an AI answers tool monitors gets a line saying how many engines answer it and how
+ * often the brand and its competitors are named, from connections both members and Vizzy may
+ * read. Needs CONNECTORS_ENABLED; it reads a kind of data, so it needs no vendor's switch of its
+ * own beyond the connector's. Off, Next up says nothing about AI answers.
+ */
+export function isAiAnswersPlanningEnabled(): boolean {
+  return isConnectorsEnabled() && process.env.CONNECTOR_AI_ANSWERS_ENABLED === "true";
 }
 
 /**

@@ -17,6 +17,7 @@ import { nextUpDocId, type NextUpChip, type NextUpDoc, type NextUpPick } from "@
 import type { BrandSignal } from "@/lib/types/brandSignal";
 import type { Tenant } from "@/lib/types/tenant";
 import { NOT_SHARED_NEXT_UP, readSearchPlanning, SEARCH_CONSOLE_CHIP, searchConsoleLines, type SearchConsoleLine, type SearchPlanning } from "@/lib/connectors/signals/planning";
+import { AI_ANSWERS_CHIP, aiAnswersLine, readAiAnswers, type AiAnswers, type AiAnswersLine } from "@/lib/connectors/signals/aiAnswers";
 import { nextUpCandidates, type Candidate } from "./candidates";
 import { isBlogFreshnessEnabled } from "@/lib/brandMap/flags";
 import { freshnessWatchId } from "@/lib/content/blog/freshnessPages";
@@ -30,8 +31,9 @@ import { findRepeats, linkAnswered, NO_REPEATS, type Repeats } from "./repeats";
  * Next up: the brand's three best next articles. Code narrows the brand map's open questions
  * (candidates.ts), gathers a few lines of what is known about each (the map, the brand's own
  * content and competitors from one brand search, the competitors' flag on the subject, Google's
- * numbers, and Search Console's demand for the question and its subject from connections members
- * and Vizzy may both read), and one Gemini call chooses three and says why. Code then checks every number and
+ * numbers, Search Console's demand for the question and its subject, and AI answers for a monitored
+ * prompt close in wording to it, from connections members and Vizzy may both read), and one Gemini
+ * call chooses three and says why. Code then checks every number and
  * competitor a reason names is in that question's own lines, and builds the chips from the lines
  * the model says it used. The result is kept per brand (`next_up`).
  */
@@ -51,6 +53,8 @@ export interface PickDeps {
   activeQuestionIds?: (ctx: TenantContext) => Promise<string[]>;
   /** Search Console's collected demand (CONNECTOR_SIGNALS_ENABLED); null while off. */
   searchPlanning?: (ctx: TenantContext) => Promise<SearchPlanning | null>;
+  /** The brand's monitored AI answers prompts (CONNECTOR_AI_ANSWERS_ENABLED); null while off. */
+  aiAnswers?: (ctx: TenantContext) => Promise<AiAnswers | null>;
   /** Live articles due a refresh (BLOG_FRESHNESS_ENABLED), as candidates. */
   refreshCandidates?: (ctx: TenantContext) => Promise<Candidate[]>;
   /** Stop repeats (NEXT_UP_REPEATS_ENABLED): the questions matched against the brand's articles. */
@@ -137,7 +141,7 @@ const daysSince = (iso: string | null, now: Date) => (iso ? Math.floor((now.getT
 export function linesFor(
   n: number,
   c: Candidate,
-  read: { search: SearchOutcome | null; flag?: { they: number; flag: CoverageFlag }; signal?: BrandSignal; searchConsole?: SearchConsoleLine[]; now: Date },
+  read: { search: SearchOutcome | null; flag?: { they: number; flag: CoverageFlag }; signal?: BrandSignal; searchConsole?: SearchConsoleLine[]; aiAnswers?: AiAnswersLine | null; now: Date },
 ): CandidateLine[] {
   const out: CandidateLine[] = [];
   const add = (text: string, chip: Omit<NextUpChip, "text">, chipText = text) => out.push({ id: `${n}.${out.length + 1}`, text: oneLine(text), chip: { ...chip, text: cut(oneLine(chipText), 90) } });
@@ -176,6 +180,8 @@ export function linesFor(
   }
   // Search Console (collected): the search with the question's words, and the searches near its subject.
   for (const line of (read.searchConsole ?? []).slice(0, 2)) add(line.text, { kind: "num", label: SEARCH_CONSOLE_CHIP }, line.chip);
+  // AI answers (CONNECTOR_AI_ANSWERS_ENABLED): a monitored prompt close in wording to the question.
+  if (read.aiAnswers) add(read.aiAnswers.text, { kind: "num", label: AI_ANSWERS_CHIP }, read.aiAnswers.chip);
   return out;
 }
 
@@ -311,12 +317,13 @@ export async function pickNextUp(
   if (!candidates.length) return { ok: false, error: "no_questions" };
 
   // Read once for all candidates.
-  const [flags, signals, names, notOnMap, planning] = await Promise.all([
+  const [flags, signals, names, notOnMap, planning, answers] = await Promise.all([
     (deps.flags ?? ((c) => competitorSubjectFlags(c, { db: deps.db })))(ctx).catch(() => null),
     isBrandSignalsEnabled() ? readySignals(ctx, 500, { db: deps.db }).catch(() => [] as BrandSignal[]) : Promise.resolve([] as BrandSignal[]),
     (deps.competitorNames ?? (async (c) => (await listCompetitors(c, { db: deps.db })).map((x) => x.name)))(ctx).catch(() => [] as string[]),
     (deps.notOnMap ?? (async (c) => stillToAdd(await competitorCoverage(c, { db: deps.db }))))(ctx).catch(() => null),
     (deps.searchPlanning ?? ((c) => readSearchPlanning(c, { db: deps.db })))(ctx).catch(() => null),
+    (deps.aiAnswers ?? ((c) => readAiAnswers(c, { db: deps.db })))(ctx).catch(() => null),
   ]);
   if (planning?.notShared) missing.push(NOT_SHARED_NEXT_UP);
   if (!flags) missing.push("Competitor articles aren't on for this brand.");
@@ -336,6 +343,7 @@ export async function pickNextUp(
       flag: flags?.[r.candidate.subjectId],
       signal: byQuery.get(queryKey(r.candidate.question)),
       searchConsole: searchConsoleLines(r.candidate, planning),
+      aiAnswers: aiAnswersLine(r.candidate.question, answers),
       now,
     }),
   }));

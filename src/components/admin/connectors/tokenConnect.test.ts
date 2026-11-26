@@ -97,3 +97,25 @@ describe("what to tick again", () => {
     }
   });
 });
+
+describe("reconnecting an MCP server's key in place (ADR-0019)", () => {
+  const KEY = { apiKey: "vzbl_live_madeupkey0000000000" };
+  const BROKEN = connectionView({ connectorId: "vizzybl", connectorName: "Vizzybl", health: { state: "broken", lastOkAt: null, lastCheckedAt: null, message: "x", pausedUntil: null }, details: { grants: BOTH } });
+
+  it("asks the server to check the key against the connection and swap it, never disconnecting first", async () => {
+    const { call, calls } = fakeCall({ POST: OK(BROKEN) });
+    expect(await connectWithToken("vizzybl", KEY, BROKEN, true, call, undefined, true)).toEqual({ kind: "connected" });
+    expect(calls).toEqual([{ method: "POST", url: "/api/admin/connectors/vizzybl/connect", body: { fields: KEY, replace: BROKEN.id } }]);
+  });
+
+  it("says why when the key is for another account, with the old connection untouched", async () => {
+    const message = "Vizzybl says this key belongs to another account, so nothing was changed. Paste the key for the account this connection reads, or connect the new one as a connection of its own.";
+    const { call, calls } = fakeCall({ POST: NO(409, message) });
+    expect(await connectWithToken("vizzybl", KEY, BROKEN, true, call, undefined, true)).toEqual({ kind: "refused", message });
+    expect(calls.map((c) => c.method)).toEqual(["POST"]);
+  });
+
+  it("words its Reconnect note in house style", () => {
+    expect([...dashesIn(LISTING_COPY.keyReconnect), ...aiTellsIn(LISTING_COPY.keyReconnect)]).toEqual([]);
+  });
+});

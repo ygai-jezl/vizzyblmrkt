@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseManifest } from "./manifest";
 import { cloudflareManifest } from "./manifests/cloudflare";
+import { testMcpManifest } from "./testing/mcpServer";
 import { allConnectors, BUILT_METHODS, CONNECTOR_SWITCHES, getConnector, knownConnector, listConnectors, METHOD_SWITCHES, readyMethods, refusals } from "./registry";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -42,7 +43,7 @@ describe("the connector registry", () => {
   });
 
   it("builds every sign-in method, and refuses one a piece hasn't built", () => {
-    expect([...BUILT_METHODS]).toEqual(["token_fields", "oauth_pkce", "share_access"]);
+    expect([...BUILT_METHODS]).toEqual(["token_fields", "oauth_pkce", "share_access", "mcp"]);
     const sc = knownConnector("search-console")!;
     expect(refusals(sc, ["token_fields", "oauth_pkce"])).toEqual(["search-console: the share_access sign-in is not built yet"]);
     vi.stubEnv("CONNECTORS_IDENTITIES_PROJECT", "made-up-identities");
@@ -129,5 +130,17 @@ describe("the connector registry", () => {
     const ga = knownConnector("google-analytics")!;
     const unread = { ...ga, connect: ga.connect.map((c) => (c.method === "oauth_pkce" ? { ...c, switch: "CONNECTOR_NOBODY_SIGNIN_ENABLED" } : c)) };
     expect(refusals(unread)).toEqual(["google-analytics: no switch reads CONNECTOR_NOBODY_SIGNIN_ENABLED"]);
+  });
+
+  it("offers an MCP server's key only with CONNECTOR_MCP_ENABLED and the core (ADR-0019)", () => {
+    const m = parseManifest(testMcpManifest);
+    expect(readyMethods(m)).toEqual([]);
+    vi.stubEnv("CONNECTOR_MCP_ENABLED", "true");
+    expect(readyMethods(m)).toEqual([]);
+    vi.stubEnv("CONNECTORS_ENABLED", "true");
+    expect(readyMethods(m)).toEqual(["mcp"]);
+    vi.stubEnv("CONNECTOR_MCP_ENABLED", "TRUE");
+    expect(readyMethods(m)).toEqual([]);
+    expect(refusals(m, ["token_fields", "oauth_pkce", "share_access"])).toContain("acme-answers: the mcp sign-in is not built yet");
   });
 });

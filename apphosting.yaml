@@ -1209,6 +1209,18 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Connectors that read their vendor's own MCP server with a pasted key, run by one engine
+  # (ADR-0019; needs CONNECTORS_ENABLED). Each MCP connector also has its own switch below.
+  - variable: CONNECTOR_MCP_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Vizzybl, an AI answers tool, read from its MCP server with an API key: AI share of voice,
+  # monitored prompts and the pages AI answers cite (needs CONNECTORS_ENABLED and CONNECTOR_MCP_ENABLED).
+  - variable: CONNECTOR_VIZZYBL_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Google Search Console by signing in with Google or by sharing access (needs
   # CONNECTORS_ENABLED, plus CONNECTOR_GOOGLE_CLIENT_ID and the secret
   # CONNECTOR_GOOGLE_CLIENT_SECRET, or CONNECTORS_IDENTITIES_PROJECT, in your environment file:
@@ -1262,6 +1274,13 @@ env:
   # the agent action indexes READY, infra/lifecycle/setup.sh ttl for data_signals, and
   # CONNECTORS_CHAT_ENABLED so a connection can be shared with Vizzy).
   - variable: CONNECTOR_SIGNALS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Next up weighs AI answers (ADR-0019): a question close in wording to a prompt an AI answers
+  # tool monitors gets a line with its numbers, from connections members and Vizzy may both read
+  # (needs CONNECTORS_ENABLED and an AI answers connector).
+  - variable: CONNECTOR_AI_ANSWERS_ENABLED
     value: "false"
     availability:
       - RUNTIME

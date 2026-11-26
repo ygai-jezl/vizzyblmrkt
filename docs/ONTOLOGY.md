@@ -300,7 +300,7 @@ A competitor the brand watches: their sitemap's pages, their news posts, monthly
 
 ### Data connection (`data_connection`)
 
-A brand's link to an outside source of numbers, such as a Cloudflare zone, a Search Console site or a Google Analytics property: which connector, how it signs in, its health, who may read it live, and its secrets (a pasted token, or a Google sign in's access and refresh tokens), sealed with the brand, connection and slot bound in. A shared connection keeps no secret, only the Google address made for it. It may also be a part its organisation gave it (Connectors 3): then `source` names the organisation's connection and the region it is kept in, it keeps no secret and no address, and its token is read through the organisation's. Each change goes into an activity log kept 90 days.
+A brand's link to an outside source of numbers, such as a Cloudflare zone, a Search Console site, a Google Analytics property or an AI answers tool's brand: which connector, how it signs in, its health, who may read it live, and its secrets (a pasted token or MCP server key, or a Google sign in's access and refresh tokens), sealed with the brand, connection and slot bound in. A shared connection keeps no secret, only the Google address made for it. It may also be a part its organisation gave it (Connectors 3): then `source` names the organisation's connection and the region it is kept in, it keeps no secret and no address, and its token is read through the organisation's. Each change goes into an activity log kept 90 days.
 
 - Status: built
 - Home: the brand's region
@@ -321,7 +321,7 @@ A brand's link to an outside source of numbers, such as a Cloudflare zone, a Sea
   - Gap: a team member's user id in ownerUid and in by stays after they leave the brand, as settings history does
 - Export: none. A sealed secret and its settings, never exported.
 - Search: none. Credentials and settings, never searched.
-- Numbers: `cfRequests`, `cfPageViews`, `cfVisits`, `cfUniqueVisitors`, `searchClicks`, `searchImpressions`, `searchCtr`, `searchPosition`, `merged`, `ga4Sessions`, `ga4ActiveUsers`, `ga4Views`, `ga4KeyEvents`, through `read_connected_live`
+- Numbers: `cfRequests`, `cfPageViews`, `cfVisits`, `cfUniqueVisitors`, `searchClicks`, `searchImpressions`, `searchCtr`, `searchPosition`, `merged`, `ga4Sessions`, `ga4ActiveUsers`, `ga4Views`, `ga4KeyEvents`, `aiShareOfVoice`, `aiMentions`, `aiRank`, `aiSentiment`, `promptEngines`, `promptBrandMentions`, `promptCompetitors`, `promptCitations`, `aiCitations`, `aiCitationShare`, through `read_connected_live`
 
 ### Organisation connection (`organisation_connection`)
 
@@ -348,7 +348,7 @@ An organisation's own link to an outside source of numbers (Connectors 3, ADR-00
 
 ### Connector stream (`connector_stream`)
 
-Data collected from a connected source once a day, as its manifest's stream and its collect block describe it: Search Console's search numbers, Google Analytics' traffic and Cloudflare's zone totals. Every built stream is about the brand's own site, never a person (a stream marked personal is refused until the data processing agreement covers it).
+Data collected from a connected source once a day, as its manifest's stream and its collect block describe it: Search Console's search numbers, Google Analytics' traffic, Cloudflare's zone totals and an AI answers tool's daily share of voice. Every built stream is about the brand's own site, never a person (a stream marked personal is refused until the data processing agreement covers it).
 
 - Status: built
 - Home: the brand's region
@@ -378,7 +378,7 @@ A connected source's numbers for one day, or for the 28 or 90 days to its last c
   - `dropAgedDay` in `src/lib/connectors/snapshots.ts`, on retention (writing a day deletes the day 90 days before it, by id; the time to live on ttlAt is the backstop)
 - Export: none. Numbers about the brand's own site and Google's aggregates, not about a person.
 - Search: `research`
-- Numbers: `searchClicks`, `searchImpressions`, `searchCtr`, `searchPosition`, `merged`, `ga4Sessions`, `ga4ActiveUsers`, `ga4Views`, `ga4KeyEvents`, `cfRequests`, `cfPageViews`, `cfVisits`, `cfUniqueVisitors`, `rowsDropped`, `lagDays`, `nearbySearches`, through `get_connected_numbers`
+- Numbers: `searchClicks`, `searchImpressions`, `searchCtr`, `searchPosition`, `merged`, `ga4Sessions`, `ga4ActiveUsers`, `ga4Views`, `ga4KeyEvents`, `cfRequests`, `cfPageViews`, `cfVisits`, `cfUniqueVisitors`, `aiShareOfVoice`, `aiMentions`, `aiRank`, `aiSentiment`, `rowsDropped`, `lagDays`, `nearbySearches`, through `get_connected_numbers`
 
 ### Suggestion from your numbers (`data_signal`)
 
@@ -1200,7 +1200,7 @@ The brand's three best next articles, one record per brand, worked out again as 
 - Export: none. The brand's own work, with no one's personal data.
 - Search: none. A short list read by Vizzy through get_next_up.
 - Numbers: `repeatSimilarity`, `questionsLeftOut`, `questionsLinkedByMeaning`, through `get_next_up`
-- Made by: `next_up`, `next_up_order`, `refresh_share`, `competitor_topics`, `competitor_coverage`, `search_rerank`, `repeat_match` (see Learning)
+- Made by: `next_up`, `next_up_order`, `refresh_share`, `competitor_topics`, `competitor_coverage`, `search_rerank`, `repeat_match`, `ai_answer_match` (see Learning)
 
 ### Autopilot run (`autopilot_run`)
 
@@ -1992,11 +1992,11 @@ Generated from `src/lib/loops/registry.ts` (ADR-0017 in `docs/DECISIONS.md`). Ev
 
 A call site is a file where a kind is made, counted once for each kind: a meter call that names its purpose, a canvas's module, the file that holds a rule, or the file that calls a model with no meter.
 
-88 kinds: 0 learn, 0 fleet only, 20 own, 28 gap and 40 none.
+89 kinds: 0 learn, 0 fleet only, 20 own, 29 gap and 40 none.
 
-108 call sites: 0 learn, 0 fleet only, 30 own, 33 gap and 45 none.
+109 call sites: 0 learn, 0 fleet only, 30 own, 34 gap and 45 none.
 
-Not learning: 78 of 108 call sites, under gap and none lines.
+Not learning: 79 of 109 call sites, under gap and none lines.
 
 ### Where own lines keep what they learned
 
@@ -2129,6 +2129,8 @@ No line says this yet.
   - `src/lib/lifecycle/recipientContext.ts`
 - `notes_rest` (rule, Notes rest), look again by 2027-05-01. A note the team keeps taking out of articles can go straight into the next one, because each removal is kept on that article alone and never makes the note rest.
   - `src/lib/brandNotes/rest.ts`
+- `ai_answer_match` (rule, AI answers prompt matched), look again by 2027-05-01. A question is shown the AI answers numbers of the monitored prompt with the same or most of the same words, by a fixed cut off, and the picks your team skips never change which prompt is matched.
+  - `src/lib/connectors/signals/aiAnswers.ts`
 - `refresh_share` (rule, Refresh share of Next up), look again by 2027-05-01. At most one of Next up's three picks is a refresh unless the brand sets another number, and whether refreshes or new articles won more clicks never moves it.
   - `src/lib/nextUp/pick.ts`
 - `refresh_due` (rule, Refresh due), look again by 2027-05-01. Marking an article checked restarts its clock, but which reasons make articles due early never changes with what your team marks checked.

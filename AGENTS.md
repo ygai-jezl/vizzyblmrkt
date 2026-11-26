@@ -23,6 +23,7 @@ Step by step guides in `.claude/skills/<name>/SKILL.md`. Claude Code and Cursor 
 - `deploy-your-own`: use it when someone wants their own copy on their Google Cloud project (`npm run selfhost`).
 - `add-a-switch`: use it when a change needs a feature switch, or a switch is renamed or removed.
 - `build-a-feature`: use it before you write a new feature, API route or screen.
+- `add-a-connector`: use it when someone wants a new data connector, or a connector's streams or what it reads change.
 - `check-my-change`: use it before you say a change is done or open a pull request.
 
 ## Commands
@@ -45,7 +46,7 @@ Step by step guides in `.claude/skills/<name>/SKILL.md`. Claude Code and Cursor 
 ## Where things live
 
 - `src/app`: routes. `admin/` is the admin portal, `api/admin/` its APIs, `api/agent/` the routes Vizzy's tools call, `api/v2/` the API for connected products, `waitlist/` and `embed/` the public sign-up pages, `help/` the public how-tos.
-- `src/lib`: the logic. `tenant/` is the only code that touches Firestore. Also `auth/` (sessions, admin access), `http/` (origin checks), `lifecycle/` and `journey/` (journeys), `email/`, `distribute/` and `social/` (posts), `knowledge/` and `agents/` (AI and retrieval), `help/` (help page list), `content/writingRules.ts` (house style), `waitlist/siteKeys.ts` (a launch's site key, for sign-ups from a brand's own site), `enterprise/registry.ts` (licence keys and the one door to Enterprise code).
+- `src/lib`: the logic. `tenant/` is the only code that touches Firestore. Also `auth/` (sessions, admin access), `http/` (origin checks), `lifecycle/` and `journey/` (journeys), `email/`, `distribute/` and `social/` (posts), `knowledge/` and `agents/` (AI and retrieval), `connectors/` (connected data: `manifests/` are data, `mcp/` is the one MCP engine, `byUse.ts` reads a kind of data), `help/` (help page list), `content/writingRules.ts` (house style), `waitlist/siteKeys.ts` (a launch's site key, for sign-ups from a brand's own site), `enterprise/registry.ts` (licence keys and the one door to Enterprise code).
 - `src/components`: React components. Help page bodies are in `src/components/help/pages/`.
 - `agents/root_agent`: Vizzy, the Python ADK agent. It has its own AGENTS.md.
 - `workers/knowledge-scraper`: the Cloud Run Job that reads sites and repos into knowledge. Own AGENTS.md.

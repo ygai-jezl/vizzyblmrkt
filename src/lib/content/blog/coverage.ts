@@ -86,14 +86,25 @@ const words = (s: string) => new Set((s.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?
 /** The words that carry meaning, as close wording compares them: two texts close in wording always share one. */
 export const meaningWords = (s: string): string[] => [...words(s)];
 
-/** Close wording: most of the words that carry meaning are shared. */
-function close(a: string, b: string): boolean {
+/** The share of two sets of meaning words that both hold, from 0 to 1. */
+function shareOf(x: ReadonlySet<string>, y: ReadonlySet<string>): number {
+  let shared = 0;
+  for (const w of x) if (y.has(w)) shared += 1;
+  const all = x.size + y.size - shared;
+  return all ? shared / all : 0;
+}
+
+/** How close two texts are in wording: the share of their meaning words they have in common, from 0 to 1. */
+export function wordingCloseness(a: string, b: string): number {
+  return shareOf(words(a), words(b));
+}
+
+/** Close wording: most of the words that carry meaning are shared. Next up matches AI answers' prompts by it too. */
+export function close(a: string, b: string): boolean {
   const x = words(a);
   const y = words(b);
   if (x.size < 2 || y.size < 2) return false;
-  let shared = 0;
-  for (const w of x) if (y.has(w)) shared += 1;
-  return shared / (x.size + y.size - shared) >= 0.6;
+  return shareOf(x, y) >= 0.6;
 }
 
 /** Does a page answer this map question: for sure, probably, or not? */

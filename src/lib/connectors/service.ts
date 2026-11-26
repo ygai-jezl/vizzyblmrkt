@@ -5,19 +5,20 @@ import type { FirestoreLike } from "@/lib/tenant/types";
 import { REGION_CONFIGS } from "@/lib/tenant/region";
 import type { Region } from "@/lib/types/tenant";
 import { meaningsOf } from "@/lib/metrics/meanings";
-import { ConnectionGrantSchema, freshCollect, type ActivityKind, type ConnectionGrant, type ConnectionServiceAccount, type DataConnection } from "@/lib/types/dataConnection";
+import { ConnectionGrantSchema, DATA_CONNECTION_ID_RE, freshCollect, type ActivityKind, type ConnectionGrant, type ConnectionServiceAccount, type DataConnection } from "@/lib/types/dataConnection";
 import { eraseConnectionData, pendingWith, type SearchIndexOf } from "./erase";
 import { can, feedsPlanning, grantsCode, normaliseGrants, type ConnectorActor } from "./grants";
 import { searchConsoleManifest } from "./manifests/searchConsole";
 import { stopPlanningFrom } from "./signals/reconcile";
+import { dropAiAnswersPicks } from "./signals/aiAnswersPicks";
 import { COLLECT_FAILED_DAYS, healthAfterFailure, healthAfterSuccess, healthyAt, isCallPaused, shownState } from "./health";
 import { ACCOUNT_HOOKS, VERIFY_HOOKS } from "./handlers";
 import type { ConnectorAccount, HookFailure } from "./handlers/types";
 import { checkLiveRequest, lagWords, readLive, type LiveAnswer } from "./live";
-import { collectedStream, keepsWords, shareMethod, tokenMethod, type ConnectMethodName, type ConnectorIcon, type ConnectorManifest } from "./manifest";
+import { collectedStream, keepsWords, pastedFieldsOf, shareMethod, tokenMethod, type ConnectMethodName, type ConnectorIcon, type ConnectorManifest } from "./manifest";
 import { addDays, daysIn, laterDay, todayIn } from "./period";
 import { oldestAlive } from "./snapshots";
-import { connectorMessage, productName, sourceBrokenMessage, tokenRefusedMessage, type ConnectorErrorCode, KEPT_AT_GOOGLE_MESSAGE } from "./messages";
+import { connectorMessage, otherAccountKeyMessage, productName, sourceBrokenMessage, tokenRefusedMessage, type ConnectorErrorCode, KEPT_AT_GOOGLE_MESSAGE } from "./messages";
 import { getConnector, knownConnector, listConnectors, readyMethods } from "./registry";
 import type { ConnectorFetchDeps } from "./safeFetch";
 import { isConnectorsChatEnabled, isConnectorsCollectEnabled, isGoogleRevokeEnabled } from "./flags";
@@ -471,6 +472,8 @@ export const ConnectBodySchema = z
   .object({
     fields: z.record(z.string().max(64), z.string().max(4096)).refine((f) => Object.keys(f).length <= 10, "too many fields"),
     label: z.string().trim().min(1).max(60).optional(),
+    /** Reconnect in place: the connection whose secret the new one replaces, once checked against its account. */
+    replace: z.string().regex(DATA_CONNECTION_ID_RE).optional(),
   })
   .strict();
 
@@ -484,9 +487,9 @@ export function checkFields(
   raw: Record<string, string>,
   which: "all" | "secrets" = "all",
 ): { ok: true; values: Record<string, string> } | { ok: false; labels: string[] } {
-  const method = tokenMethod(m);
-  if (!method) return { ok: false, labels: [] };
-  const fields = method.fields.filter((f) => which === "all" || f.secret);
+  const pasted = pastedFieldsOf(m);
+  if (!pasted) return { ok: false, labels: [] };
+  const fields = pasted.fields.filter((f) => which === "all" || f.secret);
   const labels: string[] = [];
   const values: Record<string, string> = {};
   for (const f of fields) {
@@ -505,43 +508,55 @@ export function cleanLabel(label: string | undefined, fallback: string): string 
 }
 
 /**
- * Connect with typed fields (token_fields). The token is checked with the manifest's one verify
- * request before anything is saved; then the record and its "connected" activity are written
- * together, with each secret sealed under the vault. Admins only.
+ * Connect with typed fields: an API token (token_fields), or an MCP server's key (mcp, ADR-0019),
+ * whose account comes from the verify tool rather than a field. The token is checked with the
+ * manifest's one verify request before anything is saved; then the record and its "connected"
+ * activity are written together, with each secret sealed under the vault. An MCP connection is
+ * kept as a token connection (method token_fields): the record says how YouGrow holds the secret,
+ * the manifest how it calls, so an older build reads it as one. Admins only.
  */
 export async function connect(ctx: TenantContext, actor: ConnectorActor, connectorId: string, body: unknown, deps: ServiceDeps = {}): Promise<ServiceResult<ConnectionView>> {
   const m = getConnector(connectorId);
   if (!m) return refuse(404, "not_found");
   if (!can(actor, "connect")) return refuse(403, "forbidden");
-  const method = tokenMethod(m);
-  if (!method) return refuse(400, "method_not_supported");
+  const pasted = pastedFieldsOf(m);
+  if (!pasted) return refuse(400, "method_not_supported");
   const parsed = ConnectBodySchema.safeParse(body);
   if (!parsed.success) return refuse(400, "invalid_input");
   const fields = checkFields(m, parsed.data.fields);
   if (!fields.ok) return { ok: false, status: 400, error: "invalid_fields", message: `Check ${fields.labels.join(", and ")}.` };
   if (!isVaultConfigured()) return providerRefusal("vault_unconfigured");
+  if (parsed.data.replace) return reconnectInPlace(ctx, actor, m, pasted, fields.values, parsed.data.replace, deps);
 
-  const account = fields.values[method.account]!;
-  const existing = await forTenant(ctx, deps.db).dataConnections.find({
-    where: [
-      ["connectorId", "==", m.id],
-      ["account", "==", account],
-      ["status", "==", "connected"],
-    ],
-    limit: 1,
-  });
-  if (existing.length) return refuse(409, "already_connected", "This account is connected already. Check or disconnect it there.");
+  const connected = async (account: string) =>
+    (
+      await forTenant(ctx, deps.db).dataConnections.find({
+        where: [
+          ["connectorId", "==", m.id],
+          ["account", "==", account],
+          ["status", "==", "connected"],
+        ],
+        limit: 1,
+      })
+    ).length > 0;
+  const ALREADY = refuse(409, "already_connected", "This account is connected already. Check or disconnect it there.");
+  const typed = pasted.account ? fields.values[pasted.account]! : "";
+  if (typed && (await connected(typed))) return ALREADY;
 
   const now = nowOf(deps);
   const id = (deps.newId ?? newDataConnectionId)();
   const health = healthyAt(now);
   const verify = VERIFY_HOOKS[m.verify.hook];
   if (!verify) return refuse(503, "connector_unavailable");
-  const result = await verify({ manifest: m, connection: { id, tenantId: ctx.tenantId, pausedAt: null, health }, account, token: fields.values[method.auth.field]! }, deps);
+  const result = await verify({ manifest: m, connection: { id, tenantId: ctx.tenantId, pausedAt: null, health }, account: typed, token: fields.values[pasted.bearer]! }, deps);
   if (!result.ok) return connectingRefusal(m, result.code);
+  // An MCP key names its account through its verify tool: one account is connected once per brand.
+  const account = typed || result.account || "";
+  if (!account) return providerRefusal("bad_response");
+  if (!typed && (await connected(account))) return ALREADY;
 
   const secrets: Record<string, SealedSecret> = {};
-  for (const f of method.fields) if (f.secret) secrets[f.key] = sealConnectorSecret(ctx.tenantId, id, f.key, fields.values[f.key]!, now);
+  for (const f of pasted.fields) if (f.secret) secrets[f.key] = sealConnectorSecret(ctx.tenantId, id, f.key, fields.values[f.key]!, now);
   const at = now.toISOString();
   const conn = await createDataConnection(
     ctx,
@@ -549,7 +564,7 @@ export async function connect(ctx: TenantContext, actor: ConnectorActor, connect
       id,
       connectorId: m.id,
       method: "token_fields",
-      label: cleanLabel(parsed.data.label, m.name),
+      label: cleanLabel(parsed.data.label ?? result.label?.slice(0, 60), m.name),
       account,
       ownerUid: byOf(actor),
       grants: [],
@@ -568,6 +583,51 @@ export async function connect(ctx: TenantContext, actor: ConnectorActor, connect
     deps.db,
   );
   return { ok: true, status: 201, value: viewOf(conn, actor, now) };
+}
+
+/**
+ * Reconnect in place: a new token or key for a connection whose old one was turned down. The new
+ * one is checked against the connection's own account before anything changes (an MCP key names
+ * its account through the verify tool, so a key for another account is refused in plain words);
+ * then only its sealed secrets and health change, so its grants, history and collected numbers
+ * stay. A refused, failed or mismatched try changes and erases nothing. A brand's part is its
+ * organisation's to sign in again. Admins only.
+ */
+async function reconnectInPlace(
+  ctx: TenantContext,
+  actor: ConnectorActor,
+  m: ConnectorManifest,
+  pasted: NonNullable<ReturnType<typeof pastedFieldsOf>>,
+  values: Record<string, string>,
+  id: string,
+  deps: ServiceDeps,
+): Promise<ServiceResult<ConnectionView>> {
+  const conn = await load(ctx, id, deps);
+  if (!conn || !can(actor, "see", conn.grants)) return refuse(404, "not_found");
+  if (!can(actor, "connect", conn.grants)) return refuse(403, "forbidden");
+  if (conn.source) return managedByOrganisation();
+  if (conn.connectorId !== m.id || conn.method !== "token_fields" || conn.status !== "connected") return refuse(409, "not_replaceable", "This connection can't take a new token here. Connect it again from its Listing.");
+  const otherAccount = refuse(409, "other_account", otherAccountKeyMessage(m.name));
+  const typed = pasted.account ? values[pasted.account]! : "";
+  if (typed && typed !== conn.account) return otherAccount;
+  const now = nowOf(deps);
+  const verify = VERIFY_HOOKS[m.verify.hook];
+  if (!verify) return refuse(503, "connector_unavailable");
+  // Checked as the connection, against the account it reads: an MCP key for another account is account_refused.
+  const result = await verify({ manifest: m, connection: { id: conn.id, tenantId: ctx.tenantId, pausedAt: null, health: healthyAt(now) }, account: conn.account, token: values[pasted.bearer]! }, deps);
+  if (!result.ok) return result.code === "account_refused" && !pasted.account ? otherAccount : connectingRefusal(m, result.code);
+  if (result.account && result.account !== conn.account) return otherAccount;
+  const secrets: Record<string, SealedSecret> = {};
+  for (const f of pasted.fields) if (f.secret) secrets[f.key] = sealConnectorSecret(ctx.tenantId, conn.id, f.key, values[f.key]!, now);
+  const at = now.toISOString();
+  const r = await changeDataConnection(
+    ctx,
+    id,
+    (cur) => (cur.status === "connected" && cur.account === conn.account ? { patch: { secrets, health: healthyAt(now), updatedAt: at }, activity: [{ kind: "verified", by: byOf(actor), at, code: "token_replaced" }] } : null),
+    deps.db,
+  );
+  if (!r.ok) return r.why === "unchanged" ? refuse(409, "not_replaceable", "This connection changed while the new token was checked. Reload the page and try again.") : refuse(404, "not_found");
+  return { ok: true, status: 200, value: viewOf(r.connection, actor, now) };
 }
 
 // --- Check a token before connecting -----------------------------------------------------------
@@ -703,11 +763,12 @@ export async function connectionToken(ctx: TenantContext, conn: DataConnection, 
     const kept = await freshAccessToken(ctx, conn, by, deps);
     return kept.ok ? { ok: true, token: kept.token } : { ok: false, code: kept.code, retryAfterSec: kept.retryAfterSec, recorded: Boolean(kept.recorded) };
   }
-  const method = tokenMethod(manifest);
-  const sealed = method ? conn.secrets[method.auth.field] : undefined;
+  // A pasted token, or an MCP server's key: the secret field that goes out as the bearer token.
+  const bearer = pastedFieldsOf(manifest)?.bearer;
+  const sealed = bearer ? conn.secrets[bearer] : undefined;
   try {
     if (!sealed) throw new VaultOpenError("unopenable");
-    return { ok: true, token: openConnectorSecret(ctx.tenantId, conn.id, method!.auth.field, sealed) };
+    return { ok: true, token: openConnectorSecret(ctx.tenantId, conn.id, bearer!, sealed) };
   } catch (err) {
     if (!(err instanceof VaultOpenError)) throw err;
     return { ok: false, code: "secret_unopenable", retryAfterSec: null, recorded: false };
@@ -1222,6 +1283,7 @@ export async function setGrants(ctx: TenantContext, actor: ConnectorActor, id: s
   if (!parsed.success) return refuse(400, "invalid_input");
   const grants = normaliseGrants(parsed.data.grants);
   let stopped = false;
+  let answersStopped = false;
   const r = await manage(
     ctx,
     actor,
@@ -1229,8 +1291,11 @@ export async function setGrants(ctx: TenantContext, actor: ConnectorActor, id: s
     "change_grants",
     (cur, at) => {
       stopped = false;
+      answersStopped = false;
       if (cur.status !== "connected" || grantsCode(cur.grants) === grantsCode(grants)) return null;
-      stopped = cur.connectorId === searchConsoleManifest.id && feedsPlanning(cur.grants) && !feedsPlanning(grants);
+      const stops = feedsPlanning(cur.grants) && !feedsPlanning(grants);
+      stopped = cur.connectorId === searchConsoleManifest.id && stops;
+      answersStopped = stops && givesAiAnswers(cur.connectorId);
       return { patch: { grants }, activity: [{ kind: "grants_changed", by: byOf(actor), at, code: grantsCode(grants) }] };
     },
     deps,
@@ -1242,7 +1307,20 @@ export async function setGrants(ctx: TenantContext, actor: ConnectorActor, id: s
       console.warn(`[connectors] withdrawing what ${id} fed planning failed; the lane tries again:`, err instanceof Error ? err.message.slice(0, 200) : "error");
     }
   }
+  if (r.ok && answersStopped) await dropAnswersPicks(ctx, id, deps);
   return r;
+}
+
+/** Whether a connector gives AI answers (ADR-0019), which Next up weighs. */
+const givesAiAnswers = (connectorId: string) => (knownConnector(connectorId)?.uses ?? []).includes("signals.ai_answers");
+
+/** Take off stored Next up picks that weighed AI answers; best effort, as the next pick weighs again. */
+async function dropAnswersPicks(ctx: TenantContext, id: string, deps: ServiceDeps): Promise<void> {
+  try {
+    await dropAiAnswersPicks(ctx, { db: deps.db });
+  } catch (err) {
+    console.warn(`[connectors] taking off Next up picks that weighed ${id} failed:`, err instanceof Error ? err.message.slice(0, 200) : "error");
+  }
 }
 
 export interface DisconnectOutcome {
@@ -1292,6 +1370,7 @@ export async function disconnect(ctx: TenantContext, actor: ConnectorActor, id: 
   let address: ConnectionServiceAccount | null = null;
   let changed = false;
   let ownerUid: string | null = null;
+  let fedAnswers = false;
   const r = await manage(
     ctx,
     actor,
@@ -1304,6 +1383,7 @@ export async function disconnect(ctx: TenantContext, actor: ConnectorActor, id: 
       ownerUid = cur.ownerUid;
       if (cur.status === "disconnected") return null;
       changed = true;
+      fedAnswers = feedsPlanning(cur.grants) && givesAiAnswers(cur.connectorId);
       signIn = cur.method === "oauth_pkce" ? (cur.secrets[REFRESH_SLOT] ?? null) : null;
       address = cur.method === "share_access" && cur.serviceAccount && !cur.serviceAccount.deletedAt ? cur.serviceAccount : null;
       // What it collected is marked for erasing in the same change, so a failed erase is retried.
@@ -1320,6 +1400,7 @@ export async function disconnect(ctx: TenantContext, actor: ConnectorActor, id: 
     } catch (err) {
       console.warn(`[connectors] erase after Disconnect failed for ${id}; the lane tries again:`, err instanceof Error ? err.message.slice(0, 200) : "error");
     }
+    if (fedAnswers) await dropAnswersPicks(ctx, id, deps);
   }
   let revoked = false;
   let keptAtGoogle = false;

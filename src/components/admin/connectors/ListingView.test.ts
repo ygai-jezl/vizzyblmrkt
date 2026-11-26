@@ -422,3 +422,26 @@ describe("Connect for, for an owner of the brand's organisation (Connectors 3)",
     }
   });
 });
+
+describe("the Vizzybl Listing, an MCP server's key (ADR-0019)", () => {
+  const VZ = listingFor("vizzybl", ["mcp"]);
+
+  it("asks for the API key with its steps and nothing to pick, and connects once Vizzybl has checked it", () => {
+    const out = html({ listing: VZ });
+    const text = textOf(out);
+    expect(text).toContain(LISTING_COPY.keyTitle);
+    expect(text).toContain("Make a key with the scope read:*, or with read:brand, read:visibility, read:prompts and read:citations. Leave every write scope off.");
+    expect(out).toMatch(/id="field-apiKey"[^>]*type="password"|type="password"[^>]*id="field-apiKey"/);
+    expect(text).toContain(LISTING_COPY.keyCheck);
+    expect(out).toMatch(/<button type="submit"[^>]*>Connect<\/button>/);
+    expect(out).not.toMatch(/<button type="submit"[^>]*>Check<\/button>/);
+    // What it reads, in plain words, and that it never spends the brand's Vizzybl credits.
+    expect(text).toContain("YouGrow never runs an audit, adds a prompt or scrapes one, so it spends none of your Vizzybl credits.");
+    expect(youNeedOf(VZ)).toBe("A Vizzybl account that can make API keys, and a key with these permissions: read:brand, read:visibility, read:prompts and read:citations.");
+    for (const words of [LISTING_COPY.keyTitle, LISTING_COPY.keyCheck, LISTING_COPY.checkingKey]) expect([...dashesIn(words), ...aiTellsIn(words)], words).toEqual([]);
+  });
+
+  it("offers no way to connect until the MCP method is ready", () => {
+    expect(textOf(html({ listing: { ...VZ, ready: [] } }))).not.toContain(LISTING_COPY.keyTitle);
+  });
+});

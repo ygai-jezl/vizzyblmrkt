@@ -1,4 +1,4 @@
-import { isCloudflareConnectorEnabled, isGa4ConnectorEnabled, isGa4SignInEnabled, isSearchConsoleConnectorEnabled } from "./flags";
+import { isCloudflareConnectorEnabled, isGa4ConnectorEnabled, isGa4SignInEnabled, isMcpConnectorsEnabled, isSearchConsoleConnectorEnabled, isVizzyblConnectorEnabled } from "./flags";
 import { isGoogleSignInConfigured } from "./google";
 import { isShareAccessConfigured } from "./shareAccess";
 import { allConnectors, knownConnector } from "./catalog";
@@ -18,9 +18,10 @@ export { allConnectors, knownConnector };
  *   to (CONNECTORS_OAUTH_ORIGIN, which a production server must have), and share access needs the
  *   identities project (CONNECTORS_IDENTITIES_PROJECT), so a copy without one hides it. A sign in
  *   whose manifest names a switch of its own (GA4's, until Google reviews its sensitive scope)
- *   also needs that switch on.
+ *   also needs that switch on. An MCP server (ADR-0019) needs CONNECTOR_MCP_ENABLED.
  * - A sign-in method is offered only once its piece builds it: token_fields (Connectors 1a),
- *   oauth_pkce (1b) and share_access (1c). A manifest listing an unbuilt method is refused.
+ *   oauth_pkce (1b), share_access (1c) and mcp (ADR-0019). A manifest listing an unbuilt method is
+ *   refused.
  * - A stream marked personal is refused until the data processing agreement covers connected
  *   data (the DPA line).
  */
@@ -29,7 +30,7 @@ export { allConnectors, knownConnector };
 export const MANIFESTS: readonly unknown[] = WRITTEN;
 
 /** The sign-in methods built so far. */
-export const BUILT_METHODS: readonly ConnectMethodName[] = ["token_fields", "oauth_pkce", "share_access"];
+export const BUILT_METHODS: readonly ConnectMethodName[] = ["token_fields", "oauth_pkce", "share_access", "mcp"];
 
 /** False until the data processing agreement covers personal data from a connector. */
 export const PERSONAL_STREAMS_ALLOWED = false;
@@ -39,6 +40,7 @@ export const CONNECTOR_SWITCHES: Readonly<Record<string, () => boolean>> = {
   CONNECTOR_CLOUDFLARE_ENABLED: isCloudflareConnectorEnabled,
   CONNECTOR_SEARCH_CONSOLE_ENABLED: isSearchConsoleConnectorEnabled,
   CONNECTOR_GA4_ENABLED: isGa4ConnectorEnabled,
+  CONNECTOR_VIZZYBL_ENABLED: isVizzyblConnectorEnabled,
 };
 
 /** The switches a sign-in method may name for itself, read through src/lib/connectors/flags.ts. */
@@ -55,12 +57,13 @@ export function methodSwitchOn(c: ConnectMethod): boolean {
 /**
  * Whether this copy has what a sign-in method needs: Sign in with Google needs its client and,
  * in production, CONNECTORS_OAUTH_ORIGIN, plus its own switch when it names one; share access
- * the identities project.
+ * the identities project; an MCP server the MCP switch.
  */
 function methodReady(c: ConnectMethod, built: readonly ConnectMethodName[]): boolean {
   if (!built.includes(c.method)) return false;
   if (c.method === "oauth_pkce") return c.client === "google" && methodSwitchOn(c) && isGoogleSignInConfigured();
   if (c.method === "share_access") return isShareAccessConfigured();
+  if (c.method === "mcp") return isMcpConnectorsEnabled();
   return true;
 }
 

@@ -53,6 +53,7 @@ from .tools.articles_due import list_articles_due
 from .tools.article_review import review_article
 from .tools.setup_help import get_setup_status, read_help_page
 from .tools.new_person import new_person_propose
+from .tools.paste_list import paste_list_propose
 from .tools.business_profile import get_business_profile, read_onboarding_conversation, suggest_business_fact
 from .tools.next_action import get_next_action
 
@@ -97,7 +98,8 @@ root_agent = LlmAgent(
     # get_setup_status/read_help_page answer "what should I set up first?"
     # and "how do I…?" from the brand's setup progress and the help pages;
     # new_person_propose fills in the New person form for an admin to confirm (never
-    # consent); get_business_profile/read_onboarding_conversation read what the brand told Vizzy
+    # consent); paste_list_propose reads a pasted list into one Review card an admin adds (never
+    # consent; the code reads the rows); get_business_profile/read_onboarding_conversation read what the brand told Vizzy
     # about the business (facts, quotes and conversations for admins), and suggest_business_fact
     # files something new it heard for an admin to keep in About your business; get_next_action reads
     # Home's Your next action and what became of its steps (read only, admins).
@@ -137,6 +139,7 @@ root_agent = LlmAgent(
         get_setup_status,
         read_help_page,
         new_person_propose,
+        paste_list_propose,
         get_business_profile,
         read_onboarding_conversation,
         suggest_business_fact,

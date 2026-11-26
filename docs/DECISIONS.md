@@ -57,7 +57,9 @@ never go. Branch `feat/org-history`. Two new composite indexes, no rules change,
    Organisation. Archived journeys and revoked products are read only, with no export.
 5. **Export is JSON with no one's values**: a settings version (`yougrow.settings-version`), a
    journey document (`exportJourneyDocument` with `which: { version: n }`, importable as a new draft)
-   or a catalog version (`yougrow.catalog-version`). Anyone on the team exports.
+   or a catalog version (`yougrow.catalog-version`). A journey version today's draft check refuses
+   (made before journeys changed shape) comes as `yougrow.journey-version`: its design as stored, to
+   read, never imported. Anyone on the team exports.
 6. **Vizzy reads, never acts.** `get_settings_history` (`/api/agent/settings-history`, the same
    switch, the brand in the signed canvas token) reads every entry with display names only, never an
    address, and with a subject and version that version's export JSON. One switch covers the page
@@ -94,7 +96,14 @@ never go. Branch `feat/org-history`. Two new composite indexes, no rules change,
      erased field comes back empty and the preview says so: an erase survives a restore.
    - **Audit:** a `field.erase` entry (tenant, region, field id, object, who by user id, counts),
      "initiated" before the first page, then "completed" or "failed", as a launch's delete does. No
-     value, label or address.
+     value, label or address. The job is held while an erase starts, so a second press or a count
+     can't run beside it, and a mark that can't be saved is followed by "failed". Each erase mark is
+     saved once, and the finish marks the definition before it writes "completed": a trail that
+     can't be written then is tried again each tick and never fails the job, so the trail never ends
+     on "failed" for values that are gone.
+   - **Where it shows:** Erase values in Data model's archived list and on History's newest entry
+     that archived the field, for an owner with a row. Everyone who sees the archived list sees when
+     a field's values are being erased or were erased.
    - **Where an erased value can still sit** (registry gaps): piece C's view rows (C extends the
      erase), Vizzy's chat sessions and the per person Memory Bank, where Vizzy may have read a value
      before it was erased.

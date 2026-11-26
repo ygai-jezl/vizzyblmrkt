@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { readSearchKind, SEARCH_KIND_ALIASES, storedKindsFor } from "@/lib/search/types";
-import { brandRoot, manifestFrom, rankedFrom, resultId, searchChunkId, searchManifestId, searchStoreFor } from "./searchIndex";
+import { bestPerRecord, brandRoot, manifestFrom, nearestFrom, rankedFrom, resultId, searchChunkId, searchManifestId, searchStoreFor } from "./searchIndex";
 import { SEARCH_DATABASE_IDS, searchDatabaseIdForRegion } from "./region";
 
 // @google-cloud/firestore 9 and its pipelines, recording when each loads and which clients are made.
@@ -88,6 +88,38 @@ describe("kinds stored under an alias", () => {
     expect(rankedFrom("c_1", { ...chunk, kind: "people" }, "ten_A")).toBeNull();
     expect(rankedFrom("c_1", chunk, "ten_B")).toBeNull();
     expect(manifestFrom(undefined)).toBeNull();
+  });
+});
+
+describe("statuses (ADR-0025)", () => {
+  const chunk = { tenantId: "ten_A", sourceKey: "subject:sub_1", kind: "subject", ref: "sub_1", chunk: 0, title: "Repot", text: "Repot", url: "/admin/x" };
+
+  it("reads a chunk's and a manifest's status, and leaves out one that isn't a status", () => {
+    expect(rankedFrom("c_1", { ...chunk, status: "proposed" }, "ten_A")).toMatchObject({ status: "proposed" });
+    expect(rankedFrom("c_1", chunk, "ten_A")).not.toHaveProperty("status");
+    expect(rankedFrom("c_1", { ...chunk, status: "archived" }, "ten_A")).not.toHaveProperty("status");
+    const m = { sourceKey: "subject:sub_1", kind: "subject", ref: "sub_1", hash: "h", chunks: 1, embedded: true, indexedAt: "" };
+    expect(manifestFrom({ ...m, status: "decided" })).toMatchObject({ status: "decided" });
+    expect(manifestFrom(m)).not.toHaveProperty("status");
+  });
+
+  it("makes a reader's hit only of this brand's chunks with a status asked for, its score clamped", () => {
+    expect(nearestFrom({ ...chunk, status: "decided", _score: 0.82 }, "ten_A", ["decided"])).toEqual({ sourceKey: "subject:sub_1", kind: "subject", ref: "sub_1", status: "decided", score: 0.82 });
+    expect(nearestFrom({ ...chunk, status: "decided", _score: 1.0000001 }, "ten_A", ["decided"])?.score).toBe(1);
+    expect(nearestFrom({ ...chunk, status: "decided", _score: -0.2 }, "ten_A", ["decided"])?.score).toBe(0);
+    expect(nearestFrom({ ...chunk, status: "proposed", _score: 0.9 }, "ten_A", ["decided"])).toBeNull();
+    expect(nearestFrom({ ...chunk, _score: 0.9 }, "ten_A", ["decided"])).toBeNull();
+    expect(nearestFrom({ ...chunk, status: "decided", _score: 0.9 }, "ten_B", ["decided"])).toBeNull();
+    expect(nearestFrom({ ...chunk, kind: "people", status: "decided", _score: 0.9 }, "ten_A", ["decided"])).toBeNull();
+  });
+
+  it("keeps each record once by its best chunk, nearest first, up to the limit", () => {
+    const hit = (sourceKey: string, score: number) => ({ sourceKey, kind: "subject" as const, ref: sourceKey.slice(8), status: "decided" as const, score });
+    const best = bestPerRecord([hit("subject:a", 0.5), hit("subject:b", 0.7), null, hit("subject:a", 0.9), hit("subject:c", 0.1)], 2);
+    expect(best.map((h) => [h.sourceKey, h.score])).toEqual([
+      ["subject:a", 0.9],
+      ["subject:b", 0.7],
+    ]);
   });
 });
 

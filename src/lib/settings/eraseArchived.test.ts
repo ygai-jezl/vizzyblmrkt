@@ -51,7 +51,9 @@ const TENANT_DOC = {
 let db: FakeFirestore;
 let sink: MemorySink;
 let clock: number;
-const deps = (over: Partial<EraseDeps> = {}): EraseDeps => ({ db, sink, now: () => clock, ...over });
+/** Names Firebase Auth would give: never the real one in a test. */
+const lookup = async (uids: string[]) => [{ uid: "usr_maya", displayName: "Maya Chen" }, { uid: "usr_sam", displayName: "Sam Okafor" }].filter((u) => uids.includes(u.uid));
+const deps = (over: Partial<EraseDeps> = {}): EraseDeps => ({ db, sink, now: () => clock, lookup, ...over });
 
 beforeEach(async () => {
   for (const n of ["SETTINGS_HISTORY_ENABLED", "AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_FIELDS_ENABLED", "PLANS_ENABLED", "SETTINGS_ERASE_ENABLED"]) vi.stubEnv(n, "true");
@@ -229,7 +231,7 @@ describe("the erase", () => {
 
   it("says where an erase stands, to the owner and to anyone else", async () => {
     await counted();
-    expect((await eraseStatus(ctx, sam, tierTarget, deps())).body).toMatchObject({ allowed: true, countStands: true, job: { mode: "count", state: "done" }, field: { label: "Old loyalty tier", erasing: false } });
+    expect((await eraseStatus(ctx, sam, tierTarget, deps())).body).toMatchObject({ allowed: true, countStands: true, job: { mode: "count", state: "done" }, field: { label: "Old loyalty tier", erasing: false, archivedBy: "Maya Chen" } });
     expect(await eraseStatus(ctx, maya, tierTarget, deps())).toEqual({ status: 403, body: { error: "not_owner" } });
     // Before 30 days, an owner is told when.
     expect((await eraseStatus(ctx, sam, { object: "person", fieldId: POT }, deps())).body).toMatchObject({ allowed: false, refused: "too_soon", from: iso(NOW + 18 * DAY) });

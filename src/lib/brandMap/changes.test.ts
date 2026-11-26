@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BrandMapChangeSchema, BrandMapDecidedSchema, type BrandMapChange } from "@/lib/types/brandMap";
-import { applyChange, applyChanges, changeKey, describeChange, emptyDecided, findName, fold, isSatisfied } from "./changes";
+import { applyChange, applyChanges, changeKey, describeChange, emptyDecided, findName, fold, isSatisfied, satisfiedKeys } from "./changes";
 
 const change = (c: unknown): BrandMapChange => BrandMapChangeSchema.parse(c);
 let n = 0;
@@ -76,6 +76,34 @@ describe("brand map changes", () => {
     expect(isSatisfied(d, change({ type: "set_identity", field: "name", value: "acme" }))).toBe(true);
     expect(isSatisfied(d, change({ type: "add_alias", name: "Rivalco", alias: "Rivalco Inc." }))).toBe(true);
     expect(applyChange(d, change({ type: "add_name", name: "rivalco", kind: "product" })).decided).toBe(d);
+  });
+
+  it("lists the key of every change the map holds, so a key alone says whether it was accepted", () => {
+    const all = [
+      change({ type: "set_identity", field: "name", value: "Acme" }),
+      change({ type: "set_identity", field: "statement", value: "Acme tracks how AI answers name a brand." }),
+      change({ type: "set_identity", field: "site", value: "https://acme.example/" }),
+      change({ type: "add_is_not", text: "A general SEO suite" }),
+      change({ type: "add_avoid", term: "GEO tool" }),
+      change({ type: "add_profile", url: "https://www.linkedin.com/company/acme-example/?utm_source=x" }),
+      change({ type: "add_subject", name: "Share of voice" }),
+      change({ type: "add_question", subject: "Share of voice", text: "What is share of voice?" }),
+      change({ type: "set_home", target: "subject", name: "Share of voice", url: "https://acme.example/share-of-voice" }),
+      change({ type: "add_name", name: "Rivalco", kind: "alternative", aliases: ["Rivalco Inc"] }),
+      change({ type: "add_alias", name: "Rivalco", alias: "Rival Co" }),
+      change({ type: "set_home", target: "name", name: "Rivalco", url: "https://acme.example/vs-rivalco" }),
+    ];
+    let d = emptyDecided();
+    for (const c of all) {
+      // Before it is applied the map doesn't hold it; after, its key is listed, as isSatisfied says.
+      expect(satisfiedKeys(d).has(changeKey(c)), changeKey(c)).toBe(isSatisfied(d, c));
+      d = applyChange(d, c, ids).decided;
+      expect(isSatisfied(d, c), changeKey(c)).toBe(true);
+      expect(satisfiedKeys(d).has(changeKey(c)), changeKey(c)).toBe(true);
+    }
+    // Any spelling of a name satisfies a change that names it.
+    expect(satisfiedKeys(d).has(changeKey(change({ type: "add_name", name: "rival co", kind: "product" })))).toBe(true);
+    expect(satisfiedKeys(d).has(changeKey(change({ type: "add_subject", name: "Pricing" })))).toBe(false);
   });
 
   it("stops at a full list", () => {

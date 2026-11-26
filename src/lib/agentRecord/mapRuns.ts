@@ -7,6 +7,7 @@ import { BRAND_KIT_MAP_ROUTE } from "@/lib/content/brandKit";
 import { pageAgentActions } from "@/lib/ontology/agentActions";
 import type { EventActor } from "@/lib/ontology/events";
 import type { AgentAction } from "@/lib/types/agentAction";
+import { satisfiedKeys } from "@/lib/brandMap/changes";
 import { keyHash } from "./fingerprints";
 import { actAsSystem, closeAsSystem, MAX_RUN_KEYS, recordDraft, type RecordDeps, type RecordOutcome } from "./record";
 import { RECORD_SYSTEM } from "./sources";
@@ -16,12 +17,15 @@ import { RECORD_SYSTEM } from "./sources";
  * (decision 5), with a hash of each key it filed on the map's suggestions and the ids of the
  * proposals it made on the map's records. It closes from the map's own lists, never by a hook in
  * each of the screens that accept or dismiss:
- * - none of its keys still waiting: acted if any were accepted, dismissed if all went to the map's
- *   dismissed list;
- * - a newer research run replaces research's waiting suggestions, so it closes the run before
- *   first: superseded when nothing was accepted or dismissed.
- * A key that left the suggestions without being dismissed was accepted (research replaces only its
- * own, and closes its last run first). A proposal that is gone was withdrawn: stale.
+ * - a key is accepted only when the decided map now holds its change (satisfiedKeys), dismissed
+ *   when it is on the map's dismissed list, and gone otherwise: the map dropped it on its own (a
+ *   source's cap, the size fit, the dismissed list's cap), which is nobody's decision;
+ * - none of its keys or proposals still waiting: acted if any were accepted, superseded if a newer
+ *   research run replaced some, dismissed if a person dismissed some, else stale;
+ * - a newer research run replaces research's waiting suggestions, so it closes the runs before it
+ *   first, their waiting keys counted as replaced. A run whose proposals still wait stays open: it
+ *   is recorded again without the replaced keys, keeping how many were replaced.
+ * A proposal that is gone was withdrawn: gone too.
  */
 
 export type MapRunAction = "brand_map.suggest" | "brand_map.research";
@@ -32,10 +36,13 @@ export interface RunState {
   waitingKeys: number;
   /** Its proposals still waiting on the map's records (nothing replaces them). */
   waitingRefs: number;
+  /** Accepted: the decided map holds the change, or a proposal was kept. */
   kept: number;
   dismissed: number;
-  /** Proposals withdrawn from the records (gone without a decision). */
+  /** Gone without anyone deciding: dropped by the map, or a proposal withdrawn. */
   gone: number;
+  /** Replaced by a newer research run while the run waited (kept on the record). */
+  replaced: number;
 }
 
 const REF = /^(sub|q|sit):([A-Za-z0-9_.-]{1,120})$/;
@@ -69,26 +76,36 @@ export async function recordMapRun(
 
 const listOf = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
-/** The map's lists, read once for every run checked. */
+/** The map's lists, read once for every run checked, each key hashed as the record holds it. */
 export interface MapLists {
   waiting: Set<string>;
   dismissed: Set<string>;
+  /** The keys of the changes the decided map holds. */
+  accepted: Set<string>;
 }
 
 export async function readMapLists(ctx: TenantContext, db?: FirestoreLike): Promise<MapLists | null> {
   const read = await readBrandMap(ctx, db);
   if (read.state === "unreadable") return null;
-  const map = read.state === "ok" ? read.map : { suggestions: [], dismissed: [] };
-  return { waiting: new Set(map.suggestions.map((s) => keyHash(s.key))), dismissed: new Set(map.dismissed.map(keyHash)) };
+  if (read.state === "none") return { waiting: new Set(), dismissed: new Set(), accepted: new Set() };
+  const map = read.map;
+  return {
+    waiting: new Set(map.suggestions.map((s) => keyHash(s.key))),
+    dismissed: new Set(map.dismissed.map(keyHash)),
+    accepted: new Set([...satisfiedKeys(map)].map(keyHash)),
+  };
 }
 
 /** Where a run's suggestions stand: its keys against the map's lists, its proposals by record. */
 export async function runState(ctx: TenantContext, a: AgentAction, lists: MapLists, db?: FirestoreLike): Promise<RunState> {
-  const s: RunState = { waitingKeys: 0, waitingRefs: 0, kept: 0, dismissed: 0, gone: 0 };
+  const replaced = typeof a.proposal?.replaced === "number" ? a.proposal.replaced : 0;
+  const s: RunState = { waitingKeys: 0, waitingRefs: 0, kept: 0, dismissed: 0, gone: 0, replaced };
   for (const k of listOf(a.proposal?.keys)) {
     if (lists.waiting.has(k)) s.waitingKeys += 1;
     else if (lists.dismissed.has(k)) s.dismissed += 1;
-    else s.kept += 1;
+    else if (lists.accepted.has(k)) s.kept += 1;
+    // Left the suggestions with nobody accepting or dismissing it: the map dropped it.
+    else s.gone += 1;
   }
   const store = brandMapRecords(ctx, db);
   for (const r of listOf(a.proposal?.refs)) {
@@ -108,34 +125,64 @@ export type RunVerdict = { to: "acted"; result: { kept: number; dismissed: numbe
 
 /**
  * The closing rule. `replacing`: a newer research run is about to replace the suggestions still
- * waiting on the brand's record (never the proposals on the map's records). Null while any still
- * wait and nothing replaces them.
+ * waiting on the brand's record (never the proposals on the map's records), so they count as
+ * replaced. Null while any still wait and nothing replaces them.
  */
 export function runVerdict(s: RunState, replacing = false): RunVerdict {
   if (s.waitingRefs > 0 || (s.waitingKeys > 0 && !replacing)) return null;
   if (s.kept > 0) return { to: "acted", result: { kept: s.kept, dismissed: s.dismissed } };
-  if (s.waitingKeys > 0) return { to: "declined", reason: "superseded" };
+  if (s.replaced > 0 || s.waitingKeys > 0) return { to: "declined", reason: "superseded" };
   if (s.dismissed > 0) return { to: "declined", reason: "dismissed" };
   return { to: "declined", reason: "stale" };
 }
 
 /** Close one run by the rule, as the system. True when it closed. Never throws. */
-export async function closeMapRun(ctx: TenantContext, a: AgentAction, lists: MapLists, deps: RecordDeps & { replacing?: boolean } = {}): Promise<boolean> {
+export async function closeMapRun(ctx: TenantContext, a: AgentAction, lists: MapLists, deps: RecordDeps = {}): Promise<boolean> {
   try {
-    const verdict = runVerdict(await runState(ctx, a, lists, deps.db), deps.replacing);
-    if (!verdict) return false;
-    if (verdict.to === "acted") return actAsSystem(ctx, a, verdict.result, deps);
-    if (verdict.reason === "dismissed") {
-      // Everything went to the map's dismissed list: a person's no, decided on the map.
-      const at = new Date(deps.nowMs ?? Date.now()).toISOString();
-      const r = await transitionAgentAction(ctx, a.id, { to: "declined", reason: "dismissed", by: RECORD_SYSTEM, at, expectRev: a.rev, clearDetails: true }, { db: deps.db });
-      return r.ok;
-    }
-    return closeAsSystem(ctx, a, verdict.reason, deps);
+    return await closeByState(ctx, a, await runState(ctx, a, lists, deps.db), deps);
   } catch (err) {
     console.warn("[agent-record] write_failed close map run:", err instanceof Error ? err.message.slice(0, 200) : "error");
     return false;
   }
+}
+
+async function closeByState(ctx: TenantContext, a: AgentAction, state: RunState, deps: RecordDeps & { replacing?: boolean }): Promise<boolean> {
+  const verdict = runVerdict(state, deps.replacing);
+  if (!verdict) return false;
+  if (verdict.to === "acted") return actAsSystem(ctx, a, verdict.result, deps);
+  if (verdict.reason === "dismissed") {
+    // None accepted and some on the map's dismissed list: a person's no, decided on the map.
+    const at = new Date(deps.nowMs ?? Date.now()).toISOString();
+    const r = await transitionAgentAction(ctx, a.id, { to: "declined", reason: "dismissed", by: RECORD_SYSTEM, at, expectRev: a.rev, clearDetails: true }, { db: deps.db });
+    return r.ok;
+  }
+  return closeAsSystem(ctx, a, verdict.reason, deps);
+}
+
+/**
+ * A newer research run is about to replace the suggestions this run still has waiting. With
+ * nothing else waiting it closes by the rule. With proposals still waiting on the map's records it
+ * stays open, recorded again without the replaced keys and with how many were replaced, so a later
+ * close never counts them as accepted. True when it closed.
+ */
+async function replaceRun(ctx: TenantContext, a: AgentAction, lists: MapLists, deps: RecordDeps): Promise<boolean> {
+  const state = await runState(ctx, a, lists, deps.db);
+  if (state.waitingRefs === 0) return closeByState(ctx, a, state, { ...deps, replacing: true });
+  if (state.waitingKeys === 0 || !a.draft) return false;
+  await recordDraft(
+    ctx,
+    {
+      action: a.action as MapRunAction,
+      draft: { kind: "brand_map", ref: a.draft.ref },
+      href: a.review?.href ?? BRAND_KIT_MAP_ROUTE,
+      keys: listOf(a.proposal?.keys).filter((k) => !lists.waiting.has(k)),
+      refs: listOf(a.proposal?.refs),
+      replaced: state.replaced + state.waitingKeys,
+      requestedBy: a.requestedBy,
+    },
+    deps,
+  );
+  return false;
 }
 
 /** This brand's open runs of one action, a few pages in id order (equality only). */
@@ -153,7 +200,8 @@ export async function openRuns(ctx: TenantContext, action: MapRunAction, db?: Fi
 
 /**
  * Before a research run files (and replaces research's waiting suggestions): the research runs
- * still open close by the rule, the waiting ones counting as replaced. Never throws.
+ * still open close by the rule, the waiting ones counting as replaced, or stay open without them
+ * while their proposals wait (replaceRun). Never throws.
  */
 export async function closeResearchBefore(ctx: TenantContext, deps: RecordDeps = {}): Promise<number> {
   try {
@@ -162,7 +210,7 @@ export async function closeResearchBefore(ctx: TenantContext, deps: RecordDeps =
     const lists = await readMapLists(ctx, deps.db);
     if (!lists) return 0;
     let closed = 0;
-    for (const a of open) if (await closeMapRun(ctx, a, lists, { ...deps, replacing: true })) closed += 1;
+    for (const a of open) if (await replaceRun(ctx, a, lists, deps)) closed += 1;
     return closed;
   } catch (err) {
     console.warn("[agent-record] write_failed close research runs:", err instanceof Error ? err.message.slice(0, 200) : "error");

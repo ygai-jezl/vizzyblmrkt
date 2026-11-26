@@ -67,6 +67,41 @@ export function changeKey(c: BrandMapChange): string {
   return key.slice(0, 200);
 }
 
+/**
+ * The key of every change the decided half already holds, so a filed suggestion can be told
+ * accepted from its key alone (the agent record keeps only a hash of each key). It follows
+ * changeKey and isSatisfied: kept beside them so the three stay in step, and changes.test.ts
+ * checks that each kind of change, once applied, has its key here.
+ */
+export function satisfiedKeys(d: BrandMapDecided): Set<string> {
+  const keys: string[] = [];
+  const i = d.identity;
+  for (const field of ["name", "category", "statement"] as const) {
+    const v = fold(i[field]);
+    if (v) keys.push(`identity:${field}:${v}`);
+  }
+  if (i.site) keys.push(`identity:site:${normalizeUrl(i.site)}`);
+  for (const t of i.isNot) keys.push(`isnot:${fold(t)}`);
+  for (const a of i.avoid) keys.push(`avoid:${fold(a.term)}`);
+  for (const p of i.profiles) keys.push(`profile:${normalizeUrl(p.url)}`);
+  for (const s of d.subjects) {
+    const name = fold(s.name);
+    keys.push(`subject:${name}`);
+    for (const q of s.questions) keys.push(`q:${name}:${fold(q.text)}`);
+    if (s.home) keys.push(`home:subject:${name}:${normalizeUrl(s.home)}`);
+  }
+  for (const n of d.names) {
+    // A name is found by any of its spellings, so each one satisfies a change that names it.
+    const spellings = [...new Set([n.name, ...n.aliases].map(fold).filter(Boolean))];
+    for (const by of spellings) {
+      keys.push(`name:${by}`);
+      for (const alias of spellings) keys.push(`alias:${by}:${alias}`);
+      if (n.home) keys.push(`home:name:${by}:${normalizeUrl(n.home)}`);
+    }
+  }
+  return new Set(keys.map((k) => k.slice(0, 200)));
+}
+
 /** A name on the map, by its name or one of its other spellings. */
 export function findName(d: BrandMapDecided, name: string): BrandMapName | undefined {
   const k = fold(name);

@@ -18,6 +18,7 @@ import { SANDBOX_CATALOG } from "@/lib/connect/sandbox";
 import { acceptProductMap, startRepoAnalysis } from "@/lib/connect/repoAnalysis";
 import { runBrandMapResearch } from "@/lib/brandMap/adminApi";
 import { dismissBrandMapSuggestions, readBrandMap, saveBrandMap } from "@/lib/brandMap/store";
+import { applyChange } from "@/lib/brandMap/changes";
 import { runVerdict } from "./mapRuns";
 
 async function records(db: FakeFirestore, ctx: TenantContext): Promise<AgentAction[]> {
@@ -150,21 +151,24 @@ describe("brand map research", () => {
     const read = await readBrandMap(ctx, db);
     if (read.state !== "ok") throw new Error("no map");
     const [one, ...rest] = read.map.suggestions;
-    // One accepted (it leaves the suggestions without being dismissed), the rest dismissed.
+    // One accepted on the page (its change saved into the map), the rest dismissed.
     await dismissBrandMapSuggestions(ctx, rest.map((s) => s.key), { db });
-    const raw = db.raw("brand_maps", `bm_${ctx.tenantId}`) as { suggestions: Array<{ key: string }> };
-    db.seed("brand_maps", `bm_${ctx.tenantId}`, { ...raw, suggestions: raw.suggestions.filter((s) => s.key !== one!.key) });
+    const decided = applyChange(BrandMapDecidedSchema.parse(read.map), one!.change).decided;
+    expect((await saveBrandMap(ctx, { baseRev: read.map.rev, decided, accepted: [one!.key] }, { db })).ok).toBe(true);
     await runBrandMapResearch(ctx, { db, propose, nowMs: T2 });
     expect((await records(db, ctx))[0]).toMatchObject({ state: "acted", actedBy: { type: "system", id: "agent_record" }, result: { kept: 1, dismissed: rest.length } });
   });
 
   it("closes by the map's own lists", () => {
-    const s = { waitingKeys: 0, waitingRefs: 0, kept: 0, dismissed: 0, gone: 0 };
+    const s = { waitingKeys: 0, waitingRefs: 0, kept: 0, dismissed: 0, gone: 0, replaced: 0 };
     expect(runVerdict({ ...s, waitingKeys: 2 })).toBeNull();
     expect(runVerdict({ ...s, waitingRefs: 1 }, true)).toBeNull();
     expect(runVerdict({ ...s, kept: 4, dismissed: 8 })).toEqual({ to: "acted", result: { kept: 4, dismissed: 8 } });
     expect(runVerdict({ ...s, dismissed: 3 })).toEqual({ to: "declined", reason: "dismissed" });
     expect(runVerdict({ ...s, waitingKeys: 2, dismissed: 1 }, true)).toEqual({ to: "declined", reason: "superseded" });
     expect(runVerdict({ ...s, gone: 2 })).toEqual({ to: "declined", reason: "stale" });
+    // Replaced while its proposals waited, then the proposals dismissed: research replaced it.
+    expect(runVerdict({ ...s, replaced: 5, dismissed: 3 })).toEqual({ to: "declined", reason: "superseded" });
+    expect(runVerdict({ ...s, replaced: 5, kept: 1 })).toEqual({ to: "acted", result: { kept: 1, dismissed: 0 } });
   });
 });

@@ -402,7 +402,7 @@ ENTITY: <name> | <brand|product|category|alternative|integration|audience|use_ca
   },
   "content.blog_facts": {
     id: "content.blog_facts",
-    version: 2,
+    version: 3,
     description:
       "Create pillar — grounded search for third-party facts a blog hub could cite (each is later tied to the page search returned and checked on it).",
     template: `Search the web with Google Search for recent, independent, third-party statistics that an article on this subject could cite. Today is [[today]].
@@ -412,7 +412,7 @@ The question the article answers: [[primary_question]]
 Who the article is for: [[audience]]
 The brand publishing it (do NOT use its own site, or any site that only repeats its marketing): [[brand_name]][[competitor_stats]]
 
-Run several searches. Prefer research reports, standards bodies, review platforms, reputable press and vendor-neutral studies from the last two years.
+Run several searches. Prefer research reports, standards bodies, review platforms, reputable press and vendor-neutral studies. Only figures measured or published in the last two years: never a figure from two or more years before today, however well known.
 
 Then return up to 8 facts. Each is ONE plain sentence holding a number or a date, stated exactly as a search result states it, and naming who measured it when the result says so. Only what a search result in front of you says: never round, combine, estimate, or recall a figure from memory.
 
@@ -450,7 +450,7 @@ FACT: <the sentence> | <the number of the passage it came from>`,
   },
   "content.blog_draft": {
     id: "content.blog_draft",
-    version: 3,
+    version: 4,
     description:
       "Create pillar — write a blog hub to the CITABLE structure (answer-first, sourced, block-structured) from its brief.",
     template: `Write ONE finished blog article for the brand "[[brand_name]]" — one that AI answer engines (ChatGPT, Perplexity, Google AI Overviews, Claude) can retrieve, quote and cite, and that a buyer can act on. It should need only a light edit before publishing.
@@ -505,7 +505,7 @@ BLOCKS YOU CAN USE — choose the one that fits the content:
 If the brief asks for a different arrangement of these blocks (an Answer box under every question, "###" questions under each section, a closing "Bottom line"), follow it — every rule below still applies.
 
 RULES
-- Facts: every number, date, price, percentage, customer name and quotation must come from the reference material, the proof, or a source above. If the fact you want is not there, make the point without the figure — a question that asks for a benchmark gets an honest "there is no published figure" and what to measure instead. Never estimate, round differently, or invent a statistic, a study, a quotation, a customer or a URL.
+- Facts: every number, date, price, percentage, customer name and quotation must come from the reference material, the proof, or a source above. If the fact you want is not there, make the point without the figure: a question that asks for a benchmark gets an honest "there is no published figure" and what to measure instead. Never estimate, round differently, or invent a statistic, a study, a quotation, a customer or a URL. Never state a figure measured two or more years before today's date, even when the material holds one: use a newer figure from the material, or make the point without it.
 - The brand's own product: its features, plans, what each plan includes, limits, integrations, customers and results are ONLY what the reference material states. Never fill in how something works, what a plan contains or who uses it.
 - A fact from the brand's own material is cited by linking the page it came from (the address on its "Source:" line), when that page is one of your own pages above.
 - A proof point (a customer result, a headline number) appears at most twice: once in the Key facts box and once where it bears on a section's point.
@@ -533,7 +533,7 @@ SLUG: <lowercase-words-joined-by-hyphens>
   },
   "content.blog_draft_editorial": {
     id: "content.blog_draft_editorial",
-    version: 2,
+    version: 3,
     description:
       "Create pillar — write a blog hub as an editorial article (CREATE_BLOG_EDITORIAL_ENABLED): a practitioner's voice, the answer first, trade-offs and mistakes, the brand at the margins, experience only from the brand's own notes.",
     template: `Write ONE finished blog article for the brand "[[brand_name]]". It should read as if someone who does this work for a living wrote it for a reader who does too: plain, specific and confident, with a point of view. AI answer engines (ChatGPT, Perplexity, Google AI Overviews, Claude) must still find the answer and be able to quote it, so the answer comes first and every section opens by answering its heading. It should need only a light edit before publishing.
@@ -590,7 +590,7 @@ THE BRAND
 - Your own pages: link 1 to 3 of them where they genuinely help a reader go deeper, with anchor text that says what the page is (never "click here", never a page's slogan). Link any one page at most once. The bottom line may end with ONE link to the best CONVERSION page from your own pages (leave it out if none is listed).
 
 RULES
-- Facts: every number, date, price, percentage, customer name and quotation must come from the reference material, the proof, the brand's notes or a source above. If the fact you want is not there, make the point without the figure: a question that asks for a benchmark gets an honest "there is no published figure" and what to measure instead. Never estimate, round differently, or invent a statistic, a study, a quotation, a customer or a URL.
+- Facts: every number, date, price, percentage, customer name and quotation must come from the reference material, the proof, the brand's notes or a source above. If the fact you want is not there, make the point without the figure: a question that asks for a benchmark gets an honest "there is no published figure" and what to measure instead. Never estimate, round differently, or invent a statistic, a study, a quotation, a customer or a URL. Never state a figure measured two or more years before today's date, even when the material holds one: use a newer figure from the material, or make the point without it.
 - The brand's own product: its features, plans, what each plan includes, limits, integrations, customers and results are ONLY what the reference material states. Never fill in how something works, what a plan contains or who uses it.
 - Citing a source: write the citation exactly as it is given above, straight after the sentence it supports. Cite a source only where it backs the point being made, and leave out any that doesn't: one source that fits beats three dragged in. Cite it only for what it says, and keep its own wording for what the number measures; never re-word a statistic into a different claim. Use each source at most twice.
 - Other companies and products: say about them only what the material or a source says. Where the material says nothing, compare approaches or criteria instead. Never give another company a table row or a list item of attributes the material does not state.

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { articleFigures } from "./figures";
-import { articleFreshness, assignClock, nextEvents, oldFigureYears } from "./freshness";
+import { articleFreshness, assignClock, inNewArticleGrace, nextEvents, oldFigureYears } from "./freshness";
 
 const NOW = new Date("2026-11-24T12:00:00.000Z");
 const base = { publishedAt: "2026-10-20", updatedAt: null, checkedAt: null, clockDays: 30 as const, signals: [] };
@@ -42,7 +41,31 @@ describe("article freshness", () => {
     for (let i = 0; i < 25; i += 1) events = nextEvents(events, { at: `2026-11-${String((i % 28) + 1).padStart(2, "0")}`, kind: "checked", clockDays: 30 });
     expect(events).toHaveLength(20);
     expect(events[0]!.at).toBe("2026-11-06");
-    const figures = articleFigures("In 2023, 38% of buyers asked first. By 2025 it was 45%, and in 2026 52%.").map((f) => f.display);
-    expect(oldFigureYears(figures, NOW)).toEqual([2023]);
+    expect(oldFigureYears("In 2023, 38% of buyers asked first. By 2025 it was 45%, and in 2026 52%.", NOW)).toEqual([2023]);
+  });
+
+  it("gives a new or just updated article 14 days before old figures count, and a check doesn't restart them", () => {
+    expect(inNewArticleGrace({ publishedAt: "2026-11-20", updatedAt: null }, NOW)).toBe(true);
+    expect(inNewArticleGrace({ publishedAt: "2026-11-01", updatedAt: null }, NOW)).toBe(false);
+    expect(inNewArticleGrace({ publishedAt: "2026-10-01", updatedAt: "2026-11-15T09:00:00.000Z" }, NOW)).toBe(true);
+    expect(inNewArticleGrace({ publishedAt: null, updatedAt: null }, NOW)).toBe(false);
+  });
+
+  it("counts a year as an old figure only where a sentence states a figure from it, outside citations", () => {
+    // Live, 26 Nov 2026: seven articles went due for "A figure from 2024" that only cited 2024 sources.
+    const cited = [
+      "AI Overviews took 34.5% of clicks [Ahrefs, 2024](https://example.com/2024/05/25/study).",
+      "Clicks fell 38% (Search Engine Journal, 2024).",
+      "## Sources",
+      "- [AI Overviews study](https://example.com/study) \u2014 Advanced Web Ranking, 2024",
+      "- Semrush study of 10,000 pages, Semrush, 2024",
+    ].join("\n");
+    expect(oldFigureYears(cited, NOW)).toEqual([]);
+    // History and dates name a year without stating a figure from it.
+    expect(oldFigureYears("The site carried placeholder dates from 2024 before the brand existed.", NOW)).toEqual([]);
+    expect(oldFigureYears("We removed the 2024 placeholder dates on 23 June, and on June 23rd the sitemap.", NOW)).toEqual([]);
+    // A figure stated from an old year still counts, cited or not.
+    expect(oldFigureYears("For mobile websites in 2024, the Web Almanac recorded that 42% had good scores [HTTP Archive, 2025](https://example.com).", NOW)).toEqual([2024]);
+    expect(oldFigureYears("Last year 61% of teams agreed, up from 40% in 2023 and 35% in 2022.", NOW)).toEqual([2022, 2023]);
   });
 });

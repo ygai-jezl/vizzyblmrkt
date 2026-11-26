@@ -854,6 +854,30 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # The content strategy: one approved plan per brand on the Strategy tab (questions merged into
+  # slots by meaning, 3 to 6 pillars with a hub each, scores and a 12 week roadmap), made in code
+  # with at most one Gemini call (needs BRAND_STRATEGY_ENABLED). The NEXT_PUBLIC twin shows its
+  # section on the Brand map help page.
+  - variable: CONTENT_STRATEGY_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_CONTENT_STRATEGY_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Next up takes 3 of 4 candidates from the approved plan's roadmap, the autopilot fills its slots
+  # and never drafts a combine (needs CONTENT_STRATEGY_ENABLED).
+  - variable: CONTENT_STRATEGY_NEXT_UP_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Vizzy's get_content_strategy: reads the approved plan, never changes it (needs CONTENT_STRATEGY_ENABLED).
+  - variable: CONTENT_STRATEGY_CHAT_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # A brand's first hand notes, and Vizzy adding to them (needs the notes).
   - variable: BRAND_NOTES_ENABLED
     value: "false"

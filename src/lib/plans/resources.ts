@@ -39,6 +39,7 @@ export const RESOURCES = {
       "situations",
       "situation_questions",
       "brand_strategy",
+      "content_strategy",
       "competitor_find",
       "blog_research",
       "autopilot_research",
@@ -91,7 +92,7 @@ export const RESOURCES = {
     unit: "lookups",
     capped: false,
     shownAs: "next_up",
-    purposes: ["get_from_google", "autopilot"],
+    purposes: ["get_from_google", "autopilot", "content_strategy"],
   },
   /** Competitor articles a model read: shown, and capped, on the Competitor articles row. */
   competitor_reads: {
@@ -136,6 +137,7 @@ export const PURPOSE_LABELS: Record<ResourcePurpose, string> = {
   situations: "Finding buying situations",
   situation_questions: "Questions for a buying situation",
   brand_strategy: "Proposing the brand strategy",
+  content_strategy: "Making the content plan",
   competitor_find: "Finding competitors",
   blog_research: "Blog research",
   autopilot_research: "Autopilot research",

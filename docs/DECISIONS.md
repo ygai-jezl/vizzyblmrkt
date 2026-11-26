@@ -17,7 +17,8 @@ stage of the Path. Loops step 1 is ADR-0017 and getting to know you is ADR-0018;
 for loops step 3, the verdict, in a pull request of its own, so Work is ADR-0020.
 
 Decided (the owner approved plan-work v2 on 25 Nov 2026, and its third index on 26 Nov; the build
-departs from it in the places named below, and from its base on the owner's instruction):
+departs from it in the places named below, and from its base on the owner's instruction; the owner
+accepted those departures on 26 Nov):
 
 1. **Two regional collections, read as one list.** `work_tasks` and an append only `work_log`
    follow the Connectors 3 pattern (ADR-0015): a task tagged with a brand lives in that brand's
@@ -148,7 +149,7 @@ departs from it in the places named below, and from its base on the owner's inst
 14. **The Log carries workstreams over by itself (a departure).** A workstream stays in flight
     until someone logs it Done (decision 4), never retyped, so plan section 8.3's "Carry over 4
     open from yesterday" button on Today, and the canvas's Nothing logged yet state that holds it,
-    are not built. To find what is in flight the Log reads a year back through the
+    are not built here: the owner chose a follow up pull request for them (26 Nov). To find what is in flight the Log reads a year back through the
     (organisationId, at desc) index, within the 2,000 rows one read takes in each region; reading
     entries alone would need an index of their own. So one nobody has logged for a year drops off
     (a departure: plan decision 5 names no window), and a read that hits 2,000 rows says the
@@ -169,7 +170,7 @@ collections (`work_tasks` and `work_log` regional, `work_refs` in the control pl
 composite indexes, `work_tasks` (organisationId, open, closedAt desc), `work_log` (organisationId,
 at desc) and `product_events` (tenantId, connectionId, event, receivedAt), and 14 field
 exemptions, all three databases, READY before `WORK_ENABLED` goes on. No new service,
-scheduler job, secret, rule or dependency. The branch started from dev `470a3213`, not the plan's
+scheduler job, secret, rule or dependency. The branch started from dev `1fd789a1`, not the plan's
 `2aed3d3e`. N (getting to know you) merged first, so, as plan decision 8 says, Work's pull request
 adds `work: "always"` to N's `REVEAL_RULE`, and Work stays under Ask Vizzy when the sidebar runs
 Coming up. The help page is `/help/work`, and the pull request template

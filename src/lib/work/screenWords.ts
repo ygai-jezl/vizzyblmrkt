@@ -559,6 +559,11 @@ export function carryOverLabel(n: number): string {
   return `Carry over ${n} open from yesterday`;
 }
 
+/** What Carry over did, kept on Today after the button leaves: none means someone carried them first. */
+export function carriedLine(n: number): string {
+  return n ? `Carried over ${plural(n, "workstream", "workstreams")} from yesterday.` : "Someone else carried these over first, so nothing more was logged.";
+}
+
 /** The Log's line under its title. */
 export function logSubLine(name: string): string {
   return `What ${name} worked on each day. People type their workstreams, and each one carries over until it's done.`;

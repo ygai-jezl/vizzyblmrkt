@@ -91,6 +91,30 @@ describe("Carry over on Today", () => {
     expect((await day()).entries).toHaveLength(4);
   });
 
+  it("lets a brand further west carry the next morning there, after a brand further east carried early in its day", async () => {
+    await tuesday();
+    // 05:00 in Berlin on Wednesday is still 23:00 on Tuesday in New York.
+    w.at("2026-11-25T04:00:00.000Z");
+    expect(value(await carry(PEOPLE.ninaEu)).carried).toHaveLength(4);
+    // 10:00 in New York on Wednesday: Berlin's carried entries fell on Tuesday here, so all four are open from yesterday.
+    w.at("2026-11-25T15:00:00.000Z");
+    expect((await day(null, PEOPLE.sam)).carry).toBe(2);
+    const before = await day();
+    expect(before.entries).toEqual([]);
+    expect(before.carry).toBe(4);
+    const r = value(await carry(PEOPLE.nina));
+    expect(r.carried).toHaveLength(4);
+    expect(r.carried.map((e) => e.source.who.id)).toEqual([NINA, NINA, NINA, NINA]);
+    const after = await day();
+    expect(after.entries).toHaveLength(4);
+    expect(after.carry).toBe(0);
+    expect((await day(null, PEOPLE.sam)).carry).toBe(0);
+    expect(carried()).toHaveLength(8);
+    // Berlin has all four logged on Wednesday already, so carrying there again writes nothing.
+    expect(value(await carry(PEOPLE.ninaEu)).carried).toEqual([]);
+    expect(carried()).toHaveLength(8);
+  });
+
   it("carries nothing into a past day, which stays read only, and nothing into a day not here yet", async () => {
     await tuesday();
     expect(await carry(PEOPLE.nina, "2026-11-24")).toMatchObject({ ok: false, status: 409, error: "carry_day_over" });

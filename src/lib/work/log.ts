@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { appendWorkLog, appendWorkLogOnce, findWorkTaskByRef, listWorkLog, saveDraftedWorkLog } from "@/lib/tenant";
 import { addDaysToKey, wallTimeToUtc } from "@/lib/lifecycle/sendWindow";
 import type { Region } from "@/lib/types/tenant";
-import { carryOverOn, deriveDay, LOG_LOOKBACK_DAYS, LOG_RAIL_DAYS, railDays, workstreamKey, type InFlight, type LogDay } from "./day";
+import { carryOverOn, deriveDay, LOG_LOOKBACK_DAYS, LOG_RAIL_DAYS, railDays, type InFlight, type LogDay } from "./day";
 import type { CarryBody, LogEntryBody } from "./inputs";
 import { draftRefusal, ok, refuse, type DraftedSave, type WorkResult } from "./result";
 import { dayIn } from "./schedule";
@@ -77,12 +77,16 @@ function carryable(scope: WorkScope, rows: readonly WorkLogRow[], today: string,
 }
 
 /**
- * A carried entry's id, worked out from the organisation, the day and the workstream: whoever taps
- * Carry over, and however often, today's entry for a workstream has one id, which the store writes
- * once (appendWorkLogOnce).
+ * A carried entry's id, worked out from the organisation and the entry it carries (the newest one
+ * in flight): whoever taps Carry over, and however often, carrying that entry has one id, which the
+ * store writes once (appendWorkLogOnce). Not from the day: each person's day is their brand's, so
+ * the same date covers different hours in different time zones, and a carry made early in the day
+ * in Berlin would block New York's own carry the next morning there. Anyone who sees the carried
+ * entry sees it as newer, either today (so carryOverOn leaves the workstream out) or yesterday (so
+ * the next carry is of that entry, under a new id).
  */
-export function carriedEntryId(organisationId: string, day: string, f: Pick<InFlight, "brandId" | "workstream">): string {
-  return `wl_${createHash("sha256").update(`${CARRY_TOOL}\n${organisationId}\n${day}\n${workstreamKey(f)}`).digest("hex").slice(0, 24)}`;
+export function carriedEntryId(organisationId: string, f: Pick<InFlight, "id">): string {
+  return `wl_${createHash("sha256").update(`${CARRY_TOOL}\n${organisationId}\n${f.id}`).digest("hex").slice(0, 24)}`;
 }
 
 /** A value that may hold a check with a purpose's count (units) on it. */
@@ -188,7 +192,7 @@ export async function carryOver(scope: WorkScope, body: CarryBody, deps: WorkDep
   const at = now.toISOString();
   const written = await appendWorkLogOnce(
     open.map(({ f, region }) => ({
-      id: carriedEntryId(scope.organisationId, today, f),
+      id: carriedEntryId(scope.organisationId, f),
       organisationId: scope.organisationId,
       brandId: f.brandId,
       region,

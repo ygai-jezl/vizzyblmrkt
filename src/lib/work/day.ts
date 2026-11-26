@@ -72,9 +72,7 @@ export interface LogDay {
 /** Work's own writes that aren't a person's or Vizzy's move: the count kept on a check. */
 const NOT_A_MOVE = new Set(["work_count"]);
 
-/** A workstream's identity: its brand and its name, ignoring case and spacing. */
-export const workstreamKey = (r: { brandId: string | null; workstream: string }) => `${r.brandId ?? ""}|${r.workstream.trim().toLowerCase().replace(/\s+/g, " ")}`;
-const keyOf = workstreamKey;
+const keyOf = (r: Pick<WorkLogRowOf<"entry">, "brandId" | "workstream">) => `${r.brandId ?? ""}|${r.workstream.trim().toLowerCase().replace(/\s+/g, " ")}`;
 
 function daysBetween(from: string, to: string): number {
   return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
@@ -118,8 +116,8 @@ export function inFlightOn(rows: readonly WorkLogRow[], day: string, timeZone: s
 }
 
 /**
- * What Carry over logs on `day`: each workstream in flight at the end of the day before it with no
- * entry on `day` itself, whoever wrote that entry. Before anyone has logged, that is all of
+ * What Carry over logs on `day`: each workstream still in flight when the day before it ended, with
+ * no entry on `day` itself, whoever wrote that entry. Before anyone has logged, that is all of
  * yesterday's In flight.
  */
 export function carryOverOn(rows: readonly WorkLogRow[], day: string, timeZone: string, readFrom: string): InFlight[] {

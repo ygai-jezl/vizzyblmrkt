@@ -817,25 +817,30 @@ accepted those departures on 26 Nov):
 14. **The Log carries workstreams over by itself, and Today offers Carry over.** A workstream
     stays in flight until someone logs it Done (decision 4), never retyped. Plan section 8.3's
     "Carry over 4 open from yesterday" and the canvas's Nothing logged yet state came in a follow
-    up on the owner's choice of 26 Nov. Before anyone the person sees has logged today, Today says
-    "Nothing logged today yet. Type what you're on, or carry over what was still open yesterday."
-    with the button. One tap (`POST /api/admin/work/log/carry`, `carryOver` in
-    `src/lib/work/log.ts`) logs an ordinary entry for each workstream in flight at the end of
-    yesterday that has no entry today and that the person can log: yesterday's state, task and
-    links, the note "Carried over from yesterday.", by the person who tapped, with the tool
-    `work_carry`. Yesterday's entry stays as it was, so the Log keeps both. Each entry's id is
-    worked out from the organisation, the day and the workstream (`carriedEntryId`), and
-    `appendWorkLogOnce` reads every id in one transaction per region and creates only those not
-    kept, so a second tap or two people at once log each once; a whole business workstream is kept
-    in the region of its newest entry, so every carrier writes the same row. The count on the
-    button is the day's `carry`, worked out by the same rule, so it is what the tap logs. It
-    carries only into today: the body names the day the page showed, a past day stays read only,
-    and a page left open past midnight is refused. While a region doesn't answer it carries
-    nothing and offers nothing, since an entry kept there may say the workstream is done. Unlike
-    the canvas, In flight stays below the button: it is worked out from the rows, so hiding it
-    would hide work still going. `get_work` lists carried entries like any other, with `carried`,
-    and says what Carry over would log. No collection, index or switch: it is part of Work, behind
-    `WORK_ENABLED`. To find what is in flight the Log reads a year back through the
+    up on the owner's choice of 26 Nov. Before anyone the person sees has logged today, when
+    something from yesterday can be carried, Today says "Nothing logged today yet. Type what
+    you're on, or carry over what was still open yesterday." with the button; after the tap it
+    says how many it carried over, and focus moves to that line. One tap
+    (`POST /api/admin/work/log/carry`, `carryOver` in `src/lib/work/log.ts`) logs an ordinary
+    entry for each workstream in flight at the end of yesterday that has no entry today and that
+    the person can log: yesterday's state, task and links, the note "Carried over from
+    yesterday.", by the person who tapped, with the tool `work_carry`. Yesterday's entry stays as
+    it was, so the Log keeps both. Each entry's id is worked out from the organisation and the
+    entry it carries, the newest in flight (`carriedEntryId`), and `appendWorkLogOnce` reads every
+    id in one transaction per region and creates only those not kept, so a second tap or two
+    people at once log each once. The id leaves the day out: each person's day is their brand's,
+    so a carry made early in the day in one time zone would otherwise block the carry of a brand
+    further west the next morning there. Anyone who sees the carried entry sees it as newer, today
+    (so it is left out) or yesterday (so the next carry is of it, under a new id). A whole business
+    workstream is kept in the region of its newest entry, so every carrier writes the same row.
+    The count on the button is the day's `carry`, worked out by the same rule, so it is what the
+    tap logs. It carries only into today: the body names the day the page showed, a past day stays
+    read only, and a page left open past midnight is refused. While a region doesn't answer it
+    carries nothing and offers nothing, since an entry kept there may say the workstream is done.
+    Unlike the canvas, In flight stays below the button: it is worked out from the rows, so hiding
+    it would hide work still going. `get_work` lists carried entries like any other, with
+    `carried`, and says what Carry over would log. No collection, index or switch: it is part of
+    Work, behind `WORK_ENABLED`. To find what is in flight the Log reads a year back through the
     (organisationId, at desc) index, within the 2,000 rows one read takes in each region; reading
     entries alone would need an index of their own. So one nobody has logged for a year drops off
     (a departure: plan decision 5 names no window), and a read that hits 2,000 rows says the

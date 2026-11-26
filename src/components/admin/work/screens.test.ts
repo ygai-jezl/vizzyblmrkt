@@ -19,7 +19,7 @@ const { onEnter, typedKinds, TypedLinksEditor } = await import("./TaskFields");
 const { checkButtons, checkNoticeOf } = await import("./CheckActions");
 const { focusTarget } = await import("./useFocusSwap");
 const { decisionView } = await import("./Decisions");
-const { movedWords, decisionWords, WorkLog } = await import("./WorkLog");
+const { movedWords, decisionWords, WorkLog, CarriedNotice } = await import("./WorkLog");
 const { historyLine, textEdits } = await import("./TaskPage");
 const { TaskForm } = await import("./TaskForm");
 const { MeasurePicker } = await import("./MeasurePicker");
@@ -469,5 +469,14 @@ describe("the Log's Today before anyone has logged", () => {
     expect(html).toContain("Read only. Newest first.");
     // Even a day that says it could carry: only Today offers it.
     expect(carryOffer({ ...past.day, carry: 3 })).toBe(0);
+  });
+
+  it("says what the tap carried on a line that takes focus, since the button leaves when the page reads itself again", () => {
+    const html = renderToStaticMarkup(createElement(CarriedNotice, { n: 3 }));
+    expect(html).toContain('role="status"');
+    expect(html).toContain('tabindex="-1"');
+    expect(html).toContain(">Carried over 3 workstreams from yesterday.<");
+    expect(renderToStaticMarkup(createElement(CarriedNotice, { n: 1 }))).toContain(">Carried over 1 workstream from yesterday.<");
+    expect(renderToStaticMarkup(createElement(CarriedNotice, { n: 0 }))).toContain(">Someone else carried these over first, so nothing more was logged.<");
   });
 });

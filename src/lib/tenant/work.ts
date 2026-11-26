@@ -415,7 +415,7 @@ export async function appendWorkLog(rows: ReadonlyArray<NewWorkLogRow & { id?: s
 
 /**
  * Append entries under ids the caller worked out from what each entry is (Carry over on Today: the
- * organisation, the day and the workstream), writing each only if no row has its id yet. One
+ * organisation and the entry it carries), writing each only if no row has its id yet. One
  * transaction per region reads every id first, then creates the ones not kept, so a second run,
  * or two at once, writes each entry once. A kept id that is another organisation's is refused
  * (TenantIsolationError). Answers the rows it wrote.

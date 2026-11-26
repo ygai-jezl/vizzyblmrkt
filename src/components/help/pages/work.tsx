@@ -4,7 +4,7 @@ import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { ideaWord } from "@/lib/nav/terms";
 import { isWorkVizzyEnabled } from "@/lib/work/flags";
 import { DRAFT_COPY } from "@/lib/work/draft";
-import { carryOverLabel, IMPORT_COLUMNS, MEASURE_KIND_HINT, WORK_COPY } from "@/lib/work/screenWords";
+import { carriedLine, carryOverLabel, IMPORT_COLUMNS, MEASURE_KIND_HINT, WORK_COPY } from "@/lib/work/screenWords";
 import { COMPANY_STAGES } from "@/lib/work/stages";
 import { DECLINE_WHY_CHOICES } from "@/lib/work/suggestion";
 import { WORK_REVIEW_COPY } from "@/lib/work/reviewCards";
@@ -387,10 +387,11 @@ export default function WorkHelp({ workVizzy = isWorkVizzyEnabled(), ideaWords =
           drops off.
         </li>
         <li>
-          Before anyone has logged today, In flight says &quot;{WORK_COPY.nothingLoggedToday}&quot; Press{" "}
-          <strong>{carryOverLabel(4)}</strong> to log today&apos;s line for each workstream still open yesterday, with its
-          state and task, in your name and with the note {CARRIED_NOTE} The number is how many it logs. Press it twice, or two
-          of you at once, and each one is still logged once.
+          Before anyone has logged today, if something was still open yesterday, In flight says &quot;
+          {WORK_COPY.nothingLoggedToday}&quot; Press <strong>{carryOverLabel(4)}</strong> to log today&apos;s line for each
+          workstream still open yesterday, with its state and task, in your name and with the note {CARRIED_NOTE} The number
+          is how many it logs, and afterwards In flight says &quot;{carriedLine(4)}&quot; Press it twice, or two of you at
+          once, and each one is still logged once. If someone got there first, it says &quot;{carriedLine(0)}&quot;
         </li>
         <li>
           <strong>Checks due</strong>, <strong>Tasks that moved</strong> and <strong>Decisions made</strong> fill in from the

@@ -1,4 +1,5 @@
 import type { HistoryKind } from "@/lib/settings/sources";
+import { TEAM_VIEWS_FULL_TEXT } from "@/lib/settings/words";
 
 /**
  * Every message Settings › History shows, in plain words. The help page
@@ -14,6 +15,7 @@ export const KIND_WORDS: Record<HistoryKind, string> = {
   journeys: "journeys",
   catalogs: "product catalogs",
   connections: "shared connections",
+  views: "team views",
 };
 
 /** "fields, journeys and product catalogs". */
@@ -43,6 +45,8 @@ export const RESTORE_MESSAGES = {
   fields_changed: "Someone changed the fields since you opened this. Look again.",
   draft_changed: "The draft changed since you opened this. Look again.",
   catalog_changed: "Someone changed the catalog since you opened this. Look again.",
+  views_changed: "Someone changed the team views since you opened this. Look again.",
+  team_views_full: TEAM_VIEWS_FULL_TEXT,
   read_only: "This can't be restored here.",
   version_not_found: "That version is no longer there. Reload the page.",
   forbidden: "Only admins can restore.",

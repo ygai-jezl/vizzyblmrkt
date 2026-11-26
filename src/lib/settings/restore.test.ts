@@ -5,7 +5,10 @@ import { importJourneyDocument } from "@/lib/lifecycle/transfer";
 import { listSettingsVersions } from "./history";
 import { exportFileName, exportHistoryVersion, restoreHistoryVersion } from "./restore";
 import { parseHistorySubject } from "./sources";
-import { buildWorld, ctx, other, switchesOn, T, type World } from "./testing/world";
+import { changeSavedView, listSavedViews, readTeamViews } from "@/lib/views/savedViews";
+import { sameView } from "@/lib/views/types";
+import { listHistory } from "./sources";
+import { addTeamViews, buildWorld, ctx, lookup, member, other, switchesOn, T, viewsOn, type World } from "./testing/world";
 
 let w: World;
 beforeEach(async () => {
@@ -121,5 +124,63 @@ describe("exportHistoryVersion", () => {
     expect((r.body as { design: unknown }).design).toEqual({ graph: { nodes: "broken" }, pools: v1.pools, settings: v1.settings });
     // It is never a journey document, so it can't be imported as one.
     expect((await importJourneyDocument(ctx, { connectionId: "pcn_life", document: r.body }, { db: w.db })).ok).toBe(false);
+  });
+});
+
+describe("team views in History", () => {
+  it("restores one view as a version had it, as a new version on top, and leaves the others as they are", async () => {
+    const v = await addTeamViews(w);
+    viewsOn();
+    const r = await restoreHistoryVersion(ctx, { subject: subject("views:person"), rev: 1, base: 4 }, { db: w.db, nowMs: Date.parse(T(20)) });
+    expect(r).toEqual({ status: 200, body: { ok: true, rev: 5, message: "Restored ‘Wholesale’ as it was in version 1" } });
+    const newest = (await listSettingsVersions(ctx, "views:person", {}, w.db)).versions[0]!;
+    expect(newest).toMatchObject({ rev: 5, source: "restore", restoredFrom: 1, by: { type: "member", id: "usr_maya" } });
+    expect(newest.items.map((i) => [i.key, i.change])).toEqual([[v.trade, "changed"]]);
+    const team = await readTeamViews(ctx, w.db);
+    const trade = team.items.find((x) => x.key === v.trade)!;
+    expect(trade).toMatchObject({ label: "Wholesale", version: 3, changedAt: T(20), changedBy: "usr_maya", archivedAt: null });
+    expect(sameView(trade.definition, v.gold1)).toBe(true);
+    // Gold tier, archived in version 4, stays as it is.
+    expect(team.items.find((x) => x.key === v.gold)).toMatchObject({ label: "Gold tier", version: 2, archivedAt: T(14) });
+    // A copy of the view opened before the restore can't undo it.
+    const fields = (await readFieldList(ctx, "person", w.db)).items;
+    expect(await changeSavedView(ctx, v.trade, { version: 2, name: "Stale", fields }, w.db)).toEqual({ ok: false, error: "view_changed" });
+    // History says what the restore did, in the saver's words.
+    const listed = await listHistory(ctx, { subject: "views:person", limit: 1 }, { db: w.db, lookup });
+    expect(listed.ok && listed.page.entries[0]).toMatchObject({ rev: 5, message: "Restored ‘Wholesale’ as it was in version 1", items: ["Changed ‘Wholesale’"], restoredFrom: 1 });
+  });
+
+  it("brings an archived view back from the version that had it in use, and answers 409 from a stale rev", async () => {
+    const v = await addTeamViews(w);
+    viewsOn();
+    expect(await restoreHistoryVersion(ctx, { subject: subject("views:person"), rev: 3, base: 3 }, { db: w.db })).toEqual({ status: 409, body: { error: "views_changed" } });
+    const r = await restoreHistoryVersion(ctx, { subject: subject("views:person"), rev: 3, base: 4 }, { db: w.db, nowMs: Date.parse(T(20)) });
+    expect(r).toEqual({ status: 200, body: { ok: true, rev: 5, message: "Restored ‘Gold tier’ as it was in version 3" } });
+    expect((await listSavedViews(member, {}, w.db)).team.map((x) => x.name)).toEqual(["Trade buyers", "Gold tier"]);
+    expect((await readTeamViews(ctx, w.db)).items.find((x) => x.key === v.gold)).toMatchObject({ archivedAt: null, archivedBy: null, version: 3 });
+    // Restoring the version that archived it archives it again.
+    expect((await restoreHistoryVersion(ctx, { subject: subject("views:person"), rev: 4, base: 5 }, { db: w.db, nowMs: Date.parse(T(21)) })).body).toMatchObject({ ok: true, rev: 6 });
+    expect((await readTeamViews(ctx, w.db)).items.find((x) => x.key === v.gold)).toMatchObject({ archivedAt: T(21), archivedBy: "usr_maya" });
+  });
+
+  it("is for admins, while views are on, and never reaches another brand's views", async () => {
+    await addTeamViews(w);
+    viewsOn();
+    expect(await restoreHistoryVersion(member, { subject: subject("views:person"), rev: 1, base: 4 }, { db: w.db })).toEqual({ status: 403, body: { error: "forbidden" } });
+    expect(await restoreHistoryVersion(other, { subject: subject("views:person"), rev: 1, base: 0 }, { db: w.db })).toEqual({ status: 404, body: { error: "version_not_found" } });
+    expect((await restoreHistoryVersion(ctx, { subject: subject("views:person"), rev: 1, base: "x" }, { db: w.db })).status).toBe(400);
+    vi.stubEnv("CRM_VIEWS_ENABLED", "false");
+    expect(await restoreHistoryVersion(ctx, { subject: subject("views:person"), rev: 1, base: 4 }, { db: w.db })).toEqual({ status: 409, body: { error: "read_only" } });
+    expect((await listSettingsVersions(ctx, "views:person", {}, w.db)).versions.length).toBe(4);
+  });
+
+  it("exports a team views version as a settings version, with nobody's own views", async () => {
+    await addTeamViews(w);
+    viewsOn();
+    const r = await exportHistoryVersion(ctx, { subject: subject("views:person"), rev: 3 }, { db: w.db });
+    expect(r.body).toMatchObject({ format: "yougrow.settings-version", formatVersion: 1, subject: "views:person", rev: 3, savedAt: T(13) });
+    expect((r.body as { snapshot: { items: Array<{ label: string }> } }).snapshot.items.map((i) => i.label)).toEqual(["Trade buyers", "Gold tier"]);
+    expect(JSON.stringify(r.body)).not.toContain("My repots");
+    expect(exportFileName(subject("views:person"), 3)).toBe("team-views-v3.json");
   });
 });

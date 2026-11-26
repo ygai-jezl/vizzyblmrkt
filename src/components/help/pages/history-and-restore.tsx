@@ -2,20 +2,29 @@ import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
 import { ERASE_COPY, ERASE_MESSAGES, HISTORY_COPY, RESTORE_MESSAGES } from "@/components/admin/settings/historyWords";
 import { BEFORE_HISTORY_TEXT, NEVER_UNDONE } from "@/lib/settings/words";
+import type { HelpBodyProps } from "@/lib/help/pages";
+import { isViewsEnabled } from "@/lib/views/flags";
 
 /**
  * /help/history-and-restore (SETTINGS_HISTORY_ENABLED, ADR-0023): Settings › History, where the
  * team reads every change to the brand's fields, journeys, product catalogs and shared connections,
- * an admin previews and restores an older version, and anyone exports one. The words it quotes are
- * the app's own (src/components/admin/settings/historyWords.ts).
+ * an admin previews and restores an older version, and anyone exports one. Team views on People
+ * show while CRM_VIEWS_ENABLED is on too (`views`, ADR-0024), restored one view at a time. The words
+ * it quotes are the app's own (src/components/admin/settings/historyWords.ts).
  */
-export default function HistoryAndRestoreHelp() {
+/** What team views' restore can answer, and what to do. */
+const VIEW_ROWS: Array<[string, string]> = [
+  [RESTORE_MESSAGES.views_changed, "Someone saved a team view meanwhile. Press Look again, check the preview, then restore."],
+  [RESTORE_MESSAGES.team_views_full, "Archive a team view you no longer use from the Views menu on People, then restore."],
+];
+
+export default function HistoryAndRestoreHelp({ views = isViewsEnabled() }: HelpBodyProps = {}) {
   return (
     <article>
       <H1>History and restore</H1>
       <Lead>
-        Every change to your fields, journeys, product catalogs and shared connections, in one list. See who changed what and when,
-        put an older version back as a new one, or download any version.
+        Every change to your fields, journeys, product catalogs{views ? ", shared connections and team views" : " and shared connections"}, in
+        one list. See who changed what and when, put an older version back as a new one, or download any version.
       </Lead>
       <Meta items={["About 3 minutes", "Your whole team reads it; admins restore", "When a change needs undoing"]} />
 
@@ -28,7 +37,10 @@ export default function HistoryAndRestoreHelp() {
         }
         unlocks={
           <>
-            <li>Undoing a change to your fields, a journey or a catalog, without losing the version you undo</li>
+            <li>
+              Undoing a change to your fields, a journey{views ? ", a catalog or a team view" : " or a catalog"}, without losing the version you
+              undo
+            </li>
             <li>A copy of any version, to keep or to read</li>
           </>
         }
@@ -38,8 +50,16 @@ export default function HistoryAndRestoreHelp() {
       <P>
         Open <Open href="/admin/account/history">Settings › History</Open>. It shows the brand you are in, newest change first: what
         changed, its version, who made the change and when. Pick <strong>Fields</strong>, <strong>Journeys</strong>,{" "}
-        <strong>Product catalogs</strong> or <strong>Shared connections</strong> to see one kind, and press{" "}
-        <strong>{HISTORY_COPY.older}</strong> at the bottom for more.
+        <strong>Product catalogs</strong>
+        {views ? ", " : " or "}
+        <strong>Shared connections</strong>
+        {views ? (
+          <>
+            {" "}
+            or <strong>Team views</strong>
+          </>
+        ) : null}{" "}
+        to see one kind, and press <strong>{HISTORY_COPY.older}</strong> at the bottom for more.
       </P>
       <UL>
         <li>A kind is listed while its own screen is on in your copy of YouGrow. Product catalogs are always listed.</li>
@@ -121,6 +141,41 @@ export default function HistoryAndRestoreHelp() {
         <li>An archived journey&apos;s versions are read only, with no restore or export.</li>
       </UL>
 
+      {views ? (
+        <>
+          <H2 id="team-views">Team views</H2>
+          <P>
+            Each save of a team view on People is a version: saving a new one, changing or renaming one, archiving one and bringing one
+            back. Views you keep for yourself (<strong>Only me</strong>) are never in History, and nobody else sees them.
+          </P>
+          <P>
+            A restore puts back one view at a time: the view that version changed, with its name, filters, columns and sort as they were,
+            in use or archived as it was then. Every other team view stays as it is, so undoing one view never undoes someone&apos;s change
+            to another. To undo a change, restore the version before it that names the same view. The restore is saved as a new version,
+            and anyone with that view open is asked to open it again before they save.
+          </P>
+          <UL>
+            <li>
+              <strong>Comes back</strong>: an archived view that was in use in that version, back in the Views menu for everyone.
+            </li>
+            <li>
+              <strong>Archived</strong>: a view that version had archived. It leaves the Views menu and can be brought back.
+            </li>
+            <li>
+              <strong>Changes back</strong>: its name, and its filters, columns and sort.
+            </li>
+            <li>
+              <strong>Stays as it is</strong>: every other team view, and everyone&apos;s own views.
+            </li>
+          </UL>
+          <P>
+            A version that is how the view is now has nothing to restore. A brand keeps up to 50 team views in use, so bringing one back
+            from a full list waits until an admin archives another. A filter on a field that was archived since is marked Archived on the
+            view and ignored until the field comes back.
+          </P>
+        </>
+      ) : null}
+
       <H2 id="catalogs">Product catalogs</H2>
       <P>
         A catalog&apos;s restore is saved as a new version, and from then on people&apos;s stages in that product are read with it. The
@@ -131,8 +186,8 @@ export default function HistoryAndRestoreHelp() {
       <H2 id="export">Export a version</H2>
       <P>
         <strong>Export</strong> downloads one version as a JSON file. A journey&apos;s file is a journey document you can import as a
-        new draft on a product. Fields and shared connections come as a settings version, and catalogs as a catalog version. An export
-        holds your settings only, never anyone&apos;s values.
+        new draft on a product. Fields{views ? ", shared connections and team views" : " and shared connections"} come as a settings version, and catalogs as a
+        catalog version. An export holds your settings only, never anyone&apos;s values.
       </P>
       <P>
         A journey version made before journeys changed shape can&apos;t go in a draft, so its file is the design as it was stored, to
@@ -196,6 +251,7 @@ export default function HistoryAndRestoreHelp() {
           [RESTORE_MESSAGES.fields_changed, "Someone saved the fields meanwhile. Press Look again, check the preview, then restore."],
           [RESTORE_MESSAGES.draft_changed, "Someone saved the journey's draft meanwhile. Press Look again; export the draft first if you want to keep it."],
           [RESTORE_MESSAGES.catalog_changed, "Someone saved the catalog meanwhile. Press Look again, then restore."],
+          ...(views ? VIEW_ROWS : []),
           [HISTORY_COPY.partial, "Part of the history couldn't be read, often just after an update. Reload the page in a few minutes."],
           [ERASE_MESSAGES.not_owner, "Ask an owner of your organisation to erase it, or to make you an owner."],
           [ERASE_MESSAGES.home_only, "Ask whoever runs your copy of YouGrow to add you to this brand's team as an admin."],

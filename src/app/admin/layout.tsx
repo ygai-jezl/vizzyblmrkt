@@ -35,6 +35,7 @@ import {
   isVizzyFieldsEnabled,
   isVizzyTextFieldsEnabled,
 } from "@/lib/audience/peopleFlags";
+import { isViewsEnabled } from "@/lib/views/flags";
 import { parseThemePreference, THEME_COOKIE } from "@/lib/theme";
 import { isCatalogHistoryEnabled } from "@/lib/connect/v2/flags";
 import { isAiAnswersPlanningEnabled, isConnectorsChatEnabled, isConnectorsCollectEnabled, isConnectorSignalsEnabled, isConnectorsSearchTextEnabled, isConnectorsSharingEnabled } from "@/lib/connectors/flags";
@@ -219,6 +220,7 @@ export default async function AdminLayout({
             vizzyFields={isVizzyFieldsEnabled()}
             vizzyTextFields={isVizzyTextFieldsEnabled()}
             vizzyAddPerson={isVizzyAddPersonEnabled()}
+            views={isViewsEnabled()}
             catalogHistory={isCatalogHistoryEnabled()}
             connectorsChat={isConnectorsChatEnabled()}
             connectorsCollect={isConnectorsCollectEnabled()}

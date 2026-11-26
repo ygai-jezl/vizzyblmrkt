@@ -89,6 +89,12 @@ export interface FindOptions {
    * lists. Add an `id`/`createdAt` tiebreak to `orderBy` to disambiguate ties.
    */
   startAfter?: unknown[];
+  /**
+   * Read only these fields of each row (a projection), each a field path such as `memberOf` or
+   * `fields.fld_abc123def456`; the id always comes back. Firestore still bills each row read, but a
+   * projection keeps what a large read holds in memory small (a view reads up to 5,000 people).
+   */
+  select?: string[];
 }
 
 type TenantScoped = { tenantId: string; id: string };
@@ -137,6 +143,10 @@ export class TenantCollection<T extends TenantScoped> {
     for (const [field, dir] of opts.orderBy ?? []) q = q.orderBy(field, dir);
     if (opts.startAfter != null) q = q.startAfter(...opts.startAfter);
     if (opts.limit != null) q = q.limit(opts.limit);
+    if (opts.select) {
+      if (typeof q.select !== "function") throw new TenantValidationError("this database can't read a projection (select)");
+      q = q.select(...opts.select);
+    }
     const snap = await q.get();
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as T);
   }

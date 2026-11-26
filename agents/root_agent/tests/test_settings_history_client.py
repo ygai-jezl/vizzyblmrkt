@@ -38,6 +38,9 @@ def test_asks_for_a_kind_a_subject_one_version_and_the_next_page(monkeypatch):
     # A version means nothing without its subject, and an unknown kind is left out.
     sh.get_settings_history(STATE, kind="people", version=3)
     assert calls[1]["url"] == "https://app.example.com/api/agent/settings-history"
+    # Team views are a kind, and their setting a subject.
+    sh.get_settings_history(STATE, kind="views", subject="views:person", version=2)
+    assert calls[2]["url"] == "https://app.example.com/api/agent/settings-history?kind=views&subject=views%3Aperson&rev=2"
 
 
 def test_passes_errors_on_in_plain_words(monkeypatch):

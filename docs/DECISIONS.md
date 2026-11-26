@@ -170,6 +170,110 @@ topics and the content strategy's grouping off `text-embedding-005` (their own c
 
 ---
 
+## ADR-0024 · Views on People: in memory up to 5,000 people, team views in the settings log (piece C) (2026-11-26)
+
+Context: piece C of the build plan, group 1 only (decision 34: no index spike, so no view rows on the
+brand index yet). The plan was approved on 26 Nov with these answers: views read up to 5,000 people
+a view until the index (decision 1); typed words and email domains filter but never save (decision
+3); anyone saves Only me views, and admins save, change and archive team views (decision 4); Vizzy
+reads view counts now, under the same switch (decision 6). Branch `feat/crm-views`. No index,
+rules, dependency or infra change, and no backfill.
+
+### Decided
+
+1. **A view** (`src/lib/views/types.ts`) is up to 10 filters joined by all or any, each of up to 20
+   values, up to 10 columns with Person first, and one sort. The search box is not part of a view. A
+   filter is on one of the brand's People fields (B's 12 types; email, phone and link fields only
+   empty or not) or a built in one read from what `listPeople` reads: its `memberOf` tags (an idea,
+   how they joined, more than one idea, a product, a stage, quiet, a product group), reach (Can
+   email), last active, first seen and email domain. So a view rebuilt from a group counts the same
+   as the group (`filtersFromGroup`).
+2. **Evaluated in memory** (`src/lib/views/evaluate.ts`, pure): only people in Everyone, a stable sort
+   with no value last, days in the brand's `timeZone` (UTC when unset). A filter on an archived
+   field is flagged and ignored, and an archived option is left out of its filter.
+3. **Read through one backend** (`src/lib/views/backend.ts`, `source.ts`): a match all view starts
+   from its smallest group, found with one `count()` per candidate, otherwise from Everyone; it reads
+   that group newest first in pages of 1,000, up to 5,000, with a projection (`FindOptions.select`)
+   of only the fields its filters and sort use, and answers the group's real total and `capped`.
+   So a group of more than 5,000 is checked for its 5,000 most recently active people, and the
+   screen says which: Everyone, the group it starts from (named in words), or the search box's
+   people. Words in the search box read that search's people instead and keep to Everyone. At most 2 runs
+   at a time per instance (`views_busy`). Every read uses an index `firestore.indexes.json` already
+   has. The index backend of groups 2 and 3 (on the tracker) plugs in behind the same interface.
+4. **Team views are a setting**: the settings subject `views:person`, kept by `SETTINGS_HOMES` in a
+   new regional `saved_views`, one document per brand, so each save is one settings version holding
+   the whole list. Views are archived, never removed. Caps: 50 in use, 200 in all, the list under 200
+   KB, one view under 2 KB. A save whose list moved on retries up to 3 times; one made from an older
+   `version` of the view answers `view_changed` (409). Firestore returns a map's keys by name, so
+   views are compared with `sameView` and shown with their keys in one order (`viewInOrder`): a
+   view opened unchanged reads as saved, and saving it unchanged writes no version.
+5. **Only me views sit outside the log**: a new regional `member_views`, one document per brand and
+   member (`mv_` and a hash of both), read and written only for the signed in member, with a rev
+   check in one transaction. Not logged, deleted for real, 50 a member. So History and export never
+   show anyone's own views, and they never spend the brand's lifetime log.
+6. **No typed words in a saved view** (decision 3): a text field's words and the email domain work
+   while looking and refuse a save with `typed_words`, naming the filters. Saved views keep options,
+   numbers, amounts, days, yes or no, empty, and team members as user ids. So neither store holds
+   the values of the brand's people, and a person's erase or export has nothing there. Both hold
+   team members' user ids: `saved_views` keeps who made, changed and archived each team view (in
+   the settings log too), and `member_views` is keyed by the member's user id.
+7. **Routes** (`viewsAdmin`, beside `fieldsAdmin`): `views/run` (count, total, capped, every match in
+   order and the first 50 rows; 20 a minute and 200 an hour per member, 600 an hour per brand),
+   `views/rows` (up to 50 rows by id; changing columns reads rows, never a new run), `views` and
+   `views/[viewId]` (team saves 30 an hour per brand). Paging is by ids, not a server cache: the
+   screen asks for the next 50 ids of the run, never by the rows that came back, and reads ids in
+   requests of 50 when the columns change.
+8. **Vizzy** reads views with `get_view_counts` (`/api/agent/audience/views`, canvas token): every team
+   view in use and the asker's own, with their filters in words, and counts only those named, at most
+   3, each `viewPeople` (a new meaning) and `capped`. A view with a filter on a field `vizzyReadsField`
+   refuses gives its name and no count. Team members are never named. 6 a minute and 60 an hour per
+   brand. Read only: Vizzy never makes or changes a view.
+9. **One server switch**, `CRM_VIEWS_ENABLED` (needs `AUDIENCE_FIELDS_ENABLED`; the screen needs nav
+   phase 3). The page passes it down, so the spec's `NEXT_PUBLIC_` twin isn't needed. Off: the routes
+   answer 404, the Views menu and Add filter hide, People works as before, saved views stay stored,
+   and Vizzy's tool says views are off. No per brand check: no AI, reads bounded by the cap and the
+   rate limits, and every plan has views.
+10. **Team views in Settings › History** (O2, ADR-0023; added here because C merged after O2):
+    `views:person` is History's kind `views`, "Team views", listed while `SETTINGS_HISTORY_ENABLED`
+    and `CRM_VIEWS_ENABLED` are both on. A restore puts back **one view at a time**
+    (`src/lib/views/versionRestore.ts`, `restoreTeamViewsVersion`): the views a version names (a
+    team save names one) go back as that version had them, name, filters, columns, sort and in use
+    or archived, as a new version on top (`source: "restore"`), from the rev the preview showed
+    (`views_changed`, 409). Every other team view stays as it is, so one admin's restore never
+    undoes another's change to a different view; restoring the whole list was the alternative. Each
+    restored view gets a new `version`, so a copy someone has open answers `view_changed`. Bringing
+    one back past 50 in use is refused, a version that is how the view is now has nothing to
+    restore, and a view that doesn't fit today's views (or holds typed words) is read only with
+    Export. Export is the settings version (`team-views-v<n>.json`), and Vizzy's
+    `get_settings_history` reads the same list (kind `views`). Only me views are never in the log,
+    so never in History, its export or what Vizzy reads there.
+
+### Gaps we accept
+
+- A member who leaves keeps their `member_views` document: nobody reads it, and nothing erases it.
+  Their user id shows as Former team member in a team view's filter. The same gap as the field
+  lists' user ids.
+- Team members' user ids stay in the settings log, which is never pruned, as for every setting.
+- A person with more than 50 field tags (`MAX_FIELD_TAGS`) keeps only 50 of them, so a view that
+  starts from a dropped option misses them, as the field filter on People does today. A view that
+  starts from Everyone reads their values and still finds them.
+- A group of more than 5,000 people is checked for its 5,000 most recently active until groups 2
+  and 3 (decision 34), and the view says so.
+
+### Not decided here
+
+Groups 2 and 3 (view rows on the brand index, people on it after the data processing agreement, the
+`view_rows` indexes, `views-backfill`, the sweep reconcile), views on companies or ideas, bulk
+actions and lists (piece E), export of a view's people, journeys that start when someone enters a
+view, and Vizzy making views.
+
+### Rollback
+
+The switch. No index, backfill or data to undo; `saved_views` and `member_views` stay, unread, and
+Settings › History stops listing team views.
+
+---
+
 ## ADR-0023 · Settings history: one list per brand, restore as a new version, and erasing archived values (2026-11-26)
 
 Context: piece O part 2 of the build plan (O2, approved 26 Nov 2026). Piece O part 1 (piece B) keeps

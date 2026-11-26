@@ -54,6 +54,8 @@ export interface HelpBodyProps {
   vizzyTextFields?: boolean;
   /** Vizzy fills in the New person form (isVizzyAddPersonEnabled()). */
   vizzyAddPerson?: boolean;
+  /** Views on People: filters, columns, sort and saved views (isViewsEnabled()). */
+  views?: boolean;
   /** Every catalog save is kept as history (isCatalogHistoryEnabled()). */
   catalogHistory?: boolean;
   /** Vizzy reads connected data (isConnectorsChatEnabled()). */

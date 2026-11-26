@@ -64,3 +64,43 @@ def test_messages_fit_the_area_whether_it_is_called_audience_or_people(monkeypat
         assert "Audience" not in text, text
     assert "in Audience" not in ROOT_SYSTEM_INSTRUCTION
     assert "**Audience**" not in ROOT_SYSTEM_INSTRUCTION
+
+
+def test_lists_and_counts_saved_views_with_the_session_token(monkeypatch):
+    monkeypatch.setenv("CANVAS_CALLBACK_URL", "https://app.example.com/")
+    seen = {}
+
+    def fake(url, token):
+        seen.update(url=url, token=token)
+        return 200, json.dumps({"views": [{"name": "Wholesale, ordered lately"}], "counts": [{"name": "Wholesale, ordered lately", "viewPeople": 46, "capped": False}]})
+
+    monkeypatch.setattr(ac, "_get", fake)
+    out = ac.get_view_counts({"ctxToken": "tok"}, ["Wholesale, ordered lately", " ", "Next repot due"])
+    assert out["status"] == "success" and out["counts"][0]["viewPeople"] == 46
+    assert seen == {
+        "url": "https://app.example.com/api/agent/audience/views?count=Wholesale%2C+ordered+lately&count=Next+repot+due",
+        "token": "tok",
+    }
+    ac.get_view_counts({"ctxToken": "tok"})
+    assert seen["url"] == "https://app.example.com/api/agent/audience/views"
+
+
+def test_saved_view_errors_become_plain_messages(monkeypatch):
+    monkeypatch.setenv("CANVAS_CALLBACK_URL", "https://app.example.com")
+    assert ac.get_view_counts({}, ["x"])["status"] == "unavailable"
+    for status, body, code in [
+        (503, {"error": "unavailable"}, "unavailable"),
+        (401, {"error": "unauthorized"}, "unauthorized"),
+        (429, {"error": "rate_limited"}, "rate_limited"),
+        (500, "not json", "http_500"),
+    ]:
+        monkeypatch.setattr(ac, "_get", lambda *_, s=status, b=body: (s, b if isinstance(b, str) else json.dumps(b)))
+        out = ac.get_view_counts({"ctxToken": "tok"}, ["x"])
+        assert out["status"] == "error" and out["code"] == code and out["message"]
+    assert "switched on" in ac._VIEW_ERRORS["unavailable"]
+
+
+def test_root_reads_saved_view_counts_and_never_changes_views():
+    assert "get_view_counts" in ROOT_SYSTEM_INSTRUCTION
+    assert 'say "at least" when `capped` is true' in ROOT_SYSTEM_INSTRUCTION
+    assert "you never make, change or save a view" in ROOT_SYSTEM_INSTRUCTION

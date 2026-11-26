@@ -38,6 +38,7 @@ export function drawerBodyProps(shell: ReturnType<typeof useShell>): Required<He
     vizzyFields: shell?.vizzyFields ?? false,
     vizzyTextFields: shell?.vizzyTextFields ?? false,
     vizzyAddPerson: shell?.vizzyAddPerson ?? false,
+    views: shell?.views ?? false,
     catalogHistory: shell?.catalogHistory ?? false,
     connectorsChat: shell?.connectorsChat ?? false,
     connectorsCollect: shell?.connectorsCollect ?? false,

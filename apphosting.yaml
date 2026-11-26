@@ -559,6 +559,13 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Views on People: filters, columns, sort and saved views (team views kept in the settings log),
+  # read in memory up to 5,000 people a view, and Vizzy reading saved views' counts (needs
+  # AUDIENCE_FIELDS_ENABLED; the screen also needs nav phase 3).
+  - variable: CRM_VIEWS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Email style ==
   # A logo, name and colours on branded emails, then header options, themes, web fonts

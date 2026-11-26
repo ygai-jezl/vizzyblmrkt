@@ -9,10 +9,14 @@ import { validateForAudience } from "@/lib/lifecycle/service";
 import { LifecycleDraftSchema, type LifecycleDraft } from "@/lib/types/lifecycle";
 import { ConnectionCatalogSchema } from "@/lib/types/productConnection";
 import { fieldListProblems, FIELD_LIST_SUBJECT, hasOptions, type RecordField, type RecordFieldObject } from "@/lib/types/recordField";
+import { readTeamViews, TEAM_VIEWS_SUBJECT } from "@/lib/views/savedViews";
+import { planTeamViewRestore, restoredViews } from "@/lib/views/versionRestore";
+import { sameView } from "@/lib/views/types";
+import type { SavedView } from "@/lib/types/savedView";
 import { getSettingsVersion } from "./history";
 import { erasedSinceArchive } from "./eraseDates";
 import { isSettingsEraseEnabled } from "./flags";
-import { NEVER_UNDONE } from "./words";
+import { NEVER_UNDONE, TEAM_VIEWS_FULL_TEXT } from "./words";
 import { catalogName, journeyName, kindRestores, settingsSubjectName, whoNamer, whoOfActor, whoOfSaver, type HistoryDeps, type HistoryKind, type HistorySubject, type Who } from "./sources";
 
 /**
@@ -20,7 +24,8 @@ import { catalogName, journeyName, kindRestores, settingsSubjectName, whoNamer, 
  * back, what is archived, what changes back and what a restore never undoes. Field lists show
  * exactly what restoreFieldListVersion will save (planFieldListRestore); a journey's restore fills
  * its draft only, so the live version, its people and its email style stay; a catalog's is read
- * through describeChanges, and from then on stages are read with it. Read only.
+ * through describeChanges, and from then on stages are read with it. Team views go back one view at
+ * a time (planTeamViewRestore): the views the version names, every other one as it is now. Read only.
  */
 
 export { NEVER_UNDONE } from "./words";
@@ -42,7 +47,7 @@ export interface RestorePreview {
   /** Who saved or published the version, in words, and when. */
   savedBy: string;
   savedAt: string;
-  /** Field lists and catalogs: the rev it is saved as, on top of `currentRev`. Journeys: null (only the draft changes). */
+  /** Field lists, team views and catalogs: the rev it is saved as, on top of `currentRev`. Journeys: null (only the draft changes). */
   becomes: number | null;
   currentRev: number | null;
   rows: PreviewRow[];
@@ -155,6 +160,64 @@ async function fieldsPreview(ctx: TenantContext, object: RecordFieldObject, rev:
   };
 }
 
+/** How one view goes back: its name, its filters, columns and sort, or both. */
+function viewChangedLine(now: SavedView, next: SavedView, rev: number): string {
+  const parts: string[] = [];
+  if (now.label !== next.label) parts.push(`${quote(now.label)} renamed back to ${quote(next.label)}`);
+  if (!sameView(now.definition, next.definition)) parts.push(`${quote(next.label)}: its filters, columns and sort as version ${rev} had them`);
+  const line = parts.join(". ") || `${quote(next.label)} goes back to how it was`;
+  return next.archivedAt ? `${line}. It stays archived.` : line;
+}
+
+/** Team views' restore, one view at a time: planTeamViewRestore's lists in words. */
+async function viewsPreview(ctx: TenantContext, rev: number, deps: PreviewDeps): Promise<PreviewResult> {
+  const [current, target] = await Promise.all([readTeamViews(ctx, deps.db), getSettingsVersion(ctx, TEAM_VIEWS_SUBJECT, rev, deps.db)]);
+  if (!target) return { ok: false, status: 404, error: "version_not_found" };
+  const nowIso = deps.nowIso ?? new Date().toISOString();
+  const p = planTeamViewRestore(current.items, target, { by: ctx.userId ?? null, nowIso });
+  const named = [...new Set(target.items.map((i) => i.label))];
+  const base: RestorePreview = {
+    kind: "views",
+    subject: TEAM_VIEWS_SUBJECT,
+    rev,
+    title: named.length === 1 ? `Restore team view ${quote(named[0]!)} to version ${rev}?` : `Restore ${named.length} team views to version ${rev}?`,
+    savedBy: await nameOf(ctx, whoOfActor(target.by), deps),
+    savedAt: target.savedAt,
+    becomes: current.rev + 1,
+    currentRev: current.rev,
+    rows: [],
+    unpublishedSince: null,
+    issues: [],
+    footnote: null,
+    refused: null,
+    base: current.rev,
+  };
+  const never: PreviewRow = { label: "Never undone", lines: [NEVER_UNDONE] };
+  if (!p.ok) {
+    const refused =
+      p.error === "view_old_shape"
+        ? `Version ${rev} of ${quote(p.label)} doesn't fit today's views, so it can't be restored. Export it to read it.`
+        : `Version ${rev} changed no team view, so there is nothing to restore.`;
+    return { ok: true, preview: { ...base, rows: [never], refused, base: null } };
+  }
+  const { plan } = p;
+  const rows: PreviewRow[] = [];
+  if (plan.back.length) rows.push({ label: "Comes back", lines: plan.back.map((v) => `${quote(v.label)}, in the Views menu for everyone on the team`) });
+  if (plan.archived.length) rows.push({ label: "Archived", lines: plan.archived.map((v) => `${quote(v.label)}: out of the Views menu, kept to bring back`) });
+  if (plan.changed.length) rows.push({ label: "Changes back", lines: plan.changed.map((c) => viewChangedLine(c.now, c.next, rev)) });
+  const changes = restoredViews(plan).length > 0;
+  const one = plan.same.length === 1;
+  if (!changes) rows.push({ label: "Changes back", lines: [`Nothing: ${one ? `${quote(plan.same[0]!.label)} is` : "they are"} as this version had ${one ? "it" : "them"}`] });
+  rows.push({ label: "Stays as it is", lines: ["Every other team view", "Everyone's Only me views"] });
+  rows.push(never);
+  const refused = !changes
+    ? `${one ? `${quote(plan.same[0]!.label)} is` : "These views are"} already as version ${rev} had ${one ? "it" : "them"}, so there is nothing to restore.`
+    : plan.problems.length
+      ? TEAM_VIEWS_FULL_TEXT
+      : null;
+  return { ok: true, preview: { ...base, rows, refused, base: refused ? null : current.rev } };
+}
+
 /** The draft's design without its own style, which a restore keeps: what "edits that aren't published" compares. */
 function designOf(d: Pick<LifecycleDraft, "graph" | "pools" | "settings">): string {
   const { emailStyle: _style, ...settings } = d.settings as LifecycleDraft["settings"] & { emailStyle?: unknown };
@@ -264,6 +327,7 @@ export async function previewRestore(ctx: TenantContext, subject: HistorySubject
   if (!Number.isInteger(rev) || rev < 0) return { ok: false, status: 400, error: "invalid_input" };
   if (subject.store === "journeys") return journeyPreview(ctx, subject.journeyId, rev, deps);
   if (subject.store === "catalogs") return catalogPreview(ctx, subject.connectionId, rev, deps);
+  if (subject.subject === TEAM_VIEWS_SUBJECT) return kindRestores(subject.kind) ? viewsPreview(ctx, rev, deps) : { ok: false, status: 409, error: "read_only" };
   if (!kindRestores(subject.kind) || (subject.subject !== "fields:person" && subject.subject !== "fields:company")) {
     return { ok: false, status: 409, error: "read_only" };
   }

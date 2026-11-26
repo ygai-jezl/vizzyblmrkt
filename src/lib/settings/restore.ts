@@ -7,6 +7,7 @@ import { versionDocId } from "@/lib/lifecycle/enrol";
 import { saveLifecycleDraft } from "@/lib/lifecycle/service";
 import { exportJourneyDocument } from "@/lib/lifecycle/transfer";
 import type { SettingsSubject } from "@/lib/types/settingsVersion";
+import { restoreTeamViewsVersion, TEAM_VIEWS_SUBJECT, type TeamViewsRestoreError } from "@/lib/views/savedViews";
 import { getSettingsVersion } from "./history";
 import { kindRestores, type HistorySubject } from "./sources";
 
@@ -19,7 +20,9 @@ import { kindRestores, type HistorySubject } from "./sources";
  * - a journey through saveLifecycleDraft, into the draft only, by a person, keeping the journey's
  *   email style and stamping the version it came from; the live version and its people stay;
  * - a catalog through restoreCatalogVersion (CATALOG_HISTORY_ENABLED), which stages are read with
- *   from then on.
+ *   from then on;
+ * - team views through restoreTeamViewsVersion, one view at a time: the views the version names go
+ *   back as it had them, as a new version on top, and every other team view stays as it is.
  * Shared connections are read only here. Exports are JSON, with no one's personal data.
  */
 
@@ -29,6 +32,16 @@ export const SETTINGS_VERSION_FORMAT = "yougrow.settings-version";
 export const CATALOG_VERSION_FORMAT = "yougrow.catalog-version";
 /** A journey version today's draft can't hold, exported to read only. */
 export const JOURNEY_VERSION_FORMAT = "yougrow.journey-version";
+
+/** Each team views restore error's status: a save in between (or a list now full) answers 409. */
+const VIEWS_RESTORE_STATUS: Record<TeamViewsRestoreError, number> = {
+  admins_only: 403,
+  views_changed: 409,
+  version_not_found: 404,
+  view_old_shape: 409,
+  nothing_to_restore: 409,
+  team_views_full: 409,
+};
 
 const fieldObject = (subject: SettingsSubject) => (subject === "fields:person" ? "person" : subject === "fields:company" ? "company" : null);
 
@@ -41,6 +54,12 @@ export async function restoreHistoryVersion(
   const { subject, rev, base } = input;
   if (!kindRestores(subject.kind)) return { status: 409, body: { error: "read_only" } };
   if (!Number.isInteger(rev) || rev < 0) return { status: 400, body: { error: "invalid_input" } };
+  if (subject.store === "settings" && subject.subject === TEAM_VIEWS_SUBJECT) {
+    if (typeof base !== "number" || !Number.isInteger(base) || base < 0) return { status: 400, body: { error: "invalid_input" } };
+    const r = await restoreTeamViewsVersion(ctx, { rev, baseRev: base, ...(deps.nowMs ? { nowIso: new Date(deps.nowMs).toISOString() } : {}) }, deps.db);
+    if (!r.ok) return { status: VIEWS_RESTORE_STATUS[r.error], body: { error: r.error === "admins_only" ? "forbidden" : r.error } };
+    return { status: 200, body: { ok: true, rev: r.rev, message: r.message } };
+  }
   if (subject.store === "settings") {
     const object = fieldObject(subject.subject);
     if (!object) return { status: 409, body: { error: "read_only" } };
@@ -136,8 +155,13 @@ export async function exportHistoryVersion(
   };
 }
 
-/** A file name for an export: `people-fields-v11.json`, `journey-v3.json`, `catalog-v9.json`. */
+/** A file name for an export: `people-fields-v11.json`, `team-views-v4.json`, `journey-v3.json`, `catalog-v9.json`. */
 export function exportFileName(subject: HistorySubject, rev: number | "draft"): string {
-  const what = subject.store === "settings" ? subject.subject.replace(":", "-").replace("fields-person", "people-fields").replace("fields-company", "company-fields") : subject.store === "journeys" ? "journey" : "catalog";
+  const what =
+    subject.store === "settings"
+      ? subject.subject.replace(":", "-").replace("fields-person", "people-fields").replace("fields-company", "company-fields").replace("views-person", "team-views")
+      : subject.store === "journeys"
+        ? "journey"
+        : "catalog";
   return `${what}-${rev === "draft" ? "draft" : `v${rev}`}.json`;
 }

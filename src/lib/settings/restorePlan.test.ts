@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forTenant } from "@/lib/tenant";
 import { readFieldList, restoreFieldListVersion, saveFieldEraseMark, saveFieldListChange } from "@/lib/audience/fieldList";
-import { commitSettingsChange } from "@/lib/tenant";
+import { commitSettingsChange, settingsVersionId } from "@/lib/tenant";
+import type { SavedView } from "@/lib/types/savedView";
+import { readTeamViews } from "@/lib/views/savedViews";
 import { NEVER_UNDONE, previewRestore, type RestorePreview } from "./restorePlan";
 import { parseHistorySubject } from "./sources";
-import { buildWorld, ctx, lookup, switchesOn, T, type World } from "./testing/world";
+import { addTeamViews, buildWorld, ctx, lookup, switchesOn, T, TENANT_ID, viewsOn, type World } from "./testing/world";
+import { TEAM_VIEWS_FULL_TEXT } from "./words";
 
 let w: World;
 beforeEach(async () => {
@@ -161,5 +164,56 @@ describe("previewRestore: what has none", () => {
     expect(await previewRestore(ctx, parseHistorySubject("connections:shared")!, 1, { db: w.db })).toEqual({ ok: false, status: 409, error: "read_only" });
     expect(await previewRestore(ctx, parseHistorySubject("fields:person")!, 99, { db: w.db })).toEqual({ ok: false, status: 404, error: "version_not_found" });
     expect(await previewRestore(ctx, parseHistorySubject(`journey:${w.journeyId}`)!, 9, { db: w.db })).toEqual({ ok: false, status: 404, error: "version_not_found" });
+  });
+});
+
+describe("previewRestore: team views, one view at a time", () => {
+  const STAYS = ["Every other team view", "Everyone's Only me views"];
+
+  it("puts back only the view the version names, as that version had it", async () => {
+    await addTeamViews(w);
+    viewsOn();
+    // Version 1 saved Wholesale; it has been renamed Trade buyers and given Silver since. Gold tier stays archived.
+    const p = await preview("views:person", 1);
+    expect(p).toMatchObject({ kind: "views", title: "Restore team view ‘Wholesale’ to version 1?", savedBy: "Maya Chen", savedAt: T(11), becomes: 5, currentRev: 4, base: 4, refused: null });
+    expect(rows(p)).toEqual({
+      "Changes back": ["‘Trade buyers’ renamed back to ‘Wholesale’. ‘Wholesale’: its filters, columns and sort as version 1 had them"],
+      "Stays as it is": STAYS,
+      "Never undone": [NEVER_UNDONE],
+    });
+    // Version 3 had Gold tier in use: it comes back, and nothing about Trade buyers changes.
+    expect(rows(await preview("views:person", 3))).toEqual({
+      "Comes back": ["‘Gold tier’, in the Views menu for everyone on the team"],
+      "Stays as it is": STAYS,
+      "Never undone": [NEVER_UNDONE],
+    });
+  });
+
+  it("has nothing to restore from a version that is how the view is now", async () => {
+    await addTeamViews(w);
+    viewsOn();
+    const p = await preview("views:person", 4);
+    expect(p).toMatchObject({ refused: "‘Gold tier’ is already as version 4 had it, so there is nothing to restore.", base: null });
+    expect(rows(p)["Changes back"]).toEqual(["Nothing: ‘Gold tier’ is as this version had it"]);
+  });
+
+  it("refuses a view that would go over 50 in use, or that doesn't fit today's views", async () => {
+    await addTeamViews(w);
+    viewsOn();
+    const team = await readTeamViews(ctx, w.db);
+    const more: SavedView[] = Array.from({ length: 49 }, (_, i) => ({ ...team.items[0]!, key: `viw_more${String(i).padStart(8, "0")}`, label: `View ${i}`, version: 1 }));
+    await commitSettingsChange(ctx, { subject: "views:person", baseRev: team.rev, value: { items: [...team.items, ...more] }, by: { type: "member", id: "usr_maya" }, source: "editor", nowIso: T(16) }, w.db);
+    expect(await preview("views:person", 3)).toMatchObject({ refused: TEAM_VIEWS_FULL_TEXT, base: null });
+    // A filter on typed words is never saved; a version holding one is read only here.
+    const id = settingsVersionId(TENANT_ID, "views:person", 1);
+    const v1 = structuredClone(w.db.raw("settings_versions", id)) as { snapshot: { items: Array<{ definition: { filters: unknown[] } }> } };
+    v1.snapshot.items[0]!.definition.filters = [{ on: "email_domain", op: "contains", value: "example.com" }];
+    w.db.seed("settings_versions", id, v1);
+    expect(await preview("views:person", 1)).toMatchObject({ refused: "Version 1 of ‘Wholesale’ doesn't fit today's views, so it can't be restored. Export it to read it.", base: null });
+  });
+
+  it("is read only while views are off", async () => {
+    await addTeamViews(w);
+    expect(await previewRestore(ctx, parseHistorySubject("views:person")!, 1, { db: w.db })).toEqual({ ok: false, status: 409, error: "read_only" });
   });
 });

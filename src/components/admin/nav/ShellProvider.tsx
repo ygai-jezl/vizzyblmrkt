@@ -41,6 +41,8 @@ interface Shell {
   vizzyTextFields: boolean;
   /** Vizzy fills in the New person form (isVizzyAddPersonEnabled(), from the server), for the How to drawer. */
   vizzyAddPerson: boolean;
+  /** Views on People are on (isViewsEnabled(), from the server), for the How to drawer. */
+  views: boolean;
   /** Every catalog save is kept as history (isCatalogHistoryEnabled(), from the server), for the How to drawer. */
   catalogHistory: boolean;
   /** Vizzy reads connected data (isConnectorsChatEnabled(), from the server), for the How to drawer. */
@@ -123,6 +125,7 @@ export function ShellProvider({
   vizzyFields = false,
   vizzyTextFields = false,
   vizzyAddPerson = false,
+  views = false,
   catalogHistory = false,
   connectorsChat = false,
   connectorsCollect = false,
@@ -167,6 +170,8 @@ export function ShellProvider({
   vizzyTextFields?: boolean;
   /** Vizzy's New person drafts are on (isVizzyAddPersonEnabled(), from the server): the How to drawer shows their help. */
   vizzyAddPerson?: boolean;
+  /** Views on People are on (isViewsEnabled(), from the server): the How to drawer shows their help. */
+  views?: boolean;
   /** Catalog history is on (isCatalogHistoryEnabled(), from the server): the How to drawer shows its help. */
   catalogHistory?: boolean;
   /** Vizzy reads connected data (isConnectorsChatEnabled(), from the server): the How to drawer says so. */
@@ -280,6 +285,7 @@ export function ShellProvider({
       vizzyFields,
       vizzyTextFields,
       vizzyAddPerson,
+      views,
       catalogHistory,
       connectorsChat,
       connectorsCollect,
@@ -299,7 +305,7 @@ export function ShellProvider({
       nextActionCard,
       onCanvasSaved: journeyInContext || personInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, searchFamily, searchNoteReads, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, settingsHistory, nextActionCard, saved],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, views, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, searchFamily, searchNoteReads, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, settingsHistory, nextActionCard, saved],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

@@ -2062,20 +2062,33 @@ export const ONTOLOGY: readonly OntologyType[] = [
   {
     id: "view",
     name: "View",
-    description: "A saved filter, sort and set of columns over people or another record, shared or personal.",
+    description:
+      "A saved filter, sort and set of columns over People (CRM_VIEWS_ENABLED): up to 10 filters joined by all or any, 10 columns and one sort, read in memory up to 5,000 people a view. Team views (Everyone on the team) are the settings subject views:person, saved by admins and kept in the settings log, archived and never removed, and listed in Settings › History, where an admin restores one view at a time; Only me views belong to one team member, are not logged, never in History, and are deleted for real. A saved view never keeps typed words (text and email domain filters work while looking, decision 3), so neither store holds the values of the brand's people; both hold team members' user ids.",
     place: "customers",
-    status: "planned",
+    status: "built",
     madeBy: [],
-    plannedIn: "C",
     home: "brand",
-    personal: "none",
-    stores: [],
-    links: [],
+    personal: "team",
+    stores: [
+      side("saved_views", "src/lib/tenant/settingsLog.ts", {
+        note: "the team's views, as the `views:person` setting: one document per brand, id from settingsDocId, one item per view (its id `viw_...`, name, filters, columns and sort, version, and who made, changed or archived it by user id), archived and never removed, written only with its settings version; caps 50 in use, 200 in all, under 200 KB, one view under 2 KB",
+      }),
+      side("member_views", "src/lib/tenant/memberViews.ts", {
+        note: "one team member's Only me views: one document per brand and member, id `mv_` and a hash of both, with the member's user id and a rev checked in one transaction; not logged, a view is deleted for real; 50 a member",
+      }),
+    ],
+    links: [
+      { to: "settings_version", via: "subject views:person, one version per team save", many: true },
+      { to: "custom_field", via: "the field ids its filters, columns and sort name", many: true },
+      { to: "member", via: "createdBy, changedBy and archivedBy on a team view, and member_views.userId", many: true },
+    ],
     events: [],
-    erase: { none: planned("piece C") },
-    export: { none: planned("piece C") },
-    search: { none: "a saved query, found by name" },
-    numbers: { none: planned("piece C") },
+    erase: {
+      gap: "neither store holds a person's values, so a person's erase has nothing here; a team member's user id stays an id after they leave and shows as Former team member, and their member_views document stays, seen by nobody, as the field lists' user ids do",
+    },
+    export: { gap: "neither store holds a person's values, so a person's export has nothing here; team member ids stay as ids, with no export by team member" },
+    search: { none: "a saved query, found by name in the Views menu and through get_view_counts" },
+    numbers: { meanings: ["viewPeople"], tool: "get_view_counts" },
   },
   {
     id: "list",

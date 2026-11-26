@@ -23,6 +23,9 @@ import { helpMetadata } from "./metadata";
 import { HELP_PLACES, helpFor, parseHelpPath } from "./places";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
 import { VIZZY_READS_HINT } from "@/components/admin/audience/fieldsApi";
+import { drawerBodyProps } from "@/components/help/HowToDrawer";
+import { VIEW_MESSAGES } from "@/lib/views/words";
+import { RESTORE_MESSAGES } from "@/components/admin/settings/historyWords";
 import {
   ABOUT_WORDS,
   BASICS_WORDS,
@@ -66,6 +69,7 @@ vi.hoisted(() => {
   process.env.AUDIENCE_VIZZY_FIELDS_ENABLED = "true";
   process.env.AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED = "true";
   process.env.AUDIENCE_VIZZY_ADD_PERSON_ENABLED = "true";
+  process.env.CRM_VIEWS_ENABLED = "true";
   process.env.NEXT_PUBLIC_EDIT_MODE_ENABLED = "true";
   process.env.NEXT_PUBLIC_EDIT_MODE_EMAILS_ENABLED = "true";
   process.env.NEXT_PUBLIC_NEWSLETTER_MARKDOWN_EMAIL_ENABLED = "true";
@@ -651,6 +655,78 @@ describe("the New person section", () => {
     expect(md("your-audience", false)).not.toContain("Add someone by hand");
     expect(md("your-audience", false)).not.toContain("New person");
     expect(md("plan-and-usage", false)).not.toContain("New person");
+  });
+});
+
+describe("the views sections", () => {
+  const md = (slug: string, views: boolean) => docToMarkdown(HELP_BODIES[slug]!({ people: true, fields: true, fieldFilters: true, addPerson: true, views }), "https://app.example.com");
+
+  it("show while views are on, with saved views and every message the screens show", () => {
+    const text = md("your-audience", true);
+    expect(text).toContain("## Views: filters, columns and sort");
+    expect(text).toContain("## Saved views");
+    for (const words of ["**Add filter**", "**All of these**", "**Columns**", "**Sort**", "**Save view**", "**Everyone on the team**", "**Only me**", "**Typed words**", "**Archived team views**"]) {
+      expect(text).toContain(words);
+    }
+    for (const m of [
+      VIEW_MESSAGES.capped,
+      VIEW_MESSAGES.typed_words,
+      VIEW_MESSAGES.team_views_full,
+      VIEW_MESSAGES.views_busy,
+      VIEW_MESSAGES.archived_field,
+      VIEW_MESSAGES.admins_only,
+      // Every other message the views screens show.
+      VIEW_MESSAGES.capped_group,
+      VIEW_MESSAGES.capped_search,
+      VIEW_MESSAGES.my_views_full,
+      VIEW_MESSAGES.archived_option,
+      VIEW_MESSAGES.view_changed,
+      VIEW_MESSAGES.view_too_large,
+      VIEW_MESSAGES.views_changed,
+      VIEW_MESSAGES.archived_view,
+      VIEW_MESSAGES.view_not_found,
+      VIEW_MESSAGES.rate_limited,
+      VIEW_MESSAGES.sort_ignored,
+      VIEW_MESSAGES.invalid_name,
+      VIEW_MESSAGES.invalid_view,
+    ]) {
+      expect(text).toContain(m);
+    }
+    expect(md("people", true)).toContain("make it a [view](https://app.example.com/help/your-audience.md) with Add filter");
+  });
+
+  it("stay hidden while views are off", () => {
+    expect(md("your-audience", false)).not.toContain("Saved views");
+    expect(md("your-audience", false)).not.toContain(VIEW_MESSAGES.capped);
+    expect(md("people", false)).not.toContain("#views");
+  });
+
+  it("follow what the How to drawer is told", () => {
+    expect(drawerBodyProps({ views: true } as never).views).toBe(true);
+    expect(drawerBodyProps(null as never).views).toBe(false);
+  });
+
+  it("put team views in History while views are on: one view at a time, never anyone's own", () => {
+    const history = (views: boolean) => docToMarkdown(HELP_BODIES["history-and-restore"]!({ views }), "https://app.example.com");
+    const on = history(true);
+    expect(on).toContain("## Team views");
+    expect(on).toContain("**Team views**");
+    expect(on).toContain("A restore puts back one view at a time");
+    expect(on).toContain("are never in History");
+    for (const m of [RESTORE_MESSAGES.views_changed, RESTORE_MESSAGES.team_views_full]) expect(on).toContain(m);
+    expect(on).toContain("**Product catalogs**, **Shared connections** or **Team views**");
+    expect(on).toContain("Fields, shared connections and team views come as a settings version");
+    const off = history(false);
+    expect(off).toContain("**Product catalogs** or **Shared connections**");
+    expect(off).toContain("Fields and shared connections come as a settings version");
+    expect(off).not.toContain("Team views");
+    expect(off).not.toContain("team view");
+    expect(off).not.toContain(RESTORE_MESSAGES.views_changed);
+    // Saved views on People say where their history is, while History is on.
+    const audience = (settingsHistory: boolean) => docToMarkdown(HELP_BODIES["your-audience"]!({ people: true, fields: true, views: true, settingsHistory }), "https://app.example.com");
+    expect(audience(true)).toContain("Each change to a team view is kept in [History](https://app.example.com/help/history-and-restore.md");
+    expect(audience(true)).toContain("Your own views are never in it.");
+    expect(audience(false)).toContain("Each change to a team view is kept in the settings history.");
   });
 });
 

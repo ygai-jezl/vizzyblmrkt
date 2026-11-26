@@ -347,6 +347,8 @@ export interface BrandStubs {
   stubs: SearchStub[];
   /** The kinds read in full: only these may have records removed from the index. */
   complete: Set<SearchKind>;
+  /** The kinds whose read failed (logged): nothing of them was indexed or removed. */
+  failed?: Set<SearchKind>;
 }
 
 /** Which records readBrandStubs reads (SEARCH_FAMILY_INDEX_ENABLED, ADR-0023). */
@@ -443,7 +445,7 @@ export async function readBrandStubs(ctx: TenantContext, opts: StubsOptions = {}
   await read(["image"], async () => (await repo.imageAssets.find({ limit: 1000 })).map(imageSource).filter((x): x is SearchSource => x !== null).map(stubOf));
   await read(["knowledge"], async () => (await repo.ingestionTickets.find({ limit: 500 })).filter(isReadTicket).map((t) => knowledgeStub(ctx, t)));
   const complete = new Set([...readOk].filter((k) => !failed.has(k)));
-  return { stubs, complete };
+  return { stubs, complete, failed: new Set([...failed].filter(wanted)) };
 }
 
 /**

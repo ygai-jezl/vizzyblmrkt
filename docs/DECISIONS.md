@@ -115,7 +115,12 @@ change or secret.
 15. **Scripts**, each read only or dry run by default: `measure-question-dupes.ts --model old|new`
     (every group above, each side embedded as its reader embeds it); `search-backfill.ts --kinds`
     and `--all-brands` (the dry run prints chunks, tokens and cost per brand, and `--apply` writes
-    statuses on records already indexed); `search-nearest-check.ts` (one brand, read only, with
+    statuses on records already indexed). The backfill writes what the deployment's scheduled
+    check writes, so it takes `SEARCH_FAMILY_INDEX_ENABLED` and `SEARCH_KIND_IDEA_BOARD_ENABLED`
+    from `--settings <apphosting.<env>.yaml>`, whatever the shell says, and refuses to run with
+    neither that nor `--all-brands`: run as a deployment without the family, it would strip every
+    granted brand's statuses and proposals for up to 6 hours. A kind whose read fails counts as a
+    failure, so a run that couldn't read questions never reports done. `search-nearest-check.ts` (one brand, read only, with
     Query Explain's analysis; `--seed --dev` adds a decided subject, 5,000 article chunks and 5,000
     proposals with random vectors under a throwaway brand path, checks both, then deletes it).
 
@@ -2587,8 +2592,8 @@ Owner decisions (2026-11-19 and 2026-11-20):
     (`storedKindOf` in `src/lib/search/indexer.ts`). Off: Idea Board items are still written as
     `idea`, so nothing moves at deploy. The scheduled search check, about every 10 minutes,
     moves stored items to the name in use, either way. It shares its time between brands and can
-    stop part way, so a move can take several checks; `scripts/search-backfill.ts --apply` moves
-    every brand in one run.
+    stop part way, so a move can take several checks; `scripts/search-backfill.ts --settings
+    <apphosting.<env>.yaml> --apply` moves every brand in one run.
   - Labels follow decision 11: the result badge reads "Clipping", the filter group "Scrapbook
     and images" (its key unchanged), and the Search help page and Vizzy's `search_brand`
     docstring say "Scrapbook clippings and templates". The brand context pack and Next up keep
@@ -2768,9 +2773,11 @@ Owner decisions (2026-11-19 and 2026-11-20):
   1. Turn `SEARCH_KIND_IDEA_BOARD_ENABLED` off, then move every brand's items back under
      `idea` before going on: anything left under `idea_board` would never be read or removed by
      the reverted code. Don't count on one search check, which shares 30 seconds a tick between
-     brands and can stop part way. Run `npx tsx scripts/search-backfill.ts --apply` once with the
-     switch unset in that shell (its header says what it needs), and go on only when it ends
-     with no failures.
+     brands and can stop part way. Once the switch is off in the deployment's settings and that
+     is rolled out, run `npx tsx scripts/search-backfill.ts --settings <apphosting.<env>.yaml>
+     --apply` once (it follows that file's `SEARCH_KIND_IDEA_BOARD_ENABLED` and
+     `SEARCH_FAMILY_INDEX_ENABLED`, whatever the shell says, ADR-0023), and go on only when it
+     ends with no failures.
   2. Turn `ONTOLOGY_PERSON_IDS_ENABLED` off, then wait one delivery drain, so queued
      `person_repoint` jobs drop themselves. A revert with jobs still queued makes the job switch
      in `src/lib/email/delivery.ts` throw for them until they park as failed after three
@@ -2804,9 +2811,10 @@ Owner steps:
   databases, then run the backfill: dry run, apply, dry run (stamped 0 and corrected 0).
 - Prod: promote with both switches off, deploy the indexes, then a private settings change
   turns on `ONTOLOGY_PERSON_IDS_ENABLED` and after it `SEARCH_KIND_IDEA_BOARD_ENABLED`. Run the
-  prod backfill the same way. Once the search switch is on, `scripts/search-backfill.ts --apply`
-  with `SEARCH_KIND_IDEA_BOARD_ENABLED=true` in that shell moves every brand's clippings in one
-  run, instead of some dropping out of search for a check or two. Vizzy's search change rides
+  prod backfill the same way. Once the search switch is on, `scripts/search-backfill.ts --settings
+  <apphosting.prod.yaml> --apply` (the file turns `SEARCH_KIND_IDEA_BOARD_ENABLED` on; ADR-0023)
+  moves every brand's clippings in one run, instead of some dropping out of search for a check
+  or two. Vizzy's search change rides
   the redeploy after piece B.
 
 Deferred:

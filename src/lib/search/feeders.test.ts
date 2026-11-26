@@ -333,7 +333,7 @@ describe("the brand map family (ADR-0023)", () => {
     expect(find).not.toHaveBeenCalled();
     expect(content.listIdeaItems).not.toHaveBeenCalled();
     // The family's reads fail here (no database), so nothing of theirs is complete either.
-    expect(familyOnly).toEqual({ stubs: [], complete: new Set() });
+    expect(familyOnly).toEqual({ stubs: [], complete: new Set(), failed: new Set(["subject", "question", "situation", "note", "competitor"]) });
 
     const between = await readBrandStubs(ctx, { familyNow: false });
     expect(between.stubs.map((st) => st.kind)).toEqual(["idea_board"]);

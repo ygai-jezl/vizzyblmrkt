@@ -34,6 +34,8 @@ export interface SweepCounts {
   failed: number;
   /** True when time ran out before every changed record was indexed (the next check carries on). */
   partial: boolean;
+  /** The kinds whose read failed: nothing of them was indexed or removed (scripts/search-backfill.ts counts them as failures). */
+  unread: SearchKind[];
   byKind: Partial<Record<SearchKind, number>>;
   /**
    * With `estimate` on a dry run: what --apply would embed (chunks, and the characters sent, about
@@ -56,9 +58,9 @@ export async function sweepBrand(
 ): Promise<SweepCounts> {
   const clock = deps.clock ?? Date.now;
   const store = deps.store ?? searchStoreFor(ctx);
-  const { stubs, complete } = await (deps.read ?? readBrandStubs)(ctx, { familyOnly: opts.familyOnly, familyNow: opts.familyNow, kinds: opts.kinds });
+  const { stubs, complete, failed: unread } = await (deps.read ?? readBrandStubs)(ctx, { familyOnly: opts.familyOnly, familyNow: opts.familyNow, kinds: opts.kinds });
   const manifests = new Map((await store.listManifests()).map((m) => [m.sourceKey, m]));
-  const counts: SweepCounts = { records: stubs.length, changed: 0, indexed: 0, unchanged: 0, removed: 0, failed: 0, partial: false, byKind: {} };
+  const counts: SweepCounts = { records: stubs.length, changed: 0, indexed: 0, unchanged: 0, removed: 0, failed: 0, partial: false, unread: [...(unread ?? [])].sort(), byKind: {} };
   for (const st of stubs) counts.byKind[st.kind] = (counts.byKind[st.kind] ?? 0) + 1;
 
   // Keys under the name each kind is written as now: an entry stored under another name is gone,

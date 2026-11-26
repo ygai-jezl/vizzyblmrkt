@@ -104,6 +104,13 @@ describe("sweepBrand", () => {
     expect(await store.getManifest("note:n1")).not.toBeNull();
   });
 
+  it("says which kinds it couldn't read, so a backfill counts them as failures", async () => {
+    const store = new MemorySearchIndex().storeFor(ctx);
+    const read = async () => ({ stubs: [stubOf(src("idea_board", "i1", "a"))], complete: new Set<SearchKind>(["idea_board"]), failed: new Set<SearchKind>(["subject", "note"]) });
+    expect(await sweepBrand(ctx, {}, { store, embed: unitEmbed, read })).toMatchObject({ indexed: 1, failed: 0, unread: ["note", "subject"] });
+    expect((await sweepBrand(ctx, {}, { store, embed: unitEmbed, read: reader([], ["idea_board"]) })).unread).toEqual([]);
+  });
+
   it("tries text kept without vectors again only after a while", async () => {
     const index = new MemorySearchIndex();
     const store = index.storeFor(ctx);

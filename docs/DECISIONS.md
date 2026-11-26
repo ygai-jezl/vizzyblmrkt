@@ -151,8 +151,12 @@ Gaps and follow-ups:
 - `get_setup_status` still names the steps list's next step; `get_next_action` names the card's.
 - No path deletes a whole brand; a person's erase does not find a reason that names them (free text).
 - The card is written in the language of the facts, while its buttons and footer are English.
-- Not walked on the emulators, and the enum schema is not yet probed on Vertex in this PR: the plain
-  JSON retry covers a refused schema, and Home shows the steps list on any failure.
+- Walked on the emulators with cards written through the app's own code and a stub model (there is
+  no key locally). The enum schema is not yet probed on Vertex: the plain JSON retry covers a
+  refused schema, and Home shows the steps list on any failure, so a dev check with a real card is
+  owed before the prod flip.
+- After a fallback the next card has no done note: the note is about the card before, and a
+  fallback has none.
 - Turning it on needs a Vizzy redeploy for `get_next_action`, in either order: an older Vizzy has no
   tool, and the card works without it.
 

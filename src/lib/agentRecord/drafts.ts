@@ -18,14 +18,20 @@ export const planHref = (workspaceId: string, planId: string): string => `/admin
 /** A lifecycle journey's page. */
 export const journeyHref = (journeyId: string): string => `/admin/lifecycle/${journeyId}`;
 
+type PlanView = Pick<ContentPlan, "status" | "graph">;
+
+const approvedIds = (p: Pick<ContentPlan, "graph">) => new Set((p.graph?.nodes ?? []).filter((n) => n.status === "approved").map((n) => n.id));
+
 /**
  * A content plan Vizzy drafted or rewrote (the canvas), or the autopilot finished: recorded beside
- * the save. Only a plan an agent made: a refill of a person's plan stays theirs.
+ * the save. Only a plan an agent made: a refill of a person's plan stays theirs. The record keeps
+ * the ids of the pieces already approved, and whether the plan was already scheduled, so a refill
+ * of a plan whose hub was approved before waits for a new approval.
  */
 export function recordPlanDraft(
   ctx: TenantContext,
   workspaceId: string,
-  plan: Pick<ContentPlan, "id" | "name" | "graph" | "authoredBy">,
+  plan: Pick<ContentPlan, "id" | "name" | "graph" | "authoredBy"> & Partial<Pick<ContentPlan, "status">>,
   by: "vizzy" | "autopilot",
   deps: RecordDeps = {},
 ): Promise<RecordOutcome> {
@@ -38,15 +44,23 @@ export function recordPlanDraft(
       href: planHref(workspaceId, plan.id),
       label: plan.name,
       fingerprint: planPrint(plan),
+      approved: [...approvedIds(plan)].sort(),
+      scheduled: plan.status === "scheduled",
       ...(by === "autopilot" ? { requestedBy: { type: "system" as const, id: "autopilot" } } : {}),
     },
     deps,
   );
 }
 
-type PlanView = Pick<ContentPlan, "status" | "graph">;
-
-const approvedIds = (p: PlanView) => new Set((p.graph?.nodes ?? []).filter((n) => n.status === "approved").map((n) => n.id));
+/**
+ * Whether a plan was kept since its record was made: a piece approved that wasn't approved then,
+ * or the plan scheduled since (the catch-up's rule, for Found live's approvals).
+ */
+export function approvedSince(proposal: Record<string, unknown> | null | undefined, plan: PlanView): boolean {
+  const was = new Set(Array.isArray(proposal?.approved) ? proposal.approved.filter((x): x is string => typeof x === "string") : []);
+  if ([...approvedIds(plan)].some((id) => !was.has(id))) return true;
+  return plan.status === "scheduled" && proposal?.scheduled !== true;
+}
 
 /** A save that approves a piece (Review's rule for a draft that is no longer waiting), or schedules the plan. */
 export function approvesAPiece(before: PlanView, after: PlanView): boolean {

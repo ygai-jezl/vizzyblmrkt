@@ -5,10 +5,12 @@ import type { TenantContext } from "@/lib/tenant/types";
 import type { Tenant } from "@/lib/types/tenant";
 import type { AgentAction } from "@/lib/types/agentAction";
 import { samplePlan, sampleHub } from "@/lib/content/blog/testing/samplePlan";
-import { CATCH_UP, catchUpBrand, inSlot, runAgentRecordCatchUp, slotOf } from "./catchUp";
+import { BrandMapChangeSchema } from "@/lib/types/brandMap";
+import { changeKey } from "@/lib/brandMap/changes";
+import { CATCH_UP, catchUpBrand, dayStart, inSlot, runAgentRecordCatchUp, slotOf } from "./catchUp";
 import { recordDraft, styleKeyPart, type RecordDraftInput } from "./record";
 import { recordMapRun } from "./mapRuns";
-import { planRef } from "./drafts";
+import { recordPlanDraft } from "./drafts";
 
 // Made-up brands.
 const A: TenantContext = { tenantId: "ten_A", region: "us", source: "agent", userId: "usr_a1", role: "admin" };
@@ -100,21 +102,54 @@ describe("closing what moved on another way", () => {
     expect(stateOf(byRef.get("wav_off"))).toEqual(["declined", "stale", "system"]);
   });
 
-  it("closes a plan Found live approved as acted, and one in an archived programme as stale", async () => {
+  it("closes a plan Found live approved since as acted, and one in an archived programme as stale", async () => {
     const db = new FakeFirestore();
     db.seed("workspaces", "ws1", { tenantId: "ten_A", name: "Blog" });
     db.seed("workspaces", "ws_old", { tenantId: "ten_A", name: "Old", archivedAt: "2026-11-01T00:00:00.000Z" });
-    db.seed("workspaces/ws1/content_plans", "pl_live", samplePlan({ id: "pl_live" }, sampleHub({ status: "approved" })));
-    db.seed("workspaces/ws1/content_plans", "pl_wait", samplePlan({ id: "pl_wait" }));
-    db.seed("workspaces/ws_old/content_plans", "pl_old", samplePlan({ id: "pl_old", workspaceId: "ws_old" }));
-    for (const [ws, id] of [["ws1", "pl_live"], ["ws1", "pl_wait"], ["ws_old", "pl_old"]]) {
-      await record(db, { action: "autopilot.draft", draft: { kind: "content_plan", ref: planRef(ws!, id!) }, href: "/x" });
+    const plans = { pl_live: samplePlan({ id: "pl_live" }), pl_wait: samplePlan({ id: "pl_wait" }), pl_old: samplePlan({ id: "pl_old", workspaceId: "ws_old" }) };
+    db.seed("workspaces/ws1/content_plans", "pl_live", plans.pl_live);
+    db.seed("workspaces/ws1/content_plans", "pl_wait", plans.pl_wait);
+    db.seed("workspaces/ws_old/content_plans", "pl_old", plans.pl_old);
+    for (const [ws, id] of [["ws1", "pl_live"], ["ws1", "pl_wait"], ["ws_old", "pl_old"]] as const) {
+      await recordPlanDraft(A, ws, plans[id], "autopilot", { db, nowMs: T0 });
     }
+    // Found live approves the article after the autopilot drafted it.
+    db.seed("workspaces/ws1/content_plans", "pl_live", samplePlan({ id: "pl_live" }, sampleHub({ status: "approved" })));
     await run(db);
     const byRef = new Map((await records(db)).map((a) => [a.draft!.ref, a]));
     expect(stateOf(byRef.get("ws1:pl_live"))).toEqual(["acted", null, "system"]);
+    expect(byRef.get("ws1:pl_live")).toMatchObject({ result: { label: "Visibility guide" }, proposal: null });
     expect(stateOf(byRef.get("ws1:pl_wait"))).toEqual(["proposed", null, null]);
     expect(stateOf(byRef.get("ws_old:pl_old"))).toEqual(["declined", "stale", "system"]);
+  });
+
+  it("leaves a refill of a plan whose hub was approved before waiting, and counts a later approval or schedule", async () => {
+    const db = new FakeFirestore();
+    db.seed("workspaces", "ws1", { tenantId: "ten_A", name: "Blog" });
+    const spoke = { ...sampleHub({ id: "sp1", type: "spoke", channel: "linkedin", role: "Spoke", body: "A post." }), status: "generated" };
+    const refilled = samplePlan({ id: "pl_refill", authoredBy: "agent", graph: { nodes: [sampleHub({ status: "approved" }), spoke], edges: [] } as never });
+    db.seed("workspaces/ws1/content_plans", "pl_refill", refilled);
+    const scheduledBefore = samplePlan({ id: "pl_sched", authoredBy: "agent", status: "scheduled" }, sampleHub({ status: "approved" }));
+    db.seed("workspaces/ws1/content_plans", "pl_sched", scheduledBefore);
+    // Vizzy writes the spokes after the hub was approved, and redrafts a plan already scheduled.
+    await recordPlanDraft(A, "ws1", refilled, "vizzy", { db, nowMs: T0 });
+    await recordPlanDraft(A, "ws1", scheduledBefore, "vizzy", { db, nowMs: T0 });
+    expect(await run(db)).toEqual({ read: 2, closed: 0 });
+    // A person approves a spoke the catch-up didn't see (a missed hook): that one counts.
+    db.seed("workspaces/ws1/content_plans", "pl_refill", { ...refilled, graph: { ...refilled.graph, nodes: [refilled.graph.nodes[0], { ...spoke, status: "approved" }] } });
+    await run(db, T0 + 2 * DAY);
+    const byRef = new Map((await records(db)).map((a) => [a.draft!.ref, a]));
+    expect(stateOf(byRef.get("ws1:pl_refill"))).toEqual(["acted", null, "system"]);
+    expect(stateOf(byRef.get("ws1:pl_sched"))).toEqual(["proposed", null, null]);
+  });
+
+  it("leaves a paused launch journey Vizzy rewrote waiting: only turning it on counts", async () => {
+    const db = new FakeFirestore();
+    db.seed("journeys", "journey_camp1", { tenantId: "ten_A", campaignId: "camp1", status: "paused", graph: { nodes: [], edges: [] } });
+    db.seed("journeys", "journey_camp2", { tenantId: "ten_A", campaignId: "camp2", status: "draft", graph: { nodes: [], edges: [] } });
+    await record(db, { action: "launch_journey.draft", draft: { kind: "launch_journey", ref: "journey_camp1" }, launchId: "camp1", href: "/x" });
+    await record(db, { action: "launch_journey.draft", draft: { kind: "launch_journey", ref: "journey_camp2" }, launchId: "camp2", href: "/x" });
+    expect(await run(db)).toEqual({ read: 2, closed: 0 });
   });
 
   it("closes a style suggestion replaced with no record of it as stale, and leaves the current one", async () => {
@@ -157,13 +192,35 @@ describe("closing what moved on another way", () => {
 
   it("closes a map run whose suggestions all went to the dismissed list as dismissed, and one with some accepted as acted", async () => {
     const db = new FakeFirestore();
-    db.seed("brand_maps", "bm_ten_A", { tenantId: "ten_A", rev: 0, suggestions: [], dismissed: ["k_one", "k_two"] });
+    const accepted = changeKey(BrandMapChangeSchema.parse({ type: "add_subject", name: "Repotting" }));
+    db.seed("brand_maps", "bm_ten_A", { tenantId: "ten_A", rev: 1, subjects: [{ id: "sub_aaaaaaaa", name: "Repotting", questions: [] }], suggestions: [], dismissed: ["k_one", "k_two"] });
     await recordMapRun(A, { action: "brand_map.suggest", keys: ["k_one", "k_two"], refs: [] }, { db, nowMs: T0 });
-    await recordMapRun(A, { action: "brand_map.research", keys: ["k_one", "k_three"], refs: [] }, { db, nowMs: T0 + 1 });
+    await recordMapRun(A, { action: "brand_map.research", keys: ["k_one", accepted], refs: [] }, { db, nowMs: T0 + 1 });
     await run(db);
     const rows = await records(db);
     expect(stateOf(rows.find((a) => a.action === "brand_map.suggest"))).toEqual(["declined", "dismissed", "system"]);
     expect(rows.find((a) => a.action === "brand_map.research")).toMatchObject({ state: "acted", result: { kept: 1, dismissed: 1 } });
+  });
+
+  it("starts each day's read at a different point, so a brand with more open records than a day reads has each read in turn", async () => {
+    const days = Array.from({ length: 10 }, (_, d) => dayStart(T0 + d * DAY));
+    expect(new Set(days).size).toBe(10);
+    for (const s of days) expect(s).toMatch(/^aa_[0-9a-f]{8}$/);
+    const db = new FakeFirestore();
+    const n = CATCH_UP.PAGES * CATCH_UP.PAGE + 50;
+    for (let i = 0; i < n; i++) {
+      db.seed("invite_waves", `wav_${i}`, { tenantId: "ten_A", campaignId: "camp1", status: "draft", size: 5 });
+      await record(db, { action: "invite_wave.draft", draft: { kind: "invite_wave", ref: `wav_${i}` }, launchId: "camp1", href: "/x" });
+    }
+    // The 50 that sort last by id stay out of the first 200 every day if each day starts at the top.
+    const last = (await records(db)).sort((a, b) => a.id.localeCompare(b.id)).slice(-50);
+    for (const a of last) db.seed("invite_waves", a.draft!.ref, { tenantId: "ten_A", campaignId: "camp1", status: "cancelled", size: 5 });
+    for (let d = 1; d <= 5; d++) {
+      const r = await run(db, T0 + d * DAY);
+      expect(r.read).toBeLessThanOrEqual(CATCH_UP.PAGES * CATCH_UP.PAGE);
+    }
+    const byId = new Map((await records(db)).map((a) => [a.id, a]));
+    for (const a of last) expect(stateOf(byId.get(a.id))).toEqual(["declined", "stale", "system"]);
   });
 
   it("reads nothing once its budget has gone", async () => {

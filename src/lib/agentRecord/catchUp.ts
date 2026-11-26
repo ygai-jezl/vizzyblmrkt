@@ -8,6 +8,7 @@ import type { AgentAction } from "@/lib/types/agentAction";
 import type { Tenant } from "@/lib/types/tenant";
 import { isAgentRecordEnabled } from "./flags";
 import { closeMapRun, readMapLists, type MapLists } from "./mapRuns";
+import { approvedSince } from "./drafts";
 import { actAsSystem, closeAsSystem, styleRecordId } from "./record";
 import { SOURCES, type CatchUpReader, type SourceLine } from "./sources";
 
@@ -22,7 +23,9 @@ import { SOURCES, type CatchUpReader, type SourceLine } from "./sources";
  *   all went to the map's dismissed list (mapRuns.ts);
  * - a learning run that failed or found nothing: stale;
  * - past its expiry: expired, checked in memory, so it also works where person links are off.
- * Nobody deciding is never a no: stale and expired are the system's.
+ * Nobody deciding is never a no: stale and expired are the system's. Each day's read of an action
+ * starts at a different point in the ids (dayStart), so a brand with more open records than a day
+ * reads has each of them read in turn.
  */
 
 export const CATCH_UP = {
@@ -35,6 +38,20 @@ export const CATCH_UP = {
   /** No brand starts with less than this left. */
   MIN_LEFT_MS: 3_000,
 } as const;
+
+const DAY_MS = 86_400_000;
+
+/**
+ * Where a day's read of one action starts: a point in the id space (record ids are hashes) that
+ * moves on by the golden ratio each day, wrapping round. A brand with more open records of one
+ * action than a day reads (CATCH_UP.PAGES pages) still has each of them read in turn, with no
+ * cursor to keep.
+ */
+export function dayStart(nowMs: number): string {
+  const day = Math.floor(nowMs / DAY_MS);
+  const point = (day * 0.6180339887498949) % 1;
+  return `aa_${Math.floor(point * 0x100000000).toString(16).padStart(8, "0")}`;
+}
 
 /** The slot a brand's id falls in, 0 to 719. */
 export function slotOf(tenantId: string): number {
@@ -81,7 +98,9 @@ async function verdictOf(ctx: TenantContext, a: AgentAction, reader: CatchUpRead
       if (a.draft?.kind === "launch_journey") {
         const j = await repos.journeys.getById(ref);
         if (!j || j.retiredAt) return { to: "stale" };
-        return j.status === "draft" ? null : { to: "acted" };
+        // Only sending counts as turned on: Vizzy saves into a paused journey too, and pausing a
+        // draft makes it paused, so a draft or paused journey still waits.
+        return j.status === "active" ? { to: "acted" } : null;
       }
       const j = await repos.lifecycleJourneys.getById(ref);
       if (!j || j.status === "archived") return { to: "stale" };
@@ -102,8 +121,9 @@ async function verdictOf(ctx: TenantContext, a: AgentAction, reader: CatchUpRead
       if (!ws || ws.archivedAt) return { to: "stale" };
       const plan = await getContentPlan(ctx, workspaceId, planId, db);
       if (!plan || plan.status === "archived") return { to: "stale" };
-      // A piece approved since (Found live approves an article it finds live), or scheduled.
-      return plan.status === "scheduled" || plan.graph.nodes.some((n) => n.status === "approved") ? { to: "acted" } : null;
+      // A piece approved since the record was made (Found live approves an article it finds
+      // live), or the plan scheduled since. A hub approved before a refill doesn't count.
+      return approvedSince(a.proposal, plan) ? { to: "acted" } : null;
     }
     case "brand_style": {
       reads.tenant ??= getTenantById(ctx.tenantId, db).catch(() => null);
@@ -141,13 +161,21 @@ export async function catchUpBrand(ctx: TenantContext, opts: { deadlineMs: numbe
   const reads: BrandReads = {};
   const deps = { db: opts.db, nowMs: now() };
   const at = new Date(deps.nowMs).toISOString();
+  const start = dayStart(deps.nowMs);
   for (const line of SOURCES as readonly SourceLine[]) {
-    let after: string | null = null;
+    // From today's start to the end of the ids, then round from the first up to the start.
+    let after: string | null = start;
+    let wrapped = false;
     for (let page = 0; page < CATCH_UP.PAGES; page++) {
       if (now() >= opts.deadlineMs) return out;
       const r = await pageAgentActions(ctx, { action: line.action, state: "proposed" }, { after, limit: CATCH_UP.PAGE, db: opts.db });
+      let round = false;
       for (const a of r.actions) {
         if (now() >= opts.deadlineMs) return out;
+        if (wrapped && a.id > start) {
+          round = true;
+          break;
+        }
         out.read += 1;
         try {
           if (a.expiresAt <= at) {
@@ -167,7 +195,13 @@ export async function catchUpBrand(ctx: TenantContext, opts: { deadlineMs: numbe
           console.warn(`[agent-record] catch-up ${a.action} failed:`, err instanceof Error ? err.message.slice(0, 200) : "error");
         }
       }
-      if (!r.more) break;
+      if (round) break;
+      if (!r.more) {
+        if (wrapped) break;
+        wrapped = true;
+        after = null;
+        continue;
+      }
       after = r.last;
     }
   }

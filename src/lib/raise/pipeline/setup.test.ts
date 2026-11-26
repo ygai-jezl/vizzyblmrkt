@@ -205,20 +205,22 @@ describe("applyRaiseSetup", () => {
   });
 
   it("answers fields_changed after three tries", async () => {
+    // Someone saves between every read and its commit: the hook is armed as each press attempt commits.
     let k = 0;
     const busy = new Proxy(db, {
       get(target, prop, receiver) {
-        if (prop === "runTransaction") {
-          return async (fn: Parameters<FakeFirestore["runTransaction"]>[0]) => {
+        if (prop === "runTransaction" && k < 3) {
+          target.onBeforeCommit = async () => {
             k += 1;
             await saveFieldListChange(admin, "person", { baseRev: k - 1, change: { op: "add", label: `Notes ${k}`, type: "text" }, by }, target);
-            return target.runTransaction(fn);
           };
         }
         return Reflect.get(target, prop, receiver);
       },
     });
     expect(await applyRaiseSetup(admin, { kit: "raising", currency: "GBP", by, nowIso: NOW }, busy)).toEqual({ ok: false, error: "fields_changed" });
+    expect(k).toBe(3);
+    expect((await readFieldList(admin, "person", db)).items.map((f) => f.label)).toEqual(["Notes 1", "Notes 2", "Notes 3"]);
   });
 
   it("never touches another brand's list", async () => {

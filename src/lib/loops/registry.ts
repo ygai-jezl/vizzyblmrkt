@@ -278,7 +278,7 @@ export const LOOP_RULES = {
   lastLook: 120,
   /** Each look reads a 97.5% range for the change, which keeps a change that did nothing near 1% false better or worse across all five looks. */
   verdictZ: 2.24,
-  /** A change that did nothing may read better or worse, and a change of one band may read same, at most 5% of the time across all looks. */
+  /** A change that did nothing may read better or worse, and a change of one band may read same, at most 5% of the time across all looks, when each output's outcome stands on its own. */
   falseAlarm: 0.05,
   /** Months until the holdback can read a band sized change are worked out at 80% power, the usual level for planning a test. */
   holdbackPowerZ: 0.84,

@@ -11,7 +11,8 @@ import { LOOP_RULES, type Loop } from "./registry";
  * - It reads only at the looks (10, 20 and 40 outputs a side, then every 40 up to 120), never daily.
  * - The range for the change is Newcombe's hybrid score interval (built from Wilson's), read
  *   against the loop's band with three zones, and LOOP_RULES.verdictZ is set by simulation so a
- *   change that did nothing reads better or worse at most LOOP_RULES.falseAlarm of the time.
+ *   change that did nothing reads better or worse at most LOOP_RULES.falseAlarm of the time,
+ *   when each output's outcome stands on its own (see Outputs).
  * - It never undoes anything and is not adjusted for season.
  *
  * Nothing calls it yet: the check exists before anything learns. Every number comes from
@@ -33,6 +34,15 @@ export type Better = NonNullable<Meaning["better"]>;
 /**
  * One number's outputs either side of a change, oldest first: true when that output counts toward
  * the meaning (a draft a person edited, for edit share). One entry is one output, never one view.
+ *
+ * Each entry must be an output whose outcome does not depend on another entry's: the falseAlarm
+ * limits assume it. Outputs made together that tend to share an outcome, such as a set remade at
+ * once, can break both limits, so the caller stamps such a set as one entry (step 5 decides how).
+ *
+ * Each list holds only the outputs whose outcome is known, and outcomes become known in the order
+ * the outputs were made, as with unused share's fixed 14 days. So once one output after the change
+ * is known, every output before it is known too and the before list is complete; until then,
+ * outputs from just before the change can still join it.
  */
 export interface Outputs {
   /** The outputs made before the change, oldest first. */
@@ -44,11 +54,15 @@ export interface Outputs {
 export interface VerdictInput {
   /** The loop line's check, guard and band. */
   line: Pick<Loop, "check" | "guard" | "band">;
+  /** The check's outputs, each entry one output whose outcome stands on its own (see Outputs). */
   check: Outputs;
   /**
    * The guard's own outputs, which can be fewer or more than the check's: unused share is known
    * only 14 days after each draft, and remade share counts every image while liked share counts
-   * only the images someone voted on.
+   * only the images someone voted on. Each entry stands on its own, as for the check (see
+   * Outputs). Outcomes become known in the order the outputs were made, so while none since the
+   * change is known, drafts from the 14 days before it can still join the before list, and the
+   * reason line says only that better waits.
    */
   guard: Outputs;
   /** The levels both windows blend toward: the shipped default until a fleet cell publishes. */
@@ -58,7 +72,8 @@ export interface VerdictInput {
    * outputs: one number for both lists, or one for each, since liked share holds only the voted
    * images while remade share holds every image. Left out, it is 0: each list starts at its first
    * entry. The warm up drops each list's own first LOOP_RULES.warmUp entries, which for a list of
-   * every output is the scope's first 10 and for liked share its first 10 voted images.
+   * every output is the scope's first 10 and for liked share its first 10 voted images: stricter
+   * than the design's scope's first 10 outputs, a departure ADR-0019 records (item 6).
    */
   startsAt?: number | { check: number; guard: number };
 }
@@ -141,7 +156,9 @@ export interface HoldbackPlan {
    * leaves both arms. Two of the design's rules are not modelled: each organisation counts at most
    * 20 outputs per arm, so a few busy organisations make the answer too hopeful, and a fleet number
    * publishes only for LOOP_RULES.cellOrgs organisations or more, so below that nothing reads
-   * whatever the months say.
+   * whatever the months say. The holdback holds back decisions, and this counts outputs, which is
+   * right only when each held back decision makes one output: a decision that makes several
+   * outputs makes the answer too hopeful.
    */
   perMonth: number;
   rate: number;
@@ -206,7 +223,11 @@ export function nextLook(look: number): number | null {
   return LOOK_SIZES.find((n) => n > look) ?? null;
 }
 
-/** The largest look a number can ever reach: its before window is fixed at the change, so its usable outputs cap every look. */
+/**
+ * The largest look a number can reach on the before outputs known today. Its usable outputs cap
+ * every look, and the cap is final once one output since the change is known: outcomes are known
+ * in the order outputs were made (see Outputs), so by then the before window is fixed.
+ */
 function lastLookFor(usableBefore: number): number | null {
   return lookAt(usableBefore, Infinity);
 }
@@ -307,13 +328,15 @@ function widestVariance(rate: number, band: number): number {
 }
 
 /**
- * Months until the holdback (1 output in LOOP_RULES.holdbackOneIn) holds enough outputs for its
- * smallest detectable change to fall below the band: the usual sample size sum for two shares,
- * with the verdict's own interval and LOOP_RULES.holdbackPowerZ for power. About 5,000 divided
- * by the outputs a month at a rate of 0.5 and a band of 0.1. Null when nothing is made.
+ * Months until the holdback (1 decision in LOOP_RULES.holdbackOneIn held back) holds enough
+ * outputs for its smallest detectable change to fall below the band: the usual sample size sum for
+ * two shares, with the verdict's own interval and LOOP_RULES.holdbackPowerZ for power. About 5,000
+ * divided by the outputs a month at a rate of 0.5 and a band of 0.1. Null when nothing is made.
  * perMonth is this scope's outputs, pooled across every brand in the copy that has not opted out:
- * the holdback is never read for one brand. Neither the cap of 20 outputs per organisation per arm
- * nor the floor of LOOP_RULES.cellOrgs organisations is modelled.
+ * the holdback is never read for one brand. Counting outputs is right only when each held back
+ * decision makes one output; a decision that makes several outputs makes the answer too hopeful.
+ * Neither the cap of 20 outputs per organisation per arm nor the floor of LOOP_RULES.cellOrgs
+ * organisations is modelled.
  */
 export function monthsUntilHoldbackReads({ perMonth, rate, band }: HoldbackPlan): number | null {
   if (!(perMonth >= 0) || !Number.isFinite(perMonth)) fail(`outputs a month must be 0 or more, not ${perMonth}`);
@@ -387,6 +410,33 @@ function went(r: Read): string {
 /** "edit share went from 5 of 10 to 2 of 10, an estimated 50% to 30%" */
 const moved = (r: Read) => `${nameOf(r.meaning)} ${went(r)}`;
 
+/** The first look, the fewest outputs a side any number is read at. */
+const FIRST_LOOK = LOOK_SIZES[0]!;
+
+/** How much further a guard that has a look can be read. */
+interface GuardReach {
+  /** Next: it is read again at a larger look. Last: its before window reaches no further. Stop: the windows end here. */
+  kind: "next" | "last" | "stop";
+  /** The clause on its own, such as "the next look for unused share is at 80 outputs a side". */
+  text: string;
+}
+
+/**
+ * The guard's next look, the last look it can reach, or the end of the windows. Called only for a
+ * guard with a look, so it has at least one output since the change and its before window is fixed.
+ */
+function guardReach(g: Window): GuardReach {
+  const name = nameOf(g.read.meaning);
+  const gl = g.read.look!;
+  const gn = nextLook(gl);
+  if (gn === null) return { kind: "stop", text: `the windows stop at ${gl} outputs a side, so this change cannot read better` };
+  if (g.usableBefore >= gn) return { kind: "next", text: `the next look for ${name} is at ${gn} outputs a side` };
+  return {
+    kind: "last",
+    text: `${gl} outputs a side is the last look ${name} can reach, since only ${g.usableBefore} of its outputs before the change count, so this change cannot read better`,
+  };
+}
+
 function reasonFor(call: Call, c: Window, g: Window, band: number, smallest: number | null): string {
   const season = " Not adjusted for season.";
   // Every line that quotes estimated levels says how they are made.
@@ -405,7 +455,7 @@ function reasonFor(call: Call, c: Window, g: Window, band: number, smallest: num
     const too = c.read.call === "worse" ? `, and so did ${nameOf(c.read.meaning)}: it ${went(c.read)}` : "";
     return `Worse at ${g.read.look} outputs a side: ${moved(g.read)}, past ${bandText} the wrong way${too}.${estimates}`;
   }
-  if (call === "worse") return `Worse at ${c.read.look} outputs a side: ${moved(c.read)}, past ${bandText} the wrong way.${estimates}`;
+  if (call === "worse") return `Worse at ${c.read.look} outputs a side: ${moved(c.read)}, past ${bandText} the wrong way.${guardNote}${estimates}`;
   if (call === "better") {
     const head = `Better at ${c.read.look} outputs a side: ${moved(c.read)}, past ${bandText}`;
     if (g.read.call === "better") return `${head}, and ${guardName} did not get worse.${estimates}`;
@@ -419,32 +469,33 @@ function reasonFor(call: Call, c: Window, g: Window, band: number, smallest: num
   if (call === "same") return `Same at ${c.read.look} outputs a side: ${moved(c.read)}, and the whole range the change could be in sits inside ${bandText}.${guardNote}${estimates}`;
   const look = c.read.look;
   if (look === null) {
-    return `Too few to tell: a look needs ${LOOK_SIZES[0]} outputs on each side, and ${nameOf(c.read.meaning)} has ${c.usableBefore} before the change (its first ${LOOP_RULES.warmUp} never count) and ${c.after} since.${guardNote}${guardNote ? estimates : season}`;
+    // Once one output since the change is known the before list is complete (see Outputs), so too few before it is final.
+    const never =
+      c.after > 0 && c.usableBefore < FIRST_LOOK ? `; with fewer than ${FIRST_LOOK} before the change it never will, so this change can never read better or same` : "";
+    return `Too few to tell: a look needs ${FIRST_LOOK} outputs on each side, and ${nameOf(c.read.meaning)} has ${c.usableBefore} before the change (its first ${LOOP_RULES.warmUp} never count) and ${c.after} since${never}.${guardNote}${guardNote ? estimates : season}`;
   }
-  // The guard's before window is fixed at the change too, so its usable outputs cap its looks.
+  // The guard's usable outputs before the change cap its looks. The cap is final once one of its
+  // outputs since the change is known (see Outputs); until then more before it can still join.
   const guardLast = lastLookFor(g.usableBefore);
+  const guardFinal = g.after > 0;
   // Better waits until the guard reaches the check's look, or the last look the guard can reach.
   const wait = guardLast === null ? null : Math.min(look, guardLast);
   const guardBehind = wait !== null && (g.read.look === null || g.read.look < wait);
   if (c.read.call === "better") {
     const head = `Too few to tell at ${look} outputs a side: ${moved(c.read)}, past ${bandText}`;
     if (guardLast === null) {
-      return `${head}, but ${guardName} has too few outputs for a look, ${g.usableBefore} before the change and ${g.after} since; with fewer than ${LOOK_SIZES[0]} before the change it never will, so this change cannot read better.${estimates}`;
+      const rest = guardFinal
+        ? `; with fewer than ${FIRST_LOOK} before the change it never will, so this change cannot read better`
+        : `, so better waits until it has a look, which needs at least ${FIRST_LOOK} known outputs on each side of the change`;
+      return `${head}, but ${guardName} has too few outputs for a look, ${g.usableBefore} before the change and ${g.after} since${rest}.${estimates}`;
     }
     if (g.read.look === null) return `${head}, but ${guardName} has too few outputs for a look, ${g.usableBefore} before the change and ${g.after} since, so better waits until it has at least ${wait} since.${estimates}`;
     if (guardBehind) return `${head}, but ${guardName} has only ${g.after} outputs since the change, so better waits until it has at least ${wait}.${guardNote}${estimates}`;
     // Reached only when the guard has caught up, is too few to read and its raw range sits wholly on the worse side of no change.
-    const gl = g.read.look;
-    const gn = nextLook(gl);
-    const after =
-      gn === null
-        ? `; the windows stop at ${gl} outputs a side, so this change cannot read better`
-        : g.usableBefore >= gn
-          ? `; the next look for ${guardName} is at ${gn} outputs a side`
-          : `; ${gl} outputs a side is the last look ${guardName} can reach, since only ${g.usableBefore} of its outputs before the change count, so this change cannot read better`;
-    return `${head}, but ${moved(g.read)}, so it got worse, though not clearly by more than the band${after}.${estimates}`;
+    return `${head}, but ${moved(g.read)}, so it got worse, though not clearly by more than the band; ${guardReach(g).text}.${estimates}`;
   }
-  // The before window is fixed at the change, so a look larger than its usable outputs never comes.
+  // The check has a look, so it has outputs since the change and its before window is fixed: a
+  // look larger than its usable outputs never comes.
   const next = nextLook(look);
   const reach = next === null ? "stop" : c.usableBefore >= next ? "next" : "last";
   const atLook =
@@ -455,11 +506,21 @@ function reasonFor(call: Call, c: Window, g: Window, band: number, smallest: num
         : `, the last look this change can reach, since only ${c.usableBefore} outputs before it count`;
   // The same, standing on its own after a clause about the guard.
   const onItsOwn = reach === "last" ? `; this is the last look this change can reach, since only ${c.usableBefore} outputs before it count` : atLook;
+  // A guard that holds better back and can be read no further rules better out for good, even
+  // where the check has a next look, so the line says so after naming it.
+  let guardEnd = "";
+  if (harm && reach === "next") {
+    const r = guardReach(g);
+    if (r.kind === "last") guardEnd = `, but ${r.text}`;
+    else if (r.kind === "stop") guardEnd = `, but ${g.read.look} outputs a side is the last look ${guardName} can reach, where the windows stop, so this change cannot read better`;
+  }
   let shown: string;
   let then = atLook;
   let note = guardNote;
   if (guardLast === null) {
-    shown = `no change can show as better, since ${guardName} has only ${g.usableBefore} outputs before the change and a look needs ${LOOK_SIZES[0]}`;
+    shown = guardFinal
+      ? `no change can show as better, since ${guardName} has only ${g.usableBefore} outputs before the change and a look needs ${FIRST_LOOK}`
+      : `no change can show as better until ${guardName} has at least ${FIRST_LOOK} known outputs before the change`;
     then = onItsOwn;
   } else if (smallest === null) {
     shown = "no change could have shown as better at this look";
@@ -475,7 +536,7 @@ function reasonFor(call: Call, c: Window, g: Window, band: number, smallest: num
   }
   // A check that moved the wrong way says so first, so the likely harm is never left to the counts alone.
   const wrong = c.read.movedWrongWay ? `. It got worse, though not clearly by more than ${bandText}, and` : ", and";
-  return `Too few to tell at ${look} outputs a side: ${moved(c.read)}${wrong} ${shown}${then}.${note}${estimates}`;
+  return `Too few to tell at ${look} outputs a side: ${moved(c.read)}${wrong} ${shown}${then}${guardEnd}.${note}${estimates}`;
 }
 
 /**
@@ -486,7 +547,8 @@ function reasonFor(call: Call, c: Window, g: Window, band: number, smallest: num
  * - the check better gives better, once the guard has reached the check's look (or the last look
  *   the guard can reach) and is not a guard too few to read whose raw range sits wholly on the
  *   worse side of no change; until then it is too few to tell. A guard that lags the check, as
- *   unused share does, is read on fewer outputs, so its range is too wide to show harm. Blending
+ *   unused share does, is read on fewer outputs, so its range is wider and often cannot show harm
+ *   that is there. Blending
  *   shrinks the guard's range toward no change, which makes a guard worse harder to read, so the
  *   test on the raw range keeps a guard that probably got worse from letting better through. A
  *   guard that reads same is within the band, so it is not worse and lets better through;

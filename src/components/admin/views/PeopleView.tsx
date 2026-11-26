@@ -177,9 +177,11 @@ export function PeopleView({
     setRows((cur) => [...(cur ?? []), ...r.data.rows]);
   }
 
-  /** A filter on a field adds its column when there is room. */
+  /** A filter on a field adds the field's column once it is complete, when there is room. */
   function changeDrafts(next: DraftFilter[]) {
-    const added = next.map((d) => d.on).filter((on) => on.startsWith("fld_") && !columns.includes(on) && !drafts.some((d) => d.on === on));
+    const completeFields = (list: DraftFilter[]) => new Set(list.filter((d) => d.on.startsWith("fld_") && filterOf(d)).map((d) => d.on));
+    const before = completeFields(drafts);
+    const added = [...completeFields(next)].filter((on) => !before.has(on) && !columns.includes(on));
     if (added.length) setColumns((c) => [...c, ...added].slice(0, VIEW_LIMITS.columns));
     setDrafts(next);
   }

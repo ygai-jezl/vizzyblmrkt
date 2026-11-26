@@ -77,6 +77,8 @@ const MAX_CLAIMS = 8;
 const MAX_THEIRS = 2;
 const MAX_IS_NOT = 3;
 const PROPOSE_MS = 45_000;
+/** The prompt's version while nothing from competitors' articles is added: its words are v1's. */
+export const PROPOSE_V1 = 1;
 /** What competitors write adds at most this many characters to the prompt (about 2,000 tokens). */
 export const PROFILE_CHARS = 8_000;
 /** Their articles handed over as A evidence, at most, and how much of each. */
@@ -89,7 +91,7 @@ const SHARE = { competitors: 0.3, situations: 0.3 } as const;
 export const JOINED_WORDS = {
   situations_more: ", and how many articles its competitors wrote on it in the last 90 days",
   evidence_more: " A: an article a competitor published, with what it argues.",
-  focus_more: " Weigh competitor articles too: a situation none of them writes on is open ground; one many of their articles target is contested and needs a sharper angle.",
+  focus_more: " Weigh competitor articles too: a situation with none of their articles read may be open ground; one many of their articles target is contested and needs a sharper angle.",
   claims_more: " A claim about a competitor may stand on one of their articles instead, an A, which shows it in their own words.",
 } as const;
 const JOINED_WORDS_CHARS = Object.values(JOINED_WORDS).reduce((n, w) => n + w.length, 0);
@@ -188,7 +190,8 @@ export function profileNote(p: CompetitorProfile, days = PROFILE_DAYS): string {
 
 /** What competitors wrote on one situation: "competitors: 14 articles in 90 days, Rivalco 8, Peerly 5". Pure. */
 export function situationNote(row: Pick<ProfilesView["situations"][number], "they" | "byCompetitor">, days = PROFILE_DAYS): string {
-  if (!row.they) return `competitors: none in ${days} days`;
+  // Of the articles read: one they wrote but we haven't read isn't counted, so it never says "none".
+  if (!row.they) return `competitors: none read in ${days} days`;
   const top = row.byCompetitor.slice(0, 3).map((b) => `${oneLine(b.name)} ${b.count}`);
   const more = row.byCompetitor.length - top.length;
   return cut(`competitors: ${row.they} ${row.they === 1 ? "article" : "articles"} in ${days} days, ${top.join(", ")}${more > 0 ? `, ${more} more` : ""}`, 120);
@@ -283,7 +286,10 @@ export async function gatherStrategyInput(ctx: TenantContext, deps: ProposeDeps 
     soft((deps.facts ?? ((c) => listBusinessFacts(c, { db: deps.db })))(ctx), [] as BusinessFact[]),
     soft(listWorkspaces(ctx), [] as Array<{ id: string; archivedAt?: string | null; updatedAt?: string }>),
     soft(readBrandStrategyDoc(ctx, { db: deps.db }), null as BrandStrategyDoc | null),
-    readArticles ? soft((deps.recent ?? ((c) => listRecentReadArticles(c, { db: deps.db, now: deps.now, loadTenant: async () => tenant }).then((r) => r.articles)))(ctx), [] as CompetitorArticle[]) : Promise.resolve(null),
+    // A read that fails gives null, never an empty list: no reads must never read as "nobody writes on it".
+    readArticles
+      ? (deps.recent ?? ((c) => listRecentReadArticles(c, { db: deps.db, now: deps.now, loadTenant: async () => tenant }).then((r) => r.articles)))(ctx).catch(() => null)
+      : Promise.resolve(null),
   ]);
   const retrieve = deps.retrieve ?? retrieveSemanticKnowledgeContext;
   const live = workspaces
@@ -323,18 +329,18 @@ export async function gatherStrategyInput(ctx: TenantContext, deps: ProposeDeps 
   }
   const decided = situations.filter((s) => s.status === "decided").sort((a, b) => b.counts.questions - a.counts.questions || a.order - b.order).slice(0, MAX_SITUATIONS);
   // Joined and their articles read: what they wrote, within PROFILE_CHARS (the prompt's own added words count too).
-  const theirs = recent
-    ? (() => {
-        const profiles = competitorProfiles({
-          articles: recent,
-          competitors,
-          situations: decided.map((s) => ({ id: s.id, text: s.text, questions: s.counts.questions, answered: s.counts.answered })),
-          alternatives: [],
-          nowMs: (deps.now ?? (() => new Date()))().getTime(),
-        });
-        return competitorEvidence(profiles, recent, competitors, PROFILE_CHARS - JOINED_WORDS_CHARS);
-      })()
+  // Only when at least one watched competitor has an article read in the window: with none, nothing
+  // is added and the prompt stays v1's.
+  const profiles = recent
+    ? competitorProfiles({
+        articles: recent,
+        competitors,
+        situations: decided.map((s) => ({ id: s.id, text: s.text, questions: s.counts.questions, answered: s.counts.answered })),
+        alternatives: [],
+        nowMs: (deps.now ?? (() => new Date()))().getTime(),
+      })
     : null;
+  const theirs = recent && profiles?.profiles.some((p) => p.read > 0) ? competitorEvidence(profiles, recent, competitors, PROFILE_CHARS - JOINED_WORDS_CHARS) : null;
   const named = new Set<string>();
   let c = 0;
   for (const comp of competitors) {
@@ -371,7 +377,7 @@ export async function gatherStrategyInput(ctx: TenantContext, deps: ProposeDeps 
     ...(id.statement || id.category ? (["identity"] as const) : []),
     ...(decided.length ? (["situations", "coverage"] as const) : []),
     ...(competitors.length ? (["competitors"] as const) : []),
-    ...(theirs && (theirs.articles.length || Object.keys(theirs.competitorNotes).length) ? (["competitor_articles"] as const) : []),
+    ...(theirs ? (["competitor_articles"] as const) : []),
     ...(found.length ? (["finder"] as const) : []),
     ...(p ? (["site_pages"] as const) : []),
     ...(k ? (["knowledge"] as const) : []),
@@ -557,7 +563,8 @@ export async function proposeStrategy(ctx: TenantContext, deps: ProposeDeps = {}
       // Joined to Competitors, the tab lists the watched ones live: nothing is copied into the draft.
       watched: isStrategyCompetitorsEnabled() ? [] : input.watched,
       sources: input.sources,
-      made: { promptId: PROPOSE_PROMPT, version: getPrompt(PROPOSE_PROMPT).version, model: TEXT_MODEL },
+      // v2's words are in the prompt only with competitor notes; without them it is v1's, word for word.
+      made: { promptId: PROPOSE_PROMPT, version: input.competitorNotes ? getPrompt(PROPOSE_PROMPT).version : PROPOSE_V1, model: TEXT_MODEL },
     },
     { db: deps.db, now: deps.now },
   );

@@ -231,7 +231,7 @@ describe("Propose with Vizzy", () => {
       focusSituationIds: ["sit_aaaaaa02", "sit_aaaaaa01"],
       audiences: ["Marketing teams"],
       claims: [{ text: "Built for agencies", proof: { kind: "site", url: "https://acme.example/agencies" } }],
-      made: { promptId: "brand.strategy_propose", version: 2 },
+      made: { promptId: "brand.strategy_propose", version: 1 },
     });
     expect(doc?.draft?.sources).toEqual(expect.arrayContaining(["identity", "situations", "site_pages"]));
     expect(doc?.approved).toBeNull();
@@ -286,7 +286,7 @@ describe("Propose with Vizzy", () => {
     expect(v2!.length - v1!.length).toBeGreaterThan(0);
     expect(v2!.length - v1!.length).toBeLessThanOrEqual(PROFILE_CHARS);
     expect(v2).toContain("S1. A client asks why ChatGPT names a rival [12 questions, 0 answered by a live article; competitors: 200 articles in 90 days, Rival 0 20, Rival 1 20, Rival 2 20, 7 more]");
-    expect(v2).toContain("S2. Clicks fall while rankings hold [9 questions, 0 answered by a live article; competitors: none in 90 days]");
+    expect(v2).toContain("S2. Clicks fall while rankings hold [9 questions, 0 answered by a live article; competitors: none read in 90 days]");
     expect(v2).toContain("What they write: 20 articles read in 90 days; formats: case study 20; stages: weighing options 20; asks they push: none; 0 stats, in the 10 read from their own pages");
     expect(v2).toMatch(/\nA1\. Rival 0's article "Article \d+": y+/);
     const doc = await readBrandStrategyDoc(A, { db });
@@ -294,6 +294,32 @@ describe("Propose with Vizzy", () => {
     expect(doc?.draft?.sources).toContain("competitor_articles");
     expect(doc?.draft?.made).toMatchObject({ version: 2 });
     expect(doc?.draft?.claims[0]).toMatchObject({ side: "them", competitor: "Rival 0", proof: { kind: "competitor", url: expect.stringMatching(/^https:\/\/rival0\.example\/blog\//) } });
+  });
+
+  it("joined, adds nothing from competitors when none of their articles was read, or the read failed, and records v1", async () => {
+    const db = await brand();
+    await monitorCompetitor(A, { website: "rival0.example", name: "Rival 0" }, { db });
+    for (const k of ["COMPETITORS_ENABLED", "COMPETITOR_ARTICLES_ENABLED", "STRATEGY_COMPETITORS_ENABLED"]) vi.stubEnv(k, "true");
+    const prompts: string[] = [];
+    const generate = vi.fn(async (prompt: string) => {
+      prompts.push(prompt);
+      return JSON.stringify({ focus: ["S1", "S2"], claims: [], isNot: [], goal: null });
+    });
+    const base = { db, now: () => new Date(T0), generate, modelReady: () => true, usage: NO_USAGE, coverage: async () => null, facts: async () => [], loadTenant: async () => null, search: async () => ({ ok: false as const, error: "search_disabled" as const }) };
+    // An article too old for the 90 days is no read at all.
+    const old = [{ id: "x", competitorId: "cmp_none", status: "read", publishedAt: "2026-01-01" }] as unknown as CompetitorArticle[];
+    for (const recent of [async () => [] as CompetitorArticle[], async () => old, async () => Promise.reject(new Error("down"))]) {
+      const r = await proposeStrategy(A, { ...base, recent });
+      expect(r.ok).toBe(true);
+      const doc = await readBrandStrategyDoc(A, { db });
+      expect(doc?.draft?.made).toMatchObject({ version: 1 });
+      expect(doc?.draft?.sources).not.toContain("competitor_articles");
+    }
+    for (const p of prompts) {
+      expect(p).not.toContain("competitors: none");
+      expect(p).not.toContain("open ground");
+      expect(p).not.toContain("What they write:");
+    }
   });
 
   it("says so without a model, a brand map, or an answer it can read, and saves nothing", async () => {

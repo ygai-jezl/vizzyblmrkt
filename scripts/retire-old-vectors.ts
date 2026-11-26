@@ -9,7 +9,9 @@
  *     (SEARCH_SUBJECT_READS_ENABLED, SEARCH_NOTE_READS_ENABLED, SEARCH_COMPETITOR_READS_ENABLED) and
  *     SEARCH_OLD_VECTORS_RETIRED_ENABLED, all "true";
  *   - no brand holds old vectors of a kind with nothing of that kind in brand search (run
- *     scripts/search-backfill.ts --all-brands first).
+ *     scripts/search-backfill.ts --all-brands first). Only entries with the family's status count,
+ *     since no reader finds one without; old vectors of notes brand search never holds (a note that
+ *     may name a customer, one not kept, one gone) don't refuse, and are deleted with the rest.
  * Run it only after the retire switch has been on through the soak. THE DELETE CAN'T BE UNDONE:
  * text-embedding-005 retires, so nothing could embed them again, and turning a read switch off
  * afterwards finds nothing.

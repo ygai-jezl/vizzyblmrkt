@@ -88,8 +88,32 @@ export async function countBrandMapVectors(ctx: TenantContext, kind: BrandMapVec
   return snap.data().count;
 }
 
-/** Page size for the delete. */
+/** Page size for the delete, and for listing refs. */
 const DELETE_PAGE = 300;
+
+/**
+ * The refs of every embedding of a kind one brand has here, a page at a time by document id and
+ * reading only the ref (no vector), for the retire script to tell which records brand search was
+ * meant to hold (scripts/retire-old-vectors.ts).
+ */
+export async function listBrandMapVectorRefs(ctx: TenantContext, kind: BrandMapVectorKind, db?: FirestoreLike): Promise<string[]> {
+  const col = regionalDb(ctx, db).collection(BRAND_MAP_VECTORS);
+  const refs: string[] = [];
+  let after: string | null = null;
+  for (;;) {
+    let q = col.where("tenantId", "==", ctx.tenantId).where("kind", "==", kind).orderBy("__name__").limit(DELETE_PAGE);
+    if (q.select) q = q.select("tenantId", "ref");
+    if (after) q = q.startAfter(after);
+    const snap = await q.get();
+    for (const d of snap.docs) {
+      const data = d.data() ?? {};
+      if (data.tenantId === ctx.tenantId && typeof data.ref === "string") refs.push(data.ref);
+    }
+    if (snap.docs.length < DELETE_PAGE) break;
+    after = snap.docs[snap.docs.length - 1]!.id;
+  }
+  return refs;
+}
 
 /**
  * Delete every embedding of a kind one brand has here (scripts/retire-old-vectors.ts --apply, after

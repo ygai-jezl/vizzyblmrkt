@@ -6,6 +6,7 @@ import {
   brandMapVectorDocId,
   countBrandMapVectors,
   deleteBrandMapVectors,
+  listBrandMapVectorRefs,
   nearestBrandMapRecords,
   removeBrandMapVector,
   setBrandMapVectorStatus,
@@ -96,6 +97,11 @@ describe("retiring the store (ADR-0023)", () => {
     await writeBrandMapVector(A, { kind: "subject", ref: "sub_1", status: "decided" }, [0.1], db);
     await writeBrandMapVector(B, { kind: "note", ref: "bn_x", status: "kept" }, [0.1], db);
     expect(await countBrandMapVectors(A, "note", db)).toBe(305);
+    // Listed a page at a time, refs only.
+    const refs = await listBrandMapVectorRefs(A, "note", db);
+    expect(refs).toHaveLength(305);
+    expect(new Set(refs).size).toBe(305);
+    expect(refs).not.toContain("bn_x");
     expect(await deleteBrandMapVectors(A, "note", db)).toBe(305);
     expect(await countBrandMapVectors(A, "note", db)).toBe(0);
     expect(await countBrandMapVectors(A, "subject", db)).toBe(1);

@@ -97,8 +97,14 @@ change or secret.
     counting per region, brand and kind with `count()` beside brand search's records of the same
     kind; `--apply` refuses unless the index, family, three read and retire switches are all
     `"true"` in the settings file named by `--settings`, and while any brand holds old vectors of a
-    kind with none of it in brand search. It deletes through `deleteBrandMapVectors`, so
-    `src/lib/tenant/brandMapVectors.ts` stays the only code that touches that store.
+    kind with none of it in brand search. Only entries a reader finds count: those with the
+    family's status (an entry people's search kept before the family has none, and no reader
+    matches it). Old note and question vectors of records brand search never holds (a note that
+    may name a customer, one not kept or no longer asked, one that is gone) don't refuse; they go
+    with the rest, so a brand whose notes all name customers can't hold the delete up or keep those
+    vectors past the old model. It lists those refs and deletes through `listBrandMapVectorRefs` and
+    `deleteBrandMapVectors`, so `src/lib/tenant/brandMapVectors.ts` stays the only code that
+    touches that store.
 13. **Self-hosted copies** (decision 7): the family switch joins `addon:search`, whose check reports a
     step to do when the index is on and the family isn't. The read and retire switches are kept off
     for a person to turn on after the backfill and the soak (`docs/self-host.md`). Copies without

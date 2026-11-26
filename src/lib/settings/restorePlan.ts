@@ -11,6 +11,7 @@ import { ConnectionCatalogSchema } from "@/lib/types/productConnection";
 import { fieldListProblems, FIELD_LIST_SUBJECT, hasOptions, type RecordField, type RecordFieldObject } from "@/lib/types/recordField";
 import { getSettingsVersion } from "./history";
 import { isSettingsEraseEnabled } from "./flags";
+import { NEVER_UNDONE } from "./words";
 import { catalogName, journeyName, kindRestores, settingsSubjectName, whoNamer, whoOfActor, whoOfSaver, type HistoryDeps, type HistoryKind, type HistorySubject, type Who } from "./sources";
 
 /**
@@ -21,8 +22,7 @@ import { catalogName, journeyName, kindRestores, settingsSubjectName, whoNamer, 
  * through describeChanges, and from then on stages are read with it. Read only.
  */
 
-/** What a restore never undoes, whatever the kind. */
-export const NEVER_UNDONE = "Emails sent, payments, people already in a journey, erased values";
+export { NEVER_UNDONE } from "./words";
 
 export interface PreviewRow {
   /** "Comes back", "Archived", "Changes back", "Stays empty", "The draft", "Stays as it is", "Never undone". */

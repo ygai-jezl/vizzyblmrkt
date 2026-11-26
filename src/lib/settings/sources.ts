@@ -14,6 +14,7 @@ import type { LifecycleJourney, LifecycleVersion } from "@/lib/types/lifecycle";
 import type { ProductConnection } from "@/lib/types/productConnection";
 import { isSettingsSubject, type SettingsSubject, type SettingsVersion } from "@/lib/types/settingsVersion";
 import { itemChangeText } from "./archive";
+import { BEFORE_HISTORY_TEXT } from "./words";
 
 /**
  * Settings › History's sources (piece O part 2, ADR-0021): three stores turned into one list of
@@ -155,7 +156,7 @@ export function settingsSubjectName(subject: SettingsSubject): string {
   return SETTINGS_NAME[subject];
 }
 
-export const BEFORE_HISTORY_TEXT = "As it was when history began. Older versions were not kept.";
+export { BEFORE_HISTORY_TEXT } from "./words";
 
 // --- Who --------------------------------------------------------------------------------------
 

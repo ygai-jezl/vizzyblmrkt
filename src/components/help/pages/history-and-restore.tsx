@@ -1,8 +1,7 @@
 import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
 import { ERASE_COPY, ERASE_MESSAGES, HISTORY_COPY, RESTORE_MESSAGES } from "@/components/admin/settings/historyWords";
-import { BEFORE_HISTORY_TEXT } from "@/lib/settings/sources";
-import { NEVER_UNDONE } from "@/lib/settings/restorePlan";
+import { BEFORE_HISTORY_TEXT, NEVER_UNDONE } from "@/lib/settings/words";
 
 /**
  * /help/history-and-restore (SETTINGS_HISTORY_ENABLED, ADR-0021): Settings › History, where the

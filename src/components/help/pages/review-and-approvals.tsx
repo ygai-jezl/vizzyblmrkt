@@ -152,8 +152,8 @@ export default function ReviewAndApprovalsHelp({
         <>
           <P>
             A style Vizzy suggested leaves Review once an admin saves it or dismisses it on its page. The notes row counts the notes
-            nobody has kept or removed yet on <Open href="/admin/brand-kit/notes">What we&apos;ve seen</Open>. Articles use only
-            the notes you keep.
+            nobody has kept or removed yet on <Open href="/admin/brand-kit/notes">What we&apos;ve seen</Open>, and says 50 or more
+            once there are that many. Articles use only the notes you keep.
           </P>
           <P>
             YouGrow keeps a record of what Vizzy, research and autopilot drafted for your brand: when each was saved, and whether

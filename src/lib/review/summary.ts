@@ -332,13 +332,16 @@ export function agentStyleItem(kind: "email" | "image", suggestion: { suggestedA
   };
 }
 
-/** The notes Vizzy suggested in chats that nobody has kept or removed (agent record, admins only): one row. */
-export function agentNotesItem(waiting: number): ReviewItem | null {
+/**
+ * The notes Vizzy suggested in chats that nobody has kept or removed (agent record, admins only):
+ * one row. `more`: the read was full, so there may be more than it counted.
+ */
+export function agentNotesItem(waiting: number, more = false): ReviewItem | null {
   if (waiting <= 0) return null;
   return {
     id: "brand_notes:suggested",
     kind: "agent_draft",
-    title: `${waiting} note${waiting === 1 ? "" : "s"} Vizzy suggested`,
+    title: more ? `${waiting} or more notes Vizzy suggested` : `${waiting} note${waiting === 1 ? "" : "s"} Vizzy suggested`,
     detail: "From your chats · Keep the right ones on What we've seen. Articles use only the notes you keep.",
     href: BRAND_KIT_NOTES_ROUTE,
     action: "Review",
@@ -350,21 +353,31 @@ const NOTES_READ = 50;
 
 /**
  * What Review lists that only the agent record added (AGENT_RECORD_ENABLED, admins only), each
- * read where it lives: the brand record's style suggestions, and the notes waiting (equality on
- * status only, up to 50).
+ * read where it lives: the brand record's style suggestions, and the notes from chats waiting
+ * (equality on status and source only, up to 50: a full read says "or more").
  */
 async function agentRecordItems(ctx: TenantContext, db?: FirestoreLike): Promise<ReviewItem[]> {
   const styles = isEmailStyleEnabled() || isBrandImageStyleEnabled();
   const [tenant, notes] = await Promise.all([
     styles ? soft("style suggestions", getTenantById(ctx.tenantId, db), null as Tenant | null) : (null as Tenant | null),
     isBrandNotesEnabled()
-      ? soft("suggested notes", forTenant(ctx, db).brandNotes.find({ where: [["status", "==", "suggested"]], limit: NOTES_READ }), [] as BrandNote[])
+      ? soft(
+          "suggested notes",
+          forTenant(ctx, db).brandNotes.find({
+            where: [
+              ["status", "==", "suggested"],
+              ["source", "==", "chat"],
+            ],
+            limit: NOTES_READ,
+          }),
+          [] as BrandNote[],
+        )
       : ([] as BrandNote[]),
   ]);
   return [
     isEmailStyleEnabled() ? agentStyleItem("email", tenant?.emailStyleSuggestion) : null,
     isBrandImageStyleEnabled() ? agentStyleItem("image", tenant?.imageStyleSuggestion) : null,
-    agentNotesItem(notes.filter((n) => n.source === "chat").length),
+    agentNotesItem(notes.length, notes.length >= NOTES_READ),
   ].filter((i): i is ReviewItem => !!i);
 }
 

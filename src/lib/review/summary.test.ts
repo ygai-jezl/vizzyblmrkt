@@ -7,6 +7,7 @@ import {
   agentLaunchJourneyItem,
   agentInviteWaveItem,
   agentContentPlanItem,
+  agentNotesItem,
   brandMapItem,
   competitorItems,
   connectionItem,
@@ -575,6 +576,15 @@ describe("Vizzy's styles and notes (agent record)", () => {
     expect(await titles(member, db)).toEqual(["“Spring repotting”"]);
     expect(await countReview(admin, { lifecycle: true, now: 1_000 }, db)).toBe(3);
     expect(await countReview(member, { lifecycle: true, now: 1_000 }, db)).toBe(1);
+  });
+
+  it("says 50 or more when the notes it reads fill a page, rather than the page's size as a count", async () => {
+    const db = world();
+    vi.stubEnv("AGENT_RECORD_ENABLED", "true");
+    for (let i = 0; i < 60; i++) db.seed("brand_notes", `bn_many${String(i).padStart(4, "0")}`, { tenantId: "ten_A", text: "A note we saw.", status: "suggested", source: "chat", createdAt: "2026-12-01T00:00:00.000Z" });
+    expect(await titles(admin, db)).toContain("50 or more notes Vizzy suggested");
+    expect(agentNotesItem(1)?.title).toBe("1 note Vizzy suggested");
+    expect(agentNotesItem(0)).toBeNull();
   });
 
   it("drops a row once its draft is decided, and each row with its own page's switch", async () => {

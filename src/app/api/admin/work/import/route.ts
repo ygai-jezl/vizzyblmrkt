@@ -1,4 +1,4 @@
-import { badInput, jsonBody, respond, TOO_BIG, workAdmin } from "@/lib/work/http";
+import { badInput, jsonBody, respond, respondChanged, TOO_BIG, workAdmin } from "@/lib/work/http";
 import { IMPORT_MAX_BYTES, ImportBodySchema } from "@/lib/work/inputs";
 import { refuse } from "@/lib/work/result";
 import { importTasks, previewImport } from "@/lib/work/service";
@@ -21,5 +21,5 @@ export async function POST(req: Request) {
   const parsed = ImportBodySchema.safeParse(body);
   if (!parsed.success) return badInput(parsed.error);
   if (parsed.data.mode === "preview") return respond(await previewImport(gate.scope, parsed.data));
-  return respond(await importTasks(gate.scope, parsed.data));
+  return respondChanged(gate.scope, await importTasks(gate.scope, parsed.data));
 }

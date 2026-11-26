@@ -7,7 +7,7 @@ import type { Region } from "@/lib/types/tenant";
 import { proposedByRule } from "./measureKind";
 import { invalidInput, refuse, type WorkRefused } from "./result";
 import { brandIn, seesTask, type WorkBrand, type WorkDeps, type WorkScope } from "./scope";
-import { MeasureSchema, startingDirection, type Measure, type TypedLink, type WorkTask } from "./types";
+import { MeasureSchema, startingDirection, type Measure, type ProposedKind, type TypedLink, type WorkTask } from "./types";
 import type { MeasureInput, ThenInput } from "./inputs";
 import type { CompanyStage } from "./stages";
 
@@ -154,6 +154,8 @@ export interface MeasureContext {
   /** The brand the task counts as, for a product event. */
   brand: WorkBrand | undefined;
   current: Measure | null;
+  /** The kind Vizzy proposed, on a task added from its suggestion: kept in place of the rule's. */
+  proposed?: ProposedKind | null;
 }
 
 /** JSON with sorted keys at every level, leaving out undefined and treating a missing then as null. */
@@ -228,7 +230,10 @@ export async function checkMeasure(scope: WorkScope, input: MeasureInput | null,
       if (problem) return problem;
     }
   }
-  const proposed = proposedByRule({ title: ctx.title, description: ctx.description, stage: ctx.stage, brandId: ctx.brandId, ideaId: ctx.ideaId, typedLinks: ctx.typedLinks, oneBrand: scope.oneBrand });
+  const proposed =
+    ctx.proposed !== undefined
+      ? ctx.proposed
+      : proposedByRule({ title: ctx.title, description: ctx.description, stage: ctx.stage, brandId: ctx.brandId, ideaId: ctx.ideaId, typedLinks: ctx.typedLinks, oneBrand: scope.oneBrand });
   const fields = input.kind === "done" ? { kind: "done" as const } : { ...partOfInput(input), then: input.then ? partOfInput(input.then) : null };
   const parsed = MeasureSchema.safeParse({ ...fields, setBy: scope.userId, setAt: now.toISOString(), proposed });
   if (!parsed.success) return invalidInput(parsed.error.issues.map((i) => ({ path: ["measure", ...i.path], message: i.message })));

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeWorld, PEOPLE, type World } from "@/lib/work/testing/world";
 import { LUMEN_EU, LUMEN_US } from "@/lib/work/testing/fixtures";
 import { addTask } from "@/lib/work/service";
+import { addSuggestion, proposeWorkSuggestion } from "@/lib/work/suggestions";
 
 // Work's four screens (WORK_ENABLED): the list, one task, the add page and the Log. Lumen [made up]
 // has Lumen Notes (United States, a repo selected) and Lumen Europe; Nina owns it and Sam is a
@@ -60,7 +61,7 @@ describe("with WORK_ENABLED off", () => {
     vi.stubEnv("WORK_ENABLED", "");
     await expect(list()).rejects.toThrow("NEXT_NOT_FOUND");
     await expect(task("1")).rejects.toThrow("NEXT_NOT_FOUND");
-    await expect(html(NewPage())).rejects.toThrow("NEXT_NOT_FOUND");
+    await expect(html(NewPage({ searchParams: Promise.resolve({}) }))).rejects.toThrow("NEXT_NOT_FOUND");
     await expect(log()).rejects.toThrow("NEXT_NOT_FOUND");
     expect(requireAdminContext).not.toHaveBeenCalled();
   });
@@ -170,13 +171,13 @@ describe("one task", () => {
 
 describe("the add page", () => {
   it("offers pull requests and switches only where a repo is connected", async () => {
-    const lumen = await html(NewPage());
+    const lumen = await html(NewPage({ searchParams: Promise.resolve({}) }));
     expect(lumen).toContain("Add a task");
     expect(lumen).toContain("It becomes #1 when you add it.");
     expect(lumen).toContain("Pull request");
     expect(lumen).toContain("Whole business");
     as(PEOPLE.priya);
-    const fern = await html(NewPage());
+    const fern = await html(NewPage({ searchParams: Promise.resolve({}) }));
     expect(fern).not.toContain(">Pull request<");
     expect(fern).not.toContain(">Switch<");
     expect(fern).toContain(">Plan<");
@@ -198,5 +199,70 @@ describe("the Log", () => {
     const page = await log({ day: "2999-01-01" });
     expect(page).toContain("That isn&#x27;t a day Work can show.");
     expect(page).toContain('href="/admin/work/log"');
+  });
+});
+
+describe("Edit then add", () => {
+  const newPage = (sp: Record<string, string>) => html(NewPage({ searchParams: Promise.resolve(sp) }));
+  async function suggest(brandId: string | null = LUMEN_US) {
+    const deps = { ...w.deps, regionDb: (r: "us" | "eu" | "asia") => (r === "us" ? w.control : w.dbOf(r)) };
+    const r = await proposeWorkSuggestion(
+      await w.scope(PEOPLE.nina),
+      {
+        task: {
+          title: "Answer “Does Lumen work offline?” on your site",
+          description: "A short page that answers it.",
+          stage: "market",
+          brandId,
+          typedLinks: [],
+          measure: { kind: "moves", meaning: "searchClicks", look: { days: 28 } },
+          proposed: { kind: "moves", reason: "It answers a question people search for." },
+          from: "from your numbers",
+          why: "41 searches asked it last month.",
+        },
+      },
+      deps,
+    );
+    if (!r.ok || !r.value.action) throw new Error("not made");
+    return r.value.action;
+  }
+
+  it("opens the add page filled with Vizzy's suggestion, its kind marked Vizzy suggests, Cancel back to Review", async () => {
+    const a = await suggest();
+    const page = await newPage({ suggestion: a.id });
+    expect(page).toContain("New task from Vizzy");
+    expect(page).toContain('value="Answer “Does Lumen work offline?” on your site"');
+    expect(page).toContain("Vizzy wrote it from your numbers. What Vizzy wrote is kept beside what you add.");
+    expect(page).toContain("Vizzy suggests Moves a number. It answers a question people search for.");
+    expect(page).toContain('href="/admin/approvals#work_suggestion"');
+    // The task and the suggestion commit together, so only brands kept in this region are offered.
+    expect(page).not.toContain(">Lumen Europe<");
+  });
+
+  it("shows the task's origin with where Vizzy wrote it from, and what Vizzy suggested for each field changed", async () => {
+    const a = await suggest();
+    const deps = { ...w.deps, regionDb: (r: "us" | "eu" | "asia") => (r === "us" ? w.control : w.dbOf(r)) };
+    const r = await addSuggestion(
+      await w.scope(PEOPLE.nina),
+      { actionId: a.id, rev: 1, task: { title: "Does Lumen work offline? A help page", description: "A short page that answers it.", stage: "support", brandId: LUMEN_US, typedLinks: [], measure: { kind: "moves", meaning: "searchClicks", look: { days: 28 } } } },
+      deps,
+    );
+    if (!r.ok) throw new Error(r.error);
+    const page = await task(String(r.value.task.task.ref));
+    expect(page).toMatch(/From Vizzy:<\/span> from your numbers\. Added by you on \d+ \w+, edited before adding\./);
+    expect(page).toContain("What Vizzy suggested");
+    expect(page).toContain("Answer “Does Lumen work offline?” on your site");
+    expect(page).toContain("5 Market");
+  });
+
+  it("says why when the suggestion can't be added, with the way back to Review", async () => {
+    const whole = await suggest(null);
+    for (const id of ["not-an-id", `aa_${"3".repeat(40)}`]) {
+      const page = await newPage({ suggestion: id });
+      expect(page).toContain("That suggestion isn&#x27;t there any more, or it&#x27;s for a brand you can&#x27;t see.");
+      expect(page).toContain('href="/admin/approvals#work_suggestion"');
+    }
+    as(PEOPLE.sam);
+    expect(await newPage({ suggestion: whole.id })).toContain("That suggestion isn&#x27;t there any more");
   });
 });

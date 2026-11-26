@@ -60,6 +60,11 @@ const STATUS: Record<WorkRefusal, WorkStatusCode> = {
   import_too_big: 400,
   regions_down: 409,
   day_bad: 400,
+  suggestion_missing: 404,
+  suggestion_decided: 409,
+  suggestion_changed: 409,
+  suggestion_other_region: 409,
+  suggestion_must_have: 400,
 };
 
 export function ok<T>(value: T, status: 200 | 201 = 200): WorkResult<T> {

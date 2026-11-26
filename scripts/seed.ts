@@ -37,6 +37,8 @@ async function main() {
   // Imported after the env is loaded, so modules that read it see .env.local.
   const { seedDemoData } = await import("@/lib/dev/seedDemo");
   const { seedAdminUser } = await import("@/lib/dev/seedAdmin");
+  const { isWorkEnabled } = await import("@/lib/work/flags");
+  const { seedWorkSuggestions } = await import("@/lib/dev/seedWork");
 
   const target = process.env.FIRESTORE_EMULATOR_HOST
     ? `emulator ${process.env.FIRESTORE_EMULATOR_HOST}`
@@ -44,8 +46,11 @@ async function main() {
   console.log(`Seeding ${target} (project ${project})...`);
   const result = await seedDemoData();
   // Only seed an admin auth user against the Auth emulator (never real Identity Platform).
-  const admin = process.env.FIREBASE_AUTH_EMULATOR_HOST ? (await seedAdminUser()).email : null;
-  console.log(JSON.stringify({ ...result, admin }, null, 2));
+  const seeded = process.env.FIREBASE_AUTH_EMULATOR_HOST ? await seedAdminUser() : null;
+  const admin = seeded?.email ?? null;
+  // Vizzy isn't deployed locally: made-up task suggestions wait in Review instead (WORK_ENABLED).
+  const workSuggestions = seeded && isWorkEnabled() ? await seedWorkSuggestions(seeded.uid) : null;
+  console.log(JSON.stringify({ ...result, admin, ...(workSuggestions === null ? {} : { workSuggestions }) }, null, 2));
   process.exit(0);
 }
 

@@ -9,13 +9,19 @@ import { isWorkVizzyEnabled } from "./flags";
 import { filtersOf, type WorkFilters } from "./inputs";
 import { anyFilter, rowOf, type WorkRow } from "./list";
 import { logDay, type LogDayView } from "./log";
-import { meaningChoices } from "./form";
+import { meaningChoices, typedLinkWords } from "./form";
 import { dayIn, partOf } from "./schedule";
 import { brandChoices, checkLineOf, countDueCheck, listTasks, loadTasks, taskPage, type WorkTaskPage } from "./service";
 import { brandForTask, brandIn, mapLimit, nowOf, workScopeFor, zoneForTask, type WorkBrand, type WorkDeps, type WorkScope } from "./scope";
-import { partLine, WORK_COPY } from "./screenWords";
+import { partLine, SUGGESTED_FIELD_LABEL, WORK_COPY } from "./screenWords";
+import { getAgentAction } from "@/lib/ontology/agentActions";
+import { stageLabel } from "./stages";
+import { suggestedMeasureText, suggestionOf } from "./suggestion";
 import { SET_BY_MEASURE, type WorkStatus, type WorkTask } from "./types";
 import { WORK_MESSAGES } from "./words";
+import { suggestionForForm } from "./suggestions";
+import type { SuggestedTask } from "./suggestion";
+import type { AgentActionId } from "@/lib/types/agentAction";
 
 /**
  * What Work's four screens show (ADR-0018), read on the server and handed to the pages as plain
@@ -268,6 +274,45 @@ export async function addScreen(scope: WorkScope, deps: WorkDeps = {}): Promise<
   return { ...chromeOf(scope), nextRef, defaultBrandId: scope.session.id, options };
 }
 
+/** Edit then add (from Review): the add page filled with Vizzy's suggestion. */
+export interface SuggestionScreen extends AddScreen {
+  suggestion: {
+    actionId: AgentActionId;
+    rev: number;
+    title: string;
+    description: string;
+    stage: SuggestedTask["stage"];
+    brandId: string | null;
+    typedLinks: SuggestedTask["typedLinks"];
+    proposed: SuggestedTask["proposed"];
+    measure: SuggestedTask["measure"];
+    from: string;
+  };
+}
+
+/**
+ * The add page for Edit then add, or the words for why the suggestion can't be added (gone,
+ * decided, or for a brand the person can't see). The task and the suggestion's result are written
+ * in one transaction, so the brand picker offers only brands kept in the session brand's region,
+ * and the whole business where the person may choose it.
+ */
+export async function suggestionScreen(scope: WorkScope, id: AgentActionId, deps: WorkDeps = {}): Promise<{ ok: true; screen: SuggestionScreen } | { ok: false; message: string }> {
+  const r = await suggestionForForm(scope, id, deps);
+  if (!r.ok) return { ok: false, message: r.message };
+  const base = await addScreen(scope, deps);
+  const s = r.value.suggestion;
+  const brands = base.options.brands.filter((b) => b.region === scope.session.region);
+  return {
+    ok: true,
+    screen: {
+      ...base,
+      defaultBrandId: s.brandId ?? scope.session.id,
+      options: { ...base.options, brands },
+      suggestion: { actionId: r.value.actionId, rev: r.value.rev, title: s.title, description: s.description, stage: s.stage, brandId: s.brandId, typedLinks: s.typedLinks, proposed: s.proposed, measure: s.measure, from: s.from },
+    },
+  };
+}
+
 // --- One task ----------------------------------------------------------------------------------
 
 export interface TaskScreen extends WorkChrome {
@@ -287,6 +332,35 @@ export interface TaskScreen extends WorkChrome {
   checkPartLine: string | null;
   /** The ref of the task an after_task check waits for, when the person sees it. */
   afterRef: number | null;
+  /** On a task added from a Vizzy suggestion: where Vizzy wrote it from, and what it suggested for each field the person changed. */
+  suggested: { from: string; edited: Array<{ label: string; was: string }> } | null;
+}
+
+/**
+ * What Vizzy suggested for a task added from its suggestion, read from the suggestion (kept in
+ * the agent_actions of the brand it was added from, in the task's region), or null when it can't
+ * be read.
+ */
+async function suggestedOf(scope: WorkScope, task: WorkTask, deps: WorkDeps): Promise<TaskScreen["suggested"]> {
+  if (task.origin.kind !== "suggestion") return null;
+  try {
+    const a = await getAgentAction({ tenantId: task.addedFrom, region: task.region, source: "system" }, task.origin.agentActionId, { db: deps.regionDb?.(task.region) });
+    const s = a ? suggestionOf(a) : null;
+    if (!a || !s || a.target.id !== task.id) return null;
+    const raw = (a.result as { edited?: unknown } | null)?.edited;
+    const edited = Array.isArray(raw) ? raw.filter((f): f is string => typeof f === "string" && Object.hasOwn(SUGGESTED_FIELD_LABEL, f)) : [];
+    const was = (field: string): string => {
+      if (field === "title") return s.title;
+      if (field === "description") return s.description || WORK_COPY.noMeasure;
+      if (field === "stage") return s.stage ? stageLabel(s.stage) : WORK_COPY.noStage;
+      if (field === "brandId") return brandIn(scope, s.brandId)?.name ?? WORK_COPY.wholeBusinessLabel;
+      if (field === "typedLinks") return s.typedLinks.length ? s.typedLinks.map((l) => typedLinkWords(l).label).join(", ") : WORK_COPY.noMeasure;
+      return suggestedMeasureText(s) ?? WORK_COPY.noMeasure;
+    };
+    return { from: s.from, edited: edited.map((f) => ({ label: SUGGESTED_FIELD_LABEL[f]!, was: was(f) })) };
+  } catch {
+    return null;
+  }
 }
 
 /** One task the person sees, with what its forms offer, or null (not found, never forbidden). */
@@ -296,7 +370,11 @@ export async function taskScreen(scope: WorkScope, ref: number, deps: WorkDeps =
   const page = r.value;
   const task = page.task;
   const current = [task.measure, task.measure && task.measure.kind !== "done" ? task.measure.then : null].find((p) => p && p.kind === "moves");
-  const [names, options] = await Promise.all([ideaNames(scope, ideasOf(task), deps), formOptions(scope, deps, { self: task, current: current && current.kind === "moves" ? current.meaning : null })]);
+  const [names, options, suggested] = await Promise.all([
+    ideaNames(scope, ideasOf(task), deps),
+    formOptions(scope, deps, { self: task, current: current && current.kind === "moves" ? current.meaning : null }),
+    suggestedOf(scope, task, deps),
+  ]);
   const brand = brandForTask(scope, task);
   const choices = brandChoices(scope);
   const sameRegion = choices.brands.filter((b) => b.region === task.region);
@@ -314,6 +392,7 @@ export async function taskScreen(scope: WorkScope, ref: number, deps: WorkDeps =
     makeIdeaHref: canIdea && task.ideaId === null ? `/admin/launches/new?name=${encodeURIComponent(task.title)}&task=${task.ref}` : null,
     checkPartLine: part ? partLine(part, { connection: (id) => product.find((p) => p.id === id)?.name }) : null,
     afterRef: page.checkTask && "ref" in page.checkTask ? page.checkTask.ref : null,
+    suggested,
   };
 }
 

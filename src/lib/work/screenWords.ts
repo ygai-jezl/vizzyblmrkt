@@ -147,6 +147,7 @@ export const WORK_COPY = {
   afterTaskHint: "The check falls due the day that task moves to Done.",
   formFoot: "It shows in Review on the day its check falls due.",
   wholeBusinessHint: "Only owners see whole business tasks.",
+  wholeBusinessLabel: "Whole business",
   inFlightHint: "Newest first. The same workstream comes back each day until it's done.",
   pastDayHint: "Read only. Newest first.",
   nothingInFlight: "Nothing in flight. Type what you're on, one line per workstream.",
@@ -161,6 +162,10 @@ export const WORK_COPY = {
   logVizzyFoot: "Ask Vizzy to draft today's note, and save it from the chat.",
   logCapped: "This day has more rows than the Log reads at once, so the oldest workstreams may be missing.",
   importIntro: "From your Backlog tab, up to 1,000 rows. Nothing is added until you import.",
+  vizzySuggested: "What Vizzy suggested",
+  vizzySuggestedHint: "Each field you changed before adding, as Vizzy wrote it. Both versions are kept.",
+  noStage: "No stage",
+  noMeasure: "None",
   importColumnsHint: "Each column of your sheet, and the field it fills. Change one if it's matched wrong.",
   pastePlaceholder: "Paste the rows here, header row first.",
   deleteConfirm: "Delete this task? Its history stays in the Log.",
@@ -326,9 +331,24 @@ export function runsBetterHint(what: RunsBetterWhat): string {
 
 // --- Origin and history ------------------------------------------------------------------------
 
-/** Where a task came from, as two parts the task page sets apart: "Added by Nina" and "on 18 Nov." */
-export function originParts(origin: WorkOrigin, createdAt: string, timeZone: string, me: string, names: Readonly<Record<string, string>>): { from: string; rest: string } {
+/**
+ * Where a task came from, as two parts the task page sets apart: "Added by Nina" and "on 18 Nov."
+ * A task from a Vizzy suggestion says where Vizzy wrote it from and whether it was edited before
+ * adding, when the suggestion can be read: "From Vizzy: from today's log. Added by you on 18 Nov,
+ * edited before adding."
+ */
+export function originParts(
+  origin: WorkOrigin,
+  createdAt: string,
+  timeZone: string,
+  me: string,
+  names: Readonly<Record<string, string>>,
+  suggested?: { from: string; edited: boolean } | null,
+): { from: string; rest: string } {
   const day = dayOf(createdAt, timeZone);
+  if (origin.kind === "suggestion" && suggested) {
+    return { from: "From Vizzy:", rest: `${suggested.from}. Added by ${whoInline({ kind: "person", id: origin.by }, me, names)} on ${day}${suggested.edited ? ", edited before adding" : ""}.` };
+  }
   if (origin.kind === "person") return { from: `Added by ${whoInline({ kind: "person", id: origin.by }, me, names)}`, rest: `on ${day}.` };
   if (origin.kind === "import") {
     return { from: `Imported from ${origin.file ?? "a sheet"}`, rest: `by ${whoInline({ kind: "person", id: origin.by }, me, names)} on ${day}, row ${origin.row}.` };
@@ -479,6 +499,16 @@ export function addedLine(ref: number, title: string): string {
 export function suggestionFromLine(from: string): string {
   return `Vizzy wrote it ${from}. What Vizzy wrote is kept beside what you add.`;
 }
+
+/** The task page's list of what Vizzy suggested, for each field the person changed before adding. */
+export const SUGGESTED_FIELD_LABEL: Record<string, string> = {
+  title: "Title",
+  description: "Description",
+  stage: "Stage",
+  brandId: "Brand",
+  typedLinks: "Connected to",
+  measure: "How we'll know",
+};
 
 /** Beside a title the person changed on Vizzy's suggestion. */
 export function vizzyWroteLine(title: string): string {

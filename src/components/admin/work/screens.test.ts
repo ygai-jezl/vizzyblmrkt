@@ -172,7 +172,18 @@ describe("the add page's form", () => {
     const html = renderToStaticMarkup(
       createElement(TaskForm, {
         screen,
-        suggestion: { title: "Check the team plan test accounts", description: "", stage: "build", brandId: "ten_lumen", typedLinks: [], proposed: { kind: "runs_better", reason: "It checks a nightly run." }, from: "from today's log" },
+        suggestion: {
+          actionId: `aa_${"1".repeat(40)}`,
+          rev: 1,
+          title: "Check the team plan test accounts",
+          description: "",
+          stage: "build",
+          brandId: "ten_lumen",
+          typedLinks: [],
+          proposed: { kind: "runs_better", reason: "It checks a nightly run." },
+          measure: { kind: "runs_better", what: "errors", look: { days: 7 } },
+          from: "from today's log",
+        },
         cancelHref: "/admin/approvals#work_suggestion",
       }),
     );
@@ -181,6 +192,9 @@ describe("the add page's form", () => {
     expect(html).toContain("Vizzy wrote it from today&#x27;s log. What Vizzy wrote is kept beside what you add.");
     expect(html).toContain("Vizzy suggests Runs better. It checks a nightly run.");
     expect(html).toContain('href="/admin/approvals#work_suggestion"');
+    // Vizzy's measure fills the picker: Runs better, errors, 7 days after it's done.
+    expect(html).toMatch(/<option value="errors" selected="">/);
+    expect(html).toMatch(/value="7"/);
   });
 });
 

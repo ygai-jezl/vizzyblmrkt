@@ -1,4 +1,4 @@
-import { badInput, jsonBody, respond, workAdmin } from "@/lib/work/http";
+import { badInput, jsonBody, respond, respondChanged, workAdmin } from "@/lib/work/http";
 import { AddTaskBodySchema, filtersOf } from "@/lib/work/inputs";
 import { addTask, listTasks } from "@/lib/work/service";
 
@@ -25,5 +25,5 @@ export async function POST(req: Request) {
   if (!gate.ok) return gate.response;
   const parsed = AddTaskBodySchema.safeParse(await jsonBody(req));
   if (!parsed.success) return badInput(parsed.error);
-  return respond(await addTask(gate.scope, parsed.data));
+  return respondChanged(gate.scope, await addTask(gate.scope, parsed.data));
 }

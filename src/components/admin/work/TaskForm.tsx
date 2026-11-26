@@ -6,7 +6,9 @@ import { useRouter } from "next/navigation";
 import { Sparkles } from "lucide-react";
 import { Button, inputClass } from "@/components/admin/connect/ui";
 import { chipToneClass } from "@/components/admin/people/Chip";
-import { blankCheck, blankMeasure, checkInputOf, measureInputOf, measureProblems, type CheckDraft, type MeasureDraft } from "@/lib/work/form";
+import { blankCheck, blankMeasure, checkInputOf, draftOfMeasureInput, measureInputOf, measureProblems, type CheckDraft, type MeasureDraft } from "@/lib/work/form";
+import type { MeasureInput } from "@/lib/work/inputs";
+import type { AgentActionId } from "@/lib/types/agentAction";
 import { suggestMeasureKind } from "@/lib/work/measureKind";
 import { addedLine, brandHint, nextRefLine, suggestionFromLine, vizzyWroteLine, WORK_COPY, WORK_STATUS_TONE } from "@/lib/work/screenWords";
 import { COMPANY_STAGES, type CompanyStage } from "@/lib/work/stages";
@@ -19,6 +21,9 @@ import { BlockedByPicker, CheckPicker, FreeLinksEditor, TypedLinksEditor } from 
 
 /** What Edit then add fills the form with (Review, group 4): Vizzy's suggestion, kept beside what the person adds. */
 export interface SuggestionFill {
+  /** The suggestion, and its rev as the person saw it: adding sends both, and the server checks them. */
+  actionId: AgentActionId;
+  rev: number;
   title: string;
   description: string;
   stage: CompanyStage | null;
@@ -26,6 +31,8 @@ export interface SuggestionFill {
   typedLinks: TypedLink[];
   /** Vizzy's proposed kind and its reason. */
   proposed: { kind: MeasureKind; reason: string } | null;
+  /** How we'll know it worked, as Vizzy would set it. */
+  measure: MeasureInput | null;
   /** Where Vizzy wrote it from, such as "from today's log". */
   from: string;
 }
@@ -71,7 +78,13 @@ function TaskFormRound({ screen, suggestion = null, cancelHref = "/admin/work", 
   const [links, setLinks] = useState<WorkLink[]>([]);
   const [blockedBy, setBlockedBy] = useState<number[]>([]);
   const [check, setCheck] = useState<CheckDraft>(blankCheck());
-  const [measure, setMeasure] = useState<MeasureDraft>(() => (suggestion?.proposed ? { ...blankMeasure(), kind: suggestion.proposed.kind, first: { ...blankMeasure().first, kind: suggestion.proposed.kind === "done" ? "used" : suggestion.proposed.kind } } : blankMeasure()));
+  const [measure, setMeasure] = useState<MeasureDraft>(() =>
+    suggestion?.measure
+      ? draftOfMeasureInput(suggestion.measure)
+      : suggestion?.proposed
+        ? { ...blankMeasure(), kind: suggestion.proposed.kind, first: { ...blankMeasure().first, kind: suggestion.proposed.kind === "done" ? "used" : suggestion.proposed.kind } }
+        : blankMeasure(),
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<{ ref: number; title: string; notice: string | null } | null>(null);
@@ -100,7 +113,8 @@ function TaskFormRound({ screen, suggestion = null, cancelHref = "/admin/work", 
       status,
       stage,
       mustHave,
-      ...(screen.multiBrand ? { brandId } : {}),
+      // Edit then add always says the brand, so a whole business suggestion stays one unless changed.
+      ...(screen.multiBrand || suggestion ? { brandId } : {}),
       links,
       blockedBy,
       typedLinks: typed,
@@ -108,7 +122,10 @@ function TaskFormRound({ screen, suggestion = null, cancelHref = "/admin/work", 
       ...(checkInput ? { check: checkInput } : {}),
       via: "work_page" as const,
     };
-    const r = await workCall<{ task: { task: { ref: number; title: string } }; notice: string | null }>("/tasks", "POST", body);
+    // Edit then add: the task and the suggestion's result are written together, the origin set by the server.
+    const r = suggestion
+      ? await workCall<{ task: { task: { ref: number; title: string } }; notice: string | null }>(`/suggestions/${encodeURIComponent(suggestion.actionId)}`, "POST", { decision: "add", rev: suggestion.rev, task: body })
+      : await workCall<{ task: { task: { ref: number; title: string } }; notice: string | null }>("/tasks", "POST", body);
     setBusy(false);
     if (!r.ok) return setError(workErrorText(r.data));
     setDone({ ref: r.data.task.task.ref, title: r.data.task.task.title, notice: r.data.notice ?? null });

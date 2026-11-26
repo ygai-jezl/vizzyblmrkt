@@ -9,6 +9,7 @@ import {
   countBrandWork,
   countWorkLog,
   countWorkTasks,
+  createSuggestedWorkTask,
   createWorkTask,
   deleteWorkTask,
   eraseOrganisationWork,
@@ -30,6 +31,9 @@ import {
   type WorkStores,
 } from "./work";
 import { allocateWorkRefs, deleteWorkRefs, peekWorkRefs, raiseWorkRefs, WORK_REFS } from "./workRefs";
+import { proposeAgentAction } from "./agentActions";
+import { readsFirst } from "./testing/readsFirst";
+import type { TenantContext } from "./types";
 import type { Region } from "@/lib/types/tenant";
 import { aTask, aWrite, LUMEN_EU, LUMEN_US, NINA, ORG, OTHER_ORG, PERSON, SAM, T0, T1 } from "@/lib/work/testing/fixtures";
 import { PLAN_APPROVAL_OPTIONS, PLAN_APPROVAL_QUESTION, WORK_LIMITS, type WorkCheckRow } from "@/lib/work/types";
@@ -440,5 +444,61 @@ describe("a brand moving to another organisation", () => {
     expect(await repointBrandWork({ tenantId: LUMEN_US, region: "us" }, ORG, OTHER_ORG, "script:ops", stores)).toEqual({ tasks: 0, rows: 0 });
     expect(control.dump(WORK_REFS)).toEqual([]);
     expect(await repointBrandWork({ tenantId: LUMEN_US, region: "us" }, ORG, ORG, NINA, stores)).toEqual({ tasks: 0, rows: 0 });
+  });
+});
+
+describe("a task from a Vizzy suggestion", () => {
+  const ctx: TenantContext = { tenantId: LUMEN_US, region: "us", source: "idtoken", userId: NINA, role: "admin" };
+  async function suggested(id: string) {
+    const { action } = await proposeAgentAction(
+      ctx,
+      {
+        dedupeKey: "work_task.suggest|ten_lumen|t1|r0",
+        agent: "vizzy",
+        action: "work_task.suggest",
+        target: { type: "work_task", id },
+        personId: null,
+        proposal: { task: { title: "Add a G2 listing" } },
+        basis: null,
+        signals: [],
+        review: { kind: "work_suggestion", href: "/admin/work/new" },
+        requestedBy: { type: "member", id: NINA },
+        expiresAt: "2026-12-20T09:00:00.000Z",
+        clearDetailsOnClose: false,
+        at: T0,
+      },
+      { db: us },
+    );
+    return action;
+  }
+  const accept = (id: string, expectRev = 1) => ({ id: id as `aa_${string}`, by: { type: "member" as const, id: NINA }, expectRev, result: (t: { ref: number }) => ({ task: { ref: t.ref }, edited: [] }) });
+  const input = (id: string, actionId: string, over = {}) => aTask({ id, origin: { kind: "suggestion", agent: "vizzy", agentActionId: actionId as `aa_${string}`, evidence: [], by: NINA }, ...over });
+
+  it("writes the task, its added row and the suggestion's move together, reading first", async () => {
+    const id = newWorkTaskId();
+    const a = await suggested(id);
+    const r = await createSuggestedWorkTask(ctx, input(id, a.id), aWrite({ at: T1 }), accept(a.id), { regionDb: () => readsFirst(us) });
+    expect(r).toMatchObject({ ok: true, task: { id }, action: { state: "acted", result: { task: { ref: 1 }, edited: [] }, proposal: { task: { title: "Add a G2 listing" } } } });
+    expect(us.raw(WORK_TASKS, id)).toMatchObject({ origin: { kind: "suggestion", agentActionId: a.id } });
+    expect(us.dump(WORK_LOG)).toEqual([expect.objectContaining({ field: "added", taskId: id })]);
+    expect(us.raw("agent_actions", a.id)).toMatchObject({ state: "acted", rev: 3 });
+  });
+
+  it("refuses a task kept in another region than the suggestion, a changed suggestion, and a second accept", async () => {
+    const id = newWorkTaskId();
+    const a = await suggested(id);
+    expect(await createSuggestedWorkTask(ctx, input(id, a.id, { brandId: LUMEN_EU, region: "eu" }), aWrite(), accept(a.id), stores)).toEqual({ ok: false, error: "other_region" });
+    expect(await createSuggestedWorkTask(ctx, input(id, a.id), aWrite(), accept(a.id, 2), stores)).toEqual({ ok: false, error: "changed" });
+    expect(us.dump(WORK_TASKS)).toEqual([]);
+    expect((await createSuggestedWorkTask(ctx, input(id, a.id), aWrite(), accept(a.id), stores)).ok).toBe(true);
+    expect(await createSuggestedWorkTask(ctx, input(id, a.id), aWrite(), accept(a.id, 3), stores)).toEqual({ ok: false, error: "exists" });
+    // Another task id than the suggestion's target is not the suggestion's task.
+    expect(await createSuggestedWorkTask(ctx, input(newWorkTaskId(), a.id), aWrite(), accept(a.id, 3), stores)).toEqual({ ok: false, error: "not_found" });
+  });
+
+  it("needs an origin that names the suggestion", async () => {
+    const id = newWorkTaskId();
+    const a = await suggested(id);
+    await expect(createSuggestedWorkTask(ctx, aTask({ id }), aWrite(), accept(a.id), stores)).rejects.toThrow(TenantValidationError);
   });
 });

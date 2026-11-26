@@ -654,6 +654,100 @@ describe("articles due a refresh, in Review", () => {
   });
 });
 
+describe("Work in Review (WORK_ENABLED)", () => {
+  // Made-up Acme with two brands, A and B, in one organisation that Nina owns; Sam is an admin of A
+  // who doesn't own it. One fake database stands for the control plane and every region.
+  const nina: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "uid_nina", role: "admin" };
+  const sam: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "uid_sam", role: "admin" };
+  const T = "2026-11-20T09:00:00.000Z";
+  const brand = (db: FakeFirestore, id: string, name: string) =>
+    db.seed("tenants", id, { tenantName: name, rootDomain: `${id}.example`, ownerId: "uid_nina", status: "active", region: "us", allowedOrigins: [], createdAt: T, updatedAt: T, organisationId: "org_acme", orgPlan: "self_hosted" });
+  let n = 0;
+  const task = (db: FakeFirestore, over: Record<string, unknown>) => {
+    n += 1;
+    db.seed("work_tasks", `wt_${"abcdefghijklmnopqrstuvwxyz"[n]!.padStart(20, "a")}`, {
+      organisationId: "org_acme",
+      brandId: "ten_A",
+      addedFrom: "ten_A",
+      region: "us",
+      ref: n,
+      title: `Task ${n}`,
+      description: "",
+      notes: "",
+      status: "todo",
+      open: true,
+      stage: null,
+      mustHave: false,
+      links: [],
+      blockedBy: [],
+      waitingOn: null,
+      ideaId: null,
+      ideaBrandId: null,
+      clipping: null,
+      typedLinks: [],
+      measure: null,
+      origin: { kind: "person", by: "uid_nina" },
+      check: null,
+      hasCheck: false,
+      recent: [],
+      closedAt: null,
+      createdAt: T,
+      updatedAt: T,
+      ...over,
+    });
+  };
+  function world() {
+    const db = new FakeFirestore();
+    brand(db, "ten_A", "Acme");
+    brand(db, "ten_B", "Acme Labs");
+    db.seed("organisations", "org_acme", { name: "Acme", plan: "self_hosted", planSince: T, brandIds: ["ten_A", "ten_B"], ownerIds: ["uid_nina"], createdBy: "uid_nina", createdAt: T, updatedAt: T });
+    task(db, { title: "Register for VAT" });
+    task(db, { title: "Look at the sign up page again", status: "in_progress", check: { kind: "date", at: "2026-11-20T08:00:00.000Z", taskId: null, note: "", setBy: "uid_nina", setAt: T, which: null, counted: null }, hasCheck: true });
+    task(db, { title: "Acme Labs pricing", brandId: "ten_B", addedFrom: "ten_B" });
+    return db;
+  }
+  beforeEach(() => {
+    resetReviewCountCache();
+    n = 0;
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("adds checks due and tasks ready to start, as Work's view shows them, only while Work is on", async () => {
+    const db = world();
+    const work = async (ctx: TenantContext) => (await loadReview(ctx, { lifecycle: false, includeContent: false }, db)).items.filter((i) => i.kind.startsWith("work_")).map((i) => `${i.kind} ${i.title}`);
+    expect(await work(nina)).toEqual([]);
+    vi.stubEnv("WORK_ENABLED", "true");
+    expect(await work(nina)).toEqual(["work_check #2 Look at the sign up page again", "work_ready #1 Register for VAT", "work_ready #3 Acme Labs pricing"]);
+    // Sam doesn't own the organisation, so in a two brand organisation he sees his brand's only.
+    expect(await work(sam)).toEqual(["work_check #2 Look at the sign up page again", "work_ready #1 Register for VAT"]);
+    // A system context with no person sees no Work.
+    expect(await work(ctx)).toEqual([]);
+  });
+
+  it("keys the count by the owner flag too, so an owner's count never reaches an admin who isn't one", async () => {
+    vi.stubEnv("WORK_ENABLED", "true");
+    const db = world();
+    expect(await countReview(nina, { lifecycle: false, now: 1_000 }, db)).toBe(3);
+    expect(await countReview(sam, { lifecycle: false, now: 2_000 }, db)).toBe(2);
+    task(db, { title: "Another one" });
+    // Cached for each, apart.
+    expect(await countReview(nina, { lifecycle: false, now: 3_000 }, db)).toBe(3);
+    expect(await countReview(sam, { lifecycle: false, now: 3_000 }, db)).toBe(2);
+    // A decision forgets every variant for the brand.
+    forgetReviewCount("ten_A");
+    expect(await countReview(nina, { lifecycle: false, now: 4_000 }, db)).toBe(4);
+    expect(await countReview(sam, { lifecycle: false, now: 4_000 }, db)).toBe(3);
+  });
+
+  it("names each key: brand, role and, while Work is on, the owner flag", async () => {
+    const { countKey } = await import("./summary");
+    expect(countKey("ten_A", "admin")).toBe("ten_A|admin");
+    expect(countKey("ten_A", "member", true)).toBe("ten_A|member|owner");
+    expect(countKey("ten_A", "admin", false)).toBe("ten_A|admin|not_owner");
+    expect(countKey("ten_AB", "admin", false).startsWith("ten_A|")).toBe(false);
+  });
+});
+
 describe("What Vizzy heard about the business (ONBOARDING_ENABLED)", () => {
   afterEach(() => vi.unstubAllEnvs());
   const admin: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "u_admin", role: "admin" };

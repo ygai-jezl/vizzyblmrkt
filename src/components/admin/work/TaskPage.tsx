@@ -107,7 +107,7 @@ export function TaskPage({ screen }: { screen: TaskScreen }) {
   const ideaName = (b: string, i: string) => screen.ideaNames[`${b}:${i}`] ?? options.ideas.find((x) => x.value === `${b}:${i}`)?.label;
   const word = ideaWord(screen.ideaWords);
   const byMeasure = task.check?.setBy === SET_BY_MEASURE;
-  const origin = originParts(task.origin, task.createdAt, tz, me, page.names);
+  const origin = originParts(task.origin, task.createdAt, tz, me, page.names, screen.suggested ? { from: screen.suggested.from, edited: screen.suggested.edited.length > 0 } : null);
   const repos = screen.measureBrand ? (options.brands.find((b) => b.id === screen.measureBrand!.id)?.repos ?? []) : options.brands.flatMap((b) => b.repos);
   const lastMove = task.recent.find((r) => r.field === "status");
   const open = task.status !== "done" && task.status !== "dropped";
@@ -162,6 +162,20 @@ export function TaskPage({ screen }: { screen: TaskScreen }) {
               <span className="font-medium">{origin.from}</span> {origin.rest}
             </span>
           </p>
+          {screen.suggested?.edited.length ? (
+            <details className="text-sm text-neutral-600 dark:text-neutral-300">
+              <summary className="cursor-pointer font-medium">{WORK_COPY.vizzySuggested}</summary>
+              <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{WORK_COPY.vizzySuggestedHint}</p>
+              <dl className="mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
+                {screen.suggested.edited.map((e) => (
+                  <div key={e.label} className="contents">
+                    <dt className="text-neutral-500 dark:text-neutral-400">{e.label}</dt>
+                    <dd className="break-words">{e.was}</dd>
+                  </div>
+                ))}
+              </dl>
+            </details>
+          ) : null}
         </div>
 
         {page.regionsDown.length ? (

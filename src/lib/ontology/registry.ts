@@ -2520,7 +2520,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
       "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business. Vizzy's Work task suggestions keep their details once decided (clearDetailsOnClose false), so what Vizzy proposed stays beside the task as a person added it, or beside why they dismissed it; so do the Log notes and decisions Vizzy drafts for Work, beside the row a person saved from them. Other drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.",
     place: "partner_agent",
     status: "built",
-    madeBy: ["canvas.person_fields", "canvas.new_person", "rising_search", "losing_page", "within_reach"],
+    madeBy: ["canvas.person_fields", "canvas.new_person", "rising_search", "losing_page", "within_reach", "vizzy_chat"],
     home: "brand",
     personal: "people",
     stores: [
@@ -2533,6 +2533,8 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { to: "data_signal", via: "the target, when it is a suggestion from collected numbers", many: false },
       { to: "brand_question", via: "the target, when it is a question proposed from Search Console", many: false },
       { to: "brand", via: "the target, when it is something Vizzy heard about the business in a chat", many: false },
+      { to: "work_task", via: "the target, when it is a Work task suggestion: the id the task takes once a person adds it", many: false },
+      { to: "work_log", via: "the target, when it is a note or decision Vizzy drafted for Work: the id the log row takes once a person saves it", many: false },
       { to: "ontology_event", via: "agentActionId, its agent kinds of event", many: true },
     ],
     events: ["agent.proposed", "agent.approved", "agent.acted", "agent.undone", "agent.declined"],

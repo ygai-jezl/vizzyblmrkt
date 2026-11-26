@@ -282,8 +282,9 @@ export {
   eraseOrganisationWork,
   repointBrandWork,
   countBrandWork,
+  createSuggestedWorkTask,
 } from "./work";
-export type { WorkStores, WorkWrite, NewWorkTask, WorkTaskPatch, WorkChangePlan, WorkChangeResult, NewWorkLogRow, WorkRead, WorkEraseCounts } from "./work";
+export type { WorkStores, WorkWrite, NewWorkTask, WorkTaskPatch, WorkChangePlan, WorkChangeResult, NewWorkLogRow, WorkRead, WorkEraseCounts, SuggestionAccept, SuggestedTaskResult } from "./work";
 export { WORK_REFS, allocateWorkRefs, raiseWorkRefs, peekWorkRefs, deleteWorkRefs } from "./workRefs";
 // Who may act for an organisation, read live.
 export { organisationContextFor, verifiedPersonOf, isBrandAdminLive, isBrandAdminByRow, mayMoveBrand } from "./organisationContext";

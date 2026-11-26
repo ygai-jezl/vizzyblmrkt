@@ -3,6 +3,7 @@ import type { ZodError } from "zod";
 import { getAdminContext } from "@/lib/auth/session";
 import { sameOriginGuard } from "@/lib/http/sameOrigin";
 import { readRequestTextCapped } from "@/lib/http/readBody";
+import { forgetReviewCount } from "@/lib/review/summary";
 import { isWorkEnabled } from "./flags";
 import { invalidInput, type WorkResult } from "./result";
 import { workScopeFor, type WorkScope } from "./scope";
@@ -41,6 +42,16 @@ export async function workAdmin(req: Request): Promise<WorkGate> {
 export function respond<T>(r: WorkResult<T>): NextResponse {
   if (r.ok) return json(r.status, r.value);
   return json(r.status, { error: r.error, message: r.message, ...(r.issues ? { issues: r.issues } : {}) });
+}
+
+/**
+ * A service result as a response, after a write that can change what Review counts (a check, a
+ * task's status, a new or deleted task): a success forgets the brand's cached Review count, so
+ * the sidebar shows it on its next poll.
+ */
+export function respondChanged<T>(scope: WorkScope, r: WorkResult<T>): NextResponse {
+  if (r.ok) forgetReviewCount(scope.ctx.tenantId);
+  return respond(r);
 }
 
 /** A body or query that doesn't parse: 400 with its first issues. */

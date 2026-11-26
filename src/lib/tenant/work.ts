@@ -3,7 +3,11 @@ import { isAlreadyExists } from "./firestore";
 import { TenantIsolationError, TenantValidationError } from "./errors";
 import { provisionedRegions, regionStore, type OrganisationStores } from "./organisationConnections";
 import { allocateWorkRefs, deleteWorkRefs } from "./workRefs";
-import type { CollectionLike, DocRefLike, FirestoreLike, QueryLike, TransactionLike } from "./types";
+import { planAgentTransition, readAgentActionTx, stageAgentTransition, type TransitionError } from "./agentActions";
+import { retryOnceOnExists } from "./ontologyEvents";
+import type { CollectionLike, DocRefLike, FirestoreLike, QueryLike, TenantContext, TransactionLike } from "./types";
+import type { EventActor } from "@/lib/ontology/events";
+import type { AgentAction, AgentActionId } from "@/lib/types/agentAction";
 import type { Region } from "@/lib/types/tenant";
 import {
   WORK_CHANGE_FIELDS,
@@ -236,6 +240,57 @@ export async function createWorkTask(input: NewWorkTask, write: WorkWrite, store
     throw err;
   }
   return { task, rows: [added] };
+}
+
+/** How a person's Add to Work or Edit then add moves the suggestion, written with the task. */
+export interface SuggestionAccept {
+  id: AgentActionId;
+  by: EventActor;
+  /** Refuse with "changed" unless the suggestion is still at this rev. */
+  expectRev: number;
+  /** The action's result, from the task as it is stored: `{ task, edited }`, never under `fields`. */
+  result: (task: WorkTask) => Record<string, unknown>;
+}
+
+export type SuggestedTaskResult =
+  | { ok: true; task: WorkTask; rows: WorkLogRow[]; action: AgentAction }
+  | { ok: false; error: TransitionError | "exists" | "other_region" };
+
+/**
+ * Add a task from a Vizzy suggestion (Review's Add to Work, or Edit then add): the task, its
+ * "added" row and the suggestion's move to acted with its result, in ONE transaction. That holds
+ * only where the task and the suggestion share a database, so the task must be kept in the region
+ * of the brand whose chat made the suggestion (other_region otherwise); Firestore runs no
+ * transaction across databases (ADR-0002). The task takes the suggestion's target id, so a second
+ * accept finds it (exists) or finds the suggestion decided (wrong_state), and nothing is written
+ * twice. Reads first: the suggestion, then the task's id.
+ */
+export async function createSuggestedWorkTask(ctx: TenantContext, input: NewWorkTask, write: WorkWrite, accept: SuggestionAccept, stores: WorkStores = {}): Promise<SuggestedTaskResult> {
+  if (!WORK_TASK_ID.test(input.id)) invalid("id");
+  if (input.origin?.kind !== "suggestion" || input.origin.agentActionId !== accept.id) invalid("origin:a suggested task's origin names its suggestion");
+  checkSource(write.source);
+  if (input.region !== ctx.region) return { ok: false, error: "other_region" };
+  const candidate = { ...input, open: workTaskOpen(input), hasCheck: input.check != null, recent: [] as WorkRecent[], createdAt: write.at, updatedAt: write.at };
+  const first = WorkTaskSchema.safeParse(candidate);
+  if (!first.success) invalid(firstIssue(first.error));
+  const added = changeRow(first.data, write, "added", null, addedSnapshot(first.data));
+  const task: WorkTask = { ...first.data, recent: withRecent([], [added]) };
+  const store = regionStore(task.region, stores);
+  const { id, ...doc } = task;
+  return retryOnceOnExists(() =>
+    store.runTransaction(async (txn): Promise<SuggestedTaskResult> => {
+      const action = await readAgentActionTx(txn, store, ctx, accept.id);
+      const existing = await txn.get(taskRef(store, id));
+      if (!action || action.target.type !== "work_task" || action.target.id !== id) return { ok: false, error: "not_found" };
+      if (existing.exists) return { ok: false, error: "exists" };
+      const plan = planAgentTransition(action, { to: "acted", by: accept.by, at: write.at, expectRev: accept.expectRev, result: accept.result(task), clearDetails: false });
+      if (!plan.ok) return { ok: false, error: plan.error };
+      txn.create(taskRef(store, id), doc as unknown as Record<string, unknown>);
+      stageRow(txn, store, added);
+      stageAgentTransition(txn, store, ctx, plan);
+      return { ok: true, task, rows: [added], action: plan.next };
+    }),
+  );
 }
 
 /**

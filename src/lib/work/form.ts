@@ -99,6 +99,15 @@ export function draftOfMeasure(m: Measure | null): MeasureDraft {
   return { kind: m.kind, first: partOfMeasure(m), then: m.then ? partOfMeasure(m.then) : null };
 }
 
+/** A measure as Vizzy suggested it (a request's shape), as the picker edits it: Edit then add starts from it. */
+export function draftOfMeasureInput(m: MeasureInput | null | undefined): MeasureDraft {
+  if (!m) return blankMeasure();
+  if (m.kind === "done") return { kind: "done", first: blankPart(), then: null };
+  const part = (p: ThenInput): ThenMeasure => (p.kind === "moves" ? { ...p, direction: p.direction ?? startingDirection(p.meaning) } : p) as ThenMeasure;
+  const { then, ...first } = m;
+  return { kind: m.kind, first: partOfMeasure(part(first as ThenInput)), then: then ? partOfMeasure(part(then)) : null };
+}
+
 function lookOf(p: PartDraft): Look {
   return p.lookBy === "outputs" ? { outputs: p.outputs } : { days: Math.round(p.days) };
 }

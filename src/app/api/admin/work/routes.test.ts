@@ -21,6 +21,9 @@ const logRoute = await import("./log/route");
 const checks = await import("./checks/route");
 const decisions = await import("./decisions/route");
 const importRoute = await import("./import/route");
+const suggestionRoute = await import("./suggestions/[actionId]/route");
+const { proposeWorkSuggestion } = await import("@/lib/work/suggestions");
+const { workScopeFor } = await import("@/lib/work/scope");
 
 const HOST = "app.lumen.test";
 const ORIGIN = `https://${HOST}`;
@@ -62,6 +65,7 @@ describe("with WORK_ENABLED off", () => {
       await checks.POST(req("/checks", "POST", { ref: 1, action: "checked" })),
       await decisions.POST(req("/decisions", "POST", { ref: 1, question: "Q", options: ["A", "B"] })),
       await importRoute.POST(req("/import", "POST", { mode: "preview", text: "Task\nA" })),
+      await suggestionRoute.POST(req(`/suggestions/aa_${"1".repeat(40)}`, "POST", { decision: "add", rev: 1 }), { params: Promise.resolve({ actionId: `aa_${"1".repeat(40)}` }) }),
     ];
     for (const r of answers) {
       expect(r.status).toBe(404);
@@ -180,5 +184,82 @@ describe("import", () => {
     const big = await importRoute.POST(req("/import", "POST", { mode: "preview", text: "a".repeat(3_200_000) }));
     expect(big.status).toBe(400);
     expect(await json(big)).toMatchObject({ error: "import_too_big" });
+  });
+});
+
+describe("Vizzy's task suggestions, from Review", () => {
+  // As in production, the United States data is in (default).
+  const deps = () => ({ ...w.deps, regionDb: (r: "us" | "eu" | "asia") => (r === "us" ? w.control : w.dbOf(r)) });
+  async function suggest(over: Record<string, unknown> = {}) {
+    const scope = await workScopeFor(PEOPLE.nina, deps());
+    if (!scope.ok) throw new Error("no scope");
+    const r = await proposeWorkSuggestion(
+      scope.scope,
+      {
+        task: {
+          title: "Add a data processing agreement for team admins",
+          description: "",
+          stage: "set_up",
+          brandId: LUMEN_US,
+          typedLinks: [],
+          measure: { kind: "done" },
+          proposed: { kind: "done", reason: "Legal work in Set up." },
+          from: "as the next step for Set up",
+          why: "Team plans are usually asked for one before they buy.",
+          ...over,
+        },
+      },
+      deps(),
+    );
+    if (!r.ok || r.value.outcome !== "created") throw new Error("not created");
+    return r.value.action!;
+  }
+  const decide = (id: string, body: unknown) => suggestionRoute.POST(req(`/suggestions/${id}`, "POST", body), { params: Promise.resolve({ actionId: id }) });
+
+  it("adds a suggestion as written, with the origin the server sets", async () => {
+    const a = await suggest();
+    const r = await decide(a.id, { decision: "add", rev: 1 });
+    expect(r.status).toBe(201);
+    const body = await json(r);
+    expect(body.edited).toEqual([]);
+    expect(body.task.task).toMatchObject({ ref: 1, id: a.target.id, origin: { kind: "suggestion", agentActionId: a.id, by: PEOPLE.nina.userId } });
+    expect(w.control.raw("work_tasks", a.target.id)).toBeDefined();
+    expect(w.control.raw("agent_actions", a.id)).toMatchObject({ state: "acted", result: { edited: [] } });
+    expect(await json(await decide(a.id, { decision: "add", rev: 3 }))).toMatchObject({ error: "suggestion_decided" });
+  });
+
+  it("takes an edited task, but never an origin, a proposed kind or anything else the server sets", async () => {
+    const a = await suggest();
+    for (const task of [
+      { title: "A", origin: { kind: "person", by: "uid_x" } },
+      { title: "A", measure: { kind: "done", proposed: { kind: "done", reason: "x", by: "vizzy" } } },
+      { title: "A", organisationId: "org_ten_fernhill" },
+    ]) {
+      const bad = await decide(a.id, { decision: "add", rev: 1, task });
+      expect(bad.status, JSON.stringify(task)).toBe(400);
+      expect(await json(bad)).toMatchObject({ error: "invalid_input" });
+    }
+    expect((await decide(a.id, { decision: "add", rev: 1, edited: [] })).status).toBe(400);
+    const r = await decide(a.id, { decision: "add", rev: 1, task: { title: "Data processing agreement", brandId: LUMEN_US, stage: "set_up", mustHave: true, measure: { kind: "done" } } });
+    expect(r.status).toBe(201);
+    expect((await json(r)).edited).toEqual(["title"]);
+  });
+
+  it("lets a member dismiss their brand's suggestion with a reason, and says when Vizzy may suggest it again", async () => {
+    const a = await suggest();
+    as(PEOPLE.sam);
+    expect((await decide(a.id, { decision: "dismiss", rev: 1, why: "maybe" })).status).toBe(400);
+    const r = await decide(a.id, { decision: "dismiss", rev: 1, why: "not_now" });
+    expect(r.status).toBe(200);
+    expect(await json(r)).toEqual({ again: "30_days", line: "Dismissed “Add a data processing agreement for team admins”: Not now. Vizzy can suggest it again in 30 days." });
+    expect(w.control.raw("agent_actions", a.id)).toMatchObject({ state: "declined", declined: { reason: "dismissed", why: "not_now" } });
+  });
+
+  it("answers 404 for an id that isn't a suggestion this person sees", async () => {
+    const whole = await suggest({ brandId: null, title: "Agree how the team names its plans" });
+    expect(await json(await decide("not-an-id", { decision: "add", rev: 1 }))).toMatchObject({ error: "suggestion_missing" });
+    expect((await decide(`aa_${"2".repeat(40)}`, { decision: "add", rev: 1 })).status).toBe(404);
+    as(PEOPLE.sam);
+    expect((await decide(whole.id, { decision: "dismiss", rev: 1 })).status).toBe(404);
   });
 });

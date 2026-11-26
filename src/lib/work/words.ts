@@ -74,6 +74,12 @@ export const WORK_MESSAGES = {
   import_too_big: "That's more than Work reads at once. Import up to 1,000 rows at a time.",
   regions_down: "Work couldn't read every region just now, so it can't be sure your refs are free. Try again in a minute.",
   day_bad: "That isn't a day Work can show.",
+  suggestion_missing: "That suggestion isn't there any more, or it's for a brand you can't see.",
+  suggestion_decided: "That suggestion was added or dismissed already. Refresh Review to see what's waiting.",
+  suggestion_changed: "That suggestion changed while you were looking at it. Refresh Review, then try again.",
+  suggestion_other_region:
+    "That brand keeps its data in another region, so a suggestion made here can't be added for it. Pick a brand in this region, or the whole business.",
+  suggestion_must_have: "Vizzy never sets Must have on a suggestion. A person ticks it when they add the task.",
 } as const;
 
 export type WorkRefusal = Exclude<keyof typeof WORK_MESSAGES, "invalid_input">;

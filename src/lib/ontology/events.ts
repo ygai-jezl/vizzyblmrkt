@@ -419,7 +419,7 @@ export const SUBJECT_TYPE_REGISTRY_ID: Record<SubjectType, string> = {
  * What an agent action can be about. A consumer that needs another target adds the value and its
  * registry type id in its own change.
  */
-export const AGENT_TARGET_TYPES = ["person", "company", "idea", "data_signal", "brand_question", "brand"] as const;
+export const AGENT_TARGET_TYPES = ["person", "company", "idea", "data_signal", "brand_question", "brand", "work_task", "work_log"] as const;
 export type AgentTargetType = (typeof AGENT_TARGET_TYPES)[number];
 
 export interface AgentTarget {
@@ -439,6 +439,12 @@ export const AGENT_TARGET_REGISTRY_ID: Record<AgentTargetType, string> = {
   // Something Vizzy heard about the business in a chat, waiting for an admin to keep it in About
   // your business (ONBOARDING_ENABLED, src/lib/onboarding/factSuggestions.ts). The id is the brand's.
   brand: "brand",
+  // A task Vizzy suggests for Work (ADR-0018): the id is the one the task takes when a person adds
+  // it, so the suggestion and the task join both ways.
+  work_task: "work_task",
+  // A note or decision Vizzy drafts for Work: the id is the one the log row takes when a person
+  // saves it, so the draft and the row join both ways.
+  work_log: "work_log",
 };
 
 /**

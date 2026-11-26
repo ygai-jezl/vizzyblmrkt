@@ -4,6 +4,7 @@ import {
   changeWorkTask,
   countWorkLog,
   countWorkTasks,
+  createSuggestedWorkTask,
   createWorkTask,
   deleteWorkTask,
   findWorkTask,
@@ -16,6 +17,7 @@ import {
   peekWorkRefs,
   raiseWorkRefs,
   type NewWorkTask,
+  type SuggestionAccept,
   type WorkChangePlan,
   type WorkTaskPatch,
   type WorkWrite,
@@ -40,6 +42,7 @@ import {
   SET_BY_MEASURE,
   WORK_LIMITS,
   type Measure,
+  type ProposedKind,
   type TypedLink,
   type WorkCheck,
   type WorkCheckRow,
@@ -311,7 +314,8 @@ export async function dueChecks(scope: WorkScope, deps: WorkDeps = {}): Promise<
   const now = nowOf(deps);
   const brandOpt = scope.view === "brand" ? { brandId: scope.session.id } : {};
   const checks = await listWorkChecks(scope.organisationId, brandOpt, deps);
-  const mine = checks.rows.filter((t) => seesTask(scope, t));
+  // Each task once, by id, as loadTasks keeps them.
+  const mine = [...new Map(checks.rows.filter((t) => seesTask(scope, t)).map((t) => [t.id, t])).values()];
   const map = await lookupMap(
     scope,
     mine,
@@ -460,6 +464,7 @@ async function checkFields(
   place: { brandId: string | null; region: Region; addedFrom: string },
   deps: WorkDeps,
   now: Date,
+  extra: { proposed?: ProposedKind | null } = {},
 ): Promise<{ ok: true; value: Checked } | WorkRefused> {
   const patch: WorkTaskPatch = {};
   for (const k of ["title", "description", "notes", "status", "stage", "mustHave", "links", "waitingOn"] as const) {
@@ -502,6 +507,7 @@ async function checkFields(
         typedLinks: patch.typedLinks ?? current?.typedLinks ?? [],
         brand,
         current: current?.measure ?? null,
+        ...(extra.proposed !== undefined ? { proposed: extra.proposed } : {}),
       },
       deps,
       now,
@@ -570,18 +576,33 @@ export async function addTask(scope: WorkScope, body: AddTaskBody, deps: WorkDep
   return addTaskWith(scope, body, { kind: "person", by: scope.userId }, deps);
 }
 
+/** What a Review accept adds to addTaskWith: Vizzy's proposed kind, and the suggestion's move written with the task. */
+export interface AddFromSuggestion {
+  /** The kind Vizzy proposed; left out when it proposed none, so the rule proposes as for any add. */
+  proposed?: ProposedKind | null;
+  accept: SuggestionAccept;
+}
+
 /**
- * Add a task with the origin its path sets (the add page, an import, later a Review accept),
- * never one read from a request. The ref comes from the organisation's counter first, so a write
- * that then fails leaves a gap.
+ * Add a task with the origin its path sets (the add page, an import, a Review accept), never one
+ * read from a request. The ref comes from the organisation's counter first, so a write that then
+ * fails leaves a gap. From a suggestion, the task and the suggestion's move to acted commit
+ * together, in the session brand's region (src/lib/work/suggestions.ts).
  */
-export async function addTaskWith(scope: WorkScope, body: AddTaskBody, origin: WorkOrigin, deps: WorkDeps = {}, opts: { id?: string; tool?: string } = {}): Promise<WorkResult<ChangeDone>> {
+export async function addTaskWith(
+  scope: WorkScope,
+  body: AddTaskBody,
+  origin: WorkOrigin,
+  deps: WorkDeps = {},
+  opts: { id?: string; tool?: string; suggestion?: AddFromSuggestion } = {},
+): Promise<WorkResult<ChangeDone>> {
   const now = nowOf(deps);
   const place = placeForNew(scope, body.brandId);
   if ("error" in place) return place;
+  if (opts.suggestion && place.region !== scope.session.region) return refuse("suggestion_other_region");
   const { count } = await countWorkTasks(scope.organisationId, deps);
   if (count >= WORK_LIMITS.tasks) return refuse("tasks_full");
-  const checked = await checkFields(scope, body, null, { ...place, addedFrom: scope.session.id }, deps, now);
+  const checked = await checkFields(scope, body, null, { ...place, addedFrom: scope.session.id }, deps, now, opts.suggestion?.proposed !== undefined ? { proposed: opts.suggestion.proposed } : {});
   if (!checked.ok) return checked;
   const zone = (brandIn(scope, place.brandId) ?? scope.session).timeZone;
   const settled = settle(null, { status: body.status ?? "todo", ...checked.value.patch }, checked.value.check, zone, now);
@@ -612,7 +633,20 @@ export async function addTaskWith(scope: WorkScope, body: AddTaskBody, origin: W
     check: p.check ?? null,
     closedAt: p.closedAt ?? null,
   };
-  const made = await createWorkTask(task, writeOf(scope, now, opts.tool ?? body.via ?? "work_page"), deps);
+  const write = writeOf(scope, now, opts.tool ?? body.via ?? "work_page");
+  let made: { task: WorkTask };
+  if (opts.suggestion) {
+    const r = await createSuggestedWorkTask(scope.ctx, task, write, opts.suggestion.accept, deps);
+    if (!r.ok) {
+      if (r.error === "other_region") return refuse("suggestion_other_region");
+      if (r.error === "changed") return refuse("suggestion_changed");
+      if (r.error === "not_found") return refuse("suggestion_missing");
+      return refuse("suggestion_decided");
+    }
+    made = r;
+  } else {
+    made = await createWorkTask(task, write, deps);
+  }
   const map = await lookupMap(scope, [made.task], wantedOf([made.task]), deps);
   return ok({ task: viewOf(scope, made.task, map, now), notice: settled.setByDone ? doneCheckNotice(settled.setByDone.at!, zone, settled.replaced) : null }, 201);
 }

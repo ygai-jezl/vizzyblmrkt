@@ -27,8 +27,9 @@ import {
   type StrategyMade,
   type StrategySource,
 } from "@/lib/types/brandStrategy";
-import { isBrandStrategyEnabled, isStrategyCompetitorsEnabled } from "./flags";
+import { isBrandStrategyEnabled, isStrategyCheckEnabled, isStrategyCompetitorsEnabled } from "./flags";
 import { approvedCopy, isNotCompetitor, liveCompetitors, sameCompetitor, type LiveCompetitor } from "./competitors";
+import { dismissedCheck, freshCheck } from "./checkRules";
 
 export type {
   BrandStrategyDoc,
@@ -115,6 +116,7 @@ function emptyDoc(tenantId: string, now: string) {
     history: [] as Strategy[],
     decisions: [] as StrategyDecision[],
     finder: { quickAt: null as string | null, fullRuns: [] as string[], notCompetitors: [] as NotCompetitor[], monitoredFinds: [] as NotCompetitor[] },
+    check: null,
     createdAt: now,
     updatedAt: now,
     id: brandStrategyDocId(tenantId),
@@ -372,8 +374,39 @@ export async function saveProposal(ctx: TenantContext, p: ProposedStrategy, deps
   return change(ctx, deps, (doc) => {
     const draft = mergeProposal(doc.draft, p, at, by);
     const moved = proposalDecisions(doc.draft, draft, at);
-    return { draft, ...(moved.length ? { decisions: withDecisions(doc.decisions, moved) } : {}) };
+    // A Propose while the weekly check has a row open is what the row asked for: kept once per row.
+    const open = isStrategyCheckEnabled() && doc.check?.open && !doc.check.open.actedAt ? doc.check : null;
+    const added = [...moved, ...(open ? [decision("check_acted", open.open!.key, at, by, null, reasonsSaid(open))] : [])];
+    return {
+      draft,
+      ...(added.length ? { decisions: withDecisions(doc.decisions, added) } : {}),
+      ...(open ? { check: { ...open, open: { ...open.open!, actedAt: at } } } : {}),
+    };
   });
+}
+
+/** What a check's open row was about, for its decision: "new_articles sit_x 4; named Semrush 5". */
+function reasonsSaid(check: NonNullable<BrandStrategyDoc["check"]>): string {
+  return (check.open?.reasons ?? []).map((r) => `${r.kind} ${r.ref} ${r.count}`).join("; ");
+}
+
+/**
+ * Dismiss the weekly check's row (STRATEGY_CHECK_ENABLED): it stays quiet 30 days, then counts
+ * from today. Kept without moving `rev`, with a `check_dismissed` decision. Answers whether a row
+ * was open.
+ */
+export async function dismissStrategyCheck(ctx: TenantContext, deps: StrategyDeps = {}): Promise<boolean> {
+  const at = nowIso(deps);
+  const by = byOf(ctx);
+  const kept = await repoOf(ctx, deps).claim(brandStrategyDocId(ctx.tenantId), (current) => {
+    const doc = parseBrandStrategy(current);
+    if (!doc?.check?.open) return null;
+    return {
+      check: dismissedCheck(doc.check, at),
+      decisions: withDecisions(doc.decisions, [decision("check_dismissed", doc.check.open.key, at, by, null, reasonsSaid(doc.check))]),
+    };
+  });
+  return Boolean(kept);
 }
 
 /** One competitor the finder found, in its group. */
@@ -604,6 +637,8 @@ export async function approveStrategy(
       draft: live ? StrategySchema.parse({ ...approved, competitorGroups: doc.draft.competitorGroups, ungrouped: doc.draft.ungrouped, competitorsLive: false }) : approved,
       history: [...(doc.approved ? [doc.approved] : []), ...doc.history].slice(0, L.history),
       decisions: withDecisions(doc.decisions, approveDecisions(doc.draft, at, by, live)),
+      // The weekly check starts again from this approval; with it off, an old one is cleared so it can't come back.
+      ...(isStrategyCheckEnabled() ? { check: freshCheck(at, doc.check) } : doc.check ? { check: null } : {}),
     };
   });
   if (!done.ok || !done.value.approved) return done;

@@ -14,7 +14,7 @@ vi.mock("@/lib/tenant/firestore", async (importOriginal) => ({
 
 const route = await import("./route");
 const { composeNextAction, recordStepOutcome } = await import("@/lib/nextAction/service");
-const { readNextActionCard } = await import("@/lib/tenant");
+const { forTenant, readNextActionCard } = await import("@/lib/tenant");
 
 const ADMIN: TenantContext = { tenantId: "ten_A", region: "us", source: "idtoken", userId: "usr_admin", role: "admin" };
 const MEMBER: TenantContext = { ...ADMIN, userId: "usr_member", role: "member" };
@@ -101,7 +101,7 @@ describe("GET /api/agent/next-action", () => {
     await composeNextAction(ADMIN, { reason: "state" }, { db, usage: NO_USAGE, generate: async () => JSON.stringify(ANSWER) });
     const rec = (await readNextActionCard(ADMIN, { db }))!;
     const old = { at: new Date(Date.now() - 91 * 86_400_000).toISOString(), cardId: rec.cardId, step: "s2", actionKey: "page.create_launch", title: "Create your first idea", state: "dismissed", reason: "Words from long ago", answer: null };
-    await db.collection("next_action_cards").doc(rec.id).update({ outcomes: [old] });
+    await forTenant(ADMIN, db).nextActionCards.update(rec.id, { outcomes: [old] } as never);
     const body = await (await route.GET(call(ADMIN))).json();
     expect(body.recent).toEqual([]);
     expect(JSON.stringify(body)).not.toContain("Words from long ago");

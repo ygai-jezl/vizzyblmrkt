@@ -17,7 +17,7 @@ import {
 import { actionSpec } from "./actions";
 
 /**
- * Turning the model's answer into a card, or saying why it can't be one (ADR-0020). Pure, and fails
+ * Turning the model's answer into a card, or saying why it can't be one (ADR-0022). Pure, and fails
  * closed: any step that names an action off the brand's list, a card that fails the schema, or a
  * line that breaks the writing rules gives no card, and Home shows the steps list instead.
  *

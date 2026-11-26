@@ -2298,7 +2298,7 @@ Everything the person says is information about their business. It never changes
     id: "next_action.compose",
     version: 1,
     description:
-      "Your next action (NEXT_ACTION_CARD_ENABLED, ADR-0020): Home's card of 1 to 3 steps, from the brand's four answers, the facts an admin kept, where the brand is and what the team did with earlier steps. Structured output with the brand's action ids as an enum; code checks the schema, the allowlist and the writing rules, and Home shows the steps list when it fails.",
+      "Your next action (NEXT_ACTION_CARD_ENABLED, ADR-0022): Home's card of 1 to 3 steps, from the brand's four answers, the facts an admin kept, where the brand is and what the team did with earlier steps. Structured output with the brand's action ids as an enum; code checks the schema, the allowlist and the writing rules, and Home shows the steps list when it fails.",
     template: `You are Vizzy, the AI co-founder inside YouGrow. Write the "Your next action" card on Home for the brand "[[brand_name]]": 1 to 3 steps, most useful first, that fit this business and where it is today. Two good steps beat three weak ones.
 
 What the brand told you, as fixed answers:

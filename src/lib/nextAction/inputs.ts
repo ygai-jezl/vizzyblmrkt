@@ -8,7 +8,7 @@ import { actionSpec } from "./actions";
 
 /**
  * What a card is written from, as the prompt reads it, and the hash that says when to write a new
- * one (ADR-0020). Pure: the reads are in service.ts.
+ * one (ADR-0022). Pure: the reads are in service.ts.
  *
  * The inputs are the four answers, the kept facts (their short lines, never a quote or a
  * transcript), where the brand is (the growth path's stages and steps, and a few counts), what the

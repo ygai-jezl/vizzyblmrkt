@@ -9,7 +9,7 @@ import { NEXT_ACTION_WORDS as W } from "@/lib/nextAction/words";
 import { NextActionFlow, type Posted } from "./nextActionFlow";
 
 /**
- * Home's Your next action as the card Vizzy wrote (NEXT_ACTION_CARD_ENABLED, ADR-0020), drawn with
+ * Home's Your next action as the card Vizzy wrote (NEXT_ACTION_CARD_ENABLED, ADR-0022), drawn with
  * our own pieces from the mockups: what was done as green notes first, then the open steps with
  * why, each step's button (a page from the server's list, or a question for Vizzy in the chat below),
  * a quick question inline, a goal, Dismiss with an optional reason, and Show another. Home renders it

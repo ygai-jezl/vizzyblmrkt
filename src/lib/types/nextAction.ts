@@ -3,7 +3,7 @@ import { FACT_KINDS } from "@/lib/onboarding/choices";
 import { AGENT_ACTION_ID, type AgentActionId } from "./agentAction";
 
 /**
- * Home's Your next action as a card Vizzy writes (NEXT_ACTION_CARD_ENABLED, ADR-0020). The card is
+ * Home's Your next action as a card Vizzy writes (NEXT_ACTION_CARD_ENABLED, ADR-0022). The card is
  * data, never code: five components from a YouGrow-only catalog, drawn by our own components.
  *
  * - ActionCard: the card, with 1 to 3 Steps and an optional Note.

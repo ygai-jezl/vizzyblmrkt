@@ -1,7 +1,7 @@
 import { isOnboardingEnabled } from "@/lib/onboarding/flags";
 
 /**
- * Home's Your next action as a card Vizzy writes (PR B of getting to know you, ADR-0020): 1 to 3
+ * Home's Your next action as a card Vizzy writes (PR B of getting to know you, ADR-0022): 1 to 3
  * steps from the brand's answers, the facts it kept and where it is, each with why. A server
  * switch: browser code gets it as a prop from the server.
  *

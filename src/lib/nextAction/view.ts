@@ -5,7 +5,7 @@ import { arrangeCard } from "./arrange";
 import { recheckCard } from "./card";
 
 /**
- * The card as Home draws it (ADR-0020): each button resolved on the server to a path from the list
+ * The card as Home draws it (ADR-0022): each button resolved on the server to a path from the list
  * or one of our prompts, a goal's count read from the brand's data (a goal reached is done), and
  * dismissed or replaced steps left out; done steps first, as notes (arrange.ts). Pure, and client
  * safe in its output: the view holds no ids from the allowlist's inside.

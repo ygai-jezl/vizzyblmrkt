@@ -3,7 +3,7 @@ import type { TenantRole } from "@/lib/types/tenantUser";
 import { ASK_ACTION_IDS, PAGE_ACTION_IDS, type ActionId, type AskActionId, type PageActionId } from "@/lib/types/nextAction";
 
 /**
- * The server allowlist for Your next action's buttons (ADR-0020). A button carries only an id from
+ * The server allowlist for Your next action's buttons (ADR-0022). A button carries only an id from
  * here: "open this admin page" (a path from a fixed list, built from the routes and sections that
  * exist) or "ask Vizzy this" (one of our own prompts). Never a free URL or a free path: the model
  * picks an id, and this file alone turns it into a path or a prompt.

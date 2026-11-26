@@ -15,7 +15,7 @@ import {
 } from "./inputs";
 
 /**
- * Writing the card (ADR-0020): one call to the default text model through gemini.ts, so it is
+ * Writing the card (ADR-0022): one call to the default text model through gemini.ts, so it is
  * counted under its own purpose (aiUsage(ctx, "next_action")), with structured output whose button
  * ids are an enum of the brand's allowlist; then the checks in card.ts. Any failure is a fallback
  * reason, never an error: Home shows the steps list. Nothing here logs the founder's words.

@@ -3,7 +3,7 @@ import type { CardStepView, CardView } from "@/lib/nextAction/view";
 import { NEXT_ACTION_WORDS as W } from "@/lib/nextAction/words";
 
 /**
- * What Home's Your next action card does when the founder presses something (ADR-0020), apart from
+ * What Home's Your next action card does when the founder presses something (ADR-0022), apart from
  * React so it can be tested with a stubbed fetch: write a new card, record a step's outcome, and
  * change the card on the page only once the server has the outcome.
  *

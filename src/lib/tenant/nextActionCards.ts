@@ -21,7 +21,7 @@ import {
 } from "@/lib/types/nextAction";
 
 /**
- * Home's Your next action, kept per brand in its region (NEXT_ACTION_CARDS, ADR-0020): the card
+ * Home's Your next action, kept per brand in its region (NEXT_ACTION_CARDS, ADR-0022): the card
  * Vizzy wrote, the hash of what it was written from, each step's agent action, and the newest
  * outcomes, which the next card reads. The only writer of next_action_cards. Each change to a
  * step's agent action commits in the same regional transaction as the record, through the agent

@@ -47,7 +47,7 @@ import { PROMPT_VERSION, doneSince, inputHash, quietKeys, type NextActionInputs 
 import { cardView, goalReached, type CardView } from "./view";
 
 /**
- * Your next action, end to end (NEXT_ACTION_CARD_ENABLED, ADR-0020): what a card is written from,
+ * Your next action, end to end (NEXT_ACTION_CARD_ENABLED, ADR-0022): what a card is written from,
  * when a new one is due, writing it off Home's request path, and what the founder does with it.
  *
  * - Home reads the kept card and the hash of its inputs (homeNextAction) and never waits on the

@@ -4,7 +4,7 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
-## ADR-0020 · Your next action: a plain card Vizzy writes (PR B of getting to know you) (2026-11-26)
+## ADR-0022 · Your next action: a plain card Vizzy writes (PR B of getting to know you) (2026-11-26)
 
 Context: PR A (ADR-0018) keeps what a new brand tells Vizzy (the four answers and the facts an admin
 kept) and titles Home's steps card "Your next action", listing the stage that fits the answers. PR B
@@ -13,7 +13,8 @@ The plan (`plan-onboarding.md`) asked for A2UI; after the spike the owner chose 
 A2UI later (25 Nov): the same five components, the same action id allowlist, the same fallback,
 Gemini structured output with the action ids as an enum, a zod check and the writing rules check,
 drawn by our own components, no new packages. The spike's pins for a later move stay in the plan.
-Branch `feat/next-action`. No dependency, index, rules or infra change.
+Branch `feat/next-action`. No dependency, index, rules or infra change. Numbered 0022 because the
+open drafts #254 and #246 already claim 0020 and 0021.
 
 ### Decided
 
@@ -36,6 +37,9 @@ Branch `feat/next-action`. No dependency, index, rules or infra change.
    your business) and what exists (a launch, a programme, a product); a member gets none. The model
    sees only the brand's ids, less those the founder dismissed, as the schema's enum; code refuses
    anything else, a free URL or a free path included, and checks a kept card again before drawing it.
+   Each page id follows the switch its own page checks (logos, brand voice, Email style and the brand
+   map by their server switches, Review by nav v2 phase 2 or lifecycle), and a test reads every
+   page's `notFound()` switches, so a button never opens a 404.
 5. **Writing it.** One call to the default text model through `generateJsonWithSchema` in
    `gemini.ts` (responseJsonSchema with the enum and no item counts, since Vertex has refused capped
    schemas; on a 400 it asks once more in plain JSON mode), thinking 0, 20 seconds, temperature 0.3
@@ -44,12 +48,16 @@ Branch `feat/next-action`. No dependency, index, rules or infra change.
    a quote or a transcript), the growth path's stages, steps and counts, the newest 12 outcomes and
    the ids. Facts, reasons and replaced titles are fenced as data, with fence tags taken out of
    them. Then zod, the allowlist, what the founder dismissed and the writing rules (a dash used as
-   punctuation becomes a comma, as PR A does for facts; an AI tell, a link or a path fails). Any
-   failure keeps the fallback for those inputs, with its reason, so the same inputs never ask twice.
+   punctuation becomes a comma, as PR A does for facts; an AI tell, a link or a path fails). On a
+   `state` write a failure is kept as the fallback for those inputs, with its reason, for a while: a
+   model that did not answer (a timeout, 429 or 5xx) is asked again after 30 minutes, an answer that
+   failed the checks after 6 hours. On Show another a failure writes nothing: the card on Home stays,
+   the founder sees "Vizzy couldn't write another card just now", and the call still counts toward the
+   day. Every call to the model counts toward the 20 a day, card or not.
 6. **When.** A hash of the prompt version, the model, the answers, the facts (id, kind, line), each
    stage's status and done steps, sign-ups in bands (0, 1+, 10+, 100+, 1000+), the brand's ids, and
-   whether every step on the card is decided; a card 28 days old is written again too, before its
-   steps' agent actions expire. Home works it out while it renders (two regional
+   whether every step on the card is decided (a goal the brand reached counts as decided); a card 28
+   days old is written again too, before its steps' agent actions expire. Home works it out while it renders (two regional
    reads: the facts and the record) and never calls the model; when it differs, the card asks
    `POST /api/admin/next-action` once with `state`, which writes only if it still differs, and shows
    PR A's list until the card comes. Show another asks with `another`. One write at a time per brand
@@ -58,26 +66,38 @@ Branch `feat/next-action`. No dependency, index, rules or infra change.
 7. **Where it lives.** `next_action_cards`, one record per brand (`na_` and the brand id) in the
    brand's regional database, written only by `src/lib/tenant/nextActionCards.ts`: the card, the
    hash, each step's agent action and state, why it fell back, the day's count, and the newest 30
-   outcomes (none older than 90 days). The card's lines and a dismissal's reason can hold the
-   founder's words, so it is not on the tenant doc in the control plane.
+   outcomes with each step's newest dismissal of the last 30 days. The outcomes are trimmed whenever
+   the record is read as well as written, so one older than 90 days (and the reason in it) never
+   reaches the prompt, Home or Vizzy, and leaves on the next write. The card's lines and a
+   dismissal's reason can hold the founder's words, so it is not on the tenant doc in the control
+   plane.
 8. **The agent action record.** Every step is proposed as `next_action.suggest` (agent vizzy, target
    the brand, a proposal of ids only, no Review entry, 30 days to expire). Done is acted (`result`
    outcome done), an answer is acted (outcome answered and the answer's place), a dismissal is
    declined `dismissed`, and a step a new card replaces untouched is declined `superseded` and kept
-   as ignored; each in the same regional transaction as the record. The reason stays on the record
-   beside the card: the shared `declined` field holds a reason code only.
+   as ignored; each in the same regional transaction as the record. A goal the brand reached is acted
+   as done (by the system, `result` goal reached) when the card is replaced. Steps proposed for a card
+   that never went in (a store error, or another write took over) are declined `superseded` at once.
+   The reason stays on the record beside the card: the shared `declined` field holds a reason code
+   only.
 9. **Not offered again.** A dismissed step (its action id, `question.<kind>` or `goal.<metric>`)
    stays off the card for 30 days: out of the enum, out of the prompt's list, and dropped by the
-   check. On Show another the steps just shown are left out while others remain.
+   check, however many outcomes come after it and through an erase. On Show another the steps just
+   shown are left out while others remain.
 10. **An answer waits for Keep.** A ChoiceChips answer is the step's outcome. When its question
     names a kind of fact, the answer goes through PR A's suggestion flow (`suggestBusinessFact`: the
     question and the pick as the words, the question as what drew it) and waits in About your
     business; it is never written to the profile. The card never asks the four questions: they are
     changed in About your business.
-11. **Erase and export.** Removing a fact or deleting a conversation forgets the card and its
-    outcomes (`forgetNextActionCard`, which declines its open steps), so nothing written from them
-    stays; `trimOutcomes` keeps the newest 30 and 90 days; `readNextActionCard` is how an admin
-    reads it on Home and Vizzy reads it. Registered in the ontology as `next_action_card`.
+11. **Erase and export.** Removing a fact or deleting a conversation forgets the card
+    (`forgetNextActionCard`, which declines its open steps): the card, its steps and every title,
+    reason and answer in the outcomes go, so nothing written from them stays. Two things stay with
+    no words: the day's count, so removing a fact never buys more cards, and which steps were
+    dismissed in the last 30 days (ids and times), so "won't suggest it again for 30 days" holds. A
+    write in progress loses its hold, so a card written from the removed words never goes in.
+    `trimOutcomes` keeps the newest 30, each step's newest dismissal of 30 days, and 90 days at most;
+    `readNextActionCard` is how an admin reads it on Home and Vizzy reads it. Registered in the
+    ontology as `next_action_card`.
 12. **It learns, in its own store.** `next_action` is `own("next_action_card")`: the next card for
     the same brand reads what was done, answered, dismissed with its reason or ignored. The fixed
     order Home falls back to (`next_action_order`) still learns nothing from those outcomes, and
@@ -89,6 +109,16 @@ Branch `feat/next-action`. No dependency, index, rules or infra change.
     state changes or an admin asks, at most 20 a brand a day, counted as `next_action` in AI model
     use so AI credits include it once they are enforced, as PR A's learning call is. If a tier must
     hold it back, adding it to `METERED_FEATURES` and every plan is a small follow-up.
+15. **On the page, as the mockups draw it.** As the approved "After an action is done" mockup shows,
+    the note from the card before and the steps done or answered on this card are green notes at the
+    top, counted in "1 of 4 done", with "Done today" on the day, and the open steps are numbered on
+    from them. What a press does is in `nextActionFlow.ts`, apart from React: an outcome changes the
+    card only once the server has it, and only the card it was for, so a late answer never puts a
+    replaced card back; a new card is asked for after the outcome that closed the last step is
+    saved; each row is keyed by card and step. An answer About your business could not keep waiting
+    (too many waiting, full, or not saved) says so instead of "Got it.". The footer keeps "Show
+    another" and "From Vizzy, based on what you told me" from the mockup source, where the
+    screenshots say "Refresh" and "based on our chat".
 
 Rejected:
 - A2UI packages now: the owner chose a plain card; the five components and the allowlist carry over.

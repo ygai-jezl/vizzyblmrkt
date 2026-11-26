@@ -47,14 +47,15 @@ export const DEFAULT_EBOOK_IMAGE_MODEL = "gemini-3.1-flash-image";
 export const EBOOK_IMAGE_MODEL =
   process.env.GEMINI_EBOOK_IMAGE_MODEL ?? DEFAULT_EBOOK_IMAGE_MODEL;
 
-/** Gemini Live voice conversation (post-signup waitlist voice chat). Native-audio
- *  model — see liveConversation.ts for the cascaded-model language-code caveat. */
-export const DEFAULT_LIVE_MODEL = "gemini-3.1-flash-live-preview";
+/** Gemini Live voice conversation (post-signup waitlist voice chat). The stable native-audio Live
+ *  model Talk with Vizzy runs on too: the preview model it used before is shut down. See
+ *  liveConversation.ts for the cascaded-model language-code caveat. */
+export const DEFAULT_LIVE_MODEL = "gemini-3.8-live";
 export const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL ?? DEFAULT_LIVE_MODEL;
 
 /** Talk with Vizzy, the voice call on the welcome (ONBOARDING_VOICE_ENABLED, src/lib/onboarding/voice).
  *  A stable Live model with non-blocking function calls, which the call's silent notes need. The
- *  waitlist's voice chat keeps LIVE_MODEL. */
+ *  waitlist's voice chat has its own setting, LIVE_MODEL, on the same model by default. */
 export const DEFAULT_ONBOARDING_LIVE_MODEL = "gemini-3.8-live";
 export const ONBOARDING_LIVE_MODEL = process.env.GEMINI_ONBOARDING_LIVE_MODEL ?? DEFAULT_ONBOARDING_LIVE_MODEL;
 

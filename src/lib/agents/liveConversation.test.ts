@@ -4,6 +4,7 @@ import {
   buildLiveConnectConfig,
   LIVE_MODEL,
 } from "./liveConversation";
+import { DEFAULT_LIVE_MODEL } from "./modelConfig";
 import type { Campaign } from "@/lib/types/campaign";
 
 function campaign(overrides: Partial<Campaign> = {}): Campaign {
@@ -145,7 +146,9 @@ describe("buildLiveConnectConfig", () => {
     expect(buildLiveConnectConfig(campaign(), "fr").speechConfig).toBeUndefined();
   });
 
-  it("defaults the model to the Gemini 3.1 Flash Live preview id", () => {
-    expect(LIVE_MODEL).toBe("gemini-3.1-flash-live-preview");
+  it("defaults the model to the stable gemini-3.8-live, not the shut down preview", () => {
+    expect(DEFAULT_LIVE_MODEL).toBe("gemini-3.8-live");
+    // GEMINI_LIVE_MODEL still overrides it; unset, the default is used.
+    if (!process.env.GEMINI_LIVE_MODEL) expect(LIVE_MODEL).toBe("gemini-3.8-live");
   });
 });

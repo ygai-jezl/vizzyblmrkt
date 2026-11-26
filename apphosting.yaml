@@ -574,6 +574,13 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Paste a list on People: an admin pastes rows from a sheet, code reads them (no AI), and one
+  # Review card adds up to 50 people and companies, each with where the list is from (needs
+  # AUDIENCE_ADD_PERSON_ENABLED; pasting into Ask Vizzy also needs AUDIENCE_VIZZY_ADD_PERSON_ENABLED).
+  - variable: RAISE_PASTE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Email style ==
   # A logo, name and colours on branded emails, then header options, themes, web fonts

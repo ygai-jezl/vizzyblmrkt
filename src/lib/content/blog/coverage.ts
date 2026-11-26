@@ -86,8 +86,8 @@ const words = (s: string) => new Set((s.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?
 /** The words that carry meaning, as close wording compares them: two texts close in wording always share one. */
 export const meaningWords = (s: string): string[] => [...words(s)];
 
-/** Close wording: most of the words that carry meaning are shared. */
-function close(a: string, b: string): boolean {
+/** Close wording: most of the words that carry meaning are shared. Next up matches AI answers' prompts by it too. */
+export function close(a: string, b: string): boolean {
   const x = words(a);
   const y = words(b);
   if (x.size < 2 || y.size < 2) return false;

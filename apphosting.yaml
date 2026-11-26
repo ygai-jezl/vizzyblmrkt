@@ -1271,6 +1271,13 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # Next up weighs AI answers (ADR-0019): a question close in wording to a prompt an AI answers
+  # tool monitors gets a line with its numbers, from connections members and Vizzy may both read
+  # (needs CONNECTORS_ENABLED and an AI answers connector).
+  - variable: CONNECTOR_AI_ANSWERS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
   # Organisations share connections (ADR-0015): an organisation's owners connect once and give
   # each of its brands one site, property or zone; each brand's numbers stay in its own region
   # (needs CONNECTORS_ENABLED and PLANS_ENABLED). Before turning it on, run

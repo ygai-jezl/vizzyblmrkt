@@ -79,7 +79,13 @@ export const LIVE_BY_JOINS: Readonly<Record<LiveBy, JoinKey>> = { day: "day", pa
  * (src/lib/connectors/handlers/searchConsole.ts, pagePattern).
  */
 export const LIVE_FILTERS = ["page"] as const;
-export const USES = ["vizzy.read", "signals.search", "signals.traffic", "signals.bots"] as const;
+/**
+ * The kinds of data a connector gives, which features read by kind and never by vendor
+ * (src/lib/connectors/byUse.ts, ADR-0019): vizzy.read (Vizzy may read it), searches, traffic,
+ * crawler visits and AI answers (how a brand shows up in the answers of AI engines).
+ */
+export const USES = ["vizzy.read", "signals.search", "signals.traffic", "signals.bots", "signals.ai_answers"] as const;
+export type ConnectorUse = (typeof USES)[number];
 
 /** Hard caps on every live read, whatever a manifest says. */
 export const LIVE_LIMITS = { maxDays: 93, maxRows: 100, maxBytes: 512 * 1024 } as const;

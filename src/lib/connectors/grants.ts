@@ -28,11 +28,15 @@ export type ConnectorActor =
   /** Vizzy, reading for the signed-in person whose role its canvas token carries. */
   | { kind: "agent"; agent: "vizzy"; forRole: TenantRole | undefined }
   /**
-   * One of the brand's own scheduled jobs (an article refresh review, BLOG_REFRESH_ENABLED). What it
-   * reads is kept for the whole team and Vizzy to see, so it may read only a connection that
-   * already feeds planning (members and Vizzy may both read it), and only live.
+   * One of the brand's own scheduled jobs (an article refresh review, BLOG_REFRESH_ENABLED; Next up
+   * reading a kind of data through readByUse, ADR-0019). What it reads is kept for the whole team
+   * and Vizzy to see, so it may read only a connection that already feeds planning (members and
+   * Vizzy may both read it), and only live.
    */
-  | { kind: "job"; job: "article_review" };
+  | { kind: "job"; job: ConnectorJob };
+
+/** The brand's scheduled jobs that read connections. */
+export type ConnectorJob = "article_review" | "next_up";
 
 /** The person acting in an admin route. A context with no role is treated as a member. */
 export function humanActor(ctx: TenantContext): ConnectorActor {

@@ -10,6 +10,7 @@ import { eraseConnectionData, pendingWith, type SearchIndexOf } from "./erase";
 import { can, feedsPlanning, grantsCode, normaliseGrants, type ConnectorActor } from "./grants";
 import { searchConsoleManifest } from "./manifests/searchConsole";
 import { stopPlanningFrom } from "./signals/reconcile";
+import { dropAiAnswersPicks } from "./signals/aiAnswersPicks";
 import { COLLECT_FAILED_DAYS, healthAfterFailure, healthAfterSuccess, healthyAt, isCallPaused, shownState } from "./health";
 import { ACCOUNT_HOOKS, VERIFY_HOOKS } from "./handlers";
 import type { ConnectorAccount, HookFailure } from "./handlers/types";
@@ -1234,6 +1235,7 @@ export async function setGrants(ctx: TenantContext, actor: ConnectorActor, id: s
   if (!parsed.success) return refuse(400, "invalid_input");
   const grants = normaliseGrants(parsed.data.grants);
   let stopped = false;
+  let answersStopped = false;
   const r = await manage(
     ctx,
     actor,
@@ -1241,8 +1243,11 @@ export async function setGrants(ctx: TenantContext, actor: ConnectorActor, id: s
     "change_grants",
     (cur, at) => {
       stopped = false;
+      answersStopped = false;
       if (cur.status !== "connected" || grantsCode(cur.grants) === grantsCode(grants)) return null;
-      stopped = cur.connectorId === searchConsoleManifest.id && feedsPlanning(cur.grants) && !feedsPlanning(grants);
+      const stops = feedsPlanning(cur.grants) && !feedsPlanning(grants);
+      stopped = cur.connectorId === searchConsoleManifest.id && stops;
+      answersStopped = stops && givesAiAnswers(cur.connectorId);
       return { patch: { grants }, activity: [{ kind: "grants_changed", by: byOf(actor), at, code: grantsCode(grants) }] };
     },
     deps,
@@ -1254,7 +1259,20 @@ export async function setGrants(ctx: TenantContext, actor: ConnectorActor, id: s
       console.warn(`[connectors] withdrawing what ${id} fed planning failed; the lane tries again:`, err instanceof Error ? err.message.slice(0, 200) : "error");
     }
   }
+  if (r.ok && answersStopped) await dropAnswersPicks(ctx, id, deps);
   return r;
+}
+
+/** Whether a connector gives AI answers (ADR-0019), which Next up weighs. */
+const givesAiAnswers = (connectorId: string) => (knownConnector(connectorId)?.uses ?? []).includes("signals.ai_answers");
+
+/** Take off stored Next up picks that weighed AI answers; best effort, as the next pick weighs again. */
+async function dropAnswersPicks(ctx: TenantContext, id: string, deps: ServiceDeps): Promise<void> {
+  try {
+    await dropAiAnswersPicks(ctx, { db: deps.db });
+  } catch (err) {
+    console.warn(`[connectors] taking off Next up picks that weighed ${id} failed:`, err instanceof Error ? err.message.slice(0, 200) : "error");
+  }
 }
 
 export interface DisconnectOutcome {
@@ -1304,6 +1322,7 @@ export async function disconnect(ctx: TenantContext, actor: ConnectorActor, id: 
   let address: ConnectionServiceAccount | null = null;
   let changed = false;
   let ownerUid: string | null = null;
+  let fedAnswers = false;
   const r = await manage(
     ctx,
     actor,
@@ -1316,6 +1335,7 @@ export async function disconnect(ctx: TenantContext, actor: ConnectorActor, id: 
       ownerUid = cur.ownerUid;
       if (cur.status === "disconnected") return null;
       changed = true;
+      fedAnswers = feedsPlanning(cur.grants) && givesAiAnswers(cur.connectorId);
       signIn = cur.method === "oauth_pkce" ? (cur.secrets[REFRESH_SLOT] ?? null) : null;
       address = cur.method === "share_access" && cur.serviceAccount && !cur.serviceAccount.deletedAt ? cur.serviceAccount : null;
       // What it collected is marked for erasing in the same change, so a failed erase is retried.
@@ -1332,6 +1352,7 @@ export async function disconnect(ctx: TenantContext, actor: ConnectorActor, id: 
     } catch (err) {
       console.warn(`[connectors] erase after Disconnect failed for ${id}; the lane tries again:`, err instanceof Error ? err.message.slice(0, 200) : "error");
     }
+    if (fedAnswers) await dropAnswersPicks(ctx, id, deps);
   }
   let revoked = false;
   let keptAtGoogle = false;

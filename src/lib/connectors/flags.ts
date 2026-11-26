@@ -128,6 +128,17 @@ export function isConnectorSignalsEnabled(): boolean {
 }
 
 /**
+ * Next up reads AI answers (signals.ai_answers, ADR-0019): a candidate question close in wording
+ * to a prompt an AI answers tool monitors gets a line saying how many engines answer it and how
+ * often the brand and its competitors are named, from connections both members and Vizzy may
+ * read. Needs CONNECTORS_ENABLED; it reads a kind of data, so it needs no vendor's switch of its
+ * own beyond the connector's. Off, Next up says nothing about AI answers.
+ */
+export function isAiAnswersPlanningEnabled(): boolean {
+  return isConnectorsEnabled() && process.env.CONNECTOR_AI_ANSWERS_ENABLED === "true";
+}
+
+/**
  * Organisations share connections (Connectors 3, ADR-0015): an organisation's owners connect once
  * and give each of its brands one part (a site, a property or a zone). Needs CONNECTORS_ENABLED
  * and PLANS_ENABLED (organisations count only with plans on). Off, the Shared connections section

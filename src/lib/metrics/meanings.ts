@@ -9,7 +9,8 @@ export interface Meaning {
   name: string;
   definition: string;
   grain: string;
-  unit: "count" | "ratio" | "percent" | "date" | "rank";
+  /** score: a number on a scale of its own, such as sentiment from -100 to +100; it never adds up. */
+  unit: "count" | "ratio" | "percent" | "date" | "rank" | "score";
   source: string;
   caveat?: string;
   /**
@@ -315,6 +316,89 @@ export const MEANINGS = {
     unit: "count",
     source: "Google Analytics 4, Data API",
     caveat: "Which events count is set in the property, and marking a new one counts only from then on.",
+  },
+  // AI answers (signals.ai_answers, ADR-0019): how a brand shows up in the answers of AI engines
+  // such as ChatGPT, Claude, Gemini and Perplexity, as an AI answers tool that asks them a brand's
+  // monitored prompts reports it. Namespaced, because plain mentions and citations mean other things.
+  aiShareOfVoice: {
+    name: "AI share of voice",
+    definition: "Of all the times the AI answers to the brand's monitored prompts named a brand in its category, the share that named this brand, from 0 to 100.",
+    grain: "one brand on one day (UTC), across the monitored prompts and AI engines its tool asked that day",
+    unit: "percent",
+    source: "An AI answers tool connected through its MCP server, from the AI answers it collected that day",
+    caveat: "Moves with which prompts are monitored and which engines answered that day, so compare days with the same prompts. A share for a longer period is never the days added up.",
+    better: "higher",
+    family: "result",
+  },
+  aiMentions: {
+    name: "AI mentions",
+    definition: "Times the AI answers to the brand's monitored prompts named the brand in the day.",
+    grain: "one brand on one day (UTC), across the monitored prompts and AI engines its tool asked that day",
+    unit: "count",
+    source: "An AI answers tool connected through its MCP server, from the AI answers it collected that day",
+    caveat: "More monitored prompts or engines mean more answers to be named in, so a rise can come from asking more.",
+  },
+  aiRank: {
+    name: "AI rank",
+    definition: "Where the brand stood among the brands the AI answers named, 1 being named most.",
+    grain: "one brand on one day (UTC), across the monitored prompts and AI engines its tool asked that day",
+    unit: "rank",
+    source: "An AI answers tool connected through its MCP server, from the AI answers it collected that day",
+    caveat: "Empty on a day the answers didn't name the brand. A brand can rank 2 with a small share when one other brand is named far more.",
+  },
+  aiSentiment: {
+    name: "AI sentiment",
+    definition: "How favourably the AI answers spoke of the brand, from -100 (all negative) to +100 (all positive).",
+    grain: "one brand on one day (UTC), across the answers that named it",
+    unit: "score",
+    source: "An AI answers tool connected through its MCP server, scored from the answers' words",
+    caveat: "Scored by a model reading the answers, so treat small moves as noise. Empty on a day the answers didn't name the brand.",
+  },
+  promptEngines: {
+    name: "Prompt engines",
+    definition: "Different AI engines, such as ChatGPT, Claude and Perplexity, whose answers to one monitored prompt its tool has collected.",
+    grain: "one monitored prompt, over everything its tool has collected for it",
+    unit: "count",
+    source: "An AI answers tool connected through its MCP server, the engines it asked the prompt",
+    caveat: "Counts the engines the tool asks, which the brand's plan with it may limit, not every engine that exists.",
+  },
+  promptBrandMentions: {
+    name: "Prompt brand mentions",
+    definition: "Times the AI answers to one monitored prompt named the brand, across every engine and every time it was asked.",
+    grain: "one monitored prompt, over everything its tool has collected for it",
+    unit: "count",
+    source: "An AI answers tool connected through its MCP server, the prompt's own totals",
+    caveat: "A total since the prompt was first monitored, not for the days asked, so a prompt monitored longer has had more chances.",
+  },
+  promptCitations: {
+    name: "Prompt citations",
+    definition: "Links the AI answers to one monitored prompt gave as their sources, to any site, across every engine and every time it was asked.",
+    grain: "one monitored prompt, over everything its tool has collected for it",
+    unit: "count",
+    source: "An AI answers tool connected through its MCP server, the prompt's own totals",
+    caveat: "Counts every site cited, the brand's own and everyone else's: a prompt with many citations is one whose answers lean on sources.",
+  },
+  promptCompetitors: {
+    name: "Prompt competitors",
+    definition: "Different competitor brands the AI answers to one monitored prompt named.",
+    grain: "one monitored prompt, over everything its tool has collected for it",
+    unit: "count",
+    source: "An AI answers tool connected through its MCP server, the prompt's own totals",
+  },
+  aiCitations: {
+    name: "AI citations of a page",
+    definition: "Times AI answers gave this page, or the page asked about, as a source: for one prompt in a read by prompt, or across every monitored prompt in a read by page.",
+    grain: "one page, or one page in one monitored prompt's answers, over everything its tool has collected",
+    unit: "count",
+    source: "An AI answers tool connected through its MCP server, from the citations in the answers it collected",
+    caveat: "Only the answers to the brand's monitored prompts count, and the tool keeps only the top pages of each prompt, so the long tail is cut.",
+  },
+  aiCitationShare: {
+    name: "AI citation share",
+    definition: "This page's share of every citation in the AI answers to the brand's monitored prompts, from 0 to 1.",
+    grain: "one page, over everything its tool has collected",
+    unit: "ratio",
+    source: "An AI answers tool connected through its MCP server, from the citations in the answers it collected",
   },
   // How YouGrow kept a connected source's numbers (Connectors 2, collected numbers), never a number
   // of the provider's own.

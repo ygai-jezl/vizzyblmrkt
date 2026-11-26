@@ -71,6 +71,7 @@ import type { DataConnection, DataConnectionActivity } from "@/lib/types/dataCon
 import type { MetricSnapshot } from "@/lib/types/metricSnapshot";
 import type { DataSignal } from "@/lib/types/dataSignal";
 import type { BusinessFact, OnboardingConversation } from "@/lib/types/onboarding";
+import type { NextActionRecord } from "@/lib/types/nextAction";
 
 /** The reserved partition field present on every tenant-scoped document. */
 export const TENANT_FIELD = "tenantId" as const;
@@ -644,6 +645,11 @@ export interface TenantRepositories {
   onboardingConversations: TenantCollection<OnboardingConversation>;
   /** What an admin kept of what Vizzy heard, each with the member's own words (src/lib/onboarding/store.ts). */
   businessFacts: TenantCollection<BusinessFact>;
+  /**
+   * Home's Your next action (NEXT_ACTION_CARD_ENABLED): one record per brand, the card Vizzy wrote
+   * and the newest outcomes of its steps (./nextActionCards.ts and src/lib/nextAction/service.ts).
+   */
+  nextActionCards: TenantCollection<NextActionRecord>;
 }
 
 /**
@@ -817,5 +823,7 @@ export function forTenant(
     // People's own words about the business, and what was kept of them: regional, like brand notes.
     onboardingConversations: new TenantCollection<OnboardingConversation>(regionalDb, "onboarding_conversations", t),
     businessFacts: new TenantCollection<BusinessFact>(regionalDb, "business_facts", t),
+    // The card can hold the founder's words (its lines, a dismissal's reason): regional, beside the facts.
+    nextActionCards: new TenantCollection<NextActionRecord>(regionalDb, "next_action_cards", t),
   };
 }

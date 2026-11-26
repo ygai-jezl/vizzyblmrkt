@@ -84,6 +84,8 @@ const NO_NUMBERS = "no numbers an agent reads";
 
 /** Getting to know you: the kept conversations and facts (ONBOARDING_ENABLED). */
 const ONBOARDING = "src/lib/onboarding/store.ts";
+/** Home's Your next action, the card Vizzy writes (NEXT_ACTION_CARD_ENABLED). */
+const NEXT_ACTION = "src/lib/tenant/nextActionCards.ts";
 const SPOKEN_GAPS = [
   "no path deletes a whole brand and everything it holds",
   "the member's user id in `by` stays after they leave the team; no path removes it",
@@ -1531,6 +1533,49 @@ export const ONTOLOGY: readonly OntologyType[] = [
     numbers: { none: NO_NUMBERS },
     madeBy: ["onboarding", "vizzy_chat"],
   },
+  {
+    id: "next_action_card",
+    name: "Your next action",
+    description:
+      "The card Vizzy writes for Home's Your next action: 1 to 3 steps from the brand's four answers, the facts an admin kept and where the brand is, each with a line on why in the founder's own terms, and the newest 30 outcomes of earlier steps (done, answered, dismissed with the reason a person gave, or replaced untouched) with each step's newest dismissal of the last 30 days, which the next card reads. One record per brand. Each step is also an agent action, which holds only ids.",
+    place: "partner_agent",
+    status: "built",
+    home: "brand",
+    personal: "team",
+    stores: [
+      regional(
+        "next_action_cards",
+        "one record per brand: the card, the hash of what it was written from, the day's count, and the newest 30 outcomes with each step's newest dismissal of the last 30 days; a dismissal's reason is the member's own words",
+      ),
+    ],
+    links: [
+      { to: "brand", via: "one record per brand", many: false },
+      { to: "agent_action", via: "each step's agentActionId", many: true },
+      { to: "business_fact", via: "the lines it was written from", many: true },
+    ],
+    events: [],
+    erase: {
+      paths: [
+        brandPath(
+          "forgetNextActionCard",
+          NEXT_ACTION,
+          "an admin removes a fact or deletes a conversation in About your business: the card and every title, reason and answer go; only the day's count and which steps were dismissed (ids and times) stay",
+        ),
+        retention(
+          "trimOutcomes",
+          NEXT_ACTION,
+          "outcomes past the newest 30 (besides each step's newest dismissal of the last 30 days), or older than 90 days, are never read again and leave when the record is next written",
+        ),
+      ],
+      gaps: ["no path deletes a whole brand and everything it holds", "a person's erase does not find a reason that names them: it is free text"],
+    },
+    export: {
+      paths: [{ fn: "readNextActionCard", file: NEXT_ACTION, trigger: "member", when: "an admin reads the card on Home, and Vizzy reads it with its outcomes through get_next_action" }],
+    },
+    search: { none: "a short card read whole on Home and by Vizzy, not searched" },
+    numbers: { none: NO_NUMBERS },
+    madeBy: ["next_action"],
+  },
 
   // ===== Platform: what runs everything ======================================================
   {
@@ -2498,7 +2543,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "agent_action",
     name: "Agent action",
     description:
-      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business. Other drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.",
+      "One record per suggestion an agent makes for the brand: what it proposes and on what basis (references with meaning keys, never free text), its state from proposed to acted, undone or declined, who decided and how to undo it. Every open one expires within 90 days, and the lifecycle tick declines it once it has. Its trail is the agent kinds of event in the event history. Vizzy's suggested changes to a person's fields and the New person forms it fills in are recorded here (piece B), and so is what it heard about the business in a chat, until an admin keeps it in About your business, and each step on Home's Your next action, from proposed to acted (done or answered) or declined (dismissed, or superseded when a new card replaced it untouched). Other drafts (canvas saves, brand notes, learning from a repo, autopilot runs and brand map research) and lifecycle AI lines are not recorded here yet: a later piece records them.",
     place: "partner_agent",
     status: "built",
     madeBy: ["canvas.person_fields", "canvas.new_person", "rising_search", "losing_page", "within_reach"],
@@ -2513,7 +2558,8 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { to: "idea", via: "the target, when it is an idea", many: false },
       { to: "data_signal", via: "the target, when it is a suggestion from collected numbers", many: false },
       { to: "brand_question", via: "the target, when it is a question proposed from Search Console", many: false },
-      { to: "brand", via: "the target, when it is something Vizzy heard about the business in a chat", many: false },
+      { to: "brand", via: "the target, when it is something Vizzy heard about the business in a chat, or a step on Your next action", many: false },
+      { to: "next_action_card", via: "the card's step records name it", many: false },
       { to: "ontology_event", via: "agentActionId, its agent kinds of event", many: true },
     ],
     events: ["agent.proposed", "agent.approved", "agent.acted", "agent.undone", "agent.declined"],

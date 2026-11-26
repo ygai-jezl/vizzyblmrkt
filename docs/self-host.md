@@ -557,6 +557,16 @@ Every move ends the brand's shared parts from the organisation it leaves, and di
 organisation's connections when it is left with no brands, whatever `CONNECTORS_SHARING_ENABLED` says.
 `npm run selfhost` keeps it off; with it off, `scripts/move-brand.ts` still combines and splits brands.
 
+**Settings history.** `SETTINGS_HISTORY_ENABLED` turns on Settings › History: every change to fields,
+journeys, product catalogs and shared connections, a restore as a new version (a journey into its
+draft only) and JSON export. It needs the `lifecycle_versions` and `catalog_revisions` indexes in
+`firestore.indexes.json` READY first, and nothing else.
+
+**Erasing archived values.** `SETTINGS_ERASE_ENABLED` lets an owner erase an archived field's values
+30 days after its archive (ADR-0021). It needs `SETTINGS_HISTORY_ENABLED`, plans on (`PLANS_ENABLED`)
+and an owner of the organisation with a real `tenant_users` admin row for the brand (owners are added
+with `scripts/set-plan.ts --organisation <orgId> --add-owner <uid>`). `npm run selfhost` keeps it off.
+
 `CONNECTOR_SIGNALS_ENABLED` turns collected Search Console numbers into suggestions in the brand map,
 Review, Next up and the context pack; `npm run selfhost` keeps it off. Turn it on only after
 `CONNECTORS_COLLECT_ENABLED`, and only once the agent action indexes in `firestore.indexes.json`

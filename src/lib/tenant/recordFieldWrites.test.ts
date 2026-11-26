@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { FakeFirestore } from "./testing/fakeFirestore";
-import { forTenant, moveRecordFieldValues, proposeAgentAction, setRecordFieldValues } from "./index";
+import { eraseFieldValuesPage, forTenant, moveRecordFieldValues, proposeAgentAction, setRecordFieldValues } from "./index";
 import { RECORD_BYTE_BUDGET } from "./recordFieldWrites";
 import type { TenantContext } from "./types";
-import { saveFieldListChange, type FieldListChange } from "@/lib/audience/fieldList";
+import { saveFieldEraseMark, saveFieldListChange, type FieldListChange } from "@/lib/audience/fieldList";
 import { deterministicCompanyId, deterministicContactId } from "@/lib/crm/identifiers";
 import { agentDedupeKey } from "@/lib/types/agentAction";
 
@@ -274,7 +274,7 @@ describe("moveRecordFieldValues", () => {
     const db = new FakeFirestore();
     await moved(db, { [PLAN]: "opt_00000002", [SEATS]: 12 });
     const r = await moveRecordFieldValues(ctx, { from: FORMER, to: PERSON, nowIso: T2 }, { db });
-    expect(r).toEqual({ outcome: "moved", moved: [PLAN, SEATS], same: [], kept: [], tooLarge: [], emptied: true, fromKey: "sam@old.example.com" });
+    expect(r).toEqual({ outcome: "moved", moved: [PLAN, SEATS], same: [], kept: [], tooLarge: [], dropped: [], emptied: true, fromKey: "sam@old.example.com" });
     expect(contact(db, PERSON)).toMatchObject({ fields: { [PLAN]: "opt_00000002", [SEATS]: 12 }, changedAt: T2, updatedAt: T2 });
     expect(contact(db, PERSON)?.memberOf).toEqual(["all", "launch:any", `field:${PLAN}:opt_00000002`].sort());
     expect(contact(db, FORMER)?.fields).toEqual({});
@@ -306,6 +306,18 @@ describe("moveRecordFieldValues", () => {
     await saveFieldListChange(ctx, "person", { baseRev: 6, change: { op: "archive", key: NOTES }, by, nowIso: T1 }, db);
     expect(await moveRecordFieldValues(ctx, { from: FORMER, to: PERSON, nowIso: T2 }, { db })).toMatchObject({ outcome: "moved", moved: [NOTES] });
     expect(contact(db, PERSON)?.fields).toEqual({ [NOTES]: "Met at the conference" });
+  });
+
+  it("drops a value whose field is being erased instead of moving it, with no event", async () => {
+    const db = new FakeFirestore();
+    await moved(db, { [NOTES]: "Met at the conference", [SEATS]: 12 });
+    await saveFieldListChange(ctx, "person", { baseRev: 6, change: { op: "archive", key: NOTES }, by, nowIso: T1 }, db);
+    await saveFieldEraseMark(ctx, "person", { key: NOTES, step: "start", by: "u_admin", nowIso: T1 }, db);
+    const r = await moveRecordFieldValues(ctx, { from: FORMER, to: PERSON, nowIso: T2 }, { db });
+    expect(r).toMatchObject({ outcome: "moved", moved: [SEATS], dropped: [NOTES], emptied: true });
+    expect(contact(db, PERSON)?.fields).toEqual({ [SEATS]: 12 });
+    expect(contact(db, FORMER)?.fields).toEqual({});
+    expect(fieldEvents(db).filter((e) => e.fieldId === NOTES)).toEqual([]);
   });
 
   it("does nothing twice: a second run, or a retried one, writes nothing", async () => {
@@ -349,5 +361,43 @@ describe("moveRecordFieldValues", () => {
     expect(contact(db, FORMER)?.fields).toEqual({ [SEATS]: 3 });
     expect(contact(db, PERSON)?.fields).toBeUndefined();
     expect(fieldEvents(db)).toHaveLength(0);
+  });
+});
+
+describe("eraseFieldValuesPage", () => {
+  const T2 = "2026-11-21T11:00:00.000Z";
+  const second = deterministicContactId("ten_A", "priya@example.com");
+  async function marked(db: FakeFirestore) {
+    await world(db);
+    await set(db, { [PLAN]: "opt_00000002", [SEATS]: 12 });
+    await db.collection("contacts").doc(second).set({ tenantId: "ten_A", contactKey: "priya@example.com", memberOf: ["all", `field:${PLAN}:opt_00000001`], updatedAt: T0 });
+    await db.collection("contacts").doc("ct_other").set({ tenantId: "ten_B", memberOf: [`field:${PLAN}:opt_00000001`], fields: { [PLAN]: "opt_00000001" } });
+    await saveFieldListChange(ctx, "person", { baseRev: 6, change: { op: "archive", key: PLAN }, by, nowIso: T1 }, db);
+  }
+
+  it("counts the people holding a value or a tag, and writes nothing", async () => {
+    const db = new FakeFirestore();
+    await marked(db);
+    const before = JSON.stringify(db.dump("contacts"));
+    expect(await eraseFieldValuesPage(ctx, { object: "person", fieldId: PLAN, dryRun: true }, { db })).toEqual({ scanned: 2, holders: 2, erased: 0, last: second < PERSON ? PERSON : second, more: false });
+    expect(JSON.stringify(db.dump("contacts"))).toBe(before);
+  });
+
+  it("refuses until the field is archived and marked, then removes its values and tags only, with no event", async () => {
+    const db = new FakeFirestore();
+    await marked(db);
+    expect(await eraseFieldValuesPage(ctx, { object: "person", fieldId: PLAN, nowIso: T2 }, { db })).toMatchObject({ erased: 0, stopped: "field_live" });
+    await saveFieldEraseMark(ctx, "person", { key: PLAN, step: "start", by: "u_admin", nowIso: T1 }, db);
+    const events = db.dump("ontology_events").length;
+    expect(await eraseFieldValuesPage(ctx, { object: "person", fieldId: PLAN, nowIso: T2, limit: 1 }, { db })).toMatchObject({ scanned: 1, erased: 1, more: true });
+    const page = await eraseFieldValuesPage(ctx, { object: "person", fieldId: PLAN, nowIso: T2, after: [PERSON, second].sort()[0] }, { db });
+    expect(page).toMatchObject({ erased: 1, more: false });
+    const sam = db.raw("contacts", PERSON) as { fields: Record<string, unknown>; memberOf: string[]; updatedAt: string };
+    expect(sam.fields).toEqual({ [SEATS]: 12 });
+    expect(sam.memberOf).toEqual(["all", "launch:any"]);
+    expect(sam.updatedAt).toBe(T2);
+    expect((db.raw("contacts", second) as { memberOf: string[] }).memberOf).toEqual(["all"]);
+    expect(db.raw("contacts", "ct_other")).toMatchObject({ fields: { [PLAN]: "opt_00000001" } });
+    expect(db.dump("ontology_events")).toHaveLength(events);
   });
 });

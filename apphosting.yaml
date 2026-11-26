@@ -329,6 +329,14 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # An owner erases an archived field's values, 30 days after its archive, after a count and with the
+  # name typed (needs SETTINGS_HISTORY_ENABLED, AUDIENCE_FIELDS_ENABLED and PLANS_ENABLED, an owner with
+  # an admin row for the brand, and 0e's history indexes READY). Off: no Erase values, and a running
+  # erase waits at its cursor. Kept off on self-hosted copies.
+  - variable: SETTINGS_ERASE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Waitlists and invites ==
   # Invite your waitlist.

@@ -101,3 +101,48 @@ export function dayText(iso: string): string {
   const d = new Date(iso);
   return Number.isFinite(d.getTime()) ? d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : iso;
 }
+
+/** Every message Erase values shows (SETTINGS_ERASE_ENABLED); the help page quotes them. */
+export const ERASE_COPY = {
+  action: "Erase values",
+  erasableFrom: (day: string) => `values can be erased from ${day}`,
+  erasing: "values being erased",
+  erased: (day: string) => `values erased on ${day}`,
+  title: (label: string) => `Erase the values of ‘${label}’?`,
+  countedLine: (counted: string, archived: string, by: string | null) => `Counted ${counted}. Archived ${archived}${by ? ` by ${by}` : ""}.`,
+  counting:
+    "Counting the people, companies, history entries and Vizzy suggestions that hold it. This runs in the background, a page at a time, and takes hours for a big list. You can close this and come back: the confirm opens once the count is done.",
+  lookedAt: (n: string) => `Looked at ${n} records so far.`,
+  goesForGood: (each: string) => `Every value, on each ${each} and in their history. This can't be undone.`,
+  stays: "The field itself, archived, with its name and options, so history still reads. Bringing it back later brings it back empty.",
+  untilThen: "Each person's own export still includes their value.",
+  typeToConfirm: "to confirm",
+  background: "The erase runs in the background, a page at a time. You can leave this page; History shows when it is done.",
+  progress: (done: string, of: string) => `Erased ${done} of ${of}.`,
+  blanking: "Blanking it in their history and in Vizzy's suggestions.",
+  done: (label: string) => `Erased the values of ‘${label}’.`,
+  failed: "The erase stopped part way. Its values are still marked for erasing: type its name and press Try again to carry on from where it stopped.",
+  stopped: "The erase stopped because the field is in use again. Nothing more was erased.",
+  countAgain: "Count again",
+  tryAgain: "Try again",
+} as const;
+
+/** What an erase route answers, in words. */
+export const ERASE_MESSAGES = {
+  not_owner: "Only an owner of your organisation can erase values.",
+  home_only: "Erasing needs you on this brand's team as an admin. Whoever runs your copy of YouGrow can add you.",
+  not_admin: "Erasing needs you on this brand's team as an admin.",
+  too_soon: "Its values can be erased 30 days after it was archived.",
+  already_erased: "Its values were erased already.",
+  legal_hold: "A legal hold covers this field, so its values can't be erased.",
+  name_mismatch: "Type the field's name exactly as it is shown.",
+  count_first: "Count what holds it first: the count is out of date.",
+  audit_unavailable: "Nothing was erased: the audit trail couldn't be written. Try again in a few minutes.",
+  fields_changed: "Someone changed the fields meanwhile. Close this and try again.",
+  failed: "That didn't start. Try again.",
+} as const;
+
+export function eraseErrorText(data: unknown): string {
+  const d = (data ?? {}) as { error?: string };
+  return (d.error && (ERASE_MESSAGES as Record<string, string>)[d.error]) || ERASE_MESSAGES.failed;
+}

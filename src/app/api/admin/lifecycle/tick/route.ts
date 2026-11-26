@@ -12,6 +12,7 @@ import { isSignalsDataForSeoEnabled } from "@/lib/signals/flags";
 import { isAutopilotEnabled } from "@/lib/autopilot/flags";
 import { isBlogFreshnessEnabled, isBlogLiveWatchEnabled, isBlogRefreshEnabled } from "@/lib/brandMap/flags";
 import { isConnectorsEnabled } from "@/lib/connectors/flags";
+import { isSettingsEraseEnabled } from "@/lib/settings/flags";
 import { logTickMemory, timedTickJob } from "@/lib/lifecycle/tickLog";
 
 export const runtime = "nodejs";
@@ -41,6 +42,9 @@ export const dynamic = "force-dynamic";
  *
  * The clean-up of unconfirmed password accounts (PASSWORD_SIGNIN_ENABLED) rides it beside them, at
  * most once an hour across instances (src/lib/auth/cleanup.ts).
+ *
+ * An owner's erase of an archived field's values (SETTINGS_ERASE_ENABLED, ADR-0021) moves on beside
+ * them too, a page at a time from each running job's cursor; with the switch off a job waits.
  */
 const SCHEDULER_LIMIT_MS = 105_000;
 const COMPETITORS_BUDGET_MS = 25_000;
@@ -62,6 +66,8 @@ const FRESHNESS_BUDGET_MS = 20_000;
 const REFRESH_BUDGET_MS = 90_000;
 /** Unconfirmed password accounts (PASSWORD_SIGNIN_ENABLED): once an hour, a short run. */
 const AUTH_CLEANUP_BUDGET_MS = 10_000;
+/** Erasing archived fields' values (SETTINGS_ERASE_ENABLED): running jobs move on a page at a time. */
+const FIELD_ERASE_BUDGET_MS = 20_000;
 
 export async function POST(req: Request) {
   const started = Date.now();
@@ -78,8 +84,9 @@ export async function POST(req: Request) {
   const freshness = isBlogFreshnessEnabled();
   const refresh = isBlogRefreshEnabled();
   const authCleanup = isPasswordSigninEnabled();
+  const fieldErase = isSettingsEraseEnabled();
   const journeys = product || waitlist || people;
-  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors || freshness || refresh || authCleanup))) {
+  if (!journeys && !(machine && (competitors || search || signals || autopilot || liveWatch || connectors || freshness || refresh || authCleanup || fieldErase))) {
     return machine
       ? NextResponse.json({ ok: true, skipped: "lifecycle_disabled" })
       : NextResponse.json({ error: "not_found" }, { status: 404 });
@@ -166,6 +173,16 @@ export async function POST(req: Request) {
             return null;
           })
         : Promise.resolve(null);
+      const fieldEraseRun = fieldErase
+        ? timedTickJob("field-erase", async () => {
+            const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + FIELD_ERASE_BUDGET_MS);
+            const { runFieldErase } = await import("@/lib/settings/eraseArchived");
+            return runFieldErase({ deadlineMs });
+          }).catch((err: unknown) => {
+            console.warn(`[erase] tick failed: ${err instanceof Error ? err.message.slice(0, 200) : "error"}`);
+            return null;
+          })
+        : Promise.resolve(null);
       const connectorsRun = connectors
         ? timedTickJob("connectors", async () => {
             const deadlineMs = Math.min(started + SCHEDULER_LIMIT_MS, Date.now() + CONNECTORS_BUDGET_MS);
@@ -209,6 +226,7 @@ export async function POST(req: Request) {
       const freshnessResult = await freshnessRun;
       const refreshResult = await refreshRun;
       const authCleanupResult = await authCleanupRun;
+      const fieldEraseResult = await fieldEraseRun;
       return NextResponse.json({
         ok: true,
         mode: "all_tenants",
@@ -223,6 +241,7 @@ export async function POST(req: Request) {
         ...(freshnessResult?.brands ? { freshness: freshnessResult } : {}),
         ...(refreshResult?.brands ? { refresh: refreshResult } : {}),
         ...(authCleanupResult ? { authCleanup: authCleanupResult } : {}),
+        ...(fieldEraseResult?.jobs ? { fieldErase: fieldEraseResult } : {}),
       });
     } finally {
       logTickMemory();

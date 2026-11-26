@@ -62,6 +62,41 @@ never go. Branch `feat/org-history`. Two new composite indexes, no rules change,
    address, and with a subject and version that version's export JSON. One switch covers the page
    and Vizzy's read: no customer data, no AI, and the tool says history is off until it is on.
    Proposing a restore waits for Agent record.
+7. **An owner erases an archived field's values** (`SETTINGS_ERASE_ENABLED`, its own switch, needing
+   History, fields and `PLANS_ENABLED`; decisions 2 to 4), in `src/lib/settings/eraseArchived.ts`:
+   - **Who:** an owner of the brand's organisation with a real `tenant_users` admin row for the brand,
+     both read live, never the session's claims (the check moving a brand makes): "home_only" for the
+     brand someone first signed in with and has no row for, "not_admin" for no row. So no erase on a
+     brand until its owner has a row there, and none on self-hosted copies (`npm run selfhost` keeps it
+     off).
+   - **When:** 30 days or more after the field was last archived, `erasedAt` missing or older than
+     that archive (a field brought back after an erase can be erased again), and no legal hold:
+     `src/lib/settings/holds.ts` asks `enterpriseFeature("legal_hold")`, which says no while there is
+     no code for it; a deployment that runs legal hold with no reader refuses every erase.
+   - **Count first, name typed.** A count is a job too, in the regional `field_erase_jobs` (one per
+     field, a fixed id hashed from brand, object and field, so a double click can't start two; no
+     index). The erase starts only once a count finished since the field was last archived, and the
+     field's name is typed. No export of a field's values comes first (decision 4): until the erase,
+     each person's own export includes their value.
+   - **Marked while it runs:** "initiated" goes to the WORM audit store first (no erase without a
+     trail), then the field is marked `erasingSince` through the settings log (source `erase`). While
+     marked, Bring back is refused, a restore keeps it archived, and a person's move drops its values
+     instead of moving them. The lifecycle tick's lane (`runFieldErase`, 20 seconds, only while the
+     switch is on, brands from a rotating start, running jobs found by equality) removes `fields.<id>`
+     and its `field:<id>:` tags a page of people or companies at a time, by document id, in a
+     transaction that re-reads the field list and stops if the field is in use again. It writes no
+     `record.field_changed` event, since one would copy the value into `before`. Then
+     `blankFieldEvents` and `blankFieldInAgentActions`. Switching it off pauses a job at its cursor,
+     still marked.
+   - **The definition keeps its options and archive date** (`assertNoRemoval` refuses dropping
+     options), gains `erasedAt` and `erasedBy`, and loses the mark. A restore keeps `erasedAt`, so an
+     erased field comes back empty and the preview says so: an erase survives a restore.
+   - **Audit:** a `field.erase` entry (tenant, region, field id, object, who by user id, counts),
+     "initiated" before the first page, then "completed" or "failed", as a launch's delete does. No
+     value, label or address.
+   - **Where an erased value can still sit** (registry gaps): piece C's view rows (C extends the
+     erase), Vizzy's chat sessions and the per person Memory Bank, where Vizzy may have read a value
+     before it was erased.
 
 ### Not decided here
 

@@ -89,6 +89,29 @@ export interface LaunchDeletionAudit {
 }
 
 /**
+ * An owner's erase of an archived field's values (Settings › History, ADR-0021): "initiated" before
+ * the first page is erased, then "completed" or "failed". Who (a user id, never an address), where,
+ * which field (its id, never its name) and counts only, never a value.
+ */
+export interface FieldEraseAudit {
+  action: "field.erase";
+  actorUid: string;
+  tenantId: string;
+  region: Region;
+  fieldId: string;
+  object: "person" | "company";
+  status: "initiated" | "completed" | "failed";
+  /** What was erased so far: records, history entries and Vizzy suggestions. All zero on "initiated". */
+  counts: { records: number; events: number; agentActions: number };
+  /** On "failed": a code, never a value. */
+  error?: string;
+  createdAt: string;
+}
+
+/** Every entry the audit trail holds. */
+export type AuditEntry = LaunchDeletionAudit | FieldEraseAudit;
+
+/**
  * Stable id for an audit entry, used as BOTH the Firestore doc id and the GCS
  * object name so the two stores cross-reference. Derived from the entry itself
  * (`tenant_campaign_createdAt_status`), so re-deriving it for the SAME entry —
@@ -97,8 +120,9 @@ export interface LaunchDeletionAudit {
  * distinct `createdAt`s → distinct keys, which is correct: each is a separately
  * audited event, not a duplicate.
  */
-export function auditEntryId(entry: LaunchDeletionAudit): string {
-  return `${entry.tenantId}_${entry.campaignId}_${entry.createdAt}_${entry.status}`.replace(
+export function auditEntryId(entry: AuditEntry): string {
+  const what = entry.action === "field.erase" ? entry.fieldId : entry.campaignId;
+  return `${entry.tenantId}_${what}_${entry.createdAt}_${entry.status}`.replace(
     /[^\w.-]/g,
     "_",
   );
@@ -110,7 +134,7 @@ export function auditEntryId(entry: LaunchDeletionAudit): string {
  * Note `"launch.delete"` maps to the same `launch-delete` prefix used before
  * this was generalised, so existing delete records keep the same path.
  */
-export function auditObjectPath(entry: LaunchDeletionAudit): string {
+export function auditObjectPath(entry: AuditEntry): string {
   return `audit/${entry.action.replace(".", "-")}/${auditEntryId(entry)}.json`;
 }
 
@@ -122,20 +146,20 @@ export function auditObjectPath(entry: LaunchDeletionAudit): string {
  * reason (no purge without a durable trail).
  */
 export async function writeAuditObject(
-  entry: LaunchDeletionAudit,
+  entry: AuditEntry,
   sink: AuditObjectSink = gcsAuditSink(),
 ): Promise<void> {
   await sink.put(auditObjectPath(entry), JSON.stringify(entry));
 }
 
 /**
- * Append a launch-deletion audit row to the control-plane `audit_events`
+ * Append an audit row (a launch's deletion, or a field's erase: recordFieldErase) to the control-plane `audit_events`
  * Firestore collection — the OPERATIONAL INDEX (the WORM object is the
  * authoritative record). Idempotent via the deterministic id + atomic create().
  * Mirrors logDomainGrant(). Writes to the (default) database.
  */
 export async function recordLaunchDeletion(
-  entry: LaunchDeletionAudit,
+  entry: AuditEntry,
   db: FirestoreLike = getDb() as unknown as FirestoreLike,
 ): Promise<void> {
   const id = auditEntryId(entry);
@@ -146,3 +170,6 @@ export async function recordLaunchDeletion(
     throw err;
   }
 }
+
+/** The field erase's audit row in the operational index, as a launch's deletion is. */
+export const recordFieldErase = (entry: FieldEraseAudit, db?: FirestoreLike): Promise<void> => recordLaunchDeletion(entry, db);

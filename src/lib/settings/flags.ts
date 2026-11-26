@@ -1,3 +1,6 @@
+import { isFieldsEnabled } from "@/lib/audience/peopleFlags";
+import { isPlansEnabled } from "@/lib/plans/flags";
+
 /**
  * Settings history (piece O part 2, ADR-0021). Server switches, read when a page or route runs,
  * so flipping one needs no new build. Each is off unless "true": listed "false" in apphosting.yaml
@@ -13,4 +16,15 @@
  */
 export function isSettingsHistoryEnabled(): boolean {
   return process.env.SETTINGS_HISTORY_ENABLED === "true";
+}
+
+/**
+ * An owner erases the values of an archived field (SETTINGS_ERASE_ENABLED, needs Settings ›
+ * History, fields and PLANS_ENABLED): an owner of the brand's organisation with a real admin row
+ * for the brand, 30 days or more after the field was last archived, after a count and with the
+ * field's name typed. Off: no Erase values, and a running erase waits at its cursor, still marked,
+ * until it is on again. Kept off on self-hosted copies.
+ */
+export function isSettingsEraseEnabled(): boolean {
+  return isSettingsHistoryEnabled() && isFieldsEnabled() && isPlansEnabled() && process.env.SETTINGS_ERASE_ENABLED === "true";
 }

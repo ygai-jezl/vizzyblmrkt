@@ -1,6 +1,6 @@
 import { H1, H2, Lead, P, UL } from "@/components/developers/Doc";
 import { BeforeAndUnlocks, Checks, Messages, Meta, NextPage, Open, Steps } from "@/components/help/blocks";
-import { HISTORY_COPY, RESTORE_MESSAGES } from "@/components/admin/settings/historyWords";
+import { ERASE_COPY, ERASE_MESSAGES, HISTORY_COPY, RESTORE_MESSAGES } from "@/components/admin/settings/historyWords";
 import { BEFORE_HISTORY_TEXT } from "@/lib/settings/sources";
 import { NEVER_UNDONE } from "@/lib/settings/restorePlan";
 
@@ -133,6 +133,43 @@ export default function HistoryAndRestoreHelp() {
       <P>{NEVER_UNDONE}. People already in a journey stay on the version they started on. A restore brings back settings, never people
       or records that were deleted.</P>
 
+      <H2 id="erase">Erase an archived field&apos;s values</H2>
+      <P>
+        Archiving a field keeps its values on each person and company, so it can be brought back. When you no longer want them kept,
+        an owner can erase them for good. It is off unless your copy of YouGrow turns it on, which needs plans, and self-hosted copies
+        keep it off.
+      </P>
+      <UL>
+        <li>
+          Who: an owner of your organisation who is also an admin on this brand&apos;s team. Being an owner of the brand you first
+          signed in with isn&apos;t enough until you are on its team: whoever runs your copy of YouGrow can add you.
+        </li>
+        <li>
+          When: 30 days or more after the field was last archived. Until then, Data model says when, such as &quot;
+          {ERASE_COPY.erasableFrom("14 Dec")}&quot;. A restore that archives a field starts its 30 days again.
+        </li>
+        <li>A legal hold on your organisation stops it.</li>
+      </UL>
+      <Steps>
+        <li>
+          In <Open href="/admin/account/data-model">Settings › Data model</Open>, press <strong>{ERASE_COPY.action}</strong> beside the
+          archived field.
+        </li>
+        <li>
+          The first press counts the people, companies, history entries and Vizzy suggestions that hold it. The count runs in the
+          background and takes hours for a big list: you can close it and come back.
+        </li>
+        <li>When the count is done, read what goes for good and what stays, type the field&apos;s name, and press {ERASE_COPY.action}.</li>
+      </Steps>
+      <P>
+        The erase runs in the background, a page at a time, and the dialog shows how far it is. It removes the field&apos;s value from
+        each person or company and blanks it in their history and in Vizzy&apos;s suggestions. The field stays, archived, with its name
+        and options, so history still reads; bringing it back later brings it back empty, and a restore&apos;s preview says
+        &quot;Stays empty&quot;. Until the erase, each person&apos;s own export still includes their value. It can&apos;t be undone.
+        History shows &quot;Erased the values of&quot; and the field&apos;s name, and the audit trail keeps who erased it and how many
+        values went, never the values.
+      </P>
+
       <H2 id="check">Check it worked</H2>
       <Checks>
         <li>History lists the restore as the newest version, with you as who made it.</li>
@@ -146,6 +183,11 @@ export default function HistoryAndRestoreHelp() {
           [RESTORE_MESSAGES.draft_changed, "Someone saved the journey's draft meanwhile. Press Look again; export the draft first if you want to keep it."],
           [RESTORE_MESSAGES.catalog_changed, "Someone saved the catalog meanwhile. Press Look again, then restore."],
           [HISTORY_COPY.partial, "Part of the history couldn't be read, often just after an update. Reload the page in a few minutes."],
+          [ERASE_MESSAGES.not_owner, "Ask an owner of your organisation to erase it, or to make you an owner."],
+          [ERASE_MESSAGES.home_only, "Ask whoever runs your copy of YouGrow to add you to this brand's team as an admin."],
+          [ERASE_MESSAGES.legal_hold, "Nothing to do here: the values are kept until the hold ends."],
+          [ERASE_MESSAGES.audit_unavailable, "Nothing was erased. Try again in a few minutes."],
+          [ERASE_COPY.failed, "Type the field's name and press Try again: it carries on from where it stopped."],
         ]}
       />
 

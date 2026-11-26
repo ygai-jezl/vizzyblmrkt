@@ -67,6 +67,7 @@ import type { StoredEvent } from "@/lib/types/ontologyEvent";
 import type { AgentAction } from "@/lib/types/agentAction";
 import type { SettingsVersion } from "@/lib/types/settingsVersion";
 import type { RecordFieldListDoc } from "@/lib/types/recordField";
+import type { FieldEraseJob } from "@/lib/types/fieldEraseJob";
 import type { DataConnection, DataConnectionActivity } from "@/lib/types/dataConnection";
 import type { MetricSnapshot } from "@/lib/types/metricSnapshot";
 import type { DataSignal } from "@/lib/types/dataSignal";
@@ -623,6 +624,11 @@ export interface TenantRepositories {
    * only here: a list changes only with its settings version (./settingsLog.ts).
    */
   recordFieldLists: VersionCollection<RecordFieldListDoc>;
+  /**
+   * An archived field's count and erase (SETTINGS_ERASE_ENABLED), one per field with a fixed id
+   * (src/lib/settings/eraseArchived.ts writes them): ids, counts and times only.
+   */
+  fieldEraseJobs: TenantCollection<FieldEraseJob>;
   /** Connected data (CONNECTORS_ENABLED): one record per connection, its secrets sealed (./dataConnections.ts writes them). */
   dataConnections: ConnectionRecords<DataConnection>;
   /** Each change to a connection, kept 90 days by a TTL on ttlAt (./dataConnections.ts writes them). */
@@ -805,6 +811,8 @@ export function forTenant(
     agentActions: new TenantCollection<AgentAction>(regionalDb, "agent_actions", t),
     settingsVersions: new TenantCollection<SettingsVersion>(regionalDb, "settings_versions", t),
     recordFieldLists: new TenantCollection<RecordFieldListDoc>(regionalDb, "record_field_lists", t),
+    // An erase of a field's values runs where the values are kept → regional DB.
+    fieldEraseJobs: new TenantCollection<FieldEraseJob>(regionalDb, "field_erase_jobs", t),
     // A connection holds a brand's sealed tokens and settings, kept in its region beside the data
     // it reads; its activity names team members by id only. Both regional, like launch_site_keys.
     dataConnections: new TenantCollection<DataConnection>(regionalDb, "data_connections", t),

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forTenant } from "@/lib/tenant";
-import { saveFieldListChange } from "@/lib/audience/fieldList";
+import { readFieldList, saveFieldListChange } from "@/lib/audience/fieldList";
+import { commitSettingsChange } from "@/lib/tenant";
 import { NEVER_UNDONE, previewRestore, type RestorePreview } from "./restorePlan";
 import { parseHistorySubject } from "./sources";
 import { buildWorld, ctx, lookup, switchesOn, T, type World } from "./testing/world";
@@ -35,6 +36,23 @@ describe("previewRestore: a field list", () => {
     expect(rows(await preview("fields:person", 1))["Archived"]).toEqual(["‘Delivery day’: hidden and read only, its values kept"]);
     await saveFieldListChange(ctx, "person", { baseRev: 5, change: { op: "archive", key: "fld_000000000002" }, by: { type: "member", id: "usr_maya" }, nowIso: T(11) }, w.db);
     expect(rows(await preview("fields:person", 2))["Comes back"]).toEqual(["‘Delivery day’, with the values people already have"]);
+  });
+});
+
+describe("previewRestore: an erased field", () => {
+  it("says an erased field comes back empty, and when erase is on that an archive starts its 30 days", async () => {
+    // Delivery day (archived in v4) had its values erased; v2 had it in use.
+    const list = await readFieldList(ctx, "person", w.db);
+    const items = list.items.map((f) => (f.key === "fld_000000000002" ? { ...f, erasedAt: T(10), erasedBy: "usr_priya" } : f));
+    await commitSettingsChange(ctx, { subject: "fields:person", baseRev: list.rev, value: { items }, by: { type: "member", id: "usr_priya" }, source: "erase", message: "Erased the values of ‘Delivery day’", nowIso: T(10) }, w.db);
+    const p = await preview("fields:person", 2);
+    expect(rows(p)["Stays empty"]).toEqual(["‘Delivery day’: its values were erased on 10 Nov"]);
+    expect(rows(p)).not.toHaveProperty("Comes back");
+    // Back in use, then a restore of v1 archives it: its 30 days start again, said while erasing is on.
+    await saveFieldListChange(ctx, "person", { baseRev: list.rev + 1, change: { op: "restore", key: "fld_000000000002" }, by: { type: "member", id: "usr_maya" }, nowIso: T(11) }, w.db);
+    expect((await preview("fields:person", 1)).rows.find((r) => r.label === "Archived")!.note).toBeUndefined();
+    for (const n of ["PLANS_ENABLED", "SETTINGS_ERASE_ENABLED"]) vi.stubEnv(n, "true");
+    expect((await preview("fields:person", 1)).rows.find((r) => r.label === "Archived")!.note).toBe("Its 30 days before anyone can erase its values start today.");
   });
 });
 

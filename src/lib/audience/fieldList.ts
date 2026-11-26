@@ -49,7 +49,7 @@ export type FieldListChange =
   | { op: "change_type"; key: string; type: FieldType; options?: string[]; currency?: string }
   | { op: "vizzy_reads"; key: string; on: boolean };
 
-export type FieldListError = "fields_changed" | "field_list_full" | "field_not_found" | "option_not_found" | "invalid_field";
+export type FieldListError = "fields_changed" | "field_list_full" | "field_not_found" | "option_not_found" | "invalid_field" | "field_erasing";
 
 export interface StoredFieldList extends FieldList {
   object: RecordFieldObject;
@@ -213,6 +213,8 @@ export function applyFieldListChange(object: RecordFieldObject, items: readonly 
       const i = find(change.key);
       if (i < 0) return { ok: false, error: "field_not_found" };
       const f = items[i]!;
+      // Its values are being erased: it stays archived until the erase ends.
+      if (f.erasingSince) return { ok: false, error: "field_erasing" };
       // Bring back never turns reading on: an admin ticks it again if Vizzy should read it.
       return done(replace(i, keepReading(f, { ...f, archivedAt: null, archivedBy: null, replacedBy: null })), `Restored ‘${f.label}’`);
     }
@@ -314,6 +316,19 @@ export async function saveFieldListChange(
   return { ok: true, list: { object, items: applied.items, rev: r.rev, updatedAt: nowIso }, message: applied.message };
 }
 
+/** `next` with the erase marks the field holds now, `was`: an older version never takes them away. */
+function withEraseMarks(was: RecordField | undefined, next: RecordField): RecordField {
+  if (!was) return next;
+  let out: RecordField = { ...next };
+  for (const k of ["erasedAt", "erasedBy"] as const) {
+    if (was[k]) out = { ...out, [k]: was[k] };
+    else delete out[k];
+  }
+  if (was.erasingSince) out = { ...out, erasingSince: was.erasingSince, archivedAt: was.archivedAt ?? out.archivedAt, archivedBy: was.archivedBy ?? out.archivedBy ?? null };
+  else delete out.erasingSince;
+  return out;
+}
+
 /**
  * What restoring `target` (an older version's fields) over `current` makes, without saving: the
  * list after it and planRestore's lists (`archived`: in use now, archived by the restore). Fields
@@ -333,7 +348,10 @@ export function planFieldListRestore(
   const now = new Map(current.map((f) => [f.key, f]));
   const items = plan.items.map((f) => {
     const was = now.get(f.key);
-    const next = !f.archivedAt ? f : was?.archivedAt ? { ...f, archivedAt: was.archivedAt, archivedBy: was.archivedBy ?? null } : { ...f, archivedAt: nowIso, archivedBy };
+    let next: RecordField = !f.archivedAt ? f : was?.archivedAt ? { ...f, archivedAt: was.archivedAt, archivedBy: was.archivedBy ?? null } : { ...f, archivedAt: nowIso, archivedBy };
+    // An erase survives a restore: an erased field comes back empty and says so, and one being
+    // erased stays archived and marked until its erase ends.
+    next = withEraseMarks(was, next);
     // A restore never turns reading on; an item the list doesn't hold now comes back without it.
     return keepReading(was, next);
   });
@@ -381,6 +399,50 @@ export async function restoreFieldListVersion(
   return { ok: true, list: { object, items, rev: r.rev, updatedAt: nowIso }, message };
 }
 
+export type FieldEraseStep = "start" | "done" | "stop";
+
+const ERASE_MESSAGE: Record<FieldEraseStep, (label: string) => string> = {
+  start: (l) => `Started erasing the values of ‘${l}’`,
+  done: (l) => `Erased the values of ‘${l}’`,
+  stop: (l) => `Stopped erasing the values of ‘${l}’`,
+};
+
+/**
+ * An erase's marks on an archived field (Settings › History, ADR-0021), saved through the settings
+ * log as a version with the source `erase`: `start` marks it `erasingSince`; `done` stamps `erasedAt`
+ * and `erasedBy` and clears the mark; `stop` clears the mark alone. The field keeps its options and
+ * its archive date (assertNoRemoval refuses dropping options). Starting refuses a field that isn't
+ * archived. A save in between is read again and tried once more.
+ */
+export async function saveFieldEraseMark(
+  ctx: TenantContext,
+  object: RecordFieldObject,
+  input: { key: string; step: FieldEraseStep; by: string; nowIso?: string },
+  db?: FirestoreLike,
+): Promise<FieldListSave> {
+  const nowIso = input.nowIso ?? new Date().toISOString();
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const current = await readFieldList(ctx, object, db);
+    const i = current.items.findIndex((f) => f.key === input.key);
+    if (i < 0) return { ok: false, error: "field_not_found" };
+    const f = current.items[i]!;
+    if (input.step === "start" && !f.archivedAt) return { ok: false, error: "invalid_field", list: current };
+    const { erasingSince: _mark, ...rest } = f;
+    const next: RecordField =
+      input.step === "start" ? { ...f, erasingSince: nowIso } : input.step === "done" ? { ...rest, erasedAt: nowIso, erasedBy: input.by } : rest;
+    const items = current.items.map((x, j) => (j === i ? next : x));
+    if (!FieldListSchema.safeParse({ items }).success) return { ok: false, error: "invalid_field" };
+    const message = ERASE_MESSAGE[input.step](f.label);
+    const r = await commitSettingsChange<FieldList>(
+      ctx,
+      { subject: FIELD_LIST_SUBJECT[object], baseRev: current.rev, value: { items }, by: { type: "member", id: input.by }, source: "erase", message, nowIso },
+      db,
+    );
+    if (r.ok) return { ok: true, list: { object, items, rev: r.rev, updatedAt: nowIso }, message };
+  }
+  return { ok: false, error: "fields_changed" };
+}
+
 // --- Requests ----------------------------------------------------------------------------------
 
 const KeyIn = z.string().regex(/^fld_[a-z0-9]{12}$/);
@@ -408,6 +470,7 @@ export const FieldListChangeSchema: z.ZodType<FieldListChange> = z.discriminated
 /** Each error's HTTP status: a stale rev is a conflict, a missing field or option is not found, the rest are bad requests. */
 export const FIELD_LIST_STATUS: Record<FieldListError, number> = {
   fields_changed: 409,
+  field_erasing: 409,
   field_list_full: 400,
   invalid_field: 400,
   field_not_found: 404,

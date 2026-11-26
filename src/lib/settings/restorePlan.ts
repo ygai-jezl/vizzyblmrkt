@@ -10,6 +10,7 @@ import { LifecycleDraftSchema, type LifecycleDraft } from "@/lib/types/lifecycle
 import { ConnectionCatalogSchema } from "@/lib/types/productConnection";
 import { fieldListProblems, FIELD_LIST_SUBJECT, hasOptions, type RecordField, type RecordFieldObject } from "@/lib/types/recordField";
 import { getSettingsVersion } from "./history";
+import { isSettingsEraseEnabled } from "./flags";
 import { catalogName, journeyName, kindRestores, settingsSubjectName, whoNamer, whoOfActor, whoOfSaver, type HistoryDeps, type HistoryKind, type HistorySubject, type Who } from "./sources";
 
 /**
@@ -104,10 +105,21 @@ async function fieldsPreview(ctx: TenantContext, object: RecordFieldObject, rev:
   const { items, plan } = planFieldListRestore(current.items, target.snapshot.items as unknown as RecordField[], nowIso, ctx.userId ?? null);
   const now = new Map(current.items.map((f) => [f.key, f]));
   const rows: PreviewRow[] = [];
-  if (plan.back.length) rows.push({ label: "Comes back", lines: plan.back.map((f) => `${quote(f.label)}, with the values people already have`) });
-  if (plan.archived.length) rows.push({ label: "Archived", lines: plan.archived.map((f) => `${quote(f.label)}: hidden and read only, its values kept`) });
+  const after = new Map(items.map((f) => [f.key, f]));
+  // A field whose values were erased comes back empty: an erase survives a restore.
+  const back = plan.back.filter((f) => !after.get(f.key)?.erasedAt);
+  const empty = plan.back.filter((f) => after.get(f.key)?.erasedAt);
+  if (back.length) rows.push({ label: "Comes back", lines: back.map((f) => `${quote(f.label)}, with the values people already have`) });
+  if (plan.archived.length) {
+    rows.push({
+      label: "Archived",
+      lines: plan.archived.map((f) => `${quote(f.label)}: hidden and read only, its values kept`),
+      ...(isSettingsEraseEnabled() ? { note: `${plan.archived.length === 1 ? "Its" : "Their"} 30 days before anyone can erase ${plan.archived.length === 1 ? "its" : "their"} values start today.` } : {}),
+    });
+  }
   const changed = plan.changed.filter((f) => !f.archivedAt && now.get(f.key) && !now.get(f.key)!.archivedAt);
   if (changed.length) rows.push({ label: "Changes back", lines: changed.map((f) => changedLine(now.get(f.key)!, items.find((x) => x.key === f.key) ?? f)) });
+  if (empty.length) rows.push({ label: "Stays empty", lines: empty.map((f) => `${quote(f.label)}: its values were erased on ${shortDay(after.get(f.key)!.erasedAt!)}`) });
   if (!rows.length) rows.push({ label: "Changes back", lines: ["Nothing: the fields are as this version had them"] });
   rows.push({ label: "Never undone", lines: [NEVER_UNDONE] });
   const full = fieldListProblems(items, object).length > 0;

@@ -19,7 +19,9 @@ import {
 } from "@/lib/types/recordField";
 import { Banner, Button, inputClass } from "../connect/ui";
 import { ago, day } from "../people/format";
-import { HISTORY_LINE } from "../settings/historyWords";
+import { dayText, ERASE_COPY, HISTORY_LINE } from "../settings/historyWords";
+import { EraseDialog } from "../settings/EraseDialog";
+import { erasableFrom, erasedSinceArchive, fieldErasable } from "@/lib/settings/eraseDates";
 import { changeFieldList, fieldErrorText, loadFieldHistory, loadFieldLists, VIZZY_READS_HINT, type FieldVersionRow, type StoredFieldList } from "./fieldsApi";
 
 /**
@@ -53,6 +55,7 @@ export function DataModel({
   filters = false,
   vizzyText = false,
   historyTab = false,
+  eraseOwner = false,
 }: {
   canEdit: boolean;
   /** The fields from elsewhere, worked out on the server. */
@@ -63,6 +66,12 @@ export function DataModel({
   vizzyText?: boolean;
   /** Settings › History is on (SETTINGS_HISTORY_ENABLED, from the server): the Changes line points there. */
   historyTab?: boolean;
+  /**
+   * An owner of the organisation with an admin row for the brand, while erasing is on
+   * (SETTINGS_ERASE_ENABLED, read live on the server): the archived list says when each field's
+   * values can be erased, and offers Erase values once they can.
+   */
+  eraseOwner?: boolean;
 }) {
   const [object, setObject] = useState<RecordFieldObject>("person");
   const [lists, setLists] = useState<Record<RecordFieldObject, StoredFieldList> | null>(null);
@@ -71,10 +80,12 @@ export function DataModel({
   const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
+  const [erasing, setErasing] = useState<string | null>(null);
 
-  useEffect(() => {
+  const reloadLists = useCallback(() => {
     void loadFieldLists().then((r) => (r.ok ? setLists(r.data.lists) : setLoadFailed(true)));
   }, []);
+  useEffect(() => reloadLists(), [reloadLists]);
   const refreshHistory = useCallback(() => {
     setHistory(null);
     void loadFieldHistory(object).then((r) => setHistory(r.ok ? r.data.versions : []));
@@ -186,9 +197,15 @@ export function DataModel({
                   <span>{f.label}</span>
                   <span className={typeTag}>{FIELD_TYPE_LABEL[f.type]}</span>
                   {f.replacedBy ? <span className="text-xs text-neutral-500">replaced by a new {FIELD_TYPE_LABEL[list.items.find((x) => x.key === f.replacedBy)?.type ?? f.type]} field</span> : null}
-                  {canEdit ? (
+                  {eraseOwner && f.archivedAt ? <span className="text-xs text-neutral-500">{eraseNote(f)}</span> : null}
+                  {canEdit && !f.erasingSince ? (
                     <button type="button" disabled={busy} className="text-xs underline underline-offset-2 disabled:opacity-50" onClick={() => void apply({ op: "restore", key: f.key })}>
                       Bring back
+                    </button>
+                  ) : null}
+                  {eraseOwner && (f.erasingSince || fieldErasable(f, Date.now()).ok) ? (
+                    <button type="button" className="text-xs text-red-600 underline underline-offset-2 dark:text-red-400" onClick={() => setErasing(f.key)}>
+                      {ERASE_COPY.action}
                     </button>
                   ) : null}
                 </li>
@@ -196,6 +213,17 @@ export function DataModel({
             </ul>
             <p className="text-xs text-neutral-500">Hidden and read only. Its values are kept on each {words.each}, and it can be brought back.</p>
           </section>
+        ) : null}
+        {erasing ? (
+          <EraseDialog
+            object={object}
+            fieldId={erasing}
+            onClose={() => setErasing(null)}
+            onChanged={() => {
+              reloadLists();
+              refreshHistory();
+            }}
+          />
         ) : null}
       </div>
 
@@ -233,6 +261,15 @@ export function DataModel({
       </aside>
     </div>
   );
+}
+
+/** An archived field's line for an owner who can erase: when it was archived, and when its values can go. */
+function eraseNote(f: RecordField): string {
+  const archived = `archived ${ago(f.archivedAt)}`;
+  if (f.erasingSince) return `${archived}, ${ERASE_COPY.erasing}`;
+  if (erasedSinceArchive(f)) return `${archived}, ${ERASE_COPY.erased(dayText(f.erasedAt!))}`;
+  const from = erasableFrom(f.archivedAt!);
+  return Date.parse(from) > Date.now() ? `${archived}, ${ERASE_COPY.erasableFrom(dayText(from))}` : archived;
 }
 
 function FieldRow({

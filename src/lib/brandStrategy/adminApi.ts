@@ -137,10 +137,13 @@ export async function competitorsDoor(ctx: TenantContext, watched: Competitor[],
   return { suggestions, finder: await finderState(ctx, doc, deps, async () => tenant) };
 }
 
-/** The brand's watched competitors for the live list, or null when it doesn't have Competitors. */
+/**
+ * The brand's watched competitors for the live list, or null when it doesn't have Competitors. A
+ * read that fails throws: an empty list would read as "watches none" and be kept as such.
+ */
 export async function watchedFor(ctx: TenantContext, deps: { db?: FirestoreLike }, load: (id: string) => Promise<Tenant | null>): Promise<Competitor[] | null> {
-  if (!isCompetitorsEnabled() || !(await brandCanUse(ctx, "competitors", load).catch(() => false))) return null;
-  return listCompetitors(ctx, { db: deps.db }).catch(() => [] as Competitor[]);
+  if (!isCompetitorsEnabled() || !(await brandCanUse(ctx, "competitors", load))) return null;
+  return listCompetitors(ctx, { db: deps.db });
 }
 
 /** Whether a competitor in the strategy is one the brand watches, by site or name. */
@@ -229,8 +232,17 @@ const ApproveBody = z.object({ baseRev: z.number().int().min(0) }).strict();
 export async function approveFromRequest(ctx: TenantContext, body: unknown, deps: ViewDeps = {}): Promise<Response> {
   const parsed = ApproveBody.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
-  // Joined: the approved copy keeps the live list, so the competitors are read first.
-  const watched = isStrategyCompetitorsEnabled() ? { watched: await watchedFor(ctx, deps, deps.loadTenant ?? getTenantById) } : {};
+  // Joined: the approved copy keeps the live list, so the competitors are read first. If they can't
+  // be, nothing is approved: a copy without them would be kept, with every find logged as left out.
+  let watched: { watched?: Competitor[] | null } = {};
+  if (isStrategyCompetitorsEnabled()) {
+    const list = await watchedFor(ctx, deps, deps.loadTenant ?? getTenantById).then(
+      (w) => ({ ok: true as const, w }),
+      () => ({ ok: false as const }),
+    );
+    if (!list.ok) return NextResponse.json({ error: "competitors_unreadable" }, { status: 503 });
+    watched = { watched: list.w };
+  }
   const r = await approveStrategy(ctx, { ...parsed.data, ...watched }, deps);
   if (!r.ok || !r.starsNotUpdated?.length) return answer(ctx, r, deps);
   const view = await strategyView(ctx, deps);

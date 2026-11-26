@@ -179,6 +179,30 @@ describe("the Strategy tab joined to Competitors", () => {
     expect(v.competitors.map((c) => c.name)).toEqual(["Rivalco", "Newco"]);
   });
 
+  it("approves nothing when the competitors can't be read, and says so", async () => {
+    const { db, rev } = await brand();
+    await monitorCompetitor(A, { website: "rivalco.example", name: "Rivalco" }, { db });
+    await saveFound(A, { mode: "quick", found: [find("Alpha")] }, { db, now: () => new Date(T0) });
+    const before = await readBrandStrategyDoc(A, { db });
+    const real = db.collection.bind(db);
+    db.collection = ((name: string) => {
+      const c = real(name);
+      const down = () => {
+        throw new Error("down");
+      };
+      return name === "competitors" ? { ...c, where: down, limit: down, get: down } : c;
+    }) as typeof db.collection;
+    const r = await approveFromRequest(A, { baseRev: before!.rev }, view(db));
+    db.collection = real;
+    expect(r.status).toBe(503);
+    expect(await r.json()).toEqual({ error: "competitors_unreadable" });
+    const after = await readBrandStrategyDoc(A, { db });
+    expect(after?.approved).toBeNull();
+    expect(after?.rev).toBe(before!.rev);
+    expect(after?.decisions.some((d) => d.kind === "competitor_left_out")).toBe(false);
+    expect(rev).toBeGreaterThan(0);
+  });
+
   it("shows the draft's list as it is, with ticks, to a brand without Competitors", async () => {
     vi.stubEnv("GRANTED_ONLY_FEATURES", "competitors");
     const { db } = await brand();

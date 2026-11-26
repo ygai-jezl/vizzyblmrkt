@@ -10,6 +10,7 @@ export const STRATEGY_ERRORS: Record<string, string> = {
   competitor_finder_disabled: "The competitor finder isn't switched on in this environment.",
   strategy_competitors_disabled: "The strategy isn't joined to Competitors in this environment.",
   no_suggestion: "That suggestion isn't waiting any more. It may have been watched or left out already.",
+  competitors_unreadable: "Couldn't read your competitors just now, so nothing was approved. Try again.",
   strategy_changed: "The strategy was changed elsewhere since you opened it. It now shows what was saved: check it, then try again.",
   strategy_unreadable: "The strategy can't be read, so nothing can be changed. Start over to make a new one.",
   no_draft: "There's no draft yet. Press Propose with Vizzy first.",

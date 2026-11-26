@@ -48,7 +48,8 @@ Branch `feat/next-action`. No dependency, index, rules or infra change.
    failure keeps the fallback for those inputs, with its reason, so the same inputs never ask twice.
 6. **When.** A hash of the prompt version, the model, the answers, the facts (id, kind, line), each
    stage's status and done steps, sign-ups in bands (0, 1+, 10+, 100+, 1000+), the brand's ids, and
-   whether every step on the card is decided. Home works it out while it renders (two regional
+   whether every step on the card is decided; a card 28 days old is written again too, before its
+   steps' agent actions expire. Home works it out while it renders (two regional
    reads: the facts and the record) and never calls the model; when it differs, the card asks
    `POST /api/admin/next-action` once with `state`, which writes only if it still differs, and shows
    PR A's list until the card comes. Show another asks with `another`. One write at a time per brand

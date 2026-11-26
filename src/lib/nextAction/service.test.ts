@@ -141,6 +141,18 @@ describe("writing a card", () => {
     expect((await homeNextAction(A, { tenant: again.state.tenant, signals: again.state.signals }, d)).stale).toBe(false);
   });
 
+  it("writes a new one once the card is 28 days old, before its steps' agent actions expire", async () => {
+    const d = deps();
+    const first = await composeNextAction(A, { reason: "state" }, d);
+    clock += 27 * 86_400_000;
+    expect((await homeNextAction(A, { tenant: first.state.tenant, signals: first.state.signals }, d)).stale).toBe(false);
+    expect((await composeNextAction(A, { reason: "state" }, d)).composed).toBe(false);
+    clock += 86_400_000;
+    expect((await homeNextAction(A, { tenant: first.state.tenant, signals: first.state.signals }, d)).stale).toBe(true);
+    expect((await composeNextAction(A, { reason: "state" }, d)).composed).toBe(true);
+    expect(d.generate).toHaveBeenCalledTimes(2);
+  });
+
   it("writes a new one when the inputs change, and keeps the old card's untouched steps as ignored", async () => {
     const d = deps();
     await composeNextAction(A, { reason: "state" }, d);

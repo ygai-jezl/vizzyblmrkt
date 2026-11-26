@@ -130,9 +130,16 @@ export function cardFits(tenant: Pick<Tenant, "businessProfile"> | null): boolea
   return tenant?.businessProfile?.status === "done";
 }
 
-/** Whether the kept card was written from these inputs. */
-export function isFresh(state: Pick<NextActionState, "record" | "hash">): boolean {
-  return !!state.record && state.record.inputHash === state.hash;
+/**
+ * A card this old is written again, whatever its inputs, before the tick sets its steps' agent
+ * actions aside (STEP_DAYS): a step pressed after that would have no open decision to record.
+ */
+export const CARD_MAX_DAYS = NEXT_ACTION_LIMITS.STEP_DAYS - 2;
+
+/** Whether the kept card was written from these inputs, and recently enough. */
+export function isFresh(state: Pick<NextActionState, "record" | "hash">, nowMs: number): boolean {
+  const r = state.record;
+  return !!r && r.inputHash === state.hash && nowMs - Date.parse(r.composedAt) < CARD_MAX_DAYS * DAY_MS;
 }
 
 /** What Home draws, and whether it should ask for a new card. Reads only: never the model. */
@@ -143,7 +150,7 @@ export async function homeNextAction(
 ): Promise<{ view: CardView | null; stale: boolean }> {
   const state = await loadNextActionState(ctx, pre, deps);
   const now = (deps.now ?? Date.now)();
-  return { view: cardView(state.record, state.env, state.signals, now), stale: !isFresh(state) };
+  return { view: cardView(state.record, state.env, state.signals, now), stale: !isFresh(state, now) };
 }
 
 const newCardId = () => `nc_${randomBytes(8).toString("hex")}`;
@@ -190,13 +197,13 @@ export async function composeNextAction(ctx: TenantContext, opts: { reason: "sta
   const now = deps.now ?? Date.now;
   const state = await loadNextActionState(ctx, {}, deps);
   if (!cardFits(state.tenant)) return { composed: false, record: state.record, state };
-  if (opts.reason === "state" && isFresh(state)) return { composed: false, record: state.record, state };
+  if (opts.reason === "state" && isFresh(state, now())) return { composed: false, record: state.record, state };
   const claim = await claimNextActionWrite(ctx, { nowMs: now(), leaseMs: LEASE_MS, db: deps.db });
   if (!claim.ok) return { composed: false, record: claim.record, held: claim.reason, state };
   const leaseId = claim.leaseId;
   try {
     const record = claim.record;
-    if (opts.reason === "state" && record?.inputHash === state.hash) {
+    if (opts.reason === "state" && isFresh({ record, hash: state.hash }, now())) {
       await releaseNextActionWrite(ctx, leaseId, { db: deps.db });
       return { composed: false, record, state };
     }

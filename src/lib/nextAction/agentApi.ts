@@ -53,7 +53,7 @@ export async function agentReadNextAction(ctx: TenantContext, deps: { db?: Fires
       status: view ? "card" : record ? "steps" : "none",
       composedAt: record?.composedAt ?? null,
       // False when Home will ask for a new card on the next visit (what it was written from changed).
-      upToDate: isFresh(state),
+      upToDate: isFresh(state, now),
       card: view
         ? {
             done: view.done,

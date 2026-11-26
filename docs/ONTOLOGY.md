@@ -756,9 +756,13 @@ A field the brand adds to people or companies, of one of twelve types, managed i
 - Home: the brand's region
 - Personal: the brand's own team
 - Stores:
-  - `record_field_lists`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One document per brand and object (subjects fields:person and fields:company) with its `rev`, written only with its settings version (`src/lib/tenant/settingsLog.ts`); `createdBy` and `archivedBy` hold user ids, never an address; under 200 KB.
+  - `record_field_lists`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One document per brand and object (subjects fields:person and fields:company) with its `rev`, written only with its settings version (`src/lib/tenant/settingsLog.ts`); `createdBy`, `archivedBy` and `erasedBy` hold user ids, never an address; under 200 KB.
+  - `field_erase_jobs`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. An owner's count and erase of an archived field's values (SETTINGS_ERASE_ENABLED), one per brand, object and field with a fixed id, written by `src/lib/settings/eraseArchived.ts`: ids, counts, a cursor and times, and who started it as a user id; never a value; no TTL.
 - Links: `settings_version` through its subject, one version per change of the list (many); `person` through contacts.fields.<fieldId> (many); `company` through companies.fields.<fieldId> (many); `ontology_event` through fieldId, one row per change of a value (many)
-- Erase: gap. A field is archived, never deleted, and a team member's user id in createdBy or archivedBy stays an id when they leave; erasing archived values comes with piece O part 2.
+- Erase:
+  - `runFieldErase` in `src/lib/settings/eraseArchived.ts`, on an owner erasing an archived field's values (an owner with an admin row erases an archived field's values 30 days after its archive, with SETTINGS_ERASE_ENABLED: values and field tags off each person or company, blanked in the event history and agent actions; the definition stays, archived, with erasedAt)
+  - Gap: a field is archived, never deleted, and a team member's user id in createdBy, archivedBy or erasedBy stays an id when they leave
+  - Gap: an erased value can still sit in piece C's view rows until C extends the erase, and in Vizzy's chat sessions and the per person Memory Bank where Vizzy read it before
 - Export: gap. Team member ids stay as ids, with no export by team member; a person's export names each field of theirs with its label.
 - Search: none. A field's values are found with its person.
 - Numbers: none. A value belongs to one record and is not a brand metric.
@@ -1106,7 +1110,7 @@ The brand's names and subjects, groups and buying situations that every article 
   - `brand_map_situations`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
   - `brand_map_runs`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
   - `brand_map_groups`, the brand's regional Firestore, in `src/lib/tenant/brandMapRecords.ts`. Paged reads of every record kind.
-  - `brand_map_vectors`, the brand's regional Firestore, in `src/lib/tenant/brandMapVectors.ts`. Until retired: subjects and situations move to brand search (search_index), SEARCH_OLD_VECTORS_RETIRED_ENABLED stops its writes and scripts/retire-old-vectors.ts empties it (ADR-0025).
+  - `brand_map_vectors`, the brand's regional Firestore, in `src/lib/tenant/brandMapVectors.ts`
 - Links: `brand_question` through subject and situation ids (many); `content_plan` through brand_map_pages (many)
 - Erase:
   - `removeSubject` in `src/lib/brandMap/records.ts`, on removing the record
@@ -1196,12 +1200,9 @@ A first hand note from the brand's team about what they have seen, or an open qu
 - Personal: yes, the brand's people
 - Stores:
   - `brand_notes`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`
-  - `search_docs` at `brands/{tenantId}/search_docs`, the brand's regional search database, in `src/lib/tenant/searchIndex.ts`. Kept notes and the questions asked of the team, with their statuses, never a note that may name a customer (ADR-0025).
-  - `brand_map_vectors`, the brand's regional Firestore, in `src/lib/tenant/brandMapVectors.ts`. Each note's and question's embedding, until retired (ADR-0025).
 - Links: `content_plan` through the articles it informed (many)
 - Erase:
   - `removeNote` in `src/lib/brandNotes/store.ts`, on removing the record
-  - `removeFromIndex` in `src/lib/search/indexer.ts`, on removing the record (forced, whatever SEARCH_INDEX_ENABLED says, when a note is removed or ticked as naming a customer)
   - Gap: a person's erase does not find notes that name them: notes are free text
 - Export: gap. A person's export does not include notes that name them.
 - Search: `note`, `question`
@@ -1780,7 +1781,7 @@ The queue behind every email: a send, a step, a contact erase, a sync or a perso
 
 ### Brand search index (`search_index`)
 
-The brand's own index of what it wrote, by words and meaning, in its region's search database. With SEARCH_FAMILY_INDEX_ENABLED it also keeps the brand map family for every brand, each with its status (subjects and situations decided or proposed, kept notes, questions asked or answered, competitor articles), for the readers that match by meaning; people's search shows no proposal or answered question (ADR-0025).
+The brand's own index of what it wrote, by words and meaning, in its region's search database.
 
 - Status: built
 - Home: the brand's region
@@ -1791,7 +1792,6 @@ The brand's own index of what it wrote, by words and meaning, in its region's se
 - Erase:
   - `removeFromIndex` in `src/lib/search/indexer.ts`, on removing the record (when its record is removed; forced, whatever SEARCH_INDEX_ENABLED says, when a connection's collected searches are erased)
   - `sweepBrand` in `src/lib/search/sweep.ts`, on removing the record (the scheduled check drops records that are gone)
-  - `removeFamily` in `src/lib/search/familyIndex.ts`, on removing the record (at once and forced, whatever SEARCH_INDEX_ENABLED says, when a subject, situation, note or competitor's articles are removed)
 - Export: none. Copies of the brand's own writing.
 - Search: none. It is the index.
 - Numbers: none. No numbers an agent reads.
@@ -1996,7 +1996,8 @@ What the registry records as missing, by type. Each is a known gap, not a promis
   - Erase: no path removes a team member's user id in `by` when they leave the team; it stays an id and shows as Former team member
   - Export: team member ids in `by` stay as ids, with no export by team member
 - Field (`custom_field`):
-  - Erase: a field is archived, never deleted, and a team member's user id in createdBy or archivedBy stays an id when they leave; erasing archived values comes with piece O part 2
+  - Erase: a field is archived, never deleted, and a team member's user id in createdBy, archivedBy or erasedBy stays an id when they leave
+  - Erase: an erased value can still sit in piece C's view rows until C extends the erase, and in Vizzy's chat sessions and the per person Memory Bank where Vizzy read it before
   - Export: team member ids stay as ids, with no export by team member; a person's export names each field of theirs with its label
 - Consent record (`consent_record`):
   - Erase: planned: piece F erases and exports it with the person

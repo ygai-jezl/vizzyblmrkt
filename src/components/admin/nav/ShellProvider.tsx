@@ -74,6 +74,8 @@ interface Shell {
   onboarding: boolean;
   /** Talk with Vizzy by voice on the welcome (isOnboardingVoiceEnabled(), from the server), for the How to drawer. */
   onboardingVoice: boolean;
+  /** Settings › History (isSettingsHistoryEnabled(), from the server), for the How to drawer. */
+  settingsHistory: boolean;
   /** Home's Your next action is a card Vizzy writes (isNextActionCardEnabled(), from the server), for the How to drawer. */
   nextActionCard: boolean;
   /**
@@ -136,6 +138,7 @@ export function ShellProvider({
   join = false,
   onboarding = false,
   onboardingVoice = false,
+  settingsHistory = false,
   nextActionCard = false,
   children,
 }: {
@@ -194,6 +197,8 @@ export function ShellProvider({
   onboarding?: boolean;
   /** Talk with Vizzy by voice on the welcome (isOnboardingVoiceEnabled(), from the server): the How to drawer says so. */
   onboardingVoice?: boolean;
+  /** Settings › History (isSettingsHistoryEnabled(), from the server): the How to drawer says so. */
+  settingsHistory?: boolean;
   /** Home's Your next action is a card Vizzy writes (isNextActionCardEnabled(), from the server): the How to drawer says so. */
   nextActionCard?: boolean;
   children: ReactNode;
@@ -290,10 +295,11 @@ export function ShellProvider({
       join,
       onboarding,
       onboardingVoice,
+      settingsHistory,
       nextActionCard,
       onCanvasSaved: journeyInContext || personInContext ? saved.add : null,
     }),
-    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, searchFamily, searchNoteReads, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, nextActionCard, saved],
+    [chat, page, vizzyOpen, toggleVizzy, paletteOpen, ask, journeyInContext, personInContext, personBrief, people, fields, fieldFilters, addPerson, timeline, vizzyFields, vizzyTextFields, vizzyAddPerson, catalogHistory, connectorsChat, connectorsCollect, connectorsSearchText, connectorSignals, aiAnswers, brandMapScale, searchFamily, searchNoteReads, ideas, ideaWords, sharing, join, onboarding, onboardingVoice, settingsHistory, nextActionCard, saved],
   );
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }

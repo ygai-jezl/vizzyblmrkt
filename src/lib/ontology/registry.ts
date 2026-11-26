@@ -1985,7 +1985,11 @@ export const ONTOLOGY: readonly OntologyType[] = [
     stores: [
       regional(
         "record_field_lists",
-        "one document per brand and object (subjects fields:person and fields:company) with its `rev`, written only with its settings version (`src/lib/tenant/settingsLog.ts`); `createdBy` and `archivedBy` hold user ids, never an address; under 200 KB",
+        "one document per brand and object (subjects fields:person and fields:company) with its `rev`, written only with its settings version (`src/lib/tenant/settingsLog.ts`); `createdBy`, `archivedBy` and `erasedBy` hold user ids, never an address; under 200 KB",
+      ),
+      regional(
+        "field_erase_jobs",
+        "an owner's count and erase of an archived field's values (SETTINGS_ERASE_ENABLED), one per brand, object and field with a fixed id, written by `src/lib/settings/eraseArchived.ts`: ids, counts, a cursor and times, and who started it as a user id; never a value; no TTL",
       ),
     ],
     links: [
@@ -1995,7 +1999,20 @@ export const ONTOLOGY: readonly OntologyType[] = [
       { to: "ontology_event", via: "fieldId, one row per change of a value", many: true },
     ],
     events: [],
-    erase: { gap: "a field is archived, never deleted, and a team member's user id in createdBy or archivedBy stays an id when they leave; erasing archived values comes with piece O part 2" },
+    erase: {
+      paths: [
+        {
+          fn: "runFieldErase",
+          file: "src/lib/settings/eraseArchived.ts",
+          trigger: "field",
+          when: "an owner with an admin row erases an archived field's values 30 days after its archive, with SETTINGS_ERASE_ENABLED: values and field tags off each person or company, blanked in the event history and agent actions; the definition stays, archived, with erasedAt",
+        },
+      ],
+      gaps: [
+        "a field is archived, never deleted, and a team member's user id in createdBy, archivedBy or erasedBy stays an id when they leave",
+        "an erased value can still sit in piece C's view rows until C extends the erase, and in Vizzy's chat sessions and the per person Memory Bank where Vizzy read it before",
+      ],
+    },
     export: { gap: "team member ids stay as ids, with no export by team member; a person's export names each field of theirs with its label" },
     search: { none: "a field's values are found with its person" },
     numbers: { none: "a value belongs to one record and is not a brand metric" },

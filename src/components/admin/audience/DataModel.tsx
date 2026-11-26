@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import type { FieldListChange } from "@/lib/audience/fieldList";
 import type { ReadOnlyFieldDef } from "@/lib/audience/readOnlyFields";
 import {
@@ -18,13 +19,17 @@ import {
 } from "@/lib/types/recordField";
 import { Banner, Button, inputClass } from "../connect/ui";
 import { ago, day } from "../people/format";
+import { ERASE_COPY, HISTORY_LINE } from "../settings/historyWords";
+import { EraseDialog } from "../settings/EraseDialog";
+import { archivedFieldNote, eraseState, offersErase } from "../settings/eraseNotes";
 import { changeFieldList, fieldErrorText, loadFieldHistory, loadFieldLists, VIZZY_READS_HINT, type FieldVersionRow, type StoredFieldList } from "./fieldsApi";
 
 /**
  * Settings › Data model (AUDIENCE_FIELDS_ENABLED): the fields on People and on Companies. Your
  * own fields (admins add, rename, change options, archive, restore and change a type; members
- * read), the fields from elsewhere, read only, an archived list, and every change. Restoring an
- * older list comes with settings history (piece O). While Vizzy's text fields are on
+ * read), the fields from elsewhere, read only, an archived list, and every change. With Settings ›
+ * History on (SETTINGS_HISTORY_ENABLED), the Changes box points there to restore an older list.
+ * While Vizzy's text fields are on
  * (AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED), a "Vizzy reads" column, and "Vizzy can read this field" on
  * a People text field for admins.
  */
@@ -49,6 +54,8 @@ export function DataModel({
   readOnly,
   filters = false,
   vizzyText = false,
+  historyTab = false,
+  eraseOwner = false,
 }: {
   canEdit: boolean;
   /** The fields from elsewhere, worked out on the server. */
@@ -57,6 +64,15 @@ export function DataModel({
   filters?: boolean;
   /** Vizzy reads text fields an admin let it read (AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED, from the server). */
   vizzyText?: boolean;
+  /** Settings › History is on (SETTINGS_HISTORY_ENABLED, from the server): the Changes line points there. */
+  historyTab?: boolean;
+  /**
+   * An owner of the organisation with an admin row for the brand, while erasing is on
+   * (SETTINGS_ERASE_ENABLED, read live on the server): the archived list says when each field's
+   * values can be erased, and offers Erase values once they can. Everyone sees when a field's
+   * values are being erased or were erased, which is why Bring back is gone or would bring it back empty.
+   */
+  eraseOwner?: boolean;
 }) {
   const [object, setObject] = useState<RecordFieldObject>("person");
   const [lists, setLists] = useState<Record<RecordFieldObject, StoredFieldList> | null>(null);
@@ -65,10 +81,12 @@ export function DataModel({
   const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
+  const [erasing, setErasing] = useState<string | null>(null);
 
-  useEffect(() => {
+  const reloadLists = useCallback(() => {
     void loadFieldLists().then((r) => (r.ok ? setLists(r.data.lists) : setLoadFailed(true)));
   }, []);
+  useEffect(() => reloadLists(), [reloadLists]);
   const refreshHistory = useCallback(() => {
     setHistory(null);
     void loadFieldHistory(object).then((r) => setHistory(r.ok ? r.data.versions : []));
@@ -180,16 +198,37 @@ export function DataModel({
                   <span>{f.label}</span>
                   <span className={typeTag}>{FIELD_TYPE_LABEL[f.type]}</span>
                   {f.replacedBy ? <span className="text-xs text-neutral-500">replaced by a new {FIELD_TYPE_LABEL[list.items.find((x) => x.key === f.replacedBy)?.type ?? f.type]} field</span> : null}
-                  {canEdit ? (
+                  {archivedFieldNote(f, eraseOwner) ? <span className="text-xs text-neutral-500">{archivedFieldNote(f, eraseOwner)}</span> : null}
+                  {canEdit && !f.erasingSince ? (
                     <button type="button" disabled={busy} className="text-xs underline underline-offset-2 disabled:opacity-50" onClick={() => void apply({ op: "restore", key: f.key })}>
                       Bring back
+                    </button>
+                  ) : null}
+                  {eraseOwner && offersErase(f) ? (
+                    <button type="button" className="text-xs text-red-600 underline underline-offset-2 dark:text-red-400" onClick={() => setErasing(f.key)}>
+                      {ERASE_COPY.action}
                     </button>
                   ) : null}
                 </li>
               ))}
             </ul>
-            <p className="text-xs text-neutral-500">Hidden and read only. Its values are kept on each {words.each}, and it can be brought back.</p>
+            <p className="text-xs text-neutral-500">
+              {archived.some((f) => eraseState(f))
+                ? ERASE_COPY.keptUnless(words.each)
+                : `Hidden and read only. Its values are kept on each ${words.each}, and it can be brought back.`}
+            </p>
           </section>
+        ) : null}
+        {erasing ? (
+          <EraseDialog
+            object={object}
+            fieldId={erasing}
+            onClose={() => setErasing(null)}
+            onChanged={() => {
+              reloadLists();
+              refreshHistory();
+            }}
+          />
         ) : null}
       </div>
 
@@ -213,7 +252,16 @@ export function DataModel({
               ))}
             </ul>
           )}
-          <p className="text-xs text-neutral-500">Every change is kept. Restoring an older list comes with settings history.</p>
+          {historyTab ? (
+            <p className="text-xs text-neutral-500">
+              {HISTORY_LINE.before}{" "}
+              <Link href="/admin/account/history" className="underline underline-offset-2">
+                {HISTORY_LINE.link}
+              </Link>
+            </p>
+          ) : (
+            <p className="text-xs text-neutral-500">Every change is kept. Restoring an older list comes with settings history.</p>
+          )}
         </section>
       </aside>
     </div>

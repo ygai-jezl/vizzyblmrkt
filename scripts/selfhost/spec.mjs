@@ -112,6 +112,10 @@ export const KEPT_OFF = {
     addon: null,
     why: "Bring in and Move out on Settings › Organisation need plans on (PLANS_ENABLED, every organisation on Self-hosted) and owners added with scripts/set-plan.ts (docs/self-host.md, Brands in an organisation)",
   },
+  SETTINGS_ERASE_ENABLED: {
+    addon: null,
+    why: "erasing archived fields' values needs plans on and an owner of the organisation with an admin row for the brand (docs/self-host.md, Erasing archived values)",
+  },
   RECAPTCHA_ENABLED: { addon: "recaptcha", why: "needs a reCAPTCHA Enterprise key; on without one, every waitlist sign-up is refused" },
   KNOWLEDGE_RAG_ENABLED: { addon: "knowledge", why: "needs the knowledge worker" },
   GIT_REPO_SELECTION_ENABLED: { addon: "github-app", why: "needs a connected repo (the read-only GitHub App)" },

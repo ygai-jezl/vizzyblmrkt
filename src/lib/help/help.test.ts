@@ -102,6 +102,8 @@ vi.hoisted(() => {
   // Vizzy by voice, so its lines and the messages it quotes are checked too.
   process.env.ONBOARDING_ENABLED = "true";
   process.env.ONBOARDING_VOICE_ENABLED = "true";
+  // Settings › History (piece O part 2), with its help page.
+  process.env.SETTINGS_HISTORY_ENABLED = "true";
   // Your next action as Vizzy's card, so its section and the messages it quotes are checked too.
   process.env.NEXT_ACTION_CARD_ENABLED = "true";
   // Password help shows only when a code can be delivered too (isPasswordSigninAvailable).

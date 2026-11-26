@@ -15,6 +15,8 @@ import { TIMELINE_EMPTY } from "@/lib/audience/timelineWords";
 import { FIELD_MESSAGES, VIZZY_READS_HINT } from "@/components/admin/audience/fieldsApi";
 import { CONSENT_WAYS, NEW_PERSON_AS_IDEAS, NEW_PERSON_MESSAGES, NEW_PERSON_NOTES } from "@/lib/audience/newPerson";
 import type { HelpBodyProps } from "@/lib/help/pages";
+import { HISTORY_LINE } from "@/components/admin/settings/historyWords";
+import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
 import { ideaWord, peopleArea } from "@/lib/nav/terms";
 import { isIdeasEnabled, isIdeaWordsEnabled } from "@/lib/ideas/flags";
 
@@ -41,6 +43,7 @@ export default function YourAudienceHelp({
   vizzyAddPerson = isVizzyAddPersonEnabled(),
   ideas = isIdeasEnabled(),
   ideaWords = isIdeaWordsEnabled(),
+  settingsHistory = isSettingsHistoryEnabled(),
 }: HelpBodyProps = {}) {
   const area = peopleArea(people);
   const w = ideaWord(ideaWords);
@@ -293,10 +296,18 @@ export default function YourAudienceHelp({
               list never tick it again; an admin ticks it again if it should be.
             </P>
           ) : null}
-          <P>
-            <strong>Changes</strong> lists every change to the list, with who made it and when. Someone who has left your team shows as
-            Former team member. Restoring an older list comes with settings history.
-          </P>
+          {settingsHistory ? (
+            <P>
+              <strong>Changes</strong> lists the latest changes to the list, with who made it and when. Someone who has left your team
+              shows as Former team member. Under it, &quot;{HISTORY_LINE.link}&quot; opens{" "}
+              <Open href="/help/history-and-restore">History</Open>, where an admin previews and restores an older list.
+            </P>
+          ) : (
+            <P>
+              <strong>Changes</strong> lists every change to the list, with who made it and when. Someone who has left your team shows as
+              Former team member. Restoring an older list comes with settings history.
+            </P>
+          )}
           <P>Beside your own fields, a person&apos;s page shows fields from elsewhere, read only, each with where it comes from:</P>
           <UL>
             <li>their answers to {w.a}&apos;s sign-up questions, labelled with the {w.one};</li>

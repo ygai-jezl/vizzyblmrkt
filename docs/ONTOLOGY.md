@@ -756,9 +756,13 @@ A field the brand adds to people or companies, of one of twelve types, managed i
 - Home: the brand's region
 - Personal: the brand's own team
 - Stores:
-  - `record_field_lists`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One document per brand and object (subjects fields:person and fields:company) with its `rev`, written only with its settings version (`src/lib/tenant/settingsLog.ts`); `createdBy` and `archivedBy` hold user ids, never an address; under 200 KB.
+  - `record_field_lists`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. One document per brand and object (subjects fields:person and fields:company) with its `rev`, written only with its settings version (`src/lib/tenant/settingsLog.ts`); `createdBy`, `archivedBy` and `erasedBy` hold user ids, never an address; under 200 KB.
+  - `field_erase_jobs`, the brand's regional Firestore, in `src/lib/tenant/repository.ts`. An owner's count and erase of an archived field's values (SETTINGS_ERASE_ENABLED), one per brand, object and field with a fixed id, written by `src/lib/settings/eraseArchived.ts`: ids, counts, a cursor and times, and who started it as a user id; never a value; no TTL.
 - Links: `settings_version` through its subject, one version per change of the list (many); `person` through contacts.fields.<fieldId> (many); `company` through companies.fields.<fieldId> (many); `ontology_event` through fieldId, one row per change of a value (many)
-- Erase: gap. A field is archived, never deleted, and a team member's user id in createdBy or archivedBy stays an id when they leave; erasing archived values comes with piece O part 2.
+- Erase:
+  - `runFieldErase` in `src/lib/settings/eraseArchived.ts`, on an owner erasing an archived field's values (an owner with an admin row erases an archived field's values 30 days after its archive, with SETTINGS_ERASE_ENABLED: values and field tags off each person or company, blanked in the event history and agent actions; the definition stays, archived, with erasedAt)
+  - Gap: a field is archived, never deleted, and a team member's user id in createdBy, archivedBy or erasedBy stays an id when they leave
+  - Gap: an erased value can still sit in piece C's view rows until C extends the erase, and in Vizzy's chat sessions and the per person Memory Bank where Vizzy read it before
 - Export: gap. Team member ids stay as ids, with no export by team member; a person's export names each field of theirs with its label.
 - Search: none. A field's values are found with its person.
 - Numbers: none. A value belongs to one record and is not a brand metric.
@@ -1992,7 +1996,8 @@ What the registry records as missing, by type. Each is a known gap, not a promis
   - Erase: no path removes a team member's user id in `by` when they leave the team; it stays an id and shows as Former team member
   - Export: team member ids in `by` stay as ids, with no export by team member
 - Field (`custom_field`):
-  - Erase: a field is archived, never deleted, and a team member's user id in createdBy or archivedBy stays an id when they leave; erasing archived values comes with piece O part 2
+  - Erase: a field is archived, never deleted, and a team member's user id in createdBy, archivedBy or erasedBy stays an id when they leave
+  - Erase: an erased value can still sit in piece C's view rows until C extends the erase, and in Vizzy's chat sessions and the per person Memory Bank where Vizzy read it before
   - Export: team member ids stay as ids, with no export by team member; a person's export names each field of theirs with its label
 - Consent record (`consent_record`):
   - Erase: planned: piece F erases and exports it with the person

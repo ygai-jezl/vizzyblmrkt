@@ -21,7 +21,8 @@ change, dependency, backfill, secret or service.
    record is the one list Vizzy and the loops read** (decision 1). Drafts from Vizzy keeps its four
    scans, so names and "approve the hub to continue" stay live, and adds, for admins only, the
    email and image style suggestions (read from the brand record) and one row for the notes Vizzy
-   suggested (`brand_notes` by status, equality only, up to 50). Its `from` gains
+   suggested in chats (`brand_notes` by status and source, equality only, up to 50; a full read
+   says "50 or more"). Its `from` gains
    `canvas.email_style`, `canvas.image_style` and `vizzy_chat`.
 2. **Drafts about one person stay out: AI lines and person plans** (decision 2). No record names a
    person, so a person's timeline, erase and export have nothing here.
@@ -36,30 +37,44 @@ change, dependency, backfill, secret or service.
    member at the journey activate route, publish and archive in the lifecycle admin API, invite
    send and delete, the content plan save (acted when it approves a piece, declined when it
    archives) and delete, the style save from a suggestion and the suggestion dismiss routes, and
-   keep and remove on What we've seen. The engine switch's own publishes record nothing. The
+   keep and remove on What we've seen. One decision closes one record, the newest; another left
+   open by two saves at once is superseded. The engine switch's own publishes record nothing. The
    catch-up (`src/lib/agentRecord/catchUp.ts`, a lazily loaded `timedTickJob("agent-record")` in
    the lifecycle tick, its own 15 second budget) runs each brand once a day in the 2 minute slot
    its id falls in and closes what moved on another way: gone or in an archived programme as stale;
-   published by the engine switch or approved by Found live as acted by the system; brand map runs
-   by the map's lists; a learning run that failed or found nothing as stale; anything past its
-   expiry as expired, checked in memory, so it also works where person links are off.
+   published by the engine switch, a launch journey turned on (only `active` counts: a paused one
+   waits), or a content plan with a piece approved, or scheduled, since the record was made (the
+   record keeps the ids of the pieces already approved, so a refill after the hub's approval
+   waits) as acted by the system; brand map runs by the map's lists; a learning run that failed or
+   found nothing as stale; anything past its expiry as expired, checked in memory, so it also works
+   where person links are off. Each day's read of an action starts at a different point in the ids
+   (moving by the golden ratio and wrapping round), so a brand with more open records of one action
+   than a day reads (200) still has each read in turn, with no cursor kept.
 4. **One open record per draft** (decision 4), found by `draft.kind`, `draft.ref` and state, by
    equality only. Vizzy saving the same draft again declines the open record as superseded and
    opens a new one with the same action, so edited always means a person's change and a journey
    Vizzy drafted and then styled stays one draft; saving it unchanged writes nothing. A launch's
    drafts target its idea, so `deleteLaunch` erases them; the rest target the brand. A brand's
    email or image style is one draft (ref: the brand), keyed by a hash of its `suggestedAt`, so its
-   routes find the record with no lookup.
+   routes find the record with no lookup; the same style suggested again gets a new `suggestedAt`,
+   so its record moves to the new key even when nothing else changed.
 5. **Brand map: one record per run or chat call** (decision 5), holding a hash of each key it filed
-   and the ids of the proposals it made on the map's records (100 at most). A research run closes
-   the research run before it first, since it replaces research's own waiting suggestions: acted if
-   any were accepted (with kept and dismissed counts), dismissed if all went to the dismissed list,
-   superseded if nobody decided any. Proposals on the records are never counted as replaced.
+   and the ids of the proposals it made on the map's records (100 at most). A key counts as
+   accepted only when the decided map now holds its change (`satisfiedKeys`, beside `changeKey` in
+   `src/lib/brandMap/changes.ts`), as dismissed when it is on the map's dismissed list, and as gone
+   otherwise: the map dropped it on its own (a source's cap, the size fit, the dismissed list's
+   cap), which is nobody's decision. A research run closes the research runs before it first,
+   since it replaces research's own waiting suggestions: acted if any were accepted (with kept and
+   dismissed counts), superseded if research replaced some, dismissed if a person dismissed some,
+   else stale. A run whose proposals on the records still wait stays open: it is recorded again
+   without the replaced keys and with how many were replaced, so they never count as accepted.
 6. **Ids, a label and a fingerprint only** (decision 6): never a draft's words, a note's text, or
    anyone's name or address. A fingerprint is 16 hex over what a person would call a change
    (subjects, bodies, waits, the start, a style's colours, header and theme; never positions or
-   ids), so "kept after a person's edits" is a comparison. A decline clears the proposal; acted
-   keeps the label.
+   ids; for a content plan also each email's subject, preview and test subjects, a wait's length, a
+   blog article's title and an eBook's title and chapters), so "kept after a person's edits" is a
+   comparison. Every record is proposed with `clearDetailsOnClose`, so the proposal goes with any
+   close, 0e's own expiry sweep included (decision 25); acted keeps the label in its `result`.
 7. **No backfill** (decision 7): the record starts when the switch goes on, and Vizzy says so.
 8. **Soft writes; closing runs whatever the switch says.** A failed record write is logged as
    `[agent-record] write_failed` and counted, and never fails the save it rides on. Closing a record
@@ -79,15 +94,16 @@ change, dependency, backfill, secret or service.
 
 No new index. Finding a draft's record and the catch-up read by equality only; Vizzy's reads use
 (tenantId, action, state, createdAt desc), which 0e made. Proposing is 2 writes, proposed to acted
-3, a decline 2, Vizzy's re-save of an open draft 4. Review adds one brand record read and one notes
-query for admins.
+3, a decline 2, Vizzy's re-save of an open draft 4. The catch-up reads at least two pages per
+action a day (from its start, then round), one read each when empty. Review adds one brand record
+read and one notes query for admins.
 
 ### Gaps we accept
 
 - A style suggestion applied or dismissed while its route's record write failed closes as stale
   at the catch-up, not as a person's decision.
-- At the map at any size, a run whose proposals still wait stays open even when research replaced
-  its suggestions; its replaced keys then count as kept when it closes.
+- At the map at any size, a subject a person accepts from a map's suggestions after its subjects
+  moved into records doesn't show in the decided map, so it counts as gone, not accepted.
 - A learning run started before a newer one finishes is superseded at the newer start.
 - Records stay until erased (decision 22), so labels (the brand's own names for drafts) stay too.
 - Rolling back to a build without this piece: that build can't read a record whose agent is

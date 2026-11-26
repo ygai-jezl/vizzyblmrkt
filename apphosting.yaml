@@ -574,6 +574,16 @@ env:
     value: "false"
     availability:
       - RUNTIME
+  # The investor and funding board on People: Set up for raising or funding in Settings › Data model, the board, why each one passed and Vizzy's counts (needs AUDIENCE_FIELDS_ENABLED; the tab also needs nav phase 3).
+  - variable: RAISE_PIPELINE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  # Follow-ups from that board in Review, from the tick each morning (needs RAISE_PIPELINE_ENABLED).
+  - variable: RAISE_FOLLOWUPS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
 
   # == Email style ==
   # A logo, name and colours on branded emails, then header options, themes, web fonts

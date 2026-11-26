@@ -1,4 +1,5 @@
 import { isBrandMapEnabled } from "@/lib/brandMap/flags";
+import { isCompetitorsEnabled } from "@/lib/competitors/flags";
 
 /**
  * Switches for the brand strategy (Brand › Brand map › Strategy). Each is off unless "true":
@@ -25,4 +26,14 @@ export function isCompetitorFinderEnabled(): boolean {
 /** Vizzy's get_brand_strategy: reads the approved strategy (never changes it). Needs the strategy. */
 export function isBrandStrategyChatEnabled(): boolean {
   return isBrandStrategyEnabled() && process.env.BRAND_STRATEGY_CHAT_ENABLED === "true";
+}
+
+/**
+ * Strategy and Competitors joined: one competitor list behind two doors (the Strategy tab and
+ * Brand › Competitors), a group on each watched competitor, Not a competitor for the finder, and
+ * what their articles say in Propose and on the tab. Needs the strategy and COMPETITORS_ENABLED.
+ * Off: the tab lists only what the finder found, and Propose copies the watched ones once.
+ */
+export function isStrategyCompetitorsEnabled(): boolean {
+  return isBrandStrategyEnabled() && isCompetitorsEnabled() && process.env.STRATEGY_COMPETITORS_ENABLED === "true";
 }

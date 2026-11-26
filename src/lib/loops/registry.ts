@@ -345,10 +345,10 @@ export const LOOP_RULES = {
   quietDays: 30,
   /** A thing YouGrow made that is still unused 14 days later counts as unused, the guard for the edits learner. */
   unusedAfterDays: 14,
-  /** A kind and scope whose stage has not moved after 10 outputs counts as stalled in the weekly retro. */
+  /** A brand is stuck on a kind once 10 more of it are made while it stays at Stamped or at Signalled, so a busy brand's stall shows within days. */
   stallOutputs: 10,
-  /** Or after 14 days with no move, whichever comes first, so a quiet brand still shows a stall. */
-  stallDays: 14,
+  /** Or once it stays there 28 days, whichever comes first: the stages' own window, so a quiet brand's stall still shows. */
+  stallDays: 28,
   /** Counts across brands are shown only for groups of 10 or more organisations, so no one brand can be picked out. */
   cellOrgs: 10,
   /** A gap's revisit date is at most 6 months ahead, so every gap is looked at again within two quarters. */

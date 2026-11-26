@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { LOOP_LANE, writeLoopLane } from "@/lib/tenant/loopLane";
+import { addToFleetCells, FLEET_CELLS, fleetCellId } from "@/lib/tenant/fleetCells";
+import { laneMarkId, LOOP_LANE, runLaneTransaction, writeLaneMarkTx, writeLoopLane } from "@/lib/tenant/loopLane";
 import { addToLoopDay, LOOP_DAYS, loopDayId, loopDayTtlAt, mergeLaneState, mergeLoopDay, runLoopsTransaction, setLoopDayTx, stampKeyFor, writeBrandPointersTx } from "@/lib/tenant/loops";
 import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import type { TenantContext } from "@/lib/tenant/types";
@@ -26,8 +27,8 @@ const FILE = JSON.parse(readFileSync(join(ROOT, "firestore.indexes.json"), "utf8
 const EXEMPT = [
   { collection: "loop_days", field: "d", why: "every loop document's data, under the one map (src/lib/tenant/loops.ts)" },
   { collection: "loop_days", field: "ttlAt", why: "the time to live alone reads it" },
-  { collection: "fleet_cells", field: "n", why: "step 5's counts across brands, read by id" },
-  { collection: "loop_lane", field: "d", why: "the lane's document, under the one map (src/lib/tenant/loopLane.ts)" },
+  { collection: "fleet_cells", field: "n", why: "step 5's counts across brands, under the one map, read by id (src/lib/tenant/fleetCells.ts)" },
+  { collection: "loop_lane", field: "d", why: "the lane's document and the organisation marks, under the one map (src/lib/tenant/loopLane.ts)" },
   { collection: "image_assets", field: "made", why: "each image's stamp (src/lib/admin/brandKit.ts)" },
   { collection: "email_sends", field: "made", why: "step 5's stamp on each send" },
   { collection: "scheduled_posts", field: "made", why: "step 5's stamp on each post" },
@@ -65,11 +66,14 @@ describe("the field exemptions the loops need", () => {
       db,
     );
     await writeLoopLane({ cursor: null }, db);
+    await runLaneTransaction(async (txn) => writeLaneMarkTx(txn, laneMarkId({ tenantId: hearth.tenantId, organisationId: "org_ten_hearth" }), { week, cells: ["image.s.stamped.free"], outputs: {} }, db), db);
+    await addToFleetCells([{ id: fleetCellId.kind("image", week), n: { s: { stamped: { free: 1 } } } }, { id: fleetCellId.orgs(week), n: { p: { free: 1 } } }], db);
 
     const loopDays = db.dump(LOOP_DAYS);
     expect(loopDays).toHaveLength(6);
     for (const doc of loopDays) expect(Object.keys(doc).filter((k) => !["tenantId", "d", "ttlAt"].includes(k))).toEqual([]);
-    expect(db.dump(LOOP_LANE).map((doc) => Object.keys(doc))).toEqual([["d"]]);
+    expect(db.dump(LOOP_LANE).map((doc) => Object.keys(doc))).toEqual([["d"], ["d"]]);
+    expect(db.dump(FLEET_CELLS).map((doc) => Object.keys(doc))).toEqual([["n"], ["n"]]);
   });
 });
 

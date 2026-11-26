@@ -1414,7 +1414,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     id: "loop_lane",
     name: "Learning lane bookkeeping",
     description:
-      "The learning loops lane's own bookkeeping for this copy of YouGrow: where its page through the brands has got to, how many brands there are, and how many learner calls it made today. Counts across brands come later, with one mark per organisation.",
+      "The learning loops lane's own bookkeeping for this copy of YouGrow: where its page through the brands has got to, how many brands there are, how many learner calls it made today, and one mark per organisation, so an organisation with several brands counts once in the counts across brands. A mark holds its newest week only: the cells it is already counted in and the outputs counted so far against the cap.",
     place: "platform",
     status: "built",
     madeBy: [],
@@ -1424,16 +1424,45 @@ export const ONTOLOGY: readonly OntologyType[] = [
       control(
         "loop_lane",
         "src/lib/tenant/loopLane.ts",
-        "one `lane` document under the one map `d`; its cursor is the last brand id the lane visited",
-        "the control plane is in the United States for every region; the lane holds a brand id the brand records there already hold, and counts",
+        "the `lane` document, whose cursor is the last brand id the lane visited, and one mark per organisation (`o:<organisationId>`, or `o:t:<tenantId>` for a brand with no organisation), each under the one map `d`; a mark is replaced by its organisation's next week, and nothing on screen reads it",
+        "the control plane is in the United States for every region; the lane holds a brand id and each mark an organisation id that the brand and organisation records there already hold, with cell keys and capped counts for one week, and no people and no words",
       ),
     ],
     links: [],
     events: [],
-    erase: { none: "the copy's own bookkeeping: a cursor that moves on each run and counts with no one's data" },
+    erase: {
+      gap: "a mark is meant to go with its organisation, and a brand's own mark with its brand, but no path deletes either: organisations are never deleted and no path deletes a whole brand. Each mark holds one week, replaced by the next",
+    },
     export: { none: NOT_PERSONAL },
     search: { none: "the lane's own bookkeeping" },
-    numbers: { none: "the lane's own bookkeeping: a cursor and counts with no meaning to count" },
+    numbers: { none: "the lane's own bookkeeping: a cursor and one mark per organisation, with no meaning to count" },
+  },
+  {
+    id: "fleet_cell",
+    name: "Counts across brands",
+    description:
+      "What the learning loops count across this copy's brands for each closed week, for the people who run the copy: how many organisations reached each step of learning or got stuck there, by plan and industry, and capped counts of what YouGrow made and what people did with it, by kind of choice, ontology type and AI purpose. Counts only, with no brand or organisation ids or hashes, no people and no words. Brands that opted out send nothing, and numbers of things show only from 10 organisations.",
+    place: "platform",
+    status: "built",
+    madeBy: [],
+    home: "control",
+    personal: "none",
+    stores: [
+      control(
+        "fleet_cells",
+        "src/lib/tenant/fleetCells.ts",
+        "one row per kind of choice and closed week (`fh:<kind>:<week>`), and the copy's own rows `fh:_orgs`, `fh:_types` and `fh:_calls`, every count under the one map `n`; read by id only",
+        "the control plane is in the United States for every region; the rows hold counts of organisations and capped counts of outputs, with no brand, organisation or person in them",
+      ),
+    ],
+    links: [],
+    events: [],
+    erase: { none: "counts across organisations with no brand, organisation or person in them, so nothing in them is anyone's to erase" },
+    export: { none: "counts across organisations, with no brand's or person's own data" },
+    search: { none: "counts, read by the people who run the copy" },
+    numbers: {
+      gap: "counts across brands are read by the people who run the copy: a brand's agent works through brand-locked tools and never reads across brands, and no operator agent path exists yet; Work's Used counts are to reach get_work, and the company retro (learning loops step 6) is to add an operator path",
+    },
   },
   {
     id: "live_watch",

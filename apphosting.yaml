@@ -95,6 +95,8 @@ env:
   #     GRANTED_ONLY_FEATURES                                       features only for brands granted them
   #     FEATURE_MONTHLY_LIMITS                                      next_up=100,competitor_articles=200
   #     PLANS_NEW_ORGANISATION_PLAN                                 free (unset: self_hosted, everything open)
+  #     LOOPS_OPERATOR_EMAILS                                       who sees this copy's own learning loop
+  #     LOOPS_SOURCE_REPO                                           this copy's own repo, as owner/name
   #     DATAFORSEO_USERNAME, DATAFORSEO_PASSWORD                    secrets, with SIGNALS_DATAFORSEO_ENABLED
   #   Connections
   #     GITHUB_APP_ID, GITHUB_APP_SLUG, GITHUB_APP_CLIENT_ID        your read only GitHub App
@@ -341,6 +343,18 @@ env:
   # an admin row for the brand, and 0e's history indexes READY). Off: no Erase values, and a running
   # erase waits at its cursor. Kept off on self-hosted copies.
   - variable: SETTINGS_ERASE_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+
+  # == Learning loops ==
+  # The learning loops' platform switch (learning loops step 5): everything YouGrow makes records
+  # what made it and is counted for its brand, the loops lane covers every kind, a weekly heartbeat
+  # counts organisations across brands (counts only, never images, words or people; brands that
+  # opted out send nothing), and Settings > Loops shows those counts to the people
+  # LOOPS_OPERATOR_EMAILS names. Image learning has its own switch, IMAGE_STYLE_VERSIONS_ENABLED.
+  # Off: nothing else is stamped or counted, and nothing is counted across brands, as before.
+  - variable: LOOPS_ENABLED
     value: "false"
     availability:
       - RUNTIME

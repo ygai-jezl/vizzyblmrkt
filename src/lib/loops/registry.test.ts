@@ -256,7 +256,8 @@ describe("the learning registry", () => {
   });
 
   it("has the image style switch, and holds each one to its rules: off, new, and read once in switches.ts", () => {
-    // The image style loop (step 4) adds the first switch; step 5 adds LOOPS_ENABLED.
+    // The image style loop (step 4) adds the first switch. LOOPS_ENABLED is the platform's switch,
+    // never a loop's own, so it is not here (src/lib/loops/flags.test.ts).
     expect(Object.keys(LOOP_SWITCHES)).toEqual(["IMAGE_STYLE_VERSIONS_ENABLED"]);
     const files = sourceFiles("src", ROOT);
     // The scan sees the source, in the same repo relative form as SWITCHES_FILE.

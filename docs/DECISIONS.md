@@ -4,6 +4,68 @@ Running log of decisions for **vizzybl-marketing**. Newest first.
 
 ---
 
+## ADR-0021 · Settings history: one list per brand, restore as a new version, and erasing archived values (2026-11-26)
+
+Context: piece O part 2 of the build plan (O2, approved 26 Nov 2026). Piece O part 1 (piece B) keeps
+every settings change as a version (`settings_versions`, ADR-0010), every published journey version
+is kept (`lifecycle_versions`) and every catalog version is kept (`catalog_revisions`), but nothing
+put them in one place, a field list's restore had no button, and an archived field's values could
+never go. Branch `feat/org-history`. Two new composite indexes, no rules change, no dependency.
+
+### Decided
+
+1. **One list, for the brand you are in** (decision 1). Settings › History (`SETTINGS_HISTORY_ENABLED`)
+   reads the brand in the session only, in its own region, with the session's role: the whole team
+   reads and exports, admins restore. Someone who runs several brands switches brand in the header,
+   as today. No context is built for another brand inside a request, so no request reads another
+   region. An owner's view across an organisation's brands waits for piece M's roles. History needs
+   only its own switch, not `PLANS_ENABLED`, so self-hosted copies get it.
+2. **Three stores, one entry** (`src/lib/settings/sources.ts`). Each store becomes a `HistoryEntry`
+   (kind, subject, rev, when, who, message, items, restoredFrom). `KINDS` says when a kind shows
+   (while its own screen is on: fields with `AUDIENCE_FIELDS_ENABLED`, journeys with the journeys
+   screen, shared connections with sharing; catalogs always) and whether it restores here; a kind is
+   read only unless it says so, so a later kind joins with one entry. The settings log is read one
+   query per subject on its `(tenantId, subject, rev DESC)` index and merged in memory; journey
+   versions on `(tenantId, publishedAt DESC)` and catalog versions on `(tenantId, savedAt DESC)`, the
+   two new indexes. One cursor token holds each source's place. A source that can't be read (an
+   index still building) is left out and the page says so, rather than failing.
+3. **Who did it, never an address.** Names are looked up when shown (`teamMemberNames`), now also for
+   someone whose verified claims put them on the brand (the brand they first signed in with gives
+   them no `tenant_users` row). With plans on, an owner of the organisation off the team reads "An
+   owner of your organisation"; an address kept on an old record (a journey's `publishedBy` from before
+   user ids) reads "A team member"; anyone else "Former team member". With `{ addresses: false }`
+   (what Vizzy reads) a name is never an address.
+4. **Preview, then restore as a new version** (`src/lib/settings/restorePlan.ts`, `restore.ts`). The
+   preview shows what comes back, what is archived, what changes back and what a restore never
+   undoes (emails sent, payments, people already in a journey, erased values), worked out by the
+   same code the restore saves with. Each restore goes through the kind's own writer from the base
+   the preview showed, so a save in between answers 409 and writes nothing:
+   - a field list through `restoreFieldListVersion`: a new version on top, so it can be undone too.
+     A restore never moves an archive date back: a field it archives is archived now, and one
+     archived already keeps its date, so the erase's 30 days can't be cut short by an old version;
+   - a journey into its **draft only** (`saveLifecycleDraft` with `expectUpdatedAt`, `emailStyle:
+     "keep"` and `authoredBy: "human"`). The live version, the people in it (who stay on the version
+     they started on) and the journey's email style stay. The journey carries `draftRestoredFrom`
+     until Publish copies it onto the new version as `restoredFrom`, so History says "Published,
+     from version 3". A version today's draft check can't read, or whose product or launch is gone,
+     says why and has no Restore; its issues against today's catalog are listed to fix before
+     publishing;
+   - a catalog through `restoreCatalogVersion`, only with `CATALOG_HISTORY_ENABLED`; stages are read
+     with it from then on.
+   Shared connections are read only here: their parts are given and taken back on Settings ›
+   Organisation. Archived journeys and revoked products are read only, with no export.
+5. **Export is JSON with no one's values**: a settings version (`yougrow.settings-version`), a
+   journey document (`exportJourneyDocument` with `which: { version: n }`, importable as a new draft)
+   or a catalog version (`yougrow.catalog-version`). Anyone on the team exports.
+
+### Not decided here
+
+- More kinds (learned looks, brand and content strategy, email style, brand kit, brand map, image
+  styles) join once they save through the settings log. The two strategy records keep their own
+  history today.
+- Side by side diffs beyond plain words, value counts in a preview, copying a setting to another
+  brand.
+
 ## ADR-0019 · Connectors are data: the MCP method and features read by kind of data (2026-11-26)
 
 Context: piece B of the brand strategy plan (v4.2, all 13 picks accepted 25 Nov). The owner, 25 Nov:

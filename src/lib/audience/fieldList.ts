@@ -315,6 +315,32 @@ export async function saveFieldListChange(
 }
 
 /**
+ * What restoring `target` (an older version's fields) over `current` makes, without saving: the
+ * list after it and planRestore's lists (`archived`: in use now, archived by the restore). Fields
+ * and options the older version didn't have are archived, never removed. A restore never moves an
+ * archive date back: a field it archives is archived now, by `archivedBy`, and one archived already
+ * keeps when and by whom (an old version's date could otherwise cut short the 30 days before an
+ * archived field's values can be erased). It never turns Vizzy's reading on. Settings › History's
+ * preview shows exactly this. Pure.
+ */
+export function planFieldListRestore(
+  current: readonly RecordField[],
+  target: readonly RecordField[],
+  nowIso: string,
+  archivedBy: string | null,
+): { items: RecordField[]; plan: ReturnType<typeof planRestore<RecordField>> } {
+  const plan = planRestore(current, target, nowIso);
+  const now = new Map(current.map((f) => [f.key, f]));
+  const items = plan.items.map((f) => {
+    const was = now.get(f.key);
+    const next = !f.archivedAt ? f : was?.archivedAt ? { ...f, archivedAt: was.archivedAt, archivedBy: was.archivedBy ?? null } : { ...f, archivedAt: nowIso, archivedBy };
+    // A restore never turns reading on; an item the list doesn't hold now comes back without it.
+    return keepReading(was, next);
+  });
+  return { items, plan };
+}
+
+/**
  * Bring back an earlier version of a list as a new one, from the rev the page shows. Fields and
  * options the earlier version didn't have are archived, never removed, so values and filters that
  * name them keep their label. Answers `field_not_found` when there is no such version, and
@@ -331,16 +357,8 @@ export async function restoreFieldListVersion(
   const [current, target] = await Promise.all([readFieldList(ctx, object, db), getSettingsVersion(ctx, subject, input.rev, db)]);
   if (current.rev !== input.baseRev) return { ok: false, error: "fields_changed", list: current };
   if (!target) return { ok: false, error: "field_not_found" };
-  const plan = planRestore(current.items, target.snapshot.items as unknown as RecordField[], nowIso);
   // Fields the restore archives say who archived them, as an archive from the editor does.
-  const archivedBy = input.by.type === "member" ? input.by.id : null;
-  const archived = new Set(plan.archived.map((f) => f.key));
-  const now = new Map(current.items.map((f) => [f.key, f]));
-  const items = plan.items.map((f) => {
-    const next = archived.has(f.key) ? { ...f, archivedBy } : f;
-    // A restore never turns reading on; an item the list doesn't hold now comes back without it.
-    return keepReading(now.get(f.key), next);
-  });
+  const { items } = planFieldListRestore(current.items, target.snapshot.items as unknown as RecordField[], nowIso, input.by.type === "member" ? input.by.id : null);
   if (fieldListProblems(items, object).length) return { ok: false, error: "field_list_full" };
   if (!FieldListSchema.safeParse({ items }).success) return { ok: false, error: "invalid_field" };
   const message = `Restored version ${input.rev}`;

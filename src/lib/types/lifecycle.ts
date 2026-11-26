@@ -482,6 +482,15 @@ export const LifecycleJourneySchema = z.object({
     })
     .nullable()
     .optional(),
+  /**
+   * The published version a restore put in the draft (Settings › History, ADR-0021): which version,
+   * who put it back by user id, and when. Later edits keep it, since the draft is still built on that
+   * version; Publish copies the version onto the new one as `restoredFrom` and clears it.
+   */
+  draftRestoredFrom: z
+    .object({ version: z.number().int().min(1), by: z.string().nullable(), at: z.string() })
+    .nullable()
+    .optional(),
   createdBy: z.string().nullable().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -508,6 +517,8 @@ export const LifecycleVersionSchema = z.object({
   settings: LifecycleSettingsSchema,
   publishedAt: z.string(),
   publishedBy: z.string().nullable().optional(),
+  /** The older version this one was published from, when a restore put that version in the draft. */
+  restoredFrom: z.number().int().min(1).nullable().optional(),
 });
 export type LifecycleVersion = z.infer<typeof LifecycleVersionSchema>;
 

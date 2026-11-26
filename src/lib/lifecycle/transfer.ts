@@ -38,14 +38,19 @@ export const JourneyDocumentSchema = z.object({
 });
 export type JourneyDocument = z.infer<typeof JourneyDocumentSchema>;
 
-export type ExportWhich = "published" | "draft";
+/** The live version, the draft, or one published version by its number (Settings › History). */
+export type ExportWhich = "published" | "draft" | { version: number };
 
 /** A parsed draft with its journey style only if it read as one: no key otherwise, as new journeys have. */
 function readableStyle(draft: LifecycleDraft): LifecycleDraft {
   return { ...draft, settings: withJourneyEmailStyle(draft.settings, draft.settings.emailStyle) };
 }
 
-/** The journey's design as a portable document. `published` falls back to the draft if never published. */
+/**
+ * The journey's design as a portable document. `published` falls back to the draft if never
+ * published. `{ version: n }` is that published version exactly as it was published (its own copy
+ * of the style, never the journey's live one), or 404 `version_not_found`.
+ */
 export async function exportJourneyDocument(
   ctx: TenantContext,
   journeyId: string,
@@ -57,7 +62,14 @@ export async function exportJourneyDocument(
 
   let draft: LifecycleDraft = journey.draft;
   let sourceVersion: number | null = null;
-  if ((opts.which ?? "published") === "published" && journey.publishedVersion) {
+  const which = opts.which ?? "published";
+  if (typeof which === "object") {
+    const n = which.version;
+    const version = Number.isInteger(n) && n >= 1 ? await repo.lifecycleVersions.getById(versionDocId(journey.id, n)) : null;
+    if (!version || version.journeyId !== journey.id) return { ok: false, status: 404, error: "version_not_found" };
+    draft = { graph: version.graph, pools: version.pools, settings: version.settings };
+    sourceVersion = version.version;
+  } else if (which === "published" && journey.publishedVersion) {
     const version = await repo.lifecycleVersions.getById(versionDocId(journey.id, journey.publishedVersion));
     if (version) {
       // The published design wears the journey's live style (what its sends wear), not the version's copy —

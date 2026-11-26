@@ -101,6 +101,8 @@ vi.hoisted(() => {
   // Vizzy by voice, so its lines and the messages it quotes are checked too.
   process.env.ONBOARDING_ENABLED = "true";
   process.env.ONBOARDING_VOICE_ENABLED = "true";
+  // Settings › History (piece O part 2), with its help page.
+  process.env.SETTINGS_HISTORY_ENABLED = "true";
   // Password help shows only when a code can be delivered too (isPasswordSigninAvailable).
   process.env.MANDRILL_API_KEY = "test-key-not-real";
 });

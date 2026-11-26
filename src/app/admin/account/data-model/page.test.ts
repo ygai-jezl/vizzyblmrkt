@@ -30,13 +30,14 @@ const SWITCHES = [
   "AUDIENCE_FIELD_FILTERS_ENABLED",
   "AUDIENCE_VIZZY_FIELDS_ENABLED",
   "AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED",
+  "SETTINGS_HISTORY_ENABLED",
 ];
 
 function turnOn(...names: string[]) {
   for (const n of names) process.env[n] = "true";
 }
 
-type Props = { canEdit: boolean; filters?: boolean; vizzyText?: boolean };
+type Props = { canEdit: boolean; filters?: boolean; vizzyText?: boolean; historyTab?: boolean };
 async function props(): Promise<Props> {
   return ((await DataModelPage()) as ReactElement<Props>).props;
 }
@@ -71,6 +72,13 @@ describe("Settings › Data model page", () => {
     expect((await props()).vizzyText).toBe(false);
     turnOn("AUDIENCE_VIZZY_FIELDS_ENABLED");
     expect((await props()).vizzyText).toBe(true);
+  });
+
+  it("points the Changes box to Settings › History only while it is on", async () => {
+    turnOn("AUDIENCE_PERSON_LINKS_ENABLED", "AUDIENCE_ONE_VIEW_ENABLED", "ONTOLOGY_PERSON_IDS_ENABLED", "AUDIENCE_FIELDS_ENABLED");
+    expect((await props()).historyTab).toBe(false);
+    turnOn("SETTINGS_HISTORY_ENABLED");
+    expect((await props()).historyTab).toBe(true);
   });
 
   it("lets admins change the fields and members read them", async () => {

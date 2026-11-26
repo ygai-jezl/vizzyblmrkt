@@ -145,6 +145,21 @@ describe("the field list", () => {
     expect(await restoreFieldListVersion(ctx, "person", { rev: 99, baseRev: 4, by }, db)).toEqual({ ok: false, error: "field_not_found" });
   });
 
+  it("stamps the fields a restore archives with now, never an older version's archive date", async () => {
+    const db = new FakeFirestore();
+    const T0 = "2026-10-01T10:00:00.000Z";
+    await save(db, { op: "add", label: "Plan", type: "text" }, { fld: () => "fld_000000000001", nowIso: T0 }); // v1
+    await save(db, { op: "archive", key: "fld_000000000001" }, { nowIso: T0 }); // v2: archived on T0
+    await save(db, { op: "restore", key: "fld_000000000001" }, { nowIso: T1 }); // v3: live again
+    // Back to v2: archived again, from now, so its 30 days start now.
+    expect(await restoreFieldListVersion(ctx, "person", { rev: 2, baseRev: 3, by, nowIso: T2 }, db)).toMatchObject({ ok: true, list: { rev: 4 } });
+    expect((await readFieldList(ctx, "person", db)).items[0]).toMatchObject({ archivedAt: T2, archivedBy: "u_admin" });
+    // Back to v2 once more while it is archived: it keeps when it was archived, never the older date.
+    const T3 = "2026-11-22T10:00:00.000Z";
+    expect(await restoreFieldListVersion(ctx, "person", { rev: 2, baseRev: 4, by: { type: "member", id: "u_other" }, nowIso: T3 }, db)).toMatchObject({ ok: true });
+    expect((await readFieldList(ctx, "person", db)).items[0]).toMatchObject({ archivedAt: T2, archivedBy: "u_admin" });
+  });
+
   it("archives an option added after the version it restores, never dropping it", async () => {
     const db = new FakeFirestore();
     const opt = ids("opt");

@@ -320,6 +320,16 @@ env:
       - BUILD
       - RUNTIME
 
+  # == Settings history ==
+  # Settings > History (ADR-0021): every change to the brand's fields, journeys, product catalogs and
+  # shared connections in one list, a preview before a restore, restoring an older version as a new
+  # one (a journey into its draft only), JSON export, and Vizzy's read of the same list. Needs the
+  # lifecycle_versions and catalog_revisions indexes. Off: none of it exists.
+  - variable: SETTINGS_HISTORY_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+
   # == Waitlists and invites ==
   # Invite your waitlist.
   - variable: INVITES_ENABLED

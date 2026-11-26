@@ -43,6 +43,7 @@ import { isBrandMapScaleEnabled } from "@/lib/brandMap/flags";
 import { isIdeaWordsEnabled, isIdeasEnabled } from "@/lib/ideas/flags";
 import { WordsProvider } from "@/components/admin/nav/WordsProvider";
 import { isOnboardingEnabled, isOnboardingVoiceEnabled } from "@/lib/onboarding/flags";
+import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
 import { sidebarRevealFor } from "@/lib/onboarding/sidebarFit";
 
 export const dynamic = "force-dynamic";
@@ -229,6 +230,7 @@ export default async function AdminLayout({
             join={isOrganisationJoinEnabled()}
             onboarding={isOnboardingEnabled()}
             onboardingVoice={isOnboardingVoiceEnabled()}
+            settingsHistory={isSettingsHistoryEnabled()}
           >
             {shell}
           </ShellProvider>

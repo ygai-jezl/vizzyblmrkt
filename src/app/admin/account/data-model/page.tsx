@@ -7,6 +7,7 @@ import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
 import { ENVIRONMENT_LABEL, environmentOf, productNameOf } from "@/lib/connect/environments";
 import { forTenant } from "@/lib/tenant";
 import { DataModel } from "@/components/admin/audience/DataModel";
+import { isSettingsHistoryEnabled } from "@/lib/settings/flags";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,8 @@ export const dynamic = "force-dynamic";
  * Settings › Data model (AUDIENCE_FIELDS_ENABLED): the fields on People and Companies. The fields
  * from elsewhere are worked out here, from the brand's launches and products; the brand's own
  * fields load in the browser. Admins change them; members read. The "Vizzy reads" column and
- * "Vizzy can read this field" show while AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED is on.
+ * "Vizzy can read this field" show while AUDIENCE_VIZZY_TEXT_FIELDS_ENABLED is on. The Changes
+ * box points to Settings › History while SETTINGS_HISTORY_ENABLED is on.
  */
 export default async function DataModelPage() {
   const ctx = await requireAdminContext();
@@ -34,6 +36,7 @@ export default async function DataModelPage() {
       canEdit={ctx.role === "admin"}
       filters={isFieldFiltersEnabled()}
       vizzyText={isVizzyTextFieldsEnabled()}
+      historyTab={isSettingsHistoryEnabled()}
       readOnly={{ person: readOnlyFieldDefs("person", sources, ideas), company: readOnlyFieldDefs("company", sources, ideas) }}
     />
   );

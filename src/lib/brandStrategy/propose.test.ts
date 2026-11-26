@@ -78,7 +78,7 @@ describe("checking a proposed strategy", () => {
     const { proposal, dropped } = checkStrategy(
       {
         claims: [
-          { side: "you", text: "Fast — and cheap", proof: [] },
+          { side: "you", text: "Fast \u2014 and cheap", proof: [] },
           { side: "you", text: "Fast - and cheap", proof: [] },
           { side: "you", text: "A seamless way to see answers", proof: [] },
           { side: "you", text: "See https://acme.example/pricing", proof: [] },
@@ -88,7 +88,7 @@ describe("checking a proposed strategy", () => {
           { text: "Not an SEO suite", why: "Rivalco sells one", competitor: "C1" },
           { text: "not an agency" },
           { text: `Not ${"a very long line ".repeat(6)}` },
-          { text: "Not a tool – a service" },
+          { text: "Not a tool \u2013 a service" },
         ],
         goal: { text: "200 waitlist sign-ups from organic search by March", measure: "sign-ups" },
       },

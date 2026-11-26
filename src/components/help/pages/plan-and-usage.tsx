@@ -3,7 +3,8 @@ import { BeforeAndUnlocks, Messages, Meta, NextPage, Open } from "@/components/h
 import { allowanceLabels, PLANS, planSummary } from "@/lib/plans/catalog";
 import { isEditModeLearningFollowsVizzyEnabled } from "@/lib/content/editor/flags";
 import { isOrganisationJoinEnabled, isUsageMeterUiEnabled } from "@/lib/plans/flags";
-import { IMAGE_LIMIT_MESSAGE, WEB_SEARCH_LIMIT_MESSAGE } from "@/lib/plans/resources";
+import { IMAGE_LIMIT_MESSAGE, PURPOSE_LABELS, WEB_SEARCH_LIMIT_MESSAGE } from "@/lib/plans/resources";
+import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 import { isPeopleNameEnabled } from "@/lib/audience/flags";
 import { isAddPersonEnabled } from "@/lib/audience/peopleFlags";
 import { isConnectorsSharingEnabled } from "@/lib/connectors/flags";
@@ -25,6 +26,8 @@ export default function PlanAndUsageHelp({
   onboardingVoice = isOnboardingVoiceEnabled(),
 }: HelpBodyProps = {}) {
   const meter = isUsageMeterUiEnabled();
+  // Image style versions (learning loops step 4): learning's own line under Images made and AI model use.
+  const learning = isImageStyleVersionsOn();
   const w = ideaWord(ideaWords);
   return (
     <article>
@@ -145,6 +148,13 @@ export default function PlanAndUsageHelp({
               heroes, post images, email images, ebook images, customised images and carousels). Your copy of YouGrow sets how
               many a brand may make in a month.
             </li>
+            {learning ? (
+              <li>
+                <strong>{PURPOSE_LABELS.loop_learn}</strong>, under Images made and AI model use: what YouGrow spends learning
+                your image looks, and the first remake within 2 weeks of an image made without what it learned. It never counts
+                toward a limit. See <Open href="/help/what-yougrow-learned#holdback">What YouGrow learned</Open>.
+              </li>
+            ) : null}
             {onboardingVoice ? (
               <>
                 <li>

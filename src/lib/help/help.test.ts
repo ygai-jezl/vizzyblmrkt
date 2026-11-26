@@ -102,6 +102,10 @@ vi.hoisted(() => {
   // Vizzy by voice, so its lines and the messages it quotes are checked too.
   process.env.ONBOARDING_ENABLED = "true";
   process.env.ONBOARDING_VOICE_ENABLED = "true";
+  // What YouGrow learned (image style versions, learning loops step 4) needs the image style and its loop.
+  process.env.BRAND_STYLE_LOOP_ENABLED = "true";
+  process.env.BRAND_IMAGE_STYLE_ENABLED = "true";
+  process.env.IMAGE_STYLE_VERSIONS_ENABLED = "true";
   // Password help shows only when a code can be delivered too (isPasswordSigninAvailable).
   process.env.MANDRILL_API_KEY = "test-key-not-real";
 });

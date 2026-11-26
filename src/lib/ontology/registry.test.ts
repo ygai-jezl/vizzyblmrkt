@@ -19,9 +19,7 @@ const NOT_SERVED_YET: Record<string, string> = {
   editShare: "the learning loops count it once they stamp what YouGrow makes (ADR-0017)",
   keptShare: "the learning loops count it once they stamp what YouGrow makes (ADR-0017)",
   declineShare: "the learning loops count it once they stamp what YouGrow makes (ADR-0017)",
-  likedShare: "the learning loops count it once they stamp what YouGrow makes (ADR-0017)",
   unusedShare: "the learning loops count it once they stamp what YouGrow makes (ADR-0017)",
-  remadeShare: "the learning loops count it once they stamp what YouGrow makes (ADR-0017)",
 };
 
 /**

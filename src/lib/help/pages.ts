@@ -6,6 +6,7 @@ import { isOrganisationJoinEnabled, isPlansUiEnabled } from "@/lib/plans/flags";
 import { isConnectorsScreenEnabled, isConnectorsSharingEnabled } from "@/lib/connectors/flags";
 import { isPasswordSigninAvailable } from "@/lib/auth/flags";
 import { isIdeaWordsEnabled } from "@/lib/ideas/flags";
+import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
 
 /**
  * The /help pages, in reading order: one list for the help navigation, the
@@ -28,7 +29,7 @@ export interface HelpPage {
    * A page about a switched-off feature: listed and served only while its switch is on.
    * The switches are read on the server, so client lists (⌘K) leave these pages out.
    */
-  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin";
+  onlyWhen?: "site_signups" | "audience_one_view" | "search" | "plans" | "connectors" | "sharing" | "join" | "password_signin" | "image_versions";
 }
 
 /**
@@ -151,6 +152,13 @@ export const HELP_PAGES: HelpPage[] = [
   page("programmes-and-knowledge", "Programmes and knowledge", "grow", "Start a content programme and give it your website and documents to write from."),
   page("brand-map", "Brand map", "grow", "Set the names and subjects every blog article is written from."),
   page("write-and-schedule", "Write and schedule", "grow", "Write posts, articles and newsletters with Vizzy, then schedule and send them."),
+  page(
+    "what-yougrow-learned",
+    "What YouGrow learned",
+    "grow",
+    "See the look each image style learned from your votes, how each new look is checked, and how to undo, pause or forget it.",
+    "image_versions",
+  ),
   page("search", "Search", "grow", "Find anything your brand wrote by its words or its meaning, and ask Vizzy to search it.", "search"),
   page("connected-accounts", "Connected accounts", "grow", "Connect LinkedIn or X to post, and GitHub or GitLab to read a private repo."),
   page(
@@ -194,6 +202,7 @@ export function isHelpPageShown(p: Pick<HelpPage, "onlyWhen">): boolean {
   // As /login decides: the switch on and a way to deliver the code, so the page never describes
   // password screens the sign-in page doesn't show.
   if (p.onlyWhen === "password_signin") return isPasswordSigninAvailable();
+  if (p.onlyWhen === "image_versions") return isImageStyleVersionsOn();
   return true;
 }
 

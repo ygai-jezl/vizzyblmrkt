@@ -91,6 +91,8 @@ export interface ReviewItem {
   signal?: { id: string };
   /** The detail as lines, each shown in full (a suggestion's numbers). */
   details?: string[];
+  /** A Go back card for a learned image look: Go back and Keep this look instead of the link (admins only). */
+  goBack?: { cardId: string; scope: string; to: number };
 }
 
 /**

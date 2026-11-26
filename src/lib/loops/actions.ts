@@ -3,7 +3,7 @@ import { getAgentAction } from "@/lib/ontology/agentActions";
 import { removeFromIndex } from "@/lib/search/indexer";
 import { forTenant, transitionAgentAction } from "@/lib/tenant";
 import { loopDayId, readBrandPointers, readBrandPointersTx, readLoopDays, runLoopsTransaction, writeBrandPointersTx } from "@/lib/tenant/loops";
-import { appendPatternVersionTx, getPatternVersion, listPatternVersions, readPatternVersionTx, removeWordsTx } from "@/lib/tenant/patternVersions";
+import { appendPatternVersionTx, excludeOnVersionTx, getPatternVersion, listPatternVersions, readPatternVersionTx, removeWordsTx } from "@/lib/tenant/patternVersions";
 import { getTenantPageRow, type TenantPageRow } from "@/lib/tenant/registry";
 import type { FirestoreLike, TenantContext, TransactionLike } from "@/lib/tenant/types";
 import { isAgentActionId, type AgentAction } from "@/lib/types/agentAction";
@@ -44,7 +44,7 @@ import { checkLookText, lookHash } from "./write";
  * Server only.
  */
 
-export type LearnedOp = "undo" | "pause" | "resume" | "forget" | "edit" | "keep" | "go_back" | "resume_suggestions";
+export type LearnedOp = "undo" | "pause" | "resume" | "forget" | "forget_undone" | "edit" | "keep" | "go_back" | "resume_suggestions" | "help_check";
 
 export type ActionError =
   | "switch"
@@ -60,7 +60,17 @@ export type ActionError =
   | "write_failed";
 
 export type ActionResult =
-  | { ok: true; v?: number; restored?: number; scopes?: string[] }
+  | {
+      ok: true;
+      v?: number;
+      /** Undo and Go back: the version whose look came back (0 for none), when it was made, and whether the look left was set by a person. */
+      restored?: number;
+      restoredAt?: string | null;
+      wasPerson?: boolean;
+      scopes?: string[];
+      /** The learning setting: when the brand turned Help check that learning works off, or null while it is on. */
+      offSince?: string | null;
+    }
   | { ok: false; error: ActionError; message?: string };
 
 export interface ActionDeps {
@@ -182,7 +192,7 @@ async function restore(
       deps.db,
     );
     writeBrandPointersTx(txn, ctx, { ...pointers, scopes: { ...pointers.scopes, [scope]: { v, setBy, adoptedAt: at } } }, deps.db);
-    return { ok: true, v, restored: input.to };
+    return { ok: true, v, restored: input.to, restoredAt: target?.createdAt ?? null, wasPerson: curRow?.setBy === "person" };
   });
 }
 
@@ -273,7 +283,7 @@ export async function forgetPreview(
   ctx: TenantContext,
   scope: unknown,
   deps: ActionDeps = {},
-): Promise<{ ok: true; liked: number; disliked: number; brandOverlap: number } | { ok: false; error: ActionError }> {
+): Promise<{ ok: true; liked: number; disliked: number; uploaded: number; brandOverlap: number } | { ok: false; error: ActionError }> {
   const blocked = guard(scope);
   if (blocked) return blocked as { ok: false; error: ActionError };
   const s = scope as ImageStyleScope;
@@ -290,6 +300,7 @@ export async function forgetPreview(
     ok: true,
     liked: row?.evidenceCounts?.liked ?? 0,
     disliked: row?.evidenceCounts?.disliked ?? 0,
+    uploaded: row?.evidenceCounts?.uploaded ?? 0,
     brandOverlap: (row?.evidenceIds ?? []).filter((id) => brandIds.has(id)).length,
   };
 }
@@ -362,6 +373,71 @@ export async function forgetLook(ctx: TenantContext, scope: unknown, opts: { als
   if (!r.ok || !opts.alsoBrand || s === BRAND_SCOPE) return r.ok ? { ...r, scopes: [s] } : r;
   const brand = await forgetOne(ctx, BRAND_SCOPE, deps);
   return { ...r, scopes: brand.ok ? [s, BRAND_SCOPE] : [s] };
+}
+
+/**
+ * "Don't learn this again: Forget", offered on Undo's done line: never learn again the look an Undo
+ * just left, from the images that taught it. The look in use (the one Undo put back) stays as it
+ * is: the undone version's words come out of every row that held them, and the Undo's own row
+ * gains the undone look's evidence as left out, with the hash of its words, so the learner never
+ * proposes it again (the learner reads every row's excludedEvidence and forgotHash). When the
+ * undone look was the one carried over from before versions, its old copy on the brand record is
+ * cleared as well, as Forget does.
+ */
+export async function forgetUndone(ctx: TenantContext, scope: unknown, deps: ActionDeps = {}): Promise<ActionResult> {
+  const blocked = guard(scope);
+  if (blocked) return blocked;
+  const s = scope as ImageStyleScope;
+  const at = (deps.now ?? new Date()).toISOString();
+  const pointers = await readBrandPointers(ctx, deps.db);
+  const cur = pointers.scopes[s];
+  if (!cur || cur.v < 2) return fail("nothing_to_forget");
+  const [curRow, undone] = await Promise.all([getPatternVersion(ctx, s, cur.v, deps.db), getPatternVersion(ctx, s, cur.v - 1, deps.db)]);
+  if (curRow?.createdBy !== "undo") return fail("nothing_to_forget");
+  const look = lookOf(undone);
+  if (!undone || !look) return fail("nothing_to_forget");
+  const words = look.text!.trim();
+  const history = await listPatternVersions(ctx, s, 50, deps.db);
+  const holding = history.filter((r) => r.version < cur.v && r.items?.some((i) => typeof i.text === "string" && i.text.trim() === words)).map((r) => r.version);
+  const seeded = undone.setBy === "seeded" || undone.createdBy === "seed";
+  const evidence = [...new Set([...(curRow.excludedEvidence ?? []), ...(undone.evidenceIds ?? [])])].slice(0, EVIDENCE_IDS_MAX);
+
+  const r = await inTransaction(ctx, deps, async (txn) => {
+    const now = await readBrandPointersTx(txn, ctx, deps.db);
+    if (now.scopes[s]?.v !== cur.v) return fail("moved");
+    const rows = await Promise.all(holding.map((v) => readPatternVersionTx(txn, ctx, s, v, deps.db)));
+    for (const row of rows) if (row) removeWordsTx(txn, ctx, row, deps.db);
+    excludeOnVersionTx(txn, ctx, curRow, { excludedEvidence: evidence, forgotHash: lookHash(words) }, deps.db);
+    if (seeded) writeBrandPointersTx(txn, ctx, { ...now, forgot: { ...(now.forgot ?? {}), [s]: { at } } }, deps.db);
+    return { ok: true, v: cur.v };
+  });
+  if (!r.ok) return r;
+  const remove = deps.removeSearch ?? ((c: TenantContext, ref: string) => removeFromIndex(c, "learned", ref));
+  for (const v of holding) await Promise.resolve(remove(ctx, lookSearchRef(s, v))).catch(() => undefined);
+  if (seeded) await clearOldCopy(ctx, await oldCopyRow(ctx, deps), s, at, deps);
+  return { ...r, scopes: [s] };
+}
+
+/**
+ * The learning setting, Help check that learning works (screen 5): off puts `fleetOptOut` on the
+ * brand's pointers, so no image of the brand is held back (and, from step 5, the brand is left out
+ * of counts across brands); on takes it away. The brand's own learning carries on either way.
+ */
+export async function setHelpCheck(ctx: TenantContext, on: boolean, deps: ActionDeps = {}): Promise<ActionResult> {
+  if (!isImageStyleVersionsOn()) return fail("switch");
+  const at = (deps.now ?? new Date()).toISOString();
+  return inTransaction(ctx, deps, async (txn) => {
+    const pointers = await readBrandPointersTx(txn, ctx, deps.db);
+    if (on) {
+      const { fleetOptOut: _was, ...rest } = pointers;
+      void _was;
+      writeBrandPointersTx(txn, ctx, rest, deps.db);
+      return { ok: true, offSince: null };
+    }
+    const offSince = pointers.fleetOptOut?.at ?? at;
+    writeBrandPointersTx(txn, ctx, { ...pointers, fleetOptOut: { at: offSince } }, deps.db);
+    return { ok: true, offSince };
+  });
 }
 
 /** The card a Keep or Go back answers, or the scope's worse read on the card's own notice. */

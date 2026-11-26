@@ -88,6 +88,8 @@ export const LearnedPatternVersionSchema = z.object({
       liked: z.number().int().min(0).max(EVIDENCE_IDS_MAX),
       disliked: z.number().int().min(0).max(EVIDENCE_IDS_MAX),
       newestAt: z.string().max(40).nullable(),
+      /** Of the liked, the photos a person uploaded, so a look learned from uploads says so. */
+      uploaded: z.number().int().min(0).max(EVIDENCE_IDS_MAX).optional(),
       downReasons: z.record(z.string().max(40), z.number().int().min(0).max(EVIDENCE_IDS_MAX)).optional(),
     })
     .optional(),

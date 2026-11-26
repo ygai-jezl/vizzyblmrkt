@@ -5,6 +5,7 @@ import { loadReview, REVIEW_ORDER, REVIEW_SECTIONS, type ReviewItem, type Review
 import { ApprovalQueue } from "../approvals/ApprovalQueue";
 import { MarkSeenButton } from "./MarkSeenButton";
 import { SignalRow } from "./SignalActions";
+import { GoBackRow } from "./GoBackRow";
 import { forTenant } from "@/lib/tenant";
 import { programmeWord } from "@/lib/nav/terms";
 
@@ -75,7 +76,9 @@ export async function ReviewHub() {
             ) : (
               <ul className="space-y-2">
                 {items.map((item) =>
-                  item.signal && ctx.role === "admin" ? (
+                  item.goBack && ctx.role === "admin" ? (
+                    <GoBackRow key={item.id} item={{ ...item, goBack: item.goBack }} />
+                  ) : item.signal && ctx.role === "admin" ? (
                     <SignalRow key={item.id} item={{ ...item, signal: item.signal }} programmes={programmes} programmeWord={programmeWord().one} />
                   ) : (
                     <li
@@ -84,7 +87,16 @@ export async function ReviewHub() {
                     >
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium">{item.title}</p>
-                        <p className="truncate text-xs text-shell-muted">{item.detail}</p>
+                        {item.goBack && item.details?.length ? (
+                          // A member sees a Go back card's lines in full, with Open.
+                          item.details.map((line) => (
+                            <p key={line} className="text-xs text-shell-muted text-pretty">
+                              {line}
+                            </p>
+                          ))
+                        ) : (
+                          <p className="truncate text-xs text-shell-muted">{item.detail}</p>
+                        )}
                       </div>
                       {item.markSeen && ctx.role === "admin" ? <MarkSeenButton competitorId={item.markSeen.competitorId} /> : null}
                       <Link

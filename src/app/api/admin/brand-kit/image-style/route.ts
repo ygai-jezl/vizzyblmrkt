@@ -13,7 +13,10 @@ export const dynamic = "force-dynamic";
 /** Save's body: the style, plus the suggestion it applies (its `suggestedAt`) when saved from a Review. */
 const SaveSchema = ImageStyleInputSchema.extend({ fromSuggestion: z.string().min(1).max(40).optional() });
 
-/** The brand's image style and any pending Vizzy suggestion (Brand › Image style). Any member. */
+/**
+ * The brand's image style and any pending Vizzy suggestion (Brand › Image style). Any member. With
+ * image style versions on it also says `versions: true`, so the screens that read it know.
+ */
 export async function GET() {
   const g = await imageStyleMember();
   if (!g.ok) return g.response;
@@ -21,6 +24,8 @@ export async function GET() {
   return NextResponse.json({
     imageStyle: tenant?.imageStyle ?? null,
     suggestion: tenant?.imageStyleSuggestion ?? null,
+    // With versions on, the post image panel and the image details show the votes' new rows.
+    ...(isImageStyleVersionsOn() ? { versions: true } : {}),
   });
 }
 

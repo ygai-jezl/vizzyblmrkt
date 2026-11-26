@@ -205,7 +205,7 @@ export function goBackReviewItem(a: AgentAction, role: TenantContext["role"]): R
   const details = [verdictWords(basis.read, { since: basis.since }), NOT_ADJUSTED_FOR_SEASON, evidenceLine(basis.evidence)].filter((l): l is string => !!l);
   if (role !== "admin") details.push("Only admins can go back or keep a look.");
   const item = agentActionReviewItem(a, { title, detail: details.join(" "), action: role === "admin" ? "Review" : "Open" });
-  return item ? { ...item, details } : null;
+  return item ? { ...item, details, goBack: { cardId: a.id, scope: g.scope, to: g.to } } : null;
 }
 
 /** Review's "What YouGrow learned": each open Go back card, while image style versions are on. */

@@ -14,6 +14,7 @@ import { IMAGE_STYLES, imageStyleById, isStyleAvailable } from "@/lib/content/im
 import { isMoreStylesUiEnabled } from "@/lib/content/imageStyle/flags";
 import { isPreviewable } from "@/lib/content/imageStyle/preview";
 import { ImageStyleSwatch } from "./ImageStyleSwatch";
+import { RESET_CONFIRM } from "@/lib/loops/learnedWords";
 import { useWords } from "../nav/WordsProvider";
 
 /** Vizzy's pending suggestion as the page shows it (who asked stays on the server). */
@@ -64,11 +65,14 @@ export function ImageStyleCard({
   suggestion,
   palette,
   canEdit,
+  versions = false,
 }: {
   initial: StoredImageStyle | null;
   suggestion: PendingImageStyleSuggestion | null;
   palette: string[];
   canEdit: boolean;
+  /** Image style versions on: Reset says what it leaves, and What it learned sits below. */
+  versions?: boolean;
 }) {
   const router = useRouter();
   const { ideas } = useWords();
@@ -166,7 +170,7 @@ export function ImageStyleCard({
   }
 
   async function reset() {
-    if (!window.confirm("Reset? New images go back to today's style presets.")) return;
+    if (!window.confirm(versions ? RESET_CONFIRM : "Reset? New images go back to today's style presets.")) return;
     setBusy("reset");
     setError(null);
     setStatus(null);
@@ -243,7 +247,7 @@ export function ImageStyleCard({
                 <ImageStyleSwatch id={s.id} className="aspect-video w-full" />
                 <span className="flex items-center justify-between gap-2">
                   <span className="text-sm font-medium">
-                    <span className="mr-1 font-mono text-xs text-neutral-500">{s.number}</span>
+                    <span className={`mr-1 font-mono text-xs ${on ? "text-neutral-600" : "text-neutral-500"}`}>{s.number}</span>
                     {s.label}
                   </span>
                   {on ? (
@@ -252,7 +256,8 @@ export function ImageStyleCard({
                     <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] text-neutral-500 dark:bg-neutral-800">Coming</span>
                   ) : null}
                 </span>
-                <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                {/* On the selected tile's blue, neutral-500 reads 4.36:1, under AA for small text: neutral-600 does. */}
+                <span className={`text-xs ${on ? "text-neutral-600" : "text-neutral-500"} dark:text-neutral-400`}>
                   {s.engine === "template" ? "Template: words and numbers exact" : "Image model: no words in the art"}
                 </span>
               </button>

@@ -18,7 +18,7 @@ const { appendPatternVersionTx, getPatternVersion, listPatternVersions } = await
 const { readBrandPointers, runLoopsTransaction, writeBrandPointersTx, LOOP_DAYS } = await import("@/lib/tenant/loops");
 const { getAgentAction, listOpenAgentActions } = await import("@/lib/ontology/agentActions");
 const { proposeGoBack, GO_BACK_ACTION } = await import("./cards");
-const { editLook, forgetLook, forgetPreview, goBackLook, keepLook, setImageLearningPaused, undoLook, resumeSuggestions } = await import("./actions");
+const { editLook, forgetLook, forgetPreview, forgetUndone, goBackLook, keepLook, setHelpCheck, setImageLearningPaused, undoLook, resumeSuggestions } = await import("./actions");
 const { lookHash } = await import("./write");
 const { LOOK_REFUSED_MESSAGE } = await import("./textCheck");
 const { sumWeek } = await import("./testing/sumWeek");
@@ -124,11 +124,29 @@ async function card() {
   return r.id!;
 }
 
+describe("the learning setting", () => {
+  it("turns Help check that learning works off and on, keeping the first day it went off", async () => {
+    expect(await setHelpCheck(hearth, false, deps())).toEqual({ ok: true, offSince: NOW.toISOString() });
+    expect((await readBrandPointers(hearth, db)).fleetOptOut).toEqual({ at: NOW.toISOString() });
+    expect(await setHelpCheck(hearth, false, { ...deps(), now: new Date("2027-03-05T09:00:00.000Z") })).toEqual({ ok: true, offSince: NOW.toISOString() });
+    expect(await setHelpCheck(hearth, true, deps())).toEqual({ ok: true, offSince: null });
+    const pointers = await readBrandPointers(hearth, db);
+    expect(pointers.fleetOptOut).toBeUndefined();
+    expect(pointers.scopes[NATURAL]?.v).toBe(2);
+  });
+
+  it("does nothing with versions off", async () => {
+    vi.stubEnv("IMAGE_STYLE_VERSIONS_ENABLED", "");
+    expect(await setHelpCheck(hearth, false, deps())).toEqual({ ok: false, error: "switch" });
+    expect(await forgetUndone(hearth, NATURAL, deps())).toEqual({ ok: false, error: "switch" });
+  });
+});
+
 describe("Undo", () => {
   it("writes the look before as a new version, leaves out the likes that made it due, counts undone and closes the card", async () => {
     const id = await card();
     const r = await undoLook(hearth, NATURAL, deps());
-    expect(r).toEqual({ ok: true, v: 3, restored: 1 });
+    expect(r).toEqual({ ok: true, v: 3, restored: 1, restoredAt: V1_AT, wasPerson: false });
     const v3 = await getPatternVersion(hearth, NATURAL, 3, db);
     expect(v3).toMatchObject({ createdBy: "undo", setBy: "learned", by: "usr_maya", change: { op: "revert", itemId: "look1" } });
     expect(v3?.items?.[0]?.text).toBe(LOOK1);
@@ -139,8 +157,26 @@ describe("Undo", () => {
     expect((await getAgentAction(hearth, id as never, { db }))?.declined?.reason).toBe("superseded");
   });
 
+  it("forgets the look an Undo just left, keeping the look in use (Don't learn this again: Forget)", async () => {
+    expect(await forgetUndone(hearth, NATURAL, deps())).toEqual({ ok: false, error: "nothing_to_forget" });
+    await undoLook(hearth, NATURAL, deps());
+    expect(await forgetUndone(hearth, NATURAL, deps())).toEqual({ ok: true, v: 3, scopes: [NATURAL] });
+    // Version 2's words are gone; version 3, the look in use, keeps version 1's.
+    expect((await getPatternVersion(hearth, NATURAL, 2, db))?.items?.[0]?.text ?? null).toBeNull();
+    const v3 = await getPatternVersion(hearth, NATURAL, 3, db);
+    expect(v3?.items?.[0]?.text).toBe(LOOK1);
+    expect(v3?.forgotHash).toBe(lookHash(LOOK2));
+    expect(v3?.excludedEvidence?.sort()).toEqual(["d1", "e1", "e2", "e4", "e5"]);
+    expect((await readBrandPointers(hearth, db)).scopes[NATURAL]?.v).toBe(3);
+    expect(removed).toEqual([`${NATURAL}@2`]);
+    // It was learned, not carried over: the old copy on the brand record stays.
+    expect((db.raw("tenants", "ten_hearth") as { imageStyle?: { learned?: Record<string, unknown> } })?.imageStyle?.learned?.natural_photo).toBeTruthy();
+    // Done once: nothing is left to forget.
+    expect(await forgetUndone(hearth, NATURAL, deps())).toEqual({ ok: false, error: "nothing_to_forget" });
+  });
+
   it("leaves no look when it undoes a first look", async () => {
-    expect(await undoLook(hearth, BRAND, deps())).toEqual({ ok: true, v: 2, restored: 0 });
+    expect(await undoLook(hearth, BRAND, deps())).toEqual({ ok: true, v: 2, restored: 0, restoredAt: null, wasPerson: false });
     const v2 = await getPatternVersion(hearth, BRAND, 2, db);
     expect(v2).toMatchObject({ createdBy: "undo", items: [] });
     // Every like of a first look made it due.
@@ -152,7 +188,7 @@ describe("Forget", () => {
   it("removes the words everywhere, leaves out the evidence, clears the old copy and the search entry, and is never undone", async () => {
     const id = await card();
     // The confirm's counts: 4 liked and 1 disliked taught it, 3 of them also taught the brand look.
-    expect((await forgetPreview(hearth, NATURAL, deps()))).toEqual({ ok: true, liked: 4, disliked: 1, brandOverlap: 3 });
+    expect((await forgetPreview(hearth, NATURAL, deps()))).toEqual({ ok: true, liked: 4, disliked: 1, uploaded: 0, brandOverlap: 3 });
     const r = await forgetLook(hearth, NATURAL, {}, deps());
     expect(r).toMatchObject({ ok: true, v: 3, scopes: [NATURAL] });
     const rows = await listPatternVersions(hearth, NATURAL, 10, db);
@@ -204,7 +240,7 @@ describe("Keep and Go back", () => {
 
   it("Go back writes the named version's look again, counts reversed and acts on the card", async () => {
     const id = await card();
-    expect(await goBackLook(hearth, { cardId: id }, deps())).toEqual({ ok: true, v: 3, restored: 1 });
+    expect(await goBackLook(hearth, { cardId: id }, deps())).toEqual({ ok: true, v: 3, restored: 1, restoredAt: V1_AT, wasPerson: false });
     expect((await getPatternVersion(hearth, NATURAL, 3, db))?.items?.[0]?.text).toBe(LOOK1);
     expect((await getAgentAction(hearth, id as never, { db }))?.state).toBe("acted");
     expect(sumWeek(db, "ten_hearth", loopWeekOf(NOW))).toMatchObject({ c: { [NATURAL]: { loop_learn: { v2: { learned: { reversed: 1 } } } } }, k: { loop_learn: { acted: 1 } } });

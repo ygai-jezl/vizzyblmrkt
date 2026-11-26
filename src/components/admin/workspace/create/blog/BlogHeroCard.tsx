@@ -10,7 +10,10 @@ import { ImageStylePicker } from "@/components/admin/imageStyle/ImageStylePicker
 import { BRAND_KIT_SCREENSHOTS_ROUTE } from "@/lib/content/brandKit";
 import type { BlogHeroControls } from "./types";
 import { FormatFields, FORMAT_OPTIONS, formatReady } from "@/components/admin/imageStyle/FormatFields";
-import { isImageFormatsUiEnabled } from "@/lib/content/imageStyle/flags";
+import { isBrandImageStyleUiEnabled, isImageFormatsUiEnabled } from "@/lib/content/imageStyle/flags";
+import { useImageStyleVersions } from "@/components/admin/imageStyle/useBrandImageStyle";
+import { useImageVote } from "@/components/admin/brand-kit/learnedClient";
+import { VoteWhy } from "@/components/admin/brand-kit/VoteWhy";
 import type { FormatInputs, ImageFormatId } from "@/lib/types/imageStyle";
 
 /** How long a run holds the hero (the server's lease); a pending one older than this died. */
@@ -41,7 +44,18 @@ export function BlogHeroCard({ node, controls, disabled }: { node: ContentNode; 
   const [format, setFormat] = useState<ImageFormatId>(hero?.format ?? "standard");
   const [formatInputs, setFormatInputs] = useState<FormatInputs>(hero?.formatInputs ?? {});
   useEffect(() => setAlt(hero?.alt ?? ""), [hero?.alt, hero?.heroRef]);
-  useEffect(() => setVote(null), [hero?.assetId]);
+  // Image style versions (learning loops step 4, 3.11): the saved vote, and the why behind a new one.
+  const versions = useImageStyleVersions(isBrandImageStyleUiEnabled());
+  const learning = useImageVote(versions, { asset: hero?.assetId ?? null });
+  const [justVoted, setJustVoted] = useState(false);
+  useEffect(() => {
+    setVote(null);
+    setJustVoted(false);
+  }, [hero?.assetId]);
+  const savedVote = learning.view?.image?.vote ?? null;
+  useEffect(() => {
+    if (!justVoted) setVote(savedVote);
+  }, [savedVote, justVoted]);
 
   const making =
     controls.busyId === node.id ||
@@ -64,6 +78,7 @@ export function BlogHeroCard({ node, controls, disabled }: { node: ContentNode; 
     if (!hero?.assetId) return;
     const v = vote === next ? null : next;
     setVote(v);
+    setJustVoted(true);
     await fetch(`/api/admin/brand-kit/images/${hero.assetId}/feedback`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -196,6 +211,18 @@ export function BlogHeroCard({ node, controls, disabled }: { node: ContentNode; 
           </span>
         ) : null}
       </div>
+      {learning.view?.image && hero?.assetId && hero.status === "ready" ? (
+        <VoteWhy
+          key={`${hero.assetId}:${vote ?? "none"}`}
+          assetId={hero.assetId}
+          vote={vote}
+          reason={justVoted ? null : learning.view.image.reason}
+          note={justVoted ? null : learning.view.image.note}
+          scope={learning.view.image.scope}
+          startClosed={learning.view.startClosed}
+          justVoted={justVoted}
+        />
+      ) : null}
       {error ? <p className="mt-2 text-xs text-red-600">{error}</p> : null}
       <input
         ref={fileRef}

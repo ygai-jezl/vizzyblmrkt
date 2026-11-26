@@ -97,7 +97,7 @@ async function readEvidence(ctx: TenantContext, ids: readonly string[], db?: Fir
   return rows as Evidence[];
 }
 
-/** Where the look came from, as counts: liked, disliked, the newest vote and the thumbs down reasons. */
+/** Where the look came from, as counts: liked (and of those, uploaded), disliked, the newest vote and the thumbs down reasons. */
 function evidenceCountsOf(rows: readonly Evidence[]): NonNullable<LearnedPatternVersion["evidenceCounts"]> {
   let newestAt: string | null = null;
   const downReasons: Record<string, number> = {};
@@ -106,10 +106,12 @@ function evidenceCountsOf(rows: readonly Evidence[]): NonNullable<LearnedPattern
     if (at && (!newestAt || at > newestAt)) newestAt = at;
     if (r.brandVote === "down" && r.brandVoteReason) downReasons[r.brandVoteReason] = (downReasons[r.brandVoteReason] ?? 0) + 1;
   }
+  const uploaded = rows.filter((r) => r.brandVote === "up" && r.brandVoteVia === "upload").length;
   return {
     liked: rows.filter((r) => r.brandVote === "up").length,
     disliked: rows.filter((r) => r.brandVote === "down").length,
     newestAt,
+    ...(uploaded > 0 ? { uploaded } : {}),
     ...(Object.keys(downReasons).length > 0 ? { downReasons } : {}),
   };
 }

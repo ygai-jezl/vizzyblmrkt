@@ -38,6 +38,11 @@ import type { LifecycleJourney } from "@/lib/types/lifecycle";
 import type { RepoAnalysis } from "@/lib/types/repoAnalysis";
 import type { Template } from "@/lib/types/template";
 import type { Tenant } from "@/lib/types/tenant";
+import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
+import { readBrandPointers } from "@/lib/tenant/loops";
+import { getPatternVersion } from "@/lib/tenant/patternVersions";
+import { IMAGE_STYLE_SCOPES } from "@/lib/loops/registry";
+import { BRAND_LOOK_SCOPE, lookName } from "@/lib/loops/learnedWords";
 import { contentHash } from "./text";
 import type { SearchKind, SearchSource, SearchStub } from "./types";
 
@@ -293,6 +298,36 @@ export async function searchConsoleStubs(ctx: TenantContext, deps: { db?: Firest
   return conns.map((c) => searchConsoleStub(ctx, c, deps)).filter((x): x is SearchStub => x !== null);
 }
 
+/**
+ * One image look in use (IMAGE_STYLE_VERSIONS_ENABLED, learning loops step 4, 3.10): ref
+ * `image_style.<style>@<version>`, as Forget removes it, so a look Forget drops leaves search at once
+ * and a replaced version leaves it on the next sweep.
+ */
+export function imageLookSource(scope: string, v: number, words: string): SearchSource {
+  const name = scope === BRAND_LOOK_SCOPE ? "Your brand's image look" : `${lookName(scope)} image look`;
+  return {
+    kind: "learned",
+    ref: `${scope}@${v}`,
+    title: `${name}, version ${v}`,
+    body: lines(`What YouGrow learned from your votes for ${scope === BRAND_LOOK_SCOPE ? "your brand's images" : `${lookName(scope)} images`}:`, words),
+    url: "/admin/brand-kit/image-style#learned",
+  };
+}
+
+/** The image looks in use, read in the brand's region: none while versions are off. */
+export async function imageLookStubs(ctx: TenantContext, deps: { db?: FirestoreLike } = {}): Promise<SearchStub[]> {
+  if (!isImageStyleVersionsOn()) return [];
+  const pointers = await readBrandPointers(ctx, deps.db);
+  const inUse = IMAGE_STYLE_SCOPES.map((scope) => ({ scope, v: pointers.scopes[scope]?.v ?? 0 })).filter((x) => x.v > 0);
+  const rows = await Promise.all(inUse.map((x) => getPatternVersion(ctx, x.scope, x.v, deps.db)));
+  const out: SearchStub[] = [];
+  rows.forEach((row, i) => {
+    const words = row?.items?.find((it) => it.type === "rule" && typeof it.text === "string" && it.text.trim())?.text?.trim();
+    if (words) out.push(stubOf(imageLookSource(inUse[i]!.scope, inUse[i]!.v, words)));
+  });
+  return out;
+}
+
 /** One thing the autopilot learned from the brand's people (CREATE_AUTOPILOT_LEARNING_ENABLED). */
 export function learnedSource(e: LearnedEntry): SearchSource {
   return { kind: "learned", ref: e.id, title: learnedLine(e).slice(0, 160), body: lines(learnedLine(e), e.at.slice(0, 10)), url: "/admin/brand-kit/map" };
@@ -391,7 +426,10 @@ export async function readBrandStubs(ctx: TenantContext): Promise<BrandStubs> {
     const searches = await searchConsoleStubs(ctx);
     return [...[...imports, ...google].filter((x): x is SearchSource => x !== null).map(stubOf), ...searches];
   });
-  await read(["learned"], async () => (isAutopilotLearningEnabled() ? (await listLearned(ctx)).map((e) => stubOf(learnedSource(e))) : []));
+  await read(["learned"], async () => [
+    ...(isAutopilotLearningEnabled() ? (await listLearned(ctx)).map((e) => stubOf(learnedSource(e))) : []),
+    ...(await imageLookStubs(ctx)),
+  ]);
   await read(["competitor"], async () => {
     const [competitors, articles] = await Promise.all([listCompetitors(ctx), listReadArticles(ctx)]);
     return competitors.flatMap((c) => competitorSources(c, articles)).map(stubOf);

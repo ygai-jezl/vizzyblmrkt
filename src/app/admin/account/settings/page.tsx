@@ -19,6 +19,9 @@ import { TimeZoneCard } from "@/components/admin/settings/TimeZoneCard";
 import { isBlogDatesEnabled } from "@/lib/brandMap/flags";
 import { SignInSecurityCard } from "@/components/admin/SignInSecurityCard";
 import { isPasswordSigninEnabled } from "@/lib/auth/flags";
+import { LearningSettingCard } from "@/components/admin/settings/LearningSettingCard";
+import { isImageStyleVersionsOn } from "@/lib/content/imageStyle/flags";
+import { readBrandPointers } from "@/lib/tenant/loops";
 
 export const dynamic = "force-dynamic";
 
@@ -76,6 +79,20 @@ async function aboutYourBusiness(ctx: TenantContext, tenant: Tenant | null): Pro
 }
 
 /**
+ * Settings › General › Learning (IMAGE_STYLE_VERSIONS_ENABLED): Help check that learning works,
+ * read from the brand's pointers in its region. A read that fails leaves the section out.
+ */
+async function learningSetting(ctx: TenantContext): Promise<ReactElement | null> {
+  if (!isImageStyleVersionsOn()) return null;
+  const pointers = await readBrandPointers(ctx).catch(() => {
+    console.warn("[settings] the learning setting didn't load");
+    return null;
+  });
+  if (!pointers) return null;
+  return <LearningSettingCard isAdmin={ctx.role === "admin"} offSince={pointers.fleetOptOut?.at ?? null} />;
+}
+
+/**
  * Account-wide settings: content-language defaults. With nav v2 phase 3 this is
  * Settings › General, and also shows the brand's details (the ids and data region
  * that used to sit in the sidebar footer). With PASSWORD_SIGNIN_ENABLED it also
@@ -91,9 +108,9 @@ export default async function AccountSettingsPage() {
   const phase3 = isNavV2Phase3Enabled();
   // One read of the brand, shared by Brand details and About your business.
   const tenant = phase3 || mayShowAbout(ctx) ? await getTenantById(ctx.tenantId).catch(() => null) : null;
-  const about = await aboutYourBusiness(ctx, tenant);
+  const [about, learning] = await Promise.all([aboutYourBusiness(ctx, tenant), learningSetting(ctx)]);
   if (!phase3) {
-    return about || search || market || zone || security ? (
+    return about || search || market || zone || security || learning ? (
       <div className="space-y-6">
         {about}
         <AccountSettings />
@@ -101,6 +118,7 @@ export default async function AccountSettingsPage() {
         {search}
         {market}
         {zone}
+        {learning}
       </div>
     ) : (
       <AccountSettings />
@@ -130,6 +148,7 @@ export default async function AccountSettingsPage() {
       {search}
       {market}
       {zone}
+      {learning}
       <AccountSettings />
     </div>
   );

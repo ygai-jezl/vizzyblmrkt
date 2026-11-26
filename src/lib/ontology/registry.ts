@@ -1050,7 +1050,8 @@ export const ONTOLOGY: readonly OntologyType[] = [
     events: [],
     erase: { gap: "no path removes a team member's user id in `by` on a version row when they leave the team; it stays an id" },
     export: { gap: "team member ids in `by` stay as ids, with no export by team member" },
-    search: { none: "vectors and versions for the writer, not text to find" },
+    // Each image look in use is found as `learned`, ref image_style.<style>@<version> (step 4, 3.10).
+    search: { kinds: ["learned"] },
     numbers: { none: "its numbers are post results" },
   },
   {
@@ -1074,7 +1075,9 @@ export const ONTOLOGY: readonly OntologyType[] = [
     erase: { paths: [brandPath("deleteImageAsset", "src/lib/admin/brandKit.ts")] },
     export: { none: NOT_PERSONAL },
     search: { kinds: ["image"] },
-    numbers: { none: NO_NUMBERS },
+    // With image style versions on, get_image_style says how each look's images did: liked of those
+    // voted on, and remade (learning loops step 4, 3.10).
+    numbers: { meanings: ["likedShare", "remadeShare"], tool: "get_image_style" },
   },
   {
     id: "brand_kit",
@@ -1383,7 +1386,7 @@ export const ONTOLOGY: readonly OntologyType[] = [
     erase: { none: "counts and pointers with no one's data, kept with the brand; weekly counts go by a time to live" },
     export: { none: NOT_PERSONAL },
     search: { none: "counts and pointers, read by the learning loops" },
-    numbers: { gap: "no tool returns the counts yet; get_image_style returns what each style learned once its screens come in" },
+    numbers: { gap: "get_image_style returns each image look's made, voted, liked and remade counts (image_asset claims likedShare and remadeShare); the weekly counts themselves wait for get_learning in step 5" },
   },
   {
     id: "loop_lane",

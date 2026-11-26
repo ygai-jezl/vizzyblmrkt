@@ -127,3 +127,18 @@ export function removeWordsTx(
   const items = (row.items ?? []).map((i) => ({ id: i.id, type: i.type, text: null, ref: null, trust: i.trust, from: i.from }));
   txn.update(versionRef(ctx, row.channel, row.version, db), { items });
 }
+
+/**
+ * Inside a regional transaction: add images a later look must leave out, and the hash of words
+ * never to learn again, to a version row (learning loops step 4, "Don't learn this again: Forget"
+ * after an Undo). Only those two fields change; the row's look and its counts stay.
+ */
+export function excludeOnVersionTx(
+  txn: TransactionLike,
+  ctx: TenantContext,
+  row: Pick<LearnedPatternVersion, "channel" | "version">,
+  patch: { excludedEvidence: string[]; forgotHash: string },
+  db?: FirestoreLike,
+): void {
+  txn.update(versionRef(ctx, row.channel, row.version, db), { excludedEvidence: patch.excludedEvidence, forgotHash: patch.forgotHash });
+}

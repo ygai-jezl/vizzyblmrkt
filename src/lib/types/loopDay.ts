@@ -73,8 +73,56 @@ export const BrandPointersSchema = z.object({
 });
 export type BrandPointers = z.infer<typeof BrandPointersSchema>;
 
+/**
+ * A version's own check, as the verdict run keeps it on `lv:` (learning loops step 4): what the
+ * votes learner's hold reads (src/lib/loops/learners/votes.ts, versionCheckOf). The verdict run
+ * refreshes it whenever the version's votes moved since `at`, so a hold can end between looks.
+ */
+export const VersionCheckSchema = z.object({
+  /**
+   * The version's votes that count toward checking the next change: images voted within
+   * LOOP_RULES.outcomeDays of being made, the holdback, person off and customised images left
+   * out, and the scope's first LOOP_RULES.warmUp votes never counted.
+   */
+  counted: z.number().int().min(0),
+  /** Its own check has settled: it read better, same or worse, reached the last look it can get, or can't be checked. */
+  settled: z.boolean(),
+  at: Iso,
+});
+export type VersionCheck = z.infer<typeof VersionCheckSchema>;
+
+/** A counter tree's leaves by kind, arm and signal: `c.<kind>.<arm>.<signal>`. */
+const KindArmSignals = z.record(z.string().max(40), z.record(z.string().max(20), z.record(z.string().max(60), z.number())));
+
+/**
+ * `lv:`, one learned version's totals: its counters by kind, arm and signal, folded through
+ * `throughWeek`, and its own check (VersionCheck). The fold (src/lib/loops/tick.ts) writes the
+ * counters and the verdict run the check.
+ */
+export const VersionTotalsSchema = z.object({
+  throughWeek: z.string().regex(ISO_WEEK_RE).optional(),
+  c: KindArmSignals.default({}),
+  check: VersionCheckSchema.optional(),
+});
+export type VersionTotals = z.infer<typeof VersionTotalsSchema>;
+
+/**
+ * What the votes learner saw the last time it read image rows (src/lib/loops/learners/votes.ts),
+ * so a visit with no new likes and no scope newly free to learn reads none: the open week, the
+ * likes counted in it then, and the scopes that were free to learn and found too few likes.
+ */
+export const LearnReadSchema = z.object({
+  week: z.string().regex(ISO_WEEK_RE),
+  liked: z.number(),
+  open: z.array(z.string().max(40)).max(16),
+  at: Iso,
+});
+export type LearnRead = z.infer<typeof LearnReadSchema>;
+
 /** `ls:`, the lane's own state. */
 export const LaneStateSchema = z.object({
+  /** The votes learner's last read of image rows; null clears it. */
+  learnRead: LearnReadSchema.nullable().optional(),
   /** The last week folded into `lt:`; the fold skips weeks at or before it. */
   foldedThrough: z.string().regex(ISO_WEEK_RE).optional(),
   /** How many times the lane visited the brand. */

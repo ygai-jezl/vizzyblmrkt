@@ -360,6 +360,14 @@ export const LOOP_RULES = {
   learnEveryDays: 7,
   /** A look's words fit in 2000 characters, since image calls are priced per image and ruleTokens can't bound a look. */
   lookChars: 2000,
+  /** A learner call starts only with 12 seconds left before the run's deadline, so it never runs past the tick it shares. */
+  learnStartMs: 12_000,
+  /** A learner call waits at most 15 seconds, and less when the deadline is nearer, then adopts nothing. */
+  learnCallMs: 15_000,
+  /** A run reads at most 2 images to profile them, one at a time, since each can hold about 16 MiB while it is read. */
+  laneProfiles: 2,
+  /** An image whose profile failed twice is left out of what a look learns from, so one bad file never blocks a style. */
+  profileTries: 2,
 
   // ----- Outcomes and errors -----
   /** A vote counts toward the check, and a remake toward the guard, only within 14 days of the image being made, so each outcome is fixed in the order images were made. */

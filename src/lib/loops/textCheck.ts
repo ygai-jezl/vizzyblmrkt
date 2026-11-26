@@ -13,6 +13,12 @@ export type TextRefusal = (typeof TEXT_REFUSALS)[number];
 /** What a vote's note box says when its words are refused; the box stays open. */
 export const NOTE_REFUSED_MESSAGE = "Leave out links, email addresses, handles and phone numbers.";
 
+/** The helper under Edit the words, the box for a look's words (screen 1, state l). */
+export const LOOK_WORDS_HELP = "The look's words. Leave out links, email addresses, handles and phone numbers: a look with one can't be saved.";
+
+/** What Edit the words says when a look's words are refused by this check; the box stays open (screen 1, state l). */
+export const LOOK_REFUSED_MESSAGE = "This look can't be saved: it has a link, email address, handle or phone number. Take it out and save again.";
+
 const EMAIL = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/;
 const SCHEME_OR_WWW = /\b(?:https?:\/\/|www\.)\S/i;
 /**

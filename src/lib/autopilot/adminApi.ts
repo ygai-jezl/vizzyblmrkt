@@ -99,17 +99,23 @@ const Skip = z.object({
     .string()
     .trim()
     .regex(/^(q_[A-Za-z0-9]{6,40}|refresh:[A-Za-z0-9_-]{6,80}|combine:q_[A-Za-z0-9]{6,40})$/),
-  question: z.string().trim().min(1).max(300),
   reason: z.string().trim().max(200).optional(),
 });
 
-/** Not now: off the list, and kept on the Learned list with the reason given. */
+/**
+ * Not now: off the list, and kept on the Learned list with the reason given. The question's words
+ * are the pick's own, read here from the stored Next up, never taken from the request, so nothing
+ * a browser sends can be kept on the Learned list as if it were the question (learning loops step
+ * 4). A pick no longer on the list is not found.
+ */
 export async function skipPick(ctx: TenantContext, raw: unknown, deps: NextUpAdminDeps = {}): Promise<ApiResult> {
   const blocked = await nextUpGate(ctx, deps);
   if (blocked) return blocked;
   const parsed = Skip.safeParse(raw);
   if (!parsed.success) return { status: 400, body: { error: "invalid_input" } };
-  await addLearned(ctx, { kind: "skipped_pick", text: parsed.data.question, reason: parsed.data.reason ?? "", questionId: parsed.data.questionId, from: "person" }, deps);
+  const pick = (await readNextUp(ctx, deps))?.picks.find((p) => p.questionId === parsed.data.questionId);
+  if (!pick) return { status: 404, body: { error: "not_found" } };
+  await addLearned(ctx, { kind: "skipped_pick", text: pick.question, reason: parsed.data.reason ?? "", questionId: pick.questionId, from: "person" }, deps);
   const doc = await dropPick(ctx, parsed.data.questionId, deps);
   return { status: 200, body: { nextUp: doc ?? (await readNextUp(ctx, deps)) } };
 }

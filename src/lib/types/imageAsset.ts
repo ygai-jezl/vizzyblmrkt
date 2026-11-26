@@ -88,5 +88,10 @@ export const ImageAssetSchema = z.object({
   brandVoteNote: z.string().max(VOTE_NOTE_CHARS).nullable().optional(),
   /** ISO of when the reason or note was given; a changed vote clears all three. */
   brandVoteReasonAt: z.string().nullable().optional(),
+  /**
+   * How many times reading its style profile failed in the loops' learner (LOOP_RULES.profileTries
+   * failures leave it out of what a look learns from). Cleared when a profile is kept.
+   */
+  styleProfileFails: z.number().int().min(0).max(9).nullable().optional(),
 });
 export type ImageAsset = z.infer<typeof ImageAssetSchema>;

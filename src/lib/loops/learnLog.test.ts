@@ -101,6 +101,22 @@ describe("learnLogEntry", () => {
     expect(learnLogEntry("edit_mode", "ten_A", facts, { outcome: "learned", via: "edit_vizzy" }, -1)).not.toHaveProperty("entries");
     expect(learnLogEntry("edit_mode", "ten_A", facts, { outcome: "learned", via: "edit_vizzy" })).not.toHaveProperty("entries");
   });
+
+  it("names the scope a loops learner learned for, and only a scope", () => {
+    const { editVizzy: _drop, ...imageFacts } = facts;
+    void _drop;
+    expect(learnLogEntry("loop_learn", "ten_A", imageFacts, { outcome: "learned", via: "votes" }, 5, "image_style.natural_photo")).toMatchObject({
+      message: "[loops] loop_learn learned",
+      kind: "loop_learn",
+      via: "votes",
+      entries: 5,
+      scope: "image_style.natural_photo",
+    });
+    expect(learnLogEntry("loop_learn", "ten_A", imageFacts, { outcome: "skipped", reason: "error", code: "deadline" }, undefined, "image_style.natural_photo")).toMatchObject({ severity: "WARNING", reason: "error", code: "deadline" });
+    for (const bad of ["Natural Photo", "image_style.natural_photo/../x", "maya@example.com", "a".repeat(41)]) {
+      expect(learnLogEntry("loop_learn", "ten_A", imageFacts, { outcome: "skipped", reason: "paused" }, undefined, bad)).not.toHaveProperty("scope");
+    }
+  });
 });
 
 describe("errorCode", () => {

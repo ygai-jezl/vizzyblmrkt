@@ -19,7 +19,14 @@ import { isPlansEnabled } from "@/lib/plans/flags";
  */
 
 /** Learning registry kinds (src/lib/loops/registry.ts) that learn through Memory Bank. */
-export const LEARN_KINDS = ["edit_mode", "content_write"] as const;
+export const MEMORY_BANK_KINDS = ["edit_mode", "content_write"] as const;
+export type MemoryBankKind = (typeof MEMORY_BANK_KINDS)[number];
+
+/**
+ * Kinds a line can name: the Memory Bank kinds, and from learning loops step 4 the loops' own
+ * learners (loop_learn), whose lines also name the scope they learned for.
+ */
+export const LEARN_KINDS = [...MEMORY_BANK_KINDS, "loop_learn"] as const;
 export type LearnKind = (typeof LEARN_KINDS)[number];
 
 /**
@@ -43,8 +50,8 @@ export const LEARN_REASONS = [
 ] as const;
 export type LearnReason = (typeof LEARN_REASONS)[number];
 
-/** How a brand that learned may learn: the learning plan key, or Vizzy in Edit mode (ADR-0021). */
-export type LearnVia = "learning_key" | "edit_vizzy";
+/** How a brand that learned may learn: the learning plan key, Vizzy in Edit mode (ADR-0021), or the loops' votes learner. */
+export type LearnVia = "learning_key" | "edit_vizzy" | "votes";
 
 /** What happened, as a line says it. */
 export type LearnResult = { outcome: "learned"; via: LearnVia } | { outcome: "skipped"; reason: LearnReason; code?: string };
@@ -81,6 +88,8 @@ export interface LearnLogEntry extends BrandLearnFacts {
   via?: LearnVia;
   /** How many changes the visit or post had. A count, never what they were. */
   entries?: number;
+  /** For a loops learner, the scope it learned for, such as image_style.natural_photo. */
+  scope?: string;
   /** On an error: a short code such as memory_bank_404, or "other". */
   code?: string;
 }
@@ -126,6 +135,9 @@ export function errorCode(err: unknown): string {
 
 const MAX_ENTRIES = 1000;
 
+/** A scope a line may carry: lower case words joined by dots, at most 40 characters. */
+const SCOPE = /^[a-z0-9_]+(?:\.[a-z0-9_]+)*$/;
+
 /** The line for one outcome. Copies named fields only, so nothing else can reach a log. Pure. */
 export function learnLogEntry(
   kind: LearnKind,
@@ -133,6 +145,7 @@ export function learnLogEntry(
   facts: BrandLearnFacts,
   result: LearnResult,
   entries?: number,
+  scope?: string,
 ): LearnLogEntry {
   const reason = result.outcome === "skipped" ? result.reason : null;
   const code = result.outcome === "skipped" && result.code !== undefined ? errorCode(result.code) : undefined;
@@ -153,6 +166,7 @@ export function learnLogEntry(
     ...(result.outcome === "learned" ? { via: result.via } : {}),
     ...(code ? { code } : {}),
     ...(Number.isInteger(entries) && entries! >= 0 && entries! <= MAX_ENTRIES ? { entries } : {}),
+    ...(scope && scope.length <= 40 && SCOPE.test(scope) ? { scope } : {}),
   };
 }
 

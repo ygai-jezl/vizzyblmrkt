@@ -472,3 +472,23 @@ describe("TenantCollection.increment (counters with no read)", () => {
     expect(db.dump("loop_days")).toEqual([]);
   });
 });
+
+describe("TenantCollection.findFields (a projected find)", () => {
+  it("reads only the named fields of this brand's rows, in order", async () => {
+    const db = new FakeFirestore();
+    await forTenant(ctxA, db).signups.create("s1", signup({ score: 3, createdAt: "2026-06-15T16:00:00Z" }) as never);
+    await forTenant(ctxA, db).signups.create("s2", signup({ score: 5, createdAt: "2026-06-16T16:00:00Z" }) as never);
+    await forTenant(ctxB, db).signups.create("s3", signup({ score: 9 }) as never);
+    const rows = await forTenant(ctxA, db).signups.findFields(["score", "createdAt"], { orderBy: [["createdAt", "desc"]], limit: 5 });
+    expect(rows).toEqual([
+      { id: "s2", score: 5, createdAt: "2026-06-16T16:00:00Z" },
+      { id: "s1", score: 3, createdAt: "2026-06-15T16:00:00Z" },
+    ]);
+  });
+
+  it("never widens past the brand, whatever the where clause says", async () => {
+    const db = new FakeFirestore();
+    await forTenant(ctxB, db).signups.create("s3", signup() as never);
+    expect(await forTenant(ctxA, db).signups.findFields(["score"], { where: [["tenantId", "==", "ten_B"]] })).toEqual([]);
+  });
+});

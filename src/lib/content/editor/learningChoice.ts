@@ -2,7 +2,7 @@ import { forTenant, getTenantById } from "@/lib/tenant";
 import type { TenantContext } from "@/lib/tenant/types";
 import { isMemoryBankConfigured, listEditMemories } from "@/lib/agents/memoryBank";
 import { brandCanUse } from "@/lib/plans/brandAccess";
-import { brandLearnFacts, onceTenant, type BrandLearnFacts, type LearnKind, type LearnVia, type TenantLoad } from "@/lib/loops/learnLog";
+import { brandLearnFacts, onceTenant, type BrandLearnFacts, type MemoryBankKind, type LearnVia, type TenantLoad } from "@/lib/loops/learnLog";
 import { isEditModeLearningFollowsVizzyEnabled, isEditModeVizzyLearningEnabled } from "./flags";
 
 /**
@@ -34,7 +34,7 @@ export type LearningAccess =
  */
 export async function learningAccess(
   ctx: Pick<TenantContext, "tenantId" | "region">,
-  kind: LearnKind,
+  kind: MemoryBankKind,
   load: TenantLoad = getTenantById,
 ): Promise<LearningAccess> {
   const once = onceTenant(load);
@@ -69,7 +69,7 @@ const PREFERENCES_WAIT_MS = 1500;
 /** What the person prefers, for Vizzy's prompt in Edit mode or a post draft (the kind decides the
  *  brand's access, as learningAccess does). Empty when learning is off for them or anything goes
  *  wrong: an edit never waits long on, or fails because of, Memory Bank. */
-export async function editPreferencesFor(ctx: TenantContext, kind: LearnKind): Promise<string[]> {
+export async function editPreferencesFor(ctx: TenantContext, kind: MemoryBankKind): Promise<string[]> {
   try {
     if (!ctx.userId || !isEditModeVizzyLearningEnabled() || !isMemoryBankConfigured()) return [];
     if (!(await learningAccess(ctx, kind)).ok || (await isLearningOff(ctx))) return [];

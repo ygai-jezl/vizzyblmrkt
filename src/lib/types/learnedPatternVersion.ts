@@ -77,6 +77,20 @@ export const LearnedPatternVersionSchema = z.object({
   change: z.object({ op: z.enum(ITEM_CHANGES), itemId: z.string().min(1).max(16) }).optional(),
   /** Every image that fed the prompt. */
   evidenceIds: z.array(z.string().max(128)).max(EVIDENCE_IDS_MAX).optional(),
+  /**
+   * Where a learned look came from, worked out by the one writer from the evidence rows it read,
+   * never given by a learner: how many of the images liked and disliked, the newest vote, and the
+   * thumbs down reasons by key, for "From 3 images you liked and 2 you didn't (Wrong mood or style
+   * 2), newest 14 Jan". Counts and keys only: no note and no person.
+   */
+  evidenceCounts: z
+    .object({
+      liked: z.number().int().min(0).max(EVIDENCE_IDS_MAX),
+      disliked: z.number().int().min(0).max(EVIDENCE_IDS_MAX),
+      newestAt: z.string().max(40).nullable(),
+      downReasons: z.record(z.string().max(40), z.number().int().min(0).max(EVIDENCE_IDS_MAX)).optional(),
+    })
+    .optional(),
   /** Images left out of later looks: an Undo's trigger likes, or a Forget's whole evidence. */
   excludedEvidence: z.array(z.string().max(128)).max(EVIDENCE_IDS_MAX).optional(),
   /** A Forget's hash of the words it removed, so the same look is never learned again. */

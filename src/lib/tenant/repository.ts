@@ -141,6 +141,30 @@ export class TenantCollection<T extends TenantScoped> {
   }
 
   /**
+   * find, reading only the named fields of each document (a projection), so a read of many rows
+   * holds only what its caller uses. The tenant predicate and the stored tenant id check apply as
+   * in find; a database without projections reads whole documents and keeps the named fields.
+   */
+  async findFields<K extends keyof T & string>(fields: readonly K[], opts: FindOptions = {}): Promise<Array<Pick<T, K | "id">>> {
+    let q = this.applyWhere(this.base(), opts.where);
+    for (const [field, dir] of opts.orderBy ?? []) q = q.orderBy(field, dir);
+    if (opts.startAfter != null) q = q.startAfter(...opts.startAfter);
+    if (opts.limit != null) q = q.limit(opts.limit);
+    const keep = [...new Set<string>([TENANT_FIELD, ...fields])];
+    if (q.select) q = q.select(...keep);
+    const snap = await q.get();
+    const out: Array<Pick<T, K | "id">> = [];
+    for (const d of snap.docs) {
+      const data = d.data() ?? {};
+      if (data[TENANT_FIELD] !== this.tenantId) continue; // defence in depth
+      const row: Record<string, unknown> = { id: d.id };
+      for (const f of fields) if (f in data) row[f] = data[f];
+      out.push(row as Pick<T, K | "id">);
+    }
+    return out;
+  }
+
+  /**
    * Aggregation count. Cheap per call (1 read per 1000 index entries) but it
    * scales with dataset size and needs a matching composite index. Do NOT use
    * it per-request on hot public paths (e.g. live leaderboard rank) — cache or

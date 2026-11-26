@@ -430,6 +430,7 @@ export default function BrandMapHelp({ connectorSignals = isConnectorSignalsEnab
                 [STRATEGY_ERRORS.finder_monthly_limit!, "Wait for the 1st, or add competitors on Brand › Competitors by hand."],
                 [STRATEGY_ERRORS.nothing_found!, "Check What you are on Who you are says what you do in plain words, then try again."],
                 [STRATEGY_ERRORS.map_not_saved!, "Press Save brand map on Who you are, then press Add again."],
+                [STRATEGY_ERRORS.too_few_focus!, "Star more situations under Who it's for, then press Approve strategy again."],
               ] as Array<[string, string]>)
             : []),
           [

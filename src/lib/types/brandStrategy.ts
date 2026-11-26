@@ -26,7 +26,13 @@ export const BRAND_STRATEGY_LIMITS = {
   focusMax: 5,
   audiences: 8,
   audienceText: 80,
+  /** Competitors the finder adds to one group. */
   competitorsPerGroup: 8,
+  /**
+   * The most one group holds: the finder's 8, plus every competitor a person ticked or added and
+   * every one the brand watches (10 at most), which are never pushed out by new finds.
+   */
+  keptPerGroup: 20,
   competitorName: 80,
   evidence: 3,
   evidenceTitle: 160,
@@ -105,7 +111,7 @@ export type StrategyCompetitor = z.infer<typeof StrategyCompetitorSchema>;
 
 export const StrategyCompetitorGroupSchema = z.object({
   kind: CompetitorGroupKind,
-  competitors: tolerantArray(StrategyCompetitorSchema, L.competitorsPerGroup),
+  competitors: tolerantArray(StrategyCompetitorSchema, L.keptPerGroup),
 });
 export type StrategyCompetitorGroup = z.infer<typeof StrategyCompetitorGroupSchema>;
 
@@ -303,12 +309,18 @@ export function competitorsOf(s: Pick<Strategy, "competitorGroups">): Array<Stra
   return COMPETITOR_GROUP_KINDS.flatMap((kind) => (s.competitorGroups.find((g) => g.kind === kind)?.competitors ?? []).map((c) => ({ ...c, group: kind })));
 }
 
-/** Competitors back into their groups, in group order, leaving out empty ones. */
+/** A competitor a person ticked or added, or one the brand watches: never pushed out by new finds. */
+export const isKeptCompetitor = (c: Pick<StrategyCompetitor, "ticked" | "from">) => c.ticked || c.from !== "finder";
+
+/**
+ * Competitors back into their groups, in group order, leaving out empty ones. In each group the
+ * kept ones come first and all stay; the finder's own finds fill at most 8 places after them.
+ */
 export function groupsOf(list: Array<StrategyCompetitor & { group: CompetitorGroupKind }>): StrategyCompetitorGroup[] {
   return COMPETITOR_GROUP_KINDS.flatMap((kind) => {
-    const competitors = list
-      .filter((c) => c.group === kind)
-      .slice(0, L.competitorsPerGroup)
+    const inGroup = list.filter((c) => c.group === kind);
+    const competitors = [...inGroup.filter(isKeptCompetitor), ...inGroup.filter((c) => !isKeptCompetitor(c)).slice(0, L.competitorsPerGroup)]
+      .slice(0, L.keptPerGroup)
       .map(({ group: _g, ...c }) => {
         void _g;
         return c;
@@ -330,7 +342,7 @@ export const StrategyEditSchema = z
     audiences: z.array(Line(L.audienceText)).max(L.audiences).optional(),
     ticked: z
       .array(z.object({ name: Line(L.competitorName), ticked: z.boolean() }))
-      .max(COMPETITOR_GROUP_KINDS.length * L.competitorsPerGroup)
+      .max(COMPETITOR_GROUP_KINDS.length * L.keptPerGroup)
       .optional(),
     claims: z
       .array(

@@ -25,6 +25,9 @@ export const STRATEGY_ERRORS: Record<string, string> = {
   map_not_saved: "Save the brand map first, then add this to Who you are.",
   is_not_full: "What you are not is full on Who you are. Remove a line there first.",
   no_proposal: "That line isn't waiting any more.",
+  already_decided: "Someone already said Add or No to that line.",
+  too_few_focus: "Star 3 to 5 focus situations under Who it's for before you approve. With fewer on your map, star them all.",
+  not_saved: "That couldn't be saved. Try again in a moment.",
   rate_limited: "That's a lot of runs at once. Try again in a few minutes.",
 };
 
@@ -45,6 +48,15 @@ export function droppedNote(dropped: { claims: number } | undefined): string {
 }
 
 /** After a finder run. */
-export function foundNote(found: number): string {
-  return found ? `Found ${found} ${found === 1 ? "competitor" : "competitors"}. Tick the ones to monitor.` : "No new competitors this time.";
+export function foundNote(found: number, gapSkipped = false): string {
+  const base = found ? `Found ${found} ${found === 1 ? "competitor" : "competitors"}. Tick the ones to monitor.` : "No new competitors this time.";
+  return gapSkipped ? `${base} ${GAP_SKIPPED_NOTE}` : base;
+}
+
+/** A full run's last search couldn't run, but what the others found was kept. */
+export const GAP_SKIPPED_NOTE = "The search that fits your business didn't run: this brand has used its web searches for research this month.";
+
+/** After approving, when some stars couldn't be changed on Buying situations. */
+export function starsNotUpdatedNote(situations: string[]): string {
+  return `Approved, but these stars didn't change on Buying situations: ${situations.map((s) => `"${s}"`).join(", ")}. Star them there by hand.`;
 }

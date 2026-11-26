@@ -272,13 +272,25 @@ export interface ProposedStrategy {
   made: StrategyMade;
 }
 
+/** A claim a person wrote, or one Vizzy proposed that a person has since edited: theirs now. */
+export const isOwnClaim = (c: Pick<StrategyClaim, "proposed" | "text">) => c.proposed === null || c.proposed !== c.text;
+
+/** The stars still as Vizzy last proposed them (or none yet): a new proposal may set them. */
+export function focusUntouched(s: Pick<Strategy, "focusSituationIds" | "proposedFocusIds">): boolean {
+  const a = new Set(s.focusSituationIds);
+  return a.size === new Set(s.proposedFocusIds).size && s.proposedFocusIds.every((id) => a.has(id));
+}
+
 /**
- * Put a proposal in the draft. What a person decided stays: a goal they set, claims they wrote,
- * isNot lines they accepted or declined, and the competitors and ticks already there. Pure.
+ * Put a proposal in the draft. What a person decided stays: stars they added or removed since the
+ * last proposal, audiences once there are any, a goal they set, claims they wrote or edited,
+ * isNot lines they accepted or declined, and the competitors and ticks already there. Vizzy sets
+ * the stars only on a draft whose stars are still as it last proposed them. Pure.
  */
 export function mergeProposal(draft: Strategy | null, p: ProposedStrategy, at: string, by: string | null): Strategy {
   const base = draft ?? emptyStrategy(at, by);
-  const own = base.claims.filter((c) => c.proposed === null);
+  const own = base.claims.filter(isOwnClaim);
+  const ownText = new Set(own.map((c) => fold(c.text)));
   const decidedNot = base.isNotProposals.filter((x) => x.state !== "proposed");
   const seen = new Set(decidedNot.map((x) => fold(x.text)));
   const fresh = p.isNotProposals.filter((x) => !seen.has(fold(x.text)));
@@ -292,11 +304,12 @@ export function mergeProposal(draft: Strategy | null, p: ProposedStrategy, at: s
   }
   return StrategySchema.parse({
     ...base,
-    focusSituationIds: p.focusSituationIds.slice(0, L.focusMax),
+    focusSituationIds: focusUntouched(base) ? p.focusSituationIds.slice(0, L.focusMax) : base.focusSituationIds,
     proposedFocusIds: p.focusSituationIds.slice(0, L.focusMax),
-    audiences: p.audiences.slice(0, L.audiences),
+    audiences: base.audiences.length ? base.audiences : p.audiences.slice(0, L.audiences),
     competitorGroups: groupsOf(list),
-    claims: [...p.claims, ...own].slice(0, L.claims),
+    // A person's claims always stay; Vizzy's fill the rest of the places.
+    claims: [...own, ...p.claims.filter((c) => !ownText.has(fold(c.text)))].slice(0, L.claims),
     isNotProposals: [...decidedNot, ...fresh].slice(0, L.isNot),
     goal: base.goal && base.goal.from === "person" ? base.goal : (p.goal ?? base.goal),
     sources: p.sources,
@@ -306,11 +319,29 @@ export function mergeProposal(draft: Strategy | null, p: ProposedStrategy, at: s
   });
 }
 
+/** Who a change Vizzy made is logged as, so the loops can tell it from what a person decided. */
+export const VIZZY_BY = "vizzy";
+
+/** The stars a proposal moved on a draft that already had some, logged as Vizzy's. Pure. */
+export function proposalDecisions(before: Strategy | null, after: Strategy, at: string): StrategyDecision[] {
+  if (!before?.focusSituationIds.length) return [];
+  const was = new Set(before.focusSituationIds);
+  const now = new Set(after.focusSituationIds);
+  return [
+    ...after.focusSituationIds.filter((id) => !was.has(id)).map((id) => decision("star_added", id, at, VIZZY_BY)),
+    ...before.focusSituationIds.filter((id) => !now.has(id)).map((id) => decision("star_removed", id, at, VIZZY_BY)),
+  ];
+}
+
 /** Save what Propose with Vizzy proposed into the draft (the record is made if there is none). */
 export async function saveProposal(ctx: TenantContext, p: ProposedStrategy, deps: StrategyDeps = {}): Promise<StrategyResult<BrandStrategyDoc>> {
   const at = nowIso(deps);
   const by = byOf(ctx);
-  return change(ctx, deps, (doc) => ({ draft: mergeProposal(doc.draft, p, at, by) }));
+  return change(ctx, deps, (doc) => {
+    const draft = mergeProposal(doc.draft, p, at, by);
+    const moved = proposalDecisions(doc.draft, draft, at);
+    return { draft, ...(moved.length ? { decisions: withDecisions(doc.decisions, moved) } : {}) };
+  });
 }
 
 /** One competitor the finder found, in its group. */
@@ -346,19 +377,71 @@ export async function finderRunsThisMonth(ctx: TenantContext, deps: StrategyDeps
   return fullRunsInMonth(await readBrandStrategyDoc(ctx, deps), (deps.now ?? (() => new Date()))());
 }
 
-/** Save what a finder run found, and count the run (`quick` once per brand, `full` against the month). */
-export async function saveFound(ctx: TenantContext, input: { mode: "quick" | "full"; found: FoundCompetitor[] }, deps: StrategyDeps = {}): Promise<StrategyResult<BrandStrategyDoc>> {
+/**
+ * Take a finder run's place before it spends anything, in one transaction, so two runs at once
+ * can't both pass: a brand without the feature takes its one quick answer (403
+ * `finder_quick_used` once taken), and a full run takes one of the month's (429
+ * `finder_monthly_limit` once `limit` are taken). A quick run for a brand with the feature takes
+ * nothing. Answers with the stamp to give back with releaseFinderRun when nothing was found.
+ */
+export async function claimFinderRun(
+  ctx: TenantContext,
+  input: { mode: "quick" | "full"; granted: boolean; limit: number | null },
+  deps: StrategyDeps = {},
+): Promise<StrategyResult<{ at: string | null }>> {
+  if (input.mode === "quick" && input.granted) return { ok: true, value: { at: null } };
+  const at = nowIso(deps);
+  const now = (deps.now ?? (() => new Date()))();
+  const done = await change(ctx, deps, (doc) => {
+    if (input.mode === "quick") {
+      if (doc.finder.quickAt) throw new Refused(403, "finder_quick_used");
+      return { finder: { ...doc.finder, quickAt: at } };
+    }
+    if (fullRunsInMonth(doc, now) >= (input.limit ?? 0)) throw new Refused(429, "finder_monthly_limit");
+    return { finder: { ...doc.finder, fullRuns: [at, ...doc.finder.fullRuns].slice(0, L.finderRuns) } };
+  });
+  return done.ok ? { ok: true, value: { at } } : done;
+}
+
+/** Give back a run's place (it found nothing, or couldn't search): the quick answer, or the month's run. */
+export async function releaseFinderRun(ctx: TenantContext, input: { mode: "quick" | "full"; at: string | null }, deps: StrategyDeps = {}): Promise<void> {
+  if (!input.at) return;
+  const stamp = input.at;
+  await change(ctx, deps, (doc, created) => {
+    if (created) return null;
+    if (input.mode === "quick") return doc.finder.quickAt === stamp ? { finder: { ...doc.finder, quickAt: null } } : null;
+    const at = doc.finder.fullRuns.indexOf(stamp);
+    return at < 0 ? null : { finder: { ...doc.finder, fullRuns: doc.finder.fullRuns.filter((_, i) => i !== at) } };
+  }).catch(() => undefined);
+}
+
+/**
+ * Save what a finder run found. `counted`: the run already took its place (claimFinderRun);
+ * otherwise this counts it (`quick` once per brand, `full` against the month).
+ */
+export async function saveFound(
+  ctx: TenantContext,
+  input: { mode: "quick" | "full"; found: FoundCompetitor[]; counted?: boolean },
+  deps: StrategyDeps = {},
+): Promise<StrategyResult<BrandStrategyDoc>> {
   const at = nowIso(deps);
   const by = byOf(ctx);
   return change(ctx, deps, (doc) => ({
     draft: mergeFound(doc.draft, input.found, at, by),
-    finder: input.mode === "quick" ? { ...doc.finder, quickAt: doc.finder.quickAt ?? at } : { ...doc.finder, fullRuns: [at, ...doc.finder.fullRuns].slice(0, L.finderRuns) },
+    ...(input.counted
+      ? {}
+      : {
+          finder:
+            input.mode === "quick" ? { ...doc.finder, quickAt: doc.finder.quickAt ?? at } : { ...doc.finder, fullRuns: [at, ...doc.finder.fullRuns].slice(0, L.finderRuns) },
+        }),
   }));
 }
 
 /**
- * A person accepts (into the brand map's identity: the caller adds it there first) or declines a
- * proposed isNot line. Refused when the record changed (409) or there is no such proposal (404).
+ * A person accepts or declines a proposed isNot line. An accepted one then goes into the brand
+ * map's identity (the caller adds it there next, and gives this back with undoIsNot if that
+ * fails). Refused when the record changed (409 `strategy_changed`), the line was decided already
+ * (409 `already_decided`) or there is no such proposal (404).
  */
 export async function decideIsNot(ctx: TenantContext, input: { baseRev: number; text: string; accept: boolean }, deps: StrategyDeps = {}): Promise<StrategyResult<BrandStrategyDoc>> {
   const at = nowIso(deps);
@@ -369,10 +452,29 @@ export async function decideIsNot(ctx: TenantContext, input: { baseRev: number; 
     const draft = doc.draft;
     const at0 = draft?.isNotProposals.findIndex((x) => fold(x.text) === fold(input.text)) ?? -1;
     if (!draft || at0 < 0) throw new Refused(404, "no_proposal");
+    if (draft.isNotProposals[at0]!.state !== "proposed") throw new Refused(409, "already_decided", doc);
     const isNotProposals = draft.isNotProposals.map((x, i) => (i === at0 ? { ...x, state: input.accept ? ("accepted" as const) : ("declined" as const) } : x));
     return {
       draft: { ...draft, isNotProposals, at, by },
       decisions: withDecisions(doc.decisions, [decision(input.accept ? "is_not_accepted" : "is_not_declined", draft.isNotProposals[at0]!.text, at, by)]),
+    };
+  });
+}
+
+/**
+ * Give back an accept the brand map then refused: the line waits again and its decision goes, so a
+ * failure leaves neither the strategy nor the brand map changed.
+ */
+export async function undoIsNot(ctx: TenantContext, input: { text: string }, deps: StrategyDeps = {}): Promise<StrategyResult<BrandStrategyDoc>> {
+  return change(ctx, deps, (doc, created) => {
+    const draft = doc.draft;
+    const at0 = draft?.isNotProposals.findIndex((x) => fold(x.text) === fold(input.text) && x.state === "accepted") ?? -1;
+    if (created || !draft || at0 < 0) return null;
+    const text = draft.isNotProposals[at0]!.text;
+    const logged = doc.decisions.findIndex((d) => d.kind === "is_not_accepted" && d.ref === clip(text, L.decisionText));
+    return {
+      draft: { ...draft, isNotProposals: draft.isNotProposals.map((x, i) => (i === at0 ? { ...x, state: "proposed" as const } : x)) },
+      decisions: logged < 0 ? doc.decisions : doc.decisions.filter((_, i) => i !== logged),
     };
   });
 }
@@ -389,15 +491,24 @@ export function approveDecisions(draft: Strategy, at: string, by: string | null)
 /**
  * Approve the draft: it becomes what everything reads, the one before goes into history (5 kept),
  * and the brand map's buying situations are starred to match its focus (others unstarred).
- * Refused when the record changed since the person opened it (409 `strategy_changed`) or there is
- * no draft (409 `no_draft`).
+ * Refused when the record changed since the person opened it (409 `strategy_changed`), there is
+ * no draft (409 `no_draft`), or it stars fewer than 3 of the brand's decided situations (400
+ * `too_few_focus`; a brand with fewer than 3 stars them all). `starsNotUpdated`: the situations
+ * whose star couldn't be changed on the brand map after approving (tried twice each).
  */
-export async function approveStrategy(ctx: TenantContext, input: { baseRev: number }, deps: StrategyDeps = {}): Promise<StrategyResult<BrandStrategyDoc>> {
+export async function approveStrategy(
+  ctx: TenantContext,
+  input: { baseRev: number },
+  deps: StrategyDeps = {},
+): Promise<StrategyResult<BrandStrategyDoc> & { starsNotUpdated?: string[] }> {
   const at = nowIso(deps);
   const by = byOf(ctx);
+  const decided = new Set((await brandMapRecords(ctx, deps.db).pageAll("sit").catch(() => [])).filter((r) => r.status === "decided").map((r) => r.id));
   const done = await change(ctx, deps, (doc, created) => {
     if (created || !doc.draft) throw new Refused(409, "no_draft");
     if (doc.rev !== input.baseRev) throw new Refused(409, "strategy_changed", doc);
+    const starred = doc.draft.focusSituationIds.filter((id) => decided.has(id)).length;
+    if (starred < Math.min(L.focusMin, decided.size)) throw new Refused(400, "too_few_focus", doc);
     const approved = StrategySchema.parse({ ...doc.draft, at, by });
     return {
       approved,
@@ -406,28 +517,42 @@ export async function approveStrategy(ctx: TenantContext, input: { baseRev: numb
       decisions: withDecisions(doc.decisions, approveDecisions(doc.draft, at, by)),
     };
   });
-  if (done.ok && done.value.approved) await setFocusFlags(ctx, done.value.approved.focusSituationIds, deps).catch(() => 0);
-  return done;
+  if (!done.ok || !done.value.approved) return done;
+  const synced = await syncFocusFlags(ctx, done.value.approved.focusSituationIds, deps);
+  return synced.failed.length ? { ...done, starsNotUpdated: synced.failed } : done;
 }
 
 /**
  * Star the brand map's decided buying situations to match the approved focus, and unstar the rest.
- * Each change moves the situation's revision, so a person with it open is told. Returns how many
- * changed.
+ * Each change moves the situation's revision, so a person with it open is told. A claim that fails
+ * is tried once more. Returns how many changed, and the ids it couldn't change (every focus id when
+ * the situations couldn't be read at all).
  */
-export async function setFocusFlags(ctx: TenantContext, ids: string[], deps: StrategyDeps = {}): Promise<number> {
+export async function syncFocusFlags(ctx: TenantContext, ids: string[], deps: StrategyDeps = {}): Promise<{ changed: number; failed: string[] }> {
   const store = brandMapRecords(ctx, deps.db);
   const want = new Set(ids);
   const at = nowIso(deps);
+  const rows = await store.pageAll("sit").catch(() => null);
+  if (!rows) return { changed: 0, failed: [...want] };
   let changed = 0;
-  for (const row of await store.pageAll("sit")) {
+  const failed: string[] = [];
+  for (const row of rows) {
     if (row.status !== "decided") continue;
     const focus = want.has(row.id);
     if (Boolean(row.focus) === focus) continue;
-    const saved = await store.claim("sit", row.id, (cur) => (Boolean(cur.focus) === focus ? null : { focus, rev: Number(cur.rev ?? 0) + 1, updatedAt: at })).catch(() => null);
-    if (saved) changed += 1;
+    const claim = () => store.claim("sit", row.id, (cur) => (Boolean(cur.focus) === focus ? null : { focus, rev: Number(cur.rev ?? 0) + 1, updatedAt: at }));
+    const ok = await claim()
+      .then(() => true)
+      .catch(() => claim().then(() => true, () => false));
+    if (ok) changed += 1;
+    else failed.push(row.id);
   }
-  return changed;
+  return { changed, failed };
+}
+
+/** The same, answering only how many changed. */
+export async function setFocusFlags(ctx: TenantContext, ids: string[], deps: StrategyDeps = {}): Promise<number> {
+  return (await syncFocusFlags(ctx, ids, deps)).changed;
 }
 
 /** Remove the brand's strategy and everything kept with it (Start over, and the brand's erase path). */

@@ -14,7 +14,7 @@ import type { FirestoreLike, TenantContext } from "@/lib/tenant/types";
 import { CompetitorGroupKind, BRAND_STRATEGY_LIMITS as L, type BrandStrategyDoc, type StrategyEvidence } from "@/lib/types/brandStrategy";
 import type { ProfileRun } from "@/lib/types/businessProfile";
 import type { Tenant } from "@/lib/types/tenant";
-import { fullRunsInMonth, readBrandStrategyDoc, saveFound, type FoundCompetitor } from "./store";
+import { claimFinderRun, fullRunsInMonth, readBrandStrategyDoc, releaseFinderRun, saveFound, type FoundCompetitor } from "./store";
 
 /**
  * The competitor finder (COMPETITOR_FINDER_ENABLED), on the Strategy tab. Its answers come from
@@ -164,7 +164,8 @@ export function gapQuestion(run: ProfileRun | undefined, about: { brand: string;
 }
 
 export type FinderOutcome =
-  | { ok: true; doc: BrandStrategyDoc; mode: FinderMode; found: number; asks: number }
+  /** `gapSkipped`: a full run's search that fits the business couldn't run (the month's web searches ran out). */
+  | { ok: true; doc: BrandStrategyDoc; mode: FinderMode; found: number; asks: number; gapSkipped?: boolean }
   | { ok: false; status: number; error: string; current?: BrandStrategyDoc | null };
 
 /**
@@ -200,6 +201,10 @@ export async function findCompetitors(ctx: TenantContext, input: { mode: FinderM
   const doc = await readBrandStrategyDoc(ctx, { db: deps.db }).catch(() => null);
   const may = await mayFind(ctx, input.mode, doc, deps);
   if (!may.ok) return may;
+  // The run takes its place before it spends anything, so a second run at the same moment is refused.
+  const claimed = await claimFinderRun(ctx, { mode: input.mode, granted: may.granted, limit: may.limit }, { db: deps.db, now: deps.now });
+  if (!claimed.ok) return claimed;
+  const release = () => releaseFinderRun(ctx, { mode: input.mode, at: claimed.value.at }, { db: deps.db, now: deps.now });
 
   const tenant = await (deps.loadTenant ?? getTenantById)(ctx.tenantId).catch(() => null);
   const brandName = oneLine(id.name || tenant?.tenantName || "");
@@ -228,18 +233,32 @@ export async function findCompetitors(ctx: TenantContext, input: { mode: FinderM
       ? [quick]
       : [...Array.from({ length: FULL_ASKS }, () => quick), gapQuestion(tenant?.businessProfile?.answers.run, { brand: brandName || "the brand", statement, category: oneLine(id.category), market })];
   const answers = await Promise.all(questions.map(ask));
-  if (answers.some(isSearchLimited)) return { ok: false, status: 429, error: "search_limit" };
-  const grounded = answers.filter((a): a is GroundedTextResult => Boolean(a) && !isSearchLimited(a));
-  if (!grounded.length) return { ok: false, status: 502, error: "find_failed" };
-  const brand = { name: brandName, own };
-  // The gap search adds names, but never counts as one of the three answers.
+  const usable = (a: (typeof answers)[number]): a is GroundedTextResult => Boolean(a) && !isSearchLimited(a);
+  // The main question's answers decide the run; the gap search (a full run's last) only adds names.
   const asked = input.mode === "full" ? answers.slice(0, FULL_ASKS) : answers;
-  const main = mergeAnswers(asked.flatMap((a) => (a && !isSearchLimited(a) ? [groundedFinds(a, brand)] : [])));
-  const gap = input.mode === "full" && answers[FULL_ASKS] && !isSearchLimited(answers[FULL_ASKS]) ? groundedFinds(answers[FULL_ASKS] as GroundedTextResult, brand).map((f) => ({ ...f, foundTimes: 0 })) : [];
+  const gapAnswer = input.mode === "full" ? answers[FULL_ASKS] : undefined;
+  if (!asked.some(usable)) {
+    // Nothing came back to save: the run gives its place back.
+    await release();
+    return asked.some(isSearchLimited) ? { ok: false, status: 429, error: "search_limit" } : { ok: false, status: 502, error: "find_failed" };
+  }
+  const brand = { name: brandName, own };
+  const main = mergeAnswers(asked.filter(usable).map((a) => groundedFinds(a, brand)));
+  const gap = gapAnswer && usable(gapAnswer) ? groundedFinds(gapAnswer, brand).map((f) => ({ ...f, foundTimes: 0 })) : [];
   const found = mergeAnswers([main, gap]);
   // A quick run that found nothing backed by search is not counted, so the one free answer isn't spent on nothing.
-  if (!found.length && input.mode === "quick") return { ok: false, status: 502, error: "nothing_found" };
-  const saved = await saveFound(ctx, { mode: input.mode, found }, { db: deps.db, now: deps.now });
+  if (!found.length && input.mode === "quick") {
+    await release();
+    return { ok: false, status: 502, error: "nothing_found" };
+  }
+  const saved = await saveFound(ctx, { mode: input.mode, found, counted: true }, { db: deps.db, now: deps.now });
   if (!saved.ok) return saved;
-  return { ok: true, doc: saved.value, mode: input.mode, found: found.length, asks: questions.length };
+  return {
+    ok: true,
+    doc: saved.value,
+    mode: input.mode,
+    found: found.length,
+    asks: questions.length,
+    ...(gapAnswer !== undefined && isSearchLimited(gapAnswer) ? { gapSkipped: true } : {}),
+  };
 }

@@ -16,7 +16,7 @@ import { api } from "@/components/admin/connect/api";
 import { Banner, Button, inputClass } from "@/components/admin/connect/ui";
 import { AddLine, RemoveButton, smallLabel } from "./BrandMapParts";
 import { useMapMove } from "./brandMapMove";
-import { APPROVED_NOTE, GAP_LABEL, PROPOSED_NOTE, droppedNote, foundNote, strategyErrorText } from "./strategyMessages";
+import { APPROVED_NOTE, GAP_LABEL, PROPOSED_NOTE, droppedNote, foundNote, starsNotUpdatedNote, strategyErrorText } from "./strategyMessages";
 
 /**
  * The Strategy tab (BRAND_STRATEGY_ENABLED): the brand strategy, one per brand, approved by a
@@ -32,7 +32,7 @@ const SMALL = "rounded border border-neutral-300 px-2 py-0.5 text-[11px] hover:b
 const CARD = "space-y-3 rounded-lg border border-neutral-200 p-4 dark:border-neutral-800";
 
 type Note = { tone: "ok" | "err" | "info"; text: string };
-type Reply = { strategy?: StrategyView; error?: string; dropped?: { claims: number }; found?: number };
+type Reply = { strategy?: StrategyView; error?: string; dropped?: { claims: number }; found?: number; gapSkipped?: boolean; starsNotUpdated?: string[] };
 
 const KIND_LABEL: Record<ClaimShown, string> = { site: "site", docs: "docs", them: "them", gap: "gap" };
 const KIND_TONE: Record<ClaimShown, string> = {
@@ -92,7 +92,9 @@ export function BrandMapStrategy({ canEdit }: { canEdit: boolean }) {
     setBusy(false);
     if (r.ok && r.data.strategy) {
       setView(r.data.strategy);
-      if (done) setNote({ tone: "ok", text: done(r.data) });
+      // Approved, but some stars didn't change on the brand map: say which, whatever the request was.
+      if (r.data.starsNotUpdated?.length) setNote({ tone: "info", text: starsNotUpdatedNote(r.data.starsNotUpdated) });
+      else if (done) setNote({ tone: "ok", text: done(r.data) });
       return true;
     }
     setNote({ tone: "err", text: strategyErrorText(r.data) });
@@ -208,11 +210,11 @@ export function BrandMapStrategy({ canEdit }: { canEdit: boolean }) {
         aside={
           canEdit && view.finder.on ? (
             <span className="flex flex-wrap items-center gap-2">
-              <Button disabled={busy || (!view.finder.granted && view.finder.quickUsed)} onClick={() => void run(`${STRATEGY}/competitors`, { method: "POST", body: JSON.stringify({ mode: "quick" }) }, (d) => foundNote(d.found ?? 0))}>
+              <Button disabled={busy || (!view.finder.granted && view.finder.quickUsed)} onClick={() => void run(`${STRATEGY}/competitors`, { method: "POST", body: JSON.stringify({ mode: "quick" }) }, (d) => foundNote(d.found ?? 0, d.gapSkipped))}>
                 Find competitors
               </Button>
               {view.finder.granted ? (
-                <Button disabled={busy} onClick={() => void run(`${STRATEGY}/competitors`, { method: "POST", body: JSON.stringify({ mode: "full" }) }, (d) => foundNote(d.found ?? 0))}>
+                <Button disabled={busy} onClick={() => void run(`${STRATEGY}/competitors`, { method: "POST", body: JSON.stringify({ mode: "full" }) }, (d) => foundNote(d.found ?? 0, d.gapSkipped))}>
                   Full search
                 </Button>
               ) : null}

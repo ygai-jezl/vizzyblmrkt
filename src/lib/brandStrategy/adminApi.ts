@@ -20,7 +20,7 @@ import { BRAND_STRATEGY_LIMITS as L, StrategyEditSchema, competitorsOf, type Bra
 import { findCompetitors, type FinderDeps } from "./finder";
 import { isBrandStrategyEnabled, isCompetitorFinderEnabled } from "./flags";
 import { proposeStrategy, type ProposeDeps } from "./propose";
-import { approveStrategy, decideIsNot, deleteBrandStrategy, fullRunsInMonth, readBrandStrategyDoc, saveStrategyDraft, type StrategyResult } from "./store";
+import { approveStrategy, decideIsNot, deleteBrandStrategy, fullRunsInMonth, readBrandStrategyDoc, saveStrategyDraft, undoIsNot, type StrategyResult } from "./store";
 
 /**
  * The Strategy tab's APIs (Brand › Brand map › Strategy): origin, switch, sign-in and admin, in that
@@ -94,19 +94,20 @@ export function isMonitored(c: Pick<StrategyCompetitor, "name" | "site">, watche
 
 /** Everything the Strategy tab shows, for any member of the brand. */
 export async function strategyView(ctx: TenantContext, deps: ViewDeps = {}): Promise<StrategyView> {
-  const load = deps.loadTenant ?? getTenantById;
   const [doc, read, situations, watched, tenant, facts] = await Promise.all([
     readBrandStrategyDoc(ctx, deps).catch(() => null),
     readBrandMap(ctx, deps.db).catch(() => null),
     listSituations(ctx, { db: deps.db }).catch(() => [] as BrandMapSituation[]),
     listCompetitors(ctx, { db: deps.db }).catch(() => [] as Competitor[]),
-    load(ctx.tenantId).catch(() => null),
+    (deps.loadTenant ?? getTenantById)(ctx.tenantId).catch(() => null),
     // The goals a brand's people told Vizzy are their own words: admins see them, as in About your business.
     ctx.role === "admin" ? listBusinessFacts(ctx, { db: deps.db }).catch(() => []) : Promise.resolve([]),
   ]);
   const draft = doc?.draft ?? doc?.approved ?? null;
   const focus = new Set(draft?.focusSituationIds ?? []);
   const identity = read?.state === "ok" ? read.map.identity : null;
+  // The brand record is read once, for every plan check below.
+  const load = async () => tenant;
   const finderOn = isCompetitorFinderEnabled();
   const granted = finderOn ? await brandCanUse(ctx, "competitor_finder", load).catch(() => false) : false;
   const limit = finderOn && granted ? await brandMonthlyLimit(ctx, "competitor_finder", load).catch(() => null) : null;
@@ -160,11 +161,19 @@ export async function saveFromRequest(ctx: TenantContext, body: unknown, deps: V
 
 const ApproveBody = z.object({ baseRev: z.number().int().min(0) }).strict();
 
-/** POST approve: the draft becomes what the writer, research, Next up and Vizzy read. */
+/**
+ * POST approve: the draft becomes what the writer, research, Next up and Vizzy read. When some
+ * stars couldn't be changed on the brand map, `starsNotUpdated` names those situations.
+ */
 export async function approveFromRequest(ctx: TenantContext, body: unknown, deps: ViewDeps = {}): Promise<Response> {
   const parsed = ApproveBody.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
-  return answer(ctx, await approveStrategy(ctx, parsed.data, deps), deps);
+  const r = await approveStrategy(ctx, parsed.data, deps);
+  if (!r.ok || !r.starsNotUpdated?.length) return answer(ctx, r, deps);
+  const view = await strategyView(ctx, deps);
+  const missed = new Set(r.starsNotUpdated);
+  const texts = view.situations.filter((s) => missed.has(s.id)).map((s) => s.text);
+  return NextResponse.json({ ok: true, starsNotUpdated: texts.length ? texts : r.starsNotUpdated, strategy: view }, { headers: noStore });
 }
 
 /** POST propose: Vizzy drafts the strategy. Nothing approved changes. */
@@ -182,7 +191,7 @@ export async function findFromRequest(ctx: TenantContext, body: unknown, deps: F
   if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
   const r = await findCompetitors(ctx, parsed.data, deps);
   if (!r.ok) return fail(r);
-  return NextResponse.json({ ok: true, found: r.found, mode: r.mode, strategy: await strategyView(ctx, deps) }, { headers: noStore });
+  return NextResponse.json({ ok: true, found: r.found, mode: r.mode, ...(r.gapSkipped ? { gapSkipped: true } : {}), strategy: await strategyView(ctx, deps) }, { headers: noStore });
 }
 
 const IsNotBody = z.object({ baseRev: z.number().int().min(0), text: z.string().trim().min(1).max(L.isNotText), accept: z.boolean() }).strict();
@@ -191,15 +200,15 @@ const IsNotBody = z.object({ baseRev: z.number().int().min(0), text: z.string().
 export async function isNotFromRequest(ctx: TenantContext, body: unknown, deps: ViewDeps = {}): Promise<Response> {
   const parsed = IsNotBody.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
-  const doc = await readBrandStrategyDoc(ctx, deps);
-  if (!doc || doc.rev !== parsed.data.baseRev) return fail({ status: 409, error: doc ? "strategy_changed" : "no_proposal" });
-  const proposal = doc.draft?.isNotProposals.find((x) => fold(x.text) === fold(parsed.data.text));
-  if (!proposal) return fail({ status: 404, error: "no_proposal" });
-  if (parsed.data.accept) {
-    const added = await addBrandMapIsNot(ctx, { text: proposal.text }, { db: deps.db, nowMs: deps.now?.().getTime() });
-    if (!added.ok) return NextResponse.json({ error: added.error, ...(added.issues ? { issues: added.issues } : {}) }, { status: added.status });
-  }
-  return answer(ctx, await decideIsNot(ctx, parsed.data, deps), deps);
+  // The strategy's change comes first (its revision, and the line still waiting); only then does an
+  // accepted line go into the brand map, and if that fails the strategy's change is given back.
+  const decided = await decideIsNot(ctx, parsed.data, deps);
+  if (!decided.ok || !parsed.data.accept) return answer(ctx, decided, deps);
+  const text = decided.value.draft?.isNotProposals.find((x) => fold(x.text) === fold(parsed.data.text))?.text ?? parsed.data.text;
+  const added = await addBrandMapIsNot(ctx, { text }, { db: deps.db, nowMs: deps.now?.().getTime() }).catch(() => ({ ok: false as const, status: 500, error: "not_saved", issues: undefined }));
+  if (added.ok) return answer(ctx, decided, deps);
+  await undoIsNot(ctx, { text }, deps).catch(() => null);
+  return NextResponse.json({ error: added.error, ...(added.issues ? { issues: added.issues } : {}) }, { status: added.status });
 }
 
 /** DELETE: start over. The strategy, its history and its decisions go; the brand map's stars stay. */

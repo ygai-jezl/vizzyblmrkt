@@ -139,9 +139,32 @@ describe("running the finder", () => {
     expect(await findCompetitors(A, { mode: "quick" }, deps(db, { grounded: async () => ({ limited: true, used: 300, limit: 300 }) }))).toMatchObject({ ok: false, status: 429, error: "search_limit" });
     const unbacked = answer([["Memory", "memory.example", "most"]], [], []);
     expect(await findCompetitors(A, { mode: "quick" }, deps(db, { grounded: async () => unbacked }))).toMatchObject({ ok: false, status: 502, error: "nothing_found" });
-    // Neither spent the one quick answer.
-    expect(await readBrandStrategyDoc(A, { db })).toBeNull();
+    // Neither spent the one quick answer: each gave its place back.
+    expect((await readBrandStrategyDoc(A, { db }))?.finder.quickAt).toBeNull();
     expect(await findCompetitors(A, { mode: "quick" }, deps(db, { modelReady: () => false }))).toMatchObject({ ok: false, status: 503 });
     expect(await findCompetitors({ ...A, tenantId: "ten_B" }, { mode: "quick" }, deps(db))).toMatchObject({ ok: false, status: 409, error: "no_brand_map" });
+  });
+
+  it("refuses the second of two runs at once: one free quick answer, and no more full runs than the month allows", async () => {
+    const db = await brand();
+    const both = await Promise.all([findCompetitors(A, { mode: "quick" }, deps(db, { grounded: async () => R1 })), findCompetitors(A, { mode: "quick" }, deps(db, { grounded: async () => R1 }))]);
+    expect(both.map((r) => (r.ok ? "ok" : r.error)).sort()).toEqual(["finder_quick_used", "ok"]);
+    const full = deps(db, { grounded: async () => R2, canUse: async () => true, monthlyLimit: async () => 1 });
+    const two = await Promise.all([findCompetitors(A, { mode: "full" }, full), findCompetitors(A, { mode: "full" }, full)]);
+    expect(two.map((r) => (r.ok ? "ok" : r.error)).sort()).toEqual(["finder_monthly_limit", "ok"]);
+    expect((await readBrandStrategyDoc(A, { db }))?.finder.fullRuns).toHaveLength(1);
+  });
+
+  it("keeps a full run's finds when only the gap search hit the month's web searches, and says the gap search didn't run", async () => {
+    const db = await brand();
+    const grounded = async (prompt: string) => (prompt.includes('"alternatives to"') ? { limited: true as const, used: 300, limit: 300 } : R1);
+    const r = await findCompetitors(A, { mode: "full" }, deps(db, { grounded, canUse: async () => true }));
+    expect(r).toMatchObject({ ok: true, gapSkipped: true, found: 3 });
+    expect((await readBrandStrategyDoc(A, { db }))?.finder.fullRuns).toHaveLength(1);
+    // All three main searches limited: nothing saved, and the month's run is given back.
+    const db2 = await brand();
+    const none = await findCompetitors(A, { mode: "full" }, deps(db2, { grounded: async () => ({ limited: true as const, used: 1, limit: 1 }), canUse: async () => true }));
+    expect(none).toMatchObject({ ok: false, status: 429, error: "search_limit" });
+    expect((await readBrandStrategyDoc(A, { db: db2 }))?.finder.fullRuns).toEqual([]);
   });
 });

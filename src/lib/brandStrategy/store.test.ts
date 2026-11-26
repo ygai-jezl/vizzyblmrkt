@@ -4,9 +4,13 @@ import { FakeFirestore } from "@/lib/tenant/testing/fakeFirestore";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import type { TenantContext } from "@/lib/tenant/types";
 import { situationKey } from "@/lib/brandMap/keys";
-import { brandStrategyDocId, BRAND_STRATEGY_LIMITS, competitorsOf, type StrategyClaim } from "@/lib/types/brandStrategy";
+import { brandStrategyDocId, BRAND_STRATEGY_LIMITS, competitorsOf, emptyStrategy, groupsOf, StrategySchema, type StrategyClaim } from "@/lib/types/brandStrategy";
 import {
   approveStrategy,
+  claimFinderRun,
+  mergeFound,
+  mergeProposal,
+  syncFocusFlags,
   decideIsNot,
   deleteBrandStrategy,
   fullRunsInMonth,
@@ -91,14 +95,14 @@ describe("the brand strategy's record", () => {
     const db = new FakeFirestore();
     let rev = 0;
     for (let i = 0; i < 7; i += 1) {
-      const p = await saveProposal(A, proposal({ audiences: [`Audience ${i}`] }), { db, ...at(T0 + i * 1000) });
+      const p = await saveProposal(A, proposal({ goal: { text: `Goal ${i}`, measure: "", measureKey: null, from: "vizzy", setAt: "" } }), { db, ...at(T0 + i * 1000) });
       rev = p.ok ? p.value.rev : rev;
       const ok = await approveStrategy(A, { baseRev: rev }, { db, ...at(T0 + i * 1000 + 500) });
       expect(ok.ok).toBe(true);
     }
     const doc = await readBrandStrategyDoc(A, { db });
-    expect(doc?.approved?.audiences).toEqual(["Audience 6"]);
-    expect(doc?.history.map((h) => h.audiences[0])).toEqual(["Audience 5", "Audience 4", "Audience 3", "Audience 2", "Audience 1"]);
+    expect(doc?.approved?.goal?.text).toEqual("Goal 6");
+    expect(doc?.history.map((h) => h.goal?.text)).toEqual(["Goal 5", "Goal 4", "Goal 3", "Goal 2", "Goal 1"]);
     expect(doc?.draft).toEqual(doc?.approved);
   });
 
@@ -181,7 +185,8 @@ describe("the brand strategy's record", () => {
     doc = await saveStrategyDraft(A, { baseRev: doc.ok ? doc.value.rev : 0, ticked: [{ name: "Alpha", ticked: true }] }, { db, ...at(T0 + 1000) });
     doc = await saveFound(A, { mode: "full", found: found(["Gamma"]) }, { db, ...at(T0 + 2000) });
     const list = doc.ok ? competitorsOf(doc.value.draft!) : [];
-    expect(list.map((c) => `${c.name}:${c.ticked}`)).toEqual(["Gamma:false", "Alpha:true"]);
+    // What a person ticked comes first in its group.
+    expect(list.map((c) => `${c.name}:${c.ticked}`)).toEqual(["Alpha:true", "Gamma:false"]);
     expect(doc.ok && doc.value.finder.quickAt).toBe("2026-11-25T10:00:00.000Z");
     doc = await saveFound(A, { mode: "quick", found: found(["Delta"]) }, { db, ...at(T0 + 3000) });
     // The quick run is remembered as the first one.
@@ -206,5 +211,83 @@ describe("the brand strategy's record", () => {
     expect(await deleteBrandStrategy(A, { db })).toBe(true);
     expect(await readBrandStrategyDoc(A, { db })).toBeNull();
     expect(await deleteBrandStrategy(A, { db })).toBe(false);
+  });
+});
+
+describe("what a person decided stays, and runs and approvals hold", () => {
+  const find = (name: string, over: Record<string, unknown> = {}) => ({ name, site: `${name.toLowerCase()}.example`, foundTimes: 1, evidence: [], ticked: false, from: "finder" as const, group: "most" as const, ...over });
+
+  it("never lets new finds push out a competitor a person ticked or added, or one the brand watches", () => {
+    const draft = StrategySchema.parse({
+      ...emptyStrategy("", null),
+      competitorGroups: groupsOf([find("Ticked", { ticked: true }), find("Watched", { from: "watched", ticked: true }), find("Added", { from: "person" }), find("Old")]),
+    });
+    const next = mergeFound(draft, Array.from({ length: 12 }, (_, i) => find(`New ${i}`)), "", null);
+    const names = competitorsOf(next).map((c) => c.name);
+    expect(names.slice(0, 3)).toEqual(["Ticked", "Watched", "Added"]);
+    // The finder's own finds fill at most 8 places; the old untouched find gave way.
+    expect(names.filter((n) => n.startsWith("New"))).toHaveLength(BRAND_STRATEGY_LIMITS.competitorsPerGroup);
+    expect(names).not.toContain("Old");
+    // Ten watched competitors all stay in one group.
+    const watched = groupsOf(Array.from({ length: 10 }, (_, i) => find(`W${i}`, { from: "watched" })).concat(Array.from({ length: 9 }, (_, i) => find(`F${i}`))));
+    expect(watched[0]!.competitors.filter((c) => c.from === "watched")).toHaveLength(10);
+  });
+
+  it("keeps a Vizzy claim a person edited when Vizzy proposes again", () => {
+    const draft = StrategySchema.parse({ ...emptyStrategy("", null), claims: [{ ...claim("cl_aaaaaa01", "Tracks 8 AI engines"), text: "Tracks 8 AI engines, AI Mode too" }, claim("cl_aaaaaa02", "Untouched claim")] });
+    const next = mergeProposal(draft, proposal({ claims: [claim("cl_bbbbbb01", "A new claim")] }), "", null);
+    expect(next.claims.map((c) => c.text)).toEqual(["Tracks 8 AI engines, AI Mode too", "A new claim"]);
+  });
+
+  it("keeps the stars and audiences a person set; Vizzy sets the stars only while they are as it proposed them, and says so", async () => {
+    const db = new FakeFirestore();
+    let doc = await saveProposal(A, proposal(), { db, ...at(T0) });
+    doc = await saveStrategyDraft(A, { baseRev: doc.ok ? doc.value.rev : 0, focusSituationIds: ["sit_aaaaaa09"], audiences: ["Founders"] }, { db, ...at(T0 + 1000) });
+    doc = await saveProposal(A, proposal({ focusSituationIds: ["sit_aaaaaa05", "sit_aaaaaa06", "sit_aaaaaa07"], audiences: ["From the map"] }), { db, ...at(T0 + 2000) });
+    expect(doc.ok && doc.value.draft).toMatchObject({ focusSituationIds: ["sit_aaaaaa09"], proposedFocusIds: ["sit_aaaaaa05", "sit_aaaaaa06", "sit_aaaaaa07"], audiences: ["Founders"] });
+
+    const db2 = new FakeFirestore();
+    await saveProposal(A, proposal(), { db: db2, ...at(T0) });
+    const again = await saveProposal(A, proposal({ focusSituationIds: ["sit_aaaaaa01", "sit_aaaaaa05", "sit_aaaaaa06"] }), { db: db2, ...at(T0 + 1000) });
+    expect(again.ok && again.value.draft?.focusSituationIds).toEqual(["sit_aaaaaa01", "sit_aaaaaa05", "sit_aaaaaa06"]);
+    const logged = (again.ok ? again.value.decisions : []).map((d) => `${d.kind}:${d.ref}:${d.by}`);
+    expect(logged.sort()).toEqual(["star_added:sit_aaaaaa05:vizzy", "star_added:sit_aaaaaa06:vizzy", "star_removed:sit_aaaaaa02:vizzy", "star_removed:sit_aaaaaa03:vizzy"]);
+  });
+
+  it("refuses to approve fewer than 3 focus situations, or fewer than all when the map has less", async () => {
+    const db = new FakeFirestore();
+    await seedSituations(db, A, ["sit_aaaaaa01", "sit_aaaaaa02", "sit_aaaaaa03", "sit_aaaaaa04"]);
+    let doc = await saveProposal(A, proposal({ focusSituationIds: ["sit_aaaaaa01", "sit_aaaaaa02", "sit_zzzzzz99"] }), { db, ...at(T0) });
+    expect(await approveStrategy(A, { baseRev: doc.ok ? doc.value.rev : 0 }, { db })).toMatchObject({ ok: false, status: 400, error: "too_few_focus" });
+    expect(await readBrandStrategy(A, { db })).toBeNull();
+    const small = new FakeFirestore();
+    await seedSituations(small, A, ["sit_aaaaaa01", "sit_aaaaaa02"]);
+    doc = await saveProposal(A, proposal({ focusSituationIds: ["sit_aaaaaa01"] }), { db: small, ...at(T0) });
+    expect(await approveStrategy(A, { baseRev: doc.ok ? doc.value.rev : 0 }, { db: small })).toMatchObject({ ok: false, error: "too_few_focus" });
+    doc = await saveStrategyDraft(A, { baseRev: doc.ok ? doc.value.rev : 0, focusSituationIds: ["sit_aaaaaa01", "sit_aaaaaa02"] }, { db: small, ...at(T0 + 1000) });
+    expect((await approveStrategy(A, { baseRev: doc.ok ? doc.value.rev : 0 }, { db: small })).ok).toBe(true);
+  });
+
+  it("says which stars didn't change on the brand map when the approval went through", async () => {
+    const db = new FakeFirestore();
+    await seedSituations(db, A, ["sit_aaaaaa01", "sit_aaaaaa02", "sit_aaaaaa03", "sit_aaaaaa09"], ["sit_aaaaaa09"]);
+    const made = await saveProposal(A, proposal(), { db, ...at(T0) });
+    // Every write after the approval itself fails.
+    const real = db.runTransaction.bind(db);
+    let n = 0;
+    db.runTransaction = ((fn: Parameters<typeof real>[0]) => (++n > 1 ? Promise.reject(new Error("down")) : real(fn))) as typeof db.runTransaction;
+    const r = await approveStrategy(A, { baseRev: made.ok ? made.value.rev : 0 }, { db, ...at(T0 + 1000) });
+    expect(r.ok).toBe(true);
+    expect(r.starsNotUpdated?.sort()).toEqual(["sit_aaaaaa01", "sit_aaaaaa02", "sit_aaaaaa03", "sit_aaaaaa09"]);
+    db.runTransaction = real;
+    expect(await syncFocusFlags(A, ["sit_aaaaaa01", "sit_aaaaaa02", "sit_aaaaaa03"], { db })).toEqual({ changed: 4, failed: [] });
+  });
+
+  it("takes a finder run's place in one transaction, so two at once can't both pass", async () => {
+    const db = new FakeFirestore();
+    const quick = await Promise.all([claimFinderRun(A, { mode: "quick", granted: false, limit: null }, { db }), claimFinderRun(A, { mode: "quick", granted: false, limit: null }, { db })]);
+    expect(quick.map((r) => (r.ok ? "ok" : r.error)).sort()).toEqual(["finder_quick_used", "ok"]);
+    const full = await Promise.all([1, 2, 3].map(() => claimFinderRun(A, { mode: "full", granted: true, limit: 2 }, { db, ...at(T0) })));
+    expect(full.map((r) => (r.ok ? "ok" : r.error)).sort()).toEqual(["finder_monthly_limit", "ok", "ok"]);
   });
 });

@@ -294,9 +294,11 @@ export default function WriteAndScheduleHelp({ connectorSignals = isConnectorSig
           </P>
           <P>
             An article is due a refresh when it passes its clock, or sooner for a strong reason: fewer Google clicks to its page,
-            a link that no longer opens, or a figure from two or more years ago. Review soon means it is within 5 days of its
-            clock, or has a weaker reason: it sits just off Google&apos;s first page, it cites old sources, its subject has new
-            questions that no live page answers, or your page shows no date.
+            a link that no longer opens, or a figure it states from two or more years ago. Review soon means it is within 5 days
+            of its clock, or has a weaker reason: it sits just off Google&apos;s first page, it cites old sources, its subject has
+            new questions that no live page answers, or your page shows no date. The year in a citation is when its source was
+            published, so it counts as an old source, not an old figure. For an article&apos;s first 14 days live, and for 14
+            days after an update, old figures and old sources don&apos;t count yet.
           </P>
           <P>
             Due articles show in <Open href="/admin/approvals">Review</Open> under <strong>Articles due a refresh</strong>, and

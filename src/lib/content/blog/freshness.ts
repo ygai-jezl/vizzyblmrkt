@@ -78,6 +78,18 @@ export function nextEvents(events: BlogArticleFreshness["events"], event: BlogAr
 export const OLD_FIGURE_YEARS = 2;
 /** A cited source dated this old or older is an old source (a soft reason). */
 export const OLD_SOURCE_YEARS = 2;
+/**
+ * A new or just updated article: old figures and old sources count only once it is this many
+ * days past going live or its last update. Its writer (or its refresh) chose them days ago, so
+ * flagging them at once fills Review with articles nobody would refresh yet.
+ */
+export const NEW_ARTICLE_GRACE_DAYS = 14;
+
+/** Within NEW_ARTICLE_GRACE_DAYS of going live or of its last update (a check doesn't count). */
+export function inNewArticleGrace(dates: { publishedAt: string | null; updatedAt: string | null }, now: Date): boolean {
+  const at = [dates.publishedAt, dates.updatedAt].map(msOf).filter((m): m is number => m !== null);
+  return at.length > 0 && now.getTime() - Math.max(...at) < NEW_ARTICLE_GRACE_DAYS * DAY_MS;
+}
 
 const YEAR = /^(?:19|20)\d{2}$/;
 const MONTH = "(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)";

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { articleFreshness, assignClock, nextEvents, oldFigureYears } from "./freshness";
+import { articleFreshness, assignClock, inNewArticleGrace, nextEvents, oldFigureYears } from "./freshness";
 
 const NOW = new Date("2026-11-24T12:00:00.000Z");
 const base = { publishedAt: "2026-10-20", updatedAt: null, checkedAt: null, clockDays: 30 as const, signals: [] };
@@ -42,6 +42,13 @@ describe("article freshness", () => {
     expect(events).toHaveLength(20);
     expect(events[0]!.at).toBe("2026-11-06");
     expect(oldFigureYears("In 2023, 38% of buyers asked first. By 2025 it was 45%, and in 2026 52%.", NOW)).toEqual([2023]);
+  });
+
+  it("gives a new or just updated article 14 days before old figures count, and a check doesn't restart them", () => {
+    expect(inNewArticleGrace({ publishedAt: "2026-11-20", updatedAt: null }, NOW)).toBe(true);
+    expect(inNewArticleGrace({ publishedAt: "2026-11-01", updatedAt: null }, NOW)).toBe(false);
+    expect(inNewArticleGrace({ publishedAt: "2026-10-01", updatedAt: "2026-11-15T09:00:00.000Z" }, NOW)).toBe(true);
+    expect(inNewArticleGrace({ publishedAt: null, updatedAt: null }, NOW)).toBe(false);
   });
 
   it("counts a year as an old figure only where a sentence states a figure from it, outside citations", () => {

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { embedDocuments, embedQuery } from "@/lib/agents/embeddings";
 import { noteIdOfQuestionRef, noteQuestionRef, noteSearchSources } from "@/lib/search/family";
 import { embedForFamily, indexFamily, nearestFamily, removeFamily, type FamilyDeps } from "@/lib/search/familyIndex";
-import { isSearchFamilyIndexEnabled, isSearchNoteReadsEnabled } from "@/lib/search/flags";
+import { isOldVectorsRetired, isSearchFamilyIndexEnabled, isSearchNoteReadsEnabled } from "@/lib/search/flags";
 import { forTenant, getTenantById } from "@/lib/tenant";
 import { nearestBrandMapRecords, removeBrandMapVector, setBrandMapVectorStatus, writeBrandMapVector } from "@/lib/tenant/brandMapVectors";
 import type { FirestoreLike, KnowledgeCollectionLike, TenantContext } from "@/lib/tenant/types";
@@ -72,6 +72,8 @@ export async function embedNote(
   note: Pick<BrandNote, "id" | "text" | "status"> & { question?: string | null },
   deps: NotesDeps = {},
 ): Promise<boolean> {
+  // Retired (ADR-0023): brand search holds the note's meaning; nothing is embedded here.
+  if (isOldVectorsRetired()) return false;
   try {
     const content = [note.question, note.text].filter((s) => s?.trim()).join("\n");
     const [vector] = await (deps.embed ?? embedDocuments)([{ content, title: "What we've seen" }], ctx.region);
@@ -178,7 +180,7 @@ export async function updateNote(ctx: TenantContext, id: string, patch: BrandNot
     updatedAt: at,
   }));
   if (!updated) return { ok: false, status: 404, error: "not_found" };
-  if (answering) await setBrandMapVectorStatus(ctx, { kind: "question", ref: id, status: "answered" }, deps.db).catch(() => undefined);
+  if (answering && !isOldVectorsRetired()) await setBrandMapVectorStatus(ctx, { kind: "question", ref: id, status: "answered" }, deps.db).catch(() => undefined);
   // Its meaning, or whether articles may use it, changed: the stored embedding follows.
   if (updated.status !== "asked" && (patch.text !== undefined || patch.status !== undefined)) await embedNote(ctx, updated, deps);
   // Brand search: a note ticked as naming a customer leaves it at once (decision 40); otherwise it follows.
@@ -339,7 +341,7 @@ export const QUESTION_TITLE = "A question for the team";
  * (`given`, by question) are used as they are; brand search's never are.
  */
 async function embedQuestions(ctx: TenantContext, notes: BrandNote[], deps: NotesDeps, given?: Map<string, number[]>): Promise<void> {
-  if (!notes.length) return;
+  if (!notes.length || isOldVectorsRetired()) return;
   try {
     const all = given && notes.every((n) => given.has(n.question ?? ""));
     const vectors = all
@@ -451,7 +453,7 @@ export async function answerQuestion(
     };
   });
   if (!updated) return { ok: false, status: 404, error: "not_found" };
-  if (wasOpen !== !answered) {
+  if (wasOpen !== !answered && !isOldVectorsRetired()) {
     await setBrandMapVectorStatus(ctx, { kind: "question", ref: id, status: answered ? "answered" : "asked" }, deps.db).catch(() => undefined);
   }
   if (!answered) await removeBrandMapVector(ctx, "note", id, deps.db).catch(() => undefined);

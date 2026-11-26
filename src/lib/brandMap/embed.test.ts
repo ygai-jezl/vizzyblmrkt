@@ -204,6 +204,17 @@ describe("the map's meaning in brand search (ADR-0023)", () => {
     expect(await nearestSituations(ctx, "Which pot for a fig?", { limit: 3 }, deps)).toEqual([]);
   });
 
+  it("embeds nothing for brand_map_vectors once it is retired, and keeps writing brand search", async () => {
+    for (const k of ["SEARCH_SUBJECT_READS_ENABLED", "SEARCH_NOTE_READS_ENABLED", "SEARCH_COMPETITOR_READS_ENABLED", "SEARCH_OLD_VECTORS_RETIRED_ENABLED"]) vi.stubEnv(k, "true");
+    const { db, id } = await mapWithFigs();
+    const search = new MemorySearchIndex().storeFor(ctx);
+    const embed = vi.fn(oldModel.embed);
+    expect(await embedSubjects(ctx, [id], { db, embed, search, embedSearch: fresh() })).toBe(1);
+    expect(embed).not.toHaveBeenCalled();
+    expect(db.raw(BRAND_MAP_VECTORS, brandMapVectorDocId("ten_A", "subject", id))).toBeUndefined();
+    expect(await search.getManifest(`subject:${id}`)).toMatchObject({ status: "decided" });
+  });
+
   it("leaves brand search alone while the family switch is off", async () => {
     vi.stubEnv("SEARCH_FAMILY_INDEX_ENABLED", "false");
     const { db, id } = await mapWithFigs();

@@ -1,7 +1,7 @@
 import { embedDocuments, embedQuery } from "@/lib/agents/embeddings";
 import { articleIdOfRef, competitorArticleRef, competitorArticleSource } from "@/lib/search/family";
 import { embedForFamily, indexFamily, nearestFamily, removeFamily, type FamilyDeps } from "@/lib/search/familyIndex";
-import { isSearchCompetitorReadsEnabled, isSearchFamilyIndexEnabled } from "@/lib/search/flags";
+import { isOldVectorsRetired, isSearchCompetitorReadsEnabled, isSearchFamilyIndexEnabled } from "@/lib/search/flags";
 import { forTenant } from "@/lib/tenant";
 import { nearestBrandMapRecords, removeBrandMapVector, writeBrandMapVector } from "@/lib/tenant/brandMapVectors";
 import type { FirestoreLike, KnowledgeCollectionLike, TenantContext } from "@/lib/tenant/types";
@@ -253,6 +253,8 @@ export async function embedArticle(
     const src = c ? competitorArticleSource(c, a, { family: true }) : null;
     if (src) indexed = Boolean((await indexFamily(ctx, [src], deps))[0]?.vector);
   }
+  // Retired (ADR-0023): nothing is embedded for brand_map_vectors.
+  if (isOldVectorsRetired()) return indexed;
   try {
     const [vector] = await (deps.embed ?? embedDocuments)([{ content: articleText(a), title: "Competitor article" }], ctx.region);
     if (!vector) return indexed;

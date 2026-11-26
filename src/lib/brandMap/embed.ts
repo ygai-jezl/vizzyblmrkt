@@ -1,7 +1,7 @@
 import { embedDocuments, embedQuery } from "@/lib/agents/embeddings";
 import { cutOff, situationSearchSource, subjectSearchSource, type CutOff } from "@/lib/search/family";
 import { embedForFamily, indexFamily, nearestFamily, removeFamily, type FamilyDeps } from "@/lib/search/familyIndex";
-import { isSearchFamilyIndexEnabled, isSearchSubjectReadsEnabled } from "@/lib/search/flags";
+import { isOldVectorsRetired, isSearchFamilyIndexEnabled, isSearchSubjectReadsEnabled } from "@/lib/search/flags";
 import { isSearchStatus, type NearestHit, type SearchSource, type SearchStatus } from "@/lib/search/types";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import { nearestBrandMapRecords, writeBrandMapVector, type BrandMapNeighbour } from "@/lib/tenant/brandMapVectors";
@@ -82,10 +82,13 @@ export async function embedSubjects(ctx: TenantContext, ids: string[], deps: Emb
   // Brand search: the text the sweep makes too. A subject no longer on the map leaves it.
   const fresh = await indexOrRemove(ctx, "subject", subjects.map(({ s }) => s.id), subjects.map(({ raw }, i) => subjectSearchSource(raw, questions[i]!)), deps);
 
-  const old = await (deps.embed ?? embedDocuments)(
-    subjects.map(({ s }, i) => ({ content: subjectText(s.name, questions[i]!.map((q) => q.text)), title: "Subject" })),
-    ctx.region,
-  );
+  // brand_map_vectors, until it is retired: then nothing is embedded for it.
+  const old = isOldVectorsRetired()
+    ? subjects.map(() => null)
+    : await (deps.embed ?? embedDocuments)(
+        subjects.map(({ s }, i) => ({ content: subjectText(s.name, questions[i]!.map((q) => q.text)), title: "Subject" })),
+        ctx.region,
+      );
   let done = 0;
   for (const [i, { s }] of subjects.entries()) {
     const vector = old[i];
@@ -116,7 +119,9 @@ export async function embedSituations(ctx: TenantContext, situations: BrandMapSi
   if (!situations.length) return 0;
   const fresh = await indexOrRemove(ctx, "situation", situations.map((s) => s.id), situations.map((s) => situationSearchSource({ ...s, ref: s.id })), deps);
 
-  const vectors = await (deps.embed ?? embedDocuments)(situations.map((s) => ({ content: situationText(s), title: "Buying situation" })), ctx.region);
+  const vectors = isOldVectorsRetired()
+    ? situations.map(() => null)
+    : await (deps.embed ?? embedDocuments)(situations.map((s) => ({ content: situationText(s), title: "Buying situation" })), ctx.region);
   let done = 0;
   for (const [i, s] of situations.entries()) {
     const vector = vectors[i];

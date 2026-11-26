@@ -1,4 +1,5 @@
 import { removeFamily } from "@/lib/search/familyIndex";
+import { isOldVectorsRetired } from "@/lib/search/flags";
 import { brandMapRecords } from "@/lib/tenant/brandMapRecords";
 import { removeBrandMapVector, setBrandMapVectorStatus } from "@/lib/tenant/brandMapVectors";
 import type { TenantContext } from "@/lib/tenant/types";
@@ -51,7 +52,7 @@ export async function afterRecordsChange(
       await removeBrandMapVector(ctx, "subject", id, deps.db).catch(() => undefined);
     } else {
       live.push(id);
-      await setBrandMapVectorStatus(ctx, { kind: "subject", ref: id, status: String(r.status) }, deps.db).catch(() => undefined);
+      if (!isOldVectorsRetired()) await setBrandMapVectorStatus(ctx, { kind: "subject", ref: id, status: String(r.status) }, deps.db).catch(() => undefined);
     }
   }
   if (gone.length) await removeFamily(ctx, "subject", gone, deps);

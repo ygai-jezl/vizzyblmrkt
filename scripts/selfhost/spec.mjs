@@ -155,6 +155,10 @@ export const KEPT_OFF = {
     addon: null,
     why: "turn it on after the backfill fills every brand's index (docs/self-host.md, Brand search takes over from the old vectors)",
   },
+  SEARCH_OLD_VECTORS_RETIRED_ENABLED: {
+    addon: null,
+    why: "stops writing the old vectors once the three read switches have run a while; then scripts/retire-old-vectors.ts deletes them (docs/self-host.md, Brand search takes over from the old vectors)",
+  },
   CONNECTORS_ENABLED: { addon: null, why: "connected data is new: turn it on by hand" },
   NEXT_PUBLIC_CONNECTORS_ENABLED: { addon: null, why: "connected data is new: turn it on by hand" },
   CONNECTOR_CLOUDFLARE_ENABLED: { addon: null, why: "connected data is new: turn it on by hand" },

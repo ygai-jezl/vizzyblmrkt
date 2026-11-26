@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
+import { isOldVectorsRetired } from "@/lib/search/flags";
 import { getDb } from "./firestore";
 import { databaseIdForRegion } from "./region";
 import type { FirestoreLike, KnowledgeCollectionLike, TenantContext } from "./types";
@@ -11,6 +12,11 @@ import type { FirestoreLike, KnowledgeCollectionLike, TenantContext } from "./ty
  * list). The ONLY place that writes their VectorValue (the ESLint isolation rule exempts
  * src/lib/tenant/**). Searches pre-filter by brand and kind: the composite vector index
  * `[tenantId, kind, embedding]` (firestore.indexes.json).
+ *
+ * Retiring (ADR-0023): the brand map family moves to brand search. With
+ * SEARCH_OLD_VECTORS_RETIRED_ENABLED (and the three read switches) nothing is written here any more;
+ * removals keep running, and scripts/retire-old-vectors.ts counts and deletes what is left through
+ * countBrandMapVectors and deleteBrandMapVectors, so this file stays the only code that touches it.
  */
 export const BRAND_MAP_VECTORS = "brand_map_vectors" as const;
 
@@ -40,6 +46,8 @@ export async function writeBrandMapVector(
   vector: number[],
   db?: FirestoreLike,
 ): Promise<void> {
+  // Retired: callers skip the embedding too; this is the backstop.
+  if (isOldVectorsRetired()) return;
   await regionalDb(ctx, db)
     .collection(BRAND_MAP_VECTORS)
     .doc(brandMapVectorDocId(ctx.tenantId, row.kind, row.ref))
@@ -59,6 +67,7 @@ export async function setBrandMapVectorStatus(
   row: { kind: BrandMapVectorKind; ref: string; status: string },
   db?: FirestoreLike,
 ): Promise<void> {
+  if (isOldVectorsRetired()) return;
   const ref = regionalDb(ctx, db).collection(BRAND_MAP_VECTORS).doc(brandMapVectorDocId(ctx.tenantId, row.kind, row.ref));
   const snap = await ref.get();
   if (snap.exists && snap.data()?.tenantId === ctx.tenantId) await ref.update({ status: row.status });
@@ -68,6 +77,37 @@ export async function removeBrandMapVector(ctx: TenantContext, kind: BrandMapVec
   const doc = regionalDb(ctx, db).collection(BRAND_MAP_VECTORS).doc(brandMapVectorDocId(ctx.tenantId, kind, ref));
   const snap = await doc.get();
   if (snap.exists && snap.data()?.tenantId === ctx.tenantId) await doc.delete();
+}
+
+/** Every kind the store holds, for the retire script. */
+export const BRAND_MAP_VECTOR_KINDS: readonly BrandMapVectorKind[] = ["subject", "situation", "note", "question", "competitor_article"];
+
+/** How many embeddings of a kind one brand has here (an aggregate count: one read per 1,000). */
+export async function countBrandMapVectors(ctx: TenantContext, kind: BrandMapVectorKind, db?: FirestoreLike): Promise<number> {
+  const snap = await regionalDb(ctx, db).collection(BRAND_MAP_VECTORS).where("tenantId", "==", ctx.tenantId).where("kind", "==", kind).count().get();
+  return snap.data().count;
+}
+
+/** Page size for the delete. */
+const DELETE_PAGE = 300;
+
+/**
+ * Delete every embedding of a kind one brand has here (scripts/retire-old-vectors.ts --apply, after
+ * the retire switch and the soak). A page at a time; only this brand's. Returns how many went.
+ * It can't be undone: the old model retires, so nothing could embed them again.
+ */
+export async function deleteBrandMapVectors(ctx: TenantContext, kind: BrandMapVectorKind, db?: FirestoreLike): Promise<number> {
+  const col = regionalDb(ctx, db).collection(BRAND_MAP_VECTORS);
+  let deleted = 0;
+  for (;;) {
+    const snap = await col.where("tenantId", "==", ctx.tenantId).where("kind", "==", kind).limit(DELETE_PAGE).get();
+    const mine = snap.docs.filter((d) => d.data()?.tenantId === ctx.tenantId);
+    if (!mine.length) break;
+    await Promise.all(mine.map((d) => col.doc(d.id).delete()));
+    deleted += mine.length;
+    if (snap.docs.length < DELETE_PAGE) break;
+  }
+  return deleted;
 }
 
 /** Vector-capable, brand-scoped collection for findNearest. Test seam: `override`. */

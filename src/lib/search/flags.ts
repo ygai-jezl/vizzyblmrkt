@@ -82,3 +82,18 @@ export function isSearchNoteReadsEnabled(): boolean {
 export function isSearchCompetitorReadsEnabled(): boolean {
   return isSearchFamilyIndexEnabled() && process.env.SEARCH_COMPETITOR_READS_ENABLED === "true";
 }
+
+/**
+ * brand_map_vectors is retired (ADR-0023): no more writes, embeddings or status updates to it, so
+ * scripts/retire-old-vectors.ts can empty it. Only while all three read switches are on too (and
+ * so the family and the index): with any of them off, a reader still uses the old store, and it
+ * keeps being written. Removals from it keep running until the delete has run.
+ */
+export function isOldVectorsRetired(): boolean {
+  return (
+    isSearchSubjectReadsEnabled() &&
+    isSearchNoteReadsEnabled() &&
+    isSearchCompetitorReadsEnabled() &&
+    process.env.SEARCH_OLD_VECTORS_RETIRED_ENABLED === "true"
+  );
+}
